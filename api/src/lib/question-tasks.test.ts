@@ -77,13 +77,39 @@ describe('syncQuestionTasks', () => {
     ])
   })
 
-  it('leaves AI questions out of the checklist, since their keys churn', async () => {
+  it('includes AI questions on the checklist alongside baseline', async () => {
     await syncQuestionTasks('asm-1', [
       question('a'),
       { questionKey: 'ai:abc123', text: 'AI question?', source: 'ai', answer: null },
     ])
 
-    expect(JSON.parse(createdData().subtasks)).toEqual([{ id: 'base:a', title: 'Question a?', done: false }])
+    expect(JSON.parse(createdData().subtasks)).toEqual([
+      { id: 'base:a', title: 'Question a?', done: false },
+      { id: 'ai:abc123', title: 'AI question?', done: false },
+    ])
+  })
+
+  it('keeps prior AI checklist items when a baseline-only sync runs', async () => {
+    vi.mocked(prisma.caseTask.findMany).mockResolvedValue([
+      {
+        id: 'group-1',
+        sourceTemplateStepId: QUESTION_GROUP_KEY,
+        status: 'open',
+        subtasks: JSON.stringify([
+          { id: 'base:a', title: 'Question a?', done: false },
+          { id: 'ai:keepme', title: 'Prior AI question?', done: false },
+        ]),
+      },
+    ] as any)
+    vi.mocked(prisma.caseTask.update).mockResolvedValue({ id: 'group-1' } as any)
+
+    await syncQuestionTasks('asm-1', [question('a'), question('b')])
+
+    expect(JSON.parse(updatedData().subtasks)).toEqual([
+      { id: 'base:a', title: 'Question a?', done: false },
+      { id: 'base:b', title: 'Question b?', done: false },
+      { id: 'ai:keepme', title: 'Prior AI question?', done: false },
+    ])
   })
 
   it('ticks off questions that already have an answer', async () => {
@@ -310,9 +336,13 @@ describe('syncSingleQuestionTask', () => {
     expect(prisma.caseTask.update).not.toHaveBeenCalled()
   })
 
-  it('ignores AI question keys, which are never materialized', async () => {
+  it('ticks AI question keys on the grouped checklist', async () => {
+    groupTask([{ id: 'ai:abc123', title: 'AI question?', done: false }])
+
     await syncSingleQuestionTask('asm-1', 'ai:abc123', true)
 
-    expect(prisma.caseTask.findFirst).not.toHaveBeenCalled()
+    expect(updatedData()).toMatchObject({
+      subtasks: expect.stringContaining('"done":true'),
+    })
   })
 })

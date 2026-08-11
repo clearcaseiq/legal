@@ -106,3 +106,10 @@ export function translate(language: LanguageCode, key: string, params?: Translat
     key
   return interpolate(template, params)
 }
+
+/** BCP 47 locale tag for `toLocaleString` / `toLocaleDateString` from UI language. */
+export function dateLocale(language: LanguageCode): string {
+  if (language === 'es') return 'es-US'
+  if (language === 'zh') return 'zh-CN'
+  return 'en-US'
+}

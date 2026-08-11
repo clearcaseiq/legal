@@ -144,16 +144,40 @@ export function createServer(): Express {
     'http://localhost:5175',
     'http://127.0.0.1:5175',
     'http://localhost:3000',
-    'http://127.0.0.1:3000'
+    'http://127.0.0.1:3000',
+    'http://localhost:3100',
+    'http://127.0.0.1:3100',
   ]
   const isDevLocalhost = (o: string) =>
     !o || devOrigins.includes(o) || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(o)
+  // Next.js prints a Network URL (e.g. http://192.168.x.x:3100). Without this,
+  // browsers on that origin get opaque "Failed to fetch" / "Unable to reach the
+  // server" because CORS omits Access-Control-Allow-Origin.
+  const isDevPrivateLan = (o: string) =>
+    /^https?:\/\/(10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})(:\d+)?$/.test(o)
   const productionAllowedOrigins = isProduction ? getAllowedProductionOrigins() : []
   // Origins explicitly configured via CORS_ORIGINS/WEB_URL are always honored,
   // regardless of NODE_ENV. This lets a self-hosted web app on a real domain
   // (e.g. https://www.clearcaseiq.com) reach an API running in "development"
   // mode without being blocked as a non-localhost origin.
   const configuredOrigins = parseCommaSeparatedEnv(process.env.CORS_ORIGINS || process.env.WEB_URL)
+
+  // Chromium Private Network Access: must run BEFORE cors(). cors ends OPTIONS
+  // preflights itself, so a later middleware never sees them. A page on a LAN IP
+  // that targets http://localhost:4000 sends Access-Control-Request-Private-Network;
+  // without Allow-Private-Network the browser aborts before POST ("Unable to reach
+  // the server").
+  if (!isProduction) {
+    app.use((req, res, next) => {
+      if (
+        req.method === 'OPTIONS' &&
+        String(req.headers['access-control-request-private-network'] || '').toLowerCase() === 'true'
+      ) {
+        res.setHeader('Access-Control-Allow-Private-Network', 'true')
+      }
+      next()
+    })
+  }
 
   app.use(cors({
     origin: (origin, callback) => {
@@ -162,7 +186,10 @@ export function createServer(): Express {
       }
 
       if (!origin) return callback(null, true)
-      return callback(null, isDevLocalhost(origin) || configuredOrigins.includes(origin))
+      return callback(
+        null,
+        isDevLocalhost(origin) || isDevPrivateLan(origin) || configuredOrigins.includes(origin),
+      )
     },
     credentials: true
   }))

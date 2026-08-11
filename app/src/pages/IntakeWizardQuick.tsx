@@ -22,11 +22,19 @@ import { getCountiesForState } from '../lib/usLocationData'
 import { formatPhoneInput, validatePhoneField } from '../lib/phone'
 import { savePendingRegistration } from '../lib/pendingRegistration'
 import { createConsent, fetchPublicConsentTemplate } from '../lib/api-consent'
+import { hasValidAuthToken } from '../lib/auth'
+import {
+  clearEvidenceReturnTo,
+  plaintiffDashboardReturnTo,
+  safeInternalReturnTo,
+  takeEvidenceReturnTo,
+} from '../lib/evidenceUploadNav'
 
 // Health-info (HIPAA) authorization captured at the moment a plaintiff adds
 // medical records. Keeps the version in sync with the server consent template
 // (CONSENT_TEMPLATES.hipaa) so the recorded authorization is traceable.
-const HIPAA_CONSENT_VERSION = '1.0'
+// Fallback only — prefer the live template version from fetchPublicConsentTemplate.
+const HIPAA_CONSENT_VERSION = '1.1'
 // PHI-bearing document types gated behind health-info authorization. Medical bills
 // reveal treatment/diagnosis, so they carry PHI just like medical records.
 const HIPAA_UPLOAD_CATEGORIES = ['medical_records', 'bills']
@@ -888,19 +896,36 @@ export default function IntakeWizardQuick() {
   const ATTORNEY_STATUS_OPTIONS = localizeOptions(ATTORNEY_STATUS_OPTION_DEFS)
   const PRODUCT_TYPE_OPTIONS = localizeOptions(PRODUCT_TYPE_OPTION_DEFS)
 
-  // Focused "Supporting Documents" deep link from the Case Snapshot "Add documents"
-  // CTAs: /intake2?assessment=<id>&step=evidence opens the Step 6 evidence screen for
-  // an existing case (uploads attach directly to that assessment). Computed once.
-  const documentsModeRef = useRef<{ mode: boolean; assessmentId: string | null } | null>(null)
+  // Focused "Supporting Documents" deep link from Case Snapshot / Dashboard
+  // "Add documents" CTAs: /intake2?assessment=<id>&step=evidence[&from=dashboard]
+  // opens the Step 6 evidence screen for an existing case. Computed once.
+  const documentsModeRef = useRef<{
+    mode: boolean
+    assessmentId: string | null
+    from: string | null
+    returnTo: string | null
+  } | null>(null)
   if (documentsModeRef.current === null) {
     let mode = false
     let deepLinkAssessmentId: string | null = null
+    let from: string | null = null
+    let returnTo: string | null = null
     if (typeof window !== 'undefined') {
       const p = new URLSearchParams(window.location.search)
       deepLinkAssessmentId = p.get('assessment')
       mode = p.get('step') === 'evidence' && !!deepLinkAssessmentId
+      from = p.get('from')
+      const rawReturn = p.get('returnTo')
+      if (rawReturn && rawReturn.startsWith('/') && !rawReturn.startsWith('//') && !rawReturn.includes('://')) {
+        returnTo = rawReturn
+      }
     }
-    documentsModeRef.current = { mode: mode && !!deepLinkAssessmentId, assessmentId: mode ? deepLinkAssessmentId : null }
+    documentsModeRef.current = {
+      mode: mode && !!deepLinkAssessmentId,
+      assessmentId: mode ? deepLinkAssessmentId : null,
+      from: mode ? from : null,
+      returnTo: mode ? returnTo : null,
+    }
   }
   const isDocumentsMode = documentsModeRef.current.mode
 
@@ -925,6 +950,8 @@ export default function IntakeWizardQuick() {
   const [pendingEvidenceFiles, setPendingEvidenceFiles] = useState<Record<string, any[]>>({})
   // "Send documents" flow for the plaintiff document-upload page (CP-499).
   const [docsSent, setDocsSent] = useState(false)
+  // When deep-linked with ?focus=, start on that category; plaintiff can expand.
+  const [expandAllEvidenceCategories, setExpandAllEvidenceCategories] = useState(false)
   const [manageEvidence, setManageEvidence] = useState<Record<string, boolean>>({})
   type EvidenceWarning = { fileName: string; status: string; message: string; title?: string; action?: { label: string; onClick: () => void } }
   const [evidenceWarnings, setEvidenceWarnings] = useState<Record<string, { items: EvidenceWarning[]; dismiss: (fileName: string) => void }>>({})
@@ -948,12 +975,21 @@ export default function IntakeWizardQuick() {
   const nameSigRef = useRef<Set<string>>(new Set())
   const dismissedNameKeysRef = useRef<Set<string>>(new Set())
   const [nameWarnings, setNameWarnings] = useState<Record<string, { fileName: string; message: string }[]>>({})
-  // Health-info authorization gate for medical uploads (no account required).
+  // Health-info authorization gate for medical uploads — guests only.
+  // Signed-in plaintiffs already grant HIPAA at registration / complete-consent;
+  // login + dashboard enforce it, and POST /v1/evidence/upload re-checks server-side.
+  // A second in-page "Authorize" modal was incorrectly re-prompting them.
   const [hipaaModalOpen, setHipaaModalOpen] = useState(false)
   const [hipaaSummary, setHipaaSummary] = useState('')
   const [hipaaAgreed, setHipaaAgreed] = useState(false)
   const [hipaaAuthorized, setHipaaAuthorized] = useState<boolean>(() => {
-    try { return localStorage.getItem('consent_read_hipaa') === 'true' } catch { return false }
+    try {
+      if (localStorage.getItem('consent_read_hipaa') === 'true') return true
+      if (hasValidAuthToken()) return true
+    } catch {
+      /* ignore */
+    }
+    return false
   })
   // One-time "we are not a law firm" acknowledgement, shown alongside the first
   // question rather than on a screen of its own. Kept outside the draft so
@@ -1493,6 +1529,27 @@ export default function IntakeWizardQuick() {
     } catch { /* ignore */ }
   }, [currentStepIndex, currentStep])
 
+  // Results liability tips deep-link with ?focus=<category> — scroll that upload
+  // row into view once the Supporting Documents step is on screen.
+  useEffect(() => {
+    if (currentStep !== 'evidence') return
+    let focus = ''
+    try {
+      focus = new URLSearchParams(window.location.search).get('focus') || ''
+    } catch { /* ignore */ }
+    if (!focus) return
+    const timer = window.setTimeout(() => {
+      const el = document.querySelector(`[data-evidence-category="${CSS.escape(focus)}"]`) as HTMLElement | null
+      if (!el) return
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      el.classList.add('ring-2', 'ring-brand-400', 'ring-offset-2')
+      window.setTimeout(() => {
+        el.classList.remove('ring-2', 'ring-brand-400', 'ring-offset-2')
+      }, 2200)
+    }, 120)
+    return () => window.clearTimeout(timer)
+  }, [currentStep])
+
   const editReviewStep = (step: Step) => {
     // Several review categories are folded into a host screen; jump to the host
     // so currentStepIndex stays valid and "return to review" still works.
@@ -1786,6 +1843,9 @@ export default function IntakeWizardQuick() {
     }
     if (formData.injuryDetails.bodyParts.length) parts.push(`Body parts: ${labelsForValues(BODY_PART_OPTIONS, formData.injuryDetails.bodyParts)}`)
     if (formData.injuryDetails.bodyPartsOther.trim()) parts.push(`Other injuries (in their words): ${formData.injuryDetails.bodyPartsOther.trim()}`)
+    if (formData.injuryDetails.otherSymptomDescription.trim()) {
+      parts.push(`Other injury details: ${formData.injuryDetails.otherSymptomDescription.trim()}`)
+    }
     if (formData.injuryDetails.priorInjury) parts.push(`Prior injuries: ${labelForValue(PRIOR_INJURY_OPTIONS, formData.injuryDetails.priorInjury)}`)
     if (formData.injuryDetails.surgeryStatus) parts.push(`Surgery status: ${labelForValue(SURGERY_STATUS_OPTIONS, formData.injuryDetails.surgeryStatus)}`)
     if (formData.injuryDetails.imaging.length) parts.push(`Imaging: ${labelsForValues(IMAGING_LABEL_OPTIONS, formData.injuryDetails.imaging)}`)
@@ -2058,14 +2118,29 @@ export default function IntakeWizardQuick() {
     try { localStorage.setItem('consent_read_hipaa', 'true') } catch { /* ignore */ }
     // Best-effort durable record when a session exists; guests are recorded via the
     // case facts (consents.hipaa) on submit plus the per-file upload access log (IP + time).
-    void createConsent({
-      consentType: 'hipaa',
-      version: HIPAA_CONSENT_VERSION,
-      documentId: `hipaa-v${HIPAA_CONSENT_VERSION}`,
-      granted: true,
-      signatureMethod: 'clicked',
-      consentText: hipaaSummary || 'HIPAA authorization v1.0',
-    }).catch(() => { /* unauthenticated guest — recorded downstream */ })
+    // Use the live template version (not a hardcoded constant) so a guest who later
+    // registers is not immediately flagged as outdated vs CONSENT_TEMPLATES.hipaa.
+    void fetchPublicConsentTemplate('hipaa')
+      .then((tpl) =>
+        createConsent({
+          consentType: 'hipaa',
+          version: tpl.version || HIPAA_CONSENT_VERSION,
+          documentId: tpl.documentId || `hipaa-v${tpl.version || HIPAA_CONSENT_VERSION}`,
+          granted: true,
+          signatureMethod: 'clicked',
+          consentText: hipaaSummary || tpl.plainLanguageSummary || 'HIPAA authorization',
+        }),
+      )
+      .catch(() => {
+        void createConsent({
+          consentType: 'hipaa',
+          version: HIPAA_CONSENT_VERSION,
+          documentId: `hipaa-v${HIPAA_CONSENT_VERSION}`,
+          granted: true,
+          signatureMethod: 'clicked',
+          consentText: hipaaSummary || 'HIPAA authorization',
+        }).catch(() => { /* unauthenticated guest — recorded downstream */ })
+      })
     setHipaaModalOpen(false)
   }
 
@@ -2360,7 +2435,14 @@ export default function IntakeWizardQuick() {
           // captured in the dynamic injury cards. Fold them into the treatment
           // array so the backend/valuation see them like any other treatment.
           ...Object.entries(formData.injuryDetails.regionDetail || {}).flatMap(([region, d]: [string, any]) =>
-            (Array.isArray(d?.treatments) ? (d.treatments as string[]) : []).map(code => ({ type: code, region, notes: '' }))
+            (Array.isArray(d?.treatments) ? (d.treatments as string[]) : []).map(code => ({
+              type: code,
+              region,
+              notes:
+                code === 'other_tx'
+                  ? String(d?.treatmentsOtherText || '').trim()
+                  : '',
+            }))
           ),
           ...formData.injuryDetails.imaging.map(imaging => ({ type: 'imaging', imaging })),
           ...(formData.injuryDetails.surgeryStatus ? [{ type: 'surgery_status', status: formData.injuryDetails.surgeryStatus }] : []),
@@ -2657,6 +2739,7 @@ export default function IntakeWizardQuick() {
     if (regionTx.has('mri')) imaging.push('mri')
     if (regionTx.has('ct')) imaging.push('ct_scan')
     if (regionTx.has('xray')) imaging.push('xray')
+    const hasRegionDetail = Object.keys(next || {}).length > 0
     setFormData(prev => ({
       ...prev,
       injuryDetails: {
@@ -2668,6 +2751,11 @@ export default function IntakeWizardQuick() {
         concussionSymptoms: derived.concussionSymptoms,
         shoulderFindings: derived.shoulderFindings,
         backFindings: derived.backFindings,
+        // Region-card "Other" free text folds into the legacy catch-all field so
+        // summaries/submit still surface it when the generic symptoms list is hidden.
+        otherSymptomDescription: hasRegionDetail
+          ? derived.otherSymptomDescription
+          : prev.injuryDetails.otherSymptomDescription,
       },
     }))
   }
@@ -5633,13 +5721,30 @@ export default function IntakeWizardQuick() {
           }
           // Goal-centric grouping, highest-value documents first within each group.
           const groupIcons: Record<string, LucideIcon> = { accident: Car, medical: HeartPulse, financial: DollarSign }
-          const evGroups = [
+          const allEvGroups = [
             { id: 'accident', title: tx('evidence_groupAccident'), helper: tx('evidence_sectionEvidenceHelper'), items: [itemDefs.photos, itemDefs.video, itemDefs.police_report, itemDefs.witness_statements] },
             { id: 'medical', title: tx('evidence_groupMedical'), helper: tx('evidence_sectionMedicalHelper'), items: [itemDefs.bills, itemDefs.medical_records] },
             // Include Dec page + insurance letters so attorney DEC requests can be
             // fulfilled from this upload step (CP-583).
             { id: 'financial', title: tx('evidence_groupFinancial'), helper: tx('evidence_groupFinancialHelper'), items: [itemDefs.dec_page, itemDefs.insurance_letters, itemDefs.wage_verification] },
           ]
+          let focusCategory = ''
+          try {
+            focusCategory = new URLSearchParams(window.location.search).get('focus') || ''
+          } catch { /* ignore */ }
+          const focusKnown = Boolean(focusCategory && itemDefs[focusCategory])
+          const focusingOne =
+            isDocumentsMode && focusKnown && !expandAllEvidenceCategories
+          const evGroups = focusingOne
+            ? allEvGroups
+                .map((g) => ({
+                  ...g,
+                  items: g.items.filter((it) => it.category === focusCategory),
+                }))
+                .filter((g) => g.items.length > 0)
+            : allEvGroups
+          const focusedItemTitle =
+            focusingOne && focusCategory ? itemDefs[focusCategory]?.title || '' : ''
           // Only files the vision precheck accepted (or the user confirmed) count as
           // uploaded — a flagged mismatch stays "not uploaded" until confirmed/deleted.
           const isUploaded = (cat: string) => validEvidenceCount(cat) > 0
@@ -5686,6 +5791,7 @@ export default function IntakeWizardQuick() {
               <div
                 key={item.category}
                 ref={dropRef}
+                data-evidence-category={item.category}
                 className={`rounded-xl border px-3 py-2 transition-all ${
                   isDragging
                     ? 'border-brand-400 bg-white ring-2 ring-brand-300 ring-offset-1 dark:border-brand-500 dark:bg-slate-900/40'
@@ -5900,6 +6006,21 @@ export default function IntakeWizardQuick() {
                 <Upload className="h-3.5 w-3.5 shrink-0 text-brand-500" aria-hidden />
                 {tx('evidence_dragDropTip')}
               </p>
+
+              {focusingOne && focusedItemTitle ? (
+                <div className="flex flex-col items-center gap-2 rounded-xl border border-brand-200 bg-brand-50/70 px-3 py-2.5 text-center dark:border-brand-500/30 dark:bg-brand-500/10 sm:flex-row sm:justify-between sm:text-left">
+                  <p className="text-sm font-medium text-brand-900 dark:text-brand-100">
+                    {tx('documents_focusedHint').replace('{doc}', focusedItemTitle)}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setExpandAllEvidenceCategories(true)}
+                    className="shrink-0 text-xs font-semibold text-brand-700 underline-offset-2 hover:underline dark:text-brand-300"
+                  >
+                    {tx('documents_showAllTypes')}
+                  </button>
+                </div>
+              ) : null}
 
               {/* Grouped evidence accordions */}
               {evGroups.map((group) => {
@@ -6805,16 +6926,36 @@ export default function IntakeWizardQuick() {
   const documentationSignalLabel = injuryConfidencePercent >= 70 ? 'strong' : injuryConfidencePercent >= 40 ? 'moderate' : 'early'
 
   // Focused "Supporting Documents" (Step 6 evidence) screen for an existing case,
-  // reached from the Case Snapshot "Add documents" CTAs. Reuses the exact wizard
-  // evidence UI without the multi-step chrome, and returns to the case report.
+  // reached from Case Snapshot / Dashboard "Add documents" CTAs. Reuses the wizard
+  // evidence UI without the multi-step chrome. Prefer from=dashboard / returnTo /
+  // sessionStorage so Done returns to where the user started; otherwise fall
+  // back to the case report (Results).
   if (isDocumentsMode) {
-    const backTo = assessmentId ? `/results/${assessmentId}` : '/results'
-    // Always return to the case snapshot (the page the "Add documents" CTAs live
-    // on). We deliberately do NOT use navigate(-1): the /evidence-upload/:id entry
-    // is `replace`d by /intake2, so the prior history entry can be a login/redirect
-    // page — sending the user to "Welcome back, continue your injury case" instead
-    // of their case. /results/:id is the stable, guest-safe destination.
+    // We deliberately do NOT use navigate(-1): the /evidence-upload/:id entry is
+    // `replace`d by /intake2, so the prior history entry can be a login/redirect
+    // page — sending the user to "Welcome back, continue your injury case"
+    // instead of their case.
     const goBackToCase = () => {
+      const params = new URLSearchParams(window.location.search)
+      const fromLive = params.get('from') || documentsModeRef.current?.from
+      const returnToLive = safeInternalReturnTo(
+        params.get('returnTo') || documentsModeRef.current?.returnTo,
+        '',
+      )
+      const resultsFallback = assessmentId ? `/results/${assessmentId}` : '/results'
+      let backTo = resultsFallback
+      // Prefer explicit returnTo (e.g. /dashboard?case=…&tab=tasks) over generic
+      // from=dashboard, so Done lands on the tab the plaintiff started from.
+      if (returnToLive) {
+        backTo = returnToLive
+        clearEvidenceReturnTo()
+      } else if (fromLive === 'dashboard') {
+        backTo = plaintiffDashboardReturnTo(assessmentId)
+        clearEvidenceReturnTo()
+      } else {
+        // EvidenceUploadRedirect persists this when from=dashboard is present.
+        backTo = takeEvidenceReturnTo(resultsFallback)
+      }
       navigate(backTo)
     }
     // Uploaded files already attach to the case as they drop, so submit is just a
@@ -6843,7 +6984,15 @@ export default function IntakeWizardQuick() {
         <div className="mb-4 shrink-0 text-center">
           <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-brand-700 dark:text-brand-300">{tx('documents_eyebrow')}</p>
           <h1 className="font-display text-xl font-bold leading-tight text-slate-900 dark:text-slate-50 sm:text-2xl">{tx('stepTitles_evidence')}</h1>
-          <p className="mx-auto mt-1 max-w-2xl text-sm leading-6 text-slate-600 dark:text-slate-300">{tx('documents_subtitle')}</p>
+          <p className="mx-auto mt-1 max-w-2xl text-sm leading-6 text-slate-600 dark:text-slate-300">
+            {(() => {
+              try {
+                const focus = new URLSearchParams(window.location.search).get('focus') || ''
+                if (focus && !expandAllEvidenceCategories) return tx('documents_focusedSubtitle')
+              } catch { /* ignore */ }
+              return tx('documents_subtitle')
+            })()}
+          </p>
         </div>
         <div className="mb-4 rounded-2xl border border-slate-200/90 bg-white p-3 shadow-card dark:border-slate-700 dark:bg-slate-900/80 sm:p-4 md:p-6">
           {renderStepContent('evidence')}

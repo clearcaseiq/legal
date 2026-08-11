@@ -105,6 +105,8 @@ export default function Layout({ children }: LayoutProps) {
   const attorney = browserStateReady ? localStorage.getItem('attorney') : null
   const isAuthenticated = browserStateReady && hasValidAuthToken()
   const storedRole = browserStateReady ? getStoredRole() : null
+  const storedUser = browserStateReady ? getStoredUser<{ firstName?: string; role?: string }>('user') : null
+  const accountRole = (storedUser?.role || '').toLowerCase()
   const isAdmin = isAuthenticated && storedRole === 'admin'
   const isAdminArea = location.pathname.startsWith('/admin')
   const isDashboard = location.pathname.startsWith('/dashboard')
@@ -123,7 +125,15 @@ export default function Layout({ children }: LayoutProps) {
   const isIntakeRoute = ['/assess', '/intake', '/intake2'].includes(location.pathname)
   const isWideClaimantRoute = isIntakeRoute || location.pathname.startsWith('/results') || isPlaintiffDashboard
   const isCalendar = isCalendarRoute(location.pathname)
-  const isAttorney = !isAdmin && (!!attorney || location.pathname.startsWith('/attorney-dashboard') || location.pathname.startsWith('/firm-dashboard'))
+  // Trust the account / session role. A leftover `localStorage.attorney` blob from
+  // a prior attorney login in the same browser must not label a plaintiff
+  // "Attorney" or expose Firm Dashboard while they are on the client portal.
+  const isAttorney =
+    !isAdmin &&
+    accountRole !== 'client' &&
+    (storedRole === 'attorney' ||
+      // Legacy attorney sessions that never wrote auth_role still carry the blob.
+      (storedRole == null && !!attorney))
   // Claimant/marketing routes (everything that isn't the attorney workspace or
   // admin) opt into a scoped visual polish so the attorney UI stays untouched.
   const isClaimantRoute = !isAttorney && !isAdmin && !isAdminArea
@@ -142,6 +152,18 @@ export default function Layout({ children }: LayoutProps) {
   // Home has its own scroll-aware sticky CTA; lift the chat launcher on mobile
   // wherever a bottom CTA bar can appear so the two don't overlap.
   const raiseChatLauncher = isClaimantRoute && (showMobileAssessmentCta || location.pathname === navLinks.home)
+
+  // Scrub stale attorney/staff keys when this browser session is a client account
+  // (e.g. logged into Sarah Johnson earlier, then into srid without a full logout).
+  useEffect(() => {
+    if (!browserStateReady || !isAuthenticated) return
+    if (accountRole !== 'client' && storedRole !== 'plaintiff') return
+    if (localStorage.getItem('attorney')) localStorage.removeItem('attorney')
+    if (localStorage.getItem('firm_member')) localStorage.removeItem('firm_member')
+    if (localStorage.getItem('auth_role') === 'attorney') {
+      localStorage.setItem('auth_role', 'plaintiff')
+    }
+  }, [browserStateReady, isAuthenticated, accountRole, storedRole])
 
   // When the footer scrolls into view, retract the fixed mobile CTA so it no
   // longer overlaps the footer's links/copyright — letting the user reach the
@@ -182,7 +204,6 @@ export default function Layout({ children }: LayoutProps) {
   // reported as "home page not opening on logo click" (CP-549).
   const logoDestination = navLinks.home
   const shouldLoadPlaintiffSummary = !!authToken && !isAttorney
-  const storedUser = browserStateReady ? getStoredUser<{ firstName?: string }>('user') : null
   const userName = storedUser?.firstName || 'User'
   const headerLabel = isAdmin ? 'Admin' : (userName || 'User')
   const avatarInitial = (headerLabel || 'U').trim().charAt(0).toUpperCase()
@@ -242,6 +263,19 @@ export default function Layout({ children }: LayoutProps) {
     navigate('/')
   }
 
+  const plaintiffCaseHref =
+    !isAuthenticated && pendingAssessmentId ? `/results/${pendingAssessmentId}` : navLinks.myCase
+  // Signed-in plaintiffs already have Dashboard (and Case Tracker / Profile from
+  // the account menu). "Continue My Case" is redundant on every plaintiff
+  // workspace screen — including /dashboard, /case-tracker, /profile, and
+  // /results/:id. Keep it only for guests who have a pending case.
+  const hidePlaintiffContinueMyCase =
+    (isAuthenticated && !isAttorney && !isAdmin) ||
+    isPlaintiffDashboard ||
+    location.pathname.startsWith('/results/') ||
+    location.pathname.startsWith('/case-tracker') ||
+    location.pathname === '/profile'
+
   const caseNavItem = isAdmin
     ? { name: 'Cases', href: '/admin/cases', icon: FileTextIcon }
     : isAttorney
@@ -252,10 +286,11 @@ export default function Layout({ children }: LayoutProps) {
           href: '/attorney-dashboard/leadgen/matches',
           icon: FileTextIcon,
         }
-      : (isAuthenticated || hasCase)
+      : (isAuthenticated || hasCase) && !hidePlaintiffContinueMyCase
         ? {
+            // Guests with a pending case: way back into the case from marketing pages.
             name: hasCase ? t('common.continueMyCase') : 'My Case Status',
-            href: !isAuthenticated && pendingAssessmentId ? `/results/${pendingAssessmentId}` : navLinks.myCase,
+            href: plaintiffCaseHref,
             icon: FileTextIcon,
           }
         : null
@@ -272,7 +307,8 @@ export default function Layout({ children }: LayoutProps) {
     isAuthenticated || inCaseFlow ? null : { name: t('common.howItWorks'), href: navLinks.howItWorks, icon: null },
     // Attorneys navigate via the workspace sidebar + logo + account menu, so the
     // center pill ("My Cases") is redundant for them — hide it. Plaintiffs and
-    // logged-out visitors still get their case link.
+    // logged-out visitors still get their case link when they are not already
+    // on that screen.
     isAttorney ? null : caseNavItem,
     isAuthenticated || inCaseFlow ? null : { name: t('common.forAttorneys'), href: navLinks.forAttorneys, icon: ScaleIcon },
     // Help is intentionally NOT in the top header bar — it stays in the hamburger
@@ -577,7 +613,10 @@ export default function Layout({ children }: LayoutProps) {
                   ) : (
                     <>
                       <Link to={isAdminArea ? '/admin' : isAttorney ? '/attorney-dashboard' : '/dashboard'} onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">{isAdminArea ? 'Admin Dashboard' : 'Dashboard'}</Link>
-                      <Link to={isAdminArea ? '/admin/cases' : isAttorney ? '/attorney-dashboard/leadgen/matches' : navLinks.myCase} onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">{isAdminArea ? 'Cases' : isAttorney ? 'My Cases' : (hasCase ? 'Continue My Case' : 'My Case')}</Link>
+                      {/* Plaintiffs already have Dashboard → /dashboard; skip the duplicate "Continue My Case" entry. */}
+                      {(isAdminArea || isAttorney || !hidePlaintiffContinueMyCase) && (
+                      <Link to={isAdminArea ? '/admin/cases' : isAttorney ? '/attorney-dashboard/leadgen/matches' : plaintiffCaseHref} onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">{isAdminArea ? 'Cases' : isAttorney ? 'My Cases' : (hasCase ? t('common.continueMyCase') : t('common.myCase'))}</Link>
+                      )}
                       {!isAdmin && (
                         <Link to={isAttorney ? '/attorney-profile' : '/profile'} onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">My Profile</Link>
                       )}

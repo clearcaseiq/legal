@@ -100,20 +100,21 @@ export default function PlaintiffNotificationsBell() {
       // Independent of any assessment, so a cancellation or task still lands
       // even when the derived sources below have nothing to say.
       const feed = await getPlaintiffNotifications().catch(() => null)
-      const serverItems: PlaintiffNotification[] = (feed?.notifications || []).map((n) => ({
-        key: `n:${n.id}`,
-        kind: kindForServerType(n.type),
-        title: n.title,
-        detail: n.body || undefined,
-        timeAgo: formatDate(n.createdAt),
-        href: n.link || '/dashboard',
-        serverUnread: !n.read,
-      }))
 
       const assessments = await listAssessments()
       const assessmentId = Array.isArray(assessments) && assessments.length > 0 ? assessments[0]?.id : null
       if (!assessmentId) {
-        setNotifications(serverItems)
+        setNotifications(
+          (feed?.notifications || []).map((n) => ({
+            key: `n:${n.id}`,
+            kind: kindForServerType(n.type),
+            title: n.title,
+            detail: n.body || undefined,
+            timeAgo: formatDate(n.createdAt),
+            href: n.link || '/dashboard',
+            serverUnread: !n.read,
+          })),
+        )
         return
       }
 
@@ -121,6 +122,30 @@ export default function PlaintiffNotificationsBell() {
         getRoutingStatus(assessmentId).catch(() => null),
         getPlaintiffDocumentRequests(assessmentId).catch(() => null),
       ])
+
+      // Hide obsolete "approve next attorneys" items once a case is matched /
+      // retained (the API also filters these; this covers older API processes).
+      const casePastBatchApproval = Boolean(
+        routing?.attorneyMatched ||
+          routing?.leadStatus === 'retained' ||
+          ['engaged', 'attorney_matched', 'consultation_scheduled'].includes(
+            String(routing?.lifecycleState || ''),
+          ),
+      )
+      const serverItems: PlaintiffNotification[] = (feed?.notifications || [])
+        .filter((n) => {
+          if (!casePastBatchApproval) return true
+          return !String(n.type || '').includes('batch_approval')
+        })
+        .map((n) => ({
+          key: `n:${n.id}`,
+          kind: kindForServerType(n.type),
+          title: n.title,
+          detail: n.body || undefined,
+          timeAgo: formatDate(n.createdAt),
+          href: n.link || '/dashboard',
+          serverUnread: !n.read,
+        }))
 
       const next: PlaintiffNotification[] = [...serverItems]
 
@@ -180,7 +205,7 @@ export default function PlaintiffNotificationsBell() {
             kind: 'document',
             title: `${attorneyName} requested ${count} document${count === 1 ? '' : 's'}`,
             detail: req.remainingDocs?.slice(0, 3).join(', '),
-            href: '/dashboard?tab=requested-documents',
+            href: '/dashboard?tab=tasks',
           })
         })
 

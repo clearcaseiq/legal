@@ -1,13 +1,20 @@
 import { clearStoredAuth, getLoginRedirect } from './auth'
 import { apiDebug } from './debug'
-import { getApiOrigin } from './runtimeEnv'
+import { getApiOrigin, isLocalDevWebHost } from './runtimeEnv'
 
-// In Next.js, default to a local API during localhost development and
-// honor NEXT_PUBLIC_API_URL in deployed environments.
-const baseURL = getApiOrigin()
+// Resolve per request (same-origin proxy on local/LAN). Keep a `baseURL`
+// binding — Fast Refresh previously left in-flight modules evaluating the
+// removed const and threw ReferenceError: baseURL is not defined.
+function resolveBaseUrl() {
+  return getApiOrigin()
+}
 
-apiDebug.log('API baseURL:', baseURL)
-apiDebug.log('Web origin:', typeof window !== 'undefined' ? window.location.origin : 'unknown')
+let baseURL = resolveBaseUrl()
+
+if (typeof window !== 'undefined') {
+  apiDebug.log('API baseURL:', baseURL || '(same-origin /v1 proxy)')
+  apiDebug.log('Web origin:', window.location.origin)
+}
 
 type ResponseType = 'json' | 'text' | 'blob'
 
@@ -68,6 +75,7 @@ function isTransientError(error: ApiError): boolean {
 }
 
 function buildUrl(url: string, params?: RequestConfig['params'], requestBaseUrl?: string) {
+  baseURL = resolveBaseUrl()
   const normalizedBaseUrl = requestBaseUrl ?? baseURL
   const target = url.startsWith('http')
     ? new URL(url)
@@ -174,11 +182,16 @@ async function request<T = any>(method: string, url: string, data?: unknown, con
     timeout: config.timeout ?? DEFAULT_TIMEOUT,
   }
 
+  baseURL = resolveBaseUrl()
+  // In `next dev`, empty baseURL means same-origin `/v1` rewrites — never treat
+  // that as a missing Amplify config (machine hostnames like DESKTOP-xxx are
+  // common locally and are not private-LAN IPs).
   if (
     typeof window !== 'undefined' &&
+    process.env.NODE_ENV !== 'development' &&
     !requestConfig.baseURL &&
     !baseURL &&
-    !/^(localhost|127\.0\.0\.1)(:\d+)?$/.test(window.location.host) &&
+    !isLocalDevWebHost(window.location.hostname) &&
     url.startsWith('/v1/')
   ) {
     const message = 'NEXT_PUBLIC_API_URL is not configured for this deployment. Set it to your API origin in Amplify.'
@@ -329,7 +342,18 @@ function handleRequestError(
       // Logged-in users missing legal consents: go fix consents, do not strip auth or send to generic login
       if (status === 403 && errCode === 'REQUIRED_CONSENTS_INCOMPLETE') {
         if (!pathname.startsWith('/auth/complete-consent')) {
-          window.location.assign(`/auth/complete-consent?redirect=${encodeURIComponent(fullPath)}`)
+          // After complete-consent succeeds it sets this stamp. Suppress an immediate
+          // bounce-back while the next page's in-flight calls race the just-saved rows.
+          let recentlyCompleted = false
+          try {
+            const stamp = Number(sessionStorage.getItem('cciq_consents_just_completed') || 0)
+            recentlyCompleted = Boolean(stamp && Date.now() - stamp < 15_000)
+          } catch {
+            /* ignore */
+          }
+          if (!recentlyCompleted) {
+            window.location.assign(`/auth/complete-consent?redirect=${encodeURIComponent(fullPath)}`)
+          }
         }
         throw error
       }

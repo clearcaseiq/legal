@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Star } from 'lucide-react'
 import { getPlaintiffSatisfaction, submitPlaintiffSatisfaction } from '../lib/api'
+import { useLanguage } from '../contexts/LanguageContext'
 
 export default function PlaintiffSatisfactionCard({ assessmentId }: { assessmentId?: string }) {
+  const { t } = useLanguage()
   const [rating, setRating] = useState(0)
   const [hover, setHover] = useState(0)
   const [notes, setNotes] = useState('')
@@ -30,7 +32,7 @@ export default function PlaintiffSatisfactionCard({ assessmentId }: { assessment
 
   const handleSubmit = async () => {
     if (!rating) {
-      setError('Please select a rating')
+      setError(t('plaintiffDashboard.satisfaction.selectRating'))
       return
     }
     setSaving(true)
@@ -39,7 +41,7 @@ export default function PlaintiffSatisfactionCard({ assessmentId }: { assessment
       await submitPlaintiffSatisfaction(assessmentId, { satisfaction: rating, notes: notes || undefined })
       setSaved(true)
     } catch (err: any) {
-      setError(err?.response?.data?.error || 'Failed to submit. You can rate once your case is engaged with an attorney.')
+      setError(err?.response?.data?.error || t('plaintiffDashboard.satisfaction.submitFailed'))
     } finally {
       setSaving(false)
     }
@@ -47,15 +49,15 @@ export default function PlaintiffSatisfactionCard({ assessmentId }: { assessment
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-5">
-      <h3 className="text-lg font-bold text-gray-900 mb-1">How is your experience?</h3>
-      <p className="text-sm text-gray-600 mb-3">Rate your satisfaction with your attorney and your case so far.</p>
+      <h3 className="text-lg font-bold text-gray-900 mb-1">{t('plaintiffDashboard.satisfaction.title')}</h3>
+      <p className="text-sm text-gray-600 mb-3">{t('plaintiffDashboard.satisfaction.subtitle')}</p>
 
       <div className="flex gap-1.5 mb-3">
         {[1, 2, 3, 4, 5].map((n) => (
           <button
             key={n}
             type="button"
-            aria-label={`${n} star${n === 1 ? '' : 's'}`}
+            aria-label={n === 1 ? t('plaintiffDashboard.satisfaction.starLabel', { n }) : t('plaintiffDashboard.satisfaction.starsLabel', { n })}
             onMouseEnter={() => setHover(n)}
             onMouseLeave={() => setHover(0)}
             onClick={() => setRating(n)}
@@ -73,7 +75,7 @@ export default function PlaintiffSatisfactionCard({ assessmentId }: { assessment
       <textarea
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
-        placeholder="Share any feedback (optional)"
+        placeholder={t('plaintiffDashboard.satisfaction.notesPlaceholder')}
         rows={2}
         className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
       />
@@ -85,9 +87,13 @@ export default function PlaintiffSatisfactionCard({ assessmentId }: { assessment
           disabled={saving}
           className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium disabled:opacity-60"
         >
-          {saving ? 'Saving…' : saved ? 'Update rating' : 'Submit rating'}
+          {saving
+            ? t('plaintiffDashboard.satisfaction.saving')
+            : saved
+              ? t('plaintiffDashboard.satisfaction.update')
+              : t('plaintiffDashboard.satisfaction.submit')}
         </button>
-        {saved && !error ? <span className="text-sm font-medium text-emerald-600">Thanks for your feedback!</span> : null}
+        {saved && !error ? <span className="text-sm font-medium text-emerald-600">{t('plaintiffDashboard.satisfaction.thanks')}</span> : null}
         {error ? <span className="text-sm font-medium text-red-600">{error}</span> : null}
       </div>
     </div>

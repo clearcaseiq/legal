@@ -63,6 +63,7 @@ export async function authMiddleware(
         isActive: true,
         role: true,
         adminCapabilities: true,
+        preferredLanguage: true,
       }
     })
 
@@ -120,6 +121,7 @@ export async function optionalAuthMiddleware(
         isActive: true,
         role: true,
         adminCapabilities: true,
+        preferredLanguage: true,
       }
     })
 

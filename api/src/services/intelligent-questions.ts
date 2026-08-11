@@ -52,7 +52,10 @@ export interface IntelligentQuestionsResult {
 
 function buildPrompt(intel: CaseIntelligence, baseline: IntelligentQuestion[]): string {
   const known = intel.known.map((k) => `- ${k.label}: ${k.value}`).join('\n')
-  const gaps = intel.gaps.map((g) => `- ${g.label} (${'★'.repeat(g.severity)}, impact: ${g.valueImpact})`).join('\n')
+  const gaps = intel.gaps
+    .filter((g) => !g.resolved)
+    .map((g) => `- ${g.label} (${'★'.repeat(g.severity)}, impact: ${g.valueImpact})`)
+    .join('\n')
   const baselineList = baseline.map((q) => `- [${q.id}] (${q.section}) ${q.text}`).join('\n')
 
   return `You are an experienced personal-injury intake attorney preparing for a first consultation.
@@ -120,7 +123,11 @@ export async function generateIntelligentQuestions(
     const parsed = JSON.parse(responseText) as { prune?: unknown; questions?: unknown }
     const pruneIds = new Set(Array.isArray(parsed.prune) ? parsed.prune.map((x) => String(x)) : [])
 
-    const kept = baselineDeduped.filter((q) => !pruneIds.has(q.id))
+    // Never prune high-impact baseline questions — attorneys need the full
+    // liability/medical/damages core even when the model thinks it's "known".
+    const kept = baselineDeduped.filter(
+      (q) => q.valueImpact === 'high' || !pruneIds.has(q.id),
+    )
 
     const aiQuestions: IntelligentQuestion[] = Array.isArray(parsed.questions)
       ? parsed.questions.slice(0, MAX_AI_QUESTIONS).map((raw: any, i: number) => ({

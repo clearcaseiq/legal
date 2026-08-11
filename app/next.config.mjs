@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const workspaceNodeModules = path.resolve(__dirname, '../node_modules')
 
+const localApiOrigin = (process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:4000').replace(/\/+$/, '')
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
@@ -26,6 +28,24 @@ const nextConfig = {
       // real redirect. 301 rather than the 308 `permanent: true` emits, because
       // third-party SEO tooling reads 301 more consistently.
       { source: '/for-attorneys', destination: '/attorney-network', statusCode: 301 },
+    ]
+  },
+  // Local/LAN: browser calls same-origin `/v1/*`; Next proxies to the API.
+  // Avoids CORS + Chromium Private Network Access when using the Network URL.
+  async rewrites() {
+    return [
+      {
+        source: '/v1/:path*',
+        destination: `${localApiOrigin}/v1/:path*`,
+      },
+      {
+        source: '/uploads/:path*',
+        destination: `${localApiOrigin}/uploads/:path*`,
+      },
+      {
+        source: '/health',
+        destination: `${localApiOrigin}/health`,
+      },
     ]
   },
   webpack: (config) => {

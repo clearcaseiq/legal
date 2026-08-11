@@ -103,7 +103,11 @@ export type PlaintiffConsentCompliance = {
 }
 
 export async function getPlaintiffConsentCompliance(userId: string): Promise<PlaintiffConsentCompliance> {
-  const response = await api.get(`/v1/consent/status/${userId}`)
+  // Cache-bust: stale 304 after POST /consent blocked complete-consent navigation.
+  const response = await api.get(`/v1/consent/status/${userId}`, {
+    params: { _: Date.now() },
+    headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
+  })
   const body = response.data as { success?: boolean; data?: PlaintiffConsentCompliance }
   const data = body.data
   if (!data) {
@@ -301,6 +305,25 @@ export async function getPlaintiffDocumentRequests(assessmentId: string): Promis
   requests: PlaintiffDocumentRequest[]
 }> {
   const { data } = await api.get(`/v1/assessments/${assessmentId}/document-requests`)
+  return data
+}
+
+export type PlaintiffSignedDocument = {
+  id: string
+  documentType: string
+  title: string
+  status: string
+  signedAt?: string | null
+  downloadAvailable: boolean
+  attorney?: { id: string; name?: string | null } | null
+}
+
+export async function getPlaintiffSignedDocuments(assessmentId: string): Promise<{
+  assessmentId: string
+  leadId: string | null
+  documents: PlaintiffSignedDocument[]
+}> {
+  const { data } = await api.get(`/v1/assessments/${assessmentId}/signed-documents`)
   return data
 }
 
@@ -1620,8 +1643,14 @@ export async function getLeadQualityReports(params?: Record<string, string | num
   return data as { reports: any[]; totalCount: number }
 }
 
-export async function runLeadConflictCheck(leadId: string) {
-  const { data } = await api.post('/v1/lead-quality/conflict-check', { leadId })
+export async function runLeadConflictCheck(
+  leadId: string,
+  opts?: { phase?: 'pre_acquire' | 'post_acquire' },
+) {
+  const { data } = await api.post('/v1/lead-quality/conflict-check', {
+    leadId,
+    phase: opts?.phase || 'pre_acquire',
+  })
   return data
 }
 
@@ -1663,12 +1692,14 @@ export async function decideLead(
   leadId: string,
   decision: 'accept' | 'reject',
   notes?: string,
-  declineReason?: string
+  declineReason?: string,
+  opts?: { conflictAcknowledged?: boolean }
 ): Promise<{ status?: string }> {
   const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/decision`, {
     decision,
     notes,
-    declineReason
+    declineReason,
+    conflictAcknowledged: opts?.conflictAcknowledged || undefined,
   })
   return data
 }
@@ -2560,7 +2591,10 @@ export interface ArchivedQuestionAnswer {
 }
 
 export async function getCaseIntelligence(leadId: string): Promise<CaseIntelligence> {
-  const { data } = await api.get<{ intelligence: CaseIntelligence }>(`/v1/attorney-dashboard/leads/${leadId}/intelligence`)
+  const { data } = await api.get<{ intelligence: CaseIntelligence }>(
+    `/v1/attorney-dashboard/leads/${leadId}/intelligence`,
+    { params: { _: Date.now() }, headers: { 'Cache-Control': 'no-cache' } },
+  )
   return data.intelligence
 }
 
@@ -2976,6 +3010,12 @@ export interface TaskSubtask {
   id: string
   title: string
   done: boolean
+  /** Present on plaintiff-questions tasks — the recorded client answer. */
+  answer?: string | null
+  answeredByName?: string | null
+  answeredAt?: string | null
+  section?: string | null
+  source?: 'baseline' | 'ai' | string | null
 }
 
 export interface TaskAssigneeOption {
@@ -3002,6 +3042,8 @@ export interface TaskDetail {
   estimateMinutes?: number | null
   loggedMinutes?: number
   assignedUserId?: string | null
+  assignedTo?: string | null
+  assignedRole?: string | null
   assigneeName?: string | null
   assigneeRole?: string | null
   assigneeRoleLabel?: string | null
@@ -4714,6 +4756,16 @@ export async function getFirmDashboard() {
 }
 
 // Update the current user's firm profile/settings (firm-admin only)
+export async function getFirmIntakeSettings() {
+  const { data } = await api.get('/v1/firm-dashboard/intake-settings')
+  return data as { autoSendRetainerOnAcquire: boolean }
+}
+
+export async function updateFirmIntakeSettings(payload: { autoSendRetainerOnAcquire: boolean }) {
+  const { data } = await api.put('/v1/firm-dashboard/intake-settings', payload)
+  return data as { autoSendRetainerOnAcquire: boolean }
+}
+
 export async function updateFirm(payload: {
   name?: string
   primaryEmail?: string | null

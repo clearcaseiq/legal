@@ -18,6 +18,9 @@ model User {
   isActive      Boolean   @default(true)
   emailVerified Boolean   @default(false)
   role          String    @default("client") // client, attorney, staff, admin
+  /// Preferred UI + communication language for plaintiffs (`en` | `es` | `zh`).
+  /// Used for chat translation and localized notification chrome. Null = English.
+  preferredLanguage String?
   /// JSON array of admin capability scopes (ops|network|oversight|config|users).
   /// Null/empty means full access for role=admin (backward compatible).
   /// ADMIN_EMAILS allowlist always receives every capability.
@@ -3529,15 +3532,19 @@ model ConflictCheck {
   conflictType    String // 'direct', 'adverse', 'concurrent', 'none'
   conflictDetails String? // JSON details about the conflict
   riskLevel       String  @default("low") // 'low', 'medium', 'high'
+  /// When in the intake lifecycle this screen ran: pre_acquire | post_acquire
+  phase           String?
 
-  // Resolution
+  // Resolution / soft-gate acknowledgment before purchase
   isResolved      Boolean   @default(false)
   resolutionNotes String?
   resolvedAt      DateTime?
+  acknowledgedAt  DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@index([leadId, attorneyId, phase])
   @@map("conflict_checks")
 }
 

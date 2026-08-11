@@ -38,6 +38,12 @@ import { createExternalCalendarEvent, deleteExternalCalendarEvent } from '../lib
 import { notifyWaitlistForFreedSlot } from '../lib/appointment-engagement'
 import { createZoomMeeting } from '../lib/zoom'
 import { deliverDirectNotification, createNotificationEvent, notifyAdmins } from '../lib/platform-notifications'
+import {
+  decorateMessagesForReader,
+  MESSAGE_EMAIL_I18N,
+  translatePreviewForLanguage,
+} from '../lib/messaging-translate'
+import { normalizeLanguageCode } from '../lib/translate'
 import { isValidPhone, normalizePhone, PHONE_ERROR_MESSAGE } from '../lib/phone'
 import { wallClockToUtc, zonedWallClockToUtc } from '../lib/booking-slots'
 import { resolveSchedulingTimezone } from '../lib/scheduling-timezone'
@@ -49,15 +55,36 @@ import { buildAttorneyWorkQueue } from '../lib/attorney-work-queue'
 import { buildReadinessAutomationPlan } from '../lib/readiness-automation'
 import { exportCaseToConnectionSafe } from '../lib/cms'
 import { applyFirmWorkflowToCase, serializeCaseWorkflow } from '../lib/case-workflow'
+import { reconcileWorkflowProgress } from '../lib/workflow-reconcile'
+import {
+  syncWorkflowStepTasks,
+  syncWorkflowItemFromTask,
+  buildWorkflowCatalog,
+  inferWorkflowCategoryForTask,
+  parseWorkflowItemIdFromTaskKey,
+} from '../lib/workflow-step-tasks'
+import {
+  applySoleAttorneyAssignee,
+  ensureSoleAttorneyTaskAssignments,
+  findSoleFirmAttorney,
+} from '../lib/sole-firm-attorney'
 import { buildCaseIntelligence, type GapAction } from '../lib/case-intelligence'
 import { buildBaselineQuestions, BASELINE_QUESTION_GAP_KEYS } from '../lib/intake-questions'
 import { generateIntelligentQuestions } from '../services/intelligent-questions'
 import { syncCaseCoachTasks, resolveCaseAssignees } from '../lib/case-coach-loop'
 import { openCaseStage, syncCaseStage, reopenCaseStage } from '../lib/case-stage'
 import { setLitigationStatus, isLitigationStatus, LITIGATION_LABELS } from '../lib/litigation'
-import { createCaseOpeningTasks } from '../lib/case-opening'
+import { completeHipaaOpeningTaskIfSatisfied, createCaseOpeningTasks } from '../lib/case-opening'
+import {
+  acknowledgeConflictCheck,
+  conflictNeedsAcknowledgment,
+  getLatestConflictCheck,
+  runAndPersistConflictCheck,
+} from '../lib/conflict-check'
+import { runPostAcquireIntakeHooks } from '../lib/intake-acquire'
 import { summarizeDamages, writeThroughDamages, DAMAGE_CATEGORIES } from '../lib/damages-ledger'
 import { getLiabilityRecord, upsertLiabilityRecord } from '../lib/liability-record'
+import { applyQuestionAnswerToCaseFacts } from '../lib/question-facts-sync'
 import {
   getMedicalTimeline,
   createMedicalEntry,
@@ -2325,6 +2352,14 @@ async function createReadinessTasks(leadId: string, assessmentId: string) {
     notes: task.notes,
   }))
   const created: any[] = []
+  const assessmentFirm = await prisma.assessment
+    .findUnique({ where: { id: assessmentId }, select: { lawFirmId: true } })
+    .catch(() => null)
+  const sole = await findSoleFirmAttorney(assessmentFirm?.lawFirmId)
+  const soleAssignee = applySoleAttorneyAssignee(
+    { assignedUserId: null, assignedTo: null, assignedRole: 'attorney' },
+    sole,
+  )
 
   for (const suggestion of plan.tasks) {
     const candidate: TaskIdentitySource = {
@@ -2346,7 +2381,9 @@ async function createReadinessTasks(leadId: string, assessmentId: string) {
         taskType: suggestion.taskType,
         checkpointType: suggestion.checkpointType,
         escalationLevel: suggestion.escalationLevel,
-        assignedRole: 'attorney',
+        assignedRole: soleAssignee.assignedRole || 'attorney',
+        assignedTo: soleAssignee.assignedTo,
+        assignedUserId: soleAssignee.assignedUserId,
       },
       select: caseTaskSelect,
     })
@@ -4364,6 +4401,18 @@ router.get('/tasks/summary', authMiddleware, async (req: any, res) => {
       return res.json({ overdue: [], today: [], upcoming: [], noDueDate: [], recentlyCompleted: [] })
     }
 
+    // Backfill workflow → CaseTask rows so the cross-case Tasks queue stays current.
+    await Promise.all(
+      assessmentIds.slice(0, 50).map((id) =>
+        syncWorkflowStepTasks(id).catch((e: any) => {
+          logger.warn('Workflow step → task sync failed on summary', {
+            assessmentId: id,
+            error: e?.message || String(e),
+          })
+        }),
+      ),
+    )
+
     const tasks = await prisma.caseTask.findMany({
       where: {
         assessmentId: { in: assessmentIds },
@@ -6000,7 +6049,35 @@ router.post('/leads/:leadId/document-request', authMiddleware, async (req: any, 
 
     // Store canonical keys, not display labels — a label never matched an
     // uploaded evidence category, so the request stayed "pending" forever (CP-330).
-    const docs = sendUploadLinkOnly ? [] : normalizeRequestedDocKeys(requestedDocs)
+    let docs = sendUploadLinkOnly ? [] : normalizeRequestedDocKeys(requestedDocs)
+
+    // Don't re-request doc types that are already covered by an open request.
+    if (docs.length) {
+      const openRequests = await prisma.documentRequest.findMany({
+        where: {
+          leadId,
+          status: { not: 'completed' },
+        },
+        select: { requestedDocs: true },
+      })
+      const alreadyOpen = new Set<string>()
+      for (const row of openRequests) {
+        for (const key of parseRequestedDocs(row.requestedDocs)) alreadyOpen.add(key)
+      }
+      const fresh = docs.filter((d) => !alreadyOpen.has(d))
+      const skipped = docs.filter((d) => alreadyOpen.has(d))
+      if (!fresh.length && !sendUploadLinkOnly) {
+        return res.status(409).json({
+          error:
+            skipped.length === 1
+              ? `${skipped[0]} is already in an open request. Nudge the client instead of requesting it again.`
+              : 'Those documents are already in an open request. Nudge the client instead of requesting them again.',
+          alreadyRequested: skipped,
+        })
+      }
+      docs = fresh
+    }
+
     const secureToken = crypto.randomUUID()
     const uploadLink = webUrl(`/evidence-upload/${lead.assessmentId}?token=${secureToken}`)
 
@@ -6542,13 +6619,23 @@ router.post('/leads/:leadId/schedule-consult', authMiddleware, async (req: any, 
           }
         })
 
+    // Do not downgrade a retained engagement when (re)scheduling a consult.
+    const existingLeadRow = await prisma.leadSubmission.findUnique({
+      where: { id: leadId },
+      select: { status: true, lifecycleState: true },
+    })
+    const alreadyRetained =
+      String(existingLeadRow?.status || '').toLowerCase() === 'retained' ||
+      String(existingLeadRow?.lifecycleState || '') === 'engaged'
     await prisma.leadSubmission.update({
       where: { id: leadId },
-      data: {
-        status: 'consulted',
-        lastContactAt: new Date(),
-        lifecycleState: 'consultation_scheduled'
-      }
+      data: alreadyRetained
+        ? { lastContactAt: new Date() }
+        : {
+            status: 'consulted',
+            lastContactAt: new Date(),
+            lifecycleState: 'consultation_scheduled',
+          },
     })
 
     await prisma.leadContact.create({
@@ -7111,6 +7198,11 @@ router.get('/leads/:leadId/evidence', authMiddleware, async (req: any, res) => {
         isHIPAA: true,
         provenanceSource: true,
         provenanceActor: true,
+        extractedData: {
+          select: { totalAmount: true, dollarAmounts: true, confidence: true },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
       },
       orderBy: { createdAt: 'desc' }
     })
@@ -9530,13 +9622,14 @@ router.post('/leads/:leadId/damages', authMiddleware, async (req: any, res) => {
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
-    const { category, description, amount, billingStatus, provider, incurredAt, isFuture, notes } = req.body
+    const { category, description, amount, billingStatus, provider, incurredAt, isFuture, notes, source } = req.body
     if (!description) return res.status(400).json({ error: 'description is required' })
     if (amount == null || amount === '' || Number.isNaN(Number(amount))) {
       return res.status(400).json({ error: 'amount is required' })
     }
     const cat = (DAMAGE_CATEGORIES as readonly string[]).includes(category) ? category : 'other'
     const actorName = `${req.user?.firstName || ''} ${req.user?.lastName || ''}`.trim() || req.user?.email || null
+    const src = source === 'evidence' || source === 'imported' ? source : 'manual'
     const record = await (prisma as any).damageItem.create({
       data: {
         assessmentId: auth.lead.assessmentId,
@@ -9547,7 +9640,7 @@ router.post('/leads/:leadId/damages', authMiddleware, async (req: any, res) => {
         provider: provider || null,
         incurredAt: incurredAt ? new Date(incurredAt) : null,
         isFuture: Boolean(isFuture) || cat.startsWith('future_') || cat === 'lost_earning_capacity',
-        source: 'manual',
+        source: src,
         notes: notes || null,
         createdById: req.user?.id ?? null,
         createdByName: actorName,
@@ -9695,6 +9788,9 @@ router.delete('/leads/:leadId/medical-timeline/entries/:entryId', authMiddleware
     const timeline = await deleteMedicalEntry(auth.lead.assessmentId, entryId, { actorId: req.user?.id ?? null })
     res.json({ timeline })
   } catch (error: any) {
+    if (error?.status === 404 || /not found/i.test(String(error?.message || ''))) {
+      return res.status(404).json({ error: 'Visit not found' })
+    }
     logger.error('Failed to delete medical entry', { error: error.message })
     res.status(500).json({ error: 'Failed to delete medical entry' })
   }
@@ -9727,6 +9823,38 @@ router.get('/leads/:leadId/tasks', authMiddleware, async (req: any, res) => {
     }
     const { lead } = auth
 
+    // Ensure open workflow steps (active stage) appear as Tasks-tab rows, and
+    // mirror any already-completed Tasks work back onto Workflow steps.
+    try {
+      await syncWorkflowStepTasks(lead.assessmentId)
+      await reconcileWorkflowProgress(lead.assessmentId)
+    } catch (e: any) {
+      logger.warn('Workflow step ↔ task sync failed on tasks list', {
+        assessmentId: lead.assessmentId,
+        error: e?.message || String(e),
+      })
+    }
+
+    // Solo-attorney firms: claim any open tasks still lacking a person assignee.
+    try {
+      await ensureSoleAttorneyTaskAssignments(lead.assessmentId)
+    } catch (e: any) {
+      logger.warn('Sole-attorney task assignment failed on tasks list', {
+        assessmentId: lead.assessmentId,
+        error: e?.message || String(e),
+      })
+    }
+
+    // Close Day-1 HIPAA if platform consent or a signed HIPAA envelope is already on file.
+    try {
+      await completeHipaaOpeningTaskIfSatisfied(lead.assessmentId)
+    } catch (e: any) {
+      logger.warn('HIPAA opening-task sync failed on tasks list', {
+        assessmentId: lead.assessmentId,
+        error: e?.message || String(e),
+      })
+    }
+
     const records = await prisma.caseTask.findMany({
       // Absorbed tasks are kept as closed rows so the AI loops do not recreate
       // them, but they are not work anyone did, so they stay out of the list.
@@ -9734,9 +9862,64 @@ router.get('/leads/:leadId/tasks', authMiddleware, async (req: any, res) => {
       orderBy: { createdAt: 'desc' },
       select: caseTaskSelect
     })
+
+    // Attach workflow phase/stage so the Tasks UI can group by pipeline category.
+    // Linked wfitem: rows use the exact step; day-1 / readiness / checklist tasks
+    // are inferred into the case's phase→stage catalog so they aren't "Other".
+    const wfItemIds = records
+      .map((t) => parseWorkflowItemIdFromTaskKey(t.sourceTemplateStepId))
+      .filter((id): id is string => Boolean(id))
+    const wfMeta = new Map<
+      string,
+      { phaseName: string | null; phaseOrder: number | null; stageName: string | null; stageOrder: number | null }
+    >()
+    if (wfItemIds.length) {
+      const items = await (prisma as any).caseWorkflowItem.findMany({
+        where: { id: { in: wfItemIds } },
+        select: { id: true, phaseName: true, phaseOrder: true, stageName: true, stageOrder: true },
+      })
+      for (const it of items as any[]) {
+        wfMeta.set(it.id, {
+          phaseName: it.phaseName || null,
+          phaseOrder: typeof it.phaseOrder === 'number' ? it.phaseOrder : null,
+          stageName: it.stageName || null,
+          stageOrder: typeof it.stageOrder === 'number' ? it.stageOrder : null,
+        })
+      }
+    }
+
+    const caseWf = await (prisma as any).caseWorkflow
+      .findUnique({
+        where: { assessmentId: lead.assessmentId },
+        select: {
+          items: { select: { phaseName: true, phaseOrder: true, stageName: true, stageOrder: true } },
+        },
+      })
+      .catch(() => null)
+    const catalog = buildWorkflowCatalog((caseWf?.items || []) as any[])
+
     // Subtasks are stored as a JSON string; hand clients the parsed array so
     // list views can render a grouped task's checklist without a second fetch.
-    res.json(records.map((t) => ({ ...t, subtasks: parseSubtasks(t.subtasks) })))
+    // Workflow→task sync can add rows between requests; never serve a stale 304.
+    res.setHeader('Cache-Control', 'no-store')
+    res.json(
+      records.map((t) => {
+        const itemId = parseWorkflowItemIdFromTaskKey(t.sourceTemplateStepId)
+        const meta = itemId ? wfMeta.get(itemId) : null
+        const inferred = meta ? null : inferWorkflowCategoryForTask(t, catalog)
+        const phase = meta?.phaseName ?? inferred?.phaseName ?? null
+        const stage = meta?.stageName ?? inferred?.stageName ?? null
+        return {
+          ...t,
+          subtasks: parseSubtasks(t.subtasks),
+          workflowPhase: phase,
+          workflowPhaseOrder: meta?.phaseOrder ?? inferred?.phaseOrder ?? null,
+          workflowStage: stage,
+          workflowStageOrder: meta?.stageOrder ?? inferred?.stageOrder ?? null,
+          workflowCategoryInferred: Boolean(inferred),
+        }
+      }),
+    )
   } catch (error: any) {
     logger.error('Failed to load case tasks', { error: error.message })
     res.status(500).json({ error: 'Failed to load case tasks' })
@@ -9797,6 +9980,21 @@ router.get('/leads/:leadId/workflow', authMiddleware, async (req: any, res) => {
     }
 
     if (cw) {
+      // Tasks-tab completion + case-data proof → Workflow steps (no human needed
+      // on the Workflow tab). Reload items when anything flipped.
+      const reconciled = await reconcileWorkflowProgress(lead.assessmentId).catch(() => null)
+      const flipped =
+        (reconciled?.fromTasks.completed || 0) +
+          (reconciled?.fromTasks.reopened || 0) +
+          (reconciled?.fromCaseData.completed || 0) >
+        0
+      if (flipped) {
+        cw = await (prisma as any).caseWorkflow.findUnique({
+          where: { assessmentId: lead.assessmentId },
+          include: { items: true },
+        })
+      }
+      await syncWorkflowStepTasks(lead.assessmentId).catch(() => undefined)
       return res.json({
         workflow: await serializeCaseWorkflow(cw),
         canApply: false,
@@ -9862,6 +10060,7 @@ router.get('/leads/:leadId/intelligence', authMiddleware, async (req: any, res) 
       )
     }
 
+    res.setHeader('Cache-Control', 'no-store')
     res.json({ intelligence })
   } catch (error: any) {
     logger.error('Failed to build case intelligence', { error: error.message })
@@ -9927,13 +10126,30 @@ router.get('/leads/:leadId/intelligence/questions', authMiddleware, async (req: 
         answeredAt: a.updatedAt.toISOString(),
       }))
 
-    // Materialize the stable baseline questions as trackable tasks so they show
-    // up in the cross-case Tasks queue as work assigned to a teammate.
-    void syncQuestionTasks(
-      lead.assessmentId,
-      questions.map((q) => ({ questionKey: q.questionKey, text: q.text, section: q.section, source: q.source, answer: q.answer })),
-      { actor: req.user },
-    )
+    // Tasks tab checklist: use the FULL gap-gated baseline (not the LLM-pruned
+    // subset) plus any AI-personalized questions. Pruning used to shrink the
+    // attorney task to a handful of items while Overview still looked fuller.
+    const baselineForTasks = baseline.map((q) => {
+      const questionKey = `base:${q.id}`
+      const saved = answerByKey.get(questionKey)
+      return {
+        questionKey,
+        text: q.text,
+        section: q.section,
+        source: 'baseline' as const,
+        answer: saved?.answer ?? null,
+      }
+    })
+    const aiForTasks = questions
+      .filter((q) => q.source === 'ai')
+      .map((q) => ({
+        questionKey: q.questionKey,
+        text: q.text,
+        section: q.section,
+        source: 'ai' as const,
+        answer: q.answer,
+      }))
+    void syncQuestionTasks(lead.assessmentId, [...baselineForTasks, ...aiForTasks], { actor: req.user })
 
     res.json({ ...result, questions, answeredArchived })
   } catch (error: any) {
@@ -9970,6 +10186,13 @@ router.put('/leads/:leadId/intelligence/questions/answer', authMiddleware, async
       })
       // Reopen the backing question task since it's unanswered again.
       void syncSingleQuestionTask(lead.assessmentId, questionKey, false)
+      await applyQuestionAnswerToCaseFacts(lead.assessmentId, questionKey, null, {
+        questionText,
+        section,
+        source,
+        actorId: req.user?.id || null,
+        actorName: answeredByName,
+      })
       return res.json({ answer: null })
     }
 
@@ -9996,6 +10219,16 @@ router.put('/leads/:leadId/intelligence/questions/answer', authMiddleware, async
 
     // Complete the backing question task now that it's answered.
     void syncSingleQuestionTask(lead.assessmentId, questionKey, true)
+
+    // Await full question→facts write-through (liability, medical, damages,
+    // insurance, AI free-text) so Overview summary moves with the answer.
+    await applyQuestionAnswerToCaseFacts(lead.assessmentId, questionKey, answer, {
+      questionText,
+      section,
+      source,
+      actorId: req.user?.id || null,
+      actorName: answeredByName,
+    })
 
     // Loop: a new answer is "new info" — re-run the coach to assign what's next.
     void syncCaseCoachTasks(lead.assessmentId, {
@@ -10321,6 +10554,8 @@ router.patch('/leads/:leadId/workflow/items/:itemId', authMiddleware, async (req
       data,
     })
 
+    await syncWorkflowStepTasks(lead.assessmentId).catch(() => undefined)
+
     const fresh = await (prisma as any).caseWorkflow.findUnique({
       where: { id: cw.id },
       include: { items: true },
@@ -10372,6 +10607,8 @@ router.patch('/leads/:leadId/workflow/items/:itemId/assignee', authMiddleware, a
       where: { id: itemId },
       data: { assignedFirmMemberId: firmMemberId },
     })
+
+    await syncWorkflowStepTasks(lead.assessmentId).catch(() => undefined)
 
     // Notify the newly assigned member (system-generated), unless self-assigned.
     if (member?.user?.id && member.user.id !== req.user?.id) {
@@ -10483,6 +10720,8 @@ router.post('/leads/:leadId/workflow/items', authMiddleware, async (req: any, re
         logger.warn('Failed to notify workflow assignee', { error: (err as Error).message })
       }
     }
+
+    await syncWorkflowStepTasks(lead.assessmentId).catch(() => undefined)
 
     const fresh = await (prisma as any).caseWorkflow.findUnique({
       where: { id: cw.id },
@@ -10968,14 +11207,25 @@ router.post('/leads/:leadId/tasks', authMiddleware, async (req: any, res) => {
     // downgrade an explicit "client" assignment into an internal task.
     let assigneeName = assignedTo || null
     let assigneeRole = normalizeTaskRole(assignedRole)
+    let assigneeUserId = assignedUserId || null
     const clientRequested = isClientTaskRole(assignedRole)
-    if (assignedUserId && !clientRequested) {
+    if (assigneeUserId && !clientRequested) {
       const dir = await taskAssigneeDirectory(attorney.lawFirmId)
-      const found = dir.find((m) => m.userId === assignedUserId)
+      const found = dir.find((m) => m.userId === assigneeUserId)
       if (found) {
         assigneeName = found.name
         assigneeRole = normalizeTaskRole(found.role)
       }
+    }
+    if (!clientRequested && !assigneeUserId) {
+      const sole = await findSoleFirmAttorney(attorney.lawFirmId)
+      const filled = applySoleAttorneyAssignee(
+        { assignedUserId: assigneeUserId, assignedTo: assigneeName, assignedRole: assigneeRole },
+        sole,
+      )
+      assigneeUserId = filled.assignedUserId
+      assigneeName = filled.assignedTo
+      assigneeRole = normalizeTaskRole(filled.assignedRole) || assigneeRole
     }
 
     const record = await prisma.caseTask.create({
@@ -10993,7 +11243,7 @@ router.post('/leads/:leadId/tasks', authMiddleware, async (req: any, res) => {
         deadlineType: deadlineType || null,
         assignedRole: assigneeRole,
         assignedTo: assigneeName,
-        assignedUserId: clientRequested ? null : assignedUserId || null,
+        assignedUserId: clientRequested ? null : assigneeUserId || null,
         estimateMinutes:
           estimateMinutes === undefined || estimateMinutes === null || estimateMinutes === ''
             ? null
@@ -11228,6 +11478,20 @@ router.patch('/leads/:leadId/tasks/:id', authMiddleware, async (req: any, res) =
         summary: `Task completed: ${record.title}`,
         actor: { type: 'user', id: req.user?.id ?? null },
       })
+    }
+
+    // Mirror status onto every related Workflow step (one step can own many tasks).
+    if (status !== undefined && status !== existing.status) {
+      await syncWorkflowItemFromTask({
+        id: record.id,
+        assessmentId: auth.lead.assessmentId,
+        status: record.status,
+        sourceTemplateStepId: (record as any).sourceTemplateStepId ?? existing.sourceTemplateStepId,
+        completedAt: record.completedAt,
+      }).catch(() => undefined)
+      await reconcileWorkflowProgress(auth.lead.assessmentId).catch(() => undefined)
+      // Completing the active stage may unlock the next stage's workflow → tasks.
+      await syncWorkflowStepTasks(auth.lead.assessmentId).catch(() => undefined)
     }
 
     // Handing an existing internal task to the client is the same event as
@@ -11641,9 +11905,43 @@ router.get('/leads/:leadId/tasks/:id', authMiddleware, async (req: any, res) => 
         assigneeRole = found.role
       }
     }
+    let subtasks = parseSubtasks(task.subtasks)
+    // Plaintiff-questions task: attach saved CaseQuestionAnswer rows so the
+    // assignee can record a response per question without leaving the modal.
+    if (task.taskType === 'question' && subtasks.length) {
+      const keys = subtasks.map((s) => s.id).filter(Boolean)
+      const answers = await prisma.caseQuestionAnswer
+        .findMany({
+          where: { assessmentId: task.assessmentId, questionKey: { in: keys } },
+          select: {
+            questionKey: true,
+            answer: true,
+            answeredByName: true,
+            updatedAt: true,
+            section: true,
+            source: true,
+          },
+        })
+        .catch(() => [])
+      const byKey = new Map((answers as any[]).map((a) => [a.questionKey, a]))
+      subtasks = subtasks.map((s) => {
+        const a = byKey.get(s.id)
+        const answer = a?.answer ? String(a.answer) : null
+        return {
+          ...s,
+          done: Boolean(answer?.trim()) || s.done,
+          answer,
+          answeredByName: a?.answeredByName || null,
+          answeredAt: a?.updatedAt ? new Date(a.updatedAt).toISOString() : null,
+          section: a?.section || null,
+          source: a?.source === 'ai' ? 'ai' : 'baseline',
+        }
+      })
+    }
+
     res.json({
       ...task,
-      subtasks: parseSubtasks(task.subtasks),
+      subtasks,
       // Credit Rose on tasks she raised herself. The stored createdByName holds
       // whoever triggered the run (or nobody, on the sweep), which reads as if a
       // teammate wrote the task.
@@ -11836,9 +12134,22 @@ router.post('/leads/:leadId/tasks/sol', authMiddleware, async (req: any, res) =>
       return res.status(400).json({ error: 'Missing incident date, venue state, or claim type' })
     }
 
+    const already = await prisma.caseTask.findFirst({
+      where: {
+        assessmentId: lead.assessmentId,
+        mergedIntoId: null,
+        OR: [{ deadlineType: 'sol' }, { taskType: 'statute' }],
+      },
+      select: caseTaskSelect,
+    })
+    if (already) {
+      return res.json(already)
+    }
+
     const sol = calculateSOL(incidentDate, { state: venueState }, claimType)
     const status = getSOLStatus(sol.daysRemaining)
-    const title = `Statute of limitations (${venueState} • ${claimType})`
+    const { formatClaimType } = await import('../../../shared/claim-types')
+    const title = `Statute of limitations (${venueState} • ${formatClaimType(claimType)})`
     const record = await prisma.caseTask.create({
       data: {
         assessmentId: lead.assessmentId,
@@ -11848,7 +12159,7 @@ router.post('/leads/:leadId/tasks/sol', authMiddleware, async (req: any, res) =>
         dueDate: sol.expiresAt,
         priority: status === 'critical' ? 'high' : status === 'warning' ? 'medium' : 'low',
         escalationLevel: status === 'critical' ? 'critical' : status === 'warning' ? 'warning' : 'none',
-        notes: sol.rule?.notes || null
+        notes: sol.rule?.notes || 'Calendared from incident date, venue, and claim type.',
       },
       select: caseTaskSelect
     })
@@ -15038,7 +15349,7 @@ router.post('/leads/:leadId/scene/regenerate', authMiddleware, async (req: any, 
 router.post('/leads/:leadId/decision', authMiddleware, async (req: any, res) => {
   try {
     const { leadId } = req.params
-    const { decision, notes, declineReason } = req.body // decision: 'accept' or 'reject'; declineReason for routing learning
+    const { decision, notes, declineReason, conflictAcknowledged } = req.body // decision: 'accept' or 'reject'; declineReason for routing learning
 
     if (!req.user?.email) {
       return res.status(401).json({ error: 'Authentication required' })
@@ -15084,6 +15395,30 @@ router.post('/leads/:leadId/decision', authMiddleware, async (req: any, res) => 
       existingLead.assignedAttorneyId !== attorneyId
     if (decision === 'accept' && claimedByOther) {
       return res.status(409).json({ error: 'This case has already been assigned to another attorney.' })
+    }
+
+    // Soft conflict gate: run/reuse pre-acquire screen; require acknowledgment when flagged.
+    if (decision === 'accept') {
+      let preCheck = await getLatestConflictCheck(attorneyId, leadId, 'pre_acquire')
+      if (!preCheck) {
+        const ran = await runAndPersistConflictCheck({
+          attorneyId,
+          leadId,
+          phase: 'pre_acquire',
+        })
+        preCheck = ran.saved
+      }
+      if (conflictNeedsAcknowledgment(preCheck) && !conflictAcknowledged && !preCheck.acknowledgedAt) {
+        return res.status(409).json({
+          error:
+            'A preliminary conflict was flagged. Acknowledge the conflict check before accepting this case.',
+          code: 'CONFLICT_ACK_REQUIRED',
+          conflictCheck: preCheck,
+        })
+      }
+      if (conflictAcknowledged && preCheck && !preCheck.acknowledgedAt) {
+        await acknowledgeConflictCheck(preCheck.id).catch(() => undefined)
+      }
     }
 
     // Block accepting a lapsed offer: once the response window elapses the match is
@@ -15276,6 +15611,20 @@ router.post('/leads/:leadId/decision', authMiddleware, async (req: any, res) => 
         }
       } catch (wfErr: any) {
         logger.warn('Auto-apply firm workflow failed', { error: wfErr?.message })
+      }
+
+      // Post-acquire intake: conflict re-screen, Send retainer task, optional auto-send.
+      try {
+        await runPostAcquireIntakeHooks({
+          leadId,
+          attorneyId,
+          assessmentId: existingLead.assessmentId,
+          lawFirmId: attorney.lawFirmId,
+          actorUserId: req.user?.id || null,
+          actorName: attorney.name || req.user?.email || null,
+        })
+      } catch (intakeErr: any) {
+        logger.warn('Post-acquire intake hooks failed', { error: intakeErr?.message })
       }
 
       try {
@@ -16066,8 +16415,9 @@ router.get('/messaging/chat-room/:chatRoomId/messages', authMiddleware, async (r
     })
     messages.reverse()
 
-    // CP-572: return original message text as the sender typed it.
-    res.json(messages)
+    // CP-572: keep original `content`; attach English contentTranslated for non-English plaintiff messages.
+    const decorated = await decorateMessagesForReader(messages as any[], 'en', 'attorney')
+    res.json(decorated)
   } catch (error: any) {
     logger.error('Failed to load messages', { error: error.message })
     res.status(500).json({ error: 'Failed to load messages' })
@@ -16119,20 +16469,28 @@ router.post('/messaging/send', authMiddleware, async (req: any, res) => {
         select: {
           userId: true,
           assessmentId: true,
-          user: { select: { email: true, firstName: true } },
+          user: { select: { email: true, firstName: true, preferredLanguage: true } },
         },
       })
       if (room?.user?.email) {
         const attorneyName = auth.attorney.name || 'Your attorney'
         const plaintiffName = room.user.firstName || 'there'
-        const preview =
+        const lang = normalizeLanguageCode(room.user.preferredLanguage)
+        const rawPreview =
           content.trim().length > 300 ? `${content.trim().slice(0, 297)}…` : content.trim()
+        const preview = await translatePreviewForLanguage(rawPreview, lang, 'en')
         const messagingLink = webUrl('/messaging')
+        const emailCopy = MESSAGE_EMAIL_I18N[lang]
         await deliverDirectNotification({
           type: 'email',
           recipient: room.user.email,
-          subject: `New message from ${attorneyName}`,
-          message: `Hi ${plaintiffName},\n\n${attorneyName} sent you a new message:\n\n"${preview}"\n\nView and reply here:\n${messagingLink}\n\nBest regards,\nClearCaseIQ`,
+          subject: emailCopy.subject(attorneyName),
+          message: emailCopy.body({
+            plaintiffName,
+            attorneyName,
+            preview,
+            link: messagingLink,
+          }),
           userId: room.userId || null,
           assessmentId: room.assessmentId || null,
           role: 'plaintiff',
@@ -16143,6 +16501,7 @@ router.post('/messaging/send', authMiddleware, async (req: any, res) => {
             chatRoomId,
             assessmentId: room.assessmentId || null,
             link: messagingLink,
+            language: lang,
           },
         })
       }

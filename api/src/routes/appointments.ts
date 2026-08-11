@@ -287,8 +287,14 @@ router.post('/', authMiddleware, async (req: AuthRequest, res) => {
 
     if (assessmentId) {
       await Promise.all([
+        // Never regress a retained/engaged matter back to consultation_scheduled
+        // when a consult is (re)booked after the retainer is signed.
         prisma.leadSubmission.updateMany({
-          where: { assessmentId },
+          where: {
+            assessmentId,
+            status: { not: 'retained' },
+            lifecycleState: { notIn: ['engaged', 'closed'] },
+          },
           data: {
             lifecycleState: 'consultation_scheduled',
             lastContactAt: new Date()

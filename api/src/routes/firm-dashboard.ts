@@ -13,6 +13,13 @@ import { createNotificationEvent } from '../lib/platform-notifications'
 import { slugify } from '../lib/booking-slots'
 import { createEnvelopeForLead } from '../lib/esign/esign-service'
 import { listESignatureProviders } from '../lib/esign'
+import type { SignableDocumentType } from '../lib/esign/types'
+import {
+  completeWelcomePacketForLead,
+  isRetainerTemplateName,
+  isWelcomeTemplateName,
+  markSendRetainerTaskDone,
+} from '../lib/intake-acquire'
 import { respondESignError } from '../lib/esign/http'
 import { resolveTemplateTokens, fillTemplateTokens, renderTemplateBodyPdf } from '../lib/esign/firm-template-doc'
 import { applyFirmWorkflowToCase } from '../lib/case-workflow'
@@ -3332,16 +3339,54 @@ router.post('/templates/:id/send', authMiddleware as any, async (req: any, res: 
       filePath = rendered.filePath
     }
 
+    // Retainer / fee / HIPAA templates must carry the right documentType so the
+    // signed webhook files the PDF, completes opening tasks, and sets retained.
+    const overrideType = String(req.body?.documentType || '').trim() as SignableDocumentType | ''
+    let documentType: SignableDocumentType = 'other'
+    if (
+      overrideType === 'retainer' ||
+      overrideType === 'fee_agreement' ||
+      overrideType === 'hipaa_authorization' ||
+      overrideType === 'other'
+    ) {
+      documentType = overrideType
+    } else if (isRetainerTemplateName(template.name)) {
+      documentType = 'retainer'
+    } else if (/hipaa/i.test(String(template.name || ''))) {
+      documentType = 'hipaa_authorization'
+    }
+
     const envelope = await createEnvelopeForLead({
       leadId,
       attorneyId,
       providerId: provider,
-      documentType: 'other',
+      documentType,
       title,
       signerName,
       signerEmail,
       filePath,
     })
+
+    if (documentType === 'retainer' || documentType === 'fee_agreement') {
+      const leadWithAssessment = await prisma.leadSubmission.findUnique({
+        where: { id: leadId },
+        select: { assessmentId: true },
+      })
+      if (leadWithAssessment?.assessmentId) {
+        await markSendRetainerTaskDone(
+          leadWithAssessment.assessmentId,
+          'Sent for signature from Firm Templates.',
+        ).catch(() => undefined)
+      }
+    }
+
+    if (isWelcomeTemplateName(template.name) || isWelcomeTemplateName(title)) {
+      await completeWelcomePacketForLead(
+        leadId,
+        `Completed via Firm Templates → ${template.name}.`,
+      ).catch(() => undefined)
+    }
+
     res.status(201).json({ envelope })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
@@ -3417,7 +3462,8 @@ const DEFAULT_WORKFLOW: {
           name: 'Sign-up',
           steps: [
             { title: 'Run conflict check', stepType: 'checkpoint', assigneeRole: 'intake_specialist', dueOffsetDays: 0, required: true },
-            { title: 'Send retainer for signature', stepType: 'document', assigneeRole: 'attorney', dueOffsetDays: 1, required: true },
+            { title: 'Send retainer to client', stepType: 'document', assigneeRole: 'attorney', dueOffsetDays: 1, required: true },
+            { title: 'Confirm signed representation agreement', stepType: 'document', assigneeRole: 'attorney', dueOffsetDays: 2, required: true },
             { title: 'Collect signed HIPAA authorization', stepType: 'document', assigneeRole: 'paralegal', dueOffsetDays: 2, required: true },
             { title: 'Open matter / create case file', stepType: 'task', assigneeRole: 'case_manager', dueOffsetDays: 2, required: true },
           ],
@@ -4251,6 +4297,52 @@ router.get('/time-entries/export.csv', authMiddleware as any, async (req: any, r
     res.send(csv)
   } catch (error) {
     logger.error('Failed to export time entries', { error })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+// GET /v1/firm-dashboard/intake-settings — intake automation toggles for this firm.
+router.get('/intake-settings', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
+    const { getFirmSettingBool, FIRM_SETTING_AUTO_SEND_RETAINER } = await import('../lib/intake-acquire')
+    const autoSendRetainerOnAcquire = await getFirmSettingBool(
+      context.lawFirmId,
+      FIRM_SETTING_AUTO_SEND_RETAINER,
+    )
+    res.json({ autoSendRetainerOnAcquire })
+  } catch (error) {
+    logger.error('Failed to load intake settings', { error })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+// PUT /v1/firm-dashboard/intake-settings — firm admin can toggle auto-send retainer on acquire.
+router.put('/intake-settings', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
+    if (!requireFirmPermission(context, 'manage_users')) {
+      return res.status(403).json({ error: 'Only firm admins can change intake settings' })
+    }
+    const { setFirmSetting, getFirmSettingBool, FIRM_SETTING_AUTO_SEND_RETAINER } = await import(
+      '../lib/intake-acquire'
+    )
+    if (typeof req.body?.autoSendRetainerOnAcquire === 'boolean') {
+      await setFirmSetting(
+        context.lawFirmId,
+        FIRM_SETTING_AUTO_SEND_RETAINER,
+        req.body.autoSendRetainerOnAcquire,
+      )
+    }
+    const autoSendRetainerOnAcquire = await getFirmSettingBool(
+      context.lawFirmId,
+      FIRM_SETTING_AUTO_SEND_RETAINER,
+    )
+    res.json({ autoSendRetainerOnAcquire })
+  } catch (error) {
+    logger.error('Failed to update intake settings', { error })
     res.status(500).json({ error: 'Internal server error' })
   }
 })

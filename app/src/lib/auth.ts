@@ -27,6 +27,14 @@ export function hasValidAuthToken() {
 
 export function getStoredRole(): WebAppRole | null {
   if (!hasValidAuthToken()) return null
+  const user = getStoredUser<{ role?: string }>('user')
+  const normalizedRole = user?.role?.toLowerCase()
+  // Account role wins over a leftover attorney/staff blob from another login.
+  if (normalizedRole === 'client') return 'plaintiff'
+  if (normalizedRole === 'admin') return 'admin'
+  if (normalizedRole === 'attorney') return 'attorney'
+  if (normalizedRole === 'staff') return 'staff'
+
   const explicitRole = localStorage.getItem('auth_role')?.toLowerCase()
   if (
     explicitRole === 'admin' ||
@@ -36,11 +44,8 @@ export function getStoredRole(): WebAppRole | null {
   ) {
     return explicitRole
   }
-  const user = getStoredUser<{ role?: string }>('user')
-  const normalizedRole = user?.role?.toLowerCase()
-  if (normalizedRole === 'admin') return 'admin'
-  if (normalizedRole === 'attorney' || localStorage.getItem('attorney')) return 'attorney'
-  if (normalizedRole === 'staff' || localStorage.getItem('firm_member')) return 'staff'
+  if (localStorage.getItem('attorney')) return 'attorney'
+  if (localStorage.getItem('firm_member')) return 'staff'
   return 'plaintiff'
 }
 

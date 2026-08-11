@@ -34,15 +34,6 @@ type ResultsReportInput = {
   valuationMissingInputs?: string[]
   trialValueText: string
   trialExpectedText: string
-  netRecovery?: {
-    settlementText: string
-    attorneyFeeText: string
-    medicalLiensLabel: string
-    medicalLiensText: string
-    caseExpensesText: string
-    totalText: string
-    exhausted: boolean
-  } | null
   litigationCosts?: {
     items: { label: string; amountText: string; litigated: boolean }[]
     totalText: string
@@ -646,33 +637,6 @@ export async function downloadResultsCaseReportPdf(input: ResultsReportInput) {
   settle.row('Trial most likely', input.trialExpectedText, { rightColor: COLORS.ink })
   settle.wrapped('Not a guarantee of outcome. Trials can result in higher awards, but carry more time, risk, and uncertainty, and may be limited by collectability or policy limits.', { size: 9, color: COLORS.muted })
   drawPanel(doc, settle, { accent: COLORS.emerald })
-
-  // ---- Estimated net recovery ("take-home") ----
-  if (input.netRecovery) {
-    drawSectionTitle(doc, 'Estimated Net Recovery')
-    const net = makeBlock()
-    net.wrapped("What you might take home after typical deductions from your most likely settlement.", { size: 9.5, color: COLORS.muted })
-    net.gap(2)
-    net.row('Settlement (most likely)', input.netRecovery.settlementText, { size: 10.5, rightColor: COLORS.ink })
-    net.row('Attorney fee (contingency)', `- ${input.netRecovery.attorneyFeeText}`, { size: 10.5, rightColor: COLORS.rose })
-    net.row(input.netRecovery.medicalLiensLabel, `- ${input.netRecovery.medicalLiensText}`, { size: 10.5, rightColor: COLORS.rose })
-    net.row('Case expenses', `- ${input.netRecovery.caseExpensesText}`, { size: 10.5, rightColor: COLORS.rose })
-    net.divider()
-    net.row('Estimated net to you', input.netRecovery.totalText, {
-      size: 12,
-      leftFont: 'F2',
-      leftColor: COLORS.ink,
-      rightColor: input.netRecovery.exhausted ? COLORS.amber : COLORS.emerald,
-    })
-    net.gap(2)
-    net.wrapped(
-      input.netRecovery.exhausted
-        ? 'At this estimated range, fees, liens, and expenses may absorb most of the settlement. In a contingency case you never pay more than you recover.'
-        : 'Illustrative only. Actual fees, liens, and expenses vary by case and firm.',
-      { size: 9, color: input.netRecovery.exhausted ? COLORS.amber : COLORS.faint }
-    )
-    drawPanel(doc, net, { accent: COLORS.emerald })
-  }
 
   // ---- Potential litigation costs ----
   if (input.litigationCosts && input.litigationCosts.items.length) {

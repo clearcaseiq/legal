@@ -8,7 +8,7 @@ import { useModalInitialFocus } from '../hooks/useModalInitialFocus'
 interface ConsentWorkflowProps {
   userId: string
   requiredConsents?: string[]
-  onComplete: (consents: any[]) => void
+  onComplete: (consents: any[]) => void | Promise<void>
   /** Clears session in parent when user exits without finishing (e.g. return to login). */
   onCancel: () => void
   skipOptional?: boolean
@@ -20,6 +20,9 @@ interface ConsentWorkflowProps {
    * `stepped`: legacy wizard (one document per step, sign each time).
    */
   flow?: 'combined' | 'stepped'
+  /** Parent save failure — shown on the signature screen so it is not hidden behind the modal. */
+  saveError?: string | null
+  saving?: boolean
 }
 
 interface ConsentData {
@@ -45,6 +48,8 @@ export default function ConsentWorkflow({
   onCancel,
   presentation = 'modal',
   flow = 'combined',
+  saveError = null,
+  saving = false,
 }: ConsentWorkflowProps) {
   const [currentStep, setCurrentStep] = useState(0)
   const [consentTemplates, setConsentTemplates] = useState<Record<string, PublicConsentTemplate>>({})
@@ -160,16 +165,24 @@ export default function ConsentWorkflow({
 
   const handleSignatureCapture = (signatureData: string) => {
     if (flow === 'combined') {
+      const missingTemplate = requiredConsents.find((type) => !consentTemplates[type]?.version)
+      if (missingTemplate) {
+        setError(`Could not load the ${missingTemplate} agreement. Please refresh and try again.`)
+        setShowSignature(false)
+        return
+      }
       const consents: ConsentData[] = requiredConsents.map((type) => ({
         consentType: type,
-        version: consentTemplates[type]?.version || '1.0',
-        documentId: consentTemplates[type]?.documentId || '',
+        version: consentTemplates[type].version,
+        documentId: consentTemplates[type].documentId || '',
         granted: true,
         signatureData,
         signatureMethod,
-        consentText: consentTemplates[type]?.content || '',
+        consentText: consentTemplates[type].content || '',
       }))
-      onComplete(consents)
+      void Promise.resolve(onComplete(consents)).catch(() => {
+        /* parent surfaces saveError */
+      })
       return
     }
 
@@ -190,7 +203,9 @@ export default function ConsentWorkflow({
     if (currentStep < requiredConsents.length - 1) {
       setCurrentStep(currentStep + 1)
     } else {
-      onComplete(newConsentData)
+      void Promise.resolve(onComplete(newConsentData)).catch(() => {
+        /* parent surfaces saveError */
+      })
     }
   }
 
@@ -243,9 +258,14 @@ export default function ConsentWorkflow({
     return (
       <ESignatureCapture
         onSignatureCapture={handleSignatureCapture}
-        onCancel={() => setShowSignature(false)}
+        onCancel={() => {
+          if (saving) return
+          setShowSignature(false)
+        }}
         signatureMethod={signatureMethod}
         onMethodChange={setSignatureMethod}
+        externalError={saveError}
+        submitting={saving}
       />
     )
   }

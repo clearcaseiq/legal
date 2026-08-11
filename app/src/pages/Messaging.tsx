@@ -1,5 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react'
-import { useLocation } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { 
   getChatRooms, 
   getOrCreateChatRoom, 
@@ -18,7 +18,8 @@ import {
   Video, 
   MapPin,
   Search,
-  Filter
+  Filter,
+  ArrowLeft,
 } from 'lucide-react'
 import Tooltip from '../components/Tooltip'
 import { formatClaimTypeShort } from '../lib/constants'
@@ -51,6 +52,7 @@ interface ChatRoom {
 interface Message {
   id: string
   content: string
+  contentTranslated?: string | null
   senderType: 'user' | 'attorney'
   messageType: string
   createdAt: string
@@ -340,8 +342,17 @@ export default function Messaging() {
   }
 
   return (
-    <div className="max-w-6xl mx-auto">
-      <div className="flex h-screen bg-white rounded-lg shadow-lg overflow-hidden">
+    <div className="mx-auto max-w-6xl">
+      <div className="mb-3">
+        <Link
+          to="/dashboard"
+          className="inline-flex items-center gap-1.5 text-sm font-semibold text-slate-600 hover:text-brand-700"
+        >
+          <ArrowLeft className="h-4 w-4" aria-hidden />
+          Back to dashboard
+        </Link>
+      </div>
+      <div className="flex h-[calc(100vh-8rem)] overflow-hidden rounded-lg bg-white shadow-lg">
         {/* Sidebar */}
         <div className="w-1/3 border-r border-gray-200 flex flex-col">
           {/* Header */}
@@ -532,7 +543,35 @@ export default function Messaging() {
                             ? 'bg-primary-600 text-white'
                             : 'bg-gray-100 text-gray-900'
                         }`}>
-                          <p translate="no" className="notranslate text-sm whitespace-pre-wrap break-words">{linkify(message.content, message.senderType === 'user' ? 'underline break-all text-white hover:text-white/80' : 'underline break-all text-primary-600 hover:text-primary-700')}</p>
+                          {message.contentTranslated && message.contentTranslated !== message.content ? (
+                            <>
+                              <p translate="no" className="notranslate text-sm whitespace-pre-wrap break-words">
+                                {linkify(
+                                  message.contentTranslated,
+                                  message.senderType === 'user'
+                                    ? 'underline break-all text-white hover:text-white/80'
+                                    : 'underline break-all text-primary-600 hover:text-primary-700',
+                                )}
+                              </p>
+                              <p className={`mt-2 border-t pt-2 text-[11px] font-semibold uppercase tracking-wide ${
+                                message.senderType === 'user' ? 'border-white/20 text-primary-100' : 'border-gray-200 text-gray-500'
+                              }`}>
+                                {t('messagingPage.originalLabel')}
+                              </p>
+                              <p translate="no" className={`notranslate mt-0.5 text-xs whitespace-pre-wrap break-words ${
+                                message.senderType === 'user' ? 'text-primary-100' : 'text-gray-600'
+                              }`}>
+                                {linkify(
+                                  message.content,
+                                  message.senderType === 'user'
+                                    ? 'underline break-all text-white/80 hover:text-white'
+                                    : 'underline break-all text-primary-600 hover:text-primary-700',
+                                )}
+                              </p>
+                            </>
+                          ) : (
+                            <p translate="no" className="notranslate text-sm whitespace-pre-wrap break-words">{linkify(message.content, message.senderType === 'user' ? 'underline break-all text-white hover:text-white/80' : 'underline break-all text-primary-600 hover:text-primary-700')}</p>
+                          )}
                           <p className={`text-xs mt-1 ${
                             message.senderType === 'user' ? 'text-primary-100' : 'text-gray-500'
                           }`}>

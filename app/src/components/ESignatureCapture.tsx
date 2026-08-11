@@ -9,6 +9,9 @@ interface ESignatureCaptureProps {
   onCancel: () => void
   signatureMethod: 'drawn' | 'typed' | 'clicked'
   onMethodChange: (method: 'drawn' | 'typed' | 'clicked') => void
+  /** Parent-level save failure (e.g. complete-consent API error). */
+  externalError?: string | null
+  submitting?: boolean
 }
 
 export default function ESignatureCapture({
@@ -16,6 +19,8 @@ export default function ESignatureCapture({
   onCancel,
   signatureMethod,
   onMethodChange,
+  externalError = null,
+  submitting = false,
 }: ESignatureCaptureProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [isDrawing, setIsDrawing] = useState(false)
@@ -32,10 +37,11 @@ export default function ESignatureCapture({
   typedSignatureRef.current = typedSignature
 
   useEffect(() => {
-    if (submitError && submitErrorRef.current) {
+    const err = externalError || submitError
+    if (err && submitErrorRef.current) {
       submitErrorRef.current.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
     }
-  }, [submitError])
+  }, [externalError, submitError])
 
   const clearCanvas = useCallback(() => {
     const canvas = canvasRef.current
@@ -210,6 +216,7 @@ export default function ESignatureCapture({
   }
 
   const handleSubmit = () => {
+    if (submitting) return
     setSubmitError(null)
     let finalSignature = ''
 
@@ -238,6 +245,8 @@ export default function ESignatureCapture({
     }
   }
 
+  const visibleError = externalError || submitError
+
   const downloadSignature = () => {
     const canvas = canvasRef.current
     if (signatureMethod !== 'drawn' || !signatureDataRef.current || !canvas) return
@@ -261,7 +270,7 @@ export default function ESignatureCapture({
 
   // Align with handleSubmit: drawn/clicked/typed all set hasSignature when a value exists; typed still needs trim for the button
   const submitDisabled =
-    !hasSignature || (signatureMethod === 'typed' && !typedSignature.trim())
+    submitting || !hasSignature || (signatureMethod === 'typed' && !typedSignature.trim())
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-stretch sm:items-center justify-center z-[110] overflow-y-auto p-0 sm:p-4">
@@ -404,13 +413,13 @@ export default function ESignatureCapture({
             )}
           </div>
 
-          {submitError && (
+          {visibleError && (
             <div
               ref={submitErrorRef}
               className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-800"
               role="alert"
             >
-              {submitError}
+              {visibleError}
             </div>
           )}
 
@@ -439,7 +448,8 @@ export default function ESignatureCapture({
           <button
             type="button"
             onClick={onCancel}
-            className="px-4 py-3 sm:py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+            disabled={submitting}
+            className="px-4 py-3 sm:py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
           >
             Cancel
           </button>
@@ -449,7 +459,7 @@ export default function ESignatureCapture({
             disabled={submitDisabled}
             className="px-4 py-3 sm:py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Submit Signature
+            {submitting ? 'Saving…' : 'Submit Signature'}
           </button>
         </div>
       </div>

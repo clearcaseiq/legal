@@ -461,6 +461,66 @@ router.get('/:id/command-center', optionalAuthMiddleware, async (req: AuthReques
   }
 })
 
+/** Signed e-sign documents (retainer, HIPAA, etc.) for the plaintiff Documents tab. */
+router.get('/:id/signed-documents', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params
+    const assessment = await prisma.assessment.findUnique({
+      where: { id },
+      select: {
+        userId: true,
+        leadSubmission: {
+          select: {
+            id: true,
+            documentEnvelopes: {
+              where: { status: 'signed' },
+              orderBy: { signedAt: 'desc' },
+              select: {
+                id: true,
+                documentType: true,
+                title: true,
+                status: true,
+                signedAt: true,
+                signedFilePath: true,
+                attorney: { select: { id: true, name: true } },
+              },
+            },
+          },
+        },
+      },
+    })
+
+    if (!assessment) {
+      return res.status(404).json({ error: 'Assessment not found' })
+    }
+    if (!assessment.userId || assessment.userId !== req.user!.id) {
+      return res.status(403).json({ error: 'Unauthorized to view this assessment' })
+    }
+
+    const documents = (assessment.leadSubmission?.documentEnvelopes || []).map((env) => ({
+      id: env.id,
+      documentType: env.documentType,
+      title: env.title,
+      status: env.status,
+      signedAt: env.signedAt,
+      downloadAvailable: Boolean(env.signedFilePath),
+      attorney: env.attorney,
+    }))
+
+    res.json({
+      assessmentId: id,
+      leadId: assessment.leadSubmission?.id || null,
+      documents,
+    })
+  } catch (error) {
+    logger.error('Failed to load plaintiff signed documents', {
+      error,
+      assessmentId: req.params.id,
+    })
+    res.status(500).json({ error: 'Failed to load signed documents' })
+  }
+})
+
 router.get('/:id/document-requests', authMiddleware, async (req: AuthRequest, res) => {
   try {
     const { id } = req.params
@@ -751,7 +811,7 @@ router.get('/', optionalAuthMiddleware, async (req: AuthRequest, res) => {
           orderBy: { createdAt: 'desc' },
           take: 1
         },
-        leadSubmission: { select: { id: true, submittedAt: true, status: true, lifecycleState: true } }
+        leadSubmission: { select: { id: true, submittedAt: true, status: true, lifecycleState: true } },
       }
     })
 
@@ -769,6 +829,7 @@ router.get('/', optionalAuthMiddleware, async (req: AuthRequest, res) => {
         // status (e.g. "Accepted") instead of the assessment report status (#147).
         lifecycleState: a.leadSubmission?.lifecycleState ?? null,
         leadStatus: a.leadSubmission?.status ?? null,
+        caseStage: a.caseStage ?? null,
         latest_prediction: latest ? {
           id: latest.id,
           model_version: latest.modelVersion,

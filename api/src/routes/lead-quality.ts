@@ -3,7 +3,11 @@ import { authMiddleware } from '../lib/auth'
 import { logger } from '../lib/logger'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma'
-import { getHeuristics } from '../lib/heuristics-config'
+import {
+  runAndPersistConflictCheck,
+  resolveConflictCheckAndCompleteTasks,
+  type ConflictPhase,
+} from '../lib/conflict-check'
 
 const router = Router()
 
@@ -159,26 +163,20 @@ router.post('/conflict-check', authMiddleware, async (req: any, res) => {
       return res.status(404).json({ error: 'Lead not found or access denied' })
     }
 
-    // Parse assessment facts to get case details
-    const facts = JSON.parse(lead.assessment.facts)
+    const facts = JSON.parse(lead.assessment.facts || '{}')
+    const phaseRaw = String(req.body?.phase || 'pre_acquire')
+    const phase: ConflictPhase = phaseRaw === 'post_acquire' ? 'post_acquire' : 'pre_acquire'
 
-    // Deterministic screen against the attorney's existing caseload (no simulated randomness)
-    const conflictCheck = await runConflictCheck(attorneyId, leadId, facts)
-
-    // Save conflict check result
-    const savedCheck = await prisma.conflictCheck.create({
-      data: {
-        attorneyId,
-        leadId,
-        conflictType: conflictCheck.conflictType,
-        conflictDetails: JSON.stringify(conflictCheck.details),
-        riskLevel: conflictCheck.riskLevel
-      }
+    const { saved, details } = await runAndPersistConflictCheck({
+      attorneyId,
+      leadId,
+      phase,
+      facts,
     })
 
     res.json({
-      conflictCheck: savedCheck,
-      details: conflictCheck
+      conflictCheck: saved,
+      details,
     })
   } catch (error: any) {
     logger.error('Failed to run conflict check', { error: error.message })
@@ -242,25 +240,15 @@ router.put('/conflict-checks/:checkId/resolve', authMiddleware, async (req: any,
     }
     const { resolutionNotes } = req.body
 
-    const conflictCheck = await prisma.conflictCheck.findFirst({
-      where: {
-        id: checkId,
-        attorneyId
-      }
+    const updated = await resolveConflictCheckAndCompleteTasks({
+      checkId,
+      attorneyId,
+      resolutionNotes,
     })
 
-    if (!conflictCheck) {
+    if (!updated) {
       return res.status(404).json({ error: 'Conflict check not found' })
     }
-
-    const updated = await prisma.conflictCheck.update({
-      where: { id: checkId },
-      data: {
-        isResolved: true,
-        resolutionNotes,
-        resolvedAt: new Date()
-      }
-    })
 
     res.json(updated)
   } catch (error: any) {
@@ -326,90 +314,6 @@ router.get('/evidence-checklist/template', authMiddleware, async (req: any, res)
 })
 
 // Helper functions
-
-const normalizeName = (value: unknown) => String(value || '').trim().toLowerCase()
-const normalizePhone = (value: unknown) => String(value || '').replace(/\D/g, '')
-
-function extractParties(facts: any) {
-  return {
-    plaintiffName: normalizeName(facts?.contact?.name || facts?.plaintiff?.name || facts?.name),
-    plaintiffEmail: normalizeName(facts?.contact?.email || facts?.email),
-    plaintiffPhone: normalizePhone(facts?.contact?.phone || facts?.phone),
-    opposingParty: normalizeName(facts?.opposingParty || facts?.defendant?.name || facts?.defendant),
-  }
-}
-
-/**
- * Deterministic preliminary conflict screen against the attorney's existing
- * caseload on this platform. This replaces the old random simulation: it only
- * flags conflicts supported by actual data, and the result is reproducible.
- */
-async function runConflictCheck(attorneyId: string, leadId: string, facts: any) {
-  const conflicts: Array<{ type: string; description: string; severity: string }> = []
-  let conflictType = 'none'
-  let riskLevel = 'low'
-
-  const incoming = extractParties(facts)
-
-  const heuristics = await getHeuristics()
-  const otherLeads = await prisma.leadSubmission.findMany({
-    where: {
-      assignedAttorneyId: attorneyId,
-      id: { not: leadId },
-    },
-    include: { assessment: true },
-    orderBy: { createdAt: 'desc' },
-    take: Math.max(1, heuristics.conflictCheck.lookbackCases),
-  })
-
-  for (const other of otherLeads) {
-    let otherFacts: any = {}
-    try {
-      otherFacts = JSON.parse(other.assessment?.facts || '{}')
-    } catch {
-      continue
-    }
-    const existing = extractParties(otherFacts)
-
-    // Adverse interest: this lead's opposing party is an existing client of the attorney
-    if (incoming.opposingParty && existing.plaintiffName && incoming.opposingParty === existing.plaintiffName) {
-      conflicts.push({
-        type: 'opposing_party',
-        description: `Opposing party "${facts?.opposingParty || facts?.defendant?.name || facts?.defendant}" matches an existing client on another matter`,
-        severity: 'high'
-      })
-      conflictType = 'adverse'
-      riskLevel = 'high'
-    }
-
-    // Same plaintiff already has another matter with this attorney
-    const sameEmail = incoming.plaintiffEmail && incoming.plaintiffEmail === existing.plaintiffEmail
-    const samePhone = incoming.plaintiffPhone && incoming.plaintiffPhone === existing.plaintiffPhone
-    if (sameEmail || samePhone) {
-      conflicts.push({
-        type: 'duplicate_party',
-        description: 'This plaintiff already has another matter assigned to you on the platform',
-        severity: 'medium'
-      })
-      if (conflictType === 'none') {
-        conflictType = 'duplicate_party'
-        riskLevel = 'medium'
-      }
-    }
-  }
-
-  return {
-    conflictType,
-    riskLevel,
-    details: {
-      conflicts,
-      scope: 'Preliminary automated screen against your leads on this platform only. Run your firm\'s full conflict check before engagement.',
-      casesScreened: otherLeads.length,
-      checkedAt: new Date().toISOString(),
-      attorneyId
-    }
-  }
-}
 
 function generateEvidenceChecklist(caseType: string) {
   const baseChecklist = [

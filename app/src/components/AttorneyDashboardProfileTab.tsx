@@ -176,7 +176,7 @@ export default function AttorneyDashboardProfileTab({
         return
       }
 
-      const apiUrl = getApiOrigin() || 'http://localhost:4000'
+      const apiUrl = getApiOrigin() || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:4000')
       const response = await fetch(`${apiUrl}${licenseStatus.licenseFileUrl}`, {
         headers: {
           Authorization: `Bearer ${token}`,

@@ -4,9 +4,10 @@ import { getCaseDashboard, getCaseDetails, getCaseTimeline, getCaseCommandCenter
 import { formatCurrency, formatDate } from '../lib/formatters'
 import { formatClaimType } from '../lib/claimTypes'
 import PlaintiffCaseCommandCenter from '../components/PlaintiffCaseCommandCenter'
+import InfoDisclosure from '../components/InfoDisclosure'
 import { useLanguage } from '../contexts/LanguageContext'
 import { 
-  Calendar, 
+  Calendar,
   MessageSquare, 
   FileText, 
   Clock, 
@@ -21,6 +22,15 @@ import {
   Video,
   MapPin
 } from 'lucide-react'
+
+const UPCOMING_APPOINTMENT_STATUSES = new Set(['SCHEDULED', 'CONFIRMED'])
+
+function isUpcomingAppointment(apt: { status?: string; scheduledAt?: string | Date }) {
+  if (!apt?.scheduledAt || !UPCOMING_APPOINTMENT_STATUSES.has(String(apt.status || '').toUpperCase())) {
+    return false
+  }
+  return new Date(apt.scheduledAt) > new Date()
+}
 
 interface CaseSummary {
   totalCases: number
@@ -196,17 +206,25 @@ export default function CaseTracker() {
             <DollarSign className="h-8 w-8 text-primary-600 mx-auto mt-2" />
           </div>
           
-          <div className="card text-center">
+          <Link
+            to="/dashboard?tab=attorney"
+            className="card text-center transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+            aria-label={t('caseTracker.upcomingAppointments')}
+          >
             <div className="text-2xl font-bold text-blue-600 mb-2">{summary.upcomingAppointments}</div>
             <div className="text-sm text-gray-600">{t('caseTracker.upcomingAppointments')}</div>
             <Calendar className="h-8 w-8 text-blue-600 mx-auto mt-2" />
-          </div>
+          </Link>
           
-          <div className="card text-center">
+          <Link
+            to="/messaging"
+            className="card text-center transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+            aria-label={t('caseTracker.pendingMessages')}
+          >
             <div className="text-2xl font-bold text-orange-600 mb-2">{summary.pendingMessages}</div>
             <div className="text-sm text-gray-600">{t('caseTracker.pendingMessages')}</div>
             <MessageSquare className="h-8 w-8 text-orange-600 mx-auto mt-2" />
-          </div>
+          </Link>
         </div>
       )}
 
@@ -297,13 +315,11 @@ export default function CaseTracker() {
                 )}
 
                 {/* Upcoming Appointments */}
-                {caseData.appointments.filter(apt => 
-                  apt.status === 'SCHEDULED' && new Date(apt.scheduledAt) > new Date()
-                ).length > 0 && (
+                {caseData.appointments.filter(isUpcomingAppointment).length > 0 && (
                   <div className="mb-4">
                     <h4 className="text-sm font-medium text-gray-900 mb-2">{t('caseTracker.upcomingAppointments')}</h4>
                     {caseData.appointments
-                      .filter(apt => apt.status === 'SCHEDULED' && new Date(apt.scheduledAt) > new Date())
+                      .filter(isUpcomingAppointment)
                       .slice(0, 2)
                       .map((apt) => (
                         <div key={apt.id} className="flex items-center text-sm text-gray-600 mb-1">
@@ -405,6 +421,12 @@ export default function CaseTracker() {
                         <p className="text-2xl font-bold text-primary-600 mt-1">
                           {Math.round((selectedCase.prediction.viability?.overall || 0) * 100)}%
                         </p>
+                        <InfoDisclosure
+                          caption={t('caseTracker.overallViabilityTipCaption')}
+                          detail={t('caseTracker.overallViabilityTipInfo')}
+                          moreLabel={t('caseTracker.moreInfo')}
+                          compact
+                        />
                       </div>
                       <div>
                         <label className="text-sm font-medium text-gray-500">{t('caseTracker.estimatedValue')}</label>
@@ -774,7 +796,7 @@ export default function CaseTracker() {
                         <div className="flex items-center">
                           <FileText className="h-4 w-4 mr-2 text-gray-500" />
                           <div>
-                            <p className="text-sm font-medium text-gray-900">{file.originalName || file.name}</p>
+                            <p className="text-sm font-medium text-gray-900">{file.originalName || file.filename || file.name}</p>
                             <p className="text-xs text-gray-500">{file.mimetype || t('caseTracker.documentFallback')}</p>
                           </div>
                         </div>
@@ -790,7 +812,7 @@ export default function CaseTracker() {
               {/* Action Buttons */}
               <div className="flex space-x-3 pt-4 border-t border-gray-200">
                 <Link
-                  to={`/results/${selectedCase.id}`}
+                  to={`/results/${selectedCase.id}?view=report`}
                   className="flex-1 inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-brand-600 hover:bg-brand-700"
                 >
                   {t('caseTracker.viewFullAssessment')}
@@ -872,25 +894,6 @@ export default function CaseTracker() {
           </div>
         </div>
       )}
-
-      {/* Quick Actions */}
-      <div className="bg-primary-50 rounded-lg p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">{t('caseTracker.quickActions')}</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Link to="/assess" className="btn-primary">
-            <FileText className="h-4 w-4 mr-2" />
-            {t('caseTracker.startNewAssessment')}
-          </Link>
-          <Link to="/attorneys-enhanced" state={{ from: '/case-tracker' }} className="btn-outline">
-            <Users className="h-4 w-4 mr-2" />
-            {t('caseTracker.findAttorneys')}
-          </Link>
-          <Link to="/financing" className="btn-outline">
-            <DollarSign className="h-4 w-4 mr-2" />
-            {t('caseTracker.exploreFunding')}
-          </Link>
-        </div>
-      </div>
     </div>
   )
 }

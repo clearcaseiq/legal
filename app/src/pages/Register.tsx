@@ -119,6 +119,9 @@ export default function Register() {
       localStorage.setItem('auth_token', response.token)
       localStorage.setItem('user', JSON.stringify(response.user))
       localStorage.setItem('auth_role', 'plaintiff')
+      localStorage.removeItem('attorney')
+      localStorage.removeItem('firm_member')
+      localStorage.removeItem('admin_capabilities')
       resetCachedPlaintiffSessionSummary()
       updateCachedPlaintiffUser(response.user)
 
@@ -177,6 +180,14 @@ export default function Register() {
               ? undefined
               : new Date(Date.now() + 2 * 365 * 24 * 60 * 60 * 1000).toISOString(),
         })
+        // Keep the intake / Supporting Documents client gate in sync with registration.
+        try {
+          if (consent.consentType === 'hipaa') localStorage.setItem('consent_read_hipaa', 'true')
+          if (consent.consentType === 'terms') localStorage.setItem('consent_read_tos', 'true')
+          if (consent.consentType === 'privacy') localStorage.setItem('consent_read_privacy', 'true')
+        } catch {
+          /* ignore quota / private mode */
+        }
       }
       navigate(claimedAssessmentId ? `/dashboard?case=${encodeURIComponent(claimedAssessmentId)}` : redirectTo)
     } catch (error: unknown) {
@@ -248,10 +259,6 @@ export default function Register() {
             {t('auth.alreadyHaveAccount')}{' '}
             <Link to="/login" className="font-medium text-brand-600 hover:text-brand-500">
               {t('auth.signIn')}
-            </Link>
-            {' '}•{' '}
-            <Link to="/attorney-register" className="font-medium text-brand-600 hover:text-brand-500">
-              {t('auth.attorneySignUp')}
             </Link>
           </p>
         )}

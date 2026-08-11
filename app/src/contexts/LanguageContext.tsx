@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   DEFAULT_LANGUAGE,
   ensureLanguageResources,
@@ -9,6 +9,8 @@ import {
   type LanguageCode,
   type TranslateParams,
 } from '../i18n'
+import { getStoredRole, getStoredUser, hasValidAuthToken } from '../lib/auth'
+import { getCurrentUser, updateProfile } from '../lib/api'
 
 type LanguageContextValue = {
   language: LanguageCode
@@ -17,6 +19,22 @@ type LanguageContextValue = {
 }
 
 const LanguageContext = createContext<LanguageContextValue | null>(null)
+
+function normalizePreferredLanguage(value?: string | null): LanguageCode | null {
+  if (!value) return null
+  const lower = value.toLowerCase()
+  if (lower.startsWith('es')) return 'es'
+  if (lower.startsWith('zh')) return 'zh'
+  if (lower.startsWith('en')) return 'en'
+  return null
+}
+
+function persistPreferredLanguageLocally(language: LanguageCode) {
+  if (typeof window === 'undefined') return
+  const user = getStoredUser<Record<string, unknown>>('user')
+  if (!user) return
+  localStorage.setItem('user', JSON.stringify({ ...user, preferredLanguage: language }))
+}
 
 export function LanguageProvider({
   children,
@@ -40,9 +58,18 @@ export function LanguageProvider({
   )
   const [adopted, setAdopted] = useState(!pendingLanguage)
   const [resourceVersion, setResourceVersion] = useState(0)
+  const accountSyncedRef = useRef(false)
 
   const setLanguage = useCallback((nextLanguage: LanguageCode) => {
     setLanguageState(nextLanguage)
+    // Logged-in plaintiffs persist preferred language on the account so email /
+    // chat translation can use it even when they aren't actively browsing.
+    if (hasValidAuthToken() && getStoredRole() === 'plaintiff') {
+      persistPreferredLanguageLocally(nextLanguage)
+      void updateProfile({ preferredLanguage: nextLanguage }).catch(() => {
+        // Local UI language still updates; account sync can retry on next change.
+      })
+    }
   }, [])
 
   useEffect(() => {
@@ -50,6 +77,33 @@ export function LanguageProvider({
     if (pendingLanguage) setLanguageState(pendingLanguage)
     setAdopted(true)
   }, [adopted, pendingLanguage])
+
+  useEffect(() => {
+    if (!adopted || accountSyncedRef.current) return
+    if (!hasValidAuthToken() || getStoredRole() !== 'plaintiff') {
+      accountSyncedRef.current = true
+      return
+    }
+
+    let cancelled = false
+    void getCurrentUser()
+      .then((user) => {
+        if (cancelled) return
+        accountSyncedRef.current = true
+        const preferred = normalizePreferredLanguage(user?.preferredLanguage)
+        if (preferred) {
+          setLanguageState(preferred)
+          persistPreferredLanguageLocally(preferred)
+        }
+      })
+      .catch(() => {
+        accountSyncedRef.current = true
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [adopted])
 
   useEffect(() => {
     if (!adopted) return

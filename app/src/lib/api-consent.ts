@@ -39,7 +39,12 @@ export async function fetchPublicConsentTemplate(type: string): Promise<PublicCo
 }
 
 export async function getPlaintiffConsentCompliance(userId: string): Promise<PlaintiffConsentCompliance> {
-  const response = await api.get(`/v1/consent/status/${userId}`)
+  // Cache-bust: a cached 304 after POST /consent left the complete-consent screen
+  // thinking agreements were still incomplete ("Submit Signature" appeared stuck).
+  const response = await api.get(`/v1/consent/status/${userId}`, {
+    params: { _: Date.now() },
+    headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
+  })
   const body = response.data as { success?: boolean; data?: PlaintiffConsentCompliance }
   const data = body.data
   if (!data) {

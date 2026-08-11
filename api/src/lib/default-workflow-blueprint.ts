@@ -46,8 +46,9 @@ export const DEFAULT_PI_WORKFLOW: {
         {
           name: 'Case Opening',
           steps: [
-            { title: 'Confirm signed representation agreement', stepType: 'document', assigneeRole: 'paralegal', dueOffsetDays: 2, required: true },
-            { title: 'Open matter & run conflict check', stepType: 'task', assigneeRole: 'case_manager', dueOffsetDays: 1, required: true },
+            { title: 'Open matter & run conflict check', stepType: 'task', assigneeRole: 'case_manager', dueOffsetDays: 0, required: true },
+            { title: 'Send retainer to client', stepType: 'document', assigneeRole: 'attorney', dueOffsetDays: 1, required: true },
+            { title: 'Confirm signed representation agreement', stepType: 'document', assigneeRole: 'attorney', dueOffsetDays: 2, required: true },
             { title: 'Send client welcome packet', stepType: 'task', assigneeRole: 'intake_specialist', dueOffsetDays: 3 },
           ],
         },

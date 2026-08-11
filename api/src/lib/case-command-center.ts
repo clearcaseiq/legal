@@ -12,6 +12,10 @@ import {
   type TreatmentPosture,
 } from './demand-readiness'
 import { ensureAssessmentPrediction } from './prediction-materializer'
+import { syncAllQuestionAnswersToCaseFacts } from './question-facts-sync'
+import { getLiabilityRecord } from './liability-record'
+import { underwriteCase } from './underwriting-engine'
+import { logger } from './logger'
 
 type Priority = 'high' | 'medium' | 'low'
 
@@ -503,6 +507,20 @@ export function buildCaseAwareMessageTemplates(summary: CaseCommandCenter): Case
   return templates
 }
 
+/** Parse facts.insurance policy limit strings like "100/300" or "250000" into a number. */
+function policyLimitFromFacts(facts: Record<string, any>): number | null {
+  const raw = facts?.insurance?.policy_limit ?? facts?.insurance?.defendant_coverage_limits ?? facts?.insurance?.policyLimit
+  if (raw == null || raw === '') return null
+  const s = String(raw).trim()
+  const split = s.match(/\b(\d{2,3})\s*\/\s*(\d{2,3})\b/)
+  if (split) {
+    const perPerson = Number(split[1]) * 1000
+    return Number.isFinite(perPerson) && perPerson > 0 ? perPerson : null
+  }
+  const n = Number(String(s).replace(/[$,]/g, ''))
+  return Number.isFinite(n) && n > 0 ? n : null
+}
+
 export async function buildCaseCommandCenter(params: {
   assessmentId: string
   leadId?: string | null
@@ -512,6 +530,9 @@ export async function buildCaseCommandCenter(params: {
   // below, so a case that has never been valued would otherwise render at $0 on
   // the very load that fixes it.
   await ensureAssessmentPrediction(params.assessmentId)
+  // Fold Intelligent Question answers into facts before valuing so Case Metrics
+  // move with the same inputs as AI Case Summary.
+  await syncAllQuestionAnswersToCaseFacts(params.assessmentId).catch(() => undefined)
   const assessment = await prisma.assessment.findUnique({
     where: { id: params.assessmentId },
     select: {
@@ -540,6 +561,7 @@ export async function buildCaseCommandCenter(params: {
           bands: true,
         },
       },
+      evidenceFiles: { select: { category: true, originalName: true, aiClassification: true } },
     },
   })
 
@@ -549,7 +571,7 @@ export async function buildCaseCommandCenter(params: {
 
   const facts = parseJson<Record<string, any>>(assessment.facts, {})
   const leadId = params.leadId ?? assessment.leadSubmission?.id ?? null
-  const [casePreparation, chronology, evidenceFiles, appointments, insuranceDetails, negotiationEvents, latestContact] = await Promise.all([
+  const [casePreparation, chronology, evidenceFiles, appointments, insuranceDetails, negotiationEvents, latestContact, liabilitySynced] = await Promise.all([
     computeCasePreparation(assessment.id),
     buildMedicalChronology(assessment.id),
     prisma.evidenceFile.findMany({
@@ -578,20 +600,58 @@ export async function buildCaseCommandCenter(params: {
           orderBy: { createdAt: 'desc' },
         })
       : Promise.resolve(null),
+    getLiabilityRecord(assessment.id).catch(() => null),
   ])
+
+  // Keep Overview / underwriting on the same Liability-tab strength when a row exists.
+  if (liabilitySynced?.id) {
+    facts.liabilityRecord = liabilitySynced
+  }
 
   const prediction = assessment.predictions[0]
   const viability = parseJson<Record<string, number>>(prediction?.viability, {})
-  const bands = parseJson<{ p25?: number; median?: number; p75?: number }>(prediction?.bands, {})
-  const liabilityScore = viability.liability ?? assessment.leadSubmission?.liabilityScore ?? 0.5
+  const storedBands = parseJson<{ p25?: number; median?: number; p75?: number }>(prediction?.bands, {})
+  // Prefer live underwriting (same engine as AI Case Summary) so damages/insurance
+  // answers move Case Metrics without waiting for a full re-predict.
+  let bands = storedBands
+  let liveLiabilityScore: number | null = null
+  try {
+    const underwriting = underwriteCase({
+      id: assessment.id,
+      claimType: assessment.claimType,
+      venueState: assessment.venueState,
+      venueCounty: assessment.venueCounty,
+      facts,
+      evidenceFiles: (assessment as any).evidenceFiles?.length ? (assessment as any).evidenceFiles : evidenceFiles,
+    })
+    if (underwriting?.settlement?.expected || underwriting?.settlement?.high) {
+      bands = {
+        p25: underwriting.settlement.low,
+        median: underwriting.settlement.expected,
+        p75: underwriting.settlement.high,
+      }
+      liveLiabilityScore = underwriting.scores.liability / 100
+    }
+  } catch (error: any) {
+    logger.warn('Live underwriting failed in command center; using stored prediction bands', {
+      assessmentId: params.assessmentId,
+      error: error?.message || String(error),
+    })
+  }
+  const recordStrength = Number(facts?.liabilityRecord?.strength)
+  const liabilityScore =
+    Number.isFinite(recordStrength)
+      ? recordStrength / 100
+      : liveLiabilityScore ?? viability.liability ?? assessment.leadSubmission?.liabilityScore ?? 0.5
   const readinessScore = casePreparation.readinessScore || 0
   const nextUpcomingConsult = appointments.find((item) => item.status === 'SCHEDULED' && new Date(item.scheduledAt) > new Date())
   const latestDemand = negotiationEvents.find((item) => item.eventType === 'demand')?.amount ?? null
   const hasNegotiation = negotiationEvents.length > 0
-  const policyLimit = insuranceDetails.reduce<number | null>((max, item) => {
+  const dbPolicyLimit = insuranceDetails.reduce<number | null>((max, item) => {
     const limit = item.policyLimit ?? 0
     return limit > (max || 0) ? limit : max
   }, null)
+  const policyLimit = policyLimitFromFacts(facts) ?? dbPolicyLimit
   const stage = buildStage({
     leadStatus: assessment.leadSubmission?.status,
     readinessScore,

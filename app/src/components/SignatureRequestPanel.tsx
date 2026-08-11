@@ -9,6 +9,7 @@
  * envelopes are polled so status stays live even without provider webhooks.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import {
   PenLine,
   RefreshCw,
@@ -24,22 +25,31 @@ import {
   Check,
   X,
   Clock,
+  Pencil,
+  Plus,
 } from 'lucide-react'
 import { EsignProviderPicker } from './EsignProviderPicker'
+import ModalPortal from './ModalPortal'
+import { FirmTemplateForm } from '../features/firm/FirmTemplateForm'
+import { getFirmTemplates, type FirmTemplate } from '../lib/api'
 import {
   createHipaaAuthorization,
+  createPoliceReportAuthorization,
   createRetainerAgreement,
   correctSignerEmail,
   downloadSignedEnvelope,
   getEsignProviders,
   getSigningDefaults,
+  listCaseFirmTemplates,
   listEnvelopes,
   previewDocument,
   refreshEnvelopes,
   remindEnvelope,
+  sendCaseFirmTemplate,
   sendOnboardingPacket,
   uploadFeeAgreement,
   voidEnvelope,
+  type CaseFirmTemplate,
   type DocumentEnvelope,
   type EnvelopeStatus,
   type EsignProviderMeta,
@@ -48,8 +58,12 @@ import {
 const DOC_TYPES = [
   { id: 'hipaa_authorization', label: 'HIPAA authorization' },
   { id: 'retainer', label: 'Retainer agreement' },
+  { id: 'police_report_authorization', label: 'Police report authorization (CA)' },
   { id: 'fee_agreement', label: 'Fee agreement (upload PDF)' },
+  { id: 'firm_template', label: 'Firm template' },
 ]
+
+type RetainerSource = 'platform' | 'firm' | 'upload'
 
 const STATUS_STYLES: Record<EnvelopeStatus, string> = {
   draft: 'bg-slate-100 text-slate-600 ring-slate-200',
@@ -83,6 +97,190 @@ function daysSince(dateStr?: string | null): number | null {
   const ms = Date.now() - new Date(dateStr).getTime()
   if (!Number.isFinite(ms)) return null
   return Math.floor(ms / 86400000)
+}
+
+function FirmTemplatePicker({
+  templates,
+  value,
+  onChange,
+  onLibraryChanged,
+  labelCls,
+  inputCls,
+  emptyHint,
+}: {
+  templates: CaseFirmTemplate[]
+  value: string
+  onChange: (id: string) => void
+  /** Refresh case-scoped template list after create/edit. */
+  onLibraryChanged: (preferredId?: string) => void | Promise<void>
+  labelCls: string
+  inputCls: string
+  emptyHint: string
+}) {
+  const [editor, setEditor] = useState<'new' | FirmTemplate | null>(null)
+  const [categories, setCategories] = useState<Array<{ key: string; label: string }>>([])
+  const [canManage, setCanManage] = useState(false)
+  const [manageChecked, setManageChecked] = useState(false)
+  const [opening, setOpening] = useState(false)
+  const [openError, setOpenError] = useState<string | null>(null)
+
+  const selected = templates.find((t) => t.id === value) || templates[0] || null
+
+  const ensureManageMeta = async () => {
+    if (manageChecked && categories.length) return { canManage, categories }
+    const data = await getFirmTemplates()
+    setCanManage(Boolean(data.canManage))
+    setCategories(data.categories || [])
+    setManageChecked(true)
+    return { canManage: Boolean(data.canManage), categories: data.categories || [] }
+  }
+
+  const openEditor = async (mode: 'edit' | 'new') => {
+    setOpenError(null)
+    setOpening(true)
+    try {
+      const meta = await ensureManageMeta()
+      if (!meta.canManage) {
+        setOpenError('Your firm role cannot edit templates. Ask a firm admin, or open Firm Dashboard → Templates.')
+        return
+      }
+      if (mode === 'new') {
+        setEditor('new')
+        return
+      }
+      if (!selected) {
+        setOpenError('Choose a template to edit.')
+        return
+      }
+      const data = await getFirmTemplates()
+      const full = data.templates.find((t) => t.id === selected.id)
+      if (!full) {
+        setOpenError('Template not found in the firm library. It may have been deleted.')
+        return
+      }
+      setEditor(full)
+    } catch {
+      setOpenError('Could not open the template editor.')
+    } finally {
+      setOpening(false)
+    }
+  }
+
+  const manageActions = (
+    <div className="flex flex-wrap items-center gap-2">
+      {selected ? (
+        <button
+          type="button"
+          onClick={() => openEditor('edit')}
+          disabled={opening}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+        >
+          <Pencil className="h-3.5 w-3.5" />
+          {opening ? 'Opening…' : 'Edit template'}
+        </button>
+      ) : null}
+      <button
+        type="button"
+        onClick={() => openEditor('new')}
+        disabled={opening}
+        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+      >
+        <Plus className="h-3.5 w-3.5" />
+        New template
+      </button>
+      <Link
+        to="/firm-dashboard?tab=templates"
+        className="text-xs font-medium text-brand-700 hover:underline"
+      >
+        Firm Dashboard → Templates
+      </Link>
+    </div>
+  )
+
+  return (
+    <div className="space-y-2">
+      {templates.length ? (
+        <>
+          <div>
+            <label className={labelCls}>Firm template</label>
+            <select
+              value={value || selected?.id || ''}
+              onChange={(e) => onChange(e.target.value)}
+              className={inputCls}
+            >
+              {templates.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                  {t.category ? ` · ${t.category}` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+          {selected?.description ? <p className="text-xs text-slate-500">{selected.description}</p> : null}
+          <p className="text-xs text-slate-400">
+            {selected?.isPdf
+              ? `Uses attached PDF${selected.fileName ? ` (${selected.fileName})` : ''}.`
+              : 'Renders the template body to a PDF with case merge fields filled in.'}
+          </p>
+        </>
+      ) : (
+        <p className="text-sm text-amber-700">{emptyHint}</p>
+      )}
+
+      {manageActions}
+      {openError ? <p className="text-xs text-rose-600">{openError}</p> : null}
+
+      {editor && (
+        <ModalPortal>
+          <div
+            className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/40 p-4"
+            onClick={() => setEditor(null)}
+          >
+            <div className="flex min-h-full items-center justify-center">
+              <div
+                className="flex max-h-[calc(100vh-2rem)] w-full max-w-2xl flex-col overflow-y-auto rounded-2xl bg-white shadow-xl"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-5 py-4">
+                  <h3 className="text-base font-semibold text-slate-900">
+                    {editor === 'new' ? 'New firm template' : 'Edit firm template'}
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => setEditor(null)}
+                    className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                    aria-label="Close"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+                <div className="p-5">
+                  <FirmTemplateForm
+                    key={editor === 'new' ? 'new' : editor.id}
+                    value={editor === 'new' ? null : editor}
+                    categories={categories}
+                    onCancel={() => setEditor(null)}
+                    onSaved={async (saved) => {
+                      // Keep editor open after create so the attorney can attach a PDF.
+                      if (editor === 'new') {
+                        setEditor(saved)
+                      } else {
+                        setEditor(null)
+                      }
+                      await onLibraryChanged(saved.id)
+                    }}
+                    onUpdated={async (updated) => {
+                      await onLibraryChanged(updated.id)
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        </ModalPortal>
+      )}
+    </div>
+  )
 }
 
 function fmtDate(dateStr?: string | null): string {
@@ -141,12 +339,20 @@ export default function SignatureRequestPanel({
   const [refreshing, setRefreshing] = useState(false)
 
   const [documentType, setDocumentType] = useState(initialDocumentType)
+  const [retainerSource, setRetainerSource] = useState<RetainerSource>('platform')
+  const [firmTemplates, setFirmTemplates] = useState<CaseFirmTemplate[]>([])
+  const [firmTemplateId, setFirmTemplateId] = useState('')
   const [provider, setProvider] = useState<string | null>(null)
   const [signerName, setSignerName] = useState(defaultSignerName)
   const [signerEmail, setSignerEmail] = useState(defaultSignerEmail)
   const [recordsCustodian, setRecordsCustodian] = useState('')
   const [recordsDateRange, setRecordsDateRange] = useState('')
   const [clientDob, setClientDob] = useState('')
+  // Police report authorization (CA) — agency / report identifiers when known.
+  const [agencyName, setAgencyName] = useState('')
+  const [reportNumber, setReportNumber] = useState('')
+  const [incidentDate, setIncidentDate] = useState('')
+  const [incidentVenue, setIncidentVenue] = useState('')
   // Retainer-specific fee terms (firm/attorney prefilled from firm defaults).
   const [firmName, setFirmName] = useState('')
   const [attorneyName, setAttorneyName] = useState('')
@@ -175,15 +381,42 @@ export default function SignatureRequestPanel({
 
   const isHipaa = documentType === 'hipaa_authorization'
   const isRetainer = documentType === 'retainer'
+  const isPoliceAuth = documentType === 'police_report_authorization'
   const isFee = documentType === 'fee_agreement'
-  const canPreview = isHipaa || isRetainer
+  const isFirmTemplate = documentType === 'firm_template'
+  const usesFirmTemplate = isFirmTemplate || (isRetainer && retainerSource === 'firm')
+  const isUploadDoc = isFee || (isRetainer && retainerSource === 'upload')
+  const canPreview =
+    (isHipaa || isPoliceAuth || (isRetainer && retainerSource === 'platform')) && !usesFirmTemplate
+
+  const selectableFirmTemplates = useMemo(() => {
+    if (isRetainer && retainerSource === 'firm') {
+      return firmTemplates.filter(
+        (t) => t.suggestedDocumentType === 'retainer' || /retainer|contingency|representation/i.test(t.name),
+      )
+    }
+    return firmTemplates
+  }, [firmTemplates, isRetainer, retainerSource])
+
+  const selectedFirmTemplate = useMemo(
+    () => selectableFirmTemplates.find((t) => t.id === firmTemplateId) || null,
+    [selectableFirmTemplates, firmTemplateId],
+  )
 
   // An already-open envelope of the same type (not yet signed/terminal) — sending
   // another would create a duplicate signature request for the client.
-  const outstanding = useMemo(
-    () => envelopes.find((e) => e.documentType === documentType && OPEN_STATUSES.includes(e.status)),
-    [envelopes, documentType]
-  )
+  const outstanding = useMemo(() => {
+    if (usesFirmTemplate && selectedFirmTemplate) {
+      return envelopes.find(
+        (e) =>
+          OPEN_STATUSES.includes(e.status) &&
+          (e.title === selectedFirmTemplate.name ||
+            e.documentType === selectedFirmTemplate.suggestedDocumentType),
+      )
+    }
+    const typeKey = isFirmTemplate ? 'other' : documentType
+    return envelopes.find((e) => e.documentType === typeKey && OPEN_STATUSES.includes(e.status))
+  }, [envelopes, documentType, usesFirmTemplate, selectedFirmTemplate, isFirmTemplate])
 
   const hasOpen = useMemo(() => envelopes.some((e) => OPEN_STATUSES.includes(e.status)), [envelopes])
 
@@ -214,13 +447,15 @@ export default function SignatureRequestPanel({
 
   const load = useCallback(async () => {
     try {
-      const [prov, envs, defaults] = await Promise.all([
+      const [prov, envs, defaults, firmTpl] = await Promise.all([
         getEsignProviders(),
         listEnvelopes(leadId),
         getSigningDefaults(leadId).catch(() => null),
+        listCaseFirmTemplates(leadId).catch(() => ({ templates: [] as CaseFirmTemplate[], lawFirmId: null })),
       ])
       setProviders(prov)
       setEnvelopes(envs)
+      setFirmTemplates(Array.isArray(firmTpl?.templates) ? firmTpl.templates : [])
       if (defaults) {
         if (defaults.firmName) setFirmName((v) => v || defaults.firmName || '')
         if (defaults.attorneyName) setAttorneyName((v) => v || defaults.attorneyName || '')
@@ -234,6 +469,33 @@ export default function SignatureRequestPanel({
       setLoading(false)
     }
   }, [leadId])
+
+  const refreshFirmTemplates = useCallback(
+    async (preferredId?: string) => {
+      try {
+        const firmTpl = await listCaseFirmTemplates(leadId)
+        const next = Array.isArray(firmTpl?.templates) ? firmTpl.templates : []
+        setFirmTemplates(next)
+        if (preferredId && next.some((t) => t.id === preferredId)) {
+          setFirmTemplateId(preferredId)
+        }
+      } catch {
+        /* keep existing list */
+      }
+    },
+    [leadId],
+  )
+
+  // Keep firm template selection valid as the filtered list changes.
+  useEffect(() => {
+    if (!selectableFirmTemplates.length) {
+      setFirmTemplateId('')
+      return
+    }
+    if (!selectableFirmTemplates.some((t) => t.id === firmTemplateId)) {
+      setFirmTemplateId(selectableFirmTemplates[0].id)
+    }
+  }, [selectableFirmTemplates, firmTemplateId])
 
   useEffect(() => {
     load()
@@ -312,8 +574,16 @@ export default function SignatureRequestPanel({
       setError('Client name and email are required.')
       return
     }
-    if (isFee && !feeFile) {
-      setError('Attach the fee-agreement PDF to send.')
+    if (usesFirmTemplate && !firmTemplateId) {
+      setError(
+        selectableFirmTemplates.length
+          ? 'Choose a firm template to send.'
+          : 'No firm templates are available. Add one under Firm Dashboard → Templates.',
+      )
+      return
+    }
+    if (isUploadDoc && !feeFile) {
+      setError(isRetainer ? 'Attach your retainer PDF to send.' : 'Attach the fee-agreement PDF to send.')
       return
     }
     if (duplicateGuard()) return
@@ -321,7 +591,17 @@ export default function SignatureRequestPanel({
     setSubmitting(true)
     try {
       let envelope: DocumentEnvelope
-      if (isRetainer) {
+      if (usesFirmTemplate) {
+        envelope = await sendCaseFirmTemplate(leadId, firmTemplateId, {
+          signerName: signerName.trim(),
+          signerEmail: signerEmail.trim(),
+          title: selectedFirmTemplate?.name,
+          provider: provider ?? undefined,
+          documentType: isRetainer
+            ? 'retainer'
+            : selectedFirmTemplate?.suggestedDocumentType || 'other',
+        })
+      } else if (isRetainer && retainerSource === 'platform') {
         envelope = await createRetainerAgreement(leadId, {
           signerName: signerName.trim(),
           signerEmail: signerEmail.trim(),
@@ -341,12 +621,26 @@ export default function SignatureRequestPanel({
           recordsDateRange: recordsDateRange.trim() || undefined,
           provider: provider ?? undefined,
         })
+      } else if (isPoliceAuth) {
+        envelope = await createPoliceReportAuthorization(leadId, {
+          signerName: signerName.trim(),
+          signerEmail: signerEmail.trim(),
+          clientDob: clientDob.trim() || undefined,
+          firmName: firmName.trim() || undefined,
+          attorneyName: attorneyName.trim() || undefined,
+          agencyName: agencyName.trim() || undefined,
+          reportNumber: reportNumber.trim() || undefined,
+          incidentDate: incidentDate.trim() || undefined,
+          incidentVenue: incidentVenue.trim() || undefined,
+          provider: provider ?? undefined,
+        })
       } else {
         envelope = await uploadFeeAgreement(leadId, feeFile as File, {
           signerName: signerName.trim(),
           signerEmail: signerEmail.trim(),
           title: feeTitle.trim() || undefined,
           provider: provider ?? undefined,
+          documentType: isRetainer ? 'retainer' : 'fee_agreement',
         })
         setFeeFile(null)
         setFeeTitle('')
@@ -409,7 +703,11 @@ export default function SignatureRequestPanel({
     setPreviewLoading(true)
     try {
       const url = await previewDocument(leadId, {
-        documentType: isRetainer ? 'retainer' : 'hipaa_authorization',
+        documentType: isRetainer
+          ? 'retainer'
+          : isPoliceAuth
+            ? 'police_report_authorization'
+            : 'hipaa_authorization',
         signerName: signerName.trim(),
         firmName: firmName.trim() || undefined,
         attorneyName: attorneyName.trim() || undefined,
@@ -419,6 +717,10 @@ export default function SignatureRequestPanel({
         clientDob: clientDob.trim() || undefined,
         recordsCustodian: recordsCustodian.trim() || undefined,
         recordsDateRange: recordsDateRange.trim() || undefined,
+        agencyName: agencyName.trim() || undefined,
+        reportNumber: reportNumber.trim() || undefined,
+        incidentDate: incidentDate.trim() || undefined,
+        incidentVenue: incidentVenue.trim() || undefined,
       })
       setPreviewUrl(url)
     } catch {
@@ -598,8 +900,120 @@ export default function SignatureRequestPanel({
           </div>
         )}
 
+        {isPoliceAuth && (
+          <div className="space-y-4">
+            <p className="text-xs text-slate-500">
+              Client permission for counsel to obtain a California police / traffic collision / incident
+              report (Vehicle Code § 20012 context). Attach the signed copy when the agency asks for
+              client authorization; you may still need the agency’s own form and attorney declaration.
+            </p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className={labelCls}>Firm name</label>
+                <input
+                  value={firmName}
+                  onChange={(e) => setFirmName(e.target.value)}
+                  placeholder="Your firm"
+                  className={inputCls}
+                />
+              </div>
+              <div>
+                <label className={labelCls}>Attorney of record</label>
+                <input
+                  value={attorneyName}
+                  onChange={(e) => setAttorneyName(e.target.value)}
+                  placeholder="Attorney name"
+                  className={inputCls}
+                />
+              </div>
+              <div>
+                <label className={labelCls}>Agency (CHP / PD / sheriff)</label>
+                <input
+                  value={agencyName}
+                  onChange={(e) => setAgencyName(e.target.value)}
+                  placeholder="e.g. CHP – Golden Gate Division"
+                  className={inputCls}
+                />
+              </div>
+              <div>
+                <label className={labelCls}>Report / DR number</label>
+                <input
+                  value={reportNumber}
+                  onChange={(e) => setReportNumber(e.target.value)}
+                  placeholder="If known"
+                  className={inputCls}
+                />
+              </div>
+              <div>
+                <label className={labelCls}>Incident date</label>
+                <input
+                  value={incidentDate}
+                  onChange={(e) => setIncidentDate(e.target.value)}
+                  placeholder="e.g. 2026-03-15"
+                  className={inputCls}
+                />
+              </div>
+              <div>
+                <label className={labelCls}>Venue (city / county)</label>
+                <input
+                  value={incidentVenue}
+                  onChange={(e) => setIncidentVenue(e.target.value)}
+                  placeholder="e.g. Los Angeles County"
+                  className={inputCls}
+                />
+              </div>
+              <div>
+                <label className={labelCls}>Client date of birth</label>
+                <input
+                  value={clientDob}
+                  onChange={(e) => setClientDob(e.target.value)}
+                  placeholder="Optional"
+                  className={inputCls}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
         {isRetainer && (
           <div className="space-y-4">
+            <div>
+              <label className={labelCls}>Retainer source</label>
+              <div className="mt-1 flex flex-col gap-1.5 text-sm text-slate-700">
+                <label className="inline-flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="retainer-source"
+                    checked={retainerSource === 'platform'}
+                    onChange={() => setRetainerSource('platform')}
+                    className="h-4 w-4 border-slate-300 text-brand-600 focus:ring-brand-400"
+                  />
+                  ClearCaseIQ template
+                </label>
+                <label className="inline-flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="retainer-source"
+                    checked={retainerSource === 'firm'}
+                    onChange={() => setRetainerSource('firm')}
+                    className="h-4 w-4 border-slate-300 text-brand-600 focus:ring-brand-400"
+                  />
+                  Firm template library
+                </label>
+                <label className="inline-flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="retainer-source"
+                    checked={retainerSource === 'upload'}
+                    onChange={() => setRetainerSource('upload')}
+                    className="h-4 w-4 border-slate-300 text-brand-600 focus:ring-brand-400"
+                  />
+                  Upload my own retainer PDF
+                </label>
+              </div>
+            </div>
+            {retainerSource === 'platform' && (
+            <div className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <label className={labelCls}>Firm name</label>
@@ -653,12 +1067,37 @@ export default function SignatureRequestPanel({
                 className={inputCls}
               />
             </div>
+            </div>
+            )}
+            {retainerSource === 'firm' && (
+              <FirmTemplatePicker
+                templates={selectableFirmTemplates}
+                value={firmTemplateId}
+                onChange={setFirmTemplateId}
+                onLibraryChanged={refreshFirmTemplates}
+                labelCls={labelCls}
+                inputCls={inputCls}
+                emptyHint="No retainer templates in your firm library yet. Create one here or in Firm Dashboard → Templates."
+              />
+            )}
           </div>
         )}
 
-        {isFee && (
+        {isFirmTemplate && (
+          <FirmTemplatePicker
+            templates={selectableFirmTemplates}
+            value={firmTemplateId}
+            onChange={setFirmTemplateId}
+            onLibraryChanged={refreshFirmTemplates}
+            labelCls={labelCls}
+            inputCls={inputCls}
+            emptyHint="No active firm templates yet. Create one here or in Firm Dashboard → Templates."
+          />
+        )}
+
+        {isUploadDoc && (
           <div>
-            <label className={labelCls}>Fee-agreement PDF</label>
+            <label className={labelCls}>{isRetainer ? 'Retainer PDF' : 'Fee-agreement PDF'}</label>
             <div className="flex items-center gap-3">
               <input
                 ref={feeInputRef}
@@ -672,7 +1111,7 @@ export default function SignatureRequestPanel({
               <input
                 value={feeTitle}
                 onChange={(e) => setFeeTitle(e.target.value)}
-                placeholder={`Title (default: Fee agreement — ${signerName || 'client'})`}
+                placeholder={`Title (default: ${isRetainer ? 'Retainer' : 'Fee'} agreement — ${signerName || 'client'})`}
                 className={`${inputCls} mt-2`}
               />
             )}
@@ -688,12 +1127,17 @@ export default function SignatureRequestPanel({
         <div className="flex flex-wrap items-center gap-3 pt-1">
           <button
             onClick={handleSend}
-            disabled={submitting || (!isFee && available.length === 0)}
+            disabled={
+              submitting ||
+              available.length === 0 ||
+              (usesFirmTemplate && !firmTemplateId) ||
+              (isUploadDoc && !feeFile)
+            }
             className={`inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-lg disabled:opacity-50 ${
               confirmResend ? 'bg-amber-600 hover:bg-amber-700' : 'bg-brand-600 hover:bg-brand-700'
             }`}
           >
-            {isFee ? <Upload className="h-4 w-4" /> : <PenLine className="h-4 w-4" />}
+            {isUploadDoc ? <Upload className="h-4 w-4" /> : <PenLine className="h-4 w-4" />}
             {submitting ? 'Sending…' : confirmResend ? 'Send anyway' : 'Send for signature'}
           </button>
 

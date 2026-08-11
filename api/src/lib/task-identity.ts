@@ -46,6 +46,15 @@ const COACH_TO_CHECKPOINT: Record<string, string> = {
 }
 
 const TITLE_HINTS: Array<{ re: RegExp; key: string }> = [
+  // More specific workflow / intake titles first so send vs confirm don't collapse.
+  { re: /^send retainer|send retainer for signature/i, key: 'send_retainer' },
+  { re: /confirm signed (retainer|representation)/i, key: 'confirm_retainer' },
+  { re: /conflict check|open matter.*conflict/i, key: 'conflict_check' },
+  { re: /welcome packet|welcome letter/i, key: 'welcome_packet' },
+  { re: /letter of representation|letters of representation|\blors?\b/i, key: 'lor' },
+  { re: /open insurance claim/i, key: 'open_insurance_claim' },
+  { re: /special damages|compile.*damages|itemize.*damages/i, key: 'special_damages' },
+  { re: /monitor ongoing treatment/i, key: 'monitor_treatment' },
   { re: /police|incident report/i, key: 'police_report' },
   { re: /medical records?/i, key: 'medical_records' },
   { re: /medical bills?|billing ledger/i, key: 'bills' },

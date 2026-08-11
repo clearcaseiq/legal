@@ -62,6 +62,7 @@ type AttorneyDashboardLeadDetailProps = {
     decision: 'accept' | 'reject',
     rationaleOverride?: string,
     declineReason?: string,
+    opts?: { conflictAcknowledged?: boolean },
   ) => void | Promise<void>
   setDeclineLeadId: (value: string | null) => void
   setDeclineModalOpen: (value: boolean) => void
@@ -541,7 +542,7 @@ export default function AttorneyDashboardLeadDetail({
                   comparableAvgSettlement={comparable?.avgSettlement ?? bands?.median}
                   venueState={selectedLead.assessment?.venueState}
                   attorneyProfile={profile as any}
-                  onAccept={() => handleLeadDecision(selectedLead.id, 'accept')}
+                  onAccept={(opts) => handleLeadDecision(selectedLead.id, 'accept', undefined, undefined, opts)}
                   onDecline={() => {
                     setDeclineLeadId(selectedLead.id)
                     setDeclineModalOpen(true)

@@ -25,29 +25,68 @@ const kimiChatClient = ENV.KIMI_API_KEY
   ? new OpenAI({ apiKey: ENV.KIMI_API_KEY, baseURL: ENV.KIMI_BASE_URL })
   : null
 
+type LlmChatResolved = {
+  client: OpenAI
+  model: string
+  provider: 'openai' | 'kimi'
+}
+
+/**
+ * Resolve the chat client + matching model together. Prefers AI_PROVIDER, but
+ * falls back to the other provider when credentials are missing — and always
+ * pairs the fallback client with that provider's model (using an OpenAI model
+ * name against Kimi was a common cause of silent incident-extraction failures).
+ */
+export function resolveLlmChat(): LlmChatResolved | null {
+  if (provider === 'kimi') {
+    if (kimiChatClient) {
+      return { client: kimiChatClient, model: ENV.KIMI_MODEL, provider: 'kimi' }
+    }
+    if (openaiChatClient) {
+      logger.warn(
+        'AI_PROVIDER=kimi but KIMI_API_KEY is missing; falling back to OpenAI for text completions.',
+      )
+      return {
+        client: openaiChatClient,
+        model: ENV.OPENAI_ANALYSIS_MODEL,
+        provider: 'openai',
+      }
+    }
+    return null
+  }
+
+  if (openaiChatClient) {
+    return {
+      client: openaiChatClient,
+      model: ENV.OPENAI_ANALYSIS_MODEL,
+      provider: 'openai',
+    }
+  }
+  if (kimiChatClient) {
+    logger.warn(
+      'AI_PROVIDER=openai but OPENAI_API_KEY is missing; falling back to Kimi for text completions.',
+    )
+    return { client: kimiChatClient, model: ENV.KIMI_MODEL, provider: 'kimi' }
+  }
+  return null
+}
+
 /**
  * Return the configured chat-completion client. Prefers the provider
  * selected by AI_PROVIDER, but falls back to the other provider if the
  * chosen one is missing credentials.
  */
 export function getLlmChatClient(): OpenAI | null {
-  if (provider === 'kimi') {
-    if (kimiChatClient) return kimiChatClient
-    logger.warn(
-      'AI_PROVIDER=kimi but KIMI_API_KEY is missing; falling back to OpenAI for text completions.',
-    )
-    return openaiChatClient
-  }
-  if (openaiChatClient) return openaiChatClient
-  logger.warn(
-    'AI_PROVIDER=openai but OPENAI_API_KEY is missing; falling back to Kimi for text completions.',
-  )
-  return kimiChatClient
+  return resolveLlmChat()?.client ?? null
 }
 
-/** Model to use for chat completions. */
-export const LLM_CHAT_MODEL =
-  provider === 'kimi' ? ENV.KIMI_MODEL : ENV.OPENAI_ANALYSIS_MODEL
+/** Model paired with the active chat client (see resolveLlmChat). */
+export function getLlmChatModel(): string {
+  return resolveLlmChat()?.model ?? (provider === 'kimi' ? ENV.KIMI_MODEL : ENV.OPENAI_ANALYSIS_MODEL)
+}
+
+/** Model for the active chat provider, including credential fallbacks. */
+export const LLM_CHAT_MODEL = getLlmChatModel()
 
 /** Native OpenAI client reserved for image generation (DALL-E). */
 export const openaiImageClient = ENV.OPENAI_API_KEY

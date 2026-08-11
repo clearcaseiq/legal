@@ -19,6 +19,7 @@ import { CalendarClock } from 'lucide-react'
 interface Message {
   id: string
   content: string
+  contentTranslated?: string | null
   senderType: 'user' | 'attorney'
   messageType: string
   createdAt: string
@@ -313,7 +314,35 @@ export default function ChatDrawer({
                             <div className="text-xs opacity-80 mb-0.5">
                               {m.senderType === 'attorney' ? 'You' : plaintiffName}
                             </div>
-                            <div className="text-sm whitespace-pre-wrap break-words">{linkify(m.content, m.senderType === 'attorney' ? 'underline break-all text-white hover:text-white/80' : 'underline break-all text-brand-600 hover:text-brand-700')}</div>
+                            {m.contentTranslated && m.contentTranslated !== m.content ? (
+                              <>
+                                <div className="text-sm whitespace-pre-wrap break-words">
+                                  {linkify(
+                                    m.contentTranslated,
+                                    m.senderType === 'attorney'
+                                      ? 'underline break-all text-white hover:text-white/80'
+                                      : 'underline break-all text-brand-600 hover:text-brand-700',
+                                  )}
+                                </div>
+                                <div className={`mt-2 border-t pt-2 text-[10px] font-semibold uppercase tracking-wide ${
+                                  m.senderType === 'attorney' ? 'border-white/20 opacity-80' : 'border-slate-200 text-slate-500'
+                                }`}>
+                                  Original
+                                </div>
+                                <div className={`mt-0.5 text-xs whitespace-pre-wrap break-words ${
+                                  m.senderType === 'attorney' ? 'opacity-80' : 'text-slate-600'
+                                }`}>
+                                  {linkify(
+                                    m.content,
+                                    m.senderType === 'attorney'
+                                      ? 'underline break-all text-white/80 hover:text-white'
+                                      : 'underline break-all text-brand-600 hover:text-brand-700',
+                                  )}
+                                </div>
+                              </>
+                            ) : (
+                              <div className="text-sm whitespace-pre-wrap break-words">{linkify(m.content, m.senderType === 'attorney' ? 'underline break-all text-white hover:text-white/80' : 'underline break-all text-brand-600 hover:text-brand-700')}</div>
+                            )}
                             <div className="text-xs opacity-70 mt-1">
                               {new Date(m.createdAt).toLocaleString()}
                             </div>

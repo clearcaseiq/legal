@@ -54,6 +54,11 @@ export default function Login() {
       localStorage.setItem('auth_token', response.token)
       localStorage.setItem('user', JSON.stringify(response.user))
       localStorage.setItem('auth_role', 'plaintiff')
+      // Drop any leftover attorney/staff session keys from a prior login in this
+      // browser so the nav doesn't still label the user "Attorney".
+      localStorage.removeItem('attorney')
+      localStorage.removeItem('firm_member')
+      localStorage.removeItem('admin_capabilities')
       resetCachedPlaintiffSessionSummary()
       updateCachedPlaintiffUser(response.user)
 
@@ -71,11 +76,20 @@ export default function Login() {
       try {
         const compliance = await getPlaintiffConsentCompliance(response.user.id)
         if (!compliance.allRequiredConsentsGranted) {
-          const dest = redirectTo.startsWith('/') ? redirectTo : `/${redirectTo}`
-          window.location.assign(
-            `${window.location.origin}/auth/complete-consent?redirect=${encodeURIComponent(dest)}`
-          )
-          return
+          let recentlyCompleted = false
+          try {
+            const stamp = Number(sessionStorage.getItem('cciq_consents_just_completed') || 0)
+            recentlyCompleted = Boolean(stamp && Date.now() - stamp < 30_000)
+          } catch {
+            /* ignore */
+          }
+          if (!recentlyCompleted) {
+            const dest = redirectTo.startsWith('/') ? redirectTo : `/${redirectTo}`
+            window.location.assign(
+              `${window.location.origin}/auth/complete-consent?redirect=${encodeURIComponent(dest)}`
+            )
+            return
+          }
         }
       } catch {
         /* proceed if status check fails */

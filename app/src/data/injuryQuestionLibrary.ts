@@ -66,7 +66,7 @@ const TX = {
   neuro: { id: 'neurologist', label: 'Neurologist' },
   specialist: { id: 'specialist', label: 'Specialist' },
   brace: { id: 'brace', label: 'Brace / splint' },
-  other_tx: { id: 'other_tx', label: 'Other treatment' },
+  other_tx: { id: 'other_tx', label: 'Other' },
   surgery: { id: 'surgery', label: 'Surgery' },
   arthroscopy: { id: 'arthroscopy', label: 'Arthroscopy' },
   stitches: { id: 'stitches', label: 'Stitches / wound care' },
@@ -77,6 +77,11 @@ const TX = {
   psychiatry: { id: 'psychiatry', label: 'Psychiatry' },
   medication: { id: 'medication', label: 'Medication' },
 } as const
+
+/** Catch-all chips appended to every region's symptom / finding lists. */
+export const OTHER_SYMPTOM = { id: 'other_symptom', label: 'Other' } as const
+export const OTHER_FINDING = { id: 'other_finding', label: 'Other' } as const
+export const OTHER_TREATMENT_ID = TX.other_tx.id
 
 /**
  * Region library keyed by the body-part values the wizard already uses
@@ -523,9 +528,9 @@ export const REGION_LIBRARY: Record<string, RegionConfig> = {
 
 // Broaden the detailed treatment list to match the intake spec: imaging (X-ray,
 // CT) and the relevant specialist are offered on the common musculoskeletal and
-// neurological regions, and "Other treatment" is available everywhere. The
-// region-specific ordering above is preserved; these are appended only if the
-// region doesn't already list them.
+// neurological regions, and "Other" catch-alls (symptoms / findings / treatment)
+// are available everywhere. The region-specific ordering above is preserved;
+// these are appended only if the region doesn't already list them.
 {
   const MSK_REGIONS = ['neck', 'upper_back', 'lower_back', 'shoulder', 'arm_elbow', 'hand_wrist', 'hip', 'knee', 'leg', 'ankle_foot']
   const NEURO_REGIONS = ['head_concussion', 'face', 'vision', 'hearing']
@@ -534,12 +539,18 @@ export const REGION_LIBRARY: Record<string, RegionConfig> = {
     if (MSK_REGIONS.includes(key)) additions.push(TX.xray, TX.ct, TX.ortho)
     if (NEURO_REGIONS.includes(key)) additions.push(TX.ct, TX.neuro)
     additions.push(TX.other_tx)
-    const seen = new Set(cfg.treatments.map((t) => t.id))
+    const seenTx = new Set(cfg.treatments.map((t) => t.id))
     for (const t of additions) {
-      if (!seen.has(t.id)) {
+      if (!seenTx.has(t.id)) {
         cfg.treatments.push(t)
-        seen.add(t.id)
+        seenTx.add(t.id)
       }
+    }
+    if (!cfg.symptoms.some((s) => s.id === OTHER_SYMPTOM.id)) {
+      cfg.symptoms.push({ id: OTHER_SYMPTOM.id, label: OTHER_SYMPTOM.label })
+    }
+    if (!cfg.findings.some((f) => f.id === OTHER_FINDING.id)) {
+      cfg.findings.push({ id: OTHER_FINDING.id, label: OTHER_FINDING.label })
     }
   }
 }
@@ -645,6 +656,12 @@ export type RegionDetail = {
   symptoms: string[]
   findings: string[]
   treatments: string[]
+  /** Free text when the claimant selects Other for symptoms. */
+  symptomsOtherText?: string
+  /** Free text when the claimant selects Other for findings. */
+  findingsOtherText?: string
+  /** Free text when the claimant selects Other treatment. */
+  treatmentsOtherText?: string
   /** Incident-overlay answers, keyed by OverlayQuestion.id. */
   overlays: Record<string, boolean | string>
   /** Always user_reported at intake; upgraded by the document pipeline later. */
@@ -657,6 +674,9 @@ export const emptyRegionDetail = (): RegionDetail => ({
   symptoms: [],
   findings: [],
   treatments: [],
+  symptomsOtherText: '',
+  findingsOtherText: '',
+  treatmentsOtherText: '',
   overlays: {},
   source: 'user_reported',
 })
@@ -837,15 +857,19 @@ export function deriveLegacyInjuryFields(map: RegionDetailMap): {
   concussionSymptoms: string[]
   shoulderFindings: string[]
   backFindings: string[]
+  /** Combined free-text "Other" notes from region cards (symptoms / findings / treatment). */
+  otherSymptomDescription: string
 } {
   const diagnoses: string[] = []
   const currentSymptoms: string[] = []
   const concussionSymptoms: string[] = []
   const shoulderFindings: string[] = []
   const backFindings: string[] = []
+  const otherNotes: string[] = []
 
   for (const [regionId, detail] of Object.entries(map || {})) {
     if (!detail) continue
+    const regionName = REGION_LIBRARY[regionId]?.label || regionId
 
     for (const f of detail.findings) {
       const canon = FINDING_TO_DIAGNOSIS[f]
@@ -854,6 +878,19 @@ export function deriveLegacyInjuryFields(map: RegionDetailMap): {
     for (const s of detail.symptoms) {
       const canon = SYMPTOM_TO_CANONICAL[s]
       if (canon) currentSymptoms.push(canon)
+      if (s === OTHER_SYMPTOM.id) currentSymptoms.push('other_symptom')
+    }
+    const symptomOther = (detail.symptomsOtherText || '').trim()
+    if (detail.symptoms.includes(OTHER_SYMPTOM.id) && symptomOther) {
+      otherNotes.push(`${regionName} symptom: ${symptomOther}`)
+    }
+    const findingOther = (detail.findingsOtherText || '').trim()
+    if (detail.findings.includes(OTHER_FINDING.id) && findingOther) {
+      otherNotes.push(`${regionName} finding: ${findingOther}`)
+    }
+    const treatmentOther = (detail.treatmentsOtherText || '').trim()
+    if (detail.treatments.includes(OTHER_TREATMENT_ID) && treatmentOther) {
+      otherNotes.push(`${regionName} treatment: ${treatmentOther}`)
     }
 
     // Head → concussion symptoms (canonical: loss_of_consciousness, memory_issues, headaches, dizziness).
@@ -890,5 +927,6 @@ export function deriveLegacyInjuryFields(map: RegionDetailMap): {
     concussionSymptoms: uniq(concussionSymptoms),
     shoulderFindings: uniq(shoulderFindings),
     backFindings: uniq(backFindings),
+    otherSymptomDescription: otherNotes.join('; '),
   }
 }

@@ -65,34 +65,30 @@ export async function getClientConsentCompliance(userId: string): Promise<Client
     },
   })
 
-  const latest = new Map<
-    string,
-    { version: string; expiresAt: Date | null }
-  >()
-  for (const c of consents) {
-    if (!latest.has(c.consentType)) {
-      latest.set(c.consentType, {
-        version: c.version,
-        expiresAt: c.expiresAt,
-      })
-    }
-  }
-
   const versions = getCurrentVersionsMap()
+  const now = new Date()
   const missing: PlaintiffRequiredConsentType[] = []
   const outdated: PlaintiffRequiredConsentType[] = []
 
   for (const t of PLAINTIFF_REQUIRED_CONSENT_TYPES) {
-    const row = latest.get(t)
-    if (!row) {
+    const rows = consents.filter((c) => c.consentType === t)
+    if (rows.length === 0) {
       missing.push(t)
       continue
     }
-    if (row.expiresAt && row.expiresAt < new Date()) {
+    // Prefer a non-expired row that matches the current document version. A newer
+    // stale version (e.g. from a failed submit that fell back to "1.0") must not
+    // hide a valid current grant.
+    const current = rows.find(
+      (c) => c.version === versions[t] && !(c.expiresAt && c.expiresAt < now),
+    )
+    if (current) continue
+    const newest = rows[0]
+    if (newest.expiresAt && newest.expiresAt < now) {
       missing.push(t)
       continue
     }
-    if (row.version !== versions[t]) outdated.push(t)
+    if (newest.version !== versions[t]) outdated.push(t)
   }
 
   const ok = missing.length === 0 && outdated.length === 0

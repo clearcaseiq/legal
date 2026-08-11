@@ -122,7 +122,8 @@ const BANKS: Record<string, BankQuestion[]> = {
  * shared insurance/strategy questions, filtered by the live gap registry.
  */
 export function buildBaselineQuestions(intel: CaseIntelligence): IntelligentQuestion[] {
-  const gapKeys = new Set(intel.gaps.map((g) => g.key))
+  // Only still-open gaps gate questions; crossed-off items stay in the registry for Overview.
+  const gapKeys = new Set(intel.gaps.filter((g) => !g.resolved).map((g) => g.key))
   const bank = BANKS[intel.claimTypeKey] || BANKS.default
   // Product cases should not get auto/UM-centric insurance prompts that assume an at-fault driver.
   const insurance =

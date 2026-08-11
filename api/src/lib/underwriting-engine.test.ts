@@ -37,6 +37,26 @@ describe('calculateLiability', () => {
     expect(result.score).toBeLessThan(80)
     expect(result.negatives.some((item) => item.includes('comparative fault'))).toBe(true)
   })
+
+  it('uses the Liability-tab record strength when present', () => {
+    const result = calculateLiability({
+      claimType: 'auto',
+      facts: {
+        liability: { crashType: 'rear_end' },
+        incident: { narrative: 'Rear-end with police report and clear liability.' },
+        liabilityRecord: {
+          id: 'lr-1',
+          strength: 22,
+          strengthBasis: ['Fault disputed', 'No police report'],
+        },
+      },
+      evidenceFiles: [{ category: 'police_report' }],
+    })
+
+    expect(result.score).toBe(22)
+    expect(result.grade).toBe('Weak')
+    expect(result.positives).toEqual(expect.arrayContaining(['Fault disputed']))
+  })
 })
 
 describe('calculateSeverity', () => {

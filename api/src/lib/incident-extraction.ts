@@ -1,5 +1,5 @@
 import { logger } from './logger'
-import { getLlmChatClient, LLM_CHAT_MODEL, llmChatDisabled } from './llm-client'
+import { llmChatDisabled, resolveLlmChat } from './llm-client'
 
 /**
  * Structured details extracted from a claimant's free-text incident narrative.
@@ -88,8 +88,8 @@ export async function extractIncidentDetails({ narrative, injuryType }: ExtractI
     logger.warn('No LLM chat provider configured — skipping incident extraction')
     return null
   }
-  const client = getLlmChatClient()
-  if (!client) return null
+  const resolved = resolveLlmChat()
+  if (!resolved) return null
 
   const text = (narrative || '').trim()
   if (text.length < 20) return null
@@ -99,9 +99,9 @@ export async function extractIncidentDetails({ narrative, injuryType }: ExtractI
   try {
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), 12000)
-    const completion = await client.chat.completions.create(
+    const completion = await resolved.client.chat.completions.create(
       {
-        model: LLM_CHAT_MODEL,
+        model: resolved.model,
         temperature: 0,
         max_tokens: 400,
         messages: [
@@ -121,7 +121,11 @@ export async function extractIncidentDetails({ narrative, injuryType }: ExtractI
     const parsed = JSON.parse(jsonText)
     return coerce(parsed)
   } catch (error: any) {
-    logger.error('Incident extraction failed', { error: error?.message, model: LLM_CHAT_MODEL })
+    logger.error('Incident extraction failed', {
+      error: error?.message,
+      model: resolved.model,
+      provider: resolved.provider,
+    })
     return null
   }
 }

@@ -206,7 +206,9 @@ async function writeThroughMedical(
 
     // Rebuild facts.treatment[] from the (non-future) entries so demand-readiness
     // and the underwriting engine see the structured chronology.
-    const treatment = view.entries
+    // Always rewrite — including `[]` when every visit was deleted — so stale
+    // intake / prior write-through rows cannot keep gap banners alive.
+    facts.treatment = view.entries
       .filter((e) => !e.isFuture)
       .map((e) => ({
         provider: e.provider,
@@ -217,7 +219,6 @@ async function writeThroughMedical(
         status: e.status,
         diagnosis: e.diagnosis,
       }))
-    if (treatment.length > 0) facts.treatment = treatment
 
     const existingMedical = facts.medical && typeof facts.medical === 'object' ? facts.medical : {}
     const s = view.status
@@ -229,7 +230,8 @@ async function writeThroughMedical(
       dischargeDate:
         s.treatmentStatus === 'discharged' || s.mmi ? s.mmiDate || existingMedical.dischargeDate || null : existingMedical.dischargeDate || null,
       stillTreating: s.stillTreating && !s.mmi,
-      lastTreatmentDate: view.lastTreatmentDate || existingMedical.lastTreatmentDate || null,
+      lastTreatmentDate:
+        view.visitCount === 0 ? null : view.lastTreatmentDate || existingMedical.lastTreatmentDate || null,
       symptoms: s.symptoms,
       futureTreatment: s.futureTreatment || null,
     }
@@ -322,9 +324,21 @@ export async function deleteMedicalEntry(
   entryId: string,
   opts?: { actorId?: string | null },
 ): Promise<MedicalTimelineView> {
-  await (prisma as any).medicalTreatmentEntry.delete({ where: { id: entryId } }).catch(() => null)
+  const existing = await (prisma as any).medicalTreatmentEntry
+    .findFirst({ where: { id: entryId, assessmentId }, select: { id: true } })
+    .catch(() => null)
+  if (!existing) {
+    const err: any = new Error('Visit not found')
+    err.status = 404
+    throw err
+  }
+  await (prisma as any).medicalTreatmentEntry.delete({ where: { id: entryId } })
   const view = await buildView(assessmentId)
-  await writeThroughMedical(assessmentId, view, { source: 'attorney', actorId: opts?.actorId ?? null })
+  await writeThroughMedical(assessmentId, view, {
+    source: 'attorney',
+    actorId: opts?.actorId ?? null,
+    summary: `Deleted medical visit from timeline (${view.visitCount} visits remaining)`,
+  })
   return view
 }
 

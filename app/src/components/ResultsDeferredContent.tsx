@@ -5,6 +5,7 @@ import BrandLogo from './BrandLogo'
 import { useLanguage } from '../contexts/LanguageContext'
 import { formatClaimType } from '../lib/claimTypes'
 import { formatAttorneyLicensure } from '../lib/attorneyLicensure'
+import { savePendingRegistration } from '../lib/pendingRegistration'
 
 type TFunc = (key: string) => string
 
@@ -142,6 +143,8 @@ type ResultsSubmittedViewProps = {
   submissionTimeline: Array<{ label: string; done: boolean }>
   venueCounty?: string
   venueState?: string
+  /** Contact collected on the choose-attorney screen — prefill Create Account. */
+  contactPrefill?: { firstName?: string; email?: string; phone?: string }
 }
 
 export function ResultsSubmittedView({
@@ -158,9 +161,26 @@ export function ResultsSubmittedView({
   submissionTimeline,
   venueCounty,
   venueState,
+  contactPrefill,
 }: ResultsSubmittedViewProps) {
   const { t } = useLanguage()
   const [refCopied, setRefCopied] = useState(false)
+  const stashContactForSignup = () => {
+    if (assessmentId) {
+      try {
+        localStorage.setItem('pending_assessment_id', assessmentId)
+      } catch {
+        /* ignore */
+      }
+    }
+    if (contactPrefill) {
+      savePendingRegistration({
+        firstName: contactPrefill.firstName,
+        email: contactPrefill.email,
+        phone: contactPrefill.phone,
+      })
+    }
+  }
   const copyReference = () => {
     if (!referenceCode) return
     try {
@@ -272,12 +292,14 @@ export function ResultsSubmittedView({
               <div className="mt-4 flex flex-col gap-2 sm:flex-row">
                 <Link
                   to={`/register?redirect=/dashboard&assessmentId=${assessmentId}`}
+                  onClick={stashContactForSignup}
                   className="inline-flex w-full items-center justify-center rounded-lg bg-brand-600 px-5 py-3 text-sm font-semibold text-white hover:bg-brand-700 sm:w-auto"
                 >
                   {t('results.submitted.createAccount')}
                 </Link>
                 <Link
                   to={`/login?redirect=/dashboard&assessmentId=${assessmentId}`}
+                  onClick={stashContactForSignup}
                   className="inline-flex w-full items-center justify-center rounded-lg border border-brand-200 bg-white px-5 py-3 text-sm font-semibold text-brand-700 hover:bg-brand-50 sm:w-auto"
                 >
                   {t('results.submitted.signIn')}
@@ -376,13 +398,21 @@ export function ResultsSubmittedView({
                 </li>
               ))}
             </ul>
-            <Link
-              to={`/evidence-upload/${assessmentId}`}
-              className="mt-4 inline-flex items-center rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-600"
-            >
-              <Upload className="mr-2 h-4 w-4" />
-              {t('results.submitted.uploadEvidence')}
-            </Link>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Link
+                to={assessmentId ? `/results/${assessmentId}?view=report` : '/dashboard'}
+                className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+              >
+                {t('results.submitted.viewCaseReport')}
+              </Link>
+              <Link
+                to={`/evidence-upload/${assessmentId}`}
+                className="inline-flex items-center rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-600"
+              >
+                <Upload className="mr-2 h-4 w-4" />
+                {t('results.submitted.uploadEvidence')}
+              </Link>
+            </div>
           </div>
 
           {isLoggedIn ? (
@@ -432,6 +462,7 @@ export function ResultsSubmittedView({
 type ResultsReportDetailsProps = {
   assessmentId: string
   assessmentClaimType?: string
+  caseSubmittedForReview?: boolean
   evidenceCompletionPercent: number
   handleCopyShareLink: () => void
   handleDownloadReportPdf: () => void | Promise<void>
@@ -451,6 +482,7 @@ type ResultsReportDetailsProps = {
 export function ResultsReportDetails({
   assessmentId,
   assessmentClaimType,
+  caseSubmittedForReview = false,
   evidenceCompletionPercent,
   handleCopyShareLink,
   handleDownloadReportPdf,
@@ -542,10 +574,15 @@ export function ResultsReportDetails({
       <div className={sectionWrap}>
         <h2 className={`${sectionTitle} mb-4`}>{t('results.report.attorneyReview')}</h2>
         <p className={`${prose} mb-3`}>
-          {t('results.report.attorneyReviewP1')}
+          {t(caseSubmittedForReview ? 'results.report.attorneyReviewSubmittedP1' : 'results.report.attorneyReviewP1')}
         </p>
-        <p className={`${prose} mb-2`}>{t('results.report.attorneyReviewP2')}</p>
-        <p className="text-sm text-slate-500 mb-6">{t('results.report.attorneyReviewP3')}</p>
+        <p className={`${prose} mb-2`}>
+          {t(caseSubmittedForReview ? 'results.report.attorneyReviewSubmittedP2' : 'results.report.attorneyReviewP2')}
+        </p>
+        <p className="text-sm text-slate-500 mb-6">
+          {t(caseSubmittedForReview ? 'results.report.attorneyReviewSubmittedP3' : 'results.report.attorneyReviewP3')}
+        </p>
+        {!caseSubmittedForReview && (
         <div className="rounded-xl border border-slate-200 bg-slate-50/80 px-5 py-5">
           <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500 mb-3">{t('results.report.typicalPanel')}</h3>
           <ul className="space-y-2.5 text-sm text-slate-700">
@@ -571,21 +608,47 @@ export function ResultsReportDetails({
             </li>
           </ul>
         </div>
+        )}
         {attorneyCards.length > 0 && (
-          <div className="mt-5 rounded-xl border border-slate-200 bg-white px-5 py-5">
-            <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500 mb-1">{t('results.report.topMatches')}</h3>
-            <p className="mb-3 text-xs text-slate-500">{t('results.report.namesRevealed')}</p>
+          <div className={`${caseSubmittedForReview ? '' : 'mt-5 '}rounded-xl border border-slate-200 bg-white px-5 py-5`}>
+            <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500 mb-1">
+              {t(caseSubmittedForReview ? 'results.report.topMatchesSubmitted' : 'results.report.topMatches')}
+            </h3>
+            <p className="mb-3 text-xs text-slate-500">
+              {t(caseSubmittedForReview ? 'results.report.namesRevealedSubmitted' : 'results.report.namesRevealed')}
+            </p>
             <div className="space-y-3">
               {attorneyCards.map((attorney, index) => (
                 <div key={attorney.id || attorney.attorney_id || attorney.name} className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">{t('results.report.match')} #{index + 1}</p>
-                  <p className="mt-1 text-sm font-semibold text-slate-900">{formatProtectedMatchScore(attorney, index)} {t('results.report.match')}</p>
-                  <p className="mt-1 text-xs text-slate-600">
-                    {[
-                      t('results.report.identityProtected'),
-                      `${formatProtectedMatchScore(attorney, index)} ${t('results.common.fit')}`,
-                    ].filter(Boolean).join(' • ')}
+                  <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">
+                    {caseSubmittedForReview
+                      ? `${t('results.submitted.choice')} ${index + 1}`
+                      : `${t('results.report.match')} #${index + 1}`}
                   </p>
+                  {caseSubmittedForReview ? (
+                    <>
+                      <p className="mt-1 text-sm font-semibold text-slate-900">
+                        {attorney?.name ?? t('results.submitted.attorney')}
+                      </p>
+                      <p className="mt-1 text-xs text-slate-600">
+                        {[
+                          attorney?.law_firm?.name ?? t('results.submitted.lawFirm'),
+                          `${formatProtectedMatchScore(attorney, index)} ${t('results.common.fit')}`,
+                          getResponseBadge(attorney, t),
+                        ].filter(Boolean).join(' • ')}
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="mt-1 text-sm font-semibold text-slate-900">{formatProtectedMatchScore(attorney, index)} {t('results.report.match')}</p>
+                      <p className="mt-1 text-xs text-slate-600">
+                        {[
+                          t('results.report.identityProtected'),
+                          `${formatProtectedMatchScore(attorney, index)} ${t('results.common.fit')}`,
+                        ].filter(Boolean).join(' • ')}
+                      </p>
+                    </>
+                  )}
                   <p className="mt-1 text-xs text-slate-500">
                     {getAttorneyPracticePreview(attorney, {
                       venueCounty,
@@ -624,6 +687,15 @@ export function ResultsReportDetails({
                 </div>
               ))}
             </div>
+            {caseSubmittedForReview && (
+              <Link
+                to="/dashboard"
+                className="mt-4 inline-flex items-center rounded-lg bg-brand-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-800"
+              >
+                <LayoutDashboard className="mr-2 h-4 w-4" />
+                {t('results.report.goToDashboard')}
+              </Link>
+            )}
           </div>
         )}
       </div>

@@ -186,7 +186,10 @@ export async function buildCaseCoach(assessmentId: string): Promise<CaseCoachRes
   }
 
   // 2) Top gaps → coach actions (deduped against open tasks).
+  // Crossed-off (resolved) checklist items stay in intel.gaps for Overview UX
+  // but must not spawn coach tasks.
   for (const gap of intel.gaps) {
+    if (gap.resolved) continue
     if (gap.severity < 3) continue
     if (gap.key === FIRST_PARTY_COVERAGE_GAP_KEY) continue // handled below, on its own clock
     if (hasOpenTaskFor(gap.label.split('(')[0].trim())) continue
@@ -200,7 +203,7 @@ export async function buildCaseCoach(assessmentId: string): Promise<CaseCoachRes
   // bills can be chased in any order; a blown notice window cannot be reopened.
   // Only the auto-generated task's position changes — the gap itself still
   // appears in the Missing Information registry either way.
-  const coverageGap = intel.gaps.find((g) => g.key === FIRST_PARTY_COVERAGE_GAP_KEY)
+  const coverageGap = intel.gaps.find((g) => g.key === FIRST_PARTY_COVERAGE_GAP_KEY && !g.resolved)
   if (coverageGap && !hasOpenTaskFor('own coverage') && !hasOpenTaskFor('um/uim')) {
     const score = coverageGap.severity >= 5 ? 94 : 88
     insights.push({
@@ -292,13 +295,13 @@ export async function buildCaseCoach(assessmentId: string): Promise<CaseCoachRes
   // while the specials were still moving. A demand cannot be withdrawn once it
   // is with the carrier, so the gate is deliberately conservative; when it fails
   // the coach raises the thing that would unblock it instead.
-  const highGapsRemaining = intel.gaps.filter((g) => g.severity >= 4).length
+  const highGapsRemaining = intel.gaps.filter((g) => !g.resolved && g.severity >= 4).length
   const fileIsOtherwiseStrong = s.documentation.score >= 60 && highGapsRemaining === 0
   if (fileIsOtherwiseStrong) {
     const demandGate = evaluateDemandGate({
       treatment: treatmentPosture,
       documentedMedicalBills: s.economic.medicalBills,
-      hasMedicalRecords: !intel.gaps.some((g) => g.key === 'medical_records'),
+      hasMedicalRecords: !intel.gaps.some((g) => g.key === 'medical_records' && !g.resolved),
       liability: facts.liabilityRecord
         ? { posture: facts.liabilityRecord.faultPosture, strength: facts.liabilityRecord.strength }
         : null,

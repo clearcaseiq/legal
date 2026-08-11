@@ -345,14 +345,17 @@ export default function AttorneyLicenseUpload() {
             </form>
           )}
 
-          <div className="mt-6 pt-6 border-t border-gray-200">
+          <div className="mt-6 space-y-3 border-t border-gray-200 pt-6">
             <button
               type="button"
               onClick={() => navigate('/attorney-dashboard')}
-              className="text-sm text-gray-600 hover:text-gray-900"
+              className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
             >
-              Skip for now →
+              Skip for now — go to dashboard
             </button>
+            <p className="text-center text-xs text-slate-500">
+              You can verify your license later from Profile settings.
+            </p>
           </div>
         </div>
       </div>

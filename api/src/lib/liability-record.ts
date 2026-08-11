@@ -247,11 +247,12 @@ async function writeThroughLiability(
     facts.liability = {
       ...existing,
       // The engine multiplies expected value by (score/100); it derives its own
-      // score but reads comparative fault to adjust. Keep both representations.
+      // score but reads comparative fault + posture/citation signals to adjust.
       comparativeNegligence: compPct / 100,
       comparativeFault,
       faultPosture: record.faultPosture,
       defendantFaultPct: record.defendantFaultPct,
+      citationIssuedTo: record.citationIssuedTo || null,
       policeReport: record.policeReportStatus === 'received',
       hasWitnesses: Boolean(record.hasWitnesses),
       hasPhotos: Boolean(record.hasPhotos),

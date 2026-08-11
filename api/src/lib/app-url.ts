@@ -33,7 +33,7 @@ import '../env'
  */
 const URL_VARS = ['WEB_URL', 'APP_URL', 'FRONTEND_URL'] as const
 
-const DEV_FALLBACK = 'http://localhost:3000'
+const DEV_FALLBACK = 'http://localhost:3100'
 
 function isProduction(): boolean {
   return process.env.NODE_ENV === 'production'

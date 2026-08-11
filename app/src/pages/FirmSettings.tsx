@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Building2, CheckCircle, Lock } from 'lucide-react'
 import { BackButton } from '../features/shared/ui'
 import { US_STATES } from '../lib/constants'
-import { updateFirm } from '../lib/api'
+import { getFirmIntakeSettings, updateFirm, updateFirmIntakeSettings } from '../lib/api'
 import { invalidateFirmDashboardSummary, useFirmDashboardSummary } from '../hooks/useFirmDashboardSummary'
 
 interface FirmForm {
@@ -36,6 +36,9 @@ export default function FirmSettings() {
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saveSuccess, setSaveSuccess] = useState(false)
+  const [autoSendRetainer, setAutoSendRetainer] = useState(false)
+  const [intakeSaving, setIntakeSaving] = useState(false)
+  const [intakeMsg, setIntakeMsg] = useState<string | null>(null)
 
   const firm = data?.firm
   const canEdit = useMemo(() => {
@@ -57,6 +60,13 @@ export default function FirmSettings() {
       state: firm.state || '',
       zip: firm.zip || '',
     })
+  }, [firm])
+
+  useEffect(() => {
+    if (!firm) return
+    getFirmIntakeSettings()
+      .then((s) => setAutoSendRetainer(Boolean(s.autoSendRetainerOnAcquire)))
+      .catch(() => setAutoSendRetainer(false))
   }, [firm])
 
   const updateField = (key: keyof FirmForm, value: string) => {
@@ -160,6 +170,43 @@ export default function FirmSettings() {
           </p>
         </div>
       )}
+
+      <div className="mb-6 rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+        <h3 className="text-lg font-medium text-gray-900">Intake automation</h3>
+        <p className="mt-1 text-sm text-gray-600">
+          After a case is purchased, automatically send the contingency-fee retainer for e-signature (Dropbox Sign /
+          your connected provider). When off, attorneys get a “Send retainer to client” task instead.
+        </p>
+        <label className="mt-4 flex items-start gap-3 text-sm text-gray-800">
+          <input
+            type="checkbox"
+            checked={autoSendRetainer}
+            disabled={!canEdit || intakeSaving}
+            onChange={async (e) => {
+              const next = e.target.checked
+              setAutoSendRetainer(next)
+              setIntakeMsg(null)
+              setIntakeSaving(true)
+              try {
+                const res = await updateFirmIntakeSettings({ autoSendRetainerOnAcquire: next })
+                setAutoSendRetainer(Boolean(res.autoSendRetainerOnAcquire))
+                setIntakeMsg('Intake setting saved.')
+              } catch (err: any) {
+                setAutoSendRetainer(!next)
+                setIntakeMsg(err?.response?.data?.error || 'Failed to save intake setting.')
+              } finally {
+                setIntakeSaving(false)
+              }
+            }}
+            className="mt-0.5 h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+          />
+          <span>
+            <span className="font-semibold">Auto-send retainer on acquire</span>
+            <span className="block text-xs text-gray-500">Requires a connected e-signature provider and client email.</span>
+          </span>
+        </label>
+        {intakeMsg ? <p className="mt-2 text-xs text-slate-600">{intakeMsg}</p> : null}
+      </div>
 
       <form onSubmit={handleSubmit} className="bg-white shadow rounded-lg p-6 space-y-6">
         {saveError && (

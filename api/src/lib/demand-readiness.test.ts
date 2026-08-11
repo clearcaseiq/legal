@@ -118,6 +118,21 @@ describe('deriveTreatmentPosture', () => {
     expect(posture.daysSinceLastTreatment).toBe(9)
     expect(posture.entryCount).toBe(2)
   })
+
+  it('ignores DOB / pre-incident chronology dates when computing gaps', () => {
+    const posture = deriveTreatmentPosture({
+      facts: {
+        incident: { date: '2026-06-12' },
+        medical: { stillTreating: true },
+      },
+      chronologyDates: ['1984-01-14', '2026-06-11', '2026-07-15', '2026-08-03'],
+      now: NOW,
+    })
+
+    expect(posture.posture).toBe('active')
+    expect(posture.largestGapDays).toBeLessThan(OPEN_TREATMENT_GAP_DAYS)
+    expect(posture.entryCount).toBe(3)
+  })
 })
 
 describe('evaluateDemandGate', () => {

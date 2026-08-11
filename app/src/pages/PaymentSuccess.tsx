@@ -27,9 +27,20 @@ export default function PaymentSuccess() {
     }
 
     setAcceptanceStatus('accepting')
-    decideLead(leadId, 'accept')
+    let conflictAcknowledged = false
+    try {
+      conflictAcknowledged = window.sessionStorage.getItem(`caseiq:conflict-ack:${leadId}`) === '1'
+    } catch {
+      conflictAcknowledged = false
+    }
+    decideLead(leadId, 'accept', undefined, undefined, { conflictAcknowledged })
       .then(() => {
         window.sessionStorage.setItem(acceptanceKey, 'true')
+        try {
+          window.sessionStorage.removeItem(`caseiq:conflict-ack:${leadId}`)
+        } catch {
+          /* ignore */
+        }
         if (!cancelled) setAcceptanceStatus('accepted')
       })
       .catch((error) => {

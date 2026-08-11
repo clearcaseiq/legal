@@ -184,6 +184,7 @@ function textBlob(facts: Record<string, any>, evidenceFiles: EvidenceLike[] = []
     facts?.incident?.narrative,
     facts?.caseSubtype,
     facts?.incident?.caseSubtype,
+    ...(Array.isArray(facts?.symptoms) ? facts.symptoms : []),
     ...(Array.isArray(facts?.incidentTags) ? facts.incidentTags : []),
     ...(Array.isArray(facts?.incident?.incidentTags) ? facts.incident.incidentTags : []),
     ...evidenceFiles.flatMap((file) => [file.category, file.originalName, file.aiClassification, file.aiSummary]),
@@ -213,7 +214,9 @@ function getSurgeryStatus(facts: Record<string, any>) {
   const narrative = String(facts?.incident?.narrative || '').toLowerCase()
   if (explicit) return String(explicit)
   if (/surgery performed|surgery completed|had surgery|underwent surgery/.test(narrative)) return 'completed'
-  if (/surgery scheduled/.test(narrative)) return 'scheduled'
+  if (/surgery scheduled|surgery next week|need (to |ti )?get surgery|getting surgery/.test(narrative)) {
+    return 'scheduled'
+  }
   if (/surgery recommended|recommended surgery/.test(narrative)) return 'recommended'
   return ''
 }
@@ -230,14 +233,41 @@ function getPrimaryInjury(facts: Record<string, any>, blob: string): InjuryType 
   if (/moderate tbi|moderate traumatic brain/.test(diagnosisText)) return 'TBI_MODERATE'
   if (/tbi|traumatic brain|concussion/.test(diagnosisText)) return 'TBI_MILD'
   if (/fracture|broken bone|broken/.test(diagnosisText)) return 'BROKEN_BONE'
-  if (/radiculopathy|radiating pain|nerve root/.test(diagnosisText)) return 'RADICULOPATHY'
+  // Neuro radicular language (incl. Intelligent Question symptoms) — not bare headache→TBI.
+  if (/radiculopathy|radiating pain|nerve root|\bnumb(ness|ing)?\b|\btingl(e|ing)\b/.test(diagnosisText)) {
+    return 'RADICULOPATHY'
+  }
   if (/herniation|herniated|disc herniation/.test(diagnosisText)) return 'DISC_HERNIATION'
   if (/disc bulge|bulging disc|bulge/.test(diagnosisText)) return 'DISC_BULGE'
   return 'SOFT_TISSUE'
 }
 
+function gradeLiabilityScore(score: number): LiabilityGrade {
+  if (score >= 85) return 'Very Strong'
+  if (score >= 70) return 'Strong'
+  if (score >= 45) return 'Moderate'
+  return 'Weak'
+}
+
 export function calculateLiability(input: UnderwritingInput): LiabilityResult {
   const facts = input.facts
+  // Prefer the attorney Liability-tab record when present so Overview / underwriting
+  // and the Liability strength meter never disagree (e.g. Weak 29 vs Weak 22).
+  const record = facts?.liabilityRecord
+  const recordStrength = Number(record?.strength)
+  if (record && Number.isFinite(recordStrength)) {
+    const score = clamp(recordStrength)
+    const basis = Array.isArray(record.strengthBasis)
+      ? record.strengthBasis.map((b: unknown) => String(b)).filter(Boolean)
+      : []
+    return {
+      score,
+      grade: gradeLiabilityScore(score),
+      positives: basis,
+      negatives: basis.length ? [] : ['Liability facts need more support'],
+    }
+  }
+
   const evidenceFiles = input.evidenceFiles || []
   const blob = textBlob(facts, evidenceFiles)
   const liability = facts?.liability || {}
@@ -293,8 +323,55 @@ export function calculateLiability(input: UnderwritingInput): LiabilityResult {
     negatives.push(`Possible comparative fault around ${comparativeFaultPercent}%`)
   }
 
+  // Structured liability record write-through (Intelligent Question answers, Liability tab).
+  const posture = String(liability.faultPosture || '').toLowerCase()
+  if (posture === 'admitted') {
+    score += 20
+    positives.push('Fault admitted')
+  } else if (posture === 'clear') {
+    score += 10
+    positives.push('Clear liability posture')
+  } else if (posture === 'shared') {
+    score -= 8
+    negatives.push('Shared fault posture')
+  } else if (posture === 'disputed') {
+    score -= 12
+    negatives.push('Fault disputed')
+  } else if (posture === 'denied') {
+    score -= 18
+    negatives.push('Fault denied')
+  }
+
+  const citation = String(liability.citationIssuedTo || '').toLowerCase()
+  if (citation === 'defendant') {
+    score += 10
+    positives.push('Defendant cited')
+  } else if (citation === 'both') {
+    // Both parties ticketed is mixed — do not treat it as a defendant win.
+    score -= 4
+    negatives.push('Both parties cited')
+  } else if (citation === 'plaintiff') {
+    score -= 10
+    negatives.push('Plaintiff cited')
+  }
+
+  if (liability.hasWitnesses) {
+    score += 6
+    if (!positives.includes('Witness evidence')) positives.push('Witness evidence')
+  }
+
+  const defPct = Number(liability.defendantFaultPct)
+  if (Number.isFinite(defPct) && defPct >= 100) {
+    score += 8
+    positives.push('Defendant fully at fault')
+  } else if (Number.isFinite(defPct) && defPct > 0 && defPct < 100) {
+    // Soften the score when defendant share is less than full.
+    score = Math.round(score * (0.55 + (defPct / 100) * 0.45))
+    negatives.push(`Defendant ${Math.round(defPct)}% at fault`)
+  }
+
   const normalized = clamp(score)
-  const grade: LiabilityGrade = normalized >= 85 ? 'Very Strong' : normalized >= 70 ? 'Strong' : normalized >= 45 ? 'Moderate' : 'Weak'
+  const grade = gradeLiabilityScore(normalized)
   if (positives.length === 0) negatives.push('Liability facts need more support')
 
   return { score: normalized, grade, positives, negatives }
@@ -368,7 +445,7 @@ export function calculateTreatmentQuality(input: UnderwritingInput): TreatmentRe
     score += 10
     positives.push('Surgical treatment')
   }
-  if (/major gap|large gap|stopped treating/.test(blob)) {
+  if (facts?.damages?.treatment_gap || /major gap|large gap|stopped treating/.test(blob)) {
     score -= 25
     negatives.push('Major treatment gap')
   } else if (/gap/.test(blob)) {
@@ -462,7 +539,11 @@ export function calculateSettlement(input: UnderwritingInput, liability: Liabili
   const facts = input.facts
   const damages = facts?.damages || {}
   const medicalBills = Number(damages.med_charges || damages.med_paid || damages.estimated_med_charges || 0)
-  const lostWages = Number(damages.wage_loss || damages.estimated_wage_loss || 0)
+  // Prefer the higher of ledger wages vs Intelligent Question estimates.
+  const lostWages = Math.max(
+    Number(damages.wage_loss || 0) || 0,
+    Number(damages.estimated_wage_loss || 0) || 0,
+  )
   const outOfPocket = Number(damages.out_of_pocket || damages.estimated_out_of_pocket || damages.services || 0)
   const futureMedicalAdjusted = getFutureMedicalAdjusted(facts)
   const economicDamages: EconomicDamagesResult = {
@@ -485,6 +566,9 @@ export function calculateSettlement(input: UnderwritingInput, liability: Liabili
   let generalDamagesMultiplier = GENERAL_DAMAGES_MULTIPLIERS[severity.primaryInjury]
   if (severity.factors.some((factor) => factor.includes('surgery'))) generalDamagesMultiplier += 1
   else if (severity.factors.some((factor) => factor.includes('injection'))) generalDamagesMultiplier += 0.5
+  // Intelligent Question damages signals (household / scarring) lift non-economic value.
+  if (damages.household_impact || damages.loss_of_enjoyment) generalDamagesMultiplier += 0.25
+  if (damages.scarring || damages.disfigurement) generalDamagesMultiplier += 0.5
   const generalDamages = Math.max(baseInjuryValue, medicalSpecials * generalDamagesMultiplier)
 
   const expected = (generalDamages + economicDamages.total) * venueModifier * liabilityModifier * treatmentModifier

@@ -10,8 +10,9 @@
  * Backed by /v1/attorney-dashboard/leads/:leadId/damages.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Plus, Trash2, Wallet, HeartPulse, Briefcase, Car } from 'lucide-react'
+import { Plus, Trash2, Wallet, HeartPulse, Briefcase, Car, Pencil, X } from 'lucide-react'
 import { getLeadDamages, createLeadDamage, updateLeadDamage, deleteLeadDamage } from '../../lib/api'
+import ConfirmDialog from '../../components/ConfirmDialog'
 
 interface DamageItem {
   id: string
@@ -74,8 +75,12 @@ export default function DamagesPanel({ leadId }: { leadId: string }) {
   const [summary, setSummary] = useState<DamagesSummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [showAdd, setShowAdd] = useState(false)
-  const [addError, setAddError] = useState<string | null>(null)
+  const [formOpen, setFormOpen] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [formError, setFormError] = useState<string | null>(null)
+  const [formBusy, setFormBusy] = useState(false)
+  const [itemToDelete, setItemToDelete] = useState<DamageItem | null>(null)
+  const [deleting, setDeleting] = useState(false)
   const [form, setForm] = useState({
     category: 'medical',
     description: '',
@@ -83,6 +88,41 @@ export default function DamagesPanel({ leadId }: { leadId: string }) {
     billingStatus: 'billed',
     provider: '',
   })
+
+  const emptyForm = () => ({
+    category: 'medical',
+    description: '',
+    amount: '',
+    billingStatus: 'billed',
+    provider: '',
+  })
+
+  const closeForm = () => {
+    setFormOpen(false)
+    setEditingId(null)
+    setForm(emptyForm())
+    setFormError(null)
+  }
+
+  const openCreate = () => {
+    setEditingId(null)
+    setForm(emptyForm())
+    setFormError(null)
+    setFormOpen(true)
+  }
+
+  const openEdit = (it: DamageItem) => {
+    setEditingId(it.id)
+    setForm({
+      category: it.category || 'medical',
+      description: it.description || '',
+      amount: String(Math.round(it.amount)),
+      billingStatus: it.billingStatus || 'billed',
+      provider: it.provider || '',
+    })
+    setFormError(null)
+    setFormOpen(true)
+  }
 
   const load = useCallback(async () => {
     try {
@@ -103,50 +143,52 @@ export default function DamagesPanel({ leadId }: { leadId: string }) {
 
   const isMedical = form.category === 'medical'
 
-  const add = async () => {
+  const saveItem = async () => {
     if (!form.description.trim()) {
-      setAddError('Enter a description.')
+      setFormError('Enter a description.')
       return
     }
     if (!form.amount || Number.isNaN(Number(form.amount))) {
-      setAddError('Enter an amount.')
+      setFormError('Enter an amount.')
       return
     }
-    setAddError(null)
+    setFormError(null)
+    setFormBusy(true)
+    const payload = {
+      category: form.category,
+      description: form.description.trim(),
+      amount: Number(form.amount),
+      billingStatus: isMedical ? form.billingStatus || null : null,
+      provider: form.provider.trim() || null,
+    }
     try {
-      const res = await createLeadDamage(leadId, {
-        category: form.category,
-        description: form.description.trim(),
-        amount: Number(form.amount),
-        billingStatus: isMedical ? form.billingStatus || null : null,
-        provider: form.provider.trim() || null,
-      })
+      const res = editingId
+        ? await updateLeadDamage(leadId, editingId, payload)
+        : await createLeadDamage(leadId, payload)
       setSummary(res.summary)
-      setForm({ category: 'medical', description: '', amount: '', billingStatus: 'billed', provider: '' })
-      setShowAdd(false)
+      closeForm()
       await load()
     } catch (err: any) {
-      setAddError(err?.response?.data?.error || 'Could not add item.')
+      setFormError(err?.response?.data?.error || (editingId ? 'Could not update item.' : 'Could not add item.'))
+    } finally {
+      setFormBusy(false)
     }
   }
 
-  const patch = async (id: string, p: Record<string, unknown>) => {
+  const confirmRemove = async () => {
+    const item = itemToDelete
+    if (!item) return
+    setDeleting(true)
     try {
-      const res = await updateLeadDamage(leadId, id, p)
+      const res = await deleteLeadDamage(leadId, item.id)
       setSummary(res.summary)
+      setItemToDelete(null)
+      if (editingId === item.id) closeForm()
       await load()
-    } catch {
-      /* keep previous on transient failure */
-    }
-  }
-
-  const remove = async (id: string) => {
-    try {
-      const res = await deleteLeadDamage(leadId, id)
-      setSummary(res.summary)
-      await load()
-    } catch {
-      /* ignore */
+    } catch (err: any) {
+      setError(err?.response?.data?.error || 'Could not delete this item.')
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -164,6 +206,25 @@ export default function DamagesPanel({ leadId }: { leadId: string }) {
 
   return (
     <div className="space-y-4">
+      <ConfirmDialog
+        open={Boolean(itemToDelete)}
+        title="Delete damages item?"
+        message={
+          itemToDelete ? (
+            <>
+              Remove <span className="font-semibold">{itemToDelete.description}</span> (
+              {money(itemToDelete.amount)}) from the ledger? This can’t be undone.
+            </>
+          ) : undefined
+        }
+        confirmLabel="Delete item"
+        busy={deleting}
+        onConfirm={() => void confirmRemove()}
+        onCancel={() => {
+          if (!deleting) setItemToDelete(null)
+        }}
+      />
+
       {/* Summary tiles */}
       <div className="grid gap-3 sm:grid-cols-4">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -208,17 +269,30 @@ export default function DamagesPanel({ leadId }: { leadId: string }) {
           <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
             <Wallet className="h-4 w-4 text-slate-400" /> Damages ledger
           </h3>
-          <button
-            type="button"
-            onClick={() => setShowAdd((v) => !v)}
-            className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
-          >
-            <Plus className="h-3.5 w-3.5" /> Add item
-          </button>
+          {!formOpen ? (
+            <button
+              type="button"
+              onClick={openCreate}
+              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+            >
+              <Plus className="h-3.5 w-3.5" /> Add item
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={closeForm}
+              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+            >
+              <X className="h-3.5 w-3.5" /> Cancel
+            </button>
+          )}
         </div>
 
-        {showAdd && (
+        {formOpen && (
           <div className="mb-4 grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 sm:grid-cols-[170px_1fr_130px_140px_auto]">
+            <p className="col-span-full text-xs font-semibold uppercase tracking-wide text-slate-500">
+              {editingId ? 'Edit item' : 'New item'}
+            </p>
             <select
               value={form.category}
               onChange={(e) => setForm({ ...form, category: e.target.value })}
@@ -260,12 +334,13 @@ export default function DamagesPanel({ leadId }: { leadId: string }) {
             )}
             <button
               type="button"
-              onClick={add}
-              className="rounded-lg bg-brand-600 px-3 py-2 text-sm font-semibold text-white hover:bg-brand-700"
+              onClick={() => void saveItem()}
+              disabled={formBusy}
+              className="rounded-lg bg-brand-600 px-3 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-60"
             >
-              Add
+              {formBusy ? 'Saving…' : editingId ? 'Save' : 'Add'}
             </button>
-            {addError && <p className="col-span-full text-xs text-rose-600">{addError}</p>}
+            {formError && <p className="col-span-full text-xs text-rose-600">{formError}</p>}
           </div>
         )}
 
@@ -307,23 +382,29 @@ export default function DamagesPanel({ leadId }: { leadId: string }) {
                             </span>
                           ) : null}
                         </span>
-                        <span className="flex shrink-0 items-center gap-3">
-                          <input
-                            type="number"
-                            defaultValue={Math.round(it.amount)}
-                            onBlur={(e) => {
-                              const v = e.target.value.trim()
-                              if (v !== '' && Number(v) !== it.amount) patch(it.id, { amount: Number(v) })
-                            }}
-                            className="w-28 rounded-md border border-slate-300 px-2 py-1 text-right text-sm tabular-nums focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
-                          />
+                        <span className="flex shrink-0 items-center gap-1.5">
+                          <span className="mr-1 w-24 text-right text-sm font-medium tabular-nums text-slate-800">
+                            {money(it.amount)}
+                          </span>
                           <button
                             type="button"
-                            onClick={() => remove(it.id)}
-                            aria-label="Delete item"
-                            className="rounded p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                            onClick={() => openEdit(it)}
+                            aria-label="Edit item"
+                            title="Edit this item"
+                            className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-600 transition hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700"
                           >
-                            <Trash2 className="h-4 w-4" />
+                            <Pencil className="h-3.5 w-3.5" />
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setItemToDelete(it)}
+                            aria-label="Delete item"
+                            title="Delete this item"
+                            className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-600 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            Delete
                           </button>
                         </span>
                       </li>

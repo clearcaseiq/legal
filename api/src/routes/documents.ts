@@ -17,6 +17,7 @@ import { logger } from '../lib/logger'
 import {
   createEnvelopeForLead,
   createHipaaAuthorizationEnvelope,
+  createPoliceReportAuthorizationEnvelope,
   createRetainerAgreementEnvelope,
   createMedicalRecordsRequest,
   createOnboardingPacket,
@@ -28,9 +29,27 @@ import {
   listEnvelopesForLead,
 } from '../lib/esign/esign-service'
 import { renderHipaaAuthorizationPdf } from '../lib/esign/hipaa-authorization'
+import { renderPoliceReportAuthorizationPdf } from '../lib/esign/police-report-authorization'
 import { renderRetainerAgreementPdf } from '../lib/esign/retainer-agreement'
 import { listESignatureProviders } from '../lib/esign'
 import { respondESignError } from '../lib/esign/http'
+import {
+  checkConfirmRetainerSigned,
+  completeWelcomePacketForLead,
+  markSendRetainerTaskDone,
+} from '../lib/intake-acquire'
+import { checkCollectPoliceReport } from '../lib/police-report-collect'
+import { listActiveFirmTemplates, sendFirmTemplateForLead } from '../lib/esign/send-firm-template'
+import type { SignableDocumentType } from '../lib/esign/types'
+
+async function afterRetainerEnvelopeSent(leadId: string, note: string) {
+  const lead = await prisma.leadSubmission.findUnique({
+    where: { id: leadId },
+    select: { assessmentId: true },
+  })
+  if (!lead?.assessmentId) return
+  await markSendRetainerTaskDone(lead.assessmentId, note).catch(() => undefined)
+}
 
 const router = Router()
 
@@ -53,7 +72,10 @@ const feeAgreementUpload = multer({
 
 async function resolveAttorney(req: AuthRequest) {
   if (!req.user?.email) return null
-  return prisma.attorney.findFirst({ where: { email: req.user.email } })
+  return prisma.attorney.findFirst({
+    where: { email: req.user.email },
+    select: { id: true, name: true, email: true, lawFirmId: true },
+  })
 }
 
 /** Load a lead and assert the caller attorney may act on it (or it's unassigned). */
@@ -75,8 +97,91 @@ router.get('/providers', authMiddleware, async (_req: AuthRequest, res) => {
   res.json({ providers: listESignatureProviders() })
 })
 
+/** Active firm templates the attorney can pull into Signatures for this case. */
+router.get('/leads/:leadId/firm-templates', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const attorney = await resolveAttorney(req)
+    if (!attorney) return res.status(403).json({ error: 'Not an attorney account' })
+    const resolved = await resolveLeadForAttorney(req.params.leadId, attorney.id)
+    if (resolved.error === 404) return res.status(404).json({ error: 'Lead not found' })
+    if (resolved.error === 403) return res.status(403).json({ error: 'Lead is assigned to another attorney' })
+    if (!attorney.lawFirmId) {
+      return res.json({ templates: [], lawFirmId: null })
+    }
+    const templates = await listActiveFirmTemplates(attorney.lawFirmId)
+    res.json({ templates, lawFirmId: attorney.lawFirmId })
+  } catch (error) {
+    logger.error('List firm templates for lead failed', {
+      message: error instanceof Error ? error.message : String(error),
+    })
+    res.status(500).json({ error: 'Failed to load firm templates' })
+  }
+})
+
+const firmTemplateSendSchema = z.object({
+  signerName: z.string().min(1),
+  signerEmail: z.string().email(),
+  title: z.string().optional(),
+  provider: z.string().optional(),
+  documentType: z
+    .enum(['retainer', 'hipaa_authorization', 'police_report_authorization', 'fee_agreement', 'other'])
+    .optional(),
+})
+
+/** Send a firm library template for signature on this case. */
+router.post(
+  '/leads/:leadId/firm-templates/:templateId/send',
+  authMiddleware,
+  async (req: AuthRequest, res) => {
+    try {
+      const attorney = await resolveAttorney(req)
+      if (!attorney) return res.status(403).json({ error: 'Not an attorney account' })
+      if (!attorney.lawFirmId) {
+        return res.status(400).json({ error: 'No law firm is linked to this attorney account' })
+      }
+      const resolved = await resolveLeadForAttorney(req.params.leadId, attorney.id)
+      if (resolved.error === 404) return res.status(404).json({ error: 'Lead not found' })
+      if (resolved.error === 403) {
+        return res.status(403).json({ error: 'Lead is assigned to another attorney' })
+      }
+
+      const parsed = firmTemplateSendSchema.safeParse(req.body)
+      if (!parsed.success) {
+        return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() })
+      }
+
+      const envelope = await sendFirmTemplateForLead({
+        templateId: req.params.templateId,
+        lawFirmId: attorney.lawFirmId,
+        leadId: req.params.leadId,
+        attorneyId: attorney.id,
+        signerName: parsed.data.signerName,
+        signerEmail: parsed.data.signerEmail,
+        title: parsed.data.title,
+        providerId: parsed.data.provider,
+        documentType: parsed.data.documentType as SignableDocumentType | undefined,
+      })
+      res.status(201).json({ envelope })
+    } catch (error: any) {
+      const status = Number(error?.status) || 0
+      if (status === 400 || status === 404) {
+        return res.status(status).json({ error: error.message || 'Request failed' })
+      }
+      const message = error instanceof Error ? error.message : String(error)
+      logger.error('Send firm template from Signatures failed', { message })
+      respondESignError(res, error)
+    }
+  },
+)
+
 const createSchema = z.object({
-  documentType: z.enum(['retainer', 'hipaa_authorization', 'fee_agreement', 'other']),
+  documentType: z.enum([
+    'retainer',
+    'hipaa_authorization',
+    'police_report_authorization',
+    'fee_agreement',
+    'other',
+  ]),
   title: z.string().min(1),
   signerName: z.string().min(1),
   signerEmail: z.string().email(),
@@ -84,18 +189,28 @@ const createSchema = z.object({
   provider: z.string().optional(),
 })
 
-// Stream the executed (signed) PDF for an envelope to its owning attorney.
+// Stream the executed (signed) PDF for an envelope to its owning attorney
+// or to the plaintiff who owns the linked assessment.
 router.get('/envelopes/:envelopeId/signed', authMiddleware, async (req: AuthRequest, res) => {
   try {
-    const attorney = await resolveAttorney(req)
-    if (!attorney) return res.status(403).json({ error: 'Not an attorney account' })
-
     const env = await prisma.documentEnvelope.findUnique({
       where: { id: req.params.envelopeId },
-      select: { attorneyId: true, status: true, signedFilePath: true, title: true },
+      select: {
+        attorneyId: true,
+        status: true,
+        signedFilePath: true,
+        title: true,
+        lead: { select: { assessment: { select: { userId: true } } } },
+      },
     })
     if (!env) return res.status(404).json({ error: 'Envelope not found' })
-    if (env.attorneyId !== attorney.id) return res.status(403).json({ error: 'Envelope belongs to another attorney' })
+
+    const attorney = await resolveAttorney(req)
+    const isAttorneyOwner = Boolean(attorney && env.attorneyId === attorney.id)
+    const isPlaintiffOwner = Boolean(req.user?.id && env.lead?.assessment?.userId === req.user.id)
+    if (!isAttorneyOwner && !isPlaintiffOwner) {
+      return res.status(403).json({ error: 'Not authorized to download this document' })
+    }
     if (env.status !== 'signed' || !env.signedFilePath || !fs.existsSync(env.signedFilePath)) {
       return res.status(404).json({ error: 'No signed document is available for this envelope yet' })
     }
@@ -207,6 +322,57 @@ router.post('/leads/:leadId/hipaa-authorization', authMiddleware, async (req: Au
   }
 })
 
+const policeReportAuthSchema = z.object({
+  signerName: z.string().min(1),
+  signerEmail: z.string().email(),
+  clientDob: z.string().optional(),
+  firmName: z.string().optional(),
+  attorneyName: z.string().optional(),
+  agencyName: z.string().optional(),
+  reportNumber: z.string().optional(),
+  incidentDate: z.string().optional(),
+  incidentVenue: z.string().optional(),
+  provider: z.string().optional(),
+})
+
+/** Client authorization for counsel to obtain a CA police/incident report. */
+router.post('/leads/:leadId/police-report-authorization', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const attorney = await resolveAttorney(req)
+    if (!attorney) return res.status(403).json({ error: 'Not an attorney account' })
+
+    const parsed = policeReportAuthSchema.safeParse(req.body)
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() })
+    }
+
+    const lead = await prisma.leadSubmission.findUnique({
+      where: { id: req.params.leadId },
+      select: { id: true, assignedAttorneyId: true },
+    })
+    if (!lead) return res.status(404).json({ error: 'Lead not found' })
+    if (lead.assignedAttorneyId && lead.assignedAttorneyId !== attorney.id) {
+      return res.status(403).json({ error: 'Lead is assigned to another attorney' })
+    }
+
+    const { provider, attorneyName, firmName, ...rest } = parsed.data
+    const envelope = await createPoliceReportAuthorizationEnvelope({
+      leadId: lead.id,
+      attorneyId: attorney.id,
+      providerId: provider,
+      caseRef: lead.id,
+      attorneyName: attorneyName || attorney.name || undefined,
+      firmName: firmName || undefined,
+      ...rest,
+    })
+    res.status(201).json({ envelope })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    logger.error('Create police report authorization failed', { message })
+    respondESignError(res, error)
+  }
+})
+
 const retainerSchema = z.object({
   signerName: z.string().min(1),
   signerEmail: z.string().email(),
@@ -250,6 +416,7 @@ router.post('/leads/:leadId/retainer', authMiddleware, async (req: AuthRequest, 
       firmName: firmName || attorney.name || undefined,
       ...rest,
     })
+    await afterRetainerEnvelopeSent(lead.id, 'Sent for signature from Signatures tab.')
     res.status(201).json({ envelope })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
@@ -359,6 +526,54 @@ router.post('/leads/:leadId/envelopes/refresh', authMiddleware, async (req: Auth
   }
 })
 
+/**
+ * Confirm-signed task "Check": poll e-sign for a signed retainer and mark the
+ * confirm/send retainer tasks done when one exists.
+ */
+router.post('/leads/:leadId/confirm-retainer-signed', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const attorney = await resolveAttorney(req)
+    if (!attorney) return res.status(403).json({ error: 'Not an attorney account' })
+    const resolved = await resolveLeadForAttorney(req.params.leadId, attorney.id)
+    if (resolved.error === 404) return res.status(404).json({ error: 'Lead not found' })
+    if (resolved.error === 403) {
+      return res.status(403).json({ error: 'Lead is assigned to another attorney' })
+    }
+
+    const result = await checkConfirmRetainerSigned(req.params.leadId)
+    res.json(result)
+  } catch (error) {
+    logger.error('Confirm retainer signed check failed', {
+      error: error instanceof Error ? error.message : String(error),
+    })
+    res.status(500).json({ error: 'Failed to check retainer signature status' })
+  }
+})
+
+/**
+ * Collect Police/incident report "Check": complete the task when a report is on
+ * file; otherwise report whether client authorization is signed/sent.
+ */
+router.post('/leads/:leadId/check-police-report', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const attorney = await resolveAttorney(req)
+    if (!attorney) return res.status(403).json({ error: 'Not an attorney account' })
+    const resolved = await resolveLeadForAttorney(req.params.leadId, attorney.id)
+    if (resolved.error === 404) return res.status(404).json({ error: 'Lead not found' })
+    if (resolved.error === 403) {
+      return res.status(403).json({ error: 'Lead is assigned to another attorney' })
+    }
+
+    const result = await checkCollectPoliceReport(req.params.leadId)
+    res.json(result)
+  } catch (error) {
+    logger.error('Check police report collect failed', {
+      error: error instanceof Error ? error.message : String(error),
+    })
+    res.status(500).json({ error: 'Failed to check police report status' })
+  }
+})
+
 // Nudge the current signer (re-send the signing email).
 router.post('/leads/:leadId/envelopes/:envelopeId/remind', authMiddleware, async (req: AuthRequest, res) => {
   try {
@@ -421,7 +636,7 @@ router.post('/leads/:leadId/envelopes/:envelopeId/correct-email', authMiddleware
 })
 
 const previewSchema = z.object({
-  documentType: z.enum(['retainer', 'hipaa_authorization']),
+  documentType: z.enum(['retainer', 'hipaa_authorization', 'police_report_authorization']),
   signerName: z.string().min(1),
   // Retainer terms
   firmName: z.string().optional(),
@@ -433,10 +648,15 @@ const previewSchema = z.object({
   clientDob: z.string().optional(),
   recordsCustodian: z.string().optional(),
   recordsDateRange: z.string().optional(),
+  // Police report authorization terms
+  agencyName: z.string().optional(),
+  reportNumber: z.string().optional(),
+  incidentDate: z.string().optional(),
+  incidentVenue: z.string().optional(),
 })
 
-// Render (but do NOT send) the retainer/HIPAA PDF so the attorney can review
-// the exact document before it goes out for signature. Streams the PDF inline.
+// Render (but do NOT send) the retainer/HIPAA/police-auth PDF so the attorney
+// can review the exact document before it goes out for signature.
 router.post('/leads/:leadId/preview', authMiddleware, async (req: AuthRequest, res) => {
   try {
     const attorney = await resolveAttorney(req)
@@ -460,14 +680,27 @@ router.post('/leads/:leadId/preview', authMiddleware, async (req: AuthRequest, r
             scope: p.scope,
             caseRef: req.params.leadId,
           })
-        : await renderHipaaAuthorizationPdf({
-            leadId: req.params.leadId,
-            clientName: p.signerName,
-            clientDob: p.clientDob,
-            recordsCustodian: p.recordsCustodian,
-            recordsDateRange: p.recordsDateRange,
-            caseRef: req.params.leadId,
-          })
+        : p.documentType === 'police_report_authorization'
+          ? await renderPoliceReportAuthorizationPdf({
+              leadId: req.params.leadId,
+              clientName: p.signerName,
+              clientDob: p.clientDob,
+              firmName: p.firmName,
+              attorneyName: p.attorneyName || attorney.name || undefined,
+              agencyName: p.agencyName,
+              reportNumber: p.reportNumber,
+              incidentDate: p.incidentDate,
+              incidentVenue: p.incidentVenue,
+              caseRef: req.params.leadId,
+            })
+          : await renderHipaaAuthorizationPdf({
+              leadId: req.params.leadId,
+              clientName: p.signerName,
+              clientDob: p.clientDob,
+              recordsCustodian: p.recordsCustodian,
+              recordsDateRange: p.recordsDateRange,
+              caseRef: req.params.leadId,
+            })
 
     res.setHeader('Content-Type', 'application/pdf')
     res.setHeader('Content-Disposition', 'inline; filename="preview.pdf"')
@@ -521,6 +754,11 @@ router.post('/leads/:leadId/onboarding-packet', authMiddleware, async (req: Auth
       firmName: firmName || attorney.name || undefined,
       ...rest,
     })
+    await afterRetainerEnvelopeSent(req.params.leadId, 'Sent via onboarding packet.')
+    await completeWelcomePacketForLead(
+      req.params.leadId,
+      'Completed via Signatures → Send onboarding packet.',
+    ).catch(() => undefined)
     res.status(201).json(result)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
@@ -529,9 +767,9 @@ router.post('/leads/:leadId/onboarding-packet', authMiddleware, async (req: Auth
   }
 })
 
-// Upload a firm-authored PDF (e.g. a custom fee agreement) and send it for
+// Upload a firm-authored PDF (custom retainer or fee agreement) and send it for
 // signature. Unlike the templated retainer/HIPAA flows, the source document is
-// the uploaded file.
+// the uploaded file. Pass documentType=retainer to file it as a retainer.
 router.post(
   '/leads/:leadId/fee-agreement',
   authMiddleware,
@@ -546,7 +784,11 @@ router.post(
 
       const signerName = String(req.body.signerName || '').trim()
       const signerEmail = String(req.body.signerEmail || '').trim()
-      const title = String(req.body.title || '').trim() || `Fee agreement — ${signerName}`
+      const rawType = String(req.body.documentType || 'fee_agreement').trim()
+      const documentType = rawType === 'retainer' ? 'retainer' : 'fee_agreement'
+      const title =
+        String(req.body.title || '').trim() ||
+        `${documentType === 'retainer' ? 'Retainer agreement' : 'Fee agreement'} — ${signerName}`
       const provider = req.body.provider ? String(req.body.provider) : undefined
       if (!signerName || !signerEmail) {
         return res.status(400).json({ error: 'signerName and signerEmail are required' })
@@ -560,12 +802,18 @@ router.post(
         leadId: req.params.leadId,
         attorneyId: attorney.id,
         providerId: provider,
-        documentType: 'fee_agreement',
+        documentType,
         title,
         signerName,
         signerEmail,
         filePath: file.path,
       })
+      if (documentType === 'retainer' || documentType === 'fee_agreement') {
+        await afterRetainerEnvelopeSent(
+          req.params.leadId,
+          `Sent ${documentType === 'retainer' ? 'retainer' : 'fee agreement'} upload for signature.`,
+        )
+      }
       res.status(201).json({ envelope })
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -573,6 +821,49 @@ router.post(
       respondESignError(res, error)
     }
   }
+)
+
+/** Alias for uploading a custom retainer PDF (same handler as fee-agreement with documentType=retainer). */
+router.post(
+  '/leads/:leadId/retainer/upload',
+  authMiddleware,
+  feeAgreementUpload.single('file'),
+  async (req: AuthRequest, res) => {
+    req.body = { ...(req.body || {}), documentType: 'retainer' }
+    // Reuse fee-agreement route logic by forwarding — call same shape inline.
+    try {
+      const attorney = await resolveAttorney(req)
+      if (!attorney) return res.status(403).json({ error: 'Not an attorney account' })
+      const file = (req as AuthRequest & { file?: Express.Multer.File }).file
+      if (!file) return res.status(400).json({ error: 'A PDF file is required' })
+      const signerName = String(req.body.signerName || '').trim()
+      const signerEmail = String(req.body.signerEmail || '').trim()
+      const title = String(req.body.title || '').trim() || `Retainer agreement — ${signerName}`
+      const provider = req.body.provider ? String(req.body.provider) : undefined
+      if (!signerName || !signerEmail) {
+        return res.status(400).json({ error: 'signerName and signerEmail are required' })
+      }
+      const resolved = await resolveLeadForAttorney(req.params.leadId, attorney.id)
+      if (resolved.error === 404) return res.status(404).json({ error: 'Lead not found' })
+      if (resolved.error === 403) return res.status(403).json({ error: 'Lead is assigned to another attorney' })
+      const envelope = await createEnvelopeForLead({
+        leadId: req.params.leadId,
+        attorneyId: attorney.id,
+        providerId: provider,
+        documentType: 'retainer',
+        title,
+        signerName,
+        signerEmail,
+        filePath: file.path,
+      })
+      await afterRetainerEnvelopeSent(req.params.leadId, 'Sent retainer upload for signature.')
+      res.status(201).json({ envelope })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      logger.error('Retainer upload failed', { message })
+      respondESignError(res, error)
+    }
+  },
 )
 
 export default router

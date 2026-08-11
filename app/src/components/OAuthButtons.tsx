@@ -17,7 +17,7 @@ export default function OAuthButtons({ disabled = false, emphasizeGoogle = false
   // buttons always showed and only surfaced "OAuth is not configured" after a
   // click — confusing for users on environments without OAuth set up (#78).
   const [providers, setProviders] = useState<{ google: boolean; apple: boolean; microsoft: boolean } | null>(null)
-  const apiUrl = getApiOrigin() || 'http://localhost:4000'
+  const apiUrl = getApiOrigin() || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:4000')
 
   useEffect(() => {
     let cancelled = false

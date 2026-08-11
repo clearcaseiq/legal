@@ -7,11 +7,9 @@
  * near-identical "Answer: …" rows buried every other task in the queue, and the
  * questions are one conversation with the plaintiff, not a dozen errands.
  *
- * Scope: only the DETERMINISTIC baseline questions (stable `base:<id>` keys) are
- * materialized. The AI-personalized questions are re-generated live on every
- * panel view (no cache, temperature > 0) so their keys churn — materializing
- * them would spawn duplicate checklist items on each view. They stay in the
- * panel only.
+ * Scope: baseline (`base:<id>`) and AI (`ai:<hash>`) questions are both
+ * materialized onto the grouped task. AI keys are a hash of normalized text, so
+ * the same wording maps to the same checklist id across regenerations.
  *
  * Linking: there is no dedicated column, so the group task is found by a
  * sentinel in `sourceTemplateStepId` (question tasks never originate from a
@@ -33,7 +31,7 @@ export const QUESTION_GROUP_KEY = 'base:__plaintiff_questions__'
 const MAX_QUESTION_SUBTASKS = 25
 
 const QUESTION_TASK_NOTES =
-  "Work through these with the plaintiff, then record each answer in the case's Intelligent Questions panel. Items tick off automatically as answers are saved."
+  'Work through these with the plaintiff and record a response for each question in this task. Items tick off as answers are saved.'
 
 export interface QuestionForTask {
   questionKey: string
@@ -58,9 +56,17 @@ function questionGroupTitle(answered: number, total: number): string {
   return `Questions for the plaintiff (${answered} of ${total} answered)`
 }
 
-/** Only baseline questions have stable keys safe to materialize as tasks. */
+/**
+ * Baseline (`base:…`) and AI (`ai:<hash>`) questions both use stable keys, so
+ * both are safe to materialize. AI keys are a hash of normalized text and do
+ * not churn across regenerations of the same wording.
+ */
 function isMaterializable(q: QuestionForTask): boolean {
-  return q.source === 'baseline' && !!q.questionKey && q.questionKey.startsWith('base:')
+  if (!q.questionKey) return false
+  if (q.source === 'baseline' && q.questionKey.startsWith('base:')) return true
+  if (q.source === 'ai' && q.questionKey.startsWith('ai:')) return true
+  // Accept either prefix when source is missing (legacy callers).
+  return q.questionKey.startsWith('base:') || q.questionKey.startsWith('ai:')
 }
 
 /** Read the JSON-stored checklist column; mirrors `parseSubtasks` in the routes. */
@@ -170,20 +176,29 @@ export async function syncQuestionTasks(
   // A ticked item stays ticked. Saving an answer ticks it, and so does someone
   // checking it off by hand after asking the plaintiff directly; only an
   // explicitly cleared answer un-ticks it, via syncSingleQuestionTask.
-  const alreadyDone = new Set(
-    parseSubtasks(group?.subtasks)
-      .filter((s) => s.done)
-      .map((s) => s.id),
-  )
+  const prior = parseSubtasks(group?.subtasks)
+  const alreadyDone = new Set(prior.filter((s) => s.done).map((s) => s.id))
 
   const subtasks: QuestionSubtask[] = materializable.map((q) => ({
     id: q.questionKey,
     title: String(q.text || '').trim(),
     done: !!(q.answer && String(q.answer).trim()) || alreadyDone.has(q.questionKey),
   }))
+  // Preserve checklist items the incoming set omitted:
+  // - answered orphans (gap closed / prune) so recorded responses stay visible
+  // - AI items when a baseline-only sync (coach loop) would otherwise wipe them
+  const liveIds = new Set(subtasks.map((s) => s.id))
+  for (const s of prior) {
+    if (liveIds.has(s.id)) continue
+    if (s.done || s.id.startsWith('ai:')) {
+      subtasks.push(s)
+      liveIds.add(s.id)
+    }
+  }
+  if (subtasks.length > MAX_QUESTION_SUBTASKS) subtasks.length = MAX_QUESTION_SUBTASKS
   const total = subtasks.length
   const answered = subtasks.filter((s) => s.done).length
-  const allAnswered = answered === total
+  const allAnswered = answered === total && total > 0
   const title = questionGroupTitle(answered, total)
 
   if (group) {
@@ -334,7 +349,7 @@ export async function syncSingleQuestionTask(
   questionKey: string,
   answered: boolean,
 ): Promise<void> {
-  if (!questionKey.startsWith('base:')) return
+  if (!questionKey.startsWith('base:') && !questionKey.startsWith('ai:')) return
   const task = await prisma.caseTask
     .findFirst({
       where: { assessmentId, taskType: QUESTION_TASK_TYPE, sourceTemplateStepId: QUESTION_GROUP_KEY },

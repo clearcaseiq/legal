@@ -46,11 +46,13 @@ import {
   Trash2,
   Undo2,
   Upload,
+  User,
   Workflow,
   X,
 } from 'lucide-react'
 import {
   createDocumentRequest,
+  createLeadDamage,
   createLeadInsurance,
   createLeadTask,
   createLeadTasksFromReadiness,
@@ -62,6 +64,7 @@ import {
   getEvidenceObjectUrl,
   getAttorneyDashboard,
   getAttorneyDocumentRequests,
+  getFirmColleagues,
   getLead,
   getLeadCommandCenter,
   getLeadEvidenceFiles,
@@ -76,14 +79,17 @@ import {
   updateLeadTask,
   approveLeadTask,
   unapproveLeadTask,
+  runLeadConflictCheck,
   uploadLeadEvidenceOnBehalf,
   type AttorneyDocumentRequest,
   type CaseCommandCenter,
+  type FirmColleague,
   type MedicalChronologySummary,
   type MyWorkflowTask,
   type FirmMemberOption,
 } from '../../lib/api'
 import { getApiOrigin } from '../../lib/runtimeEnv'
+import { checkPoliceReportCollect, confirmRetainerSigned } from '../../lib/api-esign'
 import SignatureRequestPanel from '../../components/SignatureRequestPanel'
 import ChatDrawer from '../../components/ChatDrawer'
 import ConfirmDialog from '../../components/ConfirmDialog'
@@ -93,14 +99,20 @@ import CaseLifecycleControls from './CaseLifecycleControls'
 import DamagesPanel from './DamagesPanel'
 import LiabilityPanel from './LiabilityPanel'
 import MedicalTimelinePanel from './MedicalTimelinePanel'
+import PlaintiffImpactJournalPanel from './PlaintiffImpactJournalPanel'
 import CaseWorkflowPanel from './CaseWorkflowPanel'
 import CaseTimePanel from './CaseTimePanel'
 import CaseIntelligencePanel from './CaseIntelligencePanel'
-import CaseCoachPanel from './CaseCoachPanel'
 import ConsultSchedulerModal from './ConsultSchedulerModal'
 import TaskDetailModal from './TaskDetailModal'
 import TaskOriginBadge, { isAiTask } from './TaskOriginBadge'
 import MergeTasksDialog from './MergeTasksDialog'
+import {
+  resolveTaskHelpTooltip,
+  resolveTaskPrimaryAction,
+  sectionForTaskAction,
+  type TaskPrimaryActionKind,
+} from './taskPrimaryActions'
 import { BackButton, EmptyState } from '../shared/ui'
 import { recordRecentCase } from './recentCases'
 import { formatClaimType } from '../../lib/claimTypes'
@@ -134,11 +146,12 @@ const ROW_TONE: Record<Tone, string> = {
   danger: 'text-rose-700',
 }
 
-const TABS = ['Info', 'Overview', 'Workflow', 'Evidence', 'Signatures', 'Medical', 'Liability', 'Insurance', 'Damages', 'Negotiation', 'Demand', 'Timeline', 'Deadlines', 'Settlement', 'Tasks', 'Time'] as const
+const TABS = ['Overview', 'Workflow', 'Tasks', 'Evidence', 'Signatures', 'Medical', 'Liability', 'Insurance', 'Damages', 'Negotiation', 'Demand', 'Timeline', 'Deadlines', 'Settlement', 'Time'] as const
 type Tab = (typeof TABS)[number]
 
 const SECTION_TO_TAB: Record<string, Tab> = {
-  info: 'Info',
+  // Legacy /info deep-links land on Overview now that the Info tab is gone.
+  info: 'Overview',
   overview: 'Overview',
   workflow: 'Workflow',
   evidence: 'Evidence',
@@ -164,7 +177,6 @@ const SECTION_TO_TAB: Record<string, Tab> = {
 }
 
 const TAB_TO_SECTION: Record<Tab, string> = {
-  Info: 'info',
   Overview: 'overview',
   Workflow: 'workflow',
   Evidence: 'evidence',
@@ -185,9 +197,9 @@ const TAB_TO_SECTION: Record<Tab, string> = {
 type TabMeta = { icon: ComponentType<{ className?: string }>; blurb: string }
 
 const TAB_META: Record<Tab, TabMeta> = {
-  Info: { icon: Info, blurb: 'Case facts, stage timeline, and what is due in the next 30 days.' },
-  Overview: { icon: LayoutDashboard, blurb: 'AI coach, case posture, valuation, and readiness at a glance.' },
-  Workflow: { icon: ListChecks, blurb: 'Your firm’s standard workflow, tracked stage by stage on this case.' },
+  Overview: { icon: LayoutDashboard, blurb: 'AI case summary, valuation, and readiness at a glance.' },
+  Workflow: { icon: Workflow, blurb: 'Your firm’s standard pipeline for this case — check off steps, assign owners, and track progress stage by stage.' },
+  Tasks: { icon: ListChecks, blurb: 'Primary work queue for this case — recommended next steps, assignments, and open items.' },
   Evidence: { icon: FolderOpen, blurb: 'Upload documents, request records, and track the case file.' },
   Signatures: { icon: PenLine, blurb: 'Send retainers and authorizations for e-signature.' },
   Medical: { icon: Stethoscope, blurb: 'Providers, treatment chronology, and cost benchmarks.' },
@@ -199,7 +211,6 @@ const TAB_META: Record<Tab, TabMeta> = {
   Timeline: { icon: Clock, blurb: 'A chronological record of everything on this matter.' },
   Deadlines: { icon: CalendarClock, blurb: 'Statute of limitations and key case milestones.' },
   Settlement: { icon: Scale, blurb: 'Net-to-client waterfall: fees, case costs, and lien reductions.' },
-  Tasks: { icon: ListChecks, blurb: 'Open work items for this case.' },
   Time: { icon: Clock, blurb: 'Log team hours on this case for profitability and fee petitions.' },
 }
 
@@ -318,10 +329,20 @@ interface TaskRow {
   reviewStatus?: string | null
   priority?: string | null
   taskType?: string | null
+  deadlineType?: string | null
   notes?: string | null
   completedAt?: string | null
   createdAt?: string | null
+  createdByName?: string | null
   leadId?: string | null
+  assignedUserId?: string | null
+  assignedTo?: string | null
+  assignedRole?: string | null
+  /** Present when the task was materialized from a case workflow step. */
+  workflowPhase?: string | null
+  workflowPhaseOrder?: number | null
+  workflowStage?: string | null
+  workflowStageOrder?: number | null
 }
 
 interface CaseDetailVM {
@@ -350,6 +371,8 @@ interface CaseDetailVM {
   /** Underwriting modeled range when available (distinct from prediction median). */
   modeledValueLow: number | null
   modeledValueHigh: number | null
+  /** Plaintiff Journal entries from assessment.facts.painJournal. */
+  painJournal: Array<{ date: string; level: number; note: string; days?: number; dailyWage?: number }>
 }
 
 export default function CaseWorkspacePage() {
@@ -401,6 +424,16 @@ export default function CaseWorkspacePage() {
       setTasks((Array.isArray(data) ? data : []) as TaskRow[])
     } catch {
       /* tasks are best-effort; keep whatever we already have */
+    }
+  }, [leadId])
+
+  const reloadCc = useCallback(async () => {
+    if (!leadId) return
+    try {
+      const center = await getLeadCommandCenter(leadId)
+      setCc(center)
+    } catch {
+      /* command center optional */
     }
   }, [leadId])
 
@@ -532,6 +565,7 @@ export default function CaseWorkspacePage() {
       evidenceFiles: (a.evidenceFiles || a.files || []) as any[],
       modeledValueLow: null,
       modeledValueHigh: null,
+      painJournal: Array.isArray(facts?.painJournal) ? facts.painJournal : [],
     }
   }, [lead, cc])
 
@@ -616,6 +650,9 @@ export default function CaseWorkspacePage() {
                     )
                   }
                 />
+                <p className="mt-0.5 text-sm text-slate-500">
+                  Case reference: <span className="font-mono text-xs text-slate-700">{leadId}</span>
+                </p>
                 <p className="mt-0.5 text-sm">
                   <span className="font-semibold text-slate-700">{detail.type}</span>
                   <span className="text-slate-400"> · {detail.venue}</span>
@@ -671,22 +708,39 @@ export default function CaseWorkspacePage() {
             {TABS.map((t) => {
               const active = t === tab
               const TabIcon = TAB_META[t].icon
+              const isTasks = t === 'Tasks'
+              const openTaskCount = isTasks
+                ? tasks.filter((row) => !['done', 'completed', 'cancelled'].includes(String(row.status || '').toLowerCase())).length
+                : 0
               return (
                 <button
                   key={t}
                   type="button"
                   onClick={() => navigate(`/attorney-dashboard/cases/${leadId}/${TAB_TO_SECTION[t]}${fromSuffix}`)}
-                  title={t}
-                  aria-label={t}
+                  title={isTasks ? 'Tasks — primary work queue for this case' : t}
+                  aria-label={isTasks && openTaskCount ? `Tasks, ${openTaskCount} open` : t}
                   aria-current={active ? 'page' : undefined}
                   className={`group relative inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl px-3 py-1.5 text-[13px] font-medium transition-all duration-200 ${
                     active
-                      ? 'scale-[1.03] bg-gradient-to-b from-brand-500 to-brand-700 font-semibold text-white shadow-md shadow-brand-700/30 ring-1 ring-inset ring-white/15'
-                      : 'text-slate-500 hover:bg-brand-100 hover:text-brand-700 hover:shadow-sm hover:ring-1 hover:ring-inset hover:ring-brand-200'
+                      ? isTasks
+                        ? 'scale-[1.04] bg-gradient-to-b from-brand-500 to-brand-800 px-3.5 py-2 font-bold text-white shadow-lg shadow-brand-700/40 ring-2 ring-brand-300/80'
+                        : 'scale-[1.03] bg-gradient-to-b from-brand-500 to-brand-700 font-semibold text-white shadow-md shadow-brand-700/30 ring-1 ring-inset ring-white/15'
+                      : isTasks
+                        ? 'bg-brand-50 font-semibold text-brand-800 ring-1 ring-inset ring-brand-300 hover:bg-brand-100 hover:shadow-sm'
+                        : 'text-slate-500 hover:bg-brand-100 hover:text-brand-700 hover:shadow-sm hover:ring-1 hover:ring-inset hover:ring-brand-200'
                   }`}
                 >
-                  <TabIcon className={`h-4 w-4 shrink-0 transition-colors ${active ? 'text-white' : 'text-slate-400 group-hover:text-brand-600'}`} />
+                  <TabIcon className={`h-4 w-4 shrink-0 transition-colors ${active ? 'text-white' : isTasks ? 'text-brand-600' : 'text-slate-400 group-hover:text-brand-600'}`} />
                   <span>{t}</span>
+                  {isTasks && openTaskCount > 0 ? (
+                    <span
+                      className={`inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-bold leading-none ${
+                        active ? 'bg-white/20 text-white' : 'bg-brand-600 text-white'
+                      }`}
+                    >
+                      {openTaskCount > 99 ? '99+' : openTaskCount}
+                    </span>
+                  ) : null}
                 </button>
               )
             })}
@@ -703,11 +757,11 @@ export default function CaseWorkspacePage() {
               </span>
               <div className="min-w-0">
                 <h2 className="text-sm font-semibold text-slate-900">{tab}</h2>
-                <p className="truncate text-xs text-slate-500">{TAB_META[tab].blurb}</p>
+                <p className="text-xs text-slate-500">{TAB_META[tab].blurb}</p>
               </div>
             </header>
             <div className="p-5 sm:p-6">
-              <WorkstreamPanel tab={tab} section={section} lead={lead} detail={detail} cc={cc} tasks={tasks} reloadTasks={reloadTasks} onOpenChat={openChat} onAssessmentPatch={(patch) => setLead((prev: any) => (prev ? { ...prev, assessment: { ...(prev.assessment || {}), ...patch } } : prev))} />
+              <WorkstreamPanel tab={tab} section={section} lead={lead} detail={detail} cc={cc} tasks={tasks} reloadTasks={reloadTasks} reloadCc={reloadCc} onOpenChat={openChat} onAssessmentPatch={(patch) => setLead((prev: any) => (prev ? { ...prev, assessment: { ...(prev.assessment || {}), ...patch } } : prev))} />
             </div>
           </section>
 
@@ -744,6 +798,7 @@ function WorkstreamPanel({
   cc,
   tasks,
   reloadTasks,
+  reloadCc,
   onOpenChat,
   onAssessmentPatch,
 }: {
@@ -754,6 +809,7 @@ function WorkstreamPanel({
   cc: CaseCommandCenter | null
   tasks: TaskRow[]
   reloadTasks: () => Promise<void> | void
+  reloadCc: () => Promise<void> | void
   onOpenChat: (draft?: string) => void
   onAssessmentPatch?: (patch: { caseStage?: string | null; litigationStatus?: string | null; closedAt?: string | null }) => void
 }) {
@@ -777,7 +833,7 @@ function WorkstreamPanel({
     try {
       await createDocumentRequest(lead.id, { requestedDocs: labels, customMessage: message || undefined })
       setRequestedDocKeys((prev) => new Set([...prev, ...keys]))
-      setActionMsg({ tone: 'ok', text: `Requested ${labels.length} document${labels.length === 1 ? '' : 's'} from ${detail.client}.` })
+      setActionMsg(null)
     } catch (err: any) {
       setActionMsg({ tone: 'err', text: err?.response?.data?.error || 'Could not send the document request.' })
     } finally {
@@ -791,7 +847,7 @@ function WorkstreamPanel({
     if (!nba) return
     switch (nba.actionType) {
       case 'schedule_consult':
-        navigate(`/attorney-dashboard/schedule-consult/${lead.id}?returnTo=${encodeURIComponent(`/attorney-dashboard/cases/${lead.id}/overview`)}`)
+        navigate(`/attorney-dashboard/schedule-consult/${lead.id}?returnTo=${encodeURIComponent(`/attorney-dashboard/cases/${lead.id}/tasks`)}`)
         break
       case 'client_follow_up':
         onOpenChat(cc?.suggestedPlaintiffUpdate || '')
@@ -827,13 +883,22 @@ function WorkstreamPanel({
   }
 
   if (tab === 'Signatures') {
+    const docParam = (searchParams.get('doc') || '').toLowerCase()
+    const initialDoc =
+      docParam === 'police_report_authorization' || docParam === 'police'
+        ? 'police_report_authorization'
+        : docParam === 'retainer' || (section || '').toLowerCase() === 'documents'
+          ? 'retainer'
+          : docParam === 'hipaa_authorization' || docParam === 'hipaa'
+            ? 'hipaa_authorization'
+            : 'hipaa_authorization'
     return (
       <SignatureRequestPanel
         leadId={lead.id}
         defaultSignerName={detail.client}
         defaultSignerEmail={detail.clientEmail}
-        // Arriving via "Send retainer" (section=documents) preselects the retainer agreement.
-        initialDocumentType={(section || '').toLowerCase() === 'documents' ? 'retainer' : 'hipaa_authorization'}
+        // Deep-links: ?doc=police_report_authorization | retainer | hipaa; section=documents → retainer.
+        initialDocumentType={initialDoc}
       />
     )
   }
@@ -841,6 +906,7 @@ function WorkstreamPanel({
   if (tab === 'Medical') {
     return (
       <div className="space-y-6">
+        <PlaintiffImpactJournalPanel entries={detail.painJournal || []} />
         <MedicalTimelinePanel leadId={lead.id} />
         <div className="border-t border-slate-100 pt-6">
           <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">
@@ -1079,8 +1145,8 @@ function WorkstreamPanel({
           <StoryCard title="Coverage" label={cc?.coverageStory?.label} detail={cc?.coverageStory?.detail} />
         </div>
 
-        {actionMsg ? (
-          <div className={`rounded-lg px-3 py-2 text-sm ${actionMsg.tone === 'ok' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
+        {actionMsg?.tone === 'err' ? (
+          <div className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">
             {actionMsg.text}
           </div>
         ) : null}
@@ -1404,361 +1470,44 @@ function WorkstreamPanel({
   }
 
   if (tab === 'Tasks') {
-    return <TasksPanel leadId={lead.id} tasks={tasks} reload={reloadTasks} caseLabel={`${detail.client} · ${detail.type}`} />
-  }
-
-  if (tab === 'Info') {
-    return <CaseInfoPanel lead={lead} detail={detail} tasks={tasks} goToSection={goToSection} />
+    return (
+      <TasksPanel
+        leadId={lead.id}
+        tasks={tasks}
+        reload={reloadTasks}
+        caseLabel={`${detail.client} · ${detail.type}`}
+      />
+    )
   }
 
   // Overview — a case-at-a-glance summary built from the command center (cc).
   {
-    const v = cc?.valueStory
     const n = cc?.negotiationSummary
-    const readinessScore = Number(cc?.readiness?.score ?? 0)
-    const rawEstValue =
-      v && (v.low || v.high)
-        ? v.low && v.high
-          ? `${compactMoney(v.low)}–${compactMoney(v.high)}`
-          : money(v.median || v.high || v.low)
-        : money(detail.caseValue)
-    const estValue = rawEstValue === '—' ? 'Pending valuation' : rawEstValue
-    const hasPosture = Boolean(cc && (cc.strengths?.length || cc.weaknesses?.length || cc.defenseRisks?.length))
-    const nba = cc?.nextBestAction
-    const nbaMeta = nba ? NBA_META[nba.actionType] : null
-    const NbaIcon = nbaMeta?.Icon || Send
-    const missing = cc?.missingItems || []
-    const requestAllLabels = cc?.suggestedDocumentRequest?.requestedDocs?.length
-      ? cc.suggestedDocumentRequest.requestedDocs
-      : missing.map((m) => m.key)
 
     return (
       <div className="space-y-4">
-        {/* AI Case Coach — ranked next-best actions (Phase 2) */}
-        <CaseCoachPanel leadId={lead.id} />
+        {/* AI Case Intelligence — Summary first so attorneys see the case at a glance */}
+        <CaseIntelligencePanel leadId={lead.id} onUpdated={() => void reloadCc()} />
 
-        {/* AI Case Intelligence — Already Known, Missing Info, Intelligent Questions */}
-        <CaseIntelligencePanel leadId={lead.id} />
-
-        <p className="text-sm text-slate-600">
-          {cc?.stage?.detail || cc?.readiness?.detail || 'Retained case in progress. Work the tabs above to advance the file.'}
-        </p>
-
-        {nba ? (
-          <div className="rounded-xl border border-brand-200 bg-brand-50/60 p-4">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <div className="min-w-0">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-brand-700">Recommended next step</p>
-                <p className="mt-1 font-semibold text-slate-900">{nba.title}</p>
-                {nba.detail ? <p className="mt-0.5 text-sm text-slate-600">{nba.detail}</p> : null}
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                <button
-                  type="button"
-                  onClick={runNextBestAction}
-                  disabled={actionBusy === 'nba'}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700 disabled:opacity-60"
-                >
-                  <NbaIcon className="h-4 w-4" />
-                  {actionBusy === 'nba' ? 'Working…' : nbaMeta?.label || 'Take action'}
-                </button>
-              </div>
-            </div>
-          </div>
-        ) : null}
-
-        {actionMsg ? (
-          <div
-            className={`rounded-lg px-3 py-2 text-sm ${
-              actionMsg.tone === 'ok' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'
-            }`}
-          >
+        {actionMsg?.tone === 'err' ? (
+          <div className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">
             {actionMsg.text}
           </div>
         ) : null}
 
-        {cc ? (
-          <MeterCard
-            label="Demand readiness"
-            percent={readinessScore}
-            caption={cc.readiness?.label}
-            barClass={readinessBar(readinessScore)}
-            breakdown={cc.readiness?.factors}
-          />
-        ) : null}
-
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <Metric label="Modeled value (p25–p75)" value={estValue} accent />
-          <Metric label="Policy limit" value={money(detail.policyLimit)} />
-          <Metric label="Latest demand" value={money(n?.latestDemand)} />
-          <Metric label="Days open" value={detail.daysOpen} />
-        </div>
-
-        {(() => {
-          const openTasks = (tasks || [])
-            .filter((t: any) => ['open', 'in_progress'].includes(String(t.status || '').toLowerCase()))
-            .slice(0, 5)
-          if (openTasks.length === 0) return null
-          return (
-            <div className="rounded-xl border border-slate-200 bg-white p-4">
-              <div className="flex items-center justify-between gap-3">
-                <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Open tasks</h4>
-                <button
-                  type="button"
-                  onClick={() => goToSection('tasks')}
-                  className="text-xs font-semibold text-brand-700 hover:underline"
-                >
-                  View all on Tasks tab
-                </button>
-              </div>
-              <ul className="mt-2.5 space-y-1.5">
-                {openTasks.map((t: any) => (
-                  <li key={t.id} className="flex items-center gap-2 text-sm text-slate-700">
-                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-brand-500" />
-                    <span className="flex-1 truncate">{t.title}</span>
-                    {t.priority ? <PriorityBadge priority={String(t.priority).toLowerCase()} /> : null}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )
-        })()}
-
         {n && n.latestOffer != null ? (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-            <Metric label="Latest offer" value={money(n.latestOffer)} />
-            {n.gapToDemand != null ? <Metric label="Gap to demand" value={money(n.gapToDemand)} /> : null}
-            <Metric label="Adjuster" value={detail.adjuster} />
-          </div>
-        ) : null}
-
-        {hasPosture ? (
-          <div className="grid gap-3 lg:grid-cols-3">
-            <PostureCard title="Strengths" accent="emerald" items={cc?.strengths} empty="No standout strengths logged yet." />
-            <PostureCard title="Weaknesses" accent="amber" items={cc?.weaknesses} empty="No weaknesses flagged yet." />
-            <PostureCard title="Defense risks" accent="rose" items={cc?.defenseRisks} empty="No defense risks flagged yet." />
-          </div>
-        ) : null}
-
-        {missing.length ? (
-          <div className="rounded-xl border border-slate-200 bg-white p-4">
-            <div className="flex items-center justify-between gap-3">
-              <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Missing to strengthen the file</h4>
-              <button
-                type="button"
-                onClick={() => requestDocs(requestAllLabels, cc?.suggestedDocumentRequest?.customMessage, 'all', missing.map((m) => m.key))}
-                disabled={actionBusy != null || missing.every((m) => requestedDocKeys.has(m.key))}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-brand-200 bg-brand-50 px-2.5 py-1 text-xs font-semibold text-brand-700 transition hover:bg-brand-100 disabled:opacity-50"
-              >
-                <Send className="h-3.5 w-3.5" />
-                {actionBusy === 'all' ? 'Requesting…' : 'Request all'}
-              </button>
+          <OverviewCollapsible title="Negotiation">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              <Metric label="Latest offer" value={money(n.latestOffer)} />
+              {n.gapToDemand != null ? <Metric label="Gap to demand" value={money(n.gapToDemand)} /> : null}
+              <Metric label="Adjuster" value={detail.adjuster} />
             </div>
-            <ul className="mt-2.5 space-y-1.5">
-              {missing.map((m) => {
-                const done = requestedDocKeys.has(m.key)
-                const busy = actionBusy === `doc-${m.key}`
-                return (
-                  <li key={m.key} className="flex items-center gap-2.5 text-sm">
-                    <span
-                      className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
-                        done ? 'border-emerald-400 bg-emerald-50 text-emerald-600' : 'border-slate-300 bg-slate-50'
-                      }`}
-                      aria-hidden
-                    >
-                      {done ? '✓' : ''}
-                    </span>
-                    <span className={`flex-1 truncate ${done ? 'text-slate-400 line-through' : 'text-slate-700'}`}>{m.label}</span>
-                    <PriorityBadge priority={m.priority} />
-                    <button
-                      type="button"
-                      onClick={() => requestDocs([m.label], cc?.suggestedDocumentRequest?.customMessage, `doc-${m.key}`, [m.key])}
-                      disabled={done || actionBusy != null}
-                      className="inline-flex items-center rounded-md px-2 py-1 text-xs font-semibold text-brand-700 transition hover:bg-brand-50 disabled:cursor-default disabled:text-slate-400 disabled:hover:bg-transparent"
-                    >
-                      {done ? 'Requested' : busy ? 'Requesting…' : 'Request'}
-                    </button>
-                  </li>
-                )
-              })}
-            </ul>
-          </div>
+          </OverviewCollapsible>
         ) : null}
+
       </div>
     )
   }
-}
-
-/**
- * Info — the case's own facts: how long it has been open, where it sits in the
- * firm's stages, what is due in the next 30 days, and the identifying details.
- *
- * These four cards used to be stacked inside Overview alongside the AI coach,
- * valuation and posture. That made Overview a scroll and left an attorney with
- * nowhere to look up a plain fact like the venue or the date retained, so they
- * live on their own tab now (CP-356). Overview keeps the analysis; Info keeps
- * the record.
- */
-function CaseInfoPanel({
-  lead,
-  detail,
-  tasks,
-  goToSection,
-}: {
-  lead: any
-  detail: CaseDetailVM
-  tasks: TaskRow[]
-  goToSection: (section: string) => void
-}) {
-  const fmtFull = (value?: string | null) => {
-    if (!value) return '—'
-    const d = new Date(value)
-    return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString(undefined, { month: '2-digit', day: '2-digit', year: 'numeric' })
-  }
-  const openedAt = lead?.submittedAt || lead?.assessment?.createdAt || null
-  const retainedAt = lead?.retainedAt || null
-  const nowMs = Date.now()
-  const isTaskDone = (t: TaskRow) => String(t.status || '').toLowerCase() === 'done'
-  const openTasks = tasks.filter((t) => !isTaskDone(t))
-  const completedCount = tasks.length - openTasks.length
-  const withDue = openTasks
-    .filter((t) => t.dueDate && !Number.isNaN(Date.parse(t.dueDate)))
-    .map((t) => ({ t, ts: Date.parse(t.dueDate as string) }))
-  const overdue = withDue.filter((x) => x.ts < nowMs).sort((a, b) => a.ts - b.ts)
-  const upcoming = withDue
-    .filter((x) => x.ts >= nowMs && x.ts <= nowMs + 30 * 86_400_000)
-    .sort((a, b) => a.ts - b.ts)
-  const next30Count = overdue.length + upcoming.length
-  const stageLabel = detail.stage || 'No stage'
-
-  const InfoRow = ({ label, value }: { label: string; value: ReactNode }) => (
-    <div className="flex items-start justify-between gap-4 border-b border-slate-100 py-2.5 last:border-0">
-      <dt className="shrink-0 text-xs font-medium uppercase tracking-wide text-slate-400">{label}</dt>
-      <dd className="min-w-0 text-right text-sm font-medium text-slate-800">{value}</dd>
-    </div>
-  )
-
-  return (
-    <div className="space-y-4">
-      {/* Case timeline by stage */}
-      <div className="rounded-xl border border-slate-200 bg-white p-4">
-        <div className="flex items-center justify-between gap-3">
-          <h4 className="text-sm font-semibold text-slate-800">Case Timeline by Stage</h4>
-          <span className="text-xs font-semibold text-slate-500">Days open: {detail.daysOpen}</span>
-        </div>
-        <div className="mt-3 flex items-center justify-between text-[11px] font-medium text-slate-400">
-          <span>Opened {fmtFull(openedAt)}</span>
-          <span>Today</span>
-        </div>
-        <div className="mt-1 h-6 w-full overflow-hidden rounded-md bg-slate-100">
-          <div className="flex h-full items-center rounded-md bg-gradient-to-r from-brand-600 to-brand-500 px-2" style={{ width: '100%' }}>
-            <span className="truncate text-[11px] font-semibold text-white">{stageLabel} · {detail.daysOpen} days</span>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        {/* Status */}
-        <div className="rounded-xl border border-slate-200 bg-white p-4">
-          <h4 className="text-sm font-semibold text-slate-800">Status</h4>
-          {/* Both of these were inline-flex, so they shared a line and the
-              vertical margins were ignored — w-fit keeps the pill hugging its
-              text while making each a block-level box again (CP-432). */}
-          <div className="mt-2 flex w-fit items-center gap-2 rounded-full bg-brand-50 px-3 py-1 text-sm font-semibold text-brand-700 ring-1 ring-inset ring-brand-200">
-            {stageLabel}
-          </div>
-          {retainedAt ? (
-            <p className="mt-2 text-xs text-slate-500">Retained {fmtFull(retainedAt)}</p>
-          ) : null}
-          <button
-            type="button"
-            onClick={() => goToSection('timeline')}
-            className="mt-3 flex w-fit items-center gap-1 text-xs font-semibold text-brand-600 transition hover:text-brand-700"
-          >
-            View activity &amp; timeline →
-          </button>
-        </div>
-
-        {/* Tasks (next 30 days) */}
-        <div className="rounded-xl border border-slate-200 bg-white p-4">
-          <div className="flex items-baseline justify-between gap-3">
-            <h4 className="text-sm font-semibold text-slate-800">Tasks (next 30 days)</h4>
-            <button
-              type="button"
-              onClick={() => goToSection('tasks')}
-              className="text-xs font-semibold text-brand-600 transition hover:text-brand-700"
-            >
-              View all →
-            </button>
-          </div>
-          <div className="mt-1 flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-slate-900">{next30Count}</span>
-            <span className="text-xs text-slate-500">{completedCount} completed</span>
-          </div>
-          {overdue.length ? (
-            <div className="mt-2">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-rose-600">Overdue</p>
-              <ul className="mt-1 space-y-0.5">
-                {overdue.slice(0, 3).map((x) => (
-                  <li key={x.t.id}>
-                    <button
-                      type="button"
-                      onClick={() => goToSection('tasks')}
-                      className="flex w-full items-center justify-between gap-2 rounded-md px-1.5 py-1 text-left text-sm transition hover:bg-slate-50"
-                    >
-                      <span className="min-w-0 truncate text-slate-700">{x.t.title}</span>
-                      <span className="shrink-0 text-xs font-medium text-rose-600">{fmtFull(x.t.dueDate)}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-          {upcoming.length ? (
-            <div className="mt-2">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Upcoming</p>
-              <ul className="mt-1 space-y-0.5">
-                {upcoming.slice(0, 3).map((x) => (
-                  <li key={x.t.id}>
-                    <button
-                      type="button"
-                      onClick={() => goToSection('tasks')}
-                      className="flex w-full items-center justify-between gap-2 rounded-md px-1.5 py-1 text-left text-sm transition hover:bg-slate-50"
-                    >
-                      <span className="min-w-0 truncate text-slate-700">{x.t.title}</span>
-                      <span className="shrink-0 text-xs font-medium text-slate-500">{fmtFull(x.t.dueDate)}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-          {!overdue.length && !upcoming.length ? (
-            <p className="mt-2 text-sm text-slate-500">No tasks due in the next 30 days.</p>
-          ) : null}
-        </div>
-      </div>
-
-      {/* Case information */}
-      <div className="rounded-xl border border-slate-200 bg-white p-4">
-        <h4 className="text-sm font-semibold text-slate-800">Case Information</h4>
-        <dl className="mt-2">
-          <InfoRow label="Name" value={detail.client} />
-          <InfoRow label="Case type" value={detail.type} />
-          <InfoRow label="Venue" value={detail.venue} />
-          <InfoRow label="Defendant" value={detail.defendant} />
-          <InfoRow label="Defendant carrier" value={detail.defendantCarrier} />
-          <InfoRow label="Claim number" value={detail.claimNumber} />
-          <InfoRow label="Adjuster" value={detail.adjuster} />
-          <InfoRow label="Stage" value={stageLabel} />
-          <InfoRow label="Date opened" value={fmtFull(openedAt)} />
-          {retainedAt ? <InfoRow label="Date retained" value={fmtFull(retainedAt)} /> : null}
-          <InfoRow label="Days open" value={detail.daysOpen} />
-          <InfoRow label="Case reference" value={<span className="font-mono text-xs">{lead.id}</span>} />
-        </dl>
-      </div>
-    </div>
-  )
 }
 
 const UPLOAD_CATEGORIES = [
@@ -1825,6 +1574,72 @@ const REQUESTABLE_DOCS: { id: string; label: string }[] = [
   { id: 'wage_loss', label: 'Wage-loss documentation' },
   { id: 'prior_treatment', label: 'Prior treatment records' },
 ]
+
+function labelRequestedDoc(idOrLabel: string): string {
+  const hit = REQUESTABLE_DOCS.find((d) => d.id === idOrLabel || d.label === idOrLabel)
+  return hit?.label || idOrLabel
+}
+
+function formatRequestedDocs(docs: string[] | null | undefined): string {
+  const labels = (docs || []).map(labelRequestedDoc).filter(Boolean)
+  if (!labels.length) return 'Documents'
+  if (labels.length === 1) return labels[0]
+  if (labels.length === 2) return `${labels[0]} and ${labels[1]}`
+  return `${labels.slice(0, -1).join(', ')}, and ${labels[labels.length - 1]}`
+}
+
+function evidenceExtractedTotal(doc: any): number | null {
+  const row = Array.isArray(doc?.extractedData) ? doc.extractedData[0] : doc?.extractedData
+  const n = Number(row?.totalAmount)
+  return Number.isFinite(n) && n > 0 ? n : null
+}
+
+function damagesPayloadForEvidence(doc: any): {
+  category: string
+  billingStatus?: string
+  description: string
+  amount: number
+  notes: string
+  source: 'evidence'
+} | null {
+  const amount = evidenceExtractedTotal(doc)
+  if (amount == null) return null
+  const cat = String(doc.category || '').toLowerCase()
+  const sub = String(doc.subcategory || '').toLowerCase()
+  const name = String(doc.originalName || doc.filename || 'Evidence file')
+  if (cat === 'bills' || sub === 'medical_bill' || cat === 'medical_records') {
+    return {
+      category: 'medical',
+      billingStatus: 'billed',
+      description: name,
+      amount,
+      notes: `From evidence ${doc.id}`,
+      source: 'evidence',
+    }
+  }
+  if (cat === 'wage_loss' || cat === 'wage_verification' || sub.includes('wage')) {
+    return {
+      category: 'lost_wages',
+      description: name,
+      amount,
+      notes: `From evidence ${doc.id}`,
+      source: 'evidence',
+    }
+  }
+  // Any other file with an OCR total can still seed the ledger; attorney can edit category on Damages.
+  return {
+    category: 'other',
+    description: name,
+    amount,
+    notes: `From evidence ${doc.id}`,
+    source: 'evidence',
+  }
+}
+
+function moneyShort(n: number): string {
+  if (!Number.isFinite(n)) return '$0'
+  return n >= 1000 ? `$${Math.round(n).toLocaleString()}` : `$${Math.round(n * 100) / 100}`
+}
 
 // The core documents a well-prepared PI file is expected to carry. Drives the
 // evidence-coverage strip: present categories show a check, missing ones offer a
@@ -2254,6 +2069,8 @@ function EvidencePanel({
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [bulkBusy, setBulkBusy] = useState(false)
   const [previewDoc, setPreviewDoc] = useState<any | null>(null)
+  const [addingDamageId, setAddingDamageId] = useState<string | null>(null)
+  const [addedDamageIds, setAddedDamageIds] = useState<Set<string>>(() => new Set())
   const [replacingId, setReplacingId] = useState<string | null>(null)
   const replaceInputRef = useRef<HTMLInputElement>(null)
   // Dec-page → policy-limit capture. `coverageOpen` holds the file name that
@@ -2392,7 +2209,58 @@ function EvidencePanel({
     if (list.length) uploadFiles(list)
   }
 
+  const handleAddToDamages = async (doc: any) => {
+    const payload = damagesPayloadForEvidence(doc)
+    if (!payload) {
+      setBanner({ tone: 'err', text: 'No dollar amount extracted from this file yet.' })
+      return
+    }
+    if (addedDamageIds.has(doc.id)) {
+      setBanner({ tone: 'ok', text: 'Already added to the damages ledger from this file.' })
+      return
+    }
+    setAddingDamageId(doc.id)
+    try {
+      await createLeadDamage(leadId, payload)
+      setAddedDamageIds((prev) => new Set(prev).add(doc.id))
+      const kind =
+        payload.category === 'lost_wages'
+          ? 'wage loss'
+          : payload.category === 'medical'
+            ? 'medical specials'
+            : 'damages'
+      setBanner({
+        tone: 'ok',
+        text: `Added ${moneyShort(payload.amount)} ${kind} to the Damages ledger.`,
+      })
+    } catch (err: any) {
+      setBanner({ tone: 'err', text: err?.response?.data?.error || 'Could not add to damages ledger.' })
+    } finally {
+      setAddingDamageId(null)
+    }
+  }
+
+  // Doc keys already covered by an open (non-completed) client request — block re-request.
+  const pendingRequestedKeys = useMemo(() => {
+    const keys = new Set<string>()
+    for (const r of openRequests) {
+      for (const d of r.requestedDocs || []) {
+        const id = REQUESTABLE_DOCS.find((x) => x.id === d || x.label === d)?.id || d
+        if (id) keys.add(id)
+      }
+    }
+    return keys
+  }, [openRequests])
+
   const requestCategory = (reqLabel: string) => {
+    if (pendingRequestedKeys.has(reqLabel)) {
+      setBanner({
+        tone: 'err',
+        text: `${labelRequestedDoc(reqLabel)} is already in an open request. Nudge the client instead of requesting it again.`,
+      })
+      setRequestOpen(true)
+      return
+    }
     setRequested((prev) => (prev.includes(reqLabel) ? prev : [...prev, reqLabel]))
     setRequestOpen(true)
   }
@@ -2570,19 +2438,35 @@ function EvidencePanel({
     }
   }
 
-  const toggleReq = (docId: string) =>
+  const toggleReq = (docId: string) => {
+    if (pendingRequestedKeys.has(docId)) return
     setRequested((prev) => (prev.includes(docId) ? prev.filter((x) => x !== docId) : [...prev, docId]))
+  }
 
   const submitRequest = async () => {
+    const fresh = requested.filter((id) => !pendingRequestedKeys.has(id))
     if (!requested.length) {
       setBanner({ tone: 'err', text: 'Pick at least one document to request.' })
+      return
+    }
+    if (!fresh.length) {
+      setBanner({
+        tone: 'err',
+        text: 'Those documents are already in an open request. Use Nudge to remind the client.',
+      })
       return
     }
     setRequesting(true)
     setBanner(null)
     try {
-      await createDocumentRequest(leadId, { requestedDocs: requested, customMessage: requestMessage || undefined })
-      setBanner({ tone: 'ok', text: `Requested ${requested.length} document(s) from ${clientName}.` })
+      await createDocumentRequest(leadId, { requestedDocs: fresh, customMessage: requestMessage || undefined })
+      const skipped = requested.filter((id) => pendingRequestedKeys.has(id))
+      setBanner({
+        tone: 'ok',
+        text: skipped.length
+          ? `Requested ${formatRequestedDocs(fresh)} from ${clientName || 'the client'}. Skipped already-open: ${formatRequestedDocs(skipped)}.`
+          : `Requested ${formatRequestedDocs(fresh)} from ${clientName || 'the client'}.`,
+      })
       setRequested([])
       setRequestMessage('')
       setRequestOpen(false)
@@ -2658,6 +2542,8 @@ function EvidencePanel({
     const source = evidenceSource(doc)
     const hasAi = Boolean(doc.aiSummary || parseHighlights(doc.aiHighlights).length)
     const isSelected = selected.has(doc.id)
+    const damagePayload = damagesPayloadForEvidence(doc)
+    const damageAdded = addedDamageIds.has(doc.id)
     return (
       <li
         key={doc.id}
@@ -2710,6 +2596,12 @@ function EvidencePanel({
                   <Sparkles className="h-3 w-3" /> AI
                 </span>
               ) : null}
+              {evidenceExtractedTotal(doc) != null ? (
+                <span className="inline-flex items-center gap-0.5 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
+                  <Receipt className="h-3 w-3" />
+                  {moneyShort(evidenceExtractedTotal(doc)!)}
+                </span>
+              ) : null}
             </p>
           </div>
         </div>
@@ -2717,6 +2609,25 @@ function EvidencePanel({
           <span className={`mr-1 rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_BADGE[tone]}`}>
             {evidenceStatusLabel(doc.processingStatus)}
           </span>
+          {damagePayload ? (
+            <button
+              type="button"
+              onClick={() => void handleAddToDamages(doc)}
+              disabled={addingDamageId === doc.id || damageAdded}
+              className="rounded-lg p-1.5 text-emerald-600 hover:bg-emerald-50 disabled:opacity-50"
+              title={
+                damageAdded
+                  ? 'Already on the damages ledger'
+                  : `Add ${moneyShort(damagePayload.amount)} to damages ledger`
+              }
+            >
+              {addingDamageId === doc.id ? (
+                <RefreshCw className="h-4 w-4 animate-spin" />
+              ) : (
+                <Receipt className="h-4 w-4" />
+              )}
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={() => setPreviewDoc(doc)}
@@ -2796,6 +2707,7 @@ function EvidencePanel({
         <div className="mt-3 flex flex-wrap gap-2">
           {COVERAGE_CHECKLIST.map((c) => {
             const have = presentCats.has(c.id)
+            const alreadyRequested = pendingRequestedKeys.has(c.req)
             return have ? (
               <span
                 key={c.id}
@@ -2804,6 +2716,16 @@ function EvidencePanel({
                 <Check className="h-3.5 w-3.5" />
                 {c.label}
                 <span className="text-emerald-500">· {catCounts[c.id] || 0}</span>
+              </span>
+            ) : alreadyRequested ? (
+              <span
+                key={c.id}
+                title={`${c.label} is already requested — nudge the client from Request from client`}
+                className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700"
+              >
+                <Send className="h-3.5 w-3.5" />
+                {c.label}
+                <span className="text-amber-500">· requested</span>
               </span>
             ) : (
               <button
@@ -2821,6 +2743,51 @@ function EvidencePanel({
           })}
         </div>
       </div>
+
+      {(() => {
+        const ready = docs.filter((d) => damagesPayloadForEvidence(d) && !addedDamageIds.has(d.id))
+        if (!ready.length) return null
+        return (
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-4">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold text-emerald-900">Amounts ready for the damages ledger</p>
+                <p className="mt-0.5 text-xs text-emerald-800/80">
+                  OCR pulled totals from medical bills / wage docs. Add them as line items on Damages.
+                </p>
+              </div>
+            </div>
+            <ul className="mt-3 space-y-2">
+              {ready.slice(0, 6).map((d) => {
+                const p = damagesPayloadForEvidence(d)!
+                const label =
+                  p.category === 'lost_wages' ? 'Wage loss' : p.category === 'medical' ? 'Medical' : 'Other'
+                return (
+                  <li key={d.id} className="flex items-center justify-between gap-3 rounded-lg bg-white/80 px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-slate-800">
+                        {d.originalName || d.filename || 'Document'}
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        {label} · {moneyShort(p.amount)}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void handleAddToDamages(d)}
+                      disabled={addingDamageId === d.id}
+                      className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                    >
+                      {addingDamageId === d.id ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
+                      Add
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          </div>
+        )
+      })()}
 
       {/* Actions: upload + request */}
       <div className="grid gap-3 lg:grid-cols-2">
@@ -2898,16 +2865,24 @@ function EvidencePanel({
               <div className="flex flex-wrap gap-2">
                 {REQUESTABLE_DOCS.map((doc) => {
                   const on = requested.includes(doc.id)
+                  const already = pendingRequestedKeys.has(doc.id)
                   return (
                     <button
                       key={doc.id}
                       type="button"
                       onClick={() => toggleReq(doc.id)}
+                      disabled={already}
+                      title={already ? 'Already in an open request — use Nudge instead' : undefined}
                       className={`rounded-full border px-2.5 py-1 text-xs font-medium transition ${
-                        on ? 'border-brand-400 bg-brand-50 text-brand-700' : 'border-slate-200 text-slate-600 hover:border-brand-300'
+                        already
+                          ? 'cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400'
+                          : on
+                            ? 'border-brand-400 bg-brand-50 text-brand-700'
+                            : 'border-slate-200 text-slate-600 hover:border-brand-300'
                       }`}
                     >
                       {doc.label}
+                      {already ? ' · open' : ''}
                     </button>
                   )
                 })}
@@ -2937,21 +2912,41 @@ function EvidencePanel({
 
           {openRequests.length > 0 ? (
             <div className="mt-3 space-y-2 border-t border-slate-100 pt-3">
-              {openRequests.map((r) => (
-                <div key={r.id} className="flex items-center justify-between gap-3 text-xs">
-                  <span className="min-w-0 truncate text-slate-600">
-                    <span className="font-medium text-slate-700">{r.requestedDocs?.length || 0} doc(s)</span> · {r.status}
-                    {typeof r.uploadedCount === 'number' ? ` · ${r.uploadedCount} uploaded` : ''}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => handleNudge(r.id)}
-                    className="shrink-0 rounded border border-slate-200 px-2 py-1 font-semibold text-slate-600 hover:bg-slate-50"
-                  >
-                    Nudge
-                  </button>
-                </div>
-              ))}
+              {openRequests.map((r) => {
+                const docLabels = (r.requestedDocs || []).map(labelRequestedDoc)
+                return (
+                  <div key={r.id} className="flex items-start justify-between gap-3 text-xs">
+                    <div className="min-w-0">
+                      <p className="font-medium text-slate-700">
+                        {formatRequestedDocs(r.requestedDocs)}
+                      </p>
+                      <p className="mt-0.5 text-slate-500">
+                        {r.status}
+                        {typeof r.uploadedCount === 'number' ? ` · ${r.uploadedCount} uploaded` : ''}
+                      </p>
+                      {docLabels.length > 1 ? (
+                        <div className="mt-1.5 flex flex-wrap gap-1">
+                          {docLabels.map((label) => (
+                            <span
+                              key={label}
+                              className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600"
+                            >
+                              {label}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleNudge(r.id)}
+                      className="shrink-0 rounded border border-slate-200 px-2 py-1 font-semibold text-slate-600 hover:bg-slate-50"
+                    >
+                      Nudge
+                    </button>
+                  </div>
+                )
+              })}
             </div>
           ) : null}
         </div>
@@ -3171,6 +3166,9 @@ function EvidencePanel({
           apiOrigin={apiOrigin}
           onClose={() => setPreviewDoc(null)}
           onDownload={() => handleDownload(previewDoc)}
+          onAddToDamages={() => void handleAddToDamages(previewDoc)}
+          addingToDamages={addingDamageId === previewDoc.id}
+          alreadyOnDamages={addedDamageIds.has(previewDoc.id)}
         />
       ) : null}
 
@@ -3206,11 +3204,17 @@ function EvidencePreviewDrawer({
   apiOrigin,
   onClose,
   onDownload,
+  onAddToDamages,
+  addingToDamages,
+  alreadyOnDamages,
 }: {
   doc: any
   apiOrigin: string
   onClose: () => void
   onDownload: () => void
+  onAddToDamages?: () => void
+  addingToDamages?: boolean
+  alreadyOnDamages?: boolean
 }) {
   const href = doc.fileUrl ? `${apiOrigin}${doc.fileUrl}` : null
   const mime = String(doc.mimetype || doc.mimeType || '')
@@ -3218,6 +3222,7 @@ function EvidencePreviewDrawer({
   const isPdf = mime === 'application/pdf' || fileExt(doc.originalName || doc.filename || '') === 'pdf'
   const highlights = parseHighlights(doc.aiHighlights)
   const source = evidenceSource(doc)
+  const damagePayload = damagesPayloadForEvidence(doc)
   const canEmbed = isImage || isPdf
   // Load the file through the authenticated API client as a same-origin blob URL.
   // Embedding the API URL directly fails cross-origin (X-Frame-Options / mixed
@@ -3361,6 +3366,34 @@ function EvidencePreviewDrawer({
             </div>
           )}
 
+          {damagePayload ? (
+            <div className="border-t border-slate-100 p-4">
+              <div className="mb-2 flex items-center gap-1.5">
+                <Receipt className="h-4 w-4 text-emerald-600" />
+                <p className="text-sm font-semibold text-slate-800">Damages ledger</p>
+              </div>
+              <p className="text-sm text-slate-600">
+                Extracted{' '}
+                <span className="font-semibold text-emerald-700">{moneyShort(damagePayload.amount)}</span>
+                {damagePayload.category === 'medical'
+                  ? ' as medical specials'
+                  : damagePayload.category === 'lost_wages'
+                    ? ' as wage loss'
+                    : ' as an economic item'}
+                . Add it to the Damages tab ledger so valuation and demand use this figure.
+              </p>
+              <button
+                type="button"
+                onClick={onAddToDamages}
+                disabled={!onAddToDamages || addingToDamages || alreadyOnDamages}
+                className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {addingToDamages ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Receipt className="h-3.5 w-3.5" />}
+                {alreadyOnDamages ? 'On damages ledger' : 'Add to damages ledger'}
+              </button>
+            </div>
+          ) : null}
+
           <div className="border-t border-slate-100 p-4">
             <p className="mb-2 text-sm font-semibold text-slate-800">Details</p>
             <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
@@ -3408,6 +3441,47 @@ function evidenceStatusTone(status?: string): Tone {
   if (s === 'failed') return 'danger'
   if (s === 'processing' || s === 'pending') return 'warning'
   return 'neutral'
+}
+
+/** Collapsible card used by Overview sections (default open). */
+function OverviewCollapsible({
+  title,
+  badge,
+  defaultOpen = true,
+  headerActions,
+  className = 'rounded-xl border border-slate-200 bg-white p-4',
+  children,
+}: {
+  title: string
+  badge?: ReactNode
+  defaultOpen?: boolean
+  headerActions?: ReactNode
+  className?: string
+  children: ReactNode
+}) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <div className={className}>
+      <div className="flex items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          className="flex min-w-0 flex-1 items-center gap-2 rounded-lg text-left hover:bg-black/[0.02] focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-300"
+        >
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</h4>
+              {badge}
+            </div>
+          </div>
+          <ChevronDown className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+        </button>
+        {headerActions}
+      </div>
+      {open ? <div className="mt-2.5">{children}</div> : null}
+    </div>
+  )
 }
 
 function Metric({ label, value, accent = false }: { label: string; value: ReactNode; accent?: boolean }) {
@@ -3500,26 +3574,71 @@ const TASK_TYPE_LABEL: Record<string, string> = {
   question: 'Plaintiff questions',
 }
 
-// Who the task is for. "client" is the only value that makes a task visible to
-// the plaintiff and triggers their email, so it has to be offered here — without
-// it every task created from the case workspace was silently firm-internal (CP-430).
-const TASK_ASSIGNEES = [
-  { id: 'attorney', label: 'Attorney' },
-  { id: 'paralegal', label: 'Paralegal' },
-  { id: 'case_manager', label: 'Case manager' },
-  { id: 'client', label: 'Client (Plaintiff)' },
-]
-
 interface TaskFormState {
   title: string
   dueDate: string
   priority: string
   taskType: string
   assignedRole: string
+  assignedUserId: string
   notes: string
 }
 
-const EMPTY_TASK_FORM: TaskFormState = { title: '', dueDate: '', priority: 'medium', taskType: 'general', assignedRole: 'attorney', notes: '' }
+const EMPTY_TASK_FORM: TaskFormState = {
+  title: '',
+  dueDate: '',
+  priority: 'medium',
+  taskType: 'general',
+  assignedRole: 'attorney',
+  assignedUserId: '',
+  notes: '',
+}
+
+const CLIENT_ASSIGN_VALUE = '__client__'
+
+const TASK_ROLE_LABELS: Record<string, string> = {
+  attorney: 'Attorney',
+  paralegal: 'Paralegal',
+  case_manager: 'Case manager',
+  intake_specialist: 'Intake',
+  client: 'Client',
+  plaintiff: 'Client',
+}
+
+function isAutoIntakeMilestone(title: string): boolean {
+  return (
+    /confirm signed (retainer|representation)/i.test(title) ||
+    /complete conflict check/i.test(title) ||
+    /open matter.*conflict check/i.test(title) ||
+    /^run conflict check$/i.test(title) ||
+    /^send retainer to client$/i.test(title)
+  )
+}
+
+function taskAssigneeLabel(t: {
+  title?: string | null
+  assignedUserId?: string | null
+  assignedTo?: string | null
+  assignedRole?: string | null
+  createdByName?: string | null
+}): string {
+  // Named person always wins.
+  if (t.assignedTo && t.assignedRole !== 'client' && t.assignedRole !== 'plaintiff') return t.assignedTo
+  if (t.assignedRole === 'client' || t.assignedRole === 'plaintiff') {
+    // Intake auto-milestones are never "for the plaintiff" — that label is confusing here.
+    if (t.title && isAutoIntakeMilestone(t.title)) return 'Auto'
+    return 'Client'
+  }
+  // System-completed intake milestones: show Auto, not Paralegal/Plaintiff role noise.
+  if (t.title && isAutoIntakeMilestone(t.title)) {
+    if (t.assignedUserId && t.assignedTo) return t.assignedTo
+    return 'Auto'
+  }
+  const role = String(t.assignedRole || '').toLowerCase()
+  if (role && TASK_ROLE_LABELS[role]) return TASK_ROLE_LABELS[role]
+  if (t.createdByName && /clearcaseiq|system|rose/i.test(t.createdByName)) return 'Auto'
+  return 'Unassigned'
+}
 
 const isDone = (t: TaskRow) => String(t.status || '').toLowerCase() === 'done'
 
@@ -3710,21 +3829,26 @@ function AssignedWorkflowSection({ leadId }: { leadId: string }) {
                     </div>
                   </div>
                   {canAssign && members.length ? (
-                    <select
-                      value=""
-                      disabled={rowBusy}
-                      onChange={(e) => assign(t, e.target.value)}
-                      className="shrink-0 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600 focus:border-brand-500"
+                    <span
+                      className="inline-flex w-[11rem] shrink-0 items-center gap-1 rounded-md bg-indigo-50 px-1.5 py-0.5 text-xs text-indigo-700 ring-1 ring-indigo-200"
                       title="Reassign to another team member"
-                      aria-label="Reassign step"
                     >
-                      <option value="">Reassign…</option>
-                      {members.map((m) => (
-                        <option key={m.firmMemberId} value={m.firmMemberId}>
-                          {m.name}
-                        </option>
-                      ))}
-                    </select>
+                      <User className="h-3.5 w-3.5 shrink-0" />
+                      <select
+                        value=""
+                        disabled={rowBusy}
+                        onChange={(e) => assign(t, e.target.value)}
+                        className="min-w-0 flex-1 truncate bg-transparent pr-1 text-xs focus:outline-none disabled:opacity-50"
+                        aria-label="Reassign step"
+                      >
+                        <option value="">Reassign…</option>
+                        {members.map((m) => (
+                          <option key={m.firmMemberId} value={m.firmMemberId}>
+                            {m.name}
+                          </option>
+                        ))}
+                      </select>
+                    </span>
                   ) : null}
                   <button
                     onClick={() => openEdit(t)}
@@ -3755,20 +3879,199 @@ function TasksPanel({
   reload: () => Promise<void> | void
   caseLabel?: string | null
 }) {
+  const navigate = useNavigate()
   const [msg, setMsg] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [formOpen, setFormOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState<TaskFormState>(EMPTY_TASK_FORM)
-  const [showDone, setShowDone] = useState(false)
   const [detailTaskId, setDetailTaskId] = useState<string | null>(null)
   const [taskToDelete, setTaskToDelete] = useState<TaskRow | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [mergeOpen, setMergeOpen] = useState(false)
   const [merging, setMerging] = useState(false)
+  const [groupBy, setGroupBy] = useState<'workflow' | 'due'>('workflow')
+  const [colleagues, setColleagues] = useState<FirmColleague[]>([])
+
+  useEffect(() => {
+    getFirmColleagues()
+      .then((res) => setColleagues(Array.isArray(res?.colleagues) ? res.colleagues : []))
+      .catch(() => setColleagues([]))
+  }, [])
 
   const load = async () => {
     await reload()
+  }
+
+  const assignTask = async (t: TaskRow, value: string) => {
+    setBusy(t.id)
+    try {
+      if (value === CLIENT_ASSIGN_VALUE) {
+        await updateLeadTask(leadId, t.id, { assignedRole: 'client', assignedUserId: null, assignedTo: null })
+      } else if (!value) {
+        // Clearing an auto-milestone override returns it to system/Auto handling.
+        await updateLeadTask(leadId, t.id, {
+          assignedUserId: null,
+          assignedTo: null,
+          assignedRole: isAutoIntakeMilestone(t.title) ? 'attorney' : null,
+        })
+      } else {
+        await updateLeadTask(leadId, t.id, { assignedUserId: value })
+      }
+      await load()
+    } catch (err: any) {
+      flash('err', err?.response?.data?.error || 'Failed to assign task.')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const goCaseSection = (section: string) => {
+    navigate(`/attorney-dashboard/cases/${leadId}/${section}`)
+  }
+
+  const checkPoliceCollectForTask = async (t: TaskRow) => {
+    if (isDone(t)) {
+      goCaseSection('evidence')
+      return
+    }
+    setBusy(t.id)
+    try {
+      // Best-effort: mark done when a report is already on file, then always open Evidence.
+      const res = await checkPoliceReportCollect(leadId)
+      if (res.reportOnFile && res.completedTasks) {
+        flash('ok', 'Police/incident report is on file — collect task marked done.')
+        await load()
+      }
+    } catch {
+      // Ignore — Collect's job is to open Evidence either way.
+    } finally {
+      setBusy(null)
+      goCaseSection('evidence')
+    }
+  }
+
+  const checkConfirmSignedForTask = async (t: TaskRow) => {
+    if (isDone(t)) {
+      goCaseSection('signatures')
+      return
+    }
+    setBusy(t.id)
+    try {
+      const res = await confirmRetainerSigned(leadId)
+      if (res.signed) {
+        flash(
+          'ok',
+          res.alreadyDone
+            ? `Retainer already signed${res.title ? ` (“${res.title}”)` : ''}. Opening Signatures.`
+            : `Retainer signed${res.title ? ` (“${res.title}”)` : ''} — confirm task marked done.`,
+        )
+        await load()
+        if (res.alreadyDone) goCaseSection('signatures')
+      } else {
+        flash(
+          'err',
+          'No signed retainer found yet. Opening Signatures so you can remind the client or wait for signature.',
+        )
+        goCaseSection('signatures')
+      }
+    } catch (err: any) {
+      flash('err', err?.response?.data?.error || 'Failed to check retainer signature status.')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const runConflictCheckForTask = async (t: TaskRow) => {
+    setBusy(t.id)
+    try {
+      const res = await runLeadConflictCheck(leadId, { phase: 'post_acquire' })
+      const risk = String(res?.conflictCheck?.riskLevel || res?.details?.riskLevel || 'low')
+      const type = String(res?.conflictCheck?.conflictType || res?.details?.conflictType || 'none')
+      flash(
+        'ok',
+        type === 'none' || risk === 'low'
+          ? 'Conflict check complete — no issues found. Step marked done.'
+          : `Conflict check complete — ${risk} risk (${type}). Review the result; step marked done.`,
+      )
+      await load()
+    } catch (err: any) {
+      flash('err', err?.response?.data?.error || 'Failed to run conflict check.')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const checkHipaaForTask = async (t: TaskRow) => {
+    // GET /tasks re-syncs and auto-completes when consent or a signed envelope is on file.
+    setBusy(t.id)
+    try {
+      await load()
+    } finally {
+      setBusy(null)
+      goCaseSection('signatures?doc=hipaa_authorization')
+    }
+  }
+
+  const runPrimaryAction = async (t: TaskRow, kind: TaskPrimaryActionKind) => {
+    if (kind === 'run_conflict') {
+      if (!isDone(t)) await runConflictCheckForTask(t)
+      return
+    }
+    if (kind === 'check_retainer') {
+      await checkConfirmSignedForTask(t)
+      return
+    }
+    if (kind === 'send_hipaa') {
+      await checkHipaaForTask(t)
+      return
+    }
+    if (kind === 'collect_police') {
+      await checkPoliceCollectForTask(t)
+      return
+    }
+    if (kind === 'open_task_detail') {
+      setDetailTaskId(t.id)
+      return
+    }
+    const section = sectionForTaskAction(kind)
+    if (section) goCaseSection(section)
+  }
+
+  const primaryActionIcon = (kind: TaskPrimaryActionKind) => {
+    switch (kind) {
+      case 'run_conflict':
+        return ShieldAlert
+      case 'open_insurance':
+        return Shield
+      case 'collect_bills':
+      case 'open_damages':
+        return Receipt
+      case 'collect_police':
+      case 'collect_medical_records':
+      case 'open_evidence':
+        return FolderOpen
+      case 'open_deadlines':
+        return CalendarClock
+      case 'open_overview':
+      case 'open_task_detail':
+        return LayoutDashboard
+      case 'open_medical':
+        return Stethoscope
+      case 'open_liability':
+      case 'open_demand':
+        return Gavel
+      case 'open_negotiation':
+        return Handshake
+      case 'open_settlement':
+        return Scale
+      case 'open_workflow':
+        return Workflow
+      case 'send_welcome':
+        return Send
+      default:
+        return PenLine
+    }
   }
 
   const toggleSelected = (id: string) => {
@@ -3830,6 +4133,7 @@ function TasksPanel({
       priority: form.priority,
       taskType: form.taskType,
       assignedRole: form.assignedRole,
+      assignedUserId: form.assignedRole === 'client' ? null : form.assignedUserId || null,
       notes: form.notes.trim() || null,
     }
     try {
@@ -3927,21 +4231,54 @@ function TasksPanel({
   const active = tasks.filter((t) => !isDone(t))
   const done = tasks.filter(isDone)
 
-  // Organize strictly by due date (soonest/overdue first), then priority, then
-  // title so same-day tasks keep a stable, predictable order instead of an
-  // arbitrary insertion order.
-  const sortActive = (list: TaskRow[]) =>
+  // Open first, then by due date (soonest/overdue first), then priority, then
+  // title. Done tasks stay in the same groups — they just sort below open ones.
+  const sortListed = (list: TaskRow[]) =>
     [...list].sort(
       (a, b) =>
+        Number(isDone(a)) - Number(isDone(b)) ||
         dueDayStart(a.dueDate) - dueDayStart(b.dueDate) ||
         taskPriorityRank(a.priority) - taskPriorityRank(b.priority) ||
         (a.title || '').localeCompare(b.title || ''),
     )
 
-  const activeByDay = DAY_GROUPS.map((g) => ({
+  const listedByDay = DAY_GROUPS.map((g) => ({
     ...g,
-    items: sortActive(active.filter((t) => dayGroupOf(t.dueDate) === g.key)),
+    items: sortListed(tasks.filter((t) => dayGroupOf(t.dueDate) === g.key)),
   })).filter((g) => g.items.length)
+
+  type WorkflowStageGroup = { stage: string; stageOrder: number; items: TaskRow[] }
+  type WorkflowPhaseGroup = { phase: string; phaseOrder: number; stages: WorkflowStageGroup[]; count: number }
+
+  const listedByWorkflow: WorkflowPhaseGroup[] = (() => {
+    const phaseMap = new Map<string, WorkflowPhaseGroup>()
+    for (const t of tasks) {
+      const phase = (t.workflowPhase || '').trim() || 'Other tasks'
+      const phaseOrder = typeof t.workflowPhaseOrder === 'number' ? t.workflowPhaseOrder : 999
+      const stage = (t.workflowStage || '').trim() || (phase === 'Other tasks' ? 'General' : 'Tasks')
+      const stageOrder = typeof t.workflowStageOrder === 'number' ? t.workflowStageOrder : 999
+      const phaseKey = `${phaseOrder}:${phase}`
+      if (!phaseMap.has(phaseKey)) {
+        phaseMap.set(phaseKey, { phase, phaseOrder, stages: [], count: 0 })
+      }
+      const pg = phaseMap.get(phaseKey)!
+      let sg = pg.stages.find((s) => s.stage === stage)
+      if (!sg) {
+        sg = { stage, stageOrder, items: [] }
+        pg.stages.push(sg)
+      }
+      sg.items.push(t)
+      pg.count += 1
+    }
+    const phases = [...phaseMap.values()].sort((a, b) => a.phaseOrder - b.phaseOrder || a.phase.localeCompare(b.phase))
+    for (const p of phases) {
+      p.stages.sort((a, b) => a.stageOrder - b.stageOrder || a.stage.localeCompare(b.stage))
+      for (const s of p.stages) s.items = sortListed(s.items)
+    }
+    return phases
+  })()
+
+  const hasWorkflowGroups = tasks.some((t) => Boolean(t.workflowPhase || t.workflowStage))
 
   const now = new Date()
   now.setHours(0, 0, 0, 0)
@@ -3951,6 +4288,10 @@ function TasksPanel({
     const diff = Math.floor((new Date(Date.parse(t.dueDate)).setHours(0, 0, 0, 0) - now.getTime()) / 86_400_000)
     return diff >= 0 && diff <= 7
   }).length
+
+  // Fixed footprint so Run / Send / Collect / Open / Approve all align in the column.
+  const taskActionBtn =
+    'inline-flex h-7 w-[5.5rem] shrink-0 items-center justify-center gap-1 rounded-md px-1.5 text-[11px] font-semibold transition'
 
   const renderTask = (t: TaskRow) => {
     const p = PRIORITY_META[String(t.priority || 'medium').toLowerCase()] || PRIORITY_META.medium
@@ -3968,7 +4309,7 @@ function TasksPanel({
           title={
             t.taskType === 'question'
               ? 'The plaintiff questions task is maintained automatically and cannot be merged'
-              : 'Select to merge'
+              : 'Select this task. Select multiple tasks, then Merge to combine them.'
           }
           className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300 text-brand-600 focus:ring-brand-400 disabled:opacity-40"
         />
@@ -3989,13 +4330,46 @@ function TasksPanel({
         </button>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <button
-              type="button"
-              onClick={() => setDetailTaskId(t.id)}
-              className={`text-left text-sm font-medium transition hover:text-brand-700 hover:underline ${taskDone ? 'text-slate-400 line-through' : 'text-slate-800'}`}
-            >
-              {t.title}
-            </button>
+            {(() => {
+              const help = resolveTaskHelpTooltip(t)
+              return (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setDetailTaskId(t.id)}
+                    title={help || undefined}
+                    className={`text-left text-sm font-medium transition hover:text-brand-700 hover:underline ${taskDone ? 'text-slate-400 line-through' : 'text-slate-800'}`}
+                  >
+                    {t.title}
+                  </button>
+                  {help ? (
+                    <span className="group/help relative z-20 inline-flex shrink-0">
+                      <button
+                        type="button"
+                        className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-slate-100 text-[11px] font-bold text-slate-600 ring-1 ring-inset ring-slate-300 transition hover:bg-brand-50 hover:text-brand-700 hover:ring-brand-300"
+                        aria-label={`About: ${t.title}`}
+                        title={help}
+                        onClick={(e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                        }}
+                      >
+                        i
+                      </button>
+                      <span
+                        role="tooltip"
+                        className="pointer-events-none absolute left-0 top-full z-50 mt-1.5 hidden w-72 rounded-lg border border-slate-200 bg-white p-3 text-left text-xs font-normal normal-case leading-relaxed text-slate-600 shadow-lg group-hover/help:block group-focus-within/help:block"
+                      >
+                        <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                          What this means
+                        </span>
+                        {help}
+                      </span>
+                    </span>
+                  ) : null}
+                </>
+              )
+            })()}
             {!taskDone && chip ? (
               <span className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${chip.cls}`}>
                 {chip.label}
@@ -4030,29 +4404,142 @@ function TasksPanel({
             {t.dueDate ? <span className="inline-flex items-center gap-1"><CalendarClock className="h-3 w-3" />{formatDate(t.dueDate)}</span> : null}
             {taskDone && t.completedAt ? <span className="text-emerald-600">Done {formatDate(t.completedAt)}</span> : null}
           </div>
-          {t.notes ? <p className="mt-1 text-xs leading-relaxed text-slate-500">{t.notes}</p> : null}
-        </div>
-        <div className="flex shrink-0 items-center gap-1">
-          {t.reviewStatus === 'pending' ? (
-            <button
-              onClick={() => void setApproval(t, true)}
-              disabled={rowBusy}
-              className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2 py-1 text-[11px] font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
-              title="Approve: assign it and make it live"
-            >
-              <BadgeCheck className="h-3.5 w-3.5" /> Approve
-            </button>
-          ) : t.reviewStatus === 'approved' && !taskDone ? (
-            <button
-              onClick={() => void setApproval(t, false)}
-              disabled={rowBusy}
-              className="grid h-7 w-7 place-items-center rounded-lg text-slate-400 opacity-0 transition hover:bg-amber-50 hover:text-amber-600 disabled:opacity-50 group-hover:opacity-100"
-              aria-label="Unapprove task"
-              title="Unapprove: un-assign it and send it back for review"
-            >
-              <Undo2 className="h-3.5 w-3.5" />
-            </button>
+          {t.notes && !(groupBy === 'workflow' && t.notes.startsWith('From workflow:')) ? (
+            <p className="mt-1 text-xs leading-relaxed text-slate-500">{t.notes}</p>
           ) : null}
+        </div>
+        {/*
+          Assign sits in its own fixed-width column so Approve / edit / delete
+          never shove it left — otherwise pending-review rows look misaligned.
+        */}
+        <div className="flex w-[11rem] shrink-0 items-center self-center">
+          {/*
+            Auto intake milestones stay assignable so an attorney can override
+            the system default and put a person on the row. Other completed
+            tasks keep a read-only label.
+          */}
+          {!taskDone || isAutoIntakeMilestone(t.title) ? (
+            <span
+              className={`inline-flex h-7 w-full items-center gap-1 rounded-md px-1.5 text-xs ${
+                t.assignedUserId || t.assignedRole === 'client' || t.assignedTo
+                  ? 'bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200'
+                  : isAutoIntakeMilestone(t.title)
+                    ? 'bg-slate-50 text-slate-600 ring-1 ring-slate-200'
+                    : 'text-slate-500 ring-1 ring-slate-200'
+              }`}
+              title={
+                isAutoIntakeMilestone(t.title)
+                  ? 'System-handled by default — pick a teammate to assign'
+                  : 'Assign task'
+              }
+            >
+              <User className="h-3.5 w-3.5 shrink-0" />
+              <select
+                value={
+                  t.assignedRole === 'client'
+                    ? CLIENT_ASSIGN_VALUE
+                    : t.assignedUserId || ''
+                }
+                disabled={rowBusy || t.reviewStatus === 'pending'}
+                onChange={(e) => void assignTask(t, e.target.value)}
+                aria-label={`Assign ${t.title}`}
+                className="min-w-0 flex-1 truncate bg-transparent text-xs focus:outline-none disabled:opacity-50"
+              >
+                <option value="">
+                  {isAutoIntakeMilestone(t.title)
+                    ? 'Auto'
+                    : t.assignedRole && t.assignedRole !== 'client'
+                      ? `${TASK_ROLE_LABELS[String(t.assignedRole).toLowerCase()] || t.assignedRole} (role)`
+                      : 'Unassigned'}
+                </option>
+                {!isAutoIntakeMilestone(t.title) ? (
+                  <option value={CLIENT_ASSIGN_VALUE}>Client (Plaintiff)</option>
+                ) : null}
+                {colleagues.map((m) => (
+                  <option key={m.userId} value={m.userId}>
+                    {m.name}
+                  </option>
+                ))}
+              </select>
+            </span>
+          ) : (
+            <span
+              className="inline-flex h-7 w-full items-center gap-1 truncate px-1.5 text-xs text-slate-500"
+              title={taskAssigneeLabel(t)}
+            >
+              <User className="h-3.5 w-3.5 shrink-0" />
+              {taskAssigneeLabel(t)}
+            </span>
+          )}
+        </div>
+        <div className="flex w-[5.5rem] shrink-0 items-center justify-end self-center">
+          {(() => {
+            // Pending AI tasks must be approved before domain actions are useful.
+            if (t.reviewStatus === 'pending') {
+              return (
+                <button
+                  onClick={() => void setApproval(t, true)}
+                  disabled={rowBusy}
+                  className={`${taskActionBtn} bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50`}
+                  title="Approve: assign it and make it live"
+                >
+                  <BadgeCheck className="h-3.5 w-3.5 shrink-0" /> Approve
+                </button>
+              )
+            }
+            const primary = resolveTaskPrimaryAction(t)
+            if (primary) {
+              const ActionIcon = primaryActionIcon(primary.kind)
+              const label = taskDone && primary.doneLabel ? primary.doneLabel : primary.label
+              const hint = taskDone && primary.doneHint ? primary.doneHint : primary.hint
+              const conflictDone = primary.kind === 'run_conflict' && taskDone
+              const needsBusy =
+                primary.kind === 'run_conflict' ||
+                primary.kind === 'check_retainer' ||
+                primary.kind === 'send_hipaa' ||
+                primary.kind === 'collect_police'
+              const tone =
+                primary.kind === 'run_conflict'
+                  ? taskDone
+                    ? 'cursor-not-allowed bg-slate-200 text-slate-500'
+                    : 'bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50'
+                  : taskDone
+                    ? 'bg-slate-200 text-slate-600 hover:bg-slate-300'
+                    : 'bg-violet-600 text-white hover:bg-violet-700'
+              return (
+                <button
+                  type="button"
+                  onClick={() => void runPrimaryAction(t, primary.kind)}
+                  disabled={rowBusy || conflictDone}
+                  className={`${taskActionBtn} disabled:opacity-50 ${tone}`}
+                  title={hint}
+                >
+                  {rowBusy && needsBusy ? (
+                    <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+                  ) : (
+                    <ActionIcon className="h-3.5 w-3.5 shrink-0" />
+                  )}
+                  {label}
+                </button>
+              )
+            }
+            if (t.reviewStatus === 'approved' && !taskDone) {
+              return (
+                <button
+                  onClick={() => void setApproval(t, false)}
+                  disabled={rowBusy}
+                  className="grid h-7 w-7 place-items-center rounded-lg text-slate-400 opacity-0 transition hover:bg-amber-50 hover:text-amber-600 disabled:opacity-50 group-hover:opacity-100"
+                  aria-label="Unapprove task"
+                  title="Unapprove: un-assign it and send it back for review"
+                >
+                  <Undo2 className="h-3.5 w-3.5" />
+                </button>
+              )
+            }
+            return null
+          })()}
+        </div>
+        <div className="flex w-[3.75rem] shrink-0 items-center justify-end gap-0.5 self-center">
           <button
             onClick={() => setDetailTaskId(t.id)}
             className="grid h-7 w-7 place-items-center rounded-lg text-slate-400 opacity-0 transition hover:bg-slate-100 hover:text-slate-700 group-hover:opacity-100"
@@ -4101,14 +4588,35 @@ function TasksPanel({
         onConfirm={() => void confirmRemove()}
         onCancel={() => setTaskToDelete(null)}
       />
+
       {/* Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="grid flex-1 grid-cols-3 gap-2 sm:max-w-md">
+        <div className="grid flex-1 grid-cols-2 gap-2 sm:max-w-lg sm:grid-cols-4">
           <TaskStat label="Open" value={active.length} tone="text-slate-900" />
+          <TaskStat label="Done" value={done.length} tone={done.length ? 'text-emerald-600' : 'text-slate-900'} />
           <TaskStat label="Overdue" value={overdueCount} tone={overdueCount ? 'text-rose-600' : 'text-slate-900'} />
           <TaskStat label="Due ≤7d" value={dueSoonCount} tone={dueSoonCount ? 'text-amber-600' : 'text-slate-900'} />
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <span className="group relative inline-flex items-center">
+            <button
+              type="button"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-700"
+              aria-label="How to merge tasks"
+              title="Select multiple tasks with the checkboxes, then Merge to combine them into one."
+            >
+              <Info className="h-4 w-4" />
+            </button>
+            <span
+              role="tooltip"
+              className="pointer-events-none absolute right-0 top-full z-30 mt-2 hidden w-64 rounded-lg border border-slate-200 bg-white p-3 text-left text-xs leading-relaxed text-slate-600 shadow-lg group-hover:block group-focus-within:block"
+            >
+              <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                Merge tasks
+              </span>
+              Select two or more tasks with the checkboxes, then choose <span className="font-semibold text-slate-800">Merge</span> to combine them into a single task.
+            </span>
+          </span>
           <button
             onClick={generate}
             disabled={busy === 'generate'}
@@ -4139,30 +4647,32 @@ function TasksPanel({
         </div>
       ) : null}
 
-      {/* Merge bar, shown once anything is selected */}
+      {/* Merge bar — fixed to the viewport so it stays visible when selecting near the bottom. */}
       {selected.size > 0 ? (
-        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-brand-200 bg-brand-50/60 px-4 py-2.5 text-sm">
-          <span className="font-semibold text-slate-700">{selected.size} selected</span>
-          {excludedFromMerge > 0 ? (
-            <span className="text-xs text-slate-500">
-              {excludedFromMerge} cannot be merged (the plaintiff questions task is maintained automatically)
-            </span>
-          ) : null}
-          <div className="ml-auto flex items-center gap-2">
-            <button
-              onClick={() => setSelected(new Set())}
-              className="rounded-lg px-2.5 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-white"
-            >
-              Clear
-            </button>
-            <button
-              onClick={() => setMergeOpen(true)}
-              disabled={mergeable.length < 2}
-              title={mergeable.length < 2 ? 'Select at least two mergeable tasks' : 'Merge the selected tasks into one'}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700 disabled:opacity-50"
-            >
-              <Merge className="h-4 w-4" /> Merge {mergeable.length > 1 ? mergeable.length : ''}
-            </button>
+        <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-4 pb-4 pt-2">
+          <div className="pointer-events-auto flex w-full max-w-3xl flex-wrap items-center gap-3 rounded-xl border border-brand-200 bg-white px-4 py-2.5 text-sm shadow-lg ring-1 ring-brand-100">
+            <span className="font-semibold text-slate-700">{selected.size} selected</span>
+            {excludedFromMerge > 0 ? (
+              <span className="text-xs text-slate-500">
+                {excludedFromMerge} cannot be merged (the plaintiff questions task is maintained automatically)
+              </span>
+            ) : null}
+            <div className="ml-auto flex items-center gap-2">
+              <button
+                onClick={() => setSelected(new Set())}
+                className="rounded-lg px-2.5 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
+              >
+                Clear
+              </button>
+              <button
+                onClick={() => setMergeOpen(true)}
+                disabled={mergeable.length < 2}
+                title={mergeable.length < 2 ? 'Select at least two mergeable tasks' : 'Merge the selected tasks into one'}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700 disabled:opacity-50"
+              >
+                <Merge className="h-4 w-4" /> Merge {mergeable.length > 1 ? mergeable.length : ''}
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
@@ -4196,7 +4706,7 @@ function TasksPanel({
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
               />
             </div>
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <div>
                 <label className="mb-1 block text-xs font-semibold text-slate-600">Due date</label>
                 <input
@@ -4228,7 +4738,8 @@ function TasksPanel({
                     setForm((f) => ({
                       ...f,
                       taskType: next,
-                      assignedRole: next === 'client' ? 'client' : f.assignedRole,
+                      assignedRole: next === 'client' ? 'client' : f.assignedRole === 'client' ? 'attorney' : f.assignedRole,
+                      assignedUserId: next === 'client' ? '' : f.assignedUserId,
                     }))
                   }}
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
@@ -4238,23 +4749,45 @@ function TasksPanel({
                   ))}
                 </select>
               </div>
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-semibold text-slate-600">Assign to</label>
-              <select
-                value={form.assignedRole}
-                onChange={(e) => setForm((f) => ({ ...f, assignedRole: e.target.value }))}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
-              >
-                {TASK_ASSIGNEES.map((a) => (
-                  <option key={a.id} value={a.id}>{a.label}</option>
-                ))}
-              </select>
-              <p className={`mt-1 text-[11px] ${form.assignedRole === 'client' ? 'text-emerald-600' : 'text-slate-500'}`}>
-                {form.assignedRole === 'client'
-                  ? 'The plaintiff will see this in their Tasks and get an email.'
-                  : 'Internal: only your firm sees this. Choose “Client (Plaintiff)” to send it to the client.'}
-              </p>
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-slate-600">Assign</label>
+                <select
+                  value={
+                    form.assignedRole === 'client'
+                      ? CLIENT_ASSIGN_VALUE
+                      : form.assignedUserId || ''
+                  }
+                  onChange={(e) => {
+                    const next = e.target.value
+                    if (next === CLIENT_ASSIGN_VALUE) {
+                      setForm((f) => ({ ...f, assignedRole: 'client', assignedUserId: '', taskType: f.taskType === 'general' ? 'client' : f.taskType }))
+                    } else if (!next) {
+                      setForm((f) => ({ ...f, assignedRole: 'attorney', assignedUserId: '' }))
+                    } else {
+                      const member = colleagues.find((m) => m.userId === next)
+                      setForm((f) => ({
+                        ...f,
+                        assignedUserId: next,
+                        assignedRole: member?.role || 'attorney',
+                      }))
+                    }
+                  }}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
+                >
+                  <option value="">Unassigned</option>
+                  <option value={CLIENT_ASSIGN_VALUE}>Client (Plaintiff)</option>
+                  {colleagues.map((m) => (
+                    <option key={m.userId} value={m.userId}>
+                      {m.name}
+                    </option>
+                  ))}
+                </select>
+                <p className={`mt-1 text-[11px] ${form.assignedRole === 'client' ? 'text-emerald-600' : 'text-slate-500'}`}>
+                  {form.assignedRole === 'client'
+                    ? 'The plaintiff will see this in their Tasks and get an email.'
+                    : 'Pick a teammate, or leave unassigned.'}
+                </p>
+              </div>
             </div>
             <div>
               <label className="mb-1 block text-xs font-semibold text-slate-600">Notes</label>
@@ -4286,27 +4819,79 @@ function TasksPanel({
       {/* Workflow steps assigned to me on this case */}
       <AssignedWorkflowSection leadId={leadId} />
 
-      {/* Active tasks — grouped by day, sorted by priority within each day */}
-      {active.length ? (
-        <div className="space-y-3">
-          {activeByDay.map((g) => (
-            <div key={g.key}>
-              <div className="mb-1 flex items-center gap-2 px-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                {g.label}
-                <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">
-                  {g.items.length}
-                </span>
-              </div>
-              <ul className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-white">
-                {g.items.map(renderTask)}
-              </ul>
-            </div>
-          ))}
+      {tasks.length && hasWorkflowGroups ? (
+        <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 p-0.5 text-xs font-semibold">
+          <button
+            type="button"
+            onClick={() => setGroupBy('workflow')}
+            className={`rounded-md px-2.5 py-1.5 transition ${
+              groupBy === 'workflow' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            By workflow
+          </button>
+          <button
+            type="button"
+            onClick={() => setGroupBy('due')}
+            className={`rounded-md px-2.5 py-1.5 transition ${
+              groupBy === 'due' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            By due date
+          </button>
         </div>
+      ) : null}
+
+      {/* Tasks stay in their group when marked done (strikethrough); open sorts first. */}
+      {tasks.length ? (
+        groupBy === 'workflow' && hasWorkflowGroups ? (
+          <div className="space-y-4">
+            {listedByWorkflow.map((phase) => (
+              <div key={`${phase.phaseOrder}:${phase.phase}`} className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+                <div className="flex items-center justify-between gap-2 border-b border-slate-100 bg-slate-50/80 px-4 py-2.5">
+                  <h4 className="text-sm font-semibold text-slate-800">{phase.phase}</h4>
+                  <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-500 ring-1 ring-inset ring-slate-200">
+                    {phase.count}
+                  </span>
+                </div>
+                <div className="divide-y divide-slate-100">
+                  {phase.stages.map((stage) => (
+                    <div key={`${stage.stageOrder}:${stage.stage}`}>
+                      {phase.stages.length > 1 || stage.stage !== phase.phase ? (
+                        <div className="px-4 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                          {stage.stage}
+                        </div>
+                      ) : null}
+                      <ul className="divide-y divide-slate-100">
+                        {stage.items.map(renderTask)}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {listedByDay.map((g) => (
+              <div key={g.key}>
+                <div className="mb-1 flex items-center gap-2 px-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                  {g.label}
+                  <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">
+                    {g.items.length}
+                  </span>
+                </div>
+                <ul className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-white">
+                  {g.items.map(renderTask)}
+                </ul>
+              </div>
+            ))}
+          </div>
+        )
       ) : !formOpen ? (
         <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center">
           <ListChecks className="mx-auto h-8 w-8 text-slate-300" />
-          <p className="mt-2 text-sm font-medium text-slate-600">No open tasks for this case</p>
+          <p className="mt-2 text-sm font-medium text-slate-600">No tasks for this case</p>
           <p className="mt-0.5 text-xs text-slate-400">Add one manually, auto-generate from readiness, or drop in the filing deadline.</p>
           <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
             <button onClick={openCreate} className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700">
@@ -4321,23 +4906,6 @@ function TasksPanel({
               Add filing deadline
             </button>
           </div>
-        </div>
-      ) : null}
-
-      {/* Completed (collapsible) */}
-      {done.length ? (
-        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-          <button
-            onClick={() => setShowDone((s) => !s)}
-            className="flex w-full items-center justify-between px-4 py-2.5 text-left transition hover:bg-slate-50"
-          >
-            <span className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600">
-              <CheckCircle2 className="h-4 w-4 text-emerald-500" /> Completed
-              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500">{done.length}</span>
-            </span>
-            {showDone ? <ChevronDown className="h-4 w-4 text-slate-400" /> : <ChevronRight className="h-4 w-4 text-slate-400" />}
-          </button>
-          {showDone ? <ul className="divide-y divide-slate-100 border-t border-slate-100">{done.map(renderTask)}</ul> : null}
         </div>
       ) : null}
     </div>
@@ -4404,20 +4972,26 @@ function MeterCard({
   caption,
   barClass,
   breakdown,
+  framed = true,
+  hideLabel = false,
 }: {
   label: string
   percent: number
   caption?: string
   barClass: string
   breakdown?: Array<{ key: string; label: string; points: number; max: number; hint?: string }>
+  framed?: boolean
+  hideLabel?: boolean
 }) {
   const pct = Math.max(0, Math.min(100, Math.round(percent)))
   const hasBreakdown = Array.isArray(breakdown) && breakdown.length > 0
   return (
-    <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
+    <div className={framed ? 'rounded-xl border border-slate-200 bg-white px-4 py-3' : undefined}>
       <div className="flex items-baseline justify-between">
         <span className="flex items-center gap-1.5">
-          <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</span>
+          {!hideLabel ? (
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</span>
+          ) : null}
           {hasBreakdown ? (
             <span className="group relative inline-flex">
               <Info className="h-3.5 w-3.5 cursor-help text-slate-400" />

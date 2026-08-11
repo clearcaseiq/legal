@@ -19,6 +19,7 @@ import {
   deriveSignal,
 } from './workflow-signals'
 import { ensureDefaultFirmWorkflow } from './default-workflow-blueprint'
+import { syncWorkflowStepTasks } from './workflow-step-tasks'
 
 function addDays(date: Date, days: number): Date {
   const d = new Date(date)
@@ -173,6 +174,13 @@ export async function applyFirmWorkflowToCase(params: {
       assessmentId,
       workflowId: workflow.id,
       itemCount: items.length,
+    })
+    // Surface required / active-stage steps on the Tasks tab immediately.
+    await syncWorkflowStepTasks(assessmentId).catch((e: any) => {
+      logger.warn('Workflow step → task sync failed after apply', {
+        assessmentId,
+        error: e?.message || String(e),
+      })
     })
     return { created: true, caseWorkflowId: created.id }
   } catch (error: any) {

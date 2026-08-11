@@ -26,6 +26,7 @@ export type EnvelopeStatus =
 export type SignableDocumentType =
   | 'retainer'
   | 'hipaa_authorization'
+  | 'police_report_authorization'
   | 'fee_agreement'
   | 'other'
 

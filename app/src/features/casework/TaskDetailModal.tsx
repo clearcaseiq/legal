@@ -5,6 +5,7 @@
  * Comments/History panel. All edits autosave and refresh the caller via onChanged.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   X,
   Loader2,
@@ -22,6 +23,16 @@ import {
   BadgeCheck,
   Undo2,
   Sparkles,
+  Pencil,
+  MessageSquarePlus,
+  CheckCircle2,
+  FolderOpen,
+  Shield,
+  Receipt,
+  CalendarClock,
+  LayoutDashboard,
+  PenLine,
+  Info,
 } from 'lucide-react'
 import { todayDateKey } from '../../lib/taskDueDate'
 import {
@@ -34,13 +45,22 @@ import {
   addTaskComment,
   getTaskHistory,
   getFirmColleagues,
+  saveIntelligentQuestionAnswer,
+  runLeadConflictCheck,
   type TaskDetail,
   type TaskSubtask,
   type TaskComment,
   type TaskHistoryEntry,
   type FirmColleague,
 } from '../../lib/api'
+import { checkPoliceReportCollect, confirmRetainerSigned } from '../../lib/api-esign'
 import { isAiTask } from './TaskOriginBadge'
+import {
+  resolveTaskHelpTooltip,
+  resolveTaskPrimaryAction,
+  sectionForTaskAction,
+  type TaskPrimaryActionKind,
+} from './taskPrimaryActions'
 import ModalPortal from '../../components/ModalPortal'
 import ConfirmDialog from '../../components/ConfirmDialog'
 
@@ -134,18 +154,25 @@ function describeHistory(entry: TaskHistoryEntry): string {
 }
 
 export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, onChanged }: TaskDetailModalProps) {
+  const navigate = useNavigate()
   const [task, setTask] = useState<TaskDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [approving, setApproving] = useState(false)
+  const [actionBusy, setActionBusy] = useState(false)
   // In-app delete confirmation (replaces window.confirm — CP-347)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
 
   const [title, setTitle] = useState('')
   const [notes, setNotes] = useState('')
   const [newSubtask, setNewSubtask] = useState('')
+  /** questionKey → draft answer while editing a plaintiff question. */
+  const [answerDrafts, setAnswerDrafts] = useState<Record<string, string>>({})
+  const [answerEditing, setAnswerEditing] = useState<Record<string, boolean>>({})
+  const [answerSavingKey, setAnswerSavingKey] = useState<string | null>(null)
+  const [answerError, setAnswerError] = useState<string | null>(null)
 
   const [tab, setTab] = useState<'comments' | 'history'>('comments')
   const [comments, setComments] = useState<TaskComment[]>([])
@@ -275,17 +302,46 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
   const saveSubtasks = (next: TaskSubtask[]) => patch({ subtasks: next })
 
   const toggleSubtask = (id: string) => {
-    if (!task) return
+    if (!task || task.taskType === 'question') return
     saveSubtasks(task.subtasks.map((s) => (s.id === id ? { ...s, done: !s.done } : s)))
   }
   const removeSubtask = (id: string) => {
-    if (!task) return
+    if (!task || task.taskType === 'question') return
     saveSubtasks(task.subtasks.filter((s) => s.id !== id))
   }
   const addSubtask = () => {
-    if (!task || !newSubtask.trim()) return
+    if (!task || !newSubtask.trim() || task.taskType === 'question') return
     saveSubtasks([...task.subtasks, { id: '', title: newSubtask.trim(), done: false }])
     setNewSubtask('')
+  }
+
+  const startAnswerEdit = (s: TaskSubtask) => {
+    setAnswerDrafts((d) => ({ ...d, [s.id]: s.answer || '' }))
+    setAnswerEditing((e) => ({ ...e, [s.id]: true }))
+    setAnswerError(null)
+  }
+
+  const saveQuestionResponse = async (s: TaskSubtask, answerOverride?: string) => {
+    setAnswerSavingKey(s.id)
+    setAnswerError(null)
+    try {
+      const draft = answerOverride !== undefined ? answerOverride : answerDrafts[s.id] ?? s.answer ?? ''
+      await saveIntelligentQuestionAnswer(leadId, {
+        questionKey: s.id,
+        questionText: s.title,
+        section: s.section || null,
+        source: s.source === 'ai' ? 'ai' : 'baseline',
+        answer: draft,
+      })
+      setAnswerEditing((e) => ({ ...e, [s.id]: false }))
+      setAnswerDrafts((d) => ({ ...d, [s.id]: draft }))
+      await load()
+      onChanged?.()
+    } catch (err: any) {
+      setAnswerError(err?.response?.data?.error || 'Failed to save response.')
+    } finally {
+      setAnswerSavingKey(null)
+    }
   }
 
   const saveEstimate = () => {
@@ -350,12 +406,125 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
   const members = task?.members ?? []
   const subtaskDone = subtasks.filter((s) => s.done).length
   const subtaskTotal = subtasks.length
+  const primaryAction = task ? resolveTaskPrimaryAction(task) : null
+  const helpTooltip = task ? resolveTaskHelpTooltip(task) : null
+
+  const primaryActionIcon = (kind: TaskPrimaryActionKind) => {
+    switch (kind) {
+      case 'run_conflict':
+        return ShieldAlert
+      case 'open_insurance':
+        return Shield
+      case 'collect_bills':
+      case 'open_damages':
+        return Receipt
+      case 'collect_police':
+      case 'collect_medical_records':
+      case 'open_evidence':
+        return FolderOpen
+      case 'open_deadlines':
+        return CalendarClock
+      case 'open_overview':
+      case 'open_task_detail':
+        return LayoutDashboard
+      case 'send_welcome':
+        return Send
+      default:
+        return PenLine
+    }
+  }
+
+  const runPrimaryAction = async (kind: TaskPrimaryActionKind) => {
+    if (!task) return
+    if (kind === 'open_task_detail') {
+      // Already in the detail modal — scroll focus isn't needed; no-op navigate away.
+      return
+    }
+    if (kind === 'run_conflict') {
+      if (done) return
+      setActionBusy(true)
+      try {
+        await runLeadConflictCheck(leadId, { phase: 'post_acquire' })
+        const d = await getTaskDetail(leadId, taskId)
+        setTask(d)
+        onChanged?.()
+      } catch (err: any) {
+        setError(err?.response?.data?.error || 'Failed to run conflict check.')
+      } finally {
+        setActionBusy(false)
+      }
+      return
+    }
+    if (kind === 'check_retainer') {
+      if (done) {
+        navigate(`/attorney-dashboard/cases/${leadId}/signatures`)
+        onClose()
+        return
+      }
+      setActionBusy(true)
+      try {
+        const res = await confirmRetainerSigned(leadId)
+        if (res.signed) {
+          const d = await getTaskDetail(leadId, taskId)
+          setTask(d)
+          onChanged?.()
+          if (res.alreadyDone) {
+            navigate(`/attorney-dashboard/cases/${leadId}/signatures`)
+            onClose()
+          }
+        } else {
+          navigate(`/attorney-dashboard/cases/${leadId}/signatures`)
+          onClose()
+        }
+      } catch (err: any) {
+        setError(err?.response?.data?.error || 'Failed to check retainer signature status.')
+      } finally {
+        setActionBusy(false)
+      }
+      return
+    }
+    if (kind === 'send_hipaa') {
+      setActionBusy(true)
+      try {
+        // Parent list reload (onChanged) hits GET /tasks which auto-completes when HIPAA is on file.
+        onChanged?.()
+      } finally {
+        setActionBusy(false)
+        navigate(`/attorney-dashboard/cases/${leadId}/signatures?doc=hipaa_authorization`)
+        onClose()
+      }
+      return
+    }
+    if (kind === 'collect_police') {
+      if (!done) {
+        setActionBusy(true)
+        try {
+          await checkPoliceReportCollect(leadId)
+          const d = await getTaskDetail(leadId, taskId)
+          setTask(d)
+          onChanged?.()
+        } catch {
+          // Still open Evidence.
+        } finally {
+          setActionBusy(false)
+        }
+      }
+      navigate(`/attorney-dashboard/cases/${leadId}/evidence`)
+      onClose()
+      return
+    }
+    const section = sectionForTaskAction(kind)
+    if (section) {
+      navigate(`/attorney-dashboard/cases/${leadId}/${section}`)
+      onClose()
+    }
+  }
 
   return (
     <ModalPortal>
-    {/* Center short dialogs; tall plaintiff-questions content still scrolls.
-        items-start previously left a large blank band under short tasks (CP-452). */}
-    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto p-4">
+    {/* Keep the dialog inside the viewport; long question lists scroll inside
+        the panel instead of forcing the whole page to zoom out. */}
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4">
       <ConfirmDialog
         open={confirmingDelete}
         title="Delete task?"
@@ -370,9 +539,9 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
         onCancel={() => setConfirmingDelete(false)}
       />
       <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative my-4 w-full max-w-4xl rounded-2xl border border-slate-200 bg-white shadow-2xl">
+      <div className="relative flex max-h-[calc(100vh-1.5rem)] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl sm:max-h-[calc(100vh-2rem)]">
         {/* Header */}
-        <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 py-4">
+        <div className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-200 px-5 py-4">
           <div className="min-w-0 flex-1">
             <input
               value={title}
@@ -384,6 +553,12 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
             {caseLabel ? (
               <p className="mt-0.5 px-1 text-sm text-slate-500">
                 Case: <span className="font-medium text-slate-700">{caseLabel}</span>
+              </p>
+            ) : null}
+            {helpTooltip ? (
+              <p className="mt-2 flex items-start gap-1.5 px-1 text-xs leading-relaxed text-slate-500">
+                <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" />
+                <span>{helpTooltip}</span>
               </p>
             ) : null}
           </div>
@@ -415,12 +590,36 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
         ) : !task ? (
           <div className="px-5 py-16 text-center text-sm text-rose-600">{error || 'Task not found.'}</div>
         ) : (
-          <div className="grid gap-6 p-5 lg:grid-cols-[1fr_20rem]">
+          <div className="grid min-h-0 flex-1 gap-6 overflow-y-auto p-5 lg:grid-cols-[1fr_20rem] lg:overflow-hidden">
             {/* Left column */}
-            <div className="space-y-5">
+            <div className="min-h-0 space-y-5 lg:overflow-y-auto lg:pr-1">
               {error ? (
                 <div className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700 ring-1 ring-rose-200">{error}</div>
               ) : null}
+
+              {primaryAction && primaryAction.kind !== 'open_task_detail' ? (() => {
+                const ActionIcon = primaryActionIcon(primaryAction.kind)
+                const label = done && primaryAction.doneLabel ? primaryAction.doneLabel : primaryAction.label
+                const hint = done && primaryAction.doneHint ? primaryAction.doneHint : primaryAction.hint
+                const conflictDone = primaryAction.kind === 'run_conflict' && done
+                return (
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-violet-200 bg-violet-50 px-4 py-3">
+                    <div className="min-w-0 text-sm text-violet-900">
+                      <div className="font-semibold">Next step</div>
+                      <p className="text-xs text-violet-800">{hint}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void runPrimaryAction(primaryAction.kind)}
+                      disabled={actionBusy || conflictDone}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-violet-600 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {actionBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ActionIcon className="h-4 w-4" />}
+                      {label}
+                    </button>
+                  </div>
+                )
+              })() : null}
 
               {/* AI review gate: held until a case manager approves it. */}
               {task.reviewStatus === 'pending' ? (
@@ -516,55 +715,168 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
                 </div>
               </div>
 
-              {/* Subtasks */}
+              {/* Questions (plaintiff) or generic Subtasks */}
               <div>
                 <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-800">
-                  Subtasks
+                  {task.taskType === 'question' ? 'Questions & responses' : 'Subtasks'}
                   <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500">
-                    {subtaskDone} / {subtaskTotal} completed
+                    {subtaskDone} / {subtaskTotal} {task.taskType === 'question' ? 'answered' : 'completed'}
                   </span>
                 </div>
-                <ul className="space-y-1">
-                  {subtasks.map((s) => (
-                    <li key={s.id} className="group flex items-center gap-2 rounded-lg px-1 py-1 hover:bg-slate-50">
+                {task.taskType === 'question' ? (
+                  <>
+                    <p className="mb-2 text-xs text-slate-500">
+                      Record the plaintiff’s answer under each question. Saving a response marks that item answered.
+                    </p>
+                    {answerError ? (
+                      <p className="mb-2 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700 ring-1 ring-rose-200">{answerError}</p>
+                    ) : null}
+                    <ul className="max-h-[min(50vh,24rem)] space-y-2 overflow-y-auto rounded-lg border border-slate-100 bg-slate-50/40 p-2">
+                      {subtasks.map((s, idx) => {
+                        const hasAnswer = Boolean(s.answer && s.answer.trim())
+                        const editing = Boolean(answerEditing[s.id])
+                        const savingAnswer = answerSavingKey === s.id
+                        return (
+                          <li key={s.id} className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 shadow-sm">
+                            <div className="flex items-start gap-2">
+                              <span className={`mt-0.5 shrink-0 ${hasAnswer ? 'text-emerald-600' : 'text-slate-300'}`}>
+                                {hasAnswer ? <CheckCircle2 className="h-4 w-4" /> : <Square className="h-4 w-4" />}
+                              </span>
+                              <div className="min-w-0 flex-1">
+                                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                                  Question {idx + 1}
+                                </p>
+                                <p className="text-sm font-medium leading-snug text-slate-800">{s.title}</p>
+
+                                {editing ? (
+                                  <div className="mt-2">
+                                    <textarea
+                                      value={answerDrafts[s.id] ?? s.answer ?? ''}
+                                      onChange={(e) =>
+                                        setAnswerDrafts((d) => ({ ...d, [s.id]: e.target.value }))
+                                      }
+                                      rows={3}
+                                      autoFocus
+                                      placeholder="Record the plaintiff’s response…"
+                                      className="w-full resize-y rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
+                                    />
+                                    <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => void saveQuestionResponse(s)}
+                                        disabled={savingAnswer}
+                                        className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-60"
+                                      >
+                                        {savingAnswer ? (
+                                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                        ) : (
+                                          <CheckCircle2 className="h-3.5 w-3.5" />
+                                        )}
+                                        Save response
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setAnswerEditing((e) => ({ ...e, [s.id]: false }))
+                                          setAnswerError(null)
+                                        }}
+                                        disabled={savingAnswer}
+                                        className="rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-500 hover:bg-slate-100 disabled:opacity-60"
+                                      >
+                                        Cancel
+                                      </button>
+                                      {hasAnswer ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => void saveQuestionResponse(s, '')}
+                                          disabled={savingAnswer}
+                                          className="ml-auto rounded-lg px-2.5 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-60"
+                                        >
+                                          Clear
+                                        </button>
+                                      ) : null}
+                                    </div>
+                                  </div>
+                                ) : hasAnswer ? (
+                                  <div className="mt-2 rounded-lg border border-emerald-100 bg-emerald-50/70 px-3 py-2">
+                                    <p className="whitespace-pre-wrap text-sm text-slate-800">{s.answer}</p>
+                                    <div className="mt-1.5 flex items-center justify-between gap-2">
+                                      <p className="text-[11px] text-slate-500">
+                                        {s.answeredByName ? `Recorded by ${s.answeredByName}` : 'Recorded'}
+                                        {s.answeredAt
+                                          ? ` · ${new Date(s.answeredAt).toLocaleDateString()}`
+                                          : ''}
+                                      </p>
+                                      <button
+                                        type="button"
+                                        onClick={() => startAnswerEdit(s)}
+                                        className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-semibold text-slate-500 hover:bg-white hover:text-slate-700"
+                                      >
+                                        <Pencil className="h-3 w-3" /> Edit
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => startAnswerEdit(s)}
+                                    className="mt-2 inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-semibold text-brand-700 ring-1 ring-inset ring-brand-200 hover:bg-brand-50"
+                                  >
+                                    <MessageSquarePlus className="h-3.5 w-3.5" /> Add response
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  </>
+                ) : (
+                  <>
+                    <ul className="max-h-[min(40vh,18rem)] space-y-1 overflow-y-auto rounded-lg border border-slate-100 bg-slate-50/40 p-1.5">
+                      {subtasks.map((s) => (
+                        <li key={s.id} className="group flex items-start gap-2 rounded-lg px-1.5 py-1.5 hover:bg-white">
+                          <button
+                            onClick={() => toggleSubtask(s.id)}
+                            className={`mt-0.5 shrink-0 ${s.done ? 'text-emerald-600' : 'text-slate-300 hover:text-slate-500'}`}
+                            aria-label={s.done ? 'Mark incomplete' : 'Mark complete'}
+                          >
+                            {s.done ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4" />}
+                          </button>
+                          <span className={`min-w-0 flex-1 text-sm leading-snug ${s.done ? 'text-slate-400 line-through' : 'text-slate-700'}`}>
+                            {s.title}
+                          </span>
+                          <button
+                            onClick={() => removeSubtask(s.id)}
+                            className="mt-0.5 shrink-0 text-slate-300 opacity-0 transition hover:text-rose-600 group-hover:opacity-100"
+                            aria-label="Remove subtask"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                    <div className="mt-2 flex items-center gap-2">
+                      <input
+                        value={newSubtask}
+                        onChange={(e) => setNewSubtask(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') addSubtask()
+                        }}
+                        placeholder="Add a subtask…"
+                        className="flex-1 rounded-lg border border-slate-200 px-3 py-1.5 text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
+                      />
                       <button
-                        onClick={() => toggleSubtask(s.id)}
-                        className={s.done ? 'text-emerald-600' : 'text-slate-300 hover:text-slate-500'}
-                        aria-label={s.done ? 'Mark incomplete' : 'Mark complete'}
+                        onClick={addSubtask}
+                        disabled={!newSubtask.trim()}
+                        className="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-200 disabled:opacity-50"
                       >
-                        {s.done ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4" />}
+                        <Plus className="h-4 w-4" /> Add
                       </button>
-                      <span className={`flex-1 text-sm ${s.done ? 'text-slate-400 line-through' : 'text-slate-700'}`}>
-                        {s.title}
-                      </span>
-                      <button
-                        onClick={() => removeSubtask(s.id)}
-                        className="text-slate-300 opacity-0 transition hover:text-rose-600 group-hover:opacity-100"
-                        aria-label="Remove subtask"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-                <div className="mt-2 flex items-center gap-2">
-                  <input
-                    value={newSubtask}
-                    onChange={(e) => setNewSubtask(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') addSubtask()
-                    }}
-                    placeholder="Add a subtask…"
-                    className="flex-1 rounded-lg border border-slate-200 px-3 py-1.5 text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
-                  />
-                  <button
-                    onClick={addSubtask}
-                    disabled={!newSubtask.trim()}
-                    className="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-200 disabled:opacity-50"
-                  >
-                    <Plus className="h-4 w-4" /> Add
-                  </button>
-                </div>
+                    </div>
+                  </>
+                )}
               </div>
 
               {/* Description */}
@@ -605,19 +917,90 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
                   <div className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-slate-600">
                     <UserIcon className="h-3.5 w-3.5 text-slate-400" /> Assignee
                   </div>
-                  <select
-                    value={task.assignedUserId || ''}
-                    onChange={(e) => patch({ assignedUserId: e.target.value || null })}
-                    className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
-                  >
-                    <option value="">Unassigned</option>
-                    {members.map((m) => (
-                      <option key={m.userId} value={m.userId}>
-                        {m.name}
-                        {m.roleLabel ? ` (${m.roleLabel})` : ''}
-                      </option>
-                    ))}
-                  </select>
+                  {(() => {
+                    const autoIntake =
+                      /confirm signed (retainer|representation)|conflict check|send retainer to client/i.test(
+                        task.title || '',
+                      )
+                    // Mirror Workflow / Tasks Assign column: person when set,
+                    // otherwise the workflow role (e.g. "Paralegal (role)").
+                    const roleKey = String(
+                      (task as any).assignedRole || task.assigneeRole || '',
+                    ).toLowerCase()
+                    const roleLabel =
+                      task.assigneeRoleLabel ||
+                      ({
+                        attorney: 'Attorney',
+                        paralegal: 'Paralegal',
+                        case_manager: 'Case manager',
+                        intake_specialist: 'Intake',
+                        legal_assistant: 'Legal assistant',
+                        demand_writer: 'Demand writer',
+                        billing_admin: 'Billing',
+                        firm_admin: 'Firm admin',
+                        client: 'Client',
+                        plaintiff: 'Client',
+                      } as Record<string, string>)[roleKey] ||
+                      (task as any).assignedRole ||
+                      task.assigneeRole ||
+                      null
+                    const selectValue =
+                      roleKey === 'client' || roleKey === 'plaintiff'
+                        ? ''
+                        : task.assignedUserId || ''
+                    const emptyLabel = autoIntake
+                      ? 'Auto'
+                      : roleLabel && roleKey !== 'client' && roleKey !== 'plaintiff'
+                        ? `${roleLabel} (role)`
+                        : 'Unassigned'
+                    return (
+                      <>
+                        <select
+                          value={selectValue}
+                          onChange={(e) => {
+                            const next = e.target.value || null
+                            if (!next && autoIntake) {
+                              patch({ assignedUserId: null, assignedTo: null, assignedRole: 'attorney' })
+                            } else if (!next) {
+                              // Keep the workflow role when clearing a person pick.
+                              patch({
+                                assignedUserId: null,
+                                assignedTo: null,
+                                assignedRole:
+                                  roleKey && roleKey !== 'client' && roleKey !== 'plaintiff'
+                                    ? roleKey
+                                    : null,
+                              })
+                            } else {
+                              patch({ assignedUserId: next })
+                            }
+                          }}
+                          className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
+                        >
+                          <option value="">{emptyLabel}</option>
+                          {members.map((m) => (
+                            <option key={m.userId} value={m.userId}>
+                              {m.name}
+                              {m.roleLabel ? ` (${m.roleLabel})` : ''}
+                            </option>
+                          ))}
+                        </select>
+                        {/confirm signed (retainer|representation)/i.test(task.title || '') ? (
+                          <p className="mt-1 text-xs text-slate-500">
+                            Completes automatically when the client signs the retainer. Defaults to Auto — pick a teammate only if needed.
+                          </p>
+                        ) : autoIntake ? (
+                          <p className="mt-1 text-xs text-slate-500">
+                            Defaults to Auto. You can still assign a teammate.
+                          </p>
+                        ) : roleLabel && !task.assignedUserId ? (
+                          <p className="mt-1 text-xs text-slate-500">
+                            Same role as on the Workflow tab. Pick a teammate to assign a specific person.
+                          </p>
+                        ) : null}
+                      </>
+                    )
+                  })()}
                 </div>
                 <div>
                   <div className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-slate-600">
@@ -665,8 +1048,8 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
             </div>
 
             {/* Right column: Comments / History */}
-            <div className="flex flex-col rounded-xl border border-slate-200">
-              <div className="flex border-b border-slate-200">
+            <div className="flex min-h-0 flex-col rounded-xl border border-slate-200 lg:max-h-full">
+              <div className="flex shrink-0 border-b border-slate-200">
                 <button
                   onClick={() => setTab('comments')}
                   className={`flex flex-1 items-center justify-center gap-1.5 px-3 py-2.5 text-sm font-semibold transition ${
@@ -686,8 +1069,8 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
               </div>
 
               {tab === 'comments' ? (
-                <div className="flex min-h-0 flex-col">
-                  <div className="max-h-72 flex-1 space-y-3 overflow-y-auto p-3">
+                <div className="flex min-h-0 flex-1 flex-col">
+                  <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3 lg:max-h-none max-h-72">
                     {comments.length === 0 ? (
                       <p className="py-4 text-center text-sm text-slate-400">No comments yet.</p>
                     ) : (
@@ -752,7 +1135,7 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
                   </div>
                 </div>
               ) : (
-                <div className="max-h-72 space-y-3 overflow-y-auto p-3">
+                <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3 max-h-72 lg:max-h-none">
                   {history.length === 0 ? (
                     <p className="py-4 text-center text-sm text-slate-400">No activity yet.</p>
                   ) : (

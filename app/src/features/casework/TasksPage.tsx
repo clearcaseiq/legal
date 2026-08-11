@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { BadgeCheck, CheckCircle2, Circle, ListChecks, Loader2, Merge, Plus, Trash2, Undo2, X } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { BadgeCheck, CheckCircle2, Circle, Info, ListChecks, Loader2, Merge, Plus, Trash2, Undo2, X } from 'lucide-react'
 import {
   getAttorneyTaskSummary,
   getAttorneyDashboard,
@@ -10,8 +11,11 @@ import {
   unapproveLeadTask,
   mergeLeadTasks,
   getMyWorkflowTasks,
+  runLeadConflictCheck,
   type MyWorkflowTask,
 } from '../../lib/api'
+import { checkPoliceReportCollect, confirmRetainerSigned } from '../../lib/api-esign'
+import { resolveTaskHelpTooltip, resolveTaskPrimaryAction, sectionForTaskAction } from './taskPrimaryActions'
 import {
   Badge,
   ClientLink,
@@ -189,6 +193,7 @@ const ASSIGNEES = [
 ]
 
 export default function TasksPage() {
+  const navigate = useNavigate()
   const [summary, setSummary] = useState<TaskSummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -421,6 +426,73 @@ export default function TasksPage() {
     }
   }
 
+  const runTaskPrimaryAction = async (row: TaskRow) => {
+    if (!row.leadId) return
+    const primary = resolveTaskPrimaryAction(row)
+    if (!primary) return
+    const leadId = row.leadId
+    const done = row.status === 'done' || Boolean(row.completedAt)
+
+    if (primary.kind === 'open_task_detail') {
+      setDetail({ leadId, taskId: row.id, caseLabel: claimLabel(row.claimType) })
+      return
+    }
+    if (primary.kind === 'run_conflict') {
+      if (done) return
+      setBusyId(row.id)
+      try {
+        await runLeadConflictCheck(leadId, { phase: 'post_acquire' })
+        await loadTasks()
+        flash('ok', 'Conflict check complete.')
+      } catch (err: any) {
+        flash('err', err?.response?.data?.error || 'Failed to run conflict check.')
+      } finally {
+        setBusyId(null)
+      }
+      return
+    }
+    if (primary.kind === 'check_retainer') {
+      setBusyId(row.id)
+      try {
+        if (!done) await confirmRetainerSigned(leadId)
+        await loadTasks()
+      } catch {
+        // Still open Signatures.
+      } finally {
+        setBusyId(null)
+        navigate(`/attorney-dashboard/cases/${leadId}/signatures`)
+      }
+      return
+    }
+    if (primary.kind === 'send_hipaa') {
+      setBusyId(row.id)
+      try {
+        // Case-workspace task list sync also runs here when attorneys open the case;
+        // refresh summary then land on HIPAA signatures.
+        await loadTasks()
+      } finally {
+        setBusyId(null)
+        navigate(`/attorney-dashboard/cases/${leadId}/signatures?doc=hipaa_authorization`)
+      }
+      return
+    }
+    if (primary.kind === 'collect_police') {
+      setBusyId(row.id)
+      try {
+        if (!done) await checkPoliceReportCollect(leadId)
+        await loadTasks()
+      } catch {
+        // Still open Evidence.
+      } finally {
+        setBusyId(null)
+        navigate(`/attorney-dashboard/cases/${leadId}/evidence`)
+      }
+      return
+    }
+    const section = sectionForTaskAction(primary.kind)
+    if (section) navigate(`/attorney-dashboard/cases/${leadId}/${section}`)
+  }
+
   const taskColumns: DataTableColumn<TaskRow>[] = [
     {
       key: 'select',
@@ -445,7 +517,7 @@ export default function TasksPage() {
                   ? 'The plaintiff questions task is maintained automatically and cannot be merged'
                   : wrongCase
                     ? 'Tasks from different cases cannot be merged'
-                    : 'Select to merge'
+                    : 'Select this task. Select multiple tasks on the same case, then Merge to combine them.'
             }
             className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-400 disabled:opacity-30"
           />
@@ -497,22 +569,42 @@ export default function TasksPage() {
             )}
           </span>
         ) : r.leadId ? (
-          <span className="inline-flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setDetail({ leadId: r.leadId as string, taskId: r.id, caseLabel: claimLabel(r.claimType) })}
-              className={`text-left transition hover:text-brand-700 hover:underline ${
-                viewingCompleted ? 'font-medium text-slate-500 line-through' : 'font-medium text-slate-800'
-              }`}
-            >
-              {r.title}
-            </button>
-            <TaskOriginBadge taskType={r.taskType} />
-            {r.reviewStatus === 'pending' && <PendingReviewBadge />}
-          </span>
+          (() => {
+            const help = resolveTaskHelpTooltip(r)
+            return (
+              <span className="inline-flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setDetail({ leadId: r.leadId as string, taskId: r.id, caseLabel: claimLabel(r.claimType) })}
+                  title={help || undefined}
+                  className={`text-left transition hover:text-brand-700 hover:underline ${
+                    viewingCompleted ? 'font-medium text-slate-500 line-through' : 'font-medium text-slate-800'
+                  }`}
+                >
+                  {r.title}
+                </button>
+                {help ? (
+                  <span
+                    className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-slate-100 text-[11px] font-bold text-slate-600 ring-1 ring-inset ring-slate-300"
+                    title={help}
+                    aria-label={`About: ${r.title}`}
+                  >
+                    i
+                  </span>
+                ) : null}
+                <TaskOriginBadge taskType={r.taskType} />
+                {r.reviewStatus === 'pending' && <PendingReviewBadge />}
+              </span>
+            )
+          })()
         ) : (
           <span className="inline-flex items-center gap-2">
-            <span className={viewingCompleted ? 'font-medium text-slate-500 line-through' : 'font-medium text-slate-800'}>{r.title}</span>
+            <span
+              className={viewingCompleted ? 'font-medium text-slate-500 line-through' : 'font-medium text-slate-800'}
+              title={resolveTaskHelpTooltip(r) || undefined}
+            >
+              {r.title}
+            </span>
             <TaskOriginBadge taskType={r.taskType} />
             {r.reviewStatus === 'pending' && <PendingReviewBadge />}
           </span>
@@ -537,12 +629,39 @@ export default function TasksPage() {
     },
     {
       key: 'actions',
-      header: '',
+      header: 'Action',
       align: 'right',
-      cellClassName: 'w-24',
-      cell: (r) =>
-        r.source === 'workflow' ? null : (
+      cellClassName: 'w-40',
+      cell: (r) => {
+        if (r.source === 'workflow') {
+          return r.leadId ? (
+            <button
+              type="button"
+              onClick={() => navigate(`/attorney-dashboard/cases/${r.leadId}/workflow`)}
+              className="inline-flex h-7 items-center justify-center rounded-md bg-violet-600 px-2.5 text-[11px] font-semibold text-white transition hover:bg-violet-700"
+              title="Open Workflow for this case"
+            >
+              Open
+            </button>
+          ) : null
+        }
+        const primary = resolveTaskPrimaryAction(r)
+        const done = r.status === 'done' || Boolean(r.completedAt)
+        const label = primary && done && primary.doneLabel ? primary.doneLabel : primary?.label || 'Open'
+        const hint = primary && done && primary.doneHint ? primary.doneHint : primary?.hint || 'Open this task'
+        return (
           <div className="flex items-center justify-end gap-1.5">
+            {r.leadId && primary ? (
+              <button
+                type="button"
+                onClick={() => void runTaskPrimaryAction(r)}
+                disabled={busyId === r.id || (primary.kind === 'run_conflict' && done)}
+                className="inline-flex h-7 min-w-[4.5rem] items-center justify-center rounded-md bg-violet-600 px-2.5 text-[11px] font-semibold text-white transition hover:bg-violet-700 disabled:opacity-50"
+                title={hint}
+              >
+                {busyId === r.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : label}
+              </button>
+            ) : null}
             {r.reviewStatus === 'pending' && r.leadId ? (
               <button
                 onClick={() => void setTaskApproval(r, true)}
@@ -574,7 +693,8 @@ export default function TasksPage() {
               <Trash2 className="h-4 w-4" />
             </button>
           </div>
-        ),
+        )
+      },
     },
   ]
 
@@ -645,14 +765,36 @@ export default function TasksPage() {
         title="Tasks"
         description="A cross-case queue that rolls up every case's task list so nothing slips. Complete, add, or open any task without leaving the page. Changes sync to each case's Tasks tab."
         actions={
-          !formOpen ? (
-            <button
-              onClick={() => setFormOpen(true)}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700"
-            >
-              <Plus className="h-4 w-4" /> Quick add
-            </button>
-          ) : null
+          <div className="flex items-center gap-2">
+            <span className="group relative inline-flex items-center">
+              <button
+                type="button"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-700"
+                aria-label="How to merge tasks"
+                title="Select multiple tasks with the checkboxes, then Merge to combine them into one."
+              >
+                <Info className="h-4 w-4" />
+              </button>
+              <span
+                role="tooltip"
+                className="pointer-events-none absolute right-0 top-full z-30 mt-2 hidden w-64 rounded-lg border border-slate-200 bg-white p-3 text-left text-xs leading-relaxed text-slate-600 shadow-lg group-hover:block group-focus-within:block"
+              >
+                <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  Merge tasks
+                </span>
+                Select two or more tasks on the same case with the checkboxes, then choose{' '}
+                <span className="font-semibold text-slate-800">Merge</span> to combine them into one.
+              </span>
+            </span>
+            {!formOpen ? (
+              <button
+                onClick={() => setFormOpen(true)}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700"
+              >
+                <Plus className="h-4 w-4" /> Quick add
+              </button>
+            ) : null}
+          </div>
         }
       />
 

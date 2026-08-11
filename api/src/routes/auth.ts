@@ -265,6 +265,7 @@ router.post('/login', async (req, res) => {
         lastName: user.lastName,
         phone: user.phone,
         emailVerified: user.emailVerified,
+        preferredLanguage: user.preferredLanguage || 'en',
         createdAt: user.createdAt
       },
       token,
@@ -628,6 +629,7 @@ router.get('/me', authMiddleware, async (req: AuthRequest, res) => {
         lastName: true,
         phone: true,
         emailVerified: true,
+        preferredLanguage: true,
         lastLoginAt: true,
         createdAt: true,
         updatedAt: true,
@@ -644,7 +646,10 @@ router.get('/me', authMiddleware, async (req: AuthRequest, res) => {
       return res.status(404).json({ error: 'User not found' })
     }
 
-    res.json(user)
+    res.json({
+      ...user,
+      preferredLanguage: user.preferredLanguage || 'en',
+    })
   } catch (error) {
     logger.error('Get user failed', { error })
     res.status(500).json({ error: 'Failed to get user' })
@@ -771,13 +776,17 @@ router.put('/me', authMiddleware, async (req: AuthRequest, res) => {
         firstName: true,
         lastName: true,
         phone: true,
+        preferredLanguage: true,
         updatedAt: true
       }
     })
 
     logger.info('User updated', { userId: user.id })
 
-    res.json(user)
+    res.json({
+      ...user,
+      preferredLanguage: user.preferredLanguage || 'en',
+    })
   } catch (error) {
     logger.error('Update user failed', { error })
     res.status(500).json({ error: 'Failed to update user' })

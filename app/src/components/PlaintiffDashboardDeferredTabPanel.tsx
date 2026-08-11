@@ -1,8 +1,25 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { CheckCircle, ChevronRight, Clock, Download, FileText, MessageCircle, Plus, TrendingUp, Upload, Users } from 'lucide-react'
 import { formatCurrency } from '../lib/formatters'
 import { linkify } from '../lib/linkify'
 import { useLanguage } from '../contexts/LanguageContext'
+import { evidenceUploadHref, plaintiffDashboardReturnTo } from '../lib/evidenceUploadNav'
+import { downloadSignedEnvelope } from '../lib/api-esign'
+import { downloadEvidenceByUrl, type PlaintiffDocumentRequest, type PlaintiffSignedDocument } from '../lib/api'
+import { dateLocale } from '../i18n'
+import PlaintiffRequestedDocumentsSection from './PlaintiffRequestedDocumentsSection'
+
+type PlaintiffEvidenceFile = {
+  id: string
+  originalName?: string
+  filename?: string
+  category?: string
+  fileUrl?: string
+  createdAt?: string
+  size?: number
+  processingStatus?: string
+}
 
 type DeferredTabId = 'tasks' | 'documents' | 'attorney' | 'value' | 'journal' | 'insights' | 'evidence' | 'activity'
 
@@ -132,6 +149,10 @@ type Props = {
   attorneyActivity: AttorneyActivityItem[]
   caseMessages: CaseMessageItem[]
   attorneyName?: string
+  documentRequests?: PlaintiffDocumentRequest[]
+  signedDocuments?: PlaintiffSignedDocument[]
+  evidenceFiles?: PlaintiffEvidenceFile[]
+  onDocumentRequestsRefresh?: () => void | Promise<void>
 }
 
 export default function PlaintiffDashboardDeferredTabPanel({
@@ -186,8 +207,57 @@ export default function PlaintiffDashboardDeferredTabPanel({
   attorneyActivity,
   caseMessages,
   attorneyName,
+  documentRequests = [],
+  signedDocuments = [],
+  evidenceFiles = [],
+  onDocumentRequestsRefresh,
 }: Props) {
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
+  const locale = dateLocale(language)
+  const [downloadingId, setDownloadingId] = useState<string | null>(null)
+  const documentsUploadHref = evidenceUploadHref(activeAssessmentId, {
+    from: 'dashboard',
+    returnTo: plaintiffDashboardReturnTo(activeAssessmentId, 'documents'),
+  })
+
+  const signedDocumentTypeLabel = (documentType: string) => {
+    const key = `plaintiffDashboard.deferred.documents.signedTypes.${documentType}`
+    const translated = t(key)
+    return translated === key ? documentType.replace(/_/g, ' ') : translated
+  }
+
+  const evidenceCategoryLabel = (category?: string) => {
+    if (!category) return t('evidence.cat_other')
+    const key = `evidence.cat_${category}`
+    const translated = t(key)
+    return translated === key ? category.replace(/_/g, ' ') : translated
+  }
+
+  const handleDownloadSigned = async (doc: PlaintiffSignedDocument) => {
+    if (!doc.downloadAvailable || downloadingId) return
+    setDownloadingId(doc.id)
+    try {
+      const safe = (doc.title || signedDocumentTypeLabel(doc.documentType) || 'signed-document')
+        .replace(/[^\w.-]+/g, '_')
+      await downloadSignedEnvelope(doc.id, `${safe}.pdf`)
+    } catch {
+      /* download helper surfaces network errors via axios; keep UI quiet */
+    } finally {
+      setDownloadingId(null)
+    }
+  }
+
+  const handleDownloadEvidence = async (file: PlaintiffEvidenceFile) => {
+    if (!file.fileUrl || downloadingId) return
+    setDownloadingId(file.id)
+    try {
+      await downloadEvidenceByUrl(file.fileUrl, file.originalName || file.filename || 'document')
+    } catch {
+      /* keep UI quiet */
+    } finally {
+      setDownloadingId(null)
+    }
+  }
   // caseReadinessLabel/liabilityLabel/scoreFactor.value arrive as stable English
   // enums (they drive colour logic and comparisons). bandLabel translates them
   // only at render so the displayed word follows the selected language.
@@ -218,8 +288,40 @@ export default function PlaintiffDashboardDeferredTabPanel({
     shoulder_finding: t('plaintiffDashboard.deferred.documents.typeShoulderFinding'),
     back_finding: t('plaintiffDashboard.deferred.documents.typeBackFinding'),
   }
+  const surgeryStatusLabels: Record<string, string> = {
+    recommended: t('plaintiffDashboard.deferred.documents.surgeryRecommended'),
+    scheduled: t('plaintiffDashboard.deferred.documents.surgeryScheduled'),
+    completed: t('plaintiffDashboard.deferred.documents.surgeryCompleted'),
+    not_discussed: t('plaintiffDashboard.deferred.documents.surgeryNotDiscussed'),
+  }
+  const treatmentDetailPhrases: Record<string, string> = {
+    'yes. i need surgery': t('plaintiffDashboard.deferred.documents.detailYesNeedSurgery'),
+    'yes i need surgery': t('plaintiffDashboard.deferred.documents.detailYesNeedSurgery'),
+  }
   const humanizeTreatment = (value: string) =>
     value.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+  const treatmentTypeKey = (entry: any): string | null => {
+    const type = typeof entry?.type === 'string' ? entry.type.trim() : ''
+    if (type && treatmentTypeLabels[type]) return type
+    const label = typeof entry?.label === 'string' ? entry.label.trim() : ''
+    if (label && treatmentTypeLabels[label]) return label
+    return null
+  }
+  const localizeTreatmentDetail = (entry: any, raw: string): string => {
+    const value = raw.trim()
+    if (!value) return ''
+    const typeKey = treatmentTypeKey(entry)
+    if (typeKey === 'surgery_status') {
+      const statusSlug = typeof entry?.status === 'string' ? entry.status.trim().toLowerCase() : ''
+      if (statusSlug && surgeryStatusLabels[statusSlug]) return surgeryStatusLabels[statusSlug]
+      const valueSlug = value.toLowerCase().replace(/\s+/g, '_')
+      if (surgeryStatusLabels[valueSlug]) return surgeryStatusLabels[valueSlug]
+    }
+    const phraseKey = value.toLowerCase().replace(/[.!]+$/g, '').replace(/\s+/g, ' ').trim()
+    if (treatmentDetailPhrases[phraseKey]) return treatmentDetailPhrases[phraseKey]
+    if (treatmentDetailPhrases[value.toLowerCase()]) return treatmentDetailPhrases[value.toLowerCase()]
+    return value
+  }
   const treatmentDetailText = (entry: any): string => {
     const raw =
       entry.imaging ||
@@ -230,13 +332,21 @@ export default function PlaintiffDashboardDeferredTabPanel({
       entry.notes ||
       entry.details ||
       ''
-    return typeof raw === 'string' ? raw.trim() : String(raw ?? '')
+    const text = typeof raw === 'string' ? raw.trim() : String(raw ?? '').trim()
+    return localizeTreatmentDetail(entry, text)
   }
-  const treatmentTitle = (entry: any): string =>
-    entry.label ||
-    (entry.type ? treatmentTypeLabels[entry.type] || humanizeTreatment(String(entry.type)) : '') ||
-    entry.provider ||
-    t('plaintiffDashboard.deferred.documents.treatment')
+  const treatmentTitle = (entry: any): string => {
+    const typeKey = treatmentTypeKey(entry)
+    if (typeKey) return treatmentTypeLabels[typeKey]
+    if (entry.label) {
+      const label = String(entry.label)
+      // Chronology historically stored raw type slugs in `label` — never show those as-is.
+      if (/^[a-z][a-z0-9_]*$/.test(label)) return humanizeTreatment(label)
+      return label
+    }
+    if (entry.type) return humanizeTreatment(String(entry.type))
+    return entry.provider || t('plaintiffDashboard.deferred.documents.treatment')
+  }
   // OCR on sample/scanned docs often trails boilerplate ("DISCLAIMER: This document
   // is entirely fictitious…") into extracted fields. Strip that noise and cap length
   // so the Medical Summary stays readable (#doc-summary).
@@ -284,6 +394,16 @@ export default function PlaintiffDashboardDeferredTabPanel({
 
     return (
       <div className="space-y-5">
+        {/* Attorney document requests live here so Tasks is the single to-do surface.
+            Hide the empty state before match — nothing to request yet. */}
+        {(attorneyMatched || documentRequests.length > 0) && (
+          <PlaintiffRequestedDocumentsSection
+            assessmentId={activeAssessmentId}
+            documentRequests={documentRequests}
+            onRequestsRefresh={onDocumentRequestsRefresh}
+          />
+        )}
+
         {/* Progress header */}
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex items-start justify-between gap-4">
@@ -355,16 +475,6 @@ export default function PlaintiffDashboardDeferredTabPanel({
             </div>
           </div>
         )}
-
-        {/* Case Coach tip */}
-        <div className="rounded-2xl border border-brand-100 bg-brand-50/60 p-5">
-          <div className="flex items-center gap-2">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-600 text-white"><TrendingUp className="h-5 w-5" aria-hidden /></span>
-            <p className="text-sm font-semibold text-brand-900">{t('plaintiffDashboard.deferred.tasks.coachTip')}</p>
-          </div>
-          <p className="mt-2 text-sm font-semibold text-brand-900">{caseCoachDisplay.tip}</p>
-          <p className="mt-1 text-sm text-brand-800">{caseCoachDisplay.action}</p>
-        </div>
       </div>
     )
   }
@@ -442,7 +552,7 @@ export default function PlaintiffDashboardDeferredTabPanel({
         {/* Actions */}
         <div className="flex flex-wrap gap-2">
           {submittedForReview ? (
-            <Link to={`/results/${activeAssessmentId}`} className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-700">
+            <Link to={`/results/${activeAssessmentId}?view=report`} className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-700">
               {t('plaintiffDashboard.deferred.attorney.viewReport')}
             </Link>
           ) : (
@@ -450,7 +560,13 @@ export default function PlaintiffDashboardDeferredTabPanel({
               {t('plaintiffDashboard.deferred.attorney.submitForReview')}
             </Link>
           )}
-          <Link to={`/evidence-upload/${activeAssessmentId}`} className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-600">
+          <Link
+            to={evidenceUploadHref(activeAssessmentId, {
+              from: 'dashboard',
+              returnTo: plaintiffDashboardReturnTo(activeAssessmentId, 'attorney'),
+            })}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-600"
+          >
             <Upload className="h-4 w-4" aria-hidden />
             {t('plaintiffDashboard.deferred.attorney.uploadDocuments')}
           </Link>
@@ -557,7 +673,7 @@ export default function PlaintiffDashboardDeferredTabPanel({
                 ))}
             </ul>
             <Link
-              to={`/evidence-upload/${activeAssessmentId}`}
+              to={evidenceUploadHref(activeAssessmentId, { from: 'dashboard' })}
               className="inline-flex items-center gap-2 mt-4 px-4 py-2 text-sm font-medium text-white bg-brand-600 rounded-lg hover:bg-brand-700"
             >
               <Upload className="h-4 w-4" />
@@ -718,11 +834,15 @@ export default function PlaintiffDashboardDeferredTabPanel({
           <p className="text-sm text-gray-600 mt-3">{t('plaintiffDashboard.deferred.insights.reinforces')}</p>
         </div>
 
-        <div className="bg-brand-50 border border-brand-100 rounded-xl p-4">
-          <p className="text-sm font-semibold text-brand-900 mb-2">{t('plaintiffDashboard.deferred.insights.caseCoach')}</p>
-          <p className="text-sm text-brand-800 mb-1">{t('plaintiffDashboard.deferred.insights.tip', { tip: caseCoachDisplay.tip })}</p>
-          <p className="text-sm text-brand-700 font-medium">{caseCoachDisplay.action}</p>
-        </div>
+        {/* Case Coach on Case Value only before match — after match, Action Center
+            and Tasks already carry the same "upload docs / prepare" guidance. */}
+        {!attorneyMatched && (
+          <div className="bg-brand-50 border border-brand-100 rounded-xl p-4">
+            <p className="text-sm font-semibold text-brand-900 mb-2">{t('plaintiffDashboard.deferred.insights.caseCoach')}</p>
+            <p className="text-sm text-brand-800 mb-1">{t('plaintiffDashboard.deferred.insights.tip', { tip: caseCoachDisplay.tip })}</p>
+            <p className="text-sm text-brand-700 font-medium">{caseCoachDisplay.action}</p>
+          </div>
+        )}
 
         {potentialValueIncrease.show && (
           <div className="bg-green-50 border border-green-200 rounded-xl p-4">
@@ -742,7 +862,7 @@ export default function PlaintiffDashboardDeferredTabPanel({
 
         <div className="flex gap-2 md:col-span-2">
           <Link
-            to={`/evidence-upload/${activeAssessmentId}`}
+            to={evidenceUploadHref(activeAssessmentId, { from: 'dashboard' })}
             className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-brand-600 rounded-lg hover:bg-brand-700"
           >
             <Upload className="h-4 w-4" />
@@ -777,12 +897,137 @@ export default function PlaintiffDashboardDeferredTabPanel({
     const medicalTotal = meaningfulTreatment.reduce((sum, e) => sum + (Number(e.amount) || 0), 0)
     return (
       <div className="space-y-5">
-        {/* Documents & Evidence */}
+        {signedDocuments.length > 0 && (
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h3 className="font-display text-xl font-bold text-slate-900">
+              {t('plaintiffDashboard.deferred.documents.signedAgreements')}
+            </h3>
+            <p className="mt-1 text-sm text-slate-600">
+              {t('plaintiffDashboard.deferred.documents.signedAgreementsSubtitle')}
+            </p>
+            <div className="mt-4 space-y-2">
+              {signedDocuments.map((doc) => (
+                <div
+                  key={doc.id}
+                  className="flex flex-col gap-3 rounded-xl border border-emerald-100 bg-emerald-50/40 p-3.5 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="flex min-w-0 items-start gap-3">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700">
+                      <FileText className="h-4 w-4" aria-hidden />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="font-semibold text-slate-900">
+                        {doc.title || signedDocumentTypeLabel(doc.documentType)}
+                      </p>
+                      <p className="mt-0.5 text-xs text-slate-600">
+                        {signedDocumentTypeLabel(doc.documentType)}
+                        {doc.signedAt
+                          ? ` • ${t('plaintiffDashboard.deferred.documents.signedOn', {
+                              date: new Date(doc.signedAt).toLocaleDateString(locale),
+                            })}`
+                          : ''}
+                      </p>
+                    </div>
+                  </div>
+                  {doc.downloadAvailable ? (
+                    <button
+                      type="button"
+                      onClick={() => { void handleDownloadSigned(doc) }}
+                      disabled={downloadingId === doc.id}
+                      className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+                    >
+                      <Download className="h-4 w-4" aria-hidden />
+                      {downloadingId === doc.id
+                        ? t('plaintiffDashboard.deferred.documents.downloading')
+                        : t('plaintiffDashboard.deferred.documents.download')}
+                    </button>
+                  ) : (
+                    <span className="text-xs font-medium text-slate-500">
+                      {t('plaintiffDashboard.deferred.documents.signedUnavailable')}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* All uploaded case documents */}
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
-              <h3 className="font-display text-xl font-bold text-slate-900">{t('plaintiffDashboard.deferred.documents.title')}</h3>
-              <p className="mt-1 text-sm text-slate-600">{t('plaintiffDashboard.deferred.documents.subtitle')}</p>
+              <h3 className="font-display text-xl font-bold text-slate-900">
+                {t('plaintiffDashboard.deferred.documents.yourFiles')}
+              </h3>
+              <p className="mt-1 text-sm text-slate-600">
+                {t('plaintiffDashboard.deferred.documents.yourFilesSubtitle')}
+              </p>
+            </div>
+            <span className="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">
+              {t('plaintiffDashboard.deferred.documents.fileCount', { count: evidenceFiles.length })}
+            </span>
+          </div>
+          {evidenceFiles.length === 0 ? (
+            <div className="mt-4 rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-4 py-8 text-center">
+              <p className="text-sm font-medium text-slate-700">
+                {t('plaintiffDashboard.deferred.documents.yourFilesEmpty')}
+              </p>
+              <Link
+                to={evidenceUploadHref(activeAssessmentId, { from: 'dashboard' })}
+                className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600"
+              >
+                <Upload className="h-4 w-4" aria-hidden />
+                {t('plaintiffDashboard.deferred.documents.uploadDocuments')}
+              </Link>
+            </div>
+          ) : (
+            <div className="mt-4 space-y-2">
+              {evidenceFiles.map((file) => (
+                <div
+                  key={file.id}
+                  className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-3.5 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="flex min-w-0 items-start gap-3">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
+                      <FileText className="h-4 w-4" aria-hidden />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold text-slate-900">
+                        {file.originalName || file.filename || t('plaintiffDashboard.deferred.documents.untitledFile')}
+                      </p>
+                      <p className="mt-0.5 text-xs text-slate-500">
+                        {evidenceCategoryLabel(file.category)}
+                        {file.createdAt
+                          ? ` • ${new Date(file.createdAt).toLocaleDateString(locale)}`
+                          : ''}
+                      </p>
+                    </div>
+                  </div>
+                  {file.fileUrl ? (
+                    <button
+                      type="button"
+                      onClick={() => { void handleDownloadEvidence(file) }}
+                      disabled={downloadingId === file.id}
+                      className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                    >
+                      <Download className="h-4 w-4" aria-hidden />
+                      {downloadingId === file.id
+                        ? t('plaintiffDashboard.deferred.documents.downloading')
+                        : t('plaintiffDashboard.deferred.documents.download')}
+                    </button>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Documents & Evidence checklist */}
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <h3 className="font-display text-xl font-bold text-slate-900">{t('plaintiffDashboard.deferred.documents.checklistTitle')}</h3>
+              <p className="mt-1 text-sm text-slate-600">{t('plaintiffDashboard.deferred.documents.checklistSubtitle')}</p>
             </div>
             <div className="shrink-0 text-right">
               <p className="text-2xl font-bold text-emerald-600 tabular-nums">{docsAdded}<span className="text-sm font-medium text-slate-400">/{docsTotal}</span></p>
@@ -808,7 +1053,7 @@ export default function PlaintiffDashboardDeferredTabPanel({
             ))}
           </div>
           <Link
-            to={`/evidence-upload/${activeAssessmentId}`}
+            to={documentsUploadHref}
             className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-600"
           >
             <Upload className="h-4 w-4" aria-hidden />
@@ -857,7 +1102,7 @@ export default function PlaintiffDashboardDeferredTabPanel({
         )}
 
         <Link
-          to={`/evidence-upload/${activeAssessmentId}`}
+          to={documentsUploadHref}
           className="flex items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-slate-300 p-4 text-sm font-semibold text-slate-600 hover:border-amber-400 hover:text-amber-700"
         >
           <Upload className="h-4 w-4" aria-hidden />

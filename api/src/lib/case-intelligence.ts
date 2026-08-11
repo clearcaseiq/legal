@@ -18,6 +18,7 @@ import { underwriteCase } from './underwriting-engine'
 import { deriveSOLStatus, normalizeClaimTypeForSOL } from './solRules'
 import { summarizeDamages, type DamagesSummary } from './damages-ledger'
 import { getLiabilityRecord, type LiabilityView } from './liability-record'
+import { syncAllQuestionAnswersToCaseFacts } from './question-facts-sync'
 
 export type GapCategory = 'liability' | 'medical' | 'damages' | 'insurance' | 'evidence' | 'case_strategy'
 export type ValueImpact = 'high' | 'medium' | 'low'
@@ -293,136 +294,192 @@ export function buildGaps(params: {
   const gaps: CaseGap[] = []
   const missingLower = documentationMissing.map((m) => m.toLowerCase())
   const missingHas = (needle: string) => missingLower.some((m) => m.includes(needle))
-  const hasGap = (key: string) => gaps.some((g) => g.key === key)
+  const hasOpenGap = (key: string) => gaps.some((g) => g.key === key && !g.resolved)
 
-  if (missingHas('medical record')) {
+  /** Keep satisfied checklist items visible (crossed off) instead of removing them. */
+  const pushChecklist = (open: boolean, gap: Omit<CaseGap, 'resolved'>) => {
     gaps.push({
-      key: 'medical_records', label: 'Medical records', category: 'medical', severity: 5, valueImpact: 'high',
-      rationale: 'Treatment records are the backbone of the damages claim and are required before a demand can be built.',
-      actions: ['generate_doc_request', 'assign_paralegal', 'request_from_client'], requestedDoc: 'medical_records',
-    })
-  }
-  if (missingHas('medical bill')) {
-    gaps.push({
-      key: 'medical_bills', label: 'Medical bills / billing ledger', category: 'damages', severity: 4, valueImpact: 'high',
-      rationale: 'Billed specials anchor the settlement value and the general-damages multiplier.',
-      actions: ['generate_doc_request', 'request_from_client'], requestedDoc: 'medical_records',
+      ...gap,
+      resolved: !open,
+      actions: open ? gap.actions : [],
     })
   }
 
   const claimKey = String(claimType || '').toLowerCase().replace(/[\s-]+/g, '_')
   const isProduct = claimKey === 'product' || claimKey === 'product_liability'
   const isPoliceRelevant = ['auto', 'auto_accident', 'slip_and_fall', 'premises', 'dog_bite'].includes(claimKey)
+  const firstPartyApplicable = FIRST_PARTY_COVERAGE_CLAIM_TYPES.has(String(claimType || '').trim().toLowerCase())
 
-  // Product liability: preserve the product + identify the manufacturer — not a police report.
-  if (isProduct) {
-    if (missingHas('product preservation') || !productPreserved(facts, evidence)) {
-      gaps.push({
-        key: 'product_preservation',
-        label: 'Product preservation (unaltered)',
-        category: 'evidence',
-        severity: 5,
-        valueImpact: 'high',
-        rationale: 'The product is the key evidence. Instruct the client to preserve it unaltered — do not return, repair, or discard it. Spoliation can sink the case. Consider sending an evidence-preservation letter.',
-        actions: ['request_from_client', 'assign_paralegal', 'schedule_followup'],
-        requestedDoc: 'other',
-      })
-    }
-    if (!facts?.product?.manufacturer && !facts?.product?.brand && !defendantIdentityKnown(facts, insuranceDetails)) {
-      gaps.push({
-        key: 'product_manufacturer',
-        label: 'Product manufacturer / brand / model',
-        category: 'liability',
-        severity: 5,
-        valueImpact: 'high',
-        rationale: 'In a product case the defendant is identified through the product itself (manufacturer, brand, model), not a police report.',
-        actions: ['request_from_client', 'assign_paralegal'],
-      })
-    }
-  } else if ((missingHas('police') || missingHas('incident report')) && isPoliceRelevant) {
-    const needsDefendantId = !defendantIdentityKnown(facts, insuranceDetails)
-    const needsCarrier = !defendantCarrierKnown(facts, insuranceDetails)
-    const rationale = needsDefendantId || needsCarrier
-      ? `Identifies the defendant and their insurance carrier${needsDefendantId && needsCarrier ? ' — both currently unknown' : needsDefendantId ? ' — defendant not yet identified' : ' — carrier currently unknown'}.`
-      : 'Corroborates how the incident happened and often lists witnesses.'
-    gaps.push({
-      key: 'police_report', label: 'Police / incident report', category: 'liability', severity: 5, valueImpact: 'high',
-      rationale,
-      actions: ['assign_paralegal', 'generate_doc_request'], requestedDoc: 'police_report',
+  const medicalRecordsMissing = missingHas('medical record')
+  if (medicalRecordsMissing || hasAny(evidence, ['medical_records', 'medical'])) {
+    pushChecklist(medicalRecordsMissing, {
+      key: 'medical_records',
+      label: 'Medical records',
+      category: 'medical',
+      severity: 5,
+      valueImpact: 'high',
+      rationale: medicalRecordsMissing
+        ? 'Treatment records are the backbone of the damages claim and are required before a demand can be built.'
+        : 'Medical records are on file.',
+      actions: ['generate_doc_request', 'assign_paralegal', 'request_from_client'],
+      requestedDoc: 'medical_records',
+    })
+  }
+  const medicalBillsMissing = missingHas('medical bill')
+  if (medicalBillsMissing || hasAny(evidence, ['bills', 'medical_bills'])) {
+    pushChecklist(medicalBillsMissing, {
+      key: 'medical_bills',
+      label: 'Medical bills / billing ledger',
+      category: 'damages',
+      severity: 4,
+      valueImpact: 'high',
+      rationale: medicalBillsMissing
+        ? 'Billed specials anchor the settlement value and the general-damages multiplier.'
+        : 'Medical bills are on file.',
+      actions: ['generate_doc_request', 'request_from_client'],
+      requestedDoc: 'medical_records',
     })
   }
 
-  if (!isProduct && !defendantIdentityKnown(facts, insuranceDetails)) {
-    gaps.push({
+  // Product liability: preserve the product + identify the manufacturer — not a police report.
+  if (isProduct) {
+    pushChecklist(missingHas('product preservation') || !productPreserved(facts, evidence), {
+      key: 'product_preservation',
+      label: 'Product preservation (unaltered)',
+      category: 'evidence',
+      severity: 5,
+      valueImpact: 'high',
+      rationale:
+        'The product is the key evidence. Instruct the client to preserve it unaltered — do not return, repair, or discard it. Spoliation can sink the case. Consider sending an evidence-preservation letter.',
+      actions: ['request_from_client', 'assign_paralegal', 'schedule_followup'],
+      requestedDoc: 'other',
+    })
+    const manufacturerKnown = Boolean(facts?.product?.manufacturer || facts?.product?.brand) || defendantIdentityKnown(facts, insuranceDetails)
+    pushChecklist(!manufacturerKnown, {
+      key: 'product_manufacturer',
+      label: 'Product manufacturer / brand / model',
+      category: 'liability',
+      severity: 5,
+      valueImpact: 'high',
+      rationale:
+        'In a product case the defendant is identified through the product itself (manufacturer, brand, model), not a police report.',
+      actions: ['request_from_client', 'assign_paralegal'],
+    })
+  } else if (isPoliceRelevant) {
+    const policeMissing = missingHas('police') || missingHas('incident report')
+    const policeOnFile = hasAny(evidence, ['police_report', 'incident_report'])
+    if (policeMissing || policeOnFile) {
+      const needsDefendantId = !defendantIdentityKnown(facts, insuranceDetails)
+      const needsCarrier = !defendantCarrierKnown(facts, insuranceDetails)
+      const rationale = policeMissing
+        ? needsDefendantId || needsCarrier
+          ? `Identifies the defendant and their insurance carrier${needsDefendantId && needsCarrier ? ' — both currently unknown' : needsDefendantId ? ' — defendant not yet identified' : ' — carrier currently unknown'}.`
+          : 'Corroborates how the incident happened and often lists witnesses.'
+        : 'Police / incident report is on file.'
+      pushChecklist(policeMissing, {
+        key: 'police_report',
+        label: 'Police / incident report',
+        category: 'liability',
+        severity: 5,
+        valueImpact: 'high',
+        rationale,
+        actions: ['assign_paralegal', 'generate_doc_request'],
+        requestedDoc: 'police_report',
+      })
+    }
+  }
+
+  if (!isProduct) {
+    pushChecklist(!defendantIdentityKnown(facts, insuranceDetails), {
       key: 'defendant_identity',
       label: 'Defendant identity',
       category: 'liability',
       severity: 4,
       valueImpact: 'high',
-      rationale: 'The Overview shows who the plaintiff is, but the defendant has not been identified yet. Confirm the at-fault party so the claim can be opened against the right person/entity.',
+      rationale:
+        'The Overview shows who the plaintiff is, but the defendant has not been identified yet. Confirm the at-fault party so the claim can be opened against the right person/entity.',
       actions: ['request_from_client', 'assign_paralegal'],
     })
   }
 
-  if (missingHas('photo')) {
-    gaps.push({
+  const photosMissing = missingHas('photo')
+  if (photosMissing || hasAny(evidence, ['photos', 'photo', 'image', 'injury_photos'])) {
+    pushChecklist(photosMissing, {
       key: 'photos',
       label: isProduct ? 'Photos of the product / injuries' : 'Photos (scene / injuries / property damage)',
       category: 'evidence',
       severity: isProduct ? 4 : 3,
       valueImpact: 'medium',
-      rationale: isProduct
-        ? 'Photos of the product condition and injuries preserve evidence if the physical product is later unavailable.'
-        : 'Visual proof of impact severity and injuries strengthens both liability and damages.',
+      rationale: photosMissing
+        ? isProduct
+          ? 'Photos of the product condition and injuries preserve evidence if the physical product is later unavailable.'
+          : 'Visual proof of impact severity and injuries strengthens both liability and damages.'
+        : 'Photos are on file.',
       actions: ['request_from_client'],
       requestedDoc: 'injury_photos',
     })
   }
-  if (missingHas('wage')) {
-    gaps.push({
-      key: 'wage_proof', label: 'Lost-wage proof (pay stubs / employer letter)', category: 'damages', severity: 3, valueImpact: 'medium',
-      rationale: 'Documents economic damages that are otherwise not recoverable.',
-      actions: ['request_from_client', 'generate_doc_request'], requestedDoc: 'wage_loss',
+
+  if (missingHas('wage') || wageLossClaimed(facts)) {
+    const wageDocsOnFile = hasAny(evidence, ['wage_loss', 'wage', 'employment', 'pay_stub'])
+    const wageOpen = missingHas('wage') || !wageDocsOnFile
+    pushChecklist(wageOpen, {
+      key: 'wage_proof',
+      label: 'Lost-wage proof (pay stubs / employer letter)',
+      category: 'damages',
+      severity: 3,
+      valueImpact: 'medium',
+      rationale: wageOpen
+        ? 'Documents economic damages that are otherwise not recoverable.'
+        : 'Lost-wage documentation is on file.',
+      actions: ['request_from_client', 'generate_doc_request'],
+      requestedDoc: 'wage_loss',
     })
   }
-  if (missingHas('daily impact')) {
-    gaps.push({
-      key: 'daily_impact', label: 'Daily-impact / pain journal statement', category: 'damages', severity: 2, valueImpact: 'low',
-      rationale: 'A client statement on how injuries affect daily life supports non-economic damages.',
+  if (missingHas('daily impact') || facts?.damages?.household_impact) {
+    pushChecklist(missingHas('daily impact'), {
+      key: 'daily_impact',
+      label: 'Daily-impact / pain journal statement',
+      category: 'damages',
+      severity: 2,
+      valueImpact: 'low',
+      rationale: missingHas('daily impact')
+        ? 'A client statement on how injuries affect daily life supports non-economic damages.'
+        : 'Daily-impact information is on file.',
       actions: ['schedule_followup', 'request_from_client'],
     })
   }
 
-  // High-value investigation gaps beyond raw documentation. Empty Overview
-  // fields (carrier, limits) become task triggers — not just display blanks.
-  if (!defendantCarrierKnown(facts, insuranceDetails)) {
-    gaps.push({
-      key: 'defendant_carrier', label: 'Defendant insurance carrier / claim number', category: 'insurance', severity: 5, valueImpact: 'high',
-      rationale: 'Needed to open the claim and direct the demand to the right adjuster. Currently unknown on the Overview.',
-      actions: ['assign_paralegal', 'request_from_client'], requestedDoc: 'insurance',
-    })
-  }
-  if (!defendantLimitsKnown(facts, insuranceDetails)) {
-    gaps.push({
-      key: 'defendant_policy_limits', label: 'Defendant policy limits', category: 'insurance', severity: 5, valueImpact: 'high',
-      rationale: 'Policy limits cap realistic recovery and drive the demand strategy. Send a limits request early.',
-      actions: ['assign_paralegal', 'generate_doc_request'], requestedDoc: 'insurance',
-    })
-  }
+  // High-value investigation gaps beyond raw documentation.
+  pushChecklist(!defendantCarrierKnown(facts, insuranceDetails), {
+    key: 'defendant_carrier',
+    label: 'Defendant insurance carrier / claim number',
+    category: 'insurance',
+    severity: 5,
+    valueImpact: 'high',
+    rationale: 'Needed to open the claim and direct the demand to the right adjuster. Currently unknown on the Overview.',
+    actions: ['assign_paralegal', 'request_from_client'],
+    requestedDoc: 'insurance',
+  })
+  pushChecklist(!defendantLimitsKnown(facts, insuranceDetails), {
+    key: 'defendant_policy_limits',
+    label: 'Defendant policy limits',
+    category: 'insurance',
+    severity: 5,
+    valueImpact: 'high',
+    rationale: 'Policy limits cap realistic recovery and drive the demand strategy. Send a limits request early.',
+    actions: ['assign_paralegal', 'generate_doc_request'],
+    requestedDoc: 'insurance',
+  })
 
-  // First-party coverage. Distinct from the defendant gaps above and easy to
-  // forget precisely because it is the client's own policy rather than the
-  // opposing carrier — but UM/UIM is the entire recovery when the defendant is
-  // uninsured or underinsured, and PIP/MedPay pays medical bills regardless of
-  // fault, which keeps the client treating while liability is contested. Both
-  // carry short notice deadlines, so this is a day-one task, not a demand-time
-  // one.
-  if (firstPartyCoverageUnconfirmed(facts, insuranceDetails, claimType)) {
+  // First-party coverage — day-one on auto files; crossed off once confirmed.
+  if (firstPartyApplicable) {
+    const open = firstPartyCoverageUnconfirmed(facts, insuranceDetails, claimType)
     const otherPartyInsured = String(facts?.insurance?.other_party_insured ?? '').toLowerCase()
     const defendantUninsured = otherPartyInsured === 'no'
     const coverageUnclear = otherPartyInsured !== 'yes'
     const thinDefendantLimits = defendantLimitsThin(facts, insuranceDetails)
-    gaps.push({
+    pushChecklist(open, {
       key: 'first_party_coverage',
       label: "Client's own coverage (UM/UIM, PIP/MedPay)",
       category: 'insurance',
@@ -434,138 +491,196 @@ export function buildGaps(params: {
           ? "It is not yet confirmed whether the at-fault party is insured. Pull the client's own declarations page now so UM/UIM and PIP/MedPay are available if the liability claim falls short."
           : thinDefendantLimits
             ? "The defendant's limits look thin against this claim, which puts recovery on the client's UIM coverage. Confirm those limits and preserve the UIM claim."
-            : "The client's own UM/UIM and PIP/MedPay coverage has not been confirmed. MedPay/PIP pays treatment regardless of fault and UIM backstops a low defendant limit.",
+            : open
+              ? "The client's own UM/UIM and PIP/MedPay coverage has not been confirmed. MedPay/PIP pays treatment regardless of fault and UIM backstops a low defendant limit."
+              : "Client first-party coverage (UM/UIM or PIP/MedPay) is confirmed on the file.",
       actions: ['assign_paralegal', 'generate_doc_request', 'request_from_client'],
       requestedDoc: 'insurance',
     })
   }
 
   const discLike = ['DISC_BULGE', 'DISC_HERNIATION', 'RADICULOPATHY', 'SPINAL_CORD'].includes(primaryInjury)
-  if (discLike && !imagingKnown(facts, evidence)) {
-    gaps.push({
-      key: 'imaging_mri', label: 'MRI / diagnostic imaging results', category: 'medical', severity: 4, valueImpact: 'high',
+  if (discLike) {
+    pushChecklist(!imagingKnown(facts, evidence), {
+      key: 'imaging_mri',
+      label: 'MRI / diagnostic imaging results',
+      category: 'medical',
+      severity: 4,
+      valueImpact: 'high',
       rationale: 'Reported symptoms suggest a disc/nerve injury; objective imaging can materially raise case value.',
       actions: ['schedule_followup', 'assign_paralegal'],
     })
   }
 
-  if (!priorInjuryKnown(facts)) {
-    gaps.push({
-      key: 'prior_injuries', label: 'Prior injuries / pre-existing conditions', category: 'case_strategy', severity: 3, valueImpact: 'medium',
-      rationale: 'Prior injuries to the same body part are a leading defense argument. Confirm before demand.',
-      actions: ['schedule_followup'],
-    })
-  }
+  pushChecklist(!priorInjuryKnown(facts), {
+    key: 'prior_injuries',
+    label: 'Prior injuries / pre-existing conditions',
+    category: 'case_strategy',
+    severity: 3,
+    valueImpact: 'medium',
+    rationale: 'Prior injuries to the same body part are a leading defense argument. Confirm before demand.',
+    actions: ['schedule_followup'],
+  })
 
   if (isPoliceRelevant && hasAny(evidence, ['police_report', 'incident_report'])) {
-    gaps.push({
-      key: 'witness_statements', label: 'Witness contact info / statements', category: 'liability', severity: 3, valueImpact: 'medium',
+    const witnessesKnown = Boolean(liability?.hasWitnesses || facts?.liability?.hasWitnesses)
+    pushChecklist(!witnessesKnown, {
+      key: 'witness_statements',
+      label: 'Witness contact info / statements',
+      category: 'liability',
+      severity: 3,
+      valueImpact: 'medium',
       rationale: 'Police reports typically list witnesses; statements should be collected while memories are fresh.',
       actions: ['assign_paralegal', 'request_from_client'],
     })
   }
 
   if (wageLossClaimed(facts)) {
-    gaps.push({
-      key: 'employer_info', label: 'Employer information (for wage verification)', category: 'damages', severity: 3, valueImpact: 'medium',
+    const employerKnown = Boolean(
+      facts?.employment?.employer ||
+        facts?.damages?.employer ||
+        facts?.employer?.name ||
+        facts?.employerName,
+    )
+    pushChecklist(!employerKnown, {
+      key: 'employer_info',
+      label: 'Employer information (for wage verification)',
+      category: 'damages',
+      severity: 3,
+      valueImpact: 'medium',
       rationale: 'A wage loss is claimed but employer details are needed to verify and document it.',
       actions: ['request_from_client'],
     })
   }
 
   // ---- Phase B: structured-ledger gaps -------------------------------------
-  // The damages ledger and liability record are the auditable source of truth.
-  // When they are empty or reveal a provable-fault weakness, surface a gap so it
-  // fans out to the coach/readiness task loops just like every other gap.
-
-  // Empty damages ledger → nothing anchors the case value. Only raise when the
-  // ledger has been introduced (damages !== undefined) and has no items, and we
-  // did not already flag missing bills/records from documentation above.
-  if (damages && damages.itemCount === 0 && !hasGap('medical_bills') && !hasGap('medical_records')) {
-    gaps.push({
+  if (damages && damages.itemCount === 0 && !hasOpenGap('medical_bills') && !hasOpenGap('medical_records')) {
+    pushChecklist(true, {
       key: 'damages_ledger_empty',
       label: 'Itemized damages (medical bills, wage loss)',
       category: 'damages',
       severity: 4,
       valueImpact: 'high',
       rationale:
-        'No itemized economic damages have been entered. Medical specials and wage loss anchor the settlement value and the general-damages multiplier — build the damages ledger from the bills and records on file.',
+        'The damages ledger is empty. Add itemized medical bills and wage loss from the records on file — those specials set the settlement floor and drive general damages.',
       actions: ['assign_paralegal', 'request_from_client'],
       requestedDoc: 'medical_records',
     })
-  } else if (damages && damages.itemCount > 0 && damages.medical.incurred === 0 && !hasGap('medical_bills')) {
-    // Non-medical items entered but no medical specials — usually the biggest bucket.
-    gaps.push({
-      key: 'medical_specials_missing',
-      label: 'Medical specials not itemized',
-      category: 'damages',
-      severity: 3,
-      valueImpact: 'high',
-      rationale:
-        'The damages ledger has entries but no medical specials. Medical bills are typically the largest special and drive the value — enter the billed amounts from the records.',
-      actions: ['assign_paralegal', 'request_from_client'],
-      requestedDoc: 'medical_records',
-    })
+  } else if (damages && damages.itemCount > 0) {
+    const specialsMissing =
+      damages.medical.incurred === 0 &&
+      !hasOpenGap('medical_bills') &&
+      !(Number(facts?.damages?.med_charges || facts?.damages?.medical_bills || 0) > 0)
+    if (specialsMissing || damages.medical.incurred > 0 || Number(facts?.damages?.med_charges || 0) > 0) {
+      pushChecklist(specialsMissing, {
+        key: 'medical_specials_missing',
+        label: 'Medical specials not itemized',
+        category: 'damages',
+        severity: 3,
+        valueImpact: 'high',
+        rationale: specialsMissing
+          ? 'The damages ledger has entries but no medical specials. Medical bills are typically the largest special and drive the value — enter the billed amounts from the records.'
+          : 'Medical specials are itemized on the damages ledger.',
+        actions: ['assign_paralegal', 'request_from_client'],
+        requestedDoc: 'medical_records',
+      })
+    }
   }
 
-  // Provable-fault weakness: fault is contested but the two evidence pillars that
-  // usually resolve it (police report + independent witnesses) are absent.
+  // Provable-fault weakness — crossed off once a report or witnesses land.
   if (liability) {
     const contested = ['disputed', 'denied', 'shared'].includes(liability.faultPosture)
-    const noReport = liability.policeReportStatus !== 'received'
-    const noWitnesses = !liability.hasWitnesses
-    if (contested && noReport && noWitnesses) {
-      gaps.push({
+    const reportOnFile =
+      liability.policeReportStatus === 'received' ||
+      hasAny(evidence, ['police_report', 'incident_report']) ||
+      facts?.liability?.policeReport === true
+    const noWitnesses = !liability.hasWitnesses && facts?.liability?.hasWitnesses !== true
+    if (contested) {
+      pushChecklist(!reportOnFile && noWitnesses, {
         key: 'liability_evidence',
         label: 'Liability proof for contested fault',
         category: 'liability',
         severity: 5,
         valueImpact: 'high',
-        rationale: `Fault is ${liability.faultPosture} but there is no police report on file and no independent witnesses. Lock down the report, canvass for witnesses, and preserve any scene/dashcam video before it is lost — contested liability caps the recovery.`,
+        rationale:
+          !reportOnFile && noWitnesses
+            ? `Fault is ${liability.faultPosture} but there is no police report on file and no independent witnesses. Lock down the report, canvass for witnesses, and preserve any scene/dashcam video before it is lost — contested liability caps the recovery.`
+            : 'Liability support is on file (police report and/or witnesses) for the contested-fault posture.',
         actions: ['assign_paralegal', 'generate_doc_request'],
         requestedDoc: 'police_report',
       })
     }
-    // Comparative negligence asserted but not yet analyzed on the record.
-    if (liability.comparativeNegPct >= 25 && !liability.faultTheory) {
-      gaps.push({
+    if (liability.comparativeNegPct >= 25) {
+      pushChecklist(!liability.faultTheory, {
         key: 'comparative_negligence_theory',
         label: 'Comparative-negligence rebuttal',
         category: 'liability',
         severity: 3,
         valueImpact: 'medium',
-        rationale: `${liability.comparativeNegPct}% comparative negligence is on the record with no documented theory of liability to rebut it. Draft the fault narrative before the demand.`,
+        rationale: liability.faultTheory
+          ? 'A comparative-negligence rebuttal theory is documented on the liability record.'
+          : `${liability.comparativeNegPct}% comparative negligence is on the record with no documented theory of liability to rebut it. Draft the fault narrative before the demand.`,
         actions: ['schedule_followup', 'assign_paralegal'],
       })
     }
   }
 
-  // Insurance coverage entered but never confirmed / claim not opened. Distinct
-  // from the "limits unknown" gap above — here we HAVE a carrier row but it is
-  // unverified, which stalls the demand.
+  // Coverage confirm / claim open — stay on the list and cross off as each step lands.
   const insList = Array.isArray(insuranceDetails) ? insuranceDetails : []
-  if (insList.length > 0 && !hasGap('defendant_policy_limits')) {
+  if (insList.length > 0 && !hasOpenGap('defendant_policy_limits')) {
     const anyConfirmed = insList.some((d: any) => d?.coverageConfirmed === true)
-    const anyClaimOpen = insList.some((d: any) => d?.claimStatus && d.claimStatus !== 'not_opened')
-    if (!anyConfirmed || !anyClaimOpen) {
-      gaps.push({
+    const claimNumberOnFile = Boolean(
+      insList.some((d: any) => typeof d?.claimNumber === 'string' && d.claimNumber.trim()) ||
+        String(facts?.insurance?.claim_number || facts?.insurance?.claimNumber || '').trim(),
+    )
+    const anyClaimOpen =
+      claimNumberOnFile || insList.some((d: any) => d?.claimStatus && d.claimStatus !== 'not_opened')
+    if (!anyConfirmed) {
+      pushChecklist(true, {
         key: 'coverage_unconfirmed',
         label: 'Confirm coverage & open the claim',
         category: 'insurance',
         severity: 4,
         valueImpact: 'high',
-        rationale: !anyConfirmed
-          ? 'An insurance carrier is on file but coverage is not yet confirmed. Verify the policy (declarations page) so the demand targets real, confirmed limits.'
-          : 'A carrier is on file but no claim has been opened. Open the claim so the adjuster clock starts and the demand has a destination.',
+        rationale:
+          'An insurance carrier is on file but coverage is not yet confirmed. Verify the policy (declarations page) so the demand targets real, confirmed limits.',
+        actions: ['assign_paralegal', 'generate_doc_request'],
+        requestedDoc: 'insurance',
+      })
+    } else {
+      pushChecklist(false, {
+        key: 'coverage_unconfirmed',
+        label: 'Confirm coverage & open the claim',
+        category: 'insurance',
+        severity: 4,
+        valueImpact: 'high',
+        rationale: 'Coverage has been confirmed on the insurance record.',
+        actions: ['assign_paralegal', 'generate_doc_request'],
+        requestedDoc: 'insurance',
+      })
+      pushChecklist(!anyClaimOpen, {
+        key: 'claim_not_opened',
+        label: 'Open the insurance claim',
+        category: 'insurance',
+        severity: 4,
+        valueImpact: 'high',
+        rationale: anyClaimOpen
+          ? 'An insurance claim number is on file / the claim has been opened.'
+          : 'Coverage is confirmed but no claim has been opened. Open the claim so the adjuster clock starts and the demand has a destination.',
         actions: ['assign_paralegal', 'generate_doc_request'],
         requestedDoc: 'insurance',
       })
     }
   }
 
-  // Sort by criticality (severity desc), then high value-impact first.
+  // Open items first (by severity), then crossed-off items.
   const impactRank: Record<ValueImpact, number> = { high: 3, medium: 2, low: 1 }
-  return gaps.sort((a, b) => b.severity - a.severity || impactRank[b.valueImpact] - impactRank[a.valueImpact])
+  return gaps.sort((a, b) => {
+    const ar = a.resolved ? 1 : 0
+    const br = b.resolved ? 1 : 0
+    if (ar !== br) return ar - br
+    return b.severity - a.severity || impactRank[b.valueImpact] - impactRank[a.valueImpact]
+  })
 }
 
 export async function buildCaseIntelligence(assessmentId: string): Promise<CaseIntelligence | null> {
@@ -578,7 +693,34 @@ export async function buildCaseIntelligence(assessmentId: string): Promise<CaseI
   })
   if (!assessment) return null
 
-  const facts = parseFacts((assessment as any).facts)
+  // Fold all Intelligent Question answers (liability, medical, damages,
+  // insurance, AI free-text) into facts before underwriting so Overview moves.
+  await syncAllQuestionAnswersToCaseFacts(assessmentId).catch(() => undefined)
+  const [refreshed, liabilitySynced] = await Promise.all([
+    prisma.assessment.findUnique({ where: { id: assessmentId }, select: { facts: true } }).catch(() => null),
+    getLiabilityRecord(assessmentId).catch(() => null),
+  ])
+
+  const facts = parseFacts((refreshed as any)?.facts ?? (assessment as any).facts)
+  // Prefer a saved Liability-tab record (id present) over possibly-racy facts JSON
+  // write-through so Overview Liability matches the Liability strength meter.
+  // Default/empty views (no row yet) must not override underwriting heuristics.
+  if (liabilitySynced?.id) {
+    const compPct = Number(liabilitySynced.comparativeNegPct || 0)
+    facts.liabilityRecord = liabilitySynced
+    facts.liability = {
+      ...(facts.liability && typeof facts.liability === 'object' ? facts.liability : {}),
+      faultPosture: liabilitySynced.faultPosture,
+      defendantFaultPct: liabilitySynced.defendantFaultPct,
+      comparativeNegligence: compPct / 100,
+      comparativeFault: compPct >= 30 ? 'yes' : compPct > 0 ? 'possibly' : 'no',
+      citationIssuedTo: liabilitySynced.citationIssuedTo,
+      hasWitnesses: liabilitySynced.hasWitnesses,
+      hasPhotos: liabilitySynced.hasPhotos,
+      hasVideo: liabilitySynced.hasVideo,
+      policeReport: liabilitySynced.policeReportStatus === 'received',
+    }
+  }
   const insuranceDetails = (assessment as any).insuranceDetails || []
   const evidenceFiles = (assessment as any).evidenceFiles || []
 
@@ -646,11 +788,43 @@ export async function buildCaseIntelligence(assessmentId: string): Promise<CaseI
     { key: 'liability', label: 'Liability', value: `${underwriting.liability.grade} (${underwriting.liability.score})` },
     { key: 'severity', label: 'Severity', value: `${underwriting.severity.tier} (${underwriting.severity.score})` },
     { key: 'value', label: 'Modeled settlement range', value: `${formatMoney(underwriting.settlement.low)}–${formatMoney(underwriting.settlement.high)}`, detail: 'Underwriting model' },
-    { key: 'attorney_interest', label: 'Attorney interest', value: `${underwriting.attorneyAcceptance.probability}%` },
     { key: 'evidence', label: 'Evidence on file', value: evidenceSummary },
     { key: 'insurance', label: 'Defendant carrier', value: carrierName || 'Unknown' },
     { key: 'claim_number', label: 'Claim number', value: claimNumber || 'Not yet identified' },
     { key: 'adjuster', label: 'Adjuster', value: adjusterName || 'Not yet assigned' },
+    ...(facts?.damages?.missed_work
+      ? [
+          {
+            key: 'wage_loss',
+            label: 'Wage loss',
+            value: Math.max(
+              Number(facts?.damages?.wage_loss || 0) || 0,
+              Number(facts?.damages?.estimated_wage_loss || 0) || 0,
+            )
+              ? formatMoney(
+                  Math.max(
+                    Number(facts?.damages?.wage_loss || 0) || 0,
+                    Number(facts?.damages?.estimated_wage_loss || 0) || 0,
+                  ),
+                )
+              : 'Reported',
+          },
+        ]
+      : []),
+    ...(facts?.damages?.household_impact
+      ? [{ key: 'household_impact', label: 'Daily impact', value: 'Limited activities' }]
+      : []),
+    ...(facts?.insurance?.um_uim === true
+      ? [{ key: 'um_uim', label: 'UM/UIM', value: 'Available' }]
+      : facts?.insurance?.um_uim === false
+        ? [{ key: 'um_uim', label: 'UM/UIM', value: 'Not carried' }]
+        : []),
+    ...((() => {
+      const lim = String(facts?.insurance?.policy_limit || facts?.insurance?.defendant_coverage_limits || '').trim()
+      // Ignore values that look like claim numbers accidentally written as limits.
+      if (!lim || /^[A-Z]*\d{6,}$/i.test(lim)) return [] as KnownFact[]
+      return [{ key: 'policy_limits', label: 'Policy limits', value: lim }] as KnownFact[]
+    })()),
     { key: 'sol', label: 'SOL remaining', value: sol.daysRemaining != null ? `${sol.daysRemaining} days` : 'Confirm' },
   ]
 

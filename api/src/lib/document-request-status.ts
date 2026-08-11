@@ -13,7 +13,8 @@ export const DOCUMENT_REQUEST_CATEGORY_MAP: Record<string, string[]> = {
   police_report: ['police_report', 'police'],
   medical_records: ['medical_records', 'bills', 'medical', 'medical_bills'],
   injury_photos: ['photos', 'injury_photos', 'injury', 'injuries'],
-  wage_loss: ['wage_loss', 'lost_wages', 'wages'],
+  // Intake Supporting Documents uploads wage docs as `wage_verification`.
+  wage_loss: ['wage_loss', 'lost_wages', 'wages', 'wage_verification'],
   insurance: ['insurance', 'insurance_card', 'insurance_info', 'insurance_letters', 'dec_page'],
   // Declarations page requests (attorney insurance / DEC flow) — CP-583.
   dec_page: ['dec_page', 'insurance', 'insurance_policy', 'insurance_letters', 'declarations'],

@@ -6532,7 +6532,7 @@ describe('HTTP operations regressions', () => {
         files: [
           {
             id: 'file-1',
-            name: 'records.pdf',
+            filename: 'records.pdf',
             originalName: 'Medical Records.pdf',
             mimetype: 'application/pdf',
             size: 2048,
@@ -6645,7 +6645,7 @@ describe('HTTP operations regressions', () => {
           orderBy: { createdAt: 'desc' },
           select: {
             id: true,
-            name: true,
+            filename: true,
             originalName: true,
             mimetype: true,
             size: true,
@@ -6826,7 +6826,7 @@ describe('HTTP operations regressions', () => {
           orderBy: { createdAt: 'desc' },
           select: {
             id: true,
-            name: true,
+            filename: true,
             originalName: true,
             mimetype: true,
             size: true,

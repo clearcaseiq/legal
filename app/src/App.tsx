@@ -4,6 +4,12 @@ import Layout from './components/Layout'
 import ErrorBoundary from './components/ErrorBoundary'
 import { GuestRoute, ProtectedRoute } from './components/AuthRoute'
 import { getStoredRole, getPostLoginRoute } from './lib/auth'
+import {
+  clearEvidenceReturnTo,
+  plaintiffDashboardReturnTo,
+  rememberEvidenceReturnTo,
+  safeInternalReturnTo,
+} from './lib/evidenceUploadNav'
 
 const Home = lazy(() => import('./pages/Home'))
 const Login = lazy(() => import('./pages/Login'))
@@ -81,12 +87,41 @@ const MedicalProviders = lazy(() => import('./pages/MedicalProviders'))
 // checks, HIPAA gate). Every /evidence-upload/:id link now forwards there.
 function EvidenceUploadRedirect() {
   const { assessmentId } = useParams()
-  return (
-    <Navigate
-      to={assessmentId ? `/intake2?assessment=${assessmentId}&step=evidence` : '/assess'}
-      replace
-    />
-  )
+  const [searchParams] = useSearchParams()
+  const from = searchParams.get('from')
+  const token = searchParams.get('token')
+  const returnTo = safeInternalReturnTo(searchParams.get('returnTo'), '')
+  if (!assessmentId) return <Navigate to="/assess" replace />
+
+  // Attorney-sent document-request emails use ?token=…. Land on Tasks, where
+  // attorney document requests are listed (Requested Documents tab was folded in).
+  if (token) {
+    const qs = new URLSearchParams({
+      case: assessmentId,
+      tab: 'tasks',
+      token,
+    })
+    return <Navigate to={`/dashboard?${qs.toString()}`} replace />
+  }
+
+  // Persist return target across the replace navigation into /intake2. Prefer an
+  // explicit returnTo (e.g. dashboard?tab=tasks) over the generic case link.
+  if (returnTo) {
+    rememberEvidenceReturnTo(returnTo)
+  } else if (from === 'dashboard') {
+    rememberEvidenceReturnTo(plaintiffDashboardReturnTo(assessmentId))
+  } else {
+    clearEvidenceReturnTo()
+  }
+
+  const qs = new URLSearchParams({ assessment: assessmentId, step: 'evidence' })
+  if (from) qs.set('from', from)
+  if (returnTo) qs.set('returnTo', returnTo)
+  const focus = searchParams.get('focus')
+  if (focus) qs.set('focus', focus)
+  const requestId = searchParams.get('requestId')
+  if (requestId) qs.set('requestId', requestId)
+  return <Navigate to={`/intake2?${qs.toString()}`} replace />
 }
 // The standalone per-case documents page is retired in favor of the case file's
 // Evidence tab inside the workspace shell. Old /attorney-dashboard/documents/:leadId

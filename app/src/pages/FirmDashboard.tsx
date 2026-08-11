@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useNavigate, useLocation } from 'react-router-dom'
+import { useNavigate, useLocation, useSearchParams } from 'react-router-dom'
 import {
   LayoutDashboard,
   Users,
@@ -355,7 +355,22 @@ export default function FirmDashboard() {
   }
   const { data, loading, error, refresh } = useFirmDashboardSummary()
 
-  const [tab, setTab] = useState<TabKey>('overview')
+  const [searchParams] = useSearchParams()
+  const initialTab = (() => {
+    const requested = searchParams.get('tab')
+    const allowed: TabKey[] = [
+      'overview',
+      'newleads',
+      'caseload',
+      'team',
+      'booking',
+      'templates',
+      'workflow',
+      'time',
+    ]
+    return requested && (allowed as string[]).includes(requested) ? (requested as TabKey) : 'overview'
+  })()
+  const [tab, setTab] = useState<TabKey>(initialTab)
   const [caseload, setCaseload] = useState<CaseloadData | null>(null)
   const [caseOfficeSavingId, setCaseOfficeSavingId] = useState<string | null>(null)
 

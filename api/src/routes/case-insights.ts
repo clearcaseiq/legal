@@ -116,7 +116,16 @@ router.post('/assessments/:assessmentId/plaintiff-medical-review', optionalAuthM
       return res.status(403).json({ error: 'Unauthorized to update this assessment' })
     }
 
-    const facts = typeof assessment.facts === 'string' ? JSON.parse(assessment.facts) : {}
+    let facts: Record<string, unknown> = {}
+    if (typeof assessment.facts === 'string') {
+      try {
+        facts = JSON.parse(assessment.facts) as Record<string, unknown>
+      } catch {
+        facts = {}
+      }
+    } else if (assessment.facts && typeof assessment.facts === 'object') {
+      facts = { ...(assessment.facts as Record<string, unknown>) }
+    }
     const currentReview = (facts.plaintiffMedicalReview || {}) as Record<string, unknown>
     const nextStatus = parsed.data.status ?? currentReview.status ?? 'pending'
     const now = new Date().toISOString()

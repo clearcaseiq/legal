@@ -9,7 +9,7 @@ import { ChevronDown, ChevronRight, Clock, Check, Info, RefreshCw, Sparkles, Ima
 import { useHeuristics } from '../contexts/HeuristicsContext'
 import { caseStrengthLabel } from '../lib/heuristics'
 import { useStatHints, StatHintsToggle } from '../features/shared/ui'
-import { getEvidenceObjectUrl, regenerateLeadSceneImage, getLead } from '../lib/api'
+import { getEvidenceObjectUrl, regenerateLeadSceneImage, getLead, runLeadConflictCheck } from '../lib/api'
 import { formatClaimType } from '../lib/claimTypes'
 
 function escapeRegExp(s: string) {
@@ -92,7 +92,7 @@ interface PreAcceptanceViewProps {
   comparableAvgSettlement?: number
   venueState?: string
   attorneyProfile?: { specialties?: string[]; venues?: string[] }
-  onAccept: () => void
+  onAccept: (opts?: { conflictAcknowledged?: boolean }) => void
   onDecline: () => void
   loading?: boolean
   caseExpiresAt?: Date | null
@@ -131,12 +131,51 @@ export default function PreAcceptanceView({
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [activeTab, setActiveTab] = useState<'snapshot' | 'scene' | 'medical' | 'insurance' | 'evidence'>('snapshot')
   const [now, setNow] = useState(() => Date.now())
+  const [conflictLoading, setConflictLoading] = useState(false)
+  const [conflictCheck, setConflictCheck] = useState<any | null>(null)
+  const [conflictDetails, setConflictDetails] = useState<any | null>(null)
+  const [conflictAck, setConflictAck] = useState(false)
 
   useEffect(() => {
     if (!caseExpiresAt || accepted) return
     const intervalId = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(intervalId)
   }, [accepted, caseExpiresAt])
+
+  // Preliminary conflict screen before acquire (soft gate).
+  useEffect(() => {
+    const leadId = selectedLead?.id
+    if (!leadId || accepted) return
+    let cancelled = false
+    setConflictLoading(true)
+    setConflictAck(false)
+    runLeadConflictCheck(leadId)
+      .then((data: any) => {
+        if (cancelled) return
+        setConflictCheck(data?.conflictCheck || null)
+        setConflictDetails(data?.details || null)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setConflictCheck(null)
+        setConflictDetails(null)
+      })
+      .finally(() => {
+        if (!cancelled) setConflictLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [selectedLead?.id, accepted])
+
+  const conflictNeedsAck = (() => {
+    if (!conflictCheck) return false
+    if (conflictCheck.acknowledgedAt || conflictCheck.isResolved) return false
+    const risk = String(conflictCheck.riskLevel || 'low').toLowerCase()
+    const type = String(conflictCheck.conflictType || 'none').toLowerCase()
+    if (type === 'none' || risk === 'low') return false
+    return risk === 'medium' || risk === 'high'
+  })()
 
   const claimType = formatClaimType(selectedLead?.assessment?.claimType || '')
   const location = [selectedLead?.assessment?.venueCounty, selectedLead?.assessment?.venueState]
@@ -336,14 +375,25 @@ export default function PreAcceptanceView({
                 </span>
               )}
               <button
-                onClick={onAccept}
-                disabled={loading || decisionLocked}
+                onClick={() => {
+                  if (conflictNeedsAck) {
+                    try {
+                      window.sessionStorage.setItem(`caseiq:conflict-ack:${selectedLead?.id}`, '1')
+                    } catch {
+                      /* ignore */
+                    }
+                  }
+                  onAccept(conflictNeedsAck || conflictAck ? { conflictAcknowledged: true } : undefined)
+                }}
+                disabled={loading || decisionLocked || conflictLoading || (conflictNeedsAck && !conflictAck)}
                 title={
                   caseTaken
                     ? 'This case has been assigned to another attorney'
                     : isExpired
                       ? 'The response window for this match has expired'
-                      : undefined
+                      : conflictNeedsAck && !conflictAck
+                        ? 'Acknowledge the conflict check before accepting'
+                        : undefined
                 }
                 className={`px-6 py-3 text-base font-semibold text-white rounded-lg ${
                   decisionLocked
@@ -390,6 +440,44 @@ export default function PreAcceptanceView({
           <div className="mb-4 inline-flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">
             <Clock className="h-4 w-4" />
             <span>Response window expired. This match has been released to another attorney and can no longer be accepted.</span>
+          </div>
+        )}
+        {!accepted && conflictLoading && (
+          <div className="mb-4 flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+            <RefreshCw className="h-4 w-4 animate-spin" />
+            Running preliminary conflict check…
+          </div>
+        )}
+        {!accepted && conflictNeedsAck && (
+          <div
+            role="alert"
+            className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900"
+          >
+            <div className="flex items-start gap-2 font-semibold">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>
+                Preliminary conflict flagged ({String(conflictCheck?.riskLevel || 'medium').toUpperCase()}
+                {conflictCheck?.conflictType ? ` · ${conflictCheck.conflictType}` : ''})
+              </span>
+            </div>
+            <ul className="mt-2 list-disc space-y-1 pl-6 text-amber-800">
+              {(conflictDetails?.details?.conflicts || []).map((c: any, i: number) => (
+                <li key={i}>{c.description}</li>
+              ))}
+            </ul>
+            <p className="mt-2 text-xs text-amber-700">
+              {conflictDetails?.details?.scope ||
+                "This is a preliminary screen against your platform caseload only. Run your firm's full conflict check before engagement."}
+            </p>
+            <label className="mt-3 flex items-start gap-2 text-sm font-medium text-amber-950">
+              <input
+                type="checkbox"
+                checked={conflictAck}
+                onChange={(e) => setConflictAck(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-amber-400 text-amber-700 focus:ring-amber-400"
+              />
+              I acknowledge this conflict flag and still want to proceed with acquiring this case.
+            </label>
           </div>
         )}
         {!accepted && decisionError && (

@@ -75,6 +75,15 @@ export const CaseAcceleration = z.object({
   }).optional()
 }).partial()
 
+/** Plaintiff Journal ("Impact on Your Life") entries shared onto the case file. */
+export const PainJournalEntry = z.object({
+  date: z.string().min(1).max(40),
+  level: z.number().min(0).max(10),
+  note: z.string().trim().min(1).max(2000),
+  days: z.number().min(0).max(3650).optional(),
+  dailyWage: z.number().min(0).max(1_000_000).optional(),
+})
+
 export const JurisdictionIntelligence = z.object({
   autoDetected: z.boolean().optional(),
   detectedAt: z.string().optional(),
@@ -173,7 +182,8 @@ export const AssessmentUpdate = z.object({
   plaintiffContext: PlaintiffContext.optional(),
   expectationCheck: ExpectationCheck.optional(),
   caseTaxonomy: CaseTaxonomy.optional(),
-  intakeData: z.record(z.any()).optional()
+  intakeData: z.record(z.any()).optional(),
+  painJournal: z.array(PainJournalEntry).max(60).optional(),
 })
 
 export const PredictionRequest = z.object({
@@ -262,7 +272,8 @@ export const PasswordReset = z.object({
 export const UserUpdate = z.object({
   firstName: z.string().min(1).max(80).optional(),
   lastName: z.string().min(1).max(80).optional(),
-  phone: optionalPhone
+  phone: optionalPhone,
+  preferredLanguage: z.enum(['en', 'es', 'zh']).optional(),
 })
 
 export const FavoriteAttorneyRequest = z.object({

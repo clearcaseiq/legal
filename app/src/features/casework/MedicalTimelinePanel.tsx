@@ -10,13 +10,15 @@
  * Backed by /v1/attorney-dashboard/leads/:leadId/medical-timeline.
  */
 import { useCallback, useEffect, useState } from 'react'
-import { Stethoscope, Plus, Trash2, Activity, CalendarClock, AlertTriangle } from 'lucide-react'
+import { Stethoscope, Plus, Trash2, Activity, CalendarClock, AlertTriangle, Pencil, X } from 'lucide-react'
 import {
   getLeadMedicalTimeline,
   createLeadMedicalEntry,
+  updateLeadMedicalEntry,
   deleteLeadMedicalEntry,
   updateLeadMedicalStatus,
 } from '../../lib/api'
+import ConfirmDialog from '../../components/ConfirmDialog'
 
 interface Entry {
   id: string
@@ -81,6 +83,18 @@ const TREATMENT_STATUSES = [
   { value: 'unknown', label: 'Unknown' },
 ]
 
+const EMPTY_FORM = {
+  provider: '',
+  specialty: '',
+  visitType: 'follow_up',
+  startDate: '',
+  endDate: '',
+  status: 'completed',
+  diagnosis: '',
+  billedAmount: '',
+  isFuture: false,
+}
+
 function money(n?: number | null) {
   if (n == null || !Number.isFinite(n)) return '—'
   return `$${Math.round(n).toLocaleString()}`
@@ -105,20 +119,14 @@ export default function MedicalTimelinePanel({ leadId }: { leadId: string }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
-  const [showAdd, setShowAdd] = useState(false)
-  const [addError, setAddError] = useState<string | null>(null)
+  const [formOpen, setFormOpen] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [formError, setFormError] = useState<string | null>(null)
+  const [formBusy, setFormBusy] = useState(false)
+  const [entryToDelete, setEntryToDelete] = useState<Entry | null>(null)
+  const [deleting, setDeleting] = useState(false)
   const [symptomInput, setSymptomInput] = useState('')
-  const [form, setForm] = useState({
-    provider: '',
-    specialty: '',
-    visitType: 'follow_up',
-    startDate: '',
-    endDate: '',
-    status: 'completed',
-    diagnosis: '',
-    billedAmount: '',
-    isFuture: false,
-  })
+  const [form, setForm] = useState(EMPTY_FORM)
 
   const load = useCallback(async () => {
     try {
@@ -148,41 +156,75 @@ export default function MedicalTimelinePanel({ leadId }: { leadId: string }) {
     }
   }
 
-  const addEntry = async () => {
+  const closeForm = () => {
+    setFormOpen(false)
+    setEditingId(null)
+    setForm(EMPTY_FORM)
+    setFormError(null)
+  }
+
+  const openCreate = () => {
+    setEditingId(null)
+    setForm(EMPTY_FORM)
+    setFormError(null)
+    setFormOpen(true)
+  }
+
+  const openEdit = (entry: Entry) => {
+    setEditingId(entry.id)
+    setForm({
+      provider: entry.provider || '',
+      specialty: entry.specialty || '',
+      visitType: entry.visitType || 'follow_up',
+      startDate: dateInput(entry.startDate),
+      endDate: dateInput(entry.endDate),
+      status: entry.status || 'completed',
+      diagnosis: entry.diagnosis || '',
+      billedAmount: entry.billedAmount != null ? String(entry.billedAmount) : '',
+      isFuture: Boolean(entry.isFuture),
+    })
+    setFormError(null)
+    setFormOpen(true)
+  }
+
+  const saveEntry = async () => {
     if (!form.provider.trim()) {
-      setAddError('Enter a provider.')
+      setFormError('Enter a provider.')
       return
     }
-    setAddError(null)
+    setFormError(null)
+    setFormBusy(true)
+    const payload = {
+      ...form,
+      billedAmount: form.billedAmount === '' ? null : Number(form.billedAmount),
+    }
     try {
-      const res = await createLeadMedicalEntry(leadId, {
-        ...form,
-        billedAmount: form.billedAmount === '' ? null : Number(form.billedAmount),
-      })
+      const res = editingId
+        ? await updateLeadMedicalEntry(leadId, editingId, payload)
+        : await createLeadMedicalEntry(leadId, payload)
       setData(res.timeline)
-      setForm({
-        provider: '',
-        specialty: '',
-        visitType: 'follow_up',
-        startDate: '',
-        endDate: '',
-        status: 'completed',
-        diagnosis: '',
-        billedAmount: '',
-        isFuture: false,
-      })
-      setShowAdd(false)
+      closeForm()
     } catch (err: any) {
-      setAddError(err?.response?.data?.error || 'Could not add entry.')
+      setFormError(err?.response?.data?.error || (editingId ? 'Could not update visit.' : 'Could not add visit.'))
+    } finally {
+      setFormBusy(false)
     }
   }
 
-  const removeEntry = async (id: string) => {
+  const confirmRemoveEntry = async () => {
+    const entry = entryToDelete
+    if (!entry) return
+    setDeleting(true)
+    setError(null)
     try {
-      const res = await deleteLeadMedicalEntry(leadId, id)
+      const res = await deleteLeadMedicalEntry(leadId, entry.id)
       setData(res.timeline)
-    } catch {
-      /* ignore */
+      setEntryToDelete(null)
+      if (editingId === entry.id) closeForm()
+    } catch (err: any) {
+      setError(err?.response?.data?.error || 'Could not delete this visit.')
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -212,8 +254,59 @@ export default function MedicalTimelinePanel({ leadId }: { leadId: string }) {
   const inputCls =
     'mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500'
 
+  const VisitActions = ({ entry }: { entry: Entry }) => (
+    <div className="flex shrink-0 items-center gap-1.5">
+      <button
+        type="button"
+        onClick={() => openEdit(entry)}
+        aria-label={`Edit visit with ${entry.provider}`}
+        title="Edit this visit"
+        className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-600 transition hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700"
+      >
+        <Pencil className="h-3.5 w-3.5" />
+        Edit
+      </button>
+      <button
+        type="button"
+        onClick={() => setEntryToDelete(entry)}
+        aria-label={`Delete visit with ${entry.provider}`}
+        title="Delete this visit"
+        className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-600 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
+      >
+        <Trash2 className="h-3.5 w-3.5" />
+        Delete
+      </button>
+    </div>
+  )
+
   return (
     <div className="space-y-4">
+      <ConfirmDialog
+        open={Boolean(entryToDelete)}
+        title="Delete visit?"
+        message={
+          entryToDelete ? (
+            <>
+              Remove <span className="font-semibold">{entryToDelete.provider}</span>
+              {entryToDelete.startDate ? ` (${fmtDate(entryToDelete.startDate)})` : ''} from the treatment timeline?
+              This can’t be undone.
+            </>
+          ) : undefined
+        }
+        confirmLabel="Delete visit"
+        busy={deleting}
+        onConfirm={() => void confirmRemoveEntry()}
+        onCancel={() => {
+          if (!deleting) setEntryToDelete(null)
+        }}
+      />
+
+      {error ? (
+        <div className="rounded-xl bg-rose-50 px-4 py-2.5 text-sm text-rose-700 ring-1 ring-inset ring-rose-200">
+          {error}
+        </div>
+      ) : null}
+
       {/* Status hero */}
       <div className="grid gap-3 sm:grid-cols-4">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -264,7 +357,6 @@ export default function MedicalTimelinePanel({ leadId }: { leadId: string }) {
         </div>
       </div>
 
-      {/* Treatment gaps warning */}
       {data.gaps.length > 0 && (
         <div className="space-y-2">
           {data.gaps.map((g, i) => (
@@ -282,23 +374,35 @@ export default function MedicalTimelinePanel({ leadId }: { leadId: string }) {
         </div>
       )}
 
-      {/* Treatment entries */}
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-3 flex items-center justify-between">
           <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
             <Stethoscope className="h-4 w-4 text-slate-400" /> Treatment timeline
           </h3>
-          <button
-            type="button"
-            onClick={() => setShowAdd((v) => !v)}
-            className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
-          >
-            <Plus className="h-3.5 w-3.5" /> Add visit
-          </button>
+          {!formOpen ? (
+            <button
+              type="button"
+              onClick={openCreate}
+              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+            >
+              <Plus className="h-3.5 w-3.5" /> Add visit
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={closeForm}
+              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+            >
+              <X className="h-3.5 w-3.5" /> Cancel
+            </button>
+          )}
         </div>
 
-        {showAdd && (
+        {formOpen && (
           <div className="mb-4 grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 sm:grid-cols-2">
+            <p className="col-span-full text-xs font-semibold uppercase tracking-wide text-slate-500">
+              {editingId ? 'Edit visit' : 'New visit'}
+            </p>
             <label className="block">
               <span className="text-xs font-medium text-slate-500">Provider</span>
               <input value={form.provider} onChange={(e) => setForm({ ...form, provider: e.target.value })} placeholder="e.g. Bay Area Ortho" className={inputCls} />
@@ -348,10 +452,15 @@ export default function MedicalTimelinePanel({ leadId }: { leadId: string }) {
               This is recommended <span className="font-medium">future</span> treatment (not yet received)
             </label>
             <div className="col-span-full flex items-center gap-2">
-              <button type="button" onClick={addEntry} className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700">
-                Add visit
+              <button
+                type="button"
+                onClick={() => void saveEntry()}
+                disabled={formBusy}
+                className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-60"
+              >
+                {formBusy ? 'Saving…' : editingId ? 'Save changes' : 'Add visit'}
               </button>
-              {addError && <span className="text-xs text-rose-600">{addError}</span>}
+              {formError && <span className="text-xs text-rose-600">{formError}</span>}
             </div>
           </div>
         )}
@@ -374,7 +483,9 @@ export default function MedicalTimelinePanel({ leadId }: { leadId: string }) {
                         {visitLabel(e.visitType)}
                       </span>
                       {e.status !== 'completed' ? (
-                        <span className="rounded-full bg-sky-50 px-2 py-0.5 text-[11px] font-medium text-sky-600">{e.status.replace('_', ' ')}</span>
+                        <span className="rounded-full bg-sky-50 px-2 py-0.5 text-[11px] font-medium text-sky-600">
+                          {e.status.replace('_', ' ')}
+                        </span>
                       ) : null}
                     </div>
                     <div className="text-xs text-slate-400">
@@ -385,14 +496,7 @@ export default function MedicalTimelinePanel({ leadId }: { leadId: string }) {
                       {e.billedAmount ? ` · ${money(e.billedAmount)}` : ''}
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => removeEntry(e.id)}
-                    aria-label="Delete entry"
-                    className="rounded p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
+                  <VisitActions entry={e} />
                 </div>
               </li>
             ))}
@@ -407,7 +511,7 @@ export default function MedicalTimelinePanel({ leadId }: { leadId: string }) {
             <ul className="space-y-2">
               {future.map((e) => (
                 <li key={e.id} className="flex items-center justify-between gap-3 text-sm">
-                  <span className="flex items-center gap-2">
+                  <span className="flex min-w-0 items-center gap-2">
                     <span className="text-slate-700">{e.provider}</span>
                     <span className="rounded-full bg-sky-50 px-2 py-0.5 text-[11px] font-medium text-sky-600">
                       {visitLabel(e.visitType)}
@@ -415,14 +519,7 @@ export default function MedicalTimelinePanel({ leadId }: { leadId: string }) {
                     {e.diagnosis ? <span className="text-xs text-slate-400">{e.diagnosis}</span> : null}
                     {e.billedAmount ? <span className="text-xs text-slate-400">· {money(e.billedAmount)}</span> : null}
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => removeEntry(e.id)}
-                    aria-label="Delete entry"
-                    className="rounded p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
+                  <VisitActions entry={e} />
                 </li>
               ))}
             </ul>
@@ -430,7 +527,6 @@ export default function MedicalTimelinePanel({ leadId }: { leadId: string }) {
         )}
       </div>
 
-      {/* Symptoms + future plan */}
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <h3 className="mb-3 text-sm font-semibold text-slate-900">Current symptoms / complaints</h3>

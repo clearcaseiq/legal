@@ -23,6 +23,7 @@ import {
   Plus,
   Trash2,
   X,
+  Info,
 } from 'lucide-react'
 import {
   getCaseWorkflow,
@@ -191,7 +192,10 @@ export default function CaseWorkflowPanel({ leadId }: { leadId: string }) {
   if (!workflow) {
     return (
       <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center">
-        <ListChecks className="mx-auto h-8 w-8 text-slate-300" />
+        <div className="flex items-center justify-center gap-1.5">
+          <ListChecks className="h-8 w-8 text-slate-300" />
+          <WorkflowHowItWorksTip />
+        </div>
         {canApply ? (
           <>
             <p className="mt-3 text-sm text-slate-600">
@@ -254,7 +258,10 @@ export default function CaseWorkflowPanel({ leadId }: { leadId: string }) {
       <div className="rounded-xl border border-slate-200 p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="min-w-0">
-            <h3 className="truncate text-base font-semibold text-slate-900">{workflow.name}</h3>
+            <div className="flex items-center gap-1.5">
+              <h3 className="truncate text-base font-semibold text-slate-900">{workflow.name}</h3>
+              <WorkflowHowItWorksTip />
+            </div>
             {workflow.description && <p className="mt-0.5 text-xs text-slate-500">{workflow.description}</p>}
           </div>
           <span className="text-sm font-semibold text-slate-700">
@@ -376,6 +383,33 @@ export default function CaseWorkflowPanel({ leadId }: { leadId: string }) {
         })}
       </div>
     </div>
+  )
+}
+
+/** Hover tip explaining how this case workflow works for the attorney / staff. */
+function WorkflowHowItWorksTip() {
+  return (
+    <span className="group relative inline-flex shrink-0">
+      <button
+        type="button"
+        className="rounded-full p-0.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-300"
+        aria-label="How this workflow works for you"
+      >
+        <Info className="h-4 w-4" />
+      </button>
+      <span
+        role="tooltip"
+        className="pointer-events-none absolute left-0 top-7 z-30 hidden w-72 rounded-lg border border-slate-200 bg-white p-3 text-left text-xs leading-relaxed text-slate-600 shadow-lg group-hover:block group-focus-within:block"
+      >
+        <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+          How this works for you
+        </span>
+        This is your firm’s playbook for this retained case. Work the highlighted current phase, check off steps as
+        you finish them, and assign owners when someone else should own the work. Checked steps also show on the Tasks
+        tab. Sparkle steps update automatically from case activity — you don’t mark those by hand. Finished phases
+        stay as history so you can see what already closed.
+      </span>
+    </span>
   )
 }
 
@@ -516,7 +550,13 @@ function StepItem({
                 disabled={pending}
                 onChange={(e) => onAssign(e.target.value || null)}
               >
-                <option value="">Unassigned</option>
+                <option value="">
+                  {/confirm signed (retainer|representation)|conflict check|send retainer to client/i.test(step.title)
+                    ? 'Auto'
+                    : step.assigneeRole
+                      ? `${ROLE_LABELS[step.assigneeRole] || step.assigneeRole} (role)`
+                      : 'Unassigned'}
+                </option>
                 {members.map((m) => (
                   <option key={m.firmMemberId} value={m.firmMemberId}>
                     {m.name}
@@ -524,19 +564,30 @@ function StepItem({
                 ))}
               </select>
             </span>
-          ) : (
-            step.assignedName && (
-              <span className="inline-flex items-center gap-1 text-indigo-700">
-                <User className="h-3.5 w-3.5" />
-                {step.assignedName}
-              </span>
-            )
-          )}
-          {step.assigneeRole && !step.assignedFirmMemberId && (
+          ) : /confirm signed (retainer|representation)|conflict check|send retainer to client/i.test(step.title) ? (
+            <span
+              className="inline-flex items-center gap-1 rounded-md bg-slate-50 px-1.5 py-0.5 text-slate-600 ring-1 ring-slate-200"
+              title="System-handled by default"
+            >
+              <User className="h-3.5 w-3.5" />
+              {step.assignedName || 'Auto'}
+            </span>
+          ) : step.assignedName ? (
+            <span className="inline-flex items-center gap-1 text-indigo-700">
+              <User className="h-3.5 w-3.5" />
+              {step.assignedName}
+            </span>
+          ) : step.readOnly || done ? (
+            <span className="inline-flex items-center gap-1 text-slate-400">
+              <User className="h-3.5 w-3.5" />
+              Auto
+            </span>
+          ) : step.assigneeRole ? (
             <span className="inline-flex items-center gap-1 text-slate-500">
+              <User className="h-3.5 w-3.5" />
               {ROLE_LABELS[step.assigneeRole] || step.assigneeRole}
             </span>
-          )}
+          ) : null}
           {due && (
             <span className={`inline-flex items-center gap-1 ${due.cls}`}>
               <Clock className="h-3.5 w-3.5" />

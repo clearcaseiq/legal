@@ -130,15 +130,61 @@ router.post('/', authMiddleware, async (req: AuthRequest, res) => {
       }
     })
 
-    // Granting a consent the user already granted is a no-op, not an error.
-    // Returning the existing record keeps flows that re-submit consent (e.g.
-    // finishing a requested-document upload) from hitting a hard, blocking
-    // error (CP-599).
+    // Re-granting the same type+version must refresh the row. A pure no-op left
+    // expired / revoked rows untouched, so complete-consent saved "successfully"
+    // then immediately bounced the plaintiff back (asked twice in a row).
     if (existingConsent && validatedData.granted) {
+      const refreshed = await prisma.consent.update({
+        where: { id: existingConsent.id },
+        data: {
+          granted: true,
+          grantedAt: new Date(),
+          revokedAt: null,
+          signatureData: validatedData.signatureData ?? existingConsent.signatureData,
+          signatureMethod: validatedData.signatureMethod ?? existingConsent.signatureMethod,
+          consentText: validatedData.consentText,
+          consentHash,
+          documentId: validatedData.documentId || existingConsent.documentId,
+          expiresAt: validatedData.expiresAt
+            ? new Date(validatedData.expiresAt)
+            : existingConsent.expiresAt,
+          ipAddress: req.ip || (req.socket as { remoteAddress?: string } | undefined)?.remoteAddress,
+          userAgent: req.get('User-Agent') || undefined,
+        },
+      })
+      // Drop older/newer mismatched versions so a stale hipaa-v1.0 row cannot
+      // outrank a valid current grant in compliance checks.
+      await prisma.consent.updateMany({
+        where: {
+          userId,
+          consentType: validatedData.consentType,
+          NOT: { id: refreshed.id },
+          granted: true,
+        },
+        data: { granted: false, revokedAt: new Date() },
+      })
+      if (validatedData.consentType === 'hipaa') {
+        try {
+          const { completeHipaaOpeningTaskIfSatisfied } = await import('../lib/case-opening')
+          const assessments = await prisma.assessment.findMany({
+            where: { userId },
+            select: { id: true },
+            take: 50,
+          })
+          for (const a of assessments) {
+            await completeHipaaOpeningTaskIfSatisfied(a.id)
+          }
+        } catch (e: any) {
+          logger.warn('HIPAA opening-task sync after consent refresh failed', {
+            userId,
+            error: e?.message || String(e),
+          })
+        }
+      }
       return res.status(200).json({
         success: true,
-        data: existingConsent,
-        alreadyGranted: true
+        data: refreshed,
+        alreadyGranted: true,
       })
     }
 
@@ -160,12 +206,43 @@ router.post('/', authMiddleware, async (req: AuthRequest, res) => {
       }
     })
 
+    if (validatedData.granted) {
+      await prisma.consent.updateMany({
+        where: {
+          userId,
+          consentType: validatedData.consentType,
+          NOT: { id: consent.id },
+          granted: true,
+        },
+        data: { granted: false, revokedAt: new Date() },
+      })
+    }
+
     logger.info('Consent created', {
       consentId: consent.id,
       userId,
       consentType: validatedData.consentType,
       granted: validatedData.granted
     })
+
+    if (validatedData.granted && validatedData.consentType === 'hipaa') {
+      try {
+        const { completeHipaaOpeningTaskIfSatisfied } = await import('../lib/case-opening')
+        const assessments = await prisma.assessment.findMany({
+          where: { userId },
+          select: { id: true },
+          take: 50,
+        })
+        for (const a of assessments) {
+          await completeHipaaOpeningTaskIfSatisfied(a.id)
+        }
+      } catch (e: any) {
+        logger.warn('HIPAA opening-task sync after consent failed', {
+          userId,
+          error: e?.message || String(e),
+        })
+      }
+    }
 
     res.status(201).json({
       success: true,
@@ -334,6 +411,10 @@ router.get('/status/:userId', authMiddleware, async (req: AuthRequest, res) => {
     const compliance = await getClientConsentCompliance(userId)
     const allGranted = compliance.ok
 
+    // Consent status is checked immediately after POST /consent. A cached 304 left
+    // plaintiffs stuck on "Submit Signature" with a stale incomplete payload.
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate')
+    res.setHeader('Pragma', 'no-cache')
     res.json({
       success: true,
       data: {

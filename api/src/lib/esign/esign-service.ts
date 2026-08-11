@@ -12,6 +12,7 @@ import { logger } from '../logger'
 import { webUrl } from '../app-url'
 import { getESignatureProvider } from './index'
 import { renderHipaaAuthorizationPdf } from './hipaa-authorization'
+import { renderPoliceReportAuthorizationPdf } from './police-report-authorization'
 import { renderRetainerAgreementPdf } from './retainer-agreement'
 import type { EnvelopeStatus, SignableDocumentType } from './types'
 
@@ -155,6 +156,51 @@ export async function createHipaaAuthorizationEnvelope(params: CreateHipaaAuthor
   })
 }
 
+export interface CreatePoliceReportAuthorizationParams {
+  leadId: string
+  attorneyId: string
+  signerName: string
+  signerEmail: string
+  clientDob?: string
+  firmName?: string
+  attorneyName?: string
+  agencyName?: string
+  reportNumber?: string
+  incidentDate?: string
+  incidentVenue?: string
+  caseRef?: string
+  providerId?: string
+}
+
+/** End-to-end CA police/incident report authorization for client e-signature. */
+export async function createPoliceReportAuthorizationEnvelope(
+  params: CreatePoliceReportAuthorizationParams,
+) {
+  const { filePath, title } = await renderPoliceReportAuthorizationPdf({
+    leadId: params.leadId,
+    clientName: params.signerName,
+    clientDob: params.clientDob,
+    firmName: params.firmName,
+    attorneyName: params.attorneyName,
+    agencyName: params.agencyName,
+    reportNumber: params.reportNumber,
+    incidentDate: params.incidentDate,
+    incidentVenue: params.incidentVenue,
+    caseRef: params.caseRef,
+  })
+
+  return createEnvelopeForLead({
+    leadId: params.leadId,
+    attorneyId: params.attorneyId,
+    documentType: 'police_report_authorization',
+    title,
+    signerName: params.signerName,
+    signerEmail: params.signerEmail,
+    filePath,
+    providerId: params.providerId,
+  })
+}
+
 export interface CreateRetainerAgreementParams {
   leadId: string
   attorneyId: string
@@ -287,6 +333,40 @@ async function finalizeStatusTransition(
         envelopeId: updated.id,
         error: err instanceof Error ? err.message : String(err),
       })
+    }
+
+    if (updated.documentType === 'retainer' || updated.documentType === 'fee_agreement') {
+      try {
+        const { onRetainerSigned } = await import('../intake-acquire')
+        await onRetainerSigned({
+          leadId: updated.leadId,
+          envelopeId: updated.id,
+          documentType: updated.documentType,
+        })
+      } catch (err) {
+        logger.warn('Retainer-signed intake completion failed', {
+          envelopeId: updated.id,
+          error: err instanceof Error ? err.message : String(err),
+        })
+      }
+    }
+
+    if (updated.documentType === 'hipaa_authorization') {
+      try {
+        const lead = await prisma.leadSubmission.findUnique({
+          where: { id: updated.leadId },
+          select: { assessmentId: true },
+        })
+        if (lead?.assessmentId) {
+          const { completeHipaaOpeningTaskIfSatisfied } = await import('../case-opening')
+          await completeHipaaOpeningTaskIfSatisfied(lead.assessmentId)
+        }
+      } catch (err) {
+        logger.warn('HIPAA-signed opening-task completion failed', {
+          envelopeId: updated.id,
+          error: err instanceof Error ? err.message : String(err),
+        })
+      }
     }
   }
 
@@ -438,7 +518,11 @@ export async function createOnboardingPacket(params: OnboardingPacketParams) {
 }
 
 /** Document types that should be filed into the case's Documents list when signed. */
-const CASE_FILED_DOC_TYPES = new Set<SignableDocumentType>(['retainer', 'fee_agreement'])
+const CASE_FILED_DOC_TYPES = new Set<SignableDocumentType>([
+  'retainer',
+  'fee_agreement',
+  'police_report_authorization',
+])
 
 /**
  * File the executed PDF of a signed agreement (retainer / fee agreement) into the
@@ -492,8 +576,15 @@ export async function fileSignedAgreementIntoCase(envelopeId: string) {
       filePath: env.signedFilePath,
       fileUrl,
       category: 'other',
-      subcategory: 'signed_agreement',
-      description: `Executed ${env.documentType === 'fee_agreement' ? 'fee agreement' : 'retainer'} — signed by ${env.signerName}`,
+      subcategory:
+        env.documentType === 'police_report_authorization' ? 'signed_authorization' : 'signed_agreement',
+      description: `Executed ${
+        env.documentType === 'fee_agreement'
+          ? 'fee agreement'
+          : env.documentType === 'police_report_authorization'
+            ? 'police / incident report authorization'
+            : 'retainer'
+      } — signed by ${env.signerName}`,
       dataType: 'unstructured',
       tags: JSON.stringify(['esign', env.documentType, 'signed']),
       uploadMethod: 'esign',

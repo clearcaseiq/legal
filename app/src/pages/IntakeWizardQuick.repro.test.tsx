@@ -34,7 +34,12 @@ vi.mock('../lib/api', () => ({
 }))
 vi.mock('../lib/api-consent', () => ({
   createConsent: vi.fn(async () => ({})),
-  fetchPublicConsentTemplate: vi.fn(async () => ({ version: '1.0', content: '' })),
+  fetchPublicConsentTemplate: vi.fn(async () => ({
+    version: '1.1',
+    documentId: 'hipaa-v1.1',
+    plainLanguageSummary: '',
+    content: '',
+  })),
 }))
 vi.mock('../components/InlineEvidenceUpload', () => ({
   default: () => null,

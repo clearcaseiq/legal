@@ -42,7 +42,6 @@ export default function AttorneyRegister() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [govIdFile, setGovIdFile] = useState<File | null>(null)
   const [showFirmWebsite, setShowFirmWebsite] = useState(false)
-  const [licenseVerified, setLicenseVerified] = useState(false)
   const [form, setForm] = useState<AttorneyRegisterFormInput>(ATTORNEY_REGISTER_DEFAULTS)
   // Explicit service-area choice. Previously the "Entire State" vs "Selected
   // Counties" selection was inferred from whether any counties were picked,
@@ -133,7 +132,6 @@ export default function AttorneyRegister() {
     setIsLoading(true)
     setError(null)
     setEmailExistsError(false)
-    let licenseVerificationSucceeded = false
 
     try {
       const name = `${data.firstName} ${data.lastName}, Esq.`
@@ -186,13 +184,13 @@ export default function AttorneyRegister() {
 
       await new Promise((r) => setTimeout(r, 300))
 
+      // License verification is optional at signup. Best-effort upload/lookup if
+      // the attorney provided something; never block access to the dashboard.
       if (verificationMethod === 'state_bar_lookup' && licenseNumber && licenseState) {
         try {
           await lookupStateBarLicense(licenseNumber, licenseState)
-          licenseVerificationSucceeded = true
-          setLicenseVerified(true)
         } catch {
-          // Continue to license upload page
+          // Verify later from profile settings.
         }
       } else if (verificationMethod === 'manual_upload' && (selectedFile || govIdFile)) {
         try {
@@ -203,15 +201,12 @@ export default function AttorneyRegister() {
           if (licenseNumber) formData.append('licenseNumber', licenseNumber)
           if (licenseState) formData.append('licenseState', licenseState)
           await uploadAttorneyLicense(formData)
-          licenseVerificationSucceeded = true
-          setLicenseVerified(true)
         } catch {
-          // Continue
+          // Verify later from profile settings.
         }
       }
 
-      const destination = licenseVerificationSucceeded ? '/attorney-dashboard' : '/attorney-license-upload'
-      navigate(destination)
+      navigate('/attorney-dashboard')
     } catch (err: any) {
       const d = err.response?.data as { error?: string; details?: string | Record<string, unknown> } | undefined
       let msg = d?.error || err.message || t('attorneyReg.registrationFailed')
@@ -241,9 +236,7 @@ export default function AttorneyRegister() {
     }
   }
 
-  const handleFormSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-
+  const submitRegistration = async () => {
     const validation = validateAttorneyRegisterInput(form, t)
     setFieldErrors(validation.fieldErrors)
 
@@ -259,6 +252,20 @@ export default function AttorneyRegister() {
     }
 
     await onSubmit(validation.data)
+  }
+
+  const handleFormSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    await submitRegistration()
+  }
+
+  /** Finish signup without visiting or completing license verification. */
+  const skipLicenseAndFinish = async () => {
+    setError(null)
+    const validation = validateAttorneyRegisterInput(form, t)
+    const gatedFields = ATTORNEY_REGISTER_STEP_FIELDS[currentStep]
+    if (gatedFields && setStepError(validation.fieldErrors, gatedFields)) return
+    await submitRegistration()
   }
 
   // Trim so whitespace-only input (e.g. a stray space) doesn't trigger odd
@@ -655,21 +662,34 @@ export default function AttorneyRegister() {
                       registrants default to "accepting" and can change it later. */}
                   <p className="mt-2 text-xs text-gray-500">{t('attorneyReg.capacityNote')}</p>
                 </div>
-                <div className="flex justify-between pt-2">
+                <div className="flex flex-col gap-3 pt-2 sm:flex-row sm:items-center sm:justify-between">
                   <button type="button" onClick={() => setCurrentStep(2)} className="btn-secondary">
                     {t('attorneyReg.back')}
                   </button>
-                  <button type="button" onClick={() => { void goToStep(4) }} className="btn-primary">
-                    {t('attorneyReg.next4')}
-                  </button>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+                    <button
+                      type="button"
+                      disabled={isLoading}
+                      onClick={() => { void skipLicenseAndFinish() }}
+                      className="order-2 text-sm font-semibold text-slate-600 underline decoration-dotted underline-offset-2 hover:text-slate-900 disabled:opacity-50 sm:order-1 sm:no-underline sm:rounded-lg sm:border sm:border-slate-300 sm:bg-white sm:px-4 sm:py-2 sm:hover:bg-slate-50"
+                    >
+                      {isLoading ? t('attorneyReg.registering') : t('attorneyReg.skipLicense')}
+                    </button>
+                    <button type="button" onClick={() => { void goToStep(4) }} className="order-1 btn-primary sm:order-2">
+                      {t('attorneyReg.next4')}
+                    </button>
+                  </div>
                 </div>
               </div>
 
-            {/* Step 4: License Verification */}
+            {/* Step 4: License Verification (optional — can finish without uploading) */}
             <div hidden={currentStep !== 4} className="space-y-4">
                 <h3 className="text-lg font-medium text-gray-900">{t('attorneyReg.step4Title')}</h3>
                 <p className="text-sm text-gray-600">
                   {t('attorneyReg.uploadNow')}
+                </p>
+                <p className="text-sm text-slate-500">
+                  {t('attorneyReg.licenseOptionalNote')}
                 </p>
                 <div className="grid gap-3 sm:grid-cols-3">
                   {[
@@ -769,17 +789,26 @@ export default function AttorneyRegister() {
                   </p>
                 </div>
 
-                <div className="flex justify-between pt-2">
+                <div className="flex flex-col gap-3 pt-2 sm:flex-row sm:items-center sm:justify-between">
                   <button type="button" onClick={() => setCurrentStep(3)} className="btn-secondary">
                     {t('attorneyReg.back')}
                   </button>
-                  <button
-                    type="submit"
-                    disabled={isLoading}
-                    className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {isLoading ? t('attorneyReg.registering') : t('attorneyReg.completeRegistration')}
-                  </button>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+                    <button
+                      type="submit"
+                      disabled={isLoading}
+                      className="order-2 text-sm font-semibold text-slate-600 underline decoration-dotted underline-offset-2 hover:text-slate-900 disabled:opacity-50 sm:order-1 sm:no-underline sm:rounded-lg sm:border sm:border-slate-300 sm:bg-white sm:px-4 sm:py-2 sm:hover:bg-slate-50"
+                    >
+                      {isLoading ? t('attorneyReg.registering') : t('attorneyReg.skipLicense')}
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isLoading}
+                      className="order-1 btn-primary disabled:opacity-50 disabled:cursor-not-allowed sm:order-2"
+                    >
+                      {isLoading ? t('attorneyReg.registering') : t('attorneyReg.completeRegistration')}
+                    </button>
+                  </div>
                 </div>
               </div>
           </form>

@@ -10,6 +10,8 @@ import {
 } from '../lib/client-consent-guard'
 import { notifyAttorneyInApp } from '../lib/case-notifications'
 import { ATTORNEY_EVENTS } from '../lib/notification-events'
+import { getPlaintiffLanguage } from '../lib/translate'
+import { decorateMessagesForReader } from '../lib/messaging-translate'
 
 const router = Router()
 
@@ -123,13 +125,15 @@ router.post(
     // Reverse messages to show oldest first
     chatRoom.messages = chatRoom.messages.reverse()
 
-    // CP-572: return original message text as the sender typed it.
+    // CP-572: keep original `content`; attach contentTranslated for the reader.
+    const readerLang = getPlaintiffLanguage(req)
+    const messages = await decorateMessagesForReader(chatRoom.messages, readerLang, 'user')
 
     res.json({
       chatRoomId: chatRoom.id,
       attorney: chatRoom.attorney,
       assessment: chatRoom.assessment,
-      messages: chatRoom.messages,
+      messages,
       status: chatRoom.status,
       lastMessageAt: chatRoom.lastMessageAt,
       createdAt: chatRoom.createdAt
@@ -480,8 +484,10 @@ router.get('/chat-room/:chatRoomId/messages', authMiddleware, async (req: AuthRe
     // Reverse to show oldest first
     messages.reverse()
 
-    // CP-572: return original message text as the sender typed it.
-    res.json(messages)
+    // CP-572: keep original `content`; attach contentTranslated for the reader.
+    const readerLang = getPlaintiffLanguage(req)
+    const decorated = await decorateMessagesForReader(messages, readerLang, 'user')
+    res.json(decorated)
   } catch (error) {
     logger.error('Failed to get messages', { error, chatRoomId: req.params.chatRoomId })
     res.status(500).json({ error: 'Internal server error' })

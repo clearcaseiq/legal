@@ -173,10 +173,13 @@ router.get('/assessment/:id/status', authMiddleware, async (req: AuthRequest, re
         userId: true,
         facts: true,
         claimType: true,
+        caseStage: true,
+        litigationStatus: true,
         user: { select: { email: true } },
         leadSubmission: {
           select: {
-            lifecycleState: true
+            lifecycleState: true,
+            status: true,
           }
         },
         introductions: {
@@ -206,30 +209,87 @@ router.get('/assessment/:id/status', authMiddleware, async (req: AuthRequest, re
       return res.status(403).json({ error: 'Unauthorized' })
     }
 
-    const lead = assessment.leadSubmission
+    let lead = assessment.leadSubmission
     const intros = assessment.introductions
     const accepted = intros.find(i => i.status === 'ACCEPTED')
     const reviewingCount = intros.filter(i => i.status === 'PENDING').length
 
-    // Upcoming appointment for this assessment (plaintiff dashboard)
+    // Safety net: signed retainer must surface as retained/engaged for plaintiff
+    // Case Status even if the e-sign webhook/task path missed the flip.
+    if (
+      lead?.id &&
+      String(lead.status || '').toLowerCase() !== 'retained' &&
+      String(lead.lifecycleState || '') !== 'engaged'
+    ) {
+      const signedRetainer = await prisma.documentEnvelope
+        .findFirst({
+          where: {
+            leadId: lead.id,
+            status: 'signed',
+            documentType: { in: ['retainer', 'fee_agreement'] },
+          },
+          select: { id: true, documentType: true },
+        })
+        .catch(() => null)
+      if (signedRetainer) {
+        try {
+          const { onRetainerSigned } = await import('../lib/intake-acquire')
+          await onRetainerSigned({
+            leadId: lead.id,
+            envelopeId: signedRetainer.id,
+            documentType: signedRetainer.documentType,
+          })
+          lead = await prisma.leadSubmission
+            .findUnique({
+              where: { id: lead.id },
+              select: { lifecycleState: true, status: true },
+            })
+            .catch(() => lead)
+        } catch (err) {
+          logger.warn('Signed-retainer retain repair failed', {
+            assessmentId,
+            leadId: lead.id,
+            error: (err as Error).message,
+          })
+        }
+      }
+    }
+
+    // Consultation for this assessment (plaintiff dashboard). Prefer the next
+    // future booking; if lifecycle already says consultation_scheduled but the
+    // start time is in the past (or the clock skew makes it look past), still
+    // return the most recent SCHEDULED/CONFIRMED row so the UI stops prompting
+    // "Schedule a consultation".
+    const appointmentSelect = {
+      id: true,
+      scheduledAt: true,
+      type: true,
+      attorney: { select: { name: true } },
+    } as const
+    const loadAppointment = async () => {
+      const baseWhere = {
+        assessmentId,
+        status: { in: ['SCHEDULED', 'CONFIRMED'] as const },
+        ...(assessment.userId ? { userId: assessment.userId } : {}),
+      }
+      const upcoming = await prisma.appointment
+        .findFirst({
+          where: { ...baseWhere, scheduledAt: { gte: new Date() } },
+          orderBy: { scheduledAt: 'asc' },
+          select: appointmentSelect,
+        })
+        .catch(() => null)
+      if (upcoming) return upcoming
+      return prisma.appointment
+        .findFirst({
+          where: baseWhere,
+          orderBy: { scheduledAt: 'desc' },
+          select: appointmentSelect,
+        })
+        .catch(() => null)
+    }
     const [appointmentRecord, yearsExperienceRecord, recentEvents] = await Promise.all([
-      assessment.userId
-        ? prisma.appointment.findFirst({
-            where: {
-              userId: assessment.userId,
-              assessmentId,
-              status: { in: ['SCHEDULED', 'CONFIRMED'] },
-              scheduledAt: { gte: new Date() }
-            },
-            orderBy: { scheduledAt: 'asc' },
-            select: {
-              id: true,
-              scheduledAt: true,
-              type: true,
-              attorney: { select: { name: true } }
-            }
-          }).catch(() => null)
-        : Promise.resolve(null),
+      loadAppointment(),
       accepted
         ? prisma.attorneyProfile.findUnique({
             where: { attorneyId: accepted.attorney.id },
@@ -328,11 +388,15 @@ router.get('/assessment/:id/status', authMiddleware, async (req: AuthRequest, re
       stage = 'attorney_review'
       statusMessage = searchExpanded
         ? 'Your original top choices were unavailable, so we expanded the search. Additional attorneys are now reviewing your case.'
-        : `${reviewingCount} attorney(s) reviewing your case. Expected response within ${responseDeadlineLabel}.`
+        : reviewingCount === 1
+          ? `1 attorney is reviewing your case. Expected response within ${responseDeadlineLabel}.`
+          : `${reviewingCount} attorneys are reviewing your case. Expected response within ${responseDeadlineLabel}.`
     } else if (intros.length > 0) {
       statusMessage = searchExpanded
         ? 'We expanded the search to a new group of matching attorneys. Awaiting response.'
-        : `${intros.length} attorney(s) received your case. Awaiting response.`
+        : intros.length === 1
+          ? '1 attorney received your case. Awaiting response.'
+          : `${intros.length} attorneys received your case. Awaiting response.`
     }
 
     const attorneyActivity = recentEvents.map((e: any) => {
@@ -418,6 +482,11 @@ router.get('/assessment/:id/status', authMiddleware, async (req: AuthRequest, re
     res.json({
       assessmentId,
       lifecycleState: lead?.lifecycleState ?? stage,
+      leadStatus: lead?.status ?? null,
+      // Post-retention spine (Assessment.caseStage) + parallel litigation track —
+      // plaintiff Case Status expands from these after retain.
+      caseStage: assessment.caseStage ?? null,
+      litigationStatus: assessment.litigationStatus ?? null,
       statusMessage,
       attorneysRouted: intros.length,
       attorneysReviewing: reviewingCount,

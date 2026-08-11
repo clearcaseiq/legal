@@ -1660,7 +1660,8 @@ export default function AttorneyDashboardShell({ chromeless = false, initialView
       leadId: string,
       decision: 'accept' | 'reject',
       rationaleOverride?: string,
-      declineReason?: string
+      declineReason?: string,
+      opts?: { conflictAcknowledged?: boolean }
     ) => {
       const rationale = (rationaleOverride ?? decisionRationale).trim()
       try {
@@ -1685,7 +1686,8 @@ export default function AttorneyDashboardShell({ chromeless = false, initialView
           leadId,
           decision,
           rationale || undefined,
-          declineReason
+          declineReason,
+          opts
         )
         updateLeadInState(leadId, {
           status: updated.status || (decision === 'accept' ? 'contacted' : 'rejected')

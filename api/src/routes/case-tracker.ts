@@ -219,7 +219,9 @@ const claimantVisibleDemandLetters = {
 
 const caseTrackerFileSelect = {
   id: true,
-  name: true,
+  // Prisma File model uses `filename` (storage key), not `name` — selecting
+  // `name` 500'd GET /v1/case-tracker/dashboard for every plaintiff.
+  filename: true,
   originalName: true,
   mimetype: true,
   size: true,
@@ -396,15 +398,16 @@ router.get('/dashboard', authMiddleware, async (req: AuthRequest, res) => {
         return sum + (c.prediction?.bands?.median || 0)
       }, 0),
       upcomingAppointments: caseData.reduce((sum, c) => {
-        return sum + c.appointments.filter(apt => 
-          apt.status === 'SCHEDULED' && 
-          new Date(apt.scheduledAt) > new Date()
+        const now = new Date()
+        return sum + c.appointments.filter(apt =>
+          ['SCHEDULED', 'CONFIRMED'].includes(String(apt.status || '').toUpperCase()) &&
+          new Date(apt.scheduledAt) > now
         ).length
       }, 0),
       pendingMessages: caseData.reduce((sum, c) => {
-        return sum + c.chatRooms.filter(room => 
-          room.lastMessage?.senderType === 'attorney' && 
-          !room.lastMessage?.isRead
+        return sum + c.chatRooms.filter(room =>
+          room.lastMessage?.senderType === 'attorney' &&
+          room.lastMessage?.isRead === false
         ).length
       }, 0)
     }

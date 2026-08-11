@@ -6,7 +6,11 @@
 import { prisma } from './prisma'
 import type { Prisma } from '@prisma/client'
 import { analyzeClinicalCodes } from './clinical-codes'
-import { deriveTreatmentPosture, OPEN_TREATMENT_GAP_DAYS } from './demand-readiness'
+import {
+  deriveTreatmentPosture,
+  isPlausibleTreatmentDate,
+  OPEN_TREATMENT_GAP_DAYS,
+} from './demand-readiness'
 
 export interface MedicalChronologyEvent {
   id: string
@@ -19,6 +23,10 @@ export interface MedicalChronologyEvent {
   sourceFileId?: string
   sourceFileName?: string
   extractionConfidence?: 'documented' | 'estimated' | 'needs_review'
+  /** Intake treatment type slug (e.g. surgery_status) for client-side i18n. */
+  type?: string
+  /** Intake status slug/text for client-side i18n when present. */
+  status?: string
 }
 
 export interface MedicalChronologySummary {
@@ -324,6 +332,20 @@ export async function buildMedicalChronology(assessmentId: string): Promise<Medi
 
   const events: MedicalChronologyEvent[] = []
   const facts = JSON.parse(assessment.facts) as Record<string, any>
+  const incidentDateRaw = facts?.incident?.date
+  const incidentDate =
+    incidentDateRaw && !Number.isNaN(new Date(String(incidentDateRaw)).getTime())
+      ? new Date(String(incidentDateRaw))
+      : null
+
+  const chronologyDateOrNull = (value: string | null | undefined): string | null => {
+    if (!value) return null
+    const d = new Date(value)
+    if (Number.isNaN(d.getTime())) return null
+    // Drop DOB / prior-history noise that OCR often pulls into the timeline.
+    if (!isPlausibleTreatmentDate(d, incidentDate)) return null
+    return value
+  }
 
   // 1. Incident timeline from facts
   const incidentTimeline = facts?.incident?.timeline as Array<{ label: string; order: number; approxDate?: string }> | undefined
@@ -356,23 +378,48 @@ export async function buildMedicalChronology(assessmentId: string): Promise<Medi
     date?: string
     notes?: string
     treatment?: string
+    status?: string
+    imaging?: string
+    procedure?: string
+    recommendation?: string
+    finding?: string
   }> | undefined
   if (Array.isArray(treatment)) {
     treatment.forEach((t, i) => {
       const provider = hasText(t.provider) ? t.provider.trim() : undefined
-      const notes = hasText(t.notes) ? t.notes.trim() : hasText(t.treatment) ? t.treatment.trim() : undefined
-      const hasMeaningfulTreatmentDetail = hasText(t.date) || Boolean(provider) || Boolean(notes)
+      const status = hasText(t.status) ? t.status.trim() : undefined
+      const notes = hasText(t.notes)
+        ? t.notes.trim()
+        : hasText(t.treatment)
+          ? t.treatment.trim()
+          : hasText(t.imaging)
+            ? t.imaging.trim()
+            : hasText(t.procedure)
+              ? t.procedure.trim()
+              : hasText(t.recommendation)
+                ? t.recommendation.trim()
+                : hasText(t.finding)
+                  ? t.finding.trim()
+                  : undefined
+      // Prefer free-text notes, but fall back to structured status so intake
+      // surgery_status rows (status-only) still appear in the plaintiff summary.
+      const details = notes || status
+      const hasMeaningfulTreatmentDetail = hasText(t.date) || Boolean(provider) || Boolean(details)
       if (!hasMeaningfulTreatmentDetail) return
       if (hasExtractedMedicalEvidence && provider?.toLowerCase() === 'from uploaded records') return
 
       const label = t.type || 'Treatment'
       events.push({
         id: `treatment-${i}`,
-        date: t.date || null,
+        date: chronologyDateOrNull(t.date || null),
         label,
         source: 'treatment',
-        details: notes,
+        details,
         provider,
+        // Pass through so the plaintiff UI can localize type/status instead of
+        // showing raw slugs like "surgery_status".
+        ...(t.type ? { type: t.type } : {}),
+        ...(status ? { status } : {}),
       })
     })
   }
@@ -399,9 +446,12 @@ export async function buildMedicalChronology(assessmentId: string): Promise<Medi
           : typeof event.amount === 'number'
             ? event.amount
             : i === 0 ? amount : undefined
+        const eventDate = chronologyDateOrNull(event.date || null)
+        // Skip OCR rows whose only date was a DOB / pre-incident history stamp.
+        if (event.date && !eventDate) return
         events.push({
           id: `evidence-${file.id}-timeline-${i}`,
-          date: event.date || null,
+          date: eventDate,
           label,
           source: 'medical_record',
           details: event.details || file.aiSummary || undefined,
@@ -414,9 +464,11 @@ export async function buildMedicalChronology(assessmentId: string): Promise<Medi
       })
     } else if (Array.isArray(dates) && dates.length > 0) {
       dates.forEach((d, i) => {
+        const eventDate = typeof d === 'string' ? chronologyDateOrNull(d) : null
+        if (typeof d === 'string' && !eventDate) return
         events.push({
           id: `evidence-${file.id}-${i}`,
-          date: typeof d === 'string' ? d : null,
+          date: eventDate,
           label: file.originalName || 'Medical record',
           source: 'medical_record',
           details: file.aiSummary || undefined,

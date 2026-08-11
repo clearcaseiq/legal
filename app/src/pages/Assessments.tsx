@@ -18,6 +18,7 @@ interface Assessment {
   submittedForReview?: boolean
   lifecycleState?: string | null
   leadStatus?: string | null
+  caseStage?: string | null
 }
 
 export default function Assessments() {
@@ -115,6 +116,8 @@ export default function Assessments() {
                 if (assessment.submittedForReview || assessment.lifecycleState || assessment.leadStatus) {
                   const key = getPlaintiffCaseStatusKey({
                     lifecycleState: assessment.lifecycleState,
+                    leadStatus: assessment.leadStatus,
+                    caseStage: assessment.caseStage,
                     attorneyMatched:
                       assessment.leadStatus === 'contacted' ||
                       assessment.leadStatus === 'consulted' ||

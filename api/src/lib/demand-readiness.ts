@@ -37,6 +37,13 @@ export type TreatmentPosture = 'complete' | 'active' | 'gap' | 'unknown'
  */
 export const OPEN_TREATMENT_GAP_DAYS = 45
 
+/**
+ * Extracted records often include DOB / prior history. Dates more than this many
+ * days before the incident are not part of the accident treatment chronology.
+ * A short grace covers incident-date mismatches (e.g. DOL 6/11 vs intake 6/12).
+ */
+export const PRE_INCIDENT_TREATMENT_GRACE_DAYS = 14
+
 /** Per-visit statuses that affirmatively mean treatment on that course ended. */
 const COMPLETED_TREATMENT_STATUSES = new Set([
   'complete',
@@ -114,6 +121,17 @@ function toDate(value: unknown): Date | null {
   return Number.isNaN(d.getTime()) ? null : d
 }
 
+/** True when `date` is on/after the incident (minus grace), or when no incident is known. */
+export function isPlausibleTreatmentDate(
+  date: Date,
+  incidentDate?: Date | null,
+  graceDays: number = PRE_INCIDENT_TREATMENT_GRACE_DAYS,
+): boolean {
+  if (!incidentDate || Number.isNaN(incidentDate.getTime())) return true
+  const floor = incidentDate.getTime() - Math.max(0, graceDays) * 86_400_000
+  return date.getTime() >= floor
+}
+
 function normalizeStatus(value: unknown): string {
   return String(value ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_')
 }
@@ -145,21 +163,22 @@ function collectTreatmentDates(
   entries: Array<Record<string, any>>,
   chronologyDates: Array<string | Date | null | undefined>,
 ): Date[] {
+  const incidentDate = toDate(facts?.incident?.date)
   const dates: Date[] = []
+  const push = (d: Date | null) => {
+    if (d && isPlausibleTreatmentDate(d, incidentDate)) dates.push(d)
+  }
   for (const entry of entries) {
     for (const key of ['endDate', 'lastDate', 'date', 'startDate', 'visitDate', 'treatmentDate']) {
-      const d = toDate(entry?.[key])
-      if (d) dates.push(d)
+      push(toDate(entry?.[key]))
     }
   }
   const medical = (facts?.medical && typeof facts.medical === 'object' ? facts.medical : {}) as Record<string, any>
   for (const key of LOOSE_TREATMENT_DATE_KEYS) {
-    const d = toDate(medical[key]) || toDate(facts?.[key])
-    if (d) dates.push(d)
+    push(toDate(medical[key]) || toDate(facts?.[key]))
   }
   for (const value of chronologyDates) {
-    const d = toDate(value)
-    if (d) dates.push(d)
+    push(toDate(value))
   }
   return dates.sort((a, b) => a.getTime() - b.getTime())
 }

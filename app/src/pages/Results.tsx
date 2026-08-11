@@ -34,6 +34,7 @@ import { formatAttorneyLicensure } from '../lib/attorneyLicensure'
 import { ResultsPanelSkeleton } from '../components/PageSkeletons'
 import PlaintiffCaseCommandCenter from '../components/PlaintiffCaseCommandCenter'
 import PlaintiffMedicalChronology from '../components/PlaintiffMedicalChronology'
+import InfoDisclosure from '../components/InfoDisclosure'
 import EstimateAccuracyStages from '../components/EstimateAccuracyStages'
 import CaseFileChecklist from '../components/CaseFileChecklist'
 import { useLanguage } from '../contexts/LanguageContext'
@@ -733,38 +734,6 @@ function getReadinessStatusLabel(t: TFn, score: number): string {
   return t('results.calc.readinessEarlyStage')
 }
 
-/**
- * Inline, tap-friendly info disclosure. Renders a short caption with a leading
- * "i" button that toggles an explanatory panel below. Unlike a hover tooltip
- * (which never fires on touch devices), this works on mobile because it is a
- * real button with an onClick toggle. Used for the estimate "not a guarantee"
- * captions on the Case Snapshot.
- */
-function InfoDisclosure({ caption, detail, moreLabel }: { caption: string; detail: string; moreLabel: string }) {
-  const [open, setOpen] = useState(false)
-  return (
-    <span className="mt-1 block">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="flex w-full items-start gap-1.5 text-left text-xs font-medium text-slate-600 transition-colors hover:text-slate-800"
-      >
-        <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
-        <span className="flex-1">
-          {caption} <span className="font-semibold text-brand-700 underline decoration-dotted underline-offset-2">{moreLabel}</span>
-        </span>
-        <ChevronDown className={`mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden />
-      </button>
-      {open && (
-        <span className="mt-1.5 block rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] leading-5 text-slate-600">
-          {detail}
-        </span>
-      )}
-    </span>
-  )
-}
-
 function getTreatmentStrengthLabel(params: {
   hasErTreatment: boolean
   hasMri: boolean
@@ -800,8 +769,15 @@ function upsertMedicalReviewEdit(
 export default function Results() {
   const { t } = useLanguage()
   const { assessmentId } = useParams<{ assessmentId: string }>()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const reviewRequested = searchParams.get('review') === '1'
+  // Dashboard "View Case Report" (and similar) use ?view=report so a submitted
+  // case still opens the full snapshot — not the post-submit confirmation page
+  // (which prominently offers Supporting Documents / evidence upload).
+  const forceReportView = searchParams.get('view') === 'report'
+  // Full Case Report section tabs can be deep-linked (?tab=liability) so liability
+  // tips and Done-from-upload can return to the same Liability Analysis panel.
+  const tabFromUrl = searchParams.get('tab')
   // A report opened via the "Copy Link" share URL carries ?share=1 and is
   // presented read-only: recipients can view but not edit estimates, reorder
   // attorneys, or otherwise mutate the case (#12).
@@ -891,7 +867,13 @@ export default function Results() {
   const [showAttorneyRanking, setShowAttorneyRanking] = useState(false)
   const [showContactEdit, setShowContactEdit] = useState(false)
   const [commandCenter, setCommandCenter] = useState<CaseCommandCenter | null>(null)
-  const [activeResultsTab, setActiveResultsTab] = useState<ResultsTab>('overview')
+  const [activeResultsTab, setActiveResultsTab] = useState<ResultsTab>(() => {
+    const initial = typeof window !== 'undefined'
+      ? new URLSearchParams(window.location.search).get('tab')
+      : null
+    const valid: ResultsTab[] = ['overview', 'liability', 'medical', 'documents', 'value', 'attorney']
+    return initial && (valid as string[]).includes(initial) ? (initial as ResultsTab) : 'overview'
+  })
   // Attorneys beyond the plaintiff's own picks are proposed, never contacted, until
   // approved here (SB 37 / Bus. & Prof. Code § 6155(g)).
   const [pendingBatch, setPendingBatch] = useState<PendingAttorneyBatch | null>(null)
@@ -901,6 +883,27 @@ export default function Results() {
   const [pendingBatchResolved, setPendingBatchResolved] = useState<'approved' | 'declined' | null>(null)
   const medicalReviewRef = useRef<HTMLDivElement | null>(null)
   const fullReportDetailsRef = useRef<HTMLDetailsElement | null>(null)
+  // Invalidate in-flight case-insights polls so a stale GET cannot overwrite a
+  // just-confirmed medical review (5s polling raced the confirm POST).
+  const caseInsightsRequestIdRef = useRef(0)
+  const medicalReviewSavingRef = useRef(false)
+
+  useEffect(() => {
+    const valid: ResultsTab[] = ['overview', 'liability', 'medical', 'documents', 'value', 'attorney']
+    if (!tabFromUrl || !(valid as string[]).includes(tabFromUrl)) return
+    setActiveResultsTab(tabFromUrl as ResultsTab)
+    // Liability / Documents / Medical tips live inside the collapsible Full Case Report.
+    const openFullReport = () => {
+      const el = fullReportDetailsRef.current
+      if (el) el.open = true
+    }
+    openFullReport()
+    // Details may mount after the first paint when the report finishes loading.
+    const t = window.setTimeout(openFullReport, 80)
+    return () => window.clearTimeout(t)
+    // Only react to tab URL changes — not assessment reloads — so Confirm Timeline
+    // (and similar in-tab actions) are not yanked back to a stale ?tab= value.
+  }, [tabFromUrl])
 
   const parsedFacts = (() => {
     if (typeof assessment?.facts === 'string') {
@@ -1121,6 +1124,15 @@ export default function Results() {
     setRankedAttorneyIds((current) => (current.includes(attorneyId) ? current : [...current, attorneyId]))
   }
 
+  const syncFullReportTab = (tab: ResultsTab) => {
+    setActiveResultsTab(tab)
+    const next = new URLSearchParams(searchParams)
+    next.set('tab', tab)
+    if (forceReportView || caseSubmittedForReview) next.set('view', 'report')
+    setSearchParams(next, { replace: true })
+    if (fullReportDetailsRef.current) fullReportDetailsRef.current.open = true
+  }
+
   const persistPlaintiffMedicalReview = async (options?: {
     status?: 'pending' | 'confirmed' | 'skipped'
     successMessage?: string
@@ -1130,38 +1142,94 @@ export default function Results() {
     // "I'll do this later" / confirm buttons silently dead when the review
     // payload hadn't loaded (e.g. the medical-malpractice snapshot), since
     // edits already falls back to [] below (#25).
-    if (!resolvedAssessmentId) return
-    if (isSharedReadOnly) return // view-only shared report cannot mutate the case (#12)
+    const assessmentIdForSave = resolvedAssessmentId || assessment?.id
+    if (!assessmentIdForSave) {
+      setMedicalReviewError('We could not find this case to save your timeline. Refresh and try again.')
+      return
+    }
+    if (isSharedReadOnly) {
+      setMedicalReviewError('This shared report is view-only. Open your own case to confirm the timeline.')
+      return
+    }
+    if (medicalReviewSavingRef.current) return
+
+    const nextStatus = options?.status
+    const sanitizedEdits = (plaintiffMedicalReview?.review?.edits ?? []).filter(
+      (edit) => typeof edit?.eventId === 'string' && edit.eventId.trim().length > 0,
+    )
+
+    // Drop any in-flight poll so it cannot rewrite status back to pending.
+    caseInsightsRequestIdRef.current += 1
+    medicalReviewSavingRef.current = true
+    setMedicalReviewSaving(true)
+    setMedicalReviewError(null)
+    setMedicalReviewStatus(null)
+
+    // Optimistic UI — plaintiffs should see "confirmed" immediately even if the
+    // network is slow or a poll was mid-flight.
+    if (nextStatus === 'confirmed' || nextStatus === 'skipped' || nextStatus === 'pending') {
+      const nowIso = new Date().toISOString()
+      setPlaintiffMedicalReview((current) => {
+        const base: PlaintiffMedicalReviewPayload = current ?? {
+          chronology: medicalChronology,
+          missingItems: { important: [], helpful: [] },
+          review: { status: 'pending', edits: sanitizedEdits },
+        }
+        return {
+          ...base,
+          review: {
+            ...base.review,
+            status: nextStatus,
+            edits: sanitizedEdits,
+            confirmedAt: nextStatus === 'confirmed' ? nowIso : undefined,
+            skippedAt: nextStatus === 'skipped' ? nowIso : undefined,
+          },
+        }
+      })
+    }
+
     try {
-      setMedicalReviewSaving(true)
-      setMedicalReviewError(null)
-      setMedicalReviewStatus(null)
-      const nextReview = await savePlaintiffMedicalReview(resolvedAssessmentId, {
-        status: options?.status,
-        edits: plaintiffMedicalReview?.review?.edits ?? [],
+      const nextReview = await savePlaintiffMedicalReview(assessmentIdForSave, {
+        status: nextStatus,
+        edits: sanitizedEdits,
       })
       setPlaintiffMedicalReview(nextReview)
       setMedicalChronology(Array.isArray(nextReview.chronology) ? nextReview.chronology : [])
       setMedicalReviewStatus(
         options?.successMessage ||
-          (options?.status === 'confirmed'
+          (nextStatus === 'confirmed'
             ? 'Your medical story is confirmed.'
-            : options?.status === 'skipped'
+            : nextStatus === 'skipped'
               ? 'You can still send your case now, and attorneys can follow up if needed.'
               : 'Your medical-story updates were saved.')
       )
-      if (options?.status === 'confirmed' || options?.status === 'skipped') {
-        setActiveResultsTab('attorney')
-        window.setTimeout(() => {
-          document.getElementById('attorney-handoff')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-          if (reviewRequested) {
-            void openSendModal(options.status)
-          }
-        }, 100)
+      if (nextStatus === 'confirmed' || nextStatus === 'skipped') {
+        // After submit (Full Case Report / ?view=report), stay on Medical Story so
+        // the plaintiff sees the confirmed state — do not yank them to the
+        // pre-submit "Send My Case" attorney handoff. Avoid setSearchParams here;
+        // URL churn was fighting the confirmed UI.
+        if (caseSubmittedForReview || forceReportView) {
+          setActiveResultsTab('medical')
+          if (fullReportDetailsRef.current) fullReportDetailsRef.current.open = true
+          window.setTimeout(() => {
+            medicalReviewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+          }, 80)
+        } else {
+          syncFullReportTab('attorney')
+          window.setTimeout(() => {
+            document.getElementById('attorney-handoff')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+            if (reviewRequested) {
+              void openSendModal(nextStatus)
+            }
+          }, 100)
+        }
       }
     } catch (error: any) {
       setMedicalReviewError(error?.response?.data?.error || 'We could not save your medical-story review. Please try again.')
+      // Invalidate so the next poll restores server state after the failed write.
+      caseInsightsRequestIdRef.current += 1
     } finally {
+      medicalReviewSavingRef.current = false
       setMedicalReviewSaving(false)
     }
   }
@@ -1267,6 +1335,16 @@ export default function Results() {
       setSendModalOpen(false)
       // Store case ID so Dashboard can associate if needed (backup for API association)
       localStorage.setItem('pending_assessment_id', resolvedAssessmentId)
+      // Carry the choose-attorney contact details into signup so Create Account
+      // prefills email/phone/name (the confirmation screen uses a separate CTA
+      // that previously never wrote pending_registration).
+      if (!isLoggedIn) {
+        savePendingRegistration({
+          firstName: firstName.trim(),
+          email: email.trim(),
+          phone: phone.trim(),
+        })
+      }
       if (isLoggedIn) {
         // Redirect signed-in users to dashboard with case param so they land on their case
         const target = `${window.location.origin}/dashboard?case=${resolvedAssessmentId}`
@@ -1481,6 +1559,7 @@ export default function Results() {
 
   const loadCaseInsights = useCallback(async () => {
     if (!resolvedAssessmentId) return
+    const requestId = ++caseInsightsRequestIdRef.current
     try {
       const [assessmentData, chronology, preparation, plaintiffReview, benchmarks, commandSummary] = await Promise.all([
         getAssessment(resolvedAssessmentId).catch(() => null),
@@ -1490,6 +1569,9 @@ export default function Results() {
         getSettlementBenchmarks(resolvedAssessmentId).catch(() => null),
         getAssessmentCommandCenter(resolvedAssessmentId).catch(() => null),
       ])
+      // A newer poll or confirm/skip write started while we were in flight.
+      if (requestId !== caseInsightsRequestIdRef.current) return
+      if (medicalReviewSavingRef.current) return
       if (assessmentData) {
         setAssessment(assessmentData)
         setCaseSubmittedForReview(!!assessmentData.submittedForReview)
@@ -1533,6 +1615,7 @@ export default function Results() {
       setSettlementBenchmarks(benchmarks)
       setCommandCenter(commandSummary)
     } catch {
+      if (requestId !== caseInsightsRequestIdRef.current) return
       setMedicalChronology([])
       setCasePreparation(null)
       setPlaintiffMedicalReview(null)
@@ -1553,7 +1636,8 @@ export default function Results() {
       await loadCaseInsights()
       return Date.now()
     },
-    refetchInterval: 5000,
+    // Pause while confirming so a mid-save poll cannot flash the pending banner back.
+    refetchInterval: medicalReviewSaving ? false : 5000,
     refetchIntervalInBackground: false,
   })
 
@@ -2129,31 +2213,6 @@ export default function Results() {
     { label: 'Other litigation expenses', amount: costOtherExpenses, stage: 'pre' as const },
   ]
   const litigationCostTotal = litigationCostItems.reduce((sum, item) => sum + item.amount, 0)
-  // Pre-suit subset feeds the net-recovery deduction so the headline figure is
-  // not penalized by costs that only occur if the case is actively litigated.
-  const preSuitCaseExpenses = litigationCostItems
-    .filter((item) => item.stage === 'pre')
-    .reduce((sum, item) => sum + item.amount, 0)
-
-  // ---- Estimated net recovery ("take-home") ----
-  const netAttorneyFee = Math.round(displaySettlementExpected * 0.33)
-  // Medical liens/bills are almost never repaid at full billed charges: health-insurer,
-  // Medicare and ERISA liens are based on the (lower) amounts actually paid, and provider
-  // liens are routinely negotiated down. Modeling the payoff at full billed charges made
-  // the take-home collapse to $0 and contradicted the "liens are commonly negotiated down"
-  // note. Estimate a realistic negotiated payoff (~60% of billed) instead, still capped at
-  // the settlement since liens can't be paid beyond the available recovery.
-  const LIEN_NEGOTIATION_FACTOR = 0.6
-  const netMedicalLiens = Math.round(Math.min(documentedMedicalCharges * LIEN_NEGOTIATION_FACTOR, displaySettlementExpected))
-  const netCaseExpenses = preSuitCaseExpenses
-  // Raw (unclamped) take-home. In a contingency case the plaintiff never owes
-  // out of pocket beyond the recovery, so the headline is floored at $0 — but a
-  // bare green "$0" implied break-even when deductions actually meet/exceed the
-  // settlement, so we surface that explicitly in the UI (#22).
-  const netEstimatedRecoveryRaw = displaySettlementExpected - netAttorneyFee - netMedicalLiens - netCaseExpenses
-  const netEstimatedRecovery = Math.max(0, netEstimatedRecoveryRaw)
-  const netRecoveryExhaustedByCosts = netEstimatedRecoveryRaw <= 0
-
   // Inputs that would most improve a sparse valuation (shown as a missing-data note).
   const valuationMissingInputs = [
     !hasMedicalRecords && 'medical records',
@@ -2418,17 +2477,6 @@ export default function Results() {
       { label: 'Documentation', value: scoreLabel(documentationScore, { high: 'Strong', medium: 'Developing', low: 'Low' }), tone: toneFromPct(documentationScore), desc: `${documentationScore}% of key documents added.` },
       { label: 'Venue (Location)', value: venueFriendlinessScore >= 4 ? 'Favorable' : 'Moderate', tone: venueFriendlinessScore >= 4 ? 'strong' : 'moderate', desc: formatVenueLabel(venueState, venueCounty) || 'Venue unavailable' },
     ]
-    const netRecovery = displaySettlementExpected > 0
-      ? {
-          settlementText: formatCurrency(displaySettlementExpected),
-          attorneyFeeText: formatCurrency(netAttorneyFee),
-          medicalLiensLabel: 'Medical liens (est.)',
-          medicalLiensText: formatCurrency(netMedicalLiens),
-          caseExpensesText: formatCurrency(netCaseExpenses),
-          totalText: formatCurrency(netEstimatedRecovery),
-          exhausted: netRecoveryExhaustedByCosts,
-        }
-      : null
     const litigationCosts = hasValuation
       ? {
           items: litigationCostItems.map((item) => ({
@@ -2511,7 +2559,6 @@ export default function Results() {
       valuationMissingInputs,
       trialValueText,
       trialExpectedText: formatCurrency(Math.round((potentialTrialLow + potentialTrialHigh) / 2)),
-      netRecovery,
       litigationCosts,
       liabilityLabel: liabilitySnapshotLabel,
       liabilitySummary: liabilitySummary || 'Based on the facts provided, fault may rest with the other party. More evidence will strengthen liability.',
@@ -2836,6 +2883,9 @@ Checklist:
     void openSendModal()
   }
   const openAttorneyReviewFlow = () => {
+    // Already in the attorney-review queue — don't reopen the send flow from
+    // the case report (?view=report) after submission.
+    if (caseSubmittedForReview) return
     if (medicalReviewPending) {
       setMedicalReviewError('Review your treatment timeline before submitting. You can confirm it, make changes, or skip it for now.')
       openAnchoredResultsSection('#medical-story-review')
@@ -3012,8 +3062,8 @@ Checklist:
     const sendStep = {
       title: t('results.calc.nsSendReview'),
       desc: t('results.calc.nsSendReviewDesc'),
-      done: false,
-      primary: true,
+      done: caseSubmittedForReview,
+      primary: !caseSubmittedForReview,
       cta: t('results.calc.nsSendCta'),
       action: openAttorneyReviewFlow,
     }
@@ -3126,11 +3176,71 @@ Checklist:
     { score: '95%+', label: t('results.calc.liabStepReportPhotosVideo'), desc: t('results.calc.liabStepReportPhotosVideoDesc') },
   ]
   const liabVenueImpactLow = Math.max(5, Math.round(venueImpactPercent * 0.6))
-  const liabRecommendedSteps = [
-    { label: t('results.calc.liabRecUploadPolice'), impact: '+15%', desc: t('results.calc.liabRecUploadPoliceDesc') },
-    { label: t('results.calc.liabRecAddWitness'), impact: '+12%', desc: t('results.calc.liabRecAddWitnessDesc') },
-    { label: t('results.calc.liabRecUploadPhotos'), impact: '+10%', desc: t('results.calc.liabRecUploadPhotosDesc') },
-    { label: t('results.calc.liabRecConfirmInsurance'), impact: '+8%', desc: t('results.calc.liabRecConfirmInsuranceDesc') },
+  // Full Case Report → Liability Analysis tips: deep-link Supporting Documents with
+  // a category focus, and return to this Liability panel after upload.
+  const liabReportReturnTo = evidenceUploadTargetId
+    ? `/results/${evidenceUploadTargetId}?${new URLSearchParams({
+        ...(forceReportView || caseSubmittedForReview ? { view: 'report' } : {}),
+        tab: 'liability',
+      }).toString()}`
+    : undefined
+  const liabEvidenceHref = (focus?: string) => {
+    if (!evidenceUploadTargetId || isSharedReadOnly) return undefined
+    const qs = new URLSearchParams({
+      assessment: evidenceUploadTargetId,
+      step: 'evidence',
+      from: 'results',
+    })
+    if (focus) qs.set('focus', focus)
+    if (liabReportReturnTo) qs.set('returnTo', liabReportReturnTo)
+    return `/intake2?${qs.toString()}`
+  }
+  const openFullReportDocumentsTab = () => {
+    if (isSharedReadOnly) return
+    setActiveResultsTab('documents')
+    if (fullReportDetailsRef.current) fullReportDetailsRef.current.open = true
+    const next = new URLSearchParams(searchParams)
+    next.set('tab', 'documents')
+    if (forceReportView || caseSubmittedForReview) next.set('view', 'report')
+    setSearchParams(next, { replace: true })
+  }
+  const liabRecommendedSteps: Array<{
+    label: string
+    impact: string
+    desc: string
+    cta: string
+    href?: string
+    onActivate?: () => void
+  }> = [
+    {
+      label: t('results.calc.liabRecUploadPolice'),
+      impact: '+15%',
+      desc: t('results.calc.liabRecUploadPoliceDesc'),
+      cta: t('results.shared.upload'),
+      href: liabEvidenceHref('police_report'),
+    },
+    {
+      label: t('results.calc.liabRecAddWitness'),
+      impact: '+12%',
+      desc: t('results.calc.liabRecAddWitnessDesc'),
+      cta: t('results.shared.upload'),
+      href: liabEvidenceHref('witness_statements'),
+    },
+    {
+      label: t('results.calc.liabRecUploadPhotos'),
+      impact: '+10%',
+      desc: t('results.calc.liabRecUploadPhotosDesc'),
+      cta: t('results.shared.upload'),
+      href: liabEvidenceHref('photos'),
+    },
+    {
+      label: t('results.calc.liabRecConfirmInsurance'),
+      impact: '+8%',
+      desc: t('results.calc.liabRecConfirmInsuranceDesc'),
+      cta: t('results.liability.viewInsurance'),
+      // Stays inside Full Case Report → Evidence & Documents.
+      onActivate: isSharedReadOnly ? undefined : openFullReportDocumentsTab,
+    },
   ]
 
   // ---- Medical Story tab derived values ----
@@ -3235,7 +3345,7 @@ Checklist:
   // view (e.g. handleDownloadReportPdf) can safely reference them; an earlier return
   // would leave those consts in the temporal dead zone and throw when a guest uses
   // the confirmation screen (e.g. Download PDF).
-  if (caseSubmittedForReview) {
+  if (caseSubmittedForReview && !forceReportView) {
     const submissionTimeline = [
       { label: t('results.calc.subCaseSubmitted'), done: true },
       { label: t('results.calc.subAttorneysReviewing'), done: false },
@@ -3258,6 +3368,11 @@ Checklist:
           submissionTimeline={submissionTimeline}
           venueCounty={venueCounty}
           venueState={venueState}
+          contactPrefill={{
+            firstName: contactForm.firstName,
+            email: contactForm.email,
+            phone: contactForm.phone,
+          }}
         />
       </Suspense>
     )
@@ -3898,11 +4013,17 @@ Checklist:
               <Calendar className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
               <span>{t('results.chrome.incidentDate')} {snapshotIncidentDate ?? t('results.chrome.notProvided')}</span>
             </div>
-            <div className="flex items-center gap-2 text-sm font-medium text-slate-800">
-              <ClipboardList className="h-4 w-4 shrink-0 text-emerald-500" aria-hidden />
-              <span>
+            <div className="flex items-start gap-2 text-sm font-medium text-slate-800">
+              <ClipboardList className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" aria-hidden />
+              <span className="min-w-0">
                 {t('results.chrome.filingDeadline')} {solDeadlineShort ?? t('results.chrome.tbd')}
                 {solDaysRemaining != null && <span className="block text-xs font-normal text-slate-500">{solDaysRemaining} {t('results.chrome.daysRemaining')}</span>}
+                <InfoDisclosure
+                  caption={t('results.chrome.filingDeadlineTipCaption')}
+                  detail={t('results.chrome.filingDeadlineTipInfo')}
+                  moreLabel={t('results.chrome.moreInfo')}
+                  compact
+                />
               </span>
             </div>
           </div>
@@ -3987,6 +4108,12 @@ Checklist:
                 </div>
                 <div className="mt-1.5 flex justify-between text-[11px] text-slate-500"><span>{t('results.shared.weak')}</span><span>{t('results.shared.moderate')}</span><span>{t('results.shared.strong')}</span></div>
               </div>
+              <InfoDisclosure
+                caption={t('results.chrome.liabilityTipCaption')}
+                detail={t('results.chrome.liabilityTipInfo')}
+                moreLabel={t('results.chrome.moreInfo')}
+                compact
+              />
               {evidenceUploadPath && liabilityChecklist.some((row) => !row.ok) && (
                 <div className="mt-auto pt-4">
                   <Link
@@ -4023,6 +4150,12 @@ Checklist:
                 </div>
                 <div className="mt-1.5 flex justify-between text-[11px] text-slate-500"><span>{t('results.shared.low')}</span><span>{t('results.shared.building')}</span><span>{t('results.shared.high')}</span></div>
               </div>
+              <InfoDisclosure
+                caption={t('results.chrome.attorneyInterestTipCaption')}
+                detail={t('results.chrome.attorneyInterestTipInfo')}
+                moreLabel={t('results.chrome.moreInfo')}
+                compact
+              />
               {evidenceUploadPath && attorneyInterestMissing.length > 0 && (
                 <div className="mt-auto pt-4">
                   <Link
@@ -4135,13 +4268,22 @@ Checklist:
             >
               <Download className="h-3.5 w-3.5" /> {t('results.chrome.downloadReport')}
             </button>
-            <button
-              type="button"
-              onClick={openAttorneyReviewFlow}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-brand-700 px-3.5 py-2 text-xs font-semibold text-white shadow-sm hover:bg-brand-800"
-            >
-              {t('results.shared.continueReview')} <ChevronRight className="h-3.5 w-3.5" />
-            </button>
+            {caseSubmittedForReview ? (
+              <Link
+                to="/dashboard"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-brand-700 px-3.5 py-2 text-xs font-semibold text-white shadow-sm hover:bg-brand-800"
+              >
+                {t('evidence.viewDashboard')} <ChevronRight className="h-3.5 w-3.5" />
+              </Link>
+            ) : (
+              <button
+                type="button"
+                onClick={openAttorneyReviewFlow}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-brand-700 px-3.5 py-2 text-xs font-semibold text-white shadow-sm hover:bg-brand-800"
+              >
+                {t('results.shared.continueReview')} <ChevronRight className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
         </div>
         <nav className="surface-panel mb-6 overflow-x-auto p-2" aria-label={t('results.aria.sections')}>
@@ -4150,7 +4292,12 @@ Checklist:
               <button
                 key={tab.id}
                 type="button"
-                onClick={() => setActiveResultsTab(tab.id)}
+                onClick={() => {
+                  setActiveResultsTab(tab.id)
+                  const next = new URLSearchParams(searchParams)
+                  next.set('tab', tab.id)
+                  setSearchParams(next, { replace: true })
+                }}
                 className={`workspace-tab text-left ${
                   activeResultsTab === tab.id
                     ? 'workspace-tab-active'
@@ -4284,6 +4431,12 @@ Checklist:
                 {hasLiabilityScore ? liabStrengthLabel : t('results.notScoredYet')}
               </p>
               <p className="mt-0.5 text-[11px] text-slate-500">{t('results.liability.strengthOfPosition')}</p>
+              <InfoDisclosure
+                caption={t('results.liability.strengthTipCaption')}
+                detail={t('results.liability.strengthTipInfo')}
+                moreLabel={t('results.chrome.moreInfo')}
+                compact
+              />
             </div>
 
             {/* Most likely at fault */}
@@ -4317,6 +4470,12 @@ Checklist:
                 </div>
                 <div className="mt-1.5 flex justify-between text-[10px] text-slate-500"><span>{t('results.shared.low')}</span><span>{t('results.shared.medium')}</span><span>{t('results.shared.high')}</span></div>
               </div>
+              <InfoDisclosure
+                caption={t('results.liability.comparativeTipCaption')}
+                detail={t('results.liability.comparativeTipInfo')}
+                moreLabel={t('results.chrome.moreInfo')}
+                compact
+              />
             </div>
           </div>
 
@@ -4458,21 +4617,49 @@ Checklist:
             </div>
           </div>
 
-          {/* Recommended next steps */}
+          {/* Recommended next steps — Full Case Report → Liability Analysis */}
           <div className="rounded-2xl border border-amber-100 bg-amber-50/40 p-5 shadow-sm">
             <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-900"><Lightbulb className="h-4 w-4 text-amber-500" aria-hidden /> {t('results.liability.recommendedSteps')}</p>
             <p className="mt-0.5 text-sm text-slate-500">{t('results.liability.recommendedStepsSub')}</p>
             <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              {liabRecommendedSteps.map((step, i) => (
-                <div key={step.label} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-                  <div className="flex items-center justify-between">
-                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-brand-100 text-[11px] font-bold text-brand-700">{i + 1}</span>
-                    <span className="text-xs font-bold text-emerald-600">{step.impact}</span>
+              {liabRecommendedSteps.map((step, i) => {
+                const cardClass =
+                  'group block cursor-pointer rounded-xl border border-slate-200 bg-white p-3 shadow-sm text-left transition-all hover:border-brand-300 hover:bg-brand-50/40 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500'
+                const body = (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-brand-100 text-[11px] font-bold text-brand-700">{i + 1}</span>
+                      <span className="text-xs font-bold text-emerald-600">{step.impact}</span>
+                    </div>
+                    <p className="mt-2 text-sm font-semibold text-slate-900">{step.label}</p>
+                    <p className="text-[11px] text-slate-500">{step.desc}</p>
+                    {(step.href || step.onActivate) && (
+                      <p className="mt-2 inline-flex items-center gap-0.5 text-[11px] font-semibold text-brand-700">
+                        {step.cta} <ChevronRight className="h-3 w-3" aria-hidden />
+                      </p>
+                    )}
+                  </>
+                )
+                if (step.href) {
+                  return (
+                    <Link key={step.label} to={step.href} className={cardClass}>
+                      {body}
+                    </Link>
+                  )
+                }
+                if (step.onActivate) {
+                  return (
+                    <button key={step.label} type="button" onClick={step.onActivate} className={cardClass}>
+                      {body}
+                    </button>
+                  )
+                }
+                return (
+                  <div key={step.label} className={cardClass}>
+                    {body}
                   </div>
-                  <p className="mt-2 text-sm font-semibold text-slate-900">{step.label}</p>
-                  <p className="text-[11px] text-slate-500">{step.desc}</p>
-                </div>
-              ))}
+                )
+              })}
             </div>
           </div>
 
@@ -4516,13 +4703,37 @@ Checklist:
                   </div>
                 </div>
                 <div className="flex shrink-0 flex-col gap-2 sm:items-end">
-                  <button type="button" onClick={() => persistPlaintiffMedicalReview({ status: 'confirmed' })} className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-brand-700 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-800">
-                    <CheckCircle className="h-4 w-4" aria-hidden /> {t('results.medical.confirmTimeline')}
+                  <button
+                    type="button"
+                    disabled={medicalReviewSaving}
+                    onClick={(event) => {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      void persistPlaintiffMedicalReview({ status: 'confirmed' })
+                    }}
+                    className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-brand-700 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-800 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <CheckCircle className="h-4 w-4" aria-hidden />
+                    {medicalReviewSaving ? t('results.calc.saving') : t('results.medical.confirmTimeline')}
                   </button>
                   <div className="flex gap-3 text-xs font-semibold">
                     <Link to={`/evidence-upload/${resolvedAssessmentId || assessment?.id}`} className="text-brand-700 hover:text-brand-800">{t('results.shared2.uploadMoreRecords')}</Link>
-                    <button type="button" onClick={() => persistPlaintiffMedicalReview({ status: 'skipped' })} className="text-slate-500 hover:text-slate-700">{t('results.shared.iolLater')}</button>
+                    <button
+                      type="button"
+                      disabled={medicalReviewSaving}
+                      onClick={(event) => {
+                        event.preventDefault()
+                        event.stopPropagation()
+                        void persistPlaintiffMedicalReview({ status: 'skipped' })
+                      }}
+                      className="text-slate-500 hover:text-slate-700 disabled:opacity-60"
+                    >
+                      {t('results.shared.iolLater')}
+                    </button>
                   </div>
+                  {medicalReviewError && (
+                    <p className="max-w-xs text-right text-xs font-medium text-red-600" role="alert">{medicalReviewError}</p>
+                  )}
                 </div>
               </div>
             </div>
@@ -4564,6 +4775,12 @@ Checklist:
               </div>
               <p className="mt-1 text-xs font-semibold text-emerald-600">{medTreatmentStrengthLabel}</p>
               <p className="mt-0.5 text-[10px] leading-4 text-slate-400">{t('results.medical.treatmentStrengthSub')}</p>
+              <InfoDisclosure
+                caption={t('results.medical.treatmentStrengthTipCaption')}
+                detail={t('results.medical.treatmentStrengthTipInfo')}
+                moreLabel={t('results.chrome.moreInfo')}
+                compact
+              />
             </div>
             {/* Injury severity (semicircle) */}
             <div className="rounded-2xl border border-slate-200 bg-white p-4 text-center shadow-sm">
@@ -4578,6 +4795,12 @@ Checklist:
               <p className="mt-0.5 text-[10px] leading-4 text-slate-400">
                 {t('results.medical.severityScore')} {hasSeverityScore ? `${medSeverityPct} / 100` : '\u2014'}
               </p>
+              <InfoDisclosure
+                caption={t('results.medical.injurySeverityTipCaption')}
+                detail={t('results.medical.injurySeverityTipInfo')}
+                moreLabel={t('results.chrome.moreInfo')}
+                compact
+              />
             </div>
             {/* Case readiness */}
             <div className="rounded-2xl border border-slate-200 bg-white p-4 text-center shadow-sm">
@@ -5781,36 +6004,58 @@ Checklist:
             </div>
           </div>
 
-          {/* Bottom submit CTA */}
+          {/* Bottom submit CTA — after submit, show status instead of re-send */}
           <div id="attorney-handoff" className="scroll-mt-6 min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            {medicalReviewPending && (
-              <p className="mb-3 text-center text-sm text-amber-700">
-                {t('results.next.reviewBeforeSubmit')}
-              </p>
-            )}
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-center gap-3">
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-50 text-brand-600"><Star className="h-5 w-5" aria-hidden /></span>
-                <div>
-                  <p className="text-sm font-semibold text-slate-900">{t('results.next.readyToSee')}</p>
-                  <p className="text-xs text-slate-500">{t('results.next.submitNowResponses')}</p>
+            {caseSubmittedForReview ? (
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-3">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-600"><CheckCircle className="h-5 w-5" aria-hidden /></span>
+                  <div>
+                    <p className="text-sm font-semibold text-slate-900">{t('plaintiffDashboard.myCases.underReview')}</p>
+                    <p className="text-xs text-slate-500">{t('results.next.submitNowResponses')}</p>
+                  </div>
                 </div>
-              </div>
-              <div className="text-center sm:text-right">
-                <button
-                  type="button"
-                  onClick={openAttorneyReviewFlow}
+                <Link
+                  to="/dashboard"
                   className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-brand-700 px-6 py-3 text-base font-semibold text-white shadow-sm transition-colors hover:bg-brand-800 sm:w-auto"
                 >
-                  {medicalReviewPending ? t('results.shared.continueReview') : t('results.next.sendMyCase')}
+                  {t('evidence.viewDashboard')}
                   <ChevronRight className="h-4 w-4" aria-hidden />
-                </button>
-                <p className="mt-1.5 text-[11px] text-slate-400">{t('results.next.noObligationFree')}</p>
+                </Link>
               </div>
-            </div>
+            ) : (
+              <>
+                {medicalReviewPending && (
+                  <p className="mb-3 text-center text-sm text-amber-700">
+                    {t('results.next.reviewBeforeSubmit')}
+                  </p>
+                )}
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex items-center gap-3">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-50 text-brand-600"><Star className="h-5 w-5" aria-hidden /></span>
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900">{t('results.next.readyToSee')}</p>
+                      <p className="text-xs text-slate-500">{t('results.next.submitNowResponses')}</p>
+                    </div>
+                  </div>
+                  <div className="text-center sm:text-right">
+                    <button
+                      type="button"
+                      onClick={openAttorneyReviewFlow}
+                      className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-brand-700 px-6 py-3 text-base font-semibold text-white shadow-sm transition-colors hover:bg-brand-800 sm:w-auto"
+                    >
+                      {medicalReviewPending ? t('results.shared.continueReview') : t('results.next.sendMyCase')}
+                      <ChevronRight className="h-4 w-4" aria-hidden />
+                    </button>
+                    <p className="mt-1.5 text-[11px] text-slate-400">{t('results.next.noObligationFree')}</p>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
 
-          {/* Sticky next-step bar (mobile) — keeps the single primary action always visible */}
+          {/* Sticky next-step bar (mobile) — hide after submit; keep for pre-submit only */}
+          {!caseSubmittedForReview && (
           <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 px-4 py-3 shadow-[0_-4px_12px_rgba(0,0,0,0.08)] backdrop-blur lg:hidden">
             <div className="mx-auto flex max-w-lg items-center gap-3">
               <div className="min-w-0 flex-1">
@@ -5829,6 +6074,7 @@ Checklist:
               </button>
             </div>
           </div>
+          )}
         </section>
         )}
           </div>
@@ -5840,6 +6086,7 @@ Checklist:
         <ResultsReportDetails
           assessmentId={assessment.id}
           assessmentClaimType={assessment?.claimType}
+          caseSubmittedForReview={caseSubmittedForReview}
           evidenceCompletionPercent={evidenceCompletionPercent}
           handleCopyShareLink={handleCopyShareLink}
           handleDownloadReportPdf={handleDownloadReportPdf}
