@@ -20,7 +20,7 @@ import {
   applySoleAttorneyAssignee,
   findSoleAttorneyForAssessment,
 } from './sole-firm-attorney'
-import { formatClaimType } from '../../../shared/claim-types'
+import { formatClaimType } from './claim-types'
 
 const OPENING_MILESTONE = 'case_opening'
 

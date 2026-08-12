@@ -12148,7 +12148,7 @@ router.post('/leads/:leadId/tasks/sol', authMiddleware, async (req: any, res) =>
 
     const sol = calculateSOL(incidentDate, { state: venueState }, claimType)
     const status = getSOLStatus(sol.daysRemaining)
-    const { formatClaimType } = await import('../../../shared/claim-types')
+    const { formatClaimType } = await import('../lib/claim-types')
     const title = `Statute of limitations (${venueState} • ${formatClaimType(claimType)})`
     const record = await prisma.caseTask.create({
       data: {
@@ -15408,7 +15408,7 @@ router.post('/leads/:leadId/decision', authMiddleware, async (req: any, res) => 
         })
         preCheck = ran.saved
       }
-      if (conflictNeedsAcknowledgment(preCheck) && !conflictAcknowledged && !preCheck.acknowledgedAt) {
+      if (preCheck && conflictNeedsAcknowledgment(preCheck) && !conflictAcknowledged && !preCheck.acknowledgedAt) {
         return res.status(409).json({
           error:
             'A preliminary conflict was flagged. Acknowledge the conflict check before accepting this case.',

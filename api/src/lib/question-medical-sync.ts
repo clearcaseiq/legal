@@ -246,7 +246,7 @@ async function writeMedicalPatchToFacts(assessmentId: string, patch: MedicalFact
   if (patch.symptoms) {
     const existing = Array.isArray(facts.symptoms) ? facts.symptoms.map(String) : []
     if (patch.symptoms.length === 0 && patch.surgeryStatus === null) {
-      facts.symptoms = existing.filter((s) => !/headache|numbness|tingling|dizziness|radiating/i.test(s))
+      facts.symptoms = existing.filter((s: string) => !/headache|numbness|tingling|dizziness|radiating/i.test(s))
     } else {
       facts.symptoms = [...new Set([...existing, ...patch.symptoms])]
     }
