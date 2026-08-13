@@ -15,6 +15,7 @@
  */
 import { logger } from './logger'
 import { getLlmChatClient, LLM_CHAT_MODEL } from './llm-client'
+import { llmAllowPhi } from './llm-prompt-sanitize'
 
 const openai = getLlmChatClient()
 
@@ -477,6 +478,8 @@ export async function narrateDemandLetter(
   context: DemandNarrationContext,
 ): Promise<NarratedDemandLetter> {
   if (!openai) return { sections, source: 'deterministic' }
+  // Demand narration is inherently clinical — require LLM_ALLOW_PHI=true (BAA).
+  if (!llmAllowPhi()) return { sections, source: 'deterministic' }
 
   // Figures anywhere in the deterministic draft are fair game to restate; any
   // other amount is fabricated.

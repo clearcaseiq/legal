@@ -181,7 +181,12 @@ export default function CaseIntelligencePanel({
     const key = `${gap.key}:${action}`
     setActioned((prev) => ({ ...prev, [key]: 'loading' }))
     try {
-      await runCaseIntelligenceGapAction(leadId, { label: gap.label, action, severity: gap.severity })
+      await runCaseIntelligenceGapAction(leadId, {
+        label: gap.label,
+        action,
+        severity: gap.severity,
+        requestedDoc: gap.requestedDoc,
+      })
       setActioned((prev) => ({ ...prev, [key]: 'done' }))
     } catch {
       setActioned((prev) => { const next = { ...prev }; delete next[key]; return next })

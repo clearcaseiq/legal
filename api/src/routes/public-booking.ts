@@ -46,11 +46,36 @@ async function loadAttorney(slug: string) {
   })
 }
 
+/** Ensure every public booking page has at least one active meeting type. */
+async function ensureDefaultEventType(attorneyId: string) {
+  const existing = await prisma.attorneyEventType.findFirst({
+    where: { attorneyId, isActive: true },
+    select: { id: true },
+  })
+  if (existing) return
+
+  await prisma.attorneyEventType.create({
+    data: {
+      attorneyId,
+      name: '30-min consultation',
+      slug: 'consultation',
+      description: 'Case consultation',
+      durationMinutes: 30,
+      locationType: 'phone',
+      minNoticeMinutes: 120,
+      sortOrder: 0,
+      isActive: true,
+    },
+  })
+}
+
 // GET /v1/public/booking/:slug — attorney public profile + active event types.
 router.get('/:slug', async (req, res) => {
   try {
     const attorney = await loadAttorney(req.params.slug)
     if (!attorney) return res.status(404).json({ error: 'Booking page not found' })
+
+    await ensureDefaultEventType(attorney.id)
 
     const eventTypes = await prisma.attorneyEventType.findMany({
       where: { attorneyId: attorney.id, isActive: true },

@@ -46,14 +46,18 @@ import {
   getTaskHistory,
   getFirmColleagues,
   saveIntelligentQuestionAnswer,
+  getQuestionTaskProposals,
+  acceptQuestionTaskProposal,
+  declineQuestionTaskProposal,
   runLeadConflictCheck,
   type TaskDetail,
   type TaskSubtask,
   type TaskComment,
   type TaskHistoryEntry,
   type FirmColleague,
+  type QuestionTaskProposal,
 } from '../../lib/api'
-import { checkPoliceReportCollect, confirmRetainerSigned } from '../../lib/api-esign'
+import { checkEvidenceCollect, checkPoliceReportCollect, confirmRetainerSigned } from '../../lib/api-esign'
 import { isAiTask } from './TaskOriginBadge'
 import {
   resolveTaskHelpTooltip,
@@ -173,6 +177,9 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
   const [answerEditing, setAnswerEditing] = useState<Record<string, boolean>>({})
   const [answerSavingKey, setAnswerSavingKey] = useState<string | null>(null)
   const [answerError, setAnswerError] = useState<string | null>(null)
+  const [proposals, setProposals] = useState<QuestionTaskProposal[]>([])
+  const [proposalBusyId, setProposalBusyId] = useState<string | null>(null)
+  const [proposalBanner, setProposalBanner] = useState<string | null>(null)
 
   const [tab, setTab] = useState<'comments' | 'history'>('comments')
   const [comments, setComments] = useState<TaskComment[]>([])
@@ -236,6 +243,15 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
     setMentionOpen(false)
   }
 
+  const loadProposals = useCallback(async (refresh = false) => {
+    try {
+      const res = await getQuestionTaskProposals(leadId, refresh)
+      setProposals(Array.isArray(res.proposals) ? res.proposals : [])
+    } catch {
+      /* non-fatal */
+    }
+  }, [leadId])
+
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
@@ -247,12 +263,17 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
       const est = d.estimateMinutes || 0
       setEstHours(est ? String(Math.floor(est / 60)) : '')
       setEstMins(est ? String(est % 60) : '')
+      if (d.taskType === 'question') {
+        void loadProposals(false)
+      } else {
+        setProposals([])
+      }
     } catch (err: any) {
       setError(err?.response?.data?.error || 'Failed to load task.')
     } finally {
       setLoading(false)
     }
-  }, [leadId, taskId])
+  }, [leadId, taskId, loadProposals])
 
   useEffect(() => {
     void load()
@@ -324,9 +345,10 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
   const saveQuestionResponse = async (s: TaskSubtask, answerOverride?: string) => {
     setAnswerSavingKey(s.id)
     setAnswerError(null)
+    setProposalBanner(null)
     try {
       const draft = answerOverride !== undefined ? answerOverride : answerDrafts[s.id] ?? s.answer ?? ''
-      await saveIntelligentQuestionAnswer(leadId, {
+      const res = await saveIntelligentQuestionAnswer(leadId, {
         questionKey: s.id,
         questionText: s.title,
         section: s.section || null,
@@ -335,12 +357,47 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
       })
       setAnswerEditing((e) => ({ ...e, [s.id]: false }))
       setAnswerDrafts((d) => ({ ...d, [s.id]: draft }))
+      const nextProposals = Array.isArray(res.proposals) ? res.proposals : null
+      if ((res.proposalsCreated || 0) > 0) {
+        setProposalBanner(
+          `${res.proposalsCreated} suggested task${res.proposalsCreated === 1 ? '' : 's'} from this answer — accept or decline below.`,
+        )
+      }
       await load()
+      if (nextProposals) setProposals(nextProposals)
+      else void loadProposals(true)
       onChanged?.()
     } catch (err: any) {
       setAnswerError(err?.response?.data?.error || 'Failed to save response.')
     } finally {
       setAnswerSavingKey(null)
+    }
+  }
+
+  const acceptProposal = async (id: string) => {
+    setProposalBusyId(id)
+    try {
+      const res = await acceptQuestionTaskProposal(leadId, id)
+      setProposals(res.proposals || [])
+      setProposalBanner('Task added to your work queue.')
+      onChanged?.()
+    } catch (err: any) {
+      setAnswerError(err?.response?.data?.error || 'Failed to accept suggested task.')
+    } finally {
+      setProposalBusyId(null)
+    }
+  }
+
+  const declineProposal = async (id: string) => {
+    setProposalBusyId(id)
+    try {
+      const res = await declineQuestionTaskProposal(leadId, id)
+      setProposals(res.proposals || [])
+      onChanged?.()
+    } catch (err: any) {
+      setAnswerError(err?.response?.data?.error || 'Failed to decline suggested task.')
+    } finally {
+      setProposalBusyId(null)
     }
   }
 
@@ -500,6 +557,24 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
         setActionBusy(true)
         try {
           await checkPoliceReportCollect(leadId)
+          const d = await getTaskDetail(leadId, taskId)
+          setTask(d)
+          onChanged?.()
+        } catch {
+          // Still open Evidence.
+        } finally {
+          setActionBusy(false)
+        }
+      }
+      navigate(`/attorney-dashboard/cases/${leadId}/evidence`)
+      onClose()
+      return
+    }
+    if (kind === 'collect_medical_records' || kind === 'collect_bills') {
+      if (!done) {
+        setActionBusy(true)
+        try {
+          await checkEvidenceCollect(leadId, kind === 'collect_medical_records' ? 'medical_records' : 'bills')
           const d = await getTaskDetail(leadId, taskId)
           setTask(d)
           onChanged?.()
@@ -831,6 +906,77 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
                         )
                       })}
                     </ul>
+
+                    <div className="mt-4 overflow-hidden rounded-xl border border-amber-200 bg-amber-50/60">
+                        <div className="flex items-center justify-between gap-2 border-b border-amber-100 px-3 py-2">
+                          <div className="inline-flex items-center gap-1.5 text-sm font-semibold text-slate-800">
+                            <Sparkles className="h-4 w-4 text-amber-600" />
+                            Suggested from answers
+                            {proposals.length > 0 ? (
+                              <span className="rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-amber-800 ring-1 ring-amber-200">
+                                {proposals.length}
+                              </span>
+                            ) : null}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => void loadProposals(true)}
+                            className="text-xs font-semibold text-amber-800 hover:text-amber-950"
+                          >
+                            Refresh
+                          </button>
+                        </div>
+                        {proposalBanner ? (
+                          <p className="border-b border-amber-100 px-3 py-2 text-xs text-amber-900">{proposalBanner}</p>
+                        ) : null}
+                        {proposals.length === 0 ? (
+                          <p className="px-3 py-3 text-xs text-slate-500">
+                            No pending suggestions yet. Saving answers that imply follow-up work (e.g. missing police
+                            report, missed work, MRI ordered) will propose tasks here for you to accept or decline.
+                          </p>
+                        ) : (
+                          <ul className="divide-y divide-amber-100">
+                            {proposals.map((p) => {
+                              const busy = proposalBusyId === p.id
+                              return (
+                                <li key={p.id} className="px-3 py-2.5">
+                                  <div className="flex flex-wrap items-start justify-between gap-2">
+                                    <div className="min-w-0 flex-1">
+                                      <p className="text-sm font-medium text-slate-800">{p.title}</p>
+                                      {p.reason ? (
+                                        <p className="mt-0.5 text-xs text-slate-500">{p.reason}</p>
+                                      ) : null}
+                                      <p className="mt-1 text-[11px] uppercase tracking-wide text-slate-400">
+                                        {p.priority} priority
+                                        {p.assignedRole ? ` · ${p.assignedRole}` : ''}
+                                      </p>
+                                    </div>
+                                    <div className="flex shrink-0 items-center gap-1.5">
+                                      <button
+                                        type="button"
+                                        disabled={busy}
+                                        onClick={() => void acceptProposal(p.id)}
+                                        className="inline-flex items-center gap-1 rounded-lg bg-brand-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-60"
+                                      >
+                                        {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                                        Accept
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={busy}
+                                        onClick={() => void declineProposal(p.id)}
+                                        className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+                                      >
+                                        Decline
+                                      </button>
+                                    </div>
+                                  </div>
+                                </li>
+                              )
+                            })}
+                          </ul>
+                        )}
+                      </div>
                   </>
                 ) : (
                   <>

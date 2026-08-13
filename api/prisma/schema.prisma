@@ -285,6 +285,7 @@ model Assessment {
   caseWorkflow        CaseWorkflow?
   timeEntries         TimeEntry[]
   questionAnswers     CaseQuestionAnswer[]
+  aiRuns              AiRun[]
 
   // Data authority: the canonical change feed and the inbound reconciliation queue.
   changeEvents           CaseChangeEvent[]
@@ -2223,6 +2224,12 @@ model CaseWorkflow {
 
   appliedById  String?
   appliedAt    DateTime @default(now())
+
+  // Set when GPT planning adapted this case's snapshot (apply-time or manual).
+  aiAdaptedAt      DateTime?
+  aiAdaptRationale String?   @db.Text
+  aiAdaptRunId     String?
+
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -3377,6 +3384,29 @@ model AuditLog {
   @@index([entityType])
   @@index([entityType, entityId])
   @@map("audit_logs")
+}
+
+/// Compact audit trail for LLM calls (planning, narration, etc.).
+/// Stores summaries only — not full prompts with PHI.
+model AiRun {
+  id            String      @id @default(cuid())
+  kind          String
+  assessmentId  String?
+  assessment    Assessment? @relation(fields: [assessmentId], references: [id], onDelete: SetNull)
+  provider      String?
+  model         String?
+  status        String
+  inputSummary  Json?
+  outputSummary Json?
+  error         String?     @db.Text
+  latencyMs     Int?
+  tokenUsage    Json?
+  createdAt     DateTime    @default(now())
+
+  @@index([assessmentId, kind])
+  @@index([kind, createdAt])
+  @@index([createdAt])
+  @@map("ai_runs")
 }
 
 model EthicalWall {

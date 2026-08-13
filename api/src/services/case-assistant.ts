@@ -15,6 +15,7 @@
  */
 import { logger } from '../lib/logger'
 import { getLlmChatClient, LLM_CHAT_MODEL } from '../lib/llm-client'
+import { llmAllowPhi, redactLlmPii } from '../lib/llm-prompt-sanitize'
 import { answerCommandCenterCopilot } from '../lib/case-command-center'
 import type { CaseCommandCenter } from '../lib/case-command-center'
 
@@ -88,9 +89,14 @@ Rules:
 - Use only the record above. If it does not answer the question, say plainly what is missing and what would answer it.
 - Never invent a dollar amount, date, provider, deadline, or document that does not appear above.
 - Be direct and practical, as one colleague to another. Two to five sentences. No preamble, no bullet lists, no headings.
+- Contact PII is redacted from this pack; never ask for SSN, email, phone, or street address.
 
 Respond with STRICT JSON only:
 { "answer": "..." }`
+}
+
+function buildSanitizedPrompt(summary: CaseCommandCenter, question: string): string {
+  return redactLlmPii(buildPrompt(summary, question))
 }
 
 /**
@@ -119,6 +125,12 @@ export async function askCaseAssistant(
     return { ...deterministic, source: 'deterministic' }
   }
 
+  // Command-center packs include treatment/value/medical detail — do not send to
+  // the LLM until LLM_ALLOW_PHI=true (BAA approved).
+  if (!llmAllowPhi()) {
+    return { ...deterministic, source: 'deterministic' }
+  }
+
   try {
     const completion = await openai.chat.completions.create({
       model: LLM_CHAT_MODEL,
@@ -128,7 +140,7 @@ export async function askCaseAssistant(
           content:
             'You are a senior personal-injury case manager. Always respond with valid JSON as specified. Never fabricate facts or figures.',
         },
-        { role: 'user', content: buildPrompt(summary, question) },
+        { role: 'user', content: buildSanitizedPrompt(summary, question) },
       ],
       temperature: 0.3,
       max_tokens: 500,

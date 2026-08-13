@@ -547,5 +547,16 @@ export async function syncCaseCoachTasks(
     logger.warn('Case stage sync failed', { assessmentId, error: e?.message })
   }
 
+  // Richer workflow patches when open gaps drift (debounced). Fail-safe.
+  try {
+    const { maybeReadaptWorkflowOnGapChange } = await import('./workflow-adapt')
+    await maybeReadaptWorkflowOnGapChange({
+      assessmentId,
+      trigger: opts?.trigger || 'coach_sync',
+    })
+  } catch (e: any) {
+    logger.warn('Workflow gap-change adapt failed', { assessmentId, error: e?.message })
+  }
+
   return coach
 }

@@ -11,7 +11,14 @@
 import { logger } from '../lib/logger'
 import type { CaseIntelligence } from '../lib/case-intelligence'
 import type { IntelligentQuestion, QuestionSection } from '../lib/intake-questions'
-import { getLlmChatClient, LLM_CHAT_MODEL } from '../lib/llm-client'
+import {
+  resolveLlmWritingCandidates,
+  llmChatCompleteWithFallback,
+  llmTemperatureForProvider,
+  llmMaxTokensForProvider,
+} from '../lib/llm-client'
+import { prepareCaseIntelligenceForLlm, llmPhiMode } from '../lib/llm-prompt-sanitize'
+import { recordAiRun } from '../lib/ai-run'
 import { normalizeQuestionText } from '../lib/task-identity'
 
 function dedupeQuestions(questions: IntelligentQuestion[]): IntelligentQuestion[] {
@@ -38,8 +45,7 @@ function dedupeQuestions(questions: IntelligentQuestion[]): IntelligentQuestion[
   return out
 }
 
-const openai = getLlmChatClient()
-const QUESTIONS_MODEL = LLM_CHAT_MODEL
+const QUESTIONS_CANDIDATES = resolveLlmWritingCandidates()
 const MAX_AI_QUESTIONS = 8
 const MAX_TOTAL_QUESTIONS = 18
 const VALID_SECTIONS: QuestionSection[] = ['Liability', 'Medical', 'Damages', 'Insurance', 'Case Strategy']
@@ -50,19 +56,29 @@ export interface IntelligentQuestionsResult {
   modelVersion: string
 }
 
-function buildPrompt(intel: CaseIntelligence, baseline: IntelligentQuestion[]): string {
+function buildPrompt(intelIn: CaseIntelligence, baseline: IntelligentQuestion[]): string {
+  const { intel, phiMode } = prepareCaseIntelligenceForLlm(intelIn)
   const known = intel.known.map((k) => `- ${k.label}: ${k.value}`).join('\n')
   const gaps = intel.gaps
     .filter((g) => !g.resolved)
-    .map((g) => `- ${g.label} (${'★'.repeat(g.severity)}, impact: ${g.valueImpact})`)
+    .map((g) => {
+      const stars = typeof g.severity === 'number' ? '★'.repeat(g.severity) : ''
+      return `- ${g.label}${stars ? ` (${stars}, impact: ${g.valueImpact})` : ` (impact: ${g.valueImpact})`}`
+    })
     .join('\n')
   const baselineList = baseline.map((q) => `- [${q.id}] (${q.section}) ${q.text}`).join('\n')
 
+  const narrativeLine =
+    phiMode === 'keys_only'
+      ? 'INCIDENT NARRATIVE: [omitted — LLM_ALLOW_PHI=false; use gap keys only]'
+      : `INCIDENT NARRATIVE: ${intel.narrative || 'Not provided.'}`
+
   return `You are an experienced personal-injury intake attorney preparing for a first consultation.
 The AI has ALREADY collected the facts below — do NOT ask about anything already known.
+PHI_MODE: ${phiMode}. Contact PII is always removed. Never ask for SSN, email, phone, or full street address.
 
 CASE TYPE: ${intel.claimType}
-INCIDENT NARRATIVE: ${intel.narrative || 'Not provided.'}
+${narrativeLine}
 
 ALREADY KNOWN:
 ${known || '(none)'}
@@ -75,7 +91,8 @@ ${baselineList || '(none)'}
 
 Your job:
 1. From the candidate baseline questions, list the ids that should be PRUNED because they are redundant with what's already known or irrelevant to this specific case.
-2. Add up to ${MAX_AI_QUESTIONS} NEW, case-specific questions that a great attorney would ask given the narrative and gaps. Each must be a question the client can answer (not a task). Do NOT ask for any value/settlement numbers.
+2. Add up to ${MAX_AI_QUESTIONS} NEW, case-specific questions that a great attorney would ask given the narrative and gaps. Each must be a question the client can answer (not a task). Do NOT ask for any value/settlement numbers. Never ask for SSN, email, phone, or full street address.
+3. When PHI_MODE=keys_only, do not invent clinical facts; prefer questions tied to open gap keys.
 
 Respond with STRICT JSON only, in this shape:
 {
@@ -101,20 +118,31 @@ export async function generateIntelligentQuestions(
   baseline: IntelligentQuestion[],
 ): Promise<IntelligentQuestionsResult> {
   const baselineDeduped = dedupeQuestions(baseline)
-  if (!openai) {
+  if (!QUESTIONS_CANDIDATES.length) {
     return { questions: baselineDeduped, source: 'baseline', modelVersion: 'baseline-v1' }
   }
 
+  const started = Date.now()
+  const primary = QUESTIONS_CANDIDATES[0]
   try {
-    const completion = await openai.chat.completions.create({
-      model: QUESTIONS_MODEL,
-      messages: [
-        { role: 'system', content: 'You are an expert personal-injury intake attorney. Always respond with valid JSON as specified. Never repeat a baseline question with different wording.' },
-        { role: 'user', content: buildPrompt(intel, baselineDeduped) },
-      ],
-      temperature: 0.4,
-      max_tokens: 1200,
-      response_format: { type: 'json_object' },
+    const { result: completion, resolved, attempted } = await llmChatCompleteWithFallback({
+      kind: 'intelligent_questions',
+      candidates: QUESTIONS_CANDIDATES,
+      run: (candidate) =>
+        candidate.client.chat.completions.create({
+          model: candidate.model,
+          messages: [
+            {
+              role: 'system',
+              content:
+                'You are an expert personal-injury intake attorney. Always respond with valid JSON as specified. Never repeat a baseline question with different wording.',
+            },
+            { role: 'user', content: buildPrompt(intel, baselineDeduped) },
+          ],
+          temperature: llmTemperatureForProvider(candidate.provider, 0.4),
+          max_tokens: llmMaxTokensForProvider(candidate.provider, 1200),
+          response_format: { type: 'json_object' },
+        }),
     })
 
     const responseText = completion.choices[0]?.message?.content
@@ -142,10 +170,52 @@ export async function generateIntelligentQuestions(
       : []
 
     const questions = dedupeQuestions([...kept, ...aiQuestions]).slice(0, MAX_TOTAL_QUESTIONS)
-    logger.info('Generated intelligent questions', { assessmentId: intel.assessmentId, kept: kept.length, added: aiQuestions.length, afterDedupe: questions.length })
-    return { questions, source: 'ai', modelVersion: `${QUESTIONS_MODEL}` }
+    const usage = completion.usage
+    await recordAiRun({
+      kind: 'intelligent_questions',
+      assessmentId: intel.assessmentId,
+      provider: resolved.provider,
+      model: resolved.model,
+      status: 'ok',
+      latencyMs: Date.now() - started,
+      inputSummary: {
+        baselineCount: baselineDeduped.length,
+        phiMode: llmPhiMode(),
+        usedFallback: attempted.length > 1,
+        attempted,
+      },
+      outputSummary: { kept: kept.length, added: aiQuestions.length, total: questions.length },
+      tokenUsage: usage
+        ? {
+            promptTokens: usage.prompt_tokens,
+            completionTokens: usage.completion_tokens,
+            totalTokens: usage.total_tokens,
+          }
+        : null,
+    })
+    logger.info('Generated intelligent questions', {
+      assessmentId: intel.assessmentId,
+      kept: kept.length,
+      added: aiQuestions.length,
+      afterDedupe: questions.length,
+      provider: resolved.provider,
+      model: resolved.model,
+    })
+    return { questions, source: 'ai', modelVersion: `${resolved.model}` }
   } catch (error: any) {
-    logger.warn('Intelligent question generation failed; using baseline', { assessmentId: intel.assessmentId, error: error?.message })
+    await recordAiRun({
+      kind: 'intelligent_questions',
+      assessmentId: intel.assessmentId,
+      provider: primary.provider,
+      model: primary.model,
+      status: 'error',
+      latencyMs: Date.now() - started,
+      error: error?.message || String(error),
+    })
+    logger.warn('Intelligent question generation failed; using baseline', {
+      assessmentId: intel.assessmentId,
+      error: error?.message,
+    })
     return { questions: baselineDeduped, source: 'baseline', modelVersion: 'baseline-v1' }
   }
 }

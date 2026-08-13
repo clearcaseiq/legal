@@ -68,8 +68,12 @@ router.get('/callback/:provider', async (req, res) => {
 
     return res.redirect(calendarFrontendRedirect(provider, 'success'))
   } catch (error) {
-    logger.error('Attorney calendar callback failed', { error, provider })
     const message = error instanceof Error ? error.message : 'calendar_sync_failed'
+    logger.error('Attorney calendar callback failed', {
+      provider,
+      message,
+      error: error instanceof Error ? { name: error.name, message: error.message, stack: error.stack } : error,
+    })
     return res.redirect(calendarFrontendRedirect(provider, 'error', message))
   }
 })

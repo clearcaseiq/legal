@@ -4,6 +4,7 @@ import {
   Activity,
   AlertTriangle,
   BadgeCheck,
+  Bot,
   CalendarClock,
   CalendarPlus,
   Check,
@@ -70,11 +71,6 @@ import {
   getLeadEvidenceFiles,
   getLeadMedicalChronologySummary,
   getLeadTasks,
-  getMyWorkflowTasks,
-  getCaseWorkflow,
-  assignCaseWorkflowStep,
-  updateCaseWorkflowStep,
-  editCaseWorkflowStep,
   nudgeDocumentRequest,
   updateLeadTask,
   approveLeadTask,
@@ -85,11 +81,9 @@ import {
   type CaseCommandCenter,
   type FirmColleague,
   type MedicalChronologySummary,
-  type MyWorkflowTask,
-  type FirmMemberOption,
 } from '../../lib/api'
 import { getApiOrigin } from '../../lib/runtimeEnv'
-import { checkPoliceReportCollect, confirmRetainerSigned } from '../../lib/api-esign'
+import { checkEvidenceCollect, checkPoliceReportCollect, confirmRetainerSigned } from '../../lib/api-esign'
 import SignatureRequestPanel from '../../components/SignatureRequestPanel'
 import ChatDrawer from '../../components/ChatDrawer'
 import ConfirmDialog from '../../components/ConfirmDialog'
@@ -103,6 +97,8 @@ import PlaintiffImpactJournalPanel from './PlaintiffImpactJournalPanel'
 import CaseWorkflowPanel from './CaseWorkflowPanel'
 import CaseTimePanel from './CaseTimePanel'
 import CaseIntelligencePanel from './CaseIntelligencePanel'
+import CaseCopilotPanel from './CaseCopilotPanel'
+import CaseRosePanel from './CaseRosePanel'
 import ConsultSchedulerModal from './ConsultSchedulerModal'
 import TaskDetailModal from './TaskDetailModal'
 import TaskOriginBadge, { isAiTask } from './TaskOriginBadge'
@@ -146,13 +142,19 @@ const ROW_TONE: Record<Tone, string> = {
   danger: 'text-rose-700',
 }
 
-const TABS = ['Overview', 'Workflow', 'Tasks', 'Evidence', 'Signatures', 'Medical', 'Liability', 'Insurance', 'Damages', 'Negotiation', 'Demand', 'Timeline', 'Deadlines', 'Settlement', 'Time'] as const
+const TABS = ['Overview', 'AI Copilot', 'Rose', 'Workflow', 'Tasks', 'Evidence', 'Signatures', 'Medical', 'Liability', 'Insurance', 'Damages', 'Negotiation', 'Demand', 'Timeline', 'Deadlines', 'Settlement', 'Time'] as const
 type Tab = (typeof TABS)[number]
 
 const SECTION_TO_TAB: Record<string, Tab> = {
   // Legacy /info deep-links land on Overview now that the Info tab is gone.
   info: 'Overview',
   overview: 'Overview',
+  copilot: 'AI Copilot',
+  'ai-copilot': 'AI Copilot',
+  companion: 'AI Copilot',
+  rose: 'Rose',
+  'ai-manager': 'Rose',
+  'ai-case-manager': 'Rose',
   workflow: 'Workflow',
   evidence: 'Evidence',
   signatures: 'Signatures',
@@ -178,6 +180,8 @@ const SECTION_TO_TAB: Record<string, Tab> = {
 
 const TAB_TO_SECTION: Record<Tab, string> = {
   Overview: 'overview',
+  'AI Copilot': 'copilot',
+  Rose: 'rose',
   Workflow: 'workflow',
   Evidence: 'evidence',
   Signatures: 'signatures',
@@ -198,6 +202,14 @@ type TabMeta = { icon: ComponentType<{ className?: string }>; blurb: string }
 
 const TAB_META: Record<Tab, TabMeta> = {
   Overview: { icon: LayoutDashboard, blurb: 'AI case summary, valuation, and readiness at a glance.' },
+  'AI Copilot': {
+    icon: Sparkles,
+    blurb: 'Ask case-specific questions with cited answers, and see workup readiness for this matter.',
+  },
+  Rose: {
+    icon: Bot,
+    blurb: 'Rose reviews this case, raises next tasks, and surfaces the AI Case Coach feed.',
+  },
   Workflow: { icon: Workflow, blurb: 'Your firm’s standard pipeline for this case — check off steps, assign owners, and track progress stage by stage.' },
   Tasks: { icon: ListChecks, blurb: 'Primary work queue for this case — recommended next steps, assignments, and open items.' },
   Evidence: { icon: FolderOpen, blurb: 'Upload documents, request records, and track the case file.' },
@@ -1480,6 +1492,27 @@ function WorkstreamPanel({
     )
   }
 
+  if (tab === 'AI Copilot') {
+    return (
+      <CaseCopilotPanel
+        leadId={lead.id}
+        cc={cc}
+        onGoSection={(s) => goToSection(s)}
+      />
+    )
+  }
+
+  if (tab === 'Rose') {
+    return (
+      <CaseRosePanel
+        leadId={lead.id}
+        tasks={tasks}
+        reloadTasks={reloadTasks}
+        onGoTasks={() => goToSection('tasks')}
+      />
+    )
+  }
+
   // Overview — a case-at-a-glance summary built from the command center (cc).
   {
     const n = cc?.negotiationSummary
@@ -2606,28 +2639,34 @@ function EvidencePanel({
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          <span className={`mr-1 rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_BADGE[tone]}`}>
+          {/* Fixed status width so Verified / Processing lines up across rows. */}
+          <span
+            className={`mr-1 inline-flex min-w-[4.75rem] justify-center rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_BADGE[tone]}`}
+          >
             {evidenceStatusLabel(doc.processingStatus)}
           </span>
-          {damagePayload ? (
-            <button
-              type="button"
-              onClick={() => void handleAddToDamages(doc)}
-              disabled={addingDamageId === doc.id || damageAdded}
-              className="rounded-lg p-1.5 text-emerald-600 hover:bg-emerald-50 disabled:opacity-50"
-              title={
-                damageAdded
-                  ? 'Already on the damages ledger'
-                  : `Add ${moneyShort(damagePayload.amount)} to damages ledger`
-              }
-            >
-              {addingDamageId === doc.id ? (
-                <RefreshCw className="h-4 w-4 animate-spin" />
-              ) : (
-                <Receipt className="h-4 w-4" />
-              )}
-            </button>
-          ) : null}
+          {/* Always reserve the damages-action slot so optional $ doesn't shift peers. */}
+          <div className="grid h-8 w-8 shrink-0 place-items-center">
+            {damagePayload ? (
+              <button
+                type="button"
+                onClick={() => void handleAddToDamages(doc)}
+                disabled={addingDamageId === doc.id || damageAdded}
+                className="rounded-lg p-1.5 text-emerald-600 hover:bg-emerald-50 disabled:opacity-50"
+                title={
+                  damageAdded
+                    ? 'Already on the damages ledger'
+                    : `Add ${moneyShort(damagePayload.amount)} to damages ledger`
+                }
+              >
+                {addingDamageId === doc.id ? (
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Receipt className="h-4 w-4" />
+                )}
+              </button>
+            ) : null}
+          </div>
           <button
             type="button"
             onClick={() => setPreviewDoc(doc)}
@@ -3665,209 +3704,6 @@ function TaskStat({ label, value, tone }: { label: string; value: number; tone: 
   )
 }
 
-/**
- * Workflow steps assigned to the current user on THIS case, surfaced inside the
- * case Tasks tab with inline complete / edit / reassign — mirroring the Workflow
- * tab so work can be actioned where it was assigned.
- */
-function AssignedWorkflowSection({ leadId }: { leadId: string }) {
-  const navigate = useNavigate()
-  const [items, setItems] = useState<MyWorkflowTask[]>([])
-  const [members, setMembers] = useState<FirmMemberOption[]>([])
-  const [canAssign, setCanAssign] = useState(false)
-  const [busyId, setBusyId] = useState<string | null>(null)
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [editTitle, setEditTitle] = useState('')
-  const [editDue, setEditDue] = useState('')
-
-  const load = useCallback(async () => {
-    try {
-      const [mine, wf] = await Promise.all([
-        getMyWorkflowTasks(),
-        getCaseWorkflow(leadId).catch(() => null),
-      ])
-      setItems((mine?.tasks ?? []).filter((t) => t.leadId === leadId))
-      setMembers((wf?.members ?? []) as FirmMemberOption[])
-      setCanAssign(Boolean(wf?.canAssign))
-    } catch {
-      setItems([])
-    }
-  }, [leadId])
-
-  useEffect(() => {
-    load()
-  }, [load])
-
-  const complete = async (t: MyWorkflowTask) => {
-    setBusyId(t.id)
-    try {
-      await updateCaseWorkflowStep(leadId, t.id, 'done')
-      await load()
-    } catch {
-      /* ignore */
-    } finally {
-      setBusyId(null)
-    }
-  }
-
-  const assign = async (t: MyWorkflowTask, firmMemberId: string) => {
-    if (!firmMemberId) return
-    setBusyId(t.id)
-    try {
-      await assignCaseWorkflowStep(leadId, t.id, firmMemberId)
-      await load()
-    } catch (e: any) {
-      alert(e?.response?.data?.error || 'Failed to reassign step')
-    } finally {
-      setBusyId(null)
-    }
-  }
-
-  const openEdit = (t: MyWorkflowTask) => {
-    setEditingId(t.id)
-    setEditTitle(t.title)
-    setEditDue(t.dueDate ? new Date(t.dueDate).toISOString().slice(0, 10) : '')
-  }
-
-  const saveEdit = async (t: MyWorkflowTask) => {
-    if (!editTitle.trim()) return
-    setBusyId(t.id)
-    try {
-      await editCaseWorkflowStep(leadId, t.id, { title: editTitle.trim(), dueDate: editDue || null })
-      setEditingId(null)
-      await load()
-    } catch (e: any) {
-      alert(e?.response?.data?.error || 'Failed to save changes')
-    } finally {
-      setBusyId(null)
-    }
-  }
-
-  if (!items.length) return null
-
-  // Organize by due date: overdue/soonest first, undated last.
-  const orderedItems = [...items].sort((a, b) => dueDayStart(a.dueDate) - dueDayStart(b.dueDate))
-
-  return (
-    <div className="overflow-hidden rounded-xl border border-brand-200 bg-brand-50/40">
-      <div className="flex items-center justify-between border-b border-brand-100 px-4 py-2.5">
-        <span className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
-          <Workflow className="h-4 w-4 text-brand-600" /> Workflow steps assigned to you
-          <span className="rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-brand-700 ring-1 ring-inset ring-brand-200">
-            {items.length}
-          </span>
-        </span>
-        <button
-          type="button"
-          onClick={() => navigate(`/attorney-dashboard/cases/${leadId}/workflow`)}
-          className="text-xs font-semibold text-brand-600 transition hover:text-brand-700"
-        >
-          Open Workflow →
-        </button>
-      </div>
-      <ul className="divide-y divide-brand-100">
-        {orderedItems.map((t) => {
-          const meta = [t.phaseName, t.stageName].filter(Boolean).join(' · ')
-          const rowBusy = busyId === t.id
-          const editing = editingId === t.id
-          return (
-            <li key={t.id} className="px-4 py-2.5">
-              {editing ? (
-                <div className="space-y-2">
-                  <input
-                    value={editTitle}
-                    onChange={(e) => setEditTitle(e.target.value)}
-                    autoFocus
-                    className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
-                  />
-                  <div className="flex flex-wrap items-center gap-2">
-                    <input
-                      type="date"
-                      value={editDue}
-                      onChange={(e) => setEditDue(e.target.value)}
-                      className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => saveEdit(t)}
-                      disabled={rowBusy || !editTitle.trim()}
-                      className="inline-flex items-center gap-1 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-60"
-                    >
-                      {rowBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-                      Save
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setEditingId(null)}
-                      className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => complete(t)}
-                    disabled={rowBusy}
-                    className="shrink-0 text-slate-300 transition hover:text-emerald-500 disabled:opacity-50"
-                    aria-label="Mark step complete"
-                    title="Mark complete"
-                  >
-                    {rowBusy ? <Loader2 className="h-5 w-5 animate-spin text-slate-400" /> : <Circle className="h-5 w-5" />}
-                  </button>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-slate-800">{t.title}</p>
-                    <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-slate-400">
-                      {meta ? <span className="truncate">{meta}</span> : null}
-                      {t.dueDate ? (
-                        <span className="inline-flex items-center gap-1">
-                          <CalendarClock className="h-3 w-3" />
-                          {formatDate(t.dueDate)}
-                        </span>
-                      ) : null}
-                    </div>
-                  </div>
-                  {canAssign && members.length ? (
-                    <span
-                      className="inline-flex w-[11rem] shrink-0 items-center gap-1 rounded-md bg-indigo-50 px-1.5 py-0.5 text-xs text-indigo-700 ring-1 ring-indigo-200"
-                      title="Reassign to another team member"
-                    >
-                      <User className="h-3.5 w-3.5 shrink-0" />
-                      <select
-                        value=""
-                        disabled={rowBusy}
-                        onChange={(e) => assign(t, e.target.value)}
-                        className="min-w-0 flex-1 truncate bg-transparent pr-1 text-xs focus:outline-none disabled:opacity-50"
-                        aria-label="Reassign step"
-                      >
-                        <option value="">Reassign…</option>
-                        {members.map((m) => (
-                          <option key={m.firmMemberId} value={m.firmMemberId}>
-                            {m.name}
-                          </option>
-                        ))}
-                      </select>
-                    </span>
-                  ) : null}
-                  <button
-                    onClick={() => openEdit(t)}
-                    className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-slate-400 transition hover:bg-white hover:text-slate-700"
-                    aria-label="Edit step"
-                    title="Edit"
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              )}
-            </li>
-          )
-        })}
-      </ul>
-    </div>
-  )
-}
-
 function TasksPanel({
   leadId,
   tasks,
@@ -3951,6 +3787,28 @@ function TasksPanel({
     }
   }
 
+  const checkEvidenceCollectForTask = async (t: TaskRow, kind: 'medical_records' | 'bills') => {
+    const evidenceSection =
+      kind === 'medical_records' ? 'evidence?uploadCategory=medical_records' : 'evidence?uploadCategory=bills'
+    if (isDone(t)) {
+      goCaseSection(evidenceSection)
+      return
+    }
+    setBusy(t.id)
+    try {
+      const res = await checkEvidenceCollect(leadId, kind)
+      if (res.onFile && res.completedTasks) {
+        flash('ok', `${res.label} on file — collect task marked done.`)
+        await load()
+      }
+    } catch {
+      // Ignore — Collect still opens Evidence.
+    } finally {
+      setBusy(null)
+      goCaseSection(evidenceSection)
+    }
+  }
+
   const checkConfirmSignedForTask = async (t: TaskRow) => {
     if (isDone(t)) {
       goCaseSection('signatures')
@@ -4028,6 +3886,14 @@ function TasksPanel({
     }
     if (kind === 'collect_police') {
       await checkPoliceCollectForTask(t)
+      return
+    }
+    if (kind === 'collect_medical_records') {
+      await checkEvidenceCollectForTask(t, 'medical_records')
+      return
+    }
+    if (kind === 'collect_bills') {
+      await checkEvidenceCollectForTask(t, 'bills')
       return
     }
     if (kind === 'open_task_detail') {
@@ -4156,8 +4022,16 @@ function TasksPanel({
   const toggleDone = async (t: TaskRow) => {
     setBusy(t.id)
     try {
-      await updateLeadTask(leadId, t.id, { status: isDone(t) ? 'open' : 'done' })
+      const nextStatus = isDone(t) ? 'open' : 'done'
+      const res = await updateLeadTask(leadId, t.id, { status: nextStatus })
       await load()
+      const unlock = res?.stageUnlock
+      if (nextStatus === 'done' && unlock?.newTasks > 0) {
+        flash(
+          'ok',
+          `Next stage unlocked — ${unlock.newTasks} new task${unlock.newTasks === 1 ? '' : 's'}.`,
+        )
+      }
     } catch (err: any) {
       flash('err', err?.response?.data?.error || 'Failed to update task.')
     } finally {
@@ -4816,8 +4690,9 @@ function TasksPanel({
         </div>
       ) : null}
 
-      {/* Workflow steps assigned to me on this case */}
-      <AssignedWorkflowSection leadId={leadId} />
+      <p className="text-xs text-slate-500">
+        Completing a task updates Workflow automatically. Use the Workflow tab for pipeline progress.
+      </p>
 
       {tasks.length && hasWorkflowGroups ? (
         <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 p-0.5 text-xs font-semibold">

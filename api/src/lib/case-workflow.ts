@@ -19,7 +19,12 @@ import {
   deriveSignal,
 } from './workflow-signals'
 import { ensureDefaultFirmWorkflow } from './default-workflow-blueprint'
-import { syncWorkflowStepTasks } from './workflow-step-tasks'
+import {
+  parseWorkflowItemIdFromTaskKey,
+  syncWorkflowStepTasks,
+  WORKFLOW_ITEM_TASK_PREFIX,
+} from './workflow-step-tasks'
+import { adaptWorkflowDraftForCase, type WorkflowItemDraft } from './workflow-adapt'
 
 function addDays(date: Date, days: number): Date {
   const d = new Date(date)
@@ -123,7 +128,7 @@ export async function applyFirmWorkflowToCase(params: {
 
   const start = params.startDate || new Date()
   const groups = orderedGroups(workflow)
-  const items: any[] = []
+  const draftItems: WorkflowItemDraft[] = []
   let stageOrder = 0
   for (const group of groups) {
     const steps = [...(group.stage.steps || [])].sort((a: any, b: any) => a.sortOrder - b.sortOrder)
@@ -131,7 +136,7 @@ export async function applyFirmWorkflowToCase(params: {
     for (const step of steps) {
       // Skip conditional steps whose condition doesn't match this case.
       if (!evaluateStepCondition(step, conditionCtx)) continue
-      items.push({
+      draftItems.push({
         phaseName: group.phaseName,
         phaseOrder: group.phaseOrder,
         stageName: group.stage.name,
@@ -156,6 +161,30 @@ export async function applyFirmWorkflowToCase(params: {
     stageOrder++
   }
 
+  // Optional GPT planning layer: patch the blueprint snapshot for this case.
+  // Fail-safe — on any error/skip we keep the deterministic draft.
+  const adapted = await adaptWorkflowDraftForCase({
+    assessmentId,
+    items: draftItems,
+    startDate: start,
+  }).catch((e: any) => {
+    logger.warn('Workflow AI adapt failed; using blueprint snapshot', {
+      assessmentId,
+      error: e?.message || String(e),
+    })
+    return {
+      items: draftItems,
+      adapted: false,
+      rationale: null,
+      aiRunId: null,
+      appliedCount: 0,
+    }
+  })
+  const items = adapted.items.map(({ id: _id, status: _status, custom, ...rest }) => ({
+    ...rest,
+    custom: Boolean(custom),
+  }))
+
   try {
     const created = await (prisma as any).caseWorkflow.create({
       data: {
@@ -167,6 +196,9 @@ export async function applyFirmWorkflowToCase(params: {
         startDate: start,
         appliedById: params.appliedById || null,
         appliedAt: new Date(),
+        aiAdaptedAt: adapted.adapted ? new Date() : null,
+        aiAdaptRationale: adapted.rationale,
+        aiAdaptRunId: adapted.aiRunId,
         items: { create: items },
       },
     })
@@ -174,6 +206,8 @@ export async function applyFirmWorkflowToCase(params: {
       assessmentId,
       workflowId: workflow.id,
       itemCount: items.length,
+      aiAdapted: adapted.adapted,
+      aiAdaptOps: adapted.appliedCount,
     })
     // Surface required / active-stage steps on the Tasks tab immediately.
     await syncWorkflowStepTasks(assessmentId).catch((e: any) => {
@@ -222,6 +256,33 @@ export async function serializeCaseWorkflow(cw: any) {
     }
   }
 
+  // Map workflow items → CaseTask ids so the Workflow UI can deep-link to Tasks.
+  const linkedTaskByItemId = new Map<string, string>()
+  if (cw.assessmentId) {
+    const linkedTasks = await prisma.caseTask.findMany({
+      where: {
+        assessmentId: cw.assessmentId,
+        mergedIntoId: null,
+        sourceTemplateStepId: { startsWith: WORKFLOW_ITEM_TASK_PREFIX },
+      },
+      select: { id: true, sourceTemplateStepId: true, status: true },
+      orderBy: { createdAt: 'asc' },
+    })
+    for (const task of linkedTasks) {
+      const itemId = parseWorkflowItemIdFromTaskKey(task.sourceTemplateStepId)
+      if (!itemId || linkedTaskByItemId.has(itemId)) continue
+      linkedTaskByItemId.set(itemId, task.id)
+    }
+    // Prefer an open linked task when several share the same step key.
+    for (const task of linkedTasks) {
+      const itemId = parseWorkflowItemIdFromTaskKey(task.sourceTemplateStepId)
+      if (!itemId) continue
+      if (task.status === 'open' || task.status === 'in_progress') {
+        linkedTaskByItemId.set(itemId, task.id)
+      }
+    }
+  }
+
   const aiStatusFor = (item: any): 'done' | 'pending' => {
     if (item.stepType === 'ai_milestone' && signalCtx) {
       return deriveSignal(item.aiSignal, signalCtx) ? 'done' : 'pending'
@@ -264,6 +325,7 @@ export async function serializeCaseWorkflow(cw: any) {
       custom: Boolean(it.custom),
       status: aiStatusFor(it),
       completedAt: it.completedAt,
+      linkedTaskId: linkedTaskByItemId.get(it.id) || null,
     })
   }
 
@@ -316,6 +378,8 @@ export async function serializeCaseWorkflow(cw: any) {
     startDate: cw.startDate,
     appliedAt: cw.appliedAt,
     status: cw.status,
+    aiAdaptedAt: cw.aiAdaptedAt || null,
+    aiAdaptRationale: cw.aiAdaptRationale || null,
     totalSteps: total,
     completedSteps: done,
     currentPhaseOrder,

@@ -154,14 +154,6 @@
         "label": "账单",
         "description": "费用、发票、成本"
       },
-      "aiManager": {
-        "label": "Rose — AI 案件经理",
-        "description": "为每个案件提出下一项任务"
-      },
-      "copilot": {
-        "label": "AI 副驾",
-        "description": "分析与后续行动"
-      },
       "firm": {
         "label": "事务所仪表板",
         "description": "团队案件量"
@@ -4015,8 +4007,9 @@
       "body": "您最初排序的律师人选暂时无法接案，因此我们扩大了搜索范围并联系了更多匹配的律师。"
     },
     "actionCenter": {
-      "title": "行动中心",
+      "title": "需要采取行动",
       "subtitle": "这是查看哪些事项仍在阻碍您的案件以及接下来该上传什么的最快位置。",
+      "viewDetails": "查看详情",
       "uploadDocuments": "上传文件",
       "mostUrgent": "最紧急的任务",
       "waitingOn": "{name}仍在等待{docs}。",
@@ -4085,6 +4078,13 @@
       "call": "拨打电话",
       "message": "发消息"
     },
+    "attorneyChat": {
+      "title": "与律师聊天",
+      "subtitle": "随时向 {name} 发送有关您案件的消息。",
+      "subtitleGeneric": "随时向您的律师发送有关案件的消息。",
+      "cta": "打开聊天",
+      "fab": "给律师发消息"
+    },
     "consultation": {
       "scheduled": "咨询已安排",
       "typeConsultation": "{type} 咨询",
@@ -4092,7 +4092,12 @@
       "reschedule": "重新安排",
       "cancel": "取消",
       "schedule": "安排咨询",
-      "bookCall": "预约与您的律师通话，讨论您的案件。"
+      "bookCall": "预约与您的律师通话，讨论您的案件。",
+      "scheduleAgainTitle": "安排咨询",
+      "scheduleAgainBody": "预约与 {name} 通话讨论您的案件，或在取消后选择新的时间。",
+      "scheduleAgainCta": "重新安排",
+      "cancelledToast": "咨询已取消。您可以在下方重新安排时间。",
+      "cancelFailed": "无法取消咨询。"
     },
     "emailVerification": {
       "pending": "电子邮件验证待完成。部分安全操作稍后可能需要验证。",
@@ -4102,8 +4107,8 @@
       "sendFailed": "暂时无法发送验证邮件。请稍后重试或联系支持。"
     },
     "satisfaction": {
-      "title": "您的体验如何？",
-      "subtitle": "请评价您对律师和目前案件进展的满意度。",
+      "title": "目前体验如何？",
+      "subtitle": "告诉我们还能如何改进与律师的合作。",
       "notesPlaceholder": "分享任何反馈（可选）",
       "starLabel": "{n} 星",
       "starsLabel": "{n} 星",
@@ -4333,7 +4338,12 @@
       "uploadDocuments": "上传文件",
       "emptyTitle": "暂无文件请求",
       "emptyBody": "当您的律师需要特定文件时，会显示在此处。在此期间，现在添加您的记录可加快审核速度。",
-      "addDocuments": "添加文件"
+      "addDocuments": "添加文件",
+      "showCompleted": "显示 {count} 项已完成",
+      "hideCompleted": "隐藏已完成",
+      "allCaughtUp": "您已全部完成 — 没有未处理的文件请求。",
+      "remainingOne": "还剩 1 项",
+      "remainingMany": "还剩 {count} 项"
     },
     "schedule": {
       "bookCall": "预约与 {name} 通话，讨论您的案件。",
@@ -4474,6 +4484,9 @@
         "reviewSend": "审核并发送",
         "noActionBadge": "无需操作",
         "completed": "已完成",
+        "completedSectionTitle": "已完成",
+        "completedSectionSubtitle": "您在本案中已完成的任务。",
+        "completedEmpty": "尚无已完成项——完成下一步后会显示在这里。",
         "coachTip": "案件顾问提示"
       },
       "attorney": {
@@ -4590,6 +4603,13 @@
         "untitledFile": "未命名文件",
         "checklistTitle": "文件清单",
         "checklistSubtitle": "有助于律师了解并评估您案件的关键证据。",
+        "needToAddTitle": "待补充",
+        "needToAddSubtitle": "案件中仍缺少的关键证据。",
+        "checklistCaughtUp": "核心证据清单已完成。",
+        "agreementsColumnTitle": "协议与医疗",
+        "agreementsColumnSubtitle": "已签署文件以及医疗记录显示的内容。",
+        "signedEmpty": "暂无已签署协议。",
+        "medicalEmpty": "暂无医疗摘要 — 上传记录后即可生成。",
         "signedTypes": {
           "retainer": "委托代理协议",
           "fee_agreement": "费用协议",
@@ -4604,6 +4624,25 @@
         "sinceFirst": "自首次估计以来 +{gain}{pct}",
         "valueHistory": "案件价值历史",
         "historySubtitle": "随着您添加详情和文件，您的估计如何增长。",
+        "historyEmpty": "估计更新后，将显示价值历史。",
+        "historyReasons": {
+          "initial": "初始估计",
+          "current": "当前估计",
+          "document_upload": "上传文件后",
+          "evidence_processing": "证据审查后",
+          "document_deleted": "删除文件后",
+          "plaintiff_damage_estimates": "更新损害后",
+          "updated": "更新后的估计"
+        },
+        "historyShort": {
+          "initial": "初始",
+          "current": "当前",
+          "document_upload": "文件",
+          "evidence_processing": "证据",
+          "document_deleted": "已更新",
+          "plaintiff_damage_estimates": "损害",
+          "updated": "已更新"
+        },
         "initial": "初始：",
         "current": "当前：",
         "casesLikeYours": "{state}的类似案件",

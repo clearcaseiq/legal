@@ -53,11 +53,27 @@ export interface CalItem {
   /** End time for timed (consult) items. */
   end?: Date
   title: string
+  /** Case caption for tasks (and case-linked items) so cross-case chips stay distinct. */
+  caseLabel?: string | null
   hasTime: boolean
   /** For consults: 'case' (lead-linked) or 'booking' (public booking). */
   source?: 'case' | 'booking'
   consult?: ConsultInfo
   event?: EventInfo
+}
+
+/** Chip/list label: "Reed v. Test · Obtain medical records". */
+export function itemDisplayTitle(item: CalItem): string {
+  const caseLabel = item.caseLabel?.trim()
+  if (item.kind === 'task' && caseLabel) return `${caseLabel} · ${item.title}`
+  return item.title
+}
+
+/** Hover tooltip with full case + task when both exist. */
+export function itemTooltip(item: CalItem): string {
+  const caseLabel = item.caseLabel?.trim()
+  if (item.kind === 'task' && caseLabel) return `${caseLabel} — ${item.title}`
+  return item.title
 }
 
 /**

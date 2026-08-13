@@ -2608,6 +2608,18 @@ export async function getCaseIntelligenceQuestions(leadId: string) {
   return data
 }
 
+export interface QuestionTaskProposal {
+  id: string
+  title: string
+  notes: string | null
+  priority: string
+  assignedRole: string | null
+  questionKey: string | null
+  reason: string | null
+  reviewStatus: string | null
+  createdAt: string
+}
+
 // Save (or clear, when `answer` is empty) an answer to an intelligent question.
 export async function saveIntelligentQuestionAnswer(
   leadId: string,
@@ -2621,8 +2633,32 @@ export async function saveIntelligentQuestionAnswer(
 ) {
   const { data } = await api.put<{
     answer: { questionKey: string; answer: string; answeredByName: string | null; answeredAt: string } | null
+    proposals?: QuestionTaskProposal[]
+    proposalsCreated?: number
   }>(`/v1/attorney-dashboard/leads/${leadId}/intelligence/questions/answer`, payload)
-  return data.answer
+  return data
+}
+
+export async function getQuestionTaskProposals(leadId: string, refresh = false) {
+  const { data } = await api.get<{ proposals: QuestionTaskProposal[]; created: number }>(
+    `/v1/attorney-dashboard/leads/${leadId}/intelligence/question-proposals`,
+    { params: refresh ? { refresh: 1 } : undefined },
+  )
+  return data
+}
+
+export async function acceptQuestionTaskProposal(leadId: string, proposalId: string) {
+  const { data } = await api.post<{ proposal: QuestionTaskProposal; proposals: QuestionTaskProposal[] }>(
+    `/v1/attorney-dashboard/leads/${leadId}/intelligence/question-proposals/${proposalId}/accept`,
+  )
+  return data
+}
+
+export async function declineQuestionTaskProposal(leadId: string, proposalId: string) {
+  const { data } = await api.post<{ proposal: QuestionTaskProposal; proposals: QuestionTaskProposal[] }>(
+    `/v1/attorney-dashboard/leads/${leadId}/intelligence/question-proposals/${proposalId}/decline`,
+  )
+  return data
 }
 
 // Spin up a follow-up task from an answered intelligent question.
@@ -2639,9 +2675,12 @@ export async function createTaskFromQuestionAnswer(
 
 export async function runCaseIntelligenceGapAction(
   leadId: string,
-  payload: { label: string; action: CaseIntelligenceGapAction; severity?: number },
+  payload: { label: string; action: CaseIntelligenceGapAction; severity?: number; requestedDoc?: string },
 ) {
-  const { data } = await api.post<{ task: any }>(`/v1/attorney-dashboard/leads/${leadId}/intelligence/gap-action`, payload)
+  const { data } = await api.post<{ task: any; documentRequest?: any; created?: boolean }>(
+    `/v1/attorney-dashboard/leads/${leadId}/intelligence/gap-action`,
+    payload,
+  )
   return data
 }
 
@@ -2652,9 +2691,12 @@ export async function getCaseCoach(leadId: string): Promise<CaseCoach> {
 
 export async function runCaseCoachAction(
   leadId: string,
-  payload: { title: string; action: CaseIntelligenceGapAction; priority?: CoachPriority },
+  payload: { title: string; action: CaseIntelligenceGapAction; priority?: CoachPriority; requestedDoc?: string },
 ) {
-  const { data } = await api.post<{ task: any }>(`/v1/attorney-dashboard/leads/${leadId}/coach/action`, payload)
+  const { data } = await api.post<{ task: any; documentRequest?: any; created?: boolean }>(
+    `/v1/attorney-dashboard/leads/${leadId}/coach/action`,
+    payload,
+  )
   return data
 }
 
@@ -5453,6 +5495,8 @@ export interface CaseWorkflowStep {
   custom: boolean
   status: 'pending' | 'done' | 'skipped'
   completedAt: string | null
+  /** CaseTask linked via wfitem:<stepId> — day-to-day work lives on Tasks. */
+  linkedTaskId: string | null
 }
 
 export interface CaseWorkflowStage {

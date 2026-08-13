@@ -19,6 +19,7 @@ import { generateSceneImageForAssessment } from '../services/incident-scene'
 import { processEvidenceFileForExtraction, shouldAutoProcessEvidence } from '../lib/evidence-processing'
 import { runCaseRecalculation } from '../lib/case-recalculation'
 import { syncPlaintiffDocumentRequestStatuses, computeRequestStatus, parseRequestedDocs, normalizeRequestedDocKeys } from '../lib/document-request-status'
+import { createAndNotifyPlaintiffDocumentRequest } from '../lib/document-request-create'
 import { analyzeCaseWithChatGPT, CaseAnalysisRequest } from '../services/chatgpt'
 import { z } from 'zod'
 import { Document, Packer, Paragraph, TextRun } from 'docx'
@@ -55,13 +56,19 @@ import { buildAttorneyWorkQueue } from '../lib/attorney-work-queue'
 import { buildReadinessAutomationPlan } from '../lib/readiness-automation'
 import { exportCaseToConnectionSafe } from '../lib/cms'
 import { applyFirmWorkflowToCase, serializeCaseWorkflow } from '../lib/case-workflow'
-import { reconcileWorkflowProgress } from '../lib/workflow-reconcile'
+import { adaptExistingCaseWorkflow } from '../lib/workflow-adapt'
+import {
+  closeRelatedOpenTasksForWorkflowItem,
+  reconcileWorkflowProgress,
+  reopenLinkedTasksForWorkflowItem,
+} from '../lib/workflow-reconcile'
 import {
   syncWorkflowStepTasks,
   syncWorkflowItemFromTask,
   buildWorkflowCatalog,
   inferWorkflowCategoryForTask,
   parseWorkflowItemIdFromTaskKey,
+  getActiveWorkflowStageOrder,
 } from '../lib/workflow-step-tasks'
 import {
   applySoleAttorneyAssignee,
@@ -71,6 +78,13 @@ import {
 import { buildCaseIntelligence, type GapAction } from '../lib/case-intelligence'
 import { buildBaselineQuestions, BASELINE_QUESTION_GAP_KEYS } from '../lib/intake-questions'
 import { generateIntelligentQuestions } from '../services/intelligent-questions'
+import {
+  acceptQuestionTaskProposal,
+  declineQuestionTaskProposal,
+  isHiddenQuestionProposal,
+  listQuestionTaskProposals,
+  syncQuestionTaskProposals,
+} from '../lib/question-task-proposals'
 import { syncCaseCoachTasks, resolveCaseAssignees } from '../lib/case-coach-loop'
 import { openCaseStage, syncCaseStage, reopenCaseStage } from '../lib/case-stage'
 import { setLitigationStatus, isLitigationStatus, LITIGATION_LABELS } from '../lib/litigation'
@@ -4369,9 +4383,20 @@ router.get('/tasks/summary', authMiddleware, async (req: any, res) => {
     if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
     const { attorney } = auth
 
+    const taskSummaryLeadSelect = {
+      id: true,
+      assessmentId: true,
+      assessment: {
+        select: {
+          claimType: true,
+          caseName: true,
+          user: { select: { firstName: true, lastName: true } },
+        },
+      },
+    } as const
     const assignedLeads = await prisma.leadSubmission.findMany({
       where: { assignedAttorneyId: attorney.id },
-      select: { id: true, assessmentId: true, assessment: { select: { claimType: true } } },
+      select: taskSummaryLeadSelect,
     })
     const introAssessments = await prisma.introduction.findMany({
       where: { attorneyId: attorney.id, status: { notIn: [...TERMINAL_INTRO_STATUSES] } },
@@ -4382,17 +4407,28 @@ router.get('/tasks/summary', authMiddleware, async (req: any, res) => {
       introAssessIds.length > 0
         ? await prisma.leadSubmission.findMany({
             where: { assessmentId: { in: introAssessIds } },
-            select: { id: true, assessmentId: true, assessment: { select: { claimType: true } } },
+            select: taskSummaryLeadSelect,
           })
         : []
 
-    const byAssessment = new Map<string, { leadId: string; claimType?: string | null }>()
+    const byAssessment = new Map<
+      string,
+      { leadId: string; claimType?: string | null; caseName: string }
+    >()
     for (const l of assignedLeads) {
-      byAssessment.set(l.assessmentId, { leadId: l.id, claimType: l.assessment?.claimType })
+      byAssessment.set(l.assessmentId, {
+        leadId: l.id,
+        claimType: l.assessment?.claimType,
+        caseName: l.assessment ? resolveCaseName(l.assessment, 'Case') : 'Case',
+      })
     }
     for (const l of introLeads) {
       if (!byAssessment.has(l.assessmentId)) {
-        byAssessment.set(l.assessmentId, { leadId: l.id, claimType: l.assessment?.claimType })
+        byAssessment.set(l.assessmentId, {
+          leadId: l.id,
+          claimType: l.assessment?.claimType,
+          caseName: l.assessment ? resolveCaseName(l.assessment, 'Case') : 'Case',
+        })
       }
     }
 
@@ -4454,6 +4490,8 @@ router.get('/tasks/summary', authMiddleware, async (req: any, res) => {
       assessmentId: string
       leadId: string
       claimType: string | null | undefined
+      /** Display caption for the case (case name → plaintiff → claim type). */
+      caseName: string
       subtasks: TaskSubtask[]
     }
 
@@ -4472,6 +4510,7 @@ router.get('/tasks/summary', authMiddleware, async (req: any, res) => {
         assessmentId: t.assessmentId,
         leadId: meta.leadId,
         claimType: meta.claimType,
+        caseName: meta.caseName,
         // Parsed here so clients without a task-detail screen (mobile) can still
         // show the checklist behind a grouped task.
         subtasks: parseSubtasks(t.subtasks),
@@ -5149,16 +5188,22 @@ router.get('/document-requests', authMiddleware, async (req: any, res) => {
           .map((r) => r.lead!.assessmentId as string),
       ),
     )
-    const categoriesByAssessment = new Map<string, Set<string>>()
+    const evidenceByAssessment = new Map<
+      string,
+      Array<{ category: string | null; createdAt: Date }>
+    >()
     if (plaintiffAssessmentIds.length > 0) {
       const files = await prisma.evidenceFile.findMany({
         where: { assessmentId: { in: plaintiffAssessmentIds } },
-        select: { assessmentId: true, category: true },
+        select: { assessmentId: true, category: true, createdAt: true },
       })
       for (const f of files) {
-        if (!f.assessmentId || !f.category) continue
-        if (!categoriesByAssessment.has(f.assessmentId)) categoriesByAssessment.set(f.assessmentId, new Set())
-        categoriesByAssessment.get(f.assessmentId)!.add(f.category)
+        if (!f.assessmentId) continue
+        if (!evidenceByAssessment.has(f.assessmentId)) evidenceByAssessment.set(f.assessmentId, [])
+        evidenceByAssessment.get(f.assessmentId)!.push({
+          category: f.category,
+          createdAt: f.createdAt,
+        })
       }
     }
     const statusRank: Record<string, number> = { pending: 0, partial: 1, completed: 2 }
@@ -5177,8 +5222,12 @@ router.get('/document-requests', authMiddleware, async (req: any, res) => {
       // status so a client's upload is reflected immediately (never regress).
       let status = r.status
       if (r.targetType !== 'opposing_party' && r.lead?.assessmentId) {
-        const cats = categoriesByAssessment.get(r.lead.assessmentId) || new Set<string>()
-        const live = computeRequestStatus(parseRequestedDocs(r.requestedDocs), cats)
+        const files = evidenceByAssessment.get(r.lead.assessmentId) || []
+        const live = computeRequestStatus(
+          parseRequestedDocs(r.requestedDocs),
+          files,
+          r.createdAt,
+        )
         if (live && (statusRank[live] ?? 0) > (statusRank[r.status] ?? 0)) status = live
       }
 
@@ -6047,168 +6096,26 @@ router.post('/leads/:leadId/document-request', authMiddleware, async (req: any, 
     const notAccepted = checkLeadIsAccepted(lead, 'requesting documents from the plaintiff')
     if (notAccepted) return res.status(notAccepted.status).json({ error: notAccepted.message })
 
-    // Store canonical keys, not display labels — a label never matched an
-    // uploaded evidence category, so the request stayed "pending" forever (CP-330).
-    let docs = sendUploadLinkOnly ? [] : normalizeRequestedDocKeys(requestedDocs)
-
-    // Don't re-request doc types that are already covered by an open request.
-    if (docs.length) {
-      const openRequests = await prisma.documentRequest.findMany({
-        where: {
-          leadId,
-          status: { not: 'completed' },
-        },
-        select: { requestedDocs: true },
-      })
-      const alreadyOpen = new Set<string>()
-      for (const row of openRequests) {
-        for (const key of parseRequestedDocs(row.requestedDocs)) alreadyOpen.add(key)
-      }
-      const fresh = docs.filter((d) => !alreadyOpen.has(d))
-      const skipped = docs.filter((d) => alreadyOpen.has(d))
-      if (!fresh.length && !sendUploadLinkOnly) {
-        return res.status(409).json({
-          error:
-            skipped.length === 1
-              ? `${skipped[0]} is already in an open request. Nudge the client instead of requesting it again.`
-              : 'Those documents are already in an open request. Nudge the client instead of requesting them again.',
-          alreadyRequested: skipped,
-        })
-      }
-      docs = fresh
-    }
-
-    const secureToken = crypto.randomUUID()
-    const uploadLink = webUrl(`/evidence-upload/${lead.assessmentId}?token=${secureToken}`)
-
-    const docRequest = await prisma.documentRequest.create({
-      data: {
-        leadId,
-        attorneyId: attorney.id,
-        requestedDocs: JSON.stringify(docs),
-        customMessage: customMessage || null,
-        secureToken,
-        uploadLink,
-        status: 'pending'
-      }
+    const result = await createAndNotifyPlaintiffDocumentRequest({
+      leadId,
+      assessmentId: lead.assessmentId,
+      attorney,
+      requestedDocs: Array.isArray(requestedDocs) ? requestedDocs : [],
+      customMessage: customMessage || null,
+      sendUploadLinkOnly: Boolean(sendUploadLinkOnly),
     })
 
-    // Update lead last contact
-    await prisma.leadSubmission.update({
-      where: { id: leadId },
-      data: { lastContactAt: new Date() }
-    })
-
-    // Notify plaintiff + in-app message
-    const assessment = await prisma.assessment.findUnique({
-      where: { id: lead.assessmentId },
-      select: {
-        userId: true,
-        facts: true,
-        user: { select: { id: true, email: true, firstName: true, lastName: true } },
-      },
-    })
-    let plaintiffEmail = assessment?.user?.email
-    if (!plaintiffEmail && assessment?.facts) {
-      try {
-        const facts = typeof assessment.facts === 'string' ? JSON.parse(assessment.facts) : assessment.facts
-        plaintiffEmail = (facts.plaintiffContext as any)?.email
-      } catch {}
-    }
-    const attorneyName = attorney.name || 'Your attorney'
-    const plaintiffName = assessment?.user?.firstName
-      ? `${assessment!.user!.firstName} ${assessment!.user!.lastName || ''}`.trim()
-      : 'there'
-    const docLabels: Record<string, string> = {
-      police_report: 'Police report',
-      medical_records: 'Medical records',
-      injury_photos: 'Injury photos',
-      wage_loss: 'Wage loss documentation',
-      insurance: 'Insurance information',
-      other: 'Other documents'
-    }
-    const docList = docs.length > 0
-      ? docs.map((d: string) => `• ${docLabels[d] || d}`).join('\n')
-      : '• Any documents you have'
-    const inAppMsg = `${attorneyName} has requested the following documents:\n\n${docList}${customMessage ? `\n\nMessage from your attorney: ${customMessage}` : ''}\n\nUpload here: ${uploadLink}`
-
-    // In-app ChatRoom message
-    if (assessment?.userId) {
-      try {
-        let chatRoom = await prisma.chatRoom.findUnique({
-          where: {
-            userId_attorneyId: { userId: assessment.userId, attorneyId: attorney.id }
-          },
-          select: { id: true },
-        })
-        if (!chatRoom) {
-          chatRoom = await prisma.chatRoom.create({
-            data: {
-              userId: assessment.userId,
-              attorneyId: attorney.id,
-              assessmentId: lead.assessmentId
-            }
-          })
-        }
-        await prisma.message.create({
-          data: {
-            chatRoomId: chatRoom.id,
-            senderId: attorney.id,
-            senderType: 'attorney',
-            content: inAppMsg,
-            messageType: 'text'
-          }
-        })
-        await prisma.chatRoom.update({
-          where: { id: chatRoom.id },
-          data: { lastMessageAt: new Date() }
-        })
-      } catch (chatErr: any) {
-        logger.error('Failed to create in-app document request message', { error: (chatErr as Error).message })
-      }
-    }
-    // The bell already derives an entry from the pending DocumentRequest, but
-    // only while documents remain outstanding — so the request disappears from
-    // the feed the moment it is fulfilled, leaving no record that it happened.
-    // A notification row is the durable version of the same news (CP-430).
-    if (assessment?.userId) {
-      await notifyPlaintiffInApp({
-        userId: assessment.userId,
-        recipientEmail: plaintiffEmail,
-        attorneyId: attorney.id,
-        assessmentId: lead.assessmentId,
-        eventType: 'documents_requested',
-        subject: `${attorneyName} requested documents`,
-        body: docList,
-        link: '/dashboard?tab=requested-documents',
-        payload: { leadId, documentRequestId: docRequest.id },
+    if (!result.created && !sendUploadLinkOnly) {
+      return res.status(409).json({
+        error:
+          result.alreadyRequested.length === 1
+            ? `${result.alreadyRequested[0]} is already in an open request. Nudge the client instead of requesting it again.`
+            : 'Those documents are already in an open request. Nudge the client instead of requesting them again.',
+        alreadyRequested: result.alreadyRequested,
       })
     }
 
-    if (plaintiffEmail) {
-      const subject = 'Your attorney requested additional documents'
-      const message = `Hi ${plaintiffName},\n\n${attorneyName} has requested the following documents to strengthen your case:\n\n${docList}\n\n${customMessage ? `Message from your attorney: ${customMessage}\n\n` : ''}Upload here: ${uploadLink}\n\nBest regards,\nClearCaseIQ`
-      await deliverDirectNotification({
-        type: 'email',
-        recipient: plaintiffEmail,
-        subject,
-        message,
-        userId: assessment?.userId || null,
-        assessmentId: lead.assessmentId,
-        role: 'plaintiff',
-        replyTo: attorney.email || null,
-        fromName: attorney.name || null,
-        metadata: {
-          eventType: 'document_request',
-          leadId,
-          assessmentId: lead.assessmentId,
-          documentRequestId: docRequest.id,
-          uploadLink,
-        },
-      })
-    }
-
-    res.json(docRequest)
+    res.json(result.docRequest)
   } catch (error: any) {
     logger.error('Failed to create document request', { error: error.message })
     res.status(500).json({ error: 'Failed to create document request' })
@@ -9901,9 +9808,13 @@ router.get('/leads/:leadId/tasks', authMiddleware, async (req: any, res) => {
     // Subtasks are stored as a JSON string; hand clients the parsed array so
     // list views can render a grouped task's checklist without a second fetch.
     // Workflow→task sync can add rows between requests; never serve a stale 304.
+    // Pending/declined answer-derived proposals live in a separate accept/decline
+    // queue (see /intelligence/question-proposals), not the main Tasks work list.
+    const workRecords = records.filter((t) => !isHiddenQuestionProposal(t))
+
     res.setHeader('Cache-Control', 'no-store')
     res.json(
-      records.map((t) => {
+      workRecords.map((t) => {
         const itemId = parseWorkflowItemIdFromTaskKey(t.sourceTemplateStepId)
         const meta = itemId ? wfMeta.get(itemId) : null
         const inferred = meta ? null : inferWorkflowCategoryForTask(t, catalog)
@@ -10230,6 +10141,12 @@ router.put('/leads/:leadId/intelligence/questions/answer', authMiddleware, async
       actorName: answeredByName,
     })
 
+    // Propose follow-up work from answers for attorney accept/decline (rules-first).
+    const proposals = await syncQuestionTaskProposals(lead.assessmentId).catch(() => ({
+      created: 0,
+      pending: [] as Awaited<ReturnType<typeof listQuestionTaskProposals>>,
+    }))
+
     // Loop: a new answer is "new info" — re-run the coach to assign what's next.
     void syncCaseCoachTasks(lead.assessmentId, {
       attorneyId: auth.attorney?.id,
@@ -10244,12 +10161,82 @@ router.put('/leads/:leadId/intelligence/questions/answer', authMiddleware, async
         answeredByName: saved.answeredByName,
         answeredAt: saved.updatedAt.toISOString(),
       },
+      proposals: proposals.pending,
+      proposalsCreated: proposals.created,
     })
   } catch (error: any) {
     logger.error('Failed to save question answer', { error: error.message })
     res.status(500).json({ error: 'Failed to save answer' })
   }
 })
+
+// Pending follow-up tasks suggested from Intelligent Question answers.
+router.get('/leads/:leadId/intelligence/question-proposals', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    if (String(req.query.refresh || '') === '1') {
+      const synced = await syncQuestionTaskProposals(auth.lead.assessmentId)
+      return res.json({ proposals: synced.pending, created: synced.created })
+    }
+    const proposals = await listQuestionTaskProposals(auth.lead.assessmentId)
+    res.json({ proposals, created: 0 })
+  } catch (error: any) {
+    logger.error('Failed to list question task proposals', { error: error.message })
+    res.status(500).json({ error: 'Failed to load suggested tasks' })
+  }
+})
+
+router.post(
+  '/leads/:leadId/intelligence/question-proposals/:proposalId/accept',
+  authMiddleware,
+  async (req: any, res) => {
+    try {
+      const { leadId, proposalId } = req.params
+      const auth = await getAuthorizedLead(req, leadId)
+      if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+      const actorName =
+        `${req.user?.firstName || ''} ${req.user?.lastName || ''}`.trim() || req.user?.email || null
+      const accepted = await acceptQuestionTaskProposal({
+        assessmentId: auth.lead.assessmentId,
+        taskId: proposalId,
+        actor: { id: req.user?.id, name: actorName },
+      })
+      if (!accepted) return res.status(404).json({ error: 'Suggested task not found or already reviewed' })
+      const pending = await listQuestionTaskProposals(auth.lead.assessmentId)
+      res.json({ proposal: accepted, proposals: pending })
+    } catch (error: any) {
+      logger.error('Failed to accept question task proposal', { error: error.message })
+      res.status(500).json({ error: 'Failed to accept suggested task' })
+    }
+  },
+)
+
+router.post(
+  '/leads/:leadId/intelligence/question-proposals/:proposalId/decline',
+  authMiddleware,
+  async (req: any, res) => {
+    try {
+      const { leadId, proposalId } = req.params
+      const auth = await getAuthorizedLead(req, leadId)
+      if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+      const actorName =
+        `${req.user?.firstName || ''} ${req.user?.lastName || ''}`.trim() || req.user?.email || null
+      const declined = await declineQuestionTaskProposal({
+        assessmentId: auth.lead.assessmentId,
+        taskId: proposalId,
+        actor: { id: req.user?.id, name: actorName },
+      })
+      if (!declined) return res.status(404).json({ error: 'Suggested task not found or already reviewed' })
+      const pending = await listQuestionTaskProposals(auth.lead.assessmentId)
+      res.json({ proposal: declined, proposals: pending })
+    } catch (error: any) {
+      logger.error('Failed to decline question task proposal', { error: error.message })
+      res.status(500).json({ error: 'Failed to decline suggested task' })
+    }
+  },
+)
 
 // Spin up a follow-up CaseTask from an answered Intelligent Question (e.g. an
 // answer that reveals work to do — obtain prior records, request the police
@@ -10301,8 +10288,8 @@ router.post('/leads/:leadId/intelligence/questions/task', authMiddleware, async 
   }
 })
 
-// One-click gap remediation. For Phase 0 every action creates a tailored CaseTask
-// (the safe, universal primitive); doc-request wiring can be upgraded later.
+// One-click gap remediation. Document-facing actions create a real plaintiff
+// DocumentRequest (Requested Documents). Firm-internal actions stay CaseTasks.
 router.post('/leads/:leadId/intelligence/gap-action', authMiddleware, async (req: any, res) => {
   try {
     const { leadId } = req.params
@@ -10313,10 +10300,44 @@ router.post('/leads/:leadId/intelligence/gap-action', authMiddleware, async (req
     const label = String(req.body?.label || '').trim()
     const action = String(req.body?.action || '').trim() as GapAction
     const severity = Number(req.body?.severity || 0)
+    const requestedDoc = typeof req.body?.requestedDoc === 'string' ? req.body.requestedDoc.trim() : ''
     if (!label) return res.status(400).json({ error: 'label is required' })
 
     const validActions: GapAction[] = ['request_from_client', 'assign_paralegal', 'generate_doc_request', 'schedule_followup']
     if (!validActions.includes(action)) return res.status(400).json({ error: 'invalid action' })
+
+    // Plaintiff-facing document asks must open Requested Documents — a client
+    // CaseTask alone only showed up under Your next steps with no upload UI.
+    if (action === 'request_from_client' || action === 'generate_doc_request') {
+      const notAccepted = checkLeadIsAccepted(lead, 'requesting documents from the plaintiff')
+      if (notAccepted) return res.status(notAccepted.status).json({ error: notAccepted.message })
+
+      const keys = normalizeRequestedDocKeys([requestedDoc || label].filter(Boolean))
+      const docs = keys.length ? keys : ['other']
+      const result = await createAndNotifyPlaintiffDocumentRequest({
+        leadId,
+        assessmentId: lead.assessmentId,
+        attorney,
+        requestedDocs: docs,
+        customMessage:
+          docs.length === 1 && docs[0] === 'other' ? `Please provide: ${label}` : null,
+      })
+      await writeAutomationAudit({
+        userId: req.user?.id,
+        attorneyId: attorney.id,
+        action: 'document_request_created',
+        entityType: 'document_request',
+        entityId: result.docRequest.id,
+        metadata: {
+          source: 'case_intelligence',
+          gapAction: action,
+          label,
+          requestedDocs: result.docs,
+          created: result.created,
+        },
+      }).catch(() => undefined)
+      return res.json({ documentRequest: result.docRequest, task: null, created: result.created })
+    }
 
     const titleByAction: Record<GapAction, string> = {
       request_from_client: `Request from client: ${label}`,
@@ -10324,12 +10345,7 @@ router.post('/leads/:leadId/intelligence/gap-action', authMiddleware, async (req
       generate_doc_request: `Send document request: ${label}`,
       schedule_followup: `Follow up with client re: ${label}`,
     }
-    // "Request from client" is work the plaintiff must do, so it belongs to them
-    // and must trigger a plaintiff notification/email (CP-430). Other gap actions
-    // stay internal to the firm.
-    const isClientRequest = action === 'request_from_client'
-    const paralegalActions: GapAction[] = ['assign_paralegal', 'generate_doc_request']
-    const assignedRole = isClientRequest ? 'client' : paralegalActions.includes(action) ? 'paralegal' : 'attorney'
+    const assignedRole = action === 'assign_paralegal' ? 'paralegal' : 'attorney'
 
     const record = await prisma.caseTask.create({
       data: {
@@ -10354,14 +10370,6 @@ router.post('/leads/:leadId/intelligence/gap-action', authMiddleware, async (req
       entityId: record.id,
       metadata: { title: record.title, source: 'case_intelligence', gapAction: action },
     }).catch(() => undefined)
-    if (isClientRequest) {
-      await notifyPlaintiffOfAssignedTask({
-        leadId,
-        assessmentId: lead.assessmentId,
-        attorney,
-        task: record,
-      })
-    }
     res.json({ task: record })
   } catch (error: any) {
     logger.error('Failed to run gap action', { error: error.message })
@@ -10397,7 +10405,8 @@ router.get('/leads/:leadId/coach', authMiddleware, async (req: any, res) => {
   }
 })
 
-// Act on a coach recommendation — creates a tailored CaseTask (mirrors gap-action).
+// Act on a coach recommendation — document asks open Requested Documents;
+// firm-internal actions create CaseTasks (mirrors gap-action).
 router.post('/leads/:leadId/coach/action', authMiddleware, async (req: any, res) => {
   try {
     const { leadId } = req.params
@@ -10408,10 +10417,42 @@ router.post('/leads/:leadId/coach/action', authMiddleware, async (req: any, res)
     const title = String(req.body?.title || '').trim()
     const action = String(req.body?.action || '').trim() as GapAction
     const priority = String(req.body?.priority || 'medium').trim()
+    const requestedDoc = typeof req.body?.requestedDoc === 'string' ? req.body.requestedDoc.trim() : ''
     if (!title) return res.status(400).json({ error: 'title is required' })
 
     const validActions: GapAction[] = ['request_from_client', 'assign_paralegal', 'generate_doc_request', 'schedule_followup']
     if (!validActions.includes(action)) return res.status(400).json({ error: 'invalid action' })
+
+    if (action === 'request_from_client' || action === 'generate_doc_request') {
+      const notAccepted = checkLeadIsAccepted(lead, 'requesting documents from the plaintiff')
+      if (notAccepted) return res.status(notAccepted.status).json({ error: notAccepted.message })
+
+      const keys = normalizeRequestedDocKeys([requestedDoc || title].filter(Boolean))
+      const docs = keys.length ? keys : ['other']
+      const result = await createAndNotifyPlaintiffDocumentRequest({
+        leadId,
+        assessmentId: lead.assessmentId,
+        attorney,
+        requestedDocs: docs,
+        customMessage:
+          docs.length === 1 && docs[0] === 'other' ? `Please provide: ${title}` : null,
+      })
+      await writeAutomationAudit({
+        userId: req.user?.id,
+        attorneyId: attorney.id,
+        action: 'document_request_created',
+        entityType: 'document_request',
+        entityId: result.docRequest.id,
+        metadata: {
+          source: 'case_coach',
+          coachAction: action,
+          title,
+          requestedDocs: result.docs,
+          created: result.created,
+        },
+      }).catch(() => undefined)
+      return res.json({ documentRequest: result.docRequest, task: null, created: result.created })
+    }
 
     const titleByAction: Record<GapAction, string> = {
       request_from_client: `Request from client: ${title}`,
@@ -10419,11 +10460,7 @@ router.post('/leads/:leadId/coach/action', authMiddleware, async (req: any, res)
       generate_doc_request: `Send document request: ${title}`,
       schedule_followup: `Follow up: ${title}`,
     }
-    // A coach "request from client" is plaintiff work — assign it to them and
-    // notify by bell + email (CP-430). Other coach actions stay firm-internal.
-    const isClientRequest = action === 'request_from_client'
-    const paralegalActions: GapAction[] = ['assign_paralegal', 'generate_doc_request']
-    const assignedRole = isClientRequest ? 'client' : paralegalActions.includes(action) ? 'paralegal' : 'attorney'
+    const assignedRole = action === 'assign_paralegal' ? 'paralegal' : 'attorney'
     const taskPriority = priority === 'critical' || priority === 'high' ? 'high' : priority === 'low' ? 'low' : 'medium'
 
     const record = await prisma.caseTask.create({
@@ -10449,14 +10486,6 @@ router.post('/leads/:leadId/coach/action', authMiddleware, async (req: any, res)
       entityId: record.id,
       metadata: { title: record.title, source: 'case_coach', coachAction: action },
     }).catch(() => undefined)
-    if (isClientRequest) {
-      await notifyPlaintiffOfAssignedTask({
-        leadId,
-        assessmentId: lead.assessmentId,
-        attorney,
-        task: record,
-      })
-    }
     res.json({ task: record })
   } catch (error: any) {
     logger.error('Failed to run coach action', { error: error.message })
@@ -10493,6 +10522,36 @@ router.post('/leads/:leadId/workflow/apply', authMiddleware, async (req: any, re
   } catch (error: any) {
     logger.error('Failed to apply case workflow', { error: error.message })
     res.status(500).json({ error: 'Failed to apply case workflow' })
+  }
+})
+
+// Re-run GPT planning against the existing case workflow (pending steps only).
+router.post('/leads/:leadId/workflow/adapt', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const { lead } = auth
+
+    const result = await adaptExistingCaseWorkflow({ assessmentId: lead.assessmentId })
+    if (result.reason === 'no_workflow') {
+      return res.status(404).json({ error: 'No workflow on this case' })
+    }
+
+    const cw = await (prisma as any).caseWorkflow.findUnique({
+      where: { assessmentId: lead.assessmentId },
+      include: { items: true },
+    })
+    res.json({
+      adapted: result.adapted,
+      appliedCount: result.appliedCount,
+      rationale: result.rationale,
+      aiRunId: result.aiRunId,
+      workflow: cw ? await serializeCaseWorkflow(cw) : null,
+    })
+  } catch (error: any) {
+    logger.error('Failed to adapt case workflow', { error: error.message })
+    res.status(500).json({ error: 'Failed to adapt case workflow' })
   }
 })
 
@@ -10549,12 +10608,39 @@ router.patch('/leads/:leadId/workflow/items/:itemId', authMiddleware, async (req
       return res.status(400).json({ error: 'Nothing to update' })
     }
 
+    const priorActiveStageOrder = hasStatus
+      ? await getActiveWorkflowStageOrder(lead.assessmentId).catch(() => null)
+      : null
+
     await (prisma as any).caseWorkflowItem.update({
       where: { id: itemId },
       data,
     })
 
-    await syncWorkflowStepTasks(lead.assessmentId).catch(() => undefined)
+    if (hasStatus && status === 'done') {
+      await closeRelatedOpenTasksForWorkflowItem(
+        lead.assessmentId,
+        { id: item.id, title: String(item.title || '') },
+        'Workflow step marked done',
+      ).catch(() => undefined)
+    } else if (hasStatus && status === 'pending') {
+      await reopenLinkedTasksForWorkflowItem(lead.assessmentId, itemId).catch(() => undefined)
+    } else if (hasStatus && status === 'skipped') {
+      await closeRelatedOpenTasksForWorkflowItem(
+        lead.assessmentId,
+        { id: item.id, title: String(item.title || '') },
+        'Workflow step skipped',
+      ).catch(() => undefined)
+    }
+
+    // Same reconcile path as Tasks PATCH so either tab stays consistent.
+    if (hasStatus) {
+      await reconcileWorkflowProgress(lead.assessmentId).catch(() => undefined)
+    }
+    await syncWorkflowStepTasks(
+      lead.assessmentId,
+      hasStatus ? { priorActiveStageOrder } : undefined,
+    ).catch(() => undefined)
 
     const fresh = await (prisma as any).caseWorkflow.findUnique({
       where: { id: cw.id },
@@ -11481,7 +11567,11 @@ router.patch('/leads/:leadId/tasks/:id', authMiddleware, async (req: any, res) =
     }
 
     // Mirror status onto every related Workflow step (one step can own many tasks).
+    let stageUnlock: { newTasks: number; stageOrder: number } | null = null
     if (status !== undefined && status !== existing.status) {
+      const priorActiveStageOrder = await getActiveWorkflowStageOrder(auth.lead.assessmentId).catch(
+        () => null,
+      )
       await syncWorkflowItemFromTask({
         id: record.id,
         assessmentId: auth.lead.assessmentId,
@@ -11491,7 +11581,10 @@ router.patch('/leads/:leadId/tasks/:id', authMiddleware, async (req: any, res) =
       }).catch(() => undefined)
       await reconcileWorkflowProgress(auth.lead.assessmentId).catch(() => undefined)
       // Completing the active stage may unlock the next stage's workflow → tasks.
-      await syncWorkflowStepTasks(auth.lead.assessmentId).catch(() => undefined)
+      const syncResult = await syncWorkflowStepTasks(auth.lead.assessmentId, {
+        priorActiveStageOrder,
+      }).catch(() => null)
+      stageUnlock = syncResult?.stageUnlock ?? null
     }
 
     // Handing an existing internal task to the client is the same event as
@@ -11562,7 +11655,7 @@ router.patch('/leads/:leadId/tasks/:id', authMiddleware, async (req: any, res) =
       })
     }
 
-    res.json(record)
+    res.json(stageUnlock ? { ...record, stageUnlock } : record)
   } catch (error: any) {
     logger.error('Failed to update case task', { error: error.message })
     res.status(500).json({ error: 'Failed to update case task' })

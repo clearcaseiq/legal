@@ -109,6 +109,20 @@ export const checkPoliceReportCollect = async (
   return res.data
 }
 
+/** Collect medical records / bills: complete tasks when matching evidence is on file. */
+export const checkEvidenceCollect = async (
+  leadId: string,
+  kind: 'medical_records' | 'bills',
+): Promise<{
+  onFile: boolean
+  completedTasks: number
+  evidenceFileId: string | null
+  label: string
+}> => {
+  const res = await api.post(`/v1/documents/leads/${leadId}/check-evidence-collect`, { kind })
+  return res.data
+}
+
 export interface CreateRetainerAgreementPayload {
   signerName: string
   signerEmail: string

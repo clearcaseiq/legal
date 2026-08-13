@@ -123,4 +123,22 @@ describe('task ↔ workflow step ownership', () => {
     ])
     expect(related.map((t) => t.id).sort()).toEqual(['1', '2'])
   })
+
+  it('links obtain/collect medical records tasks to the records workflow step', () => {
+    const recordsStep = { id: 'wf-med', title: 'Obtain medical records' }
+    expect(
+      taskBelongsToWorkflowItem(recordsStep, {
+        id: 'a',
+        title: 'Collect medical records',
+        status: 'open',
+      }),
+    ).toBe(true)
+    expect(
+      taskBelongsToWorkflowItem(recordsStep, {
+        id: 'b',
+        title: 'Collect medical bills',
+        status: 'open',
+      }),
+    ).toBe(false)
+  })
 })

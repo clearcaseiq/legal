@@ -14,7 +14,7 @@ import {
   runLeadConflictCheck,
   type MyWorkflowTask,
 } from '../../lib/api'
-import { checkPoliceReportCollect, confirmRetainerSigned } from '../../lib/api-esign'
+import { checkEvidenceCollect, checkPoliceReportCollect, confirmRetainerSigned } from '../../lib/api-esign'
 import { resolveTaskHelpTooltip, resolveTaskPrimaryAction, sectionForTaskAction } from './taskPrimaryActions'
 import {
   Badge,
@@ -480,6 +480,24 @@ export default function TasksPage() {
       setBusyId(row.id)
       try {
         if (!done) await checkPoliceReportCollect(leadId)
+        await loadTasks()
+      } catch {
+        // Still open Evidence.
+      } finally {
+        setBusyId(null)
+        navigate(`/attorney-dashboard/cases/${leadId}/evidence`)
+      }
+      return
+    }
+    if (primary.kind === 'collect_medical_records' || primary.kind === 'collect_bills') {
+      setBusyId(row.id)
+      try {
+        if (!done) {
+          await checkEvidenceCollect(
+            leadId,
+            primary.kind === 'collect_medical_records' ? 'medical_records' : 'bills',
+          )
+        }
         await loadTasks()
       } catch {
         // Still open Evidence.

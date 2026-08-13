@@ -1,12 +1,13 @@
-import { Suspense, lazy, useEffect, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { listAssessments, getAssessment, getEvidenceFiles, associateAssessments, getRoutingStatus, createAppointment, getAttorneyAvailability, updateAppointment, cancelAppointment, joinAppointmentWaitlist, updateAppointmentPreparation, getPlaintiffConsentCompliance, requestEmailVerification, getPlaintiffDocumentRequests, getPlaintiffSignedDocuments, getPlaintiffCaseTasks, createAttorneyReview, getMedicalChronology, updateAssessment, type PlaintiffDocumentRequest, type PlaintiffSignedDocument, type PlaintiffCaseTask } from '../lib/api'
+import { listAssessments, getAssessment, getEvidenceFiles, associateAssessments, getRoutingStatus, createAppointment, getAttorneyAvailability, updateAppointment, cancelAppointment, joinAppointmentWaitlist, updateAppointmentPreparation, getPlaintiffConsentCompliance, getPlaintiffDocumentRequests, getPlaintiffSignedDocuments, getPlaintiffCaseTasks, createAttorneyReview, getMedicalChronology, updateAssessment, type PlaintiffDocumentRequest, type PlaintiffSignedDocument, type PlaintiffCaseTask } from '../lib/api'
 import { formatCurrency } from '../lib/formatters'
 import { formatClaimTypeShort } from '../lib/constants'
 import { canonicalClaimType } from '../lib/claimTypes'
 import { dateLocale } from '../i18n'
 import { localizeDocumentRequestLabel } from '../lib/documentRequestI18n'
-import { CheckCircle, Upload, FileText, TrendingUp, MessageCircle, BarChart3, FileStack, Activity, LayoutDashboard, ChevronRight, Bell, HelpCircle, Clock, Users, Calendar, Phone, Star, Sparkles, ArrowRight, ShieldCheck, Scale, Lock } from 'lucide-react'
+import { CheckCircle, Upload, FileText, FileClock, TrendingUp, MessageCircle, BarChart3, FileStack, Activity, LayoutDashboard, ChevronRight, Bell, HelpCircle, Clock, Users, Calendar, Phone, Star, Sparkles, ArrowRight, ShieldCheck, Scale, Lock, ExternalLink } from 'lucide-react'
 import CaseProgressPipeline from '../components/CaseProgressPipeline'
 import {
   getPlaintiffCaseStatusKey,
@@ -18,10 +19,11 @@ import {
 import OpposingDocSuggestionCard from '../components/OpposingDocSuggestionCard'
 import PlaintiffSatisfactionCard from '../components/PlaintiffSatisfactionCard'
 import { DashboardPageSkeleton, DashboardTabPanelSkeleton } from '../components/PageSkeletons'
-import { clearStoredAuth, getLoginRedirect } from '../lib/auth'
+import { getLoginRedirect } from '../lib/auth'
 import { loadPlaintiffSessionSummary, updateCachedPlaintiffAssessments } from '../hooks/usePlaintiffSessionSummary'
 import { useLanguage } from '../contexts/LanguageContext'
 import { evidenceUploadHref, plaintiffDashboardReturnTo, rememberEvidenceReturnTo } from '../lib/evidenceUploadNav'
+import DraggableFab from '../components/DraggableFab'
 import { evidenceTargetForRequestKey } from '../lib/documentRequestUpload'
 
 type TabId = 'dashboard' | 'tasks' | 'documents' | 'attorney' | 'value' | 'journal'
@@ -31,7 +33,6 @@ interface User {
   email: string
   firstName: string
   lastName: string
-  emailVerified?: boolean
   _count: { assessments: number; favoriteAttorneys: number }
   createdAt: string
 }
@@ -65,7 +66,14 @@ interface ActiveAssessment {
     newValue: { p25: number; median: number; p75: number }
     reason?: string
   } | null
-  caseValueHistory?: Array<{ label: string; value: number; bands: { p25: number; median: number; p75: number }; createdAt: string }>
+  caseValueHistory?: Array<{
+    label: string
+    shortLabel?: string
+    reasonKey?: string
+    value: number
+    bands: { p25: number; median: number; p75: number }
+    createdAt: string
+  }>
 }
 
 function LinkCaseForm({ onLinked }: { onLinked: () => void }) {
@@ -139,12 +147,12 @@ function plaintiffStatusMessage(message?: string | null) {
 // `labelKey` resolves to a localized string at render time (t('plaintiffDashboard.tabs.*'))
 // so the tab bar follows the active language (CP-558).
 const TABS: { id: TabId; labelKey: string; icon: React.ReactNode }[] = [
-  { id: 'dashboard', labelKey: 'plaintiffDashboard.tabs.dashboard', icon: <BarChart3 className="h-4 w-4" /> },
-  { id: 'tasks', labelKey: 'plaintiffDashboard.tabs.tasks', icon: <CheckCircle className="h-4 w-4" /> },
-  { id: 'documents', labelKey: 'plaintiffDashboard.tabs.documents', icon: <FileStack className="h-4 w-4" /> },
-  { id: 'attorney', labelKey: 'plaintiffDashboard.tabs.attorney', icon: <Users className="h-4 w-4" /> },
-  { id: 'value', labelKey: 'plaintiffDashboard.tabs.value', icon: <TrendingUp className="h-4 w-4" /> },
-  { id: 'journal', labelKey: 'plaintiffDashboard.tabs.journal', icon: <MessageCircle className="h-4 w-4" /> },
+  { id: 'dashboard', labelKey: 'plaintiffDashboard.tabs.dashboard', icon: <BarChart3 className="h-5 w-5" /> },
+  { id: 'tasks', labelKey: 'plaintiffDashboard.tabs.tasks', icon: <CheckCircle className="h-5 w-5" /> },
+  { id: 'documents', labelKey: 'plaintiffDashboard.tabs.documents', icon: <FileStack className="h-5 w-5" /> },
+  { id: 'attorney', labelKey: 'plaintiffDashboard.tabs.attorney', icon: <Users className="h-5 w-5" /> },
+  { id: 'value', labelKey: 'plaintiffDashboard.tabs.value', icon: <TrendingUp className="h-5 w-5" /> },
+  { id: 'journal', labelKey: 'plaintiffDashboard.tabs.journal', icon: <MessageCircle className="h-5 w-5" /> },
 ]
 
 /** Legacy deep-link tab ids that map onto the tightened nav. */
@@ -278,28 +286,40 @@ export default function Dashboard() {
   const [signedDocuments, setSignedDocuments] = useState<PlaintiffSignedDocument[]>([])
   const [attorneyTasks, setAttorneyTasks] = useState<PlaintiffCaseTask[]>([])
   const [attorneyTasksFailed, setAttorneyTasksFailed] = useState(false)
-  const [verifyNotice, setVerifyNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-  const [verifySending, setVerifySending] = useState(false)
   const navigate = useNavigate()
-
-  const handleRequestVerification = async () => {
-    setVerifySending(true)
-    setVerifyNotice(null)
-    try {
-      await requestEmailVerification()
-      setVerifyNotice({ type: 'success', text: t('plaintiffDashboard.emailVerification.sent') })
-    } catch {
-      setVerifyNotice({ type: 'error', text: t('plaintiffDashboard.emailVerification.sendFailed') })
-    } finally {
-      setVerifySending(false)
-    }
-  }
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
 
   useEffect(() => {
     setPrepNotes(routingStatus?.upcomingAppointment?.preparation?.preparationNotes || '')
   }, [routingStatus?.upcomingAppointment?.id, routingStatus?.upcomingAppointment?.preparation?.preparationNotes])
   const caseIdFromUrl = searchParams.get('case')
+  const tabFromUrl = searchParams.get('tab')
+  // Boolean only — `attorneyMatched` is a new object on every routing poll, and
+  // must not re-trigger tab sync (that was yanking users back to ?tab=documents).
+  const attorneyMatchedFlag = Boolean(routingStatus?.attorneyMatched)
+  // While a tab click's URL update is in flight, ignore stale ?tab= from effects.
+  const pendingTabRef = useRef<TabId | null>(null)
+
+  // Keep tab selection in the URL so deep links and in-app clicks agree. Without
+  // this, clicking Journal only updates local state while ?tab=documents (common
+  // after evidence-upload return) can snap the user back to Documents on the next
+  // searchParams-driven effect (e.g. after saving a journal entry).
+  const selectTab = useCallback(
+    (tab: TabId) => {
+      pendingTabRef.current = tab
+      setActiveTab(tab)
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev)
+          if (tab === 'dashboard') next.delete('tab')
+          else next.set('tab', tab)
+          return next
+        },
+        { replace: true },
+      )
+    },
+    [setSearchParams],
+  )
 
   useEffect(() => {
     loadDashboardData()
@@ -320,17 +340,21 @@ export default function Dashboard() {
   // Allow deep-linking via ?tab=. Legacy `requested-documents` → Tasks;
   // `attorney` → Dashboard once matched (Attorney Review tab is hidden then).
   useEffect(() => {
-    const resolved = resolveDashboardTab(searchParams.get('tab'), {
-      attorneyMatched: !!routingStatus?.attorneyMatched,
+    const resolved = resolveDashboardTab(tabFromUrl, {
+      attorneyMatched: attorneyMatchedFlag,
     })
-    if (resolved) setActiveTab(resolved)
-  }, [searchParams, routingStatus?.attorneyMatched])
+    if (!resolved) return
+    // Click already chose a tab; wait until the URL catches up before syncing.
+    if (pendingTabRef.current && pendingTabRef.current !== resolved) return
+    pendingTabRef.current = null
+    setActiveTab((current) => (current === resolved ? current : resolved))
+  }, [tabFromUrl, attorneyMatchedFlag])
 
   useEffect(() => {
-    if (routingStatus?.attorneyMatched && activeTab === 'attorney') {
-      setActiveTab('dashboard')
+    if (attorneyMatchedFlag && activeTab === 'attorney') {
+      selectTab('dashboard')
     }
-  }, [routingStatus?.attorneyMatched, activeTab])
+  }, [attorneyMatchedFlag, activeTab, selectTab])
 
   // Switching cases from the "My Cases" list only changes the ?case= query
   // param on the same route, so the initial mount-only loader never re-ran and
@@ -387,6 +411,29 @@ export default function Dashboard() {
       })
     return () => { cancelled = true }
   }, [activeAssessment?.id])
+
+  // Opening Tasks runs document-request reconcile (orphaned "Request from client"
+  // CaseTasks → Requested Documents) and refreshes both columns.
+  useEffect(() => {
+    if (activeTab !== 'tasks' || !activeAssessment?.id) return
+    const assessmentId = activeAssessment.id
+    let cancelled = false
+    ;(async () => {
+      await refreshCaseDocuments(assessmentId)
+      if (cancelled) return
+      try {
+        const data = await getPlaintiffCaseTasks(assessmentId)
+        if (cancelled) return
+        setAttorneyTasks(Array.isArray(data?.tasks) ? data.tasks : [])
+        setAttorneyTasksFailed(false)
+      } catch {
+        if (!cancelled) setAttorneyTasksFailed(true)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [activeTab, activeAssessment?.id])
 
   useEffect(() => {
     if (!activeAssessment?.id) {
@@ -1068,6 +1115,14 @@ export default function Dashboard() {
       }
   // Tasks the attorney assigned to the plaintiff come first — these are explicit
   // requests from the legal team, so they take priority over generated tips (#157).
+  const looksLikeDocumentAsk = (title: string) => {
+    const t0 = title.trim().toLowerCase()
+    return (
+      t0.startsWith('request from client:') ||
+      t0.startsWith('send document request:') ||
+      /\b(upload|document|records?|photos?|police report|wage|dec page|prior treatment)\b/.test(t0)
+    )
+  }
   const attorneyTaskItems = attorneyTasksFailed
     ? [{
         label: t('plaintiffDashboard.dynamic.task.loadFailedLabel'),
@@ -1075,17 +1130,28 @@ export default function Dashboard() {
         done: false,
         href: '/messaging',
       }]
-    : attorneyTasks.map((task) => ({
-        label: task.title,
-        detail: task.notes?.trim()
-          ? task.notes.trim()
-          : task.dueDate
-          ? t('plaintiffDashboard.dynamic.task.attorneyDue', { date: new Date(task.dueDate).toLocaleDateString() })
-          : t('plaintiffDashboard.dynamic.task.attorneyRequested'),
-        done: task.status === 'done',
-        href: '/messaging',
-      }))
-  const dashboardTasks = [...attorneyTaskItems, reviewTask, ...evidenceGapTasks, ...scoreImprovementTasks].slice(0, 6 + attorneyTaskItems.length)
+    : attorneyTasks
+        // Document asks belong under Requested Documents (upload UI) — keep them
+        // out of Your next steps so the middle column is not a second docs list.
+        .filter((task) => !looksLikeDocumentAsk(task.title || ''))
+        .map((task) => ({
+          label: task.title,
+          detail: task.notes?.trim()
+            ? task.notes.trim()
+            : task.dueDate
+            ? t('plaintiffDashboard.dynamic.task.attorneyDue', { date: new Date(task.dueDate).toLocaleDateString() })
+            : t('plaintiffDashboard.dynamic.task.attorneyRequested'),
+          done: task.status === 'done',
+          href: '/messaging',
+        }))
+  // After match, upload checklist items live in Requested Documents — not here.
+  const checklistTasks = attorneyMatched
+    ? []
+    : [...evidenceGapTasks, ...scoreImprovementTasks]
+  const dashboardTasks = [...attorneyTaskItems, reviewTask, ...checklistTasks].slice(
+    0,
+    6 + attorneyTaskItems.length,
+  )
   const actionItemsCount = dashboardTasks.filter((task) => !task.done).length
 
   const riskLevel: 'Low' | 'Moderate' | 'High' = docLabel === 'Missing' ? 'Moderate' : evidenceCount === 0 ? 'Moderate' : 'Low'
@@ -1114,26 +1180,43 @@ export default function Dashboard() {
   })()
 
   const caseValueHistory = (() => {
+    // Prefer real prediction snapshots (material value changes + reason labels).
+    // Chronological oldest → newest from the API; do not invent intermediate bars.
     if (Array.isArray(activeAssessment?.caseValueHistory) && activeAssessment.caseValueHistory.length > 0) {
-      return [...activeAssessment.caseValueHistory]
-        .reverse()
-        .map((entry, index, entries) => ({
-          label: index === entries.length - 1 ? 'Current estimate' : entry.label,
-          shortLabel: index === entries.length - 1 ? 'Current' : index === 0 ? 'Initial' : `V${index + 1}`,
-          value: Number(entry.bands?.p75 ?? entry.bands?.median ?? entry.value) || 0,
-        }))
+      return activeAssessment.caseValueHistory.map((entry, index, entries) => {
+        const reasonKey = entry.reasonKey || (index === 0 ? 'initial' : index === entries.length - 1 ? 'current' : 'updated')
+        const reasonPath = `plaintiffDashboard.deferred.value.historyReasons.${reasonKey}`
+        const shortPath = `plaintiffDashboard.deferred.value.historyShort.${reasonKey}`
+        const translated = t(reasonPath)
+        const shortTranslated = t(shortPath)
+        return {
+          label:
+            translated !== reasonPath
+              ? translated
+              : entry.label ||
+                (index === entries.length - 1 ? 'Current estimate' : index === 0 ? 'Initial estimate' : 'Updated estimate'),
+          shortLabel:
+            shortTranslated !== shortPath
+              ? shortTranslated
+              : entry.shortLabel || (index === entries.length - 1 ? 'Current' : index === 0 ? 'Initial' : 'Updated'),
+          value: Number(entry.value ?? entry.bands?.median) || 0,
+        }
+      })
     }
 
-    const base = settlementLow
-    let v = base
-    const entries: { label: string; shortLabel: string; value: number }[] = [{ label: 'Initial estimate', shortLabel: 'Initial', value: base }]
-    if (injuries.length > 0) { v = Math.round(v * 1.25); entries.push({ label: 'After injury docs', shortLabel: 'Injury', value: v }) }
-    if (evidenceCount > 0) { v = Math.round(v * 1.4); entries.push({ label: 'After evidence', shortLabel: 'Evidence', value: v }) }
-    if (hasWageLoss) { v = Math.round(v * 1.15); entries.push({ label: 'After wage loss', shortLabel: 'Wage', value: v }) }
-    entries.push({ label: 'Current estimate', shortLabel: 'Current', value: settlementHigh })
-    return entries
+    // Minimal fallback when no prediction history exists yet.
+    const initial = Number(settlementLow) || 0
+    const current = Number(settlementHigh) || initial
+    if (!current && !initial) return []
+    if (!initial || Math.abs(current - initial) < 1) {
+      return [{ label: t('plaintiffDashboard.deferred.value.historyReasons.current'), shortLabel: t('plaintiffDashboard.deferred.value.historyShort.current'), value: current || initial }]
+    }
+    return [
+      { label: t('plaintiffDashboard.deferred.value.historyReasons.initial'), shortLabel: t('plaintiffDashboard.deferred.value.historyShort.initial'), value: initial },
+      { label: t('plaintiffDashboard.deferred.value.historyReasons.current'), shortLabel: t('plaintiffDashboard.deferred.value.historyShort.current'), value: current },
+    ]
   })()
-  const maxValue = Math.max(...caseValueHistory.map(e => e.value))
+  const maxValue = caseValueHistory.length > 0 ? Math.max(...caseValueHistory.map((e) => e.value)) : 0
 
   const notification = evidenceCount > 0
     ? 'Your case score increased after evidence upload.'
@@ -1333,12 +1416,13 @@ export default function Dashboard() {
   const handleCancelConsultation = async () => {
     if (!routingStatus?.upcomingAppointment?.id || !activeAssessment?.id) return
     try {
+      setScheduleError(null)
       await cancelAppointment(routingStatus.upcomingAppointment.id)
-      setScheduleSuccess('Consultation cancelled.')
+      setScheduleSuccess(t('plaintiffDashboard.consultation.cancelledToast'))
       const data = await getRoutingStatus(activeAssessment.id)
       setRoutingStatus(data)
     } catch (err: any) {
-      setScheduleError(err?.response?.data?.error || 'Could not cancel consultation.')
+      setScheduleError(err?.response?.data?.error || t('plaintiffDashboard.consultation.cancelFailed'))
     }
   }
 
@@ -1452,55 +1536,22 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen transition-colors">
-      {user.emailVerified === false && (
-        <div className="mx-auto w-full max-w-[1600px] px-4 pb-0 pt-4 sm:px-6 print:hidden">
-          <div className="subtle-panel flex flex-col gap-2 px-4 py-2.5 text-xs text-slate-600 dark:text-slate-300">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <p>
-                {t('plaintiffDashboard.emailVerification.pending')}
-              </p>
-              <button
-                type="button"
-                disabled={verifySending}
-                className="btn-ghost shrink-0 text-xs disabled:opacity-60"
-                onClick={() => { void handleRequestVerification() }}
-              >
-                {verifySending
-                  ? t('plaintiffDashboard.emailVerification.sending')
-                  : t('plaintiffDashboard.emailVerification.requestLink')}
-              </button>
-            </div>
-            {verifyNotice && (
-              <p
-                className={`rounded-md px-3 py-2 ${
-                  verifyNotice.type === 'success'
-                    ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300'
-                    : 'bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-300'
-                }`}
-                role="status"
-              >
-                {verifyNotice.text}
-              </p>
-            )}
-          </div>
-        </div>
-      )}
       {/* Schedule Consultation Modal */}
       {scheduleModalOpen && routingStatus?.attorneyMatched && (
         <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/55 p-4 backdrop-blur-sm">
-          <div className="surface-panel my-auto max-h-[90vh] w-full max-w-md overflow-y-auto p-6 shadow-xl">
+          <div className="surface-panel my-auto max-h-[90vh] w-full max-w-3xl overflow-y-auto p-6 shadow-xl sm:p-8">
             <h3 className="section-title text-ui-xl">{t('plaintiffDashboard.consultation.schedule')}</h3>
             <p className="section-copy mb-4">{t('plaintiffDashboard.schedule.bookCall', { name: routingStatus.attorneyMatched.name })}</p>
             <div className="space-y-4">
               <div>
                 <label className="mb-2 block text-sm font-medium text-slate-700">{t('plaintiffDashboard.schedule.chooseDay')}</label>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
                   {buildUpcomingDateOptions().map((option) => (
                     <button
                       key={option.value}
                       type="button"
                       onClick={() => setScheduleDate(option.value)}
-                      className={`rounded-lg border px-3 py-2 text-sm font-medium ${
+                      className={`w-full rounded-lg border px-3 py-2.5 text-sm font-medium ${
                         scheduleDate === option.value
                           ? 'border-brand-600 bg-brand-50 text-brand-700'
                           : 'border-slate-200 text-slate-700 hover:bg-slate-50'
@@ -1516,7 +1567,7 @@ export default function Dashboard() {
                 <select
                   value={scheduleType}
                   onChange={(e) => setScheduleType(e.target.value as 'phone' | 'video' | 'in_person')}
-                  className="select"
+                  className="select w-full"
                 >
                   <option value="phone">{t('plaintiffDashboard.schedule.typePhone')}</option>
                   <option value="video">{t('plaintiffDashboard.schedule.typeVideo')}</option>
@@ -1546,13 +1597,13 @@ export default function Dashboard() {
                     </button>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
                     {scheduleSlots.map((slot) => (
                       <button
                         key={slot.start}
                         type="button"
                         onClick={() => setSelectedScheduleSlot(slot.start)}
-                        className={`rounded-lg border px-3 py-2 text-sm font-medium ${
+                        className={`w-full rounded-lg border px-3 py-2.5 text-sm font-medium ${
                           selectedScheduleSlot === slot.start
                             ? 'border-emerald-600 bg-emerald-50 text-emerald-700'
                             : 'border-slate-200 text-slate-700 hover:bg-slate-50'
@@ -1590,13 +1641,80 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Header + Tab navigation — rounded card matching the verification / surface panels */}
-      <div className="mx-auto max-w-[1600px] px-4 pt-4 sm:px-6">
-        <header className="sticky top-2 z-40 rounded-2xl border border-slate-200/80 bg-white/95 p-4 shadow-[0_1px_2px_rgba(15,23,42,0.05),0_10px_30px_-16px_rgba(15,23,42,0.16)] backdrop-blur-xl transition-colors dark:border-slate-700/80 dark:bg-slate-900/90 dark:shadow-none sm:p-5">
-          <div className="flex justify-between items-start mb-4">
-            <div>
+      {/* Greeting scrolls away; tabs stick with an opaque shield so page content
+          (e.g. blue Case Value cards) cannot peek through while scrolling. */}
+      <div className="space-y-3 pt-4">
+        {showDocActionCenter && (
+          <div className="relative overflow-hidden rounded-xl border border-amber-200/80 bg-[#FFF8EB] shadow-sm">
+            <div className="absolute inset-y-0 left-0 w-1.5 bg-orange-500" aria-hidden />
+            <div className="flex flex-col gap-4 py-4 pl-6 pr-4 sm:flex-row sm:items-center sm:gap-5 sm:pr-5">
+              <div className="flex min-w-0 flex-1 items-center gap-4">
+                <div className="relative flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-amber-100/80">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-full bg-white shadow-sm ring-1 ring-amber-100">
+                    <FileClock className="h-6 w-6 text-orange-500" aria-hidden />
+                  </div>
+                </div>
+                <div className="min-w-0 text-left">
+                  <div className="flex items-center gap-2">
+                    <p className="text-base font-bold text-orange-800">
+                      {t('plaintiffDashboard.actionCenter.title')}
+                    </p>
+                    <span className="inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-orange-500 px-1.5 text-xs font-bold text-white">
+                      {pendingDocumentRequests.length}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-sm text-slate-600">
+                    {nextDocumentRequest
+                      ? t('plaintiffDashboard.actionCenter.waitingOn', {
+                          name: nextDocumentRequest.attorney?.name || t('plaintiffDashboard.actionCenter.yourAttorney'),
+                          docs:
+                            nextDocumentRequest.remainingDocs.length > 0
+                              ? nextDocumentRequest.remainingDocs.length === 1
+                                ? (() => {
+                                    const key = nextDocumentRequest.remainingDocs[0]
+                                    const item = nextDocumentRequest.items.find((row) => row.key === key)
+                                    return localizeDocumentRequestLabel(
+                                      key,
+                                      t,
+                                      item?.label,
+                                    ) || t('plaintiffDashboard.actionCenter.aRequestedDocument')
+                                  })()
+                                : t('plaintiffDashboard.actionCenter.nRequestedDocuments', {
+                                    count: nextDocumentRequest.remainingDocs.length,
+                                  })
+                              : t('plaintiffDashboard.actionCenter.supportingDocuments'),
+                        })
+                      : t('plaintiffDashboard.actionCenter.subtitle')}
+                  </p>
+                </div>
+              </div>
+              <div className="flex shrink-0 items-center gap-3 sm:border-l sm:border-amber-200/80 sm:pl-5">
+                <button
+                  type="button"
+                  onClick={() => selectTab('tasks')}
+                  className="inline-flex items-center gap-2 rounded-lg border border-orange-400 bg-transparent px-3.5 py-2 text-sm font-semibold text-orange-600 transition hover:bg-orange-50"
+                >
+                  <ExternalLink className="h-4 w-4" aria-hidden />
+                  {t('plaintiffDashboard.actionCenter.viewDetails')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => selectTab('tasks')}
+                  aria-label={t('plaintiffDashboard.actionCenter.viewDetails')}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-white text-orange-500 shadow-md ring-1 ring-black/5 transition hover:bg-orange-50"
+                >
+                  <ChevronRight className="h-5 w-5" aria-hidden />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <header className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.05),0_10px_30px_-16px_rgba(15,23,42,0.16)] transition-colors dark:border-slate-700/80 dark:bg-slate-900 dark:shadow-none sm:p-5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
               <h1 className="font-display text-ui-2xl font-semibold text-slate-950 dark:text-slate-50">{t('plaintiffDashboard.greeting', { name: user.firstName })}</h1>
-              <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
+              <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
                 {activeAssessment && submittedForReview
                   ? t('plaintiffDashboard.status.inReview')
                   : activeAssessment
@@ -1604,63 +1722,61 @@ export default function Dashboard() {
                   : t('plaintiffDashboard.status.noCase')}
               </p>
             </div>
-            <button
-              onClick={() => { clearStoredAuth(); navigate('/') }}
-              className="text-sm text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 underline-offset-2 hover:underline"
-            >
-              {t('common.logout')}
-            </button>
+            {attorneyMatched && activeAssessment?.id && routingStatus?.attorneyMatched?.id && (
+              <Link
+                to="/messaging"
+                state={{ attorneyId: routingStatus.attorneyMatched.id, assessmentId: activeAssessment.id }}
+                className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-brand-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-800"
+              >
+                <MessageCircle className="h-4 w-4" aria-hidden />
+                {t('plaintiffDashboard.attorneyChat.cta')}
+              </Link>
+            )}
           </div>
-
-          {/* Tab navigation */}
-          {activeAssessment && (
-            <nav className="-mx-1 flex gap-2 overflow-x-auto pb-0.5">
-              {TABS.filter((tab) => tab.id !== 'attorney' || !attorneyMatched).map((tab) => {
-                const badge =
-                  tab.id === 'tasks'
-                    ? actionItemsCount + pendingDocumentRequests.length
-                    : 0
-                return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`workspace-tab whitespace-nowrap ${
-                    activeTab === tab.id
-                      ? 'workspace-tab-active'
-                      : ''
-                  }`}
-                >
-                  {tab.icon}
-                  {t(tab.labelKey)}
-                  {badge > 0 && (
-                    <span className="ml-1.5 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white">{badge}</span>
-                  )}
-                </button>
-                )
-              })}
-            </nav>
-          )}
         </header>
+
+        {activeAssessment && (() => {
+          const visibleTabs = TABS.filter((tab) => tab.id !== 'attorney' || !attorneyMatched)
+          return (
+          <nav className="sticky top-0 z-40 -mx-4 bg-slate-50 px-4 pb-2 pt-2 dark:bg-slate-950 sm:-mx-6 sm:px-6 md:top-20">
+            <div className="rounded-2xl border border-slate-200/80 bg-white p-3 shadow-[0_1px_2px_rgba(15,23,42,0.05),0_10px_30px_-16px_rgba(15,23,42,0.16)] transition-colors dark:border-slate-700/80 dark:bg-slate-900 dark:shadow-none sm:p-4">
+              <div className={`grid grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-3 ${visibleTabs.length >= 6 ? 'lg:grid-cols-6' : 'lg:grid-cols-5'}`}>
+                {visibleTabs.map((tab) => {
+                  const badge =
+                    tab.id === 'tasks'
+                      ? actionItemsCount + pendingDocumentRequests.length
+                      : 0
+                  return (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => selectTab(tab.id)}
+                      className={`inline-flex w-full min-h-[3.25rem] items-center justify-center gap-2.5 rounded-xl border px-4 py-3.5 text-base font-semibold transition-colors sm:min-h-[3.75rem] sm:px-5 sm:text-lg ${
+                        activeTab === tab.id
+                          ? 'border-brand-200 bg-brand-50 text-brand-700 dark:border-brand-900/70 dark:bg-brand-950/40 dark:text-brand-300'
+                          : 'border-slate-200 bg-white text-slate-600 hover:border-brand-200 hover:text-brand-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-brand-800 dark:hover:text-brand-300'
+                      }`}
+                    >
+                      {tab.icon}
+                      <span className="truncate">{t(tab.labelKey)}</span>
+                      {badge > 0 && (
+                        <span className="inline-flex h-5 min-w-[20px] shrink-0 items-center justify-center rounded-full bg-rose-500 px-1.5 text-xs font-bold text-white">{badge}</span>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          </nav>
+          )
+        })()}
       </div>
 
-      <div className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6">
+      <div className="py-6">
         {activeAssessment ? (
           <>
             {activeTab === 'dashboard' && (
               <div className="space-y-4">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('plaintiffDashboard.caseStatus')}</span>
-                  <div className="flex flex-wrap items-center justify-end gap-2">
-                    {litigationLabelKey ? (
-                      <span className="inline-flex items-center rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-sm font-semibold text-rose-800">
-                        {t(litigationLabelKey)}
-                      </span>
-                    ) : null}
-                    <span className={`inline-flex items-center rounded-full border px-3 py-1 text-sm font-semibold ${caseStatusColor(plaintiffCaseStatusKey)}`}>
-                      {t(caseStatusLabelKey(plaintiffCaseStatusKey))}
-                    </span>
-                  </div>
-                </div>
                 <CaseProgressPipeline
                   submittedForReview={submittedForReview}
                   attorneyMatched={attorneyMatched}
@@ -1670,6 +1786,11 @@ export default function Dashboard() {
                   lifecycleState={routingLifecycle}
                   statusMessage={plaintiffRoutingStatusMessage}
                   litigationLabel={litigationLabelKey ? t(litigationLabelKey) : null}
+                  statusBadge={{
+                    label: t(caseStatusLabelKey(plaintiffCaseStatusKey)),
+                    className: caseStatusColor(plaintiffCaseStatusKey),
+                    showCheck: plaintiffCaseStatusKey === 'completed' || plaintiffCaseStatusKey === 'closed',
+                  }}
                 />
                 {showReviewBanner && (
                   <section className="rounded-2xl border border-brand-200 bg-gradient-to-br from-brand-600 to-brand-700 p-6 text-white shadow-sm">
@@ -1726,47 +1847,6 @@ export default function Dashboard() {
                   <OpposingDocSuggestionCard assessmentId={activeAssessment.id} />
                 )}
 
-                {showDocActionCenter && (
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('tasks')}
-                    className="flex w-full items-start justify-between gap-4 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 text-left transition hover:border-amber-300 hover:bg-amber-100/70"
-                  >
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold text-amber-900">
-                        {t('plaintiffDashboard.actionCenter.title')}
-                        <span className="ml-2 rounded-full bg-amber-200 px-2 py-0.5 text-xs font-bold text-amber-900">
-                          {pendingDocumentRequests.length}
-                        </span>
-                      </p>
-                      <p className="mt-1 text-sm text-amber-800">
-                        {nextDocumentRequest
-                          ? t('plaintiffDashboard.actionCenter.waitingOn', {
-                              name: nextDocumentRequest.attorney?.name || t('plaintiffDashboard.actionCenter.yourAttorney'),
-                              docs:
-                                nextDocumentRequest.remainingDocs.length > 0
-                                  ? nextDocumentRequest.remainingDocs.length === 1
-                                    ? (() => {
-                                        const key = nextDocumentRequest.remainingDocs[0]
-                                        const item = nextDocumentRequest.items.find((row) => row.key === key)
-                                        return localizeDocumentRequestLabel(
-                                          key,
-                                          t,
-                                          item?.label,
-                                        ) || t('plaintiffDashboard.actionCenter.aRequestedDocument')
-                                      })()
-                                    : t('plaintiffDashboard.actionCenter.nRequestedDocuments', {
-                                        count: nextDocumentRequest.remainingDocs.length,
-                                      })
-                                  : t('plaintiffDashboard.actionCenter.supportingDocuments'),
-                            })
-                          : t('plaintiffDashboard.actionCenter.subtitle')}
-                      </p>
-                    </div>
-                    <ChevronRight className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" aria-hidden />
-                  </button>
-                )}
-
                 {/* Case Value Updated banner - when documents increase estimate */}
                 {activeAssessment?.caseValueUpdated && (
                   <div className="flex items-start gap-3 p-5 bg-emerald-50 border-2 border-emerald-200 rounded-xl">
@@ -1790,48 +1870,22 @@ export default function Dashboard() {
                   </div>
                 )}
 
-                {/* ATTORNEY ACCEPTED LAYOUT - Working with attorney */}
+                {/* ATTORNEY ACCEPTED LAYOUT — 3 sections: attorney | consult/task | experience */}
                 {attorneyMatched ? (
                   <>
-                    {/* Attorney Match Card */}
-                    <div className="bg-white rounded-xl border-2 border-emerald-200 p-6 shadow-sm">
-                      <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-                        <CheckCircle className="h-6 w-6 text-emerald-600" />
-                        {t('plaintiffDashboard.attorneyMatch.title')}
-                      </h3>
-                      <div className="flex flex-col sm:flex-row sm:items-start gap-4">
-                        <div className="flex-1">
-                          <p className="text-xl font-bold text-gray-900">{routingStatus?.attorneyMatched?.name}, Esq.</p>
-                          <p className="text-gray-600 mt-1">{routingStatus?.attorneyMatched?.firmName || t('plaintiffDashboard.attorneyMatch.lawFirm')}</p>
-                          <p className="text-sm text-gray-500 mt-1">
-                            {routingStatus?.attorneyMatched?.yearsExperience ? t('plaintiffDashboard.attorneyMatch.yearsExperience', { years: routingStatus.attorneyMatched.yearsExperience }) : t('plaintiffDashboard.attorneyMatch.experiencedAttorney')}
-                            {venueState ? ` • ${t('plaintiffDashboard.attorneyMatch.licensed', { state: venueState })}` : ''}
-                          </p>
-                          <p className="text-sm text-gray-500 mt-1">
-                            {(() => {
-                              const s = routingStatus?.attorneyMatched?.specialties
-                              if (!s) return null
-                              try {
-                                const arr = typeof s === 'string' ? JSON.parse(s) : s
-                                if (Array.isArray(arr)) {
-                                  // Format every stored specialty slug so none render
-                                  // with raw underscores (e.g. dog_bite, wrongful_death).
-                                  const formatted = arr.map((x: string) => localizeClaimType(x)).filter(Boolean)
-                                  return t('plaintiffDashboard.attorneyMatch.specializesIn', { list: formatted.join(', ') || t('plaintiffDashboard.attorneyMatch.personalInjury') })
-                                }
-                              } catch {}
-                              return t('plaintiffDashboard.attorneyMatch.specializesIn', { list: localizeClaimType(String(s)) })
-                            })()}
-                          </p>
-                          <p className="text-sm text-brand-600 mt-1">
-                            {t('plaintiffDashboard.attorneyMatch.responseTime', { hours: routingStatus?.attorneyMatched?.responseTimeHours ?? 24 })}
-                          </p>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
+                    <div className="grid grid-cols-1 gap-4 lg:grid-cols-3 lg:items-stretch">
+                      {/* 1. Attorney Match — Call / Message under name */}
+                      <div className="rounded-xl border-2 border-emerald-200 bg-white p-5 shadow-sm">
+                        <h3 className="mb-3 flex items-center gap-2 text-lg font-bold text-gray-900">
+                          <CheckCircle className="h-6 w-6 text-emerald-600" />
+                          {t('plaintiffDashboard.attorneyMatch.title')}
+                        </h3>
+                        <p className="text-xl font-bold text-gray-900">{routingStatus?.attorneyMatched?.name}, Esq.</p>
+                        <div className="mt-3 flex flex-wrap gap-2">
                           {routingStatus?.attorneyMatched?.phone && (
                             <a
                               href={`tel:${routingStatus.attorneyMatched.phone}`}
-                              className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm font-medium"
+                              className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
                             >
                               <Phone className="h-4 w-4" />
                               {t('plaintiffDashboard.attorneyMatch.call')}
@@ -1840,176 +1894,212 @@ export default function Dashboard() {
                           <Link
                             to="/messaging"
                             state={{ attorneyId: routingStatus?.attorneyMatched?.id, assessmentId: activeAssessment?.id }}
-                            className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-emerald-600 text-emerald-700 rounded-lg hover:bg-emerald-50 text-sm font-medium"
+                            className="inline-flex items-center gap-2 rounded-lg bg-brand-700 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-800"
                           >
                             <MessageCircle className="h-4 w-4" />
                             {t('plaintiffDashboard.attorneyMatch.message')}
                           </Link>
-                          {/* Schedule from the attorney card only pre-retain and when
-                              no consult is already booked — after retain the pipeline
-                              and Action Center carry the next step. */}
-                          {!hasUpcomingConsult && !caseRetained && (
-                            <button
-                              type="button"
-                              onClick={openScheduleModal}
-                              className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-emerald-600 text-emerald-700 rounded-lg hover:bg-emerald-50 text-sm font-medium"
-                            >
-                              <Calendar className="h-4 w-4" />
-                              {t('plaintiffDashboard.consultation.schedule')}
-                            </button>
-                          )}
                         </div>
-                      </div>
-                      {routingStatus?.attorneyMatched?.email && (
-                        <p className="mt-3 text-sm text-gray-600">{routingStatus.attorneyMatched.email}</p>
-                      )}
-                      {(routingStatus?.reviewEligible || routingStatus?.upcomingAppointment?.reviewEligible) && (
-                        <div className="mt-4 border-t border-emerald-100 pt-4">
-                          {reviewOpen ? (
-                            <div className="space-y-3">
-                              <div className="flex gap-1">
-                                {[1, 2, 3, 4, 5].map((value) => (
-                                  <button key={value} type="button" onClick={() => setReviewRating(value)}>
-                                    <Star className={`h-5 w-5 ${value <= reviewRating ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'}`} />
-                                  </button>
-                                ))}
-                              </div>
-                              <input
-                                value={reviewTitle}
-                                onChange={(e) => setReviewTitle(e.target.value)}
-                                placeholder={t('plaintiffDashboard.attorneyContact.reviewTitlePlaceholder')}
-                                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
-                              />
-                              <textarea
-                                value={reviewText}
-                                onChange={(e) => setReviewText(e.target.value)}
-                                placeholder={t('plaintiffDashboard.attorneyContact.reviewTextPlaceholder')}
-                                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
-                                rows={3}
-                              />
-                              <div className="flex gap-2">
-                                <button onClick={handleSubmitReview} disabled={reviewSubmitting} className="rounded-lg bg-brand-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-60">
-                                  {reviewSubmitting ? t('plaintiffDashboard.attorneyContact.submitting') : t('plaintiffDashboard.attorneyContact.submitReview')}
-                                </button>
-                                <button onClick={() => setReviewOpen(false)} className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700">
-                                  {t('plaintiffDashboard.attorneyContact.close')}
-                                </button>
-                              </div>
-                            </div>
-                          ) : routingStatus?.existingReview ? (
-                            <div className="space-y-1.5">
-                              <div className="flex items-center gap-1">
-                                {[1, 2, 3, 4, 5].map((value) => (
-                                  <Star
-                                    key={value}
-                                    className={`h-4 w-4 ${value <= (routingStatus.existingReview?.rating || 0) ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'}`}
-                                  />
-                                ))}
-                                <span className="ml-1 text-xs text-gray-500">{t('plaintiffDashboard.attorneyContact.yourReview')}</span>
-                              </div>
-                              {routingStatus.existingReview.title ? (
-                                <p className="text-sm font-medium text-gray-800">{routingStatus.existingReview.title}</p>
-                              ) : null}
-                              <button
-                                onClick={() => {
-                                  setReviewRating(routingStatus.existingReview?.rating || 5)
-                                  setReviewTitle(routingStatus.existingReview?.title || '')
-                                  setReviewText(routingStatus.existingReview?.review || '')
-                                  setReviewOpen(true)
-                                }}
-                                className="text-sm font-medium text-brand-600 hover:underline"
-                              >
-                                {t('plaintiffDashboard.attorneyContact.editReview')}
-                              </button>
-                            </div>
-                          ) : (
-                            <button onClick={() => setReviewOpen(true)} className="text-sm font-medium text-brand-600 hover:underline">
-                              {t('plaintiffDashboard.attorneyContact.leaveReview')}
-                            </button>
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Plaintiff satisfaction */}
-                    <PlaintiffSatisfactionCard assessmentId={activeAssessment?.id} />
-
-                    {/* Consult details (or schedule CTA pre-retain) + Next Best Action when it isn't a duplicate */}
-                    {(showConsultCard || showNextBestAction) && (
-                      <div className={`grid grid-cols-1 gap-4 ${showConsultCard && showNextBestAction ? 'md:grid-cols-2' : ''}`}>
-                        {showConsultCard && (
-                          hasUpcomingConsult ? (
-                            <div className="bg-emerald-50 rounded-xl border border-emerald-200 p-5">
-                              <h3 className="text-lg font-bold text-emerald-900 mb-2">{t('plaintiffDashboard.consultation.scheduled')}</h3>
-                              <p className="text-emerald-800 font-medium">
-                                {routingStatus?.upcomingAppointment?.attorney?.name}
-                              </p>
-                              <p className="text-sm text-emerald-700 mt-1">
-                                {new Date(routingStatus?.upcomingAppointment?.scheduledAt || '').toLocaleString(locale, {
-                                  weekday: 'long',
-                                  month: 'short',
-                                  day: 'numeric',
-                                  hour: 'numeric',
-                                  minute: '2-digit'
-                                })}
-                              </p>
-                              <p className="text-xs text-emerald-600 mt-1 capitalize">
-                                {(() => {
-                                  const rawType = routingStatus?.upcomingAppointment?.type || ''
-                                  const typeKey =
-                                    rawType === 'phone' ? 'typePhone'
-                                      : rawType === 'video' ? 'typeVideo'
-                                        : rawType === 'in_person' ? 'typeInPerson'
-                                          : null
-                                  const typeLabel = typeKey
-                                    ? t(`plaintiffDashboard.schedule.${typeKey}`)
-                                    : rawType.replace('_', ' ')
-                                  return t('plaintiffDashboard.consultation.typeConsultation', { type: typeLabel })
-                                })()}
-                              </p>
-                              {scheduleSuccess && (
-                                <p className="mt-2 text-xs text-emerald-700">{scheduleSuccess}</p>
-                              )}
-                              <div className="flex gap-2 mt-4 flex-wrap">
-                                {routingStatus?.attorneyMatched?.phone && (
-                                  <a href={`tel:${routingStatus.attorneyMatched.phone}`} className="text-sm font-medium text-emerald-700 hover:underline">{t('plaintiffDashboard.consultation.joinCall')}</a>
-                                )}
-                                <button onClick={openScheduleModal} className="text-sm font-medium text-emerald-700 hover:underline">{t('plaintiffDashboard.consultation.reschedule')}</button>
-                                <button onClick={handleCancelConsultation} className="text-sm font-medium text-emerald-700 hover:underline">{t('plaintiffDashboard.consultation.cancel')}</button>
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="bg-white rounded-xl border border-gray-200 p-5">
-                              <h3 className="text-lg font-bold text-gray-900 mb-2">{t('plaintiffDashboard.consultation.schedule')}</h3>
-                              <p className="text-sm text-gray-600 mb-4">{t('plaintiffDashboard.consultation.bookCall')}</p>
-                              <button
-                                onClick={openScheduleModal}
-                                className="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium"
-                              >
-                                <Calendar className="h-4 w-4" />
-                                {t('plaintiffDashboard.consultation.schedule')}
-                              </button>
-                            </div>
-                          )
+                        <p className="mt-3 text-gray-600">{routingStatus?.attorneyMatched?.firmName || t('plaintiffDashboard.attorneyMatch.lawFirm')}</p>
+                        <p className="mt-1 text-sm text-gray-500">
+                          {routingStatus?.attorneyMatched?.yearsExperience ? t('plaintiffDashboard.attorneyMatch.yearsExperience', { years: routingStatus.attorneyMatched.yearsExperience }) : t('plaintiffDashboard.attorneyMatch.experiencedAttorney')}
+                          {venueState ? ` • ${t('plaintiffDashboard.attorneyMatch.licensed', { state: venueState })}` : ''}
+                        </p>
+                        <p className="mt-1 text-sm text-gray-500">
+                          {(() => {
+                            const s = routingStatus?.attorneyMatched?.specialties
+                            if (!s) return null
+                            try {
+                              const arr = typeof s === 'string' ? JSON.parse(s) : s
+                              if (Array.isArray(arr)) {
+                                const formatted = arr.map((x: string) => localizeClaimType(x)).filter(Boolean)
+                                return t('plaintiffDashboard.attorneyMatch.specializesIn', { list: formatted.join(', ') || t('plaintiffDashboard.attorneyMatch.personalInjury') })
+                              }
+                            } catch {}
+                            return t('plaintiffDashboard.attorneyMatch.specializesIn', { list: localizeClaimType(String(s)) })
+                          })()}
+                        </p>
+                        <p className="mt-1 text-sm text-brand-600">
+                          {t('plaintiffDashboard.attorneyMatch.responseTime', { hours: routingStatus?.attorneyMatched?.responseTimeHours ?? 24 })}
+                        </p>
+                        {routingStatus?.attorneyMatched?.email && (
+                          <p className="mt-2 text-sm text-gray-600">{routingStatus.attorneyMatched.email}</p>
                         )}
-                        {showNextBestAction && (
-                          <div className="bg-brand-600 rounded-xl p-5 min-h-[180px] flex flex-col">
-                            <h2 className="text-lg font-bold mb-2 text-white">{t('plaintiffDashboard.nextAction.title')}</h2>
-                            <p className="text-lg text-brand-100 mb-1">{dailyAction.action}</p>
-                            <p className="text-sm text-brand-200 mb-3">{dailyAction.detail}</p>
-                            {dailyAction.isSchedule && !hasUpcomingConsult ? (
-                              <button onClick={openScheduleModal} className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-semibold bg-white text-brand-600 rounded-lg hover:bg-brand-50 mt-auto">
-                                <Calendar className="h-4 w-4" />
-                                {t('plaintiffDashboard.consultation.schedule')}
-                              </button>
+                        {(routingStatus?.reviewEligible || routingStatus?.upcomingAppointment?.reviewEligible) && (
+                          <div className="mt-4 border-t border-emerald-100 pt-4">
+                            {reviewOpen ? (
+                              <div className="space-y-3">
+                                <div className="flex gap-1">
+                                  {[1, 2, 3, 4, 5].map((value) => (
+                                    <button key={value} type="button" onClick={() => setReviewRating(value)}>
+                                      <Star className={`h-5 w-5 ${value <= reviewRating ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'}`} />
+                                    </button>
+                                  ))}
+                                </div>
+                                <input
+                                  value={reviewTitle}
+                                  onChange={(e) => setReviewTitle(e.target.value)}
+                                  placeholder={t('plaintiffDashboard.attorneyContact.reviewTitlePlaceholder')}
+                                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                                />
+                                <textarea
+                                  value={reviewText}
+                                  onChange={(e) => setReviewText(e.target.value)}
+                                  placeholder={t('plaintiffDashboard.attorneyContact.reviewTextPlaceholder')}
+                                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                                  rows={3}
+                                />
+                                <div className="flex gap-2">
+                                  <button onClick={handleSubmitReview} disabled={reviewSubmitting} className="rounded-lg bg-brand-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-60">
+                                    {reviewSubmitting ? t('plaintiffDashboard.attorneyContact.submitting') : t('plaintiffDashboard.attorneyContact.submitReview')}
+                                  </button>
+                                  <button onClick={() => setReviewOpen(false)} className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700">
+                                    {t('plaintiffDashboard.attorneyContact.close')}
+                                  </button>
+                                </div>
+                              </div>
+                            ) : routingStatus?.existingReview ? (
+                              <div className="space-y-1.5">
+                                <div className="flex items-center gap-1">
+                                  {[1, 2, 3, 4, 5].map((value) => (
+                                    <Star
+                                      key={value}
+                                      className={`h-4 w-4 ${value <= (routingStatus.existingReview?.rating || 0) ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'}`}
+                                    />
+                                  ))}
+                                  <span className="ml-1 text-xs text-gray-500">{t('plaintiffDashboard.attorneyContact.yourReview')}</span>
+                                </div>
+                                {routingStatus.existingReview.title ? (
+                                  <p className="text-sm font-medium text-gray-800">{routingStatus.existingReview.title}</p>
+                                ) : null}
+                                <button
+                                  onClick={() => {
+                                    setReviewRating(routingStatus.existingReview?.rating || 5)
+                                    setReviewTitle(routingStatus.existingReview?.title || '')
+                                    setReviewText(routingStatus.existingReview?.review || '')
+                                    setReviewOpen(true)
+                                  }}
+                                  className="text-sm font-medium text-brand-600 hover:underline"
+                                >
+                                  {t('plaintiffDashboard.attorneyContact.editReview')}
+                                </button>
+                              </div>
                             ) : (
-                              <Link to={evidenceUploadHref(activeAssessment.id, { from: 'dashboard' })} className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-semibold bg-white text-brand-600 rounded-lg hover:bg-brand-50 mt-auto w-fit">
-                                <Upload className="h-4 w-4" />
-                                {t('plaintiffDashboard.nextAction.uploadEvidence')}
-                              </Link>
+                              <button onClick={() => setReviewOpen(true)} className="text-sm font-medium text-brand-600 hover:underline">
+                                {t('plaintiffDashboard.attorneyContact.leaveReview')}
+                              </button>
                             )}
                           </div>
                         )}
+                      </div>
+
+                      {/* 2. Consultation scheduled — or Schedule Again after cancel / none booked */}
+                      {routingStatus?.upcomingAppointment ? (
+                        <div className="flex h-full flex-col rounded-xl border border-emerald-200 bg-emerald-50 p-5">
+                          <h3 className="mb-3 flex items-center gap-2 text-lg font-bold text-gray-900">
+                            <Calendar className="h-6 w-6 text-emerald-600" aria-hidden />
+                            {t('plaintiffDashboard.consultation.scheduled')}
+                          </h3>
+                          <p className="text-xl font-bold text-gray-900">
+                            {routingStatus.upcomingAppointment.attorney?.name
+                              || routingStatus?.attorneyMatched?.name}
+                            {(routingStatus.upcomingAppointment.attorney?.name
+                              || routingStatus?.attorneyMatched?.name)
+                              ? ', Esq.'
+                              : ''}
+                          </p>
+                          <p className="mt-2 text-base font-medium text-gray-800">
+                            {new Date(routingStatus?.upcomingAppointment?.scheduledAt || '').toLocaleString(locale, {
+                              weekday: 'long',
+                              month: 'short',
+                              day: 'numeric',
+                              hour: 'numeric',
+                              minute: '2-digit'
+                            })}
+                          </p>
+                          <p className="mt-1 text-base font-medium text-gray-700">
+                            {(() => {
+                              const rawType = routingStatus?.upcomingAppointment?.type || ''
+                              const typeKey =
+                                rawType === 'phone' ? 'typePhone'
+                                  : rawType === 'video' ? 'typeVideo'
+                                    : rawType === 'in_person' ? 'typeInPerson'
+                                      : null
+                              const typeLabel = typeKey
+                                ? t(`plaintiffDashboard.schedule.${typeKey}`)
+                                : rawType.replace('_', ' ')
+                              return t('plaintiffDashboard.consultation.typeConsultation', { type: typeLabel })
+                            })()}
+                          </p>
+                          {scheduleSuccess && (
+                            <p className="mt-2 text-xs text-emerald-700">{scheduleSuccess}</p>
+                          )}
+                          <div className="mt-auto flex flex-wrap gap-2 pt-4">
+                            {routingStatus?.attorneyMatched?.phone && (
+                              <a
+                                href={`tel:${routingStatus.attorneyMatched.phone}`}
+                                className="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+                              >
+                                {t('plaintiffDashboard.consultation.joinCall')}
+                              </a>
+                            )}
+                            <button
+                              type="button"
+                              onClick={openScheduleModal}
+                              className="inline-flex items-center justify-center rounded-lg border border-emerald-600 bg-white px-3.5 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-50"
+                            >
+                              {t('plaintiffDashboard.consultation.reschedule')}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleCancelConsultation}
+                              className="inline-flex items-center justify-center rounded-lg border border-red-600 bg-red-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-red-700"
+                            >
+                              {t('plaintiffDashboard.consultation.cancel')}
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex h-full flex-col rounded-xl border border-gray-200 bg-white p-5">
+                          <h3 className="mb-3 flex items-center gap-2 text-lg font-bold text-gray-900">
+                            <Calendar className="h-6 w-6 text-emerald-600" aria-hidden />
+                            {t('plaintiffDashboard.consultation.scheduleAgainTitle')}
+                          </h3>
+                          <p className="mb-2 text-sm text-gray-600">
+                            {t('plaintiffDashboard.consultation.scheduleAgainBody', {
+                              name: routingStatus?.attorneyMatched?.name || t('plaintiffDashboard.actionCenter.yourAttorney'),
+                            })}
+                          </p>
+                          {scheduleSuccess && (
+                            <p className="mb-3 text-sm font-medium text-emerald-700">{scheduleSuccess}</p>
+                          )}
+                          {scheduleError && (
+                            <p className="mb-3 text-sm font-medium text-red-600">{scheduleError}</p>
+                          )}
+                          <button
+                            type="button"
+                            onClick={openScheduleModal}
+                            className="mt-auto inline-flex w-fit items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 font-medium text-white hover:bg-emerald-700"
+                          >
+                            <Calendar className="h-4 w-4" aria-hidden />
+                            {t('plaintiffDashboard.consultation.scheduleAgainCta')}
+                          </button>
+                        </div>
+                      )}
+
+                      {/* 3. Experience / feedback */}
+                      <PlaintiffSatisfactionCard assessmentId={activeAssessment?.id} />
+                    </div>
+
+                    {showNextBestAction && hasUpcomingConsult && (
+                      <div className="flex min-h-[180px] flex-col rounded-xl bg-brand-600 p-5">
+                        <h2 className="mb-2 text-lg font-bold text-white">{t('plaintiffDashboard.nextAction.title')}</h2>
+                        <p className="mb-1 text-lg text-brand-100">{dailyAction.action}</p>
+                        <p className="mb-3 text-sm text-brand-200">{dailyAction.detail}</p>
+                        <Link to={evidenceUploadHref(activeAssessment.id, { from: 'dashboard' })} className="mt-auto inline-flex w-fit items-center gap-2 rounded-lg bg-white px-5 py-2.5 text-sm font-semibold text-brand-600 hover:bg-brand-50">
+                          <Upload className="h-4 w-4" />
+                          {t('plaintiffDashboard.nextAction.uploadEvidence')}
+                        </Link>
                       </div>
                     )}
 
@@ -2120,16 +2210,16 @@ export default function Dashboard() {
 
                     {/* Strengthen your case (documents raise readiness + value) */}
                     <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-5">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="flex items-center gap-2.5">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex min-w-0 items-center gap-2.5">
                           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700"><TrendingUp className="h-5 w-5" aria-hidden /></span>
-                          <div>
+                          <div className="min-w-0 text-left">
                             <p className="text-sm font-semibold text-gray-900">{t('plaintiffDashboard.strengthen.title')}</p>
                             <p className="text-xs text-gray-500">{t('plaintiffDashboard.strengthen.subtitle')}</p>
                           </div>
                         </div>
                         {needsMoreDocs && (
-                          <Link to={evidenceUploadHref(activeAssessment.id, { from: 'dashboard' })} className="hidden shrink-0 items-center gap-1.5 rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 sm:inline-flex"><Upload className="h-4 w-4" aria-hidden />{t('plaintiffDashboard.strengthen.addDocuments')}</Link>
+                          <Link to={evidenceUploadHref(activeAssessment.id, { from: 'dashboard' })} className="hidden shrink-0 self-center items-center gap-1.5 rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 sm:inline-flex"><Upload className="h-4 w-4" aria-hidden />{t('plaintiffDashboard.strengthen.addDocuments')}</Link>
                         )}
                       </div>
                       <div className="mt-4 grid gap-2 sm:grid-cols-2">
@@ -2385,6 +2475,32 @@ export default function Dashboard() {
           </div>
         )}
       </div>
+
+      {attorneyMatched &&
+        activeAssessment?.id &&
+        routingStatus?.attorneyMatched?.id &&
+        createPortal(
+          <DraggableFab
+            storageKey="cciq.fab.messageAttorney"
+            // Sit above the default Need help launcher so they don't stack on first visit.
+            defaultCorner={{ right: 20, bottom: 88 }}
+            ariaLabel={t('plaintiffDashboard.attorneyChat.fab')}
+            zIndex={100}
+            onActivate={() => {
+              navigate('/messaging', {
+                state: {
+                  attorneyId: routingStatus.attorneyMatched!.id,
+                  assessmentId: activeAssessment.id,
+                },
+              })
+            }}
+            className="inline-flex items-center gap-2 rounded-full bg-brand-700 px-4 py-3 text-sm font-semibold text-white shadow-md hover:bg-brand-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 focus-visible:ring-offset-2"
+          >
+            <MessageCircle className="h-5 w-5" aria-hidden />
+            <span className="hidden sm:inline">{t('plaintiffDashboard.attorneyChat.fab')}</span>
+          </DraggableFab>,
+          document.body,
+        )}
     </div>
   )
 }

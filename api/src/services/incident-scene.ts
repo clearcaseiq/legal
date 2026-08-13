@@ -1,39 +1,30 @@
-import OpenAI from 'openai'
 import fs from 'fs'
 import path from 'path'
 import { randomUUID } from 'crypto'
 import { prisma } from '../lib/prisma'
 import { logger } from '../lib/logger'
-import { ENV } from '../env'
+import { getLlmChatClient, openaiImageClient, getLlmChatModel } from '../lib/llm-client'
+import { redactLlmPii } from '../lib/llm-prompt-sanitize'
 
-// Reuse the same OpenAI credential resolution as the analysis service.
-const openai = (ENV.OPENAI_API_KEY || process.env.OPENAI_API_KEY)
-  ? new OpenAI({ apiKey: ENV.OPENAI_API_KEY || process.env.OPENAI_API_KEY })
-  : null
+// Chat goes through the shared (PII-sanitizing) client; images stay on native OpenAI.
+const openai = getLlmChatClient()
+const imageClient = openaiImageClient
 
 const SCENE_IMAGE_MODEL = process.env.OPENAI_IMAGE_MODEL || 'gpt-image-1'
-const SCENE_BRIEF_MODEL = process.env.OPENAI_ANALYSIS_MODEL || 'gpt-4o-mini'
+const SCENE_BRIEF_MODEL = getLlmChatModel() || process.env.OPENAI_ANALYSIS_MODEL || 'gpt-4o-mini'
 
 function titleCase(s: string) {
   return s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
 /**
- * Best-effort scrub of obvious personal identifiers before the text is handed to the
- * image model. This is a lightweight safety net (the prompt also instructs the model
- * to anonymize) — it removes street addresses, phone numbers, emails, and full names
- * introduced by "Mr./Ms./Dr." titles, replacing people with a generic role.
+ * Scrub contact/identity PII before text is handed to any model. Shared
+ * redactor handles SSN/email/phone/street address; titled names are collapsed
+ * to a generic role for the image brief.
  */
 function redactIdentifiers(text: string): string {
   if (!text) return ''
-  return text
-    // emails
-    .replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, '[redacted]')
-    // phone numbers
-    .replace(/\+?\d[\d\s().-]{7,}\d/g, '[redacted]')
-    // street addresses like "123 Main St"
-    .replace(/\b\d{1,6}\s+[A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)*\s+(Street|St|Avenue|Ave|Boulevard|Blvd|Road|Rd|Lane|Ln|Drive|Dr|Court|Ct|Way|Place|Pl|Highway|Hwy)\b\.?/g, 'the roadway')
-    // titled names: "Mr. Smith", "Dr. Jane Doe"
+  return redactLlmPii(text)
     .replace(/\b(?:Mr|Mrs|Ms|Dr|Miss)\.?\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?/g, 'the party')
     .replace(/\s{2,}/g, ' ')
     .trim()
@@ -224,7 +215,10 @@ export async function generateSceneImageForAssessment(
       parties: parsed.parties,
     })
 
-    const result = await openai.images.generate({
+    if (!imageClient) {
+      return { ok: false, error: 'Image generation is not configured' }
+    }
+    const result = await imageClient.images.generate({
       model: SCENE_IMAGE_MODEL,
       prompt,
       size: '1536x1024',

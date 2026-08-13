@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { CheckCircle, ChevronRight, Clock, Download, FileText, MessageCircle, Plus, TrendingUp, Upload, Users } from 'lucide-react'
+import { CheckCircle, ChevronDown, ChevronRight, CircleDollarSign, Clock, Download, FileText, MessageCircle, Plus, Scale, TrendingUp, Upload, Users } from 'lucide-react'
 import { formatCurrency } from '../lib/formatters'
 import { linkify } from '../lib/linkify'
 import { useLanguage } from '../contexts/LanguageContext'
@@ -215,6 +215,11 @@ export default function PlaintiffDashboardDeferredTabPanel({
   const { t, language } = useLanguage()
   const locale = dateLocale(language)
   const [downloadingId, setDownloadingId] = useState<string | null>(null)
+  const [needToAddOpen, setNeedToAddOpen] = useState(true)
+  const [needToAddCompletedOpen, setNeedToAddCompletedOpen] = useState(false)
+  const [yourFilesOpen, setYourFilesOpen] = useState(true)
+  const [signedAgreementsOpen, setSignedAgreementsOpen] = useState(true)
+  const [medicalSummaryOpen, setMedicalSummaryOpen] = useState(true)
   const documentsUploadHref = evidenceUploadHref(activeAssessmentId, {
     from: 'dashboard',
     returnTo: plaintiffDashboardReturnTo(activeAssessmentId, 'documents'),
@@ -393,20 +398,20 @@ export default function PlaintiffDashboardDeferredTabPanel({
         : 'wait'
 
     return (
-      <div className="space-y-5">
-        {/* Attorney document requests live here so Tasks is the single to-do surface.
-            Hide the empty state before match — nothing to request yet. */}
-        {(attorneyMatched || documentRequests.length > 0) && (
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3 lg:items-stretch">
+        {/* Left — Requested Documents */}
+        <div className="min-w-0 lg:h-full">
           <PlaintiffRequestedDocumentsSection
             assessmentId={activeAssessmentId}
             documentRequests={documentRequests}
             onRequestsRefresh={onDocumentRequestsRefresh}
+            className="h-full"
           />
-        )}
+        </div>
 
-        {/* Progress header */}
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="flex items-start justify-between gap-4">
+        {/* Middle — Your next steps */}
+        <div className="flex min-w-0 flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6 lg:h-full">
+          <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <h3 className="font-display text-xl font-bold text-slate-900">{t('plaintiffDashboard.deferred.tasks.title')}</h3>
               <p className="mt-1 text-sm text-slate-600">
@@ -423,49 +428,49 @@ export default function PlaintiffDashboardDeferredTabPanel({
           <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-slate-100">
             <div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${donePct}%` }} />
           </div>
+
+          {openTasks.length > 0 ? (
+            <div className="mt-5 min-h-0 flex-1 space-y-3 overflow-y-auto border-t border-slate-100 pt-5">
+              {openTasks.map((task) => {
+                const kind = taskKind(task.href)
+                const meta =
+                  kind === 'upload'
+                    ? { Icon: Upload, tint: 'bg-amber-100 text-amber-700', cta: t('plaintiffDashboard.deferred.tasks.addDocuments'), ctaClass: 'bg-amber-500 text-white hover:bg-amber-600', ctaIcon: true, badge: t('plaintiffDashboard.deferred.tasks.strengthensBadge'), badgeClass: 'bg-amber-50 text-amber-700' }
+                    : kind === 'message'
+                    ? { Icon: MessageCircle, tint: 'bg-brand-100 text-brand-700', cta: t('plaintiffDashboard.deferred.tasks.openMessages'), ctaClass: 'bg-brand-600 text-white hover:bg-brand-700', ctaIcon: false, badge: null as string | null, badgeClass: '' }
+                    : kind === 'submit'
+                    ? { Icon: TrendingUp, tint: 'bg-brand-100 text-brand-700', cta: t('plaintiffDashboard.deferred.tasks.reviewSend'), ctaClass: 'bg-brand-600 text-white hover:bg-brand-700', ctaIcon: false, badge: null as string | null, badgeClass: '' }
+                    : { Icon: Clock, tint: 'bg-slate-100 text-slate-500', cta: null as string | null, ctaClass: '', ctaIcon: false, badge: t('plaintiffDashboard.deferred.tasks.noActionBadge'), badgeClass: 'bg-slate-100 text-slate-500' }
+                const Icon = meta.Icon
+                return (
+                  <div key={`${task.label}-${task.detail}`} className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50/80 p-3.5">
+                    <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${meta.tint}`}><Icon className="h-5 w-5" aria-hidden /></span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-semibold text-slate-900">{task.label}</p>
+                        {meta.badge && <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${meta.badgeClass}`}>{meta.badge}</span>}
+                      </div>
+                      <p className="mt-1 text-sm text-slate-600">{task.detail}</p>
+                      {meta.cta && (
+                        <Link to={task.href} className={`mt-3 inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-semibold ${meta.ctaClass}`}>
+                          {meta.ctaIcon && <Upload className="h-4 w-4" aria-hidden />}
+                          {meta.cta}
+                        </Link>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          ) : null}
         </div>
 
-        {/* Open tasks */}
-        {openTasks.length > 0 && (
-          <div className="space-y-3">
-            {openTasks.map((task) => {
-              const kind = taskKind(task.href)
-              const meta =
-                kind === 'upload'
-                  ? { Icon: Upload, tint: 'bg-amber-100 text-amber-700', cta: t('plaintiffDashboard.deferred.tasks.addDocuments'), ctaClass: 'bg-amber-500 text-white hover:bg-amber-600', ctaIcon: true, badge: t('plaintiffDashboard.deferred.tasks.strengthensBadge'), badgeClass: 'bg-amber-50 text-amber-700' }
-                  : kind === 'message'
-                  ? { Icon: MessageCircle, tint: 'bg-brand-100 text-brand-700', cta: t('plaintiffDashboard.deferred.tasks.openMessages'), ctaClass: 'bg-brand-600 text-white hover:bg-brand-700', ctaIcon: false, badge: null as string | null, badgeClass: '' }
-                  : kind === 'submit'
-                  ? { Icon: TrendingUp, tint: 'bg-brand-100 text-brand-700', cta: t('plaintiffDashboard.deferred.tasks.reviewSend'), ctaClass: 'bg-brand-600 text-white hover:bg-brand-700', ctaIcon: false, badge: null as string | null, badgeClass: '' }
-                  : { Icon: Clock, tint: 'bg-slate-100 text-slate-500', cta: null as string | null, ctaClass: '', ctaIcon: false, badge: t('plaintiffDashboard.deferred.tasks.noActionBadge'), badgeClass: 'bg-slate-100 text-slate-500' }
-              const Icon = meta.Icon
-              return (
-                <div key={`${task.label}-${task.detail}`} className="flex items-start gap-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-                  <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${meta.tint}`}><Icon className="h-5 w-5" aria-hidden /></span>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="font-semibold text-slate-900">{task.label}</p>
-                      {meta.badge && <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${meta.badgeClass}`}>{meta.badge}</span>}
-                    </div>
-                    <p className="mt-1 text-sm text-slate-600">{task.detail}</p>
-                    {meta.cta && (
-                      <Link to={task.href} className={`mt-3 inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold ${meta.ctaClass}`}>
-                        {meta.ctaIcon && <Upload className="h-4 w-4" aria-hidden />}
-                        {meta.cta}
-                      </Link>
-                    )}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        )}
-
-        {/* Completed tasks */}
-        {doneTasks.length > 0 && (
-          <div>
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">{t('plaintiffDashboard.deferred.tasks.completed')}</p>
-            <div className="space-y-2">
+        {/* Right — Completed */}
+        <div className="flex min-w-0 flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6 lg:h-full">
+          <h3 className="font-display text-xl font-bold text-slate-900">{t('plaintiffDashboard.deferred.tasks.completedSectionTitle')}</h3>
+          <p className="mt-1 text-sm text-slate-600">{t('plaintiffDashboard.deferred.tasks.completedSectionSubtitle')}</p>
+          {doneTasks.length > 0 ? (
+            <div className="mt-5 min-h-0 flex-1 space-y-2 overflow-y-auto">
               {doneTasks.map((task) => (
                 <div key={`${task.label}-${task.detail}`} className="flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50 p-3">
                   <CheckCircle className="h-5 w-5 shrink-0 text-emerald-500" aria-hidden />
@@ -473,8 +478,10 @@ export default function PlaintiffDashboardDeferredTabPanel({
                 </div>
               ))}
             </div>
-          </div>
-        )}
+          ) : (
+            <p className="mt-5 text-sm text-slate-500">{t('plaintiffDashboard.deferred.tasks.completedEmpty')}</p>
+          )}
+        </div>
       </div>
     )
   }
@@ -891,311 +898,584 @@ export default function PlaintiffDashboardDeferredTabPanel({
   }
 
   if (activeTab === 'documents' || activeTab === 'evidence') {
-    const docsAdded = evidenceImpact.filter((item) => item.done).length
+    const completedDocs = evidenceImpact.filter((item) => item.done)
+    const missingDocs = evidenceImpact.filter((item) => !item.done)
+    const docsAdded = completedDocs.length
     const docsTotal = evidenceImpact.length
     const docsPct = docsTotal > 0 ? Math.round((docsAdded / docsTotal) * 100) : 0
     const medicalTotal = meaningfulTreatment.reduce((sum, e) => sum + (Number(e.amount) || 0), 0)
     return (
-      <div className="space-y-5">
-        {signedDocuments.length > 0 && (
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h3 className="font-display text-xl font-bold text-slate-900">
-              {t('plaintiffDashboard.deferred.documents.signedAgreements')}
-            </h3>
-            <p className="mt-1 text-sm text-slate-600">
-              {t('plaintiffDashboard.deferred.documents.signedAgreementsSubtitle')}
-            </p>
-            <div className="mt-4 space-y-2">
-              {signedDocuments.map((doc) => (
-                <div
-                  key={doc.id}
-                  className="flex flex-col gap-3 rounded-xl border border-emerald-100 bg-emerald-50/40 p-3.5 sm:flex-row sm:items-center sm:justify-between"
-                >
-                  <div className="flex min-w-0 items-start gap-3">
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700">
-                      <FileText className="h-4 w-4" aria-hidden />
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3 lg:items-stretch">
+        {/* Left — Need to add */}
+        <div className="flex min-w-0 flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6 lg:h-full">
+          <p className="shrink-0 text-sm text-slate-600">
+            {t('plaintiffDashboard.deferred.documents.needToAddSubtitle')}
+          </p>
+          <div className="mt-4 overflow-hidden rounded-xl border border-slate-200">
+            <button
+              type="button"
+              onClick={() => setNeedToAddOpen((open) => !open)}
+              className="flex w-full items-center gap-2 px-3 py-2.5 text-left hover:bg-slate-50"
+              aria-expanded={needToAddOpen}
+            >
+              {needToAddOpen ? (
+                <ChevronDown className="h-4 w-4 shrink-0 text-slate-500" aria-hidden />
+              ) : (
+                <ChevronRight className="h-4 w-4 shrink-0 text-slate-500" aria-hidden />
+              )}
+              <span className="min-w-0 flex-1 text-sm font-semibold text-slate-800">
+                {t('plaintiffDashboard.deferred.documents.needToAddTitle')}
+              </span>
+              <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600 tabular-nums">
+                {docsAdded}/{docsTotal}
+              </span>
+            </button>
+            {needToAddOpen ? (
+              <div className="space-y-2 border-t border-slate-100 px-3 py-3">
+                <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
+                  <div
+                    className="h-full rounded-full bg-emerald-500 transition-all"
+                    style={{ width: `${docsPct}%` }}
+                  />
+                </div>
+                {missingDocs.map((item) => (
+                  <div
+                    key={item.label}
+                    className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/80 p-3"
+                  >
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-700">
+                      <Plus className="h-4 w-4" aria-hidden />
                     </span>
-                    <div className="min-w-0">
-                      <p className="font-semibold text-slate-900">
-                        {doc.title || signedDocumentTypeLabel(doc.documentType)}
-                      </p>
-                      <p className="mt-0.5 text-xs text-slate-600">
-                        {signedDocumentTypeLabel(doc.documentType)}
-                        {doc.signedAt
-                          ? ` • ${t('plaintiffDashboard.deferred.documents.signedOn', {
-                              date: new Date(doc.signedAt).toLocaleDateString(locale),
-                            })}`
-                          : ''}
-                      </p>
-                    </div>
+                    <p className="min-w-0 flex-1 truncate text-sm font-medium text-slate-800">
+                      {item.label}
+                    </p>
+                    <span className="shrink-0 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
+                      {item.impact}
+                    </span>
                   </div>
-                  {doc.downloadAvailable ? (
+                ))}
+                {missingDocs.length === 0 && (
+                  <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-3 py-4 text-center text-sm text-slate-500">
+                    {t('plaintiffDashboard.deferred.documents.checklistCaughtUp')}
+                  </p>
+                )}
+                {completedDocs.length > 0 && (
+                  <div className="pt-1">
                     <button
                       type="button"
-                      onClick={() => { void handleDownloadSigned(doc) }}
-                      disabled={downloadingId === doc.id}
-                      className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+                      onClick={() => setNeedToAddCompletedOpen((open) => !open)}
+                      className="inline-flex w-full items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-left text-sm font-medium text-slate-700 hover:bg-slate-100"
+                      aria-expanded={needToAddCompletedOpen}
                     >
-                      <Download className="h-4 w-4" aria-hidden />
-                      {downloadingId === doc.id
-                        ? t('plaintiffDashboard.deferred.documents.downloading')
-                        : t('plaintiffDashboard.deferred.documents.download')}
+                      <span className="inline-flex items-center gap-1.5">
+                        {needToAddCompletedOpen ? (
+                          <ChevronDown className="h-4 w-4 shrink-0 text-slate-500" aria-hidden />
+                        ) : (
+                          <ChevronRight className="h-4 w-4 shrink-0 text-slate-500" aria-hidden />
+                        )}
+                        {needToAddCompletedOpen
+                          ? t('plaintiffDashboard.requestedDocs.hideCompleted')
+                          : t('plaintiffDashboard.requestedDocs.showCompleted', {
+                              count: completedDocs.length,
+                            })}
+                      </span>
+                      <span className="text-xs font-semibold text-emerald-700">
+                        {t('plaintiffDashboard.actionCenter.statusCompleted')}
+                      </span>
                     </button>
-                  ) : (
-                    <span className="text-xs font-medium text-slate-500">
-                      {t('plaintiffDashboard.deferred.documents.signedUnavailable')}
-                    </span>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* All uploaded case documents */}
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="flex items-start justify-between gap-4">
-            <div className="min-w-0">
-              <h3 className="font-display text-xl font-bold text-slate-900">
-                {t('plaintiffDashboard.deferred.documents.yourFiles')}
-              </h3>
-              <p className="mt-1 text-sm text-slate-600">
-                {t('plaintiffDashboard.deferred.documents.yourFilesSubtitle')}
-              </p>
-            </div>
-            <span className="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">
-              {t('plaintiffDashboard.deferred.documents.fileCount', { count: evidenceFiles.length })}
-            </span>
-          </div>
-          {evidenceFiles.length === 0 ? (
-            <div className="mt-4 rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-4 py-8 text-center">
-              <p className="text-sm font-medium text-slate-700">
-                {t('plaintiffDashboard.deferred.documents.yourFilesEmpty')}
-              </p>
-              <Link
-                to={evidenceUploadHref(activeAssessmentId, { from: 'dashboard' })}
-                className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600"
-              >
-                <Upload className="h-4 w-4" aria-hidden />
-                {t('plaintiffDashboard.deferred.documents.uploadDocuments')}
-              </Link>
-            </div>
-          ) : (
-            <div className="mt-4 space-y-2">
-              {evidenceFiles.map((file) => (
-                <div
-                  key={file.id}
-                  className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-3.5 sm:flex-row sm:items-center sm:justify-between"
-                >
-                  <div className="flex min-w-0 items-start gap-3">
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
-                      <FileText className="h-4 w-4" aria-hidden />
-                    </span>
-                    <div className="min-w-0">
-                      <p className="truncate font-semibold text-slate-900">
-                        {file.originalName || file.filename || t('plaintiffDashboard.deferred.documents.untitledFile')}
-                      </p>
-                      <p className="mt-0.5 text-xs text-slate-500">
-                        {evidenceCategoryLabel(file.category)}
-                        {file.createdAt
-                          ? ` • ${new Date(file.createdAt).toLocaleDateString(locale)}`
-                          : ''}
-                      </p>
-                    </div>
+                    {needToAddCompletedOpen && (
+                      <div className="mt-2 space-y-2">
+                        {completedDocs.map((item) => (
+                          <div
+                            key={item.label}
+                            className="flex items-center gap-3 rounded-xl border border-emerald-100 bg-emerald-50/50 p-3"
+                          >
+                            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-600">
+                              <CheckCircle className="h-4 w-4" aria-hidden />
+                            </span>
+                            <p className="min-w-0 flex-1 truncate text-sm font-medium text-slate-500">
+                              {item.label}
+                            </p>
+                            <span className="shrink-0 text-[11px] font-semibold text-emerald-600">
+                              {t('plaintiffDashboard.deferred.documents.addedBadge')}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                  {file.fileUrl ? (
-                    <button
-                      type="button"
-                      onClick={() => { void handleDownloadEvidence(file) }}
-                      disabled={downloadingId === file.id}
-                      className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
-                    >
-                      <Download className="h-4 w-4" aria-hidden />
-                      {downloadingId === file.id
-                        ? t('plaintiffDashboard.deferred.documents.downloading')
-                        : t('plaintiffDashboard.deferred.documents.download')}
-                    </button>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-          )}
+                )}
+                {missingDocs.length > 0 ? (
+                  <Link
+                    to={documentsUploadHref}
+                    className="mt-1 inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-600"
+                  >
+                    <Upload className="h-4 w-4" aria-hidden />
+                    {t('plaintiffDashboard.deferred.documents.uploadDocuments')}
+                  </Link>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
         </div>
 
-        {/* Documents & Evidence checklist */}
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="flex items-start justify-between gap-4">
-            <div className="min-w-0">
-              <h3 className="font-display text-xl font-bold text-slate-900">{t('plaintiffDashboard.deferred.documents.checklistTitle')}</h3>
-              <p className="mt-1 text-sm text-slate-600">{t('plaintiffDashboard.deferred.documents.checklistSubtitle')}</p>
-            </div>
-            <div className="shrink-0 text-right">
-              <p className="text-2xl font-bold text-emerald-600 tabular-nums">{docsAdded}<span className="text-sm font-medium text-slate-400">/{docsTotal}</span></p>
-              <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">{t('plaintiffDashboard.deferred.documents.added')}</p>
-            </div>
-          </div>
-          <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-slate-100">
-            <div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${docsPct}%` }} />
-          </div>
-          <div className="mt-4 grid gap-2 sm:grid-cols-2">
-            {evidenceImpact.map((item) => (
-              <div key={item.label} className={`flex items-center gap-3 rounded-xl border p-3 ${item.done ? 'border-emerald-100 bg-emerald-50/50' : 'border-slate-200 bg-white'}`}>
-                <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${item.done ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-700'}`}>
-                  {item.done ? <CheckCircle className="h-4 w-4" aria-hidden /> : <Plus className="h-4 w-4" aria-hidden />}
-                </span>
-                <p className={`min-w-0 flex-1 truncate text-sm font-medium ${item.done ? 'text-slate-500' : 'text-slate-800'}`}>{item.label}</p>
-                {item.done ? (
-                  <span className="shrink-0 text-[11px] font-semibold text-emerald-600">{t('plaintiffDashboard.deferred.documents.addedBadge')}</span>
+        {/* Middle — Your files */}
+        <div className="flex min-w-0 flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6 lg:h-full">
+          <p className="shrink-0 text-sm text-slate-600">
+            {t('plaintiffDashboard.deferred.documents.yourFilesSubtitle')}
+          </p>
+          <div className="mt-4 overflow-hidden rounded-xl border border-slate-200">
+            <button
+              type="button"
+              onClick={() => setYourFilesOpen((open) => !open)}
+              className="flex w-full items-center gap-2 px-3 py-2.5 text-left hover:bg-slate-50"
+              aria-expanded={yourFilesOpen}
+            >
+              {yourFilesOpen ? (
+                <ChevronDown className="h-4 w-4 shrink-0 text-slate-500" aria-hidden />
+              ) : (
+                <ChevronRight className="h-4 w-4 shrink-0 text-slate-500" aria-hidden />
+              )}
+              <span className="min-w-0 flex-1 text-sm font-semibold text-slate-800">
+                {t('plaintiffDashboard.deferred.documents.yourFiles')}
+              </span>
+              <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
+                {evidenceFiles.length}
+              </span>
+            </button>
+            {yourFilesOpen ? (
+              <div className="space-y-2 border-t border-slate-100 px-3 py-3">
+                {evidenceFiles.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/70 px-4 py-6 text-center">
+                    <p className="text-sm font-medium text-slate-700">
+                      {t('plaintiffDashboard.deferred.documents.yourFilesEmpty')}
+                    </p>
+                    <Link
+                      to={documentsUploadHref}
+                      className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600"
+                    >
+                      <Upload className="h-4 w-4" aria-hidden />
+                      {t('plaintiffDashboard.deferred.documents.uploadDocuments')}
+                    </Link>
+                  </div>
                 ) : (
-                  <span className="shrink-0 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">{item.impact}</span>
+                  <>
+                    {evidenceFiles.map((file) => (
+                      <div
+                        key={file.id}
+                        className="flex items-start gap-3 rounded-xl border border-emerald-100 bg-emerald-50/40 p-3"
+                      >
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700">
+                          <CheckCircle className="h-4 w-4" aria-hidden />
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-semibold text-slate-900">
+                            {file.originalName || file.filename || t('plaintiffDashboard.deferred.documents.untitledFile')}
+                          </p>
+                          <p className="mt-0.5 text-xs text-slate-600">
+                            {evidenceCategoryLabel(file.category)}
+                            {file.createdAt
+                              ? ` • ${new Date(file.createdAt).toLocaleDateString(locale)}`
+                              : ''}
+                          </p>
+                          {file.fileUrl ? (
+                            <button
+                              type="button"
+                              onClick={() => { void handleDownloadEvidence(file) }}
+                              disabled={downloadingId === file.id}
+                              className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 hover:text-emerald-900 disabled:opacity-60"
+                            >
+                              <Download className="h-3.5 w-3.5" aria-hidden />
+                              {downloadingId === file.id
+                                ? t('plaintiffDashboard.deferred.documents.downloading')
+                                : t('plaintiffDashboard.deferred.documents.download')}
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+                    ))}
+                    <Link
+                      to={documentsUploadHref}
+                      className="mt-1 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                    >
+                      <Upload className="h-4 w-4" aria-hidden />
+                      {t('plaintiffDashboard.deferred.documents.manageDocuments')}
+                    </Link>
+                  </>
                 )}
               </div>
-            ))}
+            ) : null}
           </div>
-          <Link
-            to={documentsUploadHref}
-            className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-600"
-          >
-            <Upload className="h-4 w-4" aria-hidden />
-            {t('plaintiffDashboard.deferred.documents.uploadDocuments')}
-          </Link>
         </div>
 
-        {/* Medical Summary */}
-        {meaningfulTreatment.length > 0 && (
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <div className="flex items-center justify-between gap-3">
-              <h3 className="font-display text-xl font-bold text-slate-900">{t('plaintiffDashboard.deferred.documents.medicalSummary')}</h3>
-              {medicalTotal > 0 && (
-                <div className="shrink-0 text-right">
-                  <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">{t('plaintiffDashboard.deferred.documents.documentedBills')}</p>
-                  <p className="text-lg font-bold text-slate-900 tabular-nums">{formatCurrency(medicalTotal)}</p>
+        {/* Right — Agreements & medical */}
+        <div className="flex min-w-0 flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6 lg:h-full">
+          <div className="shrink-0">
+            <h3 className="font-display text-xl font-bold text-slate-900">
+              {t('plaintiffDashboard.deferred.documents.agreementsColumnTitle')}
+            </h3>
+            <p className="mt-1 text-sm text-slate-600">
+              {t('plaintiffDashboard.deferred.documents.agreementsColumnSubtitle')}
+            </p>
+          </div>
+          <div className="mt-5 space-y-3">
+            <div className="overflow-hidden rounded-xl border border-slate-200">
+              <button
+                type="button"
+                onClick={() => setSignedAgreementsOpen((prev) => !prev)}
+                className="flex w-full items-center gap-2 px-3 py-2.5 text-left hover:bg-slate-50"
+                aria-expanded={signedAgreementsOpen}
+              >
+                {signedAgreementsOpen ? (
+                  <ChevronDown className="h-4 w-4 shrink-0 text-slate-500" aria-hidden />
+                ) : (
+                  <ChevronRight className="h-4 w-4 shrink-0 text-slate-500" aria-hidden />
+                )}
+                <span className="min-w-0 flex-1 text-sm font-semibold text-slate-800">
+                  {t('plaintiffDashboard.deferred.documents.signedAgreements')}
+                </span>
+                <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
+                  {signedDocuments.length}
+                </span>
+              </button>
+              {signedAgreementsOpen && (
+                <div className="space-y-2 border-t border-slate-100 px-3 py-3">
+                  {signedDocuments.length === 0 ? (
+                    <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50/70 px-3 py-3 text-sm text-slate-500">
+                      {t('plaintiffDashboard.deferred.documents.signedEmpty')}
+                    </p>
+                  ) : (
+                    signedDocuments.map((doc) => (
+                      <div
+                        key={doc.id}
+                        className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-3"
+                      >
+                        <div className="flex items-start gap-2.5">
+                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700">
+                            <FileText className="h-4 w-4" aria-hidden />
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-semibold text-slate-900">
+                              {doc.title || signedDocumentTypeLabel(doc.documentType)}
+                            </p>
+                            <p className="mt-0.5 text-xs text-slate-600">
+                              {signedDocumentTypeLabel(doc.documentType)}
+                              {doc.signedAt
+                                ? ` • ${t('plaintiffDashboard.deferred.documents.signedOn', {
+                                    date: new Date(doc.signedAt).toLocaleDateString(locale),
+                                  })}`
+                                : ''}
+                            </p>
+                            {doc.downloadAvailable ? (
+                              <button
+                                type="button"
+                                onClick={() => { void handleDownloadSigned(doc) }}
+                                disabled={downloadingId === doc.id}
+                                className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 hover:text-emerald-900 disabled:opacity-60"
+                              >
+                                <Download className="h-3.5 w-3.5" aria-hidden />
+                                {downloadingId === doc.id
+                                  ? t('plaintiffDashboard.deferred.documents.downloading')
+                                  : t('plaintiffDashboard.deferred.documents.download')}
+                              </button>
+                            ) : (
+                              <p className="mt-2 text-xs font-medium text-slate-500">
+                                {t('plaintiffDashboard.deferred.documents.signedUnavailable')}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
               )}
             </div>
-            <div className="mt-4 space-y-2">
-              {meaningfulTreatment.map((entry, index) => {
-                const title = treatmentTitle(entry)
-                const detail = sanitizeExtracted(treatmentDetailText(entry))
-                const dateText = entry.date || entry.dates
-                const provider = entry.provider && entry.provider !== title ? sanitizeExtracted(entry.provider, 70) : ''
-                const diagnosis = sanitizeExtracted(entry.diagnosis, 70)
-                return (
-                  <div key={index} className="flex gap-3 rounded-xl border border-slate-200 bg-white p-3.5">
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-600"><FileText className="h-4 w-4" aria-hidden /></span>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-start justify-between gap-2">
-                        <p className="font-semibold text-slate-900">{title}</p>
-                        {dateText && <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500">{dateText}</span>}
-                      </div>
-                      {provider && <p className="mt-0.5 truncate text-sm text-slate-600">{provider}</p>}
-                      {!provider && detail && detail !== title && <p className="mt-0.5 truncate text-sm text-slate-600">{detail}</p>}
-                      {diagnosis && <p className="text-sm text-slate-600">{t('plaintiffDashboard.deferred.documents.diagnosis', { diagnosis })}</p>}
-                      {entry.sourceFileName && <p className="mt-1 text-xs text-slate-400">{t('plaintiffDashboard.deferred.documents.fromFile', { file: entry.sourceFileName })}</p>}
-                    </div>
-                    {entry.amount ? <p className="shrink-0 text-right text-sm font-bold text-slate-900 tabular-nums">{formatCurrency(entry.amount)}</p> : null}
-                  </div>
-                )
-              })}
+
+            <div className="overflow-hidden rounded-xl border border-slate-200">
+              <button
+                type="button"
+                onClick={() => setMedicalSummaryOpen((prev) => !prev)}
+                className="flex w-full items-center gap-2 px-3 py-2.5 text-left hover:bg-slate-50"
+                aria-expanded={medicalSummaryOpen}
+              >
+                {medicalSummaryOpen ? (
+                  <ChevronDown className="h-4 w-4 shrink-0 text-slate-500" aria-hidden />
+                ) : (
+                  <ChevronRight className="h-4 w-4 shrink-0 text-slate-500" aria-hidden />
+                )}
+                <span className="min-w-0 flex-1 text-sm font-semibold text-slate-800">
+                  {t('plaintiffDashboard.deferred.documents.medicalSummary')}
+                </span>
+                {medicalTotal > 0 ? (
+                  <span className="shrink-0 text-xs font-bold text-slate-900 tabular-nums">
+                    {formatCurrency(medicalTotal)}
+                  </span>
+                ) : (
+                  <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
+                    {meaningfulTreatment.length}
+                  </span>
+                )}
+              </button>
+              {medicalSummaryOpen && (
+                <div className="space-y-2 border-t border-slate-100 px-3 py-3">
+                  {meaningfulTreatment.length === 0 ? (
+                    <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50/70 px-3 py-3 text-sm text-slate-500">
+                      {t('plaintiffDashboard.deferred.documents.medicalEmpty')}
+                    </p>
+                  ) : (
+                    meaningfulTreatment.map((entry, index) => {
+                      const title = treatmentTitle(entry)
+                      const detail = sanitizeExtracted(treatmentDetailText(entry))
+                      const dateText = entry.date || entry.dates
+                      const provider =
+                        entry.provider && entry.provider !== title
+                          ? sanitizeExtracted(entry.provider, 70)
+                          : ''
+                      const diagnosis = sanitizeExtracted(entry.diagnosis, 70)
+                      return (
+                        <div key={index} className="rounded-xl border border-slate-200 bg-slate-50/80 p-3">
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="text-sm font-semibold text-slate-900">{title}</p>
+                            {dateText && (
+                              <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-slate-500 ring-1 ring-slate-200">
+                                {dateText}
+                              </span>
+                            )}
+                          </div>
+                          {provider && <p className="mt-0.5 truncate text-xs text-slate-600">{provider}</p>}
+                          {!provider && detail && detail !== title && (
+                            <p className="mt-0.5 truncate text-xs text-slate-600">{detail}</p>
+                          )}
+                          {diagnosis && (
+                            <p className="mt-0.5 text-xs text-slate-600">
+                              {t('plaintiffDashboard.deferred.documents.diagnosis', { diagnosis })}
+                            </p>
+                          )}
+                          <div className="mt-1 flex items-center justify-between gap-2">
+                            {entry.sourceFileName ? (
+                              <p className="truncate text-[11px] text-slate-400">
+                                {t('plaintiffDashboard.deferred.documents.fromFile', {
+                                  file: entry.sourceFileName,
+                                })}
+                              </p>
+                            ) : (
+                              <span />
+                            )}
+                            {entry.amount ? (
+                              <p className="shrink-0 text-xs font-bold text-slate-900 tabular-nums">
+                                {formatCurrency(entry.amount)}
+                              </p>
+                            ) : null}
+                          </div>
+                        </div>
+                      )
+                    })
+                  )}
+                </div>
+              )}
             </div>
           </div>
-        )}
-
-        <Link
-          to={documentsUploadHref}
-          className="flex items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-slate-300 p-4 text-sm font-semibold text-slate-600 hover:border-amber-400 hover:text-amber-700"
-        >
-          <Upload className="h-4 w-4" aria-hidden />
-          {t('plaintiffDashboard.deferred.documents.manageDocuments')}
-        </Link>
+        </div>
       </div>
     )
   }
 
   if (activeTab === 'value') {
-    const initialValue = caseValueHistory[0]?.value ?? 0
-    const currentValue = settlementHigh
-    const valueGain = currentValue - initialValue
-    const valueGainPct = initialValue > 0 ? Math.round((valueGain / initialValue) * 100) : 0
+    const initialValue = caseValueHistory[0]?.value ?? settlementLow
+    const currentValue =
+      caseValueHistory[caseValueHistory.length - 1]?.value ??
+      settlementMedian ??
+      settlementHigh
     const rangeSpan = Math.max(1, settlementHigh - settlementLow)
     const midpoint = settlementMedian || Math.round((settlementLow + settlementHigh) / 2)
-    const markerPct = Math.min(100, Math.max(0, Math.round(((midpoint - settlementLow) / rangeSpan) * 100)))
+    const markerPct = Math.min(100, Math.max(0, ((midpoint - settlementLow) / rangeSpan) * 100))
 
     return (
       <div className="space-y-5">
         {/* Value hero */}
-        <section className="rounded-2xl border border-slate-200 bg-gradient-to-br from-brand-600 to-brand-700 p-6 text-white shadow-sm">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/80">{t('plaintiffDashboard.deferred.value.estimatedValue')}</p>
-          <p className="mt-1 font-display text-3xl font-bold tabular-nums">{formatCurrency(settlementLow)} – {formatCurrency(settlementHigh)}</p>
-          <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-white/90">
-            <span>{t('plaintiffDashboard.deferred.value.mostLikely')} <span className="font-semibold text-white">{formatCurrency(midpoint)}</span></span>
-            {valueGain > 0 && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-white/15 px-2.5 py-1 text-xs font-semibold ring-1 ring-white/25">
-                <TrendingUp className="h-3.5 w-3.5" aria-hidden />
-                {t('plaintiffDashboard.deferred.value.sinceFirst', { gain: formatCurrency(valueGain), pct: valueGainPct > 0 ? ` (+${valueGainPct}%)` : '' })}
-              </span>
-            )}
+        <section className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-brand-700 via-brand-600 to-sky-600 px-5 py-6 text-white shadow-sm sm:px-7 sm:py-7">
+          <div
+            className="pointer-events-none absolute inset-0 opacity-[0.12]"
+            style={{
+              backgroundImage:
+                'radial-gradient(circle at 20% 20%, white 0.8px, transparent 0.9px), radial-gradient(circle at 80% 40%, white 0.8px, transparent 0.9px)',
+              backgroundSize: '28px 28px',
+            }}
+            aria-hidden
+          />
+          <div className="relative flex items-center gap-4 sm:gap-6">
+            <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-white/15 ring-1 ring-white/25 sm:h-16 sm:w-16">
+              <CircleDollarSign className="h-8 w-8 text-white sm:h-9 sm:w-9" aria-hidden />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/80">
+                {t('plaintiffDashboard.deferred.value.estimatedValue')}
+              </p>
+              <p className="mt-1 font-display text-3xl font-bold tabular-nums tracking-tight sm:text-4xl">
+                {formatCurrency(settlementLow)} – {formatCurrency(settlementHigh)}
+              </p>
+              <p className="mt-2 text-sm text-white/90 sm:text-base">
+                {t('plaintiffDashboard.deferred.value.mostLikely')}{' '}
+                <span className="font-semibold text-white">{formatCurrency(midpoint)}</span>
+              </p>
+            </div>
+            <div className="pointer-events-none absolute right-4 top-1/2 hidden w-36 -translate-y-1/2 opacity-30 sm:block md:right-8 md:w-44" aria-hidden>
+              <svg viewBox="0 0 160 80" fill="none" className="h-auto w-full text-white">
+                <path
+                  d="M4 62 C28 58, 36 40, 52 36 C68 32, 76 48, 92 28 C108 8, 120 18, 156 10"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                />
+                <path
+                  d="M4 62 C28 58, 36 40, 52 36 C68 32, 76 48, 92 28 C108 8, 120 18, 156 10 V72 H4 Z"
+                  fill="currentColor"
+                  opacity="0.2"
+                />
+                {[20, 44, 68, 92, 116, 140].map((x, i) => (
+                  <rect
+                    key={x}
+                    x={x}
+                    y={48 - i * 5}
+                    width="10"
+                    height={24 + i * 5}
+                    rx="2"
+                    fill="currentColor"
+                    opacity={0.35 + i * 0.08}
+                  />
+                ))}
+              </svg>
+            </div>
           </div>
         </section>
 
         {/* Case Value History */}
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
           <div className="flex items-center gap-2">
             <TrendingUp className="h-5 w-5 text-brand-600" aria-hidden />
-            <h3 className="font-display text-lg font-bold text-slate-900">{t('plaintiffDashboard.deferred.value.valueHistory')}</h3>
+            <h3 className="font-display text-lg font-bold text-slate-900">
+              {t('plaintiffDashboard.deferred.value.valueHistory')}
+            </h3>
           </div>
-          <p className="mt-1 text-sm text-slate-500">{t('plaintiffDashboard.deferred.value.historySubtitle')}</p>
-          <div className="mt-5 flex items-end gap-2 sm:gap-3">
-            {caseValueHistory.map((entry, index) => {
-              const isCurrent = index === caseValueHistory.length - 1
-              const barHeight = maxValue > 0 ? Math.max(20, Math.round((entry.value / maxValue) * 120)) : 20
-              return (
-                <div key={index} className="flex min-w-0 flex-1 flex-col items-center gap-1.5">
-                  <span className={`text-[11px] font-bold tabular-nums ${isCurrent ? 'text-brand-700' : 'text-slate-600'}`} title={entry.label}>
-                    {formatCompactCurrency(entry.value)}
-                  </span>
-                  <div className="flex w-full flex-col justify-end" style={{ height: 120 }}>
-                    <div className={`w-full rounded-t-md transition-all ${isCurrent ? 'bg-gradient-to-t from-brand-600 to-brand-400' : 'bg-slate-200'}`} style={{ height: barHeight }} />
+          <p className="mt-1 text-sm text-slate-500">
+            {t('plaintiffDashboard.deferred.value.historySubtitle')}
+          </p>
+
+          {caseValueHistory.length === 0 ? (
+            <p className="mt-6 rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-4 py-6 text-center text-sm text-slate-500">
+              {t('plaintiffDashboard.deferred.value.historyEmpty')}
+            </p>
+          ) : (
+            <div className="mt-6 flex items-start overflow-x-auto pb-1">
+              {caseValueHistory.map((entry, index) => {
+                const isCurrent = index === caseValueHistory.length - 1
+                const isLast = index === caseValueHistory.length - 1
+                return (
+                  <div key={`${entry.label}-${index}`} className="flex min-w-0 flex-1 items-start">
+                    <div className="flex w-[4.75rem] shrink-0 flex-col items-center gap-2 sm:w-[5.25rem]">
+                      <span
+                        className={`text-xs font-bold tabular-nums ${isCurrent ? 'text-brand-700' : 'text-slate-600'}`}
+                        title={entry.label}
+                      >
+                        {formatCompactCurrency(entry.value)}
+                      </span>
+                      <div
+                        className={`flex h-14 w-14 items-center justify-center rounded-xl sm:h-16 sm:w-16 ${
+                          isCurrent
+                            ? 'bg-brand-600 text-white shadow-md shadow-brand-600/25'
+                            : 'border border-slate-200 bg-slate-50 text-slate-400'
+                        }`}
+                      >
+                        {isCurrent ? (
+                          <CheckCircle className="h-6 w-6 sm:h-7 sm:w-7" aria-hidden />
+                        ) : (
+                          <FileText className="h-6 w-6 sm:h-7 sm:w-7" aria-hidden />
+                        )}
+                      </div>
+                      <span
+                        className={`max-w-full truncate text-center text-xs ${
+                          isCurrent ? 'font-semibold text-brand-700' : 'font-medium text-slate-500'
+                        }`}
+                        title={entry.label}
+                      >
+                        {entry.shortLabel}
+                      </span>
+                    </div>
+                    {!isLast ? (
+                      <div className="mt-[2.65rem] min-w-[0.5rem] flex-1 border-t-2 border-dashed border-slate-200" aria-hidden />
+                    ) : null}
                   </div>
-                  <span className={`truncate text-[10px] ${isCurrent ? 'font-semibold text-brand-600' : 'text-slate-400'}`} title={entry.label}>
-                    {entry.shortLabel}
-                  </span>
-                </div>
-              )
-            })}
-          </div>
-          <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3 text-sm">
-            <span className="text-slate-500">{t('plaintiffDashboard.deferred.value.initial')} <span className="font-medium text-slate-700">{formatCurrency(initialValue)}</span></span>
-            <span className="font-semibold text-brand-700">{t('plaintiffDashboard.deferred.value.current')} {formatCurrency(currentValue)}</span>
+                )
+              })}
+            </div>
+          )}
+
+          <div className="mt-5 flex items-center justify-between border-t border-slate-100 pt-4 text-sm">
+            <span className="text-slate-500">
+              {t('plaintiffDashboard.deferred.value.initial')}{' '}
+              <span className="font-semibold text-slate-800">{formatCurrency(initialValue)}</span>
+            </span>
+            <span className="font-semibold text-brand-700">
+              {t('plaintiffDashboard.deferred.value.current')} {formatCurrency(currentValue)}
+            </span>
           </div>
         </div>
 
         {/* Cases Like Yours */}
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h3 className="font-display text-lg font-bold text-slate-900">{t('plaintiffDashboard.deferred.value.casesLikeYours', { state: venueState })}</h3>
-          <p className="mt-1 text-sm text-slate-500">{t('plaintiffDashboard.deferred.value.benchmarkSubtitle')}</p>
-          <div className="mt-4 grid gap-3 sm:grid-cols-3">
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">{t('plaintiffDashboard.deferred.value.typicalLow')}</p>
-              <p className="mt-0.5 text-lg font-bold text-slate-900 tabular-nums">{formatCurrency(settlementLow)}</p>
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+          <div className="flex items-center gap-2">
+            <Scale className="h-5 w-5 text-brand-600" aria-hidden />
+            <h3 className="font-display text-lg font-bold text-slate-900">
+              {t('plaintiffDashboard.deferred.value.casesLikeYours', { state: venueState })}
+            </h3>
+          </div>
+          <p className="mt-1 text-sm text-slate-500">
+            {t('plaintiffDashboard.deferred.value.benchmarkSubtitle')}
+          </p>
+          <div className="mt-5 grid gap-3 sm:grid-cols-3">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-sky-600">
+                {t('plaintiffDashboard.deferred.value.typicalLow')}
+              </p>
+              <p className="mt-1 text-xl font-bold text-slate-900 tabular-nums">
+                {formatCurrency(settlementLow)}
+              </p>
             </div>
-            <div className="rounded-xl border border-brand-100 bg-brand-50 p-3">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-brand-600">{t('plaintiffDashboard.deferred.value.average')}</p>
-              <p className="mt-0.5 text-lg font-bold text-brand-900 tabular-nums">{formatCurrency(settlementMedian)}</p>
+            <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 px-4 py-3">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-600">
+                {t('plaintiffDashboard.deferred.value.average')}
+              </p>
+              <p className="mt-1 text-xl font-bold text-slate-900 tabular-nums">
+                {formatCurrency(settlementMedian)}
+              </p>
             </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">{t('plaintiffDashboard.deferred.value.typicalHigh')}</p>
-              <p className="mt-0.5 text-lg font-bold text-slate-900 tabular-nums">{formatCurrency(settlementHigh)}</p>
+            <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 px-4 py-3">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-indigo-600">
+                {t('plaintiffDashboard.deferred.value.typicalHigh')}
+              </p>
+              <p className="mt-1 text-xl font-bold text-slate-900 tabular-nums">
+                {formatCurrency(settlementHigh)}
+              </p>
             </div>
           </div>
-          <div className="mt-5">
-            <div className="relative h-2.5 w-full rounded-full bg-gradient-to-r from-slate-200 via-brand-200 to-slate-200">
-              <span className="absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-brand-600 shadow" style={{ left: `${markerPct}%` }} aria-hidden />
+          <div className="mt-6 px-1">
+            <div className="relative h-2 w-full rounded-full bg-gradient-to-r from-sky-300 via-brand-400 to-indigo-400">
+              <span
+                className="absolute top-1/2 z-10 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-[3px] border-white bg-brand-700 shadow-md"
+                style={{ left: `${markerPct}%` }}
+                aria-hidden
+              />
             </div>
-            <div className="mt-1.5 flex justify-between text-[11px] text-slate-400">
-              <span>{formatCurrency(settlementLow)}</span>
-              <span className="font-medium text-brand-600">{t('plaintiffDashboard.deferred.value.yourEstimate')}</span>
-              <span>{formatCurrency(settlementHigh)}</span>
+            <div className="relative mt-2 h-5 text-[11px] text-slate-400">
+              <span className="absolute left-0">{formatCurrency(settlementLow)}</span>
+              <span
+                className="absolute -translate-x-1/2 font-semibold text-brand-700"
+                style={{ left: `${markerPct}%` }}
+              >
+                {t('plaintiffDashboard.deferred.value.yourEstimate')}
+              </span>
+              <span className="absolute right-0">{formatCurrency(settlementHigh)}</span>
             </div>
           </div>
         </div>
@@ -1229,6 +1509,10 @@ export default function PlaintiffDashboardDeferredTabPanel({
         )}
       </div>
     )
+  }
+
+  if (activeTab !== 'journal') {
+    return null
   }
 
   const painTone =

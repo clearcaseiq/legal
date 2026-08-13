@@ -77,11 +77,13 @@ vi.mock('./lib/auth', () => {
     vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
       userId: 'plaintiff-user-1',
       evidenceFiles: [
-        { id: 'file-1', category: 'medical_records', originalName: 'records.pdf', createdAt: new Date('2026-04-01T00:00:00Z') },
-        { id: 'file-2', category: 'photos', originalName: 'photo.jpg', createdAt: new Date('2026-04-02T00:00:00Z') },
+        // Uploads must land at/after the request — older case files do not auto-complete it.
+        { id: 'file-1', category: 'medical_records', originalName: 'records.pdf', createdAt: new Date('2026-04-05T00:00:00Z') },
+        { id: 'file-2', category: 'photos', originalName: 'photo.jpg', createdAt: new Date('2026-04-06T00:00:00Z') },
       ],
       leadSubmission: {
         id: 'lead-1',
+        assignedAttorneyId: 'attorney-record-1',
         documentRequests: [
           {
             id: 'docreq-1',
@@ -2745,6 +2747,7 @@ describe('HTTP operations regressions', () => {
         secureToken: expect.any(String),
         uploadLink: expect.stringContaining('/evidence-upload/asm-1?token='),
         status: 'pending',
+        targetType: 'plaintiff',
       }),
     })
     expect(prisma.leadSubmission.update).toHaveBeenCalledWith({

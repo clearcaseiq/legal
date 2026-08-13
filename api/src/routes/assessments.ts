@@ -37,7 +37,13 @@ import { getConfiguredWaveSize, getMatchingRules } from '../lib/matching-rules-c
 import { validateCaseTypeFromFacts } from '../lib/case-type-validation'
 import { buildMedicalProfile } from '../lib/medical-profile'
 import { runCaseRecalculation } from '../lib/case-recalculation'
-import { DOCUMENT_REQUEST_CATEGORY_MAP, DOCUMENT_REQUEST_LABELS, parseRequestedDocs } from '../lib/document-request-status'
+import { buildCaseValueHistory } from '../lib/case-value-history'
+import {
+  DOCUMENT_REQUEST_LABELS,
+  isRequestedDocFulfilled,
+  parseRequestedDocs,
+} from '../lib/document-request-status'
+import { reconcileOrphanClientDocumentTasks } from '../lib/document-request-create'
 import { deliverDirectNotification } from '../lib/platform-notifications'
 
 const router = Router()
@@ -374,7 +380,7 @@ router.get('/:id', optionalAuthMiddleware, async (req: AuthRequest, res) => {
       include: {
         predictions: {
           orderBy: { createdAt: 'desc' },
-          take: 5
+          take: 25
         },
         leadSubmission: { select: { id: true, submittedAt: true, status: true } }
       }
@@ -402,11 +408,7 @@ router.get('/:id', optionalAuthMiddleware, async (req: AuthRequest, res) => {
       }
     }
 
-    const caseValueHistory = assessment.predictions.map((p, i) => {
-      const bands = JSON.parse(p.bands) as { p25: number; median: number; p75: number }
-      const label = i === 0 ? 'Current' : i === 1 ? 'Previous' : `Version ${assessment.predictions.length - i}`
-      return { label, value: bands.median, bands, createdAt: p.createdAt }
-    })
+    const caseValueHistory = buildCaseValueHistory(assessment.predictions)
     const latestExplain = latest ? parsePredictionExplain(latest.explain) : null
 
     res.json({
@@ -524,7 +526,7 @@ router.get('/:id/signed-documents', authMiddleware, async (req: AuthRequest, res
 router.get('/:id/document-requests', authMiddleware, async (req: AuthRequest, res) => {
   try {
     const { id } = req.params
-    const assessment = await prisma.assessment.findUnique({
+    let assessment = await prisma.assessment.findUnique({
       where: { id },
       select: {
         userId: true,
@@ -539,7 +541,9 @@ router.get('/:id/document-requests', authMiddleware, async (req: AuthRequest, re
         leadSubmission: {
           select: {
             id: true,
+            assignedAttorneyId: true,
             documentRequests: {
+              where: { targetType: 'plaintiff' },
               orderBy: { createdAt: 'desc' },
               select: {
                 id: true,
@@ -571,29 +575,102 @@ router.get('/:id/document-requests', authMiddleware, async (req: AuthRequest, re
       return res.status(403).json({ error: 'Unauthorized to view this assessment' })
     }
 
-    const uploadedCategories = new Set(
-      (assessment.evidenceFiles || []).map((file) => file.category)
-    )
+    // Coach/Intelligence used to create client CaseTasks titled
+    // "Request from client: …" without a DocumentRequest — migrate those so
+    // they appear under Requested Documents with a real upload UI.
+    if (assessment.leadSubmission?.id) {
+      let attorneyId =
+        assessment.leadSubmission.assignedAttorneyId ||
+        assessment.leadSubmission.documentRequests?.[0]?.attorney?.id ||
+        null
+      if (!attorneyId) {
+        const intro = await prisma.introduction.findFirst({
+          where: { assessmentId: id, status: { in: ['ACCEPTED', 'accepted'] } },
+          orderBy: { respondedAt: 'desc' },
+          select: { attorneyId: true },
+        })
+        attorneyId = intro?.attorneyId || null
+      }
+      if (!attorneyId) {
+        const chat = await prisma.chatRoom.findFirst({
+          where: { assessmentId: id },
+          orderBy: { lastMessageAt: 'desc' },
+          select: { attorneyId: true },
+        })
+        attorneyId = chat?.attorneyId || null
+      }
+      const migrated = await reconcileOrphanClientDocumentTasks({
+        assessmentId: id,
+        leadId: assessment.leadSubmission.id,
+        attorneyId,
+      })
+      if (migrated > 0) {
+        assessment = await prisma.assessment.findUnique({
+          where: { id },
+          select: {
+            userId: true,
+            evidenceFiles: {
+              select: {
+                id: true,
+                category: true,
+                originalName: true,
+                createdAt: true,
+              },
+            },
+            leadSubmission: {
+              select: {
+                id: true,
+                assignedAttorneyId: true,
+                documentRequests: {
+                  where: { targetType: 'plaintiff' },
+                  orderBy: { createdAt: 'desc' },
+                  select: {
+                    id: true,
+                    requestedDocs: true,
+                    customMessage: true,
+                    uploadLink: true,
+                    status: true,
+                    lastNudgeAt: true,
+                    createdAt: true,
+                    attorney: {
+                      select: {
+                        id: true,
+                        name: true,
+                        email: true,
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        })
+        if (!assessment) {
+          return res.status(404).json({ error: 'Assessment not found' })
+        }
+      }
+    }
+
+    const evidenceFiles = assessment.evidenceFiles || []
 
     const requests = (assessment.leadSubmission?.documentRequests || []).map((request) => {
       const requestedDocs = parseRequestedDocs(request.requestedDocs)
       const items = requestedDocs.map((key) => {
-        const acceptedCategories = DOCUMENT_REQUEST_CATEGORY_MAP[key] || []
-        // Mirror computeRequestStatus: the requested-docs uploader tags files
-        // with the request key itself, so accept that verbatim match too.
-        const fulfilled =
-          uploadedCategories.has(key) ||
-          acceptedCategories.some((category) => uploadedCategories.has(category))
+        const fulfilled = isRequestedDocFulfilled({
+          key,
+          evidenceFiles,
+          requestCreatedAt: request.createdAt,
+        })
         return {
           key,
           label: DOCUMENT_REQUEST_LABELS[key] || key.replace(/_/g, ' '),
-          fulfilled
+          fulfilled,
         }
       })
       const fulfilledCount = items.filter((item) => item.fulfilled).length
       const completionPercent = items.length > 0
         ? Math.round((fulfilledCount / items.length) * 100)
-        : assessment.evidenceFiles.length > 0
+        : evidenceFiles.length > 0
           ? 50
           : 0
       const displayStatus = items.length > 0

@@ -3,7 +3,8 @@ import { prisma } from '../lib/prisma'
 import { logger } from '../lib/logger'
 import { z } from 'zod'
 import { authMiddleware, AuthRequest } from '../lib/auth'
-import { generateAvailableTimeSlots, getDayBounds, hasAppointmentConflict } from '../lib/availability-slots'
+import { generateAvailableTimeSlots, getDayBounds, getDayBoundsInTimezone, hasAppointmentConflict } from '../lib/availability-slots'
+import { resolveSchedulingTimezone } from '../lib/scheduling-timezone'
 import { recordRoutingEvent } from '../lib/routing-lifecycle'
 import { createExternalCalendarEvent, deleteExternalCalendarEvent } from '../lib/calendar-sync'
 import { createZoomMeeting } from '../lib/zoom'
@@ -718,7 +719,21 @@ router.get('/attorney/:attorneyId/availability', async (req, res) => {
       return res.status(400).json({ error: 'Date parameter is required' })
     }
 
-    const targetDate = new Date(date as string)
+    const dateStr = String(date).slice(0, 10)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      return res.status(400).json({ error: 'Date must be YYYY-MM-DD' })
+    }
+
+    const attorney = await prisma.attorney.findUnique({
+      where: { id: attorneyId },
+      select: { schedulingTimezone: true },
+    })
+    if (!attorney) {
+      return res.status(404).json({ error: 'Attorney not found' })
+    }
+    const timezone = resolveSchedulingTimezone(attorney.schedulingTimezone)
+
+    const targetDate = new Date(`${dateStr}T00:00:00Z`)
     const dayOfWeek = targetDate.getUTCDay()
 
     // Get attorney's general availability for this day. An attorney can have
@@ -742,18 +757,18 @@ router.get('/attorney/:attorneyId/availability', async (req, res) => {
         .map((r) => ({ startTime: r.startTime, endTime: r.endTime }))
         .sort((a, b) => a.startTime.localeCompare(b.startTime))
       if (windows.length === 0) {
-        return res.json({ slots: [] })
+        return res.json({ slots: [], timezone })
       }
     } else {
       // No explicit schedule: weekdays default to business hours, weekends closed.
       if (dayOfWeek === 0 || dayOfWeek === 6) {
-        return res.json({ slots: [] })
+        return res.json({ slots: [], timezone })
       }
       windows = [{ startTime: DEFAULT_START_TIME, endTime: DEFAULT_END_TIME }]
     }
 
-    // Get existing appointments for this date
-    const { startOfDay, endOfDay } = getDayBounds(targetDate)
+    // Busy lookup uses attorney-local day bounds (09:00 Pacific ≠ 09:00 UTC).
+    const { startOfDay, endOfDay } = getDayBoundsInTimezone(dateStr, timezone)
 
     const [existingAppointments, calendarBusyBlocks] = await Promise.all([
       prisma.appointment.findMany({
@@ -786,7 +801,8 @@ router.get('/attorney/:attorneyId/availability', async (req, res) => {
     const busy = [...existingAppointments, ...busyBlocksToAppointments(calendarBusyBlocks)]
     const slots = windows.flatMap((w) =>
       generateAvailableTimeSlots({
-        targetDate,
+        dateStr,
+        timezone,
         startTime: w.startTime,
         endTime: w.endTime,
         duration: parseInt(duration as string),
@@ -794,7 +810,7 @@ router.get('/attorney/:attorneyId/availability', async (req, res) => {
       }),
     )
 
-    res.json({ slots })
+    res.json({ slots, timezone })
   } catch (error) {
     logger.error('Failed to get attorney availability', { error, attorneyId: req.params.attorneyId })
     res.status(500).json({ error: 'Internal server error' })

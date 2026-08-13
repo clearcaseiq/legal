@@ -48,6 +48,7 @@ import {
   claimLabel,
   dateKeyOf,
   itemTone,
+  itemTooltip,
   rangeForView,
   sameDay,
   startOfDay,
@@ -191,6 +192,7 @@ export default function CalendarPage() {
                 leadId: t.leadId,
                 date: d,
                 title: t.title || 'Task',
+                caseLabel: typeof t.caseName === 'string' && t.caseName.trim() ? t.caseName.trim() : null,
                 hasTime: false,
               } as CalItem
             })
@@ -522,6 +524,10 @@ export default function CalendarPage() {
                 const withTime = day.getHours() !== 0 || day.getMinutes() !== 0
                 openCreate({ date: day, withTime })
               }}
+              onMore={(day) => {
+                setAnchor(day)
+                setView('day')
+              }}
             />
           )}
         </main>
@@ -761,6 +767,7 @@ function AgendaListView({
                       <button
                         key={it.id}
                         onClick={() => onItemClick(it)}
+                        title={itemTooltip(it)}
                         className="group flex w-full items-center gap-3 rounded-lg border border-transparent px-3 py-2 text-left transition hover:border-slate-200 hover:bg-slate-50"
                       >
                         <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${tone.dot}`} />
@@ -777,7 +784,9 @@ function AgendaListView({
                             {it.event.location}
                           </span>
                         ) : it.kind === 'task' ? (
-                          <span className="hidden shrink-0 text-xs text-amber-600 sm:block">Task</span>
+                          <span className="hidden max-w-[12rem] shrink-0 truncate text-xs text-amber-600 sm:block">
+                            {it.caseLabel?.trim() || 'Task'}
+                          </span>
                         ) : null}
                         <ArrowUpRight className="h-4 w-4 shrink-0 text-slate-300 transition group-hover:text-slate-500" />
                       </button>

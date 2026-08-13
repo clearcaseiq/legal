@@ -26,7 +26,7 @@ export const AI_AUTHOR_SHORT_NAME = 'Rose'
  * intelligence and coach panels — is written as 'general', so these two values
  * are a reliable "Rose raised this by herself" signal.
  */
-export const AI_TASK_TYPES = ['coach', 'question'] as const
+export const AI_TASK_TYPES = ['coach', 'question', 'proposed'] as const
 
 export function isAiGeneratedTask(taskType?: string | null): boolean {
   return (AI_TASK_TYPES as readonly string[]).includes(String(taskType || ''))

@@ -39,6 +39,26 @@ const CASE_STAGE_LABEL: Record<string, string> = {
   CLOSED: 'Closed',
 }
 
+/** Hover copy for lifecycle stage badges (where the matter is, not what to do next). */
+const CASE_STAGE_HINT: Record<string, string> = {
+  OPENING: 'Case opening — intake checklist and conflict/retainer setup still in progress.',
+  INVESTIGATION: 'Investigation — opening work is done; gathering liability and facts.',
+  TREATMENT: 'Medical treatment — client is treating; records may still be incomplete.',
+  RECORD_COLLECTION: 'Records & bills — treatment looks complete; collecting medical records and bills.',
+  DEMAND_PREPARATION: 'Demand prep — file is ready enough to draft or finalize a demand.',
+  DEMAND_SENT: 'Demand sent — demand is out; waiting on carrier response.',
+  NEGOTIATION: 'Negotiation — an offer is in play or talks are underway.',
+  SETTLEMENT_PENDING: 'Settlement pending — settlement agreed; wrapping paperwork.',
+  DISBURSEMENT: 'Disbursement — distributing settlement funds.',
+  CLOSED: 'Closed — matter is closed.',
+}
+
+const ACQUISITION_STAGE_HINT: Record<string, string> = {
+  contacted: 'Accepted — lead accepted; work toward scheduling a consult.',
+  consulted: 'Consult scheduled — work toward a signed retainer.',
+  retained: 'Retained — matter is signed; lifecycle stage tracks post-retention progress.',
+}
+
 // Litigation sub-track labels (Assessment.litigationStatus). Only the "active in
 // suit" statuses get a caseload chip; none/resolved are not surfaced on the row.
 const LITIGATION_LABEL: Record<string, string> = {
@@ -65,6 +85,8 @@ interface CaseRow {
   stageLabel: string
   stageTone: StageTone
   lifecycleLabel: string | null
+  /** Plain-language tooltip for the Stage badge. */
+  stageHint: string
   closed: boolean
   litigationLabel: string | null
   jurisdiction: string
@@ -410,6 +432,12 @@ export default function ActiveCasesPage() {
         const closed = rawCaseStage === 'CLOSED' || !!lead?.assessment?.closedAt
         const litStatus = String(lead?.assessment?.litigationStatus || 'none')
         const litigationLabel = ACTIVE_LITIGATION.has(litStatus) ? LITIGATION_LABEL[litStatus] || null : null
+        const stageHint = closed
+          ? CASE_STAGE_HINT.CLOSED
+          : lead.status === 'retained' && rawCaseStage && CASE_STAGE_HINT[rawCaseStage]
+            ? CASE_STAGE_HINT[rawCaseStage]
+            : ACQUISITION_STAGE_HINT[lead.status] ||
+              'Stage shows where this matter sits in the intake/lifecycle — not the next task.'
         const consultToday = consultTodayLeadIds.has(lead.id)
         const reference = new Date(lead?.lastContactAt || lead?.updatedAt || lead?.submittedAt || Date.now())
         const due = new Date(reference)
@@ -447,7 +475,10 @@ export default function ActiveCasesPage() {
             nextAction = `Request ${docShortLabel(ra.requestedDocs)}`
           }
           actionHref = actionHrefFor(lead.id, actionType, ra.targetSection, false)
-          actionHint = [ra.title, ra.detail].filter(Boolean).join(' — ') || 'Suggested next step for this file.'
+          const detail = [ra.title, ra.detail].filter(Boolean).join(' — ')
+          actionHint = detail
+            ? `${detail} Click to open the work.`
+            : 'Suggested next step from open tasks, missing docs, and case readiness. Click to open the work.'
           actionTone = overdueTaskCount > 0 ? 'rose' : meta?.tone ?? 'slate'
         } else {
           // No readiness payload (older API) → stage heuristic.
@@ -459,7 +490,7 @@ export default function ActiveCasesPage() {
               : 'open_lead'
           nextAction = label
           actionHref = nextActionHref(lead.id, label)
-          actionHint = 'Suggested next step based on case stage.'
+          actionHint = 'Suggested next step from case stage (fallback). Click to open the work.'
           actionTone = 'slate'
         }
 
@@ -482,6 +513,7 @@ export default function ActiveCasesPage() {
           stageLabel: stage.label,
           stageTone: stage.tone,
           lifecycleLabel,
+          stageHint,
           closed,
           litigationLabel,
           jurisdiction: lead?.assessment?.venueState || '',
@@ -715,12 +747,14 @@ const caseColumns: DataTableColumn<CaseRow>[] = [
   { key: 'type', header: 'Type', cell: (r) => <span className="text-slate-500">{r.typeLabel}</span> },
   {
     key: 'stage',
-    header: 'Stage',
+    header: (
+      <span title="Where the matter sits in intake/lifecycle. Independent of the next task.">Stage</span>
+    ),
     // Retained matters show the live case-lifecycle stage (opening → … → closed);
     // pre-retention rows keep the acquisition stage label. A parallel litigation
     // chip appears when the matter is actively in suit.
     cell: (r) => (
-      <div className="flex flex-wrap items-center gap-1.5">
+      <div className="flex flex-wrap items-center gap-1.5" title={r.stageHint}>
         {r.closed ? (
           <Badge tone="neutral">Closed</Badge>
         ) : r.stageKey === 'retained' && r.lifecycleLabel ? (
@@ -728,13 +762,21 @@ const caseColumns: DataTableColumn<CaseRow>[] = [
         ) : (
           <Badge tone={STAGE_BADGE[r.stageTone]}>{r.stageLabel}</Badge>
         )}
-        {r.litigationLabel ? <Badge tone="warning">{r.litigationLabel}</Badge> : null}
+        {r.litigationLabel ? (
+          <span title={`Litigation track: ${r.litigationLabel}`}>
+            <Badge tone="warning">{r.litigationLabel}</Badge>
+          </span>
+        ) : null}
       </div>
     ),
   },
   {
     key: 'next',
-    header: 'Next action',
+    header: (
+      <span title="What to do next on this file — from open tasks, missing docs, consult timing, and readiness.">
+        Next action
+      </span>
+    ),
     cell: (r) => (
       <Link
         to={r.actionHref}

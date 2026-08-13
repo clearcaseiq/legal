@@ -154,14 +154,6 @@
         "label": "Facturación",
         "description": "Honorarios, facturas, costos"
       },
-      "aiManager": {
-        "label": "Rose — Gestor de casos IA",
-        "description": "Plantea la siguiente tarea en cada caso"
-      },
-      "copilot": {
-        "label": "Copiloto IA",
-        "description": "Análisis y próximas acciones"
-      },
       "firm": {
         "label": "Panel del bufete",
         "description": "Cartera del equipo"
@@ -4015,8 +4007,9 @@
       "body": "Tus opciones clasificadas originales no estaban disponibles, así que ampliamos la búsqueda y contactamos a más abogados compatibles."
     },
     "actionCenter": {
-      "title": "Centro de acciones",
+      "title": "Acción requerida",
       "subtitle": "Este es el lugar más rápido para ver qué sigue bloqueando tu caso y qué subir a continuación.",
+      "viewDetails": "Ver detalles",
       "uploadDocuments": "Subir documentos",
       "mostUrgent": "Tarea más urgente",
       "waitingOn": "{name} sigue esperando {docs}.",
@@ -4085,6 +4078,13 @@
       "call": "Llamar",
       "message": "Mensaje"
     },
+    "attorneyChat": {
+      "title": "Chatea con tu abogado",
+      "subtitle": "Envía un mensaje a {name} sobre tu caso en cualquier momento.",
+      "subtitleGeneric": "Envía un mensaje a tu abogado sobre tu caso en cualquier momento.",
+      "cta": "Abrir chat",
+      "fab": "Mensaje al abogado"
+    },
     "consultation": {
       "scheduled": "Consulta programada",
       "typeConsultation": "Consulta {type}",
@@ -4092,7 +4092,12 @@
       "reschedule": "Reprogramar",
       "cancel": "Cancelar",
       "schedule": "Programar consulta",
-      "bookCall": "Reserva una llamada con tu abogado para hablar sobre tu caso."
+      "bookCall": "Reserva una llamada con tu abogado para hablar sobre tu caso.",
+      "scheduleAgainTitle": "Programar consulta",
+      "scheduleAgainBody": "Reserva una llamada con {name} para hablar de tu caso, o elige un nuevo horario después de una cancelación.",
+      "scheduleAgainCta": "Volver a programar",
+      "cancelledToast": "Consulta cancelada. Puedes programar un nuevo horario abajo.",
+      "cancelFailed": "No se pudo cancelar la consulta."
     },
     "emailVerification": {
       "pending": "La verificación del correo está pendiente. Algunas acciones seguras pueden requerir verificación más adelante.",
@@ -4102,8 +4107,8 @@
       "sendFailed": "No pudimos enviar el correo de verificación ahora. Inténtalo más tarde o contacta a soporte."
     },
     "satisfaction": {
-      "title": "¿Cómo es tu experiencia?",
-      "subtitle": "Califica tu satisfacción con tu abogado y tu caso hasta ahora.",
+      "title": "¿Cómo es tu experiencia hasta ahora?",
+      "subtitle": "Cuéntanos si podemos mejorar algo con tu abogado.",
       "notesPlaceholder": "Comparte cualquier comentario (opcional)",
       "starLabel": "{n} estrella",
       "starsLabel": "{n} estrellas",
@@ -4333,7 +4338,12 @@
       "uploadDocuments": "Subir documentos",
       "emptyTitle": "Aún no hay solicitudes de documentos",
       "emptyBody": "Cuando tu abogado necesite algo específico, aparecerá aquí. Mientras tanto, agregar tus registros ahora acelera la revisión.",
-      "addDocuments": "Agregar documentos"
+      "addDocuments": "Agregar documentos",
+      "showCompleted": "Mostrar {count} completados",
+      "hideCompleted": "Ocultar completados",
+      "allCaughtUp": "Estás al día: no hay solicitudes de documentos pendientes.",
+      "remainingOne": "1 pendiente",
+      "remainingMany": "{count} pendientes"
     },
     "schedule": {
       "bookCall": "Reserva una llamada con {name} para hablar de tu caso.",
@@ -4474,6 +4484,9 @@
         "reviewSend": "Revisar y enviar",
         "noActionBadge": "No se requiere acción",
         "completed": "Completado",
+        "completedSectionTitle": "Completado",
+        "completedSectionSubtitle": "Tareas que ya terminaste en este caso.",
+        "completedEmpty": "Aún no hay nada completado: termina un siguiente paso y aparecerá aquí.",
         "coachTip": "Consejo del asesor del caso"
       },
       "attorney": {
@@ -4590,6 +4603,13 @@
         "untitledFile": "Archivo sin nombre",
         "checklistTitle": "Lista de documentos",
         "checklistSubtitle": "Evidencia clave que ayuda a los abogados a entender y valorar tu caso.",
+        "needToAddTitle": "Por agregar",
+        "needToAddSubtitle": "Evidencia clave que aún falta en tu caso.",
+        "checklistCaughtUp": "La lista de evidencia principal está completa.",
+        "agreementsColumnTitle": "Acuerdos y médico",
+        "agreementsColumnSubtitle": "Papeles firmados y lo que muestran tus registros médicos.",
+        "signedEmpty": "Aún no hay acuerdos firmados.",
+        "medicalEmpty": "Aún no hay resumen médico — sube registros para construirlo.",
         "signedTypes": {
           "retainer": "Contrato de representación",
           "fee_agreement": "Acuerdo de honorarios",
@@ -4604,6 +4624,25 @@
         "sinceFirst": "+{gain}{pct} desde la primera estimación",
         "valueHistory": "Historial del valor del caso",
         "historySubtitle": "Cómo ha crecido tu estimación a medida que agregaste detalles y documentos.",
+        "historyEmpty": "El historial del valor aparecerá a medida que se actualice tu estimación.",
+        "historyReasons": {
+          "initial": "Estimación inicial",
+          "current": "Estimación actual",
+          "document_upload": "Después de documentos",
+          "evidence_processing": "Después de revisar evidencia",
+          "document_deleted": "Después de quitar un documento",
+          "plaintiff_damage_estimates": "Después de actualizar daños",
+          "updated": "Estimación actualizada"
+        },
+        "historyShort": {
+          "initial": "Inicial",
+          "current": "Actual",
+          "document_upload": "Docs",
+          "evidence_processing": "Evidencia",
+          "document_deleted": "Actualizado",
+          "plaintiff_damage_estimates": "Daños",
+          "updated": "Actualizado"
+        },
         "initial": "Inicial:",
         "current": "Actual:",
         "casesLikeYours": "Casos como el tuyo en {state}",

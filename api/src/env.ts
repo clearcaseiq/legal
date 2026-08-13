@@ -21,15 +21,65 @@ export const ENV = {
   JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN ?? '7d',
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   OPENAI_ANALYSIS_MODEL: process.env.OPENAI_ANALYSIS_MODEL ?? 'gpt-4o-mini',
+  /**
+   * Stronger model for case-scoped Workflow/Task planning.
+   * Defaults to gpt-4o. Planning always tries OpenAI first, then Kimi backup.
+   */
+  OPENAI_PLANNING_MODEL: process.env.OPENAI_PLANNING_MODEL ?? 'gpt-4o',
+  /**
+   * Optional model for prose/writing (coach narration, intelligent questions).
+   * When unset, those paths use OPENAI_ANALYSIS_MODEL, then Kimi as backup.
+   */
+  OPENAI_WRITING_MODEL: process.env.OPENAI_WRITING_MODEL,
+  /**
+   * When true (default), GPT may adapt the firm workflow snapshot to the case
+   * at apply-time (and via the manual adapt endpoint). Fail-safe: blueprint
+   * snapshot is kept unchanged if the call fails.
+   */
+  WORKFLOW_AI_ADAPT: process.env.WORKFLOW_AI_ADAPT !== 'false',
+  /** Max patch ops GPT may propose per workflow adapt (default 18). */
+  WORKFLOW_AI_ADAPT_MAX_OPS: Math.max(1, Number(process.env.WORKFLOW_AI_ADAPT_MAX_OPS ?? 18) || 18),
+  /** Max add ops within that budget (default 8). */
+  WORKFLOW_AI_ADAPT_MAX_ADDS: Math.max(0, Number(process.env.WORKFLOW_AI_ADAPT_MAX_ADDS ?? 8) || 8),
+  /**
+   * When true (default), coach sync re-runs workflow adapt if open gap keys
+   * changed since the last successful adapt. Debounced by
+   * WORKFLOW_AI_ADAPT_GAP_COOLDOWN_MS.
+   */
+  WORKFLOW_AI_ADAPT_ON_GAP_CHANGE: process.env.WORKFLOW_AI_ADAPT_ON_GAP_CHANGE !== 'false',
+  /** Minimum ms between automatic gap-change adapts (default 15 minutes). */
+  WORKFLOW_AI_ADAPT_GAP_COOLDOWN_MS: Math.max(
+    0,
+    Number(process.env.WORKFLOW_AI_ADAPT_GAP_COOLDOWN_MS ?? 15 * 60 * 1000) || 15 * 60 * 1000,
+  ),
+  /**
+   * When false (default), LLM case prompts are gap-keys-only: no incident
+   * narrative, injuries, treatment text, or other medical detail. Set true
+   * only after a HIPAA BAA is in place with the active LLM vendor and counsel
+   * has approved sending PHI in prompts. Contact PII is always redacted.
+   */
+  LLM_ALLOW_PHI: process.env.LLM_ALLOW_PHI === 'true',
   // Kimi / Moonshot AI (optional, OpenAI-compatible drop-in for text completions).
   KIMI_API_KEY: process.env.KIMI_API_KEY,
   KIMI_BASE_URL: process.env.KIMI_BASE_URL ?? 'https://api.moonshot.ai/v1',
   KIMI_MODEL: process.env.KIMI_MODEL ?? 'kimi-k3',
+  KIMI_PLANNING_MODEL: process.env.KIMI_PLANNING_MODEL,
+  // Baichuan (optional OpenAI-compatible bake-off / experiment provider).
+  BAICHUAN_API_KEY: process.env.BAICHUAN_API_KEY,
+  BAICHUAN_BASE_URL: process.env.BAICHUAN_BASE_URL ?? 'https://api.baichuan-ai.com/v1',
+  BAICHUAN_MODEL: process.env.BAICHUAN_MODEL ?? 'Baichuan4-Air',
+  // DeepSeek (optional OpenAI-compatible bake-off / experiment provider).
+  DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY,
+  DEEPSEEK_BASE_URL: process.env.DEEPSEEK_BASE_URL ?? 'https://api.deepseek.com/v1',
+  DEEPSEEK_MODEL: process.env.DEEPSEEK_MODEL ?? 'deepseek-chat',
   AI_PROVIDER: process.env.AI_PROVIDER ?? 'openai',
   ROSE_LLM_MODEL: process.env.ROSE_LLM_MODEL,
-  // Anthropic Claude (optional) — used for narrative → structured incident extraction.
+  // Anthropic Claude (optional) — incident extraction + planning bake-off.
   ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
-  ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL ?? 'claude-3-5-haiku-latest',
+  ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL ?? 'claude-haiku-4-5-20251001',
+  /** Peer to OPENAI_PLANNING_MODEL for workflow-adapt bake-offs (defaults to Sonnet). */
+  ANTHROPIC_PLANNING_MODEL: process.env.ANTHROPIC_PLANNING_MODEL ?? 'claude-sonnet-4-5',
+  ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com',
   ML_SERVICE_URL: process.env.ML_SERVICE_URL,
   ML_PREDICTION_MODE: process.env.ML_PREDICTION_MODE ?? 'fallback',
   ML_REQUEST_TIMEOUT_MS: Number(process.env.ML_REQUEST_TIMEOUT_MS ?? 5000),

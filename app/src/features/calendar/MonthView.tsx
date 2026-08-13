@@ -1,5 +1,16 @@
 import { Plus } from 'lucide-react'
-import { CalItem, WEEKDAYS_SHORT, addDays, dateKeyOf, itemTone, sameDay, startOfWeek, timeLabel } from './calendarUtils'
+import {
+  CalItem,
+  WEEKDAYS_SHORT,
+  addDays,
+  dateKeyOf,
+  itemDisplayTitle,
+  itemTone,
+  itemTooltip,
+  sameDay,
+  startOfWeek,
+  timeLabel,
+} from './calendarUtils'
 
 /** Traditional month grid (Google Calendar style) with up to 3 chips per day. */
 export function MonthView({
@@ -83,12 +94,12 @@ export function MonthView({
                       type="button"
                       onClick={() => onItemClick(item)}
                       className={`flex w-full items-center gap-1 truncate rounded px-1 py-0.5 text-left text-[11px] font-medium ring-1 ring-inset transition ${tone.chip}`}
-                      title={`${tone.label}: ${item.title}`}
+                      title={`${tone.label}: ${itemTooltip(item)}`}
                     >
                       <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${tone.dot}`} />
                       <span className="truncate">
                         {item.hasTime ? <span className="tabular-nums">{timeLabel(item.date)} </span> : null}
-                        {item.title}
+                        {itemDisplayTitle(item)}
                       </span>
                     </button>
                   )

@@ -303,13 +303,15 @@ export function resolveTaskPrimaryAction(task: TaskLike): TaskPrimaryAction | nu
   if (
     /collect medical records?/i.test(title) ||
     /request medical records?/i.test(title) ||
-    /secure medical records?/i.test(title)
+    /secure medical records?/i.test(title) ||
+    /obtain medical records?/i.test(title) ||
+    (/obtain medic/i.test(title) && !/bills/i.test(title))
   ) {
     return {
       kind: 'collect_medical_records',
       label: 'Collect',
       doneLabel: 'View',
-      hint: 'Open Evidence to upload or request medical records',
+      hint: 'If records are already on file, marks this done; otherwise opens Evidence',
       doneHint: 'Open Evidence to view medical records',
     }
   }
@@ -318,6 +320,7 @@ export function resolveTaskPrimaryAction(task: TaskLike): TaskPrimaryAction | nu
     /collect medical bills?/i.test(title) ||
     /request medical bills?/i.test(title) ||
     /secure medical bills?/i.test(title) ||
+    /obtain medical bills?/i.test(title) ||
     /collect (medical )?bills\b/i.test(title) ||
     /itemized damages/i.test(title) ||
     /damages ledger/i.test(title)
@@ -326,7 +329,7 @@ export function resolveTaskPrimaryAction(task: TaskLike): TaskPrimaryAction | nu
       kind: 'collect_bills',
       label: 'Collect',
       doneLabel: 'View',
-      hint: 'Open Evidence for medical bills / damages docs',
+      hint: 'If bills are already on file, marks this done; otherwise opens Evidence',
       doneHint: 'Open Evidence to view bills',
     }
   }

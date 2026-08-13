@@ -7,6 +7,7 @@
  * firm's standard one.
  */
 import { useCallback, useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   CheckCircle2,
   Circle,
@@ -24,6 +25,7 @@ import {
   Trash2,
   X,
   Info,
+  ExternalLink,
 } from 'lucide-react'
 import {
   getCaseWorkflow,
@@ -84,6 +86,7 @@ function dueMeta(dueDate: string | null, done: boolean) {
 }
 
 export default function CaseWorkflowPanel({ leadId }: { leadId: string }) {
+  const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
   const [workflow, setWorkflow] = useState<CaseWorkflow | null>(null)
   const [canApply, setCanApply] = useState(false)
@@ -157,14 +160,14 @@ export default function CaseWorkflowPanel({ leadId }: { leadId: string }) {
     }
   }
 
-  const addTask = async (payload: Parameters<typeof addCaseWorkflowStep>[1]) => {
+  const addStep = async (payload: Parameters<typeof addCaseWorkflowStep>[1]) => {
     const res = await addCaseWorkflowStep(leadId, payload)
     setWorkflow(res.workflow)
   }
 
-  const removeTask = (step: CaseWorkflowStep) => setStepToDelete(step)
+  const removeStep = (step: CaseWorkflowStep) => setStepToDelete(step)
 
-  const confirmRemoveTask = async () => {
+  const confirmRemoveStep = async () => {
     const step = stepToDelete
     if (!step) return
     setPendingId(step.id)
@@ -173,7 +176,7 @@ export default function CaseWorkflowPanel({ leadId }: { leadId: string }) {
       setWorkflow(res.workflow)
       setStepToDelete(null)
     } catch (e: any) {
-      setPanelError(e?.response?.data?.error || 'Failed to delete task')
+      setPanelError(e?.response?.data?.error || 'Failed to delete step')
       setStepToDelete(null)
       load()
     } finally {
@@ -227,7 +230,7 @@ export default function CaseWorkflowPanel({ leadId }: { leadId: string }) {
     <div className="space-y-4">
       <ConfirmDialog
         open={Boolean(stepToDelete)}
-        title="Delete task?"
+        title="Delete step?"
         message={
           stepToDelete ? (
             <>
@@ -236,9 +239,9 @@ export default function CaseWorkflowPanel({ leadId }: { leadId: string }) {
             </>
           ) : undefined
         }
-        confirmLabel="Delete task"
+        confirmLabel="Delete step"
         busy={Boolean(pendingId) && pendingId === stepToDelete?.id}
-        onConfirm={() => void confirmRemoveTask()}
+        onConfirm={() => void confirmRemoveStep()}
         onCancel={() => setStepToDelete(null)}
       />
       {panelError && (
@@ -356,15 +359,20 @@ export default function CaseWorkflowPanel({ leadId }: { leadId: string }) {
                               canAssign={canAssign}
                               onToggle={() => toggle(step)}
                               onAssign={(firmMemberId) => assign(step, firmMemberId)}
-                              onDelete={() => removeTask(step)}
+                              onDelete={() => removeStep(step)}
+                              onOpenTask={
+                                step.linkedTaskId
+                                  ? () => navigate(`/attorney-dashboard/cases/${leadId}/tasks`)
+                                  : undefined
+                              }
                             />
                           ))}
                         </ul>
-                        <AddTaskRow
+                        <AddStepRow
                           members={members}
                           canAssign={canAssign}
                           onAdd={(payload) =>
-                            addTask({
+                            addStep({
                               ...payload,
                               phaseName: phase.name,
                               phaseOrder: phase.order,
@@ -404,10 +412,10 @@ function WorkflowHowItWorksTip() {
         <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
           How this works for you
         </span>
-        This is your firm’s playbook for this retained case. Work the highlighted current phase, check off steps as
-        you finish them, and assign owners when someone else should own the work. Checked steps also show on the Tasks
-        tab. Sparkle steps update automatically from case activity — you don’t mark those by hand. Finished phases
-        stay as history so you can see what already closed.
+        This is your pipeline progress map for the case. Mark day-to-day work done on the Tasks tab — matching steps
+        update here automatically (and docs already on file can cross steps off too). Steps with a linked task prefer
+        “Open task”; you can still override manually or add a custom step. Sparkle steps update from case activity.
+        Finished phases stay as history.
       </span>
     </span>
   )
@@ -470,6 +478,7 @@ function StepItem({
   onToggle,
   onAssign,
   onDelete,
+  onOpenTask,
 }: {
   step: CaseWorkflowStep
   pending: boolean
@@ -478,10 +487,13 @@ function StepItem({
   onToggle: () => void
   onAssign: (firmMemberId: string | null) => void
   onDelete: () => void
+  onOpenTask?: () => void
 }) {
   const done = step.status === 'done'
   const due = dueMeta(step.dueDate, done)
   const TypeIcon = STEP_ICON[step.stepType] || ClipboardList
+  // Linked steps are task-driven: show status, prefer Open task, demote manual check-off.
+  const taskDriven = Boolean(step.linkedTaskId) && !step.readOnly
 
   return (
     <li className="flex items-start gap-3 px-4 py-2.5">
@@ -492,6 +504,19 @@ function StepItem({
             <CheckCircle2 className="h-5 w-5 text-violet-500" />
           ) : (
             <Sparkles className="h-5 w-5 text-violet-300" />
+          )}
+        </span>
+      ) : taskDriven ? (
+        <span
+          className="mt-0.5 shrink-0"
+          title="Status follows the linked Tasks-tab item"
+        >
+          {pending ? (
+            <Loader2 className="h-5 w-5 animate-spin text-slate-300" />
+          ) : done ? (
+            <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+          ) : (
+            <Circle className="h-5 w-5 text-slate-300" />
           )}
         </span>
       ) : (
@@ -522,6 +547,11 @@ function StepItem({
               {done ? 'Auto · done' : 'Auto'}
             </span>
           )}
+          {taskDriven && (
+            <span className="rounded bg-sky-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-sky-700 ring-1 ring-sky-200">
+              From Tasks
+            </span>
+          )}
           {step.required && !step.readOnly && (
             <span className="rounded bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-rose-600 ring-1 ring-rose-200">
               Required
@@ -534,6 +564,28 @@ function StepItem({
           )}
         </div>
         {step.description && <p className="mt-0.5 text-xs text-slate-500">{step.description}</p>}
+        {taskDriven && (
+          <div className="mt-1.5 flex flex-wrap items-center gap-2">
+            {onOpenTask ? (
+              <button
+                type="button"
+                onClick={onOpenTask}
+                className="inline-flex items-center gap-1 rounded-md bg-brand-50 px-2 py-1 text-xs font-semibold text-brand-700 ring-1 ring-brand-200 transition hover:bg-brand-100"
+              >
+                <ExternalLink className="h-3 w-3" />
+                Open task
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={onToggle}
+              disabled={pending}
+              className="text-xs font-medium text-slate-400 underline-offset-2 transition hover:text-slate-600 hover:underline disabled:opacity-50"
+            >
+              {done ? 'Reopen here' : 'Mark done here'}
+            </button>
+          </div>
+        )}
         <div className="mt-1 flex flex-wrap items-center gap-3 text-xs">
           {!step.readOnly && canAssign ? (
             <span
@@ -607,8 +659,8 @@ function StepItem({
           onClick={onDelete}
           disabled={pending}
           className="mt-0.5 shrink-0 text-slate-300 transition hover:text-rose-600 disabled:opacity-50"
-          title="Delete task"
-          aria-label="Delete task"
+          title="Delete step"
+          aria-label="Delete step"
         >
           <Trash2 className="h-4 w-4" />
         </button>
@@ -617,8 +669,8 @@ function StepItem({
   )
 }
 
-/** Inline "add an ad-hoc task" control shown at the bottom of every stage. */
-function AddTaskRow({
+/** Inline "add an ad-hoc workflow step" control shown at the bottom of every stage. */
+function AddStepRow({
   members,
   canAssign,
   onAdd,
@@ -661,7 +713,7 @@ function AddTaskRow({
       reset()
       setOpen(false)
     } catch (e: any) {
-      setAddError(e?.response?.data?.error || 'Failed to add task')
+      setAddError(e?.response?.data?.error || 'Failed to add step')
     } finally {
       setSaving(false)
     }
@@ -675,7 +727,7 @@ function AddTaskRow({
           onClick={() => setOpen(true)}
           className="inline-flex items-center gap-1.5 text-xs font-semibold text-brand-700 transition hover:text-brand-800"
         >
-          <Plus className="h-3.5 w-3.5" /> Add task
+          <Plus className="h-3.5 w-3.5" /> Add step
         </button>
       </div>
     )
@@ -684,7 +736,7 @@ function AddTaskRow({
   return (
     <div className="border-t border-slate-100 bg-slate-50/60 px-3 py-3">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold text-slate-600">New task</span>
+        <span className="text-xs font-semibold text-slate-600">New step</span>
         <button
           type="button"
           onClick={() => {

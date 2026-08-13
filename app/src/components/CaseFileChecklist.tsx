@@ -156,16 +156,21 @@ export default function CaseFileChecklist({
                           {item.howToGet}
                         </p>
                       )}
-                      <InlineEvidenceUpload
-                        assessmentId={assessmentId}
-                        category={item.category}
-                        subcategory={item.subcategory}
-                        compact
-                        tightChrome
-                        hideHeader
-                        uploadButtonLabel={`Upload ${item.label.toLowerCase()}`}
-                        onFilesUploaded={() => onUploaded?.()}
-                      />
+                      <div className="w-[104px]">
+                        <InlineEvidenceUpload
+                          assessmentId={assessmentId}
+                          category={item.category}
+                          subcategory={item.subcategory}
+                          compact
+                          tightChrome
+                          hideHeader
+                          hideCameraButton
+                          alwaysShowUpload
+                          uploadButtonLabel="Upload"
+                          uploadButtonColorClass="bg-amber-500 text-white hover:bg-amber-600"
+                          onFilesUploaded={() => onUploaded?.()}
+                        />
+                      </div>
                     </div>
                   )}
                 </div>

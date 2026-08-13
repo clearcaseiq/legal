@@ -333,7 +333,16 @@ export default function Layout({ children }: LayoutProps) {
       </a>
       {/* Header - single row, compact */}
       <header className="relative z-50 border-b border-slate-200/70 bg-white shadow-[0_1px_0_rgba(15,23,42,0.04)] transition-colors dark:border-slate-800/80 dark:bg-slate-900 dark:shadow-[0_1px_0_rgba(255,255,255,0.03)] md:sticky md:top-0">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        {/* Match the wide claimant / dashboard column so the logo lines up with page content. */}
+        <div
+          className={`mx-auto ${
+            isWideClaimantRoute
+              ? 'max-w-[1600px] px-4 sm:px-6'
+              : isFullWidthWorkspace
+                ? 'max-w-[1440px] px-4 xl:px-6 2xl:px-8'
+                : 'max-w-7xl px-4 sm:px-6 lg:px-8'
+          }`}
+        >
             <div className="flex items-center justify-between gap-3 h-[72px] md:h-20 py-1">
             {/* Left: Hamburger (mobile) + Logo */}
             <div className="flex min-w-0 items-center gap-2">
@@ -348,7 +357,7 @@ export default function Layout({ children }: LayoutProps) {
               <Link
                 to={logoDestination}
                 aria-label={t('common.appName')}
-                className="flex shrink-0 items-center rounded-xl px-1.5 py-1 transition-colors hover:bg-white/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 dark:hover:bg-slate-800/70 dark:focus-visible:ring-offset-slate-900"
+                className="flex shrink-0 items-center rounded-xl py-1 transition-colors hover:bg-white/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 dark:hover:bg-slate-800/70 dark:focus-visible:ring-offset-slate-900"
               >
                 <BrandLogo appName={t('common.appName')} size="xl" />
               </Link>
@@ -686,18 +695,22 @@ export default function Layout({ children }: LayoutProps) {
         id="main-content"
         className={`mx-auto w-full overflow-x-clip ${
           isFullWidthWorkspace
-            ? `${isWideClaimantRoute ? 'max-w-[1600px]' : 'max-w-[1440px]'} px-4 xl:px-6 2xl:px-8`
+            ? isWideClaimantRoute
+              ? 'max-w-[1600px] px-4 sm:px-6'
+              : 'max-w-[1440px] px-4 xl:px-6 2xl:px-8'
             : 'max-w-7xl sm:px-6 lg:px-8'
         } ${
           isIntakeRoute
             ? 'h-[calc(100dvh-4.5rem-1px)] overflow-y-auto overscroll-y-contain pt-0 pb-2 md:h-[calc(100dvh-5rem-1px)]'
             : isCalendar
               ? 'py-4'
-              : 'py-8'
+              : isPlaintiffDashboard
+                ? 'py-0'
+                : 'py-8'
         }`}
       >
         <div className={`min-w-0 ${
-          isIntakeRoute
+          isIntakeRoute || isPlaintiffDashboard
             ? 'min-h-full px-0'
             // The Case Snapshot (results) page goes edge-to-edge on mobile like
             // the intake steps; its cards carry their own inner padding.
@@ -713,8 +726,8 @@ export default function Layout({ children }: LayoutProps) {
       {!['/assess', '/intake', '/intake2', '/rose'].includes(location.pathname) && (
       isDashboard ? (
       <footer className="mt-auto border-t border-slate-200 bg-white">
-        <div className="mx-auto max-w-6xl px-4 py-4 sm:px-6">
-          <div className="flex flex-col gap-2 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mx-auto w-full max-w-[1600px] px-4 py-4 sm:px-6">
+          <div className="flex w-full flex-col gap-2 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between">
             <span>{t('footer.copyright')}</span>
             <div className="flex flex-wrap gap-3">
               <Link to="/help" className="hover:text-slate-900">{t('footer.helpCenter')}</Link>
@@ -724,7 +737,7 @@ export default function Layout({ children }: LayoutProps) {
               <Link to="/disclosures#california" className="hover:text-slate-900">{t('footer.doNotSell')}</Link>
             </div>
           </div>
-          <p className="mt-2 text-[11px] leading-relaxed text-slate-400">
+          <p className="mt-2 w-full text-[11px] leading-relaxed text-slate-400 sm:text-justify">
             {t('footer.entityName')} · {t('footer.platformLabel')} · {t('footer.locationCity')} — {t('footer.disclaimer')}
           </p>
         </div>

@@ -16,8 +16,6 @@ import {
   AlarmClock,
   Contact,
   Wallet,
-  Sparkles,
-  Bot,
   Building2,
   Bell,
   ChevronRight,
@@ -71,8 +69,6 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/attorney-dashboard/cases/deadlines', id: 'deadlines', label: 'Deadlines', description: 'Statute-of-limitations radar', icon: AlarmClock },
       { to: '/attorney-dashboard/cases/contacts', id: 'contacts', label: 'Contacts', description: 'Parties directory', icon: Contact },
       { to: '/attorney-dashboard/cases/billing', id: 'billing', label: 'Billing', description: 'Fees, invoices, costs', icon: Wallet },
-      { to: '/attorney-dashboard/cases/ai-manager', id: 'aiManager', label: 'Rose — AI Case Manager', description: 'Raises the next task on every case', icon: Bot },
-      { to: '/attorney-dashboard/cases/copilot', id: 'copilot', label: 'AI Copilot', description: 'Analysis & next actions', icon: Sparkles },
       { to: '/attorney-dashboard/cases/firm', id: 'firm', label: 'Firm Dashboard', description: 'Team caseload', icon: Building2, firmAdminOnly: true },
       { to: '/attorney-dashboard/cases/intake', id: 'intake', label: 'Intake', description: 'Manual & imported leads', icon: Upload },
     ],
@@ -116,7 +112,8 @@ function domainStyle(id: string) {
 // Static case-management pages that live directly under /cases/*. Anything else in
 // that slot (or under /lead/*) is a single-case workspace file.
 const STATIC_CASE_PAGES = new Set([
-  'active', 'workspace', 'calendar', 'scheduling', 'messages', 'team', 'activity', 'documents', 'tasks', 'deadlines', 'contacts', 'billing', 'copilot', 'firm', 'intake',
+  // `copilot` kept so the legacy /cases/copilot redirect is not treated as a lead id.
+  'active', 'workspace', 'calendar', 'scheduling', 'messages', 'team', 'activity', 'documents', 'tasks', 'deadlines', 'contacts', 'billing', 'firm', 'intake', 'ai-manager', 'copilot',
 ])
 
 /** True when the path is a single-case workspace file (/lead/:id/... or /cases/:id/...). */

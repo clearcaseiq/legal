@@ -25,7 +25,10 @@ export const DOCUMENT_REQUEST_CATEGORY_MAP: Record<string, string[]> = {
   bills: ['bills', 'medical_bills', 'medical'],
   photos: ['photos', 'injury_photos', 'injury', 'injuries'],
   hipaa: ['hipaa', 'hipaa_authorization', 'authorization'],
-  prior_treatment: ['prior_treatment', 'medical_records', 'medical'],
+  // Prior treatment is pre-accident history — do NOT treat ordinary case
+  // medical_records as satisfaction or a new request auto-completes the moment
+  // the attorney sends it.
+  prior_treatment: ['prior_treatment', 'prior_medical', 'prior_records'],
   product_preservation: ['product', 'product_evidence', 'product_photos', 'photos'],
 }
 
@@ -123,15 +126,43 @@ export function parseRequestedDocs(value: string | null | undefined): string[] {
   }
 }
 
-/** Compute a request's status from the set of uploaded evidence categories. */
-export function computeRequestStatus(requestedDocs: string[], uploadedCategories: Set<string>): string | null {
+/** Categories that satisfy a requested-doc key (includes the key itself). */
+export function acceptedCategoriesForRequestKey(key: string): string[] {
+  const accepted = DOCUMENT_REQUEST_CATEGORY_MAP[key] || []
+  return accepted.length ? Array.from(new Set([key, ...accepted])) : [key]
+}
+
+/**
+ * Whether a requested item is fulfilled by evidence. Only evidence uploaded
+ * at/after the request counts — older files on the case must not instantly
+ * complete a brand-new attorney ask.
+ */
+export function isRequestedDocFulfilled(params: {
+  key: string
+  evidenceFiles: Array<{ category: string | null | undefined; createdAt: Date | string }>
+  requestCreatedAt: Date | string
+}): boolean {
+  const accepted = new Set(acceptedCategoriesForRequestKey(params.key))
+  const requestAt = new Date(params.requestCreatedAt).getTime()
+  if (!Number.isFinite(requestAt)) return false
+  return params.evidenceFiles.some((file) => {
+    const category = (file.category || '').trim()
+    if (!category || !accepted.has(category)) return false
+    const uploadedAt = new Date(file.createdAt).getTime()
+    return Number.isFinite(uploadedAt) && uploadedAt >= requestAt
+  })
+}
+
+/** Compute a request's status from evidence uploaded for that request. */
+export function computeRequestStatus(
+  requestedDocs: string[],
+  evidenceFiles: Array<{ category: string | null | undefined; createdAt: Date | string }>,
+  requestCreatedAt: Date | string,
+): string | null {
   if (requestedDocs.length === 0) return null // link-only / free-form request: can't auto-complete
-  const fulfilledCount = requestedDocs.filter((key) => {
-    const accepted = DOCUMENT_REQUEST_CATEGORY_MAP[key] || []
-    // Match a known synonym, or the request key used verbatim as the upload
-    // category (the requested-docs uploader tags files with the request key).
-    return uploadedCategories.has(key) || accepted.some((category) => uploadedCategories.has(category))
-  }).length
+  const fulfilledCount = requestedDocs.filter((key) =>
+    isRequestedDocFulfilled({ key, evidenceFiles, requestCreatedAt }),
+  ).length
   if (fulfilledCount === 0) return 'pending'
   return fulfilledCount === requestedDocs.length ? 'completed' : 'partial'
 }
@@ -149,12 +180,12 @@ export async function syncPlaintiffDocumentRequestStatuses(assessmentId: string)
     const assessment = await prisma.assessment.findUnique({
       where: { id: assessmentId },
       select: {
-        evidenceFiles: { select: { category: true } },
+        evidenceFiles: { select: { category: true, createdAt: true } },
         leadSubmission: {
           select: {
             documentRequests: {
               where: { targetType: 'plaintiff' },
-              select: { id: true, requestedDocs: true, status: true },
+              select: { id: true, requestedDocs: true, status: true, createdAt: true },
             },
           },
         },
@@ -164,13 +195,14 @@ export async function syncPlaintiffDocumentRequestStatuses(assessmentId: string)
     const requests = assessment?.leadSubmission?.documentRequests || []
     if (requests.length === 0) return
 
-    const uploadedCategories = new Set(
-      (assessment?.evidenceFiles || []).map((f) => f.category).filter(Boolean) as string[]
-    )
-
+    const evidenceFiles = assessment?.evidenceFiles || []
     const rank: Record<string, number> = { pending: 0, partial: 1, completed: 2 }
     for (const request of requests) {
-      const next = computeRequestStatus(parseRequestedDocs(request.requestedDocs), uploadedCategories)
+      const next = computeRequestStatus(
+        parseRequestedDocs(request.requestedDocs),
+        evidenceFiles,
+        request.createdAt,
+      )
       // Only advance status; never regress a request the attorney already sees progressing.
       if (next && next !== request.status && (rank[next] ?? 0) > (rank[request.status] ?? 0)) {
         await prisma.documentRequest.update({ where: { id: request.id }, data: { status: next } })

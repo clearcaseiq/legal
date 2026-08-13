@@ -9,9 +9,10 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { MessageCircle, X, Send, Sparkles, LifeBuoy, Loader2 } from 'lucide-react'
+import { BotMessageSquare, X, Send, LifeBuoy, Loader2 } from 'lucide-react'
 import { sendSupportChatMessage, type SupportChatMessage } from '../lib/api'
 import { useLanguage } from '../contexts/LanguageContext'
+import DraggableFab from './DraggableFab'
 
 export default function SupportChatWidget({ raiseOnMobile = false }: { raiseOnMobile?: boolean } = {}) {
   const navigate = useNavigate()
@@ -85,19 +86,19 @@ export default function SupportChatWidget({ raiseOnMobile = false }: { raiseOnMo
 
   return (
     <>
-      {/* Launcher */}
+      {/* Launcher — draggable so it can sit clear of Message Attorney / CTAs */}
       {!open && (
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          aria-label={t('chat.openLabel')}
-          className={`fixed right-4 z-40 inline-flex items-center gap-2 rounded-full bg-brand-700 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-brand-900/20 transition-transform hover:bg-brand-800 hover:scale-[1.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 sm:bottom-4 ${
-            raiseOnMobile ? 'bottom-24' : 'bottom-4'
-          }`}
+        <DraggableFab
+          storageKey="cciq.fab.supportChat"
+          defaultCorner={{ right: 16, bottom: raiseOnMobile ? 96 : 16 }}
+          ariaLabel={t('chat.openLabel')}
+          zIndex={40}
+          onActivate={() => setOpen(true)}
+          className="inline-flex items-center gap-2 rounded-full bg-brand-700 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-brand-900/20 transition-colors hover:bg-brand-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2"
         >
-          <MessageCircle className="h-5 w-5" aria-hidden />
+          <BotMessageSquare className="h-5 w-5" aria-hidden />
           <span className="hidden sm:inline">{t('chat.needHelp')}</span>
-        </button>
+        </DraggableFab>
       )}
 
       {/* Panel */}
@@ -113,7 +114,7 @@ export default function SupportChatWidget({ raiseOnMobile = false }: { raiseOnMo
           <div className="flex items-start justify-between gap-2 bg-gradient-to-br from-brand-700 to-brand-800 px-4 py-3 text-white">
             <div className="flex items-center gap-2.5">
               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/15">
-                <Sparkles className="h-5 w-5" aria-hidden />
+                <BotMessageSquare className="h-5 w-5" aria-hidden />
               </span>
               <div>
                 <div className="flex items-center gap-1.5">

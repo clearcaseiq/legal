@@ -5,7 +5,9 @@ import {
   HOUR_HEIGHT,
   dateKeyOf,
   hourLabel,
+  itemDisplayTitle,
   itemTone,
+  itemTooltip,
   layoutDayEvents,
   minutesOfDay,
   sameDay,
@@ -14,6 +16,9 @@ import {
 
 const TYPE_ICON: Record<string, typeof Video> = { video: Video, phone: Phone, in_person: MapPin }
 
+/** Max all-day chips in week columns before "+N more" (matches MonthView). */
+const WEEK_ALL_DAY_VISIBLE = 3
+
 /** Day + Week time-grid (Google Calendar style). `days` has 1 or 7 entries. */
 export function TimeGridView({
   days,
@@ -21,12 +26,15 @@ export function TimeGridView({
   selected,
   onItemClick,
   onSlotClick,
+  onMore,
 }: {
   days: Date[]
   items: CalItem[]
   selected?: Date
   onItemClick: (item: CalItem) => void
   onSlotClick: (day: Date) => void
+  /** Week overflow: jump to Day so the full all-day list is usable. */
+  onMore?: (day: Date) => void
 }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const [now, setNow] = useState(() => new Date())
@@ -43,17 +51,28 @@ export function TimeGridView({
 
   const itemsFor = (day: Date) => items.filter((i) => sameDay(i.date, day))
   const nowTop = (minutesOfDay(now) / 60) * HOUR_HEIGHT
+  const isWeek = days.length > 1
 
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
       {/* Day headers + all-day row */}
-      <div className="flex border-b border-slate-200 pr-3">
+      <div className="flex shrink-0 border-b border-slate-200 pr-3">
         <div className="w-14 shrink-0" />
         <div className="grid flex-1" style={{ gridTemplateColumns: `repeat(${days.length}, minmax(0, 1fr))` }}>
           {days.map((day) => {
             const isToday = sameDay(day, now)
             const isSelected = selected ? sameDay(day, selected) : false
-            const allDay = itemsFor(day).filter((i) => !i.hasTime)
+            const allDay = itemsFor(day)
+              .filter((i) => !i.hasTime)
+              .slice()
+              .sort(
+                (a, b) =>
+                  (a.caseLabel || '').localeCompare(b.caseLabel || '') ||
+                  a.title.localeCompare(b.title) ||
+                  a.id.localeCompare(b.id),
+              )
+            const visible = isWeek ? allDay.slice(0, WEEK_ALL_DAY_VISIBLE) : allDay
+            const overflow = isWeek ? Math.max(0, allDay.length - WEEK_ALL_DAY_VISIBLE) : 0
             return (
               <div
                 key={dateKeyOf(day)}
@@ -83,8 +102,14 @@ export function TimeGridView({
                     {day.getDate()}
                   </span>
                 </button>
-                <div className="min-h-[6px] space-y-1 px-1 pb-1">
-                  {allDay.map((item) => {
+                <div
+                  className={`min-h-[6px] space-y-1 px-1 pb-1 ${
+                    !isWeek && allDay.length > WEEK_ALL_DAY_VISIBLE
+                      ? 'max-h-40 overflow-y-auto'
+                      : ''
+                  }`}
+                >
+                  {visible.map((item) => {
                     const tone = itemTone(item)
                     return (
                       <button
@@ -92,13 +117,22 @@ export function TimeGridView({
                         type="button"
                         onClick={() => onItemClick(item)}
                         className={`flex w-full items-center gap-1 truncate rounded-md px-1.5 py-1 text-left text-[11px] font-medium ring-1 ring-inset ${tone.chip}`}
-                        title={item.title}
+                        title={itemTooltip(item)}
                       >
                         <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${tone.dot}`} />
-                        <span className="truncate">{item.title}</span>
+                        <span className="truncate">{itemDisplayTitle(item)}</span>
                       </button>
                     )
                   })}
+                  {overflow > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => onMore?.(day)}
+                      className="block w-full px-1.5 py-0.5 text-left text-[11px] font-semibold text-slate-500 hover:text-slate-800"
+                    >
+                      +{overflow} more
+                    </button>
+                  )}
                 </div>
               </div>
             )

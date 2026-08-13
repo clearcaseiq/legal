@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Star } from 'lucide-react'
+import { Star, ThumbsUp } from 'lucide-react'
 import { getPlaintiffSatisfaction, submitPlaintiffSatisfaction } from '../lib/api'
 import { useLanguage } from '../contexts/LanguageContext'
 
@@ -48,9 +48,12 @@ export default function PlaintiffSatisfactionCard({ assessmentId }: { assessment
   }
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-5">
-      <h3 className="text-lg font-bold text-gray-900 mb-1">{t('plaintiffDashboard.satisfaction.title')}</h3>
-      <p className="text-sm text-gray-600 mb-3">{t('plaintiffDashboard.satisfaction.subtitle')}</p>
+    <div className="flex h-full flex-col rounded-xl border border-gray-200 bg-white p-5">
+      <h3 className="mb-3 flex items-center gap-2 text-lg font-bold text-gray-900">
+        <ThumbsUp className="h-6 w-6 text-brand-600" aria-hidden />
+        {t('plaintiffDashboard.satisfaction.title')}
+      </h3>
+      <p className="mb-3 text-sm text-gray-600">{t('plaintiffDashboard.satisfaction.subtitle')}</p>
 
       <div className="flex gap-1.5 mb-3">
         {[1, 2, 3, 4, 5].map((n) => (

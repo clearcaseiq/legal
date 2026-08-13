@@ -212,8 +212,25 @@ export const WORKFLOW_RECONCILE_RULES: Rule[] = [
     reason: 'Photos already on file.',
   },
   {
+    id: 'medical_records',
+    match: (t) =>
+      /(?:collect|request|secure|obtain)\s+medical records?/i.test(t) ||
+      (/medical records?/i.test(t) && !/bills/i.test(t)),
+    satisfied: (ctx) => ctx.hasMedicalRecords,
+    reason: 'Medical records already on file.',
+  },
+  {
+    id: 'medical_bills',
+    match: (t) =>
+      /(?:collect|request|secure|obtain)\s+medical bills?/i.test(t) ||
+      (/medical bills?/i.test(t) && !/records?/i.test(t)) ||
+      (/collect (medical )?bills\b/i.test(t) && !/records?/i.test(t)),
+    satisfied: (ctx) => ctx.hasMedicalBills,
+    reason: 'Medical bills already on file.',
+  },
+  {
     id: 'medical_records_bills',
-    match: (t) => /medical records?\s*(&|and)\s*bills/i.test(t) || /all medical records/i.test(t),
+    match: (t) => /medical records?\s*(&|and)\s*bills/i.test(t) || /all medical records(?:\s*&?\s*bills)?/i.test(t),
     satisfied: (ctx) => ctx.hasMedicalRecords && ctx.hasMedicalBills,
     reason: 'Medical records and bills already on file.',
   },
@@ -287,8 +304,18 @@ async function setWorkflowItemStatus(
   })
 }
 
-async function markRelatedOpenTasksDone(assessmentId: string, item: { id: string; title: string }, reason: string) {
-  const noteLine = `Auto-completed from case data — ${reason}`
+/**
+ * Close every related open CaseTask when a Workflow step is done/skipped
+ * (inverse of Tasks → Workflow “all related must be done”).
+ */
+export async function closeRelatedOpenTasksForWorkflowItem(
+  assessmentId: string,
+  item: { id: string; title: string },
+  reason: string,
+): Promise<number> {
+  const noteLine = reason.startsWith('Auto-completed')
+    ? reason
+    : `Closed with workflow step — ${reason}`
   const tasks = await prisma.caseTask.findMany({
     where: { assessmentId, mergedIntoId: null, status: { in: ['open', 'in_progress'] } },
     select: {
@@ -313,6 +340,34 @@ async function markRelatedOpenTasksDone(assessmentId: string, item: { id: string
       },
     })
   }
+  return related.length
+}
+
+/**
+ * When a Workflow step is reopened, reopen CaseTasks linked via wfitem:<id>.
+ * Title-matched peers that were completed independently are left alone.
+ */
+export async function reopenLinkedTasksForWorkflowItem(
+  assessmentId: string,
+  itemId: string,
+): Promise<number> {
+  const key = workflowItemTaskKey(itemId)
+  const tasks = await prisma.caseTask.findMany({
+    where: {
+      assessmentId,
+      mergedIntoId: null,
+      sourceTemplateStepId: key,
+      status: { in: ['done', 'skipped'] },
+    },
+    select: { id: true },
+  })
+  for (const task of tasks) {
+    await prisma.caseTask.update({
+      where: { id: task.id },
+      data: { status: 'open', completedAt: null },
+    })
+  }
+  return tasks.length
 }
 
 /**
@@ -425,7 +480,11 @@ export async function reconcileWorkflowItemsFromCaseData(
     if (!rule) continue
     if (!rule.satisfied(ctx)) continue
     await setWorkflowItemStatus(item.id, 'done', new Date())
-    await markRelatedOpenTasksDone(assessmentId, item, rule.reason)
+    await closeRelatedOpenTasksForWorkflowItem(
+      assessmentId,
+      item,
+      `Auto-completed from case data — ${rule.reason}`,
+    )
     keys.push(rule.id)
   }
 

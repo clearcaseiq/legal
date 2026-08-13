@@ -154,14 +154,6 @@
         "label": "Billing",
         "description": "Fees, invoices, costs"
       },
-      "aiManager": {
-        "label": "Rose — AI Case Manager",
-        "description": "Raises the next task on every case"
-      },
-      "copilot": {
-        "label": "AI Copilot",
-        "description": "Analysis & next actions"
-      },
       "firm": {
         "label": "Firm Dashboard",
         "description": "Team caseload"
@@ -4016,8 +4008,9 @@
       "body": "Your original ranked choices were unavailable, so we expanded the search and contacted additional matching attorneys."
     },
     "actionCenter": {
-      "title": "Action Center",
+      "title": "Action Required",
       "subtitle": "This is the fastest place to see what is still blocking your case and what to upload next.",
+      "viewDetails": "View Details",
       "uploadDocuments": "Upload Documents",
       "mostUrgent": "Most urgent task",
       "waitingOn": "{name} is still waiting on {docs}.",
@@ -4086,6 +4079,13 @@
       "call": "Call",
       "message": "Message"
     },
+    "attorneyChat": {
+      "title": "Chat with your attorney",
+      "subtitle": "Message {name} about your case anytime.",
+      "subtitleGeneric": "Message your attorney about your case anytime.",
+      "cta": "Open chat",
+      "fab": "Message attorney"
+    },
     "consultation": {
       "scheduled": "Consultation Scheduled",
       "typeConsultation": "{type} consultation",
@@ -4093,7 +4093,12 @@
       "reschedule": "Reschedule",
       "cancel": "Cancel",
       "schedule": "Schedule Consultation",
-      "bookCall": "Book a call with your attorney to discuss your case."
+      "bookCall": "Book a call with your attorney to discuss your case.",
+      "scheduleAgainTitle": "Schedule Consultation",
+      "scheduleAgainBody": "Book a call with {name} to discuss your case — or pick a new time after a cancellation.",
+      "scheduleAgainCta": "Schedule Again",
+      "cancelledToast": "Consultation cancelled. You can schedule a new time below.",
+      "cancelFailed": "Could not cancel consultation."
     },
     "emailVerification": {
       "pending": "Email verification is pending. Some secure actions may require verification later.",
@@ -4103,14 +4108,14 @@
       "sendFailed": "We couldn’t send the verification email right now. Please try again later or contact support."
     },
     "satisfaction": {
-      "title": "How is your experience?",
-      "subtitle": "Rate your satisfaction with your attorney and your case so far.",
+      "title": "How is your experience thus far?",
+      "subtitle": "Anything we can help improve with the attorney.",
       "notesPlaceholder": "Share any feedback (optional)",
       "starLabel": "{n} star",
       "starsLabel": "{n} stars",
       "saving": "Saving…",
       "submit": "Submit rating",
-      "update": "Update rating",
+      "update": "Update Rating",
       "thanks": "Thanks for your feedback!",
       "selectRating": "Please select a rating",
       "submitFailed": "Failed to submit. You can rate once your case is engaged with an attorney."
@@ -4119,7 +4124,7 @@
       "title": "Documents from the other side",
       "body": "Is there something the at-fault party or their insurer has that would help your case? Suggest it here so your attorney can decide whether to formally request it.",
       "note": "This only saves a note on your case. It does not contact the other side, and if no attorney has accepted yet, the suggestion waits until one does.",
-      "suggest": "Suggest documents",
+      "suggest": "Suggest Documents",
       "otherSide": "Other side",
       "statusSent": "Requested by attorney",
       "statusSaved": "Saved for attorney",
@@ -4334,7 +4339,12 @@
       "uploadDocuments": "Upload documents",
       "emptyTitle": "No document requests yet",
       "emptyBody": "When your attorney needs something specific, it'll show up here. In the meantime, adding your records now speeds up the review.",
-      "addDocuments": "Add documents"
+      "addDocuments": "Add documents",
+      "showCompleted": "Show {count} completed",
+      "hideCompleted": "Hide completed",
+      "allCaughtUp": "You're all caught up — no open document requests.",
+      "remainingOne": "1 left",
+      "remainingMany": "{count} left"
     },
     "schedule": {
       "bookCall": "Book a call with {name} to discuss your case.",
@@ -4475,6 +4485,9 @@
         "reviewSend": "Review & send",
         "noActionBadge": "No action needed",
         "completed": "Completed",
+        "completedSectionTitle": "Completed",
+        "completedSectionSubtitle": "Tasks you’ve already finished for this case.",
+        "completedEmpty": "Nothing completed yet — finish a next step and it will show up here.",
         "coachTip": "Case Coach tip"
       },
       "attorney": {
@@ -4591,6 +4604,13 @@
         "untitledFile": "Untitled file",
         "checklistTitle": "Document checklist",
         "checklistSubtitle": "Key evidence that helps attorneys understand and value your case.",
+        "needToAddTitle": "Need to add",
+        "needToAddSubtitle": "Key evidence still missing from your case.",
+        "checklistCaughtUp": "Core evidence checklist is complete.",
+        "agreementsColumnTitle": "Agreements & medical",
+        "agreementsColumnSubtitle": "Signed papers and what your medical records show.",
+        "signedEmpty": "No signed agreements yet.",
+        "medicalEmpty": "No medical summary yet — upload records to build this.",
         "signedTypes": {
           "retainer": "Retainer agreement",
           "fee_agreement": "Fee agreement",
@@ -4605,6 +4625,25 @@
         "sinceFirst": "+{gain}{pct} since first estimate",
         "valueHistory": "Case Value History",
         "historySubtitle": "How your estimate has grown as you added details and documents.",
+        "historyEmpty": "Value history will appear as your estimate updates.",
+        "historyReasons": {
+          "initial": "Initial estimate",
+          "current": "Current estimate",
+          "document_upload": "After documents",
+          "evidence_processing": "After evidence review",
+          "document_deleted": "After document removed",
+          "plaintiff_damage_estimates": "After damage updates",
+          "updated": "Updated estimate"
+        },
+        "historyShort": {
+          "initial": "Initial",
+          "current": "Current",
+          "document_upload": "Docs",
+          "evidence_processing": "Evidence",
+          "document_deleted": "Updated",
+          "plaintiff_damage_estimates": "Damages",
+          "updated": "Updated"
+        },
         "initial": "Initial:",
         "current": "Current:",
         "casesLikeYours": "Cases Like Yours in {state}",

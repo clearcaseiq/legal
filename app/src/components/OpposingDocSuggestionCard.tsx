@@ -92,13 +92,13 @@ export default function OpposingDocSuggestionCard({ assessmentId }: { assessment
   }
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-5">
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex items-start gap-3">
+    <div className="rounded-xl border border-gray-200 bg-white p-5">
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex min-w-0 items-start gap-3 text-left">
           <div className="rounded-lg bg-indigo-50 p-2">
-            <Scale className="h-5 w-5 text-indigo-600" />
+            <Scale className="h-5 w-5 text-indigo-600" aria-hidden />
           </div>
-          <div>
+          <div className="min-w-0">
             <h3 className="text-lg font-bold text-gray-900">{t('plaintiffDashboard.opposingDocs.title')}</h3>
             <p className="text-sm text-gray-600">
               {t('plaintiffDashboard.opposingDocs.body')}
@@ -110,8 +110,9 @@ export default function OpposingDocSuggestionCard({ assessmentId }: { assessment
         </div>
         {!open && (
           <button
+            type="button"
             onClick={() => setOpen(true)}
-            className="shrink-0 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+            className="shrink-0 self-center rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
           >
             {t('plaintiffDashboard.opposingDocs.suggest')}
           </button>

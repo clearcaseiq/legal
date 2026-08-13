@@ -151,6 +151,8 @@ router.post('/', optionalAuthMiddleware, async (req: AuthRequest, res) => {
         explain: JSON.stringify({
           explainability: underwritingResult.explainability,
           underwriting,
+          reason: 'initial',
+          trigger: 'initial',
         })
       }
     })

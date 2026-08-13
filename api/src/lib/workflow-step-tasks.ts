@@ -55,6 +55,19 @@ function activeStageOrder(items: any[]): number | null {
   return Math.min(...pending.map((it) => Number(it.stageOrder ?? 0)))
 }
 
+/** Public helper so routes can snapshot the active stage before reconcile. */
+export async function getActiveWorkflowStageOrder(assessmentId: string): Promise<number | null> {
+  if (!assessmentId) return null
+  const cw = await (prisma as any).caseWorkflow
+    .findUnique({
+      where: { assessmentId },
+      select: { items: { select: { status: true, stageOrder: true, stepType: true } } },
+    })
+    .catch(() => null)
+  if (!cw?.items?.length) return null
+  return activeStageOrder(cw.items)
+}
+
 function shouldMaterialize(item: any, activeStage: number | null): boolean {
   if (!item || item.stepType === 'ai_milestone') return false
   if (item.status !== 'pending') return false
@@ -105,6 +118,7 @@ async function upsertTaskForItem(
       assignedTo: true,
       assignedUserId: true,
       priority: true,
+      notes: true,
     },
   })
 
@@ -139,9 +153,22 @@ async function upsertTaskForItem(
   const assignedUserId = assignee.assignedUserId
   const priority = item.required ? 'high' : 'medium'
   const dueDate = item.dueDate ? new Date(item.dueDate) : null
-  const notes = [item.phaseName, item.stageName].filter(Boolean).join(' · ') || null
+  const descNote = String(item.description || '')
+    .trim()
+    .slice(0, 240)
+  const notes =
+    [item.phaseName, item.stageName, descNote || null].filter(Boolean).join(' · ') || null
 
   if (item.status === 'done' || item.status === 'skipped') {
+    // Close every related open task (not only the wfitem: row) so Workflow → Tasks
+    // matches the multi-task ownership model used the other direction.
+    const { closeRelatedOpenTasksForWorkflowItem } = await import('./workflow-reconcile')
+    const closed = await closeRelatedOpenTasksForWorkflowItem(
+      assessmentId,
+      { id: item.id, title: item.title },
+      item.status === 'skipped' ? 'Workflow step skipped' : 'Workflow step marked done',
+    )
+    if (closed > 0) return 'updated'
     if (!existing) return 'noop'
     if (existing.status === 'done') return 'noop'
     await prisma.caseTask.update({
@@ -262,18 +289,37 @@ async function upsertTaskForItem(
     }
   }
   if (existing.priority !== priority) data.priority = priority
+  const nextNotes = notes ? `From workflow: ${notes}` : 'From case workflow'
+  if ((existing.notes || null) !== nextNotes) data.notes = nextNotes
 
   if (Object.keys(data).length === 0) return 'noop'
   await prisma.caseTask.update({ where: { id: existing.id }, data: data as any })
   return 'updated'
 }
 
+export type WorkflowStepTaskSyncResult = {
+  created: number
+  updated: number
+  activeStageOrder: number | null
+  /** Set when sync advances the active stage and materializes new tasks. */
+  stageUnlock: { newTasks: number; stageOrder: number } | null
+}
+
 /**
  * Ensure Tasks-tab CaseTasks exist for the active/required workflow steps on a case.
  * Safe to call on workflow apply, workflow GET, and tasks GET (idempotent).
  */
-export async function syncWorkflowStepTasks(assessmentId: string): Promise<{ created: number; updated: number }> {
-  if (!assessmentId) return { created: 0, updated: 0 }
+export async function syncWorkflowStepTasks(
+  assessmentId: string,
+  opts?: { priorActiveStageOrder?: number | null },
+): Promise<WorkflowStepTaskSyncResult> {
+  const empty: WorkflowStepTaskSyncResult = {
+    created: 0,
+    updated: 0,
+    activeStageOrder: null,
+    stageUnlock: null,
+  }
+  if (!assessmentId) return empty
 
   const cw = await (prisma as any).caseWorkflow
     .findUnique({
@@ -282,9 +328,12 @@ export async function syncWorkflowStepTasks(assessmentId: string): Promise<{ cre
     })
     .catch(() => null)
 
-  if (!cw?.items?.length) return { created: 0, updated: 0 }
+  if (!cw?.items?.length) return empty
 
-  const activeStage = activeStageOrder(cw.items)
+  const currentActive = activeStageOrder(cw.items)
+  // Caller may pass the stage from *before* reconcile completed the prior stage.
+  const baselineActive =
+    opts?.priorActiveStageOrder !== undefined ? opts.priorActiveStageOrder : currentActive
   const soleAttorney = await findSoleAttorneyForAssessment(assessmentId)
   let created = 0
   let updated = 0
@@ -293,7 +342,7 @@ export async function syncWorkflowStepTasks(assessmentId: string): Promise<{ cre
   // their workflow step is already done/skipped (upsert is a no-op if no task).
   for (const item of cw.items) {
     if (item.stepType === 'ai_milestone') continue
-    const pendingTrack = shouldMaterialize(item, activeStage)
+    const pendingTrack = shouldMaterialize(item, currentActive)
     const completedTrack = item.status === 'done' || item.status === 'skipped'
     if (!pendingTrack && !completedTrack) continue
 
@@ -310,10 +359,60 @@ export async function syncWorkflowStepTasks(assessmentId: string): Promise<{ cre
     }
   }
 
-  if (created || updated) {
-    logger.info('Synced workflow step tasks', { assessmentId, created, updated })
+  // Re-read after peer-link / completion side effects may have advanced the stage,
+  // then materialize the newly active stage if it changed mid-sync.
+  const afterCw = await (prisma as any).caseWorkflow
+    .findUnique({
+      where: { assessmentId },
+      include: { items: true },
+    })
+    .catch(() => null)
+  const afterActive = afterCw?.items?.length ? activeStageOrder(afterCw.items) : currentActive
+
+  if (
+    afterCw?.items?.length &&
+    afterActive != null &&
+    currentActive != null &&
+    afterActive !== currentActive
+  ) {
+    for (const item of afterCw.items) {
+      if (item.stepType === 'ai_milestone') continue
+      if (!shouldMaterialize(item, afterActive)) continue
+      try {
+        const result = await upsertTaskForItem(assessmentId, item, soleAttorney)
+        if (result === 'created') created++
+        if (result === 'updated') updated++
+      } catch (error: any) {
+        logger.warn('Failed to sync unlocked-stage workflow step task', {
+          assessmentId,
+          itemId: item.id,
+          error: error?.message || String(error),
+        })
+      }
+    }
   }
-  return { created, updated }
+
+  const finalActive = afterActive ?? currentActive
+  const stageUnlock =
+    created > 0 &&
+    baselineActive != null &&
+    finalActive != null &&
+    finalActive !== baselineActive
+      ? { newTasks: created, stageOrder: finalActive }
+      : null
+
+  if (created || updated) {
+    logger.info('Synced workflow step tasks', {
+      assessmentId,
+      created,
+      updated,
+      baselineActive,
+      currentActive,
+      finalActive,
+      stageUnlock,
+    })
+  }
+  return { created, updated, activeStageOrder: finalActive ?? null, stageUnlock }
 }
 
 /**

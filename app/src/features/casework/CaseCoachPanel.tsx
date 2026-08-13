@@ -38,7 +38,14 @@ const PRIORITY_META: Record<CoachPriority, { label: string; badge: string; bar: 
   low: { label: 'Low', badge: 'bg-slate-100 text-slate-600 ring-slate-200', bar: 'bg-slate-300' },
 }
 
-export default function CaseCoachPanel({ leadId }: { leadId: string }) {
+export default function CaseCoachPanel({
+  leadId,
+  alwaysShow = false,
+}: {
+  leadId: string
+  /** When true, show empty/error states instead of rendering nothing. */
+  alwaysShow?: boolean
+}) {
   const [coach, setCoach] = useState<CaseCoach | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -68,7 +75,12 @@ export default function CaseCoachPanel({ leadId }: { leadId: string }) {
     const key = `${insight.key}:${action}`
     setActioned((prev) => ({ ...prev, [key]: 'loading' }))
     try {
-      await runCaseCoachAction(leadId, { title: insight.title, action, priority: insight.priority })
+      await runCaseCoachAction(leadId, {
+        title: insight.title,
+        action,
+        priority: insight.priority,
+        requestedDoc: insight.key,
+      })
       setActioned((prev) => ({ ...prev, [key]: 'done' }))
     } catch {
       setActioned((prev) => { const next = { ...prev }; delete next[key]; return next })
@@ -83,7 +95,24 @@ export default function CaseCoachPanel({ leadId }: { leadId: string }) {
     )
   }
   if (error || !coach || coach.insights.length === 0) {
-    return null // fail quietly — Overview still renders everything else
+    if (!alwaysShow) return null // fail quietly when embedded on Overview
+    return (
+      <div className="rounded-2xl border border-slate-200 bg-white px-4 py-8 text-center shadow-sm">
+        <p className="text-sm font-medium text-slate-700">
+          {error || 'No next actions from Rose yet for this case.'}
+        </p>
+        <p className="mt-1 text-xs text-slate-500">
+          Run Rose above after the case has intake and evidence, or check back as the file grows.
+        </p>
+        <button
+          type="button"
+          onClick={load}
+          className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+        >
+          <RefreshCw className="h-3.5 w-3.5" /> Refresh coach
+        </button>
+      </div>
+    )
   }
 
   return (

@@ -39,6 +39,7 @@ import {
   markSendRetainerTaskDone,
 } from '../lib/intake-acquire'
 import { checkCollectPoliceReport } from '../lib/police-report-collect'
+import { checkCollectEvidence, type EvidenceCollectKind } from '../lib/evidence-collect'
 import { listActiveFirmTemplates, sendFirmTemplateForLead } from '../lib/esign/send-firm-template'
 import type { SignableDocumentType } from '../lib/esign/types'
 
@@ -571,6 +572,35 @@ router.post('/leads/:leadId/check-police-report', authMiddleware, async (req: Au
       error: error instanceof Error ? error.message : String(error),
     })
     res.status(500).json({ error: 'Failed to check police report status' })
+  }
+})
+
+/**
+ * Collect medical records / bills: complete matching open tasks when evidence
+ * of that category is already on the case (same spirit as police Collect).
+ */
+router.post('/leads/:leadId/check-evidence-collect', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const attorney = await resolveAttorney(req)
+    if (!attorney) return res.status(403).json({ error: 'Not an attorney account' })
+    const resolved = await resolveLeadForAttorney(req.params.leadId, attorney.id)
+    if (resolved.error === 404) return res.status(404).json({ error: 'Lead not found' })
+    if (resolved.error === 403) {
+      return res.status(403).json({ error: 'Lead is assigned to another attorney' })
+    }
+
+    const kind = String(req.body?.kind || '') as EvidenceCollectKind
+    if (kind !== 'medical_records' && kind !== 'bills') {
+      return res.status(400).json({ error: 'kind must be medical_records or bills' })
+    }
+
+    const result = await checkCollectEvidence(req.params.leadId, kind)
+    res.json(result)
+  } catch (error) {
+    logger.error('Check evidence collect failed', {
+      error: error instanceof Error ? error.message : String(error),
+    })
+    res.status(500).json({ error: 'Failed to check evidence collect status' })
   }
 })
 
