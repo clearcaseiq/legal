@@ -25,7 +25,9 @@ export async function findSoleFirmAttorney(
         lawFirmId,
         status: { in: ['active', 'invited'] },
         role: { in: [...ATTORNEY_FIRM_ROLES] },
-        userId: { not: null },
+        // FirmMember.userId is a required (non-nullable) column, so a
+        // `{ not: null }` filter is both redundant and rejected by Prisma
+        // ("Argument `not` must not be null"); the row always has a user.
       },
       include: { user: { select: { firstName: true, lastName: true, email: true } } },
     })

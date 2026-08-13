@@ -127,14 +127,12 @@ type GapLike = {
   severity?: number
   rationale?: string
   resolved?: boolean
-  [k: string]: unknown
 }
 type IntelLike = {
   claimType: string
   narrative?: string
   known: KnownLike[]
   gaps: GapLike[]
-  [k: string]: unknown
 }
 
 /** True only when explicitly enabled after BAA / legal approval. */

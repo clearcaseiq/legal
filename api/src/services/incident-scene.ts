@@ -216,7 +216,7 @@ export async function generateSceneImageForAssessment(
     })
 
     if (!imageClient) {
-      return { ok: false, error: 'Image generation is not configured' }
+      return { ok: false, status: 'failed', reason: 'image_not_configured' }
     }
     const result = await imageClient.images.generate({
       model: SCENE_IMAGE_MODEL,
