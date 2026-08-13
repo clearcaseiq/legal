@@ -264,6 +264,8 @@ export default function Dashboard() {
     reviewEligible?: boolean
     existingReview?: { rating: number; title?: string | null; review?: string | null; createdAt: string } | null
     caseChatRoomId?: string | null
+    // True when the plaintiff already had a consult on this case (API: case-routing status).
+    hadPriorConsultation?: boolean
   } | null>(null)
   const responseDeadlineLabel = routingStatus?.responseDeadlineLabel || '24 hours'
   const [scheduleModalOpen, setScheduleModalOpen] = useState(false)
