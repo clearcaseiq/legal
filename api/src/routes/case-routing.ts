@@ -4,6 +4,7 @@
  */
 
 import { Router } from 'express'
+import { Prisma } from '@prisma/client'
 import { prisma } from '../lib/prisma'
 import { logger } from '../lib/logger'
 import { authMiddleware, AuthRequest } from '../lib/auth'
@@ -178,6 +179,7 @@ router.get('/assessment/:id/status', authMiddleware, async (req: AuthRequest, re
         user: { select: { email: true } },
         leadSubmission: {
           select: {
+            id: true,
             lifecycleState: true,
             status: true,
           }
@@ -221,10 +223,11 @@ router.get('/assessment/:id/status', authMiddleware, async (req: AuthRequest, re
       String(lead.status || '').toLowerCase() !== 'retained' &&
       String(lead.lifecycleState || '') !== 'engaged'
     ) {
+      const leadId = lead.id
       const signedRetainer = await prisma.documentEnvelope
         .findFirst({
           where: {
-            leadId: lead.id,
+            leadId,
             status: 'signed',
             documentType: { in: ['retainer', 'fee_agreement'] },
           },
@@ -235,20 +238,20 @@ router.get('/assessment/:id/status', authMiddleware, async (req: AuthRequest, re
         try {
           const { onRetainerSigned } = await import('../lib/intake-acquire')
           await onRetainerSigned({
-            leadId: lead.id,
+            leadId,
             envelopeId: signedRetainer.id,
             documentType: signedRetainer.documentType,
           })
           lead = await prisma.leadSubmission
             .findUnique({
-              where: { id: lead.id },
-              select: { lifecycleState: true, status: true },
+              where: { id: leadId },
+              select: { id: true, lifecycleState: true, status: true },
             })
             .catch(() => lead)
         } catch (err) {
           logger.warn('Signed-retainer retain repair failed', {
             assessmentId,
-            leadId: lead.id,
+            leadId,
             error: (err as Error).message,
           })
         }
@@ -265,11 +268,11 @@ router.get('/assessment/:id/status', authMiddleware, async (req: AuthRequest, re
       scheduledAt: true,
       type: true,
       attorney: { select: { name: true } },
-    } as const
+    } satisfies Prisma.AppointmentSelect
     const loadAppointment = async () => {
-      const baseWhere = {
+      const baseWhere: Prisma.AppointmentWhereInput = {
         assessmentId,
-        status: { in: ['SCHEDULED', 'CONFIRMED'] as const },
+        status: { in: ['SCHEDULED', 'CONFIRMED'] },
         ...(assessment.userId ? { userId: assessment.userId } : {}),
       }
       const upcoming = await prisma.appointment
