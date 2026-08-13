@@ -27,7 +27,9 @@ const attorneyChatSelect = {
 function mapAttorneyForChat(attorney: {
   id: string
   name: string
-  email: string
+  // Attorney.email is nullable in the schema (bulk-imported attorneys may lack
+  // one), so accept null here and pass it through to the client.
+  email: string | null
   phone?: string | null
   bookingSlug?: string | null
   profile?: string | null
