@@ -169,7 +169,9 @@ export function getPlaintiffCaseStatusKey(routing: {
   const lifecycle = routing?.lifecycleState || ''
   const matched = !!routing?.attorneyMatched
   const appt = routing?.upcomingAppointment as { scheduledAt?: string | Date } | undefined
-  const hasConsult = !!appt || lifecycle === 'consultation_scheduled'
+  // Only an active upcoming appointment should show "Consultation Scheduled".
+  // After cancel, lifecycle may briefly lag; without an appt, fall through to Accepted.
+  const hasUpcomingConsult = !!appt
   const retained = isPlaintiffRetained(routing)
   const stageBucket = plaintiffCaseStageBucket(routing?.caseStage)
 
@@ -182,10 +184,10 @@ export function getPlaintiffCaseStatusKey(routing: {
     return 'retained'
   }
 
-  if (hasConsult) {
+  if (hasUpcomingConsult) {
     return isPast(appt?.scheduledAt) ? 'consulting_pending' : 'consultation_scheduled'
   }
-  if (matched || lifecycle === 'attorney_matched') return 'accepted'
+  if (matched || lifecycle === 'attorney_matched' || lifecycle === 'consultation_scheduled') return 'accepted'
   if (
     lifecycle === 'attorney_review' ||
     lifecycle === 'manual_review_needed' ||

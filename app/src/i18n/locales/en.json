@@ -173,6 +173,14 @@
     "menu": "Menu",
     "logout": "Logout",
     "profile": "Profile",
+    "myProfile": "My Profile",
+    "profileSettings": "Profile Settings",
+    "uploadPhoto": "Upload Photo",
+    "changePhoto": "Change Photo",
+    "removePhoto": "Remove Photo",
+    "uploadingPhoto": "Uploading...",
+    "photoUpdated": "Profile photo updated.",
+    "photoRemoved": "Profile photo removed.",
     "dashboard": "Dashboard",
     "myCase": "My Case",
     "myCases": "My Cases",
@@ -3978,7 +3986,7 @@
     "greeting": "Hi {name}",
     "caseStatus": "Case Status",
     "caseSwitcher": {
-      "label": "Viewing case",
+      "label": "Case List",
       "hint": "You have {count} cases — pick one to view its status."
     },
     "tabs": {
@@ -3992,6 +4000,8 @@
     },
     "status": {
       "inReview": "Your case is in attorney review. We'll email you the moment an attorney responds.",
+      "inReviewLine1": "Your case is in attorney review.",
+      "inReviewLine2": "We'll email you the moment an attorney responds.",
       "complete": "Your case is {percent}% complete.",
       "todo": "You have {count} {items} to do next to strengthen your case.",
       "thing": "thing",
@@ -4097,12 +4107,22 @@
       "reschedule": "Reschedule",
       "cancel": "Cancel",
       "schedule": "Schedule Consultation",
+      "scheduleCta": "Schedule",
       "bookCall": "Book a call with your attorney to discuss your case.",
+      "bookCallWith": "Book a call with {name} to discuss your case.",
       "scheduleAgainTitle": "Schedule Consultation",
       "scheduleAgainBody": "Book a call with {name} to discuss your case — or pick a new time after a cancellation.",
       "scheduleAgainCta": "Schedule Again",
       "cancelledToast": "Consultation cancelled. You can schedule a new time below.",
-      "cancelFailed": "Could not cancel consultation."
+      "cancelFailed": "Could not cancel consultation.",
+      "cancelConfirmTitle": "Cancel this consultation?",
+      "cancelConfirmBody": "Your attorney will be notified with the reason you provide.",
+      "cancelReasonLabel": "Why are you cancelling?",
+      "cancelReasonPlaceholder": "Share a brief reason (required)",
+      "cancelReasonRequired": "Please enter a reason for cancelling.",
+      "cancelKeep": "Keep it",
+      "cancelConfirm": "Cancel consultation",
+      "cancelling": "Cancelling…"
     },
     "emailVerification": {
       "pending": "Email verification is pending. Some secure actions may require verification later.",
@@ -4880,6 +4900,7 @@
   "messagingPage": {
     "loading": "Loading messages...",
     "title": "Messages",
+    "backToList": "Back to conversations",
     "aiAssistant": "AI Assistant",
     "searchPlaceholder": "Search conversations...",
     "noConversations": "No conversations yet",
@@ -4895,6 +4916,7 @@
     "reviewingCase": "{name} is reviewing your case.",
     "willReceive": "You will receive a message when an attorney responds.",
     "composerPlaceholder": "Type a message… (Shift+Enter for a new line)",
+    "characterCount": "{current} / {max}",
     "selectConversation": "Select a conversation",
     "selectConversationHint": "Choose a conversation from the sidebar to start messaging",
     "askAnything": "Ask me anything about your legal case!",

@@ -145,10 +145,11 @@ function createApiError(message: string, config: RequestConfig, request: { url: 
 
 async function request<T = any>(method: string, url: string, data?: unknown, config: RequestConfig = {}): Promise<ResponseData<T>> {
   const token = localStorage.getItem('auth_token')
-  const lang = localStorage.getItem('i18nextLng') || ''
+  const lang = (localStorage.getItem('i18nextLng') || 'en').toLowerCase().slice(0, 2)
   const headers = new Headers(config.headers || {})
 
-  if (lang && lang !== 'en') {
+  // Always send so messaging translation uses the active UI language (CP-572).
+  if (lang === 'es' || lang === 'zh' || lang === 'en') {
     headers.set('X-Language', lang)
   }
 

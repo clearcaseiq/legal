@@ -17,6 +17,7 @@ import { useBrowserStateReady } from '../contexts/ServerRenderContext'
 import { clearStoredAuth, getStoredRole, getStoredUser, hasValidAuthToken } from '../lib/auth'
 import { isCalendarRoute, isWideContentRoute } from '../lib/layoutWidth'
 import { loadPlaintiffHasCase, resetPlaintiffCaseHintCache } from '../lib/plaintiffCaseHint'
+import { getApiOrigin } from '../lib/runtimeEnv'
 
 const NotificationBell = lazy(() => import('./NotificationBell'))
 const NotificationsBell = lazy(() => import('./NotificationsBell'))
@@ -105,7 +106,20 @@ export default function Layout({ children }: LayoutProps) {
   const attorney = browserStateReady ? localStorage.getItem('attorney') : null
   const isAuthenticated = browserStateReady && hasValidAuthToken()
   const storedRole = browserStateReady ? getStoredRole() : null
-  const storedUser = browserStateReady ? getStoredUser<{ firstName?: string; role?: string }>('user') : null
+  const [storedUser, setStoredUser] = useState<{ firstName?: string; role?: string; avatar?: string | null } | null>(null)
+  useEffect(() => {
+    if (!browserStateReady) return
+    const refresh = () => {
+      setStoredUser(getStoredUser<{ firstName?: string; role?: string; avatar?: string | null }>('user'))
+    }
+    refresh()
+    window.addEventListener('clearcaseiq:user-updated', refresh)
+    window.addEventListener('storage', refresh)
+    return () => {
+      window.removeEventListener('clearcaseiq:user-updated', refresh)
+      window.removeEventListener('storage', refresh)
+    }
+  }, [browserStateReady, location.pathname])
   const accountRole = (storedUser?.role || '').toLowerCase()
   const isAdmin = isAuthenticated && storedRole === 'admin'
   const isAdminArea = location.pathname.startsWith('/admin')
@@ -207,6 +221,15 @@ export default function Layout({ children }: LayoutProps) {
   const userName = storedUser?.firstName || 'User'
   const headerLabel = isAdmin ? 'Admin' : (userName || 'User')
   const avatarInitial = (headerLabel || 'U').trim().charAt(0).toUpperCase()
+  const headerAvatarUrl = (() => {
+    if (isAttorney || isAdmin) return null
+    const avatar = storedUser?.avatar
+    if (!avatar) return null
+    if (/^(https?:)?\/\//.test(avatar) || avatar.startsWith('data:')) return avatar
+    const origin = getApiOrigin()
+    if (!origin) return avatar
+    return `${origin}${avatar.startsWith('/') ? '' : '/'}${avatar}`
+  })()
   const roleLabel = isAdmin ? 'Administrator' : isAttorney ? 'Attorney' : 'Client'
   const pendingAssessmentId =
     browserStateReady && !isAuthenticated ? localStorage.getItem('pending_assessment_id') : null
@@ -436,18 +459,34 @@ export default function Layout({ children }: LayoutProps) {
                       aria-expanded={userMenuOpen}
                       className="flex items-center gap-2 rounded-full border border-slate-200 bg-white/80 py-1 pl-1 pr-2.5 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-200 dark:hover:bg-slate-800 dark:hover:text-slate-100 dark:focus-visible:ring-offset-slate-900"
                     >
-                      <span className="grid h-7 w-7 place-items-center rounded-full bg-gradient-to-br from-brand-500 to-brand-700 text-xs font-bold text-white shadow-inner">
-                        {avatarInitial}
-                      </span>
+                      {headerAvatarUrl ? (
+                        <img
+                          src={headerAvatarUrl}
+                          alt=""
+                          className="h-7 w-7 rounded-full object-cover shadow-inner"
+                        />
+                      ) : (
+                        <span className="grid h-7 w-7 place-items-center rounded-full bg-gradient-to-br from-brand-500 to-brand-700 text-xs font-bold text-white shadow-inner">
+                          {avatarInitial}
+                        </span>
+                      )}
                       <span className="hidden max-w-[9rem] truncate xl:inline">{headerLabel}</span>
                       <ChevronDownIcon className={`h-4 w-4 text-slate-400 transition-transform ${userMenuOpen ? 'rotate-180' : ''}`} />
                     </button>
                     {userMenuOpen && (
                       <div className="absolute right-0 mt-2 w-64 overflow-hidden rounded-2xl border border-slate-200 bg-white py-1.5 shadow-xl shadow-slate-900/10 ring-1 ring-black/5 dark:border-slate-800 dark:bg-slate-900 dark:ring-white/5">
                         <div className="flex items-center gap-3 px-4 py-3">
-                          <span className="grid h-9 w-9 place-items-center rounded-full bg-gradient-to-br from-brand-500 to-brand-700 text-sm font-bold text-white">
-                            {avatarInitial}
-                          </span>
+                          {headerAvatarUrl ? (
+                            <img
+                              src={headerAvatarUrl}
+                              alt=""
+                              className="h-9 w-9 rounded-full object-cover"
+                            />
+                          ) : (
+                            <span className="grid h-9 w-9 place-items-center rounded-full bg-gradient-to-br from-brand-500 to-brand-700 text-sm font-bold text-white">
+                              {avatarInitial}
+                            </span>
+                          )}
                           <div className="min-w-0">
                             <p className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">{headerLabel}</p>
                             <p className="text-xs font-medium text-slate-500 dark:text-slate-400">{roleLabel}</p>
@@ -462,7 +501,14 @@ export default function Layout({ children }: LayoutProps) {
                           {isAdminArea ? t('common.adminDashboard') : t('common.dashboard')}
                         </Link>
                         <Link
-                          to={isAdminArea ? '/admin/cases' : isAttorney ? '/attorney-dashboard/leadgen/matches' : '/assessments'}
+                          to={
+                            isAdminArea
+                              ? '/admin/cases'
+                              : isAttorney
+                                ? '/attorney-dashboard/leadgen/matches'
+                                : // Case dashboard — not /assessments → /results (Submission Confirmed).
+                                  '/dashboard'
+                          }
                           onClick={() => setUserMenuOpen(false)}
                           className={menuItemCls}
                         >
@@ -475,12 +521,12 @@ export default function Layout({ children }: LayoutProps) {
                               onClick={() => setUserMenuOpen(false)}
                               className={menuItemCls}
                             >
-                              My Profile
+                              {t('common.myProfile')}
                             </Link>
                             {isAttorney && (
                               <>
                                 <Link to="/attorney-dashboard/settings/profile" onClick={() => setUserMenuOpen(false)} className={menuItemCls}>
-                                  Profile Settings
+                                  {t('common.profileSettings')}
                                 </Link>
                                 <Link to="/firm-dashboard" onClick={() => setUserMenuOpen(false)} className={menuItemCls}>
                                   Firm Dashboard
@@ -627,11 +673,11 @@ export default function Layout({ children }: LayoutProps) {
                       <Link to={isAdminArea ? '/admin/cases' : isAttorney ? '/attorney-dashboard/leadgen/matches' : plaintiffCaseHref} onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">{isAdminArea ? 'Cases' : isAttorney ? 'My Cases' : (hasCase ? t('common.continueMyCase') : t('common.myCase'))}</Link>
                       )}
                       {!isAdmin && (
-                        <Link to={isAttorney ? '/attorney-profile' : '/profile'} onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">My Profile</Link>
+                        <Link to={isAttorney ? '/attorney-profile' : '/profile'} onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">{t('common.myProfile')}</Link>
                       )}
                       {isAttorney && (
                         <>
-                          <Link to="/attorney-dashboard/settings/profile" onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">Profile Settings</Link>
+                          <Link to="/attorney-dashboard/settings/profile" onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">{t('common.profileSettings')}</Link>
                           <Link to="/firm-dashboard" onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">Firm Dashboard</Link>
                           <Link to="/firm-settings" onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">Firm Settings</Link>
                         </>

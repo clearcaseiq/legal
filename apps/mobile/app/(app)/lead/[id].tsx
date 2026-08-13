@@ -867,7 +867,15 @@ export default function LeadDetailScreen() {
             <InfoLine label="Date opened" value={fmtFull(openedAtRaw)} />
             {retainedAtRaw ? <InfoLine label="Date retained" value={fmtFull(retainedAtRaw)} /> : null}
             {daysOpen != null ? <InfoLine label="Days open" value={String(daysOpen)} /> : null}
-            <InfoLine label="Case reference" value={String(lead.id)} mono />
+            <InfoLine
+              label="Case number"
+              value={String(
+                (assessment as any)?.referenceCode ||
+                  (assessment as any)?.reference_code ||
+                  '—'
+              )}
+              mono
+            />
           </View>
         </View>
 

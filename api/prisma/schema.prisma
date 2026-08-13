@@ -1762,6 +1762,8 @@ model Appointment {
   scheduledAt DateTime
   duration    Int      @default(30) // minutes
   notes       String?
+  /// Why the meeting was cancelled (required when plaintiff or attorney cancels).
+  cancellationReason String? @db.Text
 
   // Public ("Calendly-style") self-service management: opaque token the booker
   // uses to reschedule/cancel without an account, plus the source event type.

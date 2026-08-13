@@ -124,6 +124,11 @@ api.interceptors.request.use(async (config) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
   }
+  // Drive chat translation from the account / device language preference.
+  const preferredLanguage = await SecureStore.getItemAsync('preferred_language')
+  if (preferredLanguage) {
+    config.headers['X-Language'] = preferredLanguage
+  }
   return config
 })
 
@@ -207,6 +212,34 @@ export async function loginPlaintiff(email: string, password: string) {
 
 export async function getCurrentUser() {
   const { data } = await api.get('/v1/auth/me')
+  return data
+}
+
+export async function updateProfile(payload: {
+  preferredLanguage?: 'en' | 'es' | 'zh'
+  firstName?: string
+  lastName?: string
+  phone?: string
+}) {
+  const { data } = await api.put('/v1/auth/me', payload)
+  return data
+}
+
+export async function uploadPlaintiffAvatar(uri: string, fileName = 'avatar.jpg', mimeType = 'image/jpeg') {
+  const form = new FormData()
+  form.append('photo', {
+    uri,
+    name: fileName,
+    type: mimeType,
+  } as any)
+  const { data } = await api.post('/v1/auth/me/avatar', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+  return data
+}
+
+export async function deletePlaintiffAvatar() {
+  const { data } = await api.delete('/v1/auth/me/avatar')
   return data
 }
 
@@ -303,12 +336,29 @@ export async function getPlaintiffDocumentRequests(assessmentId: string): Promis
   return data
 }
 
+export type ChatParticipants = {
+  plaintiff?: { avatar?: string | null; name?: string | null } | null
+  attorney?: { photoUrl?: string | null; name?: string | null } | null
+}
+
+export function normalizeChatMessagesResponse(data: any): {
+  messages: any[]
+  participants: ChatParticipants | null
+} {
+  if (Array.isArray(data)) return { messages: data, participants: null }
+  return {
+    messages: Array.isArray(data?.messages) ? data.messages : [],
+    participants: data?.participants || null,
+  }
+}
+
 export type PlaintiffChatRoom = {
   id: string
   attorney?: {
     id?: string
     name?: string | null
     email?: string | null
+    photoUrl?: string | null
     profile?: unknown
   } | null
   assessment?: {
@@ -344,7 +394,7 @@ export async function getPlaintiffChatRooms(): Promise<PlaintiffChatRoom[]> {
 
 export async function getPlaintiffChatMessages(chatRoomId: string, limit = 80, offset = 0) {
   const { data } = await api.get(`/v1/messaging/chat-room/${chatRoomId}/messages?limit=${limit}&offset=${offset}`)
-  return data
+  return normalizeChatMessagesResponse(data)
 }
 
 export async function sendPlaintiffMessage(chatRoomId: string, content: string) {
@@ -739,7 +789,7 @@ export async function unregisterAttorneyPushToken(expoPushToken: string) {
 export type AttorneyChatRoom = {
   id: string
   leadId?: string | null
-  plaintiff?: { name?: string; email?: string } | null
+  plaintiff?: { name?: string; email?: string; avatar?: string | null } | null
   assessment?: { claimType?: string; venueState?: string } | null
   lastMessage?: { content?: string; senderType?: string; createdAt?: string } | null
   lastMessageAt?: string | null
@@ -760,7 +810,7 @@ export async function getChatMessages(chatRoomId: string, limit = 80, offset = 0
   const { data } = await api.get(
     `/v1/attorney-dashboard/messaging/chat-room/${chatRoomId}/messages?limit=${limit}&offset=${offset}`
   )
-  return data
+  return normalizeChatMessagesResponse(data)
 }
 
 export async function getOrCreateAttorneyChatRoom(payload: { userId: string; assessmentId?: string | null }) {

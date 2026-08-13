@@ -173,6 +173,14 @@
     "menu": "菜单",
     "logout": "退出",
     "profile": "个人资料",
+    "myProfile": "我的资料",
+    "profileSettings": "资料设置",
+    "uploadPhoto": "上传照片",
+    "changePhoto": "更换照片",
+    "removePhoto": "删除照片",
+    "uploadingPhoto": "上传中...",
+    "photoUpdated": "头像已更新。",
+    "photoRemoved": "头像已删除。",
     "dashboard": "控制面板",
     "myCase": "我的案件",
     "myCases": "我的案件",
@@ -3977,7 +3985,7 @@
     "greeting": "你好，{name}",
     "caseStatus": "案件状态",
     "caseSwitcher": {
-      "label": "正在查看的案件",
+      "label": "案件列表",
       "hint": "您有 {count} 个案件 — 请选择一个查看状态。"
     },
     "tabs": {
@@ -3991,6 +3999,8 @@
     },
     "status": {
       "inReview": "您的案件正在由律师审核。一旦有律师回复，我们会立即通过电子邮件通知您。",
+      "inReviewLine1": "您的案件正在由律师审核。",
+      "inReviewLine2": "一旦有律师回复，我们会立即通过电子邮件通知您。",
       "complete": "您的案件已完成 {percent}%。",
       "todo": "您还有 {count} {items}待办事项，以加强您的案件。",
       "thing": "项",
@@ -4096,12 +4106,22 @@
       "reschedule": "重新安排",
       "cancel": "取消",
       "schedule": "安排咨询",
+      "scheduleCta": "安排",
       "bookCall": "预约与您的律师通话，讨论您的案件。",
+      "bookCallWith": "预约与 {name} 通话，讨论您的案件。",
       "scheduleAgainTitle": "安排咨询",
       "scheduleAgainBody": "预约与 {name} 通话讨论您的案件，或在取消后选择新的时间。",
       "scheduleAgainCta": "重新安排",
       "cancelledToast": "咨询已取消。您可以在下方重新安排时间。",
-      "cancelFailed": "无法取消咨询。"
+      "cancelFailed": "无法取消咨询。",
+      "cancelConfirmTitle": "取消此次咨询？",
+      "cancelConfirmBody": "您提供的原因将通知律师。",
+      "cancelReasonLabel": "取消原因？",
+      "cancelReasonPlaceholder": "请简要说明原因（必填）",
+      "cancelReasonRequired": "请填写取消原因。",
+      "cancelKeep": "保留预约",
+      "cancelConfirm": "确认取消",
+      "cancelling": "正在取消…"
     },
     "emailVerification": {
       "pending": "电子邮件验证待完成。部分安全操作稍后可能需要验证。",
@@ -4879,6 +4899,7 @@
   "messagingPage": {
     "loading": "正在加载消息...",
     "title": "消息",
+    "backToList": "返回对话列表",
     "aiAssistant": "AI 助手",
     "searchPlaceholder": "搜索对话...",
     "noConversations": "暂无对话",
@@ -4894,6 +4915,7 @@
     "reviewingCase": "{name} 正在审核您的案件。",
     "willReceive": "当律师回复时，您将收到消息。",
     "composerPlaceholder": "输入消息…（Shift+Enter 换行）",
+    "characterCount": "{current} / {max}",
     "selectConversation": "选择一个对话",
     "selectConversationHint": "从侧边栏选择一个对话即可开始发送消息",
     "askAnything": "关于您的法律案件，尽管问我！",

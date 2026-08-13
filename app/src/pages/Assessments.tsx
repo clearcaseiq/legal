@@ -97,7 +97,7 @@ export default function Assessments() {
             >
               <div>
                 <Link
-                  to={`/results/${assessment.id}`}
+                  to={`/dashboard?case=${assessment.id}`}
                   className="font-medium text-ui-md text-slate-900 dark:text-slate-100 hover:text-brand-600 dark:hover:text-brand-400"
                 >
                   {formatClaimTypeShort(assessment.claimType)} case

@@ -6976,9 +6976,21 @@ export default function IntakeWizardQuick() {
           <button
             type="button"
             onClick={goBackToCase}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-200"
+            className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-200"
           >
             <ChevronLeft className="h-4 w-4" aria-hidden /> {tx('documents_backToCase')}
+          </button>
+          <button
+            type="button"
+            onClick={handleSendDocuments}
+            disabled={docsSent}
+            className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg bg-brand-700 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-800 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {docsSent ? (
+              <>{tx('documents_sent')} <Check className="h-4 w-4" aria-hidden /></>
+            ) : (
+              <>{tx('documents_done')} <ChevronRight className="h-4 w-4" aria-hidden /></>
+            )}
           </button>
         </div>
         <div className="mb-4 shrink-0 text-center">
@@ -6997,25 +7009,11 @@ export default function IntakeWizardQuick() {
         <div className="mb-4 rounded-2xl border border-slate-200/90 bg-white p-3 shadow-card dark:border-slate-700 dark:bg-slate-900/80 sm:p-4 md:p-6">
           {renderStepContent('evidence')}
         </div>
-        <div className="flex shrink-0 flex-col gap-2">
-          {docsSent ? (
-            <p className="flex items-center justify-center gap-1.5 text-sm font-medium text-emerald-600 dark:text-emerald-400">
-              <CheckCircle2 className="h-4 w-4" aria-hidden /> {tx('documents_sentToast')}
-            </p>
-          ) : null}
-          <button
-            type="button"
-            onClick={handleSendDocuments}
-            disabled={docsSent}
-            className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-brand-700 px-6 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-800 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {docsSent ? (
-              <>{tx('documents_sent')} <Check className="h-4 w-4" aria-hidden /></>
-            ) : (
-              <>{tx('documents_done')} <ChevronRight className="h-4 w-4" aria-hidden /></>
-            )}
-          </button>
-        </div>
+        {docsSent ? (
+          <p className="flex shrink-0 items-center justify-center gap-1.5 text-sm font-medium text-emerald-600 dark:text-emerald-400">
+            <CheckCircle2 className="h-4 w-4" aria-hidden /> {tx('documents_sentToast')}
+          </p>
+        ) : null}
       </div>
     )
   }

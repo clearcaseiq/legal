@@ -11,10 +11,13 @@ import {
   sendAttorneyMessage,
   markAttorneyMessagesRead,
   getAttorneyMessageTemplates,
-  getSchedulingSettings
+  getSchedulingSettings,
+  type ChatParticipants,
 } from '../lib/api'
 import { linkify } from '../lib/linkify'
+import { CHAT_MESSAGE_MAX_LENGTH } from '../lib/messageLimits'
 import { CalendarClock } from 'lucide-react'
+import ChatAvatar from './ChatAvatar'
 
 interface Message {
   id: string
@@ -65,6 +68,7 @@ export default function ChatDrawer({
 }: ChatDrawerProps) {
   const [chatRoomId, setChatRoomId] = useState<string | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
+  const [participants, setParticipants] = useState<ChatParticipants | null>(null)
   const [input, setInput] = useState(initialDraft || '')
   const [loading, setLoading] = useState(false)
   const [sending, setSending] = useState(false)
@@ -94,6 +98,7 @@ export default function ChatDrawer({
     } else if (!open) {
       setChatRoomId(null)
       setMessages([])
+      setParticipants(null)
       setInput('')
       setDraftSaved(false)
       setCopied(false)
@@ -154,8 +159,8 @@ export default function ChatDrawer({
     if (!open || !chatRoomId) return
     const interval = setInterval(async () => {
       try {
-        const updated = await getAttorneyChatRoomMessages(chatRoomId)
-        if (!Array.isArray(updated)) return
+        const { messages: updated, participants: nextParticipants } = await getAttorneyChatRoomMessages(chatRoomId)
+        if (nextParticipants) setParticipants(nextParticipants)
         let changed = true
         setMessages((prev) => {
           if (prev.length === updated.length && prev[prev.length - 1]?.id === updated[updated.length - 1]?.id) {
@@ -180,8 +185,23 @@ export default function ChatDrawer({
     try {
       const res = await getOrCreateAttorneyChatRoom(userId, assessmentId || undefined)
       setChatRoomId(res.chatRoomId)
-      const msgs = res.messages || await getAttorneyChatRoomMessages(res.chatRoomId)
-      setMessages(Array.isArray(msgs) ? msgs : [])
+      if (res.plaintiff || res.attorney) {
+        setParticipants({
+          plaintiff: res.plaintiff
+            ? { avatar: res.plaintiff.avatar || null, name: res.plaintiff.name || plaintiffName }
+            : null,
+          attorney: res.attorney
+            ? { photoUrl: res.attorney.photoUrl || null, name: res.attorney.name || null }
+            : null,
+        })
+      }
+      if (Array.isArray(res.messages)) {
+        setMessages(res.messages)
+      } else {
+        const { messages: msgs, participants: nextParticipants } = await getAttorneyChatRoomMessages(res.chatRoomId)
+        setMessages(msgs)
+        if (nextParticipants) setParticipants(nextParticipants)
+      }
       if (res.chatRoomId) {
         await markAttorneyMessagesRead(res.chatRoomId)
       }
@@ -214,8 +234,9 @@ export default function ChatDrawer({
         throw new Error('Could not open a chat room for this case.')
       }
       await sendAttorneyMessage(roomId, text)
-      const updated = await getAttorneyChatRoomMessages(roomId)
-      setMessages(Array.isArray(updated) ? updated : [])
+      const { messages: updated, participants: nextParticipants } = await getAttorneyChatRoomMessages(roomId)
+      setMessages(updated)
+      if (nextParticipants) setParticipants(nextParticipants)
       setInput('')
       onMessageSent?.()
     } catch (err: any) {
@@ -254,16 +275,24 @@ export default function ChatDrawer({
         role="dialog"
         aria-label="Chat with plaintiff"
       >
-        <div className="shrink-0 flex items-start justify-between px-5 py-4 border-b border-slate-200 bg-slate-50">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">Message Client</p>
-            <h3 className="font-semibold text-slate-900">{plaintiffName}</h3>
-            <p className="mt-1 text-xs text-slate-600">
-              {[caseLabel, venue].filter(Boolean).join(' | ') || 'Case context pending'} | Last contact: {lastContactLabel || 'none'}
-            </p>
-            <p className="mt-0.5 text-xs text-slate-500">
-              {[phone || 'No phone', email || 'No email'].join(' | ')}
-            </p>
+        <div className="shrink-0 flex items-start justify-between gap-3 px-5 py-4 border-b border-slate-200 bg-slate-50">
+          <div className="flex min-w-0 items-start gap-3">
+            <ChatAvatar
+              url={participants?.plaintiff?.avatar}
+              name={participants?.plaintiff?.name || plaintiffName}
+              size="lg"
+              fallbackClassName="bg-brand-50 text-brand-700 ring-1 ring-inset ring-brand-100"
+            />
+            <div className="min-w-0">
+              <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">Message Client</p>
+              <h3 className="font-semibold text-slate-900">{plaintiffName}</h3>
+              <p className="mt-1 text-xs text-slate-600">
+                {[caseLabel, venue].filter(Boolean).join(' | ') || 'Case context pending'} | Last contact: {lastContactLabel || 'none'}
+              </p>
+              <p className="mt-0.5 text-xs text-slate-500">
+                {[phone || 'No phone', email || 'No email'].join(' | ')}
+              </p>
+            </div>
           </div>
           <button
             onClick={onClose}
@@ -302,8 +331,16 @@ export default function ChatDrawer({
                       {messages.map((m) => (
                         <div
                           key={m.id}
-                          className={`flex ${m.senderType === 'attorney' ? 'justify-end' : 'justify-start'}`}
+                          className={`flex items-end gap-2 ${m.senderType === 'attorney' ? 'justify-end' : 'justify-start'}`}
                         >
+                          {m.senderType !== 'attorney' ? (
+                            <ChatAvatar
+                              url={participants?.plaintiff?.avatar}
+                              name={participants?.plaintiff?.name || plaintiffName}
+                              size="sm"
+                              fallbackClassName="bg-white text-slate-500 ring-1 ring-inset ring-slate-200"
+                            />
+                          ) : null}
                           <div
                             className={`max-w-[85%] rounded-lg px-3 py-2 ${
                               m.senderType === 'attorney'
@@ -347,6 +384,14 @@ export default function ChatDrawer({
                               {new Date(m.createdAt).toLocaleString()}
                             </div>
                           </div>
+                          {m.senderType === 'attorney' ? (
+                            <ChatAvatar
+                              url={participants?.attorney?.photoUrl}
+                              name={participants?.attorney?.name || 'You'}
+                              size="sm"
+                              fallbackClassName="bg-brand-100 text-brand-700"
+                            />
+                          ) : null}
                         </div>
                       ))}
                       <div ref={messagesEndRef} />
@@ -355,7 +400,7 @@ export default function ChatDrawer({
                 </div>
                 <textarea
                   value={input}
-                  onChange={(e) => setInput(e.target.value)}
+                  onChange={(e) => setInput(e.target.value.slice(0, CHAT_MESSAGE_MAX_LENGTH))}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault()
@@ -364,8 +409,21 @@ export default function ChatDrawer({
                   }}
                   placeholder="Type a message..."
                   rows={5}
+                  maxLength={CHAT_MESSAGE_MAX_LENGTH}
                   className="w-full resize-none rounded-xl border border-brand-200 bg-white px-3 py-3 text-sm shadow-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500"
                 />
+                <p
+                  className={`mt-1.5 text-right text-xs tabular-nums ${
+                    input.length >= CHAT_MESSAGE_MAX_LENGTH
+                      ? 'font-semibold text-rose-600'
+                      : input.length >= CHAT_MESSAGE_MAX_LENGTH * 0.9
+                        ? 'font-medium text-amber-600'
+                        : 'text-slate-500'
+                  }`}
+                  aria-live="polite"
+                >
+                  {input.length} / {CHAT_MESSAGE_MAX_LENGTH}
+                </p>
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                   <div className="flex gap-1 rounded-lg bg-white p-1 text-xs shadow-sm">
                     {(['warm', 'professional', 'direct'] as const).map((item) => (

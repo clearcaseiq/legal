@@ -5,16 +5,19 @@ import { useState, useEffect, useRef, Fragment } from 'react'
 import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { Send, MessageSquare, FolderOpen, Sparkles, Loader2, UserRound } from 'lucide-react'
 import { BackButton } from '../features/shared/ui'
-import { getLead, getOrCreateAttorneyChatRoom, getAttorneyChatRoomMessages, sendAttorneyMessage, markAttorneyMessagesRead, getAttorneyMessageTemplates } from '../lib/api'
+import {
+  getLead,
+  getOrCreateAttorneyChatRoom,
+  getAttorneyChatRoomMessages,
+  sendAttorneyMessage,
+  markAttorneyMessagesRead,
+  getAttorneyMessageTemplates,
+  type ChatParticipants,
+} from '../lib/api'
+import ChatAvatar from '../components/ChatAvatar'
 
 import { formatClaimType as claimLabel } from '../lib/claimTypes'
-
-function initials(name: string): string {
-  const parts = String(name || '').trim().split(/\s+/).filter(Boolean)
-  if (parts.length === 0) return '—'
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
-}
+import { CHAT_MESSAGE_MAX_LENGTH } from '../lib/messageLimits'
 
 const timeLabel = (v: string) => {
   const d = new Date(v)
@@ -49,6 +52,7 @@ export default function DraftMessagePage() {
 
   const [chatRoomId, setChatRoomId] = useState<string | null>(null)
   const [messages, setMessages] = useState<any[]>([])
+  const [participants, setParticipants] = useState<ChatParticipants | null>(null)
   const [chatLoading, setChatLoading] = useState(true)
   const [input, setInput] = useState('')
   const [templates, setTemplates] = useState<any[]>([])
@@ -60,6 +64,9 @@ export default function DraftMessagePage() {
   const plaintiffName = lead?.assessment?.user
     ? `${lead.assessment.user.firstName || ''} ${lead.assessment.user.lastName || ''}`.trim() || 'Plaintiff'
     : 'Plaintiff'
+  const plaintiffAvatar = participants?.plaintiff?.avatar || lead?.assessment?.user?.avatar || null
+  const attorneyAvatar = participants?.attorney?.photoUrl || null
+  const attorneyName = participants?.attorney?.name || 'You'
 
   useEffect(() => {
     if (!leadId) {
@@ -79,8 +86,23 @@ export default function DraftMessagePage() {
       getOrCreateAttorneyChatRoom(userId, assessmentId || undefined)
         .then(async (res) => {
           setChatRoomId(res.chatRoomId)
-          const msgs = res.messages || await getAttorneyChatRoomMessages(res.chatRoomId)
-          setMessages(Array.isArray(msgs) ? msgs : [])
+          if (res.plaintiff || res.attorney) {
+            setParticipants({
+              plaintiff: res.plaintiff
+                ? { avatar: res.plaintiff.avatar || null, name: res.plaintiff.name || plaintiffName }
+                : null,
+              attorney: res.attorney
+                ? { photoUrl: res.attorney.photoUrl || null, name: res.attorney.name || null }
+                : null,
+            })
+          }
+          if (Array.isArray(res.messages)) {
+            setMessages(res.messages)
+          } else {
+            const { messages: msgs, participants: nextParticipants } = await getAttorneyChatRoomMessages(res.chatRoomId)
+            setMessages(msgs)
+            if (nextParticipants) setParticipants(nextParticipants)
+          }
           if (res.chatRoomId) await markAttorneyMessagesRead(res.chatRoomId)
         })
         .catch((err) => setError(err?.message || 'Failed to load chat'))
@@ -88,7 +110,7 @@ export default function DraftMessagePage() {
     } else if (lead) {
       setChatLoading(false)
     }
-  }, [lead, userId, assessmentId])
+  }, [lead, userId, assessmentId, plaintiffName])
 
   useEffect(() => {
     getAttorneyMessageTemplates().then(setTemplates).catch(() => setTemplates([]))
@@ -104,8 +126,9 @@ export default function DraftMessagePage() {
     setSending(true)
     try {
       await sendAttorneyMessage(chatRoomId, text)
-      const updated = await getAttorneyChatRoomMessages(chatRoomId)
-      setMessages(Array.isArray(updated) ? updated : [])
+      const { messages: updated, participants: nextParticipants } = await getAttorneyChatRoomMessages(chatRoomId)
+      setMessages(updated)
+      if (nextParticipants) setParticipants(nextParticipants)
       setInput('')
     } catch (err: any) {
       setError(err?.message || 'Failed to send message')
@@ -146,9 +169,13 @@ export default function DraftMessagePage() {
 
         {/* Plaintiff header card */}
         <div className="flex items-center gap-3 rounded-t-2xl border border-slate-200 bg-white px-5 py-4">
-          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand-50 text-sm font-semibold text-brand-700 ring-1 ring-inset ring-brand-100">
-            {initials(plaintiffName)}
-          </span>
+          <ChatAvatar
+            url={plaintiffAvatar}
+            name={plaintiffName}
+            size="lg"
+            className="!h-11 !w-11"
+            fallbackClassName="bg-brand-50 text-brand-700 ring-1 ring-inset ring-brand-100"
+          />
           <div className="min-w-0 flex-1">
             <h1 className="truncate text-base font-semibold text-slate-900">{plaintiffName}</h1>
             <p className="truncate text-sm text-slate-500">
@@ -210,8 +237,13 @@ export default function DraftMessagePage() {
                     ) : null}
                     <div className={`flex items-end gap-2 ${mine ? 'justify-end' : 'justify-start'}`}>
                       {!mine ? (
-                        <span className="mb-4 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white text-[10px] font-semibold text-slate-500 ring-1 ring-inset ring-slate-200">
-                          {initials(plaintiffName)}
+                        <span className="mb-4">
+                          <ChatAvatar
+                            url={plaintiffAvatar}
+                            name={plaintiffName}
+                            size="sm"
+                            fallbackClassName="bg-white text-slate-500 ring-1 ring-inset ring-slate-200"
+                          />
                         </span>
                       ) : null}
                       <div className={`max-w-[78%] ${mine ? 'items-end' : 'items-start'}`}>
@@ -228,6 +260,16 @@ export default function DraftMessagePage() {
                           {mine ? 'You' : plaintiffName.split(' ')[0]} · {timeLabel(m.createdAt)}
                         </p>
                       </div>
+                      {mine ? (
+                        <span className="mb-4">
+                          <ChatAvatar
+                            url={attorneyAvatar}
+                            name={attorneyName}
+                            size="sm"
+                            fallbackClassName="bg-brand-100 text-brand-700"
+                          />
+                        </span>
+                      ) : null}
                     </div>
                   </Fragment>
                 )
@@ -271,7 +313,7 @@ export default function DraftMessagePage() {
           <div className="flex items-end gap-2">
             <textarea
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(e) => setInput(e.target.value.slice(0, CHAT_MESSAGE_MAX_LENGTH))}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault()
@@ -281,6 +323,7 @@ export default function DraftMessagePage() {
               disabled={!userId}
               placeholder={userId ? 'Type a message…  (Enter to send, Shift+Enter for a new line)' : 'Messaging unavailable until the plaintiff signs in'}
               rows={2}
+              maxLength={CHAT_MESSAGE_MAX_LENGTH}
               className="flex-1 resize-none rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm text-slate-900 shadow-sm transition focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/30 disabled:cursor-not-allowed disabled:bg-slate-50"
             />
             <button
@@ -292,6 +335,18 @@ export default function DraftMessagePage() {
               <span className="hidden sm:inline">Send</span>
             </button>
           </div>
+          <p
+            className={`mt-1.5 text-right text-xs tabular-nums ${
+              input.length >= CHAT_MESSAGE_MAX_LENGTH
+                ? 'font-semibold text-rose-600'
+                : input.length >= CHAT_MESSAGE_MAX_LENGTH * 0.9
+                  ? 'font-medium text-amber-600'
+                  : 'text-slate-500'
+            }`}
+            aria-live="polite"
+          >
+            {input.length} / {CHAT_MESSAGE_MAX_LENGTH}
+          </p>
         </div>
       </div>
     </div>

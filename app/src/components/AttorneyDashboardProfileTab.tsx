@@ -18,6 +18,7 @@ import { US_STATES, ATTORNEY_CASE_TYPES, formatSpecialty } from '../lib/constant
 import { formatCurrency } from '../lib/formatters'
 import { getApiOrigin } from '../lib/runtimeEnv'
 import { uploadAttorneyProfilePhoto } from '../lib/api'
+import { useLanguage } from '../contexts/LanguageContext'
 
 const DEFAULT_AVATAR = 'https://ui-avatars.com/api/?name=Attorney&background=e0f2fe&color=075985'
 
@@ -108,6 +109,7 @@ export default function AttorneyDashboardProfileTab({
   handleLicenseFileUpload,
   handleLicenseFileChange,
 }: AttorneyDashboardProfileTabProps) {
+  const { t } = useLanguage()
   const navigate = useNavigate()
   const photoInputRef = useRef<HTMLInputElement | null>(null)
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
@@ -246,7 +248,7 @@ export default function AttorneyDashboardProfileTab({
 
       <div className="flex justify-between items-center gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900">My Profile</h2>
+          <h2 className="text-2xl font-bold text-gray-900">{t('common.myProfile')}</h2>
           <p className="mt-1 text-sm text-gray-600">Manage your professional profile and reputation</p>
         </div>
         <div className="flex gap-3">
@@ -387,7 +389,7 @@ export default function AttorneyDashboardProfileTab({
       </div>
 
       <div className="bg-white shadow rounded-lg p-6">
-        <h3 className="text-lg font-medium text-gray-900 mb-4">Profile Settings</h3>
+        <h3 className="text-lg font-medium text-gray-900 mb-4">{t('common.profileSettings')}</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Negotiation Style</label>

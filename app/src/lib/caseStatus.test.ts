@@ -30,6 +30,28 @@ describe('getPlaintiffCaseStatusKey', () => {
       }),
     ).toBe('in_review')
   })
+
+  it('returns consultation_scheduled only when an upcoming appointment exists', () => {
+    expect(
+      getPlaintiffCaseStatusKey({
+        lifecycleState: 'consultation_scheduled',
+        leadStatus: 'consulted',
+        attorneyMatched: { id: 'a1' },
+        upcomingAppointment: { scheduledAt: new Date(Date.now() + 86_400_000).toISOString() },
+      }),
+    ).toBe('consultation_scheduled')
+  })
+
+  it('falls back to accepted after cancel when lifecycle still says consultation_scheduled', () => {
+    expect(
+      getPlaintiffCaseStatusKey({
+        lifecycleState: 'consultation_scheduled',
+        leadStatus: 'consulted',
+        attorneyMatched: { id: 'a1' },
+        upcomingAppointment: null,
+      }),
+    ).toBe('accepted')
+  })
 })
 
 describe('getPlaintiffPipelineProgress', () => {

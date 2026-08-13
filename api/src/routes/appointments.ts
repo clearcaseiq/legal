@@ -13,7 +13,9 @@ import {
   joinAppointmentWaitlist,
   notifyAppointmentEvent,
   notifyWaitlistForFreedSlot,
+  parseCancellationReason,
   seedAppointmentPrepItems,
+  syncLeadStatusAfterConsultCancelled,
   updateAppointmentPreparation,
 } from '../lib/appointment-engagement'
 import { notifyAttorneyInApp } from '../lib/case-notifications'
@@ -41,7 +43,8 @@ const AppointmentUpdate = z.object({
   meetingUrl: z.string().optional(),
   location: z.string().optional(),
   phoneNumber: z.string().optional(),
-  status: z.enum(['SCHEDULED', 'CONFIRMED', 'COMPLETED', 'CANCELLED', 'NO_SHOW']).optional()
+  status: z.enum(['SCHEDULED', 'CONFIRMED', 'COMPLETED', 'CANCELLED', 'NO_SHOW']).optional(),
+  cancellationReason: z.string().max(500).optional(),
 })
 
 const AppointmentWaitlistCreate = z.object({
@@ -491,7 +494,14 @@ router.put('/:id', authMiddleware, async (req: AuthRequest, res) => {
       }
     }
 
+    let cancelReason: string | null = null
     if (parsed.data.status === 'CANCELLED') {
+      const parsedReason = parseCancellationReason(parsed.data.cancellationReason)
+      if (!parsedReason.ok) {
+        return res.status(400).json({ error: parsedReason.error })
+      }
+      cancelReason = parsedReason.reason
+
       await deleteExternalCalendarEvent({
         attorneyId: existing.attorneyId,
         provider: existing.externalCalendarProvider,
@@ -503,8 +513,11 @@ router.put('/:id', authMiddleware, async (req: AuthRequest, res) => {
         })
       })
 
+      updateData.cancellationReason = cancelReason
       updateData.externalCalendarEventId = null
       updateData.externalCalendarSyncedAt = new Date()
+    } else {
+      delete updateData.cancellationReason
     }
 
     const appointment = await prisma.appointment.update({
@@ -529,6 +542,9 @@ router.put('/:id', authMiddleware, async (req: AuthRequest, res) => {
     })
 
     if (parsed.data.status === 'CANCELLED') {
+      const whenLabel = existing.scheduledAt.toLocaleString('en-US', {
+        month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+      })
       await Promise.allSettled([
         notifyAppointmentEvent({
           appointmentId: existing.id,
@@ -536,12 +552,34 @@ router.put('/:id', authMiddleware, async (req: AuthRequest, res) => {
           attorneyId: existing.attorneyId,
           assessmentId: existing.assessmentId,
           type: 'cancelled',
+          cancellationReason: cancelReason,
         }),
         notifyWaitlistForFreedSlot({
           attorneyId: existing.attorneyId,
           slotStart: existing.scheduledAt,
           appointmentId: existing.id,
         }),
+        syncLeadStatusAfterConsultCancelled({
+          assessmentId: existing.assessmentId,
+          cancelledAppointmentId: existing.id,
+          attorneyId: existing.attorneyId,
+          reason: cancelReason,
+        }),
+        (async () => {
+          const lead = existing.assessmentId
+            ? await prisma.leadSubmission.findFirst({ where: { assessmentId: existing.assessmentId }, select: { id: true } })
+            : null
+          await notifyAttorneyInApp({
+            attorneyId: existing.attorneyId,
+            assessmentId: existing.assessmentId || null,
+            eventType: ATTORNEY_EVENTS.consult_cancelled,
+            subject: 'Consult cancelled',
+            body: `The plaintiff cancelled the consultation scheduled for ${whenLabel}.${cancelReason ? ` Reason: ${cancelReason}` : ''}`,
+            leadId: lead?.id || null,
+            link: lead?.id ? `/attorney-dashboard/cases/${lead.id}/overview` : undefined,
+            payload: { appointmentId: existing.id, cancellationReason: cancelReason },
+          })
+        })(),
       ])
     } else if (parsed.data.scheduledAt) {
       await Promise.allSettled([
@@ -582,6 +620,11 @@ router.put('/:id', authMiddleware, async (req: AuthRequest, res) => {
 router.delete('/:id', authMiddleware, async (req: AuthRequest, res) => {
   try {
     const { id } = req.params
+    const parsedReason = parseCancellationReason(req.body?.reason ?? req.body?.cancellationReason)
+    if (!parsedReason.ok) {
+      return res.status(400).json({ error: parsedReason.error })
+    }
+    const cancelReason = parsedReason.reason
 
     // Check if appointment belongs to user
     const appointment = await prisma.appointment.findFirst({
@@ -610,6 +653,7 @@ router.delete('/:id', authMiddleware, async (req: AuthRequest, res) => {
       where: { id },
       data: {
         status: 'CANCELLED',
+        cancellationReason: cancelReason,
         externalCalendarEventId: null,
         externalCalendarSyncedAt: new Date(),
       }
@@ -620,6 +664,9 @@ router.delete('/:id', authMiddleware, async (req: AuthRequest, res) => {
       userId: req.user!.id
     })
 
+    const whenLabel = appointment.scheduledAt.toLocaleString('en-US', {
+      month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+    })
     await Promise.allSettled([
       notifyAppointmentEvent({
         appointmentId: appointment.id,
@@ -627,12 +674,34 @@ router.delete('/:id', authMiddleware, async (req: AuthRequest, res) => {
         attorneyId: appointment.attorneyId,
         assessmentId: appointment.assessmentId,
         type: 'cancelled',
+        cancellationReason: cancelReason,
       }),
       notifyWaitlistForFreedSlot({
         attorneyId: appointment.attorneyId,
         slotStart: appointment.scheduledAt,
         appointmentId: appointment.id,
       }),
+      syncLeadStatusAfterConsultCancelled({
+        assessmentId: appointment.assessmentId,
+        cancelledAppointmentId: appointment.id,
+        attorneyId: appointment.attorneyId,
+        reason: cancelReason,
+      }),
+      (async () => {
+        const lead = appointment.assessmentId
+          ? await prisma.leadSubmission.findFirst({ where: { assessmentId: appointment.assessmentId }, select: { id: true } })
+          : null
+        await notifyAttorneyInApp({
+          attorneyId: appointment.attorneyId,
+          assessmentId: appointment.assessmentId || null,
+          eventType: ATTORNEY_EVENTS.consult_cancelled,
+          subject: 'Consult cancelled',
+          body: `The plaintiff cancelled the consultation scheduled for ${whenLabel}. Reason: ${cancelReason}`,
+          leadId: lead?.id || null,
+          link: lead?.id ? `/attorney-dashboard/cases/${lead.id}/overview` : undefined,
+          payload: { appointmentId: appointment.id, cancellationReason: cancelReason },
+        })
+      })(),
     ])
 
     res.status(204).send()

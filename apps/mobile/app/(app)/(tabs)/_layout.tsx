@@ -5,12 +5,14 @@ import { Ionicons } from '@expo/vector-icons'
 import { colors, shadows, space } from '../../../src/theme/tokens'
 import { useAttorneyDashboardData } from '../../../src/contexts/AttorneyDashboardContext'
 import { useAuth } from '../../../src/contexts/AuthContext'
+import { tMobile } from '../../../src/i18n/messages'
 
 export default function TabsLayout() {
-  const { user } = useAuth()
+  const { user, preferredLanguage } = useAuth()
   const isAttorney = user?.role !== 'plaintiff'
   const { data, refresh } = useAttorneyDashboardData()
   const msgUnread = data?.messagingSummary?.unreadCount || 0
+  const accountTitle = tMobile(preferredLanguage, 'myProfile')
 
   useEffect(() => {
     if (!isAttorney) {
@@ -111,7 +113,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="account"
         options={{
-          title: 'Account',
+          title: accountTitle,
           tabBarIcon: ({ color, size }) => <Ionicons name="person-circle-outline" size={size} color={color} />,
         }}
       />

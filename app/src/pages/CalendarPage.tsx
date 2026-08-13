@@ -870,10 +870,15 @@ function ConsultDetailPanel({
   }
 
   const doCancel = async () => {
+    const reason = cancelReason.trim()
+    if (!reason) {
+      setCancelError('Please enter a reason for cancelling.')
+      return
+    }
     setCancelling(true)
     setCancelError(null)
     try {
-      await cancelAttorneyAppointment(appointmentId, cancelReason.trim() || undefined)
+      await cancelAttorneyAppointment(appointmentId, reason)
       onCancelled()
     } catch (err: any) {
       setCancelError(err?.response?.data?.error || 'Could not cancel this consultation.')
@@ -1077,12 +1082,18 @@ function ConsultDetailPanel({
           {alreadyCancelled ? null : confirmCancel ? (
             <div className="rounded-lg border border-rose-200 bg-rose-50 p-3">
               <p className="text-sm font-semibold text-rose-800">Cancel this consultation?</p>
-              <p className="mt-0.5 text-xs text-rose-700">The plaintiff will be emailed and notified in their dashboard.</p>
-              <input
+              <p className="mt-0.5 text-xs text-rose-700">The plaintiff will be emailed and notified in their dashboard with your reason.</p>
+              <label className="mt-2 block text-xs font-medium text-rose-800" htmlFor="attorney-cancel-reason">
+                Why are you cancelling?
+              </label>
+              <textarea
+                id="attorney-cancel-reason"
                 value={cancelReason}
                 onChange={(e) => setCancelReason(e.target.value)}
-                placeholder="Reason (optional, shared with the plaintiff)"
-                className="mt-2 w-full rounded-lg border border-rose-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-300/40"
+                rows={3}
+                maxLength={500}
+                placeholder="Reason (required, shared with the plaintiff)"
+                className="mt-1 w-full rounded-lg border border-rose-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-300/40"
               />
               {cancelError ? <p className="mt-2 text-xs font-medium text-rose-700">{cancelError}</p> : null}
               <div className="mt-2.5 flex gap-2">
@@ -1095,7 +1106,7 @@ function ConsultDetailPanel({
                 </button>
                 <button
                   onClick={doCancel}
-                  disabled={cancelling}
+                  disabled={cancelling || !cancelReason.trim()}
                   className="flex-1 rounded-lg bg-rose-600 px-3 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-rose-700 disabled:opacity-60"
                 >
                   {cancelling ? 'Cancelling…' : 'Cancel consult'}

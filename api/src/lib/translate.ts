@@ -108,17 +108,25 @@ export async function translateToEnglish(text: string): Promise<string> {
 
 /**
  * Get plaintiff's preferred language from request.
- * Checks: User.preferredLanguage, X-Language header, Accept-Language header.
+ * Prefer X-Language (active UI language on web/mobile) over the stored account
+ * preference so chat translation matches what the user currently selected —
+ * the DB field can lag or stay at the default `en`.
  */
 export function getPlaintiffLanguage(req: {
   headers?: Record<string, string | string[] | undefined>
   user?: { preferredLanguage?: string | null }
 }): SupportedLanguage {
-  if (req.user?.preferredLanguage) return normalizeLanguageCode(req.user.preferredLanguage)
-
   const xLang = req.headers?.['x-language']
-  if (xLang && typeof xLang === 'string') return normalizeLanguageCode(xLang)
-  if (Array.isArray(xLang) && xLang[0]) return normalizeLanguageCode(xLang[0])
+  if (xLang && typeof xLang === 'string' && xLang.trim()) {
+    return normalizeLanguageCode(xLang)
+  }
+  if (Array.isArray(xLang) && xLang[0]) {
+    return normalizeLanguageCode(xLang[0])
+  }
+
+  if (req.user?.preferredLanguage) {
+    return normalizeLanguageCode(req.user.preferredLanguage)
+  }
 
   const acceptLang = req.headers?.['accept-language']
   if (acceptLang && typeof acceptLang === 'string') {

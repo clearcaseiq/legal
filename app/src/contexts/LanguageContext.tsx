@@ -62,6 +62,9 @@ export function LanguageProvider({
 
   const setLanguage = useCallback((nextLanguage: LanguageCode) => {
     setLanguageState(nextLanguage)
+    // Persist immediately so API requests (chat translation via X-Language)
+    // see the new language without waiting for the effect below.
+    setStoredLanguage(nextLanguage)
     // Logged-in plaintiffs persist preferred language on the account so email /
     // chat translation can use it even when they aren't actively browsing.
     if (hasValidAuthToken() && getStoredRole() === 'plaintiff') {

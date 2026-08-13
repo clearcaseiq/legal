@@ -10,6 +10,7 @@ import {
   Platform,
   ActivityIndicator,
   ScrollView,
+  Image,
 } from 'react-native'
 import { useLocalSearchParams, useFocusEffect } from 'expo-router'
 import * as Haptics from 'expo-haptics'
@@ -21,6 +22,8 @@ import {
   getPlaintiffChatMessages,
   markPlaintiffChatRead,
   markChatRead,
+  toAbsoluteApiUrl,
+  type ChatParticipants,
 } from '../../../src/lib/api'
 import { runOrQueue } from '../../../src/lib/offlineQueue'
 import { useAuth } from '../../../src/contexts/AuthContext'
@@ -30,9 +33,12 @@ import { ScreenState } from '../../../src/components/ScreenState'
 import { getAllQuickReplies, saveCustomQuickReply, type QuickReply } from '../../../src/lib/quickReplies'
 import { colors, radii, space, shadows } from '../../../src/theme/tokens'
 
+const CHAT_MESSAGE_MAX_LENGTH = 2000
+
 type Msg = {
   id: string
   content: string
+  contentTranslated?: string | null
   senderType: string
   createdAt: string
   pending?: boolean
@@ -56,6 +62,7 @@ export default function ChatThreadScreen() {
   const insets = useSafeAreaInsets()
   const { refresh: refreshDashboard } = useAttorneyDashboardData()
   const [messages, setMessages] = useState<Msg[]>([])
+  const [participants, setParticipants] = useState<ChatParticipants | null>(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [sending, setSending] = useState(false)
@@ -64,6 +71,22 @@ export default function ChatThreadScreen() {
   const [quickReplies, setQuickReplies] = useState<QuickReply[]>([])
   const [savedHint, setSavedHint] = useState(false)
   const listRef = useRef<FlatList>(null)
+
+  const myAvatarUri = (() => {
+    const raw = isAttorney
+      ? participants?.attorney?.photoUrl
+      : participants?.plaintiff?.avatar || user?.avatar
+    return raw ? toAbsoluteApiUrl(raw) : null
+  })()
+  const theirAvatarUri = (() => {
+    const raw = isAttorney
+      ? participants?.plaintiff?.avatar
+      : participants?.attorney?.photoUrl
+    return raw ? toAbsoluteApiUrl(raw) : null
+  })()
+  const theirName = isAttorney
+    ? participants?.plaintiff?.name || 'Client'
+    : participants?.attorney?.name || 'Attorney'
 
   useEffect(() => {
     if (!isAttorney) return
@@ -84,7 +107,10 @@ export default function ChatThreadScreen() {
     const silent = opts?.silent === true
     try {
       if (!silent) setLoadError(null)
-      const rows = isAttorney ? await getChatMessages(roomId) : await getPlaintiffChatMessages(roomId)
+      const { messages: rows, participants: nextParticipants } = isAttorney
+        ? await getChatMessages(roomId)
+        : await getPlaintiffChatMessages(roomId)
+      if (nextParticipants) setParticipants(nextParticipants)
       const serverRows = Array.isArray(rows) ? (rows as Msg[]) : []
       setMessages((prev) => mergeMessages(serverRows, prev))
       // Marking read + dashboard refresh only on explicit (non-poll) loads to avoid churn.
@@ -213,10 +239,32 @@ export default function ChatThreadScreen() {
         }}
         renderItem={({ item }) => {
           const mine = isAttorney ? item.senderType === 'attorney' : item.senderType === 'user'
+          const translated =
+            !mine &&
+            typeof item.contentTranslated === 'string' &&
+            item.contentTranslated.trim() &&
+            item.contentTranslated.trim() !== item.content.trim()
+              ? item.contentTranslated.trim()
+              : null
+          const avatarUri = mine ? myAvatarUri : theirAvatarUri
+          const avatarName = mine
+            ? isAttorney
+              ? participants?.attorney?.name || 'You'
+              : `${user?.firstName || ''} ${user?.lastName || ''}`.trim() || 'You'
+            : theirName
           return (
             <View style={[styles.bubbleRow, mine ? styles.bubbleRowMine : styles.bubbleRowThem]}>
+              {!mine ? <ChatFace uri={avatarUri} name={avatarName} /> : null}
               <View style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleThem]}>
-                <Text style={[styles.bubbleText, mine && styles.bubbleTextMine]}>{item.content}</Text>
+                <Text style={[styles.bubbleText, mine && styles.bubbleTextMine]}>
+                  {translated || item.content}
+                </Text>
+                {translated ? (
+                  <>
+                    <Text style={[styles.originalLabel, mine && styles.timeMine]}>Original</Text>
+                    <Text style={[styles.originalText, mine && styles.timeMine]}>{item.content}</Text>
+                  </>
+                ) : null}
                 <Text style={[styles.time, mine && styles.timeMine]}>
                   {item.pending
                     ? 'Sending…'
@@ -228,6 +276,7 @@ export default function ChatThreadScreen() {
                       })}
                 </Text>
               </View>
+              {mine ? <ChatFace uri={avatarUri} name={avatarName} /> : null}
             </View>
           )
         }}
@@ -260,32 +309,65 @@ export default function ChatThreadScreen() {
           </ScrollView>
         </View>
       ) : null}
-      <View style={[styles.composer, { paddingBottom: Math.max(insets.bottom, space.md) }]}>
-        <TextInput
-          style={styles.input}
-          placeholder={isAttorney ? 'Message…' : 'Reply to your attorney…'}
-          placeholderTextColor={colors.muted}
-          value={draft}
-          onChangeText={setDraft}
-          multiline
-          maxLength={2000}
-        />
-        <TouchableOpacity
-          style={[styles.sendBtn, (!draft.trim() || sending) && styles.sendBtnOff]}
-          onPress={onSend}
-          disabled={!draft.trim() || sending}
-          accessibilityRole="button"
-          accessibilityLabel="Send message"
-          accessibilityState={{ disabled: !draft.trim() || sending }}
+      <View style={[styles.composerWrap, { paddingBottom: Math.max(insets.bottom, space.md) }]}>
+        <View style={styles.composer}>
+          <TextInput
+            style={styles.input}
+            placeholder={isAttorney ? 'Message…' : 'Reply to your attorney…'}
+            placeholderTextColor={colors.muted}
+            value={draft}
+            onChangeText={(text) => setDraft(text.slice(0, CHAT_MESSAGE_MAX_LENGTH))}
+            multiline
+            maxLength={CHAT_MESSAGE_MAX_LENGTH}
+          />
+          <TouchableOpacity
+            style={[styles.sendBtn, (!draft.trim() || sending) && styles.sendBtnOff]}
+            onPress={onSend}
+            disabled={!draft.trim() || sending}
+            accessibilityRole="button"
+            accessibilityLabel="Send message"
+            accessibilityState={{ disabled: !draft.trim() || sending }}
+          >
+            {sending ? (
+              <ActivityIndicator color="#fff" size="small" />
+            ) : (
+              <Ionicons name="send" size={22} color="#fff" />
+            )}
+          </TouchableOpacity>
+        </View>
+        <Text
+          style={[
+            styles.charCount,
+            draft.length >= CHAT_MESSAGE_MAX_LENGTH
+              ? styles.charCountLimit
+              : draft.length >= CHAT_MESSAGE_MAX_LENGTH * 0.9
+                ? styles.charCountWarn
+                : null,
+          ]}
+          accessibilityLiveRegion="polite"
         >
-          {sending ? (
-            <ActivityIndicator color="#fff" size="small" />
-          ) : (
-            <Ionicons name="send" size={22} color="#fff" />
-          )}
-        </TouchableOpacity>
+          {draft.length} / {CHAT_MESSAGE_MAX_LENGTH}
+        </Text>
       </View>
     </KeyboardAvoidingView>
+  )
+}
+
+function initials(name?: string | null) {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return '?'
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
+  return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase()
+}
+
+function ChatFace({ uri, name }: { uri: string | null; name: string }) {
+  if (uri) {
+    return <Image source={{ uri }} style={styles.avatar} />
+  }
+  return (
+    <View style={[styles.avatar, styles.avatarFallback]}>
+      <Text style={styles.avatarInitials}>{initials(name)}</Text>
+    </View>
   )
 }
 
@@ -293,11 +375,19 @@ const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: colors.surface },
   bannerWrap: { paddingHorizontal: space.md, paddingTop: space.sm },
   listPad: { paddingHorizontal: space.md, paddingVertical: space.sm },
-  bubbleRow: { marginBottom: space.sm, flexDirection: 'row' },
+  bubbleRow: { marginBottom: space.sm, flexDirection: 'row', alignItems: 'flex-end', gap: 8 },
   bubbleRowMine: { justifyContent: 'flex-end' },
   bubbleRowThem: { justifyContent: 'flex-start' },
+  avatar: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: colors.border,
+  },
+  avatarFallback: { alignItems: 'center', justifyContent: 'center', backgroundColor: colors.nav },
+  avatarInitials: { fontSize: 10, fontWeight: '800', color: '#fff' },
   bubble: {
-    maxWidth: '88%',
+    maxWidth: '78%',
     borderRadius: radii.lg,
     paddingHorizontal: space.md,
     paddingVertical: space.sm,
@@ -307,6 +397,18 @@ const styles = StyleSheet.create({
   bubbleThem: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
   bubbleText: { fontSize: 16, lineHeight: 22, color: colors.text },
   bubbleTextMine: { color: '#fff' },
+  originalLabel: {
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+    color: colors.textSecondary,
+  },
+  originalText: { marginTop: 2, fontSize: 13, lineHeight: 18, color: colors.textSecondary },
   time: { fontSize: 11, color: colors.textSecondary, marginTop: 6 },
   timeMine: { color: 'rgba(255,255,255,0.85)' },
   quickRow: {
@@ -331,15 +433,17 @@ const styles = StyleSheet.create({
     borderColor: colors.primary + '40',
   },
   quickChipSaveText: { fontSize: 13, fontWeight: '800', color: colors.primaryDark },
+  composerWrap: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+    backgroundColor: colors.card,
+    paddingHorizontal: space.md,
+    paddingTop: space.sm,
+  },
   composer: {
     flexDirection: 'row',
     alignItems: 'flex-end',
     gap: space.sm,
-    paddingHorizontal: space.md,
-    paddingTop: space.sm,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-    backgroundColor: colors.card,
   },
   input: {
     flex: 1,
@@ -362,4 +466,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   sendBtnOff: { opacity: 0.45 },
+  charCount: {
+    marginTop: 6,
+    textAlign: 'right',
+    fontSize: 12,
+    fontVariant: ['tabular-nums'],
+    color: colors.textSecondary,
+  },
+  charCountWarn: { color: '#d97706', fontWeight: '700' },
+  charCountLimit: { color: colors.danger, fontWeight: '800' },
 })

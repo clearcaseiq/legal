@@ -27,6 +27,7 @@ import {
 import { getApiOrigin } from '../lib/runtimeEnv'
 import { formatSpecialty } from '../lib/constants'
 import { BackButton } from '../features/shared/ui'
+import { useLanguage } from '../contexts/LanguageContext'
 
 const DEFAULT_AVATAR = 'https://ui-avatars.com/api/?name=Attorney&background=e0f2fe&color=075985'
 
@@ -98,6 +99,7 @@ type AttorneyDashboardSnapshot = {
 }
 
 export default function AttorneyProfile() {
+  const { t } = useLanguage()
   const navigate = useNavigate()
   const [profile, setProfile] = useState<AttorneyProfile | null>(null)
   const [performance, setPerformance] = useState<AttorneyPerformance | null>(null)
@@ -434,7 +436,7 @@ export default function AttorneyProfile() {
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-extrabold text-gray-900">Attorney Profile</h1>
+          <h1 className="text-3xl font-extrabold text-gray-900">{t('common.myProfile')}</h1>
           <p className="mt-2 text-gray-600">
             Manage your professional profile and reputation
             {lastUpdatedAt ? (
@@ -456,7 +458,7 @@ export default function AttorneyProfile() {
           </button>
           <button className="btn-primary" onClick={() => navigate('/attorney-preferences')}>
             <Settings className="h-4 w-4 mr-2" />
-            Profile Settings
+            {t('common.profileSettings')}
           </button>
         </div>
       </div>

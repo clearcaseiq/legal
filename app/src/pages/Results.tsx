@@ -1045,7 +1045,9 @@ export default function Results() {
     // section instead of opening the send popup the user expects (#225).
     const hasMedicalStoryToReview = Array.isArray(medicalChronology) && medicalChronology.length > 0
     if (currentMedicalReviewStatus === 'pending' && hasMedicalStoryToReview) {
-      setMedicalReviewError('Review your treatment timeline before submitting. You can confirm it, make changes, or skip it for now.')
+      // Guide to the review card — don't paint a red "error" under it. The card
+      // already has Confirm / Upload more / I'll do this later.
+      setMedicalReviewError(null)
       openAnchoredResultsSection('#medical-story-review')
       return
     }
@@ -1665,8 +1667,9 @@ export default function Results() {
     if (!reviewRequested || autoReviewHandled || loading || !assessment || !plaintiffMedicalReview) return
     window.setTimeout(() => {
       if ((plaintiffMedicalReview.review.status ?? 'pending') === 'pending') {
+        // Scroll to the review card only — no red alert for a pending action.
+        setMedicalReviewError(null)
         medicalReviewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-        setMedicalReviewError('Please confirm your medical story or skip this step so attorneys know whether the treatment timeline is accurate.')
         return
       }
       setAutoReviewHandled(true)
@@ -2866,6 +2869,9 @@ Checklist:
     if (target === '#attorney-handoff' || target === '#medical-story-review') {
       fullReportDetailsRef.current?.setAttribute('open', '')
     }
+    // Clearing here drops any stale gate message so the review card doesn't
+    // look like it failed after we scrolled the user to it.
+    if (target === '#medical-story-review') setMedicalReviewError(null)
     setActiveResultsTab(tab)
     window.setTimeout(() => {
       document.querySelector(target)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -2876,7 +2882,7 @@ Checklist:
   // interstitial). Still honors the medical-timeline review gate.
   const proceedSendForReview = () => {
     if (medicalReviewPending) {
-      setMedicalReviewError('Review your treatment timeline before submitting. You can confirm it, make changes, or skip it for now.')
+      setMedicalReviewError(null)
       openAnchoredResultsSection('#medical-story-review')
       return
     }
@@ -2887,7 +2893,7 @@ Checklist:
     // the case report (?view=report) after submission.
     if (caseSubmittedForReview) return
     if (medicalReviewPending) {
-      setMedicalReviewError('Review your treatment timeline before submitting. You can confirm it, make changes, or skip it for now.')
+      setMedicalReviewError(null)
       openAnchoredResultsSection('#medical-story-review')
       return
     }

@@ -275,6 +275,9 @@ export default function Dashboard() {
   const [selectedScheduleSlot, setSelectedScheduleSlot] = useState<string>('')
   const [scheduleError, setScheduleError] = useState<string | null>(null)
   const [scheduleSuccess, setScheduleSuccess] = useState<string | null>(null)
+  const [cancelConsultOpen, setCancelConsultOpen] = useState(false)
+  const [cancelConsultReason, setCancelConsultReason] = useState('')
+  const [cancelConsultLoading, setCancelConsultLoading] = useState(false)
   const [prepNotes, setPrepNotes] = useState('')
   const [prepSaving, setPrepSaving] = useState(false)
   const [waitlistLoading, setWaitlistLoading] = useState(false)
@@ -881,11 +884,10 @@ export default function Dashboard() {
 
   const attorneyMatched = !!routingStatus?.attorneyMatched
   const routingLifecycle = routingStatus?.lifecycleState || (attorneyMatched ? 'attorney_matched' : submittedForReview ? 'attorney_review' : 'draft')
-  // Match the status badge: lifecycle can say consultation_scheduled even when
-  // upcomingAppointment is briefly null (past start time, clock skew, etc.).
-  const hasUpcomingConsult =
-    !!routingStatus?.upcomingAppointment ||
-    routingLifecycle === 'consultation_scheduled'
+  // Only a live SCHEDULED/CONFIRMED appointment counts. After cancel the lead
+  // lifecycle is reverted, but even if it briefly lags we must not keep the
+  // pipeline / CTAs stuck on "Consultation Scheduled".
+  const hasUpcomingConsult = !!routingStatus?.upcomingAppointment
   const caseRetained = isPlaintiffRetained({
     lifecycleState: routingLifecycle,
     leadStatus: routingStatus?.leadStatus,
@@ -1451,14 +1453,24 @@ export default function Dashboard() {
 
   const handleCancelConsultation = async () => {
     if (!routingStatus?.upcomingAppointment?.id || !activeAssessment?.id) return
+    const reason = cancelConsultReason.trim()
+    if (!reason) {
+      setScheduleError(t('plaintiffDashboard.consultation.cancelReasonRequired'))
+      return
+    }
     try {
+      setCancelConsultLoading(true)
       setScheduleError(null)
-      await cancelAppointment(routingStatus.upcomingAppointment.id)
+      await cancelAppointment(routingStatus.upcomingAppointment.id, reason)
+      setCancelConsultOpen(false)
+      setCancelConsultReason('')
       setScheduleSuccess(t('plaintiffDashboard.consultation.cancelledToast'))
       const data = await getRoutingStatus(activeAssessment.id)
       setRoutingStatus(data)
     } catch (err: any) {
       setScheduleError(err?.response?.data?.error || t('plaintiffDashboard.consultation.cancelFailed'))
+    } finally {
+      setCancelConsultLoading(false)
     }
   }
 
@@ -1751,17 +1763,22 @@ export default function Dashboard() {
             <div className="min-w-0 flex-1">
               <h1 className="font-display text-ui-2xl font-semibold text-slate-950 dark:text-slate-50">{t('plaintiffDashboard.greeting', { name: user.firstName })}</h1>
               <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-                {activeAssessment && submittedForReview
-                  ? t('plaintiffDashboard.status.inReview')
-                  : activeAssessment
-                  ? `${t('plaintiffDashboard.status.complete', { percent: docPercent })}${actionItemsCount > 0 ? ` ${t('plaintiffDashboard.status.todo', { count: actionItemsCount, items: t(actionItemsCount === 1 ? 'plaintiffDashboard.status.thing' : 'plaintiffDashboard.status.things') })}` : ''}`
-                  : t('plaintiffDashboard.status.noCase')}
+                {activeAssessment && submittedForReview ? (
+                  <>
+                    <span className="block">{t('plaintiffDashboard.status.inReviewLine1')}</span>
+                    <span className="block">{t('plaintiffDashboard.status.inReviewLine2')}</span>
+                  </>
+                ) : activeAssessment ? (
+                  `${t('plaintiffDashboard.status.complete', { percent: docPercent })}${actionItemsCount > 0 ? ` ${t('plaintiffDashboard.status.todo', { count: actionItemsCount, items: t(actionItemsCount === 1 ? 'plaintiffDashboard.status.thing' : 'plaintiffDashboard.status.things') })}` : ''}`
+                ) : (
+                  t('plaintiffDashboard.status.noCase')
+                )}
               </p>
               {assessments.length > 1 && activeAssessment && (
                 <div className="mt-3 max-w-md">
                   <label
                     htmlFor="plaintiff-case-switcher"
-                    className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
+                    className="mb-1 block text-sm font-bold text-slate-800 dark:text-slate-200"
                   >
                     {t('plaintiffDashboard.caseSwitcher.label')}
                   </label>
@@ -2119,23 +2136,82 @@ export default function Dashboard() {
                             </button>
                             <button
                               type="button"
-                              onClick={handleCancelConsultation}
+                              onClick={() => {
+                                setCancelConsultOpen(true)
+                                setCancelConsultReason('')
+                                setScheduleError(null)
+                              }}
                               className="inline-flex items-center justify-center rounded-lg border border-red-600 bg-red-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-red-700"
                             >
                               {t('plaintiffDashboard.consultation.cancel')}
                             </button>
                           </div>
+                          {cancelConsultOpen ? (
+                            <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3">
+                              <p className="text-sm font-semibold text-red-800">
+                                {t('plaintiffDashboard.consultation.cancelConfirmTitle')}
+                              </p>
+                              <p className="mt-0.5 text-xs text-red-700">
+                                {t('plaintiffDashboard.consultation.cancelConfirmBody')}
+                              </p>
+                              <label className="mt-2 block text-xs font-medium text-red-800" htmlFor="cancel-consult-reason">
+                                {t('plaintiffDashboard.consultation.cancelReasonLabel')}
+                              </label>
+                              <textarea
+                                id="cancel-consult-reason"
+                                value={cancelConsultReason}
+                                onChange={(e) => setCancelConsultReason(e.target.value)}
+                                rows={3}
+                                maxLength={500}
+                                placeholder={t('plaintiffDashboard.consultation.cancelReasonPlaceholder')}
+                                className="mt-1 w-full rounded-lg border border-red-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-red-400 focus:outline-none focus:ring-2 focus:ring-red-300/40"
+                              />
+                              {scheduleError ? (
+                                <p className="mt-2 text-xs font-medium text-red-700">{scheduleError}</p>
+                              ) : null}
+                              <div className="mt-2.5 flex gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setCancelConsultOpen(false)
+                                    setCancelConsultReason('')
+                                    setScheduleError(null)
+                                  }}
+                                  disabled={cancelConsultLoading}
+                                  className="flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                                >
+                                  {t('plaintiffDashboard.consultation.cancelKeep')}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={handleCancelConsultation}
+                                  disabled={cancelConsultLoading || !cancelConsultReason.trim()}
+                                  className="flex-1 rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+                                >
+                                  {cancelConsultLoading
+                                    ? t('plaintiffDashboard.consultation.cancelling')
+                                    : t('plaintiffDashboard.consultation.cancelConfirm')}
+                                </button>
+                              </div>
+                            </div>
+                          ) : null}
                         </div>
                       ) : (
                         <div className="flex h-full flex-col rounded-xl border border-gray-200 bg-white p-5">
                           <h3 className="mb-3 flex items-center gap-2 text-lg font-bold text-gray-900">
                             <Calendar className="h-6 w-6 text-emerald-600" aria-hidden />
-                            {t('plaintiffDashboard.consultation.scheduleAgainTitle')}
+                            {routingStatus?.hadPriorConsultation
+                              ? t('plaintiffDashboard.consultation.scheduleAgainTitle')
+                              : t('plaintiffDashboard.consultation.schedule')}
                           </h3>
                           <p className="mb-2 text-sm text-gray-600">
-                            {t('plaintiffDashboard.consultation.scheduleAgainBody', {
-                              name: routingStatus?.attorneyMatched?.name || t('plaintiffDashboard.actionCenter.yourAttorney'),
-                            })}
+                            {routingStatus?.hadPriorConsultation
+                              ? t('plaintiffDashboard.consultation.scheduleAgainBody', {
+                                  name: routingStatus?.attorneyMatched?.name || t('plaintiffDashboard.actionCenter.yourAttorney'),
+                                })
+                              : t('plaintiffDashboard.consultation.bookCallWith', {
+                                  name: routingStatus?.attorneyMatched?.name || t('plaintiffDashboard.actionCenter.yourAttorney'),
+                                })}
                           </p>
                           {scheduleSuccess && (
                             <p className="mb-3 text-sm font-medium text-emerald-700">{scheduleSuccess}</p>
@@ -2149,7 +2225,9 @@ export default function Dashboard() {
                             className="mt-auto inline-flex w-fit items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 font-medium text-white hover:bg-emerald-700"
                           >
                             <Calendar className="h-4 w-4" aria-hidden />
-                            {t('plaintiffDashboard.consultation.scheduleAgainCta')}
+                            {routingStatus?.hadPriorConsultation
+                              ? t('plaintiffDashboard.consultation.scheduleAgainCta')
+                              : t('plaintiffDashboard.consultation.scheduleCta')}
                           </button>
                         </div>
                       )}

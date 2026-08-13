@@ -34,6 +34,7 @@ import { useAttorneyProfileLicense } from '../hooks/useAttorneyProfileLicense'
 import { useAttorneyTaskWorkflow } from '../hooks/useAttorneyTaskWorkflow'
 import { invalidateAttorneyDashboardSummary } from '../hooks/useAttorneyDashboardSummary'
 import { invalidateFirmDashboardSummary, loadFirmDashboardSummary } from '../hooks/useFirmDashboardSummary'
+import { useLanguage } from '../contexts/LanguageContext'
 
 const loadAttorneyDashboardAnalyticsTab = () => import('../components/AttorneyDashboardAnalyticsTab')
 const loadAttorneyDashboardDeferredInlineWorkstream = () => import('../components/AttorneyDashboardDeferredInlineWorkstream')
@@ -350,6 +351,7 @@ export interface AttorneyDashboardProps {
 }
 
 export default function AttorneyDashboardShell({ chromeless = false, initialView }: AttorneyDashboardProps = {}) {
+  const { t } = useLanguage()
   const navigate = useNavigate()
   const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -3138,7 +3140,7 @@ export default function AttorneyDashboardShell({ chromeless = false, initialView
                 onClick={() => navigate('/attorney-profile')}
                 className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
               >
-                My Profile
+                {t('common.myProfile')}
               </button>
             </div>
           </div>

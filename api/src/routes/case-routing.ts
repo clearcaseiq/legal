@@ -366,6 +366,28 @@ router.get('/assessment/:id/status', authMiddleware, async (req: AuthRequest, re
         }
       : null
 
+    // True when the plaintiff has already had a consult on this case that ended
+    // or was cancelled — drives "Schedule Again" vs first-time "Schedule" copy.
+    const hadPriorConsultation = Boolean(
+      await prisma.appointment
+        .findFirst({
+          where: {
+            assessmentId,
+            ...(assessment.userId ? { userId: assessment.userId } : {}),
+            OR: [
+              { status: { in: ['CANCELLED', 'COMPLETED', 'NO_SHOW'] } },
+              {
+                status: { in: ['SCHEDULED', 'CONFIRMED'] },
+                scheduledAt: { lt: new Date() },
+                ...(appointmentRecord ? { id: { not: appointmentRecord.id } } : {}),
+              },
+            ],
+          },
+          select: { id: true },
+        })
+        .catch(() => null),
+    )
+
     const yearsExperience = yearsExperienceRecord?.yearsExperience ?? null
 
     let statusMessage = 'Case submitted for review.'
@@ -515,6 +537,7 @@ router.get('/assessment/:id/status', authMiddleware, async (req: AuthRequest, re
       attorneyActivity,
       caseMessages,
       upcomingAppointment,
+      hadPriorConsultation,
       reviewEligible,
       existingReview: existingReview
         ? {

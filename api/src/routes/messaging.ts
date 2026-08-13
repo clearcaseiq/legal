@@ -15,6 +15,44 @@ import { decorateMessagesForReader } from '../lib/messaging-translate'
 
 const router = Router()
 
+const attorneyChatSelect = {
+  id: true,
+  name: true,
+  email: true,
+  phone: true,
+  bookingSlug: true,
+  attorneyProfile: { select: { photoUrl: true } },
+} as const
+
+function mapAttorneyForChat(attorney: {
+  id: string
+  name: string
+  email: string
+  phone?: string | null
+  bookingSlug?: string | null
+  profile?: string | null
+  attorneyProfile?: { photoUrl?: string | null } | null
+} | null) {
+  if (!attorney) return null
+  let profile: unknown = null
+  if (attorney.profile) {
+    try {
+      profile = JSON.parse(attorney.profile)
+    } catch {
+      profile = null
+    }
+  }
+  return {
+    id: attorney.id,
+    name: attorney.name,
+    email: attorney.email,
+    phone: attorney.phone ?? null,
+    bookingSlug: attorney.bookingSlug ?? null,
+    photoUrl: attorney.attorneyProfile?.photoUrl || null,
+    profile,
+  }
+}
+
 const MessageCreate = z
   .object({
     chatRoomId: z.string().optional(),
@@ -75,13 +113,7 @@ router.post(
           take: 20
         },
         attorney: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            phone: true,
-            bookingSlug: true
-          }
+          select: attorneyChatSelect,
         },
         assessment: {
           select: {
@@ -103,13 +135,7 @@ router.post(
         include: {
           messages: true,
           attorney: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              phone: true,
-              bookingSlug: true
-            }
+            select: attorneyChatSelect,
           },
           assessment: {
             select: {
@@ -131,7 +157,7 @@ router.post(
 
     res.json({
       chatRoomId: chatRoom.id,
-      attorney: chatRoom.attorney,
+      attorney: mapAttorneyForChat(chatRoom.attorney),
       assessment: chatRoom.assessment,
       messages,
       status: chatRoom.status,
@@ -152,12 +178,8 @@ router.get('/chat-rooms', authMiddleware, async (req: AuthRequest, res) => {
       include: {
         attorney: {
           select: {
-            id: true,
-            name: true,
-            email: true,
-            phone: true,
-            bookingSlug: true,
-            profile: true
+            ...attorneyChatSelect,
+            profile: true,
           }
         },
         assessment: {
@@ -177,13 +199,9 @@ router.get('/chat-rooms', authMiddleware, async (req: AuthRequest, res) => {
       orderBy: [{ lastMessageAt: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }]
     })
 
-    // Parse profile JSON for attorneys
-    let parsedChatRooms = chatRooms.map(room => ({
+    const parsedChatRooms = chatRooms.map((room) => ({
       ...room,
-      attorney: {
-        ...room.attorney,
-        profile: room.attorney.profile ? JSON.parse(room.attorney.profile) : null
-      }
+      attorney: mapAttorneyForChat(room.attorney),
     }))
 
     // CP-572: keep original last-message previews (no auto-translate).
@@ -265,7 +283,7 @@ router.get('/attorney/unread-summary', authMiddleware, async (req: AuthRequest, 
     const chatRooms = await prisma.chatRoom.findMany({
       where: { attorneyId: attorney.id },
       include: {
-        user: { select: { id: true, firstName: true, lastName: true, email: true } },
+        user: { select: { id: true, firstName: true, lastName: true, email: true, avatar: true } },
         assessment: { select: { id: true, claimType: true, venueState: true } },
         messages: { orderBy: { createdAt: 'desc' }, take: 1 },
       },
@@ -309,6 +327,7 @@ router.get('/attorney/unread-summary', authMiddleware, async (req: AuthRequest, 
               id: room.user.id,
               name: `${room.user.firstName || ''} ${room.user.lastName || ''}`.trim() || 'Plaintiff',
               email: room.user.email,
+              avatar: room.user.avatar || null,
             }
           : null
         return {
@@ -467,7 +486,18 @@ router.get('/chat-room/:chatRoomId/messages', authMiddleware, async (req: AuthRe
       where: {
         id: chatRoomId,
         userId: req.user!.id
-      }
+      },
+      select: {
+        id: true,
+        attorney: {
+          select: {
+            id: true,
+            name: true,
+            attorneyProfile: { select: { photoUrl: true } },
+          },
+        },
+        user: { select: { avatar: true, firstName: true, lastName: true } },
+      },
     })
 
     if (!chatRoom) {
@@ -487,7 +517,21 @@ router.get('/chat-room/:chatRoomId/messages', authMiddleware, async (req: AuthRe
     // CP-572: keep original `content`; attach contentTranslated for the reader.
     const readerLang = getPlaintiffLanguage(req)
     const decorated = await decorateMessagesForReader(messages, readerLang, 'user')
-    res.json(decorated)
+    res.json({
+      messages: decorated,
+      participants: {
+        plaintiff: {
+          avatar: chatRoom.user?.avatar || null,
+          name:
+            `${chatRoom.user?.firstName || ''} ${chatRoom.user?.lastName || ''}`.trim() ||
+            'Plaintiff',
+        },
+        attorney: {
+          photoUrl: chatRoom.attorney?.attorneyProfile?.photoUrl || null,
+          name: chatRoom.attorney?.name || null,
+        },
+      },
+    })
   } catch (error) {
     logger.error('Failed to get messages', { error, chatRoomId: req.params.chatRoomId })
     res.status(500).json({ error: 'Internal server error' })

@@ -4,6 +4,7 @@ import { deliverDirectNotification } from './platform-notifications'
 import { parseEventReminders } from './calendar-reminders'
 import { webUrl } from './app-url'
 import { formatInSchedulingTimezone, resolveSchedulingTimezone } from './scheduling-timezone'
+import { recordRoutingEvent } from './routing-lifecycle'
 
 const DEFAULT_REMINDER_SCHEDULE = [
   { key: 'upcoming_24h', minutesBefore: 24 * 60, lead: 'in about 24 hours' },
@@ -185,6 +186,7 @@ export async function notifyAppointmentEvent(params: {
   assessmentId?: string | null
   type: 'scheduled' | 'rescheduled' | 'cancelled' | 'earlier_slot'
   scheduledAt?: Date
+  cancellationReason?: string | null
 }) {
   const [user, attorney] = await Promise.all([
     prisma.user.findUnique({
@@ -213,10 +215,14 @@ export async function notifyAppointmentEvent(params: {
     cancelled: 'Consultation cancelled',
     earlier_slot: 'Earlier consultation slot available',
   } as const
+  const reason =
+    typeof params.cancellationReason === 'string' && params.cancellationReason.trim()
+      ? params.cancellationReason.trim()
+      : null
   const messageMap = {
     scheduled: `Your consultation with ${attorney.name} is booked${when ? ` for ${when}` : ''}.`,
     rescheduled: `Your consultation with ${attorney.name} was updated${when ? ` to ${when}` : ''}.`,
-    cancelled: `Your consultation with ${attorney.name} was cancelled.`,
+    cancelled: `Your consultation with ${attorney.name} was cancelled.${reason ? ` Reason: ${reason}` : ''}`,
     earlier_slot: `An earlier consultation slot with ${attorney.name} is now available${when ? ` at ${when}` : ''}.`,
   } as const
 
@@ -231,8 +237,77 @@ export async function notifyAppointmentEvent(params: {
       attorneyId: params.attorneyId,
       eventType: params.type,
       scheduledAt: params.scheduledAt?.toISOString?.() || null,
+      cancellationReason: reason,
     },
   })
+}
+
+/** Normalize a required cancel reason from request body. */
+export function parseCancellationReason(raw: unknown): { ok: true; reason: string } | { ok: false; error: string } {
+  if (typeof raw !== 'string' || !raw.trim()) {
+    return { ok: false, error: 'A cancellation reason is required' }
+  }
+  const reason = raw.trim().slice(0, 500)
+  return { ok: true, reason }
+}
+
+/**
+ * After the last upcoming consult for a case is cancelled, move the lead off
+ * "Consultation Scheduled" so plaintiff/attorney status returns to Accepted
+ * (attorney matched, ready to schedule again). Retained/engaged cases are left alone.
+ */
+export async function syncLeadStatusAfterConsultCancelled(params: {
+  assessmentId?: string | null
+  cancelledAppointmentId: string
+  attorneyId?: string | null
+  reason?: string | null
+}): Promise<boolean> {
+  const assessmentId = params.assessmentId
+  if (!assessmentId) return false
+
+  try {
+    const otherActive = await prisma.appointment.count({
+      where: {
+        assessmentId,
+        id: { not: params.cancelledAppointmentId },
+        status: { in: ['SCHEDULED', 'CONFIRMED'] },
+      },
+    })
+    if (otherActive > 0) return false
+
+    const lead = await prisma.leadSubmission.findFirst({
+      where: { assessmentId },
+      select: { id: true, status: true, lifecycleState: true },
+    })
+    if (!lead) return false
+
+    const status = String(lead.status || '').toLowerCase()
+    const lifecycle = String(lead.lifecycleState || '')
+    if (status === 'retained' || lifecycle === 'engaged' || lifecycle === 'closed') return false
+    if (lifecycle !== 'consultation_scheduled' && status !== 'consulted') return false
+
+    await prisma.leadSubmission.update({
+      where: { id: lead.id },
+      data: {
+        ...(status === 'consulted' ? { status: 'contacted' } : {}),
+        lifecycleState: 'attorney_matched',
+      },
+    })
+
+    await recordRoutingEvent(assessmentId, null, params.attorneyId || null, 'consultation_cancelled', {
+      appointmentId: params.cancelledAppointmentId,
+      reason: params.reason || null,
+    })
+
+    return true
+  } catch (error) {
+    logger.warn('Failed to sync lead status after consult cancel', {
+      assessmentId,
+      appointmentId: params.cancelledAppointmentId,
+      error: (error as Error).message,
+    })
+    return false
+  }
 }
 
 export async function joinAppointmentWaitlist(params: {

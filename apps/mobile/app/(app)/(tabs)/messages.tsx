@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   RefreshControl,
+  Image,
 } from 'react-native'
 import { router, useFocusEffect } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
@@ -16,6 +17,7 @@ import {
   getPlaintiffCaseDashboard,
   getPlaintiffChatRooms,
   getPlaintiffDocumentRequests,
+  toAbsoluteApiUrl,
   type AttorneyChatRoom,
   type PlaintiffChatRoom,
   type PlaintiffDocumentRequestRow,
@@ -71,11 +73,21 @@ function AttorneyMessagesScreen() {
     const name = item.plaintiff?.name || 'Plaintiff'
     const preview = item.lastMessage?.content || 'No messages yet'
     const unread = item.unreadCount || 0
+    const avatarUri = item.plaintiff?.avatar ? toAbsoluteApiUrl(item.plaintiff.avatar) : null
 
     return (
       <TouchableOpacity style={styles.card} onPress={() => openRoom(item)} activeOpacity={0.88}>
         <View style={styles.cardTop}>
-          <Text style={styles.name}>{name}</Text>
+          <View style={styles.nameRow}>
+            {avatarUri ? (
+              <Image source={{ uri: avatarUri }} style={styles.listAvatar} />
+            ) : (
+              <View style={[styles.listAvatar, styles.listAvatarFallback]}>
+                <Ionicons name="person" size={14} color="#fff" />
+              </View>
+            )}
+            <Text style={styles.name}>{name}</Text>
+          </View>
           {unread > 0 ? (
             <View style={styles.badge}>
               <Text style={styles.badgeText}>{unread > 99 ? '99+' : unread}</Text>
@@ -229,11 +241,21 @@ function PlaintiffMessagesScreen() {
           const name = item.attorney?.name || 'Your attorney'
           const preview = item.messages?.[0]?.content || 'Your attorney can message you here about the next case step.'
           const isUnread = item.messages?.[0]?.senderType === 'attorney' && !item.messages?.[0]?.isRead
+          const avatarUri = item.attorney?.photoUrl ? toAbsoluteApiUrl(item.attorney.photoUrl) : null
 
           return (
             <TouchableOpacity style={styles.card} onPress={() => router.push(`/(app)/chat/${item.id}`)} activeOpacity={0.88}>
               <View style={styles.cardTop}>
-                <Text style={styles.name}>{name}</Text>
+                <View style={styles.nameRow}>
+                  {avatarUri ? (
+                    <Image source={{ uri: avatarUri }} style={styles.listAvatar} />
+                  ) : (
+                    <View style={[styles.listAvatar, styles.listAvatarFallback]}>
+                      <Ionicons name="person" size={14} color="#fff" />
+                    </View>
+                  )}
+                  <Text style={styles.name}>{name}</Text>
+                </View>
                 {isUnread ? (
                   <View style={styles.badge}>
                     <Text style={styles.badgeText}>Update</Text>
@@ -316,6 +338,9 @@ const styles = StyleSheet.create({
     ...shadows.card,
   },
   cardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  nameRow: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, minWidth: 0 },
+  listAvatar: { width: 32, height: 32, borderRadius: 16, backgroundColor: colors.border },
+  listAvatarFallback: { alignItems: 'center', justifyContent: 'center', backgroundColor: colors.nav },
   name: { fontSize: 18, fontWeight: '700', color: colors.text, flex: 1 },
   badge: {
     minWidth: 26,

@@ -173,6 +173,14 @@
     "menu": "Menú",
     "logout": "Cerrar sesión",
     "profile": "Perfil",
+    "myProfile": "Mi perfil",
+    "profileSettings": "Configuración del perfil",
+    "uploadPhoto": "Subir foto",
+    "changePhoto": "Cambiar foto",
+    "removePhoto": "Eliminar foto",
+    "uploadingPhoto": "Subiendo...",
+    "photoUpdated": "Foto de perfil actualizada.",
+    "photoRemoved": "Foto de perfil eliminada.",
     "dashboard": "Panel",
     "myCase": "Mi caso",
     "myCases": "Mis casos",
@@ -3977,7 +3985,7 @@
     "greeting": "Hola {name}",
     "caseStatus": "Estado del caso",
     "caseSwitcher": {
-      "label": "Caso en vista",
+      "label": "Lista de casos",
       "hint": "Tienes {count} casos — elige uno para ver su estado."
     },
     "tabs": {
@@ -3991,6 +3999,8 @@
     },
     "status": {
       "inReview": "Tu caso está en revisión por un abogado. Te enviaremos un correo en cuanto un abogado responda.",
+      "inReviewLine1": "Tu caso está en revisión por un abogado.",
+      "inReviewLine2": "Te enviaremos un correo en cuanto un abogado responda.",
       "complete": "Tu caso está {percent}% completo.",
       "todo": "Tienes {count} {items} por hacer para fortalecer tu caso.",
       "thing": "tarea",
@@ -4096,12 +4106,22 @@
       "reschedule": "Reprogramar",
       "cancel": "Cancelar",
       "schedule": "Programar consulta",
+      "scheduleCta": "Programar",
       "bookCall": "Reserva una llamada con tu abogado para hablar sobre tu caso.",
+      "bookCallWith": "Reserva una llamada con {name} para hablar sobre tu caso.",
       "scheduleAgainTitle": "Programar consulta",
       "scheduleAgainBody": "Reserva una llamada con {name} para hablar de tu caso, o elige un nuevo horario después de una cancelación.",
       "scheduleAgainCta": "Volver a programar",
       "cancelledToast": "Consulta cancelada. Puedes programar un nuevo horario abajo.",
-      "cancelFailed": "No se pudo cancelar la consulta."
+      "cancelFailed": "No se pudo cancelar la consulta.",
+      "cancelConfirmTitle": "¿Cancelar esta consulta?",
+      "cancelConfirmBody": "Tu abogado será notificado con el motivo que indiques.",
+      "cancelReasonLabel": "¿Por qué cancelas?",
+      "cancelReasonPlaceholder": "Indica un breve motivo (obligatorio)",
+      "cancelReasonRequired": "Por favor, indica un motivo de cancelación.",
+      "cancelKeep": "Mantener",
+      "cancelConfirm": "Cancelar consulta",
+      "cancelling": "Cancelando…"
     },
     "emailVerification": {
       "pending": "La verificación del correo está pendiente. Algunas acciones seguras pueden requerir verificación más adelante.",
@@ -4879,6 +4899,7 @@
   "messagingPage": {
     "loading": "Cargando mensajes...",
     "title": "Mensajes",
+    "backToList": "Volver a conversaciones",
     "aiAssistant": "Asistente de IA",
     "searchPlaceholder": "Buscar conversaciones...",
     "noConversations": "Aún no hay conversaciones",
@@ -4894,6 +4915,7 @@
     "reviewingCase": "{name} está revisando su caso.",
     "willReceive": "Recibirá un mensaje cuando un abogado responda.",
     "composerPlaceholder": "Escriba un mensaje… (Mayús+Enter para una nueva línea)",
+    "characterCount": "{current} / {max}",
     "selectConversation": "Seleccione una conversación",
     "selectConversationHint": "Elija una conversación de la barra lateral para comenzar a enviar mensajes",
     "askAnything": "¡Pregúnteme lo que quiera sobre su caso legal!",

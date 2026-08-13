@@ -1,31 +1,57 @@
 import { useCallback, useState } from 'react'
-import { View, Text, TouchableOpacity, StyleSheet, Modal, ActivityIndicator, Linking, ScrollView } from 'react-native'
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  Modal,
+  ActivityIndicator,
+  Linking,
+  ScrollView,
+  Image,
+  Alert,
+} from 'react-native'
 import { useFocusEffect } from 'expo-router'
 import { router } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import * as Haptics from 'expo-haptics'
+import * as ImagePicker from 'expo-image-picker'
 import { useAuth } from '../../../src/contexts/AuthContext'
 import { BrandWordmark } from '../../../src/components/BrandWordmark'
 import { InlineErrorBanner } from '../../../src/components/InlineErrorBanner'
 import { useNotifications } from '../../../src/contexts/NotificationContext'
 import {
+  deletePlaintiffAvatar,
   disconnectAttorneyCalendar,
   getApiErrorMessage,
   getAttorneyCalendarConnectUrl,
   getAttorneyCalendarHealth,
   syncAttorneyCalendar,
+  toAbsoluteApiUrl,
+  uploadPlaintiffAvatar,
   type AttorneyCalendarConnection,
 } from '../../../src/lib/api'
 import { brand, colors, radii, space, shadows } from '../../../src/theme/tokens'
 import { LEGAL_LINKS, NOT_A_LAW_FIRM, NOT_A_LAW_FIRM_PLAINTIFF } from '../../../src/lib/legalLinks'
+import { MOBILE_LANGUAGES, tMobile, type MobileLanguage } from '../../../src/i18n/messages'
 
 export default function AccountScreen() {
-  const { user, logout, hasBiometrics, startupError, retryAuthCheck } = useAuth()
+  const {
+    user,
+    logout,
+    hasBiometrics,
+    startupError,
+    retryAuthCheck,
+    preferredLanguage,
+    setPreferredLanguage,
+    updateUser,
+  } = useAuth()
   const isAttorney = user?.role !== 'plaintiff'
   const { expoPushToken, permissionStatus, setupIssue, isSettingUp, refreshPushSetup } = useNotifications()
   const [confirmLogoutOpen, setConfirmLogoutOpen] = useState(false)
   const [loggingOut, setLoggingOut] = useState(false)
   const [logoutError, setLogoutError] = useState<string | null>(null)
+  const [photoBusy, setPhotoBusy] = useState(false)
   const [calendarConnections, setCalendarConnections] = useState<AttorneyCalendarConnection[]>([])
   const [calendarLoading, setCalendarLoading] = useState(false)
   const [calendarActionProvider, setCalendarActionProvider] = useState<string | null>(null)
@@ -129,6 +155,85 @@ export default function AccountScreen() {
     }
   }
 
+  async function pickAndUploadPhoto() {
+    if (isAttorney || photoBusy) return
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync()
+      if (!permission.granted) {
+        setLogoutError('Photo library permission is required to upload a profile photo.')
+        return
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.85,
+      })
+      if (result.canceled || !result.assets?.[0]?.uri) return
+
+      const asset = result.assets[0]
+      setPhotoBusy(true)
+      setLogoutError(null)
+      const updated = await uploadPlaintiffAvatar(
+        asset.uri,
+        asset.fileName || `avatar-${Date.now()}.jpg`,
+        asset.mimeType || 'image/jpeg'
+      )
+      updateUser({ avatar: updated?.avatar ?? null })
+      try {
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+      } catch {}
+    } catch (error) {
+      setLogoutError(getApiErrorMessage(error))
+    } finally {
+      setPhotoBusy(false)
+    }
+  }
+
+  async function removePhoto() {
+    if (isAttorney || photoBusy || !user?.avatar) return
+    try {
+      setPhotoBusy(true)
+      setLogoutError(null)
+      await deletePlaintiffAvatar()
+      updateUser({ avatar: null })
+      try {
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+      } catch {}
+    } catch (error) {
+      setLogoutError(getApiErrorMessage(error))
+    } finally {
+      setPhotoBusy(false)
+    }
+  }
+
+  function openPhotoOptions() {
+    if (isAttorney) return
+    const buttons: Array<{ text: string; style?: 'cancel' | 'destructive'; onPress?: () => void }> = [
+      {
+        text: user?.avatar
+          ? tMobile(preferredLanguage, 'changePhoto')
+          : tMobile(preferredLanguage, 'uploadPhoto'),
+        onPress: () => {
+          void pickAndUploadPhoto()
+        },
+      },
+    ]
+    if (user?.avatar) {
+      buttons.push({
+        text: tMobile(preferredLanguage, 'removePhoto'),
+        style: 'destructive',
+        onPress: () => {
+          void removePhoto()
+        },
+      })
+    }
+    buttons.push({ text: 'Cancel', style: 'cancel' })
+    Alert.alert(tMobile(preferredLanguage, 'photoOptions'), undefined, buttons)
+  }
+
+  const avatarUri = !isAttorney && user?.avatar ? toAbsoluteApiUrl(user.avatar) : null
+
   return (
     <View style={styles.screen}>
       <ScrollView
@@ -139,9 +244,31 @@ export default function AccountScreen() {
         <View style={styles.brandRow}>
           <BrandWordmark variant="compact" />
         </View>
-        <View style={styles.avatar}>
-          <Ionicons name="person" size={36} color="#fff" />
-        </View>
+        <Text style={styles.profileHeading}>{tMobile(preferredLanguage, 'myProfile')}</Text>
+        <TouchableOpacity
+          style={styles.avatar}
+          onPress={!isAttorney ? openPhotoOptions : undefined}
+          disabled={isAttorney || photoBusy}
+          accessibilityRole={!isAttorney ? 'button' : undefined}
+          accessibilityLabel={!isAttorney ? tMobile(preferredLanguage, 'photoOptions') : undefined}
+        >
+          {photoBusy ? (
+            <ActivityIndicator color="#fff" />
+          ) : avatarUri ? (
+            <Image source={{ uri: avatarUri }} style={styles.avatarImage} />
+          ) : (
+            <Ionicons name="person" size={36} color="#fff" />
+          )}
+        </TouchableOpacity>
+        {!isAttorney ? (
+          <TouchableOpacity onPress={openPhotoOptions} disabled={photoBusy} style={styles.photoAction}>
+            <Text style={styles.photoActionText}>
+              {user?.avatar
+                ? tMobile(preferredLanguage, 'changePhoto')
+                : tMobile(preferredLanguage, 'uploadPhoto')}
+            </Text>
+          </TouchableOpacity>
+        ) : null}
         <Text style={styles.name}>
           {user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() || (isAttorney ? 'Attorney' : 'Client') : isAttorney ? 'Attorney' : 'Client'}
         </Text>
@@ -149,7 +276,27 @@ export default function AccountScreen() {
       </View>
 
       <View style={styles.list}>
-        <Text style={styles.section}>Security</Text>
+        <Text style={styles.section}>{tMobile(preferredLanguage, 'language')}</Text>
+        <Text style={[styles.rowSub, styles.languageHint]}>{tMobile(preferredLanguage, 'languageHint')}</Text>
+        <View style={styles.languageRow}>
+          {MOBILE_LANGUAGES.map((lang) => {
+            const active = preferredLanguage === lang.code
+            return (
+              <TouchableOpacity
+                key={lang.code}
+                style={[styles.languageChip, active && styles.languageChipActive]}
+                onPress={() => { void setPreferredLanguage(lang.code as MobileLanguage) }}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
+                accessibilityLabel={lang.label}
+              >
+                <Text style={[styles.languageChipText, active && styles.languageChipTextActive]}>{lang.label}</Text>
+              </TouchableOpacity>
+            )
+          })}
+        </View>
+
+        <Text style={[styles.section, styles.sectionSpacing]}>{tMobile(preferredLanguage, 'security')}</Text>
         {startupError ? (
           <InlineErrorBanner message={startupError} onAction={() => { void retryAuthCheck() }} />
         ) : null}
@@ -342,7 +489,7 @@ export default function AccountScreen() {
         disabled={loggingOut}
       >
         <Ionicons name="log-out-outline" size={22} color={colors.danger} />
-        <Text style={styles.logoutText}>Sign out</Text>
+        <Text style={styles.logoutText}>{tMobile(preferredLanguage, 'logout')}</Text>
       </TouchableOpacity>
 
       <Text style={styles.footer}>
@@ -407,6 +554,31 @@ const styles = StyleSheet.create({
     alignSelf: 'stretch',
     alignItems: 'center',
   },
+  profileHeading: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: colors.text,
+    marginBottom: space.md,
+    alignSelf: 'stretch',
+    textAlign: 'center',
+  },
+  languageHint: { marginBottom: space.md, marginTop: -4 },
+  languageRow: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
+  languageChip: {
+    paddingHorizontal: space.md,
+    paddingVertical: 10,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+  },
+  languageChipActive: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primary + '14',
+  },
+  languageChipText: { fontSize: 14, fontWeight: '700', color: colors.text },
+  languageChipTextActive: { color: colors.primaryDark },
+  sectionSpacing: { marginTop: space.xl },
   avatar: {
     width: 72,
     height: 72,
@@ -416,8 +588,12 @@ const styles = StyleSheet.create({
     borderColor: colors.brandAccent + '55',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: space.md,
+    marginBottom: space.sm,
+    overflow: 'hidden',
   },
+  avatarImage: { width: 72, height: 72 },
+  photoAction: { marginBottom: space.md },
+  photoActionText: { fontSize: 14, fontWeight: '700', color: colors.primary },
   name: { fontSize: 22, fontWeight: '800', color: colors.text },
   email: { fontSize: 15, color: colors.textSecondary, marginTop: 4 },
   list: { marginBottom: space.xl },

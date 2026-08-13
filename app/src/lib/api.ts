@@ -702,6 +702,18 @@ export async function updateProfile(payload: any) {
   return data
 }
 
+export async function uploadPlaintiffAvatar(file: File) {
+  const form = new FormData()
+  form.append('photo', file)
+  const { data } = await api.post('/v1/auth/me/avatar', form)
+  return data
+}
+
+export async function deletePlaintiffAvatar() {
+  const { data } = await api.delete('/v1/auth/me/avatar')
+  return data
+}
+
 export async function changePassword(payload: any) {
   const { data } = await api.put('/v1/auth/change-password', payload)
   return data
@@ -749,8 +761,10 @@ export async function updateAppointment(appointmentId: string, updates: any) {
   return data
 }
 
-export async function cancelAppointment(appointmentId: string) {
-  const { data } = await api.delete(`/v1/appointments/${appointmentId}`)
+export async function cancelAppointment(appointmentId: string, reason: string) {
+  const { data } = await api.delete(`/v1/appointments/${appointmentId}`, {
+    data: { reason },
+  })
   return data
 }
 
@@ -905,9 +919,25 @@ export async function sendMessage(messageData: any) {
   return data
 }
 
+export type ChatParticipants = {
+  plaintiff?: { avatar?: string | null; name?: string | null } | null
+  attorney?: { photoUrl?: string | null; name?: string | null } | null
+}
+
+export function normalizeChatMessagesResponse(data: any): {
+  messages: any[]
+  participants: ChatParticipants | null
+} {
+  if (Array.isArray(data)) return { messages: data, participants: null }
+  return {
+    messages: Array.isArray(data?.messages) ? data.messages : [],
+    participants: data?.participants || null,
+  }
+}
+
 export async function getChatRoomMessages(chatRoomId: string, limit = 50, offset = 0) {
   const { data } = await api.get(`/v1/messaging/chat-room/${chatRoomId}/messages?limit=${limit}&offset=${offset}`)
-  return data
+  return normalizeChatMessagesResponse(data)
 }
 
 // ---- Recorded calls (Amazon Connect + Contact Lens) ----
@@ -1057,7 +1087,7 @@ export async function getOrCreateAttorneyChatRoom(userId: string | null | undefi
 
 export async function getAttorneyChatRoomMessages(chatRoomId: string, limit = 50, offset = 0) {
   const { data } = await api.get(`/v1/attorney-dashboard/messaging/chat-room/${chatRoomId}/messages?limit=${limit}&offset=${offset}`)
-  return data
+  return normalizeChatMessagesResponse(data)
 }
 
 export async function sendAttorneyMessage(chatRoomId: string, content: string, messageType = 'text') {
@@ -1947,7 +1977,7 @@ export async function getAttorneyCalendarAppointments(
   return data
 }
 
-export async function cancelAttorneyAppointment(appointmentId: string, reason?: string) {
+export async function cancelAttorneyAppointment(appointmentId: string, reason: string) {
   const { data } = await api.post(`/v1/attorney-dashboard/appointments/${appointmentId}/cancel`, { reason })
   return data
 }

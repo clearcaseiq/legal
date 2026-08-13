@@ -6,13 +6,14 @@ import {
   sendMessage, 
   getChatRoomMessages, 
   markMessagesAsRead,
-  askChatBot 
+  askChatBot,
+  type ChatParticipants,
 } from '../lib/api'
 import { 
   MessageSquare, 
   Send, 
-  Bot, 
-  User, 
+  Bot,
+  User,
   Clock, 
   Phone, 
   Video, 
@@ -22,11 +23,14 @@ import {
   ArrowLeft,
 } from 'lucide-react'
 import Tooltip from '../components/Tooltip'
+import ChatAvatar from '../components/ChatAvatar'
 import { formatClaimTypeShort } from '../lib/constants'
 import { sortRoomsByRecency } from '../lib/messaging'
 import { linkify } from '../lib/linkify'
+import { CHAT_MESSAGE_MAX_LENGTH } from '../lib/messageLimits'
 import RecordedCallBar from '../components/RecordedCallBar'
 import { useLanguage } from '../contexts/LanguageContext'
+import { getStoredUser } from '../lib/auth'
 
 interface ChatRoom {
   id: string
@@ -36,6 +40,7 @@ interface ChatRoom {
     email: string
     phone?: string | null
     bookingSlug?: string | null
+    photoUrl?: string | null
     profile?: any
   }
   assessment?: {
@@ -65,6 +70,7 @@ export default function Messaging() {
   const [chatRooms, setChatRooms] = useState<ChatRoom[]>([])
   const [selectedRoom, setSelectedRoom] = useState<ChatRoom | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
+  const [participants, setParticipants] = useState<ChatParticipants | null>(null)
   const [newMessage, setNewMessage] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [isSending, setIsSending] = useState(false)
@@ -74,6 +80,15 @@ export default function Messaging() {
   const [chatBotInput, setChatBotInput] = useState('')
   const messageScrollRef = useRef<HTMLDivElement | null>(null)
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
+  const storedUser = getStoredUser<{ firstName?: string; lastName?: string; avatar?: string | null }>('user')
+  const myAvatar = participants?.plaintiff?.avatar || storedUser?.avatar || null
+  const myName =
+    participants?.plaintiff?.name ||
+    `${storedUser?.firstName || ''} ${storedUser?.lastName || ''}`.trim() ||
+    'You'
+  const attorneyAvatar =
+    participants?.attorney?.photoUrl || selectedRoom?.attorney?.photoUrl || null
+  const attorneyName = participants?.attorney?.name || selectedRoom?.attorney?.name || 'Attorney'
 
   useEffect(() => {
     loadChatRooms()
@@ -129,6 +144,7 @@ export default function Messaging() {
   useEffect(() => {
     if (!selectedRoom) {
       setMessages([])
+      setParticipants(null)
       return
     }
     const roomId = selectedRoom.id
@@ -136,6 +152,7 @@ export default function Messaging() {
     // pending scroll-to-bottom landed on the old conversation's height, and the
     // change-detection in loadMessages could then decide nothing had changed.
     setMessages([])
+    setParticipants(null)
     void loadMessages(roomId)
     const interval = setInterval(() => {
       void loadMessages(roomId, { silent: true })
@@ -204,7 +221,8 @@ export default function Messaging() {
 
   const loadMessages = async (chatRoomId: string, opts?: { silent?: boolean }) => {
     try {
-      const data: Message[] = await getChatRoomMessages(chatRoomId)
+      const { messages: data, participants: nextParticipants } = await getChatRoomMessages(chatRoomId)
+      if (nextParticipants) setParticipants(nextParticipants)
       // Only replace state when the thread actually changed so the 5s poll
       // doesn't cause needless re-renders/flicker.
       let changed = true
@@ -352,9 +370,13 @@ export default function Messaging() {
           Back to dashboard
         </Link>
       </div>
-      <div className="flex h-[calc(100vh-8rem)] overflow-hidden rounded-lg bg-white shadow-lg">
-        {/* Sidebar */}
-        <div className="w-1/3 border-r border-gray-200 flex flex-col">
+      <div className="flex h-[calc(100dvh-7.5rem)] overflow-hidden rounded-lg bg-white shadow-lg sm:h-[calc(100vh-8rem)]">
+        {/* Sidebar — full width on mobile until a conversation is open */}
+        <div
+          className={`w-full flex-col border-r border-gray-200 md:flex md:w-1/3 md:min-w-[16rem] md:max-w-sm ${
+            selectedRoom ? 'hidden' : 'flex'
+          }`}
+        >
           {/* Header */}
           <div className="p-4 border-b border-gray-200">
             <div className="flex items-center justify-between mb-4">
@@ -377,7 +399,7 @@ export default function Messaging() {
                 placeholder={t('messagingPage.searchPlaceholder')}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                className="w-full min-w-0 pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
               />
             </div>
           </div>
@@ -405,19 +427,20 @@ export default function Messaging() {
                     }`}
                   >
                     <div className="flex items-start space-x-3">
-                      <div className="w-10 h-10 bg-primary-100 rounded-full flex items-center justify-center flex-shrink-0">
-                        <span className="text-primary-600 font-medium text-sm">
-                          {room.attorney.name.split(' ').map(n => n[0]).join('')}
-                        </span>
-                      </div>
+                      <ChatAvatar
+                        url={room.attorney.photoUrl}
+                        name={room.attorney.name}
+                        size="lg"
+                        fallbackClassName="bg-primary-100 text-primary-600"
+                      />
                       
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between">
-                          <h3 className="text-sm font-medium text-gray-900 truncate">
+                        <div className="flex items-center justify-between gap-2">
+                          <h3 className="min-w-0 truncate text-sm font-medium text-gray-900">
                             {room.attorney.name}
                           </h3>
                           {room.lastMessageAt && (
-                            <span className="text-xs text-gray-500">
+                            <span className="shrink-0 whitespace-nowrap text-xs text-gray-500">
                               {formatTime(room.lastMessageAt)}
                             </span>
                           )}
@@ -448,30 +471,43 @@ export default function Messaging() {
 
         </div>
 
-        {/* Chat Area */}
-        <div className="flex-1 flex flex-col">
+        {/* Chat Area — full width on mobile when a conversation is open */}
+        <div
+          className={`min-w-0 flex-1 flex-col ${
+            selectedRoom ? 'flex' : 'hidden md:flex'
+          }`}
+        >
           {selectedRoom ? (
             <>
               {/* Chat Header */}
-              <div className="p-4 border-b border-gray-200">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-3">
-                    <div className="w-10 h-10 bg-primary-100 rounded-full flex items-center justify-center">
-                      <span className="text-primary-600 font-medium">
-                        {selectedRoom.attorney.name.split(' ').map(n => n[0]).join('')}
-                      </span>
-                    </div>
-                    <div>
-                      <h2 className="text-lg font-semibold text-gray-900">
+              <div className="p-3 border-b border-gray-200 sm:p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedRoom(null)}
+                      className="shrink-0 rounded-lg p-2 text-slate-600 hover:bg-slate-100 md:hidden"
+                      aria-label={t('messagingPage.backToList')}
+                    >
+                      <ArrowLeft className="h-5 w-5" aria-hidden />
+                    </button>
+                    <ChatAvatar
+                      url={attorneyAvatar}
+                      name={attorneyName}
+                      size="lg"
+                      fallbackClassName="bg-primary-100 text-primary-600"
+                    />
+                    <div className="min-w-0">
+                      <h2 className="truncate text-base font-semibold text-gray-900 sm:text-lg">
                         {selectedRoom.attorney.name}
                       </h2>
-                      <p className="text-sm text-gray-500">
+                      <p className="truncate text-sm text-gray-500">
                         {formatClaimTypeShort(selectedRoom.assessment?.claimType)} • {selectedRoom.assessment?.venueState}
                       </p>
                     </div>
                   </div>
                   
-                  <div className="flex items-center space-x-2">
+                  <div className="flex shrink-0 items-center space-x-1 sm:space-x-2">
                     <button
                       type="button"
                       onClick={() => handleCallAttorney(selectedRoom)}
@@ -528,15 +564,20 @@ export default function Messaging() {
                       key={message.id}
                       className={`flex ${message.senderType === 'user' ? 'justify-end' : 'justify-start'}`}
                     >
-                      <div className={`flex max-w-xs lg:max-w-md ${
+                      <div className={`flex max-w-[85%] sm:max-w-xs lg:max-w-md ${
                         message.senderType === 'user' ? 'flex-row-reverse' : 'flex-row'
                       }`}>
-                        <div className={`flex-shrink-0 h-8 w-8 rounded-full flex items-center justify-center ${
-                          message.senderType === 'user' 
-                            ? 'bg-primary-600 text-white ml-2' 
-                            : 'bg-gray-200 text-gray-600 mr-2'
-                        }`}>
-                          {message.senderType === 'user' ? <User className="h-4 w-4" /> : <User className="h-4 w-4" />}
+                        <div className={message.senderType === 'user' ? 'ml-2' : 'mr-2'}>
+                          <ChatAvatar
+                            url={message.senderType === 'user' ? myAvatar : attorneyAvatar}
+                            name={message.senderType === 'user' ? myName : attorneyName}
+                            size="md"
+                            fallbackClassName={
+                              message.senderType === 'user'
+                                ? 'bg-primary-600 text-white'
+                                : 'bg-gray-200 text-gray-600'
+                            }
+                          />
                         </div>
                         <div className={`px-4 py-2 rounded-lg ${
                           message.senderType === 'user'
@@ -591,7 +632,7 @@ export default function Messaging() {
                     ref={composerRef}
                     rows={1}
                     value={newMessage}
-                    onChange={(e) => setNewMessage(e.target.value)}
+                    onChange={(e) => setNewMessage(e.target.value.slice(0, CHAT_MESSAGE_MAX_LENGTH))}
                     onKeyDown={(e) => {
                       // Enter sends; Shift/Ctrl/Cmd+Enter inserts a newline (CP-423).
                       if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
@@ -600,7 +641,7 @@ export default function Messaging() {
                       }
                     }}
                     placeholder={t('messagingPage.composerPlaceholder')}
-                    maxLength={5000}
+                    maxLength={CHAT_MESSAGE_MAX_LENGTH}
                     className="flex-1 resize-none max-h-40 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                     disabled={isSending}
                   />
@@ -612,6 +653,21 @@ export default function Messaging() {
                     <Send className="h-4 w-4" />
                   </button>
                 </div>
+                <p
+                  className={`mt-1.5 text-right text-xs tabular-nums ${
+                    newMessage.length >= CHAT_MESSAGE_MAX_LENGTH
+                      ? 'font-semibold text-rose-600'
+                      : newMessage.length >= CHAT_MESSAGE_MAX_LENGTH * 0.9
+                        ? 'font-medium text-amber-600'
+                        : 'text-slate-500'
+                  }`}
+                  aria-live="polite"
+                >
+                  {t('messagingPage.characterCount', {
+                    current: newMessage.length,
+                    max: CHAT_MESSAGE_MAX_LENGTH,
+                  })}
+                </p>
               </div>
             </>
           ) : (

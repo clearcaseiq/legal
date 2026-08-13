@@ -11,6 +11,7 @@ import { recordCaseChange } from '../lib/data-authority'
 import { webUrl } from '../lib/app-url'
 import { taskCreatorName } from '../lib/ai-author'
 import { MAX_CASE_NAME_LENGTH, normalizeCaseName, plaintiffNameOf, resolveCaseName } from '../lib/case-name'
+import { ensureReferenceCode } from '../lib/case-reference'
 import { ENGAGED_LEAD_STATUSES, isEngagedLeadStatus } from '../lib/lead-status'
 import { parseTaskDueDate } from '../lib/task-due-date'
 import { buildMergedSurvivor, reminderMessagesFor, validateMerge } from '../lib/task-merge'
@@ -36,7 +37,7 @@ import {
 } from '../lib/routing-lifecycle'
 import { sendPlaintiffAttorneyAccepted, notifyPlaintiffInApp } from '../lib/case-notifications'
 import { createExternalCalendarEvent, deleteExternalCalendarEvent } from '../lib/calendar-sync'
-import { notifyWaitlistForFreedSlot } from '../lib/appointment-engagement'
+import { notifyWaitlistForFreedSlot, syncLeadStatusAfterConsultCancelled } from '../lib/appointment-engagement'
 import { createZoomMeeting } from '../lib/zoom'
 import { deliverDirectNotification, createNotificationEvent, notifyAdmins } from '../lib/platform-notifications'
 import {
@@ -1250,6 +1251,7 @@ const chatRoomSummarySelect = {
       firstName: true,
       lastName: true,
       email: true,
+      avatar: true,
     }
   },
   assessment: {
@@ -1275,6 +1277,7 @@ const chatRoomDetailSelect = {
       firstName: true,
       lastName: true,
       email: true,
+      avatar: true,
     }
   },
   assessment: {
@@ -3933,10 +3936,17 @@ router.patch('/appointments/:appointmentId', authMiddleware, async (req: any, re
     // edit: taking the update path below emailed "your consultation was updated"
     // with the old time and skipped the calendar/waitlist cleanup entirely.
     if (typeof status === 'string' && status.toUpperCase() === 'CANCELLED') {
+      const reasonRaw =
+        (typeof req.body?.reason === 'string' && req.body.reason.trim()) ||
+        (typeof notes === 'string' && notes.trim()) ||
+        ''
+      if (!reasonRaw) {
+        return res.status(400).json({ error: 'A cancellation reason is required' })
+      }
       const cancelled = await cancelAttorneyAppointment({
         attorney: auth.attorney,
         appointmentId,
-        reason: typeof notes === 'string' ? notes : null,
+        reason: reasonRaw,
       })
       return res.json(cancelled)
     }
@@ -4011,10 +4021,10 @@ router.patch('/appointments/:appointmentId', authMiddleware, async (req: any, re
 async function cancelAttorneyAppointment(params: {
   attorney: { id: string; name?: string | null; email?: string | null; schedulingTimezone?: string | null }
   appointmentId: string
-  reason?: string | null
+  reason: string
 }) {
   const { attorney, appointmentId } = params
-  const reason = typeof params.reason === 'string' && params.reason.trim() ? params.reason.trim() : null
+  const reason = params.reason.trim().slice(0, 500)
 
   const existing = await prisma.appointment.findFirst({
     where: { id: appointmentId, attorneyId: attorney.id },
@@ -4034,7 +4044,7 @@ async function cancelAttorneyAppointment(params: {
     where: { id: appointmentId },
     data: {
       status: 'CANCELLED',
-      notes: reason ? `${existing.notes ? `${existing.notes}\n\n` : ''}Cancelled: ${reason}` : existing.notes,
+      cancellationReason: reason,
       externalCalendarEventId: null,
       externalCalendarSyncedAt: new Date(),
     },
@@ -4044,7 +4054,7 @@ async function cancelAttorneyAppointment(params: {
   const dateText = existing.scheduledAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: attorneyTz })
   const timeText = existing.scheduledAt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: attorneyTz, timeZoneName: 'short' })
   const attorneyName = attorney.name || 'Your attorney'
-  const body = `Hi${existing.user?.firstName ? ` ${existing.user.firstName}` : ''},\n\n${attorneyName} cancelled your consultation scheduled for ${dateText} at ${timeText}.${reason ? `\n\nReason: ${reason}` : ''}\n\nYou can book a new time from your ClearCaseIQ dashboard.\n\nBest regards,\nClearCaseIQ`
+  const body = `Hi${existing.user?.firstName ? ` ${existing.user.firstName}` : ''},\n\n${attorneyName} cancelled your consultation scheduled for ${dateText} at ${timeText}.\n\nReason: ${reason}\n\nYou can book a new time from your ClearCaseIQ dashboard.\n\nBest regards,\nClearCaseIQ`
 
   if (existing.user?.email) {
     await createNotification(
@@ -4081,9 +4091,9 @@ async function cancelAttorneyAppointment(params: {
         assessmentId: appointment.assessmentId || undefined,
         eventType: 'consult_cancelled',
         subject: 'Your consultation was cancelled',
-        body: `${attorneyName} cancelled your consultation on ${dateText} at ${timeText}.${reason ? ` Reason: ${reason}` : ''}`,
+        body: `${attorneyName} cancelled your consultation on ${dateText} at ${timeText}. Reason: ${reason}`,
         link: '/dashboard',
-        payload: { appointmentId: appointment.id },
+        payload: { appointmentId: appointment.id, cancellationReason: reason },
       })
     }
   }
@@ -4093,6 +4103,13 @@ async function cancelAttorneyAppointment(params: {
     slotStart: existing.scheduledAt,
     appointmentId: appointment.id,
   }).catch((err: any) => logger.warn('Waitlist notify failed after cancel', { error: err?.message, appointmentId }))
+
+  await syncLeadStatusAfterConsultCancelled({
+    assessmentId: existing.assessmentId,
+    cancelledAppointmentId: appointment.id,
+    attorneyId: attorney.id,
+    reason,
+  }).catch((err: any) => logger.warn('Lead status sync failed after cancel', { error: err?.message, appointmentId }))
 
   return appointment
 }
@@ -4104,10 +4121,15 @@ router.post('/appointments/:appointmentId/cancel', authMiddleware, async (req: a
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
 
+    const reasonRaw = typeof req.body?.reason === 'string' ? req.body.reason.trim() : ''
+    if (!reasonRaw) {
+      return res.status(400).json({ error: 'A cancellation reason is required' })
+    }
+
     const appointment = await cancelAttorneyAppointment({
       attorney: auth.attorney,
       appointmentId: req.params.appointmentId,
-      reason: req.body?.reason,
+      reason: reasonRaw,
     })
     if (!appointment) {
       return res.status(404).json({ error: 'Appointment not found' })
@@ -6073,6 +6095,22 @@ router.post('/leads/:leadId/contact', authMiddleware, async (req: any, res) => {
           assessmentId: leadAssessmentId,
           role: 'plaintiff',
         })
+        // Plaintiff bell only lists `plaintiff.*` notification types. Email
+        // delivery above uses `direct_notification` / `email`, which never
+        // surfaces in that feed — so consult requests looked like "no notify".
+        if (plaintiffUserId && (contactType === 'consult' || contactType === 'document_request')) {
+          await notifyPlaintiffInApp({
+            userId: plaintiffUserId,
+            recipientEmail: plaintiffEmail,
+            attorneyId,
+            assessmentId: leadAssessmentId,
+            eventType: contactType === 'consult' ? 'consult_requested' : 'doc_requested',
+            subject,
+            body: message,
+            link: '/dashboard',
+            payload: { leadId, contactId: contact.id, contactType },
+          }).catch(() => {})
+        }
       }
     }
 
@@ -6652,6 +6690,22 @@ router.post('/leads/:leadId/schedule-consult', authMiddleware, async (req: any, 
         assessmentId: lead.assessmentId,
         role: 'plaintiff',
       })
+      // In-app bell requires `plaintiff.*` types (see plaintiff-notifications feed).
+      await notifyPlaintiffInApp({
+        userId,
+        recipientEmail: plaintiffEmail,
+        attorneyId: attorney.id,
+        assessmentId: lead.assessmentId,
+        eventType: 'consult_scheduled',
+        subject,
+        body: message,
+        link: '/dashboard',
+        payload: {
+          leadId,
+          appointmentId: appointment.id,
+          scheduledAt: scheduledAt.toISOString(),
+        },
+      }).catch(() => {})
     }
 
     res.json({ ...appointment, meetingUrl, hostMeetingUrl })
@@ -14531,7 +14585,7 @@ router.get('/leads/:leadId', authMiddleware, async (req: any, res) => {
           orderBy: { createdAt: 'desc' },
           take: 1
         },
-        user: { select: { id: true, firstName: true, lastName: true, email: true } }
+        user: { select: { id: true, firstName: true, lastName: true, email: true, avatar: true } }
       }
     })
     const matchingRules = await getMatchingRules()
@@ -14544,6 +14598,12 @@ router.get('/leads/:leadId', authMiddleware, async (req: any, res) => {
       sceneImageStatus = 'pending'
       void generateSceneImageForAssessment(assessment.id).catch(() => {})
     }
+
+    // Same speakable case number plaintiffs see (CCIQ-XXXXXX), minting lazily for
+    // legacy assessments that predate reference codes.
+    const referenceCode = assessment
+      ? await ensureReferenceCode(assessment.id, assessment.referenceCode)
+      : null
 
     res.json({
       ...lead,
@@ -14565,6 +14625,7 @@ router.get('/leads/:leadId', authMiddleware, async (req: any, res) => {
             // renamed. Clients resolve the fallback themselves so the raw value
             // is what tells them whether a caption exists.
             caseName: assessment.caseName ?? null,
+            referenceCode,
             facts: assessment.facts,
             sceneImageUrl: assessment.sceneImageUrl,
             sceneImageStatus,
@@ -16392,7 +16453,14 @@ router.get('/messaging/chat-rooms', authMiddleware, async (req: any, res) => {
       return {
         id: room.id,
         leadId: room.assessmentId ? leadByAssessment[room.assessmentId] : null,
-        plaintiff: room.user ? { id: room.user.id, name: `${room.user.firstName || ''} ${room.user.lastName || ''}`.trim() || 'Plaintiff', email: room.user.email } : null,
+        plaintiff: room.user
+          ? {
+              id: room.user.id,
+              name: `${room.user.firstName || ''} ${room.user.lastName || ''}`.trim() || 'Plaintiff',
+              email: room.user.email,
+              avatar: room.user.avatar || null,
+            }
+          : null,
         assessment: room.assessment,
         lastMessage,
         lastMessageAt: room.lastMessageAt,
@@ -16470,10 +16538,26 @@ router.post('/messaging/chat-room', authMiddleware, async (req: any, res) => {
     chatRoom.messages = (chatRoom.messages as any[]).reverse()
 
     // CP-572: return original message text as the sender typed it.
+    const attorneyProfile = await prisma.attorneyProfile.findUnique({
+      where: { attorneyId: attorney.id },
+      select: { photoUrl: true },
+    })
 
     res.json({
       chatRoomId: chatRoom.id,
-      plaintiff: chatRoom.user ? { id: chatRoom.user.id, name: `${chatRoom.user.firstName || ''} ${chatRoom.user.lastName || ''}`.trim() || 'Plaintiff', email: chatRoom.user.email } : null,
+      plaintiff: chatRoom.user
+        ? {
+            id: chatRoom.user.id,
+            name: `${chatRoom.user.firstName || ''} ${chatRoom.user.lastName || ''}`.trim() || 'Plaintiff',
+            email: chatRoom.user.email,
+            avatar: chatRoom.user.avatar || null,
+          }
+        : null,
+      attorney: {
+        id: attorney.id,
+        name: attorney.name,
+        photoUrl: attorneyProfile?.photoUrl || null,
+      },
       assessment: chatRoom.assessment,
       messages: chatRoom.messages,
       lastMessageAt: chatRoom.lastMessageAt
@@ -16495,22 +16579,46 @@ router.get('/messaging/chat-room/:chatRoomId/messages', authMiddleware, async (r
 
     const chatRoom = await prisma.chatRoom.findFirst({
       where: { id: chatRoomId, attorneyId: auth.attorney.id },
-      select: chatRoomOwnershipSelect
+      select: {
+        id: true,
+        user: { select: { avatar: true, firstName: true, lastName: true } },
+      },
     })
     if (!chatRoom) return res.status(404).json({ error: 'Chat room not found' })
 
-    const messages = await prisma.message.findMany({
-      where: { chatRoomId },
-      orderBy: { createdAt: 'desc' },
-      take: limit,
-      skip: offset,
-      select: chatMessageSelect
-    })
+    const [messages, attorneyProfile] = await Promise.all([
+      prisma.message.findMany({
+        where: { chatRoomId },
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        skip: offset,
+        select: chatMessageSelect,
+      }),
+      prisma.attorneyProfile.findUnique({
+        where: { attorneyId: auth.attorney.id },
+        select: { photoUrl: true },
+      }),
+    ])
     messages.reverse()
 
     // CP-572: keep original `content`; attach English contentTranslated for non-English plaintiff messages.
     const decorated = await decorateMessagesForReader(messages as any[], 'en', 'attorney')
-    res.json(decorated)
+    // Array response kept for older clients; participants added for chat avatars.
+    res.json({
+      messages: decorated,
+      participants: {
+        plaintiff: {
+          avatar: chatRoom.user?.avatar || null,
+          name:
+            `${chatRoom.user?.firstName || ''} ${chatRoom.user?.lastName || ''}`.trim() ||
+            'Plaintiff',
+        },
+        attorney: {
+          photoUrl: attorneyProfile?.photoUrl || null,
+          name: auth.attorney.name || null,
+        },
+      },
+    })
   } catch (error: any) {
     logger.error('Failed to load messages', { error: error.message })
     res.status(500).json({ error: 'Failed to load messages' })
@@ -16525,6 +16633,10 @@ router.post('/messaging/send', authMiddleware, async (req: any, res) => {
     const { chatRoomId, content, messageType } = req.body
 
     if (!chatRoomId || !content?.trim()) return res.status(400).json({ error: 'chatRoomId and content required' })
+    const trimmedContent = String(content).trim()
+    if (trimmedContent.length > 2000) {
+      return res.status(400).json({ error: 'Message is too long (max 2000 characters)' })
+    }
 
     const chatRoom = await prisma.chatRoom.findFirst({
       where: { id: chatRoomId, attorneyId: auth.attorney.id },
@@ -16537,7 +16649,7 @@ router.post('/messaging/send', authMiddleware, async (req: any, res) => {
         chatRoomId,
         senderId: auth.attorney.id,
         senderType: 'attorney',
-        content: content.trim(),
+        content: trimmedContent,
         messageType: messageType || 'text'
       },
       select: {

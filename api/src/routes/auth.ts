@@ -1,6 +1,10 @@
 import { Router } from 'express'
 import bcrypt from 'bcryptjs'
 import crypto from 'crypto'
+import fs from 'fs'
+import path from 'path'
+import multer from 'multer'
+import { v4 as uuidv4 } from 'uuid'
 import { prisma } from '../lib/prisma'
 import { logger } from '../lib/logger'
 import { webUrl } from '../lib/app-url'
@@ -264,6 +268,7 @@ router.post('/login', async (req, res) => {
         firstName: user.firstName,
         lastName: user.lastName,
         phone: user.phone,
+        avatar: user.avatar,
         emailVerified: user.emailVerified,
         preferredLanguage: user.preferredLanguage || 'en',
         createdAt: user.createdAt
@@ -617,6 +622,47 @@ router.get('/admin-access', authMiddleware, (req: AuthRequest, res) => {
   res.json({ ok: true, capabilities })
 })
 
+const plaintiffAvatarStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => {
+    const uploadDir = path.join(process.cwd(), 'uploads', 'avatars')
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true })
+    }
+    cb(null, uploadDir)
+  },
+  filename: (_req, file, cb) => {
+    cb(null, `${uuidv4()}-${file.originalname}`)
+  },
+})
+
+const plaintiffAvatarUpload = multer({
+  storage: plaintiffAvatarStorage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const allowedExt = /\.(jpe?g|png|gif|webp)$/i.test(file.originalname || '')
+    const allowedMime = /image\/(jpeg|png|gif|webp)/i.test(file.mimetype || '')
+    if (allowedExt || allowedMime) return cb(null, true)
+    cb(new Error('Profile photo must be a JPEG, PNG, GIF, or WebP image'))
+  },
+})
+
+function runPlaintiffAvatarUpload(req: any, res: any, next: any) {
+  plaintiffAvatarUpload.single('photo')(req, res, (err: any) => {
+    if (!err) return next()
+    const message =
+      err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE'
+        ? 'Profile photo must be 5MB or smaller'
+        : err.message || 'Profile photo must be a JPEG, PNG, GIF, or WebP image'
+    return res.status(400).json({ error: message })
+  })
+}
+
+async function unlinkLocalAvatar(avatarUrl?: string | null) {
+  if (!avatarUrl || !avatarUrl.startsWith('/uploads/avatars/')) return
+  const previousPath = path.join(process.cwd(), avatarUrl.replace(/^\/+/, ''))
+  await fs.promises.unlink(previousPath).catch(() => undefined)
+}
+
 // Get current user
 router.get('/me', authMiddleware, async (req: AuthRequest, res) => {
   try {
@@ -628,6 +674,7 @@ router.get('/me', authMiddleware, async (req: AuthRequest, res) => {
         firstName: true,
         lastName: true,
         phone: true,
+        avatar: true,
         emailVerified: true,
         preferredLanguage: true,
         lastLoginAt: true,
@@ -776,6 +823,7 @@ router.put('/me', authMiddleware, async (req: AuthRequest, res) => {
         firstName: true,
         lastName: true,
         phone: true,
+        avatar: true,
         preferredLanguage: true,
         updatedAt: true
       }
@@ -790,6 +838,85 @@ router.put('/me', authMiddleware, async (req: AuthRequest, res) => {
   } catch (error) {
     logger.error('Update user failed', { error })
     res.status(500).json({ error: 'Failed to update user' })
+  }
+})
+
+// Upload / replace plaintiff profile photo (stored on User.avatar)
+router.post('/me/avatar', authMiddleware, runPlaintiffAvatarUpload, async (req: AuthRequest, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No photo uploaded' })
+    }
+
+    const existing = await prisma.user.findUnique({
+      where: { id: req.user!.id },
+      select: { avatar: true },
+    })
+    const avatar = `/uploads/avatars/${req.file.filename}`
+    const user = await prisma.user.update({
+      where: { id: req.user!.id },
+      data: { avatar },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        phone: true,
+        avatar: true,
+        emailVerified: true,
+        preferredLanguage: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    })
+
+    await unlinkLocalAvatar(existing?.avatar)
+
+    logger.info('Plaintiff profile photo uploaded', { userId: user.id, fileName: req.file.originalname })
+    res.json({
+      ...user,
+      preferredLanguage: user.preferredLanguage || 'en',
+    })
+  } catch (error) {
+    logger.error('Plaintiff avatar upload failed', { error, userId: req.user?.id })
+    res.status(500).json({ error: 'Failed to upload profile photo' })
+  }
+})
+
+// Delete plaintiff profile photo
+router.delete('/me/avatar', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const existing = await prisma.user.findUnique({
+      where: { id: req.user!.id },
+      select: { avatar: true },
+    })
+    const user = await prisma.user.update({
+      where: { id: req.user!.id },
+      data: { avatar: null },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        phone: true,
+        avatar: true,
+        emailVerified: true,
+        preferredLanguage: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    })
+
+    await unlinkLocalAvatar(existing?.avatar)
+
+    logger.info('Plaintiff profile photo deleted', { userId: user.id })
+    res.json({
+      ...user,
+      preferredLanguage: user.preferredLanguage || 'en',
+    })
+  } catch (error) {
+    logger.error('Plaintiff avatar delete failed', { error, userId: req.user?.id })
+    res.status(500).json({ error: 'Failed to delete profile photo' })
   }
 })
 

@@ -6100,6 +6100,7 @@ describe('HTTP operations regressions', () => {
           firstName: 'Pat',
           lastName: 'Plaintiff',
           email: 'plaintiff@example.com',
+          avatar: null,
         },
         assessment: {
           id: 'asm-1',
@@ -6135,6 +6136,7 @@ describe('HTTP operations regressions', () => {
           id: 'plaintiff-user-1',
           name: 'Pat Plaintiff',
           email: 'plaintiff@example.com',
+          avatar: null,
         },
         assessment: {
           id: 'asm-1',
@@ -6273,7 +6275,11 @@ describe('HTTP operations regressions', () => {
   })
 
   it('GET /v1/attorney-dashboard/messaging/chat-room/:chatRoomId/messages uses compact ownership and message queries', async () => {
-    vi.mocked(prisma.chatRoom.findFirst).mockResolvedValue({ id: 'room-1' } as any)
+    vi.mocked(prisma.chatRoom.findFirst).mockResolvedValue({
+      id: 'room-1',
+      user: { avatar: '/uploads/avatars/p.jpg', firstName: 'Pat', lastName: 'Plaintiff' },
+    } as any)
+    vi.mocked(prisma.attorneyProfile.findUnique).mockResolvedValue({ photoUrl: '/uploads/avatars/a.jpg' } as any)
     vi.mocked(prisma.message.findMany).mockResolvedValue([
       {
         id: 'msg-2',
@@ -6306,10 +6312,17 @@ describe('HTTP operations regressions', () => {
       .set('Authorization', 'Bearer attorney')
       .expect(200)
 
-    expect(res.body.map((m: any) => m.id)).toEqual(['msg-1', 'msg-2'])
+    expect(res.body.messages.map((m: any) => m.id)).toEqual(['msg-1', 'msg-2'])
+    expect(res.body.participants).toEqual({
+      plaintiff: { avatar: '/uploads/avatars/p.jpg', name: 'Pat Plaintiff' },
+      attorney: { photoUrl: '/uploads/avatars/a.jpg', name: null },
+    })
     expect(vi.mocked(prisma.chatRoom.findFirst).mock.calls[0]?.[0]).toEqual({
       where: { id: 'room-1', attorneyId: 'attorney-record-1' },
-      select: { id: true },
+      select: {
+        id: true,
+        user: { select: { avatar: true, firstName: true, lastName: true } },
+      },
     })
     expect(vi.mocked(prisma.message.findMany).mock.calls[0]?.[0]).toEqual({
       where: { chatRoomId: 'room-1' },
