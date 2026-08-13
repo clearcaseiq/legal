@@ -2,8 +2,10 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 
 const { createCompletion } = vi.hoisted(() => ({ createCompletion: vi.fn() }))
 
+// LLM_ALLOW_PHI must be true to exercise the AI narration path; demand narration
+// is clinical and is gated behind the BAA flag (see narrateDemandLetter).
 vi.mock('../env', () => ({
-  ENV: { OPENAI_API_KEY: 'test-openai-key', OPENAI_ANALYSIS_MODEL: 'gpt-4o-mini' },
+  ENV: { OPENAI_API_KEY: 'test-openai-key', OPENAI_ANALYSIS_MODEL: 'gpt-4o-mini', LLM_ALLOW_PHI: true },
 }))
 
 vi.mock('openai', () => ({
