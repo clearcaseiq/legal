@@ -3438,7 +3438,7 @@ Checklist:
       {sendModalOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/55 p-2 backdrop-blur-sm sm:p-4" onClick={() => !submitLoading && setSendModalOpen(false)}>
           <div className="flex min-h-full items-start justify-center py-3 sm:items-center sm:py-6" onClick={e => e.stopPropagation()}>
-            <div className="surface-panel max-h-[calc(100vh-1.5rem)] w-full max-w-2xl overflow-y-auto p-4 shadow-xl sm:p-6">
+            <div className="surface-panel max-h-[calc(100vh-1.5rem)] w-full max-w-4xl overflow-y-auto p-4 shadow-xl sm:p-6">
             <h3 className="section-title text-ui-xl">{t('results.calc.modalTitle')}</h3>
             <p className="section-copy mb-4">
               {t('results.calc.modalSubtitle')}
