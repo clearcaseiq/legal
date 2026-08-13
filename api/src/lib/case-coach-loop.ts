@@ -95,7 +95,17 @@ async function writeCoachAudit(args: {
   }
 }
 
-/** Whether an attorney is actively working this case (vs an intake-only lead). */
+/**
+ * Whether an attorney is actively working this case (vs intake / marketplace review).
+ *
+ * Important: marketplace routing sets `LeadSubmission.assignedAttorneyId` when the
+ * case is *offered* to an attorney — that alone is NOT retention. Treating it as
+ * retained caused evidence uploads to advance `caseStage` to TREATMENT before any
+ * attorney accepted (plaintiff status jumped Submitted → Treatment).
+ *
+ * Retained means: accepted introduction, OR lead status past intake
+ * (contacted / consulted / retained).
+ */
 export async function isCaseRetained(assessmentId: string): Promise<boolean> {
   const intro = await prisma.introduction
     .findFirst({
@@ -104,19 +114,17 @@ export async function isCaseRetained(assessmentId: string): Promise<boolean> {
     })
     .catch(() => null)
   if (intro) return true
-  // Acquired / shared / directly-assigned leads: an attorney owns the case via
-  // assignment OR by advancing it past intake (contacted/consulted/retained),
-  // even without an ACCEPTED introduction row.
-  const assigned = await prisma.leadSubmission
+  // Acquired / shared leads the attorney has actually taken past marketplace review.
+  const activeLead = await prisma.leadSubmission
     .findFirst({
       where: {
         assessmentId,
-        OR: [{ assignedAttorneyId: { not: null } }, { status: { in: ACTIVE_LEAD_STATUSES } }],
+        status: { in: ACTIVE_LEAD_STATUSES },
       },
       select: { id: true },
     })
     .catch(() => null)
-  return !!assigned
+  return !!activeLead
 }
 
 /**

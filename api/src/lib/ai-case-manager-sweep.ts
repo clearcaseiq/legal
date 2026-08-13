@@ -42,14 +42,17 @@ function sweepMax(): number {
 }
 
 /**
- * Every assessmentId an attorney is actively working, platform-wide: leads that
- * are assigned or advanced past intake, plus accepted introductions.
+ * Every assessmentId an attorney is actively working, platform-wide: leads past
+ * marketplace review (contacted/consulted/retained) plus accepted introductions.
+ *
+ * Do not key off `assignedAttorneyId` alone — routing sets that when a case is
+ * offered, before acceptance.
  */
 export async function enumerateRetainedAssessmentIds(): Promise<string[]> {
   const [leads, intros] = await Promise.all([
     prisma.leadSubmission
       .findMany({
-        where: { OR: [{ assignedAttorneyId: { not: null } }, { status: { in: ACTIVE_LEAD_STATUSES } }] },
+        where: { status: { in: ACTIVE_LEAD_STATUSES } },
         select: { assessmentId: true },
       })
       .catch(() => [] as Array<{ assessmentId: string }>),

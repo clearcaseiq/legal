@@ -898,6 +898,8 @@ router.get('/', optionalAuthMiddleware, async (req: AuthRequest, res) => {
       return {
         id: a.id,
         claimType: a.claimType,
+        caseName: a.caseName ?? null,
+        reference_code: a.referenceCode ?? null,
         venue: { state: a.venueState, county: a.venueCounty },
         status: a.status,
         created_at: a.createdAt,

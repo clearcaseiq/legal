@@ -3977,6 +3977,10 @@
   "plaintiffDashboard": {
     "greeting": "Hi {name}",
     "caseStatus": "Case Status",
+    "caseSwitcher": {
+      "label": "Viewing case",
+      "hint": "You have {count} cases — pick one to view its status."
+    },
     "tabs": {
       "dashboard": "Dashboard",
       "tasks": "Tasks",

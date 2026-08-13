@@ -3976,6 +3976,10 @@
   "plaintiffDashboard": {
     "greeting": "Hola {name}",
     "caseStatus": "Estado del caso",
+    "caseSwitcher": {
+      "label": "Caso en vista",
+      "hint": "Tienes {count} casos — elige uno para ver su estado."
+    },
     "tabs": {
       "dashboard": "Panel",
       "tasks": "Tareas",

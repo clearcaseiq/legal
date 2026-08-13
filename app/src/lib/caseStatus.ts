@@ -117,7 +117,9 @@ export function isPlaintiffRetained(routing: {
   const leadStatus = routing?.leadStatus || ''
   if (lifecycle === 'engaged' || lifecycle === 'retained') return true
   if (leadStatus === 'retained') return true
-  if (plaintiffCaseStageBucket(routing?.caseStage)) return true
+  // Never treat caseStage alone as retained. Routing can leave a stale
+  // caseStage (e.g. TREATMENT after an evidence upload) on a not-yet-accepted
+  // matter; post-retain pipeline badges must wait for real retention.
   return false
 }
 
@@ -171,7 +173,7 @@ export function getPlaintiffCaseStatusKey(routing: {
   const retained = isPlaintiffRetained(routing)
   const stageBucket = plaintiffCaseStageBucket(routing?.caseStage)
 
-  if (lifecycle === 'closed' || stageBucket === 'closed') return 'closed'
+  if (lifecycle === 'closed' || (retained && stageBucket === 'closed')) return 'closed'
 
   if (retained) {
     if (stageBucket === 'negotiation') return 'negotiation'
@@ -212,8 +214,11 @@ export function getPlaintiffPipelineProgress(input: {
   caseStage?: string | null
 }): { currentIdx: number; completeThrough: number } {
   const bucket = plaintiffCaseStageBucket(input.caseStage)
-  if (bucket === 'closed') return { currentIdx: -1, completeThrough: 10 }
-  if (input.retained || bucket) {
+  // Post-retain stages only apply once the case is actually retained.
+  // A stale caseStage (e.g. TREATMENT written while still in attorney review)
+  // must not advance the pipeline.
+  if (input.retained && bucket === 'closed') return { currentIdx: -1, completeThrough: 10 }
+  if (input.retained) {
     if (bucket === 'negotiation') return { currentIdx: 8, completeThrough: 8 }
     if (bucket === 'demand') return { currentIdx: 7, completeThrough: 7 }
     if (bucket === 'treatment') return { currentIdx: 6, completeThrough: 6 }

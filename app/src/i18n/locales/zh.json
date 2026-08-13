@@ -3976,6 +3976,10 @@
   "plaintiffDashboard": {
     "greeting": "你好，{name}",
     "caseStatus": "案件状态",
+    "caseSwitcher": {
+      "label": "正在查看的案件",
+      "hint": "您有 {count} 个案件 — 请选择一个查看状态。"
+    },
     "tabs": {
       "dashboard": "控制面板",
       "tasks": "任务",
