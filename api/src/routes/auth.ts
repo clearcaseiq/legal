@@ -639,9 +639,13 @@ const plaintiffAvatarUpload = multer({
   storage: plaintiffAvatarStorage,
   limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
+    // Require BOTH a real image extension AND a matching image MIME. Using OR let
+    // a caller store e.g. `evil.svg` with a spoofed `image/png` MIME, which is
+    // then served from /uploads/avatars/ and rendered as active SVG (stored XSS).
+    // Match the AND-based filter used for evidence uploads (files.ts).
     const allowedExt = /\.(jpe?g|png|gif|webp)$/i.test(file.originalname || '')
     const allowedMime = /image\/(jpeg|png|gif|webp)/i.test(file.mimetype || '')
-    if (allowedExt || allowedMime) return cb(null, true)
+    if (allowedExt && allowedMime) return cb(null, true)
     cb(new Error('Profile photo must be a JPEG, PNG, GIF, or WebP image'))
   },
 })
