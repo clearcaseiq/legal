@@ -50,8 +50,14 @@ export async function createAndNotifyPlaintiffDocumentRequest(params: {
   requestedDocs: string[]
   customMessage?: string | null
   sendUploadLinkOnly?: boolean
+  /**
+   * Send the plaintiff email/in-app notification. Defaults to true. Set false
+   * for silent data migrations (e.g. reconciling orphan tasks on a portal read),
+   * where notifying would email the plaintiff about work they've already seen.
+   */
+  notify?: boolean
 }): Promise<CreatePlaintiffDocumentRequestResult> {
-  const { leadId, assessmentId, attorney, customMessage, sendUploadLinkOnly } = params
+  const { leadId, assessmentId, attorney, customMessage, sendUploadLinkOnly, notify } = params
   let docs = sendUploadLinkOnly ? [] : normalizeRequestedDocKeys(params.requestedDocs)
   const alreadyRequested: string[] = []
 
@@ -111,21 +117,23 @@ export async function createAndNotifyPlaintiffDocumentRequest(params: {
     })
     .catch(() => undefined)
 
-  await notifyPlaintiffAboutDocumentRequest({
-    leadId,
-    assessmentId,
-    attorney,
-    docRequestId: docRequest.id,
-    docs,
-    customMessage: customMessage || null,
-    uploadLink,
-  }).catch((error: any) => {
-    logger.warn('Document request notify failed', {
+  if (notify !== false) {
+    await notifyPlaintiffAboutDocumentRequest({
       leadId,
-      documentRequestId: docRequest.id,
-      error: error?.message,
+      assessmentId,
+      attorney,
+      docRequestId: docRequest.id,
+      docs,
+      customMessage: customMessage || null,
+      uploadLink,
+    }).catch((error: any) => {
+      logger.warn('Document request notify failed', {
+        leadId,
+        documentRequestId: docRequest.id,
+        error: error?.message,
+      })
     })
-  })
+  }
 
   return { docRequest, created: true, docs, alreadyRequested }
 }
@@ -314,6 +322,9 @@ export async function reconcileOrphanClientDocumentTasks(params: {
         attorney,
         requestedDocs,
         customMessage,
+        // Silent migration: these tasks were already visible to the plaintiff, and
+        // this runs on their own portal read — don't email them about it.
+        notify: false,
       })
       await prisma.caseTask.update({
         where: { id: task.id },
