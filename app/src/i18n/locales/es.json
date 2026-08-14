@@ -2023,7 +2023,7 @@
     "injuryDetails_medicalTreatment": "Tratamiento médico",
     "injuryDetails_testingHelper": "Seleccione cualquier prueba o tratamiento realizado o programado.",
     "injuryDetails_diagnosesQuestion": "¿Los médicos han mencionado alguno de estos diagnósticos?",
-    "injuryDetails_diagnosesHelper": "Seleccione hallazgos conocidos como fracturas, TBI, conmoción o hernia.",
+    "injuryDetails_diagnosesHelper": "Seleccione hallazgos conocidos como fracturas, TBI, conmoción o hernia. Seleccione todas las que correspondan.",
     "injuryDetails_selectAllApply": "Seleccione todas las que correspondan",
     "injuryDetails_notSureNote": "¿No está seguro? Omítalo: confirmaremos los detalles con sus registros médicos.",
     "injuryDetails_lifeImpact": "¿Cómo ha afectado esto su vida?",

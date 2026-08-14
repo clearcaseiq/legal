@@ -55,7 +55,7 @@ const SIDE_OPTIONS: { value: Side; label: string }[] = [
 ]
 
 const chipClass = (selected: boolean) =>
-  `flex min-h-[2.25rem] w-full min-w-0 items-center gap-1.5 rounded-xl border px-2.5 py-1 text-left transition-colors ${
+  `relative flex min-h-[2.25rem] w-full min-w-0 items-center justify-center rounded-xl border px-6 py-1 text-center transition-colors ${
     selected
       ? 'border-brand-500 bg-brand-50/70 dark:border-brand-500/50 dark:bg-brand-500/10'
       : 'border-slate-200 bg-white hover:border-brand-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/40'
@@ -64,14 +64,13 @@ const chipClass = (selected: boolean) =>
 /** Shared option label size — Side / Symptoms / Findings / Treatments must match. */
 const chipLabelText =
   'text-[13px] font-semibold leading-tight text-gray-800 dark:text-slate-200'
-const chipLabelClass = `min-w-0 flex-1 [overflow-wrap:anywhere] ${chipLabelText}`
+const chipLabelClass = `[overflow-wrap:anywhere] text-center ${chipLabelText}`
 
+/** Selected check floats in the corner so it never shifts the centered label. */
 function ChipCheck({ on }: { on: boolean }) {
   return on ? (
-    <Check className="h-4 w-4 shrink-0 text-brand-600" aria-hidden />
-  ) : (
-    <span className="h-4 w-4 shrink-0" aria-hidden />
-  )
+    <Check className="absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-brand-600" aria-hidden />
+  ) : null
 }
 
 function toggleInArray(arr: string[], value: string): string[] {
@@ -223,13 +222,13 @@ export default function DynamicInjuryCards({ injuryType, selectedRegions, value,
                             type="button"
                             aria-pressed={selected}
                             onClick={() => patchRegion(regionId, { side: selected ? undefined : sv })}
-                            className={`flex min-h-[2.25rem] items-center justify-center gap-1.5 rounded-xl border px-2.5 py-1 transition-colors ${
+                            className={`relative flex min-h-[2.25rem] items-center justify-center rounded-xl border px-6 py-1 text-center transition-colors ${
                               selected
                                 ? 'border-brand-500 bg-brand-50/70 dark:border-brand-500/50 dark:bg-brand-500/10'
                                 : 'border-slate-200 bg-white hover:border-brand-300 dark:border-slate-700 dark:bg-slate-900/40'
                             }`}
                           >
-                            {selected && <Check className="h-4 w-4 shrink-0 text-brand-600" aria-hidden />}
+                            {selected && <Check className="absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-brand-600" aria-hidden />}
                             <span className={chipLabelText}>{label}</span>
                           </button>
                         )
@@ -240,7 +239,9 @@ export default function DynamicInjuryCards({ injuryType, selectedRegions, value,
 
                 {/* Symptoms */}
                 <div className={config.side ? 'mt-3' : ''}>
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Symptoms</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                    Symptoms <span className="font-medium normal-case text-gray-400">· select all that apply</span>
+                  </p>
                   <div className="mt-1.5 grid grid-cols-1 gap-2 sm:grid-cols-2">
                     {symptoms.map((s) => {
                       const selected = detail.symptoms.includes(s.id)
@@ -271,7 +272,7 @@ export default function DynamicInjuryCards({ injuryType, selectedRegions, value,
                 {/* Findings / diagnoses */}
                 <div className="mt-3">
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                    Findings you were told about
+                    Findings you were told about <span className="font-medium normal-case text-gray-400">· select all that apply</span>
                   </p>
                   <div className="mt-1.5 grid grid-cols-1 gap-2 sm:grid-cols-2">
                     {config.findings.map((f) => {
@@ -305,7 +306,9 @@ export default function DynamicInjuryCards({ injuryType, selectedRegions, value,
 
                 {/* Treatment */}
                 <div className="mt-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Treatment for this area</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                    Treatment for this area <span className="font-medium normal-case text-gray-400">· select all that apply</span>
+                  </p>
                   <div className="mt-1.5 grid grid-cols-1 gap-2 sm:grid-cols-3">
                     {config.treatments.map((tItem) => {
                       const selected = detail.treatments.includes(tItem.id)
@@ -378,7 +381,7 @@ export default function DynamicInjuryCards({ injuryType, selectedRegions, value,
                                     overlays: { ...detail.overlays, [q.id]: on ? (undefined as any) : v },
                                   })
                                 }
-                                className={`rounded-lg border px-3 py-1 text-xs font-semibold transition-colors ${
+                                className={`rounded-lg border px-3 py-1 text-center text-[13px] font-semibold transition-colors ${
                                   on
                                     ? 'border-brand-500 bg-brand-50/70 text-brand-800 dark:border-brand-500/50 dark:bg-brand-500/10 dark:text-brand-200'
                                     : 'border-slate-200 bg-white text-gray-700 hover:border-brand-300 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-300'

@@ -2023,7 +2023,7 @@
     "injuryDetails_medicalTreatment": "医疗情况",
     "injuryDetails_testingHelper": "请选择已进行或已安排的检查或治疗。",
     "injuryDetails_diagnosesQuestion": "医生是否提到过以下诊断？",
-    "injuryDetails_diagnosesHelper": "请选择已知的诊断结果，如骨折、TBI、脑震荡或椎间盘突出。",
+    "injuryDetails_diagnosesHelper": "请选择已知的诊断结果，如骨折、TBI、脑震荡或椎间盘突出。请选择所有适用项。",
     "injuryDetails_selectAllApply": "选择所有适用项",
     "injuryDetails_notSureNote": "不确定？可以跳过。我们会根据您的医疗记录确认细节。",
     "injuryDetails_lifeImpact": "这对您的生活造成了哪些影响？",

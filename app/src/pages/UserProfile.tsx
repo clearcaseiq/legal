@@ -216,7 +216,7 @@ export default function UserProfile() {
   const avatarInitial = (profile.firstName || profile.email || 'U').trim().charAt(0).toUpperCase()
 
   return (
-    <div className="max-w-4xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
+    <div className="max-w-[1600px] mx-auto py-8">
       {/* Navigation Header */}
       <div className="mb-6">
         <BackButton to="/dashboard" label="Back to Dashboard" className="mb-4" />

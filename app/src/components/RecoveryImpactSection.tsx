@@ -99,7 +99,7 @@ const LIFE_AREAS: { id: string; label: string; followup?: { id: string; label: s
 ]
 
 const chipClass = (selected: boolean) =>
-  `flex min-h-[2.25rem] w-full min-w-0 items-center gap-1.5 rounded-xl border px-2.5 py-1 text-left transition-colors ${
+  `relative flex min-h-[2.25rem] w-full min-w-0 items-center justify-center rounded-xl border px-6 py-1 text-center transition-colors ${
     selected
       ? 'border-brand-500 bg-brand-50/70 dark:border-brand-500/50 dark:bg-brand-500/10'
       : 'border-slate-200 bg-white hover:border-brand-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/40'
@@ -108,14 +108,12 @@ const chipClass = (selected: boolean) =>
 function Chip({ label, selected, onClick }: { label: string; selected: boolean; onClick: () => void }) {
   return (
     <button type="button" aria-pressed={selected} onClick={onClick} className={chipClass(selected)}>
-      <span className="min-w-0 flex-1 [overflow-wrap:anywhere] text-[13px] font-semibold leading-tight text-gray-800 dark:text-slate-200 sm:text-xs">
+      <span className="[overflow-wrap:anywhere] text-center text-[13px] font-semibold leading-tight text-gray-800 dark:text-slate-200">
         {label}
       </span>
       {selected ? (
-        <Check className="h-4 w-4 shrink-0 text-brand-600" aria-hidden />
-      ) : (
-        <span className="h-4 w-4 shrink-0" aria-hidden />
-      )}
+        <Check className="absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-brand-600" aria-hidden />
+      ) : null}
     </button>
   )
 }
@@ -198,7 +196,7 @@ export default function RecoveryImpactSection({ value, onPatch }: Props) {
       {/* Daily-life impact + branching follow-ups */}
       <div>
         <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-          How has the injury affected your daily life?
+          How has the injury affected your daily life? <span className="font-medium normal-case text-gray-400">· select all that apply</span>
         </p>
         <div className="mt-1.5 grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4">
           {LIFE_AREAS.map((a) => (

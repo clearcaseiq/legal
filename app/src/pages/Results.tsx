@@ -79,6 +79,7 @@ import {
   Eye,
   Pencil,
   Info,
+  X,
 } from 'lucide-react'
 
 function initialPlaintiffLoggedInState(): boolean | null {
@@ -3602,7 +3603,7 @@ Checklist:
                                   <div className="flex items-center justify-center gap-1">
                                     <button type="button" onClick={() => moveRankedAttorney(attorney.id || attorney.attorney_id, -1)} disabled={index === 0} title={t('results.calc.moveUp')} className="rounded-md border border-slate-300 bg-white p-1 text-slate-700 shadow-sm hover:border-slate-400 hover:bg-slate-100 hover:text-slate-900 disabled:opacity-40"><ChevronDown className="h-4 w-4 rotate-180" /></button>
                                     <button type="button" onClick={() => moveRankedAttorney(attorney.id || attorney.attorney_id, 1)} disabled={index === rankedAttorneyCards.length - 1} title={t('results.calc.moveDown')} className="rounded-md border border-slate-300 bg-white p-1 text-slate-700 shadow-sm hover:border-slate-400 hover:bg-slate-100 hover:text-slate-900 disabled:opacity-40"><ChevronDown className="h-4 w-4" /></button>
-                                    <button type="button" onClick={() => removeRankedAttorney(attorney.id || attorney.attorney_id)} title={t('results.calc.remove')} className="rounded-md border border-slate-300 bg-white px-1.5 py-1 text-slate-700 shadow-sm hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700"><span className="text-sm font-bold leading-none">×</span></button>
+                                    <button type="button" onClick={() => removeRankedAttorney(attorney.id || attorney.attorney_id)} title={t('results.calc.remove')} className="rounded-md border border-slate-300 bg-white p-1 text-slate-700 shadow-sm hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700"><X className="h-4 w-4" /></button>
                                   </div>
                                 )}
                               </div>

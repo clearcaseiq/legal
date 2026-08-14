@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { ArrowRight, Bell, CheckCircle, FileText, Headset, Lock, MessageSquare, ShieldCheck, UploadCloud } from 'lucide-react'
 import { register } from '../lib/api-auth'
 import { createConsent } from '../lib/api-consent'
 import { associateAssessments, claimAssessmentByToken, listAssessments } from '../lib/api-plaintiff'
 import OAuthButtons from '../components/OAuthButtons'
 import ConsentWorkflow from '../components/ConsentWorkflow'
-import BrandLogo from '../components/BrandLogo'
 import { PasswordInputWithReveal } from '../components/PasswordInputWithReveal'
 import { useLanguage } from '../contexts/LanguageContext'
 import { useToast } from '../contexts/ToastContext'
@@ -47,7 +47,6 @@ export default function Register() {
   // When the user came from intake we already know their contact details, so the
   // signup collapses to "set a password". They can still expand to edit anything.
   const [streamlined, setStreamlined] = useState(false)
-  const [showDetails, setShowDetails] = useState(false)
   const navigate = useNavigate()
   const { showToast } = useToast()
   const [searchParams] = useSearchParams()
@@ -60,6 +59,16 @@ export default function Register() {
   const redirectTo = assessmentId
     ? `/dashboard?case=${encodeURIComponent(assessmentId)}`
     : searchParams.get('redirect') || '/dashboard'
+
+  // Account benefits shown as tiles so guests can see what an account unlocks.
+  const accountFeatures = [
+    { icon: Bell, title: 'auth.featTrackTitle', desc: 'auth.featTrackDesc', wrap: 'bg-emerald-50 text-emerald-600' },
+    { icon: UploadCloud, title: 'auth.featUploadTitle', desc: 'auth.featUploadDesc', wrap: 'bg-blue-50 text-blue-600' },
+    { icon: FileText, title: 'auth.featReportTitle', desc: 'auth.featReportDesc', wrap: 'bg-violet-50 text-violet-600' },
+    { icon: MessageSquare, title: 'auth.featMessagesTitle', desc: 'auth.featMessagesDesc', wrap: 'bg-emerald-50 text-emerald-600' },
+    { icon: Lock, title: 'auth.featPrivacyTitle', desc: 'auth.featPrivacyDesc', wrap: 'bg-blue-50 text-blue-600' },
+  ]
+  const emailLooksValid = /\S+@\S+\.\S+/.test(form.email.trim())
 
   // Persist assessmentId for OAuth flow (assessmentId is lost during OAuth redirect)
   useEffect(() => {
@@ -96,10 +105,6 @@ export default function Register() {
     const nextFieldErrors = validateRegisterInput(normalizedForm, t)
     setFieldErrors(nextFieldErrors)
     if (Object.keys(nextFieldErrors).length > 0) {
-      // In the collapsed streamlined view the name/email/phone inputs are hidden;
-      // expand them so any validation error (e.g. an invalid email) is visible
-      // instead of the button appearing to do nothing.
-      setShowDetails(true)
       return
     }
 
@@ -220,7 +225,7 @@ export default function Register() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8 relative">
+    <div className="min-h-screen bg-gray-50 flex flex-col justify-start pt-6 pb-12 sm:px-6 lg:px-8 relative">
       {consentSaving && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm">
           <div className="rounded-xl bg-white dark:bg-slate-900 px-6 py-4 shadow-xl border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100">
@@ -236,19 +241,26 @@ export default function Register() {
           {consentSaveError}
         </div>
       )}
-      <div className="sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="text-center">
-          <Link
-            to="/"
-            aria-label={t('common.appName')}
-            className="inline-flex justify-center mb-4 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2"
-          >
-            <BrandLogo appName={t('common.appName')} size="lg" />
-          </Link>
-          <p className="text-sm text-gray-600 dark:text-slate-400">{t('auth.registerTagline')}</p>
-        </div>
+      <div className="sm:mx-auto sm:w-full sm:max-w-[1600px]">
+        {streamlined && (
+          <div className="flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-white">
+              <CheckCircle className="h-6 w-6" aria-hidden />
+            </span>
+            <div className="min-w-0">
+              <p className="text-sm font-bold text-emerald-900">{t('auth.caseSubmittedBanner')}</p>
+              <p className="text-xs leading-snug text-emerald-800/90">{t('auth.caseSubmittedBannerSub')}</p>
+            </div>
+          </div>
+        )}
         <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
-          {streamlined ? t('auth.almostDoneTitle') : t('auth.createAccountTitle')}
+          {streamlined ? (
+            <>
+              {t('auth.almostDoneTitle')} <span aria-hidden>🎉</span>
+            </>
+          ) : (
+            t('auth.createAccountTitle')
+          )}
         </h2>
         {streamlined ? (
           <p className="mt-2 text-center text-sm text-gray-600">
@@ -264,7 +276,7 @@ export default function Register() {
         )}
       </div>
 
-      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
+      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-[1600px]">
         <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10">
           {error && (
             <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-md">
@@ -272,6 +284,8 @@ export default function Register() {
             </div>
           )}
 
+          <div className="grid gap-8 lg:grid-cols-[28rem_26rem] lg:items-start lg:justify-center lg:gap-24">
+            <div className="mx-auto w-full max-w-md lg:mx-0">
           {/* OAuth Registration Buttons */}
           <div className="mb-6">
             <OAuthButtons onError={setError} disabled={isLoading || !acceptedLegalSignup} />
@@ -288,14 +302,12 @@ export default function Register() {
           </div>
 
           <form className="space-y-6" onSubmit={onSubmit}>
-            {(!streamlined || showDetails) ? (
-            <>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label htmlFor="firstName" className="block text-sm font-medium text-gray-700">
                   {t('auth.firstNameLabel')}
                 </label>
-                <div className="mt-1">
+                <div className="relative mt-1">
                   <input
                     id="firstName"
                     type="text"
@@ -304,9 +316,12 @@ export default function Register() {
                       setForm((current) => ({ ...current, firstName: event.target.value }))
                       setFieldErrors((current) => ({ ...current, firstName: undefined }))
                     }}
-                    className={`appearance-none block w-full px-3 py-2 border rounded-md placeholder-gray-400 focus:outline-none focus:ring-brand-500 focus:border-brand-500 sm:text-sm ${fieldErrors.firstName ? 'border-red-500' : 'border-gray-300'}`}
+                    className={`appearance-none block w-full rounded-md border px-3 py-2 pr-10 placeholder-gray-400 focus:border-brand-500 focus:outline-none focus:ring-brand-500 sm:text-sm ${fieldErrors.firstName ? 'border-red-500' : 'border-gray-300'}`}
                     placeholder="John"
                   />
+                  {form.firstName.trim() && !fieldErrors.firstName && (
+                    <CheckCircle className="pointer-events-none absolute right-3 top-1/2 h-5 w-5 -translate-y-1/2 text-emerald-500" aria-hidden />
+                  )}
                 </div>
                 {fieldErrors.firstName && (
                   <p className="mt-1 text-sm text-red-600">{fieldErrors.firstName}</p>
@@ -317,7 +332,7 @@ export default function Register() {
                 <label htmlFor="lastName" className="block text-sm font-medium text-gray-700">
                   {t('auth.lastNameLabel')} <span className="text-gray-400">{t('auth.optionalSuffix')}</span>
                 </label>
-                <div className="mt-1">
+                <div className="relative mt-1">
                   <input
                     id="lastName"
                     type="text"
@@ -326,9 +341,12 @@ export default function Register() {
                       setForm((current) => ({ ...current, lastName: event.target.value }))
                       setFieldErrors((current) => ({ ...current, lastName: undefined }))
                     }}
-                    className={`appearance-none block w-full px-3 py-2 border rounded-md placeholder-gray-400 focus:outline-none focus:ring-brand-500 focus:border-brand-500 sm:text-sm ${fieldErrors.lastName ? 'border-red-500' : 'border-gray-300'}`}
+                    className={`appearance-none block w-full rounded-md border px-3 py-2 pr-10 placeholder-gray-400 focus:border-brand-500 focus:outline-none focus:ring-brand-500 sm:text-sm ${fieldErrors.lastName ? 'border-red-500' : 'border-gray-300'}`}
                     placeholder="Doe"
                   />
+                  {form.lastName.trim() && !fieldErrors.lastName && (
+                    <CheckCircle className="pointer-events-none absolute right-3 top-1/2 h-5 w-5 -translate-y-1/2 text-emerald-500" aria-hidden />
+                  )}
                 </div>
                 {fieldErrors.lastName && (
                   <p className="mt-1 text-sm text-red-600">{fieldErrors.lastName}</p>
@@ -340,7 +358,7 @@ export default function Register() {
               <label htmlFor="email" className="block text-sm font-medium text-gray-700">
                 {t('auth.emailLabel')}
               </label>
-              <div className="mt-1">
+              <div className="relative mt-1">
                 <input
                   id="email"
                   type="email"
@@ -349,81 +367,65 @@ export default function Register() {
                     setForm((current) => ({ ...current, email: event.target.value }))
                     setFieldErrors((current) => ({ ...current, email: undefined }))
                   }}
-                  className={`appearance-none block w-full px-3 py-2 border rounded-md placeholder-gray-400 focus:outline-none focus:ring-brand-500 focus:border-brand-500 sm:text-sm ${fieldErrors.email ? 'border-red-500' : 'border-gray-300'}`}
+                  className={`appearance-none block w-full rounded-md border px-3 py-2 pr-10 placeholder-gray-400 focus:border-brand-500 focus:outline-none focus:ring-brand-500 sm:text-sm ${fieldErrors.email ? 'border-red-500' : 'border-gray-300'}`}
                   placeholder="john@example.com"
                 />
+                {emailLooksValid && !fieldErrors.email && (
+                  <CheckCircle className="pointer-events-none absolute right-3 top-1/2 h-5 w-5 -translate-y-1/2 text-emerald-500" aria-hidden />
+                )}
               </div>
               {fieldErrors.email && (
                 <p className="mt-1 text-sm text-red-600">{fieldErrors.email}</p>
               )}
             </div>
-            </>
-            ) : (
-              <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-gray-900">
-                      {[form.firstName, form.lastName].filter(Boolean).join(' ') || t('auth.yourAccount')}
-                    </p>
-                    <p className="mt-0.5 truncate text-sm text-gray-600">{form.email}</p>
-                    {form.phone && <p className="mt-0.5 text-sm text-gray-600">{form.phone}</p>}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setShowDetails(true)}
-                    className="shrink-0 text-sm font-medium text-brand-600 hover:text-brand-500"
-                  >
-                    {t('auth.edit')}
-                  </button>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+                  {t('auth.passwordLabel')}
+                </label>
+                <div className="mt-1">
+                  <PasswordInputWithReveal
+                    id="password"
+                    autoComplete="new-password"
+                    value={form.password}
+                    onChange={(event) => {
+                      setForm((current) => ({ ...current, password: event.target.value }))
+                      setFieldErrors((current) => ({ ...current, password: undefined }))
+                    }}
+                    disabled={isLoading}
+                    className={`appearance-none block w-full rounded-md border px-3 py-2 placeholder-gray-400 focus:border-brand-500 focus:outline-none focus:ring-brand-500 sm:text-sm ${fieldErrors.password ? 'border-red-500' : 'border-gray-300'}`}
+                    placeholder="••••••••"
+                  />
+                </div>
+                {fieldErrors.password ? (
+                  <p className="mt-1 text-sm text-red-600">{fieldErrors.password}</p>
+                ) : (
+                  <p className="mt-1 text-xs text-gray-500">{t('auth.passwordHint')}</p>
+                )}
+              </div>
+
+              <div>
+                <label htmlFor="phone" className="block text-sm font-medium text-gray-700">
+                  {t('auth.phoneOptionalLabel')}
+                </label>
+                <div className="mt-1">
+                  <input
+                    id="phone"
+                    type="tel"
+                    value={form.phone}
+                    onChange={(event) => {
+                      setForm((current) => ({ ...current, phone: formatPhoneInput(event.target.value) }))
+                      setFieldErrors((current) => ({ ...current, phone: undefined }))
+                    }}
+                    aria-invalid={!!fieldErrors.phone}
+                    className={`appearance-none block w-full rounded-md border px-3 py-2 placeholder-gray-400 focus:border-brand-500 focus:outline-none focus:ring-brand-500 sm:text-sm ${fieldErrors.phone ? 'border-red-500' : 'border-gray-300'}`}
+                    placeholder="(555) 123-4567"
+                  />
+                  {fieldErrors.phone && <p className="mt-1 text-sm text-red-600">{fieldErrors.phone}</p>}
                 </div>
               </div>
-            )}
-
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700">
-                {t('auth.passwordLabel')}
-              </label>
-              <div className="mt-1">
-                <PasswordInputWithReveal
-                  id="password"
-                  autoComplete="new-password"
-                  value={form.password}
-                  onChange={(event) => {
-                    setForm((current) => ({ ...current, password: event.target.value }))
-                    setFieldErrors((current) => ({ ...current, password: undefined }))
-                  }}
-                  disabled={isLoading}
-                  className={`appearance-none block w-full px-3 py-2 border rounded-md placeholder-gray-400 focus:outline-none focus:ring-brand-500 focus:border-brand-500 sm:text-sm ${fieldErrors.password ? 'border-red-500' : 'border-gray-300'}`}
-                  placeholder="••••••••"
-                />
-              </div>
-              {fieldErrors.password && (
-                <p className="mt-1 text-sm text-red-600">{fieldErrors.password}</p>
-              )}
             </div>
-
-            {(!streamlined || showDetails) && (
-            <div>
-              <label htmlFor="phone" className="block text-sm font-medium text-gray-700">
-                {t('auth.phoneOptionalLabel')}
-              </label>
-              <div className="mt-1">
-                <input
-                  id="phone"
-                  type="tel"
-                  value={form.phone}
-                  onChange={(event) => {
-                    setForm((current) => ({ ...current, phone: formatPhoneInput(event.target.value) }))
-                    setFieldErrors((current) => ({ ...current, phone: undefined }))
-                  }}
-                  aria-invalid={!!fieldErrors.phone}
-                  className={`appearance-none block w-full px-3 py-2 border rounded-md placeholder-gray-400 focus:outline-none focus:ring-brand-500 focus:border-brand-500 sm:text-sm ${fieldErrors.phone ? 'border-red-500' : 'border-gray-300'}`}
-                  placeholder="(555) 123-4567"
-                />
-                {fieldErrors.phone && <p className="mt-1 text-sm text-red-600">{fieldErrors.phone}</p>}
-              </div>
-            </div>
-            )}
 
             <div className="flex gap-2 items-start">
               <input
@@ -454,9 +456,10 @@ export default function Register() {
               <button
                 type="submit"
                 disabled={isLoading || !acceptedLegalSignup}
-                className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex w-full items-center justify-center gap-2 rounded-lg border border-transparent bg-brand-600 px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {isLoading ? t('auth.creatingAccount') : t('auth.createAccount')}
+                {!isLoading && <ArrowRight className="h-4 w-4" aria-hidden />}
               </button>
             </div>
           </form>
@@ -478,6 +481,49 @@ export default function Register() {
               >
                 {t('common.continueAsGuest')}
               </Link>
+            </div>
+          </div>
+
+          <div className="mt-6 flex items-start justify-center gap-2 text-center">
+            <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" aria-hidden />
+            <p className="text-xs leading-snug text-gray-500">{t('auth.footerReassure')}</p>
+          </div>
+            </div>
+
+            {/* Right: what an account unlocks */}
+            <div className="mt-2 lg:mt-0 lg:border-l lg:border-gray-100 lg:pl-14">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">{t('auth.benefitsHeading')}</h3>
+              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-1">
+                {accountFeatures.map((feature) => {
+                  const Icon = feature.icon
+                  return (
+                    <div key={feature.title} className="flex items-start gap-3 rounded-xl border border-gray-200 bg-white p-3">
+                      <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${feature.wrap}`}>
+                        <Icon className="h-5 w-5" aria-hidden />
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-gray-900">{t(feature.title)}</p>
+                        <p className="mt-0.5 text-xs leading-snug text-gray-500">{t(feature.desc)}</p>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+
+              <div className="mt-6 flex items-start gap-3 border-t border-gray-100 pt-6">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-600">
+                  <Headset className="h-5 w-5" aria-hidden />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-gray-900">{t('auth.needHelpTitle')}</p>
+                  <p className="text-xs text-gray-500">{t('auth.needHelpDesc')}</p>
+                  <p className="mt-1 text-xs">
+                    <a href={`tel:${t('auth.supportPhone')}`} className="font-medium text-brand-600 hover:text-brand-500">{t('auth.supportPhone')}</a>
+                    <span className="text-gray-400">{'  •  '}</span>
+                    <a href={`mailto:${t('auth.supportEmail')}`} className="font-medium text-brand-600 hover:text-brand-500">{t('auth.supportEmail')}</a>
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
         </div>

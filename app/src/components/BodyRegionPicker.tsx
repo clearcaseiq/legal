@@ -20,20 +20,18 @@ function RegionChip({ id, selected, onToggle }: { id: string; selected: boolean;
       type="button"
       aria-pressed={selected}
       onClick={() => onToggle(id)}
-      className={`flex min-h-[2.25rem] w-full min-w-0 items-center gap-1.5 rounded-xl border px-2.5 py-1 text-left transition-colors ${
+      className={`relative flex min-h-[2.25rem] w-full min-w-0 items-center justify-center rounded-xl border px-6 py-1 text-center transition-colors ${
         selected
           ? 'border-brand-500 bg-brand-50/70 dark:border-brand-500/50 dark:bg-brand-500/10'
           : 'border-slate-200 bg-white hover:border-brand-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/40'
       }`}
     >
-      <span className="min-w-0 flex-1 [overflow-wrap:anywhere] text-[13px] font-semibold leading-tight text-gray-800 dark:text-slate-200">
+      <span className="[overflow-wrap:anywhere] text-center text-[13px] font-semibold leading-tight text-gray-800 dark:text-slate-200">
         {regionLabel(id)}
       </span>
       {selected ? (
-        <Check className="h-4 w-4 shrink-0 text-brand-600" aria-hidden />
-      ) : (
-        <span className="h-4 w-4 shrink-0" aria-hidden />
-      )}
+        <Check className="absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-brand-600" aria-hidden />
+      ) : null}
     </button>
   )
 }

@@ -10,6 +10,8 @@ interface LoginLayoutProps {
   footerContent?: React.ReactNode
   footerDividerText?: string
   showTerms?: boolean
+  /** Brand logo shown above the title. Hidden on screens that don't want it. */
+  showLogo?: boolean
 }
 
 export default function LoginLayout({
@@ -19,18 +21,21 @@ export default function LoginLayout({
   children,
   footerContent,
   footerDividerText,
-  showTerms = true
+  showTerms = true,
+  showLogo = true
 }: LoginLayoutProps) {
   const { t } = useLanguage()
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-brand-50/50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
-        <Link
-          to="/"
-          className="flex items-center justify-center mb-8 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2"
-        >
-          <BrandLogo size="lg" />
-        </Link>
+        {showLogo && (
+          <Link
+            to="/"
+            className="flex items-center justify-center mb-8 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2"
+          >
+            <BrandLogo size="lg" />
+          </Link>
+        )}
         <h1 className="text-center text-3xl sm:text-4xl font-extrabold font-display text-slate-900 mb-2 tracking-tight">
           {title}
         </h1>

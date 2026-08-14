@@ -21,7 +21,7 @@ type Props = {
 }
 
 const chipClass = (selected: boolean) =>
-  `flex min-h-[2.25rem] w-full min-w-0 items-center gap-1.5 rounded-xl border px-2.5 py-1 text-left transition-colors ${
+  `relative flex min-h-[2.25rem] w-full min-w-0 items-center justify-center rounded-xl border px-6 py-1 text-center transition-colors ${
     selected
       ? 'border-brand-500 bg-brand-50/70 dark:border-brand-500/50 dark:bg-brand-500/10'
       : 'border-slate-200 bg-white hover:border-brand-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/40'
@@ -33,14 +33,12 @@ const inputClass =
 function Chip({ label, selected, onClick }: { label: string; selected: boolean; onClick: () => void }) {
   return (
     <button type="button" aria-pressed={selected} onClick={onClick} className={chipClass(selected)}>
-      <span className="min-w-0 flex-1 [overflow-wrap:anywhere] text-[13px] font-semibold leading-tight text-gray-800 dark:text-slate-200 sm:text-xs">
+      <span className="[overflow-wrap:anywhere] text-center text-[13px] font-semibold leading-tight text-gray-800 dark:text-slate-200">
         {label}
       </span>
       {selected ? (
-        <Check className="h-4 w-4 shrink-0 text-brand-600" aria-hidden />
-      ) : (
-        <span className="h-4 w-4 shrink-0" aria-hidden />
-      )}
+        <Check className="absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-brand-600" aria-hidden />
+      ) : null}
     </button>
   )
 }
@@ -106,7 +104,7 @@ export default function CaseTypeIntakePanel({ module, value, onChange }: Props) 
                   type="button"
                   aria-pressed={on}
                   onClick={() => set(f.id, on ? undefined : val)}
-                  className={`rounded-lg border px-3 py-1 text-xs font-semibold transition-colors ${
+                  className={`rounded-lg border px-3 py-1 text-center text-[13px] font-semibold transition-colors ${
                     on
                       ? 'border-brand-500 bg-brand-50/70 text-brand-800 dark:border-brand-500/50 dark:bg-brand-500/10 dark:text-brand-200'
                       : 'border-slate-200 bg-white text-gray-700 hover:border-brand-300 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-300'

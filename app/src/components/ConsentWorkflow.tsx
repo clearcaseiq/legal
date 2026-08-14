@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef, type ReactNode } from 'react'
-import { Check, X, FileText, Shield, Mail, AlertTriangle, ExternalLink, ChevronDown, Clock, Lock } from 'lucide-react'
+import { Check, CheckCircle2, X, FileText, Shield, Mail, AlertTriangle, ExternalLink, ChevronDown, Lock, ArrowRight } from 'lucide-react'
 import ESignatureCapture from './ESignatureCapture'
 import { fetchPublicConsentTemplate, type PublicConsentTemplate } from '../lib/api-consent'
 import { ConsentDocumentBody } from './ConsentDocumentBody'
 import { useModalInitialFocus } from '../hooks/useModalInitialFocus'
+import ConsentStepHeader from './ConsentStepHeader'
 
 interface ConsentWorkflowProps {
   userId: string
@@ -41,6 +42,24 @@ const fullPagePath: Record<string, string> = {
   privacy: '/privacy-policy',
 }
 
+/** Card copy shown in the combined review screen (falls back if the template lacks a summary). */
+const consentMeta: Record<string, { readLabel: string; fallbackSummary: string }> = {
+  terms: {
+    readLabel: 'Read full agreement',
+    fallbackSummary:
+      'The rules for using ClearCaseIQ, including how we connect you with law firms and our responsibilities.',
+  },
+  privacy: {
+    readLabel: 'Read full policy',
+    fallbackSummary: 'How we collect, use, and protect your personal information.',
+  },
+  hipaa: {
+    readLabel: 'Read full authorization',
+    fallbackSummary:
+      'Authorization for ClearCaseIQ and participating law firms to use and disclose your health information for your case.',
+  },
+}
+
 export default function ConsentWorkflow({
   userId: _userId,
   requiredConsents = ['terms', 'privacy', 'hipaa'],
@@ -59,7 +78,7 @@ export default function ConsentWorkflow({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [consentText, setConsentText] = useState('')
-  const [signatureMethod, setSignatureMethod] = useState<'drawn' | 'typed' | 'clicked'>('drawn')
+  const [signatureMethod, setSignatureMethod] = useState<'drawn' | 'typed' | 'clicked'>('typed')
   /** Combined flow: user affirms they read all shown documents before signature. */
   const [combinedAttested, setCombinedAttested] = useState(false)
   /** Combined flow read-progress: which document sections the user has scrolled to. */
@@ -140,15 +159,15 @@ export default function ConsentWorkflow({
   const getConsentIcon = (type: string) => {
     switch (type) {
       case 'hipaa':
-        return <Shield className="h-6 w-6 text-blue-600" />
+        return <Lock className="h-5 w-5 text-violet-600" />
       case 'terms':
-        return <FileText className="h-6 w-6 text-emerald-600" />
+        return <FileText className="h-5 w-5 text-emerald-600" />
       case 'privacy':
-        return <Shield className="h-6 w-6 text-violet-600" />
+        return <Shield className="h-5 w-5 text-blue-600" />
       case 'marketing':
-        return <Mail className="h-6 w-6 text-orange-600" />
+        return <Mail className="h-5 w-5 text-orange-600" />
       default:
-        return <FileText className="h-6 w-6 text-gray-600" />
+        return <FileText className="h-5 w-5 text-gray-600" />
     }
   }
 
@@ -282,204 +301,173 @@ export default function ConsentWorkflow({
 
   // —— Combined attestation: all documents, one checkbox, one signature; API still gets one record per type ——
   if (flow === 'combined') {
-    const reviewedCount = requiredConsents.filter((t) => viewedSections[t]).length
-    const allViewed = reviewedCount === requiredConsents.length
+    const titles = requiredConsents.map((t) => getConsentTitle(t))
+    const attestationList = titles
+      .map((title, i) => (i === titles.length - 1 && titles.length > 1 ? `and ${title}` : title))
+      .join(titles.length > 2 ? ', ' : ' ')
+    const markViewed = (type: string) =>
+      setViewedSections((prev) => (prev[type] ? prev : { ...prev, [type]: true }))
+
     const combinedInner = (
       <div
         ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="consent-workflow-title"
-        className="bg-white dark:bg-slate-900 sm:rounded-lg shadow-xl w-full sm:max-w-4xl border-0 sm:border border-slate-200 dark:border-slate-700 flex flex-col h-[100dvh] max-h-[100dvh] sm:h-auto sm:max-h-[calc(100dvh-2rem)]"
+        className="bg-white dark:bg-slate-900 sm:rounded-2xl shadow-xl w-full sm:max-w-2xl border-0 sm:border border-slate-200 dark:border-slate-700 flex flex-col h-[100dvh] max-h-[100dvh] sm:h-auto sm:max-h-[calc(100dvh-2rem)]"
       >
-        <div className="flex items-start justify-between gap-3 p-4 sm:p-6 border-b border-slate-200 dark:border-slate-700 shrink-0">
-          <div className="min-w-0">
-            <h3 id="consent-workflow-title" className="text-base sm:text-lg font-semibold text-slate-900 dark:text-slate-100">
-              Review and e-sign agreements
-            </h3>
-            <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-              {requiredConsents.length} document{requiredConsents.length !== 1 ? 's' : ''} · one electronic signature
-            </p>
-            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
-              <span className="inline-flex items-center gap-1"><Clock className="h-3.5 w-3.5" aria-hidden /> About a minute</span>
-              <span className="inline-flex items-center gap-1"><Lock className="h-3.5 w-3.5" aria-hidden /> Secure</span>
-              <span className="hidden sm:inline-flex items-center gap-1"><Mail className="h-3.5 w-3.5" aria-hidden /> We&apos;ll email you a copy of each signed agreement</span>
+        <ConsentStepHeader activeStep={1} />
+
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 py-5 sm:px-8 sm:py-6">
+          {/* Case-submitted confirmation */}
+          <div className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900/50 dark:bg-emerald-950/30">
+            <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-white">
+              <Check className="h-4 w-4" aria-hidden />
+            </span>
+            <div>
+              <p className="text-sm font-semibold text-emerald-800 dark:text-emerald-200">
+                Your case has been submitted!
+              </p>
+              <p className="mt-0.5 text-sm text-emerald-700 dark:text-emerald-300">
+                We&apos;ve sent your case to the attorneys you selected for review.
+              </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onCancel}
-            className="shrink-0 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 rounded-lg p-2 -mr-1 pressable"
-            aria-label="Exit and sign out"
+
+          <h3
+            id="consent-workflow-title"
+            className="mt-6 text-center text-xl font-bold text-slate-900 dark:text-slate-100 sm:text-2xl"
           >
-            <X className="h-6 w-6" />
-          </button>
-        </div>
+            Review and agree to your agreements
+          </h3>
+          <p className="mx-auto mt-1.5 max-w-md text-center text-sm text-slate-600 dark:text-slate-400">
+            Please review the {requiredConsents.length === 3 ? 'three' : requiredConsents.length} agreements below. Then
+            confirm and continue to sign.
+          </p>
 
-        <div className="px-4 sm:px-6 py-2.5 sm:py-3 bg-amber-50/80 dark:bg-amber-950/30 border-b border-amber-100 dark:border-amber-900/50 text-xs text-amber-950 dark:text-amber-200 shrink-0">
-          <strong className="font-medium">Legal notice:</strong> Each agreement is stored separately. Your single
-          electronic signature applies to each document version shown.
-        </div>
-
-        <div className="px-4 sm:px-6 py-3 border-b border-slate-200 dark:border-slate-700 shrink-0">
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Your progress</span>
-            <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">{reviewedCount} of {requiredConsents.length} reviewed</span>
-          </div>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {requiredConsents.map((type) => {
-              const seen = !!viewedSections[type]
-              return (
-                <a
-                  key={type}
-                  href={`#consent-section-${type}`}
-                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 sm:px-3 py-1 text-xs sm:text-sm font-medium transition-colors ${
-                    seen
-                      ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300'
-                      : 'border-slate-200 bg-white text-slate-600 hover:text-brand-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300'
-                  }`}
-                >
-                  <span className={`flex h-4 w-4 items-center justify-center rounded-full text-[10px] ${seen ? 'bg-emerald-500 text-white' : 'border border-slate-300 dark:border-slate-500'}`}>
-                    {seen ? <Check className="h-3 w-3" aria-hidden /> : null}
-                  </span>
-                  {getConsentTitle(type)}
-                </a>
-              )
-            })}
-          </div>
-        </div>
-
-        <div className="p-4 sm:p-6 space-y-8 sm:space-y-10 flex-1 min-h-0 overflow-y-auto overscroll-contain">
-          {requiredConsents.map((type) => {
-            const template = consentTemplates[type]
-            const fullPath = fullPagePath[type]
-            return (
-              <section
+          {/* Summary chips */}
+          <div className="mt-4 flex flex-wrap justify-center gap-2">
+            {requiredConsents.map((type) => (
+              <span
                 key={type}
-                id={`consent-section-${type}`}
-                data-consent-type={type}
-                ref={(el) => { sectionRefs.current[type] = el }}
-                className="scroll-mt-24"
+                className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-300"
               >
-                <div className="flex items-center mb-3">
-                  {getConsentIcon(type)}
-                  <div className="ml-3">
-                    <h4 className="text-xl font-semibold text-slate-900 dark:text-slate-100">
-                      {template?.title || getConsentTitle(type)}
-                    </h4>
-                    <p className="text-sm text-slate-600 dark:text-slate-400">
-                      Version {template?.version || '1.0'}
-                      {template?.effectiveDate && (
-                        <span className="ml-2">· Effective {template.effectiveDate}</span>
-                      )}
-                    </p>
-                  </div>
-                </div>
+                <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
+                {getConsentTitle(type)}
+              </span>
+            ))}
+          </div>
 
-                {template?.plainLanguageSummary && (
-                  <div className="mb-4 p-4 rounded-lg bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-600 text-sm text-slate-700 dark:text-slate-300">
-                    <p className="font-medium text-slate-900 dark:text-slate-100 mb-1">Summary</p>
-                    <p>{template.plainLanguageSummary}</p>
-                  </div>
-                )}
-
-                {fullPath && (
-                  <p className="mb-4">
-                    <a
-                      href={fullPath}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-sm font-medium text-brand-600 hover:text-brand-700"
-                    >
-                      Open full page in new tab
-                      <ExternalLink className="h-3.5 w-3.5" />
-                    </a>
-                  </p>
-                )}
-
-                {(() => {
-                  const hasSummary = !!template?.plainLanguageSummary
-                  const isExpanded = expandedSections[type] ?? !hasSummary
-                  return (
-                    <>
-                      {hasSummary && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setExpandedSections((prev) => ({ ...prev, [type]: !isExpanded }))
-                            setViewedSections((prev) => (prev[type] ? prev : { ...prev, [type]: true }))
-                          }}
-                          aria-expanded={isExpanded}
-                          className="mb-3 inline-flex items-center gap-1.5 text-sm font-medium text-brand-600 hover:text-brand-700"
+          {/* Agreement cards */}
+          <div className="mt-5 space-y-3">
+            {requiredConsents.map((type, index) => {
+              const template = consentTemplates[type]
+              const fullPath = fullPagePath[type]
+              const meta = consentMeta[type]
+              const summary = template?.plainLanguageSummary || meta?.fallbackSummary || ''
+              const seen = !!viewedSections[type]
+              const isExpanded = !!expandedSections[type]
+              return (
+                <div
+                  key={type}
+                  id={`consent-section-${type}`}
+                  data-consent-type={type}
+                  ref={(el) => {
+                    sectionRefs.current[type] = el
+                  }}
+                  className="scroll-mt-24 rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900"
+                >
+                  <div className="flex items-start gap-3 p-4">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-xs font-bold text-white">
+                      {index + 1}
+                    </span>
+                    <span className="mt-0.5 shrink-0">{getConsentIcon(type)}</span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-2">
+                        <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                          {template?.title || getConsentTitle(type)}
+                        </h4>
+                        <div className="flex shrink-0 items-center gap-2">
+                          {seen && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+                              <Check className="h-3 w-3" aria-hidden />
+                              Reviewed
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setExpandedSections((prev) => ({ ...prev, [type]: !isExpanded }))
+                              markViewed(type)
+                            }}
+                            aria-expanded={isExpanded}
+                            aria-label={isExpanded ? 'Hide full text' : 'Show full text'}
+                            className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800"
+                          >
+                            <ChevronDown
+                              className={`h-4 w-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                              aria-hidden
+                            />
+                          </button>
+                        </div>
+                      </div>
+                      <p className="mt-1 text-xs leading-snug text-slate-600 dark:text-slate-400">{summary}</p>
+                      {fullPath && (
+                        <a
+                          href={fullPath}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={() => markViewed(type)}
+                          className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:text-brand-700"
                         >
-                          <ChevronDown className={`h-4 w-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`} aria-hidden />
-                          {isExpanded ? 'Hide full agreement' : 'Read full agreement'}
-                        </button>
+                          {meta?.readLabel || 'Read full document'}
+                          <ExternalLink className="h-3 w-3" aria-hidden />
+                        </a>
                       )}
                       {isExpanded && (
-                        <div className="bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-600 rounded-lg p-4 sm:p-6">
+                        <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-600 dark:bg-slate-800/40">
                           {template?.content ? (
                             <ConsentDocumentBody content={template.content} />
                           ) : (
-                            <p className="text-slate-500">Consent document not available.</p>
+                            <p className="text-sm text-slate-500">Consent document not available.</p>
                           )}
                         </div>
                       )}
-                    </>
-                  )
-                })()}
-
-                {type === 'hipaa' && (
-                  <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-lg">
-                    <div className="flex">
-                      <AlertTriangle className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
-                      <div className="ml-3">
-                        <h3 className="text-sm font-medium text-blue-900 dark:text-blue-200">Health information</h3>
-                        <p className="mt-1 text-sm text-blue-800 dark:text-blue-300">
-                          This authorization covers PHI you share through the platform for your injury case. You can exit above
-                          to sign out if you prefer not to proceed.
-                        </p>
-                      </div>
                     </div>
                   </div>
-                )}
-              </section>
-            )
-          })}
-        </div>
+                </div>
+              )
+            })}
+          </div>
 
-        <div className="p-4 sm:p-6 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 space-y-3 sm:space-y-4 shrink-0 pb-[max(1rem,env(safe-area-inset-bottom))]">
-          {!allViewed && (
-            <p className="flex items-center gap-1.5 text-xs font-medium text-amber-700 dark:text-amber-300">
-              <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden />
-              Scroll through each agreement above to continue ({reviewedCount} of {requiredConsents.length} reviewed).
-            </p>
-          )}
-          <label className={`flex gap-3 items-start ${allViewed ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}>
+          {/* Attestation */}
+          <label className="mt-5 flex cursor-pointer items-start gap-3">
             <input
               type="checkbox"
-              disabled={!allViewed}
-              className="mt-1 h-5 w-5 sm:h-4 sm:w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500 disabled:cursor-not-allowed"
+              className="mt-0.5 h-5 w-5 sm:h-4 sm:w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
               checked={combinedAttested}
               onChange={(e) => setCombinedAttested(e.target.checked)}
             />
-            <span className="text-sm text-slate-700 dark:text-slate-300">
-              I have read the summaries and full text of {requiredConsents.map((t) => getConsentTitle(t)).join(', ')} (as shown
-              above). I agree to each document at the version and effective date indicated, and I understand my electronic
-              signature will apply to each of them.
+            <span className="text-sm leading-snug text-slate-700 dark:text-slate-300">
+              I have reviewed and agree to the {attestationList} shown above. I understand that my electronic signature on
+              the next screen will apply to each agreement.
             </span>
           </label>
 
-          <div className="flex justify-stretch sm:justify-end">
-            <button
-              type="button"
-              disabled={!combinedAttested || !allViewed}
-              onClick={() => setShowSignature(true)}
-              className="w-full sm:w-auto px-4 py-3 sm:py-2 text-sm font-medium text-white bg-brand-600 border border-transparent rounded-md hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed pressable"
-            >
-              Continue to e-signature
-            </button>
-          </div>
+          <button
+            type="button"
+            disabled={!combinedAttested}
+            onClick={() => setShowSignature(true)}
+            className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-brand-600 px-4 py-3 text-sm font-semibold text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50 pressable"
+          >
+            Continue to signature
+            <ArrowRight className="h-4 w-4" aria-hidden />
+          </button>
+
+          <p className="mt-4 flex items-center justify-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+            <Lock className="h-3.5 w-3.5" aria-hidden />
+            Your information is secure and encrypted.
+          </p>
         </div>
       </div>
     )

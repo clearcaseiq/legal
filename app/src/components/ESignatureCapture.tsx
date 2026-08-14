@@ -1,5 +1,6 @@
 import { useState, useRef, useLayoutEffect, useCallback, useEffect } from 'react'
-import { X, RotateCcw, Download, Check } from 'lucide-react'
+import { RotateCcw, Download, CheckCircle2, ArrowLeft, ArrowRight, Lock, ShieldCheck, Type, PenTool } from 'lucide-react'
+import ConsentStepHeader from './ConsentStepHeader'
 
 const CANVAS_W = 600
 const CANVAS_H = 200
@@ -207,14 +208,6 @@ export default function ESignatureCapture({
     setSubmitError(null)
   }
 
-  const handleClickSignature = () => {
-    const timestamp = new Date().toISOString()
-    setSignatureData(timestamp)
-    signatureDataRef.current = timestamp
-    setHasSignature(true)
-    setSubmitError(null)
-  }
-
   const handleSubmit = () => {
     if (submitting) return
     setSubmitError(null)
@@ -272,67 +265,103 @@ export default function ESignatureCapture({
   const submitDisabled =
     submitting || !hasSignature || (signatureMethod === 'typed' && !typedSignature.trim())
 
+  const legalNameValid = typedSignature.trim().length > 0
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-stretch sm:items-center justify-center z-[110] overflow-y-auto p-0 sm:p-4">
-      <div className="bg-white sm:rounded-lg shadow-xl w-full sm:max-w-2xl h-[100dvh] max-h-[100dvh] sm:h-auto sm:max-h-[calc(100dvh-2rem)] overflow-y-auto">
-        <div className="flex items-center justify-between p-4 sm:p-6 border-b">
-          <h3 className="text-lg font-semibold text-gray-900">Electronic Signature</h3>
-          <button type="button" onClick={onCancel} className="text-gray-400 hover:text-gray-600" aria-label="Close">
-            <X className="h-6 w-6" />
-          </button>
-        </div>
+      <div className="bg-white sm:rounded-2xl shadow-xl w-full sm:max-w-2xl h-[100dvh] max-h-[100dvh] sm:h-auto sm:max-h-[calc(100dvh-2rem)] overflow-y-auto flex flex-col">
+        <ConsentStepHeader activeStep={2} />
 
-        <div className="p-6">
-          <div className="mb-6">
-            <label className="block text-sm font-medium text-gray-700 mb-3">Choose Signature Method</label>
-            <div className="grid grid-cols-3 gap-3">
-              <button
-                type="button"
-                onClick={() => switchMethod('drawn')}
-                className={`p-3 border rounded-lg text-center transition-colors ${
-                  signatureMethod === 'drawn'
-                    ? 'border-blue-500 bg-blue-50 text-blue-700'
-                    : 'border-gray-300 hover:border-gray-400'
-                }`}
-              >
-                <div className="text-sm font-medium">Draw Signature</div>
-                <div className="text-xs text-gray-500 mt-1">Use mouse or touch</div>
-              </button>
+        <div className="flex-1 min-h-0 overflow-y-auto px-5 py-5 sm:px-8 sm:py-6">
+          <h3 className="text-center text-xl font-bold text-gray-900 sm:text-2xl">Sign your agreements</h3>
+          <p className="mx-auto mt-1.5 max-w-md text-center text-sm text-gray-600">
+            Your signature will be applied to the three agreements you just reviewed.
+          </p>
+
+          <div className="mt-5 rounded-xl border border-gray-200 p-4 sm:p-5">
+            <p className="text-sm font-semibold text-gray-900">Choose how you&apos;d like to sign</p>
+            <div className="mt-3 grid grid-cols-2 gap-3">
               <button
                 type="button"
                 onClick={() => switchMethod('typed')}
-                className={`p-3 border rounded-lg text-center transition-colors ${
+                aria-pressed={signatureMethod === 'typed'}
+                className={`flex items-start gap-3 rounded-lg border p-3 text-left transition-colors ${
                   signatureMethod === 'typed'
-                    ? 'border-blue-500 bg-blue-50 text-blue-700'
+                    ? 'border-blue-500 bg-blue-50'
                     : 'border-gray-300 hover:border-gray-400'
                 }`}
               >
-                <div className="text-sm font-medium">Type Name</div>
-                <div className="text-xs text-gray-500 mt-1">Enter your full name</div>
+                <Type className={`h-5 w-5 shrink-0 ${signatureMethod === 'typed' ? 'text-blue-600' : 'text-gray-500'}`} aria-hidden />
+                <span>
+                  <span className={`block text-sm font-medium ${signatureMethod === 'typed' ? 'text-blue-700' : 'text-gray-900'}`}>
+                    Type my name
+                  </span>
+                  <span className="mt-0.5 block text-xs text-gray-500">Easiest and fastest</span>
+                </span>
               </button>
               <button
                 type="button"
-                onClick={() => switchMethod('clicked')}
-                className={`p-3 border rounded-lg text-center transition-colors ${
-                  signatureMethod === 'clicked'
-                    ? 'border-blue-500 bg-blue-50 text-blue-700'
+                onClick={() => switchMethod('drawn')}
+                aria-pressed={signatureMethod === 'drawn'}
+                className={`flex items-start gap-3 rounded-lg border p-3 text-left transition-colors ${
+                  signatureMethod === 'drawn'
+                    ? 'border-blue-500 bg-blue-50'
                     : 'border-gray-300 hover:border-gray-400'
                 }`}
               >
-                <div className="text-sm font-medium">Click to Sign</div>
-                <div className="text-xs text-gray-500 mt-1">Timestamp signature</div>
+                <PenTool className={`h-5 w-5 shrink-0 ${signatureMethod === 'drawn' ? 'text-blue-600' : 'text-gray-500'}`} aria-hidden />
+                <span>
+                  <span className={`block text-sm font-medium ${signatureMethod === 'drawn' ? 'text-blue-700' : 'text-gray-900'}`}>
+                    Draw signature
+                  </span>
+                  <span className="mt-0.5 block text-xs text-gray-500">Use your mouse or finger</span>
+                </span>
               </button>
             </div>
-          </div>
 
-          <div className="mb-6">
-            <label className="block text-sm font-medium text-gray-700 mb-3">Signature</label>
+            {signatureMethod === 'typed' && (
+              <div className="mt-4 space-y-4">
+                <div>
+                  <label htmlFor="legal-name" className="block text-sm font-medium text-gray-700">
+                    Your legal name
+                  </label>
+                  <div className="relative mt-1.5">
+                    <input
+                      id="legal-name"
+                      type="text"
+                      value={typedSignature}
+                      onChange={handleTypedSignatureChange}
+                      placeholder="Enter your full legal name"
+                      className="w-full rounded-md border border-gray-300 px-3 py-2.5 pr-10 text-base focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    {legalNameValid && (
+                      <CheckCircle2
+                        className="pointer-events-none absolute right-3 top-1/2 h-5 w-5 -translate-y-1/2 text-emerald-500"
+                        aria-hidden
+                      />
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-sm font-medium text-gray-700">Signature preview</p>
+                  <div className="mt-1.5 flex min-h-[110px] items-center justify-center rounded-lg border border-dashed border-gray-300 bg-gray-50 px-4">
+                    <span
+                      className={`text-4xl ${legalNameValid ? 'text-gray-800' : 'text-gray-300'}`}
+                      style={{ fontFamily: "'Segoe Script', 'Brush Script MT', 'Snell Roundhand', cursive" }}
+                    >
+                      {legalNameValid ? typedSignature : 'Your signature'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {signatureMethod === 'drawn' && (
-              <div className="border-2 border-dashed border-gray-300 rounded-lg p-4">
+              <div className="mt-4 rounded-lg border-2 border-dashed border-gray-300 p-4">
                 <canvas
                   ref={canvasRef}
-                  className="border border-gray-200 rounded cursor-crosshair w-full touch-none"
+                  className="border border-gray-200 rounded cursor-crosshair w-full touch-none bg-white"
                   style={{ maxWidth: '100%', height: `${CANVAS_H}px` }}
                   onPointerDown={onPointerDown}
                   onPointerMove={onPointerMove}
@@ -343,13 +372,13 @@ export default function ESignatureCapture({
                   onTouchMove={onTouchMove}
                   onTouchEnd={onTouchEnd}
                 />
-                <div className="flex items-center justify-between mt-3">
+                <div className="mt-3 flex items-center justify-between">
                   <button
                     type="button"
                     onClick={clearSignature}
                     className="flex items-center text-sm text-gray-600 hover:text-gray-800"
                   >
-                    <RotateCcw className="h-4 w-4 mr-1" />
+                    <RotateCcw className="mr-1 h-4 w-4" />
                     Clear
                   </button>
                   {hasSignature && signatureData && (
@@ -358,7 +387,7 @@ export default function ESignatureCapture({
                       onClick={downloadSignature}
                       className="flex items-center text-sm text-blue-600 hover:text-blue-800"
                     >
-                      <Download className="h-4 w-4 mr-1" />
+                      <Download className="mr-1 h-4 w-4" />
                       Download
                     </button>
                   )}
@@ -366,101 +395,60 @@ export default function ESignatureCapture({
               </div>
             )}
 
-            {signatureMethod === 'typed' && (
-              <div className="border-2 border-dashed border-gray-300 rounded-lg p-4">
-                <input
-                  type="text"
-                  value={typedSignature}
-                  onChange={handleTypedSignatureChange}
-                  placeholder="Enter your full name"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-lg"
-                />
-                <p className="text-xs text-gray-500 mt-2">
-                  Please enter your full legal name as it appears on official documents
-                </p>
+            {visibleError && (
+              <div
+                ref={submitErrorRef}
+                className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800"
+                role="alert"
+              >
+                {visibleError}
               </div>
             )}
 
-            {signatureMethod === 'clicked' && (
-              <div className="border-2 border-dashed border-gray-300 rounded-lg p-4">
-                <button
-                  type="button"
-                  onClick={handleClickSignature}
-                  className={`w-full py-8 px-4 rounded-lg border-2 border-dashed transition-colors ${
-                    hasSignature
-                      ? 'border-green-400 bg-green-50 text-green-700'
-                      : 'border-gray-300 hover:border-gray-400 text-gray-600 hover:text-gray-800'
-                  }`}
-                >
-                  {hasSignature ? (
-                    <div className="flex items-center justify-center">
-                      <Check className="h-6 w-6 mr-2" />
-                      Signature Recorded
-                    </div>
-                  ) : (
-                    <div className="flex items-center justify-center">
-                      <div className="text-center">
-                        <div className="text-lg font-medium">Click to Sign</div>
-                        <div className="text-sm text-gray-500 mt-1">Your signature will be timestamped</div>
-                      </div>
-                    </div>
-                  )}
-                </button>
-                {hasSignature && (
-                  <p className="text-xs text-gray-500 mt-2 text-center">Signed on: {new Date().toLocaleString()}</p>
-                )}
-              </div>
-            )}
-          </div>
+            <div className="mt-4 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3.5">
+              <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" aria-hidden />
+              <p className="text-sm text-amber-800">
+                By selecting &ldquo;Sign &amp; Finish&rdquo;, you intend to electronically sign the Terms of Service,
+                Privacy Policy, and HIPAA Authorization displayed on the previous screen.
+              </p>
+            </div>
 
-          {visibleError && (
-            <div
-              ref={submitErrorRef}
-              className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-800"
-              role="alert"
+            <button
+              type="button"
+              onClick={handleSubmit}
+              disabled={submitDisabled}
+              className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {visibleError}
-            </div>
-          )}
+              {submitting ? (
+                'Saving…'
+              ) : (
+                <>
+                  <Lock className="h-4 w-4" aria-hidden />
+                  Sign &amp; Finish
+                  <ArrowRight className="h-4 w-4" aria-hidden />
+                </>
+              )}
+            </button>
 
-          <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-            <div className="flex">
-              <div className="flex-shrink-0">
-                <Check className="h-5 w-5 text-yellow-400" />
-              </div>
-              <div className="ml-3">
-                <h3 className="text-sm font-medium text-yellow-800">Legal Notice</h3>
-                <div className="mt-2 text-sm text-yellow-700">
-                  <p>By providing your electronic signature, you acknowledge that:</p>
-                  <ul className="mt-2 list-disc list-inside space-y-1">
-                    <li>This electronic signature has the same legal effect as a handwritten signature</li>
-                    <li>You are authorized to provide this signature</li>
-                    <li>You have read and understood the consent document</li>
-                    <li>This signature will be stored securely for legal compliance</li>
-                  </ul>
-                </div>
-              </div>
+            <div className="mt-3 text-center">
+              <button
+                type="button"
+                onClick={onCancel}
+                disabled={submitting}
+                className="inline-flex items-center gap-1 text-sm font-medium text-gray-600 hover:text-gray-800 disabled:opacity-50"
+              >
+                <ArrowLeft className="h-4 w-4" aria-hidden />
+                Back
+              </button>
             </div>
           </div>
-        </div>
 
-        <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2 sm:gap-3 p-4 sm:p-6 border-t bg-gray-50 pb-[max(1rem,env(safe-area-inset-bottom))]">
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={submitting}
-            className="px-4 py-3 sm:py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={submitDisabled}
-            className="px-4 py-3 sm:py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {submitting ? 'Saving…' : 'Submit Signature'}
-          </button>
+          <p className="mt-4 flex items-start justify-center gap-1.5 text-center text-xs text-gray-500">
+            <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+            <span>
+              Your signed agreements and signature record will be securely stored, and you&apos;ll receive copies by email.
+            </span>
+          </p>
         </div>
       </div>
     </div>

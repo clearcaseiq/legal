@@ -125,6 +125,7 @@ export default function Login() {
     <LoginLayout
       title={t('auth.loginTitle')}
       subtitle={t('auth.loginSubtitle')}
+      showLogo={false}
       error={error}
       footerDividerText={t('auth.newToApp')}
       footerContent={
@@ -135,15 +136,6 @@ export default function Login() {
           >
             {t('auth.startFreeAssessment')}
           </Link>
-          <p className="mt-5 border-t border-slate-100 pt-4 text-xs text-slate-400">
-            {t('auth.alreadyAttorney')}{' '}
-            <Link
-              to="/attorney-login"
-              className="font-medium text-slate-500 hover:text-slate-700 transition-colors"
-            >
-              {t('auth.attorneyLogin')}
-            </Link>
-          </p>
         </>
       }
     >

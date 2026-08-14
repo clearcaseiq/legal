@@ -138,6 +138,13 @@ export default function Layout({ children }: LayoutProps) {
   // claimant "Your Case Snapshot" (results) report shares that same wider width.
   const isIntakeRoute = ['/assess', '/intake', '/intake2'].includes(location.pathname)
   const isWideClaimantRoute = isIntakeRoute || location.pathname.startsWith('/results') || isPlaintiffDashboard
+  // Registration (the post-submission "create account" step) should share the wide
+  // claimant width so the confirmation → create-account flow keeps one page width.
+  const isRegisterRoute = location.pathname.startsWith('/register')
+  // Plaintiff account screens ("My Cases" / Case Tracker and "My Profile") share the
+  // Plaintiff Dashboard's wider column so the three portal screens line up.
+  const isWidePlaintiffAccountRoute =
+    location.pathname === '/case-tracker' || location.pathname === '/profile'
   const isCalendar = isCalendarRoute(location.pathname)
   // Trust the account / session role. A leftover `localStorage.attorney` blob from
   // a prior attorney login in the same browser must not label a plaintiff
@@ -744,7 +751,9 @@ export default function Layout({ children }: LayoutProps) {
             ? isWideClaimantRoute
               ? 'max-w-[1600px] px-4 sm:px-6'
               : 'max-w-[1440px] px-4 xl:px-6 2xl:px-8'
-            : 'max-w-7xl sm:px-6 lg:px-8'
+            : isRegisterRoute || isWidePlaintiffAccountRoute
+              ? 'max-w-[1600px] px-4 sm:px-6'
+              : 'max-w-7xl sm:px-6 lg:px-8'
         } ${
           isIntakeRoute
             ? 'h-[calc(100dvh-4.5rem-1px)] overflow-y-auto overscroll-y-contain pt-0 pb-2 md:h-[calc(100dvh-5rem-1px)]'

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertTriangle, CheckCircle, ChevronRight, Clock, Copy, Download, LayoutDashboard, ShieldCheck, Square, Star, TrendingUp, Upload } from 'lucide-react'
+import { AlertTriangle, ArrowRight, CheckCircle, ChevronRight, Clock, Copy, Download, FileText, Info, LayoutDashboard, ShieldCheck, Square, Star, TrendingUp, Upload, User, Users, X } from 'lucide-react'
 import BrandLogo from './BrandLogo'
 import { useLanguage } from '../contexts/LanguageContext'
 import { formatClaimType } from '../lib/claimTypes'
@@ -149,18 +149,12 @@ type ResultsSubmittedViewProps = {
 
 export function ResultsSubmittedView({
   assessmentId,
-  assessmentClaimType,
   referenceCode,
   handleDownloadReportPdf,
   handleCopyShareLink,
-  improveCaseValueItems,
   isLoggedIn,
   rankedAttorneys,
   shareCopied,
-  showSavePrompt,
-  submissionTimeline,
-  venueCounty,
-  venueState,
   contactPrefill,
 }: ResultsSubmittedViewProps) {
   const { t } = useLanguage()
@@ -190,270 +184,288 @@ export function ResultsSubmittedView({
     } catch { /* clipboard unavailable — the code is still shown */ }
   }
   const attorneyCards = Array.isArray(rankedAttorneys) ? rankedAttorneys : []
-  const improvementItems = Array.isArray(improveCaseValueItems) ? improveCaseValueItems : []
-  const timeline = Array.isArray(submissionTimeline) ? submissionTimeline : []
+  const ordinal = (n: number) => {
+    const suffixes = ['th', 'st', 'nd', 'rd']
+    const v = n % 100
+    return `${n}${suffixes[(v - 20) % 10] ?? suffixes[v] ?? suffixes[0]}`
+  }
+  const initials = (name?: string) =>
+    (name ?? '')
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((word) => word[0]?.toUpperCase() ?? '')
+      .join('') || '—'
+  const sharedItems = ['sharedSummary', 'sharedContact', 'sharedBasics']
+  const notSharedItems = ['notSharedRecords', 'notSharedBills', 'notSharedTreatment']
+  const trackFeatures = ['trackFeatResponses', 'trackFeatStatus', 'trackFeatMessages', 'trackFeatUpload']
+  const reportHref = assessmentId ? `/results/${assessmentId}?view=report` : '/dashboard'
 
   return (
-    <div className="mx-auto max-w-2xl">
-      <div className="overflow-hidden rounded-3xl border border-slate-200/90 bg-white shadow-card">
-        {/* Success hero */}
-        <div className="relative overflow-hidden bg-gradient-to-br from-emerald-600 via-emerald-600 to-emerald-700 px-6 py-10 text-center text-white sm:px-10">
-          <span className="pointer-events-none absolute -right-14 -top-16 h-44 w-44 rounded-full bg-white/10 blur-2xl" aria-hidden />
-          <span className="pointer-events-none absolute -bottom-20 -left-12 h-48 w-48 rounded-full bg-emerald-300/20 blur-2xl" aria-hidden />
-          <div className="relative">
-            <div className="mx-auto mb-5 inline-flex h-16 w-16 items-center justify-center rounded-full bg-white/15 ring-1 ring-white/30 backdrop-blur-sm">
-              <CheckCircle className="h-9 w-9 text-white" aria-hidden />
-            </div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-50/90">{t('results.submitted.confirmed')}</p>
-            <h1 className="mt-2 font-display text-2xl font-semibold tracking-tight sm:text-3xl">{t('results.submitted.title')}</h1>
-            <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-emerald-50/90">{t('results.submitted.deliveredSecurely')}</p>
-            <p className="mt-5 inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3.5 py-1.5 text-xs font-medium text-white ring-1 ring-white/25">
+    <div className="mx-auto w-full max-w-[1600px] space-y-4 overflow-safe px-0 py-6 sm:px-6 lg:px-8">
+      {/* Success hero */}
+      <div className="relative overflow-hidden rounded-3xl border border-emerald-200 bg-gradient-to-br from-emerald-50 via-emerald-50 to-white p-6 shadow-card sm:p-7">
+        <span className="pointer-events-none absolute left-5 top-4 h-1.5 w-1.5 rounded-full bg-emerald-400" aria-hidden />
+        <span className="pointer-events-none absolute left-16 top-8 h-1.5 w-1.5 rounded-full bg-amber-300" aria-hidden />
+        <span className="pointer-events-none absolute left-10 top-14 h-1 w-1 rounded-full bg-emerald-300" aria-hidden />
+        <span className="pointer-events-none absolute right-24 top-6 h-1.5 w-1.5 rounded-full bg-emerald-300" aria-hidden />
+        <div className="relative flex items-start gap-4">
+          <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-white shadow-sm ring-4 ring-emerald-100">
+            <CheckCircle className="h-8 w-8" aria-hidden />
+          </span>
+          <div className="min-w-0 flex-1">
+            <h1 className="font-display text-xl font-bold leading-tight text-emerald-900 sm:text-2xl">{t('results.submitted.sentTitle')}</h1>
+            <p className="mt-1.5 text-sm leading-relaxed text-emerald-800/90">{t('results.submitted.sentSubtitle')}</p>
+            <p className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200">
               <Clock className="h-3.5 w-3.5" aria-hidden />
-              {t('results.submitted.initialResponses')}
+              {t('results.submitted.typicalResponse')}
             </p>
-            {referenceCode && (
-              <div className="mt-5">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-50/80">
-                  {t('results.submitted.referenceLabel')}
-                </p>
-                <button
-                  type="button"
-                  onClick={copyReference}
-                  title={t('results.submitted.referenceCopy')}
-                  className="mt-1.5 inline-flex items-center gap-2 rounded-xl bg-white/15 px-4 py-2 font-mono text-lg font-bold tracking-wider text-white ring-1 ring-white/30 transition-colors hover:bg-white/25"
-                >
-                  {referenceCode}
-                  {refCopied ? <CheckCircle className="h-4 w-4" aria-hidden /> : <Copy className="h-4 w-4 opacity-80" aria-hidden />}
-                </button>
-                <p className="mx-auto mt-2 max-w-xs text-[11px] leading-relaxed text-emerald-50/80">
-                  {t('results.submitted.referenceHelp')}
-                </p>
-              </div>
-            )}
+          </div>
+          <span className="hidden h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-600 sm:flex" aria-hidden>
+            <ShieldCheck className="h-8 w-8" />
+          </span>
+        </div>
+      </div>
+
+      {/* Case reference */}
+      {referenceCode && (
+        <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-card">
+          <p className="min-w-0 truncate text-sm text-slate-700">
+            {t('results.submitted.caseReferenceInline')}{' '}
+            <span className="font-mono text-sm font-bold tracking-wide text-slate-900">{referenceCode}</span>
+          </p>
+          <button
+            type="button"
+            onClick={copyReference}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            {refCopied ? <CheckCircle className="h-3.5 w-3.5 text-emerald-600" aria-hidden /> : <Copy className="h-3.5 w-3.5" aria-hidden />}
+            {refCopied ? t('results.submitted.copied') : t('results.submitted.copy')}
+          </button>
+        </div>
+      )}
+
+      {/* What happens next */}
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-card">
+        <h3 className="text-center text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">{t('results.submitted.whatHappensNext')}</h3>
+        <div className="mt-4 flex items-start justify-between gap-1">
+          <div className="flex flex-1 flex-col items-center gap-1.5 text-center">
+            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">
+              <CheckCircle className="h-5 w-5" aria-hidden />
+            </span>
+            <p className="text-xs font-semibold text-slate-900">{t('results.submitted.stepCaseSent')}</p>
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-600">{t('results.submitted.stepComplete')}</p>
+          </div>
+          <ChevronRight className="mt-2 h-4 w-4 shrink-0 text-slate-300" aria-hidden />
+          <div className="flex flex-1 flex-col items-center gap-1.5 text-center">
+            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-brand-600 text-white">
+              <Users className="h-5 w-5" aria-hidden />
+            </span>
+            <p className="text-xs font-semibold text-slate-900">{t('results.submitted.stepAttorneyReview')}</p>
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-brand-600">{t('results.submitted.stepNow')}</p>
+          </div>
+          <ChevronRight className="mt-2 h-4 w-4 shrink-0 text-slate-300" aria-hidden />
+          <div className="flex flex-1 flex-col items-center gap-1.5 text-center">
+            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-400">
+              <User className="h-5 w-5" aria-hidden />
+            </span>
+            <p className="text-xs font-semibold text-slate-500">{t('results.submitted.stepYouDecide')}</p>
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{t('results.submitted.stepComingNext')}</p>
           </div>
         </div>
+      </div>
 
-        <div className="px-6 py-8 sm:px-10">
-          {/* Status stepper */}
-          <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-5">
-            <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500">{t('results.submitted.status')}</h3>
-            <ol className="mt-4">
-              {timeline.map((step, index) => (
-                <li key={index} className="relative flex gap-3 pb-4 last:pb-0">
-                  {index < timeline.length - 1 && (
-                    <span className="absolute left-[11px] top-6 h-[calc(100%-1.25rem)] w-px bg-slate-200" aria-hidden />
-                  )}
-                  {step.done ? (
-                    <span className="relative z-10 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">
-                      <CheckCircle className="h-4 w-4" aria-hidden />
-                    </span>
-                  ) : (
-                    <span className="relative z-10 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 border-slate-300 bg-white text-[11px] font-semibold text-slate-500">
-                      {index + 1}
-                    </span>
-                  )}
-                  <span className={`pt-0.5 text-sm ${step.done ? 'font-semibold text-slate-900' : 'text-slate-600'}`}>{step.label}</span>
-                </li>
-              ))}
-            </ol>
-          </div>
-
-          {/* What happens next */}
-          <div className="mt-6">
-            <h3 className="font-display text-base font-semibold tracking-tight text-slate-900">{t('results.submitted.whatHappensNext')}</h3>
-            <ul className="mt-3 space-y-2 text-[15px] leading-relaxed text-slate-600">
-              <li className="flex items-start gap-2">
-                <ChevronRight className="mt-0.5 h-4 w-4 flex-shrink-0 text-brand-500" />
-                {t('results.submitted.next1')}
-              </li>
-              <li className="flex items-start gap-2">
-                <ChevronRight className="mt-0.5 h-4 w-4 flex-shrink-0 text-brand-500" />
-                {t('results.submitted.next2')}
-              </li>
-              <li className="flex items-start gap-2">
-                <ChevronRight className="mt-0.5 h-4 w-4 flex-shrink-0 text-brand-500" />
-                {t('results.submitted.next3')}
-              </li>
-            </ul>
-          </div>
-
-          {/* Save your case — the key next action for guests */}
-          {showSavePrompt && (
-            <div className="mt-6 rounded-2xl border border-brand-200 bg-gradient-to-b from-brand-50 to-white p-6">
-              <div className="flex items-start gap-3">
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-100 text-brand-700">
-                  <ShieldCheck className="h-5 w-5" aria-hidden />
-                </span>
-                <div className="min-w-0">
-                  <h2 className="font-display text-lg font-semibold text-brand-900">{t('results.submitted.saveTitle')}</h2>
-                  <p className="mt-1 text-sm leading-relaxed text-brand-800/90">{t('results.submitted.saveDesc')}</p>
-                </div>
-              </div>
-              <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-                <Link
-                  to={`/register?redirect=/dashboard&assessmentId=${assessmentId}`}
-                  onClick={stashContactForSignup}
-                  className="inline-flex w-full items-center justify-center rounded-lg bg-brand-600 px-5 py-3 text-sm font-semibold text-white hover:bg-brand-700 sm:w-auto"
-                >
-                  {t('results.submitted.createAccount')}
-                </Link>
-                <Link
-                  to={`/login?redirect=/dashboard&assessmentId=${assessmentId}`}
-                  onClick={stashContactForSignup}
-                  className="inline-flex w-full items-center justify-center rounded-lg border border-brand-200 bg-white px-5 py-3 text-sm font-semibold text-brand-700 hover:bg-brand-50 sm:w-auto"
-                >
-                  {t('results.submitted.signIn')}
-                </Link>
-              </div>
-            </div>
-          )}
-
-          {attorneyCards.length > 0 && (
-            <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50/70 p-5">
-              <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500">{t('results.submitted.rankedPicks')}</h3>
-              <div className="mt-4 space-y-3">
-                {attorneyCards.map((attorney, index) => (
-                  <div key={attorney.id || attorney.attorney_id || attorney.name} className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">{t('results.submitted.choice')} {index + 1}</p>
-                    <p className="mt-1 text-sm font-semibold text-slate-900">{attorney?.name ?? t('results.submitted.attorney')}</p>
-                    <p className="mt-1 text-xs text-slate-600">
-                      {[
-                        attorney?.law_firm?.name ?? t('results.submitted.lawFirm'),
-                        `${Math.round((attorney.fit_score || 0.6) * 100)}% ${t('results.common.fit')}`,
-                        getResponseBadge(attorney, t),
-                      ].filter(Boolean).join(' • ')}
-                    </p>
-                    <p className="mt-1 text-xs text-slate-500">
-                      {getAttorneyPracticePreview(attorney, {
-                        venueCounty,
-                        venueState,
-                      }) || getAttorneyWhyMatched(attorney, {
-                        assessmentClaimType,
-                        venueCounty,
-                        venueState,
-                      })}
-                    </p>
-                    {formatAttorneyLicensure(attorney) && (
-                      <p className="mt-1 text-[11px] text-slate-500">
-                        {t('results.submitted.responsibleAttorney')} {formatAttorneyLicensure(attorney)}
-                      </p>
-                    )}
-                    <div className="mt-2 rounded-lg border border-brand-100 bg-brand-50 px-3 py-2">
-                      <p className="text-[11px] font-semibold uppercase tracking-wide text-brand-700">{t('results.submitted.whyRecommend')}</p>
-                      <ul className="mt-1 space-y-1 text-[11px] text-brand-900">
-                        {getAttorneyRecommendationReasons(attorney, {
-                          assessmentClaimType,
-                          venueCounty,
-                          venueState,
-                        }).map((reason) => (
-                          <li key={reason} className="flex items-start gap-1.5">
-                            <CheckCircle className="mt-0.5 h-3 w-3 flex-shrink-0 text-brand-600" />
-                            <span>{reason}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-medium text-emerald-700">
-                        <CheckCircle className="mr-1 h-3 w-3" />
-                        {(attorney.verifiedReviewCount || 0) > 0
-                          ? `${attorney.verifiedReviewCount} ${t('results.common.verifiedReviews')}`
-                          : t('results.submitted.newProfile')}
-                      </span>
-                      {((attorney.averageRating || attorney.rating || 0) > 0) && (
-                        <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-1 text-[11px] font-medium text-amber-700">
-                          <Star className="mr-1 h-3 w-3" />
-                          {(attorney.averageRating || attorney.rating || 0).toFixed(1)} {t('results.common.rating')}
-                        </span>
-                      )}
-                      <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-1 text-[11px] font-medium text-blue-700">
-                        <Clock className="mr-1 h-3 w-3" />
-                        {getResponseBadge(attorney, t)}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Strengthen your file */}
-          <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50/60 p-6">
-            <div className="flex items-center gap-2.5">
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700">
-                <TrendingUp className="h-5 w-5" aria-hidden />
-              </span>
-              <h3 className="font-display text-base font-semibold tracking-tight text-slate-900">{t('results.submitted.strengthenTitle')}</h3>
-            </div>
-            <p className="mt-2 text-sm leading-relaxed text-slate-600">{t('results.submitted.strengthenDesc')}</p>
-            <ul className="mt-4 space-y-2">
-              {improvementItems.map((item) => (
-                <li key={item.label} className="flex items-center gap-2">
-                  {item.done ? (
-                    <CheckCircle className="h-4 w-4 flex-shrink-0 text-emerald-600" />
-                  ) : (
-                    <Square className="h-4 w-4 flex-shrink-0 text-slate-400" />
-                  )}
-                  <span className={item.done ? 'text-slate-500 line-through' : 'text-slate-900'}>{item.label}</span>
-                </li>
-              ))}
-            </ul>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <Link
-                to={assessmentId ? `/results/${assessmentId}?view=report` : '/dashboard'}
-                className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50"
-              >
-                {t('results.submitted.viewCaseReport')}
-              </Link>
-              <Link
-                to={`/evidence-upload/${assessmentId}`}
-                className="inline-flex items-center rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-600"
-              >
-                <Upload className="mr-2 h-4 w-4" />
-                {t('results.submitted.uploadEvidence')}
-              </Link>
-            </div>
-          </div>
-
-          {isLoggedIn ? (
-            <Link
-              to="/dashboard"
-              className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 px-6 py-4 text-lg font-semibold text-white hover:bg-brand-700"
-            >
-              <LayoutDashboard className="h-5 w-5" />
-              {t('results.submitted.goToDashboard')}
+      {/* Your attorney review */}
+      {attorneyCards.length > 0 && (
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-card">
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">{t('results.submitted.attorneyReviewTitle')}</h3>
+            <Link to={reportHref} className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-700">
+              <Info className="h-3.5 w-3.5" aria-hidden />
+              {t('results.submitted.howItWorks')}
             </Link>
-          ) : (
-            <p className="mt-6 text-center text-sm text-slate-500">
-              {t('results.submitted.alreadyHaveAccount')}{' '}
-              <Link to={`/login?redirect=/dashboard&assessmentId=${assessmentId}`} className="font-medium text-brand-600">
-                {t('results.submitted.signIn')}
-              </Link>{' '}
-              {t('results.submitted.toSaveCase')}
-            </p>
-          )}
-        </div>
+          </div>
 
-        <div className="flex flex-wrap justify-center gap-4 border-t border-slate-200 bg-slate-50/60 px-6 py-4 text-sm">
-          <button type="button" onClick={() => void handleDownloadReportPdf()} className="inline-flex items-center gap-1.5 font-semibold text-brand-800 hover:text-brand-950">
-            <Download className="h-4 w-4" aria-hidden />
-            {t('results.common.downloadPdf')}
-          </button>
-          <button type="button" onClick={handleCopyShareLink} className="inline-flex items-center gap-1.5 font-semibold text-brand-800 hover:text-brand-950">
-            <Copy className="h-4 w-4" aria-hidden />
-            {shareCopied ? t('results.common.linkCopied') : t('results.common.copyLink')}
-          </button>
-        </div>
+          <div className="mt-4 flex items-center gap-3 rounded-xl bg-emerald-50/70 px-3 py-2.5">
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">
+              <CheckCircle className="h-4 w-4" aria-hidden />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-slate-900">{t('results.submitted.caseSubmittedLabel')}</p>
+              <p className="text-xs text-slate-500">{t('results.submitted.todayLabel')}</p>
+            </div>
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-emerald-600">{t('results.submitted.stepComplete')}</span>
+          </div>
 
-        <div className="border-t border-slate-200 bg-slate-50/80 px-6 py-5 sm:px-10">
-          <div className="flex gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-slate-500" aria-hidden />
-            <p className="text-sm leading-relaxed text-slate-700">
-              <span className="font-semibold text-slate-900">{t('results.submitted.limitationsLabel')}</span>
-              {t('results.submitted.limitationsBody')}
-            </p>
+          <ol className="mt-3 divide-y divide-slate-100">
+            {attorneyCards.map((attorney, index) => {
+              const reviewing = index === 0
+              return (
+                <li key={attorney.id || attorney.attorney_id || attorney.name} className="flex items-start gap-3 py-3">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-100 text-sm font-bold text-brand-700">
+                    {initials(attorney.name)}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-slate-900">{attorney?.name ?? t('results.submitted.attorney')}</p>
+                    <p className="truncate text-xs text-slate-500">{attorney?.law_firm?.name ?? t('results.submitted.lawFirm')}</p>
+                    <p className="mt-0.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                      {ordinal(index + 1)} {t('results.submitted.choiceWord')}
+                    </p>
+                  </div>
+                  <div className="w-32 shrink-0 text-right">
+                    {reviewing ? (
+                      <>
+                        <p className="inline-flex items-center justify-end gap-1 text-[10px] font-semibold uppercase tracking-wide text-brand-600">
+                          <Clock className="h-3 w-3" aria-hidden />
+                          {t('results.submitted.statusReviewing')}
+                        </p>
+                        <p className="text-[11px] text-slate-500">{t('results.submitted.statusWaiting')}</p>
+                        <p className="mt-0.5 text-[11px] leading-snug text-brand-600">{t('results.submitted.notifyWhenHear')}</p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="inline-flex items-center justify-end gap-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                          <Clock className="h-3 w-3" aria-hidden />
+                          {t('results.submitted.statusNextIfNeeded')}
+                        </p>
+                        <p className="text-[11px] text-slate-500">{t('results.submitted.contactedIfNoResponse')}</p>
+                      </>
+                    )}
+                  </div>
+                </li>
+              )
+            })}
+          </ol>
+
+          <p className="mt-2 flex items-start gap-1.5 rounded-lg bg-slate-50 px-3 py-2 text-[11px] leading-snug text-slate-500">
+            <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
+            {t('results.submitted.autoAdvanceNote')}
+          </p>
+        </div>
+      )}
+
+      {/* What we shared / not shared */}
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-card">
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+          <div>
+            <h4 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">{t('results.submitted.whatWeSharedTitle')}</h4>
+            <ul className="mt-3 space-y-2">
+              {sharedItems.map((key) => (
+                <li key={key} className="flex items-center gap-2 text-sm text-slate-700">
+                  <CheckCircle className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
+                  {t(`results.submitted.${key}`)}
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div>
+            <h4 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">{t('results.submitted.notSharedTitle')}</h4>
+            <ul className="mt-3 space-y-2">
+              {notSharedItems.map((key) => (
+                <li key={key} className="flex items-center gap-2 text-sm text-slate-500">
+                  <X className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
+                  {t(`results.submitted.${key}`)}
+                </li>
+              ))}
+            </ul>
           </div>
         </div>
+        <div className="mt-4 flex items-start gap-2 rounded-xl bg-slate-50 px-3 py-2.5">
+          <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" aria-hidden />
+          <p className="text-xs leading-snug text-slate-600">
+            {t('results.submitted.authorizeLater')}{' '}
+            <Link to="/privacy" className="font-semibold text-brand-600 hover:text-brand-700">{t('results.submitted.learnPrivacy')}</Link>
+          </p>
+        </div>
+      </div>
+
+      {/* Track your case (guest) or dashboard (logged in) */}
+      {isLoggedIn ? (
+        <Link
+          to="/dashboard"
+          className="flex w-full items-center justify-center gap-2 rounded-2xl bg-brand-600 px-6 py-4 text-base font-semibold text-white shadow-card hover:bg-brand-700"
+        >
+          <LayoutDashboard className="h-5 w-5" aria-hidden />
+          {t('results.submitted.goToDashboard')}
+        </Link>
+      ) : (
+        <div className="rounded-2xl border border-brand-200 bg-brand-50/60 p-5 shadow-card">
+          <div className="flex items-start gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-100 text-brand-700">
+              <LayoutDashboard className="h-5 w-5" aria-hidden />
+            </span>
+            <div className="min-w-0">
+              <h3 className="font-display text-base font-semibold text-brand-900">{t('results.submitted.trackTitle')}</h3>
+              <p className="mt-1 text-sm leading-relaxed text-brand-800/90">{t('results.submitted.trackDesc')}</p>
+            </div>
+          </div>
+          <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {trackFeatures.map((key) => (
+              <p key={key} className="flex items-center gap-2 text-sm text-brand-900">
+                <CheckCircle className="h-4 w-4 shrink-0 text-brand-600" aria-hidden />
+                {t(`results.submitted.${key}`)}
+              </p>
+            ))}
+          </div>
+          <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+            <Link
+              to={`/register?redirect=/dashboard&assessmentId=${assessmentId}`}
+              onClick={stashContactForSignup}
+              className="inline-flex w-full items-center justify-center rounded-lg bg-brand-600 px-5 py-3 text-sm font-semibold text-white hover:bg-brand-700 sm:w-auto"
+            >
+              {t('results.submitted.createFreeAccount')}
+            </Link>
+            <Link
+              to={`/login?redirect=/dashboard&assessmentId=${assessmentId}`}
+              onClick={stashContactForSignup}
+              className="inline-flex w-full items-center justify-center rounded-lg border border-brand-200 bg-white px-5 py-3 text-sm font-semibold text-brand-700 hover:bg-brand-50 sm:w-auto"
+            >
+              {t('results.submitted.signIn')}
+            </Link>
+          </div>
+          <p className="mt-3 text-xs text-brand-800/70">{t('results.submitted.trackFootnote')}</p>
+        </div>
+      )}
+
+      {/* View your case report */}
+      <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-card sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-start gap-3">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600">
+            <FileText className="h-5 w-5" aria-hidden />
+          </span>
+          <div>
+            <h3 className="font-display text-base font-semibold text-slate-900">{t('results.submitted.reportTitle')}</h3>
+            <p className="mt-0.5 text-sm text-slate-600">{t('results.submitted.reportDesc')}</p>
+          </div>
+        </div>
+        <Link
+          to={reportHref}
+          className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+        >
+          {t('results.submitted.viewReportBtn')}
+          <ArrowRight className="h-4 w-4" aria-hidden />
+        </Link>
+      </div>
+
+      {/* Secondary actions */}
+      <div className="flex flex-wrap justify-center gap-4 text-sm">
+        <button type="button" onClick={() => void handleDownloadReportPdf()} className="inline-flex items-center gap-1.5 font-semibold text-brand-700 hover:text-brand-900">
+          <Download className="h-4 w-4" aria-hidden />
+          {t('results.common.downloadPdf')}
+        </button>
+        <button type="button" onClick={handleCopyShareLink} className="inline-flex items-center gap-1.5 font-semibold text-brand-700 hover:text-brand-900">
+          <Copy className="h-4 w-4" aria-hidden />
+          {shareCopied ? t('results.common.linkCopied') : t('results.common.copyLink')}
+        </button>
+      </div>
+
+      {/* Limitations disclaimer */}
+      <div className="flex gap-3 rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
+        <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-slate-500" aria-hidden />
+        <p className="text-sm leading-relaxed text-slate-700">
+          <span className="font-semibold text-slate-900">{t('results.submitted.limitationsLabel')}</span>
+          {t('results.submitted.limitationsBody')}
+        </p>
       </div>
     </div>
   )
