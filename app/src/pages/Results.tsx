@@ -52,6 +52,11 @@ import {
   BarChart3,
   ChevronRight,
   ChevronDown,
+  ChevronLeft,
+  Phone,
+  Mail,
+  MessageSquare,
+  Users,
   Star,
   Car,
   MapPin,
@@ -3436,356 +3441,304 @@ Checklist:
       )}
       {/* Send Case Modal — minimal contact info before routing */}
       {sendModalOpen && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/55 p-2 backdrop-blur-sm sm:p-4" onClick={() => !submitLoading && setSendModalOpen(false)}>
-          <div className="flex min-h-full items-start justify-center py-3 sm:items-center sm:py-6" onClick={e => e.stopPropagation()}>
-            <div className="surface-panel max-h-[calc(100vh-1.5rem)] w-full max-w-4xl overflow-y-auto p-4 shadow-xl sm:p-6">
-            <h3 className="section-title text-ui-xl">{t('results.calc.modalTitle')}</h3>
-            <p className="section-copy mb-4">
-              {t('results.calc.modalSubtitle')}
-            </p>
-            <div className="space-y-3">
-              {contactComplete && !showContactEdit ? (
-                <div className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
-                  <div className="min-w-0">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{t('results.calc.sendingAs')}</p>
-                    <p className="truncate text-sm font-semibold text-slate-900">{contactForm.firstName}</p>
-                    <p className="truncate text-xs text-slate-600">{contactForm.email}{'  \u00B7  '}{contactForm.phone}{`  \u00B7  ${t('results.calc.prefers')} `}{contactForm.preferredContactMethod}</p>
-                  </div>
-                  <button type="button" onClick={() => setShowContactEdit(true)} className="shrink-0 text-xs font-semibold text-brand-700 hover:text-brand-800">{t('results.calc.edit')}</button>
-                </div>
-              ) : (
-              <>
-              <div>
-                <label className="mb-1 block text-sm font-medium text-slate-700">{t('results.calc.firstNameLabel')}</label>
-                <input
-                  type="text"
-                  value={contactForm.firstName}
-                  onChange={e => { setShowContactEdit(true); setContactForm(f => ({ ...f, firstName: e.target.value })) }}
-                  className="input"
-                  placeholder={t('results.calc.firstNamePlaceholder')}
-                />
+        <div className="space-y-5 px-4 py-6 sm:px-0">
+          <button
+            type="button"
+            onClick={() => !submitLoading && setSendModalOpen(false)}
+            disabled={submitLoading}
+            className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <ChevronLeft className="h-4 w-4" />
+            {t('results.calc.backToResults')}
+          </button>
+          <div className="space-y-5 pb-8">
+              <div className="min-w-0">
+                <h3 className="text-2xl font-bold text-slate-900">{t('results.sendReview.readyTitle')}</h3>
+                <p className="mt-1 text-sm text-slate-600">{t('results.sendReview.readySubtitle')}</p>
               </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium text-slate-700">{t('results.calc.emailLabel')}</label>
-                <input
-                  type="email"
-                  value={contactForm.email}
-                  onChange={e => { setShowContactEdit(true); setContactForm(f => ({ ...f, email: e.target.value })) }}
-                  className="input"
-                  placeholder="john@example.com"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium text-slate-700">{t('results.calc.phoneLabel')}</label>
-                <input
-                  type="tel"
-                  inputMode="tel"
-                  value={contactForm.phone}
-                  onChange={e => {
-                    // Keep the form open while editing — otherwise completing all three
-                    // fields flips `contactComplete` and collapses to the summary view
-                    // mid-keystroke (e.g. the first phone digit), losing input focus.
-                    setShowContactEdit(true)
-                    setContactForm(f => ({ ...f, phone: formatPhoneInput(e.target.value) }))
-                    if (contactPhoneError) setContactPhoneError(null)
-                  }}
-                  onBlur={e => setContactPhoneError(validatePhoneField(e.target.value, { required: true }) ?? null)}
-                  aria-invalid={!!contactPhoneError}
-                  className={`input ${contactPhoneError ? 'border-red-400 focus:border-red-500 focus:ring-red-500' : ''}`}
-                  placeholder="(555) 123-4567"
-                />
-                {contactPhoneError && <p className="mt-1 text-xs text-red-600">{contactPhoneError}</p>}
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">{t('results.calc.preferredContact')}</label>
-                <div className="flex gap-3">
-                  {(['phone', 'text', 'email'] as const).map(m => (
-                    <label key={m} className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="preferredContact"
-                        checked={contactForm.preferredContactMethod === m}
-                        onChange={() => setContactForm(f => ({ ...f, preferredContactMethod: m }))}
-                        className="text-brand-600"
-                      />
-                      <span className="text-sm">{t(`results.calc.contactMethod_${m}`)}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-              </>
-              )}
-              {/* Paid participation is disclosed where the consumer is actually choosing
-                  an attorney, not only in the Terms. Always visible — it must not depend
-                  on expanding the ranking panel. */}
-              <div className="rounded-lg border border-slate-200 bg-white px-3 py-3">
-                <p className="text-xs font-semibold text-slate-700">{t('disclosures.participationTitle')}</p>
-                <p className="mt-1 text-xs leading-relaxed text-slate-600">
-                  {t('disclosures.participationBody')}
-                </p>
-                <Link
-                  to="/disclosures#how-it-works"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="mt-1 inline-block text-xs font-semibold text-brand-700 hover:text-brand-800"
-                >
-                  {t('home.viewDisclosures')}
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs text-slate-600">
+                <span className="flex shrink-0 items-center gap-1.5 font-semibold text-slate-800"><Info className="h-4 w-4 text-brand-600" />{t('results.sendReview.howTitle')}:</span>
+                <span className="leading-relaxed">{t('results.sendReview.howBody')}</span>
+                <Link to="/disclosures#how-it-works" target="_blank" rel="noreferrer" className="inline-flex shrink-0 items-center gap-1 font-semibold text-brand-700 hover:text-brand-800">
+                  {t('results.sendReview.viewFullDisclosure')} <ChevronRight className="h-3 w-3" />
                 </Link>
               </div>
-              {attorneySearchLoading && (
-                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-600">
-                  {t('results.calc.findingAttorneys')}
-                </div>
-              )}
-              {!attorneySearchLoading && rankedAttorneyCards.length > 0 && (
-                <div className="rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-slate-700">
-                        {rankedAttorneyCards.length === 1
-                          ? t('results.calc.contactThisAttorney')
-                          : t('results.calc.contactTheseAttorneys', { count: rankedAttorneyCards.length })}
-                      </p>
-                      <p className="mt-0.5 truncate text-xs text-slate-500">{rankedAttorneyCards.map((a: any, i) => `${i + 1}. ${a?.name ?? t('results.calc.attorneyFallback')}`).join('  \u00B7  ')}</p>
-                    </div>
-                    <button type="button" onClick={() => setShowAttorneyRanking((v) => !v)} className="shrink-0 whitespace-nowrap text-xs font-semibold text-brand-700 hover:text-brand-800">
-                      {showAttorneyRanking ? t('results.calc.done') : t('results.calc.customizeOrder')}
-                    </button>
+              <div className="space-y-5">
+              <section className="rounded-2xl border border-slate-200 bg-white px-4 py-4 sm:px-6">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="flex items-center gap-1.5 text-sm font-semibold text-slate-900"><User className="h-4 w-4 text-slate-500" />{t('results.sendReview.contactTitle')}</span>
+                    <span className="flex items-center gap-1 text-xs text-slate-400"><Lock className="h-3 w-3" />{t('results.sendReview.contactOnlyUsed')}</span>
                   </div>
-                  {showAttorneyRanking && (
-                  <div className="mt-3">
-                  <p className="mb-3 text-xs text-slate-500">
-                    {t('results.calc.rankingDisclaimer')}
-                  </p>
-                  <div className="space-y-2">
-                    {rankedAttorneyCards.map((attorney: any, index) => (
-                      <div key={attorney.id || attorney.attorney_id} className="subtle-panel px-3 py-3">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0 flex-1">
-                            <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">{t('results.calc.choice', { n: index + 1 })}</p>
-                            <p className="text-sm font-semibold text-slate-900">{attorney?.name ?? t('results.calc.attorneyFallback')}</p>
-                            <p className="text-xs text-slate-600">
-                              {[
-                                attorney?.law_firm?.name ?? t('results.calc.lawFirmFallback'),
-                                `${Math.round((attorney.fit_score || 0.6) * 100)}% fit`,
-                                getResponseBadge(t, attorney)
-                              ].filter(Boolean).join(' • ')}
-                            </p>
-                            <p className="mt-1 text-xs text-slate-500">
-                              {getAttorneyPracticePreview(t, attorney, {
-                                venueState,
-                                venueCounty,
-                              }) || getAttorneyWhyMatched(t, attorney, {
-                                assessmentClaimType: assessment?.claimType,
-                                venueState,
-                                venueCounty,
-                              })}
-                            </p>
-                            {formatAttorneyLicensure(attorney) && (
-                              <p className="mt-1 text-[11px] text-slate-500">
-                                {t('results.calc.responsibleAttorney')} {formatAttorneyLicensure(attorney)}
-                              </p>
-                            )}
-                            <div className="mt-2 rounded-lg border border-brand-100 bg-brand-50 px-3 py-2">
-                              <p className="text-[11px] font-semibold uppercase tracking-wide text-brand-700">{t('results.calc.whyMatchedHeader')}</p>
-                              <ul className="mt-1 space-y-1 text-[11px] text-brand-900">
-                                {getAttorneyRecommendationReasons(t, attorney, {
-                                  assessmentClaimType: assessment?.claimType,
-                                  venueState,
-                                  venueCounty,
-                                }).map((reason) => (
-                                  <li key={reason} className="flex items-start gap-1.5">
-                                    <CheckCircle className="mt-0.5 h-3 w-3 flex-shrink-0 text-brand-600" />
-                                    <span>{reason}</span>
+                  {contactComplete && (
+                    <button type="button" onClick={() => setShowContactEdit(v => !v)} className="rounded-lg border border-slate-200 px-3 py-1 text-xs font-semibold text-brand-700 hover:bg-brand-50">
+                      {showContactEdit ? t('results.calc.done') : t('results.calc.edit')}
+                    </button>
+                  )}
+                </div>
+                {(showContactEdit || !contactComplete) ? (
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-slate-700">{t('results.calc.firstNameLabel')}</label>
+                      <input type="text" value={contactForm.firstName} onChange={e => { setShowContactEdit(true); setContactForm(f => ({ ...f, firstName: e.target.value })) }} className="input" placeholder={t('results.calc.firstNamePlaceholder')} />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-slate-700">{t('results.calc.emailLabel')}</label>
+                      <input type="email" value={contactForm.email} onChange={e => { setShowContactEdit(true); setContactForm(f => ({ ...f, email: e.target.value })) }} className="input" placeholder="john@example.com" />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-slate-700">{t('results.calc.phoneLabel')}</label>
+                      <input type="tel" inputMode="tel" value={contactForm.phone}
+                        onChange={e => { setShowContactEdit(true); setContactForm(f => ({ ...f, phone: formatPhoneInput(e.target.value) })); if (contactPhoneError) setContactPhoneError(null) }}
+                        onBlur={e => setContactPhoneError(validatePhoneField(e.target.value, { required: true }) ?? null)}
+                        aria-invalid={!!contactPhoneError}
+                        className={`input ${contactPhoneError ? 'border-red-400 focus:border-red-500 focus:ring-red-500' : ''}`}
+                        placeholder="(555) 123-4567" />
+                      {contactPhoneError && <p className="mt-1 text-xs text-red-600">{contactPhoneError}</p>}
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-slate-700">{t('results.calc.preferredContact')}</label>
+                      <div className="flex flex-wrap gap-2">
+                        {(['phone', 'text', 'email'] as const).map(m => (
+                          <button key={m} type="button" onClick={() => setContactForm(f => ({ ...f, preferredContactMethod: m }))}
+                            className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${contactForm.preferredContactMethod === m ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                            {m === 'phone' ? <Phone className="h-3.5 w-3.5" /> : m === 'text' ? <MessageSquare className="h-3.5 w-3.5" /> : <Mail className="h-3.5 w-3.5" />}
+                            {t(`results.calc.contactMethod_${m}`)}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-3 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-center gap-3">
+                      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand-600 text-sm font-semibold text-white">
+                        {(contactForm.firstName || 'You').trim().split(/\s+/).map(s => s[0]).slice(0, 2).join('').toUpperCase() || 'YOU'}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-slate-900">{contactForm.firstName || t('results.sendReview.you')}</p>
+                        <p className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-slate-600">
+                          {contactForm.phone && <span className="inline-flex items-center gap-1"><Phone className="h-3 w-3 text-slate-400" />{contactForm.phone}</span>}
+                          {contactForm.email && <span className="inline-flex items-center gap-1"><Mail className="h-3 w-3 text-slate-400" />{contactForm.email}</span>}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="sm:text-right">
+                      <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-slate-400">{t('results.calc.preferredContact')}</p>
+                      <div className="flex flex-wrap gap-2 sm:justify-end">
+                        {(['phone', 'text', 'email'] as const).map(m => (
+                          <button key={m} type="button" onClick={() => setContactForm(f => ({ ...f, preferredContactMethod: m }))}
+                            className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${contactForm.preferredContactMethod === m ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                            {m === 'phone' ? <Phone className="h-3.5 w-3.5" /> : m === 'text' ? <MessageSquare className="h-3.5 w-3.5" /> : <Mail className="h-3.5 w-3.5" />}
+                            {t(`results.calc.contactMethod_${m}`)}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </section>
+              <section>
+                <div className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                  <span className="flex items-center gap-1.5 text-sm font-semibold text-slate-900"><Users className="h-4 w-4 text-slate-500" />{t('results.sendReview.choicesTitle')}</span>
+                  <span className="text-xs text-slate-500">{t('results.sendReview.choicesSubtitle')}</span>
+                </div>
+                {attorneySearchLoading && (
+                  <div className="rounded-xl border border-slate-200 bg-white px-4 py-4 text-sm text-slate-600">{t('results.calc.findingAttorneys')}</div>
+                )}
+                {!attorneySearchLoading && rankedAttorneyCards.length > 0 && (
+                  <div>
+                    {rankedAttorneyCards.map((attorney: any, index) => {
+                      const n = index + 1
+                      const ord = n === 1 ? 'ST' : n === 2 ? 'ND' : n === 3 ? 'RD' : 'TH'
+                      const rating = attorney.averageRating || attorney.rating || 0
+                      const slug = attorney.bookingSlug || attorney.booking_slug
+                      const photo = attorney.attorneyProfile?.photoUrl || attorney.photoUrl
+                      const reasons = getAttorneyRecommendationReasons(t, attorney, { assessmentClaimType: assessment?.claimType, venueState, venueCounty }).slice(0, 4)
+                      return (
+                        <div key={attorney.id || attorney.attorney_id}>
+                          <div className={`rounded-2xl border px-4 py-4 sm:px-5 ${index === 0 ? 'border-brand-300 bg-brand-50/50 ring-1 ring-brand-200' : 'border-slate-200 bg-white'}`}>
+                            <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
+                              <div className="flex shrink-0 flex-row items-center gap-2 lg:w-20 lg:flex-col lg:gap-0">
+                                <span className={`text-2xl font-bold leading-none ${index === 0 ? 'text-brand-700' : 'text-slate-400'}`}>{n}</span>
+                                <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{n}{ord} {t('results.sendReview.choiceWord')}</span>
+                              </div>
+                              <div className="flex min-w-0 flex-1 items-start gap-3">
+                                <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-slate-200 text-sm font-semibold text-slate-600">
+                                  {photo
+                                    ? <img src={photo} alt="" className="h-full w-full object-cover" />
+                                    : (attorney?.name || 'A').split(/\s+/).map((w: string) => w[0]).slice(0, 2).join('').toUpperCase()}
+                                </span>
+                                <div className="min-w-0">
+                                  <p className="flex items-center gap-1 text-sm font-semibold text-slate-900">
+                                    <span className="truncate">{attorney?.name ?? t('results.calc.attorneyFallback')}</span>
+                                    {(attorney.verifiedReviewCount || 0) > 0 && <CheckCircle className="h-4 w-4 shrink-0 text-brand-600" />}
+                                  </p>
+                                  <p className="truncate text-xs text-slate-600">{attorney?.law_firm?.name ?? t('results.calc.lawFirmFallback')}</p>
+                                  {rating > 0 && (
+                                    <p className="mt-0.5 flex items-center gap-1 text-xs">
+                                      <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
+                                      <span className="font-semibold text-slate-700">{rating.toFixed(1)}</span>
+                                      {(attorney.verifiedReviewCount || 0) > 0 && <span className="text-slate-500">({attorney.verifiedReviewCount})</span>}
+                                    </p>
+                                  )}
+                                  <p className="mt-0.5 text-xs text-slate-500">{getResponseBadge(t, attorney)}</p>
+                                </div>
+                              </div>
+                              <ul className="grid flex-1 gap-1.5">
+                                {reasons.map((reason) => (
+                                  <li key={reason} className="flex items-start gap-1.5 text-xs text-slate-700">
+                                    <CheckCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-500" /><span>{reason}</span>
                                   </li>
                                 ))}
                               </ul>
-                            </div>
-                            <div className="mt-2 flex flex-wrap gap-2">
-                              <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-medium text-emerald-700">
-                                <CheckCircle className="mr-1 h-3 w-3" />
-                                {(attorney.verifiedReviewCount || 0) > 0
-                                  ? t('results.calc.verifiedReviews', { count: attorney.verifiedReviewCount })
-                                  : t('results.calc.newProfile')}
-                              </span>
-                              {(attorney.averageRating || attorney.rating || 0) > 0 && (
-                                <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-1 text-[11px] font-medium text-amber-700">
-                                  <Star className="mr-1 h-3 w-3" />
-                                  {t('results.calc.ratingLabel', { rating: (attorney.averageRating || attorney.rating || 0).toFixed(1) })}
-                                </span>
-                              )}
-                              <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-1 text-[11px] font-medium text-blue-700">
-                                {getResponseBadge(t, attorney)}
-                              </span>
+                              <div className="flex shrink-0 flex-col items-stretch gap-1.5 lg:w-32">
+                                {slug && (
+                                  <a href={`/book/${slug}`} target="_blank" rel="noreferrer" className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-center text-xs font-semibold text-brand-700 hover:bg-brand-50">
+                                    {t('results.sendReview.viewProfile')}
+                                  </a>
+                                )}
+                                {!isSharedReadOnly && (
+                                  <div className="flex items-center justify-center gap-1">
+                                    <button type="button" onClick={() => moveRankedAttorney(attorney.id || attorney.attorney_id, -1)} disabled={index === 0} title={t('results.calc.moveUp')} className="rounded-md border border-slate-300 bg-white p-1 text-slate-700 shadow-sm hover:border-slate-400 hover:bg-slate-100 hover:text-slate-900 disabled:opacity-40"><ChevronDown className="h-4 w-4 rotate-180" /></button>
+                                    <button type="button" onClick={() => moveRankedAttorney(attorney.id || attorney.attorney_id, 1)} disabled={index === rankedAttorneyCards.length - 1} title={t('results.calc.moveDown')} className="rounded-md border border-slate-300 bg-white p-1 text-slate-700 shadow-sm hover:border-slate-400 hover:bg-slate-100 hover:text-slate-900 disabled:opacity-40"><ChevronDown className="h-4 w-4" /></button>
+                                    <button type="button" onClick={() => removeRankedAttorney(attorney.id || attorney.attorney_id)} title={t('results.calc.remove')} className="rounded-md border border-slate-300 bg-white px-1.5 py-1 text-slate-700 shadow-sm hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700"><span className="text-sm font-bold leading-none">×</span></button>
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           </div>
-                          <div className="flex shrink-0 gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => moveRankedAttorney(attorney.id || attorney.attorney_id, -1)}
-                              disabled={index === 0 || isSharedReadOnly}
-                              className="rounded-md border border-slate-200 px-2 py-1 text-xs font-medium text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
-                            >
-                              {t('results.calc.moveUp')}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => moveRankedAttorney(attorney.id || attorney.attorney_id, 1)}
-                              disabled={index === rankedAttorneyCards.length - 1 || isSharedReadOnly}
-                              className="rounded-md border border-slate-200 px-2 py-1 text-xs font-medium text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
-                            >
-                              {t('results.calc.moveDown')}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => removeRankedAttorney(attorney.id || attorney.attorney_id)}
-                              disabled={isSharedReadOnly}
-                              className="rounded-md border border-slate-200 px-2 py-1 text-xs font-medium text-slate-500 hover:border-rose-200 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-40"
-                            >
-                              {t('results.calc.remove')}
-                            </button>
-                          </div>
+                          {index < rankedAttorneyCards.length - 1 && (
+                            <p className="py-1.5 text-center text-[11px] text-slate-400">{t('results.sendReview.ifUnavailable')}</p>
+                          )}
                         </div>
+                      )
+                    })}
+                    {removedAttorneyCards.length > 0 && (
+                      <div className="mt-3 rounded-xl border border-slate-200 bg-white px-3 py-2">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{t('results.calc.removedHeader')}</p>
+                        <ul className="mt-1 space-y-1">
+                          {removedAttorneyCards.map((attorney: any) => (
+                            <li key={attorney.id || attorney.attorney_id} className="flex items-center justify-between gap-3 text-xs text-slate-600">
+                              <span className="truncate">{attorney?.name ?? t('results.calc.attorneyFallback')}</span>
+                              <button type="button" onClick={() => restoreRankedAttorney(attorney.id || attorney.attorney_id)} disabled={isSharedReadOnly} className="shrink-0 font-semibold text-brand-700 hover:text-brand-800 disabled:opacity-40">{t('results.calc.addBack')}</button>
+                            </li>
+                          ))}
+                        </ul>
                       </div>
-                    ))}
+                    )}
                   </div>
-                  {removedAttorneyCards.length > 0 && (
-                    <div className="mt-3 rounded-lg border border-slate-200 bg-white px-3 py-2">
-                      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                        {t('results.calc.removedHeader')}
-                      </p>
-                      <ul className="mt-1 space-y-1">
+                )}
+                {!attorneySearchLoading && rankedAttorneyCards.length === 0 && dismissedAttorneyIds.length > 0 && (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                    <p className="font-medium text-amber-950">{t('results.calc.removedEveryoneTitle')}</p>
+                    <p className="mt-1 text-xs leading-relaxed text-amber-900/90">{t('results.calc.removedEveryoneBody')}</p>
+                    {removedAttorneyCards.length > 0 && (
+                      <ul className="mt-2 space-y-1">
                         {removedAttorneyCards.map((attorney: any) => (
-                          <li
-                            key={attorney.id || attorney.attorney_id}
-                            className="flex items-center justify-between gap-3 text-xs text-slate-600"
-                          >
+                          <li key={attorney.id || attorney.attorney_id} className="flex items-center justify-between gap-3 text-xs text-amber-900">
                             <span className="truncate">{attorney?.name ?? t('results.calc.attorneyFallback')}</span>
-                            <button
-                              type="button"
-                              onClick={() => restoreRankedAttorney(attorney.id || attorney.attorney_id)}
-                              disabled={isSharedReadOnly}
-                              className="shrink-0 font-semibold text-brand-700 hover:text-brand-800 disabled:cursor-not-allowed disabled:opacity-40"
-                            >
-                              {t('results.calc.addBack')}
-                            </button>
+                            <button type="button" onClick={() => restoreRankedAttorney(attorney.id || attorney.attorney_id)} disabled={isSharedReadOnly} className="shrink-0 font-semibold underline decoration-amber-700 underline-offset-2 hover:text-amber-950 disabled:opacity-40">{t('results.calc.addBack')}</button>
                           </li>
                         ))}
                       </ul>
-                    </div>
-                  )}
-                  <p className="mt-2 text-xs text-slate-500">
-                    {t('results.calc.contactChoiceOrder')}
-                  </p>
+                    )}
                   </div>
-                  )}
+                )}
+                {!attorneySearchLoading && rankedAttorneyCards.length === 0 && dismissedAttorneyIds.length === 0 && (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                    <p className="font-medium text-amber-950">{t('results.calc.couldNotLoadMatches')}</p>
+                    <p className="mt-1 text-xs leading-relaxed text-amber-900/90">
+                      {t('results.calc.couldNotLoadMatchesBody1')}{' '}
+                      <button type="button" className="font-semibold underline decoration-amber-700 underline-offset-2 hover:text-amber-950" onClick={() => void refreshMatchedAttorneys()}>{t('results.calc.reloadMatches')}</button>{' '}
+                      {t('results.calc.couldNotLoadMatchesBody2')}
+                    </p>
+                  </div>
+                )}
+              </section>
+              <section className="rounded-2xl border border-slate-200 bg-white px-4 py-4 sm:px-6">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="flex max-w-xs items-start gap-2">
+                    <Lock className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900">{t('results.sendReview.privacyTitle')}</p>
+                      <p className="mt-0.5 text-xs text-slate-600">{t('results.sendReview.privacyBody')}</p>
+                    </div>
+                  </div>
+                  <div className="grid flex-1 gap-4 sm:grid-cols-2">
+                    <div>
+                      <p className="flex items-center gap-1.5 text-xs font-semibold text-emerald-700"><CheckCircle className="h-4 w-4" />{t('results.sendReview.willSendNow')}</p>
+                      <ul className="mt-2 space-y-1.5">
+                        {[t('results.sendReview.send1'), t('results.sendReview.send2'), t('results.sendReview.send3'), t('results.sendReview.send4')].map((s) => (
+                          <li key={s} className="flex items-start gap-1.5 text-xs text-slate-700"><CheckCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-500" /><span>{s}</span></li>
+                        ))}
+                      </ul>
+                    </div>
+                    <div>
+                      <p className="flex items-center gap-1.5 text-xs font-semibold text-slate-500"><Lock className="h-4 w-4" />{t('results.sendReview.wontSendYet')}</p>
+                      <ul className="mt-2 space-y-1.5">
+                        {[t('results.sendReview.hold1'), t('results.sendReview.hold2'), t('results.sendReview.hold3'), t('results.sendReview.hold4')].map((s) => (
+                          <li key={s} className="flex items-start gap-1.5 text-xs text-slate-500"><span className="mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center leading-none">·</span><span>{s}</span></li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
                 </div>
-              )}
-              {!attorneySearchLoading && rankedAttorneyCards.length === 0 && dismissedAttorneyIds.length > 0 && (
-                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-950">
-                  <p className="font-medium text-amber-950">{t('results.calc.removedEveryoneTitle')}</p>
-                  <p className="mt-1 text-xs leading-relaxed text-amber-900/90">
-                    {t('results.calc.removedEveryoneBody')}
-                  </p>
-                  {removedAttorneyCards.length > 0 && (
-                    <ul className="mt-2 space-y-1">
-                      {removedAttorneyCards.map((attorney: any) => (
-                        <li
-                          key={attorney.id || attorney.attorney_id}
-                          className="flex items-center justify-between gap-3 text-xs text-amber-900"
-                        >
-                          <span className="truncate">{attorney?.name ?? t('results.calc.attorneyFallback')}</span>
-                          <button
-                            type="button"
-                            onClick={() => restoreRankedAttorney(attorney.id || attorney.attorney_id)}
-                            disabled={isSharedReadOnly}
-                            className="shrink-0 font-semibold underline decoration-amber-700 underline-offset-2 hover:text-amber-950 disabled:cursor-not-allowed disabled:opacity-40"
-                          >
-                            {t('results.calc.addBack')}
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              )}
-              {!attorneySearchLoading && rankedAttorneyCards.length === 0 && dismissedAttorneyIds.length === 0 && (
-                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-950">
-                  <p className="font-medium text-amber-950">{t('results.calc.couldNotLoadMatches')}</p>
-                  <p className="mt-1 text-xs text-amber-900/90 leading-relaxed">
-                    {t('results.calc.couldNotLoadMatchesBody1')}{' '}
-                    <button
-                      type="button"
-                      className="font-semibold underline decoration-amber-700 underline-offset-2 hover:text-amber-950"
-                      onClick={() => void refreshMatchedAttorneys()}
-                    >
-                      {t('results.calc.reloadMatches')}
-                    </button>{' '}
-                    {t('results.calc.couldNotLoadMatchesBody2')}
-                  </p>
-                </div>
-              )}
-              {isLoggedIn ? (
-                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3">
-                  <label className="flex items-start gap-2">
-                    <input
-                      type="checkbox"
-                      checked={hasHipaaConsent || sendHipaaConsent}
-                      onChange={(e) => setSendHipaaConsent(e.target.checked)}
-                      disabled={hasHipaaConsent}
-                      className="mt-1 h-4 w-4 shrink-0 rounded border-gray-300 text-brand-600 accent-brand-600 focus:ring-brand-500"
-                    />
-                    <span className="text-sm text-amber-900">
+                <p className="mt-3 border-t border-slate-100 pt-3 text-center text-xs text-slate-500">{t('results.sendReview.privacyFooter')}</p>
+                {isLoggedIn && (
+                  <label className="mt-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
+                    <input type="checkbox" checked={hasHipaaConsent || sendHipaaConsent} onChange={(e) => setSendHipaaConsent(e.target.checked)} disabled={hasHipaaConsent} className="mt-0.5 h-4 w-4 shrink-0 rounded border-gray-300 text-brand-600 accent-brand-600 focus:ring-brand-500" />
+                    <span className="text-xs text-amber-900">
                       {t('results.calc.iAuthorize')}{' '}
-                      <Link
-                        to="/hipaa-authorization"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="font-medium underline"
-                      >
-                        {t('results.calc.hipaaLinkText')}
-                      </Link>{' '}
+                      <Link to="/hipaa-authorization" target="_blank" rel="noreferrer" className="font-medium underline">{t('results.calc.hipaaLinkText')}</Link>{' '}
                       {t('results.calc.hipaaConsentBody')} {hasHipaaConsent ? t('results.calc.hipaaAlreadyOnFile') : t('results.calc.hipaaOptionalNeeded')}
                     </span>
                   </label>
+                )}
+              </section>
+              <div className={`rounded-2xl border-2 px-4 py-3.5 transition-colors ${shareAuthorized ? 'border-brand-500 bg-brand-50' : 'border-amber-300 bg-amber-50/70'}`}>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <label className="flex cursor-pointer items-start gap-3">
+                    <input type="checkbox" checked={shareAuthorized} onChange={(e) => setShareAuthorized(e.target.checked)} className="mt-0.5 h-5 w-5 shrink-0 rounded border-2 border-brand-400 text-brand-600 accent-brand-600 focus:ring-brand-500" />
+                    <span>
+                      <span className={`block text-sm font-semibold ${shareAuthorized ? 'text-brand-900' : 'text-slate-800'}`}>{t('results.sendReview.authBody')}</span>
+                      <span className="mt-0.5 block text-xs text-slate-600">{t('results.sendReview.authSubbody')}</span>
+                      {!shareAuthorized && <span className="mt-0.5 block text-xs font-medium text-amber-700">{t('results.calc.requiredToSend')}</span>}
+                    </span>
+                  </label>
+                  <Link to="/disclosures" target="_blank" rel="noreferrer" className="shrink-0 whitespace-nowrap text-xs font-semibold text-brand-700 hover:text-brand-800">{t('results.sendReview.viewAuthDisclosures')} →</Link>
                 </div>
-              ) : (
-                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
-                  <p className="font-semibold">{t('results.calc.medRecordsNotSentTitle')}</p>
-                  <p className="mt-1">
-                    {t('results.calc.medRecordsNotSentBody')}
-                  </p>
-                </div>
-              )}
-              <div className={`rounded-lg border-2 px-4 py-3.5 transition-colors ${shareAuthorized ? 'border-brand-500 bg-brand-50 shadow-sm' : 'border-amber-400 bg-amber-50/60'}`}>
-                <label className="flex cursor-pointer items-start gap-3">
-                  <input
-                    type="checkbox"
-                    checked={shareAuthorized}
-                    onChange={(e) => setShareAuthorized(e.target.checked)}
-                    /* `text-brand-600` does not tint a native checkbox, so the checked
-                       state rendered as a faint default box that was hard to see against
-                       the panel (CP-504). `accent-brand-600` colors the native control
-                       and `shrink-0` keeps it square next to the long label. */
-                    className="mt-0.5 h-5 w-5 shrink-0 rounded border-2 border-brand-400 text-brand-600 accent-brand-600 focus:ring-brand-500"
-                  />
-                  <div>
-                    <span className={`text-sm font-semibold ${shareAuthorized ? 'text-brand-900' : 'text-slate-800'}`}>{t('disclosures.shareAuthorization')}</span>
-                    {!shareAuthorized && <p className="mt-0.5 text-xs text-amber-700">{t('results.calc.requiredToSend')}</p>}
-                  </div>
-                </label>
               </div>
-            </div>
-            {contactFormError && <p className="mt-2 text-sm text-red-600">{contactFormError}</p>}
-            <p className="mt-4 text-xs text-slate-500">{t('results.calc.sendFooter1')}</p>
-            <p className="mt-1 text-xs text-slate-500">{t('results.calc.sendFooter2')}</p>
-            <button
-              onClick={handleSubmitForReview}
-              disabled={submitLoading || attorneySearchLoading || !shareAuthorized}
-              className="btn-primary mt-4 w-full py-3 text-base disabled:cursor-not-allowed disabled:opacity-70"
-            >
-              {submitLoading ? t('results.calc.sending') : attorneySearchLoading ? t('results.calc.findingMatches') : t('results.calc.sendMyCase')}
-            </button>
+              <section>
+                <h4 className="mb-3 text-sm font-semibold text-slate-900">{t('results.sendReview.nextTitle')}</h4>
+                <div className="grid gap-4 sm:grid-cols-3">
+                  {[
+                    { icon: <Mail className="h-4 w-4" />, title: t('results.sendReview.next1Title'), body: t('results.sendReview.next1Body') },
+                    { icon: <Phone className="h-4 w-4" />, title: t('results.sendReview.next2Title'), body: t('results.sendReview.next2Body') },
+                    { icon: <User className="h-4 w-4" />, title: t('results.sendReview.next3Title'), body: t('results.sendReview.next3Body') },
+                  ].map((step, i) => (
+                    <div key={i} className="flex gap-3">
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-50 text-brand-700">{step.icon}</span>
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900">{step.title}</p>
+                        <p className="mt-0.5 text-xs text-slate-600">{step.body}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+              </div>
+            <div className="mx-auto mt-5 max-w-xl text-center">
+              {contactFormError && <p className="mt-2 text-sm text-red-600">{contactFormError}</p>}
+              <p className="mt-4 text-xs text-slate-500">{t('results.calc.sendFooter1')}</p>
+              <p className="mt-1 text-xs text-slate-500">{t('results.calc.sendFooter2')}</p>
+              <button
+                onClick={handleSubmitForReview}
+                disabled={submitLoading || attorneySearchLoading || !shareAuthorized}
+                className="btn-primary mt-4 w-full py-3 text-base disabled:cursor-not-allowed disabled:opacity-70"
+              >
+                {submitLoading ? t('results.calc.sending') : attorneySearchLoading ? t('results.calc.findingMatches') : t('results.calc.sendMyCase')}
+              </button>
               <button
                 type="button"
                 onClick={() => !submitLoading && setSendModalOpen(false)}
@@ -3797,6 +3750,8 @@ Checklist:
           </div>
         </div>
       )}
+      {!sendModalOpen && (
+      <>
       {pendingBatchResolved && (
         <div className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
           {pendingBatchResolved === 'approved'
@@ -6109,6 +6064,8 @@ Checklist:
           whatThisMeansBullets={whatThisMeansBullets}
         />
       </Suspense>
+      </>
+      )}
     </div>
   )
 }
