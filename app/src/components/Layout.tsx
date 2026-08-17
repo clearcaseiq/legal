@@ -1,4 +1,4 @@
-import { ReactNode, Suspense, lazy, useState, useRef, useEffect } from 'react'
+import { ReactNode, Suspense, lazy, useState, useRef, useEffect, useMemo } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import BrandLogo from './BrandLogo'
 import RouteProgressBar from './RouteProgressBar'
@@ -15,6 +15,9 @@ import { useTheme } from '../contexts/ThemeContext'
 import { useLanguage } from '../contexts/LanguageContext'
 import { useBrowserStateReady } from '../contexts/ServerRenderContext'
 import { clearStoredAuth, getStoredRole, getStoredUser, hasValidAuthToken } from '../lib/auth'
+import { LANGUAGES } from '../i18n'
+import { hreflangFor, localeHome } from '../i18n/routing'
+import { localizedPath, pathForLocale } from '../data/localePathPairs'
 import { isCalendarRoute, isWideContentRoute } from '../lib/layoutWidth'
 import { loadPlaintiffHasCase, resetPlaintiffCaseHintCache } from '../lib/plaintiffCaseHint'
 import { getApiOrigin } from '../lib/runtimeEnv'
@@ -30,12 +33,19 @@ interface LayoutProps {
   children: ReactNode
 }
 
-const navLinks = {
+const NAV_LINKS = {
   home: '/',
   howItWorks: '/how-it-works',
   myCase: '/dashboard',
   forAttorneys: '/attorney-network',
   help: '/help',
+  helpResolve: '/help#how-we-resolve',
+  about: '/about',
+  topics: '/topics',
+  contact: '/contact',
+  disclosures: '/disclosures',
+  disclosuresAi: '/disclosures#ai',
+  disclosuresCalifornia: '/disclosures#california',
   startAssessment: '/assessment/start',
   plaintiffLogin: '/login/plaintiff',
   attorneyLogin: '/login/attorney',
@@ -84,9 +94,12 @@ const organizationJsonLd = {
 }
 
 export default function Layout({ children }: LayoutProps) {
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
   const location = useLocation()
   const navigate = useNavigate()
+  // Read from the location rather than useSearchParams so the server sees it too,
+  // which keeps the embedded first paint free of the full-page chrome.
+  const isEmbed = new URLSearchParams(location.search).get('embed') === '1'
   const [signInOpen, setSignInOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
@@ -120,6 +133,43 @@ export default function Layout({ children }: LayoutProps) {
       window.removeEventListener('storage', refresh)
     }
   }, [browserStateReady, location.pathname])
+  /**
+   * Header and footer destinations, pointed at the reader's language.
+   *
+   * The shared chrome is the only site-wide set of links, so it is also the only
+   * thing that can make the translated pages reachable: they were being found by
+   * sitemap alone, and the language switcher is a button, which no crawler
+   * follows. Paths with no translation resolve to themselves.
+   */
+  const navLinks = useMemo(
+    () =>
+      Object.fromEntries(
+        Object.entries(NAV_LINKS).map(([key, path]) => [key, localizedPath(path, language)])
+      ) as typeof NAV_LINKS,
+    [language]
+  )
+
+  /**
+   * The footer's links to this page in every other language.
+   *
+   * One link per translated edition, pointing at the twin of the current page
+   * where one exists and at that language's home page otherwise, so no page is a
+   * dead end for a reader and no edition is reachable by sitemap alone.
+   *
+   * This was a single English/Spanish pair, which silently orphaned all seven
+   * Chinese pages the moment they existed: they were in the sitemap with nothing
+   * linking to them. `crawl-inventory.mjs` fails on exactly that, which is how it
+   * was caught, and it will fail again for the next language if this is ever
+   * narrowed back to a fixed pair.
+   */
+  const alternateLanguageLinks = useMemo(() => {
+    return LANGUAGES.filter((entry) => entry.code !== language).map((entry) => ({
+      to: pathForLocale(location.pathname, entry.code) ?? localeHome(entry.code),
+      hrefLang: hreflangFor(entry.code),
+      label: entry.label,
+    }))
+  }, [language, location.pathname])
+
   const accountRole = (storedUser?.role || '').toLowerCase()
   const isAdmin = isAuthenticated && storedRole === 'admin'
   const isAdminArea = location.pathname.startsWith('/admin')
@@ -351,6 +401,18 @@ export default function Layout({ children }: LayoutProps) {
   const menuItemCls =
     'flex items-center gap-2 px-4 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800'
 
+  // An embedded tool renders bare. The chrome was previously included, so a
+  // clinic that iframed the deadline checker published ClearCaseIQ's own header
+  // and footer navigation inside their page — dozens of outbound links they never
+  // agreed to, and a widget that looked broken.
+  if (isEmbed) {
+    return (
+      <div className="bg-white p-3 dark:bg-slate-950 sm:p-4">
+        <main id="main-content">{children}</main>
+      </div>
+    )
+  }
+
   return (
     <div className={`min-h-screen bg-[radial-gradient(circle_at_top,_rgba(14,165,233,0.12),_transparent_32%),linear-gradient(135deg,_#f8fafc_0%,_#ffffff_45%,_rgba(224,242,254,0.6)_100%)] dark:bg-[radial-gradient(circle_at_top,_rgba(14,165,233,0.14),_transparent_26%),linear-gradient(135deg,_#020617_0%,_#020617_48%,_#0f172a_100%)] transition-colors duration-300${isClaimantRoute ? ' claimant-theme' : ''}${isClaimantScreen ? ' claimant-screen' : ''}`}>
       <script
@@ -507,20 +569,15 @@ export default function Layout({ children }: LayoutProps) {
                         >
                           {isAdminArea ? t('common.adminDashboard') : t('common.dashboard')}
                         </Link>
-                        <Link
-                          to={
-                            isAdminArea
-                              ? '/admin/cases'
-                              : isAttorney
-                                ? '/attorney-dashboard/leadgen/matches'
-                                : // Case dashboard — not /assessments → /results (Submission Confirmed).
-                                  '/dashboard'
-                          }
-                          onClick={() => setUserMenuOpen(false)}
-                          className={menuItemCls}
-                        >
-                          {isAdminArea ? 'Cases' : t('common.myCases')}
-                        </Link>
+                        {(isAdminArea || isAttorney) && (
+                          <Link
+                            to={isAdminArea ? '/admin/cases' : '/attorney-dashboard/leadgen/matches'}
+                            onClick={() => setUserMenuOpen(false)}
+                            className={menuItemCls}
+                          >
+                            {isAdminArea ? 'Cases' : t('common.myCases')}
+                          </Link>
+                        )}
                         {!isAdmin && (
                           <>
                             <Link
@@ -668,7 +725,7 @@ export default function Layout({ children }: LayoutProps) {
                   )}
                   {isFocusRoute ? (
                     <>
-                      <Link to="/" onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">Home</Link>
+                      <Link to={navLinks.home} onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">Home</Link>
                       <Link to={isAttorney ? '/attorney-dashboard' : '/dashboard'} onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">Dashboard</Link>
                       <Link to={navLinks.help} onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">{t('common.help')}</Link>
                     </>
@@ -785,11 +842,11 @@ export default function Layout({ children }: LayoutProps) {
           <div className="flex w-full flex-col gap-2 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between">
             <span>{t('footer.copyright')}</span>
             <div className="flex flex-wrap gap-3">
-              <Link to="/help" className="hover:text-slate-900">{t('footer.helpCenter')}</Link>
+              <Link to={navLinks.help} className="hover:text-slate-900">{t('footer.helpCenter')}</Link>
               <Link to="/terms-of-service" className="hover:text-slate-900">{t('footer.termsOfService')}</Link>
               <Link to="/privacy-policy" className="hover:text-slate-900">{t('footer.privacyPolicy')}</Link>
-              <Link to="/disclosures" className="hover:text-slate-900">{t('footer.disclosures')}</Link>
-              <Link to="/disclosures#california" className="hover:text-slate-900">{t('footer.doNotSell')}</Link>
+              <Link to={navLinks.disclosures} className="hover:text-slate-900">{t('footer.disclosures')}</Link>
+              <Link to={navLinks.disclosuresCalifornia} className="hover:text-slate-900">{t('footer.doNotSell')}</Link>
             </div>
           </div>
           <p className="mt-2 w-full text-[11px] leading-relaxed text-slate-400 sm:text-justify">
@@ -812,7 +869,7 @@ export default function Layout({ children }: LayoutProps) {
                 narrow column. */}
             <div className="col-span-2 md:col-span-1">
               <div className="flex flex-wrap items-start gap-x-8 gap-y-3 md:block">
-                <Link to="/" className="inline-flex items-center rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900">
+                <Link to={navLinks.home} className="inline-flex items-center rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900">
                   <BrandLogo mode="footer" size="md" appName={t('common.appName')} />
                 </Link>
                 <div className="md:mt-2">
@@ -822,7 +879,7 @@ export default function Layout({ children }: LayoutProps) {
                   {/* Business identity and location — transparency about who operates the
                       platform and from where, independent of any attorney disclosure. */}
                   <address className="mt-3 space-y-0.5 text-xs not-italic leading-relaxed text-slate-400">
-                    <Link to="/" className="block font-semibold text-slate-300 transition-colors hover:text-white">{t('footer.entityName')}</Link>
+                    <Link to={navLinks.home} className="block font-semibold text-slate-300 transition-colors hover:text-white">{t('footer.entityName')}</Link>
                     <span className="block">{t('footer.platformLabel')}</span>
                     <span className="block">{t('footer.locationCity')}</span>
                   </address>
@@ -853,12 +910,17 @@ export default function Layout({ children }: LayoutProps) {
               <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-white/90">{t('footer.resources')}</h3>
               <ul className="space-y-1.5 text-sm">
                 <li><Link to={navLinks.howItWorks} className="text-slate-400 transition-colors hover:text-white">{t('common.howItWorks')}</Link></li>
-                <li><Link to="/about" className="text-slate-400 transition-colors hover:text-white">{t('footer.about')}</Link></li>
+                <li><Link to={navLinks.about} className="text-slate-400 transition-colors hover:text-white">{t('footer.about')}</Link></li>
+                {/* The only site-wide link into the topic library. Without it the
+                    landing pages are reachable by sitemap alone. */}
+                <li><Link to={navLinks.topics} className="text-slate-400 transition-colors hover:text-white">{t('footer.topicLibrary')}</Link></li>
+              <li><Link to="/editorial-standards" className="text-slate-400 transition-colors hover:text-white">Editorial standards</Link></li>
+                <li><Link to="/attorneys" className="text-slate-400 transition-colors hover:text-white">Attorney directory</Link></li>
                 <li><Link to="/tools/california-sol-checker" className="text-slate-400 transition-colors hover:text-white">SOL checker</Link></li>
                 <li><Link to="/tools/medical-records-checklist" className="text-slate-400 transition-colors hover:text-white">Records checklist</Link></li>
                 <li><Link to="/insights" className="text-slate-400 transition-colors hover:text-white">Insights</Link></li>
                 <li><Link to="/press" className="text-slate-400 transition-colors hover:text-white">Press</Link></li>
-                <li><Link to="/help#how-we-resolve" className="text-slate-400 transition-colors hover:text-white">{t('footer.support')}</Link></li>
+                <li><Link to={navLinks.helpResolve} className="text-slate-400 transition-colors hover:text-white">{t('footer.support')}</Link></li>
               </ul>
             </div>
             <div>
@@ -866,16 +928,32 @@ export default function Layout({ children }: LayoutProps) {
               <ul className="space-y-1.5 text-sm">
                 <li><Link to="/privacy-policy" className="text-slate-400 transition-colors hover:text-white">{t('footer.privacy')}</Link></li>
                 <li><Link to="/terms-of-service" className="text-slate-400 transition-colors hover:text-white">{t('footer.terms')}</Link></li>
-                <li><Link to="/disclosures" className="text-slate-400 transition-colors hover:text-white">{t('footer.disclosures')}</Link></li>
-                <li><Link to="/disclosures#ai" className="text-slate-400 transition-colors hover:text-white">{t('footer.aiDisclosure')}</Link></li>
-                <li><Link to="/disclosures#california" className="text-slate-400 transition-colors hover:text-white">{t('footer.doNotSell')}</Link></li>
-                <li><Link to="/contact" className="text-slate-400 transition-colors hover:text-white">{t('footer.contact')}</Link></li>
+                <li><Link to={navLinks.disclosures} className="text-slate-400 transition-colors hover:text-white">{t('footer.disclosures')}</Link></li>
+                <li><Link to={navLinks.disclosuresAi} className="text-slate-400 transition-colors hover:text-white">{t('footer.aiDisclosure')}</Link></li>
+                <li><Link to={navLinks.disclosuresCalifornia} className="text-slate-400 transition-colors hover:text-white">{t('footer.doNotSell')}</Link></li>
+                <li><Link to={navLinks.contact} className="text-slate-400 transition-colors hover:text-white">{t('footer.contact')}</Link></li>
               </ul>
             </div>
           </div>
           <div className="mt-4 border-t border-slate-700/50 pt-3">
             <div className="flex flex-col gap-1.5 text-xs text-slate-400 md:flex-row md:items-center md:justify-between">
               <span>{t('footer.copyright')}</span>
+              {/* Real anchors, not the switcher button, because these are the only
+                  crawlable routes into the translated editions. Each points at the
+                  twin of the current page where one exists and at that language's
+                  home otherwise, so every page links into every translated set. */}
+              <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                {alternateLanguageLinks.map((alternate) => (
+                  <Link
+                    key={alternate.hrefLang}
+                    to={alternate.to}
+                    hrefLang={alternate.hrefLang}
+                    className="text-slate-400 underline decoration-slate-600 underline-offset-2 transition-colors hover:text-white"
+                  >
+                    {alternate.label}
+                  </Link>
+                ))}
+              </span>
             </div>
           </div>
         </div>

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import LocaleLink from '../components/LocaleLink'
 import { Mail, Send, CheckCircle2, AlertCircle, Loader2, LifeBuoy, Scale } from 'lucide-react'
 import { submitContactInquiry, type ContactTopic } from '../lib/api'
 import { useLanguage } from '../contexts/LanguageContext'
@@ -52,12 +52,12 @@ export default function Contact() {
             {t('contactPage.sentBodyPost')}
           </p>
           <div className="mt-6 flex flex-wrap justify-center gap-3">
-            <Link to="/" className="rounded-xl bg-brand-700 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-800">
+            <LocaleLink to="/" className="rounded-xl bg-brand-700 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-800">
               {t('contactPage.backHome')}
-            </Link>
-            <Link to="/help" className="rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+            </LocaleLink>
+            <LocaleLink to="/help" className="rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">
               {t('contactPage.visitHelp')}
-            </Link>
+            </LocaleLink>
           </div>
         </div>
       </div>
@@ -191,9 +191,9 @@ export default function Contact() {
             <p className="text-sm text-slate-600">
               {t('contactPage.helpCenterDesc')}
             </p>
-            <Link to="/help" className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-brand-600 hover:text-brand-700">
+            <LocaleLink to="/help" className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-brand-600 hover:text-brand-700">
               {t('contactPage.goHelpCenter')}
-            </Link>
+            </LocaleLink>
           </div>
 
           <div className="rounded-2xl border border-slate-200 bg-white p-5">
@@ -204,9 +204,9 @@ export default function Contact() {
             <p className="text-sm text-slate-600">
               {t('contactPage.attorneyDesc')}
             </p>
-            <Link to="/attorney-network" className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-brand-600 hover:text-brand-700">
+            <LocaleLink to="/attorney-network" className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-brand-600 hover:text-brand-700">
               {t('contactPage.forAttorneys')}
-            </Link>
+            </LocaleLink>
           </div>
         </div>
       </div>

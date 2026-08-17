@@ -176,5 +176,10 @@ app/tmp-*
 api/_schema-diff-report.json
 COMMIT_MSG.txt
 
+# Generated SEO reports: crawl exports, translation review sheets, and the
+# rendered changelog. Regenerate with app/scripts/seo-sheet-export.ts and
+# app/scripts/spanish-review-export.ts rather than versioning the output.
+seo-sheet-export/
+
 # Local dev tooling (e.g. downloaded Stripe CLI binary)
 .tools/

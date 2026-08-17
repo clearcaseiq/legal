@@ -1,8 +1,15 @@
+import type { LanguageCode } from '../i18n'
 import { requestedLandingPages } from './seoRequestedPages'
 import { priorityLandingPages } from './seoPriorityPages'
 import { conversionLandingPages } from './seoConversionPages'
 import { expansionLandingPages } from './seoExpansionPages'
+import { CONTENT_PUBLISHED_ES, CONTENT_UPDATED_ES, landingPagesEs } from './seoLandingPagesEs'
 import { medicalRecordsLandingPages } from './seoMedicalRecordsPages'
+import {
+  SETTLEMENT_CALCULATOR_FAQS,
+  SETTLEMENT_CALCULATOR_WHAT_TO_TRACK,
+  SETTLEMENT_CALCULATOR_WHY_IT_MATTERS,
+} from './settlementCalculatorContent'
 
 export type LandingPageCategory =
   | 'Symptoms'
@@ -31,6 +38,66 @@ export type LandingPage = {
     howClearCaseHelps: string
   }
   faqs: Array<{ q: string; a: string }>
+  /** UI language this page is written in. Absent means the default, English. */
+  locale?: LanguageCode
+  /** The default-language page this one translates, which pairs the two for hreflang. */
+  translationOf?: string
+  /** Slices of the locale dictionary this page's chrome reads, for translated pages. */
+  namespaces?: string[]
+  /** ISO date this page's content was last revised. Defaults per content set. */
+  contentUpdated?: string
+  /** ISO date this page first published. Defaults per content set. */
+  contentPublished?: string
+  /**
+   * Id in `CONTENT_REVIEWERS` of the person who reviewed this page.
+   *
+   * Left unset means unreviewed, and unreviewed pages say so rather than
+   * implying an expert read them. Never populate this without an actual named
+   * reviewer who actually reviewed the page — a fabricated credential is both a
+   * misrepresentation to the reader and the kind of signal search engines
+   * penalise when it turns out to be false.
+   */
+  reviewedBy?: string
+}
+
+/**
+ * When each content set was last meaningfully revised.
+ *
+ * Sitemap `lastmod` and the Article schema's `dateModified` read from here. A
+ * single shared date across all pages claims every page changes at once, which
+ * teaches crawlers to ignore the field entirely — so each set carries its own.
+ * Bump the entry for the file you edit.
+ */
+export const CONTENT_UPDATED = {
+  core: '2026-08-06',
+  requested: '2026-06-02',
+  priority: '2026-06-02',
+  conversion: '2026-06-02',
+  expansion: '2026-06-02',
+  medicalRecords: '2026-06-02',
+} as const
+
+/**
+ * When each content set first published, taken from the git history of its data
+ * file rather than estimated.
+ *
+ * `datePublished` and `dateModified` were previously emitted as the same value,
+ * which told search engines and readers that no page has ever been revised. For
+ * health-adjacent content, where a visible revision history is part of how a page
+ * is judged, that threw away a signal the content had actually earned.
+ */
+export const CONTENT_PUBLISHED = {
+  core: '2026-05-20',
+  requested: '2026-06-02',
+  priority: '2026-06-02',
+  conversion: '2026-06-02',
+  expansion: '2026-06-02',
+  medicalRecords: '2026-06-02',
+} as const
+
+/** Applies a set's dates without overriding page-specific ones. */
+function stamp(pages: LandingPage[], contentUpdated: string, contentPublished: string): LandingPage[] {
+  return pages.map((page) => ({ contentUpdated, contentPublished, ...page }))
 }
 
 export const landingPages: LandingPage[] = [
@@ -172,14 +239,13 @@ export const landingPages: LandingPage[] = [
     exampleQueries: ['how much is my case worth', 'accident settlement calculator', 'average accident payout California'],
     signals: ['Economic intent', 'Injury severity', 'Policy concerns', 'Treatment costs'],
     sections: {
-      whyItMatters: 'Settlement value is not a single number. It usually depends on liability strength, injury proof, medical expenses, treatment duration, insurance coverage, and missing documents.',
-      whatToTrack: ['Medical bills and paid amounts', 'Wage loss and out-of-pocket costs', 'Treatment duration and future care', 'Police reports, photos, and witnesses', 'Insurance limits or commercial coverage'],
-      howClearCaseHelps: 'The platform produces a range and explains what could raise or lower confidence in that range.',
+      // Shared with the calculator page so the visible FAQs and the FAQPage
+      // structured data cannot drift apart.
+      whyItMatters: SETTLEMENT_CALCULATOR_WHY_IT_MATTERS,
+      whatToTrack: SETTLEMENT_CALCULATOR_WHAT_TO_TRACK,
+      howClearCaseHelps: 'The calculator shows the arithmetic openly, then explains which documents would raise or lower confidence in the range.',
     },
-    faqs: [
-      { q: 'Is this a guaranteed settlement amount?', a: 'No. It is a preliminary estimate for education and preparation, not legal advice or a guaranteed outcome.' },
-      { q: 'What improves estimate confidence?', a: 'Medical records, bills, police reports, photos, liability facts, and treatment continuity improve confidence.' },
-    ],
+    faqs: SETTLEMENT_CALCULATOR_FAQS,
   },
   {
     slug: '/settlements/herniated-disc',
@@ -456,6 +522,16 @@ export const landingPages: LandingPage[] = [
   },
 ]
 
-export const allLandingPages = [...landingPages, ...requestedLandingPages, ...priorityLandingPages, ...conversionLandingPages, ...expansionLandingPages, ...medicalRecordsLandingPages]
+export const allLandingPages: LandingPage[] = [
+  ...stamp(landingPages, CONTENT_UPDATED.core, CONTENT_PUBLISHED.core),
+  ...stamp(requestedLandingPages, CONTENT_UPDATED.requested, CONTENT_PUBLISHED.requested),
+  ...stamp(priorityLandingPages, CONTENT_UPDATED.priority, CONTENT_PUBLISHED.priority),
+  ...stamp(conversionLandingPages, CONTENT_UPDATED.conversion, CONTENT_PUBLISHED.conversion),
+  ...stamp(expansionLandingPages, CONTENT_UPDATED.expansion, CONTENT_PUBLISHED.expansion),
+  ...stamp(medicalRecordsLandingPages, CONTENT_UPDATED.medicalRecords, CONTENT_PUBLISHED.medicalRecords),
+  // The Spanish set is dated separately: restamping it with an English content
+  // date would claim these pages changed on a day they did not exist.
+  ...stamp(landingPagesEs, CONTENT_UPDATED_ES, CONTENT_PUBLISHED_ES),
+]
 
 export const landingPagesBySlug = new Map(allLandingPages.map((page) => [page.slug, page]))

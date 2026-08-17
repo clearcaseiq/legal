@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { fetchPublicConsentTemplate, type PublicConsentTemplate } from '../lib/api-consent'
 import { ConsentDocumentBody } from '../components/ConsentDocumentBody'
+import { useBrowserStateReady } from '../contexts/ServerRenderContext'
 import { useLanguage } from '../contexts/LanguageContext'
 
 export default function TermsOfService() {
@@ -12,7 +13,9 @@ export default function TermsOfService() {
   const step = searchParams.get('step')
   const returnTo = returnParam || '/'
   const returnPath = step && returnParam ? `${returnTo}?step=${step}` : returnTo
-  const isFromFlow = !!returnParam
+  // See the note on the same line in PrivacyPolicy: the server renders this
+  // route without a query string, so `?return=` cannot be read during hydration.
+  const isFromFlow = useBrowserStateReady() && !!returnParam
   const [doc, setDoc] = useState<PublicConsentTemplate | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
 
@@ -51,12 +54,14 @@ export default function TermsOfService() {
 
       {loadError && <p className="text-red-600 text-sm">{loadError}</p>}
 
-      {doc?.plainLanguageSummary && (
-        <div className="card dark:bg-slate-900 dark:border-slate-700 text-sm text-gray-700 dark:text-slate-300">
-          <h2 className="font-semibold text-gray-900 dark:text-slate-100 mb-2">{t('legal.summary')}</h2>
-          <p>{language === 'en' ? doc.plainLanguageSummary : t('legal.summaryTerms')}</p>
-        </div>
-      )}
+      {/* Rendered before the document arrives, not after. See the note on the
+          same block in PrivacyPolicy: this page server-renders, the full terms
+          still come from the API, and gating this on `doc` left the served HTML
+          as a heading above the word "Loading". */}
+      <div className="card dark:bg-slate-900 dark:border-slate-700 text-sm text-gray-700 dark:text-slate-300">
+        <h2 className="font-semibold text-gray-900 dark:text-slate-100 mb-2">{t('legal.summary')}</h2>
+        <p>{language === 'en' && doc?.plainLanguageSummary ? doc.plainLanguageSummary : t('legal.summaryTerms')}</p>
+      </div>
 
       <div className="card dark:bg-slate-900 dark:border-slate-700 text-sm text-gray-700">
         {doc?.content ? (

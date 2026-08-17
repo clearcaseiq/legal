@@ -939,6 +939,7 @@
     "attorneyLogin": "律师登录",
     "attorneyRegister": "律师注册",
     "resources": "资源",
+    "topicLibrary": "主题库",
     "helpCenter": "帮助中心",
     "documentation": "文档",
     "gettingStarted": "快速开始",
@@ -3244,6 +3245,7 @@
       "you": "您",
       "choicesTitle": "您选择的律师",
       "choicesSubtitle": "我们将按此顺序联系他们。",
+      "reorderHint": "拖放即可重新排序，或使用上下箭头按钮。",
       "choiceWord": "选择",
       "ifUnavailable": "如果无法联系或未回复",
       "viewProfile": "查看资料",
@@ -3402,6 +3404,9 @@
       "servesVenue": "服务{venue}",
       "yearsOfExperience": "{years}+ 年经验",
       "averageRating": "{rating} 平均评分",
+      "verifiedReviewCount": "（{count} 条已验证）",
+      "ratingNew": "新",
+      "ratingNewHint": "尚无评分",
       "strengthHigh": "高",
       "strengthModerate": "中等",
       "strengthLow": "低",
@@ -4032,6 +4037,10 @@
   "plaintiffDashboard": {
     "greeting": "你好，{name}",
     "caseStatus": "案件状态",
+    "caseId": {
+      "label": "案件编号",
+      "copy": "复制案件编号"
+    },
     "caseSwitcher": {
       "label": "案件列表",
       "hint": "您有 {count} 个案件 — 请选择一个查看状态。"

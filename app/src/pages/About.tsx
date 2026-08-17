@@ -1,4 +1,5 @@
 import { Link, useLocation } from 'react-router-dom'
+import LocaleLink from '../components/LocaleLink'
 import { useEffect } from 'react'
 import { Building2, FileCheck2, HeartHandshake, Scale, ShieldCheck } from 'lucide-react'
 import { useLanguage } from '../contexts/LanguageContext'
@@ -162,12 +163,12 @@ export default function About() {
               <li>{t('aboutPage.forClaimants3')}</li>
               <li>{t('aboutPage.forClaimants4')}</li>
             </ul>
-            <Link
+            <LocaleLink
               to="/how-it-works"
               className="mt-4 inline-block text-sm font-semibold text-brand-700 hover:text-brand-800 dark:text-brand-300"
             >
               {t('aboutPage.forClaimantsLink')}
-            </Link>
+            </LocaleLink>
           </div>
           <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900/60">
             <h3 className="text-base font-semibold text-slate-900 dark:text-slate-50">
@@ -179,12 +180,12 @@ export default function About() {
               <li>{t('aboutPage.forAttorneys3')}</li>
               <li>{t('aboutPage.forAttorneys4')}</li>
             </ul>
-            <Link
+            <LocaleLink
               to="/attorney-network"
               className="mt-4 inline-block text-sm font-semibold text-brand-700 hover:text-brand-800 dark:text-brand-300"
             >
               {t('aboutPage.forAttorneysLink')}
-            </Link>
+            </LocaleLink>
           </div>
         </div>
       </section>
@@ -335,17 +336,17 @@ export default function About() {
           >
             {t('common.startAssessment')}
           </Link>
-          <Link
+          <LocaleLink
             to="/contact"
             className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
           >
             {t('footer.contact')}
-          </Link>
+          </LocaleLink>
         </div>
         <div className="flex flex-wrap justify-center gap-4 pt-2 text-sm">
-          <Link to="/disclosures" className="text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white">
+          <LocaleLink to="/disclosures" className="text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white">
             {t('footer.disclosures')}
-          </Link>
+          </LocaleLink>
           <Link to="/privacy-policy" className="text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white">
             {t('footer.privacyPolicy')}
           </Link>

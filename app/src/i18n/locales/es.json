@@ -939,6 +939,7 @@
     "attorneyLogin": "Inicio de sesión para abogados",
     "attorneyRegister": "Registro de abogados",
     "resources": "Recursos",
+    "topicLibrary": "Biblioteca de temas",
     "helpCenter": "Centro de ayuda",
     "documentation": "Documentación",
     "gettingStarted": "Primeros pasos",
@@ -3244,6 +3245,7 @@
       "you": "Usted",
       "choicesTitle": "Sus opciones de abogado",
       "choicesSubtitle": "Los contactaremos en este orden.",
+      "reorderHint": "Arrastre y suelte para reordenar, o use los botones de subir y bajar.",
       "choiceWord": "OPCIÓN",
       "ifUnavailable": "Si no está disponible o no responde",
       "viewProfile": "Ver perfil",
@@ -3402,6 +3404,9 @@
       "servesVenue": "Atiende {venue}",
       "yearsOfExperience": "{years}+ años de experiencia",
       "averageRating": "{rating} de calificación promedio",
+      "verifiedReviewCount": "({count} verificadas)",
+      "ratingNew": "Nuevo",
+      "ratingNewHint": "Aún sin calificar",
       "strengthHigh": "Alta",
       "strengthModerate": "Moderada",
       "strengthLow": "Baja",
@@ -4032,6 +4037,10 @@
   "plaintiffDashboard": {
     "greeting": "Hola {name}",
     "caseStatus": "Estado del caso",
+    "caseId": {
+      "label": "ID del caso",
+      "copy": "Copiar ID del caso"
+    },
     "caseSwitcher": {
       "label": "Lista de casos",
       "hint": "Tienes {count} casos — elige uno para ver su estado."

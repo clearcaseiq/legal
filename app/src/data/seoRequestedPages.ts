@@ -1,5 +1,6 @@
 import type { LandingPage, LandingPageCategory } from './seoLandingPages'
 import type { TopicContent } from './seoLandingPageTopicContent'
+import { CALCULATOR_VARIANT_FAQS } from './settlementCalculatorVariants'
 
 type RequestedPageSeed = {
   slug: string
@@ -794,7 +795,9 @@ const calculatorSeeds: RequestedPageSeed[] = [
   track: ['Injury diagnosis and symptom duration', 'Treatment timeline, records, bills, and future care', 'Liability evidence, police report, photos, witnesses, or video', 'Lost wages, out-of-pocket costs, and liens', 'Insurance limits, UM/UIM, commercial coverage, and offers'],
   why: `A calculator is only useful when it asks for the facts that move value. For ${label}, the important inputs include ${focus}, plus venue, comparative fault, and documentation quality.`,
   help: 'ClearCaseIQ turns calculator inputs into a structured report that explains value drivers, missing facts, confidence, and potential next steps.',
-  faqs: [
+  // These slugs render the real calculator, so the FAQPage markup has to be the
+  // questions that page actually shows rather than the generic template ones.
+  faqs: CALCULATOR_VARIANT_FAQS[slug as string] ?? [
     { q: `Is the ${label} a guaranteed valuation?`, a: 'No. It is an educational estimate based on entered facts and documents, not legal advice or a promised result.' },
     { q: 'What improves calculator accuracy?', a: 'Medical records, bills, imaging, wage loss proof, liability evidence, insurance letters, and treatment details improve confidence.' },
     { q: 'Why can settlement estimates vary so much?', a: 'Liability, causation, venue, coverage, liens, treatment, and missing records can move value significantly.' },

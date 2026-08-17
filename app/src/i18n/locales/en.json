@@ -961,6 +961,7 @@
     "attorneyRegister": "Register Law Firm",
     "caseIntelligenceDashboard": "Case Intelligence Dashboard",
     "resources": "Resources",
+    "topicLibrary": "Topic library",
     "support": "Support",
     "helpCenter": "Help Center",
     "documentation": "Documentation",
@@ -3308,6 +3309,7 @@
       "you": "You",
       "choicesTitle": "Your attorney choices",
       "choicesSubtitle": "We'll contact them in this order.",
+      "reorderHint": "Drag and drop to reorder, or use the up and down buttons.",
       "choiceWord": "CHOICE",
       "ifUnavailable": "If unavailable or does not respond",
       "viewProfile": "View profile",
@@ -3466,6 +3468,9 @@
       "servesVenue": "Serves {venue}",
       "yearsOfExperience": "{years}+ years of experience",
       "averageRating": "{rating} average rating",
+      "verifiedReviewCount": "({count} verified)",
+      "ratingNew": "New",
+      "ratingNewHint": "Not yet rated",
       "strengthHigh": "High",
       "strengthModerate": "Moderate",
       "strengthLow": "Low",
@@ -4096,6 +4101,10 @@
   "plaintiffDashboard": {
     "greeting": "Hi {name}",
     "caseStatus": "Case Status",
+    "caseId": {
+      "label": "Case ID",
+      "copy": "Copy Case ID"
+    },
     "caseSwitcher": {
       "label": "Case List",
       "hint": "You have {count} cases — pick one to view its status."

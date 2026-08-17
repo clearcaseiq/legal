@@ -4,6 +4,7 @@ import { Search, ChevronDown, ChevronRight, FileText, Upload, Users, BarChart3, 
 import SupportRequestForm from '../components/SupportRequestForm'
 import FaqSection from '../components/FaqSection'
 import { useLanguage } from '../contexts/LanguageContext'
+import { useBrowserStateReady } from '../contexts/ServerRenderContext'
 
 // Stable slugs so /help#attorney-matching style deep links keep working in
 // every language. Each category has 2 articles keyed off its prefix.
@@ -21,7 +22,13 @@ export default function Help() {
   const { t, language } = useLanguage()
   const location = useLocation()
   const { hash } = location
-  const isAdminArea = location.pathname.startsWith('/admin') || localStorage.getItem('auth_role') === 'admin'
+  // This route is server-rendered, so the stored role is only readable once the
+  // client has hydrated. Until then treat the visitor as a plaintiff, which is
+  // what an anonymous crawler or first-time reader actually is.
+  const browserStateReady = useBrowserStateReady()
+  const isAdminArea =
+    location.pathname.startsWith('/admin') ||
+    (browserStateReady && localStorage.getItem('auth_role') === 'admin')
   const [search, setSearch] = useState('')
   const [expandedCategory, setExpandedCategory] = useState<number | null>(null)
 

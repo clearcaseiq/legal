@@ -21,6 +21,39 @@ const nextConfig = {
     // those files and webpack tries to parse raw TypeScript as JavaScript.
     externalDir: true,
   },
+  /**
+   * Framing policy.
+   *
+   * The educational tools under /tools are meant to be embedded by clinics,
+   * educators, and law libraries — that is the point of the embed snippets on
+   * those pages. Everything else has no reason to appear in someone else's frame,
+   * and until now nothing did: no framing header was set anywhere, so the whole
+   * site including the dashboard and login could be framed by any origin.
+   *
+   * The two rules must not both match a request. Browsers intersect multiple
+   * Content-Security-Policy headers and apply the most restrictive result, so an
+   * overlap would silently un-embed the tools. Hence the negative lookahead —
+   * verify with `curl -I` on a tool route and a normal one after changing this.
+   *
+   * X-Frame-Options is sent only on the restricted routes. It cannot express an
+   * allowlist of arbitrary third parties, so on the tool routes its presence
+   * would block exactly the embedding we want.
+   */
+  async headers() {
+    return [
+      {
+        source: '/tools/:path*',
+        headers: [{ key: 'Content-Security-Policy', value: 'frame-ancestors *' }],
+      },
+      {
+        source: '/((?!tools/).*)',
+        headers: [
+          { key: 'Content-Security-Policy', value: "frame-ancestors 'self'" },
+          { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
+        ],
+      },
+    ]
+  },
   async redirects() {
     return [
       // Retired public URL. The SPA already redirected in the browser, but that

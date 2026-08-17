@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { fetchPublicConsentTemplate, type PublicConsentTemplate } from '../lib/api-consent'
 import { ConsentDocumentBody } from '../components/ConsentDocumentBody'
+import { useBrowserStateReady } from '../contexts/ServerRenderContext'
 import { useLanguage } from '../contexts/LanguageContext'
 
 export default function PrivacyPolicy() {
@@ -12,7 +13,11 @@ export default function PrivacyPolicy() {
   const step = searchParams.get('step')
   const returnTo = returnParam || '/'
   const returnPath = step && returnParam ? `${returnTo}?step=${step}` : returnTo
-  const isFromFlow = !!returnParam
+  // The server renders this route without a query string, so reading `?return=`
+  // during the hydration render would disagree with the markup it is hydrating.
+  // Client-side arrivals from the consent flow are unaffected: this is true
+  // immediately on routes that were not server-rendered.
+  const isFromFlow = useBrowserStateReady() && !!returnParam
   const [doc, setDoc] = useState<PublicConsentTemplate | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
 
@@ -51,12 +56,16 @@ export default function PrivacyPolicy() {
 
       {loadError && <p className="text-red-600 text-sm">{loadError}</p>}
 
-      {doc?.plainLanguageSummary && (
-        <div className="card dark:bg-slate-900 dark:border-slate-700 text-sm text-gray-700 dark:text-slate-300">
-          <h2 className="font-semibold text-gray-900 dark:text-slate-100 mb-2">{t('legal.summary')}</h2>
-          <p>{language === 'en' ? doc.plainLanguageSummary : t('legal.summaryPrivacy')}</p>
-        </div>
-      )}
+      {/* Rendered before the document arrives, not after.
+          This page now server-renders, and the full policy still comes from the
+          API, so gating the summary on `doc` meant the served HTML was a heading
+          above the word "Loading". The summary is a written constant, so it is
+          real content on the first byte and is replaced by the authoritative
+          version once that loads. */}
+      <div className="card dark:bg-slate-900 dark:border-slate-700 text-sm text-gray-700 dark:text-slate-300">
+        <h2 className="font-semibold text-gray-900 dark:text-slate-100 mb-2">{t('legal.summary')}</h2>
+        <p>{language === 'en' && doc?.plainLanguageSummary ? doc.plainLanguageSummary : t('legal.summaryPrivacy')}</p>
+      </div>
 
       <div className="card dark:bg-slate-900 dark:border-slate-700 text-sm text-gray-700 space-y-4">
         {doc?.content ? (

@@ -1,5 +1,6 @@
 import { Suspense, lazy, useEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
+import LocaleLink from '../components/LocaleLink'
 import { BarChart3, ClipboardList, Users } from 'lucide-react'
 import { useLanguage } from '../contexts/LanguageContext'
 import MarketingHeroArt from '../components/MarketingHeroArt'
@@ -316,18 +317,18 @@ export default function Home() {
               {t('home.legalDisclaimer')}
             </p>
             <div className="flex flex-wrap gap-3">
-              <Link
+              <LocaleLink
                 to="/about"
                 className="inline-block text-xs font-semibold text-brand-700 hover:text-brand-800 dark:text-brand-300"
               >
                 {t('footer.about')}
-              </Link>
-              <Link
+              </LocaleLink>
+              <LocaleLink
                 to="/disclosures"
                 className="inline-block text-xs font-semibold text-brand-700 hover:text-brand-800 dark:text-brand-300"
               >
                 {t('home.viewDisclosures')}
-              </Link>
+              </LocaleLink>
             </div>
           </div>
         </section>

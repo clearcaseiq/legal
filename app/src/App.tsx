@@ -10,6 +10,11 @@ import {
   rememberEvidenceReturnTo,
   safeInternalReturnTo,
 } from './lib/evidenceUploadNav'
+// Definitions only: importing from `seoTopicHubs` here would pull the full text
+// of all 173 landing pages into the chunk that loads on every route.
+import { topicHubs } from './data/seoTopicHubDefs'
+import { CALCULATOR_VARIANT_SLUGS } from './data/settlementCalculatorVariantSlugs'
+import { LANDING_ES_SLUGS } from './data/seoLandingPagesEsSlugs'
 
 const Home = lazy(() => import('./pages/Home'))
 const Login = lazy(() => import('./pages/Login'))
@@ -172,6 +177,7 @@ const InsightsPage = lazy(() => import('./pages/InsightsPage'))
 const PartnerBadgePage = lazy(() => import('./pages/PartnerBadgePage'))
 const CaliforniaSolChecker = lazy(() => import('./pages/CaliforniaSolChecker'))
 const MedicalRecordsChecklistTool = lazy(() => import('./pages/MedicalRecordsChecklistTool'))
+const SettlementCalculator = lazy(() => import('./pages/SettlementCalculator'))
 const CompleteConsent = lazy(() => import('./pages/CompleteConsent'))
 const ConsentManagement = lazy(() => import('./pages/ConsentManagement'))
 const TestConsent = lazy(() => import('./pages/TestConsent'))
@@ -179,6 +185,7 @@ const AuthDebug = lazy(() => import('./pages/AuthDebug'))
 const TermsOfService = lazy(() => import('./pages/TermsOfService'))
 const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'))
 const Disclosures = lazy(() => import('./pages/Disclosures'))
+const EditorialStandards = lazy(() => import('./pages/EditorialStandards'))
 const Help = lazy(() => import('./pages/Help'))
 const Contact = lazy(() => import('./pages/Contact'))
 const HowItWorks = lazy(() => import('./pages/HowItWorks'))
@@ -188,6 +195,10 @@ const HipaaAuthorization = lazy(() => import('./pages/HipaaAuthorization'))
 const PaymentSuccess = lazy(() => import('./pages/PaymentSuccess'))
 const PaymentCancel = lazy(() => import('./pages/PaymentCancel'))
 const SeoLandingPage = lazy(() => import('./pages/SeoLandingPage'))
+const SeoLandingPageEs = lazy(() => import('./pages/SeoLandingPageEs'))
+const TopicsEs = lazy(() => import('./pages/TopicsEs'))
+const TopicHub = lazy(() => import('./pages/TopicHub'))
+
 const NotFound = lazy(() => import('./pages/NotFound'))
 
 function RouteFallback() {
@@ -420,14 +431,51 @@ function App() {
             <Route path="/terms-of-service" element={<TermsOfService />} />
             <Route path="/privacy-policy" element={<PrivacyPolicy />} />
             <Route path="/disclosures" element={<Disclosures />} />
+            <Route path="/editorial-standards" element={<EditorialStandards />} />
             <Route path="/about" element={<About />} />
             <Route path="/press" element={<PressPage />} />
             <Route path="/insights" element={<InsightsPage />} />
             <Route path="/partners/badge" element={<PartnerBadgePage />} />
             <Route path="/help" element={<Help />} />
             <Route path="/contact" element={<Contact />} />
+            {/* Topic index and per-category hubs: the route into the SEO landing
+                pages. Hubs are enumerated rather than matched with a :param so an
+                invented /topics/anything still 404s instead of answering 200. */}
+            <Route path="/topics" element={<TopicHub />} />
+            {topicHubs.map((hub) => (
+              <Route key={hub.slug} path={hub.slug} element={<TopicHub />} />
+            ))}
             <Route path="/how-it-works" element={<HowItWorks />} />
             <Route path="/attorney-network" element={<AttorneyNetwork />} />
+            {/* Spanish editions. Enumerated beside their English twins rather than
+                generated from the registry, so the route table stays greppable and
+                an invented /es/* still 404s. `marketingPagesEs.test.ts` fails if a
+                registry entry has no route here, or a route no entry. */}
+            <Route path="/es" element={<HomeRoute />} />
+            <Route path="/es/como-funciona" element={<HowItWorks />} />
+            <Route path="/es/quienes-somos" element={<About />} />
+            <Route path="/es/contacto" element={<Contact />} />
+            <Route path="/es/centro-de-ayuda" element={<Help />} />
+            <Route path="/es/divulgaciones" element={<Disclosures />} />
+            <Route path="/es/red-de-abogados" element={<AttorneyNetwork />} />
+            {/* The Spanish landing pages and their hub. Separate template from the
+                English pages: see the note in SeoLandingPageEs. */}
+            <Route path="/es/temas" element={<TopicsEs />} />
+            {LANDING_ES_SLUGS.map((slug) => (
+              <Route key={slug} path={slug} element={<SeoLandingPageEs />} />
+            ))}
+            {/* Simplified Chinese editions, reusing the same components: their
+                bodies are the translated chrome in zh.json, so no separate
+                template is needed the way the Spanish landing pages needed one.
+                Pinyin slugs rather than Chinese characters, which would be
+                correct but arrive percent-encoded in logs and analytics. */}
+            <Route path="/zh" element={<HomeRoute />} />
+            <Route path="/zh/ruhe-yunzuo" element={<HowItWorks />} />
+            <Route path="/zh/guanyu-women" element={<About />} />
+            <Route path="/zh/lianxi-women" element={<Contact />} />
+            <Route path="/zh/bangzhu-zhongxin" element={<Help />} />
+            <Route path="/zh/pilu-shengming" element={<Disclosures />} />
+            <Route path="/zh/lvshi-wangluo" element={<AttorneyNetwork />} />
             {/* Consolidated: the old marketing page now points at the single attorney landing page. */}
             <Route path="/for-attorneys" element={<Navigate to="/attorney-network" replace />} />
             <Route path="/claim/:token" element={<ClaimProfile />} />
@@ -439,6 +487,12 @@ function App() {
             {/* Interactive public tools — must be registered before /tools/:slug SEO catch-all. */}
             <Route path="/tools/california-sol-checker" element={<CaliforniaSolChecker />} />
             <Route path="/tools/medical-records-checklist" element={<MedicalRecordsChecklistTool />} />
+            <Route path="/tools/settlement-calculator" element={<SettlementCalculator />} />
+            {/* Per-injury variants of the same calculator. Enumerated so an
+                invented /tools/*-calculator still 404s. */}
+            {CALCULATOR_VARIANT_SLUGS.map((slug) => (
+              <Route key={slug} path={slug} element={<SettlementCalculator />} />
+            ))}
             <Route path="/injuries/:slug" element={<SeoLandingPage />} />
             <Route path="/treatment/:slug" element={<SeoLandingPage />} />
             <Route path="/tools/:slug" element={<SeoLandingPage />} />

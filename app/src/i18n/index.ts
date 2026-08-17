@@ -23,6 +23,27 @@ const resourceLoaders: Partial<Record<LanguageCode, () => Promise<TranslationDic
 
 const inFlightLoads = new Map<LanguageCode, Promise<void>>()
 
+/**
+ * Languages whose full dictionary is loaded, as opposed to the handful of
+ * namespaces a server-rendered page seeds.
+ *
+ * `resources[language]` being present is no longer proof the language is ready:
+ * a `/es` page seeds only the namespaces its own markup needs, so that the
+ * server's Spanish HTML and the client's first render agree without shipping
+ * the whole 280 KB dictionary before paint. Treating that partial seed as
+ * complete would leave every other string on the page in English forever.
+ */
+const completeLanguages = new Set<LanguageCode>([DEFAULT_LANGUAGE])
+
+/**
+ * Merge a subset of a dictionary in, for the first render of a page the server
+ * rendered in that language. Safe to call repeatedly with the same payload.
+ */
+export function seedLanguageResources(language: LanguageCode, messages: TranslationDictionary) {
+  if (completeLanguages.has(language)) return
+  resources[language] = { ...resources[language], ...messages }
+}
+
 function normalizeLanguage(language?: string | null): LanguageCode {
   const value = language?.toLowerCase()
   if (value?.startsWith('es')) return 'es'
@@ -50,11 +71,11 @@ export function setStoredLanguage(language: LanguageCode) {
 }
 
 export function hasLanguageResources(language: LanguageCode) {
-  return !!resources[language]
+  return completeLanguages.has(language)
 }
 
 export async function ensureLanguageResources(language: LanguageCode) {
-  if (resources[language]) return
+  if (completeLanguages.has(language)) return
 
   const existingLoad = inFlightLoads.get(language)
   if (existingLoad) {
@@ -68,6 +89,7 @@ export async function ensureLanguageResources(language: LanguageCode) {
   const load = loader()
     .then((dictionary) => {
       resources[language] = dictionary
+      completeLanguages.add(language)
     })
     .finally(() => {
       inFlightLoads.delete(language)

@@ -1,9 +1,10 @@
 import type { ReactNode } from 'react'
+import type { LanguageCode } from './i18n'
 import { BrowserRouter } from 'react-router-dom'
 import { StaticRouter } from 'react-router-dom/server'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import App from './App'
-import { LanguageProvider } from './contexts/LanguageContext'
+import { LanguageProvider, LocalePathSync } from './contexts/LanguageContext'
 import { ThemeProvider } from './contexts/ThemeContext'
 import { ToastProvider } from './contexts/ToastContext'
 import { HeuristicsProvider } from './contexts/HeuristicsContext'
@@ -27,6 +28,10 @@ type AppProvidersProps = {
   serverRendered?: boolean
   /** Request path, required by the server router since there is no history. */
   location?: string
+  /** Language fixed by the URL, for routes with a localized path. */
+  language?: LanguageCode
+  /** Dictionary slices for `language`, needed before the first render. */
+  messages?: Record<string, unknown>
 }
 
 function Router({ location, children }: { location?: string; children: ReactNode }) {
@@ -36,12 +41,22 @@ function Router({ location, children }: { location?: string; children: ReactNode
   return <BrowserRouter>{children}</BrowserRouter>
 }
 
-export default function AppProviders({ serverRendered = false, location }: AppProvidersProps) {
+export default function AppProviders({
+  serverRendered = false,
+  location,
+  language,
+  messages,
+}: AppProvidersProps) {
   return (
     <ServerRenderedProvider value={serverRendered}>
       <QueryClientProvider client={queryClient}>
-        <LanguageProvider deferStoredLanguage={serverRendered}>
+        <LanguageProvider
+          deferStoredLanguage={serverRendered}
+          urlLanguage={language}
+          urlMessages={messages}
+        >
           <Router location={location}>
+            <LocalePathSync />
             <ThemeProvider>
               <ToastProvider>
                 <HeuristicsProvider>

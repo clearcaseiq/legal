@@ -138,6 +138,29 @@ export default function Attorneys() {
         </p>
       </div>
 
+      {/* Written, not fetched, so the page says something before the directory
+          loads. The listing below comes from the API, which meant a crawler and
+          a first-time visitor on a slow connection both met an empty search
+          form under a heading. The paid-relationship line is here rather than
+          only in /disclosures because this is the page where someone is deciding
+          whether a listing is an endorsement. */}
+      <div className="card mb-8 text-sm leading-6 text-gray-700">
+        <h2 className="mb-2 text-base font-semibold text-gray-900">About this directory</h2>
+        <p>
+          These are personal injury attorneys participating in the ClearCaseIQ network. Filter by state and case type
+          to see who handles matters like yours, then review practice areas and experience before requesting an
+          introduction. Nothing is shared with a firm until you ask us to send it.
+        </p>
+        <p className="mt-3">
+          Participating firms have commercial agreements with ClearCaseIQ for technology and platform services, and you
+          never pay us. A listing here is not a recommendation, an endorsement, or a statement that one attorney is
+          better than another. ClearCaseIQ is not a law firm and does not provide legal advice.{' '}
+          <Link to="/disclosures" className="font-medium text-brand-700 underline">
+            How this works
+          </Link>
+        </p>
+      </div>
+
       {/* Search Form */}
       <div className="card mb-8">
         <form onSubmit={handleSearch} className="space-y-4">

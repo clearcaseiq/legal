@@ -1,11 +1,32 @@
 import { useLanguage } from '../contexts/LanguageContext'
-import { LANGUAGES } from '../i18n'
+import { LANGUAGES, type LanguageCode } from '../i18n'
+import { pathForLocale } from '../data/localePathPairs'
 import { Globe } from 'lucide-react'
 import { useState, useRef, useEffect, useCallback } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { createPortal } from 'react-dom'
 
 export default function LanguageSwitcher() {
   const { language, setLanguage } = useLanguage()
+  const location = useLocation()
+  const navigate = useNavigate()
+
+  /**
+   * Pages that exist in the chosen language have their own URL, so switching has
+   * to navigate rather than re-render in place. Swapping the text under the
+   * English URL would leave the reader on a page whose address, canonical, and
+   * `lang` all still say English, and would give them nothing to share or link.
+   */
+  const chooseLanguage = useCallback(
+    (next: LanguageCode) => {
+      setLanguage(next)
+      const target = pathForLocale(location.pathname, next)
+      if (target && target !== location.pathname) {
+        navigate(target + location.search)
+      }
+    },
+    [location.pathname, location.search, navigate, setLanguage]
+  )
   const [open, setOpen] = useState(false)
   const buttonRef = useRef<HTMLButtonElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
@@ -77,7 +98,7 @@ export default function LanguageSwitcher() {
               key={lang.code}
               type="button"
               onClick={() => {
-                setLanguage(lang.code)
+                chooseLanguage(lang.code)
                 setOpen(false)
               }}
               className={`block w-full text-left px-4 py-2.5 text-sm transition-colors hover:bg-slate-50 dark:hover:bg-slate-800 ${

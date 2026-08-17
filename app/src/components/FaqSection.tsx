@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom'
+import LocaleLink from './LocaleLink'
 import { ChevronDown, HelpCircle } from 'lucide-react'
 import { useLanguage } from '../contexts/LanguageContext'
 
@@ -55,12 +55,12 @@ export default function FaqSection({ title, subtitle, items, className = '' }: F
             <p className="mt-3 text-sm leading-relaxed text-slate-600 dark:text-slate-300">
               {t('faqSection.asideBody')}
             </p>
-            <Link
+            <LocaleLink
               to="/contact"
               className="mt-5 inline-flex items-center justify-center rounded-xl bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900"
             >
               {t('faqSection.contactCta')}
-            </Link>
+            </LocaleLink>
           </div>
 
           {/* Right accordion */}

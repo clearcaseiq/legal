@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
+import LocaleLink from '../components/LocaleLink'
 import { useLanguage } from '../contexts/LanguageContext'
 
 /**
@@ -125,9 +126,9 @@ export default function Disclosures() {
           {t('footer.entityName')} · {t('footer.platformLabel')} · {t('footer.locationCity')}
         </p>
         <div className="flex flex-wrap gap-3 pt-1 text-sm">
-          <Link to="/about" className="text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white">
+          <LocaleLink to="/about" className="text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white">
             {t('footer.about')}
-          </Link>
+          </LocaleLink>
           <Link to="/terms-of-service" className="text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white">
             {t('footer.termsOfService')}
           </Link>

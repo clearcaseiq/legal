@@ -1,10 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, Navigate, useLocation } from 'react-router-dom'
 import { Activity, AlertTriangle, Calculator, CheckCircle, ChevronRight, FileText, Search, Shield, Stethoscope, TrendingUp } from 'lucide-react'
+import ContentByline from '../components/ContentByline'
 import { landingPagesBySlug } from '../data/seoLandingPages'
 import { cityLocalFacts } from '../data/seoCityLocalFacts'
-import { landingPageFaqs } from '../data/seoLandingPageSchema'
+import {
+  landingPageFaqs,
+  landingPageFirstPublished,
+  landingPageLastModified,
+} from '../data/seoLandingPageSchema'
 import { topicContentBySlug, type TopicContent } from '../data/seoLandingPageTopicContent'
+import { TOPICS_INDEX_SLUG, hubForPage, relatedLandingPages } from '../data/seoTopicHubs'
 import SeoCiteEmbed from '../components/SeoCiteEmbed'
 
 const categoryTone: Record<string, string> = {
@@ -132,14 +138,8 @@ const signalImpact: Record<string, {
   },
 }
 
-const internalLinks = [
-  { label: 'Herniated disc settlement', to: '/settlements/herniated-disc' },
-  { label: 'MRI after accident', to: '/treatment/mri-after-accident' },
-  { label: 'Physical therapy and treatment gaps', to: '/treatment/physical-therapy-after-accident' },
-  { label: 'Whiplash settlement value', to: '/settlements/whiplash' },
-  { label: 'Insurance claim denial', to: '/insurance/claim-denial' },
-  { label: 'Disputed fault analysis', to: '/liability/disputed-fault' },
-  { label: 'Commercial coverage', to: '/insurance/rideshare-commercial-coverage' },
+/** Evergreen tools worth linking from every topic, alongside its siblings. */
+const toolLinks = [
   { label: 'Settlement calculator', to: '/tools/settlement-calculator' },
   { label: 'California SOL checker', to: '/tools/california-sol-checker' },
   { label: 'Medical records checklist', to: '/tools/medical-records-checklist' },
@@ -495,8 +495,17 @@ export default function SeoLandingPage() {
     whatToTrack: page.sections.whatToTrack,
   })
   const deepDiveSections = topicContent ? buildTopicDeepDive(page, topicContent) : []
-  const relatedLinks = internalLinks.filter((link) => link.to !== location.pathname).slice(0, 6)
-  const estimatorCta = location.pathname === '/tools/settlement-calculator' ? '/assessment/start' : '/tools/settlement-calculator'
+  // Siblings from this page's own category rather than one fixed list reused on
+  // all 173 pages, which left every page but those six with no inbound links.
+  const siblingLinks = relatedLandingPages(page.slug, 6).map((sibling) => ({
+    label: sibling.title,
+    to: sibling.slug,
+  }))
+  const relatedLinks = [...siblingLinks, ...toolLinks.filter((link) => link.to !== location.pathname)]
+  const hub = hubForPage(page)
+  // /tools/settlement-calculator has its own component now, so this page can
+  // always point at the real calculator without linking to itself.
+  const estimatorCta = '/tools/settlement-calculator'
   const primaryCtaTo =
     page.cta.toLowerCase().includes('calculator') ||
     page.cta.toLowerCase().includes('settlement range') ||
@@ -514,6 +523,32 @@ export default function SeoLandingPage() {
           : '/tools/california-sol-checker'
   return (
     <main className="mx-auto w-full max-w-6xl overflow-x-clip px-3 py-6 sm:px-6 sm:py-10 lg:px-8">
+      {/* The BreadcrumbList structured data described a trail the reader could not
+          see. This renders it, and gives every topic a link up to its hub. */}
+      <nav aria-label="Breadcrumb" className="mb-4">
+        <ol className="flex flex-wrap items-center gap-1.5 text-sm text-slate-500">
+          <li>
+            <Link to="/" className="hover:text-slate-900">
+              Home
+            </Link>
+          </li>
+          {hub && (
+            <li className="flex items-center gap-1.5">
+              <ChevronRight className="h-3.5 w-3.5 text-slate-300" aria-hidden />
+              <Link to={hub.slug} className="hover:text-slate-900">
+                {hub.title}
+              </Link>
+            </li>
+          )}
+          <li className="flex items-center gap-1.5">
+            <ChevronRight className="h-3.5 w-3.5 text-slate-300" aria-hidden />
+            <span className="font-medium text-slate-900" aria-current="page">
+              {page.title}
+            </span>
+          </li>
+        </ol>
+      </nav>
+
       <section className={`overflow-hidden rounded-3xl border bg-gradient-to-br ${tone} shadow-card`}>
         <div className="grid gap-6 p-4 sm:gap-8 sm:p-8 lg:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)] lg:p-10">
           <div>
@@ -522,6 +557,12 @@ export default function SeoLandingPage() {
               {page.title}
             </h1>
             <p className="mt-4 max-w-2xl text-base leading-7 text-slate-700">{page.description}</p>
+            <ContentByline
+              className="mt-4 max-w-2xl bg-white/70"
+              published={landingPageFirstPublished(page)}
+              updated={landingPageLastModified(page)}
+              reviewedBy={page.reviewedBy}
+            />
             <p className="mt-3 max-w-2xl rounded-2xl border border-white/80 bg-white/70 px-4 py-3 text-sm font-medium leading-6 text-slate-700 shadow-sm">
               Many serious injuries and claim problems develop gradually after a crash. If something feels off, it is reasonable to want clarity before speaking with an adjuster or making decisions about your claim.
             </p>
@@ -1055,6 +1096,15 @@ export default function SeoLandingPage() {
         <p className="mt-2 text-sm leading-7 text-slate-700">
           These internal links connect injury symptoms, treatment decisions, insurance disputes, liability, and settlement valuation into a stronger topical cluster.
         </p>
+        {hub && (
+          <Link
+            to={hub.slug}
+            className="mt-3 inline-flex items-center text-sm font-semibold text-brand-700 hover:text-brand-800"
+          >
+            Browse all {hub.title.toLowerCase()}
+            <ChevronRight className="ml-0.5 h-4 w-4" aria-hidden />
+          </Link>
+        )}
         <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {relatedLinks.map((link) => (
             <Link

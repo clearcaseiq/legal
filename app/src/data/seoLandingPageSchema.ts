@@ -1,5 +1,8 @@
+import { DEFAULT_LANGUAGE, type LanguageCode } from '../i18n'
+import { reviewerFor } from './contentReviewers'
 import { cityLocalFacts } from './seoCityLocalFacts'
 import type { LandingPage } from './seoLandingPages'
+import { hubForPage } from './seoTopicHubDefs'
 
 export const DEFAULT_SITE_URL = 'https://www.clearcaseiq.com'
 
@@ -113,7 +116,16 @@ function localFaqs(page: LandingPage): Faq[] {
 export function landingPageFaqs(page: LandingPage) {
   const seen = new Set<string>()
 
-  return [...page.faqs, ...localFaqs(page), ...supplementalFaqs(page), ...universalFaqs]
+  // A translated page gets only the FAQs written for it. The shared pools are
+  // English, and appending them would put English questions into a Spanish
+  // page's visible list and its FAQPage schema — which is both a bad answer for
+  // the reader and a mismatch between the markup and the declared language.
+  const shared =
+    (page.locale ?? DEFAULT_LANGUAGE) === DEFAULT_LANGUAGE
+      ? [...localFaqs(page), ...supplementalFaqs(page), ...universalFaqs]
+      : []
+
+  return [...page.faqs, ...shared]
     .filter((faq) => {
       if (seen.has(faq.q)) return false
       seen.add(faq.q)
@@ -130,8 +142,58 @@ export function landingPageFaqs(page: LandingPage) {
 export const MAX_TITLE_LENGTH = 60
 export const MAX_DESCRIPTION_LENGTH = 155
 
-/** The date the page content was last meaningfully revised. Bump when editing. */
+/**
+ * Fallback revision date for content that carries none of its own. Individual
+ * landing pages set `contentUpdated` per content set; see `CONTENT_UPDATED` in
+ * `seoLandingPages`.
+ */
 export const CONTENT_LAST_UPDATED = '2026-08-06'
+
+/** The revision date to publish for a page, in sitemap and structured data. */
+export function landingPageLastModified(page: LandingPage) {
+  return page.contentUpdated || CONTENT_LAST_UPDATED
+}
+
+/**
+ * The original publication date. Falls back to the revision date, which is the
+ * conservative choice: claiming a page is older than it is would overstate how
+ * long the guidance has been maintained.
+ */
+export function landingPageFirstPublished(page: LandingPage) {
+  return page.contentPublished || landingPageLastModified(page)
+}
+
+/** Formats an ISO date for a reader, in the site's own timezone-free terms. */
+const MONTHS_ES = [
+  'enero',
+  'febrero',
+  'marzo',
+  'abril',
+  'mayo',
+  'junio',
+  'julio',
+  'agosto',
+  'septiembre',
+  'octubre',
+  'noviembre',
+  'diciembre',
+]
+
+export function formatContentDate(iso: string, locale: LanguageCode = DEFAULT_LANGUAGE) {
+  const [year, month, day] = iso.split('-').map(Number)
+  if (!year || !month || !day) return iso
+  // Spelled out rather than handed to `toLocaleDateString('es')`, because this
+  // string is rendered on the server and again during hydration. Node's ICU and
+  // the browser's do not always agree on Spanish date formatting, and a
+  // one-character disagreement is a hydration mismatch that discards the
+  // server's markup for the whole subtree.
+  if (locale === 'es') return `${day} de ${MONTHS_ES[month - 1]} de ${year}`
+  return new Date(year, month - 1, day).toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  })
+}
 
 function truncateAtWord(text: string, max: number) {
   if (text.length <= max) return text
@@ -182,24 +244,121 @@ export function landingPageCanonical(page: LandingPage, origin: string = siteUrl
 }
 
 /**
+ * Per-page social card, drawn on demand from the page's own words.
+ *
+ * One site-wide card makes every shared link look identical, so a link to a
+ * whiplash article and one to a settlement calculator preview the same — which
+ * costs the click on exactly the pages people share.
+ */
+export function landingPageOgImage(page: LandingPage, origin: string = siteUrl) {
+  return ogImageUrl(page.title, page.eyebrow, origin)
+}
+
+/**
+ * Builds a share-card URL. The brand suffix is dropped because the card already
+ * carries the wordmark, and repeating it wastes the headline.
+ */
+export function ogImageUrl(title: string, eyebrow = '', origin: string = siteUrl) {
+  const params = new URLSearchParams({ title: title.replace(/\s*\|\s*ClearCaseIQ\s*$/, '') })
+  if (eyebrow) params.set('eyebrow', eyebrow)
+  return `${origin}/api/og?${params.toString()}`
+}
+
+/**
+ * Structured data for a marketing page that has none of its own.
+ *
+ * Most marketing pages emit schema from their own component. `/attorneys`,
+ * `/privacy-policy`, and `/terms-of-service` do not, and a crawl found them as
+ * the only indexable pages on the site with no structured data at all.
+ *
+ * Deliberately modest: a WebPage node and the breadcrumb, both of which
+ * describe things the served HTML actually contains. The obvious temptation on
+ * `/attorneys` is an ItemList of the directory, but that list arrives from the
+ * API after load, and claiming list items the HTML does not contain is the same
+ * category of error as the MedicalCondition markup this file used to emit.
+ */
+export function buildMarketingPageSchema(
+  page: { path: string; title: string; description: string; schemaType?: string; locale?: LanguageCode },
+  origin: string = siteUrl
+) {
+  const canonical = `${origin}${page.path === '/' ? '' : page.path}`
+  const locale = page.locale ?? DEFAULT_LANGUAGE
+  const isTranslated = locale !== DEFAULT_LANGUAGE
+
+  const name = bareTitle(page.title)
+
+  return {
+    '@context': 'https://schema.org',
+    '@graph': [
+      {
+        '@type': page.schemaType || 'WebPage',
+        name,
+        description: clampDescription(page.description),
+        inLanguage: isTranslated ? locale : 'en-US',
+        url: canonical,
+        isPartOf: { '@type': 'WebSite', name: 'ClearCaseIQ', url: origin },
+        publisher: { '@type': 'Organization', name: 'ClearCaseIQ', url: origin },
+      },
+      {
+        '@type': 'BreadcrumbList',
+        itemListElement: [
+          {
+            '@type': 'ListItem',
+            position: 1,
+            name: isTranslated ? 'Inicio' : 'Home',
+            item: isTranslated ? `${origin}/es` : `${origin}/`,
+          },
+          { '@type': 'ListItem', position: 2, name, item: canonical },
+        ],
+      },
+    ],
+  }
+}
+
+/**
+ * A page's own words, without the brand suffix.
+ *
+ * `title` is written for the SERP, where "| ClearCaseIQ" earns recognition. In a
+ * breadcrumb it is noise: the trail would read "Home > Personal Injury Attorneys
+ * | ClearCaseIQ", repeating the brand in the one place it adds nothing.
+ */
+function bareTitle(title: string) {
+  return title.replace(/\s*\|\s*ClearCaseIQ\s*$/, '').trim() || title
+}
+
+/**
  * Structured data for a landing page. Schema.org requires absolute URLs, so the
  * origin has to be threaded through rather than using the request path directly.
  */
 export function buildLandingPageSchema(page: LandingPage, origin: string = siteUrl) {
   const canonical = landingPageCanonical(page, origin)
-  const segments = page.slug.split('/').filter(Boolean)
+  const locale = page.locale ?? DEFAULT_LANGUAGE
+  const isTranslated = locale !== DEFAULT_LANGUAGE
 
-  const breadcrumbs: Array<Record<string, unknown>> = [
-    { '@type': 'ListItem', position: 1, name: 'Home', item: `${origin}/` },
-  ]
-  // Only emit a section crumb when the slug is actually nested (/injuries/foo);
-  // top-level slugs would otherwise produce a crumb pointing at the page itself.
-  if (segments.length > 1) {
+  // The trail has to stay inside the page's own language. Sending a Spanish page's
+  // breadcrumb up to the English home and an English hub describes a path the
+  // reader cannot take and contradicts what the rendered breadcrumb shows.
+  const breadcrumbs: Array<Record<string, unknown>> = isTranslated
+    ? [{ '@type': 'ListItem', position: 1, name: 'Inicio', item: `${origin}/es` }]
+    : [{ '@type': 'ListItem', position: 1, name: 'Home', item: `${origin}/` }]
+
+  // Point the section crumb at the category hub. It used to derive a URL from the
+  // first slug segment (/injuries), which is not a page that exists, and it was
+  // skipped entirely for top-level slugs so those had no section at all.
+  const hub = isTranslated ? undefined : hubForPage(page)
+  if (isTranslated) {
     breadcrumbs.push({
       '@type': 'ListItem',
       position: breadcrumbs.length + 1,
-      name: page.category,
-      item: `${origin}/${segments[0]}`,
+      name: 'Temas',
+      item: `${origin}/es/temas`,
+    })
+  } else if (hub) {
+    breadcrumbs.push({
+      '@type': 'ListItem',
+      position: breadcrumbs.length + 1,
+      name: hub.title,
+      item: `${origin}${hub.slug}`,
     })
   }
   breadcrumbs.push({
@@ -209,6 +368,8 @@ export function buildLandingPageSchema(page: LandingPage, origin: string = siteU
     item: canonical,
   })
 
+  const reviewer = reviewerFor(page.reviewedBy)
+
   return {
     '@context': 'https://schema.org',
     '@graph': [
@@ -216,9 +377,42 @@ export function buildLandingPageSchema(page: LandingPage, origin: string = siteU
         '@type': 'Article',
         headline: page.title,
         description: page.description,
-        inLanguage: 'en-US',
-        author: { '@type': 'Organization', name: 'ClearCaseIQ', url: origin },
-        publisher: { '@type': 'Organization', name: 'ClearCaseIQ', url: origin },
+        inLanguage: isTranslated ? 'es' : 'en-US',
+        // Injury and treatment content is health-adjacent, where recency is part
+        // of how the page is judged. Without these the article reads as undated.
+        datePublished: landingPageFirstPublished(page),
+        dateModified: landingPageLastModified(page),
+        image: landingPageOgImage(page),
+        author: {
+          '@type': 'Organization',
+          name: 'ClearCaseIQ',
+          url: origin,
+          // Points at the page describing who produces this content and how, so
+          // the authorship claim is checkable rather than a bare name.
+          mainEntityOfPage: `${origin}/editorial-standards`,
+        },
+        publisher: {
+          '@type': 'Organization',
+          name: 'ClearCaseIQ',
+          url: origin,
+          logo: {
+            '@type': 'ImageObject',
+            url: `${origin}/clearcaseiq-logo.png`,
+          },
+        },
+        // Only asserted when a named person actually reviewed the page. See
+        // `contentReviewers` for why this is never populated speculatively.
+        ...(reviewer
+          ? {
+              reviewedBy: {
+                '@type': 'Person',
+                name: reviewer.name,
+                honorificSuffix: reviewer.credentials,
+                description: reviewer.bio,
+                ...(reviewer.profileUrl ? { url: reviewer.profileUrl } : {}),
+              },
+            }
+          : {}),
         mainEntityOfPage: { '@type': 'WebPage', '@id': canonical },
         url: canonical,
       },
@@ -234,12 +428,29 @@ export function buildLandingPageSchema(page: LandingPage, origin: string = siteU
           acceptedAnswer: { '@type': 'Answer', text: faq.a },
         })),
       },
-      {
-        '@type': 'MedicalCondition',
-        name: page.cluster,
-        description: page.sections.whyItMatters,
-        signOrSymptom: page.signals.map((signal) => ({ '@type': 'MedicalSymptom', name: signal })),
-      },
+      // MedicalCondition only where the page is actually about a condition.
+      //
+      // This used to be emitted on all 173 pages from `cluster` and `signals`,
+      // which produced markup that contradicted the page: attorney fee guides
+      // declared themselves medical conditions, and `signals` are underwriting
+      // signals by definition — the page labels them as such — so "Policy
+      // limits" and "Wage loss" were being published as MedicalSymptom. Markup
+      // that misdescribes its page is a structured data policy violation, and
+      // health markup is where that is judged most harshly.
+      //
+      // `signOrSymptom` is gone rather than filtered. Even on a symptoms page
+      // the signals list mixes real symptoms with case attributes, and there is
+      // no reliable way to tell them apart from the data. Asserting less is
+      // better than asserting something false.
+      ...(page.category === 'Symptoms'
+        ? [
+            {
+              '@type': 'MedicalCondition',
+              name: page.cluster,
+              description: page.sections.whyItMatters,
+            },
+          ]
+        : []),
     ],
   }
 }
