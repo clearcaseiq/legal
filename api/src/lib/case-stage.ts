@@ -137,9 +137,20 @@ export async function syncCaseStage(
 
     const target = await computeTargetCaseStage(assessmentId)
 
-    // Monotonic: keep the higher of current vs target so the stage never regresses.
+    // Monotonic by default: keep the higher of current vs target so the stage
+    // never regresses — EXCEPT for one deliberate exception. When a case is still
+    // preparing its demand (DEMAND_PREPARATION) and treatment re-opens (the
+    // attorney asked for more treatment records, or a treatment task was
+    // re-opened), computeTargetCaseStage returns TREATMENT. In that case we pull
+    // the case back to Treatment so the plaintiff pipeline reflects reality.
+    // This never fires once a demand is drafted/sent (target would be
+    // DEMAND_PREPARATION / DEMAND_SENT or higher), so a case that has demanded is
+    // never dragged backward.
+    const isTreatmentReopen = current === 'DEMAND_PREPARATION' && target === 'TREATMENT'
     const resolved: CaseStage =
-      current && STAGE_ORDER[current] >= STAGE_ORDER[target] ? current : target
+      current && STAGE_ORDER[current] >= STAGE_ORDER[target] && !isTreatmentReopen
+        ? current
+        : target
 
     if (resolved === current) return current
 

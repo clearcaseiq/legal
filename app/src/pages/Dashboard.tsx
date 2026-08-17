@@ -5,9 +5,10 @@ import { listAssessments, getAssessment, getEvidenceFiles, associateAssessments,
 import { formatCurrency } from '../lib/formatters'
 import { formatClaimTypeShort } from '../lib/constants'
 import { canonicalClaimType } from '../lib/claimTypes'
+import { formatCaseId } from '../lib/caseId'
 import { dateLocale } from '../i18n'
 import { localizeDocumentRequestLabel } from '../lib/documentRequestI18n'
-import { CheckCircle, Upload, FileText, FileClock, TrendingUp, MessageCircle, BarChart3, FileStack, Activity, LayoutDashboard, ChevronRight, Bell, HelpCircle, Clock, Users, Calendar, Phone, Star, Sparkles, ArrowRight, ShieldCheck, Scale, Lock, ExternalLink } from 'lucide-react'
+import { CheckCircle, Upload, FileText, FileClock, TrendingUp, MessageCircle, BarChart3, FileStack, Activity, LayoutDashboard, ChevronRight, Bell, HelpCircle, Clock, Users, Calendar, Phone, Star, Sparkles, ArrowRight, ShieldCheck, Scale, Lock, ExternalLink, Copy, Check } from 'lucide-react'
 import CaseProgressPipeline from '../components/CaseProgressPipeline'
 import {
   getPlaintiffCaseStatusKey,
@@ -200,6 +201,7 @@ export default function Dashboard() {
   const [user, setUser] = useState<User | null>(null)
   const [assessments, setAssessments] = useState<Assessment[]>([])
   const [activeAssessment, setActiveAssessment] = useState<ActiveAssessment | null>(null)
+  const [caseIdCopied, setCaseIdCopied] = useState(false)
   const [evidenceCount, setEvidenceCount] = useState(0)
   const [evidenceFiles, setEvidenceFiles] = useState<Array<{
     id: string
@@ -1043,6 +1045,15 @@ export default function Dashboard() {
   // Use the canonical formatter so the incident type reads identically on web and
   // mobile ("Motor vehicle", not "Auto Accident") — CP-406. Localized for UI language.
   const claimTypeLabel = localizeClaimType(activeAssessment?.claimType)
+  // Human-friendly Case ID (e.g. "CCIQ-2608-PRD-584D"), derived from the case's
+  // own fields — not the raw database/reference id.
+  const caseIdDisplay = activeAssessment
+    ? formatCaseId({
+        id: activeAssessment.id,
+        claimType: activeAssessment.claimType,
+        createdAt: assessments.find((a) => a.id === activeAssessment.id)?.created_at,
+      })
+    : ''
   const incidentDateLabel = (() => {
     const raw = parsedFacts?.incident?.date || parsedFacts?.incidentDate
     if (!raw) return null
@@ -1808,16 +1819,47 @@ export default function Dashboard() {
                 </div>
               )}
             </div>
-            {attorneyMatched && activeAssessment?.id && routingStatus?.attorneyMatched?.id && (
-              <Link
-                to="/messaging"
-                state={{ attorneyId: routingStatus.attorneyMatched.id, assessmentId: activeAssessment.id }}
-                className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-brand-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-800"
-              >
-                <MessageCircle className="h-4 w-4" aria-hidden />
-                {t('plaintiffDashboard.attorneyChat.cta')}
-              </Link>
-            )}
+            <div className="flex shrink-0 flex-col items-start gap-2 sm:items-end">
+              {activeAssessment && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                    {t('plaintiffDashboard.caseId.label')}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!caseIdDisplay) return
+                      try {
+                        navigator.clipboard?.writeText(caseIdDisplay)
+                      } catch {
+                        /* clipboard unavailable — the id is still visible to copy manually */
+                      }
+                      setCaseIdCopied(true)
+                      window.setTimeout(() => setCaseIdCopied(false), 1500)
+                    }}
+                    title={t('plaintiffDashboard.caseId.copy')}
+                    className="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-2 py-1 font-mono text-xs font-semibold uppercase tracking-wide text-slate-700 transition hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                  >
+                    <span className="max-w-[16rem] truncate">{caseIdDisplay}</span>
+                    {caseIdCopied ? (
+                      <Check className="h-3.5 w-3.5 shrink-0 text-emerald-500" aria-hidden />
+                    ) : (
+                      <Copy className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
+                    )}
+                  </button>
+                </div>
+              )}
+              {attorneyMatched && activeAssessment?.id && routingStatus?.attorneyMatched?.id && (
+                <Link
+                  to="/messaging"
+                  state={{ attorneyId: routingStatus.attorneyMatched.id, assessmentId: activeAssessment.id }}
+                  className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-brand-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-800"
+                >
+                  <MessageCircle className="h-4 w-4" aria-hidden />
+                  {t('plaintiffDashboard.attorneyChat.cta')}
+                </Link>
+              )}
+            </div>
           </div>
         </header>
 

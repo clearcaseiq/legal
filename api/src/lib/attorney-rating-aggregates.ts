@@ -16,10 +16,15 @@ import { maybeVerifyAttorneyReview } from './appointment-engagement'
 export async function recomputeAttorneyRatingAggregates(attorneyId: string): Promise<void> {
   const reviews = await prisma.attorneyReview.findMany({
     where: { attorneyId },
-    select: { rating: true },
+    select: { rating: true, isVerified: true },
   })
   const totalReviews = reviews.length
-  const averageRating = totalReviews > 0 ? reviews.reduce((sum, r) => sum + r.rating, 0) / totalReviews : 0
+  // Zocdoc-style trust: the public star rating is the mean of *verified* reviews
+  // only (clients who actually engaged the attorney). `totalReviews` stays the
+  // full count for internal/admin views; public surfaces display the verified
+  // count alongside the rating.
+  const verified = reviews.filter((r) => r.isVerified)
+  const averageRating = verified.length > 0 ? verified.reduce((sum, r) => sum + r.rating, 0) / verified.length : 0
 
   await prisma.attorney.update({
     where: { id: attorneyId },
@@ -38,28 +43,31 @@ export async function recomputeAttorneyRatingAggregates(attorneyId: string): Pro
  */
 export async function reconcileAllAttorneyRatingAggregates(): Promise<void> {
   try {
-    const grouped = await prisma.attorneyReview.groupBy({
+    // Full review counts per attorney (all reviews, verified or not).
+    const totals = await prisma.attorneyReview.groupBy({
       by: ['attorneyId'],
-      _avg: { rating: true },
       _count: { _all: true },
     })
-    for (const row of grouped) {
+    // Verified-only averages drive the public star rating (Zocdoc-style trust).
+    const verified = await prisma.attorneyReview.groupBy({
+      by: ['attorneyId'],
+      where: { isVerified: true },
+      _avg: { rating: true },
+    })
+    const verifiedAvgByAttorney = new Map(verified.map((v) => [v.attorneyId, v._avg.rating ?? 0]))
+    for (const row of totals) {
+      const averageRating = verifiedAvgByAttorney.get(row.attorneyId) ?? 0
+      const totalReviews = row._count._all
       await prisma.attorney.update({
         where: { id: row.attorneyId },
-        data: {
-          averageRating: row._avg.rating ?? 0,
-          totalReviews: row._count._all,
-        },
+        data: { averageRating, totalReviews },
       }).catch(() => undefined)
       await prisma.attorneyProfile.updateMany({
         where: { attorneyId: row.attorneyId },
-        data: {
-          averageRating: row._avg.rating ?? 0,
-          totalReviews: row._count._all,
-        },
+        data: { averageRating, totalReviews },
       }).catch(() => undefined)
     }
-    logger.info('Attorney rating aggregates reconciled', { attorneys: grouped.length })
+    logger.info('Attorney rating aggregates reconciled', { attorneys: totals.length })
     await reconcileAttorneyReviewVerification()
   } catch (error: any) {
     logger.warn('Failed to reconcile attorney rating aggregates', { error: error?.message })

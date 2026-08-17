@@ -14,7 +14,7 @@ import {
   recordRoutingEvent
 } from '../lib/routing-lifecycle'
 import { formatAttorneyResponseDeadline, getAttorneyResponseDeadlineMinutes, getMatchingRules } from '../lib/matching-rules-config'
-import { getAppointmentPreparation } from '../lib/appointment-engagement'
+import { getAppointmentPreparation, seedAppointmentPrepItems } from '../lib/appointment-engagement'
 const router = Router()
 
 async function getAttorneyFromRequest(req: AuthRequest): Promise<{ id: string } | null> {
@@ -283,13 +283,86 @@ router.get('/assessment/:id/status', authMiddleware, async (req: AuthRequest, re
         })
         .catch(() => null)
       if (upcoming) return upcoming
-      return prisma.appointment
+      const priorScoped = await prisma.appointment
         .findFirst({
           where: baseWhere,
           orderBy: { scheduledAt: 'desc' },
           select: appointmentSelect,
         })
         .catch(() => null)
+      if (priorScoped) return priorScoped
+
+      // Self-heal for public ("Calendly-style") bookings: those are created
+      // without an assessmentId, so the scoped lookups above miss them and the
+      // dashboard keeps prompting "Schedule a consultation" even though the
+      // plaintiff already booked. If this user booked one of the attorneys tied
+      // to *this* case, adopt that orphan booking into the case (backfilling
+      // assessmentId) so every downstream view stays consistent.
+      if (!assessment.userId) return null
+      const caseAttorneyIds = Array.from(
+        new Set(intros.map((i) => i.attorney?.id).filter((id): id is string => Boolean(id))),
+      )
+      if (caseAttorneyIds.length === 0) return null
+      const orphanWhere: Prisma.AppointmentWhereInput = {
+        userId: assessment.userId,
+        attorneyId: { in: caseAttorneyIds },
+        assessmentId: null,
+        status: { in: ['SCHEDULED', 'CONFIRMED'] },
+      }
+      const orphan =
+        (await prisma.appointment
+          .findFirst({
+            where: { ...orphanWhere, scheduledAt: { gte: new Date() } },
+            orderBy: { scheduledAt: 'asc' },
+            select: { id: true },
+          })
+          .catch(() => null)) ||
+        (await prisma.appointment
+          .findFirst({
+            where: orphanWhere,
+            orderBy: { scheduledAt: 'desc' },
+            select: { id: true },
+          })
+          .catch(() => null))
+      if (!orphan) return null
+      const linked = await prisma.appointment
+        .update({
+          where: { id: orphan.id },
+          data: { assessmentId },
+          select: { ...appointmentSelect, attorneyId: true },
+        })
+        .catch(() => null)
+      if (!linked) return null
+
+      // Mirror the in-app scheduling side effects (see POST /v1/appointments) so
+      // the case lifecycle, routing analytics, and pre-consult checklist persist
+      // — not just the derived "upcomingAppointment" flag. Runs once, at adoption.
+      try {
+        await Promise.all([
+          prisma.leadSubmission.updateMany({
+            where: {
+              assessmentId,
+              status: { not: 'retained' },
+              lifecycleState: { notIn: ['engaged', 'closed'] },
+            },
+            data: { lifecycleState: 'consultation_scheduled', lastContactAt: new Date() },
+          }),
+          recordRoutingEvent(assessmentId, null, linked.attorneyId, 'consultation_scheduled', {
+            appointmentId: linked.id,
+            scheduledAt: linked.scheduledAt.toISOString(),
+            type: linked.type,
+            source: 'public_booking_adopted',
+          }),
+          seedAppointmentPrepItems(linked.id, assessmentId).catch(() => null),
+        ])
+      } catch (err) {
+        logger.warn('Adopting public booking into case failed side effects', {
+          assessmentId,
+          appointmentId: linked.id,
+          error: (err as Error).message,
+        })
+      }
+      return linked
     }
     const [appointmentRecord, yearsExperienceRecord, recentEvents] = await Promise.all([
       loadAppointment(),

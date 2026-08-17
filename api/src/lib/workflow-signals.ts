@@ -150,11 +150,39 @@ export async function loadSignalContext(assessmentId: string): Promise<SignalCon
 
   const leadId = (assessment as any).leadSubmission?.id as string | undefined
 
+  // "Treatment" work = clinical/medical checkpoint tasks (confirm treatment
+  // status/complete, MMI/discharge, treatment gap, monitor treatment). Treatment
+  // is only "complete" once ALL of these firm-side tasks are done — not just one.
+  const treatmentTaskFilter = {
+    assessmentId,
+    mergedIntoId: null,
+    OR: [
+      { checkpointType: { in: ['medical_checkpoint', 'treatment_status', 'treatment_gap', 'monitor_treatment'] } },
+      { title: { contains: 'treatment', mode: 'insensitive' as const } },
+      { title: { contains: 'MMI', mode: 'insensitive' as const } },
+      { title: { contains: 'maximum medical', mode: 'insensitive' as const } },
+      { title: { contains: 'discharge', mode: 'insensitive' as const } },
+    ],
+  }
+  // Document-request keys that represent medical/treatment records. A pending one
+  // means the attorney is still asking for treatment docs → treatment re-opens.
+  const MEDICAL_DOC_REQUEST_KEYS = [
+    'medical_records',
+    'bills',
+    'medical_bills',
+    'medical',
+    'prior_treatment',
+    'prior_medical',
+    'prior_records',
+  ]
+
   const [
     pendingDocs,
     totalDocs,
     evidenceCount,
-    treatmentDone,
+    treatmentTasksTotal,
+    treatmentTasksOpen,
+    pendingMedicalReqRows,
     demandDrafts,
     demandLetters,
     demandEvents,
@@ -168,9 +196,15 @@ export async function loadSignalContext(assessmentId: string): Promise<SignalCon
     // Evidence uploaded directly (no formal document request) still counts toward
     // the "documents complete" Auto milestone (CP-581).
     (prisma as any).evidenceFile.count({ where: { assessmentId } }).catch(() => 0),
-    (prisma as any).caseTask.count({
-      where: { assessmentId, checkpointType: 'medical_checkpoint', status: 'done' },
-    }),
+    (prisma as any).caseTask.count({ where: treatmentTaskFilter }).catch(() => 0),
+    (prisma as any).caseTask
+      .count({ where: { ...treatmentTaskFilter, status: { in: ['open', 'in_progress'] } } })
+      .catch(() => 0),
+    leadId
+      ? (prisma as any).documentRequest
+          .findMany({ where: { leadId, status: { not: 'completed' } }, select: { requestedDocs: true } })
+          .catch(() => [])
+      : Promise.resolve([]),
     (prisma as any).demandLetter.count({ where: { assessmentId } }),
     (prisma as any).demandLetter.count({ where: { assessmentId, sentAt: { not: null } } }),
     (prisma as any).negotiationEvent.count({ where: { assessmentId, eventType: 'demand' } }),
@@ -181,12 +215,26 @@ export async function loadSignalContext(assessmentId: string): Promise<SignalCon
   const status = String((assessment as any).status || '').toLowerCase()
   const settlementStatus = String((assessment as any).settlementScenario?.status || '').toLowerCase()
 
+  const pendingMedicalDocRequest = (pendingMedicalReqRows as Array<{ requestedDocs: string | null }>).some(
+    (row) => {
+      try {
+        const keys = JSON.parse(row.requestedDocs || '[]')
+        return Array.isArray(keys) && keys.some((k: unknown) => MEDICAL_DOC_REQUEST_KEYS.includes(String(k).toLowerCase()))
+      } catch {
+        return false
+      }
+    },
+  )
+
   return {
     // Prefer formal document-request completion; fall back to uploaded evidence
     // when the firm never opened document requests for the case.
     documentsComplete:
       (totalDocs > 0 && pendingDocs === 0) || (totalDocs === 0 && evidenceCount > 0),
-    treatmentComplete: treatmentDone > 0,
+    // Complete only when treatment tasks exist, none remain open, and the attorney
+    // isn't currently requesting more treatment/medical records. A new medical doc
+    // request flips this false → the stage engine pulls the case back to Treatment.
+    treatmentComplete: treatmentTasksTotal > 0 && treatmentTasksOpen === 0 && !pendingMedicalDocRequest,
     demandDrafted: demandDrafts > 0,
     demandSent: demandLetters > 0 || demandEvents > 0,
     offerReceived: offerEvents > 0,

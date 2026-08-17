@@ -135,6 +135,19 @@ export async function createAndNotifyPlaintiffDocumentRequest(params: {
     })
   }
 
+  // A new medical/treatment records request re-opens the Treatment stage: the
+  // plaintiff pipeline should move back from Demand to Treatment. Document-request
+  // creation otherwise never triggers a stage re-evaluation. Fire-and-forget; the
+  // engine only pulls back a not-yet-demanded case (never after a demand is sent).
+  const MEDICAL_DOC_KEYS = ['medical_records', 'bills', 'medical_bills', 'medical', 'prior_treatment', 'prior_medical', 'prior_records']
+  if (docs.some((d) => MEDICAL_DOC_KEYS.includes(String(d).toLowerCase()))) {
+    void import('./case-stage')
+      .then(({ syncCaseStage }) => syncCaseStage(assessmentId, { source: 'attorney' }))
+      .catch((error: any) =>
+        logger.warn('syncCaseStage after medical doc request failed', { assessmentId, error: error?.message }),
+      )
+  }
+
   return { docRequest, created: true, docs, alreadyRequested }
 }
 

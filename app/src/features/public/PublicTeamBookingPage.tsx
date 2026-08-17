@@ -8,6 +8,7 @@
 import { useCallback, useMemo, useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
 import { ArrowLeft, CalendarClock, Check, Clock, Users2, Video } from 'lucide-react'
+import { hasValidAuthToken } from '../../lib/auth'
 import { getTeamBookingPage, getTeamBookingSlots, createTeamBooking, type TeamBookingPage } from '../../lib/api'
 import { DaySlotPicker, LOCATION_META, formatDuration } from './bookingShared'
 import { formatPhoneInput, validatePhoneField } from '../../lib/phone'
@@ -208,6 +209,17 @@ function TeamBookingForm({
             Reschedule or cancel
           </a>
         </p>
+        {hasValidAuthToken() && (
+          <div className="mt-6 border-t border-slate-100 pt-5">
+            <a
+              href="/dashboard"
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Back to dashboard
+            </a>
+          </div>
+        )}
       </div>
     )
   }

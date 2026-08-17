@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { updateProfile, uploadPlaintiffAvatar, deletePlaintiffAvatar } from '../lib/api'
-import { User, Save, AlertCircle, CheckCircle, FileText, Activity, Upload, Trash2 } from 'lucide-react'
+import { User, Save, AlertCircle, CheckCircle, Activity, Upload, Trash2 } from 'lucide-react'
 import { getStoredUser } from '../lib/auth'
 import { BackButton } from '../features/shared/ui'
 import { updateCachedPlaintiffUser, usePlaintiffSessionSummary } from '../hooks/usePlaintiffSessionSummary'
@@ -221,13 +221,6 @@ export default function UserProfile() {
       <div className="mb-6">
         <BackButton to="/dashboard" label="Back to Dashboard" className="mb-4" />
         <div className="flex items-center gap-4">
-          <Link
-            to="/dashboard"
-            className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
-          >
-            <FileText className="h-4 w-4 mr-2" />
-            My Assessments
-          </Link>
           <Link
             to="/case-tracker"
             className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"

@@ -79,6 +79,7 @@ import {
   Eye,
   Pencil,
   Info,
+  GripVertical,
   X,
 } from 'lucide-react'
 
@@ -260,6 +261,19 @@ function getResponseBadge(t: TFn, attorney: any) {
   return attorney.responseBadge || ((attorney.responseTimeHours || 24) <= 8 ? t('results.calc.responseSameDay') : t('results.calc.response24h'))
 }
 
+// Zocdoc-style trust: a public star rating is only shown once an attorney has at
+// least this many *verified* reviews (reviewers who actually engaged them).
+// Below the threshold the surface shows a neutral "New" state instead of a star
+// derived from too few (or unverified) reviews.
+const MIN_VERIFIED_REVIEWS_FOR_RATING = 3
+
+// Whether an attorney's verified rating is established enough to publish a star.
+function hasPublishedRating(attorney: any): boolean {
+  const rating = attorney?.averageRating || attorney?.rating || 0
+  const verifiedCount = attorney?.verifiedReviewCount || 0
+  return rating > 0 && verifiedCount >= MIN_VERIFIED_REVIEWS_FOR_RATING
+}
+
 function getAttorneyPracticePreview(
   t: TFn,
   attorney: any,
@@ -326,7 +340,7 @@ function getAttorneyRecommendationReasons(
   if (venue) reasons.push(t('results.calc.servesVenue', { venue }))
   if ((attorney.responseTimeHours || 24) <= 8 || attorney.responseBadge) reasons.push(getResponseBadge(t, attorney))
   if (attorney.yearsExperience) reasons.push(t('results.calc.yearsOfExperience', { years: attorney.yearsExperience }))
-  if ((attorney.averageRating || attorney.rating || 0) > 0) reasons.push(t('results.calc.averageRating', { rating: (attorney.averageRating || attorney.rating || 0).toFixed(1) }))
+  if (hasPublishedRating(attorney)) reasons.push(t('results.calc.averageRating', { rating: (attorney.averageRating || attorney.rating || 0).toFixed(1) }))
 
   return reasons.length > 0 ? reasons.slice(0, 3) : [getAttorneyWhyMatched(t, attorney, context)]
 }
@@ -840,6 +854,15 @@ export default function Results() {
   const [matchedAttorneys, setMatchedAttorneys] = useState<any[]>([])
   const [attorneySearchLoading, setAttorneySearchLoading] = useState(false)
   const [rankedAttorneyIds, setRankedAttorneyIds] = useState<string[]>([])
+  // Drag-and-drop reordering of the ranked attorney slate.
+  const [draggingAttorneyId, setDraggingAttorneyId] = useState<string | null>(null)
+  const [dragOverAttorneyId, setDragOverAttorneyId] = useState<string | null>(null)
+  // Whether the drop will land before/after the hovered card (based on pointer side).
+  const [dropPosition, setDropPosition] = useState<'before' | 'after' | null>(null)
+  // Edge auto-scroll while dragging a long attorney list.
+  const attorneyDraggingRef = useRef(false)
+  const dragPointerYRef = useRef(0)
+  const autoScrollRafRef = useRef<number | null>(null)
   // Attorneys the plaintiff took off the slate. Kept separate from the ranked
   // order so a match refresh can never quietly put a rejected attorney back.
   const [dismissedAttorneyIds, setDismissedAttorneyIds] = useState<string[]>([])
@@ -1115,6 +1138,65 @@ export default function Results() {
       return next
     })
   }
+
+  // Move a dragged attorney so it lands before or after the drop-target attorney,
+  // depending on which side of the target the pointer was on.
+  const reorderRankedAttorney = (draggedId: string, targetId: string, position: 'before' | 'after' = 'before') => {
+    if (isSharedReadOnly) return
+    if (draggedId === targetId) return
+    setRankedAttorneyIds((current) => {
+      const fromIndex = current.indexOf(draggedId)
+      const targetIndex = current.indexOf(targetId)
+      if (fromIndex === -1 || targetIndex === -1) return current
+      const next = [...current]
+      next.splice(fromIndex, 1)
+      let insertIndex = next.indexOf(targetId)
+      if (position === 'after') insertIndex += 1
+      next.splice(insertIndex, 0, draggedId)
+      return next
+    })
+  }
+
+  // rAF-driven auto-scroll: while an attorney card is being dragged, scroll the
+  // window when the pointer approaches the top/bottom edge so long lists remain
+  // reachable. The pointer Y is tracked via a window-level dragover listener below.
+  const runAttorneyAutoScroll = () => {
+    if (!attorneyDraggingRef.current) {
+      autoScrollRafRef.current = null
+      return
+    }
+    const y = dragPointerYRef.current
+    const vh = window.innerHeight
+    const threshold = 90
+    const maxSpeed = 22
+    let delta = 0
+    if (y < threshold) delta = -Math.ceil(((threshold - y) / threshold) * maxSpeed)
+    else if (y > vh - threshold) delta = Math.ceil(((y - (vh - threshold)) / threshold) * maxSpeed)
+    if (delta !== 0) window.scrollBy(0, delta)
+    autoScrollRafRef.current = requestAnimationFrame(runAttorneyAutoScroll)
+  }
+  const startAttorneyAutoScroll = () => {
+    attorneyDraggingRef.current = true
+    if (autoScrollRafRef.current == null) autoScrollRafRef.current = requestAnimationFrame(runAttorneyAutoScroll)
+  }
+  const endAttorneyDrag = () => {
+    attorneyDraggingRef.current = false
+    if (autoScrollRafRef.current != null) {
+      cancelAnimationFrame(autoScrollRafRef.current)
+      autoScrollRafRef.current = null
+    }
+    setDraggingAttorneyId(null)
+    setDragOverAttorneyId(null)
+    setDropPosition(null)
+  }
+  useEffect(() => {
+    const onWindowDragOver = (e: DragEvent) => { dragPointerYRef.current = e.clientY }
+    window.addEventListener('dragover', onWindowDragOver)
+    return () => {
+      window.removeEventListener('dragover', onWindowDragOver)
+      if (autoScrollRafRef.current != null) cancelAnimationFrame(autoScrollRafRef.current)
+    }
+  }, [])
 
   const removedAttorneyCards = dismissedAttorneyIds
     .map((attorneyId) => matchedAttorneys.find((attorney) => (attorney.id || attorney.attorney_id) === attorneyId))
@@ -2885,24 +2967,14 @@ Checklist:
   }
 
   // Proceed straight to the send modal (used by the "Send limited file" choice on the
-  // interstitial). Still honors the medical-timeline review gate.
+  // interstitial). The medical-timeline confirmation is no longer a blocking gate here.
   const proceedSendForReview = () => {
-    if (medicalReviewPending) {
-      setMedicalReviewError(null)
-      openAnchoredResultsSection('#medical-story-review')
-      return
-    }
     void openSendModal()
   }
   const openAttorneyReviewFlow = () => {
     // Already in the attorney-review queue — don't reopen the send flow from
     // the case report (?view=report) after submission.
     if (caseSubmittedForReview) return
-    if (medicalReviewPending) {
-      setMedicalReviewError(null)
-      openAnchoredResultsSection('#medical-story-review')
-      return
-    }
     // Non-blocking: surface an informed choice when the file has no documents so
     // attorneys aren't reviewing a limited summary. "Send limited" bypasses this.
     if (evidenceCount === 0 && !isSharedReadOnly && evidenceUploadPath) {
@@ -3540,15 +3612,22 @@ Checklist:
                 )}
               </section>
               <section>
-                <div className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                  <span className="flex items-center gap-1.5 text-sm font-semibold text-slate-900"><Users className="h-4 w-4 text-slate-500" />{t('results.sendReview.choicesTitle')}</span>
-                  <span className="text-xs text-slate-500">{t('results.sendReview.choicesSubtitle')}</span>
+                <div className="mb-3 flex items-center gap-x-2">
+                  <span className="flex shrink-0 items-center gap-1.5 text-sm font-semibold text-slate-900"><Users className="h-4 w-4 text-slate-500" />{t('results.sendReview.choicesTitle')}</span>
+                  <span className="truncate text-xs text-slate-500">{t('results.sendReview.choicesSubtitle')}</span>
                 </div>
+                {!isSharedReadOnly && !attorneySearchLoading && rankedAttorneyCards.length > 1 && (
+                  <p className="mb-3 flex items-center gap-1.5 text-xs text-slate-500">
+                    <GripVertical className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
+                    {t('results.sendReview.reorderHint')}
+                  </p>
+                )}
                 {attorneySearchLoading && (
                   <div className="rounded-xl border border-slate-200 bg-white px-4 py-4 text-sm text-slate-600">{t('results.calc.findingAttorneys')}</div>
                 )}
                 {!attorneySearchLoading && rankedAttorneyCards.length > 0 && (
                   <div>
+                    <div className="flex flex-wrap gap-3">
                     {rankedAttorneyCards.map((attorney: any, index) => {
                       const n = index + 1
                       const ord = n === 1 ? 'ST' : n === 2 ? 'ND' : n === 3 ? 'RD' : 'TH'
@@ -3556,65 +3635,118 @@ Checklist:
                       const slug = attorney.bookingSlug || attorney.booking_slug
                       const photo = attorney.attorneyProfile?.photoUrl || attorney.photoUrl
                       const reasons = getAttorneyRecommendationReasons(t, attorney, { assessmentClaimType: assessment?.claimType, venueState, venueCounty }).slice(0, 4)
+                      const attorneyId = attorney.id || attorney.attorney_id
+                      const isDragging = draggingAttorneyId === attorneyId
+                      const isDragOver = dragOverAttorneyId === attorneyId && draggingAttorneyId !== attorneyId
                       return (
-                        <div key={attorney.id || attorney.attorney_id}>
-                          <div className={`rounded-2xl border px-4 py-4 sm:px-5 ${index === 0 ? 'border-brand-300 bg-brand-50/50 ring-1 ring-brand-200' : 'border-slate-200 bg-white'}`}>
-                            <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
-                              <div className="flex shrink-0 flex-row items-center gap-2 lg:w-20 lg:flex-col lg:gap-0">
-                                <span className={`text-2xl font-bold leading-none ${index === 0 ? 'text-brand-700' : 'text-slate-400'}`}>{n}</span>
-                                <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{n}{ord} {t('results.sendReview.choiceWord')}</span>
+                        <div key={attorneyId} className="relative w-full sm:w-80">
+                          {isDragOver && dropPosition && (
+                            <span
+                              aria-hidden
+                              className={`pointer-events-none absolute inset-y-1 z-10 w-1 rounded-full bg-brand-500 ${dropPosition === 'before' ? '-left-2' : '-right-2'}`}
+                            />
+                          )}
+                          <div
+                            draggable={!isSharedReadOnly}
+                            onDragStart={(e) => {
+                              if (isSharedReadOnly) return
+                              setDraggingAttorneyId(attorneyId)
+                              dragPointerYRef.current = e.clientY
+                              startAttorneyAutoScroll()
+                              e.dataTransfer.effectAllowed = 'move'
+                              try { e.dataTransfer.setData('text/plain', attorneyId) } catch { /* some browsers require a payload */ }
+                            }}
+                            onDragOver={(e) => {
+                              if (isSharedReadOnly) return
+                              // Always allow the drop so the first dragover (before React
+                              // state flushes) doesn't reject it.
+                              e.preventDefault()
+                              e.dataTransfer.dropEffect = 'move'
+                              const rect = e.currentTarget.getBoundingClientRect()
+                              const pos: 'before' | 'after' = (e.clientX - rect.left) < rect.width / 2 ? 'before' : 'after'
+                              if (dragOverAttorneyId !== attorneyId) setDragOverAttorneyId(attorneyId)
+                              if (dropPosition !== pos) setDropPosition(pos)
+                            }}
+                            onDragLeave={() => {
+                              if (dragOverAttorneyId === attorneyId) {
+                                setDragOverAttorneyId(null)
+                                setDropPosition(null)
+                              }
+                            }}
+                            onDrop={(e) => {
+                              if (isSharedReadOnly) return
+                              e.preventDefault()
+                              const draggedId = draggingAttorneyId || e.dataTransfer.getData('text/plain')
+                              if (draggedId) reorderRankedAttorney(draggedId, attorneyId, dropPosition ?? 'before')
+                              endAttorneyDrag()
+                            }}
+                            onDragEnd={endAttorneyDrag}
+                            className={`flex h-full flex-col rounded-2xl border px-4 py-4 transition sm:px-5 ${isSharedReadOnly ? '' : 'cursor-grab select-none active:cursor-grabbing'} ${isDragging ? 'opacity-50' : ''} ${index === 0 ? 'border-brand-300 bg-brand-50/50 ring-1 ring-brand-200' : 'border-slate-200 bg-white'}`}
+                          >
+                            <div className="flex flex-1 flex-col gap-3">
+                              <div className="flex shrink-0 flex-row items-center gap-2">
+                                {!isSharedReadOnly && (
+                                  <GripVertical className="h-4 w-4 shrink-0 text-slate-300 lg:mb-1" aria-hidden />
+                                )}
+                                <span className={`text-3xl font-bold leading-none ${index === 0 ? 'text-brand-700' : 'text-slate-400'}`}>{n}</span>
+                                <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{n}{ord} {t('results.sendReview.choiceWord')}</span>
                               </div>
                               <div className="flex min-w-0 flex-1 items-start gap-3">
                                 <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-slate-200 text-sm font-semibold text-slate-600">
                                   {photo
-                                    ? <img src={photo} alt="" className="h-full w-full object-cover" />
+                                    ? <img src={photo} alt="" draggable={false} className="h-full w-full object-cover" />
                                     : (attorney?.name || 'A').split(/\s+/).map((w: string) => w[0]).slice(0, 2).join('').toUpperCase()}
                                 </span>
                                 <div className="min-w-0">
-                                  <p className="flex items-center gap-1 text-sm font-semibold text-slate-900">
+                                  <p className="flex items-center gap-1 text-base font-semibold text-slate-900">
                                     <span className="truncate">{attorney?.name ?? t('results.calc.attorneyFallback')}</span>
                                     {(attorney.verifiedReviewCount || 0) > 0 && <CheckCircle className="h-4 w-4 shrink-0 text-brand-600" />}
                                   </p>
-                                  <p className="truncate text-xs text-slate-600">{attorney?.law_firm?.name ?? t('results.calc.lawFirmFallback')}</p>
-                                  {rating > 0 && (
-                                    <p className="mt-0.5 flex items-center gap-1 text-xs">
-                                      <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
+                                  <p className="truncate text-sm text-slate-600">{attorney?.law_firm?.name ?? t('results.calc.lawFirmFallback')}</p>
+                                  {hasPublishedRating(attorney) ? (
+                                    <p className="mt-0.5 flex items-center gap-1 text-sm">
+                                      <Star className="h-4 w-4 fill-amber-400 text-amber-400" />
                                       <span className="font-semibold text-slate-700">{rating.toFixed(1)}</span>
-                                      {(attorney.verifiedReviewCount || 0) > 0 && <span className="text-slate-500">({attorney.verifiedReviewCount})</span>}
+                                      <span className="text-slate-500">{t('results.calc.verifiedReviewCount', { count: attorney.verifiedReviewCount || 0 })}</span>
+                                    </p>
+                                  ) : (
+                                    <p className="mt-0.5 flex items-center gap-1.5 text-sm">
+                                      <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600">{t('results.calc.ratingNew')}</span>
+                                      <span className="text-xs text-slate-400">{t('results.calc.ratingNewHint')}</span>
                                     </p>
                                   )}
-                                  <p className="mt-0.5 text-xs text-slate-500">{getResponseBadge(t, attorney)}</p>
+                                  <p className="mt-0.5 text-sm text-slate-500">{getResponseBadge(t, attorney)}</p>
                                 </div>
                               </div>
                               <ul className="grid flex-1 gap-1.5">
                                 {reasons.map((reason) => (
-                                  <li key={reason} className="flex items-start gap-1.5 text-xs text-slate-700">
-                                    <CheckCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-500" /><span>{reason}</span>
+                                  <li key={reason} className="flex items-start gap-1.5 text-sm text-slate-700">
+                                    <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" /><span>{reason}</span>
                                   </li>
                                 ))}
                               </ul>
-                              <div className="flex shrink-0 flex-col items-stretch gap-1.5 lg:w-32">
-                                {slug && (
-                                  <a href={`/book/${slug}`} target="_blank" rel="noreferrer" className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-center text-xs font-semibold text-brand-700 hover:bg-brand-50">
-                                    {t('results.sendReview.viewProfile')}
-                                  </a>
-                                )}
-                                {!isSharedReadOnly && (
-                                  <div className="flex items-center justify-center gap-1">
-                                    <button type="button" onClick={() => moveRankedAttorney(attorney.id || attorney.attorney_id, -1)} disabled={index === 0} title={t('results.calc.moveUp')} className="rounded-md border border-slate-300 bg-white p-1 text-slate-700 shadow-sm hover:border-slate-400 hover:bg-slate-100 hover:text-slate-900 disabled:opacity-40"><ChevronDown className="h-4 w-4 rotate-180" /></button>
-                                    <button type="button" onClick={() => moveRankedAttorney(attorney.id || attorney.attorney_id, 1)} disabled={index === rankedAttorneyCards.length - 1} title={t('results.calc.moveDown')} className="rounded-md border border-slate-300 bg-white p-1 text-slate-700 shadow-sm hover:border-slate-400 hover:bg-slate-100 hover:text-slate-900 disabled:opacity-40"><ChevronDown className="h-4 w-4" /></button>
-                                    <button type="button" onClick={() => removeRankedAttorney(attorney.id || attorney.attorney_id)} title={t('results.calc.remove')} className="rounded-md border border-slate-300 bg-white p-1 text-slate-700 shadow-sm hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700"><X className="h-4 w-4" /></button>
-                                  </div>
-                                )}
-                              </div>
+                              {(!isSharedReadOnly || slug) && (
+                                <div className="mt-auto border-t border-slate-200 pt-3">
+                                  {!isSharedReadOnly && (
+                                    <div className="flex items-center justify-center gap-2">
+                                      <button type="button" onClick={() => moveRankedAttorney(attorney.id || attorney.attorney_id, -1)} disabled={index === 0} title={t('results.calc.moveUp')} aria-label={t('results.calc.moveUp')} className="rounded-xl border border-slate-200 bg-white p-2.5 text-slate-700 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50 disabled:opacity-40"><ChevronDown className="h-5 w-5 rotate-180" /></button>
+                                      <button type="button" onClick={() => moveRankedAttorney(attorney.id || attorney.attorney_id, 1)} disabled={index === rankedAttorneyCards.length - 1} title={t('results.calc.moveDown')} aria-label={t('results.calc.moveDown')} className="rounded-xl border border-slate-200 bg-white p-2.5 text-slate-700 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50 disabled:opacity-40"><ChevronDown className="h-5 w-5" /></button>
+                                      <button type="button" onClick={() => removeRankedAttorney(attorney.id || attorney.attorney_id)} title={t('results.calc.remove')} aria-label={t('results.calc.remove')} className="rounded-xl border border-slate-200 bg-white p-2.5 text-slate-700 shadow-sm transition-colors hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700"><X className="h-5 w-5" /></button>
+                                    </div>
+                                  )}
+                                  {slug && (
+                                    <a href={`/book/${slug}`} target="_blank" rel="noreferrer" draggable={false} className={`block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-center text-sm font-semibold text-brand-700 hover:bg-brand-50 ${isSharedReadOnly ? '' : 'mt-2'}`}>
+                                      {t('results.sendReview.viewProfile')}
+                                    </a>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           </div>
-                          {index < rankedAttorneyCards.length - 1 && (
-                            <p className="py-1.5 text-center text-[11px] text-slate-400">{t('results.sendReview.ifUnavailable')}</p>
-                          )}
                         </div>
                       )
                     })}
+                    </div>
                     {removedAttorneyCards.length > 0 && (
                       <div className="mt-3 rounded-xl border border-slate-200 bg-white px-3 py-2">
                         <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{t('results.calc.removedHeader')}</p>
@@ -5987,11 +6119,6 @@ Checklist:
               </div>
             ) : (
               <>
-                {medicalReviewPending && (
-                  <p className="mb-3 text-center text-sm text-amber-700">
-                    {t('results.next.reviewBeforeSubmit')}
-                  </p>
-                )}
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex items-center gap-3">
                     <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-50 text-brand-600"><Star className="h-5 w-5" aria-hidden /></span>
@@ -6006,7 +6133,7 @@ Checklist:
                       onClick={openAttorneyReviewFlow}
                       className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-brand-700 px-6 py-3 text-base font-semibold text-white shadow-sm transition-colors hover:bg-brand-800 sm:w-auto"
                     >
-                      {medicalReviewPending ? t('results.shared.continueReview') : t('results.next.sendMyCase')}
+                      {t('results.next.sendMyCase')}
                       <ChevronRight className="h-4 w-4" aria-hidden />
                     </button>
                     <p className="mt-1.5 text-[11px] text-slate-400">{t('results.next.noObligationFree')}</p>
@@ -6023,7 +6150,7 @@ Checklist:
               <div className="min-w-0 flex-1">
                 <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">{t('results.next.nextStep')}</p>
                 <p className="truncate text-sm font-semibold text-slate-900">
-                  {medicalReviewPending ? t('results.next.reviewTimeline') : t('results.next.sendCaseReview')}
+                  {t('results.next.sendCaseReview')}
                 </p>
               </div>
               <button
@@ -6031,7 +6158,7 @@ Checklist:
                 onClick={openAttorneyReviewFlow}
                 className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-brand-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-800"
               >
-                {medicalReviewPending ? t('results.next.review') : t('results.next.sendForReview')}
+                {t('results.next.sendForReview')}
                 <ChevronRight className="h-4 w-4" aria-hidden />
               </button>
             </div>
