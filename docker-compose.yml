@@ -117,12 +117,11 @@ services:
       # matches how CI builds the image.
       context: .
       dockerfile: app/Dockerfile
-      # Next inlines NEXT_PUBLIC_* at BUILD time, so the production API origin must
-      # be baked in here (the app throws "NEXT_PUBLIC_API_URL is not configured"
-      # otherwise). Override via a NEXT_PUBLIC_API_URL env/.env entry if needed.
+      # No NEXT_PUBLIC_API_URL or NEXT_PUBLIC_SITE_URL: app/Dockerfile no longer
+      # declares those args, so passing them here did nothing but suggest they
+      # still mattered. The browser reaches the API same-origin via the /v1 and
+      # /uploads locations in the nginx config, and SITE_URL is read at runtime.
       args:
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.clearcaseiq.com}
-        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-https://www.clearcaseiq.com}
         NEXT_PUBLIC_GA_MEASUREMENT_ID: ${NEXT_PUBLIC_GA_MEASUREMENT_ID:-}
         NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION: ${NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION:-}
         NEXT_PUBLIC_BING_SITE_VERIFICATION: ${NEXT_PUBLIC_BING_SITE_VERIFICATION:-}
@@ -131,6 +130,13 @@ services:
       - "3000:3000"
     environment:
       NODE_ENV: production
+      # Fallback target for the /v1, /uploads and /health rewrites in
+      # next.config.mjs, used when a request reaches Next rather than being
+      # matched by nginx first. It must name the api service: the default
+      # 127.0.0.1:4000 resolves to this container, not the API.
+      API_PROXY_ORIGIN: http://api:4000
+      # Read at request time by robots.txt, sitemap.xml and the canonical tags.
+      SITE_URL: ${SITE_URL:-https://www.clearcaseiq.com}
     networks:
       - injury-network
 
@@ -143,6 +149,9 @@ services:
       - "443:443"
     volumes:
       - ./deploy/nginx/clearcaseiq.conf:/etc/nginx/conf.d/default.conf:ro
+      # The /v1 and /uploads locations include this snippet, as prod.conf and
+      # qa.conf do; nginx fails to start if the include cannot be resolved.
+      - ./deploy/nginx/proxy-common.conf:/etc/nginx/snippets/proxy-common.conf:ro
       - /etc/letsencrypt:/etc/letsencrypt:ro
       - /var/www/certbot:/var/www/certbot:ro
     depends_on:

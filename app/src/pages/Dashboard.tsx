@@ -822,7 +822,12 @@ export default function Dashboard() {
   const hasWageLossEvidence = evidenceFiles.some(f => f.category === 'wage_loss')
   const hasWageLoss = !!(damages.wage_loss || parsedFacts?.caseAcceleration?.wageLoss || hasWageLossEvidence)
   const submittedForReview = !!activeAssessment?.submittedForReview
-  const attorneyReviewCount = (routingStatus?.attorneysReviewing && routingStatus.attorneysReviewing > 0) ? routingStatus.attorneysReviewing : 3
+  // Zero means zero. This used to fall back to 3, so a case nobody had picked up
+  // still announced "3 attorneys are reviewing your case" — the one number a
+  // waiting claimant reads most closely, and the one most likely to be wrong.
+  const attorneyReviewCount = routingStatus?.attorneysReviewing && routingStatus.attorneysReviewing > 0
+    ? routingStatus.attorneysReviewing
+    : 0
 
   const hasInjuryPhotos = evidenceFiles.some((f: any) => f?.category === 'photos')
   const hasMedicalRecords = evidenceFiles.some((f: any) => f?.category === 'medical_records' || f?.category === 'bills')
@@ -966,19 +971,25 @@ export default function Dashboard() {
   const showConsultCard = hasUpcomingConsult || (attorneyMatched && !caseRetained)
   // Pre-consult checklist only while a consult is still ahead (not after retain).
   const showPreConsultChecklist = hasUpcomingConsult && !caseRetained
-  // Next Best Action duplicates Action Center / consult card — and after retain
-  // it often falls back to "schedule a consult", which is the wrong next step.
-  const showNextBestAction =
-    attorneyMatched &&
-    !caseRetained &&
-    !showDocActionCenter &&
-    !hasUpcomingConsult
+  // Next Best Action fills the gap after retain, which is the one stretch of the
+  // case with no other guidance: the consult card is gone, and Tasks is empty
+  // whenever the attorney has not asked for anything. Before retain it stays
+  // hidden because the consult card already carries the schedule CTA and the
+  // Action Center carries document requests.
+  //
+  // The flag previously required `!hasUpcomingConsult` while the markup required
+  // `hasUpcomingConsult`, so the two conditions were mutually exclusive and the
+  // card never rendered at all.
+  const showNextBestAction = attorneyMatched && caseRetained && !showDocActionCenter && !hasUpcomingConsult
   // The supporting line says what the step accomplishes. It used to carry invented
   // dollar figures — "+$2,000 – $5,000" for typing an accident description, "+$1,000 –
   // $3,000" for a location — which are quantified promises about a legal outcome and
   // were not computed from anything. What these steps actually do is make the file
   // complete enough to evaluate, so that is what they say.
-  const dailyAction = attorneyMatched && !hasUpcomingConsult
+  // Scheduling a consultation is only the next step until the attorney is
+  // retained; after that this has to fall through to the steps that actually
+  // move a live case forward.
+  const dailyAction = attorneyMatched && !hasUpcomingConsult && !caseRetained
     ? { action: t('plaintiffDashboard.dynamic.action.scheduleConsult'), detail: t('plaintiffDashboard.dynamic.action.scheduleConsultDetail'), cta: t('plaintiffDashboard.dynamic.action.scheduleConsultCta'), href: '#schedule', isSchedule: true }
     : nextDocumentRequest
     ? {
@@ -1031,7 +1042,9 @@ export default function Dashboard() {
   ]
   const attorneyActivity = routingStatus?.attorneyActivity ?? []
   const latestAttorneyActivity = attorneyActivity[0]
-  const latestAttorneyActivityTime = latestAttorneyActivity?.timeAgo || (submittedForReview ? t('plaintiffDashboard.dynamic.activity.tenMinutesAgo') : t('plaintiffDashboard.dynamic.activity.none'))
+  // Only ever a real timestamp. A submitted case with no routing events used to
+  // report "10 minutes ago", which dressed silence up as progress.
+  const latestAttorneyActivityTime = latestAttorneyActivity?.timeAgo || t('plaintiffDashboard.dynamic.activity.none')
   const reviewStageLabel = attorneyMatched ? t('plaintiffDashboard.dynamic.stage.matched') : submittedForReview ? t('plaintiffDashboard.dynamic.stage.attorneyReview') : t('plaintiffDashboard.dynamic.stage.assessment')
   const strengthOpportunities = [
     !hasMedicalRecords && { label: t('plaintiffDashboard.dynamic.opportunity.medicalRecords'), impact: t('plaintiffDashboard.dynamic.impact.highest') },
@@ -1926,7 +1939,9 @@ export default function Dashboard() {
                       <div className="min-w-0">
                         <p className="text-sm font-semibold text-brand-100">{t('plaintiffDashboard.reviewBanner.title')}</p>
                         <p className="mt-1 text-2xl font-bold">
-                          {t(attorneyReviewCount === 1 ? 'plaintiffDashboard.reviewBanner.reviewingOne' : 'plaintiffDashboard.reviewBanner.reviewingMany', { count: attorneyReviewCount })}
+                          {attorneyReviewCount === 0
+                            ? t('plaintiffDashboard.reviewBanner.reviewingPending')
+                            : t(attorneyReviewCount === 1 ? 'plaintiffDashboard.reviewBanner.reviewingOne' : 'plaintiffDashboard.reviewBanner.reviewingMany', { count: attorneyReviewCount })}
                         </p>
                         <p className="mt-1 text-sm text-brand-100">
                           {t('plaintiffDashboard.reviewBanner.responseTime', { label: responseDeadlineLabel })}
@@ -2280,14 +2295,16 @@ export default function Dashboard() {
                       <PlaintiffSatisfactionCard assessmentId={activeAssessment?.id} />
                     </div>
 
-                    {showNextBestAction && hasUpcomingConsult && (
+                    {showNextBestAction && (
                       <div className="flex min-h-[180px] flex-col rounded-xl bg-brand-600 p-5">
                         <h2 className="mb-2 text-lg font-bold text-white">{t('plaintiffDashboard.nextAction.title')}</h2>
                         <p className="mb-1 text-lg text-brand-100">{dailyAction.action}</p>
                         <p className="mb-3 text-sm text-brand-200">{dailyAction.detail}</p>
-                        <Link to={evidenceUploadHref(activeAssessment.id, { from: 'dashboard' })} className="mt-auto inline-flex w-fit items-center gap-2 rounded-lg bg-white px-5 py-2.5 text-sm font-semibold text-brand-600 hover:bg-brand-50">
-                          <Upload className="h-4 w-4" />
-                          {t('plaintiffDashboard.nextAction.uploadEvidence')}
+                        {/* The button follows the step rather than always reading
+                            "upload evidence", which contradicted steps like
+                            editing the case description. */}
+                        <Link to={dailyAction.href} className="mt-auto inline-flex w-fit items-center gap-2 rounded-lg bg-white px-5 py-2.5 text-sm font-semibold text-brand-600 hover:bg-brand-50">
+                          {dailyAction.cta}
                         </Link>
                       </div>
                     )}

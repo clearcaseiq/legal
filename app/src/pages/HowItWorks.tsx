@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
-import { CheckCircle, ClipboardList, BarChart3, Users, Car, Scale, Handshake, Trophy, UserCheck } from 'lucide-react'
+import { CheckCircle, ClipboardList, BarChart3, Users, Car, Scale, Handshake, Trophy, UserCheck, ArrowRight } from 'lucide-react'
 import { useLanguage } from '../contexts/LanguageContext'
+import LocaleLink from '../components/LocaleLink'
 import FaqSection from '../components/FaqSection'
 
 // The claimant journey, rendered as an animated timeline further down the page.
@@ -131,6 +132,19 @@ export default function HowItWorks() {
         title={t('hiw.faqTitle')}
         items={[1, 2, 3].map((n) => ({ q: t(`hiw.q${n}`), a: t(`hiw.a${n}`) }))}
       />
+
+      {/* Explore topics — contextual links into the injury claim knowledge base */}
+      <div className="mb-12 rounded-2xl border border-slate-200 bg-slate-50 p-6 text-center">
+        <h2 className="text-xl font-semibold text-slate-900 mb-2">{t('hiw.exploreTitle')}</h2>
+        <p className="text-slate-600 text-sm mb-4">{t('hiw.exploreDesc')}</p>
+        <LocaleLink
+          to="/topics"
+          className="inline-flex items-center text-sm font-semibold text-brand-700 hover:text-brand-800"
+        >
+          {t('hiw.exploreLink')}
+          <ArrowRight className="ml-1 h-4 w-4" aria-hidden />
+        </LocaleLink>
+      </div>
 
       {/* CTAs */}
       <div className="text-center space-y-6">

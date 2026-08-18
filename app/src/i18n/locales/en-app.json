@@ -1619,7 +1619,6 @@
       "strengthenTitle": "Strengthen your file while you wait",
       "strengthenDesc": "Additional documentation can improve how your matter is assessed.",
       "uploadEvidence": "Upload Evidence",
-      "viewCaseReport": "View case report",
       "saveTitle": "Save your case and track attorney responses",
       "saveDesc": "You submitted as a guest, so attorneys already have your contact details. Creating a free account is optional. It lets you track their responses and upload more evidence.",
       "createAccount": "Create account",
@@ -2940,6 +2939,7 @@
       "title": "Your case is in review",
       "reviewingOne": "{count} attorney is reviewing your case",
       "reviewingMany": "{count} attorneys are reviewing your case",
+      "reviewingPending": "Your case has been sent for attorney review",
       "responseTime": "Responses are typically received within {label}. We'll email you the moment an attorney responds.",
       "noObligationBold": "Attorney review does not obligate you.",
       "noObligationText": "You decide whether to speak with or hire any attorney who contacts you."
@@ -3709,7 +3709,6 @@
         "recentUpdate": "Recent update"
       },
       "activity": {
-        "tenMinutesAgo": "10 minutes ago",
         "none": "No attorney activity yet"
       },
       "stage": {

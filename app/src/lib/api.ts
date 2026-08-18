@@ -1360,24 +1360,6 @@ export async function getSimilarCaseOutcomes(assessmentId: string) {
 }
 
 // Evidence Upload API
-export async function testUpload(formData: FormData) {
-  const { data } = await api.post('/v1/evidence/test-upload', formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data'
-    }
-  })
-  return data
-}
-
-export async function simpleTestUpload(formData: FormData) {
-  const { data } = await api.post('/v1/evidence/simple-test', formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data'
-    }
-  })
-  return data
-}
-
 export async function uploadEvidenceFile(formData: FormData) {
   const { data } = await api.post('/v1/evidence/upload', formData, {
     headers: {

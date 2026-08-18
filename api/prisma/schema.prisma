@@ -310,6 +310,9 @@ model Assessment {
   @@index([lawFirmId])
   @@index([officeId])
   @@index([teamId])
+  // "My cases, newest first" is the first query of every plaintiff session and
+  // ran without an index on the owning user.
+  @@index([userId, createdAt])
   @@map("assessments")
 }
 
@@ -1586,6 +1589,8 @@ model Notification {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
+  // The bell polls this for one user, newest first, on every dashboard visit.
+  @@index([userId, createdAt])
   @@map("notifications")
 }
 
@@ -2611,6 +2616,9 @@ model LeadSubmission {
   documentRequests    DocumentRequest[]
   documentEnvelopes   DocumentEnvelope[]
 
+  // Attorney and firm dashboards read their own pipeline by status.
+  @@index([assignedAttorneyId, status])
+  @@index([lifecycleState])
   @@map("lead_submissions")
 }
 
@@ -2624,6 +2632,11 @@ model IntakeLead {
   venueState   String?
   venueCounty  String?
   currentStep  String?
+  // Ordered JSON array of { step, at }, appended each time the claimant reaches a
+  // new step. `currentStep` alone says where someone stopped but not how long
+  // each step took or which branch they went down, which is the difference
+  // between knowing the funnel leaks and knowing where.
+  stepHistory  String? @db.Text
   formSnapshot String? @db.Text // JSON of in-progress answers
   status       String  @default("in_progress") // 'in_progress', 'completed'
   assessmentId String? @unique // linked once the assessment is created
@@ -3794,6 +3807,11 @@ model EvidenceFile {
   accessLogs     EvidenceAccessLog[]
   annotations    EvidenceAnnotation[]
 
+  // Every read of this table is "the files on this case" or "the files this user
+  // owns", newest first, and neither had an index — so each evidence list was a
+  // sequential scan that grew with total platform uploads.
+  @@index([assessmentId, createdAt])
+  @@index([userId, createdAt])
   @@map("evidence_files")
 }
 

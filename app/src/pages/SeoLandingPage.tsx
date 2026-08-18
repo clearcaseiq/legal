@@ -872,13 +872,22 @@ export default function SeoLandingPage() {
             <div className="rounded-2xl border border-brand-100 bg-brand-50 p-4">
               <h3 className="text-sm font-semibold text-brand-950">How ClearCaseIQ helps</h3>
               <p className="mt-3 text-sm leading-7 text-brand-900">{page.sections.howClearCaseHelps}</p>
-              <Link
-                to="/assessment/start"
-                className="mt-4 inline-flex items-center text-sm font-semibold text-brand-700 hover:text-brand-800"
-              >
-                Start a free assessment
-                <ChevronRight className="ml-1 h-4 w-4" aria-hidden />
-              </Link>
+              <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2">
+                <Link
+                  to="/assessment/start"
+                  className="inline-flex items-center text-sm font-semibold text-brand-700 hover:text-brand-800"
+                >
+                  Start a free assessment
+                  <ChevronRight className="ml-1 h-4 w-4" aria-hidden />
+                </Link>
+                <Link
+                  to="/how-it-works"
+                  className="inline-flex items-center text-sm font-semibold text-brand-700 hover:text-brand-800"
+                >
+                  See how ClearCaseIQ works
+                  <ChevronRight className="ml-1 h-4 w-4" aria-hidden />
+                </Link>
+              </div>
             </div>
           </div>
         </div>

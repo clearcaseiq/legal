@@ -196,13 +196,22 @@ export default function SeoLandingPageEs() {
         <div className="rounded-2xl border border-brand-100 bg-brand-50 p-5 shadow-sm sm:p-6">
           <h2 className="text-lg font-semibold text-brand-950">Cómo ayuda ClearCaseIQ</h2>
           <p className="mt-3 text-sm leading-7 text-brand-900">{page.sections.howClearCaseHelps}</p>
-          <Link
-            to="/assessment/start"
-            className="mt-4 inline-flex items-center text-sm font-semibold text-brand-700 hover:text-brand-800"
-          >
-            Comenzar una evaluación gratuita
-            <ChevronRight className="ml-1 h-4 w-4" aria-hidden />
-          </Link>
+          <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2">
+            <Link
+              to="/assessment/start"
+              className="inline-flex items-center text-sm font-semibold text-brand-700 hover:text-brand-800"
+            >
+              Comenzar una evaluación gratuita
+              <ChevronRight className="ml-1 h-4 w-4" aria-hidden />
+            </Link>
+            <Link
+              to="/es/como-funciona"
+              className="inline-flex items-center text-sm font-semibold text-brand-700 hover:text-brand-800"
+            >
+              Ver cómo funciona ClearCaseIQ
+              <ChevronRight className="ml-1 h-4 w-4" aria-hidden />
+            </Link>
+          </div>
         </div>
       </section>
 

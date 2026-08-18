@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { authMiddleware, optionalAuthMiddleware } from '../lib/auth'
+import { enforceAssessmentReadAccess } from '../lib/assessment-access'
 import { logger } from '../lib/logger'
 import { z } from 'zod'
 import multer, { type FileFilterCallback } from 'multer'
@@ -27,6 +28,16 @@ const memoryUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 25 * 1024 * 1024 },
 })
+
+/** Remove a file multer already wrote when the request is rejected afterwards. */
+function discardUploadedFile(file: { path?: string } | undefined): void {
+  if (!file?.path) return
+  try {
+    fs.unlinkSync(file.path)
+  } catch (error) {
+    logger.warn('Failed to remove rejected upload', { path: file.path, error })
+  }
+}
 
 async function resolveUploadUserId(userId: string | null, assessmentId?: string) {
   if (userId) return userId
@@ -348,64 +359,6 @@ function buildHighlights(extractedData: any, ocrText: string) {
   return highlights
 }
 
-// Test upload endpoint (no auth required)
-router.post('/test-upload', upload.single('file'), async (req: any, res) => {
-  try {
-    logger.info('Test upload request received', { 
-      hasFile: !!req.file, 
-      fileSize: req.file?.size,
-      mimetype: req.file?.mimetype
-    })
-
-    if (!req.file) {
-      return res.status(400).json({ error: 'No file uploaded' })
-    }
-
-    res.status(200).json({ 
-      message: 'Test upload successful',
-      filename: req.file.filename,
-      originalName: req.file.originalname,
-      size: req.file.size,
-      mimetype: req.file.mimetype
-    })
-  } catch (error: any) {
-    logger.error('Test upload failed', { error: error.message })
-    res.status(500).json({ error: 'Test upload failed', details: error.message })
-  }
-})
-
-// Simple test endpoint (no file processing)
-router.post('/simple-test', upload.single('file'), async (req: any, res) => {
-  try {
-    logger.info('Simple test upload request received', { 
-      hasFile: !!req.file, 
-      fileSize: req.file?.size,
-      mimetype: req.file?.mimetype,
-      body: req.body
-    })
-
-    if (!req.file) {
-      return res.status(400).json({ error: 'No file uploaded' })
-    }
-
-    // Just return success without any processing
-    res.status(200).json({ 
-      success: true,
-      message: 'Simple test upload successful',
-      received: {
-        filename: req.file.originalname,
-        size: req.file.size,
-        mimetype: req.file.mimetype,
-        assessmentId: req.body.assessmentId,
-        category: req.body.category
-      }
-    })
-  } catch (error: any) {
-    logger.error('Simple test upload failed', { error: error.message, stack: error.stack })
-    res.status(500).json({ error: 'Simple test upload failed', details: error.message })
-  }
-})
-
 // Lightweight image relevance pre-check (no persistence). Used during intake before an
 // assessment exists, so the UI can warn about obviously off-topic photos immediately.
 router.post('/vision-precheck', optionalAuthMiddleware, memoryUpload.single('file'), async (req: any, res) => {
@@ -471,8 +424,21 @@ router.post('/extract-precheck', optionalAuthMiddleware, memoryUpload.single('fi
   }
 })
 
-// Upload evidence file - temporarily disable auth for testing
-router.post('/upload', upload.single('file'), async (req: any, res) => {
+/**
+ * Upload evidence onto a case.
+ *
+ * This ran with no auth middleware at all (annotated "temporarily disable auth
+ * for testing"), which had two consequences: `req.user` was always undefined so
+ * the consent and email-verification gates below could never fire for a signed-in
+ * uploader, and anyone holding an assessment id could attach files to a stranger's
+ * case. `optionalAuthMiddleware` restores the identity, and the shared read guard
+ * decides who may touch the case — anonymous intake still works because a case
+ * with no owner (or a guest-shadow owner) is reachable by id by design.
+ *
+ * The check has to run after multer, since `assessmentId` arrives in the
+ * multipart body, so a rejected upload deletes the file multer already wrote.
+ */
+router.post('/upload', optionalAuthMiddleware, upload.single('file'), async (req: any, res) => {
   try {
     logger.info('Upload request received', { 
       hasFile: !!req.file, 
@@ -504,6 +470,22 @@ router.post('/upload', upload.single('file'), async (req: any, res) => {
       tags,
       relevanceScore
     } = req.body
+
+    if (assessmentId) {
+      const allowed = await enforceAssessmentReadAccess({
+        assessmentId: String(assessmentId),
+        user: req.user,
+        res,
+        route: 'evidence.upload',
+      })
+      if (!allowed) {
+        discardUploadedFile(req.file)
+        return
+      }
+    } else if (!userId) {
+      discardUploadedFile(req.file)
+      return res.status(401).json({ error: 'Sign in or attach this upload to an assessment.' })
+    }
 
     userId = await resolveUploadUserId(userId, assessmentId)
 
@@ -877,28 +859,23 @@ router.get('/', optionalAuthMiddleware, async (req: any, res) => {
   try {
     const { assessmentId, category, processingStatus, query } = req.query
 
+    // Listing by assessment previously needed no authentication at all, which
+    // exposed file names and OCR-derived medical summaries to anyone with the id.
+    // The shared guard makes the case itself the unit of authorization: once the
+    // caller may read the case they see all of its files, including the ones a
+    // guest uploaded before the account existed.
     const where: any = {}
-    if (req.user?.id) {
-      if (assessmentId) {
-        // When fetching by assessment: include files for this assessment if it belongs to the user.
-        // Files may have been uploaded by a guest user before account creation, so we fetch by
-        // assessmentId and verify the assessment belongs to the current user.
-        const assessment = await prisma.assessment.findUnique({
-          where: { id: String(assessmentId) },
-          select: { userId: true }
-        })
-        if (assessment?.userId === req.user.id) {
-          where.assessmentId = assessmentId
-          // Include files regardless of file's userId (handles guest-uploaded files)
-        } else {
-          where.userId = req.user.id
-          where.assessmentId = assessmentId
-        }
-      } else {
-        where.userId = req.user.id
-      }
-    } else if (assessmentId) {
-      where.assessmentId = assessmentId
+    if (assessmentId) {
+      const allowed = await enforceAssessmentReadAccess({
+        assessmentId: String(assessmentId),
+        user: req.user,
+        res,
+        route: 'evidence.list',
+      })
+      if (!allowed) return
+      where.assessmentId = String(assessmentId)
+    } else if (req.user?.id) {
+      where.userId = req.user.id
     } else {
       return res.status(401).json({ error: 'Unauthorized' })
     }
@@ -913,6 +890,14 @@ router.get('/', optionalAuthMiddleware, async (req: any, res) => {
       ]
     }
 
+    // Each row drags along extracted data, a job and up to five annotations, so an
+    // uncapped case could return a very large payload. Newest-first with a ceiling
+    // keeps the response bounded; the shape stays an array for existing callers.
+    const requestedLimit = Number(req.query.limit)
+    const take = Number.isFinite(requestedLimit) && requestedLimit > 0
+      ? Math.min(requestedLimit, 500)
+      : 200
+
     const evidenceFiles = await prisma.evidenceFile.findMany({
       where,
       include: {
@@ -926,7 +911,8 @@ router.get('/', optionalAuthMiddleware, async (req: any, res) => {
           take: 5
         }
       },
-      orderBy: { createdAt: 'desc' }
+      orderBy: { createdAt: 'desc' },
+      take
     })
 
     res.json(evidenceFiles)

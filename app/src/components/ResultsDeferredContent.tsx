@@ -42,12 +42,18 @@ function getResponseBadge(attorney: RankedAttorneyCard, t?: TFunc) {
   return fast ? 'Same-day replies' : 'Replies within 24h'
 }
 
-function formatProtectedMatchScore(attorney: RankedAttorneyCard, index: number) {
+/**
+ * The attorney's fit as a percentage, or null when the backend did not score them.
+ *
+ * This used to fall back to `94 - index * 3`, which rendered a confident-looking
+ * 94% / 91% / 88% that was purely a function of the card's position in the list.
+ * A claimant choosing counsel on that number was reading list order, not fit, so
+ * an absent score now omits the figure rather than inventing one.
+ */
+function formatProtectedMatchScore(attorney: RankedAttorneyCard): string | null {
   const score = Number(attorney.fit_score)
-  if (Number.isFinite(score) && score > 0) {
-    return `${score > 1 ? Math.round(score) : Math.round(score * 100)}%`
-  }
-  return `${94 - index * 3}%`
+  if (!Number.isFinite(score) || score <= 0) return null
+  return `${score > 1 ? Math.round(score) : Math.round(score * 100)}%`
 }
 
 // Lower-cased because these labels are read mid-sentence ("strong for … matters").
@@ -630,7 +636,9 @@ export function ResultsReportDetails({
               {t(caseSubmittedForReview ? 'results.report.namesRevealedSubmitted' : 'results.report.namesRevealed')}
             </p>
             <div className="space-y-3">
-              {attorneyCards.map((attorney, index) => (
+              {attorneyCards.map((attorney, index) => {
+                const matchScore = formatProtectedMatchScore(attorney)
+                return (
                 <div key={attorney.id || attorney.attorney_id || attorney.name} className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">
                     {caseSubmittedForReview
@@ -645,18 +653,20 @@ export function ResultsReportDetails({
                       <p className="mt-1 text-xs text-slate-600">
                         {[
                           attorney?.law_firm?.name ?? t('results.submitted.lawFirm'),
-                          `${formatProtectedMatchScore(attorney, index)} ${t('results.common.fit')}`,
+                          matchScore ? `${matchScore} ${t('results.common.fit')}` : null,
                           getResponseBadge(attorney, t),
                         ].filter(Boolean).join(' • ')}
                       </p>
                     </>
                   ) : (
                     <>
-                      <p className="mt-1 text-sm font-semibold text-slate-900">{formatProtectedMatchScore(attorney, index)} {t('results.report.match')}</p>
+                      {matchScore && (
+                        <p className="mt-1 text-sm font-semibold text-slate-900">{matchScore} {t('results.report.match')}</p>
+                      )}
                       <p className="mt-1 text-xs text-slate-600">
                         {[
                           t('results.report.identityProtected'),
-                          `${formatProtectedMatchScore(attorney, index)} ${t('results.common.fit')}`,
+                          matchScore ? `${matchScore} ${t('results.common.fit')}` : null,
                         ].filter(Boolean).join(' • ')}
                       </p>
                     </>
@@ -697,7 +707,8 @@ export function ResultsReportDetails({
                     </span>
                   </div>
                 </div>
-              ))}
+                )
+              })}
             </div>
             {caseSubmittedForReview && (
               <Link

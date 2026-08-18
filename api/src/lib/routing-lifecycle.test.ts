@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 vi.mock('./case-notifications', () => ({
   sendPlaintiffAttorneyAccepted: vi.fn().mockResolvedValue(undefined),
   sendPlaintiffManualReviewNeeded: vi.fn().mockResolvedValue(undefined),
+  sendPlaintiffNoAttorneyResponse: vi.fn().mockResolvedValue(true),
   sendPlaintiffBatchApprovalRequest: vi.fn().mockResolvedValue(true),
 }))
 
@@ -30,6 +31,7 @@ import {
   approvePendingRankedBatch,
   declinePendingRankedBatch,
   getPendingRankedBatch,
+  placeAssessmentInManualReview,
 } from './routing-lifecycle'
 import { prisma } from './prisma'
 import { resetUniversalPrismaMock } from '../test/universalPrismaMock'
@@ -38,6 +40,7 @@ import { assertShareAuthorization, recordShareAuthorization } from './share-auth
 import {
   sendPlaintiffAttorneyAccepted,
   sendPlaintiffManualReviewNeeded,
+  sendPlaintiffNoAttorneyResponse,
   sendPlaintiffBatchApprovalRequest
 } from './case-notifications'
 
@@ -107,6 +110,7 @@ describe('attorneyAcceptCase', () => {
     resetUniversalPrismaMock()
     vi.mocked(sendPlaintiffAttorneyAccepted).mockClear()
     vi.mocked(sendPlaintiffManualReviewNeeded).mockClear()
+    vi.mocked(sendPlaintiffNoAttorneyResponse).mockClear()
   })
 
   it('accepts pending intro, updates lead, records event, notifies plaintiff', async () => {
@@ -294,7 +298,11 @@ describe('runEscalationWave', () => {
         data: expect.objectContaining({ manualReviewStatus: 'pending' }),
       })
     )
-    expect(sendPlaintiffManualReviewNeeded).toHaveBeenCalled()
+    // A timed-out wave means attorneys were approached and nobody responded, so
+    // the plaintiff gets that specific message rather than the generic
+    // "something is being reviewed" one.
+    expect(sendPlaintiffNoAttorneyResponse).toHaveBeenCalledWith('asm-1', 'routing_timeout')
+    expect(sendPlaintiffManualReviewNeeded).not.toHaveBeenCalled()
   })
 
   it('escalates to wave 1 when no prior wave and engine routes attorneys', async () => {
@@ -451,7 +459,19 @@ describe('runEscalationWave', () => {
     expect(prisma.assessment.update).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ manualReviewStatus: 'pending' }),
     }))
-    expect(sendPlaintiffManualReviewNeeded).toHaveBeenCalled()
+    expect(sendPlaintiffNoAttorneyResponse).toHaveBeenCalledWith('asm-1', 'routing_timeout')
+  })
+
+  it('sends the generic manual-review notice when the case never reached an attorney', async () => {
+    // A gate hold is not an attorney declining, so it keeps the generic message.
+    await placeAssessmentInManualReview('asm-1', 'routing_gate_review', 'Fraud signals detected')
+
+    expect(sendPlaintiffManualReviewNeeded).toHaveBeenCalledWith(
+      'asm-1',
+      'routing_gate_review',
+      'Fraud signals detected',
+    )
+    expect(sendPlaintiffNoAttorneyResponse).not.toHaveBeenCalled()
   })
 })
 

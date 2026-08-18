@@ -851,7 +851,10 @@
     "q3": "Is my information shared automatically?",
     "a3": "No. Your case is only shared with attorneys after you approve.",
     "ctaTitle": "Find Out If You May Have a Personal Injury Case",
-    "ctaButton": "Start Free Assessment"
+    "ctaButton": "Start Free Assessment",
+    "exploreTitle": "Explore injury claim topics",
+    "exploreDesc": "Read plain-English guides on symptoms, treatment, insurance disputes, liability, and settlement value before you decide what to do next.",
+    "exploreLink": "Browse the injury claim topic library"
   },
   "home": {
     "heroTitle": "Injured in an Accident? See What Your Case May Be Worth in 60 Seconds",

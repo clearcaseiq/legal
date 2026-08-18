@@ -597,6 +597,105 @@ export async function sendPlaintiffBatchApprovalRequest(
 }
 
 /**
+ * Tell the plaintiff that every attorney they chose has passed.
+ *
+ * This is the one routing outcome with no good news in it, and it was the one we
+ * stayed silent about: the case moved to manual review, the dashboard showed an
+ * amber banner with no timeframe, and `no_attorney_response` — the event defined
+ * for exactly this — was never emitted by anything.
+ *
+ * Silence here is worse than the news. A claimant watching a stalled case has a
+ * filing deadline running, and needs to know the wait is not a queue they are
+ * progressing through. Guests are covered too, via the contact email captured at
+ * submit, because a case can be declined before an account ever exists.
+ */
+export async function sendPlaintiffNoAttorneyResponse(
+  assessmentId: string,
+  reason?: string
+): Promise<boolean> {
+  const assessment = await prisma.assessment.findUnique({
+    where: { id: assessmentId },
+    include: { user: true }
+  })
+  if (!assessment) return false
+
+  let guestEmail: string | null = null
+  if (!assessment.user?.email) {
+    try {
+      const facts = typeof assessment.facts === 'string' ? JSON.parse(assessment.facts) : assessment.facts || {}
+      const contact = (facts?.plaintiffContext || {}) as Record<string, unknown>
+      const candidate = typeof contact.email === 'string' ? contact.email.trim() : ''
+      guestEmail = candidate || null
+    } catch {
+      guestEmail = null
+    }
+  }
+
+  const recipient = assessment.user?.email || guestEmail
+  if (!recipient) {
+    logger.warn('No plaintiff email for no-attorney-response notification', { assessmentId })
+    return false
+  }
+
+  const caseUrl = webUrl(`/results/${assessmentId}`)
+  const subject = 'An update on the attorneys reviewing your case'
+  const message = [
+    'The attorneys you selected were not able to take your case.',
+    '',
+    'This happens for reasons that often have nothing to do with the strength of a',
+    'claim — a conflict of interest, a full caseload, or the matter falling outside',
+    'what that firm handles.',
+    '',
+    'Your case is now with our team, who will look for other attorneys who handle',
+    'this type of matter in your area. We will contact you before reaching out to',
+    'anyone new.',
+    '',
+    `View your case: ${caseUrl}`,
+    '',
+    'If you would rather approach a firm directly in the meantime, you can — nothing',
+    'here commits you to working with us.'
+  ].join('\n')
+
+  try {
+    if (assessment.userId && assessment.user?.email) {
+      for (const channel of ['email', 'in_app'] as const) {
+        await createNotificationEvent({
+          userId: assessment.userId,
+          assessmentId,
+          role: 'plaintiff',
+          channel,
+          eventType: PLAINTIFF_EVENTS.no_attorney_response,
+          ...(channel === 'email' ? { templateKey: 'plaintiff_no_attorney_response_email' } : {}),
+          subject,
+          body: message,
+          recipient: assessment.user.email,
+          payload: { assessmentId, reason, link: `/results/${assessmentId}` }
+        })
+      }
+    } else {
+      const { deliverDirectNotification } = await import('./platform-notifications')
+      await deliverDirectNotification({
+        type: 'email',
+        recipient,
+        subject,
+        message,
+        assessmentId,
+        role: 'plaintiff',
+        metadata: { eventType: PLAINTIFF_EVENTS.no_attorney_response, assessmentId }
+      })
+    }
+    logger.info('Plaintiff notified that ranked attorneys were exhausted', { assessmentId, reason })
+    return true
+  } catch (err: unknown) {
+    logger.error('Failed to notify plaintiff of no attorney response', {
+      assessmentId,
+      error: (err as Error).message
+    })
+    return false
+  }
+}
+
+/**
  * Plaintiff notification when case value increases after document upload
  */
 export async function sendPlaintiffCaseValueUpdated(

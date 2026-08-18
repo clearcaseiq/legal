@@ -63,6 +63,7 @@ import publicBooking from './routes/public-booking'
 import calendarEvents from './routes/calendar-events'
 import calls from './routes/calls'
 import connectWebhook from './routes/connect-webhook'
+import { authLimiter, intakeLimiter, uploadLimiter } from './lib/rate-limits'
 
 /**
  * Fully configured Express app (no listen). Used by index.ts and integration tests.
@@ -70,7 +71,7 @@ import connectWebhook from './routes/connect-webhook'
 export function buildApp(): Express {
   const app = createServer()
 
-  app.use('/v1/auth', auth)
+  app.use('/v1/auth', authLimiter, auth)
   app.use('/v1/favorites', favorites)
   app.use('/v1/appointments', appointments)
   app.use('/v1/attorney-profiles', attorneyProfiles)
@@ -87,13 +88,13 @@ export function buildApp(): Express {
   app.use('/v1/attorney-register', attorneyRegister)
   app.use('/v1/attorney-claim', attorneyClaim)
   app.use('/v1/medical-providers', medicalProviders)
-  app.use('/v1/evidence', evidence)
+  app.use('/v1/evidence', uploadLimiter, evidence)
   app.use('/v1/consent', consent)
   app.use('/v1/chatgpt', chatgpt)
   app.use('/v1/incident-extraction', incidentExtraction)
-  app.use('/v1/auth', oauth)
+  app.use('/v1/auth', authLimiter, oauth)
   app.use('/v1/assessments', assessments)
-  app.use('/v1/intake-leads', intakeLeads)
+  app.use('/v1/intake-leads', intakeLimiter, intakeLeads)
   app.use('/v1/rose', rose)
   app.use('/v1/case-insights', caseInsights)
   app.use('/v1/case-routing', caseRouting)

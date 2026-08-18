@@ -975,6 +975,19 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
       .filter((attorneyId) => !dismissedAttorneyIds.includes(attorneyId))
       .slice(0, waveOneSize)
 
+    // Submitting routes the case to real attorneys and rewrites the contact
+    // details they will call, so it needs the same ownership test as reading the
+    // case. Without it, anyone holding the id could push a stranger's case into
+    // the network under their own phone number. Anonymous intake still submits,
+    // because a case with no account behind it is reachable by id by design.
+    const allowedToSubmit = await enforceAssessmentReadAccess({
+      assessmentId: id,
+      user: req.user,
+      res,
+      route: 'assessments.submit-for-review',
+    })
+    if (!allowedToSubmit) return
+
     const assessment = await prisma.assessment.findUnique({
       where: { id },
       include: {

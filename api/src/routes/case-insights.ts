@@ -14,6 +14,7 @@ import {
   getSettlementBenchmarks,
 } from '../lib/case-insights'
 import { optionalAuthMiddleware, AuthRequest } from '../lib/auth'
+import { enforceAssessmentReadAccess } from '../lib/assessment-access'
 import { logger } from '../lib/logger'
 import { maybeVerifyAttorneyReview } from '../lib/appointment-engagement'
 import { recomputeAttorneyRatingAggregates } from '../lib/attorney-rating-aggregates'
@@ -34,24 +35,32 @@ const PlaintiffMedicalReviewUpdate = z.object({
   })).optional(),
 })
 
+/**
+ * Every route here serves medical or valuation detail for one case, so they all
+ * gate on `enforceAssessmentReadAccess`.
+ *
+ * They previously each rolled their own check of the shape
+ * `assessment.userId && userId && assessment.userId !== userId`, which only
+ * rejects when the caller is signed in as somebody else. An unauthenticated
+ * caller has no `userId`, so the condition was false and the read went through —
+ * meaning a registered plaintiff's chronology was readable by anyone holding the
+ * assessment id. The shared guard distinguishes "no owner yet" (anonymous
+ * intake, still reachable by id) from "owned by an account" (401 without a
+ * session), which is the distinction the local checks were missing.
+ */
+
 // Medical chronology - visual injury timeline
 router.get('/assessments/:assessmentId/medical-chronology', optionalAuthMiddleware, async (req: AuthRequest, res) => {
   try {
     const { assessmentId } = req.params
-    const userId = req.user?.id
 
-    const assessment = await prisma.assessment.findUnique({
-      where: { id: assessmentId },
-      select: { userId: true }
+    const allowed = await enforceAssessmentReadAccess({
+      assessmentId,
+      user: req.user,
+      res,
+      route: 'case-insights.medical-chronology',
     })
-
-    if (!assessment) {
-      return res.status(404).json({ error: 'Assessment not found' })
-    }
-
-    if (assessment.userId && userId && assessment.userId !== userId) {
-      return res.status(403).json({ error: 'Unauthorized to view this assessment' })
-    }
+    if (!allowed) return
 
     const [chronology, summary] = await Promise.all([
       buildMedicalChronology(assessmentId),
@@ -67,20 +76,14 @@ router.get('/assessments/:assessmentId/medical-chronology', optionalAuthMiddlewa
 router.get('/assessments/:assessmentId/plaintiff-medical-review', optionalAuthMiddleware, async (req: AuthRequest, res) => {
   try {
     const { assessmentId } = req.params
-    const userId = req.user?.id
 
-    const assessment = await prisma.assessment.findUnique({
-      where: { id: assessmentId },
-      select: { userId: true },
+    const allowed = await enforceAssessmentReadAccess({
+      assessmentId,
+      user: req.user,
+      res,
+      route: 'case-insights.plaintiff-medical-review.read',
     })
-
-    if (!assessment) {
-      return res.status(404).json({ error: 'Assessment not found' })
-    }
-
-    if (assessment.userId && userId && assessment.userId !== userId) {
-      return res.status(403).json({ error: 'Unauthorized to view this assessment' })
-    }
+    if (!allowed) return
 
     const review = await buildPlaintiffMedicalReview(assessmentId)
     res.json(review)
@@ -93,7 +96,6 @@ router.get('/assessments/:assessmentId/plaintiff-medical-review', optionalAuthMi
 router.post('/assessments/:assessmentId/plaintiff-medical-review', optionalAuthMiddleware, async (req: AuthRequest, res) => {
   try {
     const { assessmentId } = req.params
-    const userId = req.user?.id
     const parsed = PlaintiffMedicalReviewUpdate.safeParse(req.body)
 
     if (!parsed.success) {
@@ -103,17 +105,21 @@ router.post('/assessments/:assessmentId/plaintiff-medical-review', optionalAuthM
       })
     }
 
+    const allowed = await enforceAssessmentReadAccess({
+      assessmentId,
+      user: req.user,
+      res,
+      route: 'case-insights.plaintiff-medical-review.write',
+    })
+    if (!allowed) return
+
     const assessment = await prisma.assessment.findUnique({
       where: { id: assessmentId },
-      select: { userId: true, facts: true },
+      select: { facts: true },
     })
 
     if (!assessment) {
       return res.status(404).json({ error: 'Assessment not found' })
-    }
-
-    if (assessment.userId && userId && assessment.userId !== userId) {
-      return res.status(403).json({ error: 'Unauthorized to update this assessment' })
     }
 
     let facts: Record<string, unknown> = {}
@@ -157,20 +163,14 @@ router.post('/assessments/:assessmentId/plaintiff-medical-review', optionalAuthM
 router.get('/assessments/:assessmentId/case-preparation', optionalAuthMiddleware, async (req: AuthRequest, res) => {
   try {
     const { assessmentId } = req.params
-    const userId = req.user?.id
 
-    const assessment = await prisma.assessment.findUnique({
-      where: { id: assessmentId },
-      select: { userId: true }
+    const allowed = await enforceAssessmentReadAccess({
+      assessmentId,
+      user: req.user,
+      res,
+      route: 'case-insights.case-preparation',
     })
-
-    if (!assessment) {
-      return res.status(404).json({ error: 'Assessment not found' })
-    }
-
-    if (assessment.userId && userId && assessment.userId !== userId) {
-      return res.status(403).json({ error: 'Unauthorized to view this assessment' })
-    }
+    if (!allowed) return
 
     const preparation = await computeCasePreparation(assessmentId)
     res.json(preparation)
@@ -184,20 +184,14 @@ router.get('/assessments/:assessmentId/case-preparation', optionalAuthMiddleware
 router.get('/assessments/:assessmentId/settlement-benchmarks', optionalAuthMiddleware, async (req: AuthRequest, res) => {
   try {
     const { assessmentId } = req.params
-    const userId = req.user?.id
 
-    const assessment = await prisma.assessment.findUnique({
-      where: { id: assessmentId },
-      select: { userId: true }
+    const allowed = await enforceAssessmentReadAccess({
+      assessmentId,
+      user: req.user,
+      res,
+      route: 'case-insights.settlement-benchmarks',
     })
-
-    if (!assessment) {
-      return res.status(404).json({ error: 'Assessment not found' })
-    }
-
-    if (assessment.userId && userId && assessment.userId !== userId) {
-      return res.status(403).json({ error: 'Unauthorized to view this assessment' })
-    }
+    if (!allowed) return
 
     const benchmarks = await getSettlementBenchmarks(assessmentId)
     res.json({ benchmarks })
@@ -217,16 +211,14 @@ const PlaintiffSatisfactionUpdate = z.object({
 router.get('/assessments/:assessmentId/satisfaction', optionalAuthMiddleware, async (req: AuthRequest, res) => {
   try {
     const { assessmentId } = req.params
-    const userId = req.user?.id
 
-    const assessment = await prisma.assessment.findUnique({
-      where: { id: assessmentId },
-      select: { userId: true },
+    const allowed = await enforceAssessmentReadAccess({
+      assessmentId,
+      user: req.user,
+      res,
+      route: 'case-insights.satisfaction.read',
     })
-    if (!assessment) return res.status(404).json({ error: 'Assessment not found' })
-    if (assessment.userId && userId && assessment.userId !== userId) {
-      return res.status(403).json({ error: 'Unauthorized to view this assessment' })
-    }
+    if (!allowed) return
 
     const memory = await prisma.decisionMemory.findFirst({
       where: { assessmentId },
@@ -253,14 +245,13 @@ router.post('/assessments/:assessmentId/satisfaction', optionalAuthMiddleware, a
       return res.status(400).json({ error: 'Invalid satisfaction payload', details: parsed.error.flatten() })
     }
 
-    const assessment = await prisma.assessment.findUnique({
-      where: { id: assessmentId },
-      select: { userId: true },
+    const allowed = await enforceAssessmentReadAccess({
+      assessmentId,
+      user: req.user,
+      res,
+      route: 'case-insights.satisfaction.write',
     })
-    if (!assessment) return res.status(404).json({ error: 'Assessment not found' })
-    if (assessment.userId && userId && assessment.userId !== userId) {
-      return res.status(403).json({ error: 'Unauthorized to update this assessment' })
-    }
+    if (!allowed) return
 
     const lead = await prisma.leadSubmission.findFirst({
       where: { assessmentId },

@@ -21,6 +21,18 @@ function resumeUrl(leadId: string): string {
   return webUrl(`/assess?lead=${encodeURIComponent(leadId)}`)
 }
 
+/**
+ * Whether a lead is still inside its resume window.
+ *
+ * The lead id is a bearer credential handed out in an email link, so the window
+ * has to bound writes as well as reads. Only the read path enforced it, which
+ * left an unauthenticated caller able to keep overwriting a stale lead's saved
+ * contact details and answers indefinitely.
+ */
+function isResumeWindowOpen(lead: { updatedAt: Date }): boolean {
+  return Date.now() <= lead.updatedAt.getTime() + RESUME_LINK_TTL_HOURS * 60 * 60_000
+}
+
 function resultsUrl(assessmentId: string): string {
   return webUrl(`/results/${encodeURIComponent(assessmentId)}`)
 }
@@ -91,6 +103,34 @@ function serializeSnapshot(snapshot: unknown): string | undefined {
   return json
 }
 
+/**
+ * Steps kept per lead. Enough for the longest branch several times over, and
+ * bounded so a client that re-sends a step cannot grow the row without limit.
+ */
+const MAX_STEP_HISTORY = 60
+
+/**
+ * Append a step to the lead's history.
+ *
+ * The wizard reports the step it just moved to, so appending on change gives a
+ * timestamped path through the funnel: which steps a claimant reached, in what
+ * order, and how long each one held them. Only `currentStep` was stored before,
+ * which shows the abandonment point but nothing about the journey to it.
+ */
+function appendStepHistory(existing: string | null | undefined, step: string): string {
+  let history: Array<{ step: string; at: string }> = []
+  if (existing) {
+    try {
+      const parsed = JSON.parse(existing)
+      if (Array.isArray(parsed)) history = parsed
+    } catch {
+      history = []
+    }
+  }
+  history.push({ step, at: new Date().toISOString() })
+  return JSON.stringify(history.slice(-MAX_STEP_HISTORY))
+}
+
 // Create a partial intake lead (no auth: the plaintiff has not registered yet).
 router.post('/', async (req, res) => {
   try {
@@ -111,6 +151,7 @@ router.post('/', async (req, res) => {
         venueState: venueState || null,
         venueCounty: venueCounty || null,
         currentStep: currentStep || null,
+        stepHistory: currentStep ? appendStepHistory(null, currentStep) : null,
         formSnapshot: serializeSnapshot(formSnapshot) ?? null,
         assessmentId: assessmentId || null,
         status: status || 'in_progress',
@@ -145,9 +186,21 @@ router.patch('/:id', async (req, res) => {
     if (!existing) {
       return res.status(404).json({ error: 'Lead not found' })
     }
+    if (!isResumeWindowOpen(existing)) {
+      logger.info('Expired intake lead write attempted', { leadId: existing.id })
+      return res.status(410).json({ error: 'This resume link has expired. Please start a new assessment.' })
+    }
 
     const { email, phone, injuryType, venueState, venueCounty, currentStep, formSnapshot, assessmentId, status } = parsed.data
     const snapshot = serializeSnapshot(formSnapshot)
+
+    // The assessment link is write-once. Re-pointing it would let a caller graft
+    // somebody else's finished case onto this lead, which then drives the
+    // report-ready email and the account that gets provisioned from it.
+    if (assessmentId && existing.assessmentId && existing.assessmentId !== assessmentId) {
+      logger.warn('Rejected intake lead assessment relink', { leadId: existing.id })
+      return res.status(409).json({ error: 'This assessment is already linked to another intake.' })
+    }
 
     const lead = await prisma.intakeLead.update({
       where: { id: existing.id },
@@ -158,6 +211,11 @@ router.patch('/:id', async (req, res) => {
         ...(venueState !== undefined ? { venueState } : {}),
         ...(venueCounty !== undefined ? { venueCounty } : {}),
         ...(currentStep !== undefined ? { currentStep } : {}),
+        // Only on an actual change: the wizard re-sends the same step on every
+        // autosave, which would otherwise fill the history with duplicates.
+        ...(currentStep && currentStep !== existing.currentStep
+          ? { stepHistory: appendStepHistory(existing.stepHistory, currentStep) }
+          : {}),
         ...(snapshot !== undefined ? { formSnapshot: snapshot } : {}),
         ...(assessmentId !== undefined ? { assessmentId } : {}),
         ...(status !== undefined ? { status } : {}),
@@ -198,8 +256,7 @@ router.get('/:id', async (req, res) => {
     }
 
     // Expire stale/forwarded links so saved PII isn't resurfaced indefinitely.
-    const expiresAt = lead.updatedAt.getTime() + RESUME_LINK_TTL_HOURS * 60 * 60_000
-    if (Date.now() > expiresAt) {
+    if (!isResumeWindowOpen(lead)) {
       logger.info('Expired intake resume link accessed', { leadId: lead.id })
       return res.status(410).json({ error: 'This resume link has expired. Please start a new assessment.' })
     }

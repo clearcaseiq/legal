@@ -1,6 +1,6 @@
 import { clearStoredAuth, getLoginRedirect } from './auth'
 import { apiDebug } from './debug'
-import { getApiOrigin, isLocalDevWebHost } from './runtimeEnv'
+import { getApiOrigin } from './runtimeEnv'
 
 // Resolve per request (same-origin proxy on local/LAN). Keep a `baseURL`
 // binding — Fast Refresh previously left in-flight modules evaluating the
@@ -68,9 +68,8 @@ function isTransientError(error: ApiError): boolean {
   if (status === 502 || status === 503 || status === 504) return true
   // A request timeout we triggered ourselves.
   if (error.code === 'ECONNABORTED') return true
-  // No response at all (network drop, CORS blip, connection reset) — but not
-  // our own pre-flight configuration error, which won't recover on retry.
-  if (!error.response && error.code !== 'API_CONFIG') return true
+  // No response at all (network drop, CORS blip, connection reset).
+  if (!error.response) return true
   return false
 }
 
@@ -183,22 +182,18 @@ async function request<T = any>(method: string, url: string, data?: unknown, con
     timeout: config.timeout ?? DEFAULT_TIMEOUT,
   }
 
+  // An empty baseURL means same-origin `/v1`, which is now the intended
+  // configuration everywhere rather than a misconfiguration.
+  //
+  // This used to throw "NEXT_PUBLIC_API_URL is not configured … set it in
+  // Amplify" whenever the origin resolved empty on a non-local host. That was
+  // correct when the web app was built per-environment with the API hostname
+  // baked in. The web image is now environment-agnostic: `NEXT_PUBLIC_API_URL`
+  // is deliberately unset, `getApiOrigin()` returns '' by design, and nginx
+  // proxies `/v1` and `/uploads` to the API on whichever host is serving. The
+  // guard therefore fired on exactly the setup it was meant to protect, and
+  // blocked every request in production — including sign-in.
   baseURL = resolveBaseUrl()
-  // In `next dev`, empty baseURL means same-origin `/v1` rewrites — never treat
-  // that as a missing Amplify config (machine hostnames like DESKTOP-xxx are
-  // common locally and are not private-LAN IPs).
-  if (
-    typeof window !== 'undefined' &&
-    process.env.NODE_ENV !== 'development' &&
-    !requestConfig.baseURL &&
-    !baseURL &&
-    !isLocalDevWebHost(window.location.hostname) &&
-    url.startsWith('/v1/')
-  ) {
-    const message = 'NEXT_PUBLIC_API_URL is not configured for this deployment. Set it to your API origin in Amplify.'
-    console.error(`❌ API configuration error: ${message}`)
-    throw createApiError(message, requestConfig, { url, method: method.toUpperCase() }, { code: 'API_CONFIG' })
-  }
 
   let body: BodyInit | undefined
   if (isFormData(data)) {

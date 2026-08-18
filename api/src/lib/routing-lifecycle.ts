@@ -8,7 +8,8 @@ import { logger } from './logger'
 import {
   sendPlaintiffAttorneyAccepted,
   sendPlaintiffBatchApprovalRequest,
-  sendPlaintiffManualReviewNeeded
+  sendPlaintiffManualReviewNeeded,
+  sendPlaintiffNoAttorneyResponse
 } from './case-notifications'
 import { getAttorneyResponseDeadlineMinutes, getConfiguredWaveSize, getConfiguredWaveWaitHours, getMatchingRules } from './matching-rules-config'
 import { assertShareAuthorization, recordShareAuthorization } from './share-authorization'
@@ -718,6 +719,23 @@ export async function syncDecisionMemoryForAssessment(params: {
   }
 }
 
+/**
+ * Manual review reasons that mean attorneys were actually approached and none
+ * took the case.
+ *
+ * These earn the specific "no attorney response" message rather than the generic
+ * manual-review one, because the claimant needs to know their chosen attorneys
+ * are exhausted rather than that some unnamed check is pending. The reasons left
+ * out are deliberately excluded: a fraud or eligibility gate means the case never
+ * went out, and `plaintiff_declined_further_attorneys` means the claimant is the
+ * one who stopped it.
+ */
+const NO_ATTORNEY_RESPONSE_REASONS = new Set([
+  'plaintiff_ranked_routing_exhausted',
+  'plaintiff_approved_batch_not_routable',
+  'routing_timeout'
+])
+
 export async function placeAssessmentInManualReview(
   assessmentId: string,
   reason: string,
@@ -764,7 +782,11 @@ export async function placeAssessmentInManualReview(
       })
     ])
     await recordRoutingEvent(assessmentId, null, null, 'manual_review_needed', { reason, note })
-    await sendPlaintiffManualReviewNeeded(assessmentId, reason, note)
+    if (NO_ATTORNEY_RESPONSE_REASONS.has(reason)) {
+      await sendPlaintiffNoAttorneyResponse(assessmentId, reason)
+    } else {
+      await sendPlaintiffManualReviewNeeded(assessmentId, reason, note)
+    }
   } catch (err: unknown) {
     logger.error('Failed to place assessment in manual review', {
       assessmentId,

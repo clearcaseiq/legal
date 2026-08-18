@@ -85,6 +85,12 @@ function formatDate(value?: string) {
   })
 }
 
+/**
+ * Cases polled for derived notifications on each refresh. Two requests per case
+ * every 60s, so this bounds the fan-out for the rare account with many claims.
+ */
+const MAX_TRACKED_CASES = 5
+
 export default function PlaintiffNotificationsBell() {
   const navigate = useNavigate()
   const [open, setOpen] = useState(false)
@@ -101,9 +107,17 @@ export default function PlaintiffNotificationsBell() {
       // even when the derived sources below have nothing to say.
       const feed = await getPlaintiffNotifications().catch(() => null)
 
+      // Derived items were read from `assessments[0]` alone, so a claimant with
+      // more than one case saw the first case's routing and document requests no
+      // matter which case the alert was really about. Every case is polled, and
+      // the derived keys carry the case id so two cases cannot collapse into one
+      // row.
       const assessments = await listAssessments()
-      const assessmentId = Array.isArray(assessments) && assessments.length > 0 ? assessments[0]?.id : null
-      if (!assessmentId) {
+      const assessmentIds = (Array.isArray(assessments) ? assessments : [])
+        .map((a) => a?.id)
+        .filter((id): id is string => Boolean(id))
+        .slice(0, MAX_TRACKED_CASES)
+      if (assessmentIds.length === 0) {
         setNotifications(
           (feed?.notifications || []).map((n) => ({
             key: `n:${n.id}`,
@@ -118,19 +132,29 @@ export default function PlaintiffNotificationsBell() {
         return
       }
 
-      const [routing, docs] = await Promise.all([
-        getRoutingStatus(assessmentId).catch(() => null),
-        getPlaintiffDocumentRequests(assessmentId).catch(() => null),
-      ])
+      const cases = await Promise.all(
+        assessmentIds.map(async (id) => {
+          const [routing, docs] = await Promise.all([
+            getRoutingStatus(id).catch(() => null),
+            getPlaintiffDocumentRequests(id).catch(() => null),
+          ])
+          return { id, routing, docs }
+        }),
+      )
 
       // Hide obsolete "approve next attorneys" items once a case is matched /
       // retained (the API also filters these; this covers older API processes).
-      const casePastBatchApproval = Boolean(
-        routing?.attorneyMatched ||
-          routing?.leadStatus === 'retained' ||
-          ['engaged', 'attorney_matched', 'consultation_scheduled'].includes(
-            String(routing?.lifecycleState || ''),
-          ),
+      // Only suppress when every case has moved past it, since the server feed
+      // does not say which case a notification belongs to and a second case may
+      // still be genuinely waiting on approval.
+      const casePastBatchApproval = cases.every(({ routing }) =>
+        Boolean(
+          routing?.attorneyMatched ||
+            routing?.leadStatus === 'retained' ||
+            ['engaged', 'attorney_matched', 'consultation_scheduled'].includes(
+              String(routing?.lifecycleState || ''),
+            ),
+        ),
       )
       const serverItems: PlaintiffNotification[] = (feed?.notifications || [])
         .filter((n) => {
@@ -149,65 +173,67 @@ export default function PlaintiffNotificationsBell() {
 
       const next: PlaintiffNotification[] = [...serverItems]
 
-      if (routing?.attorneyMatched) {
-        const matched = routing.attorneyMatched as typeof routing.attorneyMatched & {
-          claimType?: string | null
-          acceptedAt?: string | null
-        }
-        const name = matched.name || 'An attorney'
-        // Name the case and say when, so a plaintiff with more than one claim can
-        // tell which acceptance this is (CP-437).
-        const detail = [matched.claimType ? claimLabel(matched.claimType) : null, matched.firmName]
-          .filter(Boolean)
-          .join(' · ')
-        next.push({
-          key: `matched:${matched.id}`,
-          kind: 'matched',
-          title: `${name} accepted your case`,
-          detail: detail || undefined,
-          timeAgo: formatDate(matched.acceptedAt || undefined),
-          href: '/dashboard',
-        })
-      }
-
-      if (routing?.upcomingAppointment) {
-        const appt = routing.upcomingAppointment
-        next.push({
-          key: `appt:${appt.id}`,
-          kind: 'appointment',
-          title: 'Consultation scheduled',
-          detail: `${appt.attorney?.name ? `${appt.attorney.name} · ` : ''}${formatDate(appt.scheduledAt)}`,
-          href: '/dashboard',
-        })
-      }
-
-      if (Array.isArray(routing?.attorneyActivity)) {
-        routing.attorneyActivity.forEach((activity: { type?: string; message: string; timeAgo?: string }) => {
-          if (!activity?.message) return
+      for (const { id: caseId, routing, docs } of cases) {
+        if (routing?.attorneyMatched) {
+          const matched = routing.attorneyMatched as typeof routing.attorneyMatched & {
+            claimType?: string | null
+            acceptedAt?: string | null
+          }
+          const name = matched.name || 'An attorney'
+          // Name the case and say when, so a plaintiff with more than one claim can
+          // tell which acceptance this is (CP-437).
+          const detail = [matched.claimType ? claimLabel(matched.claimType) : null, matched.firmName]
+            .filter(Boolean)
+            .join(' · ')
           next.push({
-            key: `activity:${activity.message}`,
-            kind: 'activity',
-            title: activity.message,
-            timeAgo: activity.timeAgo,
+            key: `matched:${caseId}:${matched.id}`,
+            kind: 'matched',
+            title: `${name} accepted your case`,
+            detail: detail || undefined,
+            timeAgo: formatDate(matched.acceptedAt || undefined),
             href: '/dashboard',
           })
-        })
-      }
+        }
 
-      const requests = Array.isArray(docs?.requests) ? docs.requests : []
-      requests
-        .filter((req) => (req.remainingDocs?.length ?? 0) > 0 && req.rawStatus !== 'completed')
-        .forEach((req) => {
-          const attorneyName = req.attorney?.name || 'Your attorney'
-          const count = req.remainingDocs?.length ?? 0
+        if (routing?.upcomingAppointment) {
+          const appt = routing.upcomingAppointment
           next.push({
-            key: `doc:${req.id}:${count}`,
-            kind: 'document',
-            title: `${attorneyName} requested ${count} document${count === 1 ? '' : 's'}`,
-            detail: req.remainingDocs?.slice(0, 3).join(', '),
-            href: '/dashboard?tab=tasks',
+            key: `appt:${caseId}:${appt.id}`,
+            kind: 'appointment',
+            title: 'Consultation scheduled',
+            detail: `${appt.attorney?.name ? `${appt.attorney.name} · ` : ''}${formatDate(appt.scheduledAt)}`,
+            href: '/dashboard',
           })
-        })
+        }
+
+        if (Array.isArray(routing?.attorneyActivity)) {
+          routing.attorneyActivity.forEach((activity: { type?: string; message: string; timeAgo?: string }) => {
+            if (!activity?.message) return
+            next.push({
+              key: `activity:${caseId}:${activity.message}`,
+              kind: 'activity',
+              title: activity.message,
+              timeAgo: activity.timeAgo,
+              href: '/dashboard',
+            })
+          })
+        }
+
+        const requests = Array.isArray(docs?.requests) ? docs.requests : []
+        requests
+          .filter((req) => (req.remainingDocs?.length ?? 0) > 0 && req.rawStatus !== 'completed')
+          .forEach((req) => {
+            const attorneyName = req.attorney?.name || 'Your attorney'
+            const count = req.remainingDocs?.length ?? 0
+            next.push({
+              key: `doc:${caseId}:${req.id}:${count}`,
+              kind: 'document',
+              title: `${attorneyName} requested ${count} document${count === 1 ? '' : 's'}`,
+              detail: req.remainingDocs?.slice(0, 3).join(', '),
+              href: '/dashboard?tab=tasks',
+            })
+          })
+      }
 
       setNotifications(next)
     } catch {
