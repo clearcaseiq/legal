@@ -219,7 +219,7 @@ curl -X POST http://localhost:4000/v1/predict \
 pnpm build
 
 # Start production services
-docker-compose -f docker-compose.prod.yml up
+docker-compose -f docker-compose.deploy.yml up
 ```
 
 ### Environment Variables

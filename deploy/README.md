@@ -1,6 +1,6 @@
-# ClearCaseIQ Production Deployment
+# ClearCaseIQ Deployment
 
-This deployment runs ClearCaseIQ on one EC2 host with Docker Compose:
+Each environment runs on one EC2 host with Docker Compose:
 
 - `web`: Next.js frontend on internal port `3000`
 - `api`: Express API on internal port `4000`
@@ -8,11 +8,116 @@ This deployment runs ClearCaseIQ on one EC2 host with Docker Compose:
 
 Postgres is managed (RDS), not a container. See [Database](#database).
 
-Public hosts:
+## Environments
 
-- `https://www.clearcaseiq.com` -> Next.js frontend
-- `https://clearcaseiq.com` -> redirects to `www`
-- `https://api.clearcaseiq.com` -> Express API
+One compose file serves both. Which environment you get comes entirely from the
+env file you pass:
+
+```bash
+docker compose -f docker-compose.deploy.yml --env-file .env.prod up -d   # production
+docker compose -f docker-compose.deploy.yml --env-file .env.qa   up -d   # QA
+```
+
+| | Production | QA |
+| --- | --- | --- |
+| Web | `https://www.clearcaseiq.com` (apex redirects to `www`) | `https://qa.clearcaseiq.com` |
+| API | `https://api.clearcaseiq.com` | `https://api-qa.clearcaseiq.com` |
+| nginx config | `deploy/nginx/prod.conf` | `deploy/nginx/qa.conf` |
+| Env file | `.env.prod` | `.env.qa` |
+| Database | its own RDS instance | its own RDS instance |
+| Indexable | yes | no — `SEARCH_ENGINE_INDEXING=disabled` |
+| Outbound email/SMS | live | off by omission |
+
+This replaced `docker-compose.prod.yml`, which hardcoded the production
+hostnames in its `environment:` and `args:` blocks. Compose gives those
+precedence over `env_file:`, so a QA host reading `.env.qa` would still have
+come up talking to production — and because the API entrypoint runs
+`prisma db push` on boot, the first thing it would have done is push QA's schema
+into the production database.
+
+Nothing in the compose file names an environment now. The values that would be
+dangerous to guess are declared `:?`, so a missing one stops the stack with the
+variable's name instead of falling back.
+
+**Upgrading an existing host:** `.env.prod` predates this split and will be
+missing `DEPLOY_ENV`, `SITE_URL` and possibly `DATABASE_URL`. Add them from
+`.env.prod.example` before the first `up`, or the stack refuses to start.
+
+**Standing QA up for the first time:** see
+[`docs/QA_ENVIRONMENT.md`](../docs/QA_ENVIRONMENT.md) for the AWS resources, DNS
+and certificate steps, three of which are order-sensitive.
+
+### Why the browser no longer calls the API cross-origin
+
+The web image used to take `NEXT_PUBLIC_API_URL` as a build arg. Next inlines
+`NEXT_PUBLIC_*` at build time, so that compiled one environment's API hostname
+into the bundle and made the image unpromotable — QA and production could not
+run the same artifact, which is most of the reason to have a QA tier.
+
+The build arg is gone. `getApiOrigin()` in `app/src/lib/runtimeEnv.ts` falls back
+to same-origin when it is unset, and nginx proxies `/v1` and `/uploads` straight
+to the API on whichever host is serving. One image runs anywhere, and CORS no
+longer applies to the browser at all — `CORS_ORIGINS` now covers only the
+extension and partner embeds.
+
+`SITE_URL` moved the same way, from a build arg to a runtime variable read by
+`app/src/lib/siteConfig.ts`, because robots.txt, sitemap.xml and the canonical
+tags are all rendered server-side.
+
+## Images
+
+`.github/workflows/images.yml` builds `api` and `web` once per commit to `main`
+and pushes them to ECR tagged with the commit SHA. Both hosts pull the same tag,
+so promoting QA to production is a retag of an artifact that has already been
+tested rather than a rebuild from a git ref on a different machine.
+
+It also keeps builds off the hosts. They were building in place after a
+`git pull`, and the production box has already hit `ENOSPC` doing it.
+
+One-time AWS setup:
+
+```bash
+aws ecr create-repository --repository-name clearcaseiq-api
+aws ecr create-repository --repository-name clearcaseiq-web
+```
+
+Then create an IAM role GitHub can assume via OIDC — no long-lived AWS keys in
+GitHub secrets. Its trust policy must restrict the
+`token.actions.githubusercontent.com` provider to this repository, or any repo
+on GitHub can assume it. Set its ARN as the `AWS_ECR_ROLE_ARN` secret, alongside
+`NEXT_PUBLIC_GA_MEASUREMENT_ID`, `NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION` and
+`NEXT_PUBLIC_BING_SITE_VERIFICATION`.
+
+To deploy a published image, point the env file at it and pull rather than
+build:
+
+```bash
+export REGISTRY=<account>.dkr.ecr.us-east-1.amazonaws.com
+export TAG=<commit-sha>            # from the workflow's run summary
+
+# In .env.prod / .env.qa:
+#   API_IMAGE=$REGISTRY/clearcaseiq-api:$TAG
+#   WEB_IMAGE=$REGISTRY/clearcaseiq-web:$TAG
+
+aws ecr get-login-password | docker login --username AWS --password-stdin "$REGISTRY"
+docker compose -f docker-compose.deploy.yml --env-file .env.prod pull
+docker compose -f docker-compose.deploy.yml --env-file .env.prod up -d
+```
+
+Set the **same** `TAG` in both env files when promoting. The `build:` blocks are
+still present and used only by `docker compose build`, which remains the local
+and break-glass path.
+
+### Why analytics is off outside production
+
+The GA measurement id is a `NEXT_PUBLIC_*` value, so Next inlines it at build
+time and one promotable image necessarily carries production's id everywhere it
+runs. Left alone, QA would report its own test traffic into the production GA
+property and quietly corrupt the numbers the site is measured on.
+
+`SEARCH_ENGINE_INDEXING=disabled` therefore also clears `publicPage`, which is
+what gates `SiteAnalytics`. Same rule as indexing: a deployment that is not the
+public site does not behave as the public site.
 
 ## First-Time EC2 Setup
 
@@ -34,30 +139,50 @@ Log out and back in after adding the Docker group.
 
 ## Environment
 
-Create production env file:
+Create the env file for the environment this host serves:
 
 ```bash
-cp .env.prod.example .env.prod
+cp .env.prod.example .env.prod   # or: cp .env.qa.example .env.qa
 nano .env.prod
 ```
 
-Set real secrets. Do not commit `.env.prod`.
+Set real secrets. Do not commit either file.
+
+Do **not** build `.env.qa` by copying `.env.prod`. Two values are actively
+dangerous carried over:
+
+- `DATABASE_URL` — the API runs `prisma db push` on every boot, so QA holding
+  production's URL pushes schema changes into production.
+- `EMAIL_PROVIDER` — `EMAIL_PROVIDER=ses` *forces* SES even with no from-address
+  set. Left empty (as in `.env.qa.example`), `resolveEmailProvider()` returns
+  `none` and nothing is sent. That omission is the whole mechanism keeping QA
+  from emailing real claimants, so it is worth confirming rather than assuming.
+
+`JWT_SECRET` must also differ, or a token minted in QA is valid in production.
 
 ## SSL Certificate
 
 Before starting the full SSL Nginx config, obtain a certificate. If ports 80/443 are free:
 
 ```bash
+# Production host
 sudo certbot certonly --standalone \
   -d clearcaseiq.com \
   -d www.clearcaseiq.com \
   -d api.clearcaseiq.com
+
+# QA host
+sudo certbot certonly --standalone \
+  -d qa.clearcaseiq.com \
+  -d api-qa.clearcaseiq.com
 ```
 
-Certificates will be stored under:
+Certificates are stored under the first `-d` name, which is what the nginx
+config for that environment expects:
 
 ```bash
-/etc/letsencrypt/live/clearcaseiq.com/
+/etc/letsencrypt/live/clearcaseiq.com/      # prod.conf
+/etc/letsencrypt/live/qa.clearcaseiq.com/   # qa.conf
 ```
 
 ## Build and Start
@@ -65,8 +190,8 @@ Certificates will be stored under:
 ```bash
 export GIT_COMMIT=$(git rev-parse --short HEAD)
 export BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-docker compose -f docker-compose.prod.yml --env-file .env.prod build
-docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
+docker compose -f docker-compose.deploy.yml --env-file .env.prod build
+docker compose -f docker-compose.deploy.yml --env-file .env.prod up -d
 ```
 
 The two exports stamp both images with what they were built from, which the admin
@@ -78,7 +203,7 @@ Build both services together, or check afterwards that they agree:
 
 ```bash
 for s in api web; do
-  echo "$s: $(docker compose -f docker-compose.prod.yml --env-file .env.prod \
+  echo "$s: $(docker compose -f docker-compose.deploy.yml --env-file .env.prod \
     exec -T $s printenv GIT_COMMIT)"
 done
 ```
@@ -98,7 +223,7 @@ box whose schema you are part-way through repairing.
 If the container exits on boot, read the push output for the reason:
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.prod logs api | grep -A20 entrypoint
+docker compose -f docker-compose.deploy.yml --env-file .env.prod logs api | grep -A20 entrypoint
 ```
 
 ### When push refuses a change
@@ -114,7 +239,7 @@ by hand once. Afterwards `db push` sees no difference and the container boots
 normally. To apply one:
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.prod run --rm -T \
+docker compose -f docker-compose.deploy.yml --env-file .env.prod run --rm -T \
   --entrypoint sh api \
   -c 'node ../node_modules/prisma/build/index.js db execute --schema=prisma/schema.prisma --stdin' \
   < api/prisma/migrations/<folder>/migration.sql
@@ -133,7 +258,7 @@ database.
 ## Verify
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.prod ps
+docker compose -f docker-compose.deploy.yml --env-file .env.prod ps
 curl -s https://api.clearcaseiq.com/health/ready
 curl -I https://www.clearcaseiq.com
 curl -I https://clearcaseiq.com
@@ -153,9 +278,9 @@ nothing loads.
 ## Logs
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.prod logs -f nginx
-docker compose -f docker-compose.prod.yml --env-file .env.prod logs -f web
-docker compose -f docker-compose.prod.yml --env-file .env.prod logs -f api
+docker compose -f docker-compose.deploy.yml --env-file .env.prod logs -f nginx
+docker compose -f docker-compose.deploy.yml --env-file .env.prod logs -f web
+docker compose -f docker-compose.deploy.yml --env-file .env.prod logs -f api
 ```
 
 ## Redeploy
@@ -164,8 +289,8 @@ docker compose -f docker-compose.prod.yml --env-file .env.prod logs -f api
 git pull
 export GIT_COMMIT=$(git rev-parse --short HEAD)
 export BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-docker compose -f docker-compose.prod.yml --env-file .env.prod build
-docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
+docker compose -f docker-compose.deploy.yml --env-file .env.prod build
+docker compose -f docker-compose.deploy.yml --env-file .env.prod up -d
 ```
 
 Confirm the new build is live on **Admin → System Status**: the commit shown

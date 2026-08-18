@@ -5,7 +5,20 @@ import { prisma } from '../lib/prisma'
 import { logger } from '../lib/logger'
 import path from 'path'
 import fs from 'fs'
+import { authMiddleware, optionalAuthMiddleware, type AuthRequest } from '../lib/auth'
+import { enforceAssessmentReadAccess } from '../lib/assessment-access'
 
+/**
+ * Legacy generic file store, kept for API compatibility (see
+ * docs/FUNCTIONAL_SPECIFICATION.md). Claimant evidence goes through
+ * `/v1/evidence`, which is where the real classification and OCR pipeline lives.
+ *
+ * Every route here was previously unauthenticated. `GET /assessment/:id` in
+ * particular listed the documents attached to any case to any caller, which
+ * paired with the anonymous assessment list to turn a case id into a document
+ * inventory. Reads now go through the same `enforceAssessmentReadAccess` gate as
+ * the rest of the case surface, and writes require a session.
+ */
 const router = Router()
 
 // Configure multer for file uploads
@@ -42,8 +55,9 @@ const upload = multer({
   }
 })
 
-// Upload file
-router.post('/upload', upload.single('file'), async (req, res) => {
+// Upload file. Anonymous intake uploads go to `/v1/evidence`, which has its own
+// guest handling, so this path requires a session.
+router.post('/upload', authMiddleware, upload.single('file'), async (req: AuthRequest, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' })
@@ -96,7 +110,7 @@ router.post('/upload', upload.single('file'), async (req, res) => {
 })
 
 // Get file status
-router.get('/:fileId', async (req, res) => {
+router.get('/:fileId', optionalAuthMiddleware, async (req: AuthRequest, res) => {
   try {
     const { fileId } = req.params
     
@@ -106,6 +120,25 @@ router.get('/:fileId', async (req, res) => {
     
     if (!file) {
       return res.status(404).json({ error: 'File not found' })
+    }
+
+    // A file with no assessment is an orphan from an aborted upload and belongs
+    // to no case, so there is no owner to check it against — only an admin can
+    // read one. Otherwise the case's access rules decide.
+    if (!file.assessmentId) {
+      if (req.user?.role !== 'admin') {
+        return res.status(req.user ? 403 : 401).json({
+          error: req.user ? 'Not authorized to view this file' : 'Authentication required',
+        })
+      }
+    } else {
+      const permitted = await enforceAssessmentReadAccess({
+        assessmentId: file.assessmentId,
+        user: req.user,
+        res,
+        route: 'GET /v1/files/:fileId',
+      })
+      if (!permitted) return
     }
 
     res.json({
@@ -123,10 +156,18 @@ router.get('/:fileId', async (req, res) => {
 })
 
 // List files for an assessment
-router.get('/assessment/:assessmentId', async (req, res) => {
+router.get('/assessment/:assessmentId', optionalAuthMiddleware, async (req: AuthRequest, res) => {
   try {
     const { assessmentId } = req.params
-    
+
+    const permitted = await enforceAssessmentReadAccess({
+      assessmentId,
+      user: req.user,
+      res,
+      route: 'GET /v1/files/assessment/:assessmentId',
+    })
+    if (!permitted) return
+
     const files = await prisma.file.findMany({
       where: { assessmentId },
       orderBy: { createdAt: 'desc' }

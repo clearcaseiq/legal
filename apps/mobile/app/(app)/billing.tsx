@@ -1,9 +1,10 @@
 import { useCallback, useMemo, useState } from 'react'
-import { View, Text, FlatList, StyleSheet, RefreshControl } from 'react-native'
-import { useFocusEffect, useLocalSearchParams } from 'expo-router'
+import { View, Text, FlatList, StyleSheet, RefreshControl, TouchableOpacity } from 'react-native'
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import {
   getApiErrorMessage,
+  getFilteredAttorneyLeads,
   getLeadInvoices,
   getLeadPayments,
   type BillingInvoice,
@@ -12,6 +13,7 @@ import {
 import { InlineErrorBanner } from '../../src/components/InlineErrorBanner'
 import { ScreenState } from '../../src/components/ScreenState'
 import { DomainBreadcrumb } from '../../src/components/DomainBreadcrumb'
+import { leadLabel, leadMeta } from '../../src/lib/formatLead'
 import { colors, radii, space, shadows } from '../../src/theme/tokens'
 
 function formatCurrency(amount?: number | null) {
@@ -23,29 +25,51 @@ type BillingRow =
   | ({ rowType: 'payment' } & BillingPayment)
 
 export default function BillingScreen() {
-  const { leadId } = useLocalSearchParams<{ leadId?: string }>()
+  // Invoices and payments hang off a case, so this screen needs one. Reached
+  // from the home hub there is no case yet, and it used to dead-end on "Missing
+  // case" with nothing to tap; now it asks which case first.
+  const { leadId, caseLabel } = useLocalSearchParams<{ leadId?: string; caseLabel?: string }>()
+  const scopedLeadId = typeof leadId === 'string' && leadId ? leadId : null
+  const scopedCaseLabel = typeof caseLabel === 'string' && caseLabel ? caseLabel : null
+
   const [invoices, setInvoices] = useState<BillingInvoice[]>([])
   const [payments, setPayments] = useState<BillingPayment[]>([])
+  const [leads, setLeads] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
-    if (!leadId) return
     try {
       setLoadError(null)
-      const [invoiceData, paymentData] = await Promise.all([getLeadInvoices(leadId), getLeadPayments(leadId)])
+      if (!scopedLeadId) {
+        const response = await getFilteredAttorneyLeads({ sortBy: 'newest' })
+        const rows = Array.isArray(response?.leads) ? response.leads : Array.isArray(response) ? response : []
+        // Billing only makes sense on a case the firm actually took, and a
+        // declined or closed case would just be noise in the picker.
+        setLeads(
+          rows.filter(
+            (row: any) => !['rejected', 'declined', 'closed'].includes(String(row?.status || '').toLowerCase())
+          )
+        )
+        return
+      }
+      const [invoiceData, paymentData] = await Promise.all([
+        getLeadInvoices(scopedLeadId),
+        getLeadPayments(scopedLeadId),
+      ])
       setInvoices(Array.isArray(invoiceData) ? invoiceData : [])
       setPayments(Array.isArray(paymentData) ? paymentData : [])
     } catch (err: unknown) {
       setInvoices([])
       setPayments([])
+      setLeads([])
       setLoadError(getApiErrorMessage(err))
     } finally {
       setLoading(false)
       setRefreshing(false)
     }
-  }, [leadId])
+  }, [scopedLeadId])
 
   useFocusEffect(
     useCallback(() => {
@@ -75,12 +99,63 @@ export default function BillingScreen() {
     })
   }, [invoices, payments])
 
-  if (!leadId) {
-    return <ScreenState title="Missing case" message="Open billing from a case to view invoices and payments." icon="card-outline" />
+  if (loading) {
+    return (
+      <ScreenState
+        title="Loading billing"
+        message={scopedLeadId ? 'Fetching invoices, payments, and outstanding balance.' : 'Finding your open cases.'}
+        loading
+      />
+    )
   }
 
-  if (loading) {
-    return <ScreenState title="Loading billing" message="Fetching invoices, payments, and outstanding balance." loading />
+  if (!scopedLeadId) {
+    return (
+      <View style={styles.screen}>
+        {loadError ? (
+          <View style={styles.bannerWrap}>
+            <InlineErrorBanner message={loadError} onAction={() => { setLoading(true); void load() }} />
+          </View>
+        ) : null}
+
+        <DomainBreadcrumb domain="casework" title="Billing" style={styles.header} />
+        <Text style={styles.pickerHint}>Choose a case to see its invoices, payments and outstanding balance.</Text>
+
+        <FlatList
+          data={leads}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={leads.length === 0 ? styles.emptyContainer : styles.list}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); void load() }} />
+          }
+          renderItem={({ item }) => (
+            <TouchableOpacity
+              style={styles.leadRow}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityLabel={`Billing for ${leadLabel(item)}`}
+              onPress={() => {
+                setLoading(true)
+                router.setParams({ leadId: item.id, caseLabel: leadLabel(item) })
+              }}
+            >
+              <View style={styles.leadCopy}>
+                <Text style={styles.leadTitle}>{leadLabel(item)}</Text>
+                <Text style={styles.leadMeta}>{leadMeta(item)}</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={colors.primary} />
+            </TouchableOpacity>
+          )}
+          ListEmptyComponent={
+            <View style={styles.empty}>
+              <Ionicons name="card-outline" size={48} color={colors.muted} />
+              <Text style={styles.emptyTitle}>No open cases</Text>
+              <Text style={styles.emptySub}>Accept a case and its invoices and payments will show up here.</Text>
+            </View>
+          }
+        />
+      </View>
+    )
   }
 
   return (
@@ -91,7 +166,25 @@ export default function BillingScreen() {
         </View>
       ) : null}
 
-      <DomainBreadcrumb domain="casework" title="Billing" style={styles.header} />
+      <DomainBreadcrumb
+        domain="casework"
+        title={scopedCaseLabel ? `${scopedCaseLabel} · Billing` : 'Billing'}
+        style={styles.header}
+      />
+      <TouchableOpacity
+        style={styles.scopeBanner}
+        onPress={() => {
+          setLoading(true)
+          router.setParams({ leadId: '', caseLabel: '' })
+        }}
+        activeOpacity={0.85}
+        accessibilityRole="button"
+        accessibilityLabel="Choose a different case"
+      >
+        <Ionicons name="swap-horizontal" size={16} color={colors.primaryDark} />
+        <Text style={styles.scopeBannerText}>This case only</Text>
+        <Text style={styles.scopeBannerAction}>Change case</Text>
+      </TouchableOpacity>
 
       <View style={styles.summaryRow}>
         <SummaryTile label="Invoiced" value={formatCurrency(totals.invoiceTotal)} icon="receipt-outline" />
@@ -208,4 +301,42 @@ const styles = StyleSheet.create({
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 56 },
   emptyTitle: { fontSize: 18, fontWeight: '700', color: colors.text, marginTop: space.md },
   emptySub: { fontSize: 14, color: colors.textSecondary, marginTop: 8, textAlign: 'center', lineHeight: 21 },
+  pickerHint: {
+    paddingHorizontal: space.lg,
+    paddingTop: space.sm,
+    paddingBottom: space.md,
+    fontSize: 14,
+    lineHeight: 20,
+    color: colors.textSecondary,
+  },
+  scopeBanner: {
+    marginHorizontal: space.lg,
+    marginTop: space.md,
+    minHeight: 44,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+    paddingHorizontal: space.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+  },
+  scopeBannerText: { flex: 1, fontSize: 13, fontWeight: '700', color: colors.textSecondary },
+  scopeBannerAction: { fontSize: 13, fontWeight: '800', color: colors.primary },
+  leadRow: {
+    backgroundColor: colors.card,
+    borderRadius: radii.lg,
+    padding: space.lg,
+    marginBottom: space.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    ...shadows.soft,
+  },
+  leadCopy: { flex: 1 },
+  leadTitle: { fontSize: 16, fontWeight: '800', color: colors.text },
+  leadMeta: { marginTop: 4, fontSize: 13, color: colors.textSecondary },
 })

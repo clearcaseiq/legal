@@ -13,7 +13,7 @@
  *
  * Usage (inside the api container):
  *   docker cp api/scripts/add-salman-predictions.ts clearcaseiq-api:/app/add-salman-predictions.ts
- *   docker-compose -f docker-compose.prod.yml --env-file .env.prod exec api \
+ *   docker-compose -f docker-compose.deploy.yml --env-file .env.prod exec api \
  *     node ../node_modules/tsx/dist/cli.mjs add-salman-predictions.ts
  *
  * Idempotent: skips assessments that already have a prediction (set FORCE=1 to

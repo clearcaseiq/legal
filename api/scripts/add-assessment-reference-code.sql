@@ -21,7 +21,7 @@
 --   psql "$DATABASE_URL" -f api/scripts/add-assessment-reference-code.sql
 --
 -- Or from inside the running api container:
---   docker compose -f docker-compose.prod.yml --env-file .env.prod exec -T api \
+--   docker compose -f docker-compose.deploy.yml --env-file .env.prod exec -T api \
 --     node ../node_modules/prisma/build/index.js db execute \
 --     --schema=prisma/schema.prisma --file scripts/add-assessment-reference-code.sql
 --

@@ -14,9 +14,12 @@ export default {
         'ui-2xl': ['1.5rem', { lineHeight: '1.35' }],
         'ui-3xl': ['1.875rem', { lineHeight: '1.2' }],
       },
+      // The families are self-hosted via next/font, which generates a hashed
+      // name per build, so they are referenced through the custom properties
+      // set on :root in src/lib/fonts.ts rather than by literal name.
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
-        display: ['Fraunces', 'Georgia', 'ui-serif', 'serif'],
+        sans: ['var(--font-sans, system-ui)', 'system-ui', 'sans-serif'],
+        display: ['var(--font-display, Georgia)', 'Georgia', 'ui-serif', 'serif'],
       },
       colors: {
         brand: {

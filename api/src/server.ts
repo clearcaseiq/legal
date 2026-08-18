@@ -11,6 +11,7 @@ import { prisma } from './lib/prisma'
 import { logger } from './lib/logger'
 import { checkWebBaseUrl } from './lib/app-url'
 import { runReadinessProbes } from './lib/ops-status'
+import { requireSessionForPrivateUploads } from './lib/uploads-access'
 
 const AUDITED_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 const PLACEHOLDER_SECRETS = new Set(['your-secret-key', 'development-secret', 'changeme'])
@@ -86,6 +87,29 @@ export function createServer(): Express {
   if (process.env.TRUST_PROXY) {
     app.set('trust proxy', process.env.TRUST_PROXY)
   }
+
+  // The API answers on its own hostname (api.clearcaseiq.com), and Search
+  // Console has been crawling it — it turned up in the coverage report as a
+  // crawled URL. A robots.txt only ever governs the host that serves it, so the
+  // one the web app returns says nothing at all about this origin.
+  //
+  // Disallowing outright is the right call here specifically because the URL is
+  // crawled but *not* indexed. The usual objection to blanket-disallow is that a
+  // crawler has to be able to fetch a page to read a noindex on it, so blocking
+  // an already-indexed URL strands it in the index with no way to remove it —
+  // which is why the web app's robots.txt deliberately leaves /login and friends
+  // crawlable. Nothing here is indexed, so there is nothing to strand.
+  //
+  // The header is the belt to that braces: it covers responses a crawler already
+  // holds or reaches by following a link from somewhere else.
+  app.use((_req, res, next) => {
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow')
+    next()
+  })
+
+  app.get('/robots.txt', (_req, res) => {
+    res.type('text/plain').send('User-agent: *\nDisallow: /\n')
+  })
 
   // Minimal health check - before any middleware that could block
   app.get('/health', (req, res) => {
@@ -294,7 +318,21 @@ export function createServer(): Express {
     next()
   })
   
-  // Serve static files from uploads directory
+  // Serve static files from the uploads directory.
+  //
+  // This used to be an open static mount, so anything ever written under
+  // uploads/ was readable by URL alone: medical records and police reports in
+  // evidence/, executed retainers and HIPAA authorizations in
+  // signed-documents/, and attorney bar credentials in licenses/. The paths are
+  // UUID-prefixed, but an unguessable URL is not an authorization check, and
+  // `EvidenceFile.accessLevel: 'private'` was never consulted.
+  //
+  // Avatars stay open because they are rendered with plain <img> tags that
+  // cannot carry an Authorization header, and a profile photo is not case data.
+  // Everything else is fetched through the API client as a blob (see
+  // getEvidenceObjectUrl and downloadEvidenceByUrl), so it already sends a
+  // bearer token and only needs the server to start checking it.
+  app.use('/uploads', requireSessionForPrivateUploads)
   app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')))
   
   return app

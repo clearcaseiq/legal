@@ -8,7 +8,7 @@
  *
  * Usage (prod, inside the api container):
  *   docker cp scripts/seed-salman-firm-cases.ts clearcaseiq-api:/app/scripts/seed-salman-firm-cases.ts
- *   docker compose -f docker-compose.prod.yml --env-file .env.prod exec api \
+ *   docker compose -f docker-compose.deploy.yml --env-file .env.prod exec api \
  *     node ../node_modules/tsx/dist/cli.mjs scripts/seed-salman-firm-cases.ts
  *
  * Config (env vars, all optional):

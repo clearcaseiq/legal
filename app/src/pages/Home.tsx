@@ -1,10 +1,16 @@
-import { Suspense, lazy, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import LocaleLink from '../components/LocaleLink'
 import { BarChart3, ClipboardList, Users } from 'lucide-react'
 import { useLanguage } from '../contexts/LanguageContext'
 import MarketingHeroArt from '../components/MarketingHeroArt'
 import FaqSection from '../components/FaqSection'
+// Deliberately a static import. It is the hero's second column — above the fold
+// on every desktop visit and the largest element on the page — so splitting it
+// out only bought a placeholder that had to be swapped for real content a moment
+// later, and the swap moved the rest of the page. It has no heavy dependencies
+// of its own; the whole component is markup and four icons already in the chunk.
+import HomeProductPreview from '../components/HomeProductPreview'
 import {
   FileTextIcon,
   ShieldIcon,
@@ -16,8 +22,6 @@ import {
 
 // Icons for the three How-It-Works steps — mirrors the treatment on /how-it-works.
 const STEP_ICONS = [ClipboardList, BarChart3, Users]
-
-const HomeProductPreview = lazy(() => import('../components/HomeProductPreview'))
 
 export default function Home() {
   const { t } = useLanguage()
@@ -123,16 +127,7 @@ export default function Home() {
             </div>
 
             <div className="order-2">
-              <Suspense
-                fallback={
-                  <div
-                    className="aspect-[4/3] w-full animate-pulse rounded-2xl border border-slate-200/70 bg-slate-100/70 dark:border-slate-800 dark:bg-slate-900/50"
-                    aria-hidden
-                  />
-                }
-              >
-                <HomeProductPreview />
-              </Suspense>
+              <HomeProductPreview />
             </div>
           </div>
         </section>

@@ -3,7 +3,7 @@
  *
  * Usage (inside the api container):
  *   docker cp api/scripts/reset-salman-password.ts clearcaseiq-api:/app/reset-salman-password.ts
- *   docker-compose -f docker-compose.prod.yml --env-file .env.prod exec api \
+ *   docker-compose -f docker-compose.deploy.yml --env-file .env.prod exec api \
  *     node ../node_modules/tsx/dist/cli.mjs reset-salman-password.ts
  *
  * Config (env vars, optional):

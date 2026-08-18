@@ -19,7 +19,7 @@
  *
  * Usage (prod, inside the api container):
  *   docker cp api/scripts/create-full-cases.ts clearcaseiq-api:/app/scripts/create-full-cases.ts
- *   docker compose -f docker-compose.prod.yml --env-file .env.prod exec \
+ *   docker compose -f docker-compose.deploy.yml --env-file .env.prod exec \
  *     -e ATTORNEY_EMAIL=sreddy20871@gmail.com -e NUM_ACTIVE=6 -e NUM_NEW=4 \
  *     api node ../node_modules/tsx/dist/cli.mjs scripts/create-full-cases.ts
  *

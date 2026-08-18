@@ -1,0 +1,103 @@
+name: Build images
+
+# Builds the api and web images once and pushes them to ECR, tagged with the
+# commit they came from. Both hosts then pull the same tag, which is what makes
+# "promote QA to production" a retag of an artifact that has already been tested
+# rather than a rebuild from a git ref on a different machine.
+#
+# It also moves builds off the EC2 hosts. They were building in place after a
+# `git pull`, and the production box has already hit ENOSPC doing it; a second
+# environment would have doubled that exposure.
+#
+# Deploys are still manual. This publishes images, it does not ship them.
+
+on:
+  push:
+    branches: [main, master]
+  # For rebuilding a tag without a new commit, e.g. after rotating a build-time
+  # analytics id.
+  workflow_dispatch:
+
+concurrency:
+  # Serialise per branch. Two pushes in quick succession would otherwise race to
+  # write the same `main` tag, and the winner is whichever finishes last rather
+  # than whichever is newer.
+  group: images-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  # Required for the OIDC token exchanged for the AWS role below. Everything
+  # else stays read-only.
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      # Keep going if one image fails: a red api build should not hide whether
+      # web also broke, which matters when the cause is a shared dependency.
+      fail-fast: false
+      matrix:
+        include:
+          - service: api
+            dockerfile: api/Dockerfile
+            repository: clearcaseiq-api
+          - service: web
+            dockerfile: app/Dockerfile
+            repository: clearcaseiq-web
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          # A role assumed via OIDC, so there are no long-lived AWS keys in
+          # GitHub secrets to leak or rotate. Trust policy must restrict
+          # token.actions.githubusercontent.com to this repository.
+          role-to-assume: ${{ secrets.AWS_ECR_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Stamp build time
+        id: stamp
+        # Matches the format the manual build on the host used, since the admin
+        # System Status page renders this value as-is.
+        run: echo "value=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push ${{ matrix.service }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: |
+            ${{ steps.ecr.outputs.registry }}/${{ matrix.repository }}:${{ github.sha }}
+            ${{ steps.ecr.outputs.registry }}/${{ matrix.repository }}:${{ github.ref_name }}
+          build-args: |
+            GIT_COMMIT=${{ github.sha }}
+            BUILD_TIME=${{ steps.stamp.outputs.value }}
+            NEXT_PUBLIC_GA_MEASUREMENT_ID=${{ secrets.NEXT_PUBLIC_GA_MEASUREMENT_ID }}
+            NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION=${{ secrets.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION }}
+            NEXT_PUBLIC_BING_SITE_VERIFICATION=${{ secrets.NEXT_PUBLIC_BING_SITE_VERIFICATION }}
+          # Layer cache in the registry rather than on the runner, which starts
+          # empty every run. Without it each build reinstalls the whole pnpm
+          # workspace.
+          cache-from: type=registry,ref=${{ steps.ecr.outputs.registry }}/${{ matrix.repository }}:buildcache
+          cache-to: type=registry,ref=${{ steps.ecr.outputs.registry }}/${{ matrix.repository }}:buildcache,mode=max
+
+      - name: Report the tag to deploy
+        run: |
+          echo "### ${{ matrix.service }}" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "${{ steps.ecr.outputs.registry }}/${{ matrix.repository }}:${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"

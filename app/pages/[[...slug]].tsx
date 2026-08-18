@@ -2,8 +2,10 @@ import type { GetServerSideProps } from 'next'
 import dynamic from 'next/dynamic'
 import Head from 'next/head'
 import SsrRoot from '../src/ssr-root'
+import AppRouteShell from '../src/components/AppRouteShell'
 import SiteAnalytics from '../src/components/SiteAnalytics'
-import { isKnownAppRoute } from '../src/data/appRoutes'
+import { isKnownAppRoute, topicHubForClusterPrefix } from '../src/data/appRoutes'
+import { indexingEnabled } from '../src/lib/siteConfig'
 import { DEFAULT_LANGUAGE, type LanguageCode } from '../src/i18n'
 import { alternatesForPath } from '../src/data/localeAlternates'
 import { marketingPagesByPath } from '../src/data/marketingPages'
@@ -24,7 +26,19 @@ import {
 // SEO landing pages are rendered on the server so crawlers receive the article
 // text, not an empty shell. Every other route is app UI behind a login and has
 // no SEO value, so it keeps mounting client-side.
+//
+// `loading` is what the server sends for those routes, and what the client
+// renders until this chunk arrives. Without it the response body is empty and
+// first paint cannot happen until the bundle has executed. See AppRouteShell.
 const NextRoot = dynamic(() => import('../src/next-root'), {
+  ssr: false,
+  loading: () => <AppRouteShell />,
+})
+
+// Same chunk, no shell. An embedded view renders without site chrome, so the
+// shell's header would be drawn and then taken away the moment the app mounts —
+// the one case where sending it costs a layout shift instead of saving a paint.
+const EmbeddedNextRoot = dynamic(() => import('../src/next-root'), {
   ssr: false,
 })
 
@@ -86,9 +100,11 @@ type PageProps = {
   language?: LanguageCode
   /** Dictionary slices for `language`, so the first render is not English. */
   messages?: Record<string, unknown> | null
+  /** Chrome-less partner view, which also gets no loading shell. */
+  embed?: boolean
 }
 
-export default function CatchAllPage({ seo, ssrLocation, publicPage, language, messages }: PageProps) {
+export default function CatchAllPage({ seo, ssrLocation, publicPage, language, messages, embed }: PageProps) {
   const ogImage = seo.ogImage || OG_IMAGE
   const ogImageAlt = seo.ogImage ? seo.title : OG_IMAGE_ALT
 
@@ -126,6 +142,8 @@ export default function CatchAllPage({ seo, ssrLocation, publicPage, language, m
       {publicPage ? <SiteAnalytics /> : null}
       {ssrLocation ? (
         <SsrRoot location={ssrLocation} language={language} messages={messages ?? undefined} />
+      ) : embed ? (
+        <EmbeddedNextRoot />
       ) : (
         <NextRoot />
       )}
@@ -167,7 +185,7 @@ function alternatesFor(pathname: string) {
   }))
 }
 
-export const getServerSideProps: GetServerSideProps<PageProps> = async ({ params, query, res }) => {
+const resolvePage: GetServerSideProps<PageProps> = async ({ params, query, res }) => {
   const segments = Array.isArray(params?.slug) ? params.slug : []
   const pathname = segments.length ? `/${segments.join('/')}` : '/'
   const page = landingPagesBySlug.get(pathname)
@@ -179,6 +197,36 @@ export const getServerSideProps: GetServerSideProps<PageProps> = async ({ params
   // the real page.
   const isEmbed = query.embed === '1'
   const renderLocation = isEmbed ? `${pathname}?embed=1` : pathname
+
+  // /assessment/start is the CTA in both the header and the footer, which makes
+  // it the most linked URL on the site after the home page — and it was never a
+  // page. It booted the whole app only for React to redirect to /assess?fresh=1,
+  // so a visitor waited on the JS bundle before the wizard even began loading
+  // and a crawler spent a full render to learn the URL was an alias. Answering
+  // with a redirect resolves it before a byte of JavaScript is sent.
+  //
+  // The equivalent client-side route stays in App.tsx: in-app CTA clicks are
+  // react-router navigations that never reach the server, and this only catches
+  // cold loads, shared links and crawlers.
+  if (pathname === '/assessment/start') {
+    const forwarded = new URLSearchParams()
+    for (const [key, value] of Object.entries(query)) {
+      // `slug` is the catch-all's own path segments, not a real query param.
+      if (key === 'slug') continue
+      if (typeof value === 'string') forwarded.set(key, value)
+      else if (Array.isArray(value)) for (const entry of value) forwarded.append(key, entry)
+    }
+    // The wizard reads `fresh` to start a new assessment instead of resuming a
+    // saved draft, which is what the client-side redirect has always passed.
+    forwarded.set('fresh', '1')
+
+    return {
+      redirect: {
+        destination: `/assess?${forwarded.toString()}`,
+        permanent: true,
+      },
+    }
+  }
 
   if (page) {
     // Landing pages are anonymous marketing content and the shell carries no
@@ -236,6 +284,24 @@ export const getServerSideProps: GetServerSideProps<PageProps> = async ({ params
     }
   }
 
+  // A bare SEO cluster prefix: /treatment rather than /treatment/mri-after-accident.
+  // Nothing links to these and no page exists at them; crawlers reach them by
+  // truncating a child URL. Sending them to the topic hub that lists those
+  // children turns a discarded request into a signal for a page that does exist,
+  // where a 404 would spend the same crawl and leave nothing behind.
+  //
+  // Checked after the landing and marketing lookups above so a real page always
+  // wins, and only on an exact match so children are untouched.
+  const clusterHub = topicHubForClusterPrefix(pathname)
+  if (clusterHub) {
+    return {
+      redirect: {
+        destination: clusterHub,
+        permanent: true,
+      },
+    }
+  }
+
   if (!isKnownAppRoute(pathname)) {
     // The URL matches nothing the app can render. Answering 200 here would make
     // every typo look like a real page to a crawler.
@@ -245,6 +311,7 @@ export const getServerSideProps: GetServerSideProps<PageProps> = async ({ params
       props: {
         ssrLocation: null,
         publicPage: false,
+        embed: isEmbed,
         seo: {
           title: 'Page Not Found | ClearCaseIQ',
           description: DEFAULT_DESCRIPTION,
@@ -266,6 +333,7 @@ export const getServerSideProps: GetServerSideProps<PageProps> = async ({ params
     props: {
       ssrLocation: null,
       publicPage: false,
+      embed: isEmbed,
       seo: {
         title: appRouteTitle(pathname),
         description: DEFAULT_DESCRIPTION,
@@ -274,5 +342,40 @@ export const getServerSideProps: GetServerSideProps<PageProps> = async ({ params
         noindex: true,
       },
     },
+  }
+}
+
+/**
+ * Everything above decides what a page *is*. This decides what this particular
+ * deployment is allowed to do, which is a property of the host rather than the
+ * route: be indexed, and report to analytics.
+ *
+ * It wraps the resolver instead of touching each branch because there are five
+ * return sites, and a non-production environment that stayed indexable through
+ * the one branch someone forgot would compete with the live site for its own
+ * queries — the failure is invisible until rankings move.
+ *
+ * `publicPage` is what gates SiteAnalytics, and the measurement id is baked into
+ * the image at build time because Next inlines `NEXT_PUBLIC_*`. One promotable
+ * image therefore carries production's id everywhere it runs, so QA would report
+ * its own test traffic into the production property and quietly corrupt the
+ * numbers the site is measured on. Clearing the flag here is what stops that,
+ * and it follows the same rule: a deployment that is not the public site does
+ * not behave as the public site.
+ *
+ * Canonical URLs are deliberately left pointing at the production origin. They
+ * are built from the baked `siteUrl`, and rewriting them per environment would
+ * mean threading an origin through the schema builders and the five client
+ * components that also use it, to change a value that no crawler will ever read
+ * on a host that is `noindex` and disallowed in robots.txt.
+ */
+export const getServerSideProps: GetServerSideProps<PageProps> = async (context) => {
+  const result = await resolvePage(context)
+
+  if (!('props' in result) || indexingEnabled()) return result
+
+  const props = await result.props
+  return {
+    props: { ...props, publicPage: false, seo: { ...props.seo, noindex: true } },
   }
 }

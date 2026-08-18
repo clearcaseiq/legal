@@ -15,7 +15,7 @@ This specification defines the development and production architecture, runtime 
 ├── apps/mobile/             # Expo React Native attorney mobile app
 ├── apps/ml-service/         # ML/vector support assets
 ├── deploy/                  # Nginx and deployment docs
-├── docker-compose.prod.yml  # Production Docker Compose stack
+├── docker-compose.deploy.yml  # Production Docker Compose stack
 ├── pnpm-lock.yaml           # Workspace lockfile
 └── package.json             # pnpm workspace root
 ```
@@ -367,8 +367,8 @@ routingFeePaymentsEnabled: false
 ### 7.1 Build And Start
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.prod build
-docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
+docker compose -f docker-compose.deploy.yml --env-file .env.prod build
+docker compose -f docker-compose.deploy.yml --env-file .env.prod up -d
 ```
 
 ### 7.2 Database Setup
@@ -376,8 +376,8 @@ docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
 For a fresh database:
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.prod exec api pnpm prisma:generate
-docker compose -f docker-compose.prod.yml --env-file .env.prod exec api node ../node_modules/prisma/build/index.js db push
+docker compose -f docker-compose.deploy.yml --env-file .env.prod exec api pnpm prisma:generate
+docker compose -f docker-compose.deploy.yml --env-file .env.prod exec api node ../node_modules/prisma/build/index.js db push
 ```
 
 If using Supabase, ensure `DATABASE_URL` points to Supabase and schema is synchronized before accepting production traffic.
@@ -386,8 +386,8 @@ If using Supabase, ensure `DATABASE_URL` points to Supabase and schema is synchr
 
 ```bash
 git pull origin main
-docker compose -f docker-compose.prod.yml --env-file .env.prod build --no-cache web api
-docker compose -f docker-compose.prod.yml --env-file .env.prod up -d web api nginx
+docker compose -f docker-compose.deploy.yml --env-file .env.prod build --no-cache web api
+docker compose -f docker-compose.deploy.yml --env-file .env.prod up -d web api nginx
 ```
 
 Frontend changes require rebuilding `web` because Next.js bakes client code and `NEXT_PUBLIC_*` values into the build.
@@ -395,7 +395,7 @@ Frontend changes require rebuilding `web` because Next.js bakes client code and 
 ### 7.4 Verify Production
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.prod ps
+docker compose -f docker-compose.deploy.yml --env-file .env.prod ps
 curl -I https://www.clearcaseiq.com
 curl -I https://api.clearcaseiq.com
 curl https://api.clearcaseiq.com/health
@@ -674,9 +674,9 @@ aws login
 ### 12.3 Check Production Logs
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.prod logs -f api
-docker compose -f docker-compose.prod.yml --env-file .env.prod logs -f web
-docker compose -f docker-compose.prod.yml --env-file .env.prod logs -f nginx
+docker compose -f docker-compose.deploy.yml --env-file .env.prod logs -f api
+docker compose -f docker-compose.deploy.yml --env-file .env.prod logs -f web
+docker compose -f docker-compose.deploy.yml --env-file .env.prod logs -f nginx
 ```
 
 ### 12.4 Verify Latest Code On AWS

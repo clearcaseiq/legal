@@ -8,6 +8,7 @@ import { authMiddleware, optionalAuthMiddleware, AuthRequest } from '../lib/auth
 import { analyzeCaseWithChatGPT, CaseAnalysisRequest } from '../services/chatgpt'
 import { generateDemandLetter } from '../lib/demand-letter'
 import { extractAnalysisPayload, loadTreatmentLedger, parseAssessmentFacts } from '../lib/demand-drafting'
+import { enforceAssessmentReadAccess } from '../lib/assessment-access'
 
 const router = Router()
 
@@ -220,8 +221,20 @@ const DemandRequest = z.object({
   mode: z.enum(['represented', 'pro_se']).optional()
 })
 
-// Generate demand letter
-router.post('/generate', async (req, res) => {
+// Generate demand letter.
+//
+// Every other demand route authorizes the caller, but this one looked the
+// assessment up by id and drafted from its facts and treatment ledger with no
+// check at all, so anyone holding an id could pull a case's medical and
+// financial detail back out as a letter.
+//
+// It runs under optional auth rather than `authMiddleware` because `/demand/:id`
+// is a public route: a pro-se claimant reaches it before creating an account.
+// `enforceAssessmentReadAccess` draws that line already — it allows a case that
+// has no real owner yet (pre-account intake, or the guest shadow user created by
+// evidence upload) and requires ownership, an attorney introduction, firm
+// membership or admin once the case belongs to someone.
+router.post('/generate', optionalAuthMiddleware, async (req: AuthRequest, res) => {
   try {
     const parsed = DemandRequest.safeParse(req.body)
     if (!parsed.success) {
@@ -232,7 +245,15 @@ router.post('/generate', async (req, res) => {
     }
 
     const { assessmentId, targetAmount, recipient, message, mode } = parsed.data
-    
+
+    const permitted = await enforceAssessmentReadAccess({
+      assessmentId,
+      user: req.user,
+      res,
+      route: 'POST /v1/demands/generate',
+    })
+    if (!permitted) return
+
     // Get assessment details
     const assessment = await prisma.assessment.findUnique({
       where: { id: assessmentId }

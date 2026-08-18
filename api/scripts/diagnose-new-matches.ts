@@ -9,7 +9,7 @@
  *
  * Usage (inside the api container):
  *   docker cp api/scripts/diagnose-new-matches.ts clearcaseiq-api:/app/diagnose-new-matches.ts
- *   docker compose -f docker-compose.prod.yml --env-file .env.prod exec \
+ *   docker compose -f docker-compose.deploy.yml --env-file .env.prod exec \
  *     -e ATTORNEY_EMAIL=shivan@... api \
  *     node ../node_modules/tsx/dist/cli.mjs diagnose-new-matches.ts
  *

@@ -144,6 +144,25 @@ describe('HTTP hardening regressions', () => {
     expect(() => createServer()).toThrow(/placeholder/)
   })
 
+  // api.clearcaseiq.com is its own host, so the web app's robots.txt has no say
+  // over it. Search Console was crawling this origin and counting it against the
+  // site's crawl budget.
+  it('GET /robots.txt disallows crawling of the API origin', async () => {
+    const res = await request(app).get('/robots.txt')
+
+    expect(res.status).toBe(200)
+    expect(res.headers['content-type']).toMatch(/text\/plain/)
+    expect(res.text).toContain('User-agent: *')
+    expect(res.text).toContain('Disallow: /')
+  })
+
+  it('marks every response noindex, including ones a crawler already holds', async () => {
+    for (const path of ['/robots.txt', '/health', '/v1/assessments']) {
+      const res = await request(app).get(path)
+      expect(res.headers['x-robots-tag'], `${path} is missing the header`).toBe('noindex, nofollow')
+    }
+  })
+
   it('POST /v1/predict allows anonymous prediction for unclaimed (guest) assessments', async () => {
     vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
       id: 'asm-1',
@@ -516,5 +535,169 @@ describe('HTTP hardening regressions', () => {
       conversionRate: 20,
     })
     expect(res.body.averageConversionRate).toBe(22.5)
+  })
+
+  // The assessment list, the legacy file store and demand generation were all
+  // reachable without credentials. Together they were a chain rather than three
+  // separate holes: the list handed out real assessment ids, and the other two
+  // turned an id into a document inventory and a letter full of case facts.
+  describe('anonymous case-data exposure', () => {
+    it('GET /v1/assessments returns nothing to an anonymous caller', async () => {
+      const res = await request(app).get('/v1/assessments').expect(200)
+
+      expect(res.body).toEqual([])
+      // The bug was an empty `where`, which reads as "no filter" and returned
+      // every claimant's case, so assert the query never ran at all.
+      expect(prisma.assessment.findMany).not.toHaveBeenCalled()
+    })
+
+    it('GET /v1/assessments scopes results to the authenticated caller', async () => {
+      vi.mocked(prisma.assessment.findMany).mockResolvedValue([
+        { id: 'asm-1', predictions: [], leadSubmission: null },
+      ] as any)
+
+      await request(app)
+        .get('/v1/assessments')
+        .set('Authorization', 'Bearer plaintiff')
+        .expect(200)
+
+      expect(prisma.assessment.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { userId: 'user-1' } }),
+      )
+    })
+
+    it('GET /v1/files/assessment/:id refuses an anonymous read of an owned case', async () => {
+      vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
+        id: 'asm-1',
+        userId: 'user-1',
+        user: { email: 'plaintiff@example.com' },
+      } as any)
+
+      await request(app).get('/v1/files/assessment/asm-1').expect(401)
+
+      expect(prisma.file.findMany).not.toHaveBeenCalled()
+    })
+
+    it('GET /v1/files/assessment/:id refuses a signed-in stranger', async () => {
+      vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
+        id: 'asm-1',
+        userId: 'someone-else',
+        user: { email: 'other@example.com' },
+      } as any)
+
+      await request(app)
+        .get('/v1/files/assessment/asm-1')
+        .set('Authorization', 'Bearer attorney')
+        .expect(403)
+
+      expect(prisma.file.findMany).not.toHaveBeenCalled()
+    })
+
+    it('GET /v1/files/assessment/:id still serves pre-account intake, which has no owner yet', async () => {
+      vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
+        id: 'asm-guest',
+        userId: null,
+        user: null,
+      } as any)
+      vi.mocked(prisma.file.findMany).mockResolvedValue([
+        { id: 'file-1', originalName: 'x.pdf', status: 'UPLOADED', summary: null, createdAt: new Date() },
+      ] as any)
+
+      const res = await request(app).get('/v1/files/assessment/asm-guest').expect(200)
+
+      expect(res.body).toHaveLength(1)
+    })
+
+    it('POST /v1/files/upload requires a session', async () => {
+      await request(app).post('/v1/files/upload').expect(401)
+    })
+
+    it('POST /v1/demands/generate refuses an anonymous draft of an owned case', async () => {
+      vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
+        id: 'asm-1',
+        userId: 'user-1',
+        user: { email: 'plaintiff@example.com' },
+      } as any)
+
+      await request(app)
+        .post('/v1/demands/generate')
+        .send({
+          assessmentId: 'asm-1',
+          targetAmount: 50000,
+          recipient: { name: 'Adjuster', address: '1 Main St' },
+        })
+        .expect(401)
+    })
+
+    it('POST /v1/demands/generate refuses a signed-in stranger', async () => {
+      vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
+        id: 'asm-1',
+        userId: 'someone-else',
+        user: { email: 'other@example.com' },
+      } as any)
+
+      await request(app)
+        .post('/v1/demands/generate')
+        .set('Authorization', 'Bearer attorney')
+        .send({
+          assessmentId: 'asm-1',
+          targetAmount: 50000,
+          recipient: { name: 'Adjuster', address: '1 Main St' },
+        })
+        .expect(403)
+    })
+  })
+
+  // Evidence, executed retainers and bar credentials all live under /uploads,
+  // which was an open static mount.
+  describe('/uploads authorization', () => {
+    it('serves avatars without a session, since <img> cannot send a token', async () => {
+      const server = createServer()
+
+      const res = await request(server).get('/uploads/avatars/pat.jpg')
+
+      // The fixture does not exist on disk, so a 404 from express.static is the
+      // success signal here: the request was not turned away by the gate.
+      expect(res.status).toBe(404)
+    })
+
+    it('refuses anonymous reads of evidence', async () => {
+      const server = createServer()
+      vi.mocked(prisma.evidenceFile.findFirst).mockResolvedValue({ assessmentId: 'asm-1' } as any)
+      vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
+        id: 'asm-1',
+        userId: 'user-1',
+        user: { email: 'plaintiff@example.com' },
+      } as any)
+
+      await request(server).get('/uploads/evidence/records.pdf').expect(401)
+    })
+
+    it('refuses a signed-in stranger reading evidence from another case', async () => {
+      const server = createServer()
+      vi.mocked(prisma.evidenceFile.findFirst).mockResolvedValue({ assessmentId: 'asm-1' } as any)
+      vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
+        id: 'asm-1',
+        userId: 'someone-else',
+        user: { email: 'other@example.com' },
+      } as any)
+
+      await request(server)
+        .get('/uploads/evidence/records.pdf')
+        .set('Authorization', 'Bearer attorney')
+        .expect(403)
+    })
+
+    it('refuses anonymous reads of signed documents even with no case to resolve', async () => {
+      const server = createServer()
+
+      await request(server).get('/uploads/signed-documents/env-1.pdf').expect(401)
+    })
+
+    it('rejects traversal attempts before they reach the static handler', async () => {
+      const server = createServer()
+
+      await request(server).get('/uploads/evidence/%2e%2e%2fsigned-documents%2fenv-1.pdf').expect(400)
+    })
   })
 })

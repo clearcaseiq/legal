@@ -8,8 +8,7 @@ import {
 import { alternatesForPath } from '../src/data/localeAlternates'
 import { allLandingPages, landingPagesBySlug } from '../src/data/seoLandingPages'
 import { priorityForPath } from '../src/data/sitemapPriority'
-
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://www.clearcaseiq.com'
+import { serverSiteUrl } from '../src/lib/siteConfig'
 
 function SitemapXml() {
   return null
@@ -45,14 +44,15 @@ function lastmodForPath(path: string) {
  * but the sitemap is the only channel that still works when a page is fetched
  * from a cache that strips head links, and having both is explicitly supported.
  */
-function alternateLinks(path: string) {
+function alternateLinks(path: string, siteUrl: string) {
   return alternatesForPath(path).map((alternate) => {
-    const href = `${SITE_URL}${alternate.path === '/' ? '' : alternate.path}`
+    const href = `${siteUrl}${alternate.path === '/' ? '' : alternate.path}`
     return `    <xhtml:link rel="alternate" hreflang="${escapeXml(alternate.hreflang)}" href="${escapeXml(href)}" />`
   })
 }
 
 export const getServerSideProps: GetServerSideProps = async ({ res }) => {
+  const SITE_URL = serverSiteUrl()
   const uniqueSeoPaths = Array.from(new Set(allLandingPages.map((page) => page.slug))).sort()
   const paths = Array.from(new Set([...marketingSitemapPaths, ...uniqueSeoPaths]))
 
@@ -65,7 +65,7 @@ export const getServerSideProps: GetServerSideProps = async ({ res }) => {
         `    <lastmod>${lastmodForPath(path)}</lastmod>`,
         '    <changefreq>weekly</changefreq>',
         `    <priority>${priorityForPath(path)}</priority>`,
-        ...alternateLinks(path),
+        ...alternateLinks(path, SITE_URL),
         '  </url>',
       ].join('\n')
     })

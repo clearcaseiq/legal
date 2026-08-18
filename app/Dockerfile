@@ -22,14 +22,19 @@ COPY app ./app
 # so it must be present in the build image or the Next.js type-check fails.
 COPY shared ./shared
 WORKDIR /repo/app
-ARG NEXT_PUBLIC_API_URL
-ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
-# Next inlines NEXT_PUBLIC_* into the client bundle during `pnpm build`, so these
-# have to arrive as build args. Setting them on the running container does
-# nothing, and does it silently: analytics and the verification tags simply
-# never render. All four are optional and the build succeeds without them.
-ARG NEXT_PUBLIC_SITE_URL
-ENV NEXT_PUBLIC_SITE_URL=${NEXT_PUBLIC_SITE_URL}
+# Deliberately no NEXT_PUBLIC_API_URL or NEXT_PUBLIC_SITE_URL.
+#
+# Next inlines NEXT_PUBLIC_* into the bundle during `pnpm build`, so accepting
+# those two here compiled one environment's hostnames into the image and made it
+# unpromotable — QA and production could not run the same artifact, which is
+# most of the reason to have a QA tier. They are now resolved per request:
+# the API origin by getApiOrigin() falling back to same-origin /v1 (proxied by
+# nginx), and the site origin by SITE_URL via src/lib/siteConfig.ts.
+#
+# The ones below are genuinely build-time and genuinely production-only, so they
+# stay. Setting them on the running container does nothing, and does it
+# silently: analytics and the verification tags simply never render. All three
+# are optional and the build succeeds without them.
 ARG NEXT_PUBLIC_GA_MEASUREMENT_ID
 ENV NEXT_PUBLIC_GA_MEASUREMENT_ID=${NEXT_PUBLIC_GA_MEASUREMENT_ID}
 ARG NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION

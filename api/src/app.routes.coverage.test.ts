@@ -96,9 +96,13 @@ describe('HTTP API route coverage (mocked prisma)', () => {
     expect(res.status).toBe(404)
   })
 
+  // A pro-se claimant drafts before creating an account, so a case with no owner
+  // is still readable by id. `mockResolvedValue` rather than `...Once` because
+  // the access check and the handler each load the assessment.
   it('POST /v1/demands/generate supports pro-se self-help letters', async () => {
-    prisma.assessment.findUnique.mockResolvedValueOnce({
+    prisma.assessment.findUnique.mockResolvedValue({
       id: 'assess-1',
+      userId: null,
       claimType: 'auto',
       venueState: 'CA',
       venueCounty: 'Los Angeles',
@@ -166,7 +170,12 @@ describe('HTTP API route coverage (mocked prisma)', () => {
     expect(res.body.content).toContain('SETTLEMENT DEMAND')
   })
 
+  // Reachable without a token only while the case has no owner (pre-account
+  // intake); once it belongs to someone the read is authorized like any other
+  // case read. See the hardening suite for the refusal cases.
   it('GET /v1/files/assessment/x', async () => {
+    prisma.assessment.findUnique.mockResolvedValue({ id: 'x', userId: null })
+
     const res = await request(app).get('/v1/files/assessment/x')
     expectHandledStatus(res.status)
     expect(res.status).toBe(200)

@@ -14,10 +14,10 @@
  *
  * Usage (prod, inside the api container):
  *   docker cp api/scripts/clear-attorney-cases.ts clearcaseiq-api:/app/clear-attorney-cases.ts
- *   docker compose -f docker-compose.prod.yml --env-file .env.prod exec \
+ *   docker compose -f docker-compose.deploy.yml --env-file .env.prod exec \
  *     -e ATTORNEY_EMAIL=sreddy20871@gmail.com api \
  *     node ../node_modules/tsx/dist/cli.mjs clear-attorney-cases.ts                 # dry-run
- *   docker compose -f docker-compose.prod.yml --env-file .env.prod exec \
+ *   docker compose -f docker-compose.deploy.yml --env-file .env.prod exec \
  *     -e ATTORNEY_EMAIL=sreddy20871@gmail.com -e CONFIRM=DELETE api \
  *     node ../node_modules/tsx/dist/cli.mjs clear-attorney-cases.ts
  *

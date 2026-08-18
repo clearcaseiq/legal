@@ -21,9 +21,9 @@
  *
  * Usage (prod, inside the api container):
  *   docker cp api/scripts/clear-salman-cases.ts clearcaseiq-api:/app/clear-salman-cases.ts
- *   docker compose -f docker-compose.prod.yml --env-file .env.prod exec api \
+ *   docker compose -f docker-compose.deploy.yml --env-file .env.prod exec api \
  *     node ../node_modules/tsx/dist/cli.mjs clear-salman-cases.ts                  # dry-run
- *   docker compose -f docker-compose.prod.yml --env-file .env.prod exec -e CONFIRM=DELETE api \
+ *   docker compose -f docker-compose.deploy.yml --env-file .env.prod exec -e CONFIRM=DELETE api \
  *     node ../node_modules/tsx/dist/cli.mjs clear-salman-cases.ts
  */
 import { PrismaClient } from '@prisma/client'

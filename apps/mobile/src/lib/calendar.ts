@@ -108,7 +108,9 @@ export function monthBounds(year: number, monthIndex: number): { from: Date; to:
 export function formatMeetingType(type?: string): string {
   const t = (type || '').toLowerCase()
   if (t === 'phone') return 'Phone'
-  if (t === 'video') return 'Video'
+  // `video` bookings are Zoom consultations (a link is generated on the server);
+  // label them "Zoom" to match the web scheduler and the picker above (CP-478).
+  if (t === 'video') return 'Zoom'
   if (t === 'in_person') return 'In person'
   return type || 'Meeting'
 }

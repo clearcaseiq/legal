@@ -11,7 +11,7 @@
  *
  * Usage (inside the api container):
  *   docker cp api/scripts/add-salman-appointments.ts clearcaseiq-api:/app/add-salman-appointments.ts
- *   docker-compose -f docker-compose.prod.yml --env-file .env.prod exec api \
+ *   docker-compose -f docker-compose.deploy.yml --env-file .env.prod exec api \
  *     node ../node_modules/tsx/dist/cli.mjs add-salman-appointments.ts
  *
  * Idempotent: skips cases that already have a future SCHEDULED appointment.

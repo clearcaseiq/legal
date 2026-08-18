@@ -27,12 +27,9 @@ export default function CaseIQDocument({ locale }: { locale: string }) {
           <meta name="msvalidate.01" content={BING_SITE_VERIFICATION} />
         ) : null}
         <link rel="icon" type="image/svg+xml" href="/cciq-mark.svg" />
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;1,9..144,400&family=Inter:wght@400;500;600;700&display=swap"
-          rel="stylesheet"
-        />
+        {/* Inter and Fraunces are self-hosted through next/font — see
+            src/lib/fonts.ts. The stylesheet link that used to live here blocked
+            the first paint on two round trips to Google. */}
       </Head>
       <body>
         <Main />

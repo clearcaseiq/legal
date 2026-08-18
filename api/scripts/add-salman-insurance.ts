@@ -16,7 +16,7 @@
  *
  * Usage (prod, inside the api container):
  *   docker cp api/scripts/add-salman-insurance.ts clearcaseiq-api:/app/add-salman-insurance.ts
- *   docker compose -f docker-compose.prod.yml --env-file .env.prod exec api \
+ *   docker compose -f docker-compose.deploy.yml --env-file .env.prod exec api \
  *     node ../node_modules/tsx/dist/cli.mjs add-salman-insurance.ts
  */
 import { PrismaClient } from '@prisma/client'

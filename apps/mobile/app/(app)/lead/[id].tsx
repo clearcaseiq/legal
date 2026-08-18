@@ -32,6 +32,7 @@ import {
   reviewLeadEvidenceFile,
   runConflictCheck,
   toAbsoluteApiUrl,
+  updateCaseTask,
   updateLeadStatus,
   updatePlaintiffCaseStatus,
   type LeadEvidenceFile,
@@ -47,7 +48,7 @@ import { navigateAttorneyQueueItem, type QueueActionType } from '../../../src/li
 import { runOrQueue } from '../../../src/lib/offlineQueue'
 import { DEFAULT_INTRO_TEMPLATE } from '../../../src/lib/quickReplies'
 import { addEventToCalendar } from '../../../src/lib/addToCalendar'
-import { isAiTask } from '../../../src/lib/caseTasks'
+import { describeStageUnlock, isAiTask } from '../../../src/lib/caseTasks'
 import { DECLINE_REASONS, type DeclineReasonCode } from '../../../src/constants/declineReasons'
 import { colors, radii, space, shadows } from '../../../src/theme/tokens'
 import { formatClaimType, formatLifecycleState, formatStatus, leadLabel, parseFacts } from '../../../src/lib/formatLead'
@@ -477,6 +478,29 @@ export default function LeadDetailScreen() {
     }
   }
 
+  /**
+   * Tick a task off from the case overview, so the common case — glancing at
+   * what is due and clearing one — does not require opening the tasks screen.
+   * The row is dropped immediately since this list only shows what is still
+   * open; a failed write puts it back.
+   */
+  async function handleCompleteTask(task: TaskSummaryItem) {
+    if (!id) return
+    setActionBusy(`task:${task.id}`)
+    setDecisionError(null)
+    setCaseTasks((current) => current.filter((row) => row.id !== task.id))
+    try {
+      const updated = await updateCaseTask(id, task.id, { status: 'done' })
+      await refreshDashboard({ force: true, silent: true })
+      showSuccess(describeStageUnlock(updated.stageUnlock) ?? 'Task completed.')
+    } catch (err: unknown) {
+      setCaseTasks((current) => (current.some((row) => row.id === task.id) ? current : [...current, task]))
+      setDecisionError(getApiErrorMessage(err))
+    } finally {
+      setActionBusy(null)
+    }
+  }
+
   async function handleAddSolToCalendar() {
     if (!solDeadlineDate) return
     const label = plaintiff || formatClaimType(assessment.claimType) || 'case'
@@ -824,19 +848,33 @@ export default function LeadDetailScreen() {
             {caseTasksNext30.length > 0 ? (
               caseTasksNext30.slice(0, 4).map((task) => {
                 const overdue = task.ts < todayStartMs
+                const completing = actionBusy === `task:${task.id}`
                 return (
-                  <TouchableOpacity
-                    key={task.id}
-                    style={styles.taskRow}
-                    onPress={() => id && router.push({ pathname: '/(app)/tasks', params: { leadId: id, caseLabel: caseTasksLabel } })}
-                    activeOpacity={0.85}
-                  >
-                    <Ionicons
-                      name={overdue ? 'alert-circle' : 'ellipse-outline'}
-                      size={16}
-                      color={overdue ? colors.danger : colors.primary}
-                    />
-                    <View style={styles.taskRowBody}>
+                  <View key={task.id} style={styles.taskRow}>
+                    <TouchableOpacity
+                      style={styles.taskCheckbox}
+                      onPress={() => { void handleCompleteTask(task) }}
+                      disabled={completing}
+                      activeOpacity={0.7}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: false, disabled: completing }}
+                      accessibilityLabel={`Mark "${task.title}" complete`}
+                    >
+                      {completing ? (
+                        <ActivityIndicator size="small" color={colors.primary} />
+                      ) : (
+                        <Ionicons
+                          name={overdue ? 'alert-circle' : 'ellipse-outline'}
+                          size={20}
+                          color={overdue ? colors.danger : colors.primary}
+                        />
+                      )}
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.taskRowBody}
+                      onPress={() => id && router.push({ pathname: '/(app)/tasks', params: { leadId: id, caseLabel: caseTasksLabel } })}
+                      activeOpacity={0.85}
+                    >
                       <Text style={styles.taskRowTitle} numberOfLines={1}>{task.title}</Text>
                       <Text style={[styles.taskRowMeta, overdue && styles.taskRowMetaOverdue]}>
                         {[
@@ -847,9 +885,9 @@ export default function LeadDetailScreen() {
                           .filter(Boolean)
                           .join(' · ')}
                       </Text>
-                    </View>
+                    </TouchableOpacity>
                     <Ionicons name="chevron-forward" size={16} color={colors.muted} />
-                  </TouchableOpacity>
+                  </View>
                 )
               })
             ) : (
@@ -1570,7 +1608,10 @@ const styles = StyleSheet.create({
   stageChipText: { fontSize: 13, fontWeight: '800', color: colors.primaryDark },
   viewAllLink: { fontSize: 13, fontWeight: '800', color: colors.primary },
   taskRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingVertical: 9, borderTopWidth: 1, borderTopColor: colors.border },
-  taskRowBody: { flex: 1 },
+  // Completing and opening the task are separate targets in the same row, so the
+  // checkbox needs enough width to be hit without catching the row underneath.
+  taskCheckbox: { width: 36, height: 40, alignItems: 'flex-start', justifyContent: 'center' },
+  taskRowBody: { flex: 1, justifyContent: 'center', minHeight: 40 },
   taskRowTitle: { fontSize: 14, fontWeight: '700', color: colors.text },
   taskRowMeta: { fontSize: 12, fontWeight: '600', color: colors.textSecondary, marginTop: 2 },
   taskRowMetaOverdue: { color: colors.danger },

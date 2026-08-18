@@ -13,7 +13,7 @@
  *
  * Usage (inside the api container):
  *   docker cp api/scripts/fix-salman-routing.ts clearcaseiq-api:/app/fix-salman-routing.ts
- *   docker-compose -f docker-compose.prod.yml --env-file .env.prod exec api \
+ *   docker-compose -f docker-compose.deploy.yml --env-file .env.prod exec api \
  *     node ../node_modules/tsx/dist/cli.mjs fix-salman-routing.ts
  *
  * Set DRY_RUN=1 to only diagnose without writing.

@@ -9,7 +9,7 @@
  *
  * Usage (inside the api container):
  *   docker cp api/scripts/change-salman-email.ts clearcaseiq-api:/app/change-salman-email.ts
- *   docker-compose -f docker-compose.prod.yml --env-file .env.prod exec \
+ *   docker-compose -f docker-compose.deploy.yml --env-file .env.prod exec \
  *     -e NEW_EMAIL='you@yourdomain.com' api \
  *     node ../node_modules/tsx/dist/cli.mjs change-salman-email.ts
  *

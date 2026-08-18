@@ -8,6 +8,7 @@ import { it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createRoot, type Root } from 'react-dom/client'
 import { act } from 'react'
 import { MemoryRouter } from 'react-router-dom'
+import { ensureAppMessages } from '../i18n'
 import IntakeWizardQuick from './IntakeWizardQuick'
 
 vi.mock('../lib/api-plaintiff', () => ({
@@ -49,7 +50,11 @@ let container: HTMLDivElement
 let root: Root | null = null
 let uncaught: unknown[] = []
 
-beforeEach(() => {
+beforeEach(async () => {
+  // The wizard's own strings ship separately from the rest of the dictionary and
+  // are normally awaited by its route's lazy loader. Mounting the component
+  // directly skips that, so without this its labels render as raw key paths.
+  await ensureAppMessages()
   // jsdom does not implement scrolling; the wizard calls these on step change.
   window.scrollTo = vi.fn() as unknown as typeof window.scrollTo
   Element.prototype.scrollTo = vi.fn()

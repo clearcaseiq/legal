@@ -876,11 +876,28 @@ router.get('/:id/opposing-document-suggestions', authMiddleware, async (req: Aut
   }
 })
 
-// List assessments (for a user - simplified for now)
+// List the caller's own assessments.
+//
+// The empty `where` for anonymous callers used to mean "no filter", so an
+// unauthenticated request returned the 50 most recent cases belonging to
+// everyone — claim type, venue, case name, reference code and latest valuation
+// for real claimants, plus the ids needed to read their documents elsewhere.
+//
+// Anonymous callers now get an empty list rather than a 401: this runs behind
+// optional auth and is polled from shared surfaces (the session summary probe,
+// the notifications bell, the plaintiff case hint) on public pages, and the web
+// client's 401 interceptor redirects to login, so rejecting would bounce
+// logged-out visitors off the marketing and intake screens. Pre-account intake
+// reaches a single case by id through `GET /:id`, which is where anonymous
+// access is deliberately allowed; there is no such thing as an anonymous list.
 router.get('/', optionalAuthMiddleware, async (req: AuthRequest, res) => {
   try {
+    if (!req.user) {
+      return res.json([])
+    }
+
     const assessments = await prisma.assessment.findMany({
-      where: req.user ? { userId: req.user.id } : {}, // Filter by user if authenticated
+      where: { userId: req.user.id },
       orderBy: { createdAt: 'desc' },
       take: 50,
       include: {

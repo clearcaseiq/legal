@@ -13,13 +13,27 @@ import {
 } from 'react-native'
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
-import { createCaseTask, getApiErrorMessage, getFilteredAttorneyLeads, getLeadTasks, getTasksSummary, type TaskSummaryItem } from '../../src/lib/api'
+import {
+  createCaseTask,
+  getApiErrorMessage,
+  getFilteredAttorneyLeads,
+  getLeadTasks,
+  getTasksSummary,
+  updateCaseTask,
+  type TaskSummaryItem,
+} from '../../src/lib/api'
 import { InlineErrorBanner } from '../../src/components/InlineErrorBanner'
 import { ScreenState } from '../../src/components/ScreenState'
 import { DomainBreadcrumb } from '../../src/components/DomainBreadcrumb'
 import { colors, radii, space, shadows } from '../../src/theme/tokens'
 import { formatClaimType, leadLabel, leadMeta } from '../../src/lib/formatLead'
-import { bucketCaseTasks, isAiTask } from '../../src/lib/caseTasks'
+import {
+  bucketCaseTasks,
+  describeStageUnlock,
+  isAiTask,
+  subtaskProgress,
+  toggleSubtaskDone,
+} from '../../src/lib/caseTasks'
 import { CalendarDatePicker, formatDateKeyLong, toDateKey } from '../../src/components/CalendarDatePicker'
 
 type Section = { title: string; data: TaskSummaryItem[] }
@@ -57,6 +71,24 @@ function formatDue(iso: string | null) {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
+/** Drop a completed task from the buckets, discarding any section left empty. */
+function removeTaskFromSections(sections: Section[], taskId: string): Section[] {
+  return sections
+    .map((section) => ({ ...section, data: section.data.filter((task) => task.id !== taskId) }))
+    .filter((section) => section.data.length > 0)
+}
+
+function patchTaskInSections(
+  sections: Section[],
+  taskId: string,
+  patch: (task: TaskSummaryItem) => TaskSummaryItem
+): Section[] {
+  return sections.map((section) => ({
+    ...section,
+    data: section.data.map((task) => (task.id === taskId ? patch(task) : task)),
+  }))
+}
+
 /**
  * Marks a task Rose, the AI Case Manager, raised on her own. Wording matters
  * here: Rose spots the next step, but the task is assigned to a real person, so
@@ -75,52 +107,98 @@ function RoseBadge() {
  * One task in the list. Tasks that carry a checklist — chiefly the grouped
  * "Questions for the plaintiff" task — can expand it inline, since this app has
  * no task-detail screen to open and the titles alone would hide the questions.
+ *
+ * The leading checkbox completes the task. It is deliberately a separate hit
+ * target from the card body, which still opens the case: ticking something off
+ * between meetings is the reason to reach for this screen on a phone, and it
+ * should not cost a navigation.
  */
-function TaskCard({ item }: { item: TaskSummaryItem }) {
+function TaskCard({
+  item,
+  busy,
+  onComplete,
+  onToggleSubtask,
+}: {
+  item: TaskSummaryItem
+  busy: boolean
+  onComplete: (item: TaskSummaryItem) => void
+  onToggleSubtask: (item: TaskSummaryItem, subtaskId: string) => void
+}) {
   const [expanded, setExpanded] = useState(false)
   const subtasks = item.subtasks ?? []
-  const remaining = subtasks.filter((s) => !s.done).length
+  const { remaining, total } = subtaskProgress(subtasks)
 
   return (
     <View style={styles.card}>
-      <TouchableOpacity onPress={() => router.push(`/(app)/lead/${item.leadId}`)} activeOpacity={0.88}>
-        <Text style={styles.taskTitle}>{item.title}</Text>
-        <View style={styles.metaRow}>
-          {isAiTask(item.taskType) ? <RoseBadge /> : null}
-          <Text style={styles.meta}>
-            {[item.claimType ? formatClaimType(item.claimType) : null, `Due ${formatDue(item.dueDate)}`]
-              .filter(Boolean)
-              .join(' · ')}
-          </Text>
-        </View>
-      </TouchableOpacity>
+      <View style={styles.cardTop}>
+        <TouchableOpacity
+          style={styles.checkbox}
+          onPress={() => onComplete(item)}
+          disabled={busy}
+          activeOpacity={0.7}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: false, disabled: busy }}
+          accessibilityLabel={`Mark "${item.title}" complete`}
+        >
+          {busy ? (
+            <ActivityIndicator size="small" color={colors.primary} />
+          ) : (
+            <Ionicons name="ellipse-outline" size={26} color={colors.muted} />
+          )}
+        </TouchableOpacity>
 
-      {subtasks.length > 0 ? (
+        <TouchableOpacity
+          style={styles.cardBody}
+          onPress={() => router.push(`/(app)/lead/${item.leadId}`)}
+          activeOpacity={0.88}
+        >
+          <Text style={styles.taskTitle}>{item.title}</Text>
+          <View style={styles.metaRow}>
+            {isAiTask(item.taskType) ? <RoseBadge /> : null}
+            <Text style={styles.meta}>
+              {[item.claimType ? formatClaimType(item.claimType) : null, `Due ${formatDue(item.dueDate)}`]
+                .filter(Boolean)
+                .join(' · ')}
+            </Text>
+          </View>
+        </TouchableOpacity>
+      </View>
+
+      {total > 0 ? (
         <>
           <TouchableOpacity
             style={styles.checklistToggle}
             onPress={() => setExpanded((v) => !v)}
             activeOpacity={0.7}
             accessibilityRole="button"
-            accessibilityLabel={expanded ? 'Hide checklist' : `Show ${subtasks.length} checklist items`}
+            accessibilityLabel={expanded ? 'Hide checklist' : `Show ${total} checklist items`}
           >
             <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color={colors.primary} />
             <Text style={styles.checklistToggleText}>
-              {remaining > 0 ? `${remaining} of ${subtasks.length} still open` : `All ${subtasks.length} done`}
+              {remaining > 0 ? `${remaining} of ${total} still open` : `All ${total} done`}
             </Text>
           </TouchableOpacity>
           {expanded ? (
             <View style={styles.checklist}>
               {subtasks.map((s) => (
-                <View key={s.id} style={styles.checklistItem}>
+                <TouchableOpacity
+                  key={s.id}
+                  style={styles.checklistItem}
+                  onPress={() => onToggleSubtask(item, s.id)}
+                  disabled={busy}
+                  activeOpacity={0.7}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: s.done, disabled: busy }}
+                  accessibilityLabel={s.title}
+                >
                   <Ionicons
                     name={s.done ? 'checkmark-circle' : 'ellipse-outline'}
-                    size={16}
+                    size={20}
                     color={s.done ? colors.success : colors.muted}
                     style={styles.checklistIcon}
                   />
                   <Text style={[styles.checklistText, s.done && styles.checklistTextDone]}>{s.title}</Text>
-                </View>
+                </TouchableOpacity>
               ))}
             </View>
           ) : null}
@@ -162,6 +240,8 @@ export default function TasksScreen() {
   const [notes, setNotes] = useState('')
   const [saving, setSaving] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
+  const [busyTaskId, setBusyTaskId] = useState<string | null>(null)
+  const [notice, setNotice] = useState<{ message: string; taskId: string; leadId: string } | null>(null)
 
   const load = useCallback(async () => {
     setLoadError(null)
@@ -188,6 +268,78 @@ export default function TasksScreen() {
     useCallback(() => {
       void load()
     }, [load])
+  )
+
+  /**
+   * Complete a task. The row is dropped straight away because these buckets hold
+   * only open tasks — waiting for the round-trip would leave the tapped task
+   * sitting there looking untouched. A failed write re-reads the list rather
+   * than trying to restore the old one, so what is on screen is always what the
+   * server actually has.
+   */
+  const completeTask = useCallback(
+    async (item: TaskSummaryItem) => {
+      if (busyTaskId) return
+      setBusyTaskId(item.id)
+      setNotice(null)
+      setSections((current) => removeTaskFromSections(current, item.id))
+      try {
+        const updated = await updateCaseTask(item.leadId, item.id, { status: 'done' })
+        setNotice({
+          message: describeStageUnlock(updated.stageUnlock) ?? 'Task completed.',
+          taskId: item.id,
+          leadId: item.leadId,
+        })
+        // A stage unlock writes new tasks server-side, so the list is now stale.
+        if (updated.stageUnlock) await load()
+      } catch (err: unknown) {
+        setLoadError(getApiErrorMessage(err))
+        await load()
+      } finally {
+        setBusyTaskId(null)
+      }
+    },
+    [busyTaskId, load]
+  )
+
+  const reopenTask = useCallback(
+    async (taskId: string, leadId: string) => {
+      setNotice(null)
+      setBusyTaskId(taskId)
+      try {
+        await updateCaseTask(leadId, taskId, { status: 'open' })
+      } catch (err: unknown) {
+        setLoadError(getApiErrorMessage(err))
+      } finally {
+        setBusyTaskId(null)
+        await load()
+      }
+    },
+    [load]
+  )
+
+  /**
+   * Tick one checklist item. The server replaces the whole `subtasks` array, so
+   * the full list goes back with the single entry flipped.
+   */
+  const toggleSubtask = useCallback(
+    async (item: TaskSummaryItem, subtaskId: string) => {
+      if (busyTaskId) return
+      const nextSubtasks = toggleSubtaskDone(item.subtasks, subtaskId)
+      setBusyTaskId(item.id)
+      setSections((current) =>
+        patchTaskInSections(current, item.id, (task) => ({ ...task, subtasks: nextSubtasks }))
+      )
+      try {
+        await updateCaseTask(item.leadId, item.id, { subtasks: nextSubtasks })
+      } catch (err: unknown) {
+        setLoadError(getApiErrorMessage(err))
+        await load()
+      } finally {
+        setBusyTaskId(null)
+      }
+    },
+    [busyTaskId, load]
   )
 
   function setQuickDate(daysFromNow: number) {
@@ -298,6 +450,20 @@ export default function TasksScreen() {
               <Text style={styles.createButtonText}>Create task</Text>
             </TouchableOpacity>
             {loadError ? <InlineErrorBanner message={loadError} onAction={() => { setLoading(true); load() }} /> : null}
+            {notice ? (
+              <View style={styles.notice}>
+                <Ionicons name="checkmark-circle" size={18} color={colors.success} />
+                <Text style={styles.noticeText}>{notice.message}</Text>
+                <TouchableOpacity
+                  onPress={() => { void reopenTask(notice.taskId, notice.leadId) }}
+                  activeOpacity={0.7}
+                  accessibilityRole="button"
+                  accessibilityLabel="Undo completing this task"
+                >
+                  <Text style={styles.noticeAction}>Undo</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
           </View>
         }
       refreshControl={
@@ -308,7 +474,14 @@ export default function TasksScreen() {
           <Text style={styles.sectionTitle}>{title}</Text>
         </View>
       )}
-      renderItem={({ item }) => <TaskCard item={item} />}
+      renderItem={({ item }) => (
+        <TaskCard
+          item={item}
+          busy={busyTaskId === item.id}
+          onComplete={(task) => { void completeTask(task) }}
+          onToggleSubtask={(task, subtaskId) => { void toggleSubtask(task, subtaskId) }}
+        />
+      )}
       ListEmptyComponent={
         <View style={styles.empty}>
           <Ionicons name="checkbox-outline" size={48} color={colors.muted} />
@@ -571,8 +744,34 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     ...shadows.soft,
   },
+  cardTop: { flexDirection: 'row', alignItems: 'flex-start', gap: space.sm },
+  // 44pt of touchable width so the checkbox clears the case-opening body next to
+  // it; the negative offsets keep the icon optically aligned with the title.
+  checkbox: {
+    width: 44,
+    height: 44,
+    marginTop: -space.sm,
+    marginLeft: -space.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cardBody: { flex: 1 },
   taskTitle: { fontSize: 17, fontWeight: '700', color: colors.text },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm, marginTop: 6, flexWrap: 'wrap' },
+  notice: {
+    marginBottom: space.md,
+    minHeight: 48,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.successMuted,
+    paddingHorizontal: space.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+  },
+  noticeText: { flex: 1, fontSize: 14, fontWeight: '700', color: colors.text },
+  noticeAction: { fontSize: 14, fontWeight: '800', color: colors.primary, paddingVertical: space.sm },
   meta: { fontSize: 14, color: colors.textSecondary },
   roseBadge: {
     flexDirection: 'row',
@@ -597,8 +796,9 @@ const styles = StyleSheet.create({
     borderTopColor: colors.border,
     gap: space.sm,
   },
-  checklistItem: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
-  checklistIcon: { marginTop: 2 },
+  // Now tappable, so the row needs a real touch target rather than text height.
+  checklistItem: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, minHeight: 40, paddingVertical: 6 },
+  checklistIcon: { marginTop: 1 },
   checklistText: { flex: 1, fontSize: 14, lineHeight: 20, color: colors.text },
   checklistTextDone: { color: colors.textSecondary, textDecorationLine: 'line-through' },
   empty: { alignItems: 'center', paddingVertical: 48 },

@@ -1,12 +1,35 @@
 import type { GetServerSideProps } from 'next'
-
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://www.clearcaseiq.com'
+import { indexingEnabled, serverSiteUrl } from '../src/lib/siteConfig'
 
 function RobotsTxt() {
   return null
 }
 
+function disallowEverything() {
+  return [
+    '# Non-production deployment. This host serves the same pages as the live',
+    '# site, so it is closed to crawlers entirely rather than competing with it.',
+    'User-agent: *',
+    'Disallow: /',
+    '',
+  ].join('\n')
+}
+
 export const getServerSideProps: GetServerSideProps = async ({ res }) => {
+  const SITE_URL = serverSiteUrl()
+
+  if (!indexingEnabled()) {
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8')
+    // Deliberately not cached. A disallow-all accidentally served by production
+    // and then held in a CDN for an hour is the expensive direction of this
+    // mistake, so it stays cheap to correct.
+    res.setHeader('Cache-Control', 'no-store')
+    res.write(disallowEverything())
+    res.end()
+
+    return { props: {} }
+  }
+
   const robots = [
     'User-agent: *',
     '',

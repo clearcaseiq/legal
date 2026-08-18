@@ -2,6 +2,11 @@ import { ReactNode, Suspense, lazy, useState, useRef, useEffect, useMemo } from 
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import BrandLogo from './BrandLogo'
 import RouteProgressBar from './RouteProgressBar'
+// Static, unlike the bells below. It renders in the header on every page for
+// every visitor, signed in or not, on both the desktop and mobile bars, so
+// there is never a load it is deferred past — only a placeholder standing in
+// its place while its chunk arrives, and a reflow of the header when it does.
+import LanguageSwitcher from './LanguageSwitcher'
 import {
   ChevronDownIcon,
   MenuIcon,
@@ -26,7 +31,6 @@ const NotificationBell = lazy(() => import('./NotificationBell'))
 const NotificationsBell = lazy(() => import('./NotificationsBell'))
 const PlaintiffNotificationBell = lazy(() => import('./PlaintiffNotificationBell'))
 const PlaintiffNotificationsBell = lazy(() => import('./PlaintiffNotificationsBell'))
-const LanguageSwitcher = lazy(() => import('./LanguageSwitcher'))
 const SupportChatWidget = lazy(() => import('./SupportChatWidget'))
 
 interface LayoutProps {
@@ -396,8 +400,8 @@ export default function Layout({ children }: LayoutProps) {
     // header frees room so the language switcher is always visible on every device.
   ] as (NavItem | null)[]).filter((item): item is NavItem => item !== null)
 
+  // Matches a bell button exactly: `p-2` around a 20px icon is 36px square.
   const shellIconFallback = <div className="h-9 w-9 rounded-lg bg-slate-100 dark:bg-slate-800" aria-hidden />
-  const languageFallback = <div className="h-5 w-16 rounded bg-slate-100 dark:bg-slate-800" aria-hidden />
   const menuItemCls =
     'flex items-center gap-2 px-4 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800'
 
@@ -490,9 +494,7 @@ export default function Layout({ children }: LayoutProps) {
               {/* Language switcher is shown for every role, including attorneys, who
                   otherwise had no way to change language (CP-557). */}
               <div className="hidden lg:block">
-                <Suspense fallback={languageFallback}>
-                  <LanguageSwitcher />
-                </Suspense>
+                <LanguageSwitcher />
               </div>
               <span className="hidden h-6 w-px bg-slate-200 dark:bg-slate-800 lg:block" aria-hidden />
               {isAuthenticated ? (
@@ -689,9 +691,7 @@ export default function Layout({ children }: LayoutProps) {
                   always visible, even on the narrowest phones (previously it was the
                   last scroll item and sat off-screen behind Help). */}
               <div className="shrink-0 rounded-full border border-slate-200 bg-white/80 px-2 py-1 shadow-sm dark:border-slate-800 dark:bg-slate-900/80">
-                <Suspense fallback={languageFallback}>
-                  <LanguageSwitcher />
-                </Suspense>
+                <LanguageSwitcher />
               </div>
               <Link to={navLinks.plaintiffLogin} className="shrink-0 rounded-full bg-brand-700 px-3 py-1.5 text-xs font-semibold text-white shadow-sm">
                 {t('common.signIn')}
@@ -707,9 +707,7 @@ export default function Layout({ children }: LayoutProps) {
               <div className="mb-2 flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-2 dark:border-slate-800 dark:bg-slate-950/40">
                 <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">{t('common.menu')}</span>
                 {/* Attorneys get the language switcher in the mobile menu too. */}
-                <Suspense fallback={languageFallback}>
-                  <LanguageSwitcher />
-                </Suspense>
+                <LanguageSwitcher />
               </div>
               {isAuthenticated ? (
                 <>

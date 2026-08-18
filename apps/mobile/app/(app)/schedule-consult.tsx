@@ -50,9 +50,14 @@ const TIME_SLOTS = [
   '5:00 PM',
 ]
 
+// `video` is the Zoom option: the web scheduler labels this same type "Zoom"
+// and the backend auto-creates a Zoom link for it when the attorney has Zoom
+// connected. Mobile previously showed a generic "Video" label, which read as a
+// missing Zoom choice (CP-478); the label is aligned to web rather than adding a
+// separate id so both clients and the API stay on one meeting-type vocabulary.
 const MEETING_TYPES = [
   { id: 'phone', label: 'Phone' },
-  { id: 'video', label: 'Video' },
+  { id: 'video', label: 'Zoom' },
   { id: 'in_person', label: 'In person' },
 ]
 

@@ -13,6 +13,8 @@
  * `appRoutes.test.ts` fails if a route is added to App.tsx without being
  * registered here.
  */
+import type { LandingPageCategory } from './seoLandingPages'
+import { topicHubs } from './seoTopicHubDefs'
 
 /** Route trees where any child path is valid (record ids, nested sections). */
 export const KNOWN_ROUTE_PREFIXES = [
@@ -66,7 +68,6 @@ export const KNOWN_ROUTE_PATHS = new Set([
   '/contact',
   '/dashboard',
   '/disclosures',
-  '/financing',
   '/firm-dashboard',
   '/firm-settings',
   '/for-attorneys',
@@ -98,19 +99,56 @@ export const KNOWN_ROUTE_PATHS = new Set([
   '/verify-email',
 ])
 
-/** Prefixes whose `:slug` is validated against the landing page data. */
-export const SEO_CLUSTER_PREFIXES = [
-  '/case-strength',
-  '/commercial',
-  '/education',
-  '/injuries',
-  '/insurance',
-  '/legal',
-  '/liability',
-  '/settlements',
-  '/tools',
-  '/treatment',
-]
+/**
+ * Each SEO cluster's bare directory prefix, and the landing page category every
+ * page beneath it carries.
+ *
+ * The prefixes themselves are not pages and never were — `/treatment` is what a
+ * crawler gets when it truncates `/treatment/mri-after-accident`, which is
+ * routine crawler behaviour and how Google found all of them. Search Console
+ * reported the whole set as "Duplicate without user-selected canonical" and
+ * folded six of them into `/tools`, because at the time they all answered 200
+ * with an empty client-rendered body and so were identical to one another.
+ *
+ * The category is what makes them recoverable rather than merely 404-able: each
+ * one maps to exactly one topic hub, which is a real server-rendered page with
+ * its own canonical and sitemap entry. See `topicHubForClusterPrefix`.
+ */
+const SEO_CLUSTER_PREFIX_CATEGORIES: Record<string, LandingPageCategory> = {
+  '/case-strength': 'Attorney Intent',
+  '/commercial': 'Commercial',
+  '/education': 'Educational / SEO Moat',
+  '/injuries': 'Symptoms',
+  '/insurance': 'Insurance',
+  '/legal': 'Attorney Intent',
+  '/liability': 'Liability',
+  '/settlements': 'Settlement',
+  '/treatment': 'Treatment',
+}
+
+/**
+ * Prefixes whose `:slug` is validated against the landing page data.
+ *
+ * Derived from the mapping above so the two cannot drift. `/tools` is appended
+ * rather than mapped: unlike the others it mixes landing pages with real
+ * marketing pages (the deadline checker, the records checklist), so it wants a
+ * decision about an index page rather than a redirect to a topic hub.
+ */
+export const SEO_CLUSTER_PREFIXES = [...Object.keys(SEO_CLUSTER_PREFIX_CATEGORIES), '/tools'].sort()
+
+const hubSlugByCategory = new Map(topicHubs.map((hub) => [hub.category, hub.slug]))
+
+/**
+ * The topic hub a bare cluster prefix belongs to, or null if the path is not one.
+ *
+ * Only matches the prefix exactly. `/treatment/mri-after-accident` is a real
+ * page and has to keep answering as one.
+ */
+export function topicHubForClusterPrefix(pathname: string): string | null {
+  const category = SEO_CLUSTER_PREFIX_CATEGORIES[pathname]
+  if (!category) return null
+  return hubSlugByCategory.get(category) ?? null
+}
 
 export function isKnownAppRoute(pathname: string): boolean {
   if (KNOWN_ROUTE_PATHS.has(pathname)) return true

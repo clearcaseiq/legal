@@ -20,7 +20,7 @@
   }
 
   html {
-    font-family: 'Inter', system-ui, sans-serif;
+    font-family: var(--font-sans, system-ui), system-ui, sans-serif;
     scroll-behavior: smooth;
   }
 
@@ -439,7 +439,7 @@
   }
 
   .font-display {
-    font-family: Fraunces, Georgia, ui-serif, serif;
+    font-family: var(--font-display, Georgia), Georgia, ui-serif, serif;
   }
 
   .link-underline {
@@ -527,7 +527,7 @@
    stay large. */
 .claimant-theme :is(h1, h2, h3, h4, h5, h6),
 .claimant-theme .font-display {
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: var(--font-sans, system-ui), system-ui, sans-serif;
 }
 
 /* Fixed scale for in-app claimant screens only (forms + flows). Marketing pages

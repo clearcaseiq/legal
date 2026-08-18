@@ -976,6 +976,44 @@ export async function createSolTask(leadId: string) {
   return data
 }
 
+/**
+ * Completing the last task in a workflow stage can open the next stage, which
+ * writes a fresh batch of tasks. The server reports that on the update response
+ * so the caller can say so rather than leaving the attorney to wonder why the
+ * list grew after they ticked something off.
+ */
+export type TaskStageUnlock = {
+  newTasks: number
+  stageOrder: number
+}
+
+export type UpdatedCaseTask = CaseTaskRow & { stageUnlock?: TaskStageUnlock }
+
+/**
+ * Update one task. Sending `status` is what completes or reopens it: the server
+ * stamps `completedAt`, mirrors the change onto any workflow step the task
+ * belongs to, and re-runs the case coach.
+ *
+ * `dueDate` and `notes` accept null to clear them, so they are only sent when
+ * the caller passes them — `undefined` means "leave alone" all the way through
+ * to the Prisma update.
+ */
+export async function updateCaseTask(
+  leadId: string,
+  taskId: string,
+  payload: {
+    title?: string
+    dueDate?: string | null
+    priority?: 'low' | 'medium' | 'high' | 'urgent'
+    status?: string
+    notes?: string | null
+    subtasks?: TaskSubtask[]
+  }
+): Promise<UpdatedCaseTask> {
+  const { data } = await api.patch(`/v1/attorney-dashboard/leads/${leadId}/tasks/${taskId}`, payload)
+  return data
+}
+
 export type NegotiationEvent = {
   id: string
   assessmentId?: string

@@ -4,7 +4,19 @@ import { fileURLToPath } from 'node:url'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const workspaceNodeModules = path.resolve(__dirname, '../node_modules')
 
-const localApiOrigin = (process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:4000').replace(/\/+$/, '')
+// Where the rewrites below forward API traffic. Read at server start rather than
+// baked in: next.config is plain Node config, not compiled by Next, so this is
+// one of the few places a runtime value is available to the web container.
+//
+// In the deployed stacks nginx matches /v1 and /uploads ahead of Next and
+// proxies straight to the API, so these rewrites are a fallback there — but the
+// fallback has to point at the api service, not 127.0.0.1, which inside the web
+// container is the web container.
+const localApiOrigin = (
+  process.env.API_PROXY_ORIGIN ||
+  process.env.NEXT_PUBLIC_API_URL ||
+  'http://127.0.0.1:4000'
+).replace(/\/+$/, '')
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {

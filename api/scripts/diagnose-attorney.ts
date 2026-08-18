@@ -4,7 +4,7 @@
  *
  * Usage (inside the api container):
  *   docker cp api/scripts/diagnose-attorney.ts clearcaseiq-api:/app/diagnose-attorney.ts
- *   docker compose -f docker-compose.prod.yml --env-file .env.prod exec \
+ *   docker compose -f docker-compose.deploy.yml --env-file .env.prod exec \
  *     -e ATTORNEY_NAME=Tucker api node ../node_modules/tsx/dist/cli.mjs diagnose-attorney.ts
  *
  * Or by email:  -e ATTORNEY_EMAIL=someone@example.com

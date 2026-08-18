@@ -12,8 +12,43 @@ export const LANGUAGE_STORAGE_KEY = 'i18nextLng'
 
 type TranslationDictionary = Record<string, unknown>
 
+// Copied rather than aliased so the lazy merge below writes into our own object
+// instead of mutating the shared module record webpack hands out for the JSON.
 const resources: Partial<Record<LanguageCode, TranslationDictionary>> = {
-  en,
+  en: { ...en },
+}
+
+/**
+ * The English strings for the intake wizard, the results report and the
+ * plaintiff dashboard, which live in `en-app.json`.
+ *
+ * Those three namespaces are three quarters of the English dictionary — 215 KB
+ * of the 291 KB — and none of them appear on a marketing or landing page. While
+ * they sat in `en.json` every anonymous visitor parsed all of it before first
+ * paint to read the handful of kilobytes of nav and hero copy they could
+ * actually see.
+ *
+ * English is the fallback `translate` reaches for when a key is missing in any
+ * other language, so this cannot be loaded on demand per key: a screen that
+ * rendered before the file arrived would show raw key paths. Instead the four
+ * routes that read these namespaces await it as part of their own lazy chunk
+ * load, behind the route skeleton that was already there. See `withAppMessages`
+ * in App.tsx.
+ *
+ * Three small subtrees stay behind in `en.json` because they are read from
+ * outside those routes: `plaintiffDashboard.skeleton` is the loading screen
+ * shown *during* this very load, and `statusLabels` / `litigationLabels` are
+ * built as key strings by `lib/caseStatus`, which any surface may call.
+ */
+let appMessagesLoad: Promise<void> | null = null
+
+export function ensureAppMessages(): Promise<void> {
+  if (!appMessagesLoad) {
+    appMessagesLoad = import('./locales/en-app.json').then((module) => {
+      Object.assign(resources[DEFAULT_LANGUAGE] as TranslationDictionary, module.default)
+    })
+  }
+  return appMessagesLoad
 }
 
 const resourceLoaders: Partial<Record<LanguageCode, () => Promise<TranslationDictionary>>> = {

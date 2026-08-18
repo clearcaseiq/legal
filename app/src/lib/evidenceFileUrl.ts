@@ -14,25 +14,52 @@ export function resolveEvidenceFileUrl(url?: string): string {
   return `${getApiOrigin()}${url.startsWith('/') ? '' : '/'}${url}`
 }
 
+function openBlobUrl(url: string) {
+  // window.open(..., 'noopener,noreferrer') is unreliable/blocked in Chrome and
+  // Firefox for blob: URLs (the new document loses access to the blob), so the
+  // Eye button appeared to do nothing for not-yet-uploaded local files (#11).
+  // An anchor click without `noreferrer` works in both.
+  const link = document.createElement('a')
+  link.href = url
+  link.target = '_blank'
+  link.rel = 'noopener'
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+}
+
 /**
- * Open an evidence file for preview. Opening a blob: URL via
- * window.open(..., 'noopener,noreferrer') is unreliable/blocked in Chrome and
- * Firefox (the new document loses access to the blob), so the Eye button
- * appeared to do nothing for not-yet-uploaded local files (#11). Use an anchor
- * click (no `noreferrer`) for blob/data URLs; keep window.open for http(s).
+ * Open an evidence file for preview.
+ *
+ * Stored files used to be opened by navigating straight to the `/uploads/...`
+ * URL, which only worked because the API served that directory to anyone. Now
+ * that those reads are authorized, a bare navigation carries no Authorization
+ * header and would 401, so the file is fetched through the API client and
+ * shown as an object URL — the same approach the inline scene image and the
+ * download button already use.
+ *
+ * Blob and data URLs (locally selected files not yet uploaded) never touch the
+ * network and are opened directly.
  */
-export function openEvidenceFile(fileUrl?: string) {
-  const url = resolveEvidenceFileUrl(fileUrl)
-  if (!url) return
-  if (/^(blob:|data:)/i.test(url)) {
-    const link = document.createElement('a')
-    link.href = url
-    link.target = '_blank'
-    link.rel = 'noopener'
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
+export async function openEvidenceFile(fileUrl?: string) {
+  if (!fileUrl) return
+
+  if (/^(blob:|data:)/i.test(fileUrl)) {
+    openBlobUrl(fileUrl)
     return
   }
-  window.open(url, '_blank', 'noopener,noreferrer')
+
+  try {
+    const { getEvidenceObjectUrl } = await import('./api')
+    const objectUrl = await getEvidenceObjectUrl(fileUrl)
+    openBlobUrl(objectUrl)
+    // The tab needs the object URL to survive its own load, and there is no
+    // reliable cross-browser signal for that, so revoke on a delay rather than
+    // leaking it for the lifetime of the page.
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000)
+  } catch (error) {
+    // Every caller is an onClick that does not await, so swallow here rather
+    // than surfacing an unhandled rejection.
+    console.error('Failed to open evidence file', error)
+  }
 }

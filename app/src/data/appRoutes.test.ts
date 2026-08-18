@@ -5,6 +5,7 @@ import {
   KNOWN_ROUTE_PREFIXES,
   SEO_CLUSTER_PREFIXES,
   isKnownAppRoute,
+  topicHubForClusterPrefix,
 } from './appRoutes'
 import { landingPagesBySlug } from './seoLandingPages'
 import { marketingPagesByPath } from './marketingPages'
@@ -59,5 +60,54 @@ describe('app route registry', () => {
       expect(isKnownAppRoute(path)).toBe(false)
       expect(landingPagesBySlug.has(path)).toBe(false)
     }
+  })
+})
+
+/**
+ * Search Console reported every one of these as a duplicate with no declared
+ * canonical, and folded most of them into /tools. They are bare directory
+ * prefixes that crawlers reach by truncating a child URL, so they keep being
+ * rediscovered no matter how often they 404.
+ */
+describe('bare SEO cluster prefixes', () => {
+  const REPORTED_BY_SEARCH_CONSOLE = [
+    '/case-strength',
+    '/commercial',
+    '/education',
+    '/injuries',
+    '/insurance',
+    '/liability',
+    '/settlements',
+    '/treatment',
+  ]
+
+  it('sends every reported prefix to a topic hub', () => {
+    const unmapped = REPORTED_BY_SEARCH_CONSOLE.filter((path) => !topicHubForClusterPrefix(path))
+    expect(unmapped).toEqual([])
+  })
+
+  it('sends them somewhere that is a real server-rendered page', () => {
+    for (const path of SEO_CLUSTER_PREFIXES) {
+      const hub = topicHubForClusterPrefix(path)
+      if (!hub) continue
+      const page = marketingPagesByPath.get(hub)
+      expect(page, `${path} redirects to ${hub}, which is not a marketing page`).toBeDefined()
+      expect(page?.serverRender).toBe(true)
+    }
+  })
+
+  it('leaves the child pages alone', () => {
+    // A redirect matching by prefix rather than exact path would take out the
+    // 47 landing pages that live under these directories.
+    for (const slug of landingPagesBySlug.keys()) {
+      expect(topicHubForClusterPrefix(slug)).toBeNull()
+    }
+  })
+
+  it('leaves /tools unmapped pending a decision about an index page', () => {
+    // It mixes landing pages with real marketing pages, so unlike the others it
+    // has no single hub that represents it.
+    expect(SEO_CLUSTER_PREFIXES).toContain('/tools')
+    expect(topicHubForClusterPrefix('/tools')).toBeNull()
   })
 })

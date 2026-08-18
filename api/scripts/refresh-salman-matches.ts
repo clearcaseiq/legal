@@ -23,7 +23,7 @@
  *
  * Usage (prod, inside the api container):
  *   docker cp api/scripts/refresh-salman-matches.ts clearcaseiq-api:/app/refresh-salman-matches.ts
- *   docker compose -f docker-compose.prod.yml --env-file .env.prod exec api \
+ *   docker compose -f docker-compose.deploy.yml --env-file .env.prod exec api \
  *     node ../node_modules/tsx/dist/cli.mjs refresh-salman-matches.ts
  *
  * If Salman's prod login was ever repointed to a different email, pass

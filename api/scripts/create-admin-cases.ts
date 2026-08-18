@@ -12,7 +12,7 @@
  *
  * Usage (prod, inside the api container — recommended):
  *   docker cp api/scripts/create-admin-cases.ts clearcaseiq-api:/app/scripts/create-admin-cases.ts
- *   docker compose -f docker-compose.prod.yml --env-file .env.prod exec api \
+ *   docker compose -f docker-compose.deploy.yml --env-file .env.prod exec api \
  *     node ../node_modules/tsx/dist/cli.mjs scripts/create-admin-cases.ts
  *
  * Usage (local / any DB via DATABASE_URL):

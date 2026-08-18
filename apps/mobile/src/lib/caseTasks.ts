@@ -1,7 +1,37 @@
-import type { CaseTaskRow, TaskSummaryItem } from './api'
+import type { CaseTaskRow, TaskStageUnlock, TaskSubtask, TaskSummaryItem } from './api'
 
 /** Statuses the tasks list treats as closed; mirrors the server's summary query. */
 const CLOSED_STATUSES = new Set(['completed', 'done'])
+
+export function isTaskDone(status?: string | null): boolean {
+  return CLOSED_STATUSES.has(String(status || '').toLowerCase())
+}
+
+export function subtaskProgress(subtasks?: TaskSubtask[] | null) {
+  const list = subtasks ?? []
+  const done = list.filter((s) => s.done).length
+  return { done, total: list.length, remaining: list.length - done }
+}
+
+/**
+ * Flip one checklist item. Returns a new array so the caller can send the whole
+ * list back — the server replaces `subtasks` wholesale rather than patching a
+ * single entry.
+ */
+export function toggleSubtaskDone(subtasks: TaskSubtask[] | undefined, subtaskId: string): TaskSubtask[] {
+  return (subtasks ?? []).map((s) => (s.id === subtaskId ? { ...s, done: !s.done } : s))
+}
+
+/**
+ * Message for the case where ticking off a task opened the next workflow stage
+ * and wrote new tasks. Without this the list silently grows and looks like a bug.
+ */
+export function describeStageUnlock(unlock?: TaskStageUnlock | null): string | null {
+  if (!unlock || unlock.newTasks <= 0) return null
+  return unlock.newTasks === 1
+    ? 'That finished the stage. 1 new task was added.'
+    : `That finished the stage. ${unlock.newTasks} new tasks were added.`
+}
 
 /**
  * Task types only the autonomous AI loop writes. Everything a person creates —
@@ -18,7 +48,7 @@ export function isAiTask(taskType?: string | null): boolean {
  */
 export function isOpenCaseTask(task: Pick<CaseTaskRow, 'status' | 'taskType'>): boolean {
   if (String(task.taskType || '') === 'time_entry') return false
-  return !CLOSED_STATUSES.has(String(task.status || '').toLowerCase())
+  return !isTaskDone(task.status)
 }
 
 export type TaskBuckets = {

@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { bucketCaseTasks, isOpenCaseTask } from './caseTasks'
-import type { CaseTaskRow } from './api'
+import {
+  bucketCaseTasks,
+  describeStageUnlock,
+  isOpenCaseTask,
+  isTaskDone,
+  subtaskProgress,
+  toggleSubtaskDone,
+} from './caseTasks'
+import type { CaseTaskRow, TaskSubtask } from './api'
 
 /** Local noon on 2026-07-28, so bucketing never straddles a UTC day boundary. */
 const NOW = new Date(2026, 6, 28, 12, 0, 0)
@@ -100,5 +107,95 @@ describe('bucketCaseTasks', () => {
       upcoming: [],
       noDueDate: [],
     })
+  })
+})
+
+describe('isTaskDone', () => {
+  it('accepts both spellings the server uses, in any case', () => {
+    expect(isTaskDone('done')).toBe(true)
+    expect(isTaskDone('completed')).toBe(true)
+    expect(isTaskDone('Done')).toBe(true)
+  })
+
+  it('treats open, in-progress and missing statuses as not done', () => {
+    expect(isTaskDone('open')).toBe(false)
+    expect(isTaskDone('in_progress')).toBe(false)
+    expect(isTaskDone(null)).toBe(false)
+    expect(isTaskDone(undefined)).toBe(false)
+  })
+})
+
+describe('subtaskProgress', () => {
+  const subtasks: TaskSubtask[] = [
+    { id: 'a', title: 'Ask about prior injuries', done: true },
+    { id: 'b', title: 'Confirm employer', done: false },
+    { id: 'c', title: 'Get policy limits', done: false },
+  ]
+
+  it('counts done and remaining items', () => {
+    expect(subtaskProgress(subtasks)).toEqual({ done: 1, total: 3, remaining: 2 })
+  })
+
+  it('reports nothing for a task with no checklist', () => {
+    expect(subtaskProgress(undefined)).toEqual({ done: 0, total: 0, remaining: 0 })
+    expect(subtaskProgress([])).toEqual({ done: 0, total: 0, remaining: 0 })
+  })
+})
+
+describe('toggleSubtaskDone', () => {
+  const subtasks: TaskSubtask[] = [
+    { id: 'a', title: 'Ask about prior injuries', done: false },
+    { id: 'b', title: 'Confirm employer', done: true },
+  ]
+
+  it('flips only the item that was tapped', () => {
+    expect(toggleSubtaskDone(subtasks, 'a')).toEqual([
+      { id: 'a', title: 'Ask about prior injuries', done: true },
+      { id: 'b', title: 'Confirm employer', done: true },
+    ])
+  })
+
+  it('unticks an item that was already done', () => {
+    expect(toggleSubtaskDone(subtasks, 'b')[1].done).toBe(false)
+  })
+
+  // The whole array is PATCHed back, so mutating in place would leave the list
+  // on screen and the list being sent silently out of step.
+  it('does not mutate the array it was given', () => {
+    const next = toggleSubtaskDone(subtasks, 'a')
+
+    expect(next).not.toBe(subtasks)
+    expect(subtasks[0].done).toBe(false)
+  })
+
+  it('is a no-op when the id is not in the checklist', () => {
+    expect(toggleSubtaskDone(subtasks, 'missing')).toEqual(subtasks)
+  })
+
+  it('handles a task that has no checklist at all', () => {
+    expect(toggleSubtaskDone(undefined, 'a')).toEqual([])
+  })
+})
+
+describe('describeStageUnlock', () => {
+  it('says how many tasks a finished stage added', () => {
+    expect(describeStageUnlock({ newTasks: 4, stageOrder: 2 })).toBe(
+      'That finished the stage. 4 new tasks were added.'
+    )
+  })
+
+  it('reads naturally for a single task', () => {
+    expect(describeStageUnlock({ newTasks: 1, stageOrder: 2 })).toBe(
+      'That finished the stage. 1 new task was added.'
+    )
+  })
+
+  // The server sends the stage back whenever one closes, including when the
+  // next stage happens to have no template steps. Announcing "0 new tasks" then
+  // would be worse than saying nothing.
+  it('stays quiet when no stage closed or nothing new was written', () => {
+    expect(describeStageUnlock(null)).toBeNull()
+    expect(describeStageUnlock(undefined)).toBeNull()
+    expect(describeStageUnlock({ newTasks: 0, stageOrder: 2 })).toBeNull()
   })
 })

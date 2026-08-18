@@ -12,7 +12,7 @@
  *
  * Usage (inside the api container):
  *   docker cp api/scripts/diagnose-routing.ts clearcaseiq-api:/app/diagnose-routing.ts
- *   docker compose -f docker-compose.prod.yml --env-file .env.prod exec \
+ *   docker compose -f docker-compose.deploy.yml --env-file .env.prod exec \
  *     -e PLAINTIFF='<name or case name>' api \
  *     node ../node_modules/tsx/dist/cli.mjs diagnose-routing.ts
  *

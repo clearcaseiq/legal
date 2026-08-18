@@ -27,45 +27,31 @@ const CostCalculator = z.object({
 // partner when a plaintiff we refer is funded. Overridable via env.
 const PLATFORM_FUNDING_REFERRAL_PCT = Number(process.env.FINANCING_REFERRAL_FEE_PCT ?? 8)
 
-// Pre-settlement funding partners
-const FUNDING_PARTNERS = [
-  {
-    id: 'oasis_financial',
-    name: 'Oasis Financial',
-    minAmount: 1000,
-    maxAmount: 50000,
-    interestRate: 18,
-    termMonths: 24,
-    approvalRate: 0.75,
-    fundingTime: '24-48 hours',
-    description: 'Leading pre-settlement funding provider with fast approval',
-    logo: 'https://images.unsplash.com/photo-1560472354-b33ff0c44a43?w=200&h=100&fit=crop'
-  },
-  {
-    id: 'law_cash',
-    name: 'Law Cash',
-    minAmount: 2500,
-    maxAmount: 75000,
-    interestRate: 22,
-    termMonths: 36,
-    approvalRate: 0.70,
-    fundingTime: '12-24 hours',
-    description: 'Specialized in personal injury case funding',
-    logo: 'https://images.unsplash.com/photo-1554224155-6726b3ff858f?w=200&h=100&fit=crop'
-  },
-  {
-    id: 'plaintiff_funding',
-    name: 'Plaintiff Funding Corp',
-    minAmount: 1000,
-    maxAmount: 100000,
-    interestRate: 20,
-    termMonths: 30,
-    approvalRate: 0.65,
-    fundingTime: '48-72 hours',
-    description: 'Comprehensive funding solutions for all case types',
-    logo: 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=200&h=100&fit=crop'
-  }
-]
+/**
+ * Pre-settlement funding partners.
+ *
+ * Deliberately empty. This list previously held three real, named companies
+ * (Oasis Financial, Law Cash, Plaintiff Funding Corp) with interest rates,
+ * approval rates, funding times and stock-photo logos that were all invented —
+ * there is no agreement with any of them and none of those terms were quoted
+ * from a real rate sheet. Publishing specific APRs on behalf of a named lender
+ * is an advertising claim, so this stays empty until each partner is under
+ * contract and its terms come from that contract.
+ */
+type FundingPartner = {
+  id: string
+  name: string
+  minAmount: number
+  maxAmount: number
+  interestRate: number
+  termMonths: number
+  approvalRate: number
+  fundingTime: string
+  description: string
+  logo: string
+}
+
+const FUNDING_PARTNERS: FundingPartner[] = []
 
 // Get available funding partners
 router.get('/partners', async (req, res) => {
@@ -341,45 +327,23 @@ router.get('/medical-providers', async (req, res) => {
   try {
     const { location, specialty } = req.query
 
-    // Mock medical providers who accept liens
-    const medicalProviders = [
-      {
-        id: 'provider_1',
-        name: 'Los Angeles Spine & Injury Center',
-        specialty: 'Orthopedics',
-        location: 'Los Angeles, CA',
-        acceptsLiens: true,
-        lienTerms: 'Treatment provided on lien basis, payment after settlement',
-        specialties: ['Spinal injuries', 'Whiplash', 'Soft tissue injuries'],
-        rating: 4.8,
-        reviews: 1247,
-        photo: 'https://images.unsplash.com/photo-1582750433449-648ed127bb54?w=300&h=200&fit=crop'
-      },
-      {
-        id: 'provider_2',
-        name: 'Premier Physical Therapy Group',
-        specialty: 'Physical Therapy',
-        location: 'Orange County, CA',
-        acceptsLiens: true,
-        lienTerms: 'No upfront payment required, lien agreement available',
-        specialties: ['Post-accident rehabilitation', 'Pain management', 'Sports injuries'],
-        rating: 4.6,
-        reviews: 892,
-        photo: 'https://images.unsplash.com/photo-1576091160399-112ba8d25d1f?w=300&h=200&fit=crop'
-      },
-      {
-        id: 'provider_3',
-        name: 'Advanced Diagnostic Imaging',
-        specialty: 'Radiology',
-        location: 'San Francisco, CA',
-        acceptsLiens: true,
-        lienTerms: 'Imaging services on lien basis for personal injury cases',
-        specialties: ['MRI', 'CT Scans', 'X-rays', 'Ultrasound'],
-        rating: 4.9,
-        reviews: 2156,
-        photo: 'https://images.unsplash.com/photo-1559757148-5c350d0d3c56?w=300&h=200&fit=crop'
-      }
-    ]
+    // Deliberately empty, for the same reason as FUNDING_PARTNERS above: the
+    // three clinics listed here were invented, down to their star ratings and
+    // review counts, and naming a real practice as a lien partner it has not
+    // agreed to be is a claim we cannot support. Populate from a real
+    // provider-agreement table before turning this back on.
+    const medicalProviders: Array<{
+      id: string
+      name: string
+      specialty: string
+      location: string
+      acceptsLiens: boolean
+      lienTerms: string
+      specialties: string[]
+      rating: number
+      reviews: number
+      photo: string
+    }> = []
 
     let providers = medicalProviders
 

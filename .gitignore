@@ -183,3 +183,16 @@ seo-sheet-export/
 
 # Local dev tooling (e.g. downloaded Stripe CLI binary)
 .tools/
+
+# SSH and TLS private keys. Nothing here should ever be committed: a key that
+# reaches history stays reachable after deletion, so it has to be rotated on
+# every host that trusted it rather than simply removed.
+#
+# `keys/` is listed because it is an easy place to drop a downloaded EC2 .pem
+# while working in the repo root.
+keys/
+*.pem
+*.key
+*.ppk
+id_rsa
+id_ed25519

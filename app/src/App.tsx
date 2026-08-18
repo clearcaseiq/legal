@@ -15,6 +15,25 @@ import {
 import { topicHubs } from './data/seoTopicHubDefs'
 import { CALCULATOR_VARIANT_SLUGS } from './data/settlementCalculatorVariantSlugs'
 import { LANDING_ES_SLUGS } from './data/seoLandingPagesEsSlugs'
+import { ensureAppMessages } from './i18n'
+
+/**
+ * Wraps a lazy route so its English strings arrive with its code.
+ *
+ * The intake, results and plaintiff-dashboard namespaces are loaded separately
+ * from the rest of the dictionary (see `ensureAppMessages`), and these are the
+ * only routes that read them. Awaiting the dictionary inside the `lazy` loader
+ * means the wait is covered by the route's existing Suspense fallback and the
+ * component can never render against a half-loaded dictionary. The two requests
+ * are issued together, so the added latency is the slower of the two rather
+ * than the sum.
+ */
+function withAppMessages<T>(loader: () => Promise<T>): () => Promise<T> {
+  return async () => {
+    const [module] = await Promise.all([loader(), ensureAppMessages()])
+    return module
+  }
+}
 
 const Home = lazy(() => import('./pages/Home'))
 const Login = lazy(() => import('./pages/Login'))
@@ -24,7 +43,9 @@ const Register = lazy(() => import('./pages/Register'))
 const ForgotPassword = lazy(() => import('./pages/ForgotPassword'))
 const ResetPassword = lazy(() => import('./pages/ResetPassword'))
 const VerifyEmail = lazy(() => import('./pages/VerifyEmail'))
-const AttorneyRegister = lazy(() => import('./pages/AttorneyRegister'))
+// Reads the `intake.injuryType_*` labels so the practice-area picker matches the
+// wording claimants saw during intake.
+const AttorneyRegister = lazy(withAppMessages(() => import('./pages/AttorneyRegister')))
 const ClaimProfile = lazy(() => import('./pages/ClaimProfile'))
 const AttorneyNetwork = lazy(() => import('./pages/AttorneyNetwork'))
 const AttorneyLicenseUpload = lazy(() => import('./pages/AttorneyLicenseUpload'))
@@ -32,15 +53,14 @@ const AttorneyOnboardingPayment = lazy(() => import('./pages/AttorneyOnboardingP
 const AdminLogin = lazy(() => import('./pages/AdminLogin'))
 const OAuthCallback = lazy(() => import('./pages/OAuthCallback'))
 const IntakeWizard = lazy(() => import('./pages/IntakeWizard'))
-const IntakeWizardQuick = lazy(() => import('./pages/IntakeWizardQuick'))
-const Results = lazy(() => import('./pages/Results'))
+const IntakeWizardQuick = lazy(withAppMessages(() => import('./pages/IntakeWizardQuick')))
+const Results = lazy(withAppMessages(() => import('./pages/Results')))
 const Attorneys = lazy(() => import('./pages/Attorneys'))
 const AttorneysEnhanced = lazy(() => import('./pages/AttorneysEnhanced'))
 const FirmProfile = lazy(() => import('./pages/FirmProfile'))
 const Firms = lazy(() => import('./pages/Firms'))
 const CaseTracker = lazy(() => import('./pages/CaseTracker'))
 const AICopilot = lazy(() => import('./pages/AICopilot'))
-const Financing = lazy(() => import('./pages/Financing'))
 const Messaging = lazy(() => import('./pages/Messaging'))
 const RecoveryHub = lazy(() => import('./pages/RecoveryHub'))
 const SmartRecommendations = lazy(() => import('./pages/SmartRecommendations'))
@@ -144,7 +164,7 @@ const DocumentPortal = lazy(() => import('./pages/DocumentPortal'))
 const EvidenceDashboard = lazy(() => import('./pages/EvidenceDashboard'))
 const Demand = lazy(() => import('./pages/Demand'))
 const Drafts = lazy(() => import('./pages/Drafts'))
-const Dashboard = lazy(() => import('./pages/Dashboard'))
+const Dashboard = lazy(withAppMessages(() => import('./pages/Dashboard')))
 const Assessments = lazy(() => import('./pages/Assessments'))
 const UserProfile = lazy(() => import('./pages/UserProfile'))
 const ComplianceAdmin = lazy(() => import('./pages/ComplianceAdmin'))
@@ -390,7 +410,12 @@ function App() {
               <Route path="/consent-management" element={<ConsentManagement />} />
               <Route path="/case-tracker" element={<CaseTracker />} />
               <Route path="/ai-copilot" element={<AICopilot />} />
-              <Route path="/financing" element={<Financing />} />
+              {/* /financing is unrouted until there are signed funding partner
+                  agreements. The page listed named lenders (Oasis Financial,
+                  Law Cash) and lien-based clinics with interest rates, approval
+                  rates and ratings that were invented placeholders, which is not
+                  something to show injury claimants. Restore the route once
+                  /v1/financing/partners returns real partners. */}
               <Route path="/messaging" element={<Messaging />} />
               <Route path="/recovery-hub" element={<RecoveryHub />} />
               <Route path="/smart-recommendations/:assessmentId" element={<SmartRecommendations />} />
