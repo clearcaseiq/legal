@@ -37,6 +37,12 @@ function fallbackAvatar(name?: string | null): string {
   return `https://ui-avatars.com/api/?name=${encodeURIComponent(label)}&background=e0f2fe&color=075985`
 }
 
+// Shared field styling for the verdict form so inputs read as real, bordered
+// controls (the global .form-input rendered nearly borderless on this surface).
+const VERDICT_INPUT_CLASS =
+  'w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 shadow-sm transition focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/30'
+const VERDICT_LABEL_CLASS = 'mb-1.5 block text-sm font-medium text-slate-700'
+
 // Stored photos can be absolute URLs (legacy) or server-relative upload paths
 // (/uploads/avatars/...). Relative paths must be resolved against the API origin
 // because the web app and API are served from different hosts.
@@ -760,138 +766,184 @@ export default function AttorneyProfile() {
 
       {activeTab === 'verdicts' && (
         <div className="space-y-6">
-          <div className="flex justify-between items-center">
-            <h3 className="text-lg font-medium text-gray-900">Verified Verdicts & Settlements</h3>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="text-xl font-semibold text-slate-900">Verified Verdicts & Settlements</h3>
+              <p className="mt-1 text-sm text-slate-500">
+                Showcase your track record — verified results help prospective clients trust your work.
+              </p>
+            </div>
             <button
-              className="btn-primary"
+              className="inline-flex items-center gap-2 rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700"
               onClick={() => {
                 setNewVerdict({ caseType: '', settlementAmount: '', caseDescription: '', date: '', venue: '' })
                 document.getElementById('add-verdict-form')?.scrollIntoView({ behavior: 'smooth' })
               }}
             >
-              <Plus className="h-4 w-4 mr-2" />
+              <Plus className="h-4 w-4" />
               Add Verdict
             </button>
           </div>
 
           {/* Add New Verdict Form */}
-          <div className="card" id="add-verdict-form">
-            <h4 className="text-md font-medium text-gray-900 mb-4">Add New Verdict</h4>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Case Type</label>
-                <input
-                  type="text"
-                  value={newVerdict.caseType}
-                  onChange={(e) => setNewVerdict({ ...newVerdict, caseType: e.target.value })}
-                  className="form-input"
-                  placeholder="e.g., Auto Accident"
-                  maxLength={120}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Settlement Amount</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="1000"
-                  value={newVerdict.settlementAmount}
-                  onChange={(e) => {
-                    const raw = e.target.value
-                    // Prevent negatives (e.g. via the down arrow) while still
-                    // allowing the field to be cleared.
-                    setNewVerdict({
-                      ...newVerdict,
-                      settlementAmount: raw === '' ? '' : String(Math.max(0, parseInt(raw, 10) || 0)),
-                    })
-                  }}
-                  className="form-input"
-                  placeholder="2500000"
-                />
-              </div>
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Case Description</label>
-                <textarea
-                  value={newVerdict.caseDescription}
-                  onChange={(e) => setNewVerdict({ ...newVerdict, caseDescription: e.target.value })}
-                  className="form-input"
-                  rows={3}
-                  placeholder="Brief description of the case..."
-                  maxLength={1000}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
-                <input
-                  type="date"
-                  value={newVerdict.date}
-                  onChange={(e) => setNewVerdict({ ...newVerdict, date: e.target.value })}
-                  className="form-input"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Venue</label>
-                <input
-                  type="text"
-                  value={newVerdict.venue}
-                  onChange={(e) => setNewVerdict({ ...newVerdict, venue: e.target.value })}
-                  className="form-input"
-                  placeholder="Los Angeles County"
-                  maxLength={120}
-                />
-              </div>
+          <div
+            id="add-verdict-form"
+            className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
+          >
+            <div className="border-b border-slate-100 bg-slate-50/70 px-6 py-4">
+              <h4 className="text-base font-semibold text-slate-900">Add a new result</h4>
+              <p className="mt-0.5 text-sm text-slate-500">
+                Case type and settlement amount are required. The rest is optional but adds credibility.
+              </p>
             </div>
-            <div className="mt-4">
-              <button onClick={handleAddVerdict} className="btn-primary">
-                <Plus className="h-4 w-4 mr-2" />
-                Add Verdict
-              </button>
+            <div className="p-6">
+              <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+                <div>
+                  <label className={VERDICT_LABEL_CLASS}>
+                    Case type <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={newVerdict.caseType}
+                    onChange={(e) => setNewVerdict({ ...newVerdict, caseType: e.target.value })}
+                    className={VERDICT_INPUT_CLASS}
+                    placeholder="e.g., Auto Accident"
+                    maxLength={120}
+                  />
+                </div>
+                <div>
+                  <label className={VERDICT_LABEL_CLASS}>
+                    Settlement amount <span className="text-red-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-sm font-medium text-slate-400">
+                      $
+                    </span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1000"
+                      value={newVerdict.settlementAmount}
+                      onChange={(e) => {
+                        const raw = e.target.value
+                        // Prevent negatives (e.g. via the down arrow) while still
+                        // allowing the field to be cleared.
+                        setNewVerdict({
+                          ...newVerdict,
+                          settlementAmount: raw === '' ? '' : String(Math.max(0, parseInt(raw, 10) || 0)),
+                        })
+                      }}
+                      className={`${VERDICT_INPUT_CLASS} pl-7`}
+                      placeholder="2500000"
+                    />
+                  </div>
+                  {newVerdict.settlementAmount ? (
+                    <p className="mt-1.5 text-xs font-medium text-emerald-600">
+                      {formatCurrency(Number(newVerdict.settlementAmount))}
+                    </p>
+                  ) : null}
+                </div>
+                <div className="md:col-span-2">
+                  <label className={VERDICT_LABEL_CLASS}>Case description</label>
+                  <textarea
+                    value={newVerdict.caseDescription}
+                    onChange={(e) => setNewVerdict({ ...newVerdict, caseDescription: e.target.value })}
+                    className={`${VERDICT_INPUT_CLASS} resize-y`}
+                    rows={3}
+                    placeholder="Brief description of the case, injuries, and outcome…"
+                    maxLength={1000}
+                  />
+                </div>
+                <div>
+                  <label className={VERDICT_LABEL_CLASS}>Date</label>
+                  <input
+                    type="date"
+                    value={newVerdict.date}
+                    onChange={(e) => setNewVerdict({ ...newVerdict, date: e.target.value })}
+                    className={VERDICT_INPUT_CLASS}
+                  />
+                </div>
+                <div>
+                  <label className={VERDICT_LABEL_CLASS}>Venue</label>
+                  <input
+                    type="text"
+                    value={newVerdict.venue}
+                    onChange={(e) => setNewVerdict({ ...newVerdict, venue: e.target.value })}
+                    className={VERDICT_INPUT_CLASS}
+                    placeholder="Los Angeles County"
+                    maxLength={120}
+                  />
+                </div>
+              </div>
+              <div className="mt-6 flex items-center justify-end gap-3 border-t border-slate-100 pt-5">
+                <button
+                  onClick={handleAddVerdict}
+                  disabled={!newVerdict.caseType.trim() || !newVerdict.settlementAmount}
+                  className="inline-flex items-center gap-2 rounded-xl bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Plus className="h-4 w-4" />
+                  Add verdict
+                </button>
+              </div>
             </div>
           </div>
 
           {/* Verdicts List */}
-          <div className="space-y-4">
-            {profile.verifiedVerdicts.map((verdict, index) => (
-              <div key={index} className="card">
-                <div className="flex justify-between items-start">
-                  <div className="flex-1">
-                    <div className="flex items-center space-x-2 mb-2">
-                      <h4 className="text-md font-medium text-gray-900">{verdict.caseType}</h4>
-                      <span className="text-2xl font-bold text-primary-600">{formatCurrency(verdict.settlementAmount)}</span>
-                      <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
-                        verdict.status === 'verified' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
-                      }`}>
-                        {verdict.status === 'verified' ? 'Verified' : 'Pending'}
-                      </span>
-                    </div>
-                    <p className="text-gray-600 mb-2">{verdict.description}</p>
-                    <div className="flex space-x-4 text-sm text-gray-500">
-                      <span>Date: {verdict.date}</span>
-                      <span>Venue: {verdict.venue}</span>
+          {profile.verifiedVerdicts.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50/60 px-6 py-12 text-center">
+              <Award className="mx-auto h-8 w-8 text-slate-300" />
+              <p className="mt-3 text-sm font-medium text-slate-700">No results added yet</p>
+              <p className="mt-1 text-sm text-slate-500">Add your first verdict or settlement above to build your track record.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              {profile.verifiedVerdicts.map((verdict, index) => (
+                <div
+                  key={index}
+                  className="group relative rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-brand-200 hover:shadow-md"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <span
+                      className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${
+                        verdict.status === 'verified'
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : 'bg-amber-100 text-amber-800'
+                      }`}
+                    >
+                      {verdict.status === 'verified' ? 'Verified' : 'Pending'}
+                    </span>
+                    <div className="flex shrink-0 gap-1">
+                      <button
+                        onClick={() => handleEditVerdict(index)}
+                        className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                        aria-label="Edit verdict"
+                        title="Edit verdict"
+                      >
+                        <Edit className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteVerdict(index)}
+                        className="rounded-lg p-1.5 text-slate-400 transition hover:bg-red-50 hover:text-red-600"
+                        aria-label="Remove verdict"
+                        title="Remove verdict"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
                     </div>
                   </div>
-                  <div className="flex space-x-2">
-                    <button
-                      onClick={() => handleEditVerdict(index)}
-                      className="text-gray-400 hover:text-gray-600"
-                      aria-label="Edit verdict"
-                      title="Edit verdict"
-                    >
-                      <Edit className="h-4 w-4" />
-                    </button>
-                    <button
-                      onClick={() => handleDeleteVerdict(index)}
-                      className="text-red-400 hover:text-red-600"
-                      aria-label="Remove verdict"
-                      title="Remove verdict"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
+                  <p className="mt-3 text-2xl font-bold text-slate-900">{formatCurrency(verdict.settlementAmount)}</p>
+                  <p className="mt-0.5 text-sm font-medium text-slate-600">{verdict.caseType}</p>
+                  {verdict.description ? (
+                    <p className="mt-2 line-clamp-3 text-sm text-slate-500">{verdict.description}</p>
+                  ) : null}
+                  <div className="mt-4 flex flex-wrap gap-x-4 gap-y-1 border-t border-slate-100 pt-3 text-xs text-slate-500">
+                    {verdict.date ? <span>{verdict.date}</span> : null}
+                    {verdict.venue ? <span>{verdict.venue}</span> : null}
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
