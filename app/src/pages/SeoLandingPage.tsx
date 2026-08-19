@@ -11,6 +11,7 @@ import {
 } from '../data/seoLandingPageSchema'
 import { topicContentBySlug, type TopicContent } from '../data/seoLandingPageTopicContent'
 import { TOPICS_INDEX_SLUG, hubForPage, relatedLandingPages } from '../data/seoTopicHubs'
+import { START_ASSESSMENT_HREF } from '../data/appRoutes'
 import SeoCiteEmbed from '../components/SeoCiteEmbed'
 
 const categoryTone: Record<string, string> = {
@@ -512,7 +513,7 @@ export default function SeoLandingPage() {
     location.pathname.startsWith('/average-') ||
     location.pathname.includes('case-worth')
       ? '/tools/settlement-calculator'
-      : '/assessment/start'
+      : START_ASSESSMENT_HREF
   const citeEmbedToolPath =
     location.pathname.includes('medical-record') || location.pathname.includes('chronology')
       ? '/tools/medical-records-checklist'
@@ -874,7 +875,7 @@ export default function SeoLandingPage() {
               <p className="mt-3 text-sm leading-7 text-brand-900">{page.sections.howClearCaseHelps}</p>
               <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2">
                 <Link
-                  to="/assessment/start"
+                  to={START_ASSESSMENT_HREF}
                   className="inline-flex items-center text-sm font-semibold text-brand-700 hover:text-brand-800"
                 >
                   Start a free assessment
@@ -1065,7 +1066,7 @@ export default function SeoLandingPage() {
           ))}
         </div>
         <Link
-          to="/assessment/start"
+          to={START_ASSESSMENT_HREF}
           className="mt-5 inline-flex items-center justify-center rounded-xl bg-brand-700 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-brand-800"
         >
           {page.cta}
@@ -1156,7 +1157,7 @@ export default function SeoLandingPage() {
             <p className="mt-2 text-sm leading-6 text-slate-300">Answer a few questions, upload documents when available, and get a ClearCaseIQ report.</p>
           </div>
           <Link
-            to="/assessment/start"
+            to={START_ASSESSMENT_HREF}
             className="inline-flex shrink-0 items-center justify-center rounded-xl bg-white px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-slate-100"
           >
             {page.cta}

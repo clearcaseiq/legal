@@ -8,6 +8,7 @@ import { usePlaintiffSessionSummary } from '../hooks/usePlaintiffSessionSummary'
 import { getPlaintiffCaseStatusKey, caseStatusLabelKey, caseStatusColor } from '../lib/caseStatus'
 import { formatClaimTypeShort } from '../lib/constants'
 import { useLanguage } from '../contexts/LanguageContext'
+import { START_ASSESSMENT_HREF } from '../data/appRoutes'
 
 interface Assessment {
   id: string
@@ -79,7 +80,7 @@ export default function Assessments() {
           description="Start a free case assessment to see your reports here, or open your dashboard to continue a case in progress."
         >
           <Link
-            to="/assessment/start"
+            to={START_ASSESSMENT_HREF}
             className="btn-primary text-ui-sm"
           >
             Start assessment

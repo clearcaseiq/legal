@@ -4,6 +4,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { listAssessments, getAssessment, getEvidenceFiles, associateAssessments, getRoutingStatus, createAppointment, getAttorneyAvailability, updateAppointment, cancelAppointment, joinAppointmentWaitlist, updateAppointmentPreparation, getPlaintiffConsentCompliance, getPlaintiffDocumentRequests, getPlaintiffSignedDocuments, getPlaintiffCaseTasks, createAttorneyReview, getMedicalChronology, updateAssessment, type PlaintiffDocumentRequest, type PlaintiffSignedDocument, type PlaintiffCaseTask } from '../lib/api'
 import { formatCurrency } from '../lib/formatters'
 import { formatClaimTypeShort } from '../lib/constants'
+import { START_ASSESSMENT_HREF } from '../data/appRoutes'
 import { canonicalClaimType } from '../lib/claimTypes'
 import { formatCaseId } from '../lib/caseId'
 import { dateLocale } from '../i18n'
@@ -1012,28 +1013,28 @@ export default function Dashboard() {
               )?.focus,
               requestId: nextDocumentRequest.id,
             })
-          : '/assessment/start',
+          : START_ASSESSMENT_HREF,
         isSchedule: false
       }
     : attorneyMatched && hasUpcomingConsult
     ? { action: t('plaintiffDashboard.dynamic.action.consultScheduled'), detail: t('plaintiffDashboard.dynamic.action.consultScheduledDetail'), cta: t('plaintiffDashboard.dynamic.action.viewDetailsCta'), href: '#consultation', isSchedule: false }
     : inManualReview
-    ? { action: t('plaintiffDashboard.dynamic.action.teamReviewing'), detail: t('plaintiffDashboard.dynamic.action.teamReviewingDetail'), cta: t('plaintiffDashboard.dynamic.action.uploadEvidenceCta'), href: activeAssessment ? evidenceUploadHref(activeAssessment.id, { from: 'dashboard' }) : '/assessment/start', isSchedule: false }
+    ? { action: t('plaintiffDashboard.dynamic.action.teamReviewing'), detail: t('plaintiffDashboard.dynamic.action.teamReviewingDetail'), cta: t('plaintiffDashboard.dynamic.action.uploadEvidenceCta'), href: activeAssessment ? evidenceUploadHref(activeAssessment.id, { from: 'dashboard' }) : START_ASSESSMENT_HREF, isSchedule: false }
     : needsMoreInfo
-    ? { action: t('plaintiffDashboard.dynamic.action.addRequested'), detail: t('plaintiffDashboard.dynamic.action.addRequestedDetail'), cta: t('plaintiffDashboard.dynamic.action.uploadEvidenceCta'), href: activeAssessment ? evidenceUploadHref(activeAssessment.id, { from: 'dashboard' }) : '/assessment/start', isSchedule: false }
+    ? { action: t('plaintiffDashboard.dynamic.action.addRequested'), detail: t('plaintiffDashboard.dynamic.action.addRequestedDetail'), cta: t('plaintiffDashboard.dynamic.action.uploadEvidenceCta'), href: activeAssessment ? evidenceUploadHref(activeAssessment.id, { from: 'dashboard' }) : START_ASSESSMENT_HREF, isSchedule: false }
     : notRoutableYet
-    ? { action: t('plaintiffDashboard.dynamic.action.strengthenDetails'), detail: t('plaintiffDashboard.dynamic.action.strengthenDetailsDetail'), cta: t('plaintiffDashboard.dynamic.action.improveCaseCta'), href: activeAssessment ? evidenceUploadHref(activeAssessment.id, { from: 'dashboard' }) : '/assessment/start', isSchedule: false }
+    ? { action: t('plaintiffDashboard.dynamic.action.strengthenDetails'), detail: t('plaintiffDashboard.dynamic.action.strengthenDetailsDetail'), cta: t('plaintiffDashboard.dynamic.action.improveCaseCta'), href: activeAssessment ? evidenceUploadHref(activeAssessment.id, { from: 'dashboard' }) : START_ASSESSMENT_HREF, isSchedule: false }
     : !hasNarrative
     ? { action: t('plaintiffDashboard.dynamic.action.completeDescription'), detail: t('plaintiffDashboard.dynamic.action.completeDescriptionDetail'), cta: t('plaintiffDashboard.dynamic.action.editCaseCta'), href: `/edit-assessment/${activeAssessment?.id}`, isSchedule: false }
     : !hasLocation
     ? { action: t('plaintiffDashboard.dynamic.action.addLocation'), detail: t('plaintiffDashboard.dynamic.action.addLocationDetail'), cta: t('plaintiffDashboard.dynamic.action.editCaseCta'), href: `/edit-assessment/${activeAssessment?.id}`, isSchedule: false }
     : evidenceCount === 0
-    ? { action: t('plaintiffDashboard.dynamic.action.uploadBill'), detail: t('plaintiffDashboard.dynamic.action.uploadBillDetail'), cta: t('plaintiffDashboard.dynamic.action.uploadDocumentCta'), href: activeAssessment?.id ? evidenceUploadHref(activeAssessment.id, { from: 'dashboard' }) : '/assessment/start', isSchedule: false }
+    ? { action: t('plaintiffDashboard.dynamic.action.uploadBill'), detail: t('plaintiffDashboard.dynamic.action.uploadBillDetail'), cta: t('plaintiffDashboard.dynamic.action.uploadDocumentCta'), href: activeAssessment?.id ? evidenceUploadHref(activeAssessment.id, { from: 'dashboard' }) : START_ASSESSMENT_HREF, isSchedule: false }
     : !hasWageLoss
-    ? { action: t('plaintiffDashboard.dynamic.action.documentWageLoss'), detail: t('plaintiffDashboard.dynamic.action.documentWageLossDetail'), cta: t('plaintiffDashboard.dynamic.action.addWageLossCta'), href: activeAssessment ? evidenceUploadHref(activeAssessment.id, { from: 'dashboard' }) : '/assessment/start', isSchedule: false }
+    ? { action: t('plaintiffDashboard.dynamic.action.documentWageLoss'), detail: t('plaintiffDashboard.dynamic.action.documentWageLossDetail'), cta: t('plaintiffDashboard.dynamic.action.addWageLossCta'), href: activeAssessment ? evidenceUploadHref(activeAssessment.id, { from: 'dashboard' }) : START_ASSESSMENT_HREF, isSchedule: false }
     : submittedForReview
-    ? { action: t('plaintiffDashboard.dynamic.action.submitted'), detail: t('plaintiffDashboard.dynamic.action.submittedDetail', { label: responseDeadlineLabel }), cta: t('plaintiffDashboard.dynamic.action.viewReportCta'), href: activeAssessment ? `/results/${activeAssessment.id}?view=report` : '/assessment/start', isSchedule: false }
-    : { action: t('plaintiffDashboard.dynamic.action.submitCase'), detail: t('plaintiffDashboard.dynamic.action.submitCaseDetail'), cta: t('plaintiffDashboard.dynamic.action.sendForReviewCta'), href: activeAssessment ? `/results/${activeAssessment.id}` : '/assessment/start', isSchedule: false }
+    ? { action: t('plaintiffDashboard.dynamic.action.submitted'), detail: t('plaintiffDashboard.dynamic.action.submittedDetail', { label: responseDeadlineLabel }), cta: t('plaintiffDashboard.dynamic.action.viewReportCta'), href: activeAssessment ? `/results/${activeAssessment.id}?view=report` : START_ASSESSMENT_HREF, isSchedule: false }
+    : { action: t('plaintiffDashboard.dynamic.action.submitCase'), detail: t('plaintiffDashboard.dynamic.action.submitCaseDetail'), cta: t('plaintiffDashboard.dynamic.action.sendForReviewCta'), href: activeAssessment ? `/results/${activeAssessment.id}` : START_ASSESSMENT_HREF, isSchedule: false }
   const evidenceImpact = [
     { label: t('plaintiffDashboard.dynamic.evidence.medicalRecords'), done: hasMedicalRecords, impact: '+22%' },
     { label: t('plaintiffDashboard.dynamic.evidence.injuryPhotos'), done: hasInjuryPhotos, impact: '+10%' },
@@ -1111,7 +1112,7 @@ export default function Dashboard() {
   // next step. Keep this CTA aligned with the tip above.
   const caseCoachEvidenceHref = activeAssessment
     ? evidenceUploadHref(activeAssessment.id, { from: 'dashboard' })
-    : '/assessment/start'
+    : START_ASSESSMENT_HREF
   const caseCoachCta = attorneyMatched && !hasUpcomingConsult
     ? { label: t('plaintiffDashboard.dynamic.action.scheduleConsultCta'), href: '#schedule', isSchedule: true as const }
     : attorneyMatched && hasUpcomingConsult
@@ -1120,7 +1121,7 @@ export default function Dashboard() {
     ? { label: t('plaintiffDashboard.dynamic.action.uploadEvidenceCta'), href: caseCoachEvidenceHref, isSchedule: false as const }
     : {
         label: t('plaintiffDashboard.dynamic.action.sendForReviewCta'),
-        href: activeAssessment ? `/results/${activeAssessment.id}?review=1` : '/assessment/start',
+        href: activeAssessment ? `/results/${activeAssessment.id}?review=1` : START_ASSESSMENT_HREF,
         isSchedule: false as const,
       }
 
@@ -1144,7 +1145,7 @@ export default function Dashboard() {
       label: factor.label,
       detail: factor.improve || '',
       done: false,
-      href: assessmentIdForTasks ? evidenceUploadHref(assessmentIdForTasks, { from: 'dashboard' }) : '/assessment/start',
+      href: assessmentIdForTasks ? evidenceUploadHref(assessmentIdForTasks, { from: 'dashboard' }) : START_ASSESSMENT_HREF,
     }))
   // Keep completed evidence items in the list (marked done) rather than dropping
   // them. evidenceImpact is a fixed checklist, so a stable denominator means
@@ -1158,7 +1159,7 @@ export default function Dashboard() {
         ? t('plaintiffDashboard.dynamic.task.uploaded')
         : t('plaintiffDashboard.dynamic.task.estimatedImpact', { impact: item.impact }),
       done: item.done,
-      href: assessmentIdForTasks ? evidenceUploadHref(assessmentIdForTasks, { from: 'dashboard' }) : '/assessment/start',
+      href: assessmentIdForTasks ? evidenceUploadHref(assessmentIdForTasks, { from: 'dashboard' }) : START_ASSESSMENT_HREF,
     }))
   const reviewTask = submittedForReview
     ? {
@@ -2556,7 +2557,7 @@ export default function Dashboard() {
                   {t('plaintiffDashboard.onboarding.heroSubtitle')}
                 </p>
                 <div className="mt-6 flex flex-col gap-4 sm:flex-row sm:items-center">
-                  <Link to="/assessment/start" className="btn-cta w-full sm:w-auto">
+                  <Link to={START_ASSESSMENT_HREF} className="btn-cta w-full sm:w-auto">
                     <FileText className="h-5 w-5" aria-hidden />
                     {t('common.startAssessment')}
                     <ArrowRight className="h-4 w-4" aria-hidden />
@@ -2647,7 +2648,7 @@ export default function Dashboard() {
                   <h3 className="font-display text-lg font-semibold text-slate-950 dark:text-slate-50">{t('plaintiffDashboard.onboarding.uploadEvidence')}</h3>
                 </div>
                 <p className="mt-2 flex-1 text-sm text-slate-600 dark:text-slate-300">{t('plaintiffDashboard.onboarding.uploadEvidenceNote')}</p>
-                <Link to="/assessment/start" className="btn-outline mt-4 inline-flex w-full items-center justify-center gap-2 bg-white text-sm font-semibold">
+                <Link to={START_ASSESSMENT_HREF} className="btn-outline mt-4 inline-flex w-full items-center justify-center gap-2 bg-white text-sm font-semibold">
                   <Upload className="h-4 w-4" aria-hidden /> {t('plaintiffDashboard.onboarding.startAndUpload')}
                 </Link>
               </div>

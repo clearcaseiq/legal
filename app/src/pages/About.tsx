@@ -1,5 +1,6 @@
 import { Link, useLocation } from 'react-router-dom'
 import LocaleLink from '../components/LocaleLink'
+import { START_ASSESSMENT_HREF } from '../data/appRoutes'
 import { useEffect } from 'react'
 import { Building2, FileCheck2, HeartHandshake, Scale, ShieldCheck } from 'lucide-react'
 import { useLanguage } from '../contexts/LanguageContext'
@@ -331,7 +332,7 @@ export default function About() {
         </p>
         <div className="flex flex-wrap justify-center gap-3">
           <Link
-            to="/assessment/start"
+            to={START_ASSESSMENT_HREF}
             className="inline-flex items-center justify-center rounded-xl bg-brand-700 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-brand-800"
           >
             {t('common.startAssessment')}

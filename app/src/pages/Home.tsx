@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import LocaleLink from '../components/LocaleLink'
+import { START_ASSESSMENT_HREF } from '../data/appRoutes'
 import { BarChart3, ClipboardList, Users } from 'lucide-react'
 import { useLanguage } from '../contexts/LanguageContext'
 import MarketingHeroArt from '../components/MarketingHeroArt'
@@ -43,11 +44,11 @@ export default function Home() {
   }, [])
 
   const CASE_TYPES = [
-    { key: 'caseType1', href: '/assessment/start' },
-    { key: 'caseType2', href: '/assessment/start' },
-    { key: 'caseType3', href: '/assessment/start' },
-    { key: 'caseType4', href: '/assessment/start' },
-    { key: 'caseType5', href: '/assessment/start' },
+    { key: 'caseType1', href: START_ASSESSMENT_HREF },
+    { key: 'caseType2', href: START_ASSESSMENT_HREF },
+    { key: 'caseType3', href: START_ASSESSMENT_HREF },
+    { key: 'caseType4', href: START_ASSESSMENT_HREF },
+    { key: 'caseType5', href: START_ASSESSMENT_HREF },
   ]
 
   const faqJsonLd = {
@@ -105,7 +106,7 @@ export default function Home() {
               <div className="flex flex-col items-center lg:items-start gap-3">
                 <Link
                   ref={heroCtaRef}
-                  to="/assessment/start"
+                  to={START_ASSESSMENT_HREF}
                   className="btn-cta group px-8 py-4 text-lg shadow-xl shadow-accent-500/30 duration-200 hover:-translate-y-1 hover:scale-[1.02] hover:shadow-2xl hover:shadow-accent-500/40 sm:px-11 sm:py-5 sm:text-xl"
                 >
                   <FileTextIcon className="mr-2 h-6 w-6 transition-transform group-hover:rotate-[-4deg] sm:h-7 sm:w-7" aria-hidden />
@@ -283,7 +284,7 @@ export default function Home() {
               ))}
             </ul>
             <Link
-              to="/assessment/start"
+              to={START_ASSESSMENT_HREF}
               className="group inline-flex items-center justify-center rounded-2xl bg-gradient-to-r from-accent-600 via-orange-500 to-amber-500 px-8 py-4 text-base font-bold text-white shadow-lg shadow-black/25 ring-1 ring-white/20 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xl focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-accent-300 sm:text-lg"
             >
               <FileTextIcon className="mr-2 h-5 w-5 transition-transform group-hover:rotate-[-4deg]" aria-hidden />
@@ -337,7 +338,7 @@ export default function Home() {
           }`}
         >
           <Link
-            to="/assessment/start"
+            to={START_ASSESSMENT_HREF}
             className="flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-accent-600 via-orange-500 to-amber-500 px-6 py-3 text-base font-bold text-white shadow-lg shadow-accent-500/25"
           >
             <FileTextIcon className="h-5 w-5" aria-hidden />

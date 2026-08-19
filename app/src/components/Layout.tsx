@@ -7,6 +7,7 @@ import RouteProgressBar from './RouteProgressBar'
 // there is never a load it is deferred past — only a placeholder standing in
 // its place while its chunk arrives, and a reflow of the header when it does.
 import LanguageSwitcher from './LanguageSwitcher'
+import { START_ASSESSMENT_HREF } from '../data/appRoutes'
 import {
   ChevronDownIcon,
   MenuIcon,
@@ -50,7 +51,7 @@ const NAV_LINKS = {
   disclosures: '/disclosures',
   disclosuresAi: '/disclosures#ai',
   disclosuresCalifornia: '/disclosures#california',
-  startAssessment: '/assessment/start',
+  startAssessment: START_ASSESSMENT_HREF,
   plaintiffLogin: '/login/plaintiff',
   attorneyLogin: '/login/attorney',
   adminLogin: '/login/admin',

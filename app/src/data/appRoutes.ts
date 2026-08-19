@@ -16,6 +16,22 @@
 import type { LandingPageCategory } from './seoLandingPages'
 import { topicHubs } from './seoTopicHubDefs'
 
+/**
+ * Where "start a free assessment" links point.
+ *
+ * `/assessment/start` still resolves and still 308s here — that redirect is
+ * what external links, printed URLs and old bookmarks depend on, and it stays.
+ * But it is also the header and footer CTA and the primary CTA on every SEO
+ * landing page, so pointing *internal* links at it made the site's second most
+ * linked URL a redirect: Search Console counted 136 internal links arriving at
+ * a hop, every one of them costing a visitor an extra round trip before the
+ * wizard starts loading and costing Googlebot a fetch that returns no content.
+ *
+ * Internal links go straight to the destination. A redirect is for URLs you do
+ * not control; it should not be load-bearing inside your own markup.
+ */
+export const START_ASSESSMENT_HREF = '/assess?fresh=1'
+
 /** Route trees where any child path is valid (record ids, nested sections). */
 export const KNOWN_ROUTE_PREFIXES = [
   '/admin',

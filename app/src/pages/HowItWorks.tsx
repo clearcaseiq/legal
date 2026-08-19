@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { CheckCircle, ClipboardList, BarChart3, Users, Car, Scale, Handshake, Trophy, UserCheck, ArrowRight } from 'lucide-react'
 import { useLanguage } from '../contexts/LanguageContext'
 import LocaleLink from '../components/LocaleLink'
+import { START_ASSESSMENT_HREF } from '../data/appRoutes'
 import FaqSection from '../components/FaqSection'
 
 // The claimant journey, rendered as an animated timeline further down the page.
@@ -151,7 +152,7 @@ export default function HowItWorks() {
         <div>
           <h2 className="text-2xl font-bold text-slate-900 mb-2">{t('hiw.ctaTitle')}</h2>
           <Link
-            to="/assessment/start"
+            to={START_ASSESSMENT_HREF}
             className="inline-flex items-center justify-center px-8 py-4 text-lg font-semibold text-white bg-brand-600 rounded-xl hover:bg-brand-700 transition-colors"
           >
             {t('hiw.ctaButton')}

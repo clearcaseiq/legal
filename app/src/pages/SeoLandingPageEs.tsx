@@ -3,6 +3,7 @@ import { AlertTriangle, CheckCircle, ChevronRight, ClipboardList, Search } from 
 import ContentByline from '../components/ContentByline'
 import { NOT_A_LAW_FIRM, landingPagesEsBySlug, relatedPagesEs } from '../data/seoLandingPagesEs'
 import { landingPageFirstPublished, landingPageLastModified } from '../data/seoLandingPageSchema'
+import { START_ASSESSMENT_HREF } from '../data/appRoutes'
 
 /**
  * The Spanish landing pages.
@@ -82,7 +83,7 @@ export default function SeoLandingPageEs() {
 
         <div className="mt-6">
           <Link
-            to="/assessment/start"
+            to={START_ASSESSMENT_HREF}
             className="inline-flex items-center justify-center rounded-xl bg-brand-700 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-brand-800"
           >
             {page.cta}
@@ -198,7 +199,7 @@ export default function SeoLandingPageEs() {
           <p className="mt-3 text-sm leading-7 text-brand-900">{page.sections.howClearCaseHelps}</p>
           <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2">
             <Link
-              to="/assessment/start"
+              to={START_ASSESSMENT_HREF}
               className="inline-flex items-center text-sm font-semibold text-brand-700 hover:text-brand-800"
             >
               Comenzar una evaluación gratuita

@@ -9,6 +9,7 @@ import { downloadSignedEnvelope } from '../lib/api-esign'
 import { downloadEvidenceByUrl, type PlaintiffDocumentRequest, type PlaintiffSignedDocument } from '../lib/api'
 import { dateLocale } from '../i18n'
 import PlaintiffRequestedDocumentsSection from './PlaintiffRequestedDocumentsSection'
+import { START_ASSESSMENT_HREF } from '../data/appRoutes'
 
 type PlaintiffEvidenceFile = {
   id: string
@@ -886,7 +887,7 @@ export default function PlaintiffDashboardDeferredTabPanel({
             {t('plaintiffDashboard.deferred.insights.downloadReport')}
           </button>
           <Link
-            to="/assessment/start"
+            to={START_ASSESSMENT_HREF}
             className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50"
           >
             <Plus className="h-4 w-4" />

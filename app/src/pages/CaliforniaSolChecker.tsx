@@ -2,6 +2,7 @@ import { type FormEvent, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { AlertTriangle, CalendarClock, CheckCircle2, ShieldAlert } from 'lucide-react'
 import SeoCiteEmbed from '../components/SeoCiteEmbed'
+import { START_ASSESSMENT_HREF } from '../data/appRoutes'
 import {
   CA_SOL_CLAIM_OPTIONS,
   computeCaliforniaSol,
@@ -192,7 +193,7 @@ export default function CaliforniaSolChecker() {
         <>
           <div className="flex flex-wrap gap-3">
             <Link
-              to="/assessment/start"
+              to={START_ASSESSMENT_HREF}
               className="inline-flex items-center justify-center rounded-xl bg-brand-700 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-800"
             >
               Start free assessment

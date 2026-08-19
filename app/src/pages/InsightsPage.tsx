@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import SeoCiteEmbed from '../components/SeoCiteEmbed'
+import { START_ASSESSMENT_HREF } from '../data/appRoutes'
 
 const THEMES = [
   {
@@ -66,7 +67,7 @@ export default function InsightsPage() {
             </Link>
           </li>
           <li>
-            <Link to="/assessment/start" className="font-semibold text-brand-700 hover:text-brand-800">
+            <Link to={START_ASSESSMENT_HREF} className="font-semibold text-brand-700 hover:text-brand-800">
               Free case assessment
             </Link>
           </li>

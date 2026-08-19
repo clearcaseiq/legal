@@ -10,6 +10,7 @@ import {
   type RoseConversationReview,
 } from '../lib/api'
 import { BackButton } from '../features/shared/ui'
+import { START_ASSESSMENT_HREF } from '../data/appRoutes'
 import {
   Bot,
   User,
@@ -745,7 +746,7 @@ export default function RoseIntake() {
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(244,114,182,0.22),_transparent_34%),linear-gradient(135deg,_#fff7ed_0%,_#ffffff_42%,_#f8fafc_100%)] px-4 py-6 sm:py-8">
       <div className="mx-auto max-w-6xl space-y-6">
-        <BackButton to="/assessment/start" label="Assessment options" />
+        <BackButton to={START_ASSESSMENT_HREF} label="Assessment options" />
 
         {!launched && (
           <div className="text-center">

@@ -5,6 +5,7 @@ import SupportRequestForm from '../components/SupportRequestForm'
 import FaqSection from '../components/FaqSection'
 import { useLanguage } from '../contexts/LanguageContext'
 import { useBrowserStateReady } from '../contexts/ServerRenderContext'
+import { START_ASSESSMENT_HREF } from '../data/appRoutes'
 
 // Stable slugs so /help#attorney-matching style deep links keep working in
 // every language. Each category has 2 articles keyed off its prefix.
@@ -89,7 +90,7 @@ export default function Help() {
       {!isAdminArea && (
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
         <Link
-          to="/assessment/start"
+          to={START_ASSESSMENT_HREF}
           className="flex items-center gap-3 p-4 bg-white border border-slate-200 rounded-xl hover:border-brand-300 hover:shadow-sm transition-all"
         >
           <FileText className="h-6 w-6 text-brand-600 flex-shrink-0" />

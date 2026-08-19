@@ -2,6 +2,7 @@ import { type FormEvent, useMemo, useState } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { AlertTriangle, Calculator, Info, ShieldCheck, TriangleAlert } from 'lucide-react'
 import SeoCiteEmbed from '../components/SeoCiteEmbed'
+import { START_ASSESSMENT_HREF } from '../data/appRoutes'
 import {
   SETTLEMENT_CALCULATOR_FAQS,
   SETTLEMENT_CALCULATOR_WHAT_TO_TRACK,
@@ -366,7 +367,7 @@ export default function SettlementCalculator() {
 
           <div className="flex flex-wrap gap-3">
             <Link
-              to="/assessment/start"
+              to={START_ASSESSMENT_HREF}
               className="inline-flex items-center justify-center rounded-xl bg-brand-700 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-800"
             >
               Organize your records free
