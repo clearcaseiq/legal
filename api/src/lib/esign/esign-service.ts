@@ -49,6 +49,44 @@ function timestampsFor(status: EnvelopeStatus, at?: string | null): Record<strin
 }
 
 /**
+ * Return a readable local path to an envelope's executed (signed) PDF, fetching
+ * it from the provider on demand when the local copy is missing. The signed file
+ * is stored on the container's disk, so a redeploy (ephemeral storage) — or a
+ * signing webhook that failed its best-effort download — can leave a "signed"
+ * envelope with no downloadable file. This re-pulls from the provider and
+ * persists the path so downloads self-heal. Returns null when no executed
+ * document can be produced.
+ */
+export async function ensureSignedFile(envelopeId: string): Promise<string | null> {
+  const envelope = await prisma.documentEnvelope.findUnique({ where: { id: envelopeId } })
+  if (!envelope || envelope.status !== 'signed') return null
+
+  if (envelope.signedFilePath && fs.existsSync(envelope.signedFilePath)) {
+    return envelope.signedFilePath
+  }
+  if (!envelope.externalEnvelopeId) return null
+
+  try {
+    const provider = getESignatureProvider(envelope.provider)
+    const buf = await provider.downloadSigned(envelope.externalEnvelopeId)
+    if (!fs.existsSync(SIGNED_DIR)) fs.mkdirSync(SIGNED_DIR, { recursive: true })
+    const dest = path.join(SIGNED_DIR, `${envelope.id}.pdf`)
+    fs.writeFileSync(dest, buf)
+    await prisma.documentEnvelope.update({
+      where: { id: envelope.id },
+      data: { signedFilePath: dest },
+    })
+    return dest
+  } catch (err) {
+    logger.warn('On-demand signed-document fetch failed', {
+      envelopeId,
+      error: err instanceof Error ? err.message : String(err),
+    })
+    return null
+  }
+}
+
+/**
  * Create + send a signature envelope for a lead. Persists a draft
  * DocumentEnvelope first (so an in-flight envelope is never lost if the
  * provider call fails), then hands off to the provider and records the

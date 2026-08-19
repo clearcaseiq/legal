@@ -27,6 +27,7 @@ import {
   voidEnvelope,
   HipaaAuthorizationRequiredError,
   listEnvelopesForLead,
+  ensureSignedFile,
 } from '../lib/esign/esign-service'
 import { renderHipaaAuthorizationPdf } from '../lib/esign/hipaa-authorization'
 import { renderPoliceReportAuthorizationPdf } from '../lib/esign/police-report-authorization'
@@ -212,14 +213,18 @@ router.get('/envelopes/:envelopeId/signed', authMiddleware, async (req: AuthRequ
     if (!isAttorneyOwner && !isPlaintiffOwner) {
       return res.status(403).json({ error: 'Not authorized to download this document' })
     }
-    if (env.status !== 'signed' || !env.signedFilePath || !fs.existsSync(env.signedFilePath)) {
+    // Re-fetch the executed PDF from the provider when the local copy is missing
+    // (e.g. lost on a container redeploy, or the signing webhook failed to pull
+    // it) so a "signed" envelope is always downloadable.
+    const signedPath = await ensureSignedFile(req.params.envelopeId)
+    if (!signedPath) {
       return res.status(404).json({ error: 'No signed document is available for this envelope yet' })
     }
 
     const safeName = `${(env.title || 'signed-document').replace(/[^\w.-]+/g, '_')}.pdf`
     res.setHeader('Content-Type', 'application/pdf')
     res.setHeader('Content-Disposition', `attachment; filename="${safeName}"`)
-    fs.createReadStream(env.signedFilePath).pipe(res)
+    fs.createReadStream(signedPath).pipe(res)
   } catch (error) {
     logger.error('Signed document download failed', {
       message: error instanceof Error ? error.message : String(error),
