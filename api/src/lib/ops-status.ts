@@ -11,7 +11,9 @@
  *
  * This module is the answering service for all of them, so the admin System
  * Status page can show the whole picture at once. Everything here is read-only
- * and safe to call on demand.
+ * and safe to call on demand. Most of it observes this process; the public-site
+ * section is the exception, and probes the deployment from outside because what
+ * it looks for is invisible from within.
  */
 
 import { Prisma } from '@prisma/client'
@@ -22,6 +24,7 @@ import { isConnectConfigured } from './amazon-connect'
 import { isZoomConfigured } from './zoom'
 import { isESignatureConfigured } from './esign'
 import { isActivityCanaryEnabled } from './activity-canary-sweep'
+import { getPublicSiteStatus, type PublicSiteStatus } from './public-site-status'
 import { ENV } from '../env'
 
 const HOUR_MS = 60 * 60 * 1000
@@ -522,13 +525,15 @@ export interface SystemStatus {
   activity: ActivitySnapshot
   runtime: RuntimeInfo
   integrations: IntegrationState[]
+  publicSite: PublicSiteStatus
 }
 
 export async function getSystemStatus(): Promise<SystemStatus> {
-  const [readiness, schema, activity] = await Promise.all([
+  const [readiness, schema, activity, publicSite] = await Promise.all([
     runReadinessProbes(),
     checkSchemaDrift(),
     getActivitySnapshot(),
+    getPublicSiteStatus(),
   ])
   const sweeps = getSweepStates()
   const issues: string[] = []
@@ -572,6 +577,30 @@ export async function getSystemStatus(): Promise<SystemStatus> {
     )
   }
 
+  // Expiry and a sitewide Disallow are user-visible failures the API cannot
+  // see from the inside, so they are stated in the terms of the damage rather
+  // than the mechanism. A probe that could not reach the origin is reported as
+  // not knowing, which is a weaker claim than knowing something is wrong.
+  const { certificate, robots } = publicSite
+
+  if (certificate.state === 'fail') {
+    const expired = certificate.daysRemaining !== null && certificate.daysRemaining < 0
+    levels.push(expired ? 'down' : 'degraded')
+    issues.push(
+      expired
+        ? 'TLS certificate has expired — browsers are refusing the public site.'
+        : `Could not check the TLS certificate: ${certificate.detail}`
+    )
+  } else if (certificate.state === 'warn') {
+    levels.push('degraded')
+    issues.push(`TLS certificate expires in ${certificate.daysRemaining} day(s) and has not renewed.`)
+  }
+
+  if (robots.state === 'fail' || robots.state === 'warn') {
+    levels.push('degraded')
+    issues.push(`robots.txt: ${robots.detail}`)
+  }
+
   return {
     status: worst(levels),
     issues,
@@ -582,5 +611,6 @@ export async function getSystemStatus(): Promise<SystemStatus> {
     activity,
     runtime: getRuntimeInfo(),
     integrations: getIntegrationStates(),
+    publicSite,
   }
 }

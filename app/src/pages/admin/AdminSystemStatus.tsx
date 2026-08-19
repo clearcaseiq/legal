@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Database,
+  Globe,
   Plug,
   RefreshCw,
   Repeat,
@@ -14,6 +15,7 @@ import {
 import {
   getAdminSystemStatus,
   type AdminSystemStatus,
+  type PublicSiteCheckState,
   type SystemStatusLevel,
 } from '../../lib/api'
 import { Badge, PageHeader, SectionCard, type BadgeTone } from '../../features/shared/ui'
@@ -81,6 +83,40 @@ function CheckLine({ ok, label, detail }: { ok: boolean; label: string; detail?:
           </span>
         )}
       </span>
+    </li>
+  )
+}
+
+const PUBLIC_SITE_TONE: Record<PublicSiteCheckState, BadgeTone> = {
+  ok: 'success',
+  warn: 'warning',
+  fail: 'danger',
+  skipped: 'neutral',
+}
+
+const PUBLIC_SITE_LABEL: Record<PublicSiteCheckState, string> = {
+  ok: 'OK',
+  warn: 'Attention',
+  fail: 'Failing',
+  skipped: 'Not checked',
+}
+
+function PublicSiteRow({
+  label,
+  state,
+  detail,
+}: {
+  label: string
+  state: PublicSiteCheckState
+  detail: string
+}) {
+  return (
+    <li className="py-2">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-sm text-slate-700 dark:text-slate-300">{label}</span>
+        <Badge tone={PUBLIC_SITE_TONE[state]}>{PUBLIC_SITE_LABEL[state]}</Badge>
+      </div>
+      <p className="mt-0.5 break-words text-xs text-slate-500 dark:text-slate-400">{detail}</p>
     </li>
   )
 }
@@ -492,6 +528,41 @@ export default function AdminSystemStatus() {
               <p className="mt-3 text-xs text-slate-400 dark:text-slate-500">
                 Reflects configuration only, not a live send. An "Off" channel explains silence
                 without anyone reading environment variables on the host.
+              </p>
+            </SectionCard>
+
+            <SectionCard
+              title={
+                <>
+                  <Globe className="h-4 w-4 text-brand-600" />
+                  Public site
+                </>
+              }
+              trailing={
+                status.publicSite.origin && (
+                  <span className="truncate font-mono text-xs text-slate-400 dark:text-slate-500">
+                    {status.publicSite.origin}
+                  </span>
+                )
+              }
+            >
+              <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+                <PublicSiteRow
+                  label="TLS certificate"
+                  state={status.publicSite.certificate.state}
+                  detail={status.publicSite.certificate.detail}
+                />
+                <PublicSiteRow
+                  label="Crawler access"
+                  state={status.publicSite.robots.state}
+                  detail={status.publicSite.robots.detail}
+                />
+              </ul>
+              <p className="mt-3 text-xs text-slate-400 dark:text-slate-500">
+                Measured from outside, over the network, because neither of these is visible from
+                inside the app — it answered every request normally while the certificate was
+                expired and while robots.txt was telling search engines to drop the site. Cached
+                for five minutes.
               </p>
             </SectionCard>
           </div>

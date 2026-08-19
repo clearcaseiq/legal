@@ -4025,7 +4025,27 @@ export interface AdminSystemStatus {
     database: string | null
   }
   integrations: { key: string; label: string; configured: boolean; detail: string | null }[]
+  publicSite: {
+    origin: string | null
+    checkedAt: string
+    certificate: {
+      state: PublicSiteCheckState
+      expiresAt: string | null
+      daysRemaining: number | null
+      issuer: string | null
+      detail: string
+    }
+    robots: {
+      state: PublicSiteCheckState
+      crawlable: boolean | null
+      expectedCrawlable: boolean
+      detail: string
+    }
+  }
 }
+
+/** `skipped` covers local and preview stacks with no public origin to probe. */
+export type PublicSiteCheckState = 'ok' | 'warn' | 'fail' | 'skipped'
 
 export async function getAdminSystemStatus(): Promise<AdminSystemStatus> {
   const { data } = await api.get<AdminSystemStatus>('/v1/admin/system-status')
