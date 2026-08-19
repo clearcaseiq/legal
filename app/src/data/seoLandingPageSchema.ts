@@ -42,6 +42,17 @@ const insuranceFaqs: Faq[] = [
   { q: 'Should I give a recorded statement to the other insurer?', a: 'You are generally not required to give one to the other side\u2019s insurer. Statements taken early, before the full injury picture is known, are frequently used to dispute severity later.' },
 ]
 
+/**
+ * The fees page matches `/how-much-`, which otherwise supplies valuation
+ * questions about what a claim is worth — a different subject from what
+ * representation costs, and confusing sat underneath it.
+ */
+const feeFaqs: Faq[] = [
+  { q: 'Do I pay anything for an initial consultation?', a: 'Personal injury consultations are typically free, and a firm that expects payment to assess a claim is unusual enough to ask about.' },
+  { q: 'Who pays my medical bills while the claim is pending?', a: 'Usually your health insurance, your own medical payments coverage if you have it, or a provider treating on a letter of protection who is repaid from the recovery. The at-fault insurer generally pays nothing until the claim resolves.' },
+  { q: 'Can a fee agreement be changed after it is signed?', a: 'Any change is a matter of agreement between you and the firm, and in California contingency terms have to be in writing, so a revision should be documented the same way the original was.' },
+]
+
 const liabilityFaqs: Faq[] = [
   { q: 'What if I was partly at fault?', a: 'California uses comparative fault, so being partly responsible reduces recovery rather than eliminating it. How fault is apportioned is often disputed and evidence-driven.' },
   { q: 'What evidence matters most when fault is disputed?', a: 'Scene photographs, dashcam or surveillance video, independent witnesses, vehicle damage patterns, and the police report narrative tend to carry the most weight.' },
@@ -69,6 +80,7 @@ const faqsByPathPrefix: Array<[string, Faq[]]> = [
   // pages that said nothing about fault themselves. The guide that replaced
   // them answers comparative fault directly, and `liabilityFaqs` opens with the
   // same question, so it now falls through to the Attorney Intent default.
+  ['/how-much-do-', feeFaqs],
   ['/how-much-', valuationFaqs],
   ['/average-', valuationFaqs],
   ['/medical-records', processFaqs],

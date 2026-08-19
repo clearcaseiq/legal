@@ -556,9 +556,7 @@ function App() {
             <Route path="/average-back-surgery-settlement-california" element={<SeoLandingPage />} />
             <Route path="/average-motorcycle-settlement-california" element={<SeoLandingPage />} />
             <Route path="/when-to-hire-a-lawyer-after-accident" element={<SeoLandingPage />} />
-            <Route path="/do-i-need-a-lawyer-after-a-car-accident" element={<SeoLandingPage />} />
             <Route path="/how-much-do-personal-injury-lawyers-charge" element={<SeoLandingPage />} />
-            <Route path="/how-much-do-lawyers-take-from-settlement" element={<SeoLandingPage />} />
             <Route path="/can-i-switch-lawyers-during-my-case" element={<SeoLandingPage />} />
             <Route path="/california-statute-of-limitations-car-accident" element={<SeoLandingPage />} />
             <Route path="/california-statute-of-limitations-personal-injury" element={<SeoLandingPage />} />

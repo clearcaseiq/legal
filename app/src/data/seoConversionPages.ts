@@ -134,43 +134,6 @@ const averagePages: ConversionSeed[] = averageRows.map(([slug, title, cluster, f
   intake: [{ label: 'Step 1', question: 'Which severity band best matches your injury?' }, { label: 'Step 2', question: 'What are the bills, liens, and future care?' }, { label: 'Step 3', question: 'Is liability clear or disputed?' }, { label: 'Step 4', question: 'What insurance coverage is available?' }],
 }))
 
-const attorneyRows = [
-  ['/when-to-hire-a-lawyer-after-accident', 'When to Hire a Lawyer After an Accident', 'Attorney Hiring Timing', 'serious injuries, disputed fault, low offers, commercial coverage, liens, minors, surgery, and approaching deadlines'],
-  ['/do-i-need-a-lawyer-after-a-car-accident', 'Do I Need a Lawyer After a Car Accident?', 'Lawyer Need After Car Accident', 'injury seriousness, liability disputes, treatment status, insurance behavior, bills, wage loss, and settlement offers'],
-  ['/how-much-do-personal-injury-lawyers-charge', 'How Much Do Personal Injury Lawyers Charge?', 'Personal Injury Lawyer Fees', 'contingency fees, case costs, fee percentages, litigation expenses, liens, and net settlement'],
-  ['/how-much-do-lawyers-take-from-settlement', 'How Much Do Lawyers Take From a Settlement?', 'Lawyer Settlement Fee Guide', 'attorney fees, costs, liens, medical bills, gross versus net settlement, and fee agreements'],
-  ['/can-i-switch-lawyers-during-my-case', 'Can I Switch Lawyers During My Case?', 'Switching Personal Injury Lawyers', 'fee liens, substitution, case file transfer, communication issues, settlement posture, and deadlines'],
-] as const
-
-const attorneyPages: ConversionSeed[] = attorneyRows.map(([slug, title, cluster, focus]) => ({
-  slug,
-  category: 'Attorney Intent',
-  cluster,
-  title,
-  eyebrow: 'Attorney decision guide',
-  description: `${title} This page explains ${focus}, and how ClearCaseIQ can help organize the facts that determine whether attorney review may be appropriate.`,
-  psychology: 'I need to know whether attorney help makes sense.',
-  cta: 'Will an Attorney Take My Case?',
-  queries: [title.toLowerCase(), 'personal injury lawyer after accident', 'attorney fees personal injury', 'lawyer settlement fee'],
-  signals: ['Attorney readiness', 'Serious injury', 'Disputed fault', 'Low offer', 'Fees and liens', 'Deadline risk'],
-  track: ['Injury diagnosis, treatment, bills, future care, and wage loss', 'Liability disputes, police report, photos, witnesses, and insurance positions', 'Offers, denials, adjuster pressure, and release documents', 'Attorney fee agreement, case costs, liens, and net recovery questions', 'Deadlines, minors, commercial coverage, or complex case issues'],
-  why: 'Attorney hiring decisions should be tied to case complexity and economic stakes. Serious injuries, disputed liability, low offers, liens, commercial coverage, and deadlines usually justify deeper review than minor resolved claims.',
-  help: 'ClearCaseIQ produces an organized case-readiness report that can help identify whether the facts look attorney-reviewable.',
-  faqs: [
-    { q: 'Do I always need a lawyer after an accident?', a: 'Not always. Minor resolved claims may be handled without one, but serious injuries, disputes, low offers, and deadlines often justify review.' },
-    { q: 'How do personal injury attorney fees usually work?', a: 'Many work on contingency, but percentages, costs, and liens vary by agreement and case.' },
-    { q: 'Can ClearCaseIQ give legal advice?', a: 'No. ClearCaseIQ is not a law firm. It helps organize facts for education and possible attorney review.' },
-  ],
-  scenario: 'A claimant had ongoing treatment, a low insurance offer, and unclear medical bills. After organizing records, liability evidence, bills, and insurance communications, it became clearer whether attorney review was worth pursuing.',
-  timeline: [['Early claim', 'Injury, liability, and insurance facts are still developing.'], ['Complexity appears', 'Treatment, bills, disputes, or low offers create risk.'], ['Readiness review', 'Documents and economics show whether attorney review may help.'], ['Decision point', 'The claimant compares self-handling versus attorney involvement.']],
-  severity: [['Low need', 'Minor injury, clear liability, complete treatment, and fair offer.'], ['Possible need', 'Ongoing treatment, unclear bills, or moderate offer.'], ['Strong need', 'Serious injury, disputed fault, low offer, liens, or commercial coverage.'], ['Urgent', 'Surgery, catastrophic injury, minor, wrongful death, or approaching deadline.']],
-  treatment: [{ label: 'Case facts', copy: 'Injury, treatment, and liability determine complexity.' }, { label: 'Economic facts', copy: 'Bills, liens, wage loss, and costs determine stakes.' }, { label: 'Insurance posture', copy: 'Offers and denials reveal friction.' }, { label: 'Attorney readiness', copy: 'A clean summary helps triage.' }],
-  drivers: ['Injury severity', 'Disputed fault', 'Low offer', 'Medical liens', 'Commercial coverage', 'Deadline risk'],
-  valueDetails: [{ label: 'Complexity', copy: 'Attorney need rises with disputes and serious damages.' }, { label: 'Net recovery', copy: 'Fees, costs, and liens affect what the claimant keeps.' }, { label: 'Timing', copy: 'Delays can matter when deadlines or evidence risks exist.' }],
-  insuranceProblems: ['The adjuster pressures for a quick release.', 'A low offer arrives before treatment is complete.', 'Fault or causation is disputed.', 'Medical liens or bills are unclear.'],
-  intake: [{ label: 'Step 1', question: 'How serious are the injuries and treatment?' }, { label: 'Step 2', question: 'Is fault, causation, or coverage disputed?' }, { label: 'Step 3', question: 'Are there offers, liens, or unpaid bills?' }, { label: 'Step 4', question: 'Are deadlines or complex parties involved?' }],
-}))
-
 const statuteRows = [
   ['/california-statute-of-limitations-car-accident', 'California Statute of Limitations for Car Accidents', 'California Car Accident Deadlines', 'accident date, injury claim deadline, government claims, minors, delayed discovery, and urgent attorney review'],
   ['/california-statute-of-limitations-personal-injury', 'California Statute of Limitations for Personal Injury', 'California Personal Injury Deadlines', 'injury date, claim type, government defendants, minors, tolling, evidence preservation, and deadline urgency'],
@@ -210,7 +173,6 @@ const statutePages: ConversionSeed[] = statuteRows.map(([slug, title, cluster, f
 const conversionSeeds = [
   ...caseWorthPages,
   ...averagePages,
-  ...attorneyPages,
   ...statutePages,
 ]
 

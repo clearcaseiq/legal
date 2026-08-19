@@ -108,6 +108,20 @@ const nextConfig = {
         '/case-strength-motorcycle-accident',
         '/case-strength-pedestrian-accident',
       ].map((source) => ({ source, destination: '/case-strength', statusCode: 301 })),
+      // Five attorney-decision pages from the same seed were only three
+      // questions. `/when-to-hire-a-lawyer-after-accident` absorbs the "do I
+      // need one" phrasing and survives rather than it, because it is the
+      // English half of an hreflang pair with /es/cuando-contratar-un-abogado.
+      {
+        source: '/do-i-need-a-lawyer-after-a-car-accident',
+        destination: '/when-to-hire-a-lawyer-after-accident',
+        statusCode: 301,
+      },
+      {
+        source: '/how-much-do-lawyers-take-from-settlement',
+        destination: '/how-much-do-personal-injury-lawyers-charge',
+        statusCode: 301,
+      },
     ]
   },
   // Local/LAN: browser calls same-origin `/v1/*`; Next proxies to the API.
