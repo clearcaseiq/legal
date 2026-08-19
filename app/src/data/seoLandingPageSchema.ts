@@ -65,7 +65,10 @@ const faqsByPathPrefix: Array<[string, Faq[]]> = [
   ['/education/', processFaqs],
   ['/legal/', processFaqs],
   ['/commercial/', liabilityFaqs],
-  ['/case-strength', liabilityFaqs],
+  // `/case-strength` was mapped here when it was eight thin per-crash-type
+  // pages that said nothing about fault themselves. The guide that replaced
+  // them answers comparative fault directly, and `liabilityFaqs` opens with the
+  // same question, so it now falls through to the Attorney Intent default.
   ['/how-much-', valuationFaqs],
   ['/average-', valuationFaqs],
   ['/medical-records', processFaqs],

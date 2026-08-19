@@ -131,7 +131,10 @@ export const KNOWN_ROUTE_PATHS = new Set([
  * its own canonical and sitemap entry. See `topicHubForClusterPrefix`.
  */
 const SEO_CLUSTER_PREFIX_CATEGORIES: Record<string, LandingPageCategory> = {
-  '/case-strength': 'Attorney Intent',
+  // `/case-strength` was on this list and is deliberately no longer: its eight
+  // children were consolidated into a single guide that took the prefix URL
+  // itself. Truncating a child now lands on a real page about the thing the URL
+  // names, which answers the crawler better than a redirect to a hub did.
   '/commercial': 'Commercial',
   '/education': 'Educational / SEO Moat',
   '/injuries': 'Symptoms',

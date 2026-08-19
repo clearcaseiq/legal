@@ -34,7 +34,7 @@ export function derivedPriorityForPath(path: string) {
   if (path.startsWith('/injuries/') || path.startsWith('/treatment/')) return '0.8'
   if (path.startsWith('/insurance/') || path.startsWith('/liability/')) return '0.8'
   if (path.startsWith('/commercial/') || path.startsWith('/legal/')) return '0.8'
-  if (path.startsWith('/case-strength/') || path.startsWith('/case-strength-')) return '0.8'
+  if (path === '/case-strength') return '0.8'
   if (path.endsWith('-car-accident')) return '0.8'
   if (path.startsWith('/california-statute-of-limitations-') || path === '/missed-the-statute-of-limitations') return '0.8'
   if (path.startsWith('/medical-records') || path.includes('medical-records') || path.includes('medical-chronology')) return '0.8'

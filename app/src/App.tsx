@@ -527,7 +527,7 @@ function App() {
             <Route path="/commercial/:slug" element={<SeoLandingPage />} />
             <Route path="/legal/:slug" element={<SeoLandingPage />} />
             <Route path="/education/:slug" element={<SeoLandingPage />} />
-            <Route path="/case-strength/:slug" element={<SeoLandingPage />} />
+            <Route path="/case-strength" element={<SeoLandingPage />} />
             <Route path="/los-angeles-car-accident" element={<SeoLandingPage />} />
             <Route path="/orange-county-car-accident" element={<SeoLandingPage />} />
             <Route path="/san-diego-car-accident" element={<SeoLandingPage />} />
@@ -560,12 +560,6 @@ function App() {
             <Route path="/how-much-do-personal-injury-lawyers-charge" element={<SeoLandingPage />} />
             <Route path="/how-much-do-lawyers-take-from-settlement" element={<SeoLandingPage />} />
             <Route path="/can-i-switch-lawyers-during-my-case" element={<SeoLandingPage />} />
-            <Route path="/case-strength-hit-and-run" element={<SeoLandingPage />} />
-            <Route path="/case-strength-uninsured-driver" element={<SeoLandingPage />} />
-            <Route path="/case-strength-commercial-truck" element={<SeoLandingPage />} />
-            <Route path="/case-strength-rideshare-accident" element={<SeoLandingPage />} />
-            <Route path="/case-strength-motorcycle-accident" element={<SeoLandingPage />} />
-            <Route path="/case-strength-pedestrian-accident" element={<SeoLandingPage />} />
             <Route path="/california-statute-of-limitations-car-accident" element={<SeoLandingPage />} />
             <Route path="/california-statute-of-limitations-personal-injury" element={<SeoLandingPage />} />
             <Route path="/california-statute-of-limitations-wrongful-death" element={<SeoLandingPage />} />

@@ -82,9 +82,21 @@ describe('bare SEO cluster prefixes', () => {
     '/treatment',
   ]
 
-  it('sends every reported prefix to a topic hub', () => {
-    const unmapped = REPORTED_BY_SEARCH_CONSOLE.filter((path) => !topicHubForClusterPrefix(path))
-    expect(unmapped).toEqual([])
+  it('resolves every reported prefix, by redirect or by being a page', () => {
+    // `/case-strength` takes the second route: its children were consolidated
+    // into one guide that claimed the prefix URL, so a truncating crawler now
+    // gets a real page rather than a hop to a hub. Either outcome resolves the
+    // duplicate Search Console reported; what would not is a bare 200 with no
+    // canonical, which is the state all of these started in.
+    const unresolved = REPORTED_BY_SEARCH_CONSOLE.filter(
+      (path) => !topicHubForClusterPrefix(path) && !landingPagesBySlug.has(path),
+    )
+    expect(unresolved).toEqual([])
+  })
+
+  it('keeps /case-strength a page rather than a prefix', () => {
+    expect(landingPagesBySlug.has('/case-strength')).toBe(true)
+    expect(SEO_CLUSTER_PREFIXES).not.toContain('/case-strength')
   })
 
   it('sends them somewhere that is a real server-rendered page', () => {

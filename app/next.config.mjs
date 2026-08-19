@@ -92,6 +92,22 @@ const nextConfig = {
         destination: '/insurance/settlement-process',
         statusCode: 301,
       })),
+      // Eight case-strength pages generated from a single seed, where only the
+      // title and one clause of the description differed — 0.909 similarity
+      // with the crash type masked, and no impressions in three months. The
+      // crash-type detail survives as FAQ entries on the consolidated page.
+      // Two used a directory slug and six a hyphenated one, which is why the
+      // sources are spelled out rather than mapped over one pattern.
+      ...[
+        '/case-strength/rear-end-accident',
+        '/case-strength/red-light-accident',
+        '/case-strength-hit-and-run',
+        '/case-strength-uninsured-driver',
+        '/case-strength-commercial-truck',
+        '/case-strength-rideshare-accident',
+        '/case-strength-motorcycle-accident',
+        '/case-strength-pedestrian-accident',
+      ].map((source) => ({ source, destination: '/case-strength', statusCode: 301 })),
     ]
   },
   // Local/LAN: browser calls same-origin `/v1/*`; Next proxies to the API.

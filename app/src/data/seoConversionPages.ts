@@ -171,46 +171,6 @@ const attorneyPages: ConversionSeed[] = attorneyRows.map(([slug, title, cluster,
   intake: [{ label: 'Step 1', question: 'How serious are the injuries and treatment?' }, { label: 'Step 2', question: 'Is fault, causation, or coverage disputed?' }, { label: 'Step 3', question: 'Are there offers, liens, or unpaid bills?' }, { label: 'Step 4', question: 'Are deadlines or complex parties involved?' }],
 }))
 
-const caseStrengthRows = [
-  ['/case-strength/rear-end-accident', 'Rear-End Accident Case Strength', 'Rear-End Case Strength', 'rear-end liability, property damage, treatment, comparative fault, policy limits, and insurer soft-tissue defenses'],
-  ['/case-strength/red-light-accident', 'Red Light Accident Case Strength', 'Red Light Case Strength', 'signal evidence, citations, witnesses, intersection video, T-bone impact, injuries, and comparative fault'],
-  ['/case-strength-hit-and-run', 'Hit-and-Run Case Strength', 'Hit-and-Run Case Strength', 'police reporting, unknown driver evidence, UM/UIM coverage, injury severity, deadlines, and documentation'],
-  ['/case-strength-uninsured-driver', 'Uninsured Driver Case Strength', 'Uninsured Driver Case Strength', 'liability proof, UM/UIM coverage, policy notice, medical damages, uninsured status, and claim deadlines'],
-  ['/case-strength-commercial-truck', 'Commercial Truck Case Strength', 'Commercial Truck Case Strength', 'commercial coverage, company responsibility, serious injuries, evidence preservation, driver logs, and policy layers'],
-  ['/case-strength-rideshare-accident', 'Rideshare Accident Case Strength', 'Rideshare Case Strength', 'app status, trip phase, passenger role, coverage layers, liability evidence, and medical severity'],
-  ['/case-strength-motorcycle-accident', 'Motorcycle Accident Case Strength', 'Motorcycle Case Strength', 'rider injury severity, liability bias, helmet facts, photos, witnesses, medical bills, and coverage'],
-  ['/case-strength-pedestrian-accident', 'Pedestrian Accident Case Strength', 'Pedestrian Case Strength', 'crosswalk facts, visibility, impact severity, serious injuries, liability, medical bills, and policy limits'],
-] as const
-
-const caseStrengthPages: ConversionSeed[] = caseStrengthRows.map(([slug, title, cluster, focus]) => ({
-  slug,
-  category: 'Attorney Intent',
-  cluster,
-  title,
-  eyebrow: 'Attorney-fit underwriting guide',
-  description: `${title} depends on ${focus}. This page is built around the key question: will an attorney take my case?`,
-  psychology: 'I want to know if my case is strong enough.',
-  cta: 'Will an Attorney Take My Case?',
-  queries: [title.toLowerCase(), 'will a lawyer take my case', 'is my accident case strong', 'case strength calculator'],
-  signals: ['Liability strength', 'Injury severity', 'Insurance coverage', 'Treatment proof', 'Economic damages', 'Attorney-fit score'],
-  track: ['Accident facts, police report, photos, witnesses, citations, and video', 'Injuries, diagnosis, ER, PT, imaging, injections, surgery, and future care', 'Medical bills, wage loss, out-of-pocket costs, and liens', 'Insurance limits, UM/UIM, commercial coverage, offers, and denials', 'Comparative fault, prior injuries, treatment gaps, and deadline risks'],
-  why: 'Attorney case selection is practical. Strong liability is not enough without damages, and serious damages can still be difficult if fault, causation, or coverage is weak. Case-strength pages help sort those variables.',
-  help: 'ClearCaseIQ captures the facts an attorney triage team needs: liability, damages, coverage, documents, urgency, and risk factors.',
-  faqs: [
-    { q: 'Will an attorney take my case?', a: 'It depends on liability, injury severity, damages, coverage, deadlines, documents, and whether the expected recovery justifies the work.' },
-    { q: 'What makes a case stronger?', a: 'Clear fault, serious documented injury, consistent treatment, available insurance, economic damages, and organized documents help.' },
-    { q: 'What makes attorneys decline cases?', a: 'Low damages, weak liability, no coverage, missed deadlines, causation problems, and missing documentation can reduce fit.' },
-  ],
-  scenario: 'A claimant wanted to know if an attorney would take the case. The answer became clearer after liability evidence, treatment records, bills, insurance information, and risk factors were organized into a single report.',
-  timeline: [['Facts collected', 'Accident type, evidence, and injury facts are entered.'], ['Strength scoring', 'Liability, damages, coverage, and documents are weighed.'], ['Risk review', 'Comparative fault, gaps, prior injuries, and deadlines are flagged.'], ['Attorney fit', 'The report identifies whether the file appears reviewable.']],
-  severity: [['Weak fit', 'Minor injury, low bills, weak fault, or no coverage.'], ['Developing fit', 'Some treatment and evidence but missing key facts.'], ['Strong fit', 'Clear liability, documented injury, bills, and coverage.'], ['Urgent fit', 'Severe injury, commercial coverage, surgery, TBI, minor, death, or deadline issue.']],
-  treatment: [{ label: 'Liability', copy: 'Evidence determines whether fault can be shown.' }, { label: 'Damages', copy: 'Treatment, bills, and wage loss determine economic stakes.' }, { label: 'Coverage', copy: 'Insurance affects collectability.' }, { label: 'Risk flags', copy: 'Gaps, prior history, and deadlines shape fit.' }],
-  drivers: ['Clear liability', 'Serious injury', 'Medical bills', 'Policy limits', 'Low offer or denial', 'Deadline urgency'],
-  valueDetails: [{ label: 'Attorney economics', copy: 'The case must justify the time, cost, and risk.' }, { label: 'Coverage', copy: 'Available insurance matters for collectability.' }, { label: 'Documents', copy: 'Organized records improve triage speed.' }],
-  insuranceProblems: ['Liability is disputed.', 'Policy limits are unknown.', 'Treatment is incomplete.', 'The insurer argues comparative fault or causation.'],
-  intake: [{ label: 'Step 1', question: 'What evidence proves fault?' }, { label: 'Step 2', question: 'How serious are the injuries and treatment?' }, { label: 'Step 3', question: 'What bills, wage loss, and coverage exist?' }, { label: 'Step 4', question: 'What risks could make the case harder?' }],
-}))
-
 const statuteRows = [
   ['/california-statute-of-limitations-car-accident', 'California Statute of Limitations for Car Accidents', 'California Car Accident Deadlines', 'accident date, injury claim deadline, government claims, minors, delayed discovery, and urgent attorney review'],
   ['/california-statute-of-limitations-personal-injury', 'California Statute of Limitations for Personal Injury', 'California Personal Injury Deadlines', 'injury date, claim type, government defendants, minors, tolling, evidence preservation, and deadline urgency'],
@@ -251,7 +211,6 @@ const conversionSeeds = [
   ...caseWorthPages,
   ...averagePages,
   ...attorneyPages,
-  ...caseStrengthPages,
   ...statutePages,
 ]
 
