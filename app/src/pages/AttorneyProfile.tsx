@@ -246,8 +246,11 @@ export default function AttorneyProfile() {
         name: profile.attorney?.name || undefined,
         bio: profile.bio,
         photoUrl: profile.photoUrl,
-        specialties: JSON.stringify(profile.specialties),
-        languages: JSON.stringify(cleanLanguages),
+        // Send raw arrays: the API JSON.stringify()s these itself. Passing a
+        // pre-stringified value double-encodes it, so on reload it parses back
+        // to a string (not an array) and languages/specialties silently reset.
+        specialties: profile.specialties,
+        languages: cleanLanguages,
         yearsExperience: profile.yearsExperience,
         totalCases: profile.totalCases,
         totalSettlements: profile.totalSettlements,
@@ -306,8 +309,9 @@ export default function AttorneyProfile() {
     const updated = await updateAttorneyProfile({
       bio: profile.bio,
       photoUrl: profile.photoUrl,
-      specialties: JSON.stringify(profile.specialties),
-      languages: JSON.stringify(profile.languages),
+      // Send raw arrays; the API stringifies them (see handleSaveProfile).
+      specialties: profile.specialties,
+      languages: profile.languages,
       yearsExperience: profile.yearsExperience,
       totalCases: profile.totalCases,
       totalSettlements: profile.totalSettlements,
