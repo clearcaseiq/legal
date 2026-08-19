@@ -175,42 +175,10 @@ const cityPages: ExpansionSeed[] = cityRows.map(([slugPart, title, cluster, loca
   intake: [{ label: 'Step 1', question: 'Where exactly did the accident happen?' }, { label: 'Step 2', question: 'What evidence shows fault?' }, { label: 'Step 3', question: 'What treatment, bills, and wage loss exist?' }, { label: 'Step 4', question: 'What insurance coverage or offers are known?' }],
 }))
 
-const insurerRows = ['USAA', 'Liberty Mutual', 'Mercury', 'Travelers', 'Nationwide'] as const
-
-const insurerPages: ExpansionSeed[] = insurerRows.map((carrier) => ({
-  slug: `/insurance/${carrier.toLowerCase().replace(/\s+/g, '-')}-denied-claim`,
-  category: 'Insurance',
-  cluster: `${carrier} Claim Denials`,
-  title: `${carrier} Denied My Accident Claim`,
-  eyebrow: 'Insurance denial guide',
-  description: `${carrier} may deny, delay, or undervalue an accident claim based on liability, coverage, treatment gaps, causation, policy language, or missing documentation. This guide explains what to collect and how to organize the denial for review.`,
-  psychology: `${carrier} denied my claim and I need next steps.`,
-  cta: 'Review My Denied Claim',
-  queries: [`${carrier} denied my claim`, `${carrier} accident claim denial`, `${carrier} low settlement offer`, `${carrier} says I was at fault`],
-  signals: ['Denial reason', 'Liability dispute', 'Coverage issue', 'Treatment gap', 'Causation dispute', 'Low offer'],
-  track: [`The exact ${carrier} denial reason, offer, or adjuster explanation`, 'Claim number, adjuster name, letters, emails, and call notes', 'Police report, photos, witnesses, citations, and video', 'Medical records, bills, treatment timeline, and gap explanations', 'Policy limits, UM/UIM, recorded statements, and comparative fault allegations'],
-  why: `${carrier} denial pages convert because the claimant already has a problem. The key is identifying the exact denial reason and matching it to liability, medical, coverage, and damages evidence.`,
-  help: `ClearCaseIQ organizes ${carrier} communications, liability evidence, medical proof, economic damages, and missing documents so the denial can be reviewed more clearly.`,
-  faqs: [
-    { q: `What should I do if ${carrier} denied my claim?`, a: 'Save the denial letter, claim number, adjuster communications, photos, reports, medical records, bills, and offer details. Identify the exact reason for denial.' },
-    { q: `Can ${carrier} deny a claim because treatment was delayed?`, a: 'Insurers often use delayed treatment to dispute causation. A clear timeline and explanation may help answer that argument.' },
-    { q: `Should I accept a low ${carrier} offer?`, a: 'This is not legal advice. Before accepting, consider treatment status, bills, liens, future care, liability, and available coverage.' },
-  ],
-  scenario: `${carrier} denied an injury claim by arguing delayed treatment and disputed fault. The file became stronger after the written denial, police report, photos, witness information, medical records, and bills were organized together.`,
-  timeline: [['Denial received', `${carrier} states a reason such as fault, coverage, causation, treatment, or damages.`], ['Evidence review', 'Police report, photos, witnesses, records, and bills are gathered.'], ['Gap analysis', 'Missing records, inconsistent statements, and treatment gaps are identified.'], ['Response posture', 'Serious injury or disputed liability may support attorney review.']],
-  severity: [['Low friction', 'Incomplete documentation or routine request.'], ['Moderate', 'Low offer or treatment challenge.'], ['Serious', 'Fault, causation, or coverage denial.'], ['High risk', 'Serious injury plus denial, policy issue, or comparative fault dispute.']],
-  treatment: [{ label: 'Denial reason', copy: 'The exact wording controls the evidence needed.' }, { label: 'Liability proof', copy: 'Reports, photos, witnesses, and admissions answer fault arguments.' }, { label: 'Medical proof', copy: 'Records, bills, and timelines answer causation arguments.' }, { label: 'Review package', copy: 'A concise denial summary helps attorney triage.' }],
-  drivers: ['Written denial reason', 'Liability evidence', 'Treatment timeline', 'Medical bills', 'Policy limits', 'Comparative fault allegation'],
-  valueDetails: [{ label: 'Reason matters', copy: 'Coverage denials, fault denials, and medical disputes require different evidence.' }, { label: 'Documents', copy: 'A denial is easier to evaluate when all letters and records are together.' }, { label: 'Severity', copy: 'The more serious the injury, the more important denial review becomes.' }],
-  insuranceProblems: [`${carrier} blames the claimant for fault.`, `${carrier} disputes treatment timing or causation.`, `${carrier} makes a low offer before treatment is complete.`, `${carrier} cites policy language or missing proof.`],
-  intake: [{ label: 'Step 1', question: `What exact reason did ${carrier} give?` }, { label: 'Step 2', question: 'Do you have the denial letter and claim communications?' }, { label: 'Step 3', question: 'What records, bills, and liability evidence support you?' }, { label: 'Step 4', question: 'Has the adjuster requested a statement or assigned fault?' }],
-}))
-
 const expansionSeeds = [
   ...accidentTypePages,
   ...settlementPages,
   ...cityPages,
-  ...insurerPages,
 ]
 
 export const expansionLandingPages: LandingPage[] = expansionSeeds.map(toLandingPage)

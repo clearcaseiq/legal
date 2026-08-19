@@ -3,6 +3,7 @@ import { requestedLandingPages } from './seoRequestedPages'
 import { priorityLandingPages } from './seoPriorityPages'
 import { conversionLandingPages } from './seoConversionPages'
 import { expansionLandingPages } from './seoExpansionPages'
+import { insuranceGuidePages } from './seoInsuranceGuides'
 import { CONTENT_PUBLISHED_ES, CONTENT_UPDATED_ES, landingPagesEs } from './seoLandingPagesEs'
 import { medicalRecordsLandingPages } from './seoMedicalRecordsPages'
 import {
@@ -75,6 +76,7 @@ export const CONTENT_UPDATED = {
   conversion: '2026-06-02',
   expansion: '2026-06-02',
   medicalRecords: '2026-06-02',
+  insuranceGuides: '2026-08-19',
 } as const
 
 /**
@@ -93,6 +95,7 @@ export const CONTENT_PUBLISHED = {
   conversion: '2026-06-02',
   expansion: '2026-06-02',
   medicalRecords: '2026-06-02',
+  insuranceGuides: '2026-08-19',
 } as const
 
 /** Applies a set's dates without overriding page-specific ones. */
@@ -310,27 +313,9 @@ export const landingPages: LandingPage[] = [
       { q: 'What makes TBI claims complex?', a: 'Symptoms can be invisible, delayed, or disputed, so treatment continuity and functional impact documentation are critical.' },
     ],
   },
-  {
-    slug: '/insurance/claim-denial',
-    category: 'Insurance',
-    cluster: 'Claim Denials',
-    title: 'Insurance Denied or Lowballed Your Accident Claim',
-    eyebrow: 'Insurance dispute review',
-    description: 'If an adjuster denied your claim, blamed you, or offered too little, ClearCaseIQ can help organize liability facts, evidence, and missing documents before attorney review.',
-    psychology: 'Insurance is treating me unfairly.',
-    cta: 'Get Free Case Review',
-    exampleQueries: ['insurance denied my claim', 'insurance says accident was my fault', 'adjuster offering low settlement'],
-    signals: ['Liability disputes', 'Adjuster behavior', 'Denial reasons', 'Offer posture'],
-    sections: {
-      whyItMatters: 'Claim denials often turn on evidence quality, comparative fault, policy issues, or missing medical proof.',
-      whatToTrack: ['Denial letter or adjuster explanation', 'Recorded statements or admissions', 'Police report and witness details', 'Photos and scene evidence', 'Medical treatment and bills'],
-      howClearCaseHelps: 'The platform highlights disputed-liability and documentation gaps so you know what to strengthen first.',
-    },
-    faqs: [
-      { q: 'Should I accept a low settlement?', a: 'Do not rely on this page as legal advice. Consider the evidence, medical status, deadlines, and whether attorney review is appropriate.' },
-      { q: 'What if the insurer says I was at fault?', a: 'Liability evidence such as police reports, photos, witnesses, and scene facts can change the analysis.' },
-    ],
-  },
+  // `/insurance/claim-denial` now lives in seoInsuranceGuides.ts. The URL is
+  // unchanged; the content is replaced, and the ten per-carrier denial pages
+  // redirect into it.
   {
     slug: '/insurance/rideshare-commercial-coverage',
     category: 'Insurance',
@@ -529,6 +514,7 @@ export const allLandingPages: LandingPage[] = [
   ...stamp(conversionLandingPages, CONTENT_UPDATED.conversion, CONTENT_PUBLISHED.conversion),
   ...stamp(expansionLandingPages, CONTENT_UPDATED.expansion, CONTENT_PUBLISHED.expansion),
   ...stamp(medicalRecordsLandingPages, CONTENT_UPDATED.medicalRecords, CONTENT_PUBLISHED.medicalRecords),
+  ...stamp(insuranceGuidePages, CONTENT_UPDATED.insuranceGuides, CONTENT_PUBLISHED.insuranceGuides),
   // The Spanish set is dated separately: restamping it with an English content
   // date would claim these pages changed on a day they did not exist.
   ...stamp(landingPagesEs, CONTENT_UPDATED_ES, CONTENT_PUBLISHED_ES),

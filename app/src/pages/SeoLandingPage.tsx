@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, Navigate, useLocation } from 'react-router-dom'
 import { Activity, AlertTriangle, Calculator, CheckCircle, ChevronRight, FileText, Search, Shield, Stethoscope, TrendingUp } from 'lucide-react'
 import ContentByline from '../components/ContentByline'
-import { landingPagesBySlug } from '../data/seoLandingPages'
+import { landingPagesBySlug, type LandingPageCategory } from '../data/seoLandingPages'
 import { cityLocalFacts } from '../data/seoCityLocalFacts'
 import {
   landingPageFaqs,
@@ -23,6 +23,149 @@ const categoryTone: Record<string, string> = {
   Commercial: 'from-slate-100 to-white border-slate-200 text-slate-950',
   'Attorney Intent': 'from-brand-50 to-white border-brand-100 text-brand-950',
   'Educational / SEO Moat': 'from-cyan-50 to-white border-cyan-100 text-cyan-950',
+}
+
+type SectionCopy = { eyebrow: string; title: string; intro: string }
+type SectionKey = 'timeline' | 'severity' | 'progression'
+
+/**
+ * Headings for the three sections that render `topicContent`.
+ *
+ * These were written for injury pages and applied to all of them, so an
+ * insurance page listed claim stages under "How symptoms can change after an
+ * accident" and a liability page put scene evidence under "Treatment
+ * progression". The content was right; only the heading above it was wrong.
+ * Symptoms, Treatment and Educational pages keep the original wording, which
+ * fits them.
+ */
+const DEFAULT_SECTION_COPY: Record<SectionKey, SectionCopy> = {
+  timeline: {
+    eyebrow: 'Symptom escalation timeline',
+    title: 'How symptoms can change after an accident',
+    intro:
+      'A claim often becomes clearer when symptoms are tracked over time. This timeline is not medical advice, but it shows why delayed or escalating symptoms should be documented carefully.',
+  },
+  severity: {
+    eyebrow: 'Injury severity ladder',
+    title: 'Injury severity ladder',
+    intro:
+      'The platform thinks in severity bands because underwriting is different for soreness, imaging-confirmed injury, injections, and surgery.',
+  },
+  progression: {
+    eyebrow: 'Treatment progression',
+    title: 'Treatment progression',
+    intro:
+      'Treatment progression tells a stronger story than a single symptom. ClearCaseIQ looks for escalation and continuity.',
+  },
+}
+
+const SECTION_COPY_BY_CATEGORY: Partial<
+  Record<LandingPageCategory, Partial<Record<SectionKey, SectionCopy>>>
+> = {
+  Insurance: {
+    timeline: {
+      eyebrow: 'Claim stage timeline',
+      title: 'How an insurance claim moves over time',
+      intro:
+        'Each stage has one thing that governs how long it takes. Knowing which stage a claim is in explains most of what otherwise looks like unexplained delay.',
+    },
+    severity: {
+      eyebrow: 'Dispute severity',
+      title: 'What kind of dispute this is',
+      intro:
+        'Disputes are not all the same kind, and the category matters more than the tone of the letter. What the insurer is actually arguing decides what evidence answers it.',
+    },
+    progression: {
+      eyebrow: 'Order of work',
+      title: 'What to do, and in what order',
+      intro:
+        'Sequence matters more than effort here. Working the wrong part of the file first is how months get spent on evidence that was never going to move the decision.',
+    },
+  },
+  Liability: {
+    timeline: {
+      eyebrow: 'Evidence timeline',
+      title: 'How fault evidence changes over time',
+      intro:
+        'Liability evidence is most available in the hours after a crash and degrades from there. Vehicles get repaired, footage is overwritten, and witnesses become harder to reach.',
+    },
+    severity: {
+      eyebrow: 'Fault clarity',
+      title: 'How clear fault is',
+      intro:
+        'Fault is rarely all or nothing. These bands describe how strongly the available evidence supports your account of the crash.',
+    },
+    progression: {
+      eyebrow: 'Building the record',
+      title: 'How the liability record comes together',
+      intro:
+        'Each piece answers a different argument. Together they make it harder to reassign fault later on the basis of a recorded statement.',
+    },
+  },
+  Settlement: {
+    timeline: {
+      eyebrow: 'Valuation timeline',
+      title: 'How case value becomes clearer over time',
+      intro:
+        'An estimate made during treatment and a valuation made after it are different exercises. This shows what changes in between, and why the later number is the reliable one.',
+    },
+    severity: {
+      eyebrow: 'Severity bands',
+      title: 'How severity shapes value',
+      intro:
+        'Value tracks severity, and severity is a combination of treatment, documentation, and lasting effect rather than the name of the injury.',
+    },
+    progression: {
+      eyebrow: 'Inputs to the estimate',
+      title: 'What the valuation is built from',
+      intro:
+        'Every input either adds a documented figure or supports one. Anything undocumented is an argument rather than a number.',
+    },
+  },
+  'Attorney Intent': {
+    timeline: {
+      eyebrow: 'Case timeline',
+      title: 'How a case develops from the accident date',
+      intro:
+        'The deadline runs from the accident, not from the denial or the last treatment. This timeline shows what should exist at each point.',
+    },
+    severity: {
+      eyebrow: 'Case complexity',
+      title: 'How complex the case is',
+      intro:
+        'Complexity is driven by disputes and by the number of parties, and it is a better guide than injury type to whether a case needs an attorney.',
+    },
+    progression: {
+      eyebrow: 'Assembling the file',
+      title: 'How the case file comes together',
+      intro:
+        'A reviewable file is assembled in a particular order, because each part determines what the next one needs to answer.',
+    },
+  },
+  Commercial: {
+    timeline: {
+      eyebrow: 'Evidence timeline',
+      title: 'What to capture, and when',
+      intro:
+        'Commercial crashes involve records held by companies rather than individuals — driver logs, maintenance history, telematics — and those become harder to obtain as time passes.',
+    },
+    severity: {
+      eyebrow: 'Coverage complexity',
+      title: 'How many parties and policies are involved',
+      intro:
+        'Severity here is partly about the injury and partly about how many policies, employers, and contractors sit behind the vehicle.',
+    },
+    progression: {
+      eyebrow: 'Building the claim',
+      title: 'How a commercial claim comes together',
+      intro:
+        'Each step answers a different question: what happened, what it did to you, which policies apply, and what could be used to weaken the claim later.',
+    },
+  },
+}
+
+export function sectionCopy(category: LandingPageCategory, key: SectionKey): SectionCopy {
+  return SECTION_COPY_BY_CATEGORY[category]?.[key] ?? DEFAULT_SECTION_COPY[key]
 }
 
 const symptomTimeline = [
@@ -469,6 +612,9 @@ export default function SeoLandingPage() {
   if (!page) return <Navigate to="/" replace />
 
   const tone = categoryTone[page.category] || 'from-brand-50 to-white border-brand-100 text-brand-950'
+  const timelineCopy = sectionCopy(page.category, 'timeline')
+  const severityCopy = sectionCopy(page.category, 'severity')
+  const progressionCopy = sectionCopy(page.category, 'progression')
   const allFaqs = landingPageFaqs(page)
   const topicContent = topicContentBySlug[page.slug]
   const scenario = topicContent?.scenario || getScenario(page)
@@ -782,11 +928,9 @@ export default function SeoLandingPage() {
             <Activity className="h-5 w-5" aria-hidden />
           </div>
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Symptom escalation timeline</p>
-            <h2 className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">How symptoms can change after an accident</h2>
-            <p className="mt-2 text-sm leading-7 text-slate-700">
-              A claim often becomes clearer when symptoms are tracked over time. This timeline is not medical advice, but it shows why delayed or escalating symptoms should be documented carefully.
-            </p>
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{timelineCopy.eyebrow}</p>
+            <h2 className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">{timelineCopy.title}</h2>
+            <p className="mt-2 text-sm leading-7 text-slate-700">{timelineCopy.intro}</p>
           </div>
         </div>
         <div className="mt-5 overflow-hidden rounded-2xl border border-slate-200">
@@ -807,11 +951,9 @@ export default function SeoLandingPage() {
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex items-center gap-2">
             <Stethoscope className="h-5 w-5 text-brand-700" aria-hidden />
-            <h2 className="text-xl font-semibold text-slate-950">Injury severity ladder</h2>
+            <h2 className="text-xl font-semibold text-slate-950">{severityCopy.title}</h2>
           </div>
-          <p className="mt-2 text-sm leading-7 text-slate-700">
-            The platform thinks in severity bands because underwriting is different for soreness, imaging-confirmed injury, injections, and surgery.
-          </p>
+          <p className="mt-2 text-sm leading-7 text-slate-700">{severityCopy.intro}</p>
           <div className="mt-4 space-y-2">
             {pageSeverityLadder.map(([level, example]) => (
               <div key={level} className="grid grid-cols-[96px_1fr] rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-sm">
@@ -825,11 +967,9 @@ export default function SeoLandingPage() {
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex items-center gap-2">
             <FileText className="h-5 w-5 text-brand-700" aria-hidden />
-            <h2 className="text-xl font-semibold text-slate-950">Treatment progression</h2>
+            <h2 className="text-xl font-semibold text-slate-950">{progressionCopy.title}</h2>
           </div>
-          <p className="mt-2 text-sm leading-7 text-slate-700">
-            Treatment progression tells a stronger story than a single symptom. ClearCaseIQ looks for escalation and continuity.
-          </p>
+          <p className="mt-2 text-sm leading-7 text-slate-700">{progressionCopy.intro}</p>
           <ol className="mt-4 space-y-3">
             {pageTreatmentProgression.map((step, index) => (
               <li key={step.label} className="flex gap-3">

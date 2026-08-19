@@ -300,35 +300,6 @@ const settlementPages: PriorityPageSeed[] = settlementPageRows.map(([slugPart, t
   intake: [{ label: 'Step 1', question: 'What injury and treatment records exist?' }, { label: 'Step 2', question: 'What are the bills, liens, and wage losses?' }, { label: 'Step 3', question: 'What evidence proves fault?' }, { label: 'Step 4', question: 'What insurance limits or offers are known?' }],
 }))
 
-const insurancePages: PriorityPageSeed[] = ['State Farm', 'GEICO', 'Progressive', 'Allstate', 'USAA'].map((carrier) => ({
-  slug: `/insurance/${carrier.toLowerCase().replace(/\s+/g, '-')}-settlement-process`,
-  category: 'Insurance',
-  cluster: `${carrier} Settlement Process`,
-  title: `${carrier} Settlement Process After an Accident`,
-  eyebrow: 'Insurance settlement guide',
-  description: `The ${carrier} settlement process may involve claim intake, liability review, medical records, bills, recorded statements, coverage checks, offers, negotiations, and release paperwork. This guide explains what to track before accepting any offer.`,
-  psychology: `${carrier} is handling my settlement and I need clarity.`,
-  cta: 'Review My Insurance Claim',
-  queries: [`${carrier} settlement process`, `${carrier} accident settlement`, `${carrier} injury claim offer`, `${carrier} negotiation process`],
-  signals: ['Claim number', 'Adjuster communications', 'Liability review', 'Medical records', 'Settlement offer', 'Release timing'],
-  track: ['Claim number, adjuster name, and all communications', 'Liability decision, police report, photos, witnesses, and statements', 'Medical records, bills, liens, future care, and wage loss', 'All offers, counteroffers, and release documents', 'Policy limits, UM/UIM, and coverage issues'],
-  why: `${carrier} may evaluate liability, causation, treatment, bills, gaps, prior history, and policy limits before making or increasing an offer. Organized records help prevent decisions based on incomplete information.`,
-  help: `ClearCaseIQ organizes ${carrier} communications, medical proof, liability evidence, settlement offers, and missing documents into a case-readiness report.`,
-  faqs: [
-    { q: `How does the ${carrier} settlement process work?`, a: 'The carrier usually investigates liability, reviews medical documentation, evaluates damages and coverage, then makes or responds to settlement offers.' },
-    { q: `Should I send medical records to ${carrier}?`, a: 'Records support the claim, but serious or disputed claims may benefit from careful review before broad authorizations or final settlement.' },
-    { q: 'What should I review before signing a release?', a: 'Treatment status, total bills, liens, future care, wage loss, policy limits, and whether the offer resolves all claims.' },
-  ],
-  scenario: `${carrier} made an offer before treatment was complete. The claimant organized records, bills, wage loss, liability photos, and policy information before deciding whether the offer reflected the full claim.`,
-  timeline: [['Claim opened', 'Carrier assigns claim number and adjuster.'], ['Investigation', 'Liability, coverage, statements, and evidence are reviewed.'], ['Medical review', 'Records, bills, treatment gaps, and causation are evaluated.'], ['Settlement', 'Offer, negotiation, release, and payment steps occur.']],
-  severity: [['Simple', 'Clear liability, minor injury, complete treatment.'], ['Developing', 'Ongoing treatment or missing records.'], ['Disputed', 'Fault, causation, bills, or treatment gaps challenged.'], ['High risk', 'Serious injury, low limits, liens, or release pressure.']],
-  treatment: [{ label: 'Evidence package', copy: 'Medical records, bills, photos, and reports support the demand.' }, { label: 'Offer review', copy: 'Compare the offer to total damages and future care.' }, { label: 'Negotiation', copy: 'Counteroffers should address specific disputes.' }, { label: 'Release', copy: 'Final paperwork usually ends the claim.' }],
-  drivers: ['Liability decision', 'Medical records', 'Bills and liens', 'Policy limits', 'Treatment completeness', 'Offer timing'],
-  valueDetails: [{ label: 'Completeness', copy: 'Offers before treatment ends may be premature.' }, { label: 'Coverage', copy: 'Policy limits affect negotiation range.' }, { label: 'Documentation', copy: 'Records and bills are central to settlement review.' }],
-  insuranceProblems: [`${carrier} disputes fault.`, `${carrier} challenges treatment gaps.`, `${carrier} makes a low early offer.`, `${carrier} requests broad releases or statements.`],
-  intake: [{ label: 'Step 1', question: `What stage is your ${carrier} claim in?` }, { label: 'Step 2', question: 'Has liability been accepted or disputed?' }, { label: 'Step 3', question: 'Are treatment and bills complete?' }, { label: 'Step 4', question: 'Has an offer or release been sent?' }],
-}))
-
 const liabilityPageRows = [
   ['rear-end-accident-fault', 'Rear-End Accident Fault', 'Rear-End Liability', 'rear-end presumptions, sudden stops, multi-car impacts, comparative fault, police reports, and property damage', ['Rear-end impact', 'Police report', 'Vehicle damage', 'Comparative fault', 'Witnesses', 'Dashcam']],
   ['red-light-accident-fault', 'Red Light Accident Fault', 'Red Light Liability', 'signal timing, citations, witnesses, video, intersection layout, comparative fault, and T-bone crash evidence', ['Red light violation', 'Citation', 'Intersection video', 'Witnesses', 'T-bone impact', 'Comparative fault']],
@@ -407,7 +378,6 @@ const priorityPageSeeds = [
   ...injuryPages,
   ...treatmentPages,
   ...settlementPages,
-  ...insurancePages,
   ...liabilityPages,
   ...commercialPages,
 ]

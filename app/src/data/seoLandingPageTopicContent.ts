@@ -3,6 +3,7 @@ import { priorityTopicContentBySlug } from './seoPriorityPages'
 import { conversionTopicContentBySlug } from './seoConversionPages'
 import { expansionTopicContentBySlug } from './seoExpansionPages'
 import { medicalRecordsTopicContentBySlug } from './seoMedicalRecordsPages'
+import { insuranceGuideTopicContentBySlug } from './seoInsuranceGuides'
 
 export type TopicTreatmentStep = {
   label: string
@@ -400,40 +401,8 @@ export const topicContentBySlug: Record<string, TopicContent> = {
       { label: 'Step 4', question: 'Is insurance denying seriousness because imaging was normal?' },
     ],
   },
-  '/insurance/claim-denial': {
-    scenario: 'An insurer denied a claim by arguing the claimant caused the accident and treated too late. The file became stronger after police-report details, photos, witness information, medical records, and the denial letter were organized together.',
-    timeline: [
-      ['Denial received', 'Adjuster cites fault, coverage, causation, treatment delay, or insufficient proof.'],
-      ['Evidence review', 'Police report, photos, witnesses, and medical records are gathered.'],
-      ['Gap analysis', 'Missing records, inconsistent statements, and weak liability facts are identified.'],
-      ['Response posture', 'Attorney review may be appropriate if the denial involves serious injury or disputed fault.'],
-    ],
-    severityLadder: [
-      ['Low friction', 'Minor document request or incomplete bill issue.'],
-      ['Moderate', 'Low offer or treatment challenge.'],
-      ['Serious', 'Fault denial, causation dispute, or coverage problem.'],
-      ['Severe', 'Serious injury plus denial, bad-faith concerns, or multiple policy issues.'],
-    ],
-    treatmentProgression: [
-      { label: 'Denial reason', copy: 'The exact wording of the denial determines what evidence is needed.' },
-      { label: 'Liability proof', copy: 'Photos, police reports, witnesses, and admissions answer fault arguments.' },
-      { label: 'Medical proof', copy: 'Records, bills, and timelines answer causation and treatment arguments.' },
-      { label: 'Review', copy: 'Serious denials often need structured attorney-facing summaries.' },
-    ],
-    settlementDrivers: ['Denial reason', 'Liability evidence', 'Medical documentation', 'Policy coverage', 'Treatment timing', 'Severity of injury'],
-    settlementValueDetails: [
-      { label: 'Denial letter', copy: 'The written reason helps identify whether the dispute is liability, coverage, causation, or damages.' },
-      { label: 'Evidence quality', copy: 'Stronger evidence can convert a denied claim into a reviewable dispute.' },
-      { label: 'Serious injury', copy: 'The more serious the injury, the more important it is to challenge weak denial logic.' },
-    ],
-    insuranceProblems: ['The adjuster blames you without evidence.', 'Treatment delay is used to deny causation.', 'The carrier ignores records or bills.', 'A low offer is made after denial pressure.'],
-    intakeSteps: [
-      { label: 'Step 1', question: 'What exact reason did insurance give for the denial or low offer?' },
-      { label: 'Step 2', question: 'Do you have the police report, photos, or witnesses?' },
-      { label: 'Step 3', question: 'What medical records and bills support injury causation?' },
-      { label: 'Step 4', question: 'Did the adjuster request a recorded statement or blame you?' },
-    ],
-  },
+  // `/insurance/claim-denial` topic content lives in seoInsuranceGuides.ts now,
+  // alongside the page it belongs to.
   '/insurance/rideshare-commercial-coverage': {
     scenario: 'A passenger injured in a rideshare crash had confusing letters from multiple insurers. The key facts were trip status, driver app activity, police report details, and whether commercial coverage applied.',
     timeline: [
@@ -747,3 +716,4 @@ Object.assign(topicContentBySlug, priorityTopicContentBySlug)
 Object.assign(topicContentBySlug, conversionTopicContentBySlug)
 Object.assign(topicContentBySlug, expansionTopicContentBySlug)
 Object.assign(topicContentBySlug, medicalRecordsTopicContentBySlug)
+Object.assign(topicContentBySlug, insuranceGuideTopicContentBySlug)
