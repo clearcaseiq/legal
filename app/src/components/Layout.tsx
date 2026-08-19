@@ -492,11 +492,13 @@ export default function Layout({ children }: LayoutProps) {
                   {darkMode ? <SunIcon className="h-5 w-5" /> : <MoonIcon className="h-5 w-5" />}
                 </button>
               )}
-              {/* Language switcher is shown for every role, including attorneys, who
-                  otherwise had no way to change language (CP-557). */}
-              <div className="hidden lg:block">
-                <LanguageSwitcher />
-              </div>
+              {/* Language switcher is for claimants/guests. Attorneys work the
+                  platform in English only, so it is hidden for attorney sessions. */}
+              {!isAttorney && (
+                <div className="hidden lg:block">
+                  <LanguageSwitcher />
+                </div>
+              )}
               <span className="hidden h-6 w-px bg-slate-200 dark:bg-slate-800 lg:block" aria-hidden />
               {isAuthenticated ? (
                 <>
@@ -707,8 +709,8 @@ export default function Layout({ children }: LayoutProps) {
             <div className="mx-auto flex max-w-lg flex-col gap-2">
               <div className="mb-2 flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-2 dark:border-slate-800 dark:bg-slate-950/40">
                 <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">{t('common.menu')}</span>
-                {/* Attorneys get the language switcher in the mobile menu too. */}
-                <LanguageSwitcher />
+                {/* Language switcher is hidden for attorneys (English-only workspace). */}
+                {!isAttorney && <LanguageSwitcher />}
               </div>
               {isAuthenticated ? (
                 <>
