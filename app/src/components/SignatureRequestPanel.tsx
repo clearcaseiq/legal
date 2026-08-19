@@ -1120,9 +1120,15 @@ export default function SignatureRequestPanel({
         )}
 
         {error && <p className="text-sm text-red-600">{error}</p>}
-        {notice && (
-          <p className={`text-sm ${confirmResend ? 'text-amber-700' : 'text-slate-600'}`}>{notice}</p>
-        )}
+        {notice &&
+          (confirmResend ? (
+            <p className="text-sm text-amber-700">{notice}</p>
+          ) : (
+            <div className="flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800">
+              <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+              <span>{notice}</span>
+            </div>
+          ))}
 
         <div className="flex flex-wrap items-center gap-3 pt-1">
           <button
