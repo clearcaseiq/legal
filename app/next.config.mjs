@@ -122,6 +122,18 @@ const nextConfig = {
         destination: '/how-much-do-personal-injury-lawyers-charge',
         statusCode: 301,
       },
+      // A car accident claim is a personal injury claim governed by the same
+      // two-year rule, so the two deadline pages could only ever differ in
+      // their examples. The vehicle-specific parts that genuinely do differ —
+      // three years for property damage, and uninsured motorist claims running
+      // on the policy rather than the statute — are sections of the survivor,
+      // which keeps the URL because it carries the Spanish alternate and the
+      // inbound link from the SOL checker tool.
+      {
+        source: '/california-statute-of-limitations-car-accident',
+        destination: '/california-statute-of-limitations-personal-injury',
+        statusCode: 301,
+      },
     ]
   },
   // Local/LAN: browser calls same-origin `/v1/*`; Next proxies to the API.

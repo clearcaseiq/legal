@@ -134,46 +134,9 @@ const averagePages: ConversionSeed[] = averageRows.map(([slug, title, cluster, f
   intake: [{ label: 'Step 1', question: 'Which severity band best matches your injury?' }, { label: 'Step 2', question: 'What are the bills, liens, and future care?' }, { label: 'Step 3', question: 'Is liability clear or disputed?' }, { label: 'Step 4', question: 'What insurance coverage is available?' }],
 }))
 
-const statuteRows = [
-  ['/california-statute-of-limitations-car-accident', 'California Statute of Limitations for Car Accidents', 'California Car Accident Deadlines', 'accident date, injury claim deadline, government claims, minors, delayed discovery, and urgent attorney review'],
-  ['/california-statute-of-limitations-personal-injury', 'California Statute of Limitations for Personal Injury', 'California Personal Injury Deadlines', 'injury date, claim type, government defendants, minors, tolling, evidence preservation, and deadline urgency'],
-  ['/california-statute-of-limitations-wrongful-death', 'California Statute of Limitations for Wrongful Death', 'California Wrongful Death Deadlines', 'date of death, eligible claimants, government entities, estate issues, damages, and urgent review'],
-  ['/missed-the-statute-of-limitations', 'Missed the Statute of Limitations', 'Missed Deadline Review', 'possible missed deadlines, tolling questions, government claim issues, minors, delayed discovery, and urgent next steps'],
-] as const
-
-const statutePages: ConversionSeed[] = statuteRows.map(([slug, title, cluster, focus]) => ({
-  slug,
-  category: 'Attorney Intent',
-  cluster,
-  title,
-  eyebrow: 'Deadline urgency guide',
-  description: `${title} involves ${focus}. This page is educational, not legal advice, but it explains why accident dates, claim type, defendants, and exceptions must be reviewed quickly.`,
-  psychology: 'I am worried about a deadline.',
-  cta: 'Check My Deadline Risk',
-  queries: [title.toLowerCase(), 'California accident deadline', 'personal injury statute of limitations California', 'missed accident deadline'],
-  signals: ['Accident date', 'Claim type', 'Government defendant', 'Minor or death claim', 'Tolling issue', 'Urgency'],
-  track: ['Exact accident date or date of death', 'Claim type and injury details', 'Whether any government entity, public road, bus, police, or public employee is involved', 'Minor, incapacity, delayed discovery, or other tolling facts', 'Insurance communications, offers, denials, and any filed paperwork'],
-  why: 'Deadline pages are high urgency because waiting can affect rights. Different rules may apply depending on claim type, defendant, age, government involvement, death claims, and possible exceptions.',
-  help: 'ClearCaseIQ captures date, location, claim type, government involvement, and urgency flags so the report can highlight deadline risk and recommend prompt review.',
-  faqs: [
-    { q: 'Is this legal advice about my deadline?', a: 'No. Deadline rules are fact-specific. This page is educational and should not replace attorney advice.' },
-    { q: 'Why does government involvement matter?', a: 'Claims involving public entities may have shorter notice requirements than ordinary personal injury lawsuits.' },
-    { q: 'What should I do if a deadline may be close?', a: 'Gather dates, documents, insurance letters, and defendant information, then seek prompt legal review.' },
-  ],
-  scenario: 'A claimant waited because insurance was still discussing settlement. The deadline risk became urgent after the accident date, claim type, county, possible government involvement, and medical timeline were reviewed together.',
-  timeline: [['Incident date', 'The accident date or date of death starts the deadline analysis.'], ['Claim investigation', 'Defendants, government involvement, minors, and claim type are identified.'], ['Insurance discussions', 'Negotiations do not necessarily stop legal deadlines.'], ['Urgent review', 'Close or missed deadlines require prompt attorney-specific review.']],
-  severity: [['Low urgency', 'Recent accident and no unusual defendant issues.'], ['Moderate urgency', 'Several months have passed or facts are unclear.'], ['High urgency', 'Government entity, minor, death claim, or approaching deadline.'], ['Critical', 'Deadline may have passed or paperwork may be missing.']],
-  treatment: [{ label: 'Date capture', copy: 'Exact incident dates anchor the analysis.' }, { label: 'Party review', copy: 'Defendants and public entities affect rules.' }, { label: 'Claim type', copy: 'Personal injury, car accident, and wrongful death may differ.' }, { label: 'Urgency flag', copy: 'The report highlights deadline risk for review.' }],
-  drivers: ['Incident date', 'Claim type', 'Government involvement', 'Minor or incapacity', 'Wrongful death facts', 'Insurance delay'],
-  valueDetails: [{ label: 'Deadlines affect rights', copy: 'Missing a deadline can threaten the claim.' }, { label: 'Exceptions are fact-specific', copy: 'Tolling or delayed discovery needs legal review.' }, { label: 'Insurance talks are not enough', copy: 'Negotiation does not always preserve legal rights.' }],
-  insuranceProblems: ['The insurer keeps negotiating while time passes.', 'Government involvement is not recognized early.', 'The claimant assumes an offer extends the deadline.', 'Key dates or defendants are unclear.'],
-  intake: [{ label: 'Step 1', question: 'What is the exact accident or death date?' }, { label: 'Step 2', question: 'What type of claim is involved?' }, { label: 'Step 3', question: 'Could a government entity or minor be involved?' }, { label: 'Step 4', question: 'Has any deadline, denial, or legal filing been mentioned?' }],
-}))
-
 const conversionSeeds = [
   ...caseWorthPages,
   ...averagePages,
-  ...statutePages,
 ]
 
 export const conversionLandingPages: LandingPage[] = conversionSeeds.map(toLandingPage)

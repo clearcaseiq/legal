@@ -558,7 +558,6 @@ function App() {
             <Route path="/when-to-hire-a-lawyer-after-accident" element={<SeoLandingPage />} />
             <Route path="/how-much-do-personal-injury-lawyers-charge" element={<SeoLandingPage />} />
             <Route path="/can-i-switch-lawyers-during-my-case" element={<SeoLandingPage />} />
-            <Route path="/california-statute-of-limitations-car-accident" element={<SeoLandingPage />} />
             <Route path="/california-statute-of-limitations-personal-injury" element={<SeoLandingPage />} />
             <Route path="/california-statute-of-limitations-wrongful-death" element={<SeoLandingPage />} />
             <Route path="/missed-the-statute-of-limitations" element={<SeoLandingPage />} />
