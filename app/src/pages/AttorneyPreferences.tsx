@@ -2,11 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getMyAttorneyProfile, updateAttorneyProfile } from '../lib/api'
 import { Save, AlertCircle } from 'lucide-react'
-import { US_STATES, ATTORNEY_CASE_TYPES } from '../lib/constants'
-
-// Shared source of truth so practice-area labels stay consistent with
-// registration and the rest of the app (#49).
-const CASE_TYPES = ATTORNEY_CASE_TYPES
+import { US_STATES } from '../lib/constants'
 
 // The profile API serializes JSON columns as strings, but be defensive: if a
 // value ever arrives already parsed (object/array), don't blow up loadProfile
@@ -100,15 +96,6 @@ export default function AttorneyPreferences() {
       setError(err.response?.data?.error || 'Failed to save preferences')
     } finally {
       setSaving(false)
-    }
-  }
-
-  const toggleArrayValue = (field: 'excludedCaseTypes', value: string) => {
-    const current = formData[field] || []
-    if (current.includes(value)) {
-      setFormData(prev => ({ ...prev, [field]: current.filter(v => v !== value) }))
-    } else {
-      setFormData(prev => ({ ...prev, [field]: [...current, value] }))
     }
   }
 
@@ -415,24 +402,6 @@ export default function AttorneyPreferences() {
             {/* Case Preferences */}
             <section>
               <h2 className="text-lg font-medium text-gray-900 mb-4">Case Preferences</h2>
-              
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">Excluded Case Types</label>
-                <p className="text-xs text-gray-500 mb-2">Select case types you do NOT want to receive</p>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                  {CASE_TYPES.map(type => (
-                    <label key={type.value} className="flex items-center space-x-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={formData.excludedCaseTypes.includes(type.value)}
-                        onChange={() => toggleArrayValue('excludedCaseTypes', type.value)}
-                        className="rounded border-gray-300 text-brand-600 focus:ring-brand-500"
-                      />
-                      <span className="text-sm text-gray-700">{type.label}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>

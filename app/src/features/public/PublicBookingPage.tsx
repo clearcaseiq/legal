@@ -7,7 +7,7 @@
 import { useCallback, useMemo, useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, CalendarClock, Check, ChevronRight, Clock, Video } from 'lucide-react'
-import { hasValidAuthToken } from '../../lib/auth'
+import { getStoredUser, hasValidAuthToken } from '../../lib/auth'
 import {
   getPublicBookingPage,
   createPublicBooking,
@@ -19,6 +19,15 @@ import { DaySlotPicker, LOCATION_META, formatDuration } from './bookingShared'
 import { formatPhoneInput, validatePhoneField } from '../../lib/phone'
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+// Prefill the booking form from the signed-in visitor (usually the plaintiff) so
+// they don't retype their own name/email/phone to book a consultation.
+function storedContactDefaults(): { name: string; email: string; phone: string } {
+  const user = getStoredUser<{ name?: string; firstName?: string; lastName?: string; email?: string; phone?: string }>('user')
+  if (!user) return { name: '', email: '', phone: '' }
+  const composedName = (user.name || `${user.firstName || ''} ${user.lastName || ''}`).trim()
+  return { name: composedName, email: user.email || '', phone: user.phone || '' }
+}
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
@@ -217,9 +226,9 @@ function BookingForm({
   start: string
   onBack: () => void
 }) {
-  const [name, setName] = useState('')
-  const [email, setEmail] = useState('')
-  const [phone, setPhone] = useState('')
+  const [name, setName] = useState(() => storedContactDefaults().name)
+  const [email, setEmail] = useState(() => storedContactDefaults().email)
+  const [phone, setPhone] = useState(() => storedContactDefaults().phone)
   const [notes, setNotes] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [err, setErr] = useState<string | null>(null)
