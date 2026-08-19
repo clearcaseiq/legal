@@ -1,3 +1,12 @@
+/**
+ * The generated remainder of the medical records family.
+ *
+ * `/how-insurance-companies-review-medical-records` and
+ * `/how-to-build-a-medical-chronology` were rewritten by hand and now live in
+ * `seoMedicalRecordsGuides.ts`. The family is not consolidated, unlike the
+ * other near-duplicate families: each URL here matches a distinct real query,
+ * and this is the only family with demonstrated Search Console demand behind it.
+ */
 import type { LandingPage, LandingPageCategory } from './seoLandingPages'
 import type { TopicContent } from './seoLandingPageTopicContent'
 
@@ -76,15 +85,6 @@ const recordsRows = [
     queries: ['how to organize medical records after accident', 'organize medical bills personal injury', 'medical records checklist accident claim'],
   },
   {
-    slug: '/how-to-build-a-medical-chronology',
-    title: 'How to Build a Medical Chronology',
-    cluster: 'Medical Chronology Builder',
-    focus: 'how to convert accident care into a timeline of symptoms, providers, diagnoses, referrals, imaging, procedures, gaps, bills, and future-care recommendations',
-    psychology: 'I need a clear timeline of my treatment.',
-    cta: 'Create My Chronology',
-    queries: ['how to build a medical chronology', 'medical chronology personal injury', 'accident treatment timeline', 'medical chronology template'],
-  },
-  {
     slug: '/what-medical-records-do-lawyers-need',
     title: 'What Medical Records Do Lawyers Need?',
     cluster: 'Attorney Medical Record Review',
@@ -92,15 +92,6 @@ const recordsRows = [
     psychology: 'I want to know what to send an attorney.',
     cta: 'Check Attorney-Ready Records',
     queries: ['what medical records do lawyers need', 'documents personal injury lawyer needs', 'medical records for accident attorney'],
-  },
-  {
-    slug: '/how-insurance-companies-review-medical-records',
-    title: 'How Insurance Companies Review Medical Records',
-    cluster: 'Insurance Medical Record Review',
-    focus: 'how adjusters review accident records for causation, treatment gaps, prior injuries, medical necessity, billing, diagnosis codes, and settlement leverage',
-    psychology: 'I want to know what insurance is looking for.',
-    cta: 'Review My Insurance Risk',
-    queries: ['how insurance companies review medical records', 'insurance adjuster medical records accident', 'treatment gaps insurance claim', 'medical records settlement review'],
   },
 ] as const
 

@@ -7,6 +7,7 @@ import { insuranceGuidePages } from './seoInsuranceGuides'
 import { caseStrengthGuidePages } from './seoCaseStrengthGuide'
 import { attorneyGuidePages } from './seoAttorneyGuides'
 import { solGuidePages } from './seoSolGuides'
+import { medicalRecordsGuidePages } from './seoMedicalRecordsGuides'
 import { CONTENT_PUBLISHED_ES, CONTENT_UPDATED_ES, landingPagesEs } from './seoLandingPagesEs'
 import { medicalRecordsLandingPages } from './seoMedicalRecordsPages'
 import {
@@ -83,6 +84,7 @@ export const CONTENT_UPDATED = {
   caseStrengthGuide: '2026-08-19',
   attorneyGuides: '2026-08-19',
   solGuides: '2026-08-19',
+  medicalRecordsGuides: '2026-08-19',
 } as const
 
 /**
@@ -105,6 +107,7 @@ export const CONTENT_PUBLISHED = {
   attorneyGuides: '2026-08-19',
   caseStrengthGuide: '2026-08-19',
   solGuides: '2026-08-19',
+  medicalRecordsGuides: '2026-08-19',
 } as const
 
 /** Applies a set's dates without overriding page-specific ones. */
@@ -527,6 +530,11 @@ export const allLandingPages: LandingPage[] = [
   ...stamp(caseStrengthGuidePages, CONTENT_UPDATED.caseStrengthGuide, CONTENT_PUBLISHED.caseStrengthGuide),
   ...stamp(attorneyGuidePages, CONTENT_UPDATED.attorneyGuides, CONTENT_PUBLISHED.attorneyGuides),
   ...stamp(solGuidePages, CONTENT_UPDATED.solGuides, CONTENT_PUBLISHED.solGuides),
+  ...stamp(
+    medicalRecordsGuidePages,
+    CONTENT_UPDATED.medicalRecordsGuides,
+    CONTENT_PUBLISHED.medicalRecordsGuides,
+  ),
   // The Spanish set is dated separately: restamping it with an English content
   // date would claim these pages changed on a day they did not exist.
   ...stamp(landingPagesEs, CONTENT_UPDATED_ES, CONTENT_PUBLISHED_ES),

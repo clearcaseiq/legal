@@ -7,6 +7,7 @@ import { insuranceGuideTopicContentBySlug } from './seoInsuranceGuides'
 import { caseStrengthGuideTopicContentBySlug } from './seoCaseStrengthGuide'
 import { attorneyGuideTopicContentBySlug } from './seoAttorneyGuides'
 import { solGuideTopicContentBySlug } from './seoSolGuides'
+import { medicalRecordsGuideTopicContentBySlug } from './seoMedicalRecordsGuides'
 
 export type TopicTreatmentStep = {
   label: string
@@ -723,3 +724,4 @@ Object.assign(topicContentBySlug, insuranceGuideTopicContentBySlug)
 Object.assign(topicContentBySlug, caseStrengthGuideTopicContentBySlug)
 Object.assign(topicContentBySlug, attorneyGuideTopicContentBySlug)
 Object.assign(topicContentBySlug, solGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, medicalRecordsGuideTopicContentBySlug)
