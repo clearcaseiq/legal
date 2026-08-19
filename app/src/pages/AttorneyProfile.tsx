@@ -29,13 +29,19 @@ import { formatSpecialty } from '../lib/constants'
 import { BackButton } from '../features/shared/ui'
 import { useLanguage } from '../contexts/LanguageContext'
 
-const DEFAULT_AVATAR = 'https://ui-avatars.com/api/?name=Attorney&background=e0f2fe&color=075985'
+// Placeholder avatar built from the attorney's own name so it shows their real
+// initials (e.g. "Jane Smith" -> "JS"). Passing the literal word "Attorney" made
+// ui-avatars render the first two letters of that single word as "AT".
+function fallbackAvatar(name?: string | null): string {
+  const label = (name || '').trim() || 'Attorney'
+  return `https://ui-avatars.com/api/?name=${encodeURIComponent(label)}&background=e0f2fe&color=075985`
+}
 
 // Stored photos can be absolute URLs (legacy) or server-relative upload paths
 // (/uploads/avatars/...). Relative paths must be resolved against the API origin
 // because the web app and API are served from different hosts.
-function resolvePhotoUrl(photoUrl: string | null): string {
-  if (!photoUrl) return DEFAULT_AVATAR
+function resolvePhotoUrl(photoUrl: string | null, name?: string | null): string {
+  if (!photoUrl) return fallbackAvatar(name)
   if (/^(https?:)?\/\//.test(photoUrl) || photoUrl.startsWith('data:')) return photoUrl
   const origin = getApiOrigin()
   if (!origin) return photoUrl
@@ -468,7 +474,7 @@ export default function AttorneyProfile() {
         <div className="flex items-start space-x-6">
           <div className="flex-shrink-0">
             <img
-              src={resolvePhotoUrl(profile.photoUrl)}
+              src={resolvePhotoUrl(profile.photoUrl, profile.attorney?.name)}
               alt="Profile"
               className="h-32 w-32 rounded-full object-cover"
             />
