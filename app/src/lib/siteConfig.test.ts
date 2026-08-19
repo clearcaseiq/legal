@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { GetServerSidePropsContext } from 'next'
 import { DEFAULT_SITE_URL } from '../data/seoLandingPageSchema'
@@ -133,5 +135,35 @@ describe('non-production deployments are not indexable', () => {
     process.env.SEARCH_ENGINE_INDEXING = 'disabled'
 
     expect((await propsFor('/how-it-works'))?.publicPage).toBe(false)
+  })
+})
+
+/**
+ * The tests above cover the default in `indexingEnabled()`, which is correct and
+ * always was. They passed while production served `Disallow: /` and a sitewide
+ * `noindex`, because the container never reached that default: compose set
+ * `SEARCH_ENGINE_INDEXING` explicitly, with `:-disabled` as its own fallback,
+ * and production's env file had no reason to name a variable describing
+ * production. A safe default in the code is worth nothing if the orchestration
+ * overrides it with an unsafe one, and nothing in the suite could see that.
+ */
+describe('deployment defaults leave the public site crawlable', () => {
+  const repoRoot = join(__dirname, '..', '..', '..')
+  const read = (name: string) => readFileSync(join(repoRoot, name), 'utf8')
+
+  it('does not let compose default production into a noindex deployment', () => {
+    const compose = read('docker-compose.deploy.yml')
+    const assignment = compose.match(/SEARCH_ENGINE_INDEXING:\s*\$\{SEARCH_ENGINE_INDEXING:?-([^}]*)\}/)
+
+    expect(assignment, 'compose should pass SEARCH_ENGINE_INDEXING through with a default').not.toBeNull()
+    expect(assignment?.[1].trim().toLowerCase()).not.toBe('disabled')
+  })
+
+  it('has production state its indexability rather than inherit it', () => {
+    expect(read('.env.prod.example')).toMatch(/^SEARCH_ENGINE_INDEXING=enabled$/m)
+  })
+
+  it('still keeps QA out of the index', () => {
+    expect(read('.env.qa.example')).toMatch(/^SEARCH_ENGINE_INDEXING=disabled$/m)
   })
 })

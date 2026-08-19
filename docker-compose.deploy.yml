@@ -123,9 +123,19 @@ services:
       # applies if something reaches Next directly; without it the rewrite would
       # point at 127.0.0.1 inside the web container, which is the web container.
       API_PROXY_ORIGIN: http://api:4000
-      # QA must never be indexable. It serves the same 176 pages as production,
-      # so without this it competes with the real site for the same queries.
-      SEARCH_ENGINE_INDEXING: ${SEARCH_ENGINE_INDEXING:-disabled}
+      # QA must never be indexable — it serves the same 176 pages as production
+      # and would compete with the real site for its own queries. `.env.qa`
+      # carries the `disabled` that does that.
+      #
+      # The default here has to be `enabled`, and the direction is not
+      # arbitrary. This defaulted to `disabled`, which meant production — whose
+      # env file never set the variable, because it is the environment the
+      # default is supposed to describe — served `Disallow: /` and rendered
+      # every page `noindex`. An unset variable has to mean "the public site",
+      # since that is the deployment nobody remembers to configure. Forgetting
+      # it on QA leaves QA crawlable, which is recoverable; getting it wrong in
+      # this direction delists the live site.
+      SEARCH_ENGINE_INDEXING: ${SEARCH_ENGINE_INDEXING:-enabled}
     depends_on:
       - api
     expose:
