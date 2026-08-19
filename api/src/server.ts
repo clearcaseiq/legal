@@ -85,7 +85,16 @@ export function createServer(): Express {
   const isProduction = process.env.NODE_ENV === 'production'
 
   if (process.env.TRUST_PROXY) {
-    app.set('trust proxy', process.env.TRUST_PROXY)
+    // A numeric TRUST_PROXY is a hop count and must reach Express as a Number.
+    // Passed as a string, Express treats it as a comma-separated list of trusted
+    // IP addresses instead, so a single nginx hop is never trusted: req.ip
+    // becomes the proxy's container IP for every request. That collapses the
+    // per-IP rate limiters into one shared bucket and locks the whole platform
+    // out with "Too many attempts" the moment enough traffic hits /v1/auth.
+    // A non-numeric value (e.g. an explicit subnet list) is passed through as-is.
+    const rawTrustProxy = process.env.TRUST_PROXY
+    const numericTrustProxy = Number(rawTrustProxy)
+    app.set('trust proxy', Number.isNaN(numericTrustProxy) ? rawTrustProxy : numericTrustProxy)
   }
 
   // The API answers on its own hostname (api.clearcaseiq.com), and Search
