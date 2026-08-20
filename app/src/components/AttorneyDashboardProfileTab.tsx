@@ -71,9 +71,19 @@ type AttorneyDashboardProfileTabProps = {
 }
 
 const parseJson = <T,>(value: unknown, fallback: T): T => {
+  // The API sometimes returns these columns already parsed (an array/object),
+  // not a JSON string. Returning the fallback for those silently dropped the
+  // data ("No languages specified" with languages on file).
+  if (Array.isArray(value)) return value as T
   if (!value || typeof value !== 'string') return fallback
   try {
-    return JSON.parse(value) as T
+    const parsed = JSON.parse(value)
+    // Guard against JSON-encoded scalars (e.g. '"English"') when the caller
+    // expects an array: returning the string would crash the .map/.filter that
+    // follows (production "<minified>.map is not a function"). Fall back when the
+    // parsed shape doesn't match an array fallback.
+    if (Array.isArray(fallback) && !Array.isArray(parsed)) return fallback
+    return parsed as T
   } catch {
     return fallback
   }
