@@ -2,7 +2,6 @@ import { requestedTopicContentBySlug } from './seoRequestedPages'
 import { priorityTopicContentBySlug } from './seoPriorityPages'
 import { conversionTopicContentBySlug } from './seoConversionPages'
 import { expansionTopicContentBySlug } from './seoExpansionPages'
-import { medicalRecordsTopicContentBySlug } from './seoMedicalRecordsPages'
 import { insuranceGuideTopicContentBySlug } from './seoInsuranceGuides'
 import { caseStrengthGuideTopicContentBySlug } from './seoCaseStrengthGuide'
 import { attorneyGuideTopicContentBySlug } from './seoAttorneyGuides'
@@ -719,7 +718,6 @@ Object.assign(topicContentBySlug, requestedTopicContentBySlug)
 Object.assign(topicContentBySlug, priorityTopicContentBySlug)
 Object.assign(topicContentBySlug, conversionTopicContentBySlug)
 Object.assign(topicContentBySlug, expansionTopicContentBySlug)
-Object.assign(topicContentBySlug, medicalRecordsTopicContentBySlug)
 Object.assign(topicContentBySlug, insuranceGuideTopicContentBySlug)
 Object.assign(topicContentBySlug, caseStrengthGuideTopicContentBySlug)
 Object.assign(topicContentBySlug, attorneyGuideTopicContentBySlug)

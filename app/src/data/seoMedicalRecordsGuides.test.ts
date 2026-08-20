@@ -2,18 +2,16 @@ import { describe, it, expect } from 'vitest'
 import { allLandingPages, landingPagesBySlug } from './seoLandingPages'
 import { topicContentBySlug } from './seoLandingPageTopicContent'
 import { landingPageFaqs } from './seoLandingPageSchema'
-import { INSURANCE_REVIEW_SLUG, CHRONOLOGY_SLUG } from './seoMedicalRecordsGuides'
+import {
+  INSURANCE_REVIEW_SLUG,
+  CHRONOLOGY_SLUG,
+  HUB_SLUG,
+  ORGANIZE_SLUG,
+  LAWYERS_NEED_SLUG,
+} from './seoMedicalRecordsGuides'
 import nextConfig from '../../next.config.mjs'
 
-const AUTHORED = [INSURANCE_REVIEW_SLUG, CHRONOLOGY_SLUG]
-
-const FAMILY = [
-  '/medical-records',
-  '/how-to-organize-medical-records',
-  '/how-to-build-a-medical-chronology',
-  '/what-medical-records-do-lawyers-need',
-  '/how-insurance-companies-review-medical-records',
-]
+const FAMILY = [HUB_SLUG, ORGANIZE_SLUG, CHRONOLOGY_SLUG, LAWYERS_NEED_SLUG, INSURANCE_REVIEW_SLUG]
 
 function prose(slug: string): string {
   const page = landingPagesBySlug.get(slug)!
@@ -58,24 +56,39 @@ describe('the medical records family', () => {
     for (const page of allLandingPages) {
       if (FAMILY.includes(page.slug)) counts.set(page.slug, (counts.get(page.slug) ?? 0) + 1)
     }
-    // The two authored pages were removed from the generated seed rather than
-    // layered on top of it, so neither should appear twice.
+    // Each page was removed from the generated seed as it was authored, rather
+    // than layered on top of it, so none should appear twice.
     for (const slug of FAMILY) expect(counts.get(slug), `${slug} appears twice`).toBe(1)
   })
 })
 
-describe('the two authored guides', () => {
+describe('the authored guides', () => {
   it('carry real depth', () => {
-    for (const slug of AUTHORED) {
+    for (const slug of FAMILY) {
       const words = prose(slug).split(/\s+/).filter(Boolean).length
       expect(words, `${slug} is thin`).toBeGreaterThan(1000)
     }
   })
 
-  it('are substantially deeper than the generated three', () => {
-    const generated = FAMILY.filter((s) => !AUTHORED.includes(s)).map((s) => prose(s).split(/\s+/).length)
-    const authored = AUTHORED.map((s) => prose(s).split(/\s+/).length)
-    expect(Math.min(...authored)).toBeGreaterThan(Math.max(...generated))
+  it('gives the hub the access mechanics rather than a topic overview', () => {
+    const text = prose(HUB_SLUG).toLowerCase()
+    for (const term of ['written request', 'five working days', 'visit summar', 'itemis', 'imaging']) {
+      expect(text, `omits ${term}`).toContain(term)
+    }
+  })
+
+  it('makes the organize page about auditing completeness, not filing', () => {
+    const text = prose(ORGANIZE_SLUG).toLowerCase()
+    for (const term of ['referenc', 'missing', 'duplicate', 'index', 'outstanding']) {
+      expect(text, `omits ${term}`).toContain(term)
+    }
+  })
+
+  it('splits the lawyer page by stage and covers the non-medical items', () => {
+    const text = prose(LAWYERS_NEED_SLUG).toLowerCase()
+    for (const term of ['intake', 'wage loss', 'lien', 'future care', 'prior']) {
+      expect(text, `omits ${term}`).toContain(term)
+    }
   })
 
   it('answer the query the insurance review page actually targets', () => {
@@ -95,16 +108,25 @@ describe('the two authored guides', () => {
   })
 
   it('are distinct from each other', () => {
+    // Five pages on one subject is the arrangement most likely to produce the
+    // duplication this whole effort was meant to remove, so every pair is
+    // checked rather than only the two that were written together.
     const words = (slug: string) =>
       new Set(prose(slug).toLowerCase().replace(/[^a-z\s]/g, ' ').split(/\s+/).filter((w) => w.length > 4))
-    const a = words(INSURANCE_REVIEW_SLUG)
-    const b = words(CHRONOLOGY_SLUG)
-    const overlap = [...a].filter((w) => b.has(w)).length
-    expect(overlap / (a.size + b.size - overlap)).toBeLessThan(0.35)
+    const sets = new Map(FAMILY.map((s) => [s, words(s)]))
+    for (const a of FAMILY) {
+      for (const b of FAMILY) {
+        if (a >= b) continue
+        const [x, y] = [sets.get(a)!, sets.get(b)!]
+        const overlap = [...x].filter((w) => y.has(w)).length
+        const jaccard = overlap / (x.size + y.size - overlap)
+        expect(jaccard, `${a} and ${b} overlap at ${jaccard.toFixed(3)}`).toBeLessThan(0.35)
+      }
+    }
   })
 
   it('stack no duplicate questions into the FAQ markup', () => {
-    for (const slug of AUTHORED) {
+    for (const slug of FAMILY) {
       const questions = landingPageFaqs(landingPagesBySlug.get(slug)!).map((f) => f.q.toLowerCase())
       expect(new Set(questions).size, `${slug} repeats a question`).toBe(questions.length)
     }

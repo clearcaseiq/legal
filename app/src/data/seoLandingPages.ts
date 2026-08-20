@@ -9,7 +9,6 @@ import { attorneyGuidePages } from './seoAttorneyGuides'
 import { solGuidePages } from './seoSolGuides'
 import { medicalRecordsGuidePages } from './seoMedicalRecordsGuides'
 import { CONTENT_PUBLISHED_ES, CONTENT_UPDATED_ES, landingPagesEs } from './seoLandingPagesEs'
-import { medicalRecordsLandingPages } from './seoMedicalRecordsPages'
 import {
   SETTLEMENT_CALCULATOR_FAQS,
   SETTLEMENT_CALCULATOR_WHAT_TO_TRACK,
@@ -79,7 +78,6 @@ export const CONTENT_UPDATED = {
   priority: '2026-06-02',
   conversion: '2026-06-02',
   expansion: '2026-06-02',
-  medicalRecords: '2026-06-02',
   insuranceGuides: '2026-08-19',
   caseStrengthGuide: '2026-08-19',
   attorneyGuides: '2026-08-19',
@@ -102,7 +100,6 @@ export const CONTENT_PUBLISHED = {
   priority: '2026-06-02',
   conversion: '2026-06-02',
   expansion: '2026-06-02',
-  medicalRecords: '2026-06-02',
   insuranceGuides: '2026-08-19',
   attorneyGuides: '2026-08-19',
   caseStrengthGuide: '2026-08-19',
@@ -525,7 +522,6 @@ export const allLandingPages: LandingPage[] = [
   ...stamp(priorityLandingPages, CONTENT_UPDATED.priority, CONTENT_PUBLISHED.priority),
   ...stamp(conversionLandingPages, CONTENT_UPDATED.conversion, CONTENT_PUBLISHED.conversion),
   ...stamp(expansionLandingPages, CONTENT_UPDATED.expansion, CONTENT_PUBLISHED.expansion),
-  ...stamp(medicalRecordsLandingPages, CONTENT_UPDATED.medicalRecords, CONTENT_PUBLISHED.medicalRecords),
   ...stamp(insuranceGuidePages, CONTENT_UPDATED.insuranceGuides, CONTENT_PUBLISHED.insuranceGuides),
   ...stamp(caseStrengthGuidePages, CONTENT_UPDATED.caseStrengthGuide, CONTENT_PUBLISHED.caseStrengthGuide),
   ...stamp(attorneyGuidePages, CONTENT_UPDATED.attorneyGuides, CONTENT_PUBLISHED.attorneyGuides),
