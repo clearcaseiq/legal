@@ -25,10 +25,14 @@ export const DOCUMENT_REQUEST_CATEGORY_MAP: Record<string, string[]> = {
   bills: ['bills', 'medical_bills', 'medical'],
   photos: ['photos', 'injury_photos', 'injury', 'injuries'],
   hipaa: ['hipaa', 'hipaa_authorization', 'authorization'],
-  // Prior treatment is pre-accident history — do NOT treat ordinary case
-  // medical_records as satisfaction or a new request auto-completes the moment
-  // the attorney sends it.
-  prior_treatment: ['prior_treatment', 'prior_medical', 'prior_records'],
+  // Prior treatment records. The plaintiff Tasks inline uploader saves these into
+  // the `medical_records` category (see app documentRequestUpload.ts), so that
+  // category MUST count here or a client's upload can never clear the request
+  // (CP: "uploaded the document but still showing under action required").
+  // The old worry — a brand-new request auto-completing from PRE-EXISTING case
+  // records — is already prevented by isRequestedDocFulfilled's time gate, which
+  // only counts evidence uploaded at/after the request was created.
+  prior_treatment: ['prior_treatment', 'prior_medical', 'prior_records', 'medical_records', 'medical'],
   product_preservation: ['product', 'product_evidence', 'product_photos', 'photos'],
 }
 
