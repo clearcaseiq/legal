@@ -108,7 +108,6 @@ const ActivityPage = lazy(() => import('./features/casework/ActivityPage'))
 const NotificationsPage = lazy(() => import('./features/casework/NotificationsPage'))
 const SchedulingSettingsPage = lazy(() => import('./features/casework/SchedulingSettingsPage'))
 const PublicBookingPage = lazy(() => import('./features/public/PublicBookingPage'))
-const PublicTeamBookingPage = lazy(() => import('./features/public/PublicTeamBookingPage'))
 const BookingManagePage = lazy(() => import('./features/public/BookingManagePage'))
 const CaseDocumentsHubPage = lazy(() => import('./features/casework/DocumentsPage'))
 const CaseTasksPage = lazy(() => import('./features/casework/TasksPage'))
@@ -682,7 +681,6 @@ function App() {
             <Route path="/firms" element={<Firms />} />
             <Route path="/firms/:slug" element={<FirmProfile />} />
             {/* Public "Calendly-style" booking (no auth required). */}
-            <Route path="/book/team/:firmSlug/:linkSlug" element={<PublicTeamBookingPage />} />
             <Route path="/book/:slug" element={<PublicBookingPage />} />
             <Route path="/book/:slug/:eventSlug" element={<PublicBookingPage />} />
             <Route path="/booking/manage/:token" element={<BookingManagePage />} />

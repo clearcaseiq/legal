@@ -2032,9 +2032,19 @@ model AttorneyEventType {
   @@map("attorney_event_types")
 }
 
-// A firm-level ("team") public booking link that distributes bookings across a
-// pool of attorneys (round-robin or first-available). Slots are the union of
-// members' availability; the chosen attorney is resolved at booking time.
+// RETIRED. Firm-level ("team") booking links were removed from the product:
+// the Firm Workspace tab, the public /book/team page and every route that read
+// these tables are gone. The models stay because the deploy entrypoint runs
+// `prisma db push` without --accept-data-loss and treats failure as fatal, so
+// dropping a table that still holds rows would stop the API from booting.
+// To finish decommissioning, confirm both tables are empty in every
+// environment, drop them explicitly, and only then delete these models.
+//
+// They described a link that distributed bookings across a pool of attorneys
+// (round-robin or first-available), with slots drawn from the union of members'
+// availability and the attorney resolved at booking time. Attorney *personal*
+// booking links are a separate mechanism and are still live: see
+// Attorney.bookingSlug and AttorneyEventType.
 model FirmBookingLink {
   id                  String  @id @default(cuid())
   lawFirmId           String
@@ -2063,6 +2073,7 @@ model FirmBookingLink {
   @@map("firm_booking_links")
 }
 
+// RETIRED alongside FirmBookingLink; see the note above that model.
 model FirmBookingLinkMember {
   id         String          @id @default(cuid())
   linkId     String

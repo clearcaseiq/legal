@@ -15,7 +15,6 @@ import {
   ShieldCheck,
   TrendingUp,
   Clock,
-  CalendarClock,
   FileText,
   Workflow,
   X,
@@ -68,7 +67,6 @@ import { formatClaimType } from '../lib/claimTypes'
 import { US_STATES } from '../lib/constants'
 import { StateMultiSelect } from '../components/StateMultiSelect'
 import { invalidateFirmDashboardSummary, useFirmDashboardSummary } from '../hooks/useFirmDashboardSummary'
-import { FirmBookingLinksTab } from '../features/firm/FirmBookingLinksTab'
 import { FirmTemplatesTab } from '../features/firm/FirmTemplatesTab'
 import { FirmWorkflowsTab } from '../features/firm/FirmWorkflowsTab'
 import { FirmTimeBillingTab } from '../features/firm/FirmTimeBillingTab'
@@ -300,13 +298,12 @@ type CaseloadData = {
   offices: Array<{ officeId: string; name: string; capacity: number | null; assignedCases: number; utilization: number | null }>
 }
 
-type TabKey = 'overview' | 'newleads' | 'caseload' | 'team' | 'booking' | 'templates' | 'workflow' | 'time'
+type TabKey = 'overview' | 'newleads' | 'caseload' | 'team' | 'templates' | 'workflow' | 'time'
 const TABS: Array<{ key: TabKey; label: string; icon: typeof LayoutDashboard }> = [
   { key: 'overview', label: 'Overview', icon: LayoutDashboard },
   { key: 'newleads', label: 'New Leads', icon: Inbox },
   { key: 'caseload', label: 'Caseload', icon: Briefcase },
   { key: 'team', label: 'Team & Roles', icon: Users },
-  { key: 'booking', label: 'Booking Links', icon: CalendarClock },
   { key: 'templates', label: 'Firm Templates', icon: FileText },
   { key: 'workflow', label: 'Workflow', icon: Workflow },
   { key: 'time', label: 'Time & Billing', icon: Clock },
@@ -330,8 +327,6 @@ function canSeeFirmTab(tab: TabKey, role: string | undefined, permissions: strin
       return has('review_new_leads') || has('view_all_cases') || has('review_cases') || has('accept_cases')
     case 'team':
       return has('manage_users')
-    case 'booking':
-      return has('schedule_consultations') || has('manage_users')
     case 'templates':
       return has('manage_documents') || has('generate_demands')
     case 'workflow':
@@ -363,7 +358,6 @@ export default function FirmDashboard() {
       'newleads',
       'caseload',
       'team',
-      'booking',
       'templates',
       'workflow',
       'time',
@@ -1721,11 +1715,6 @@ export default function FirmDashboard() {
           </SectionCard>
         </div>
       )}
-
-      {/* ---------------------------------------------------------------- */}
-      {/* BOOKING LINKS (round-robin / team scheduling)                     */}
-      {/* ---------------------------------------------------------------- */}
-      {tab === 'booking' && <FirmBookingLinksTab />}
 
       {/* ---------------------------------------------------------------- */}
       {/* FIRM TEMPLATES (document library + e-sign)                        */}
