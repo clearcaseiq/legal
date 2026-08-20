@@ -1494,14 +1494,34 @@ export async function getAttorneyProfilePerformance(params: {
   return data
 }
 
-export async function addAttorneyVerifiedVerdict(payload: {
+export type VerifiedVerdictPayload = {
   caseType: string
   settlementAmount: number
   caseDescription?: string
   date?: string
   venue?: string
-}) {
+  resultType?: 'settlement' | 'verdict'
+  caseNumber?: string | null
+  documentUrl?: string | null
+  documentName?: string | null
+}
+
+export async function addAttorneyVerifiedVerdict(payload: VerifiedVerdictPayload) {
   const { data } = await api.post('/v1/attorney-profile/verified-verdicts', payload)
+  return data
+}
+
+export async function updateAttorneyVerifiedVerdict(verdictId: string, payload: Partial<VerifiedVerdictPayload>) {
+  const { data } = await api.put(`/v1/attorney-profile/verified-verdicts/${verdictId}`, payload)
+  return data
+}
+
+// Upload a supporting document for a case result; returns a { url, name } ref to
+// attach to the verdict payload on submit.
+export async function uploadVerifiedVerdictDocument(file: File): Promise<{ url: string; name: string }> {
+  const form = new FormData()
+  form.append('document', file)
+  const { data } = await api.post('/v1/attorney-profile/verified-verdict-document', form)
   return data
 }
 

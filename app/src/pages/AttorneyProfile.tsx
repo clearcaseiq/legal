@@ -14,10 +14,27 @@ import {
   Trash2,
   Shield,
   CheckCircle,
-  AlertCircle
+  AlertCircle,
+  X,
+  Search,
+  MoreVertical,
+  Car,
+  Building2,
+  Bike,
+  Scale,
+  FileText,
+  ChevronLeft,
+  ChevronRight,
+  Loader2,
+  Briefcase,
+  Globe,
+  GripVertical,
+  Info,
 } from 'lucide-react'
 import {
   addAttorneyVerifiedVerdict,
+  updateAttorneyVerifiedVerdict,
+  uploadVerifiedVerdictDocument,
   getAttorneyDashboard,
   getAttorneyProfilePerformance,
   getMyAttorneyProfile,
@@ -110,6 +127,57 @@ type AttorneyDashboardSnapshot = {
   }
 }
 
+// Common case-result categories for the "Case Results" picker. The chosen label
+// is stored verbatim as the verdict's caseType so it renders consistently.
+const CASE_RESULT_TYPE_OPTIONS = [
+  'Auto Accident',
+  'Motorcycle Accident',
+  'Truck Accident',
+  'Pedestrian Accident',
+  'Premises Liability',
+  'Slip and Fall',
+  'Medical Malpractice',
+  'Product Liability',
+  'Wrongful Death',
+  'Dog Bite',
+  'Workplace Injury',
+  'Other',
+]
+
+const VENUE_SUGGESTIONS = [
+  'Los Angeles County Superior Court',
+  'Orange County Superior Court',
+  'San Diego County Superior Court',
+  'Riverside County Superior Court',
+  'San Bernardino County Superior Court',
+  'Sacramento County Superior Court',
+  'Santa Clara County Superior Court',
+  'Alameda County Superior Court',
+]
+
+// Pick a representative icon from the free-text case type.
+function verdictIcon(caseType?: string) {
+  const t = (caseType || '').toLowerCase()
+  if (/(motorcycle|bike)/.test(t)) return Bike
+  if (/(auto|vehicle|car|truck|pedestrian|collision|accident)/.test(t)) return Car
+  if (/(premises|slip|trip|property|fall|workplace)/.test(t)) return Building2
+  if (/(malpractice|verdict|court|liability|death)/.test(t)) return Scale
+  return FileText
+}
+
+// Compact currency for stat tiles: 18400000 -> "$18.4M", 875000 -> "$875K".
+function formatCompactUsd(n: number): string {
+  const abs = Math.abs(n)
+  if (abs >= 1_000_000) {
+    const m = (n / 1_000_000).toFixed(abs >= 10_000_000 ? 1 : 2)
+    return `$${m.replace(/\.0+$/, '')}M`
+  }
+  if (abs >= 1_000) return `$${Math.round(n / 1000)}K`
+  return `$${Math.round(n)}`
+}
+
+const VERDICT_PAGE_SIZE = 4
+
 export default function AttorneyProfile() {
   const { t } = useLanguage()
   const navigate = useNavigate()
@@ -126,13 +194,34 @@ export default function AttorneyProfile() {
   const [verdictToDelete, setVerdictToDelete] = useState<number | null>(null)
   const [deletingVerdict, setDeletingVerdict] = useState(false)
   const photoInputRef = useRef<HTMLInputElement | null>(null)
+  const verdictDocInputRef = useRef<HTMLInputElement | null>(null)
   const [newVerdict, setNewVerdict] = useState({
     caseType: '',
     settlementAmount: '',
     caseDescription: '',
     date: '',
-    venue: ''
+    venue: '',
+    resultType: 'settlement' as 'settlement' | 'verdict',
+    caseNumber: '',
   })
+  // "Case Results" hub state (slide-over form + list controls).
+  const [showVerdictPanel, setShowVerdictPanel] = useState(false)
+  const [editingVerdict, setEditingVerdict] = useState<{ id?: string; index: number } | null>(null)
+  const [verdictDoc, setVerdictDoc] = useState<File | null>(null)
+  const [existingDocName, setExistingDocName] = useState<string | null>(null)
+  const [savingVerdict, setSavingVerdict] = useState(false)
+  const [verdictSearch, setVerdictSearch] = useState('')
+  const [verdictFilter, setVerdictFilter] = useState<'all' | 'verified' | 'pending'>('all')
+  const [verdictPage, setVerdictPage] = useState(1)
+  const [openVerdictMenu, setOpenVerdictMenu] = useState<string | null>(null)
+  // Profile Information card: focused editors for languages and experience.
+  const [showLanguageEditor, setShowLanguageEditor] = useState(false)
+  const [langDraft, setLangDraft] = useState<string[]>([])
+  const [editingLangIndex, setEditingLangIndex] = useState<number | null>(null)
+  const [savingLanguages, setSavingLanguages] = useState(false)
+  const [editingExperience, setEditingExperience] = useState(false)
+  const [expDraft, setExpDraft] = useState(0)
+  const [savingExperience, setSavingExperience] = useState(false)
 
   useEffect(() => {
     void loadProfile({ initial: true })
@@ -273,40 +362,105 @@ export default function AttorneyProfile() {
     }
   }
 
-  const handleAddVerdict = async () => {
-    // Add new verified verdict
-    if (newVerdict.caseType && newVerdict.settlementAmount) {
-      try {
-        const response = await addAttorneyVerifiedVerdict({
-          caseType: newVerdict.caseType,
-          settlementAmount: parseInt(newVerdict.settlementAmount, 10),
-          caseDescription: newVerdict.caseDescription,
-          date: newVerdict.date,
-          venue: newVerdict.venue,
-        })
+  const resetVerdictForm = () => {
+    setNewVerdict({
+      caseType: '',
+      settlementAmount: '',
+      caseDescription: '',
+      date: '',
+      venue: '',
+      resultType: 'settlement',
+      caseNumber: '',
+    })
+    setVerdictDoc(null)
+    setExistingDocName(null)
+    setEditingVerdict(null)
+  }
 
-        if (response?.profile) {
-          setProfile(normalizeProfile(response.profile))
-        } else if (profile) {
-          setProfile({
-            ...profile,
-            verifiedVerdicts: [...profile.verifiedVerdicts, response?.verdict].filter(Boolean)
-          })
-        }
-        setLastUpdatedAt(new Date())
-        setError(null)
-      } catch (err: any) {
-        setError(err?.response?.data?.error || 'Failed to add verified verdict.')
-        return
+  const openAddVerdictPanel = () => {
+    resetVerdictForm()
+    setShowVerdictPanel(true)
+  }
+
+  const closeVerdictPanel = () => {
+    setShowVerdictPanel(false)
+    resetVerdictForm()
+  }
+
+  const openEditVerdictPanel = (index: number) => {
+    if (!profile) return
+    const verdict = profile.verifiedVerdicts[index]
+    if (!verdict) return
+    setNewVerdict({
+      caseType: verdict.caseType || '',
+      settlementAmount: String(verdict.settlementAmount ?? ''),
+      caseDescription: verdict.caseDescription || verdict.description || '',
+      date: verdict.date || '',
+      venue: verdict.venue || '',
+      resultType: verdict.resultType === 'verdict' ? 'verdict' : 'settlement',
+      caseNumber: verdict.caseNumber || '',
+    })
+    setVerdictDoc(null)
+    setExistingDocName(verdict.documentName || null)
+    setEditingVerdict({ id: verdict.id, index })
+    setOpenVerdictMenu(null)
+    setShowVerdictPanel(true)
+  }
+
+  const submitVerdict = async () => {
+    if (!profile) return
+    if (!newVerdict.caseType.trim() || !newVerdict.settlementAmount) {
+      setError('Case type and result amount are required.')
+      return
+    }
+    setSavingVerdict(true)
+    try {
+      // Upload a freshly-attached supporting document first (if any).
+      let documentUrl: string | null | undefined
+      let documentName: string | null | undefined
+      if (verdictDoc) {
+        const uploaded = await uploadVerifiedVerdictDocument(verdictDoc)
+        documentUrl = uploaded.url
+        documentName = uploaded.name
       }
-      
-      setNewVerdict({
-        caseType: '',
-        settlementAmount: '',
-        caseDescription: '',
-        date: '',
-        venue: ''
-      })
+
+      const payload = {
+        caseType: newVerdict.caseType.trim(),
+        settlementAmount: Math.round(Number(String(newVerdict.settlementAmount).replace(/[^0-9.]/g, '')) || 0),
+        caseDescription: newVerdict.caseDescription,
+        date: newVerdict.date,
+        venue: newVerdict.venue,
+        resultType: newVerdict.resultType,
+        caseNumber: newVerdict.caseNumber || null,
+        ...(documentUrl ? { documentUrl, documentName } : {}),
+      }
+
+      let response: any
+      if (editingVerdict?.id) {
+        response = await updateAttorneyVerifiedVerdict(editingVerdict.id, payload)
+      } else if (editingVerdict) {
+        // Legacy verdict without an id: replace in place then persist the array.
+        const next = profile.verifiedVerdicts.map((v, i) =>
+          i === editingVerdict.index ? { ...v, ...payload } : v
+        )
+        await persistVerdicts(next)
+        setError(null)
+        closeVerdictPanel()
+        return
+      } else {
+        response = await addAttorneyVerifiedVerdict(payload)
+      }
+
+      if (response?.profile) {
+        setProfile(normalizeProfile(response.profile))
+      }
+      setLastUpdatedAt(new Date())
+      setError(null)
+      closeVerdictPanel()
+    } catch (err: any) {
+      setError(err?.response?.data?.error || 'Failed to save case result.')
+    } finally {
+      setSavingVerdict(false)
     }
   }
 
@@ -327,6 +481,101 @@ export default function AttorneyProfile() {
     })
     setProfile(normalizeProfile(updated))
     setLastUpdatedAt(new Date())
+  }
+
+  // Persist the whole profile with a few overridden fields so unrelated columns
+  // aren't wiped (the API skips undefined fields but sends full arrays here).
+  const persistProfileFields = async (overrides: Record<string, any>) => {
+    if (!profile) return
+    const updated = await updateAttorneyProfile({
+      name: profile.attorney?.name || undefined,
+      bio: profile.bio,
+      photoUrl: profile.photoUrl,
+      specialties: profile.specialties,
+      languages: profile.languages,
+      yearsExperience: profile.yearsExperience,
+      totalCases: profile.totalCases,
+      totalSettlements: profile.totalSettlements,
+      averageSettlement: profile.averageSettlement,
+      successRate: profile.successRate,
+      ...overrides,
+    })
+    setProfile(normalizeProfile(updated))
+    setLastUpdatedAt(new Date())
+  }
+
+  const openLanguageEditor = () => {
+    if (!profile) return
+    setLangDraft(profile.languages.length ? [...profile.languages] : ['English'])
+    setEditingLangIndex(null)
+    setShowLanguageEditor(true)
+  }
+
+  const cancelLanguageEditor = () => {
+    setShowLanguageEditor(false)
+    setEditingLangIndex(null)
+  }
+
+  const updateLangDraft = (index: number, value: string) => {
+    setLangDraft((prev) => prev.map((l, i) => (i === index ? value : l)))
+  }
+
+  const removeLangDraft = (index: number) => {
+    setLangDraft((prev) => prev.filter((_, i) => i !== index))
+    setEditingLangIndex(null)
+  }
+
+  const makeLangPrimary = (index: number) => {
+    setLangDraft((prev) => {
+      if (index <= 0 || index >= prev.length) return prev
+      const next = [...prev]
+      const [item] = next.splice(index, 1)
+      next.unshift(item)
+      return next
+    })
+  }
+
+  const addLangDraft = () => {
+    setLangDraft((prev) => {
+      if (prev.some((l) => !l.trim())) return prev
+      setEditingLangIndex(prev.length)
+      return [...prev, '']
+    })
+  }
+
+  const saveLanguages = async () => {
+    const clean = langDraft.map((l) => l.trim()).filter(Boolean)
+    setSavingLanguages(true)
+    try {
+      await persistProfileFields({ languages: clean })
+      setError(null)
+      setShowLanguageEditor(false)
+      setEditingLangIndex(null)
+    } catch (err: any) {
+      setError(err?.response?.data?.error || 'Failed to save languages.')
+    } finally {
+      setSavingLanguages(false)
+    }
+  }
+
+  const startEditExperience = () => {
+    if (!profile) return
+    setExpDraft(profile.yearsExperience)
+    setEditingExperience(true)
+  }
+
+  const saveExperience = async () => {
+    setSavingExperience(true)
+    try {
+      const years = Math.min(80, Math.max(0, Math.round(Number(expDraft) || 0)))
+      await persistProfileFields({ yearsExperience: years })
+      setError(null)
+      setEditingExperience(false)
+    } catch (err: any) {
+      setError(err?.response?.data?.error || 'Failed to save experience.')
+    } finally {
+      setSavingExperience(false)
+    }
   }
 
   const handlePhotoFileSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -362,26 +611,6 @@ export default function AttorneyProfile() {
       setError(err?.response?.data?.error || 'Failed to upload profile photo.')
     } finally {
       setUploadingPhoto(false)
-    }
-  }
-
-  const handleEditVerdict = async (index: number) => {
-    if (!profile) return
-    const verdict = profile.verifiedVerdicts[index]
-    if (!verdict) return
-    setNewVerdict({
-      caseType: verdict.caseType || '',
-      settlementAmount: String(verdict.settlementAmount ?? ''),
-      caseDescription: verdict.description || verdict.caseDescription || '',
-      date: verdict.date || '',
-      venue: verdict.venue || '',
-    })
-    setActiveTab('verdicts')
-    try {
-      await persistVerdicts(profile.verifiedVerdicts.filter((_, i) => i !== index))
-      setError(null)
-    } catch (err: any) {
-      setError(err?.response?.data?.error || 'Failed to load verdict for editing.')
     }
   }
 
@@ -454,7 +683,7 @@ export default function AttorneyProfile() {
         <div>
           <h1 className="text-3xl font-extrabold text-gray-900">{t('common.myProfile')}</h1>
           <p className="mt-2 text-gray-600">
-            Manage your professional profile and reputation
+            Manage your professional profile and preferences
             {lastUpdatedAt ? (
               <span className="ml-2 text-xs text-gray-400">
                 Live data updated {lastUpdatedAt.toLocaleTimeString()}
@@ -465,17 +694,29 @@ export default function AttorneyProfile() {
           {error ? <p className="mt-2 text-sm text-red-600">{error}</p> : null}
         </div>
         <div className="flex space-x-4">
-          <button 
-            onClick={() => setEditing(!editing)}
-            className="btn-secondary"
-          >
-            <Edit className="h-4 w-4 mr-2" />
-            {editing ? 'Cancel Edit' : 'Edit Profile'}
-          </button>
-          <button className="btn-primary" onClick={() => navigate('/attorney-preferences')}>
-            <Settings className="h-4 w-4 mr-2" />
-            {t('common.profileSettings')}
-          </button>
+          {editing ? (
+            <>
+              <button onClick={() => setEditing(false)} className="btn-secondary">
+                <X className="h-4 w-4 mr-2" />
+                Cancel
+              </button>
+              <button onClick={handleSaveProfile} className="btn-primary">
+                <CheckCircle className="h-4 w-4 mr-2" />
+                Save Changes
+              </button>
+            </>
+          ) : (
+            <>
+              <button onClick={() => setEditing(true)} className="btn-secondary">
+                <Edit className="h-4 w-4 mr-2" />
+                Edit Profile
+              </button>
+              <button className="btn-primary" onClick={() => navigate('/attorney-preferences')}>
+                <Settings className="h-4 w-4 mr-2" />
+                {t('common.profileSettings')}
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -570,7 +811,7 @@ export default function AttorneyProfile() {
           {[
             { id: 'overview', name: 'Overview', icon: User },
             { id: 'performance', name: 'Performance', icon: TrendingUp },
-            { id: 'verdicts', name: 'Verified Verdicts', icon: Award }
+            { id: 'verdicts', name: 'Case Results', icon: Award }
           ].map((tab) => {
             const Icon = tab.icon
             return (
@@ -594,110 +835,241 @@ export default function AttorneyProfile() {
       {/* Tab Content */}
       {activeTab === 'overview' && (
         <div className="space-y-6">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="card">
-              <h3 className="text-lg font-medium text-gray-900 mb-4">Profile Information</h3>
-              <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+            {/* Profile Information */}
+            <div className="lg:col-span-2 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+              <div className="flex items-center gap-3 border-b border-slate-100 px-6 py-5">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600">
+                  <User className="h-5 w-5" />
+                </span>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Experience</label>
-                  {editing ? (
-                    <input
-                      type="number"
-                      min={0}
-                      max={80}
-                      step={1}
-                      value={profile.yearsExperience}
-                      onChange={(e) => {
-                        const parsed = parseInt(e.target.value, 10)
-                        setProfile({ ...profile, yearsExperience: Number.isFinite(parsed) ? Math.min(80, Math.max(0, parsed)) : 0 })
-                      }}
-                      className="form-input"
-                    />
-                  ) : (
-                    <p className="text-gray-900">{profile.yearsExperience} years</p>
-                  )}
+                  <h3 className="text-base font-semibold text-slate-900">Profile Information</h3>
+                  <p className="mt-0.5 text-sm text-slate-500">Update your profile details and languages spoken.</p>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Languages</label>
-                  {editing ? (
-                    <div className="space-y-2">
-                      {profile.languages.map((language, index) => (
-                        <div key={index} className="flex items-center space-x-2">
-                          <input
-                            type="text"
-                            value={language}
-                            autoFocus={!language.trim()}
-                            placeholder="e.g., Spanish"
-                            maxLength={40}
-                            onChange={(e) => {
-                              const newLanguages = [...profile.languages]
-                              newLanguages[index] = e.target.value
-                              setProfile({ ...profile, languages: newLanguages })
-                            }}
-                            className="form-input flex-1"
-                          />
+              </div>
+
+              <div className="space-y-6 p-6">
+                {/* Summary tiles */}
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  {/* Experience */}
+                  <div className="rounded-xl border border-slate-200 p-4">
+                    <div className="flex items-start gap-3">
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-500">
+                        <Briefcase className="h-5 w-5" />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-slate-500">Experience</p>
+                        {editingExperience ? (
+                          <div className="mt-1 flex items-center gap-2">
+                            <input
+                              type="number"
+                              min={0}
+                              max={80}
+                              step={1}
+                              value={expDraft}
+                              autoFocus
+                              onChange={(e) => setExpDraft(Math.min(80, Math.max(0, parseInt(e.target.value, 10) || 0)))}
+                              className="w-20 rounded-lg border border-slate-300 px-2 py-1 text-lg font-bold text-slate-900 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
+                            />
+                            <button
+                              onClick={saveExperience}
+                              disabled={savingExperience}
+                              className="rounded-lg bg-brand-600 p-1.5 text-white transition hover:bg-brand-700 disabled:opacity-50"
+                              aria-label="Save experience"
+                            >
+                              {savingExperience ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
+                            </button>
+                            <button
+                              onClick={() => setEditingExperience(false)}
+                              className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                              aria-label="Cancel"
+                            >
+                              <X className="h-4 w-4" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="mt-0.5 flex items-baseline gap-2">
+                            <p className="text-2xl font-bold text-slate-900">{profile.yearsExperience}</p>
+                            <span className="text-sm text-slate-500">Years of Practice</span>
+                            <button
+                              onClick={startEditExperience}
+                              className="ml-auto rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                              aria-label="Edit experience"
+                            >
+                              <Edit className="h-4 w-4" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Languages summary */}
+                  <div className="rounded-xl border border-slate-200 p-4">
+                    <div className="flex items-start gap-3">
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
+                        <Globe className="h-5 w-5" />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-sm font-medium text-slate-500">Languages</p>
+                          {!showLanguageEditor && (
+                            <button
+                              onClick={openLanguageEditor}
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
+                            >
+                              <Edit className="h-3.5 w-3.5" />
+                              Edit Languages
+                            </button>
+                          )}
+                        </div>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {profile.languages.filter((l) => l.trim()).length === 0 ? (
+                            <span className="text-sm text-slate-400">No languages added</span>
+                          ) : (
+                            profile.languages.filter((l) => l.trim()).map((language, index) => (
+                              <span
+                                key={index}
+                                className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700"
+                              >
+                                {language}
+                                {index === 0 && <CheckCircle className="h-3 w-3" />}
+                              </span>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Spoken Languages editor */}
+                {showLanguageEditor && (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-5">
+                    <h4 className="text-sm font-semibold text-slate-900">Spoken Languages</h4>
+                    <p className="mt-0.5 text-sm text-slate-500">Add the languages you speak fluently. The first is your primary.</p>
+
+                    <div className="mt-4 space-y-2">
+                      {langDraft.map((lang, index) => (
+                        <div
+                          key={index}
+                          className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5"
+                        >
+                          <GripVertical className="h-4 w-4 shrink-0 text-slate-300" />
+                          {editingLangIndex === index ? (
+                            <input
+                              type="text"
+                              value={lang}
+                              autoFocus
+                              placeholder="e.g., Spanish"
+                              maxLength={40}
+                              onChange={(e) => updateLangDraft(index, e.target.value)}
+                              onBlur={() => setEditingLangIndex(null)}
+                              onKeyDown={(e) => { if (e.key === 'Enter') setEditingLangIndex(null) }}
+                              className="flex-1 rounded-lg border border-slate-300 px-2 py-1 text-sm font-medium text-slate-900 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
+                            />
+                          ) : (
+                            <span className="flex-1 truncate text-sm font-semibold text-slate-800">
+                              {lang.trim() || <span className="font-normal italic text-slate-400">Untitled language</span>}
+                            </span>
+                          )}
+                          {index === 0 && (
+                            <span className="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700">
+                              Primary
+                            </span>
+                          )}
+                          {index !== 0 && (
+                            <button
+                              onClick={() => makeLangPrimary(index)}
+                              className="shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                              title="Make primary"
+                            >
+                              Make primary
+                            </button>
+                          )}
                           <button
-                            onClick={() => {
-                              const newLanguages = profile.languages.filter((_, i) => i !== index)
-                              setProfile({ ...profile, languages: newLanguages })
-                            }}
-                            className="text-red-600 hover:text-red-800"
+                            onClick={() => setEditingLangIndex(index)}
+                            className="shrink-0 rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                            aria-label="Rename language"
+                          >
+                            <Edit className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={() => removeLangDraft(index)}
+                            className="shrink-0 rounded-lg p-1.5 text-slate-400 transition hover:bg-red-50 hover:text-red-600"
+                            aria-label="Remove language"
                           >
                             <Trash2 className="h-4 w-4" />
                           </button>
                         </div>
                       ))}
+
                       <button
-                        onClick={() => {
-                          if (profile.languages.some((l) => !l.trim())) return
-                          setProfile({ ...profile, languages: [...profile.languages, ''] })
-                        }}
-                        className="btn-secondary text-sm"
+                        onClick={addLangDraft}
+                        className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-brand-600 transition hover:border-brand-300 hover:bg-brand-50/40"
                       >
-                        <Plus className="h-4 w-4 mr-2" />
+                        <Plus className="h-4 w-4" />
                         Add Language
                       </button>
                     </div>
-                  ) : (
-                    <div className="flex flex-wrap gap-2">
-                      {profile.languages.filter((l) => l.trim()).map((language, index) => (
-                        <span key={index} className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                          {language}
-                        </span>
-                      ))}
+
+                    <div className="mt-5 flex items-center justify-end gap-3 border-t border-slate-200 pt-4">
+                      <button
+                        onClick={cancelLanguageEditor}
+                        disabled={savingLanguages}
+                        className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
+                      >
+                        Discard Changes
+                      </button>
+                      <button
+                        onClick={saveLanguages}
+                        disabled={savingLanguages}
+                        className="inline-flex items-center gap-2 rounded-xl bg-brand-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700 disabled:opacity-50"
+                      >
+                        {savingLanguages ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
+                        Save Changes
+                      </button>
                     </div>
-                  )}
-                </div>
-                {editing && (
-                  <div className="pt-4">
-                    <button onClick={handleSaveProfile} className="btn-primary">
-                      <CheckCircle className="h-4 w-4 mr-2" />
-                      Save Changes
-                    </button>
                   </div>
                 )}
               </div>
             </div>
 
-            <div className="card">
-              <h3 className="text-lg font-medium text-gray-900 mb-4">Quick Stats</h3>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="text-center p-4 bg-blue-50 rounded-lg">
-                  <div className="text-2xl font-bold text-blue-600">{totalCases}</div>
-                  <div className="text-sm text-blue-700">Total Cases</div>
-                </div>
-                <div className="text-center p-4 bg-green-50 rounded-lg">
-                  <div className="text-2xl font-bold text-green-600">{formatPercentage(successRate)}</div>
-                  <div className="text-sm text-green-700">Success Rate</div>
-                </div>
-                <div className="text-center p-4 bg-purple-50 rounded-lg">
-                  <div className="text-2xl font-bold text-purple-600">{formatCurrency(averageSettlement)}</div>
-                  <div className="text-sm text-purple-700">Avg Settlement</div>
-                </div>
-                <div className="text-center p-4 bg-yellow-50 rounded-lg">
-                  <div className="text-2xl font-bold text-yellow-600">{formatCurrency(totalSettlements)}</div>
-                  <div className="text-sm text-yellow-700">Total Settlements</div>
-                </div>
+            {/* Why this matters */}
+            <div className="lg:col-span-1">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50/60 p-5">
+                <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand-50 text-brand-600">
+                  <Info className="h-5 w-5" />
+                </span>
+                <h4 className="mt-3 text-sm font-semibold text-slate-900">Why this matters</h4>
+                <p className="mt-1.5 text-sm leading-relaxed text-slate-500">
+                  A complete profile helps potential clients learn more about you and builds trust in your expertise.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Quick Stats */}
+          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="border-b border-slate-100 px-6 py-4">
+              <h3 className="text-base font-semibold text-slate-900">Quick Stats</h3>
+            </div>
+            <div className="grid grid-cols-2 gap-4 p-6 lg:grid-cols-4">
+              <div className="rounded-xl bg-blue-50 p-4 text-center">
+                <div className="text-2xl font-bold text-blue-600">{totalCases}</div>
+                <div className="mt-1 text-sm text-blue-700">Total Cases</div>
+              </div>
+              <div className="rounded-xl bg-green-50 p-4 text-center">
+                <div className="text-2xl font-bold text-green-600">{formatPercentage(successRate)}</div>
+                <div className="mt-1 text-sm text-green-700">Success Rate</div>
+              </div>
+              <div className="rounded-xl bg-purple-50 p-4 text-center">
+                <div className="text-2xl font-bold text-purple-600">{formatCurrency(averageSettlement)}</div>
+                <div className="mt-1 text-sm text-purple-700">Avg Settlement</div>
+              </div>
+              <div className="rounded-xl bg-yellow-50 p-4 text-center">
+                <div className="text-2xl font-bold text-yellow-600">{formatCurrency(totalSettlements)}</div>
+                <div className="mt-1 text-sm text-yellow-700">Total Settlements</div>
               </div>
             </div>
           </div>
@@ -764,186 +1136,427 @@ export default function AttorneyProfile() {
         </div>
       )}
 
-      {activeTab === 'verdicts' && (
-        <div className="space-y-6">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h3 className="text-xl font-semibold text-slate-900">Verified Verdicts & Settlements</h3>
-              <p className="mt-1 text-sm text-slate-500">
-                Showcase your track record — verified results help prospective clients trust your work.
-              </p>
-            </div>
-            <button
-              className="inline-flex items-center gap-2 rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700"
-              onClick={() => {
-                setNewVerdict({ caseType: '', settlementAmount: '', caseDescription: '', date: '', venue: '' })
-                document.getElementById('add-verdict-form')?.scrollIntoView({ behavior: 'smooth' })
-              }}
-            >
-              <Plus className="h-4 w-4" />
-              Add Verdict
-            </button>
-          </div>
-
-          {/* Add New Verdict Form */}
-          <div
-            id="add-verdict-form"
-            className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
-          >
-            <div className="border-b border-slate-100 bg-slate-50/70 px-6 py-4">
-              <h4 className="text-base font-semibold text-slate-900">Add a new result</h4>
-              <p className="mt-0.5 text-sm text-slate-500">
-                Case type and settlement amount are required. The rest is optional but adds credibility.
-              </p>
-            </div>
-            <div className="p-6">
-              <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-                <div>
-                  <label className={VERDICT_LABEL_CLASS}>
-                    Case type <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={newVerdict.caseType}
-                    onChange={(e) => setNewVerdict({ ...newVerdict, caseType: e.target.value })}
-                    className={VERDICT_INPUT_CLASS}
-                    placeholder="e.g., Auto Accident"
-                    maxLength={120}
-                  />
-                </div>
-                <div>
-                  <label className={VERDICT_LABEL_CLASS}>
-                    Settlement amount <span className="text-red-500">*</span>
-                  </label>
-                  <div className="relative">
-                    <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-sm font-medium text-slate-400">
-                      $
-                    </span>
-                    <input
-                      type="number"
-                      min="0"
-                      step="1000"
-                      value={newVerdict.settlementAmount}
-                      onChange={(e) => {
-                        const raw = e.target.value
-                        // Prevent negatives (e.g. via the down arrow) while still
-                        // allowing the field to be cleared.
-                        setNewVerdict({
-                          ...newVerdict,
-                          settlementAmount: raw === '' ? '' : String(Math.max(0, parseInt(raw, 10) || 0)),
-                        })
-                      }}
-                      className={`${VERDICT_INPUT_CLASS} pl-7`}
-                      placeholder="2500000"
-                    />
-                  </div>
-                  {newVerdict.settlementAmount ? (
-                    <p className="mt-1.5 text-xs font-medium text-emerald-600">
-                      {formatCurrency(Number(newVerdict.settlementAmount))}
-                    </p>
-                  ) : null}
-                </div>
-                <div className="md:col-span-2">
-                  <label className={VERDICT_LABEL_CLASS}>Case description</label>
-                  <textarea
-                    value={newVerdict.caseDescription}
-                    onChange={(e) => setNewVerdict({ ...newVerdict, caseDescription: e.target.value })}
-                    className={`${VERDICT_INPUT_CLASS} resize-y`}
-                    rows={3}
-                    placeholder="Brief description of the case, injuries, and outcome…"
-                    maxLength={1000}
-                  />
-                </div>
-                <div>
-                  <label className={VERDICT_LABEL_CLASS}>Date</label>
-                  <input
-                    type="date"
-                    value={newVerdict.date}
-                    onChange={(e) => setNewVerdict({ ...newVerdict, date: e.target.value })}
-                    className={VERDICT_INPUT_CLASS}
-                  />
-                </div>
-                <div>
-                  <label className={VERDICT_LABEL_CLASS}>Venue</label>
-                  <input
-                    type="text"
-                    value={newVerdict.venue}
-                    onChange={(e) => setNewVerdict({ ...newVerdict, venue: e.target.value })}
-                    className={VERDICT_INPUT_CLASS}
-                    placeholder="Los Angeles County"
-                    maxLength={120}
-                  />
-                </div>
+      {activeTab === 'verdicts' && (() => {
+        const allVerdicts = profile.verifiedVerdicts || []
+        const verifiedCount = allVerdicts.filter((v) => v.status === 'verified').length
+        const pendingCount = allVerdicts.length - verifiedCount
+        const totalAmount = allVerdicts.reduce((sum, v) => sum + Number(v.settlementAmount || 0), 0)
+        const practiceAreas = new Set(
+          allVerdicts.map((v) => (v.caseType || '').toLowerCase().trim()).filter(Boolean)
+        ).size
+        const query = verdictSearch.trim().toLowerCase()
+        const filtered = allVerdicts
+          .map((v, i) => ({ v, i }))
+          .filter(({ v }) => {
+            const isVerified = v.status === 'verified'
+            if (verdictFilter === 'verified' && !isVerified) return false
+            if (verdictFilter === 'pending' && isVerified) return false
+            if (!query) return true
+            return [v.caseType, v.caseDescription, v.description, v.venue, v.caseNumber]
+              .filter(Boolean)
+              .some((f) => String(f).toLowerCase().includes(query))
+          })
+        const totalPages = Math.max(1, Math.ceil(filtered.length / VERDICT_PAGE_SIZE))
+        const page = Math.min(verdictPage, totalPages)
+        const paged = filtered.slice((page - 1) * VERDICT_PAGE_SIZE, page * VERDICT_PAGE_SIZE)
+        const stats = [
+          { label: 'Verified Results', value: String(verifiedCount), Icon: Shield, tint: 'bg-brand-50 text-brand-600' },
+          { label: 'Pending Review', value: String(pendingCount), Icon: AlertCircle, tint: 'bg-amber-50 text-amber-600' },
+          { label: 'Total Results', value: formatCompactUsd(totalAmount), Icon: DollarSign, tint: 'bg-emerald-50 text-emerald-600' },
+          { label: 'Practice Areas', value: String(practiceAreas), Icon: TrendingUp, tint: 'bg-violet-50 text-violet-600' },
+        ]
+        return (
+          <div className="space-y-6">
+            {/* Header */}
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="text-xl font-semibold text-slate-900">Case Results</h3>
+                <p className="mt-1 max-w-2xl text-sm text-slate-500">
+                  Showcase representative settlements and verdicts. Verified results help strengthen your ClearCaseIQ attorney profile.
+                </p>
               </div>
-              <div className="mt-6 flex items-center justify-end gap-3 border-t border-slate-100 pt-5">
-                <button
-                  onClick={handleAddVerdict}
-                  disabled={!newVerdict.caseType.trim() || !newVerdict.settlementAmount}
-                  className="inline-flex items-center gap-2 rounded-xl bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <Plus className="h-4 w-4" />
-                  Add verdict
-                </button>
-              </div>
+              <button
+                onClick={openAddVerdictPanel}
+                className="inline-flex items-center gap-2 rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700"
+              >
+                <Plus className="h-4 w-4" />
+                Add Case Result
+              </button>
             </div>
-          </div>
 
-          {/* Verdicts List */}
-          {profile.verifiedVerdicts.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50/60 px-6 py-12 text-center">
-              <Award className="mx-auto h-8 w-8 text-slate-300" />
-              <p className="mt-3 text-sm font-medium text-slate-700">No results added yet</p>
-              <p className="mt-1 text-sm text-slate-500">Add your first verdict or settlement above to build your track record.</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-              {profile.verifiedVerdicts.map((verdict, index) => (
-                <div
-                  key={index}
-                  className="group relative rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-brand-200 hover:shadow-md"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <span
-                      className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${
-                        verdict.status === 'verified'
-                          ? 'bg-emerald-100 text-emerald-800'
-                          : 'bg-amber-100 text-amber-800'
-                      }`}
-                    >
-                      {verdict.status === 'verified' ? 'Verified' : 'Pending'}
+            {/* Stat cards */}
+            <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+              {stats.map((s) => (
+                <div key={s.label} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <div className="flex items-center gap-3">
+                    <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${s.tint}`}>
+                      <s.Icon className="h-5 w-5" />
                     </span>
-                    <div className="flex shrink-0 gap-1">
-                      <button
-                        onClick={() => handleEditVerdict(index)}
-                        className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
-                        aria-label="Edit verdict"
-                        title="Edit verdict"
-                      >
-                        <Edit className="h-4 w-4" />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteVerdict(index)}
-                        className="rounded-lg p-1.5 text-slate-400 transition hover:bg-red-50 hover:text-red-600"
-                        aria-label="Remove verdict"
-                        title="Remove verdict"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+                    <div className="min-w-0">
+                      <p className="truncate text-xl font-bold leading-none text-slate-900">{s.value}</p>
+                      <p className="mt-1 truncate text-xs font-medium text-slate-500">{s.label}</p>
                     </div>
-                  </div>
-                  <p className="mt-3 text-2xl font-bold text-slate-900">{formatCurrency(verdict.settlementAmount)}</p>
-                  <p className="mt-0.5 text-sm font-medium text-slate-600">{verdict.caseType}</p>
-                  {verdict.description ? (
-                    <p className="mt-2 line-clamp-3 text-sm text-slate-500">{verdict.description}</p>
-                  ) : null}
-                  <div className="mt-4 flex flex-wrap gap-x-4 gap-y-1 border-t border-slate-100 pt-3 text-xs text-slate-500">
-                    {verdict.date ? <span>{verdict.date}</span> : null}
-                    {verdict.venue ? <span>{verdict.venue}</span> : null}
                   </div>
                 </div>
               ))}
             </div>
-          )}
+
+            {/* Search + filter */}
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <div className="relative flex-1">
+                <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  value={verdictSearch}
+                  onChange={(e) => { setVerdictSearch(e.target.value); setVerdictPage(1) }}
+                  placeholder="Search case results…"
+                  className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-4 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
+                />
+              </div>
+              <select
+                value={verdictFilter}
+                onChange={(e) => { setVerdictFilter(e.target.value as 'all' | 'verified' | 'pending'); setVerdictPage(1) }}
+                className="rounded-xl border border-slate-200 bg-white py-2.5 pl-4 pr-8 text-sm font-medium text-slate-700 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
+              >
+                <option value="all">All Results</option>
+                <option value="verified">Verified</option>
+                <option value="pending">Pending Review</option>
+              </select>
+            </div>
+
+            {/* List / empty states */}
+            {allVerdicts.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50/60 px-6 py-12 text-center">
+                <Award className="mx-auto h-8 w-8 text-slate-300" />
+                <p className="mt-3 text-sm font-medium text-slate-700">No case results yet</p>
+                <p className="mt-1 text-sm text-slate-500">Add your first settlement or verdict to build your track record.</p>
+                <button
+                  onClick={openAddVerdictPanel}
+                  className="mt-4 inline-flex items-center gap-2 rounded-xl bg-brand-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-700"
+                >
+                  <Plus className="h-4 w-4" /> Add Case Result
+                </button>
+              </div>
+            ) : filtered.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50/60 px-6 py-10 text-center text-sm text-slate-500">
+                No results match your search.
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {paged.map(({ v, i }) => {
+                  const Icon = verdictIcon(v.caseType)
+                  const isVerified = v.status === 'verified'
+                  const menuKey = String(v.id ?? i)
+                  const desc = v.caseDescription || v.description || ''
+                  const meta = [
+                    v.resultType === 'verdict' ? 'Verdict' : 'Settlement',
+                    v.venue,
+                    v.date,
+                  ].filter(Boolean)
+                  return (
+                    <div
+                      key={menuKey}
+                      className="relative flex gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-brand-200 hover:shadow-md"
+                    >
+                      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600">
+                        <Icon className="h-5 w-5" />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-slate-700">{v.caseType || 'Case result'}</p>
+                            <p className="mt-0.5 text-2xl font-bold text-slate-900">{formatCurrency(Number(v.settlementAmount || 0))}</p>
+                          </div>
+                          <div className="flex shrink-0 items-center gap-2">
+                            <span
+                              className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${
+                                isVerified ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                              }`}
+                            >
+                              {isVerified ? <CheckCircle className="h-3.5 w-3.5" /> : <AlertCircle className="h-3.5 w-3.5" />}
+                              {isVerified ? 'Verified' : 'Pending Review'}
+                            </span>
+                            <div className="relative">
+                              <button
+                                onClick={() => setOpenVerdictMenu(openVerdictMenu === menuKey ? null : menuKey)}
+                                className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                                aria-label="Result actions"
+                              >
+                                <MoreVertical className="h-4 w-4" />
+                              </button>
+                              {openVerdictMenu === menuKey && (
+                                <div className="absolute right-0 z-10 mt-1 w-36 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-lg">
+                                  <button
+                                    onClick={() => openEditVerdictPanel(i)}
+                                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+                                  >
+                                    <Edit className="h-4 w-4" /> Edit
+                                  </button>
+                                  <button
+                                    onClick={() => { setOpenVerdictMenu(null); handleDeleteVerdict(i) }}
+                                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50"
+                                  >
+                                    <Trash2 className="h-4 w-4" /> Delete
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                        {meta.length > 0 && (
+                          <p className="mt-1 text-xs font-medium text-slate-500">{meta.join('  •  ')}</p>
+                        )}
+                        {desc && <p className="mt-2 line-clamp-2 text-sm text-slate-500">{desc}</p>}
+                        {(v.caseNumber || v.documentName) && (
+                          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-400">
+                            {v.caseNumber && <span>Case #{v.caseNumber}</span>}
+                            {v.documentName && (
+                              <span className="inline-flex items-center gap-1">
+                                <FileText className="h-3.5 w-3.5" /> {v.documentName}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-center gap-1 pt-1">
+                <button
+                  onClick={() => setVerdictPage(Math.max(1, page - 1))}
+                  disabled={page <= 1}
+                  className="rounded-lg border border-slate-200 p-2 text-slate-500 transition hover:bg-slate-50 disabled:opacity-40"
+                  aria-label="Previous page"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                {Array.from({ length: totalPages }, (_, idx) => idx + 1).map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => setVerdictPage(p)}
+                    className={`h-9 min-w-9 rounded-lg px-3 text-sm font-medium transition ${
+                      p === page ? 'bg-brand-600 text-white' : 'text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    {p}
+                  </button>
+                ))}
+                <button
+                  onClick={() => setVerdictPage(Math.min(totalPages, page + 1))}
+                  disabled={page >= totalPages}
+                  className="rounded-lg border border-slate-200 p-2 text-slate-500 transition hover:bg-slate-50 disabled:opacity-40"
+                  aria-label="Next page"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
+            )}
+          </div>
+        )
+      })()}
+
+      {/* Add / Edit Case Result slide-over */}
+      {showVerdictPanel && (
+        <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
+          <div
+            className="absolute inset-0 bg-slate-900/40"
+            onClick={() => { if (!savingVerdict) closeVerdictPanel() }}
+          />
+          <div className="relative flex h-full w-full max-w-md flex-col bg-white shadow-2xl">
+            <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-6 py-5">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900">
+                  {editingVerdict ? 'Edit Case Result' : 'Add Case Result'}
+                </h3>
+                <p className="mt-0.5 text-sm text-slate-500">Add a representative settlement or verdict to your profile.</p>
+              </div>
+              <button
+                onClick={closeVerdictPanel}
+                className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                aria-label="Close"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="flex-1 space-y-7 overflow-y-auto px-6 py-5">
+              {/* Result details */}
+              <div className="space-y-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Result Details</p>
+                <div>
+                  <label className={VERDICT_LABEL_CLASS}>Result Type <span className="text-red-500">*</span></label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(['settlement', 'verdict'] as const).map((rt) => (
+                      <button
+                        key={rt}
+                        type="button"
+                        onClick={() => setNewVerdict({ ...newVerdict, resultType: rt })}
+                        className={`rounded-xl border px-4 py-2.5 text-sm font-semibold capitalize transition ${
+                          newVerdict.resultType === rt
+                            ? 'border-brand-500 bg-brand-50 text-brand-700'
+                            : 'border-slate-200 text-slate-600 hover:border-slate-300'
+                        }`}
+                      >
+                        {rt}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className={VERDICT_LABEL_CLASS}>Case Type <span className="text-red-500">*</span></label>
+                  <input
+                    list="case-type-options"
+                    value={newVerdict.caseType}
+                    onChange={(e) => setNewVerdict({ ...newVerdict, caseType: e.target.value })}
+                    className={VERDICT_INPUT_CLASS}
+                    placeholder="Select or type a case type"
+                    maxLength={120}
+                  />
+                  <datalist id="case-type-options">
+                    {CASE_RESULT_TYPE_OPTIONS.filter((c) => c !== 'Other').map((c) => (
+                      <option key={c} value={c} />
+                    ))}
+                  </datalist>
+                </div>
+                <div>
+                  <label className={VERDICT_LABEL_CLASS}>Result Amount <span className="text-red-500">*</span></label>
+                  <div className="relative">
+                    <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-sm font-medium text-slate-400">$</span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={newVerdict.settlementAmount ? Number(String(newVerdict.settlementAmount).replace(/[^0-9]/g, '')).toLocaleString('en-US') : ''}
+                      onChange={(e) => setNewVerdict({ ...newVerdict, settlementAmount: e.target.value.replace(/[^0-9]/g, '') })}
+                      className={`${VERDICT_INPUT_CLASS} pl-7`}
+                      placeholder="2,500,000"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div>
+                    <label className={VERDICT_LABEL_CLASS}>Venue (Court) <span className="text-red-500">*</span></label>
+                    <input
+                      list="venue-options"
+                      value={newVerdict.venue}
+                      onChange={(e) => setNewVerdict({ ...newVerdict, venue: e.target.value })}
+                      className={VERDICT_INPUT_CLASS}
+                      placeholder="County Superior Court"
+                      maxLength={120}
+                    />
+                    <datalist id="venue-options">
+                      {VENUE_SUGGESTIONS.map((v) => (
+                        <option key={v} value={v} />
+                      ))}
+                    </datalist>
+                  </div>
+                  <div>
+                    <label className={VERDICT_LABEL_CLASS}>Resolution Date <span className="text-red-500">*</span></label>
+                    <input
+                      type="date"
+                      value={newVerdict.date}
+                      onChange={(e) => setNewVerdict({ ...newVerdict, date: e.target.value })}
+                      className={VERDICT_INPUT_CLASS}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Case summary */}
+              <div className="space-y-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Case Summary</p>
+                <div>
+                  <label className={VERDICT_LABEL_CLASS}>Brief description of the case and outcome <span className="text-red-500">*</span></label>
+                  <textarea
+                    value={newVerdict.caseDescription}
+                    onChange={(e) => setNewVerdict({ ...newVerdict, caseDescription: e.target.value })}
+                    rows={4}
+                    maxLength={500}
+                    className={`${VERDICT_INPUT_CLASS} resize-y`}
+                    placeholder="Describe the injuries, treatment, and outcome…"
+                  />
+                  <p className="mt-1 text-right text-xs text-slate-400">{newVerdict.caseDescription.length} / 500</p>
+                </div>
+              </div>
+
+              {/* Verification */}
+              <div className="space-y-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Verification</p>
+                <p className="text-xs text-slate-500">Help us verify this result. Documents are kept private and are not displayed publicly.</p>
+                <input
+                  ref={verdictDocInputRef}
+                  type="file"
+                  accept=".pdf,.doc,.docx"
+                  className="hidden"
+                  onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) setVerdictDoc(f) }}
+                />
+                {verdictDoc ? (
+                  <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                    <span className="inline-flex min-w-0 items-center gap-2 text-sm text-slate-700">
+                      <FileText className="h-4 w-4 shrink-0 text-slate-400" />
+                      <span className="truncate">{verdictDoc.name}</span>
+                    </span>
+                    <button onClick={() => setVerdictDoc(null)} className="text-slate-400 transition hover:text-red-600" aria-label="Remove document">
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ) : existingDocName ? (
+                  <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                    <span className="inline-flex min-w-0 items-center gap-2 text-sm text-slate-700">
+                      <FileText className="h-4 w-4 shrink-0 text-slate-400" />
+                      <span className="truncate">{existingDocName}</span>
+                    </span>
+                    <button onClick={() => verdictDocInputRef.current?.click()} className="text-xs font-medium text-brand-600 transition hover:text-brand-700">
+                      Replace
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => verdictDocInputRef.current?.click()}
+                    className="flex w-full flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-slate-300 bg-slate-50/60 px-4 py-6 text-center transition hover:border-brand-300 hover:bg-brand-50/40"
+                  >
+                    <Upload className="h-5 w-5 text-slate-400" />
+                    <span className="text-sm font-medium text-slate-600">Upload supporting document</span>
+                    <span className="text-xs text-slate-400">PDF, DOCX · Max 20 MB</span>
+                  </button>
+                )}
+                <div>
+                  <label className={VERDICT_LABEL_CLASS}>Case Number <span className="font-normal text-slate-400">(optional)</span></label>
+                  <input
+                    type="text"
+                    value={newVerdict.caseNumber}
+                    onChange={(e) => setNewVerdict({ ...newVerdict, caseNumber: e.target.value })}
+                    className={VERDICT_INPUT_CLASS}
+                    placeholder="BC123456"
+                    maxLength={60}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 border-t border-slate-100 px-6 py-4">
+              <button
+                onClick={closeVerdictPanel}
+                disabled={savingVerdict}
+                className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={submitVerdict}
+                disabled={savingVerdict || !newVerdict.caseType.trim() || !newVerdict.settlementAmount}
+                className="inline-flex items-center gap-2 rounded-xl bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {savingVerdict ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                {editingVerdict ? 'Save Changes' : 'Submit for Verification'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
