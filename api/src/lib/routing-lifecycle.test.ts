@@ -32,6 +32,7 @@ import {
   declinePendingRankedBatch,
   getPendingRankedBatch,
   placeAssessmentInManualReview,
+  routeReleasedCaseRespectingConsumerSlate,
 } from './routing-lifecycle'
 import { prisma } from './prisma'
 import { resetUniversalPrismaMock } from '../test/universalPrismaMock'
@@ -108,6 +109,9 @@ function pendingIntro(attorneyId: string, withLead: boolean) {
 describe('attorneyAcceptCase', () => {
   beforeEach(() => {
     resetUniversalPrismaMock()
+    // Default the atomic PENDING->terminal claim to "won" (count 1); tests that
+    // exercise the lost-race path override this explicitly.
+    vi.mocked(prisma.introduction.updateMany).mockResolvedValue({ count: 1 } as any)
     vi.mocked(sendPlaintiffAttorneyAccepted).mockClear()
     vi.mocked(sendPlaintiffManualReviewNeeded).mockClear()
     vi.mocked(sendPlaintiffNoAttorneyResponse).mockClear()
@@ -117,12 +121,15 @@ describe('attorneyAcceptCase', () => {
     const aid = 'att-99'
     const intro = pendingIntro(aid, true)
     vi.mocked(prisma.introduction.findUnique).mockResolvedValue(intro as any)
+    // The PENDING->ACCEPTED transition is an atomic conditional updateMany; a
+    // matched row (count 1) means this writer won the claim.
+    vi.mocked(prisma.introduction.updateMany).mockResolvedValue({ count: 1 } as any)
     vi.mocked(prisma.$transaction).mockImplementation(async (cb: any) => cb(prisma))
     vi.mocked(prisma.routingAnalytics.create).mockResolvedValue({} as any)
 
     const r = await attorneyAcceptCase('intro-1', aid)
     expect(r.success).toBe(true)
-    expect(prisma.introduction.update).toHaveBeenCalled()
+    expect(prisma.introduction.updateMany).toHaveBeenCalled()
     expect(prisma.leadSubmission.update).toHaveBeenCalled()
     expect(sendPlaintiffAttorneyAccepted).toHaveBeenCalledWith(
       'asm-1',
@@ -158,6 +165,8 @@ describe('attorneyAcceptCase', () => {
 describe('attorneyDeclineCase', () => {
   beforeEach(() => {
     resetUniversalPrismaMock()
+    // Default the atomic PENDING->DECLINED claim to "won" (count 1).
+    vi.mocked(prisma.introduction.updateMany).mockResolvedValue({ count: 1 } as any)
     authorizeShare()
   })
 
@@ -168,11 +177,13 @@ describe('attorneyDeclineCase', () => {
       assessmentId: 'asm-1',
       status: 'PENDING',
     } as any)
+    vi.mocked(prisma.introduction.updateMany).mockResolvedValue({ count: 1 } as any)
 
     const r = await attorneyDeclineCase('intro-1', 'att-1', 'Conflict')
     expect(r.success).toBe(true)
-    expect(prisma.introduction.update).toHaveBeenCalledWith(
+    expect(prisma.introduction.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
+        where: expect.objectContaining({ id: 'intro-1', status: 'PENDING' }),
         data: expect.objectContaining({ status: 'DECLINED', declineReason: 'Conflict' }),
       })
     )
@@ -227,6 +238,63 @@ describe('attorneyDeclineCase', () => {
     } as any)
     const r = await attorneyDeclineCase('intro-1', 'att-1')
     expect(r.success).toBe(false)
+  })
+})
+
+describe('routeReleasedCaseRespectingConsumerSlate', () => {
+  beforeEach(() => {
+    resetUniversalPrismaMock()
+    authorizeShare()
+    vi.mocked(sendPlaintiffBatchApprovalRequest).mockClear()
+  })
+
+  it('routes normally when the consumer made no selection', async () => {
+    vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValue({ sourceDetails: null } as any)
+    const r = await routeReleasedCaseRespectingConsumerSlate('asm-1')
+    expect(r.mode).toBe('no_consumer_slate')
+  })
+
+  it('proposes a fresh batch for approval (excluding removed) when the consumer removed everyone', async () => {
+    vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValue({
+      sourceDetails: JSON.stringify({
+        plaintiffAttorneyPreferences: { dismissedAttorneyIds: ['att-1', 'att-2'], rankedAttorneyIds: [] },
+      }),
+    } as any)
+    vi.mocked(prisma.introduction.findMany).mockResolvedValue([] as any)
+    vi.mocked(runRoutingEngine).mockResolvedValue({ success: true, routedTo: ['att-3'] } as any)
+    vi.mocked(prisma.attorney.findMany).mockResolvedValue([{ id: 'att-3', name: 'A Three' }] as any)
+
+    const r = await routeReleasedCaseRespectingConsumerSlate('asm-1')
+
+    expect(r.mode).toBe('awaiting_approval')
+    expect(r.proposedAttorneyIds).toContain('att-3')
+    // The dry run that builds the batch must exclude the attorneys the consumer removed.
+    expect(runRoutingEngine).toHaveBeenCalledWith(
+      'asm-1',
+      expect.objectContaining({ excludeAttorneyIds: expect.arrayContaining(['att-1', 'att-2']) })
+    )
+    expect(sendPlaintiffBatchApprovalRequest).toHaveBeenCalled()
+  })
+
+  it('advances the consumer-approved ranked queue before proposing anything new', async () => {
+    vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValue({
+      sourceDetails: JSON.stringify({
+        plaintiffAttorneyPreferences: { rankedAttorneyIds: ['att-1', 'att-2'] },
+      }),
+    } as any)
+    vi.mocked(prisma.introduction.findMany).mockResolvedValue([] as any)
+    vi.mocked(prisma.routingWave.findFirst).mockResolvedValue(null as any)
+    vi.mocked(runRoutingEngine).mockResolvedValue({
+      success: true,
+      routedTo: ['att-1'],
+      introductionIds: ['intro-1'],
+    } as any)
+
+    const r = await routeReleasedCaseRespectingConsumerSlate('asm-1')
+
+    expect(r.mode).toBe('ranked_routed')
+    expect(r.attorneyId).toBe('att-1')
+    expect(sendPlaintiffBatchApprovalRequest).not.toHaveBeenCalled()
   })
 })
 

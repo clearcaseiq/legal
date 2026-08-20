@@ -71,7 +71,7 @@ const LITIGATION_LABEL: Record<string, string> = {
 const ACTIVE_LITIGATION = new Set(['pre_suit', 'filed', 'discovery', 'mediation', 'trial'])
 
 type StageTone = 'info' | 'warning' | 'success'
-type DueKey = 'overdue' | 'today' | 'tomorrow' | 'upcoming'
+type DueKey = 'overdue' | 'today' | 'tomorrow' | 'upcoming' | 'closed'
 type CaseView = 'all' | 'consults' | 'tasks' | 'demands'
 type CaseScope = 'active' | 'closed' | 'all'
 
@@ -128,6 +128,7 @@ const DUE_BADGE_TONE: Record<DueKey, BadgeTone> = {
   today: 'warning',
   tomorrow: 'neutral',
   upcoming: 'neutral',
+  closed: 'neutral',
 }
 
 function compactMoney(n: number) {
@@ -461,7 +462,15 @@ export default function ActiveCasesPage() {
         let actionHref: string
         let actionHint: string
         let actionTone: ActionTone
-        if (consultToday) {
+        if (closed) {
+          // A closed matter has no live next step. Never surface stale suggestions
+          // (e.g. "Consultation today") once the case is closed.
+          actionType = 'open_lead'
+          nextAction = 'Case closed'
+          actionHref = `/attorney-dashboard/lead/${lead.id}/timeline`
+          actionHint = 'This matter is closed. Open the case to review or reopen it.'
+          actionTone = 'slate'
+        } else if (consultToday) {
           actionType = 'schedule_consult'
           nextAction = 'Consultation today'
           actionHref = `/attorney-dashboard/lead/${lead.id}/timeline`
@@ -497,7 +506,8 @@ export default function ActiveCasesPage() {
         // Due date is task-driven when the readiness engine is tracking work,
         // otherwise it falls back to the stage SLA projection.
         let dueInfo: { key: DueKey; label: string }
-        if (consultToday) dueInfo = { key: 'today', label: 'Today' }
+        if (closed) dueInfo = { key: 'closed', label: 'Closed' }
+        else if (consultToday) dueInfo = { key: 'today', label: 'Today' }
         else if (overdueTaskCount > 0)
           dueInfo = { key: 'overdue', label: overdueTaskCount === 1 ? '1 task overdue' : `${overdueTaskCount} overdue` }
         else if (dueTodayTaskCount > 0) dueInfo = { key: 'today', label: 'Task due today' }
@@ -539,9 +549,14 @@ export default function ActiveCasesPage() {
       })
   }, [leads, consultTodayLeadIds])
 
+  // A closed matter has no live work, so it must never count toward the actionable
+  // "Consults today / Tasks due / Demands to send" tiles even when the Closed/All
+  // scope includes it in the table (CP: "if case is closed those values should be 0").
+  const isConsultToday = (r: CaseRow) => !r.closed && r.consultToday
   const isTaskDue = (r: CaseRow) =>
-    r.overdueTaskCount > 0 || r.dueTodayTaskCount > 0 || r.dueKey === 'today' || r.dueKey === 'tomorrow' || r.dueKey === 'overdue'
-  const isDemandFocus = (r: CaseRow) => r.actionType === 'open_demand' || r.isDemandReady
+    !r.closed &&
+    (r.overdueTaskCount > 0 || r.dueTodayTaskCount > 0 || r.dueKey === 'today' || r.dueKey === 'tomorrow' || r.dueKey === 'overdue')
+  const isDemandFocus = (r: CaseRow) => !r.closed && (r.actionType === 'open_demand' || r.isDemandReady)
 
   // Closed matters leave the active caseload by default but stay one click away
   // via the Active / Closed / All segmentation. Everything downstream (views,
@@ -556,7 +571,7 @@ export default function ActiveCasesPage() {
     // "Consults today" must only surface cases with a consult actually scheduled
     // for today — not every case awaiting a consult or in the consulted stage,
     // which previously leaked future/overdue rows into the view (CP-394).
-    if (view === 'consults') return r.consultToday
+    if (view === 'consults') return isConsultToday(r)
     if (view === 'tasks') return isTaskDue(r)
     if (view === 'demands') return isDemandFocus(r)
     return true
@@ -583,7 +598,7 @@ export default function ActiveCasesPage() {
   const counts = useMemo(
     () => ({
       all: scopedRows.length,
-      consults: scopedRows.filter((r) => r.consultToday).length,
+      consults: scopedRows.filter((r) => isConsultToday(r)).length,
       tasks: scopedRows.filter((r) => isTaskDue(r)).length,
       demands: scopedRows.filter((r) => isDemandFocus(r)).length,
     }),
@@ -642,7 +657,10 @@ export default function ActiveCasesPage() {
     <div className="space-y-4">
       <PageHeader title="Active Cases" />
 
-      {!loading && !error ? <JumpBackIn rows={rows} /> : null}
+      {/* "Jump back in" resumes *active* work only. A matter closed today should
+          not linger here as if it were still open (CP: Active cases shown in Jump
+          back in were wrong — a closed case kept appearing). */}
+      {!loading && !error ? <JumpBackIn rows={rows.filter((r) => !r.closed)} /> : null}
 
       <StatGrid columns={5}>
         <FilterStat

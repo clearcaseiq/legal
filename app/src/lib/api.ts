@@ -762,8 +762,13 @@ export async function updateAppointment(appointmentId: string, updates: any) {
 }
 
 export async function cancelAppointment(appointmentId: string, reason: string) {
+  // Send the reason in BOTH the body and the query string: DELETE-with-body is
+  // valid but some proxies/CDNs strip the body, which caused the server to reject
+  // the cancel as "reason required" even when one was provided (CP: unable to
+  // cancel scheduled meeting). The query param is the resilient fallback.
   const { data } = await api.delete(`/v1/appointments/${appointmentId}`, {
     data: { reason },
+    params: { reason },
   })
   return data
 }
@@ -2759,6 +2764,24 @@ export async function getEvidenceObjectUrl(fileUrl: string): Promise<string> {
 export async function regenerateLeadSceneImage(leadId: string): Promise<{ status: string }> {
   const { data } = await api.post<{ status: string }>(`/v1/attorney-dashboard/leads/${leadId}/scene/regenerate`)
   return data
+}
+
+// Download several evidence files as a single zip so the browser performs ONE
+// direct download instead of prompting per file (CP: attorney multi-download).
+export async function bulkDownloadEvidenceZip(leadId: string, fileIds: string[]) {
+  const { data } = await api.post<Blob>(
+    `/v1/attorney-dashboard/leads/${leadId}/evidence/bulk-download`,
+    { fileIds },
+    { responseType: 'blob' },
+  )
+  const url = URL.createObjectURL(data)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `evidence-${leadId}.zip`
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
 }
 
 // Download an evidence/case document by its stored fileUrl (e.g. /uploads/evidence/..)

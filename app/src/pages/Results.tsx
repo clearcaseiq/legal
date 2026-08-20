@@ -1,6 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useParams, Link, useSearchParams } from 'react-router-dom'
+import { getApiOrigin } from '../lib/runtimeEnv'
 import {
   getAssessment,
   getAssessmentCommandCenter,
@@ -136,14 +137,14 @@ type TimelineEstimate = {
 }
 
 const CLAIM_TYPE_LABELS: Record<string, string> = {
-  auto: 'auto accident',
-  slip_and_fall: 'slip and fall',
-  workplace: 'workplace injury',
-  medmal: 'medical malpractice',
-  dog_bite: 'dog bite',
-  product: 'product liability',
-  assault: 'assault',
-  toxic: 'toxic exposure',
+    auto: 'auto accident',
+    slip_and_fall: 'slip and fall',
+    workplace: 'workplace injury',
+    medmal: 'medical malpractice',
+    dog_bite: 'dog bite',
+    product: 'product liability',
+    assault: 'assault',
+    toxic: 'toxic exposure',
 }
 
 const CASE_SUBTYPE_LABELS: Record<string, string> = {
@@ -152,24 +153,24 @@ const CASE_SUBTYPE_LABELS: Record<string, string> = {
   motorcycle_accident: 'motorcycle accident',
   bus_accident: 'bus or public transit accident',
   other_vehicle_accident: 'vehicle accident',
-  rideshare_accident: 'rideshare accident',
-  truck_accident: 'truck accident',
-  delivery_vehicle_accident: 'delivery vehicle accident',
-  pedestrian_accident: 'pedestrian accident',
-  bicycle_accident: 'bicycle accident',
-  multi_vehicle_accident: 'multi-vehicle accident',
-  rear_end_collision: 'rear-end collision',
-  head_on_collision: 'head-on collision',
-  left_turn_collision: 'left-turn collision',
-  grocery_premises: 'grocery store premises case',
-  restaurant_premises: 'restaurant premises case',
-  apartment_premises: 'apartment premises case',
-  hotel_premises: 'hotel premises case',
-  workplace_injury: 'workplace injury',
-  birth_injury: 'birth injury malpractice',
-  nursing_home_abuse: 'nursing home abuse',
-  negligent_security: 'negligent security',
-  toxic_exposure: 'toxic exposure',
+    rideshare_accident: 'rideshare accident',
+    truck_accident: 'truck accident',
+    delivery_vehicle_accident: 'delivery vehicle accident',
+    pedestrian_accident: 'pedestrian accident',
+    bicycle_accident: 'bicycle accident',
+    multi_vehicle_accident: 'multi-vehicle accident',
+    rear_end_collision: 'rear-end collision',
+    head_on_collision: 'head-on collision',
+    left_turn_collision: 'left-turn collision',
+    grocery_premises: 'grocery store premises case',
+    restaurant_premises: 'restaurant premises case',
+    apartment_premises: 'apartment premises case',
+    hotel_premises: 'hotel premises case',
+    workplace_injury: 'workplace injury',
+    birth_injury: 'birth injury malpractice',
+    nursing_home_abuse: 'nursing home abuse',
+    negligent_security: 'negligent security',
+    toxic_exposure: 'toxic exposure',
   // Catch-all bucket. Without this it fell back to the raw slug ("other pi"),
   // which the capitalize style rendered as "Other Pi".
   other_pi: 'personal injury',
@@ -261,13 +262,24 @@ function getResponseBadge(t: TFn, attorney: any) {
   return attorney.responseBadge || ((attorney.responseTimeHours || 24) <= 8 ? t('results.calc.responseSameDay') : t('results.calc.response24h'))
 }
 
-// Zocdoc-style trust: a public star rating is only shown once an attorney has at
-// least this many *verified* reviews (reviewers who actually engaged them).
-// Below the threshold the surface shows a neutral "New" state instead of a star
-// derived from too few (or unverified) reviews.
-const MIN_VERIFIED_REVIEWS_FOR_RATING = 3
+// Trust gate: a public star rating is only shown once an attorney has at least
+// this many *verified* reviews (reviewers who actually engaged them). Below the
+// threshold the surface shows a neutral "New" state instead of a star derived
+// from unverified reviews. Set to 1 so a genuinely-earned rating surfaces as
+// soon as it's backed by a verified review (CP: "updated rating is not showing").
+const MIN_VERIFIED_REVIEWS_FOR_RATING = 1
 
 // Whether an attorney's verified rating is established enough to publish a star.
+// An uploaded headshot comes back as a server-relative path (/uploads/avatars/…)
+// served by the API origin, not the web app. Rendered as a bare <img src> against
+// the web origin it 404s and the card silently falls back to initials, so resolve
+// relative paths here. Absolute/data URLs pass through untouched.
+function resolveAttorneyPhoto(url?: string | null): string {
+  if (!url) return ''
+  if (/^(blob:|data:|https?:)/i.test(url)) return url
+  return `${getApiOrigin()}${url.startsWith('/') ? '' : '/'}${url}`
+}
+
 function hasPublishedRating(attorney: any): boolean {
   const rating = attorney?.averageRating || attorney?.rating || 0
   const verifiedCount = attorney?.verifiedReviewCount || 0
@@ -1251,9 +1263,9 @@ export default function Results() {
     // Drop any in-flight poll so it cannot rewrite status back to pending.
     caseInsightsRequestIdRef.current += 1
     medicalReviewSavingRef.current = true
-    setMedicalReviewSaving(true)
-    setMedicalReviewError(null)
-    setMedicalReviewStatus(null)
+      setMedicalReviewSaving(true)
+      setMedicalReviewError(null)
+      setMedicalReviewStatus(null)
 
     // Optimistic UI — plaintiffs should see "confirmed" immediately even if the
     // network is slow or a poll was mid-flight.
@@ -1306,12 +1318,12 @@ export default function Results() {
           }, 80)
         } else {
           syncFullReportTab('attorney')
-          window.setTimeout(() => {
-            document.getElementById('attorney-handoff')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-            if (reviewRequested) {
+        window.setTimeout(() => {
+          document.getElementById('attorney-handoff')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+          if (reviewRequested) {
               void openSendModal(nextStatus)
-            }
-          }, 100)
+          }
+        }, 100)
         }
       }
     } catch (error: any) {
@@ -1505,7 +1517,7 @@ export default function Results() {
       try {
         setLoading(true)
         setError(null)
-
+        
         try {
           const session = await loadPlaintiffSessionSummary()
           if (!cancelled) setIsLoggedIn(!!session?.user)
@@ -1531,7 +1543,7 @@ export default function Results() {
         setAssessment(assessmentData)
         if (assessmentData.reference_code) setCaseReferenceCode(assessmentData.reference_code)
         setCaseSubmittedForReview(!!assessmentData.submittedForReview)
-
+        
         // Get prediction if not already available. A valuation failure must
         // never blank the whole results page — fall back to whatever the
         // assessment already carries so the UI can still show a preliminary
@@ -1547,7 +1559,7 @@ export default function Results() {
             if (!cancelled) setPrediction(null)
           }
         }
-
+        
         // Calculate SOL
         const facts = typeof assessmentData.facts === 'string'
           ? JSON.parse(assessmentData.facts)
@@ -1567,7 +1579,7 @@ export default function Results() {
             if (!cancelled) setSol(null)
           }
         }
-
+        
       } catch (err: any) {
         if (cancelled) return
         console.error('Failed to load results:', err)
@@ -3128,9 +3140,9 @@ Checklist:
       ? [{
           title: t('results.calc.nsReviewTimeline'),
           desc: t('results.calc.nsReviewTimelineDesc'),
-          done: !medicalReviewPending,
+      done: !medicalReviewPending,
           cta: t('results.calc.nsReviewCta'),
-          action: () => openAnchoredResultsSection('#medical-story-review'),
+      action: () => openAnchoredResultsSection('#medical-story-review'),
         }]
       : []
     const docsStep = {
@@ -3436,7 +3448,7 @@ Checklist:
       { label: t('results.calc.subAttorneyResponses'), done: false },
       { label: t('results.calc.subChooseAttorney'), done: false }
     ]
-    return (
+  return (
       <Suspense fallback={<ResultsPanelSkeleton message={t('results.calc.subLoading')} />}>
         <ResultsSubmittedView
           assessmentId={assessment?.id}
@@ -3501,13 +3513,13 @@ Checklist:
                   {docReadinessBoost > 0 ? <span className="rounded bg-white/20 px-1.5 py-0.5 text-[10px] font-bold leading-none">+{docReadinessBoost}%</span> : null}
                 </Link>
               )}
-              <button
-                type="button"
+                <button
+                  type="button"
                 onClick={() => { setSendInterstitialOpen(false); proceedSendForReview() }}
                 className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-50"
-              >
+                >
                 {t('results.calc.sendLimitedFile')}
-              </button>
+                </button>
             </div>
           </div>
         </div>
@@ -3525,17 +3537,17 @@ Checklist:
             {t('results.calc.backToResults')}
           </button>
           <div className="space-y-5 pb-8">
-              <div className="min-w-0">
+                  <div className="min-w-0">
                 <h3 className="text-2xl font-bold text-slate-900">{t('results.sendReview.readyTitle')}</h3>
                 <p className="mt-1 text-sm text-slate-600">{t('results.sendReview.readySubtitle')}</p>
-              </div>
+                  </div>
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs text-slate-600">
                 <span className="flex shrink-0 items-center gap-1.5 font-semibold text-slate-800"><Info className="h-4 w-4 text-brand-600" />{t('results.sendReview.howTitle')}:</span>
                 <span className="leading-relaxed">{t('results.sendReview.howBody')}</span>
                 <Link to="/disclosures#how-it-works" target="_blank" rel="noreferrer" className="inline-flex shrink-0 items-center gap-1 font-semibold text-brand-700 hover:text-brand-800">
                   {t('results.sendReview.viewFullDisclosure')} <ChevronRight className="h-3 w-3" />
                 </Link>
-              </div>
+                </div>
               <div className="space-y-5">
               <section className="rounded-2xl border border-slate-200 bg-white px-4 py-4 sm:px-6">
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -3551,50 +3563,50 @@ Checklist:
                 </div>
                 {(showContactEdit || !contactComplete) ? (
                   <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                    <div>
+              <div>
                       <label className="mb-1 block text-sm font-medium text-slate-700">{t('results.calc.firstNameLabel')}</label>
                       <input type="text" value={contactForm.firstName} onChange={e => { setShowContactEdit(true); setContactForm(f => ({ ...f, firstName: e.target.value })) }} className="input" placeholder={t('results.calc.firstNamePlaceholder')} />
-                    </div>
-                    <div>
+              </div>
+              <div>
                       <label className="mb-1 block text-sm font-medium text-slate-700">{t('results.calc.emailLabel')}</label>
                       <input type="email" value={contactForm.email} onChange={e => { setShowContactEdit(true); setContactForm(f => ({ ...f, email: e.target.value })) }} className="input" placeholder="john@example.com" />
-                    </div>
-                    <div>
+              </div>
+              <div>
                       <label className="mb-1 block text-sm font-medium text-slate-700">{t('results.calc.phoneLabel')}</label>
                       <input type="tel" inputMode="tel" value={contactForm.phone}
                         onChange={e => { setShowContactEdit(true); setContactForm(f => ({ ...f, phone: formatPhoneInput(e.target.value) })); if (contactPhoneError) setContactPhoneError(null) }}
-                        onBlur={e => setContactPhoneError(validatePhoneField(e.target.value, { required: true }) ?? null)}
-                        aria-invalid={!!contactPhoneError}
-                        className={`input ${contactPhoneError ? 'border-red-400 focus:border-red-500 focus:ring-red-500' : ''}`}
+                  onBlur={e => setContactPhoneError(validatePhoneField(e.target.value, { required: true }) ?? null)}
+                  aria-invalid={!!contactPhoneError}
+                  className={`input ${contactPhoneError ? 'border-red-400 focus:border-red-500 focus:ring-red-500' : ''}`}
                         placeholder="(555) 123-4567" />
-                      {contactPhoneError && <p className="mt-1 text-xs text-red-600">{contactPhoneError}</p>}
-                    </div>
-                    <div>
+                {contactPhoneError && <p className="mt-1 text-xs text-red-600">{contactPhoneError}</p>}
+              </div>
+              <div>
                       <label className="mb-1 block text-sm font-medium text-slate-700">{t('results.calc.preferredContact')}</label>
                       <div className="flex flex-wrap gap-2">
-                        {(['phone', 'text', 'email'] as const).map(m => (
+                  {(['phone', 'text', 'email'] as const).map(m => (
                           <button key={m} type="button" onClick={() => setContactForm(f => ({ ...f, preferredContactMethod: m }))}
                             className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${contactForm.preferredContactMethod === m ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
                             {m === 'phone' ? <Phone className="h-3.5 w-3.5" /> : m === 'text' ? <MessageSquare className="h-3.5 w-3.5" /> : <Mail className="h-3.5 w-3.5" />}
                             {t(`results.calc.contactMethod_${m}`)}
                           </button>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
+                  ))}
+                </div>
+              </div>
+                </div>
                 ) : (
                   <div className="mt-3 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                     <div className="flex items-center gap-3">
                       <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand-600 text-sm font-semibold text-white">
                         {(contactForm.firstName || 'You').trim().split(/\s+/).map(s => s[0]).slice(0, 2).join('').toUpperCase() || 'YOU'}
                       </span>
-                      <div className="min-w-0">
+                    <div className="min-w-0">
                         <p className="truncate text-sm font-semibold text-slate-900">{contactForm.firstName || t('results.sendReview.you')}</p>
                         <p className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-slate-600">
                           {contactForm.phone && <span className="inline-flex items-center gap-1"><Phone className="h-3 w-3 text-slate-400" />{contactForm.phone}</span>}
                           {contactForm.email && <span className="inline-flex items-center gap-1"><Mail className="h-3 w-3 text-slate-400" />{contactForm.email}</span>}
                         </p>
-                      </div>
+                    </div>
                     </div>
                     <div className="sm:text-right">
                       <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-slate-400">{t('results.calc.preferredContact')}</p>
@@ -3604,9 +3616,9 @@ Checklist:
                             className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${contactForm.preferredContactMethod === m ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
                             {m === 'phone' ? <Phone className="h-3.5 w-3.5" /> : m === 'text' ? <MessageSquare className="h-3.5 w-3.5" /> : <Mail className="h-3.5 w-3.5" />}
                             {t(`results.calc.contactMethod_${m}`)}
-                          </button>
+                    </button>
                         ))}
-                      </div>
+                  </div>
                     </div>
                   </div>
                 )}
@@ -3626,14 +3638,14 @@ Checklist:
                   <div className="rounded-xl border border-slate-200 bg-white px-4 py-4 text-sm text-slate-600">{t('results.calc.findingAttorneys')}</div>
                 )}
                 {!attorneySearchLoading && rankedAttorneyCards.length > 0 && (
-                  <div>
+                          <div>
                     <div className="flex flex-wrap gap-3">
                     {rankedAttorneyCards.map((attorney: any, index) => {
                       const n = index + 1
                       const ord = n === 1 ? 'ST' : n === 2 ? 'ND' : n === 3 ? 'RD' : 'TH'
                       const rating = attorney.averageRating || attorney.rating || 0
                       const slug = attorney.bookingSlug || attorney.booking_slug
-                      const photo = attorney.attorneyProfile?.photoUrl || attorney.photoUrl
+                      const photo = resolveAttorneyPhoto(attorney.attorneyProfile?.photoUrl || attorney.photoUrl)
                       const reasons = getAttorneyRecommendationReasons(t, attorney, { assessmentClaimType: assessment?.claimType, venueState, venueCounty }).slice(0, 4)
                       const attorneyId = attorney.id || attorney.attorney_id
                       const isDragging = draggingAttorneyId === attorneyId
@@ -3732,21 +3744,21 @@ Checklist:
                                       <button type="button" onClick={() => moveRankedAttorney(attorney.id || attorney.attorney_id, -1)} disabled={index === 0} title={t('results.calc.moveUp')} aria-label={t('results.calc.moveUp')} className="rounded-xl border border-slate-200 bg-white p-2.5 text-slate-700 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50 disabled:opacity-40"><ChevronDown className="h-5 w-5 rotate-180" /></button>
                                       <button type="button" onClick={() => moveRankedAttorney(attorney.id || attorney.attorney_id, 1)} disabled={index === rankedAttorneyCards.length - 1} title={t('results.calc.moveDown')} aria-label={t('results.calc.moveDown')} className="rounded-xl border border-slate-200 bg-white p-2.5 text-slate-700 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50 disabled:opacity-40"><ChevronDown className="h-5 w-5" /></button>
                                       <button type="button" onClick={() => removeRankedAttorney(attorney.id || attorney.attorney_id)} title={t('results.calc.remove')} aria-label={t('results.calc.remove')} className="rounded-xl border border-slate-200 bg-white p-2.5 text-slate-700 shadow-sm transition-colors hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700"><X className="h-5 w-5" /></button>
-                                    </div>
+                            </div>
                                   )}
                                   {slug && (
                                     <a href={`/book/${slug}`} target="_blank" rel="noreferrer" draggable={false} className={`block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-center text-sm font-semibold text-brand-700 hover:bg-brand-50 ${isSharedReadOnly ? '' : 'mt-2'}`}>
                                       {t('results.sendReview.viewProfile')}
                                     </a>
                                   )}
-                                </div>
-                              )}
                             </div>
+                              )}
+                          </div>
                           </div>
                         </div>
                       )
                     })}
-                    </div>
+                      </div>
                     {removedAttorneyCards.length > 0 && (
                       <div className="mt-3 rounded-xl border border-slate-200 bg-white px-3 py-2">
                         <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{t('results.calc.removedHeader')}</p>
@@ -3758,7 +3770,7 @@ Checklist:
                             </li>
                           ))}
                         </ul>
-                      </div>
+                  </div>
                     )}
                   </div>
                 )}
@@ -3775,9 +3787,9 @@ Checklist:
                           </li>
                         ))}
                       </ul>
-                    )}
-                  </div>
-                )}
+                  )}
+                </div>
+              )}
                 {!attorneySearchLoading && rankedAttorneyCards.length === 0 && dismissedAttorneyIds.length === 0 && (
                   <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
                     <p className="font-medium text-amber-950">{t('results.calc.couldNotLoadMatches')}</p>
@@ -3785,9 +3797,9 @@ Checklist:
                       {t('results.calc.couldNotLoadMatchesBody1')}{' '}
                       <button type="button" className="font-semibold underline decoration-amber-700 underline-offset-2 hover:text-amber-950" onClick={() => void refreshMatchedAttorneys()}>{t('results.calc.reloadMatches')}</button>{' '}
                       {t('results.calc.couldNotLoadMatchesBody2')}
-                    </p>
-                  </div>
-                )}
+                  </p>
+                </div>
+              )}
               </section>
               <section className="rounded-2xl border border-slate-200 bg-white px-4 py-4 sm:px-6">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -3841,7 +3853,7 @@ Checklist:
                   </label>
                   <Link to="/disclosures" target="_blank" rel="noreferrer" className="shrink-0 whitespace-nowrap text-xs font-semibold text-brand-700 hover:text-brand-800">{t('results.sendReview.viewAuthDisclosures')} →</Link>
                 </div>
-              </div>
+                </div>
               <section>
                 <h4 className="mb-3 text-sm font-semibold text-slate-900">{t('results.sendReview.nextTitle')}</h4>
                 <div className="grid gap-4 sm:grid-cols-3">
@@ -3855,23 +3867,23 @@ Checklist:
                       <div>
                         <p className="text-sm font-semibold text-slate-900">{step.title}</p>
                         <p className="mt-0.5 text-xs text-slate-600">{step.body}</p>
-                      </div>
+            </div>
                     </div>
                   ))}
                 </div>
               </section>
               </div>
             <div className="mx-auto mt-5 max-w-xl text-center">
-              {contactFormError && <p className="mt-2 text-sm text-red-600">{contactFormError}</p>}
+            {contactFormError && <p className="mt-2 text-sm text-red-600">{contactFormError}</p>}
               <p className="mt-4 text-xs text-slate-500">{t('results.calc.sendFooter1')}</p>
               <p className="mt-1 text-xs text-slate-500">{t('results.calc.sendFooter2')}</p>
-              <button
-                onClick={handleSubmitForReview}
+            <button
+              onClick={handleSubmitForReview}
                 disabled={submitLoading || attorneySearchLoading || !shareAuthorized}
-                className="btn-primary mt-4 w-full py-3 text-base disabled:cursor-not-allowed disabled:opacity-70"
-              >
+              className="btn-primary mt-4 w-full py-3 text-base disabled:cursor-not-allowed disabled:opacity-70"
+            >
                 {submitLoading ? t('results.calc.sending') : attorneySearchLoading ? t('results.calc.findingMatches') : t('results.calc.sendMyCase')}
-              </button>
+            </button>
               <button
                 type="button"
                 onClick={() => !submitLoading && setSendModalOpen(false)}
@@ -3992,12 +4004,12 @@ Checklist:
             </div>
           )}
           <div className="mt-5">
-            <h1 className="font-display text-2xl font-semibold leading-tight tracking-tight text-slate-900 sm:text-3xl">
-              {t('results.headings.snapshot')}
-            </h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-              {t('results.headings.snapshotSub')}
-            </p>
+              <h1 className="font-display text-2xl font-semibold leading-tight tracking-tight text-slate-900 sm:text-3xl">
+                {t('results.headings.snapshot')}
+              </h1>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+                {t('results.headings.snapshotSub')}
+              </p>
           </div>
         </header>
 
@@ -4258,9 +4270,9 @@ Checklist:
                   >
                     <Upload className="h-3.5 w-3.5" aria-hidden /> {t('results.chrome.addDocuments')}
                   </Link>
-                </div>
-              )}
             </div>
+            )}
+          </div>
           </div>
 
           {/* Your case strength — unified narrative, quality score, and factor/value breakdown */}
@@ -4317,7 +4329,7 @@ Checklist:
                         <div className="mt-0.5 flex items-start justify-between gap-2">
                           <p className="min-w-0 text-xs leading-5 text-slate-500">{row.desc}</p>
                           <span className={`mt-0.5 shrink-0 rounded-md px-2 py-0.5 text-xs font-semibold capitalize ${tone}`}>{row.value}</span>
-                        </div>
+                      </div>
                       </div>
                     </div>
                   )
@@ -4370,13 +4382,13 @@ Checklist:
                 {t('evidence.viewDashboard')} <ChevronRight className="h-3.5 w-3.5" />
               </Link>
             ) : (
-              <button
-                type="button"
-                onClick={openAttorneyReviewFlow}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-brand-700 px-3.5 py-2 text-xs font-semibold text-white shadow-sm hover:bg-brand-800"
-              >
-                {t('results.shared.continueReview')} <ChevronRight className="h-3.5 w-3.5" />
-              </button>
+            <button
+              type="button"
+              onClick={openAttorneyReviewFlow}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-brand-700 px-3.5 py-2 text-xs font-semibold text-white shadow-sm hover:bg-brand-800"
+            >
+              {t('results.shared.continueReview')} <ChevronRight className="h-3.5 w-3.5" />
+            </button>
             )}
           </div>
         </div>
@@ -4483,17 +4495,17 @@ Checklist:
 
           {/* Important notes */}
           <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <p className="font-display text-base font-semibold text-slate-900">{t('results.overview.importantNotes')}</p>
-            <ul className="mt-3 space-y-2 text-sm text-slate-600">
-              {[
-                t('results.overview.note1'),
-                t('results.overview.note2'),
-                t('results.overview.note3'),
-                t('results.overview.note4'),
-              ].map((note) => (
-                <li key={note} className="flex items-start gap-2"><CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /><span>{note}</span></li>
-              ))}
-            </ul>
+              <p className="font-display text-base font-semibold text-slate-900">{t('results.overview.importantNotes')}</p>
+              <ul className="mt-3 space-y-2 text-sm text-slate-600">
+                {[
+                  t('results.overview.note1'),
+                  t('results.overview.note2'),
+                  t('results.overview.note3'),
+                  t('results.overview.note4'),
+                ].map((note) => (
+                  <li key={note} className="flex items-start gap-2"><CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /><span>{note}</span></li>
+                ))}
+              </ul>
           </div>
         </div>
         )}
@@ -4721,12 +4733,12 @@ Checklist:
                   'group block cursor-pointer rounded-xl border border-slate-200 bg-white p-3 shadow-sm text-left transition-all hover:border-brand-300 hover:bg-brand-50/40 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500'
                 const body = (
                   <>
-                    <div className="flex items-center justify-between">
-                      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-brand-100 text-[11px] font-bold text-brand-700">{i + 1}</span>
-                      <span className="text-xs font-bold text-emerald-600">{step.impact}</span>
-                    </div>
-                    <p className="mt-2 text-sm font-semibold text-slate-900">{step.label}</p>
-                    <p className="text-[11px] text-slate-500">{step.desc}</p>
+                  <div className="flex items-center justify-between">
+                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-brand-100 text-[11px] font-bold text-brand-700">{i + 1}</span>
+                    <span className="text-xs font-bold text-emerald-600">{step.impact}</span>
+                  </div>
+                  <p className="mt-2 text-sm font-semibold text-slate-900">{step.label}</p>
+                  <p className="text-[11px] text-slate-500">{step.desc}</p>
                     {(step.href || step.onActivate) && (
                       <p className="mt-2 inline-flex items-center gap-0.5 text-[11px] font-semibold text-brand-700">
                         {step.cta} <ChevronRight className="h-3 w-3" aria-hidden />
@@ -4751,7 +4763,7 @@ Checklist:
                 return (
                   <div key={step.label} className={cardClass}>
                     {body}
-                  </div>
+                </div>
                 )
               })}
             </div>
@@ -6119,26 +6131,26 @@ Checklist:
               </div>
             ) : (
               <>
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="flex items-center gap-3">
-                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-50 text-brand-600"><Star className="h-5 w-5" aria-hidden /></span>
-                    <div>
-                      <p className="text-sm font-semibold text-slate-900">{t('results.next.readyToSee')}</p>
-                      <p className="text-xs text-slate-500">{t('results.next.submitNowResponses')}</p>
-                    </div>
-                  </div>
-                  <div className="text-center sm:text-right">
-                    <button
-                      type="button"
-                      onClick={openAttorneyReviewFlow}
-                      className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-brand-700 px-6 py-3 text-base font-semibold text-white shadow-sm transition-colors hover:bg-brand-800 sm:w-auto"
-                    >
-                      {t('results.next.sendMyCase')}
-                      <ChevronRight className="h-4 w-4" aria-hidden />
-                    </button>
-                    <p className="mt-1.5 text-[11px] text-slate-400">{t('results.next.noObligationFree')}</p>
-                  </div>
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-3">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-50 text-brand-600"><Star className="h-5 w-5" aria-hidden /></span>
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">{t('results.next.readyToSee')}</p>
+                  <p className="text-xs text-slate-500">{t('results.next.submitNowResponses')}</p>
                 </div>
+              </div>
+              <div className="text-center sm:text-right">
+                <button
+                  type="button"
+                  onClick={openAttorneyReviewFlow}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-brand-700 px-6 py-3 text-base font-semibold text-white shadow-sm transition-colors hover:bg-brand-800 sm:w-auto"
+                >
+                      {t('results.next.sendMyCase')}
+                  <ChevronRight className="h-4 w-4" aria-hidden />
+                </button>
+                <p className="mt-1.5 text-[11px] text-slate-400">{t('results.next.noObligationFree')}</p>
+              </div>
+            </div>
               </>
             )}
           </div>

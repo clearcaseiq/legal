@@ -35,7 +35,7 @@ import {
   recordRoutingEvent,
   syncDecisionMemoryForAssessment
 } from '../lib/routing-lifecycle'
-import { sendPlaintiffAttorneyAccepted, notifyPlaintiffInApp } from '../lib/case-notifications'
+import { sendPlaintiffAttorneyAccepted, notifyPlaintiffInApp, sendPlaintiffCaseClosed } from '../lib/case-notifications'
 import { createExternalCalendarEvent, deleteExternalCalendarEvent } from '../lib/calendar-sync'
 import { notifyWaitlistForFreedSlot, syncLeadStatusAfterConsultCancelled } from '../lib/appointment-engagement'
 import { createZoomMeeting } from '../lib/zoom'
@@ -7863,6 +7863,74 @@ router.get('/leads/:leadId/case-file', authMiddleware, async (req: any, res) => 
   }
 })
 
+// Bulk-download selected evidence files as ONE zip. Downloading multiple files by
+// firing an <a download> per file makes the browser show a "download multiple
+// files?" permission prompt and a Save-As per file; a single zip is one direct
+// download with no prompts (CP: attorney evidence multi-download).
+router.post('/leads/:leadId/evidence/bulk-download', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
+    }
+    const { lead } = auth
+
+    const rawIds = Array.isArray(req.body?.fileIds) ? req.body.fileIds : []
+    const fileIds = rawIds.filter((id: any) => typeof id === 'string' && id).slice(0, 200)
+    if (fileIds.length === 0) {
+      return res.status(400).json({ error: 'No files selected' })
+    }
+
+    // Scope strictly to this case's assessment so an attorney can't pull files by id
+    // from another case.
+    const files = await prisma.evidenceFile.findMany({
+      where: { id: { in: fileIds }, assessmentId: lead.assessmentId },
+      select: { id: true, filePath: true, originalName: true, filename: true },
+    })
+    if (files.length === 0) {
+      return res.status(404).json({ error: 'No matching files found' })
+    }
+
+    res.setHeader('Content-Type', 'application/zip')
+    res.setHeader('Content-Disposition', `attachment; filename=evidence-${leadId}.zip`)
+
+    const archive = archiver('zip', { zlib: { level: 9 } })
+    archive.on('error', (err: Error) => {
+      logger.error('Failed to build evidence zip', { error: err.message, leadId })
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Failed to build download' })
+      }
+    })
+    archive.pipe(res)
+
+    const usedNames = new Set<string>()
+    for (const file of files) {
+      const resolved = resolveStoragePath(file.filePath)
+      if (!fs.existsSync(resolved)) continue
+      let name = file.originalName || file.filename || file.id
+      // De-dupe identical original names so the zip keeps every file.
+      if (usedNames.has(name)) {
+        const dot = name.lastIndexOf('.')
+        const base = dot > 0 ? name.slice(0, dot) : name
+        const ext = dot > 0 ? name.slice(dot) : ''
+        let n = 2
+        while (usedNames.has(`${base} (${n})${ext}`)) n += 1
+        name = `${base} (${n})${ext}`
+      }
+      usedNames.add(name)
+      archive.file(resolved, { name })
+    }
+
+    await archive.finalize()
+  } catch (error: any) {
+    logger.error('Failed to bulk-download evidence', { error: error.message })
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to download files' })
+    }
+  }
+})
+
 // Litigation finance summary for a lead
 router.get('/leads/:leadId/finance/summary', authMiddleware, async (req: any, res) => {
   try {
@@ -15369,6 +15437,9 @@ router.post('/leads/:leadId/close', authMiddleware, async (req: any, res) => {
       actor: { type: 'user', id: req.user?.id ?? null, label: requestActorName(req.user) },
     })
     const stage = await syncCaseStage(lead.assessmentId, { source: 'attorney', force: true })
+    // Let the client know their case is settled and closed — bell, email, and a
+    // note in their attorney message thread. Best-effort; never block the close.
+    void sendPlaintiffCaseClosed(lead.assessmentId, { attorneyId: lead.assignedAttorneyId ?? auth.attorney?.id ?? null })
     res.json({ ok: true, caseStage: stage })
   } catch (error: any) {
     logger.error('Failed to close case', { error: error.message, leadId: req.params.leadId })
@@ -15592,39 +15663,55 @@ router.post('/leads/:leadId/decision', authMiddleware, async (req: any, res) => 
       }
     }
 
-    const lead = await prisma.leadSubmission.update({
-      where: { id: leadId },
-      data: {
-        status: decision === 'accept' ? 'contacted' : 'rejected',
-        assignedAttorneyId: decision === 'accept' ? attorneyId : null,
-        assignmentType: decision === 'accept' ? 'exclusive' : existingLead.assignmentType,
-        lifecycleState: decision === 'accept' ? 'attorney_matched' : 'routing_active',
-        routingLocked: decision === 'accept',
-        ...(decision === 'accept' ? { lastContactAt: new Date() } : {})
-      }
-    })
-
-    // Sync Introduction status so tier routing waitForOfferResponse sees it, AND so
-    // the attorney's Accepted/Declined tiles reflect this decision. Those tiles are
-    // derived entirely from the Introduction decision ledger, so a lead that reached
-    // the attorney WITHOUT a formal Introduction row (e.g. shared/pool leads or ones
-    // assigned directly via assignedAttorneyId) would otherwise drop out of New
-    // Matches but never increment Declined/Accepted. Backfill a row in that case so
-    // every explicit decision is logged exactly once.
+    // Finalize the attorney's decision on the Introduction FIRST and atomically.
+    // A response is final: opening the same offer in two tabs and declining in one
+    // then accepting in the other used to leave the case ACCEPTED with a decline
+    // reason still attached, because both requests read PENDING and then wrote
+    // last-write-wins (CP: accept after decline). The Introduction is the decision
+    // ledger, so claim it here — only the writer that flips PENDING proceeds; a
+    // stale/second response is turned away before any lead mutation.
+    //
+    // The tiles are derived entirely from this ledger, so a lead that reached the
+    // attorney WITHOUT a formal Introduction row (shared/pool or directly assigned)
+    // gets one backfilled so every explicit decision is logged exactly once.
     const respondedStatus = decision === 'accept' ? 'ACCEPTED' : 'DECLINED'
     let decisionIntroId: string | null = intro?.id ?? null
     if (intro) {
+      if (intro.status !== 'PENDING') {
+        const already =
+          intro.status === 'ACCEPTED' ? 'accepted' : intro.status === 'DECLINED' ? 'declined' : null
+        return res.status(409).json({
+          error: already
+            ? `You have already ${already} this case.`
+            : 'This match is no longer available to respond to.',
+          code: 'ALREADY_RESPONDED',
+        })
+      }
       const introUpdate: Record<string, unknown> = {
         status: respondedStatus,
-        respondedAt: new Date()
+        respondedAt: new Date(),
       }
       if (decision === 'reject' && declineReason) {
         introUpdate.declineReason = declineReason
       }
-      await prisma.introduction.update({
-        where: { id: intro.id },
-        data: introUpdate as any
+      const claimed = await prisma.introduction.updateMany({
+        where: { id: intro.id, status: 'PENDING' },
+        data: introUpdate as any,
       })
+      if (claimed.count === 0) {
+        const current = await prisma.introduction.findUnique({
+          where: { id: intro.id },
+          select: { status: true },
+        })
+        const already =
+          current?.status === 'ACCEPTED' ? 'accepted' : current?.status === 'DECLINED' ? 'declined' : null
+        return res.status(409).json({
+          error: already
+            ? `You have already ${already} this case.`
+            : 'This match is no longer available to respond to.',
+          code: 'ALREADY_RESPONDED',
+        })
+      }
     } else {
       const backfilled = await prisma.introduction.create({
         data: {
@@ -15640,6 +15727,19 @@ router.post('/leads/:leadId/decision', authMiddleware, async (req: any, res) => 
       })
       decisionIntroId = backfilled.id
     }
+
+    // Only now — after the decision is exclusively claimed — mutate the lead.
+    const lead = await prisma.leadSubmission.update({
+      where: { id: leadId },
+      data: {
+        status: decision === 'accept' ? 'contacted' : 'rejected',
+        assignedAttorneyId: decision === 'accept' ? attorneyId : null,
+        assignmentType: decision === 'accept' ? 'exclusive' : existingLead.assignmentType,
+        lifecycleState: decision === 'accept' ? 'attorney_matched' : 'routing_active',
+        routingLocked: decision === 'accept',
+        ...(decision === 'accept' ? { lastContactAt: new Date() } : {})
+      }
+    })
 
     // Record routing event for analytics, admin dashboard, and matching algorithm
     if (decisionIntroId) {

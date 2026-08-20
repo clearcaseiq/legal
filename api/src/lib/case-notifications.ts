@@ -768,6 +768,119 @@ export async function sendPlaintiffCaseValueUpdated(
 }
 
 /**
+ * Plaintiff notification + chat message when their case is settled and closed.
+ *
+ * Sends the close-out over email and the in-app bell, and drops a matching note
+ * into the plaintiff↔attorney message thread so the closing shows up in their
+ * inbox (not just the bell). Best-effort: any single channel failing is logged
+ * and does not block the others.
+ */
+export async function sendPlaintiffCaseClosed(
+  assessmentId: string,
+  opts?: { attorneyId?: string | null }
+): Promise<boolean> {
+  const assessment = await prisma.assessment.findUnique({
+    where: { id: assessmentId },
+    include: { user: true },
+  })
+  if (!assessment?.userId || !assessment.user?.email) {
+    logger.warn('No plaintiff for case-closed notification', { assessmentId })
+    return false
+  }
+
+  const attorney = opts?.attorneyId
+    ? await prisma.attorney.findUnique({
+        where: { id: opts.attorneyId },
+        select: { id: true, name: true, lawFirm: { select: { name: true } } },
+      })
+    : null
+
+  const greetingName = assessment.user.firstName ? ` ${assessment.user.firstName}` : ''
+  const attorneyName = attorney?.name || 'Your attorney'
+  const firmName = attorney?.lawFirm?.name || ''
+  const attorneyLine = attorney?.name ? `${attorneyName}${firmName ? `, ${firmName}` : ''}` : ''
+  const caseTypeLabel = assessment.claimType ? formatClaimType(assessment.claimType) : 'your'
+  const subject = 'Your case has been closed'
+  const message = [
+    `Hello${greetingName},`,
+    '',
+    `Your ${caseTypeLabel} case has been settled and closed${attorneyLine ? ` by ${attorneyLine}` : ''}.`,
+    '',
+    'Thank you for trusting ClearCaseIQ with your claim. Your case file and documents remain available in your dashboard for your records.',
+    '',
+    'If you have any questions about the closing of your case, please reach out to your attorney directly.',
+    '',
+    'Warm regards,',
+    'The ClearCaseIQ Team',
+  ].join('\n')
+
+  const payload = { assessmentId, attorneyId: attorney?.id || null, attorneyName: attorney?.name || null, firmName: firmName || null }
+
+  let ok = false
+  try {
+    await createNotificationEvent({
+      userId: assessment.userId,
+      attorneyId: attorney?.id || undefined,
+      assessmentId,
+      role: 'plaintiff',
+      channel: 'email',
+      eventType: PLAINTIFF_EVENTS.case_closed,
+      subject,
+      body: message,
+      recipient: assessment.user.email,
+      payload,
+    })
+    await createNotificationEvent({
+      userId: assessment.userId,
+      attorneyId: attorney?.id || undefined,
+      assessmentId,
+      role: 'plaintiff',
+      channel: 'in_app',
+      eventType: PLAINTIFF_EVENTS.case_closed,
+      subject,
+      body: message,
+      recipient: assessment.user.email,
+      payload,
+    })
+    ok = true
+  } catch (err: unknown) {
+    logger.error('Failed to send case-closed notification', { assessmentId, error: (err as Error).message })
+  }
+
+  // Land it in the plaintiff's inbox as an actual message from their attorney.
+  if (attorney?.id) {
+    try {
+      let room = await prisma.chatRoom.findUnique({
+        where: { userId_attorneyId: { userId: assessment.userId, attorneyId: attorney.id } },
+        select: { id: true },
+      })
+      if (!room) {
+        room = await prisma.chatRoom.create({
+          data: { userId: assessment.userId, attorneyId: attorney.id, assessmentId },
+          select: { id: true },
+        })
+      }
+      await prisma.message.create({
+        data: {
+          chatRoomId: room.id,
+          senderId: attorney.id,
+          senderType: 'attorney',
+          content:
+            'Your case has been settled and closed. Thank you for working with us — your case file and documents remain available in your dashboard. Please reach out if you have any questions.',
+          messageType: 'text',
+        },
+      })
+      await prisma.chatRoom.update({ where: { id: room.id }, data: { lastMessageAt: new Date() } })
+    } catch (chatErr: unknown) {
+      logger.error('Failed to post case-closed chat message', { assessmentId, error: (chatErr as Error).message })
+    }
+  }
+
+  logger.info('Plaintiff notified of case closure', { assessmentId, attorneyId: attorney?.id || null })
+  return ok
+}
+
+/**
  * Attorney notification when case has material update (value +20%, new liability evidence, etc.)
  */
 export async function sendAttorneyCaseMaterialUpdate(

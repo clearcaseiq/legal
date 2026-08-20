@@ -620,7 +620,14 @@ router.put('/:id', authMiddleware, async (req: AuthRequest, res) => {
 router.delete('/:id', authMiddleware, async (req: AuthRequest, res) => {
   try {
     const { id } = req.params
-    const parsedReason = parseCancellationReason(req.body?.reason ?? req.body?.cancellationReason)
+    // Read the reason from the body OR the query string. A DELETE request body is
+    // legal but is dropped by some proxies/CDNs, which made a cancel with a typed
+    // reason fail server-side with "reason required" (CP: unable to cancel — the
+    // validation message keeps showing). The client now also sends ?reason= so the
+    // reason survives regardless of how the intermediary treats DELETE bodies.
+    const parsedReason = parseCancellationReason(
+      req.body?.reason ?? req.body?.cancellationReason ?? req.query?.reason ?? req.query?.cancellationReason,
+    )
     if (!parsedReason.ok) {
       return res.status(400).json({ error: parsedReason.error })
     }

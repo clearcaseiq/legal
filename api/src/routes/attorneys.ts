@@ -159,6 +159,11 @@ router.get('/search', async (req: Request, res: Response) => {
         reviews_count: reviewsCount || 0,
         totalReviews: reviewsCount || 0,
         verifiedReviewCount,
+        // The consumer attorney-selection cards render the uploaded headshot; it
+        // lives on the profile row, so surface it here or the card can only ever
+        // show initials (CP: "uploaded image is not showing"). Relative
+        // /uploads/... paths are resolved against the API origin on the client.
+        photoUrl: (attorney as any).attorneyProfile?.photoUrl || null,
         law_firm: (attorney as any).lawFirm ? {
           id: (attorney as any).lawFirm.id,
           name: (attorney as any).lawFirm.name,
