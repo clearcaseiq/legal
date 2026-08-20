@@ -1,6 +1,7 @@
 import type { LanguageCode } from '../i18n'
 import { requestedLandingPages } from './seoRequestedPages'
 import { priorityLandingPages } from './seoPriorityPages'
+import { injuryDemandGuidePages } from './seoInjuryDemandGuides'
 import { injuryValueGuidePages } from './seoInjuryValueGuides'
 import { expansionLandingPages } from './seoExpansionPages'
 import { insuranceGuidePages } from './seoInsuranceGuides'
@@ -83,6 +84,7 @@ export const CONTENT_UPDATED = {
   solGuides: '2026-08-19',
   medicalRecordsGuides: '2026-08-19',
   injuryValueGuides: '2026-08-19',
+  injuryDemandGuides: '2026-08-19',
 } as const
 
 /**
@@ -107,6 +109,9 @@ export const CONTENT_PUBLISHED = {
   // The URLs are not new — they published with the conversion set and were
   // rewritten in place, so the publish date stays and only `dateModified` moves.
   injuryValueGuides: '2026-06-02',
+  // Likewise: these five published with the priority set and were rewritten,
+  // not created.
+  injuryDemandGuides: '2026-06-02',
 } as const
 
 /** Applies a set's dates without overriding page-specific ones. */
@@ -464,6 +469,11 @@ export const allLandingPages: LandingPage[] = [
     injuryValueGuidePages,
     CONTENT_UPDATED.injuryValueGuides,
     CONTENT_PUBLISHED.injuryValueGuides,
+  ),
+  ...stamp(
+    injuryDemandGuidePages,
+    CONTENT_UPDATED.injuryDemandGuides,
+    CONTENT_PUBLISHED.injuryDemandGuides,
   ),
   ...stamp(insuranceGuidePages, CONTENT_UPDATED.insuranceGuides, CONTENT_PUBLISHED.insuranceGuides),
   ...stamp(caseStrengthGuidePages, CONTENT_UPDATED.caseStrengthGuide, CONTENT_PUBLISHED.caseStrengthGuide),

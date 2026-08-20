@@ -1,5 +1,6 @@
 import { requestedTopicContentBySlug } from './seoRequestedPages'
 import { priorityTopicContentBySlug } from './seoPriorityPages'
+import { injuryDemandGuideTopicContentBySlug } from './seoInjuryDemandGuides'
 import { injuryValueGuideTopicContentBySlug } from './seoInjuryValueGuides'
 import { expansionTopicContentBySlug } from './seoExpansionPages'
 import { insuranceGuideTopicContentBySlug } from './seoInsuranceGuides'
@@ -615,6 +616,7 @@ export const topicContentBySlug: Record<string, TopicContent> = {
 Object.assign(topicContentBySlug, requestedTopicContentBySlug)
 Object.assign(topicContentBySlug, priorityTopicContentBySlug)
 Object.assign(topicContentBySlug, injuryValueGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, injuryDemandGuideTopicContentBySlug)
 Object.assign(topicContentBySlug, expansionTopicContentBySlug)
 Object.assign(topicContentBySlug, insuranceGuideTopicContentBySlug)
 Object.assign(topicContentBySlug, caseStrengthGuideTopicContentBySlug)

@@ -172,6 +172,25 @@ const nextConfig = {
         destination: `/how-much-is-a-${survivor}-case-worth`,
         statusCode: 301,
       })),
+      // Three more from the same generator that ask a question another page now
+      // answers in depth. Sciatica is lumbar radiculopathy under a common name;
+      // the nerve damage page led its own description with radiculopathy; and
+      // spinal fusion is what the back surgery guide is about.
+      {
+        source: '/settlements/sciatica-settlement',
+        destination: '/settlements/radiculopathy-settlement',
+        statusCode: 301,
+      },
+      {
+        source: '/settlements/nerve-damage-settlement',
+        destination: '/settlements/radiculopathy-settlement',
+        statusCode: 301,
+      },
+      {
+        source: '/settlements/spinal-fusion-settlement',
+        destination: '/how-much-is-a-back-surgery-case-worth',
+        statusCode: 301,
+      },
     ]
   },
   // Local/LAN: browser calls same-origin `/v1/*`; Next proxies to the API.
