@@ -136,49 +136,9 @@ const settlementPages: ExpansionSeed[] = settlementRows.map(([slugPart, title, c
   intake: [{ label: 'Step 1', question: 'What injury and treatment records exist?' }, { label: 'Step 2', question: 'What evidence proves fault?' }, { label: 'Step 3', question: 'What bills, wage loss, and liens exist?' }, { label: 'Step 4', question: 'What insurance limits or offers are known?' }],
 }))
 
-const cityRows = [
-  ['long-beach-car-accident', 'Long Beach Car Accident Case Review', 'Long Beach Car Accident Claims', 'port traffic, freeway corridors, commercial vehicles, rideshare activity, pedestrian risk, and Los Angeles County venue'],
-  ['anaheim-car-accident', 'Anaheim Car Accident Case Review', 'Anaheim Car Accident Claims', 'tourism traffic, freeway crashes, rideshare vehicles, pedestrian injuries, and Orange County venue'],
-  ['irvine-car-accident', 'Irvine Car Accident Case Review', 'Irvine Car Accident Claims', 'commuter traffic, high medical costs, rideshare use, tech-worker wage loss, and Orange County venue'],
-  ['riverside-car-accident', 'Riverside Car Accident Case Review', 'Riverside Car Accident Claims', 'Inland Empire commuter corridors, freeway crashes, trucking routes, and Riverside County venue'],
-  ['oakland-car-accident', 'Oakland Car Accident Case Review', 'Oakland Car Accident Claims', 'urban traffic, port and commercial vehicles, freeway corridors, pedestrians, cyclists, and Alameda County venue'],
-  ['fresno-car-accident', 'Fresno Car Accident Case Review', 'Fresno Car Accident Claims', 'Central Valley roads, agricultural and commercial vehicles, freeway crashes, and Fresno County venue'],
-  ['bakersfield-car-accident', 'Bakersfield Car Accident Case Review', 'Bakersfield Car Accident Claims', 'oilfield and agricultural traffic, trucking routes, freeway crashes, and Kern County venue'],
-] as const
-
-const cityPages: ExpansionSeed[] = cityRows.map(([slugPart, title, cluster, localContext]) => ({
-  slug: `/${slugPart}`,
-  category: 'Attorney Intent',
-  cluster,
-  title,
-  eyebrow: 'California local accident guide',
-  description: `${title} requires more than a generic accident estimate. Local factors include ${localContext}, plus injury severity, liability evidence, treatment, damages, and insurance coverage.`,
-  psychology: 'I need to understand my local California accident claim.',
-  cta: 'Start Local Case Assessment',
-  queries: [title.toLowerCase(), `${slugPart.replace(/-/g, ' ')} settlement`, `${cluster.toLowerCase()} lawyer`],
-  signals: ['Local venue', 'Liability evidence', 'Medical treatment', 'Wage loss', 'Insurance limits', 'Commercial coverage'],
-  track: ['Exact accident date, city, county, roadway, and police agency', 'Crash type, citations, witnesses, photos, video, and vehicle damage', 'ER care, PT, imaging, specialists, injections, surgery, or future care', 'Medical bills, liens, out-of-pocket costs, and wage loss', 'Insurance carriers, BI limits, UM/UIM, commercial or rideshare coverage, and offers'],
-  why: `${title} can be affected by local venue, traffic patterns, medical networks, wage loss, commercial vehicle involvement, and insurance behavior. A structured intake helps attorneys review the file faster.`,
-  help: 'ClearCaseIQ captures local venue, accident facts, injuries, treatment, damages, insurance, and missing documents in one case report.',
-  faqs: [
-    { q: `What affects a ${title.toLowerCase()}?`, a: 'Injury severity, liability, treatment, medical bills, wage loss, venue, insurance limits, commercial coverage, and documentation all matter.' },
-    { q: 'Do local facts matter?', a: 'Yes. County, roadway, police agency, medical providers, wage loss, and commercial traffic can all affect review.' },
-    { q: 'Can ClearCaseIQ help with attorney readiness?', a: 'ClearCaseIQ is not a law firm, but it organizes facts and documents for education and possible attorney review.' },
-  ],
-  scenario: `A claimant in ${cluster.toLowerCase()} had medical treatment, photos, an insurance claim, and missed work. The file became clearer when local venue, liability evidence, medical bills, and coverage facts were organized together.`,
-  timeline: [['Crash scene', 'Location, photos, witnesses, police agency, and fault facts are recorded.'], ['Medical phase', 'Treatment records, imaging, bills, and referrals define damages.'], ['Insurance phase', 'Coverage, offers, denials, and policy limits are tracked.'], ['Review phase', 'Venue, damages, and documentation determine attorney readiness.']],
-  severity: [['Basic', 'Minor symptoms, clear liability, and short treatment.'], ['Developing', 'Ongoing care, bills, or disputed liability.'], ['Attorney-ready', 'Serious injury, imaging, injections, surgery risk, wage loss, or low offer.'], ['Urgent', 'Catastrophic injury, commercial coverage, approaching deadline, minor, or complex lien issue.']],
-  treatment: [{ label: 'Initial care', copy: 'First medical records connect symptoms to the accident.' }, { label: 'Follow-up', copy: 'PT, imaging, and specialist care show progression.' }, { label: 'Damages', copy: 'Bills, liens, lost wages, and future care define economics.' }, { label: 'Local review', copy: 'Venue, coverage, and liability facts shape next steps.' }],
-  drivers: ['Local venue', 'Liability clarity', 'Medical severity', 'Treatment continuity', 'Wage loss', 'Policy limits or commercial coverage'],
-  valueDetails: [{ label: 'Venue', copy: 'Local county and case posture can affect review.' }, { label: 'Coverage', copy: 'BI limits, UM/UIM, rideshare, or commercial policies affect practical recovery.' }, { label: 'Documentation', copy: 'Reports, photos, bills, and records make the case easier to evaluate.' }],
-  insuranceProblems: ['The adjuster disputes fault.', 'Treatment gaps are used to reduce value.', 'Policy limits are unknown.', 'Rideshare or commercial coverage is unclear.'],
-  intake: [{ label: 'Step 1', question: 'Where exactly did the accident happen?' }, { label: 'Step 2', question: 'What evidence shows fault?' }, { label: 'Step 3', question: 'What treatment, bills, and wage loss exist?' }, { label: 'Step 4', question: 'What insurance coverage or offers are known?' }],
-}))
-
 const expansionSeeds = [
   ...accidentTypePages,
   ...settlementPages,
-  ...cityPages,
 ]
 
 export const expansionLandingPages: LandingPage[] = expansionSeeds.map(toLandingPage)

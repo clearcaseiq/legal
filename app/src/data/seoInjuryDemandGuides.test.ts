@@ -147,12 +147,14 @@ describe('the demand-aligned injury guides', () => {
   })
 
   it('redirects every retired sibling to a page that exists', async () => {
-    const redirects = await nextConfig.redirects()
+    const redirects = await nextConfig.redirects!()
+    const bySource = new Map(redirects.map((rule) => [rule.source, rule]))
+
     for (const [source, destination] of Object.entries(RETIRED)) {
-      const rule = redirects.find((entry: { source: string }) => entry.source === source)
+      const rule = bySource.get(source)
       expect(rule, `${source} has no redirect`).toBeDefined()
-      expect(rule.destination, `${source} redirects to the wrong page`).toBe(destination)
-      expect(rule.statusCode, `${source} is not a permanent redirect`).toBe(301)
+      expect(rule!.destination, `${source} redirects to the wrong page`).toBe(destination)
+      expect(rule!.statusCode, `${source} is not a permanent redirect`).toBe(301)
       expect(bySlug.has(destination), `${source} redirects to a missing page`).toBe(true)
     }
   })

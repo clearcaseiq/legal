@@ -1,5 +1,6 @@
 import { requestedTopicContentBySlug } from './seoRequestedPages'
 import { priorityTopicContentBySlug } from './seoPriorityPages'
+import { cityGuideTopicContentBySlug } from './seoCityGuides'
 import { injuryDemandGuideTopicContentBySlug } from './seoInjuryDemandGuides'
 import { injuryValueGuideTopicContentBySlug } from './seoInjuryValueGuides'
 import { expansionTopicContentBySlug } from './seoExpansionPages'
@@ -617,6 +618,7 @@ Object.assign(topicContentBySlug, requestedTopicContentBySlug)
 Object.assign(topicContentBySlug, priorityTopicContentBySlug)
 Object.assign(topicContentBySlug, injuryValueGuideTopicContentBySlug)
 Object.assign(topicContentBySlug, injuryDemandGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, cityGuideTopicContentBySlug)
 Object.assign(topicContentBySlug, expansionTopicContentBySlug)
 Object.assign(topicContentBySlug, insuranceGuideTopicContentBySlug)
 Object.assign(topicContentBySlug, caseStrengthGuideTopicContentBySlug)

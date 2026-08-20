@@ -1,6 +1,7 @@
 import type { LanguageCode } from '../i18n'
 import { requestedLandingPages } from './seoRequestedPages'
 import { priorityLandingPages } from './seoPriorityPages'
+import { cityGuidePages } from './seoCityGuides'
 import { injuryDemandGuidePages } from './seoInjuryDemandGuides'
 import { injuryValueGuidePages } from './seoInjuryValueGuides'
 import { expansionLandingPages } from './seoExpansionPages'
@@ -85,6 +86,7 @@ export const CONTENT_UPDATED = {
   medicalRecordsGuides: '2026-08-19',
   injuryValueGuides: '2026-08-19',
   injuryDemandGuides: '2026-08-19',
+  cityGuides: '2026-08-19',
 } as const
 
 /**
@@ -112,6 +114,8 @@ export const CONTENT_PUBLISHED = {
   // Likewise: these five published with the priority set and were rewritten,
   // not created.
   injuryDemandGuides: '2026-06-02',
+  // The seven city URLs published with the expansion set.
+  cityGuides: '2026-06-02',
 } as const
 
 /** Applies a set's dates without overriding page-specific ones. */
@@ -475,6 +479,7 @@ export const allLandingPages: LandingPage[] = [
     CONTENT_UPDATED.injuryDemandGuides,
     CONTENT_PUBLISHED.injuryDemandGuides,
   ),
+  ...stamp(cityGuidePages, CONTENT_UPDATED.cityGuides, CONTENT_PUBLISHED.cityGuides),
   ...stamp(insuranceGuidePages, CONTENT_UPDATED.insuranceGuides, CONTENT_PUBLISHED.insuranceGuides),
   ...stamp(caseStrengthGuidePages, CONTENT_UPDATED.caseStrengthGuide, CONTENT_PUBLISHED.caseStrengthGuide),
   ...stamp(attorneyGuidePages, CONTENT_UPDATED.attorneyGuides, CONTENT_PUBLISHED.attorneyGuides),
