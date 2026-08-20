@@ -2928,6 +2928,8 @@
       "inReview": "Your case is in attorney review. We'll email you the moment an attorney responds.",
       "inReviewLine1": "Your case is in attorney review.",
       "inReviewLine2": "We'll email you the moment an attorney responds.",
+      "engagedLine1": "An attorney is now working on your case.",
+      "engagedLine2": "Check your tasks for anything they need from you.",
       "complete": "Your case is {percent}% complete.",
       "todo": "You have {count} {items} to do next to strengthen your case.",
       "thing": "thing",

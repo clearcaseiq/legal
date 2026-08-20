@@ -7,6 +7,7 @@ import { writeAdminAudit } from '../lib/admin-audit'
 import { parsePagination, paginated } from '../lib/pagination'
 import { CaseForRouting, AttorneyForRouting, routeCaseToAttorneys, filterEligibleAttorneys } from '../lib/routing'
 import { startAssessmentRouting } from '../lib/assessment-routing'
+import { routeReleasedCaseRespectingConsumerSlate } from '../lib/routing-lifecycle'
 import { runRoutingEscalationSweep } from '../lib/routing-escalation-sweep'
 import { sendCaseOfferSms } from '../lib/sms'
 import { getMatchingRules, getAttorneyResponseDeadlineMinutes } from '../lib/matching-rules-config'
@@ -249,20 +250,46 @@ router.post('/manual-review/:caseId/action', authMiddleware, adminMiddleware, re
         update: { lifecycleState: 'routing_active', routingLocked: false }
       })
 
-      // Actually re-trigger routing now that a human has cleared the case. We
-      // skip the pre-routing (fraud) gate here — otherwise the same signals
-      // that flagged it would immediately re-hold it, creating a loop. The
-      // admin decision IS the override. Fire-and-forget so the response is fast.
-      void startAssessmentRouting(caseId, {
-        skipPreRoutingGate: true,
-        preferTierRouting: true,
-        fallbackToClassic: true,
-      }).catch((err: any) =>
-        logger.error('Failed to re-route case after manual review release', {
-          caseId,
-          error: err?.message,
-        }),
-      )
+      // Re-trigger routing now that a human has cleared the case. We skip the
+      // pre-routing (fraud) gate here — otherwise the same signals that flagged
+      // it would immediately re-hold it, creating a loop. The admin decision IS
+      // the override of the FRAUD signal.
+      //
+      // It is NOT an override of the consumer's contact decision (SB 37 /
+      // § 6155). If the consumer curated their slate — ranked some attorneys or
+      // explicitly removed some — releasing must not route to firms they never
+      // approved. Instead we advance their approved queue, or propose a fresh
+      // batch (excluding everyone they removed) and hold for their approval.
+      // Only cases with no consumer selection route straight through.
+      let releaseRouting: { mode: string; error?: string } = { mode: 'no_consumer_slate' }
+      try {
+        releaseRouting = await routeReleasedCaseRespectingConsumerSlate(caseId)
+      } catch (err: any) {
+        logger.error('Consumer-slate release routing failed', { caseId, error: err?.message })
+      }
+
+      if (releaseRouting.mode === 'no_consumer_slate') {
+        // Fire-and-forget so the response is fast for the operational-only case.
+        void startAssessmentRouting(caseId, {
+          skipPreRoutingGate: true,
+          preferTierRouting: true,
+          fallbackToClassic: true,
+        }).catch((err: any) =>
+          logger.error('Failed to re-route case after manual review release', {
+            caseId,
+            error: err?.message,
+          }),
+        )
+      }
+
+      await writeAdminAudit(req, {
+        action: 'case_release_routing_mode',
+        entityType: 'assessment',
+        entityId: caseId,
+        metadata: { mode: releaseRouting.mode, error: releaseRouting.error ?? null },
+      })
+
+      return res.json({ ok: true, action, routing: releaseRouting.mode })
     }
 
     res.json({ ok: true, action })
@@ -794,6 +821,21 @@ router.get('/cases/:id', authMiddleware, adminMiddleware, async (req: AuthReques
       take: 50,
     })
 
+    // Resolve the attorney IDs on the diagnostics rows to human-readable names so
+    // the admin panel can show "Jane Lawyer — Firm LLC" instead of a raw CUID.
+    const diagnosticAttorneyIds = Array.from(
+      new Set(routingAnalytics.map((entry) => entry.attorneyId).filter((id): id is string => !!id))
+    )
+    const diagnosticAttorneys = diagnosticAttorneyIds.length
+      ? await prisma.attorney.findMany({
+          where: { id: { in: diagnosticAttorneyIds } },
+          select: { id: true, name: true, lawFirm: { select: { name: true } } },
+        })
+      : []
+    const attorneyNameById = new Map(
+      diagnosticAttorneys.map((a) => [a.id, { name: a.name, firmName: a.lawFirm?.name ?? null }])
+    )
+
     const pred = assessment.predictions[0]
     const facts = assessment.facts ? JSON.parse(assessment.facts) : {}
     const viability = pred?.viability ? JSON.parse(pred.viability) : {}
@@ -836,6 +878,8 @@ router.get('/cases/:id', authMiddleware, adminMiddleware, async (req: AuthReques
       routingDiagnostics: routingAnalytics.map((entry) => ({
         id: entry.id,
         attorneyId: entry.attorneyId,
+        attorneyName: entry.attorneyId ? attorneyNameById.get(entry.attorneyId)?.name ?? null : null,
+        attorneyFirm: entry.attorneyId ? attorneyNameById.get(entry.attorneyId)?.firmName ?? null : null,
         introductionId: entry.introductionId,
         eventType: entry.eventType,
         eventData: safeJsonParse(entry.eventData),
@@ -1547,6 +1591,8 @@ router.get('/case-flow', authMiddleware, adminMiddleware, async (_req: AuthReque
         assessment: {
           select: {
             id: true,
+            status: true,
+            caseStage: true,
             claimType: true,
             venueState: true,
             referenceCode: true,
@@ -1610,8 +1656,20 @@ router.get('/case-flow', authMiddleware, adminMiddleware, async (_req: AuthReque
         }
 
         // Bucket into exactly one stage, most-terminal first.
+        //
+        // Closure lives on the Assessment (close sets assessment.status='closed'
+        // and caseStage='CLOSED'); the leadSubmission lifecycle is NOT updated on
+        // close, so keying off the lead alone left the "Closed" column empty
+        // (CP: "Closed count showing 0 after I closed a case"). Read the
+        // authoritative signal from the assessment too.
         let stage: CaseFlowStageKey
-        if (l.lifecycleState === 'closed' || l.status === 'closed') stage = 'closed'
+        if (
+          l.lifecycleState === 'closed' ||
+          l.status === 'closed' ||
+          a.status === 'closed' ||
+          a.caseStage === 'CLOSED'
+        )
+          stage = 'closed'
         else if (l.lifecycleState === 'consultation_scheduled' || l.lifecycleState === 'engaged') stage = 'engaged'
         else if (introAccepted || l.routingLocked || l.lifecycleState === 'attorney_matched') stage = 'matched'
         else if (manualPending) stage = 'manual_review'

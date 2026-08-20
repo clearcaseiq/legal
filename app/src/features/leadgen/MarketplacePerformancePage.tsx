@@ -59,11 +59,13 @@ interface FunnelRow {
 const FUNNEL_ACCEPTED_STATUSES = ['contacted', 'consulted', 'retained']
 const FUNNEL_SETTLED_STATUSES = ['closed', 'settled']
 
-function buildFunnel(cohort: Array<{ status: string }>): FunnelRow[] {
+function buildFunnel(cohort: Array<{ status: string; settled?: boolean }>): FunnelRow[] {
   const matched = cohort.length
   const accepted = cohort.filter((l) => FUNNEL_ACCEPTED_STATUSES.includes(l.status)).length
   const retained = cohort.filter((l) => l.status === 'retained').length
-  const settled = cohort.filter((l) => FUNNEL_SETTLED_STATUSES.includes(l.status)).length
+  // Settlement is derived from the case (assessment), surfaced via the `settled`
+  // flag; fall back to the status string for older API responses.
+  const settled = cohort.filter((l) => l.settled || FUNNEL_SETTLED_STATUSES.includes(l.status)).length
   return [
     { stage: 'Matches routed', count: matched, stepConversion: null, note: 'Pushed by SMS + app' },
     { stage: 'Accepted', count: accepted, stepConversion: matched ? accepted / matched : 0, note: 'Fee charged on accept' },
@@ -288,7 +290,7 @@ export default function MarketplacePerformancePage() {
   // Falls back to the server's preset windows / all-time funnel for older API
   // responses that don't include funnelLeads.
   const funnelRows = useMemo<FunnelRow[]>(() => {
-    const leads = mp?.funnelLeads as Array<{ submittedAt: string; status: string }> | undefined
+    const leads = mp?.funnelLeads as Array<{ submittedAt: string; status: string; settled?: boolean }> | undefined
     if (Array.isArray(leads)) {
       const cutoff = Date.now() - funnelWindowDays * 24 * 60 * 60 * 1000
       const cohort = leads.filter((l) => {

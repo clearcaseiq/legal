@@ -763,6 +763,57 @@ router.get('/platform/history', authMiddleware, async (req: AuthRequest, res) =>
     const isPaid = (status: unknown) =>
       ['succeeded', 'paid', 'complete', 'completed'].includes(String(status || '').toLowerCase())
 
+    // Self-heal pending rows before rendering. The webhook is the primary updater,
+    // but a missed delivery (or an endpoint that wasn't configured yet) leaves a
+    // genuinely-paid routing fee stuck at "checkout_created" — so the attorney
+    // sees "Pending" for a case they already paid for and received (CP: payment
+    // status shows pending even though we paid and got the case). Poll Stripe for
+    // any still-open checkout sessions and settle them on read.
+    if (ENV.STRIPE_SECRET_KEY) {
+      const reconcilable = records.filter((r: any) => {
+        const s = String(r.status || '').toLowerCase()
+        return (
+          r.stripeCheckoutSessionId &&
+          !isPaid(s) &&
+          !s.startsWith('skipped') &&
+          !/(fail|cancel|refund|expired)/.test(s)
+        )
+      })
+      if (reconcilable.length) {
+        const stripe = getStripe()
+        await Promise.all(
+          reconcilable.slice(0, 25).map(async (r: any) => {
+            try {
+              const session = await stripe.checkout.sessions.retrieve(r.stripeCheckoutSessionId, {
+                expand: ['payment_intent'],
+              })
+              if (String(session.payment_status || '').toLowerCase() === 'paid') {
+                const paymentIntentId =
+                  typeof session.payment_intent === 'string'
+                    ? session.payment_intent
+                    : session.payment_intent?.id || null
+                const customerId =
+                  typeof session.customer === 'string' ? session.customer : session.customer?.id || null
+                await db.platformPayment.update({
+                  where: { id: r.id },
+                  data: {
+                    status: 'paid',
+                    stripePaymentIntentId: paymentIntentId,
+                    stripeCustomerId: customerId || r.stripeCustomerId || null,
+                  },
+                })
+                // Mutate the in-memory row so this same response reflects the fix.
+                r.status = 'paid'
+                r.stripePaymentIntentId = paymentIntentId
+              }
+            } catch (err: any) {
+              logger.warn('Routing fee reconcile failed', { paymentId: r.id, error: err?.message })
+            }
+          }),
+        )
+      }
+    }
+
     const now = new Date()
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
 

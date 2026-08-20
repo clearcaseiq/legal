@@ -429,6 +429,17 @@ export default function PreAcceptanceView({
             </div>
           )}
         </div>
+        {/* All sales are final. Accepting a case charges the routing fee and cannot
+            be withdrawn — surfaced up front so the paid action is unambiguous. */}
+        {!accepted && !caseTaken && !isExpired && routingFee && (
+          <div className="mb-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span>
+              Accepting charges the {routingFee} routing fee. <strong>All sales are final</strong> — once you
+              accept and pay, the case cannot be withdrawn or refunded.
+            </span>
+          </div>
+        )}
         {/* Case-taken / expired notices (the live countdown sits next to Accept) */}
         {!accepted && caseTaken && (
           <div className="mb-4 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">

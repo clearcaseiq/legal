@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   getAdminCaseFlow,
@@ -79,6 +79,10 @@ export default function AdminCaseFlow() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [stuckOnly, setStuckOnly] = useState(false)
+  // Clicking a stage in the funnel header scopes the board below to that stage so
+  // an admin can see exactly which cases sit there. Null = show every stage.
+  const [stageFilter, setStageFilter] = useState<string | null>(null)
+  const boardRef = useRef<HTMLDivElement | null>(null)
 
   const load = useCallback(async (showLoading = true) => {
     try {
@@ -124,6 +128,18 @@ export default function AdminCaseFlow() {
     }
     return map
   }, [visibleCases, stages])
+
+  // The board renders every stage unless the admin drilled into one.
+  const boardStages = useMemo(
+    () => (stageFilter ? stages.filter((s) => s.key === stageFilter) : stages),
+    [stages, stageFilter],
+  )
+  const boardCaseCount = useMemo(
+    () =>
+      boardStages.reduce((sum, s) => sum + (casesByStage[s.key]?.length || 0), 0),
+    [boardStages, casesByStage],
+  )
+  const selectedStageLabel = stageFilter ? stages.find((s) => s.key === stageFilter)?.label ?? null : null
 
   const maxCount = Math.max(1, ...stages.map((s) => s.count))
 
@@ -212,9 +228,23 @@ export default function AdminCaseFlow() {
         <div className="flex min-w-max items-stretch gap-1">
           {stages.map((s, i) => {
             const style = STAGE_STYLE[s.key] || fallbackStyle
+            const selected = stageFilter === s.key
             return (
               <div key={s.key} className="flex items-stretch">
-                <div className="flex w-40 flex-col rounded-xl bg-white p-3 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStageFilter((prev) => (prev === s.key ? null : s.key))
+                    boardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                  }}
+                  aria-pressed={selected}
+                  title={`Show ${s.count} case${s.count === 1 ? '' : 's'} in ${s.label}`}
+                  className={`flex w-40 flex-col rounded-xl bg-white p-3 text-left shadow-sm ring-1 transition hover:shadow-md hover:ring-brand-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 dark:bg-slate-900 ${
+                    selected
+                      ? 'ring-2 ring-brand-500 dark:ring-brand-400'
+                      : 'ring-slate-200 dark:ring-slate-800'
+                  }`}
+                >
                   <div className="flex items-center gap-2">
                     <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${style.dot}`} />
                     <span className="truncate text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
@@ -238,7 +268,7 @@ export default function AdminCaseFlow() {
                       style={{ width: `${Math.round((s.count / maxCount) * 100)}%` }}
                     />
                   </div>
-                </div>
+                </button>
                 {i < stages.length - 1 && (
                   <div className="flex items-center px-0.5 text-slate-300 dark:text-slate-600">
                     <ChevronRight className="h-5 w-5" />
@@ -250,17 +280,41 @@ export default function AdminCaseFlow() {
         </div>
       </div>
 
+      {/* Active stage-filter banner */}
+      {stageFilter && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-brand-200 bg-brand-50 px-4 py-3 dark:border-brand-900 dark:bg-brand-950/30">
+          <div className="text-sm font-medium text-brand-900 dark:text-brand-200">
+            Showing <span className="font-semibold">{selectedStageLabel}</span> · {boardCaseCount} case
+            {boardCaseCount === 1 ? '' : 's'}
+          </div>
+          <button
+            type="button"
+            onClick={() => setStageFilter(null)}
+            className="rounded-lg border border-brand-300 bg-white px-3 py-1.5 text-sm font-medium text-brand-800 hover:bg-brand-100 dark:border-brand-800 dark:bg-brand-950 dark:text-brand-200"
+          >
+            Show all stages
+          </button>
+        </div>
+      )}
+
       {/* Kanban board of stage columns */}
+      <div ref={boardRef}>
       {loading ? (
         <EmptyState message="Loading case flow…" />
-      ) : visibleCases.length === 0 ? (
+      ) : boardCaseCount === 0 ? (
         <EmptyState
-          message={stuckOnly ? 'No stuck cases — everything is moving.' : 'No cases in the pipeline yet.'}
+          message={
+            stageFilter
+              ? `No cases in ${selectedStageLabel}${stuckOnly ? ' are stuck' : ''} right now.`
+              : stuckOnly
+                ? 'No stuck cases — everything is moving.'
+                : 'No cases in the pipeline yet.'
+          }
         />
       ) : (
         <div className="overflow-x-auto pb-2">
           <div className="flex min-w-max gap-4">
-            {stages.map((s) => {
+            {boardStages.map((s) => {
               const style = STAGE_STYLE[s.key] || fallbackStyle
               const stageCases = casesByStage[s.key] || []
               return (
@@ -301,6 +355,7 @@ export default function AdminCaseFlow() {
           </div>
         </div>
       )}
+      </div>
     </div>
   )
 }

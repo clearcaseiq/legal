@@ -285,6 +285,59 @@ function runAvatarUpload(req: any, res: any, next: any) {
   })
 }
 
+// Supporting documents for a "Case Result" (verdict/settlement). Kept private —
+// only a reference (url + original name) is stored on the verdict JSON so the
+// attorney can attach proof for verification.
+const verdictDocStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadDir = path.join(process.cwd(), 'uploads', 'verdict-documents')
+    if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true })
+    cb(null, uploadDir)
+  },
+  filename: (req, file, cb) => cb(null, `${uuidv4()}-${file.originalname}`),
+})
+
+const verdictDocUpload = multer({
+  storage: verdictDocStorage,
+  limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
+  fileFilter: (req, file, cb) => {
+    const allowedExt = /\.(pdf|docx?)$/i.test(file.originalname || '')
+    const allowedMime = /(application\/pdf|application\/msword|application\/vnd\.openxmlformats-officedocument\.wordprocessingml\.document)/i.test(
+      file.mimetype || ''
+    )
+    if (allowedExt || allowedMime) return cb(null, true)
+    cb(new Error('Supporting document must be a PDF or Word (DOC/DOCX) file'))
+  },
+})
+
+function runVerdictDocUpload(req: any, res: any, next: any) {
+  verdictDocUpload.single('document')(req, res, (err: any) => {
+    if (!err) return next()
+    const message =
+      err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE'
+        ? 'Supporting document must be 20MB or smaller'
+        : err.message || 'Supporting document must be a PDF or Word (DOC/DOCX) file'
+    return res.status(400).json({ error: message })
+  })
+}
+
+// Upload a supporting document for a case result. Returns a reference the client
+// then attaches to the verdict payload on submit.
+router.post('/verified-verdict-document', authMiddleware, runVerdictDocUpload, async (req: any, res) => {
+  try {
+    if (!req.user?.email) return res.status(401).json({ error: 'Authentication required' })
+    const file = req.file
+    if (!file) return res.status(400).json({ error: 'No document uploaded' })
+    res.json({
+      url: `/uploads/verdict-documents/${file.filename}`,
+      name: file.originalname,
+    })
+  } catch (error: any) {
+    logger.error('Failed to upload verdict document', { error: error.message })
+    res.status(500).json({ error: 'Failed to upload supporting document' })
+  }
+})
+
 // Attorney Profile Management
 
 // Get attorney profile
@@ -852,7 +905,17 @@ router.post('/verified-verdicts', authMiddleware, async (req: any, res) => {
     }
 
     const attorneyId = attorney.id
-    const { caseType, settlementAmount, caseDescription, date, venue } = req.body
+    const {
+      caseType,
+      settlementAmount,
+      caseDescription,
+      date,
+      venue,
+      resultType,
+      caseNumber,
+      documentUrl,
+      documentName,
+    } = req.body
 
     const profile = await prisma.attorneyProfile.findUnique({
       where: { attorneyId }
@@ -871,6 +934,11 @@ router.post('/verified-verdicts', authMiddleware, async (req: any, res) => {
       caseDescription,
       date,
       venue,
+      // "Case Result" fields (stored on the flexible verdict JSON — no migration).
+      resultType: resultType === 'verdict' ? 'verdict' : 'settlement',
+      caseNumber: caseNumber || null,
+      documentUrl: documentUrl || null,
+      documentName: documentName || null,
       addedAt: new Date().toISOString(),
       status: 'pending_verification'
     }

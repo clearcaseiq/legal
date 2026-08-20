@@ -465,6 +465,68 @@ export async function proposeInitialBatchForApproval(
   return proposeNextRankedBatch(assessmentId, lead ?? {})
 }
 
+/**
+ * Route a case an admin just released from manual review WITHOUT overriding the
+ * consumer's choice of who may see their case.
+ *
+ * SB 37 / Bus. & Prof. Code § 6155(g): the consumer decides which attorneys are
+ * contacted. When they curated their slate — ranked some, and/or explicitly
+ * removed some — releasing from a fraud/compliance hold must not tier- or
+ * classic-route the case to firms they never approved (least of all the ones
+ * they took off the list). The admin is overriding the fraud signal, not the
+ * consumer's contact decision.
+ *
+ * So for a curated case we:
+ *   1. Advance the consumer-approved ranked queue (contacts the next attorney
+ *      the consumer picked, or proposes a fresh batch for their approval when the
+ *      queue is exhausted).
+ *   2. If there is no live queue to advance (e.g. they removed everyone),
+ *      propose a fresh batch — excluding every dismissed attorney — and hold for
+ *      their approval.
+ *
+ * Cases with NO consumer selection (the flag was purely operational) return
+ * `no_consumer_slate`, and the caller should route them normally.
+ */
+export async function routeReleasedCaseRespectingConsumerSlate(
+  assessmentId: string
+): Promise<{
+  mode: 'no_consumer_slate' | 'ranked_routed' | 'awaiting_approval' | 'held'
+  attorneyId?: string
+  proposedAttorneyIds?: string[]
+  error?: string
+}> {
+  const lead = await prisma.leadSubmission.findUnique({
+    where: { assessmentId },
+    select: { sourceDetails: true }
+  })
+  const dismissed = getDismissedAttorneyIdsFromLead(lead)
+  const ranked = getRankedAttorneyIdsFromLead(lead)
+
+  // No consumer curation → nothing to protect; caller routes normally.
+  if (dismissed.length === 0 && ranked.length === 0) {
+    return { mode: 'no_consumer_slate' }
+  }
+
+  // Try the consumer-approved queue first when one exists.
+  if (ranked.length > 0) {
+    const advanced = await advanceRankedRouting(assessmentId, lead ?? {}, 'timeout')
+    if (advanced.routed) {
+      return { mode: 'ranked_routed', attorneyId: advanced.attorneyId }
+    }
+    if (advanced.awaitingApproval) {
+      return { mode: 'awaiting_approval', proposedAttorneyIds: advanced.proposedAttorneyIds }
+    }
+  }
+
+  // Empty or exhausted consumer queue (e.g. they removed everyone): propose a
+  // fresh batch that excludes the dismissed attorneys and hold for approval.
+  const proposal = await proposeNextRankedBatch(assessmentId, lead ?? {})
+  if (proposal.proposed) {
+    return { mode: 'awaiting_approval', proposedAttorneyIds: proposal.attorneyIds }
+  }
+  return { mode: 'held', error: proposal.error }
+}
+
 async function routeNextRankedAttorney(
   assessmentId: string,
   lead: { sourceDetails?: string | null },
@@ -823,26 +885,37 @@ export async function attorneyAcceptCase(
     return { success: false, error: `Introduction already ${intro.status}` }
   }
 
-  await prisma.$transaction(async tx => {
-    await tx.introduction.update({
-      where: { id: introductionId },
-      data: { status: 'ACCEPTED', respondedAt: new Date() }
-    })
-
-    if (intro.assessment.leadSubmission) {
-      await tx.leadSubmission.update({
-        where: { assessmentId: intro.assessmentId },
-        data: {
-          assignedAttorneyId: attorneyId,
-          assignmentType: 'exclusive',
-          status: 'contacted',
-          lifecycleState: 'attorney_matched',
-          routingLocked: true,
-          lastContactAt: new Date()
-        }
-      })
-    }
+  // Atomically claim the PENDING introduction. The check above is a fast path,
+  // but two tabs (or a concurrent decline) can both read PENDING before either
+  // writes; a plain update would then let a stale accept overwrite a decline —
+  // the case ends up ACCEPTED with a decline reason still attached. The
+  // conditional updateMany makes the transition itself the point of truth: only
+  // one writer can move PENDING -> ACCEPTED (CP: accept after decline in 2 tabs).
+  const claimed = await prisma.introduction.updateMany({
+    where: { id: introductionId, attorneyId, status: 'PENDING' },
+    data: { status: 'ACCEPTED', respondedAt: new Date() },
   })
+  if (claimed.count === 0) {
+    const current = await prisma.introduction.findUnique({
+      where: { id: introductionId },
+      select: { status: true },
+    })
+    return { success: false, error: `Introduction already ${current?.status ?? 'responded'}` }
+  }
+
+  if (intro.assessment.leadSubmission) {
+    await prisma.leadSubmission.update({
+      where: { assessmentId: intro.assessmentId },
+      data: {
+        assignedAttorneyId: attorneyId,
+        assignmentType: 'exclusive',
+        status: 'contacted',
+        lifecycleState: 'attorney_matched',
+        routingLocked: true,
+        lastContactAt: new Date()
+      }
+    })
+  }
 
   // Step 14: Analytics
   await recordRoutingEvent(intro.assessmentId, introductionId, attorneyId, 'accepted', {
@@ -894,10 +967,15 @@ export async function attorneyDeclineCase(
     return { success: false, error: 'Introduction not found or already responded' }
   }
 
-  await prisma.introduction.update({
-    where: { id: introductionId },
-    data: { status: 'DECLINED', respondedAt: new Date(), declineReason: declineReason || null }
+  // Atomically claim the PENDING introduction so a stale accept in another tab
+  // cannot overwrite this decline (mirror of attorneyAcceptCase).
+  const claimed = await prisma.introduction.updateMany({
+    where: { id: introductionId, attorneyId, status: 'PENDING' },
+    data: { status: 'DECLINED', respondedAt: new Date(), declineReason: declineReason || null },
   })
+  if (claimed.count === 0) {
+    return { success: false, error: 'Introduction not found or already responded' }
+  }
 
   await recordRoutingEvent(intro.assessmentId, introductionId, attorneyId, 'declined', { declineReason })
   await syncDecisionMemoryForAssessment({

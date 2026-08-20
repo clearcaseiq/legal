@@ -6,6 +6,7 @@ import {
   setLeadLitigationStatus,
   type LitigationStatus,
 } from '../../lib/api'
+import ConfirmDialog from '../../components/ConfirmDialog'
 
 const LITIGATION_OPTIONS: { value: LitigationStatus; label: string }[] = [
   { value: 'none', label: 'Pre-litigation' },
@@ -29,17 +30,18 @@ interface Props {
 export default function CaseLifecycleControls({ leadId, caseStage, litigationStatus, closedAt, onLocalUpdate }: Props) {
   const [busy, setBusy] = useState<null | 'close' | 'reopen' | 'lit'>(null)
   const [error, setError] = useState<string | null>(null)
+  const [confirmClose, setConfirmClose] = useState(false)
   const closed = String(caseStage || '').toUpperCase() === 'CLOSED' || !!closedAt
   const litValue = (litigationStatus as LitigationStatus) || 'none'
   const inLitigation = litValue !== 'none' && litValue !== 'resolved'
 
   const handleClose = async () => {
-    if (!window.confirm('Close this case? This materializes the close-out checklist and marks the matter closed.')) return
     setBusy('close')
     setError(null)
     try {
       const r = await closeLeadCase(leadId)
       onLocalUpdate?.({ caseStage: r.caseStage ?? 'CLOSED', closedAt: new Date().toISOString() })
+      setConfirmClose(false)
     } catch (e: any) {
       setError(e?.response?.data?.error || e?.message || 'Failed to close case')
     } finally {
@@ -137,7 +139,7 @@ export default function CaseLifecycleControls({ leadId, caseStage, litigationSta
           ) : (
             <button
               type="button"
-              onClick={handleClose}
+              onClick={() => setConfirmClose(true)}
               disabled={busy != null}
               className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-slate-900 disabled:opacity-40"
             >
@@ -149,6 +151,18 @@ export default function CaseLifecycleControls({ leadId, caseStage, litigationSta
       </div>
 
       {error && <p className="mt-3 text-xs font-medium text-rose-600">{error}</p>}
+
+      <ConfirmDialog
+        open={confirmClose}
+        title="Close this case?"
+        message="This materializes the close-out checklist and marks the matter closed."
+        confirmLabel="Close case"
+        cancelLabel="Cancel"
+        tone="danger"
+        busy={busy === 'close'}
+        onConfirm={handleClose}
+        onCancel={() => setConfirmClose(false)}
+      />
     </section>
   )
 }

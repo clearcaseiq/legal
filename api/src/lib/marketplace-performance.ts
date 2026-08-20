@@ -70,7 +70,7 @@ export interface MarketplacePerformance {
    * Lightweight lead list (routed within the last 90 days) so the client can
    * recompute the funnel for any custom day window (e.g. a 1–90 day slider).
    */
-  funnelLeads: Array<{ submittedAt: string; status: string }>
+  funnelLeads: Array<{ submittedAt: string; status: string; settled: boolean }>
   /** Forward-looking pipeline economics: value in flight + spend recovery. */
   pipeline: {
     /** Expected fee value of accepted-but-not-yet-retained matters. */
@@ -127,6 +127,9 @@ export async function computeMarketplacePerformance(
       assessmentId: true,
       assessment: {
         select: {
+          status: true,
+          caseStage: true,
+          closedAt: true,
           predictions: {
             orderBy: { createdAt: 'desc' as const },
             take: 1,
@@ -137,11 +140,21 @@ export async function computeMarketplacePerformance(
     },
   })
 
+  // Closure/settlement lives on the Assessment (close sets assessment.status
+  // 'closed' + caseStage 'CLOSED'); the leadSubmission status is NOT updated on
+  // close, so keying off the lead alone left "Settled / resolved" stuck at 0
+  // (CP: settled value in the acquisition funnel is wrong). Read the assessment.
+  const isSettled = (l: any) =>
+    SETTLED_STATUSES.includes(String(l.status || '')) ||
+    SETTLED_STATUSES.includes(String(l.assessment?.status || '')) ||
+    String(l.assessment?.caseStage || '') === 'CLOSED' ||
+    !!l.assessment?.closedAt
+
   const matchedCount = leads.length
   const acceptedCount = leads.filter((l: any) => ACCEPTED_STATUSES.includes(String(l.status || ''))).length
   const retainedLeads = leads.filter((l: any) => String(l.status || '') === 'retained')
   const casesRetained = retainedLeads.length
-  const settledCount = leads.filter((l: any) => SETTLED_STATUSES.includes(String(l.status || ''))).length
+  const settledCount = leads.filter(isSettled).length
   const retainedValue = retainedLeads.reduce(
     (s: number, l: any) => s + parseMedian(l.assessment?.predictions?.[0]) * CONTINGENCY_RATE,
     0,
@@ -165,7 +178,7 @@ export async function computeMarketplacePerformance(
     const matched = cohort.length
     const accepted = cohort.filter((l: any) => ACCEPTED_STATUSES.includes(String(l.status || ''))).length
     const retained = cohort.filter((l: any) => String(l.status || '') === 'retained').length
-    const settled = cohort.filter((l: any) => SETTLED_STATUSES.includes(String(l.status || ''))).length
+    const settled = cohort.filter(isSettled).length
     return [
       { stage: 'Matches routed', count: matched, stepConversion: null, note: 'Pushed by SMS + app' },
       { stage: 'Accepted', count: accepted, stepConversion: matched ? accepted / matched : 0, note: 'Fee charged on accept' },
@@ -193,6 +206,9 @@ export async function computeMarketplacePerformance(
   const funnelLeads = leadsWithin(90).map((l: any) => ({
     submittedAt: new Date(l.submittedAt || l.updatedAt || Date.now()).toISOString(),
     status: String(l.status || ''),
+    // Settlement is derived from the assessment, not the lead status, so carry a
+    // flag the client can use when it recomputes the funnel for the slider window.
+    settled: isSettled(l),
   }))
 
   // Pipeline economics — value still in flight (accepted, not yet retained) and

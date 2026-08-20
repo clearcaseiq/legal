@@ -62,6 +62,7 @@ import {
   deleteLeadTask,
   mergeLeadTasks,
   downloadEvidenceByUrl,
+  bulkDownloadEvidenceZip,
   getEvidenceObjectUrl,
   getAttorneyDashboard,
   getAttorneyDocumentRequests,
@@ -1557,6 +1558,69 @@ const UPLOAD_CATEGORIES = [
   { id: 'other', label: 'Other' },
 ]
 
+const KNOWN_CATEGORY_IDS = new Set(UPLOAD_CATEGORIES.map((c) => c.id))
+
+// Raw evidence `category` values vary across the upload paths (client inline
+// uploader, attorney upload, document-request fulfillment), e.g. wage_verification,
+// insurance_letters, dec_page, medical, injury_photos. Fold those synonyms into the
+// eight canonical buckets so the filter dropdown, counts, and grouping never "miss"
+// a file whose stored category is just a spelling variant (CP: attorney evidence
+// category missing). Unknown categories are kept as-is so they still show up as
+// their own selectable option instead of silently disappearing.
+const EVIDENCE_CATEGORY_ALIASES: Record<string, string> = {
+  medical: 'medical_records',
+  medical_record: 'medical_records',
+  medical_records: 'medical_records',
+  records: 'medical_records',
+  prior_treatment: 'medical_records',
+  prior_medical: 'medical_records',
+  prior_records: 'medical_records',
+  medical_bills: 'bills',
+  medical_bill: 'bills',
+  bill: 'bills',
+  invoice: 'bills',
+  police: 'police_report',
+  incident_report: 'police_report',
+  injury: 'photos',
+  injuries: 'photos',
+  injury_photos: 'photos',
+  photo: 'photos',
+  property_damage: 'photos',
+  damage_photos: 'photos',
+  product: 'photos',
+  product_photos: 'photos',
+  product_evidence: 'photos',
+  wage: 'wage_loss',
+  wages: 'wage_loss',
+  wage_verification: 'wage_loss',
+  lost_wages: 'wage_loss',
+  income_loss: 'wage_loss',
+  insurance_letters: 'insurance',
+  insurance_letter: 'insurance',
+  insurance_card: 'insurance',
+  insurance_info: 'insurance',
+  insurance_policy: 'insurance',
+  dec_page: 'insurance',
+  declarations: 'insurance',
+  carrier_letters: 'correspondence',
+  correspondance: 'correspondence',
+  email: 'correspondence',
+  letter: 'correspondence',
+  letters: 'correspondence',
+}
+
+function canonicalEvidenceCategory(raw?: string | null): string {
+  const key = String(raw || '').trim().toLowerCase()
+  if (!key) return 'other'
+  if (KNOWN_CATEGORY_IDS.has(key)) return key
+  return EVIDENCE_CATEGORY_ALIASES[key] || key
+}
+
+function evidenceCategoryLabel(raw?: string | null): string {
+  const id = canonicalEvidenceCategory(raw)
+  return UPLOAD_CATEGORIES.find((c) => c.id === id)?.label || id.replace(/_/g, ' ')
+}
+
 // Upload guardrails enforced client-side before we hit the API.
 const MAX_UPLOAD_MB = 25
 const ACCEPTED_EXTENSIONS = ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png', 'gif', 'webp', 'txt']
@@ -2354,25 +2418,29 @@ function EvidencePanel({
     if (!targets.length) return
     setBulkBusy(true)
     setBanner(null)
-    let failures = 0
-    for (const d of targets) {
-      const url = d.fileUrl || d.url
-      if (!url) {
-        failures += 1
-        continue
-      }
-      try {
+    try {
+      if (targets.length === 1) {
+        // A single selection downloads the file itself (with its real name).
+        const d = targets[0]
+        const url = d.fileUrl || d.url
+        if (!url) throw new Error('This document has no downloadable file.')
         await downloadEvidenceByUrl(url, d.originalName || d.filename || 'document')
-      } catch {
-        failures += 1
+      } else {
+        // Multiple files become ONE zip so the browser doesn't prompt per file.
+        await bulkDownloadEvidenceZip(leadId, targets.map((d) => d.id))
       }
+      setBanner({
+        tone: 'ok',
+        text:
+          targets.length === 1
+            ? 'Downloaded 1 document.'
+            : `Downloaded ${targets.length} documents as a zip.`,
+      })
+    } catch {
+      setBanner({ tone: 'err', text: 'Could not download the selected documents.' })
+    } finally {
+      setBulkBusy(false)
     }
-    setBulkBusy(false)
-    setBanner(
-      failures
-        ? { tone: 'err', text: `Downloaded ${targets.length - failures} of ${targets.length}; ${failures} failed.` }
-        : { tone: 'ok', text: `Downloaded ${targets.length} document(s).` },
-    )
   }
 
   const bulkDelete = () => {
@@ -2531,7 +2599,7 @@ function EvidencePanel({
   // Derived views for the toolbar (search / filter / sort) and the summary strip.
   const query = search.trim().toLowerCase()
   const catCounts = docs.reduce<Record<string, number>>((acc, d) => {
-    const c = d.category || 'other'
+    const c = canonicalEvidenceCategory(d.category)
     acc[c] = (acc[c] || 0) + 1
     return acc
   }, {})
@@ -2539,7 +2607,7 @@ function EvidencePanel({
   const totalSize = docs.reduce((s, d) => s + (Number(d.size) || 0), 0)
   const lastUpload = docs.reduce((m, d) => Math.max(m, Date.parse(d.createdAt || '') || 0), 0)
   const visibleDocs = docs
-    .filter((d) => filterCat === 'all' || (d.category || 'other') === filterCat)
+    .filter((d) => filterCat === 'all' || canonicalEvidenceCategory(d.category) === filterCat)
     .filter((d) => !query || (d.originalName || d.filename || '').toLowerCase().includes(query))
     .sort((a, b) =>
       sortBy === 'name'
@@ -2551,12 +2619,22 @@ function EvidencePanel({
   const catLabel = (id: string) =>
     UPLOAD_CATEGORIES.find((c) => c.id === id)?.label || (id || 'other').replace(/_/g, ' ')
 
+  // Filter dropdown = canonical buckets plus any present category that isn't one of
+  // them, so a file's category can never be un-selectable ("category is missing").
+  const filterOptions = [
+    ...UPLOAD_CATEGORIES,
+    ...Object.keys(catCounts)
+      .filter((id) => !KNOWN_CATEGORY_IDS.has(id))
+      .sort()
+      .map((id) => ({ id, label: catLabel(id) })),
+  ]
+
   // Group the visible docs by category for the collapsible view, ordered by the
   // canonical category list with any stragglers appended.
   const groupedDocs = (() => {
     const map = new Map<string, any[]>()
     for (const d of visibleDocs) {
-      const c = d.category || 'other'
+      const c = canonicalEvidenceCategory(d.category)
       if (!map.has(c)) map.set(c, [])
       map.get(c)!.push(d)
     }
@@ -2623,7 +2701,7 @@ function EvidencePanel({
               {doc.originalName || doc.filename || 'Document'}
             </button>
             <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-slate-400">
-              <span className="capitalize">{(doc.category || 'file').replace(/_/g, ' ')}</span>
+              <span className="capitalize">{evidenceCategoryLabel(doc.category)}</span>
               {doc.size ? <span>· {formatSize(doc.size)}</span> : null}
               {doc.createdAt ? <span>· {formatDate(doc.createdAt)}</span> : null}
               <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${STATUS_BADGE[source.tone]}`}>{source.label}</span>
@@ -3023,7 +3101,7 @@ function EvidencePanel({
             className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm text-slate-700 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
           >
             <option value="all">All categories</option>
-            {UPLOAD_CATEGORIES.map((c) => (
+            {filterOptions.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.label}
                 {catCounts[c.id] ? ` (${catCounts[c.id]})` : ''}
@@ -3315,7 +3393,7 @@ function EvidencePreviewDrawer({
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold text-slate-800">{doc.originalName || doc.filename || 'Document'}</p>
             <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
-              <span className="capitalize">{(doc.category || 'file').replace(/_/g, ' ')}</span>
+              <span className="capitalize">{evidenceCategoryLabel(doc.category)}</span>
               {doc.size ? <span>· {formatSize(doc.size)}</span> : null}
               {doc.createdAt ? <span>· {formatDate(doc.createdAt)}</span> : null}
               <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${STATUS_BADGE[source.tone]}`}>{source.label}</span>

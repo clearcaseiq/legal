@@ -484,7 +484,7 @@ export default function Dashboard() {
       setJournalEntries([])
       return
     }
-    const key = `pain_journal_${activeAssessment.id}`
+      const key = `pain_journal_${activeAssessment.id}`
     let fromFacts: { date: string; level: number; note: string; days?: number; dailyWage?: number }[] = []
     try {
       const facts =
@@ -715,11 +715,11 @@ export default function Dashboard() {
               /* ignore */
             }
             if (!recentlyCompleted) {
-              navigate(
-                `/auth/complete-consent?redirect=${encodeURIComponent(`/dashboard${window.location.search}`)}`,
-                { replace: true }
-              )
-              return
+            navigate(
+              `/auth/complete-consent?redirect=${encodeURIComponent(`/dashboard${window.location.search}`)}`,
+              { replace: true }
+            )
+            return
             }
           }
         } catch {
@@ -1584,18 +1584,18 @@ export default function Dashboard() {
 
   const handleDownloadReport = async () => {
     try {
-      const { downloadDashboardCaseReportPdf } = await import('../lib/reportPdfExports')
-      await downloadDashboardCaseReportPdf({
-        incidentSummaryComplete: hasNarrative,
-        medicalChronologyCount: treatment.length,
-        damagesDocumented: hasWageLoss || !!damages.med_charges,
-        evidenceCount,
+    const { downloadDashboardCaseReportPdf } = await import('../lib/reportPdfExports')
+    await downloadDashboardCaseReportPdf({
+      incidentSummaryComplete: hasNarrative,
+      medicalChronologyCount: treatment.length,
+      damagesDocumented: hasWageLoss || !!damages.med_charges,
+      evidenceCount,
         caseReadinessLabel,
         caseReadinessProgress: `${caseReadinessComplete}/${caseReadinessTotal}`,
-        estimatedValueText: `${formatCurrency(settlementLow)} – ${formatCurrency(settlementHigh)}`,
-        documentationPercent: docPercent,
-        assessmentId: activeAssessment?.id,
-      })
+      estimatedValueText: `${formatCurrency(settlementLow)} – ${formatCurrency(settlementHigh)}`,
+      documentationPercent: docPercent,
+      assessmentId: activeAssessment?.id,
+    })
     } catch (err) {
       console.error('Failed to generate dashboard case report PDF:', err)
       const detail = err instanceof Error && err.message ? `\n\nDetails: ${err.message}` : ''
@@ -1737,7 +1737,7 @@ export default function Dashboard() {
                     <span className="inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-orange-500 px-1.5 text-xs font-bold text-white">
                       {pendingDocumentRequests.length}
                     </span>
-                  </div>
+            </div>
                   <p className="mt-1 text-sm text-slate-600">
                     {nextDocumentRequest
                       ? t('plaintiffDashboard.actionCenter.waitingOn', {
@@ -1764,7 +1764,7 @@ export default function Dashboard() {
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-3 sm:border-l sm:border-amber-200/80 sm:pl-5">
-                <button
+            <button
                   type="button"
                   onClick={() => selectTab('tasks')}
                   className="inline-flex items-center gap-2 rounded-lg border border-orange-400 bg-transparent px-3.5 py-2 text-sm font-semibold text-orange-600 transition hover:bg-orange-50"
@@ -1779,8 +1779,8 @@ export default function Dashboard() {
                   className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-white text-orange-500 shadow-md ring-1 ring-black/5 transition hover:bg-orange-50"
                 >
                   <ChevronRight className="h-5 w-5" aria-hidden />
-                </button>
-              </div>
+            </button>
+          </div>
             </div>
           </div>
         )}
@@ -1790,7 +1790,7 @@ export default function Dashboard() {
             <div className="min-w-0 flex-1">
               <h1 className="font-display text-ui-2xl font-semibold text-slate-950 dark:text-slate-50">{t('plaintiffDashboard.greeting', { name: user.firstName })}</h1>
               <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-                {activeAssessment && submittedForReview ? (
+                {activeAssessment && showReviewBanner ? (
                   <>
                     <span className="block">{t('plaintiffDashboard.status.inReviewLine1')}</span>
                     <span className="block">{t('plaintiffDashboard.status.inReviewLine2')}</span>
@@ -1834,7 +1834,7 @@ export default function Dashboard() {
               )}
             </div>
             <div className="flex shrink-0 flex-col items-start gap-2 sm:items-end">
-              {activeAssessment && (
+          {activeAssessment && (
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
                     {t('plaintiffDashboard.caseId.label')}
@@ -1888,31 +1888,31 @@ export default function Dashboard() {
                     tab.id === 'tasks'
                       ? actionItemsCount + pendingDocumentRequests.length
                       : 0
-                  return (
-                    <button
-                      key={tab.id}
+                return (
+                <button
+                  key={tab.id}
                       type="button"
                       onClick={() => selectTab(tab.id)}
                       className={`inline-flex w-full min-h-[3.25rem] items-center justify-center gap-2.5 rounded-xl border px-4 py-3.5 text-base font-semibold transition-colors sm:min-h-[3.75rem] sm:px-5 sm:text-lg ${
-                        activeTab === tab.id
+                    activeTab === tab.id
                           ? 'border-brand-200 bg-brand-50 text-brand-700 dark:border-brand-900/70 dark:bg-brand-950/40 dark:text-brand-300'
                           : 'border-slate-200 bg-white text-slate-600 hover:border-brand-200 hover:text-brand-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-brand-800 dark:hover:text-brand-300'
-                      }`}
-                    >
-                      {tab.icon}
+                  }`}
+                >
+                  {tab.icon}
                       <span className="truncate">{t(tab.labelKey)}</span>
-                      {badge > 0 && (
+                  {badge > 0 && (
                         <span className="inline-flex h-5 min-w-[20px] shrink-0 items-center justify-center rounded-full bg-rose-500 px-1.5 text-xs font-bold text-white">{badge}</span>
-                      )}
-                    </button>
-                  )
-                })}
+                  )}
+                </button>
+                )
+              })}
               </div>
             </div>
-          </nav>
+            </nav>
           )
         })()}
-      </div>
+        </div>
 
       <div className="py-6">
         {activeAssessment ? (
@@ -1954,7 +1954,7 @@ export default function Dashboard() {
                       >
                         {t('plaintiffDashboard.viewCaseReport')}
                       </Link>
-                    </div>
+                      </div>
                     {latestNotification && (
                       <div className="mt-4 flex items-center gap-2 rounded-lg bg-white/10 px-3 py-2 text-sm text-brand-50">
                         <Bell className="h-4 w-4 shrink-0" aria-hidden />
@@ -2021,10 +2021,10 @@ export default function Dashboard() {
                       {/* 1. Attorney Match — Call / Message under name */}
                       <div className="rounded-xl border-2 border-emerald-200 bg-white p-5 shadow-sm">
                         <h3 className="mb-3 flex items-center gap-2 text-lg font-bold text-gray-900">
-                          <CheckCircle className="h-6 w-6 text-emerald-600" />
+                        <CheckCircle className="h-6 w-6 text-emerald-600" />
                           {t('plaintiffDashboard.attorneyMatch.title')}
-                        </h3>
-                        <p className="text-xl font-bold text-gray-900">{routingStatus?.attorneyMatched?.name}, Esq.</p>
+                      </h3>
+                          <p className="text-xl font-bold text-gray-900">{routingStatus?.attorneyMatched?.name}, Esq.</p>
                         <div className="mt-3 flex flex-wrap gap-2">
                           {routingStatus?.attorneyMatched?.phone && (
                             <a
@@ -2050,19 +2050,19 @@ export default function Dashboard() {
                           {venueState ? ` • ${t('plaintiffDashboard.attorneyMatch.licensed', { state: venueState })}` : ''}
                         </p>
                         <p className="mt-1 text-sm text-gray-500">
-                          {(() => {
-                            const s = routingStatus?.attorneyMatched?.specialties
-                            if (!s) return null
-                            try {
-                              const arr = typeof s === 'string' ? JSON.parse(s) : s
-                              if (Array.isArray(arr)) {
+                            {(() => {
+                              const s = routingStatus?.attorneyMatched?.specialties
+                              if (!s) return null
+                              try {
+                                const arr = typeof s === 'string' ? JSON.parse(s) : s
+                                if (Array.isArray(arr)) {
                                 const formatted = arr.map((x: string) => localizeClaimType(x)).filter(Boolean)
                                 return t('plaintiffDashboard.attorneyMatch.specializesIn', { list: formatted.join(', ') || t('plaintiffDashboard.attorneyMatch.personalInjury') })
-                              }
-                            } catch {}
+                                }
+                              } catch {}
                             return t('plaintiffDashboard.attorneyMatch.specializesIn', { list: localizeClaimType(String(s)) })
-                          })()}
-                        </p>
+                            })()}
+                          </p>
                         <p className="mt-1 text-sm text-brand-600">
                           {t('plaintiffDashboard.attorneyMatch.responseTime', { hours: routingStatus?.attorneyMatched?.responseTimeHours ?? 24 })}
                         </p>
@@ -2079,7 +2079,7 @@ export default function Dashboard() {
                                       <Star className={`h-5 w-5 ${value <= reviewRating ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'}`} />
                                     </button>
                                   ))}
-                                </div>
+                        </div>
                                 <input
                                   value={reviewTitle}
                                   onChange={(e) => setReviewTitle(e.target.value)}
@@ -2127,15 +2127,15 @@ export default function Dashboard() {
                                 >
                                   {t('plaintiffDashboard.attorneyContact.editReview')}
                                 </button>
-                              </div>
+                        </div>
                             ) : (
                               <button onClick={() => setReviewOpen(true)} className="text-sm font-medium text-brand-600 hover:underline">
                                 {t('plaintiffDashboard.attorneyContact.leaveReview')}
                               </button>
                             )}
-                          </div>
-                        )}
                       </div>
+                        )}
+                    </div>
 
                       {/* 2. Consultation scheduled — or Schedule Again after cancel / none booked */}
                       {routingStatus?.upcomingAppointment ? (
@@ -2220,7 +2220,14 @@ export default function Dashboard() {
                               <textarea
                                 id="cancel-consult-reason"
                                 value={cancelConsultReason}
-                                onChange={(e) => setCancelConsultReason(e.target.value)}
+                                onChange={(e) => {
+                                  setCancelConsultReason(e.target.value)
+                                  // Clear the "reason is required" validation as soon as
+                                  // the user starts typing, so a valid reason doesn't sit
+                                  // behind a stale error (CP: can't cancel — validation
+                                  // message keeps showing even with a reason entered).
+                                  if (e.target.value.trim()) setScheduleError(null)
+                                }}
                                 rows={3}
                                 maxLength={500}
                                 placeholder={t('plaintiffDashboard.consultation.cancelReasonPlaceholder')}
@@ -2306,7 +2313,7 @@ export default function Dashboard() {
                             editing the case description. */}
                         <Link to={dailyAction.href} className="mt-auto inline-flex w-fit items-center gap-2 rounded-lg bg-white px-5 py-2.5 text-sm font-semibold text-brand-600 hover:bg-brand-50">
                           {dailyAction.cta}
-                        </Link>
+                          </Link>
                       </div>
                     )}
 
@@ -2393,7 +2400,7 @@ export default function Dashboard() {
                           <div><dt className="text-gray-400">{t('plaintiffDashboard.caseSummary.jurisdiction')}</dt><dd className="font-semibold text-gray-800">{venueState}</dd></div>
                         </dl>
                         <Link to={`/results/${activeAssessment.id}?view=report`} className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-brand-700 hover:text-brand-900">{t('plaintiffDashboard.caseSummary.viewFullDetails')} <ChevronRight className="h-3.5 w-3.5" /></Link>
-                      </div>
+                          </div>
                       <div className="rounded-xl border border-brand-100 bg-brand-50/60 p-5">
                         <div className="flex items-center gap-2">
                           <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-600 text-white"><Activity className="h-5 w-5" aria-hidden /></span>
@@ -2413,7 +2420,7 @@ export default function Dashboard() {
                           <Link to={caseCoachCta.href} className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-2 text-xs font-semibold text-white hover:bg-brand-700">{caseCoachCta.label}</Link>
                         )}
                       </div>
-                    </div>
+                              </div>
 
                     {/* Strengthen your case (documents raise readiness + value) */}
                     <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-5">
@@ -2423,29 +2430,29 @@ export default function Dashboard() {
                           <div className="min-w-0 text-left">
                             <p className="text-sm font-semibold text-gray-900">{t('plaintiffDashboard.strengthen.title')}</p>
                             <p className="text-xs text-gray-500">{t('plaintiffDashboard.strengthen.subtitle')}</p>
-                          </div>
-                        </div>
+                      </div>
+                    </div>
                         {needsMoreDocs && (
                           <Link to={evidenceUploadHref(activeAssessment.id, { from: 'dashboard' })} className="hidden shrink-0 self-center items-center gap-1.5 rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 sm:inline-flex"><Upload className="h-4 w-4" aria-hidden />{t('plaintiffDashboard.strengthen.addDocuments')}</Link>
                         )}
                       </div>
                       <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                        {caseValueIncreaseItems.map((item) => (
+                          {caseValueIncreaseItems.map((item) => (
                           <div key={item.label} className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white p-2.5">
-                            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-600"><FileText className="h-4 w-4" aria-hidden /></span>
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate text-xs font-semibold text-gray-800">{item.label}</p>
-                              <p className="truncate text-[11px] text-gray-400">{item.sub}</p>
-                            </div>
-                            <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${item.impact === 'High' ? 'bg-emerald-50 text-emerald-700' : item.impact === 'Medium' ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-500'}`}>{item.impact}</span>
-                            {item.done ? (
+                              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-600"><FileText className="h-4 w-4" aria-hidden /></span>
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-xs font-semibold text-gray-800">{item.label}</p>
+                                <p className="truncate text-[11px] text-gray-400">{item.sub}</p>
+                              </div>
+                              <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${item.impact === 'High' ? 'bg-emerald-50 text-emerald-700' : item.impact === 'Medium' ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-500'}`}>{item.impact}</span>
+                              {item.done ? (
                               <span className="shrink-0 text-[11px] font-semibold text-emerald-600">{t('plaintiffDashboard.strengthen.added')}</span>
-                            ) : (
+                              ) : (
                               <Link to={evidenceUploadHref(activeAssessment.id, { from: 'dashboard' })} className="shrink-0 rounded-md border border-amber-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-amber-700 hover:bg-amber-50">{t('plaintiffDashboard.strengthen.upload')}</Link>
-                            )}
-                          </div>
-                        ))}
-                      </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
                       {needsMoreDocs && (
                         <Link to={evidenceUploadHref(activeAssessment.id, { from: 'dashboard' })} className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 sm:hidden"><Upload className="h-4 w-4" aria-hidden />{t('plaintiffDashboard.strengthen.addDocuments')}</Link>
                       )}
@@ -2473,7 +2480,7 @@ export default function Dashboard() {
                   </>
                 )}
 
-              </div>
+                        </div>
             )}
 
             {activeAssessment && activeTab !== 'dashboard' && (
@@ -2561,12 +2568,12 @@ export default function Dashboard() {
                     <FileText className="h-5 w-5" aria-hidden />
                     {t('common.startAssessment')}
                     <ArrowRight className="h-4 w-4" aria-hidden />
-                  </Link>
+              </Link>
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-brand-100">
                     <span className="inline-flex items-center gap-1.5"><Clock className="h-3.5 w-3.5" aria-hidden /> {t('plaintiffDashboard.onboarding.seconds')}</span>
                     <span className="inline-flex items-center gap-1.5"><ShieldCheck className="h-3.5 w-3.5" aria-hidden /> {t('plaintiffDashboard.onboarding.secure')}</span>
                     <span className="inline-flex items-center gap-1.5"><CheckCircle className="h-3.5 w-3.5" aria-hidden /> {t('plaintiffDashboard.onboarding.noObligation')}</span>
-                  </div>
+            </div>
                 </div>
               </div>
             </section>

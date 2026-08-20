@@ -215,12 +215,17 @@ export function getPlaintiffPipelineProgress(input: {
   retained: boolean
   caseStage?: string | null
 }): { currentIdx: number; completeThrough: number } {
+  const stage = String(input.caseStage || '').toUpperCase()
   const bucket = plaintiffCaseStageBucket(input.caseStage)
   // Post-retain stages only apply once the case is actually retained.
   // A stale caseStage (e.g. TREATMENT written while still in attorney review)
   // must not advance the pipeline.
   if (input.retained && bucket === 'closed') return { currentIdx: -1, completeThrough: 10 }
   if (input.retained) {
+    // Settlement disbursed = the Settlement milestone is DONE (funds distributed).
+    // Light it green and move the live step to "Closed" — the only thing left is
+    // formally closing the matter (CP: "if settlement is done it should be green").
+    if (stage === 'DISBURSEMENT') return { currentIdx: 9, completeThrough: 9 }
     if (bucket === 'negotiation') return { currentIdx: 8, completeThrough: 8 }
     if (bucket === 'demand') return { currentIdx: 7, completeThrough: 7 }
     if (bucket === 'treatment') return { currentIdx: 6, completeThrough: 6 }
