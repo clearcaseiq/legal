@@ -134,6 +134,25 @@ const nextConfig = {
         destination: '/california-statute-of-limitations-personal-injury',
         statusCode: 301,
       },
+      // "Average settlement for X" and "how much is an X case worth" are the
+      // same question, and each was answered by a generated page sharing its
+      // body with every sibling in its family — 0.811 and 0.773 median pairwise
+      // similarity, around 520 words each. The case-worth URL survives because
+      // it matches how the question is typed, and now covers the benchmark
+      // framing the average pages were reaching for.
+      ...[
+        ['car-accident', 'car-accident'],
+        ['whiplash', 'whiplash'],
+        ['herniated-disc', 'herniated-disc'],
+        ['tbi', 'tbi'],
+        ['back-surgery', 'back-surgery'],
+        // The only pair whose two halves are not named identically.
+        ['motorcycle', 'motorcycle-accident'],
+      ].map(([retired, survivor]) => ({
+        source: `/average-${retired}-settlement-california`,
+        destination: `/how-much-is-a-${survivor}-case-worth`,
+        statusCode: 301,
+      })),
     ]
   },
   // Local/LAN: browser calls same-origin `/v1/*`; Next proxies to the API.

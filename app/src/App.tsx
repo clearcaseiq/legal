@@ -579,12 +579,12 @@ function App() {
             <Route path="/how-much-is-a-back-surgery-case-worth" element={<SeoLandingPage />} />
             <Route path="/how-much-is-a-motorcycle-accident-case-worth" element={<SeoLandingPage />} />
             <Route path="/how-much-is-a-pedestrian-accident-case-worth" element={<SeoLandingPage />} />
-            <Route path="/average-car-accident-settlement-california" element={<SeoLandingPage />} />
-            <Route path="/average-whiplash-settlement-california" element={<SeoLandingPage />} />
-            <Route path="/average-herniated-disc-settlement-california" element={<SeoLandingPage />} />
-            <Route path="/average-tbi-settlement-california" element={<SeoLandingPage />} />
-            <Route path="/average-back-surgery-settlement-california" element={<SeoLandingPage />} />
-            <Route path="/average-motorcycle-settlement-california" element={<SeoLandingPage />} />
+            {/* The six `/average-*-settlement-california` pages were retired into
+                the case-worth guide for the same injury: "average settlement for
+                X" and "how much is an X case worth" are one question asked twice,
+                and answering it on two thin pages split both. No route here —
+                they 301 in next.config.mjs before the app renders, and no
+                internal link points at them. */}
             <Route path="/when-to-hire-a-lawyer-after-accident" element={<SeoLandingPage />} />
             <Route path="/how-much-do-personal-injury-lawyers-charge" element={<SeoLandingPage />} />
             <Route path="/can-i-switch-lawyers-during-my-case" element={<SeoLandingPage />} />

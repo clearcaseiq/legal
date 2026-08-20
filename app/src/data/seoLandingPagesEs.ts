@@ -132,7 +132,7 @@ const writtenPages: Array<Omit<LandingPageEs, 'namespaces'>> = [
       },
       {
         heading: 'El límite de la póliza suele ser el techo real',
-        body: 'Un caso puede valer mucho en teoría y muy poco en la práctica si la persona responsable tenía el seguro mínimo. California exige apenas 30,000 dólares de cobertura por lesiones corporales por accidente para pólizas emitidas desde el 1 de enero de 2025, y 15,000 por persona en pólizas anteriores. Si sus facturas médicas superan ese límite, la pregunta deja de ser cuánto vale el caso y pasa a ser de dónde más puede salir dinero: su propia cobertura para conductores sin seguro o con seguro insuficiente, una póliza comercial si el vehículo era de trabajo, o un segundo responsable.',
+        body: 'Un caso puede valer mucho en teoría y muy poco en la práctica si la persona responsable tenía el seguro mínimo. Para pólizas emitidas o renovadas desde el 1 de enero de 2025, California exige apenas 30,000 dólares por persona y 60,000 por accidente en cobertura de lesiones corporales; antes de esa fecha el mínimo era de 15,000 por persona y 30,000 por accidente. Si sus facturas médicas superan ese límite, la pregunta deja de ser cuánto vale el caso y pasa a ser de dónde más puede salir dinero: su propia cobertura para conductores sin seguro o con seguro insuficiente, una póliza comercial si el vehículo era de trabajo, o un segundo responsable.',
       },
       {
         heading: 'Por qué los promedios engañan',

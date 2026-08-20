@@ -1,7 +1,7 @@
 import type { LanguageCode } from '../i18n'
 import { requestedLandingPages } from './seoRequestedPages'
 import { priorityLandingPages } from './seoPriorityPages'
-import { conversionLandingPages } from './seoConversionPages'
+import { injuryValueGuidePages } from './seoInjuryValueGuides'
 import { expansionLandingPages } from './seoExpansionPages'
 import { insuranceGuidePages } from './seoInsuranceGuides'
 import { caseStrengthGuidePages } from './seoCaseStrengthGuide'
@@ -76,13 +76,13 @@ export const CONTENT_UPDATED = {
   core: '2026-08-06',
   requested: '2026-06-02',
   priority: '2026-06-02',
-  conversion: '2026-06-02',
   expansion: '2026-06-02',
   insuranceGuides: '2026-08-19',
   caseStrengthGuide: '2026-08-19',
   attorneyGuides: '2026-08-19',
   solGuides: '2026-08-19',
   medicalRecordsGuides: '2026-08-19',
+  injuryValueGuides: '2026-08-19',
 } as const
 
 /**
@@ -98,13 +98,15 @@ export const CONTENT_PUBLISHED = {
   core: '2026-05-20',
   requested: '2026-06-02',
   priority: '2026-06-02',
-  conversion: '2026-06-02',
   expansion: '2026-06-02',
   insuranceGuides: '2026-08-19',
   attorneyGuides: '2026-08-19',
   caseStrengthGuide: '2026-08-19',
   solGuides: '2026-08-19',
   medicalRecordsGuides: '2026-08-19',
+  // The URLs are not new — they published with the conversion set and were
+  // rewritten in place, so the publish date stays and only `dateModified` moves.
+  injuryValueGuides: '2026-06-02',
 } as const
 
 /** Applies a set's dates without overriding page-specific ones. */
@@ -520,8 +522,12 @@ export const allLandingPages: LandingPage[] = [
   ...stamp(landingPages, CONTENT_UPDATED.core, CONTENT_PUBLISHED.core),
   ...stamp(requestedLandingPages, CONTENT_UPDATED.requested, CONTENT_PUBLISHED.requested),
   ...stamp(priorityLandingPages, CONTENT_UPDATED.priority, CONTENT_PUBLISHED.priority),
-  ...stamp(conversionLandingPages, CONTENT_UPDATED.conversion, CONTENT_PUBLISHED.conversion),
   ...stamp(expansionLandingPages, CONTENT_UPDATED.expansion, CONTENT_PUBLISHED.expansion),
+  ...stamp(
+    injuryValueGuidePages,
+    CONTENT_UPDATED.injuryValueGuides,
+    CONTENT_PUBLISHED.injuryValueGuides,
+  ),
   ...stamp(insuranceGuidePages, CONTENT_UPDATED.insuranceGuides, CONTENT_PUBLISHED.insuranceGuides),
   ...stamp(caseStrengthGuidePages, CONTENT_UPDATED.caseStrengthGuide, CONTENT_PUBLISHED.caseStrengthGuide),
   ...stamp(attorneyGuidePages, CONTENT_UPDATED.attorneyGuides, CONTENT_PUBLISHED.attorneyGuides),
