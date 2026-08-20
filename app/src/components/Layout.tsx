@@ -24,7 +24,7 @@ import { clearStoredAuth, getStoredRole, getStoredUser, hasValidAuthToken } from
 import { LANGUAGES } from '../i18n'
 import { hreflangFor, localeHome } from '../i18n/routing'
 import { localizedPath, pathForLocale } from '../data/localePathPairs'
-import { isCalendarRoute, isWideContentRoute } from '../lib/layoutWidth'
+import { isCalendarRoute, isWideAttorneyRoute, isWideContentRoute } from '../lib/layoutWidth'
 import { loadPlaintiffHasCase, resetPlaintiffCaseHintCache } from '../lib/plaintiffCaseHint'
 import { getApiOrigin } from '../lib/runtimeEnv'
 
@@ -210,6 +210,14 @@ export default function Layout({ children }: LayoutProps) {
     (storedRole === 'attorney' ||
       // Legacy attorney sessions that never wrote auth_role still carry the blob.
       (storedRole == null && !!attorney))
+  // The attorney WORKSPACE sidebar renders by route (AttorneyWorkspaceLayout is
+  // mounted for /attorney-* and /firm-* paths regardless of role detection), but
+  // `isAttorney` above is role-based and can lag or mismatch on a fresh session
+  // (missing auth_role, stale blob). That let the language switcher slip into the
+  // attorney header (#7). Treat any attorney workspace route as attorney-only —
+  // English-only — so the switcher can never show there. Excludes the public
+  // /attorney-network marketing page (not in ATTORNEY_ROUTE_PREFIXES).
+  const isAttorneyWorkspace = isAttorney || isWideAttorneyRoute(location.pathname)
   // Claimant/marketing routes (everything that isn't the attorney workspace or
   // admin) opt into a scoped visual polish so the attorney UI stays untouched.
   const isClaimantRoute = !isAttorney && !isAdmin && !isAdminArea
@@ -493,8 +501,9 @@ export default function Layout({ children }: LayoutProps) {
                 </button>
               )}
               {/* Language switcher is for claimants/guests. Attorneys work the
-                  platform in English only, so it is hidden for attorney sessions. */}
-              {!isAttorney && (
+                  platform in English only, so it is hidden for attorney sessions
+                  and on every attorney workspace route (#7). */}
+              {!isAttorneyWorkspace && (
                 <div className="hidden lg:block">
                   <LanguageSwitcher />
                 </div>
@@ -710,7 +719,7 @@ export default function Layout({ children }: LayoutProps) {
               <div className="mb-2 flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-2 dark:border-slate-800 dark:bg-slate-950/40">
                 <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">{t('common.menu')}</span>
                 {/* Language switcher is hidden for attorneys (English-only workspace). */}
-                {!isAttorney && <LanguageSwitcher />}
+                {!isAttorneyWorkspace && <LanguageSwitcher />}
               </div>
               {isAuthenticated ? (
                 <>
