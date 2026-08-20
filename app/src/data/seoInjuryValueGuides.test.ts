@@ -26,7 +26,13 @@ const GUIDES = [
   '/how-much-is-a-pedestrian-accident-case-worth',
 ]
 
-/** Retired URL -> the guide that absorbed it. */
+/**
+ * Retired URL -> the guide that absorbed it.
+ *
+ * The `/average-*` half went first. The `/settlements/*` half followed: those
+ * pages were 400-470 words on the same injury as a guide fifteen hundred words
+ * longer, so they could only take traffic from it.
+ */
 const RETIRED: Record<string, string> = {
   '/average-car-accident-settlement-california': '/how-much-is-a-car-accident-case-worth',
   '/average-whiplash-settlement-california': '/how-much-is-a-whiplash-case-worth',
@@ -34,6 +40,15 @@ const RETIRED: Record<string, string> = {
   '/average-tbi-settlement-california': '/how-much-is-a-tbi-case-worth',
   '/average-back-surgery-settlement-california': '/how-much-is-a-back-surgery-case-worth',
   '/average-motorcycle-settlement-california': '/how-much-is-a-motorcycle-accident-case-worth',
+  '/settlements/whiplash': '/how-much-is-a-whiplash-case-worth',
+  '/settlements/whiplash-california': '/how-much-is-a-whiplash-case-worth',
+  '/settlements/herniated-disc': '/how-much-is-a-herniated-disc-case-worth',
+  '/settlements/herniated-disc-california': '/how-much-is-a-herniated-disc-case-worth',
+  '/settlements/tbi-settlement': '/how-much-is-a-tbi-case-worth',
+  '/settlements/tbi-california': '/how-much-is-a-tbi-case-worth',
+  '/settlements/back-surgery-california': '/how-much-is-a-back-surgery-case-worth',
+  '/settlements/motorcycle-accident-settlement': '/how-much-is-a-motorcycle-accident-case-worth',
+  '/settlements/pedestrian-accident-settlement': '/how-much-is-a-pedestrian-accident-case-worth',
 }
 
 const bySlug = new Map(allLandingPages.map((page) => [page.slug, page]))
@@ -166,6 +181,26 @@ describe('the retired average-settlement URLs', () => {
     for (const rule of redirects) {
       if (!rule.destination.startsWith('/how-much-is-')) continue
       expect(published.has(rule.destination), rule.destination).toBe(true)
+    }
+  })
+
+  it('leaves each injury with exactly one page about what it is worth', () => {
+    // The point of the consolidation. Two pages on the value of a whiplash
+    // claim compete with each other however differently they are written.
+    //
+    // Scoped to value intent. `/injuries/whiplash-after-rear-end` describes the
+    // injury and `/tools/whiplash-settlement-calculator` computes a range; both
+    // answer a different question from "what is it worth" and are meant to
+    // coexist with the guide.
+    const valueIntent = (slug: string) =>
+      slug.startsWith('/settlements/') || slug.startsWith('/how-much-is') || slug.startsWith('/average-')
+
+    for (const subject of ['whiplash', 'herniated-disc', 'tbi', 'back-surgery']) {
+      const pages = allLandingPages
+        .filter((page: LandingPage) => !page.locale || page.locale === 'en')
+        .map((page: LandingPage) => page.slug)
+        .filter((slug: string) => slug.includes(subject) && valueIntent(slug))
+      expect(pages, `more than one value page covers ${subject}`).toHaveLength(1)
     }
   })
 

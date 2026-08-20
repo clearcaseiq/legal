@@ -99,7 +99,7 @@ export const CALCULATOR_VARIANTS: CalculatorVariant[] = [
     ],
     relatedTools: [
       { label: 'Herniated disc calculator', to: '/tools/herniated-disc-calculator' },
-      { label: 'Whiplash claim guide', to: '/settlements/whiplash' },
+      { label: 'Whiplash claim guide', to: '/how-much-is-a-whiplash-case-worth' },
     ],
   },
   {
@@ -161,7 +161,7 @@ export const CALCULATOR_VARIANTS: CalculatorVariant[] = [
     ],
     relatedTools: [
       { label: 'Whiplash calculator', to: '/tools/whiplash-settlement-calculator' },
-      { label: 'Herniated disc guide', to: '/settlements/herniated-disc' },
+      { label: 'Herniated disc guide', to: '/how-much-is-a-herniated-disc-case-worth' },
     ],
   },
   {

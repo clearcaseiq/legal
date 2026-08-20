@@ -153,6 +153,25 @@ const nextConfig = {
         destination: `/how-much-is-a-${survivor}-case-worth`,
         statusCode: 301,
       })),
+      // Nine `/settlements/*` pages left over from earlier content sets, each
+      // 400-470 words, sat alongside the ~1,550-word guide for the same injury
+      // and competed with it for the same query. They carried nothing the guide
+      // does not now cover in more depth.
+      ...[
+        ['/settlements/whiplash', 'whiplash'],
+        ['/settlements/whiplash-california', 'whiplash'],
+        ['/settlements/herniated-disc', 'herniated-disc'],
+        ['/settlements/herniated-disc-california', 'herniated-disc'],
+        ['/settlements/tbi-settlement', 'tbi'],
+        ['/settlements/tbi-california', 'tbi'],
+        ['/settlements/back-surgery-california', 'back-surgery'],
+        ['/settlements/motorcycle-accident-settlement', 'motorcycle-accident'],
+        ['/settlements/pedestrian-accident-settlement', 'pedestrian-accident'],
+      ].map(([source, survivor]) => ({
+        source,
+        destination: `/how-much-is-a-${survivor}-case-worth`,
+        statusCode: 301,
+      })),
     ]
   },
   // Local/LAN: browser calls same-origin `/v1/*`; Next proxies to the API.
