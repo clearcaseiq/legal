@@ -371,6 +371,7 @@
     "step2Title": "Practice & Service Area",
     "casesWantLabel": "Which cases do you want? *",
     "casesWantHelp": "These are the same incident types clients choose when they start a case.",
+    "selectAllCases": "Select all",
     "whereLabel": "Where do you practice? *",
     "searchStates": "Search states...",
     "typeToFind": "Start typing to find a state.",

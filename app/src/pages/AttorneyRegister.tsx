@@ -87,6 +87,21 @@ export default function AttorneyRegister() {
     )
   }
 
+  // Firms that take the full range of injury work were having to tap twelve
+  // chips to say so. Derived from the rendered options rather than the raw
+  // constant so the control can never select a case type the attorney cannot see.
+  const allSpecialtiesSelected =
+    practiceAreaOptions.length > 0 &&
+    practiceAreaOptions.every((opt) => specialties.includes(opt.value))
+  const someSpecialtiesSelected = specialties.length > 0 && !allSpecialtiesSelected
+
+  const toggleAllSpecialties = () => {
+    updateField(
+      'specialties',
+      allSpecialtiesSelected ? [] : practiceAreaOptions.map((opt) => opt.value)
+    )
+  }
+
   const setStepError = (errors: AttorneyRegisterFieldErrors, fields: Array<keyof AttorneyRegisterFieldErrors>) => {
     const messages = fields.map((field) => errors[field]).filter(Boolean)
     setFieldErrors((prev) => ({ ...prev, ...errors }))
@@ -481,7 +496,21 @@ export default function AttorneyRegister() {
             <div hidden={currentStep !== 2} className="space-y-4">
                 <h3 className="text-lg font-medium text-gray-900">{t('attorneyReg.step2Title')}</h3>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">{t('attorneyReg.casesWantLabel')}</label>
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <label className="block text-sm font-medium text-gray-700">{t('attorneyReg.casesWantLabel')}</label>
+                    <label className="inline-flex cursor-pointer items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={allSpecialtiesSelected}
+                        ref={(el) => {
+                          if (el) el.indeterminate = someSpecialtiesSelected
+                        }}
+                        onChange={toggleAllSpecialties}
+                        className="rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                      />
+                      <span className="text-xs font-semibold text-gray-600">{t('attorneyReg.selectAllCases')}</span>
+                    </label>
+                  </div>
                   <p className="mb-2 text-xs text-gray-500">{t('attorneyReg.casesWantHelp')}</p>
                   <div className="flex flex-wrap gap-2">
                     {practiceAreaOptions.map((opt) => (

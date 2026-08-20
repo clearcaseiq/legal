@@ -371,6 +371,7 @@
     "step2Title": "Práctica y área de servicio",
     "casesWantLabel": "¿Qué casos desea recibir? *",
     "casesWantHelp": "Estos son los mismos tipos de incidente que los clientes eligen al iniciar un caso.",
+    "selectAllCases": "Seleccionar todo",
     "whereLabel": "¿Dónde ejerce? *",
     "searchStates": "Buscar estados...",
     "typeToFind": "Empiece a escribir para encontrar un estado.",

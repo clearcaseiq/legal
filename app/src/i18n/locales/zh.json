@@ -371,6 +371,7 @@
     "step2Title": "执业与服务区域",
     "casesWantLabel": "您想接收哪些案件？*",
     "casesWantHelp": "这些与客户提交案件时选择的事故类型相同。",
+    "selectAllCases": "全选",
     "whereLabel": "您在哪里执业？*",
     "searchStates": "搜索州...",
     "typeToFind": "开始输入以查找州。",
