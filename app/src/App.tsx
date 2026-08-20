@@ -1,4 +1,5 @@
 import { Suspense, lazy, useEffect, type ReactNode } from 'react'
+import dynamic from 'next/dynamic'
 import { Routes, Route, Navigate, Link, useLocation, useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import Layout from './components/Layout'
 import ErrorBoundary from './components/ErrorBoundary'
@@ -35,7 +36,33 @@ function withAppMessages<T>(loader: () => Promise<T>): () => Promise<T> {
   }
 }
 
-const Home = lazy(() => import('./pages/Home'))
+/*
+ * Routes the server renders are declared with `next/dynamic`, not `React.lazy`.
+ *
+ * `React.lazy` is wrong for these. The server renders the real markup, but on the
+ * client the route's chunk has not arrived yet, so hydration hits a boundary it
+ * cannot resolve, throws the server HTML away and renders `RouteFallback` in its
+ * place — the whole page collapses to a spinner and then comes back. Measured on
+ * production that blank lasted ~300ms, took the document from 4209px to the
+ * viewport height and back, and cost 0.76 CLS on desktop (the footer is pulled
+ * into view and shoved out again) plus seconds of LCP delay, because the largest
+ * element cannot reach its final paint until after the restore. Mobile read 0
+ * CLS only because its footer sits below the fold.
+ *
+ * `next/dynamic` fixes it by recording which chunks the server used and loading
+ * them before hydration begins, so the boundary never suspends. Static imports
+ * would also work but would pull all 149 landing pages' text into the chunk
+ * every route pays for, which is what the lazy split existed to prevent.
+ *
+ * Each call has to be written out in full. Next reads the import path out of the
+ * source to know which chunks the server used, so routing the loader through a
+ * shared helper loses it: that version compiled, and rendered, but the client
+ * put nothing where the server had content and React regenerated the tree.
+ *
+ * Client-only routes stay on `React.lazy`: nothing server-rendered exists for
+ * them to discard, so the fallback is the correct first paint.
+ */
+const Home = dynamic(() => import('./pages/Home'), { ssr: true })
 const Login = lazy(() => import('./pages/Login'))
 const AttorneyLogin = lazy(() => import('./pages/AttorneyLogin'))
 const StaffLogin = lazy(() => import('./pages/StaffLogin'))
@@ -47,7 +74,7 @@ const VerifyEmail = lazy(() => import('./pages/VerifyEmail'))
 // wording claimants saw during intake.
 const AttorneyRegister = lazy(withAppMessages(() => import('./pages/AttorneyRegister')))
 const ClaimProfile = lazy(() => import('./pages/ClaimProfile'))
-const AttorneyNetwork = lazy(() => import('./pages/AttorneyNetwork'))
+const AttorneyNetwork = dynamic(() => import('./pages/AttorneyNetwork'), { ssr: true })
 const AttorneyLicenseUpload = lazy(() => import('./pages/AttorneyLicenseUpload'))
 const AttorneyOnboardingPayment = lazy(() => import('./pages/AttorneyOnboardingPayment'))
 const AdminLogin = lazy(() => import('./pages/AdminLogin'))
@@ -55,7 +82,7 @@ const OAuthCallback = lazy(() => import('./pages/OAuthCallback'))
 const IntakeWizard = lazy(() => import('./pages/IntakeWizard'))
 const IntakeWizardQuick = lazy(withAppMessages(() => import('./pages/IntakeWizardQuick')))
 const Results = lazy(withAppMessages(() => import('./pages/Results')))
-const Attorneys = lazy(() => import('./pages/Attorneys'))
+const Attorneys = dynamic(() => import('./pages/Attorneys'), { ssr: true })
 const AttorneysEnhanced = lazy(() => import('./pages/AttorneysEnhanced'))
 const FirmProfile = lazy(() => import('./pages/FirmProfile'))
 const Firms = lazy(() => import('./pages/Firms'))
@@ -191,33 +218,36 @@ const AdminAnalytics = lazy(() => import('./pages/admin/AdminAnalytics'))
 const AdminAuditLogs = lazy(() => import('./pages/admin/AdminAuditLogs'))
 const AdminSystemStatus = lazy(() => import('./pages/admin/AdminSystemStatus'))
 const AdminSettings = lazy(() => import('./pages/admin/AdminSettings'))
-const About = lazy(() => import('./pages/About'))
-const PressPage = lazy(() => import('./pages/PressPage'))
-const InsightsPage = lazy(() => import('./pages/InsightsPage'))
-const PartnerBadgePage = lazy(() => import('./pages/PartnerBadgePage'))
-const CaliforniaSolChecker = lazy(() => import('./pages/CaliforniaSolChecker'))
-const MedicalRecordsChecklistTool = lazy(() => import('./pages/MedicalRecordsChecklistTool'))
-const SettlementCalculator = lazy(() => import('./pages/SettlementCalculator'))
+const About = dynamic(() => import('./pages/About'), { ssr: true })
+const PressPage = dynamic(() => import('./pages/PressPage'), { ssr: true })
+const InsightsPage = dynamic(() => import('./pages/InsightsPage'), { ssr: true })
+const PartnerBadgePage = dynamic(() => import('./pages/PartnerBadgePage'), { ssr: true })
+const CaliforniaSolChecker = dynamic(() => import('./pages/CaliforniaSolChecker'), { ssr: true })
+const MedicalRecordsChecklistTool = dynamic(
+  () => import('./pages/MedicalRecordsChecklistTool'),
+  { ssr: true }
+)
+const SettlementCalculator = dynamic(() => import('./pages/SettlementCalculator'), { ssr: true })
 const CompleteConsent = lazy(() => import('./pages/CompleteConsent'))
 const ConsentManagement = lazy(() => import('./pages/ConsentManagement'))
 const TestConsent = lazy(() => import('./pages/TestConsent'))
 const AuthDebug = lazy(() => import('./pages/AuthDebug'))
-const TermsOfService = lazy(() => import('./pages/TermsOfService'))
-const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'))
-const Disclosures = lazy(() => import('./pages/Disclosures'))
-const EditorialStandards = lazy(() => import('./pages/EditorialStandards'))
-const Help = lazy(() => import('./pages/Help'))
-const Contact = lazy(() => import('./pages/Contact'))
-const HowItWorks = lazy(() => import('./pages/HowItWorks'))
+const TermsOfService = dynamic(() => import('./pages/TermsOfService'), { ssr: true })
+const PrivacyPolicy = dynamic(() => import('./pages/PrivacyPolicy'), { ssr: true })
+const Disclosures = dynamic(() => import('./pages/Disclosures'), { ssr: true })
+const EditorialStandards = dynamic(() => import('./pages/EditorialStandards'), { ssr: true })
+const Help = dynamic(() => import('./pages/Help'), { ssr: true })
+const Contact = dynamic(() => import('./pages/Contact'), { ssr: true })
+const HowItWorks = dynamic(() => import('./pages/HowItWorks'), { ssr: true })
 const AiMlConsent = lazy(() => import('./pages/AiMlConsent'))
 const RoseIntake = lazy(() => import('./pages/RoseIntake'))
 const HipaaAuthorization = lazy(() => import('./pages/HipaaAuthorization'))
 const PaymentSuccess = lazy(() => import('./pages/PaymentSuccess'))
 const PaymentCancel = lazy(() => import('./pages/PaymentCancel'))
-const SeoLandingPage = lazy(() => import('./pages/SeoLandingPage'))
-const SeoLandingPageEs = lazy(() => import('./pages/SeoLandingPageEs'))
-const TopicsEs = lazy(() => import('./pages/TopicsEs'))
-const TopicHub = lazy(() => import('./pages/TopicHub'))
+const SeoLandingPage = dynamic(() => import('./pages/SeoLandingPage'), { ssr: true })
+const SeoLandingPageEs = dynamic(() => import('./pages/SeoLandingPageEs'), { ssr: true })
+const TopicsEs = dynamic(() => import('./pages/TopicsEs'), { ssr: true })
+const TopicHub = dynamic(() => import('./pages/TopicHub'), { ssr: true })
 
 const NotFound = lazy(() => import('./pages/NotFound'))
 
