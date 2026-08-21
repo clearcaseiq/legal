@@ -10,6 +10,7 @@ import {
   SlidersHorizontal,
   ArrowLeftRight,
   ClipboardCheck,
+  BadgeCheck,
   MessageSquare,
   FileSearch,
   BarChart3,
@@ -72,7 +73,10 @@ const navGroups: {
   {
     id: 'network',
     label: 'Network',
-    items: [{ path: '/admin/attorneys', id: 'attorneys', label: 'Attorneys', icon: Users }],
+    items: [
+      { path: '/admin/attorneys', id: 'attorneys', label: 'Attorneys', icon: Users },
+      { path: '/admin/case-results', id: 'caseResults', label: 'Case Results', icon: BadgeCheck },
+    ],
   },
   {
     id: 'oversight',

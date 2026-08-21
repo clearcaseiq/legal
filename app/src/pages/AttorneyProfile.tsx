@@ -12,8 +12,8 @@ import {
   Edit, 
   Plus, 
   Trash2,
-  Shield,
   CheckCircle,
+  XCircle,
   AlertCircle,
   X,
   Search,
@@ -26,14 +26,11 @@ import {
   ChevronLeft,
   ChevronRight,
   Loader2,
-  Briefcase,
-  Globe,
-  GripVertical,
-  Info,
 } from 'lucide-react'
 import {
   addAttorneyVerifiedVerdict,
   updateAttorneyVerifiedVerdict,
+  deleteAttorneyVerifiedVerdict,
   uploadVerifiedVerdictDocument,
   getAttorneyDashboard,
   getAttorneyProfilePerformance,
@@ -44,15 +41,9 @@ import {
 import { getApiOrigin } from '../lib/runtimeEnv'
 import { formatSpecialty } from '../lib/constants'
 import { BackButton } from '../features/shared/ui'
+import AttorneyProfileOverview from '../features/attorney/AttorneyProfileOverview'
 import { useLanguage } from '../contexts/LanguageContext'
-
-// Placeholder avatar built from the attorney's own name so it shows their real
-// initials (e.g. "Jane Smith" -> "JS"). Passing the literal word "Attorney" made
-// ui-avatars render the first two letters of that single word as "AT".
-function fallbackAvatar(name?: string | null): string {
-  const label = (name || '').trim() || 'Attorney'
-  return `https://ui-avatars.com/api/?name=${encodeURIComponent(label)}&background=e0f2fe&color=075985`
-}
+import { fallbackAvatar } from '../lib/avatar'
 
 // Shared field styling for the verdict form so inputs read as real, bordered
 // controls (the global .form-input rendered nearly borderless on this surface).
@@ -77,7 +68,19 @@ interface AttorneyProfile {
   photoUrl: string | null
   specialties: string[]
   languages: string[]
+  /** Fluency keyed by language name. A language absent here shows no badge. */
+  languageProficiency: Record<string, string>
+  /**
+   * The stored [{ state, counties, cities }] shape, kept intact rather than
+   * flattened to county names because it drives routing and a save has to put
+   * each county back under the state it came from.
+   */
+  jurisdictions: Array<{ state: string; counties: string[]; cities: string[] }>
+  /** Set by license verification, so shown here as read-only. */
+  licenseState: string | null
+  licenseVerified: boolean
   yearsExperience: number
+  yearsPiExperience: number
   totalCases: number
   totalSettlements: number
   averageSettlement: number
@@ -214,20 +217,11 @@ export default function AttorneyProfile() {
   const [verdictFilter, setVerdictFilter] = useState<'all' | 'verified' | 'pending'>('all')
   const [verdictPage, setVerdictPage] = useState(1)
   const [openVerdictMenu, setOpenVerdictMenu] = useState<string | null>(null)
-  // Profile Information card: focused editors for languages and experience.
-  const [showLanguageEditor, setShowLanguageEditor] = useState(false)
-  const [langDraft, setLangDraft] = useState<string[]>([])
-  const [editingLangIndex, setEditingLangIndex] = useState<number | null>(null)
-  const [savingLanguages, setSavingLanguages] = useState(false)
-  const [editingExperience, setEditingExperience] = useState(false)
-  const [expDraft, setExpDraft] = useState(0)
-  const [savingExperience, setSavingExperience] = useState(false)
-
   useEffect(() => {
     void loadProfile({ initial: true })
-    // Warm the Profile Settings (preferences) chunk so navigating there from the
-    // "Profile Settings" button doesn't flash the route Suspense spinner (#212).
-    void import('./AttorneyPreferences')
+    // Warm the Profile Settings chunk so navigating there from the "Profile
+    // Settings" button doesn't flash the route Suspense spinner (#212).
+    void import('../features/casework/AttorneyProfileSettingsPage')
     const intervalId = window.setInterval(() => {
       void loadProfile({ initial: false })
     }, 30000)
@@ -245,6 +239,17 @@ export default function AttorneyProfile() {
     }
   }
 
+  const parseJsonObject = (value: any): Record<string, string> => {
+    if (value && typeof value === 'object' && !Array.isArray(value)) return value
+    if (typeof value !== 'string' || !value.trim()) return {}
+    try {
+      const parsed = JSON.parse(value)
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+    } catch {
+      return {}
+    }
+  }
+
   const normalizeProfile = (raw: any): AttorneyProfile => {
     // The profile record has its own `specialties` column that defaults to "[]",
     // while the values chosen at registration are stored on `attorney.specialties`.
@@ -256,6 +261,13 @@ export default function AttorneyProfile() {
     const specialties = profileSpecialties.length ? profileSpecialties : attorneySpecialties
     const languages = parseJsonArray(raw?.languages)
     const verifiedVerdicts = parseJsonArray(raw?.verifiedVerdicts)
+    const jurisdictions = parseJsonArray(raw?.jurisdictions)
+      .filter((entry: any) => entry && typeof entry === 'object' && entry.state)
+      .map((entry: any) => ({
+        state: String(entry.state),
+        counties: (Array.isArray(entry.counties) ? entry.counties : []).filter(Boolean).map(String),
+        cities: (Array.isArray(entry.cities) ? entry.cities : []).filter(Boolean).map(String),
+      }))
     const totalSettlements = Number(raw?.totalSettlements || 0)
     const totalCases = Number(raw?.totalCases || 0)
 
@@ -265,7 +277,12 @@ export default function AttorneyProfile() {
       photoUrl: raw?.photoUrl || null,
       specialties: specialties.length ? specialties : ['Personal Injury'],
       languages: languages.length ? languages : ['English'],
+      languageProficiency: parseJsonObject(raw?.languageProficiency),
+      jurisdictions,
+      licenseState: raw?.licenseState || raw?.attorney?.barState || null,
+      licenseVerified: Boolean(raw?.licenseVerified),
       yearsExperience: Number(raw?.yearsExperience || 0),
+      yearsPiExperience: Number(raw?.yearsPiExperience || 0),
       totalCases,
       totalSettlements,
       averageSettlement: Number(raw?.averageSettlement || (totalCases > 0 ? totalSettlements / totalCases : 0)),
@@ -346,12 +363,13 @@ export default function AttorneyProfile() {
         // to a string (not an array) and languages/specialties silently reset.
         specialties: profile.specialties,
         languages: cleanLanguages,
+        languageProficiency: profile.languageProficiency,
         yearsExperience: profile.yearsExperience,
+        yearsPiExperience: profile.yearsPiExperience,
         totalCases: profile.totalCases,
         totalSettlements: profile.totalSettlements,
         averageSettlement: profile.averageSettlement,
         successRate: profile.successRate,
-        verifiedVerdicts: profile.verifiedVerdicts,
       })
       setProfile(normalizeProfile(updated))
       setLastUpdatedAt(new Date())
@@ -435,21 +453,9 @@ export default function AttorneyProfile() {
         ...(documentUrl ? { documentUrl, documentName } : {}),
       }
 
-      let response: any
-      if (editingVerdict?.id) {
-        response = await updateAttorneyVerifiedVerdict(editingVerdict.id, payload)
-      } else if (editingVerdict) {
-        // Legacy verdict without an id: replace in place then persist the array.
-        const next = profile.verifiedVerdicts.map((v, i) =>
-          i === editingVerdict.index ? { ...v, ...payload } : v
-        )
-        await persistVerdicts(next)
-        setError(null)
-        closeVerdictPanel()
-        return
-      } else {
-        response = await addAttorneyVerifiedVerdict(payload)
-      }
+      const response = editingVerdict?.id
+        ? await updateAttorneyVerifiedVerdict(editingVerdict.id, payload)
+        : await addAttorneyVerifiedVerdict(payload)
 
       if (response?.profile) {
         setProfile(normalizeProfile(response.profile))
@@ -464,25 +470,6 @@ export default function AttorneyProfile() {
     }
   }
 
-  const persistVerdicts = async (verdicts: any[]) => {
-    if (!profile) return
-    const updated = await updateAttorneyProfile({
-      bio: profile.bio,
-      photoUrl: profile.photoUrl,
-      // Send raw arrays; the API stringifies them (see handleSaveProfile).
-      specialties: profile.specialties,
-      languages: profile.languages,
-      yearsExperience: profile.yearsExperience,
-      totalCases: profile.totalCases,
-      totalSettlements: profile.totalSettlements,
-      averageSettlement: profile.averageSettlement,
-      successRate: profile.successRate,
-      verifiedVerdicts: verdicts,
-    })
-    setProfile(normalizeProfile(updated))
-    setLastUpdatedAt(new Date())
-  }
-
   // Persist the whole profile with a few overridden fields so unrelated columns
   // aren't wiped (the API skips undefined fields but sends full arrays here).
   const persistProfileFields = async (overrides: Record<string, any>) => {
@@ -493,7 +480,10 @@ export default function AttorneyProfile() {
       photoUrl: profile.photoUrl,
       specialties: profile.specialties,
       languages: profile.languages,
+      languageProficiency: profile.languageProficiency,
+      jurisdictions: profile.jurisdictions,
       yearsExperience: profile.yearsExperience,
+      yearsPiExperience: profile.yearsPiExperience,
       totalCases: profile.totalCases,
       totalSettlements: profile.totalSettlements,
       averageSettlement: profile.averageSettlement,
@@ -504,79 +494,6 @@ export default function AttorneyProfile() {
     setLastUpdatedAt(new Date())
   }
 
-  const openLanguageEditor = () => {
-    if (!profile) return
-    setLangDraft(profile.languages.length ? [...profile.languages] : ['English'])
-    setEditingLangIndex(null)
-    setShowLanguageEditor(true)
-  }
-
-  const cancelLanguageEditor = () => {
-    setShowLanguageEditor(false)
-    setEditingLangIndex(null)
-  }
-
-  const updateLangDraft = (index: number, value: string) => {
-    setLangDraft((prev) => prev.map((l, i) => (i === index ? value : l)))
-  }
-
-  const removeLangDraft = (index: number) => {
-    setLangDraft((prev) => prev.filter((_, i) => i !== index))
-    setEditingLangIndex(null)
-  }
-
-  const makeLangPrimary = (index: number) => {
-    setLangDraft((prev) => {
-      if (index <= 0 || index >= prev.length) return prev
-      const next = [...prev]
-      const [item] = next.splice(index, 1)
-      next.unshift(item)
-      return next
-    })
-  }
-
-  const addLangDraft = () => {
-    setLangDraft((prev) => {
-      if (prev.some((l) => !l.trim())) return prev
-      setEditingLangIndex(prev.length)
-      return [...prev, '']
-    })
-  }
-
-  const saveLanguages = async () => {
-    const clean = langDraft.map((l) => l.trim()).filter(Boolean)
-    setSavingLanguages(true)
-    try {
-      await persistProfileFields({ languages: clean })
-      setError(null)
-      setShowLanguageEditor(false)
-      setEditingLangIndex(null)
-    } catch (err: any) {
-      setError(err?.response?.data?.error || 'Failed to save languages.')
-    } finally {
-      setSavingLanguages(false)
-    }
-  }
-
-  const startEditExperience = () => {
-    if (!profile) return
-    setExpDraft(profile.yearsExperience)
-    setEditingExperience(true)
-  }
-
-  const saveExperience = async () => {
-    setSavingExperience(true)
-    try {
-      const years = Math.min(80, Math.max(0, Math.round(Number(expDraft) || 0)))
-      await persistProfileFields({ yearsExperience: years })
-      setError(null)
-      setEditingExperience(false)
-    } catch (err: any) {
-      setError(err?.response?.data?.error || 'Failed to save experience.')
-    } finally {
-      setSavingExperience(false)
-    }
-  }
 
   const handlePhotoFileSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -621,13 +538,20 @@ export default function AttorneyProfile() {
 
   const confirmDeleteVerdict = async () => {
     if (!profile || verdictToDelete === null) return
+    const target = profile.verifiedVerdicts[verdictToDelete]
+    if (!target?.id) {
+      setError('This case result cannot be removed. Please refresh and try again.')
+      return
+    }
     setDeletingVerdict(true)
     try {
-      await persistVerdicts(profile.verifiedVerdicts.filter((_, i) => i !== verdictToDelete))
+      const response = await deleteAttorneyVerifiedVerdict(String(target.id))
+      if (response?.profile) setProfile(normalizeProfile(response.profile))
+      setLastUpdatedAt(new Date())
       setError(null)
       setVerdictToDelete(null)
     } catch (err: any) {
-      setError(err?.response?.data?.error || 'Failed to remove verdict.')
+      setError(err?.response?.data?.error || 'Failed to remove case result.')
     } finally {
       setDeletingVerdict(false)
     }
@@ -711,7 +635,7 @@ export default function AttorneyProfile() {
                 <Edit className="h-4 w-4 mr-2" />
                 Edit Profile
               </button>
-              <button className="btn-primary" onClick={() => navigate('/attorney-preferences')}>
+              <button className="btn-primary" onClick={() => navigate('/attorney-dashboard/settings/profile')}>
                 <Settings className="h-4 w-4 mr-2" />
                 {t('common.profileSettings')}
               </button>
@@ -835,219 +759,31 @@ export default function AttorneyProfile() {
       {/* Tab Content */}
       {activeTab === 'overview' && (
         <div className="space-y-6">
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-            {/* Profile Information */}
-            <div className="lg:col-span-2 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-              <div className="flex items-center gap-3 border-b border-slate-100 px-6 py-5">
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600">
-                  <User className="h-5 w-5" />
-                </span>
-                <div>
-                  <h3 className="text-base font-semibold text-slate-900">Profile Information</h3>
-                  <p className="mt-0.5 text-sm text-slate-500">Update your profile details and languages spoken.</p>
-                </div>
-              </div>
-
-              <div className="space-y-6 p-6">
-                {/* Summary tiles */}
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  {/* Experience */}
-                  <div className="rounded-xl border border-slate-200 p-4">
-                    <div className="flex items-start gap-3">
-                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-500">
-                        <Briefcase className="h-5 w-5" />
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium text-slate-500">Experience</p>
-                        {editingExperience ? (
-                          <div className="mt-1 flex items-center gap-2">
-                            <input
-                              type="number"
-                              min={0}
-                              max={80}
-                              step={1}
-                              value={expDraft}
-                              autoFocus
-                              onChange={(e) => setExpDraft(Math.min(80, Math.max(0, parseInt(e.target.value, 10) || 0)))}
-                              className="w-20 rounded-lg border border-slate-300 px-2 py-1 text-lg font-bold text-slate-900 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
-                            />
-                            <button
-                              onClick={saveExperience}
-                              disabled={savingExperience}
-                              className="rounded-lg bg-brand-600 p-1.5 text-white transition hover:bg-brand-700 disabled:opacity-50"
-                              aria-label="Save experience"
-                            >
-                              {savingExperience ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
-                            </button>
-                            <button
-                              onClick={() => setEditingExperience(false)}
-                              className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
-                              aria-label="Cancel"
-                            >
-                              <X className="h-4 w-4" />
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="mt-0.5 flex items-baseline gap-2">
-                            <p className="text-2xl font-bold text-slate-900">{profile.yearsExperience}</p>
-                            <span className="text-sm text-slate-500">Years of Practice</span>
-                            <button
-                              onClick={startEditExperience}
-                              className="ml-auto rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
-                              aria-label="Edit experience"
-                            >
-                              <Edit className="h-4 w-4" />
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Languages summary */}
-                  <div className="rounded-xl border border-slate-200 p-4">
-                    <div className="flex items-start gap-3">
-                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
-                        <Globe className="h-5 w-5" />
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="text-sm font-medium text-slate-500">Languages</p>
-                          {!showLanguageEditor && (
-                            <button
-                              onClick={openLanguageEditor}
-                              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
-                            >
-                              <Edit className="h-3.5 w-3.5" />
-                              Edit Languages
-                            </button>
-                          )}
-                        </div>
-                        <div className="mt-2 flex flex-wrap gap-1.5">
-                          {profile.languages.filter((l) => l.trim()).length === 0 ? (
-                            <span className="text-sm text-slate-400">No languages added</span>
-                          ) : (
-                            profile.languages.filter((l) => l.trim()).map((language, index) => (
-                              <span
-                                key={index}
-                                className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700"
-                              >
-                                {language}
-                                {index === 0 && <CheckCircle className="h-3 w-3" />}
-                              </span>
-                            ))
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Spoken Languages editor */}
-                {showLanguageEditor && (
-                  <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-5">
-                    <h4 className="text-sm font-semibold text-slate-900">Spoken Languages</h4>
-                    <p className="mt-0.5 text-sm text-slate-500">Add the languages you speak fluently. The first is your primary.</p>
-
-                    <div className="mt-4 space-y-2">
-                      {langDraft.map((lang, index) => (
-                        <div
-                          key={index}
-                          className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5"
-                        >
-                          <GripVertical className="h-4 w-4 shrink-0 text-slate-300" />
-                          {editingLangIndex === index ? (
-                            <input
-                              type="text"
-                              value={lang}
-                              autoFocus
-                              placeholder="e.g., Spanish"
-                              maxLength={40}
-                              onChange={(e) => updateLangDraft(index, e.target.value)}
-                              onBlur={() => setEditingLangIndex(null)}
-                              onKeyDown={(e) => { if (e.key === 'Enter') setEditingLangIndex(null) }}
-                              className="flex-1 rounded-lg border border-slate-300 px-2 py-1 text-sm font-medium text-slate-900 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
-                            />
-                          ) : (
-                            <span className="flex-1 truncate text-sm font-semibold text-slate-800">
-                              {lang.trim() || <span className="font-normal italic text-slate-400">Untitled language</span>}
-                            </span>
-                          )}
-                          {index === 0 && (
-                            <span className="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700">
-                              Primary
-                            </span>
-                          )}
-                          {index !== 0 && (
-                            <button
-                              onClick={() => makeLangPrimary(index)}
-                              className="shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
-                              title="Make primary"
-                            >
-                              Make primary
-                            </button>
-                          )}
-                          <button
-                            onClick={() => setEditingLangIndex(index)}
-                            className="shrink-0 rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
-                            aria-label="Rename language"
-                          >
-                            <Edit className="h-4 w-4" />
-                          </button>
-                          <button
-                            onClick={() => removeLangDraft(index)}
-                            className="shrink-0 rounded-lg p-1.5 text-slate-400 transition hover:bg-red-50 hover:text-red-600"
-                            aria-label="Remove language"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </div>
-                      ))}
-
-                      <button
-                        onClick={addLangDraft}
-                        className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-brand-600 transition hover:border-brand-300 hover:bg-brand-50/40"
-                      >
-                        <Plus className="h-4 w-4" />
-                        Add Language
-                      </button>
-                    </div>
-
-                    <div className="mt-5 flex items-center justify-end gap-3 border-t border-slate-200 pt-4">
-                      <button
-                        onClick={cancelLanguageEditor}
-                        disabled={savingLanguages}
-                        className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
-                      >
-                        Discard Changes
-                      </button>
-                      <button
-                        onClick={saveLanguages}
-                        disabled={savingLanguages}
-                        className="inline-flex items-center gap-2 rounded-xl bg-brand-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700 disabled:opacity-50"
-                      >
-                        {savingLanguages ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
-                        Save Changes
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Why this matters */}
-            <div className="lg:col-span-1">
-              <div className="rounded-2xl border border-slate-200 bg-slate-50/60 p-5">
-                <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand-50 text-brand-600">
-                  <Info className="h-5 w-5" />
-                </span>
-                <h4 className="mt-3 text-sm font-semibold text-slate-900">Why this matters</h4>
-                <p className="mt-1.5 text-sm leading-relaxed text-slate-500">
-                  A complete profile helps potential clients learn more about you and builds trust in your expertise.
-                </p>
-              </div>
-            </div>
-          </div>
+          <AttorneyProfileOverview
+            profile={{
+              bio: profile.bio,
+              photoUrl: profile.photoUrl,
+              specialties: profile.specialties,
+              languages: profile.languages,
+              languageProficiency: profile.languageProficiency,
+              jurisdictions: profile.jurisdictions,
+              licenseState: profile.licenseState,
+              licenseVerified: profile.licenseVerified,
+              yearsExperience: profile.yearsExperience,
+              yearsPiExperience: profile.yearsPiExperience,
+              totalSettlements: profile.totalSettlements,
+            }}
+            onSave={async (draft) => {
+              try {
+                await persistProfileFields(draft)
+                setError(null)
+              } catch (err: any) {
+                setError(err?.response?.data?.error || 'Failed to save profile changes.')
+                throw err
+              }
+            }}
+            onOpenDashboardProfile={() => navigate('/attorney-dashboard/settings/profile')}
+          />
 
           {/* Quick Stats */}
           <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -1138,8 +874,6 @@ export default function AttorneyProfile() {
 
       {activeTab === 'verdicts' && (() => {
         const allVerdicts = profile.verifiedVerdicts || []
-        const verifiedCount = allVerdicts.filter((v) => v.status === 'verified').length
-        const pendingCount = allVerdicts.length - verifiedCount
         const totalAmount = allVerdicts.reduce((sum, v) => sum + Number(v.settlementAmount || 0), 0)
         const practiceAreas = new Set(
           allVerdicts.map((v) => (v.caseType || '').toLowerCase().trim()).filter(Boolean)
@@ -1159,10 +893,12 @@ export default function AttorneyProfile() {
         const totalPages = Math.max(1, Math.ceil(filtered.length / VERDICT_PAGE_SIZE))
         const page = Math.min(verdictPage, totalPages)
         const paged = filtered.slice((page - 1) * VERDICT_PAGE_SIZE, page * VERDICT_PAGE_SIZE)
+        const verifiedCount = allVerdicts.filter((v) => v.status === 'verified').length
+        const awaitingCount = allVerdicts.filter((v) => (v.status || 'pending') === 'pending').length
         const stats = [
-          { label: 'Verified Results', value: String(verifiedCount), Icon: Shield, tint: 'bg-brand-50 text-brand-600' },
-          { label: 'Pending Review', value: String(pendingCount), Icon: AlertCircle, tint: 'bg-amber-50 text-amber-600' },
-          { label: 'Total Results', value: formatCompactUsd(totalAmount), Icon: DollarSign, tint: 'bg-emerald-50 text-emerald-600' },
+          { label: 'Verified', value: String(verifiedCount), Icon: Award, tint: 'bg-emerald-50 text-emerald-600' },
+          { label: 'Awaiting Review', value: String(awaitingCount), Icon: FileText, tint: 'bg-slate-100 text-slate-600' },
+          { label: 'Total Value', value: formatCompactUsd(totalAmount), Icon: DollarSign, tint: 'bg-emerald-50 text-emerald-600' },
           { label: 'Practice Areas', value: String(practiceAreas), Icon: TrendingUp, tint: 'bg-violet-50 text-violet-600' },
         ]
         return (
@@ -1172,7 +908,7 @@ export default function AttorneyProfile() {
               <div>
                 <h3 className="text-xl font-semibold text-slate-900">Case Results</h3>
                 <p className="mt-1 max-w-2xl text-sm text-slate-500">
-                  Showcase representative settlements and verdicts. Verified results help strengthen your ClearCaseIQ attorney profile.
+                  Showcase representative settlements and verdicts. Each one shows as self-reported until our team reviews your supporting document and verifies it.
                 </p>
               </div>
               <button
@@ -1220,7 +956,7 @@ export default function AttorneyProfile() {
               >
                 <option value="all">All Results</option>
                 <option value="verified">Verified</option>
-                <option value="pending">Pending Review</option>
+                <option value="pending">Not yet verified</option>
               </select>
             </div>
 
@@ -1246,6 +982,7 @@ export default function AttorneyProfile() {
                 {paged.map(({ v, i }) => {
                   const Icon = verdictIcon(v.caseType)
                   const isVerified = v.status === 'verified'
+                  const isRejected = v.status === 'rejected'
                   const menuKey = String(v.id ?? i)
                   const desc = v.caseDescription || v.description || ''
                   const meta = [
@@ -1270,11 +1007,21 @@ export default function AttorneyProfile() {
                           <div className="flex shrink-0 items-center gap-2">
                             <span
                               className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${
-                                isVerified ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                                isVerified
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : isRejected
+                                    ? 'bg-rose-100 text-rose-700'
+                                    : 'bg-slate-100 text-slate-600'
                               }`}
                             >
-                              {isVerified ? <CheckCircle className="h-3.5 w-3.5" /> : <AlertCircle className="h-3.5 w-3.5" />}
-                              {isVerified ? 'Verified' : 'Pending Review'}
+                              {isVerified ? (
+                                <CheckCircle className="h-3.5 w-3.5" />
+                              ) : isRejected ? (
+                                <XCircle className="h-3.5 w-3.5" />
+                              ) : (
+                                <User className="h-3.5 w-3.5" />
+                              )}
+                              {isVerified ? 'Verified' : isRejected ? 'Not verified' : 'Self-reported'}
                             </span>
                             <div className="relative">
                               <button
@@ -1316,6 +1063,12 @@ export default function AttorneyProfile() {
                               </span>
                             )}
                           </div>
+                        )}
+                        {isRejected && v.reviewNote && (
+                          <p className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">
+                            <span className="font-semibold">Not verified:</span> {v.reviewNote} Edit
+                            this result or attach clearer documentation to resubmit it.
+                          </p>
                         )}
                       </div>
                     </div>
@@ -1485,8 +1238,8 @@ export default function AttorneyProfile() {
 
               {/* Verification */}
               <div className="space-y-3">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Verification</p>
-                <p className="text-xs text-slate-500">Help us verify this result. Documents are kept private and are not displayed publicly.</p>
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Supporting document</p>
+                <p className="text-xs text-slate-500">Attach the settlement statement or order. It is stored privately, is never displayed publicly, and is what our team reads when reviewing this result — without it we cannot verify the amount.</p>
                 <input
                   ref={verdictDocInputRef}
                   type="file"
@@ -1553,7 +1306,7 @@ export default function AttorneyProfile() {
                 className="inline-flex items-center gap-2 rounded-xl bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {savingVerdict ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                {editingVerdict ? 'Save Changes' : 'Submit for Verification'}
+                {editingVerdict ? 'Save Changes' : 'Add Case Result'}
               </button>
             </div>
           </div>

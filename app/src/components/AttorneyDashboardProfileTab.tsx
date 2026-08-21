@@ -20,7 +20,13 @@ import { getApiOrigin } from '../lib/runtimeEnv'
 import { uploadAttorneyProfilePhoto } from '../lib/api'
 import { useLanguage } from '../contexts/LanguageContext'
 
-const DEFAULT_AVATAR = 'https://ui-avatars.com/api/?name=Attorney&background=e0f2fe&color=075985'
+// Intake windows are stored as {dayOfWeek, startTime, endTime} with dayOfWeek
+// matching Date#getDay (0 = Sunday), which is what the routing scorer compares against.
+const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const formatHour = (hour: number) => `${String(hour).padStart(2, '0')}:00`
+const HOUR_OPTIONS = Array.from({ length: 24 }, (_, hour) => (
+  <option key={hour} value={hour}>{formatHour(hour)}</option>
+))
 
 // Stored photos can be absolute URLs (legacy) or server-relative upload paths
 // (/uploads/avatars/...). Relative paths must be resolved against the API origin
@@ -31,8 +37,9 @@ function formatSuccessRate(value: number | null | undefined): string {
   return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1)
 }
 
-function resolvePhotoUrl(photoUrl: string | null | undefined): string {
-  if (!photoUrl) return DEFAULT_AVATAR
+// Callers render a User icon when there is no photo, so this only ever resolves
+// a real stored path.
+function resolvePhotoUrl(photoUrl: string): string {
   if (/^(https?:)?\/\//.test(photoUrl) || photoUrl.startsWith('data:')) return photoUrl
   const origin = getApiOrigin()
   if (!origin) return photoUrl
@@ -170,6 +177,67 @@ export default function AttorneyDashboardProfileTab({
   )
 
   const updateProfile = (patch: Record<string, unknown>) => setProfile({ ...profile, ...patch })
+
+  const addFirmLocation = () =>
+    updateProfile({
+      firmLocations: JSON.stringify([
+        ...firmLocations,
+        { address: '', city: '', state: '', zip: '', phone: '' },
+      ]),
+    })
+
+  const updateFirmLocation = (index: number, patch: Partial<(typeof firmLocations)[number]>) =>
+    updateProfile({
+      firmLocations: JSON.stringify(
+        firmLocations.map((location, i) => (i === index ? { ...location, ...patch } : location)),
+      ),
+    })
+
+  const removeFirmLocation = (index: number) =>
+    updateProfile({ firmLocations: JSON.stringify(firmLocations.filter((_, i) => i !== index)) })
+
+  const intakeAlwaysOn = !profile?.intakeHours || profile.intakeHours === '24/7'
+  const intakeWindows = intakeAlwaysOn
+    ? []
+    : parseJson<Array<{ dayOfWeek: number; startTime: number; endTime: number }>>(profile?.intakeHours, [])
+
+  /**
+   * Switching off 24/7 seeds Mon–Fri 9–5 rather than an empty list. An empty
+   * list is not "no restriction": routing reads it as a schedule with no open
+   * window, so the attorney is scored as permanently outside intake hours.
+   */
+  const setIntakeAlwaysOn = (alwaysOn: boolean) =>
+    updateProfile({
+      intakeHours: alwaysOn
+        ? '24/7'
+        : JSON.stringify([1, 2, 3, 4, 5].map((dayOfWeek) => ({ dayOfWeek, startTime: 9, endTime: 17 }))),
+    })
+
+  const toggleIntakeDay = (dayOfWeek: number) => {
+    const exists = intakeWindows.some((w) => w.dayOfWeek === dayOfWeek)
+    const next = exists
+      ? intakeWindows.filter((w) => w.dayOfWeek !== dayOfWeek)
+      : [...intakeWindows, { dayOfWeek, startTime: 9, endTime: 17 }].sort((a, b) => a.dayOfWeek - b.dayOfWeek)
+    updateProfile({ intakeHours: JSON.stringify(next) })
+  }
+
+  const updateIntakeWindow = (
+    dayOfWeek: number,
+    patch: Partial<{ startTime: number; endTime: number }>,
+  ) =>
+    updateProfile({
+      intakeHours: JSON.stringify(
+        intakeWindows.map((w) => (w.dayOfWeek === dayOfWeek ? { ...w, ...patch } : w)),
+      ),
+    })
+
+  const describeIntakeHours = () => {
+    if (intakeAlwaysOn) return '24/7'
+    if (intakeWindows.length === 0) return 'No intake days selected'
+    return intakeWindows
+      .map((w) => `${DAY_LABELS[w.dayOfWeek]} ${formatHour(w.startTime)}–${formatHour(w.endTime)}`)
+      .join(', ')
+  }
   const responseTimeHours = Number(profile?.responseTimeHours ?? profile?.attorney?.responseTimeHours ?? 24)
   const responseBadge = responseTimeHours <= 2
     ? 'Fast responder'
@@ -616,19 +684,95 @@ export default function AttorneyDashboardProfileTab({
                   </>
                 )}
               </div>
-              {firmLocations.length > 0 ? (
-                <div className="space-y-2">
-                  {firmLocations.map((location, index) => (
-                    <div key={index} className="p-3 bg-gray-50 rounded-md">
-                      <p className="text-sm text-gray-900">{location.address}</p>
-                      <p className="text-sm text-gray-600">
-                        {location.city}, {location.state} {location.zip}
-                      </p>
-                      {location.phone ? <p className="text-sm text-gray-600">Phone: {location.phone}</p> : null}
-                    </div>
-                  ))}
-                </div>
-              ) : null}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Office Locations</label>
+                {/* Same ownership rule as the firm name above: associates see their
+                    firm's offices but cannot edit them from a personal profile. */}
+                {editing && !hasFirmDashboard ? (
+                  <div className="space-y-3">
+                    {firmLocations.map((location, index) => (
+                      <div key={index} className="p-3 border border-gray-200 rounded-md space-y-2">
+                        <div className="flex items-start gap-2">
+                          <input
+                            type="text"
+                            value={location.address || ''}
+                            onChange={(e) => updateFirmLocation(index, { address: e.target.value })}
+                            className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-brand-500 focus:border-brand-500"
+                            placeholder="Street address"
+                            maxLength={200}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => removeFirmLocation(index)}
+                            className="p-2 text-gray-400 hover:text-red-600"
+                            aria-label={`Remove office ${index + 1}`}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                          <input
+                            type="text"
+                            value={location.city || ''}
+                            onChange={(e) => updateFirmLocation(index, { city: e.target.value })}
+                            className="px-3 py-2 border border-gray-300 rounded-md focus:ring-brand-500 focus:border-brand-500"
+                            placeholder="City"
+                            maxLength={100}
+                          />
+                          <select
+                            value={location.state || ''}
+                            onChange={(e) => updateFirmLocation(index, { state: e.target.value })}
+                            className="px-3 py-2 border border-gray-300 rounded-md focus:ring-brand-500 focus:border-brand-500"
+                            aria-label={`Office ${index + 1} state`}
+                          >
+                            <option value="">State</option>
+                            {US_STATES.map((state) => (
+                              <option key={state.code} value={state.code}>{state.code}</option>
+                            ))}
+                          </select>
+                          <input
+                            type="text"
+                            value={location.zip || ''}
+                            onChange={(e) => updateFirmLocation(index, { zip: e.target.value })}
+                            className="px-3 py-2 border border-gray-300 rounded-md focus:ring-brand-500 focus:border-brand-500"
+                            placeholder="ZIP"
+                            maxLength={10}
+                          />
+                          <input
+                            type="tel"
+                            value={location.phone || ''}
+                            onChange={(e) => updateFirmLocation(index, { phone: e.target.value })}
+                            className="px-3 py-2 border border-gray-300 rounded-md focus:ring-brand-500 focus:border-brand-500"
+                            placeholder="Phone"
+                            maxLength={30}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={addFirmLocation}
+                      className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-600 hover:text-brand-700"
+                    >
+                      <Plus className="h-4 w-4" /> Add office
+                    </button>
+                  </div>
+                ) : firmLocations.length > 0 ? (
+                  <div className="space-y-2">
+                    {firmLocations.map((location, index) => (
+                      <div key={index} className="p-3 bg-gray-50 rounded-md">
+                        <p className="text-sm text-gray-900">{location.address}</p>
+                        <p className="text-sm text-gray-600">
+                          {location.city}, {location.state} {location.zip}
+                        </p>
+                        {location.phone ? <p className="text-sm text-gray-600">Phone: {location.phone}</p> : null}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-gray-500">No offices added</p>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -797,17 +941,80 @@ export default function AttorneyDashboardProfileTab({
               </div>
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-1">Intake Hours</label>
+                <p className="text-xs text-gray-500 mb-2">When new cases can be routed to you.</p>
                 {editing ? (
-                  <select
-                    value={profile.intakeHours === '24/7' ? '24/7' : 'custom'}
-                    onChange={(e) => updateProfile({ intakeHours: e.target.value === '24/7' ? '24/7' : JSON.stringify([]) })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-brand-500 focus:border-brand-500"
-                  >
-                    <option value="24/7">24/7</option>
-                    <option value="custom">Custom Hours</option>
-                  </select>
+                  <>
+                    <div className="flex gap-6 mb-3">
+                      <label className="flex items-center space-x-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="intakeAvailability"
+                          checked={intakeAlwaysOn}
+                          onChange={() => setIntakeAlwaysOn(true)}
+                          className="text-brand-600 focus:ring-brand-500"
+                        />
+                        <span className="text-sm text-gray-700">Accept intakes 24/7</span>
+                      </label>
+                      <label className="flex items-center space-x-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="intakeAvailability"
+                          checked={!intakeAlwaysOn}
+                          onChange={() => setIntakeAlwaysOn(false)}
+                          className="text-brand-600 focus:ring-brand-500"
+                        />
+                        <span className="text-sm text-gray-700">Specific hours</span>
+                      </label>
+                    </div>
+                    {!intakeAlwaysOn && (
+                      <div className="space-y-2">
+                        {DAY_LABELS.map((label, dayOfWeek) => {
+                          const window = intakeWindows.find((w) => w.dayOfWeek === dayOfWeek)
+                          return (
+                            <div key={dayOfWeek} className="flex items-center gap-3">
+                              <label className="flex items-center space-x-2 w-24 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={Boolean(window)}
+                                  onChange={() => toggleIntakeDay(dayOfWeek)}
+                                  className="rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                                />
+                                <span className="text-sm text-gray-700">{label}</span>
+                              </label>
+                              {window && (
+                                <div className="flex items-center gap-2">
+                                  <select
+                                    value={window.startTime}
+                                    onChange={(e) => updateIntakeWindow(dayOfWeek, { startTime: parseInt(e.target.value) })}
+                                    className="px-2 py-1 border border-gray-300 rounded-md focus:ring-brand-500 focus:border-brand-500"
+                                    aria-label={`${label} start hour`}
+                                  >
+                                    {HOUR_OPTIONS}
+                                  </select>
+                                  <span className="text-sm text-gray-500">to</span>
+                                  <select
+                                    value={window.endTime}
+                                    onChange={(e) => updateIntakeWindow(dayOfWeek, { endTime: parseInt(e.target.value) })}
+                                    className="px-2 py-1 border border-gray-300 rounded-md focus:ring-brand-500 focus:border-brand-500"
+                                    aria-label={`${label} end hour`}
+                                  >
+                                    {HOUR_OPTIONS}
+                                  </select>
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
+                        {intakeWindows.length === 0 && (
+                          <p className="text-xs text-amber-700">
+                            Pick at least one day, or cases will never look routable to you.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </>
                 ) : (
-                  <p className="text-gray-900">{profile.intakeHours === '24/7' ? '24/7' : 'Custom hours'}</p>
+                  <p className="text-gray-900">{describeIntakeHours()}</p>
                 )}
               </div>
             </div>

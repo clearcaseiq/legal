@@ -52,6 +52,7 @@ model User {
   evidenceFiles              EvidenceFile[]
   evidenceAnnotations        EvidenceAnnotation[]
   auditLogs                  AuditLog[]
+  reviewedCaseResults        AttorneyCaseResult[] @relation("CaseResultReviewer")
   featureToggles             FeatureToggle[]
   attorneyPushDevices        AttorneyPushDevice[]
   firmMemberships            FirmMember[]
@@ -1086,6 +1087,7 @@ model Attorney {
   decisionMemories            DecisionMemory[]
   decisionProfile             AttorneyDecisionProfile?
   auditLogs                   AuditLog[]
+  caseResults                 AttorneyCaseResult[]
   smsWebhookReceipts          SmsWebhookReceipt[]
   reputationScore             AttorneyReputationScore?
   importSources               AttorneyImportSource[]
@@ -2904,16 +2906,28 @@ model AttorneyProfile {
   photoUrl    String?
   specialties String? // JSON array of specialties
   languages   String? // JSON array of languages
+  // Fluency per language, as a JSON object keyed by the language name:
+  // {"Spanish":"professional"}. Deliberately kept separate from `languages`
+  // rather than folded into it, because routing matches on the plain name and
+  // reshaping that array would mean touching the matching engine. A language
+  // with no entry here simply displays without a fluency badge.
+  languageProficiency String?
 
   // Success Stats
   yearsExperience   Int   @default(0)
+  // Years specifically on personal injury work, which is the number that
+  // matters for matching and is usually lower than time at the bar.
+  yearsPiExperience Int   @default(0)
   totalCases        Int   @default(0)
   totalSettlements  Float @default(0)
   averageSettlement Float @default(0)
   successRate       Float @default(0)
 
-  // Verified Verdicts
-  verifiedVerdicts String? @db.Text // JSON array of verified case outcomes
+  // Superseded by the AttorneyCaseResult table, which case results moved to so
+  // that a review queue can select pending rows without parsing every
+  // attorney's blob. Left in place, and backfilled from rather than dropped,
+  // because `prisma db push` runs on boot and would abort on a populated column.
+  verifiedVerdicts String? @db.Text // retired: JSON array of case outcomes
 
   // Featured Placement
   isFeatured    Boolean   @default(false)
@@ -3384,6 +3398,50 @@ model CaseTier {
   assessments Assessment[]
 
   @@map("case_tiers")
+}
+
+/// A settlement or verdict an attorney reports on their own profile.
+///
+/// These are self-reported until an admin reviews the supporting document and
+/// marks them verified, so `status` is never writable by the attorney — only by
+/// the admin review endpoints. Editing a verified result sends it back to
+/// pending, otherwise an attorney could get a modest result approved and then
+/// change the number.
+model AttorneyCaseResult {
+  id         String   @id @default(cuid())
+  attorneyId String
+  attorney   Attorney @relation(fields: [attorneyId], references: [id], onDelete: Cascade)
+
+  caseType         String
+  /// 'settlement' | 'verdict'
+  resultType       String  @default("settlement")
+  settlementAmount Float   @default(0)
+  caseDescription  String?
+  /// Kept as the entered YYYY-MM-DD string: these are historical dates with no
+  /// time component, and parsing them to DateTime shifted them across zones.
+  date             String?
+  venue            String?
+  caseNumber       String?
+
+  /// Supporting document, stored privately under uploads/verdict-documents.
+  documentUrl  String?
+  documentName String?
+
+  /// 'pending' | 'verified' | 'rejected'
+  status       String    @default("pending")
+  reviewedById String?
+  reviewedBy   User?     @relation("CaseResultReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedAt   DateTime?
+  /// Why it was rejected. Shown to the attorney so a rejection is actionable.
+  reviewNote   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([attorneyId])
+  // The review queue reads pending rows oldest-first across all attorneys.
+  @@index([status, createdAt])
+  @@map("attorney_case_results")
 }
 
 model AuditLog {

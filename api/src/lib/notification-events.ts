@@ -33,6 +33,8 @@ export const ATTORNEY_EVENTS = {
   new_message: 'attorney.new_message',
   wave2_route: 'attorney.wave2_route',
   plaintiff_replied: 'attorney.plaintiff_replied',
+  case_result_verified: 'attorney.case_result_verified',
+  case_result_rejected: 'attorney.case_result_rejected',
 } as const
 
 export const SUPPORT_EVENTS = {

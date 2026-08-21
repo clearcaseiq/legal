@@ -45,7 +45,9 @@ function buildProfileFallback(attorney: any) {
     photoUrl: null,
     specialties: attorney.specialties || JSON.stringify([]),
     languages: JSON.stringify(['English']),
+    languageProficiency: null,
     yearsExperience: 0,
+    yearsPiExperience: 0,
     totalCases: 0,
     totalSettlements: 0,
     averageSettlement: 0,
@@ -439,7 +441,7 @@ router.get('/profile', authMiddleware, async (req: any, res) => {
             attorney: true
           }
         })
-        return res.json(newProfile)
+        return res.json({ ...newProfile, verifiedVerdicts: [] })
       } catch (createError: any) {
         logger.warn('Profile create failed; returning attorney fallback profile', {
           attorneyId,
@@ -450,7 +452,8 @@ router.get('/profile', authMiddleware, async (req: any, res) => {
       }
     }
 
-    res.json(profile)
+    // Case results come from their own table now; the key stays for clients.
+    res.json({ ...profile, verifiedVerdicts: await listCaseResults(attorneyId) })
   } catch (error: any) {
     logger.error('Failed to get attorney profile', { 
       error: error?.message || String(error), 
@@ -503,7 +506,9 @@ router.put('/profile', authMiddleware, async (req: any, res) => {
       photoUrl,
       specialties,
       languages,
+      languageProficiency: rawLanguageProficiency,
       yearsExperience: rawYearsExperience,
+      yearsPiExperience: rawYearsPiExperience,
       totalCases,
       totalSettlements,
       averageSettlement,
@@ -551,6 +556,49 @@ router.put('/profile', authMiddleware, async (req: any, res) => {
     const maxCasesPerMonth = clampNumber(rawMaxCasesPerMonth, MAX_CASES_PER_MONTH)
     const yearsExperience = clampNumber(rawYearsExperience, MAX_YEARS_EXPERIENCE)
 
+    // Personal-injury tenure cannot exceed time practising law. The ceiling is
+    // the incoming years of practice when both are saved together and the stored
+    // value otherwise, so editing one of the pair on its own cannot leave the
+    // profile claiming more PI years than years at the bar.
+    const existingProfile = await prisma.attorneyProfile.findUnique({
+      where: { attorneyId },
+      select: { yearsExperience: true },
+    })
+    const yearsExperienceCeiling = Math.min(
+      MAX_YEARS_EXPERIENCE,
+      yearsExperience ?? existingProfile?.yearsExperience ?? MAX_YEARS_EXPERIENCE,
+    )
+    const yearsPiExperience = clampNumber(rawYearsPiExperience, yearsExperienceCeiling)
+
+    // Fluency is stored as a language-name -> level map. Only known levels are
+    // accepted, and only for languages present in the list being saved, so the
+    // map cannot accumulate entries for languages the attorney has removed.
+    const PROFICIENCY_LEVELS = ['native', 'professional', 'conversational', 'basic']
+    const sanitizeLanguageProficiency = (value: unknown): string | undefined => {
+      if (value === undefined || value === null) return undefined
+      if (typeof value !== 'object' || Array.isArray(value)) return undefined
+      const named = Array.isArray(languages)
+        ? languages.filter((l: unknown): l is string => typeof l === 'string').map((l) => l.trim())
+        : null
+      const out: Record<string, string> = {}
+      for (const [rawName, rawLevel] of Object.entries(value as Record<string, unknown>)) {
+        const name = rawName.trim().slice(0, 40)
+        if (!name) continue
+        if (named && !named.includes(name)) continue
+        const level = typeof rawLevel === 'string' ? rawLevel.trim().toLowerCase() : ''
+        if (!PROFICIENCY_LEVELS.includes(level)) continue
+        out[name] = level
+      }
+      return JSON.stringify(out)
+    }
+    const languageProficiency = sanitizeLanguageProficiency(rawLanguageProficiency)
+
+    // `verifiedVerdicts` is accepted for backwards compatibility and ignored.
+    // Case results are rows now, edited through their own endpoints, and taking
+    // a whole array here was the second way an attorney could have marked their
+    // own result verified.
+    void verifiedVerdicts
+
     // Cap ZIP and phone length per firm location so a crafted request can't store
     // oversized strings that bypass the client-side maxLength limits.
     const sanitizeFirmLocations = (value: unknown): unknown[] | undefined => {
@@ -571,14 +619,16 @@ router.put('/profile', authMiddleware, async (req: any, res) => {
         photoUrl,
         specialties: specialties ? JSON.stringify(specialties) : undefined,
         languages: languages ? JSON.stringify(languages) : undefined,
+        languageProficiency,
         // yearsExperience is a non-nullable Int; a cleared/invalid value yields null
         // from clampNumber, so coerce to undefined to leave the stored value intact.
         yearsExperience: yearsExperience ?? undefined,
+        yearsPiExperience: yearsPiExperience ?? undefined,
         totalCases,
         totalSettlements,
         averageSettlement,
         successRate,
-        verifiedVerdicts: verifiedVerdicts ? JSON.stringify(verifiedVerdicts) : undefined,
+        // Retired column; case results live in AttorneyCaseResult.
         // Firm information
         firmName,
         firmLocations: firmLocationsSanitized ? JSON.stringify(firmLocationsSanitized) : undefined,
@@ -604,12 +654,14 @@ router.put('/profile', authMiddleware, async (req: any, res) => {
         photoUrl,
         specialties: specialties ? JSON.stringify(specialties) : JSON.stringify([]),
         languages: languages ? JSON.stringify(languages) : JSON.stringify(['English']),
+        languageProficiency: languageProficiency ?? null,
         yearsExperience: yearsExperience || 0,
+        yearsPiExperience: yearsPiExperience || 0,
         totalCases: totalCases || 0,
         totalSettlements: totalSettlements || 0,
         averageSettlement: averageSettlement || 0,
         successRate: successRate || 0,
-        verifiedVerdicts: verifiedVerdicts ? JSON.stringify(verifiedVerdicts) : JSON.stringify([]),
+        verifiedVerdicts: JSON.stringify([]),
         totalReviews: 0,
         averageRating: 0,
         // Firm information
@@ -649,7 +701,10 @@ router.put('/profile', authMiddleware, async (req: any, res) => {
       where: { attorneyId },
       include: { attorney: true },
     })
-    res.json(profileWithAttorney ?? profile)
+    res.json({
+      ...(profileWithAttorney ?? profile),
+      verifiedVerdicts: await listCaseResults(attorneyId),
+    })
   } catch (error: any) {
     logger.error('Failed to update attorney profile', { error: error.message })
     res.status(500).json({ error: 'Failed to update profile' })
@@ -889,209 +944,196 @@ router.post('/featured-purchase', authMiddleware, async (req: any, res) => {
 
 // Verified Verdicts Management
 
-// Add verified verdict
+/**
+ * Case results moved to the AttorneyCaseResult table so the review queue can
+ * select pending rows across all attorneys. The profile payload still exposes
+ * them under `verifiedVerdicts`, which is the shape every client already reads.
+ */
+const CASE_RESULT_STATUSES = ['pending', 'verified', 'rejected'] as const
+
+function serializeCaseResult(row: any) {
+  return {
+    id: row.id,
+    caseType: row.caseType,
+    resultType: row.resultType,
+    settlementAmount: row.settlementAmount,
+    caseDescription: row.caseDescription,
+    date: row.date,
+    venue: row.venue,
+    caseNumber: row.caseNumber,
+    documentUrl: row.documentUrl,
+    documentName: row.documentName,
+    status: row.status,
+    reviewNote: row.reviewNote,
+    reviewedAt: row.reviewedAt,
+    addedAt: row.createdAt,
+  }
+}
+
+export async function listCaseResults(attorneyId: string) {
+  const rows = await prisma.attorneyCaseResult.findMany({
+    where: { attorneyId },
+    orderBy: { createdAt: 'desc' },
+  })
+  return rows.map(serializeCaseResult)
+}
+
+/** Attaches the table-backed results to a profile row under the legacy key. */
+async function withCaseResults(profile: any, attorneyId: string) {
+  return { ...profile, verifiedVerdicts: await listCaseResults(attorneyId) }
+}
+
+/** The fields an attorney may set. `status` is deliberately absent. */
+function readCaseResultInput(body: any) {
+  const caseType = String(body?.caseType || '').trim()
+  const amount = Number(body?.settlementAmount)
+  return {
+    caseType,
+    resultType: body?.resultType === 'verdict' ? 'verdict' : 'settlement',
+    settlementAmount: Number.isFinite(amount) ? Math.max(0, amount) : 0,
+    caseDescription: body?.caseDescription ? String(body.caseDescription).slice(0, 2000) : null,
+    date: body?.date ? String(body.date).slice(0, 20) : null,
+    venue: body?.venue ? String(body.venue).slice(0, 200) : null,
+    caseNumber: body?.caseNumber ? String(body.caseNumber).slice(0, 100) : null,
+    documentUrl: body?.documentUrl ? String(body.documentUrl) : null,
+    documentName: body?.documentName ? String(body.documentName).slice(0, 255) : null,
+  }
+}
+
+// Add case result
 router.post('/verified-verdicts', authMiddleware, async (req: any, res) => {
   try {
     if (!req.user || !req.user.email) {
       return res.status(401).json({ error: 'Authentication required' })
     }
 
-    const attorney = await prisma.attorney.findUnique({
-      where: { email: req.user.email }
-    })
-
+    const attorney = await prisma.attorney.findUnique({ where: { email: req.user.email } })
     if (!attorney) {
       return res.status(404).json({ error: 'Attorney not found' })
     }
 
-    const attorneyId = attorney.id
-    const {
-      caseType,
-      settlementAmount,
-      caseDescription,
-      date,
-      venue,
-      resultType,
-      caseNumber,
-      documentUrl,
-      documentName,
-    } = req.body
-
-    const profile = await prisma.attorneyProfile.findUnique({
-      where: { attorneyId }
-    })
-
-    if (!profile) {
-      return res.status(404).json({ error: 'Profile not found' })
+    const input = readCaseResultInput(req.body)
+    if (!input.caseType) {
+      return res.status(400).json({ error: 'Case type is required' })
     }
 
-    const currentVerdicts = profile.verifiedVerdicts ? JSON.parse(profile.verifiedVerdicts) : []
-    
-    const newVerdict = {
-      id: Date.now().toString(),
-      caseType,
-      settlementAmount,
-      caseDescription,
-      date,
-      venue,
-      // "Case Result" fields (stored on the flexible verdict JSON — no migration).
-      resultType: resultType === 'verdict' ? 'verdict' : 'settlement',
-      caseNumber: caseNumber || null,
-      documentUrl: documentUrl || null,
-      documentName: documentName || null,
-      addedAt: new Date().toISOString(),
-      status: 'pending_verification'
-    }
-
-    currentVerdicts.push(newVerdict)
-
-    const updatedProfile = await prisma.attorneyProfile.update({
-      where: { attorneyId },
-      data: {
-        verifiedVerdicts: JSON.stringify(currentVerdicts)
-      }
+    // Always starts unreviewed. Only the admin review endpoints move it on.
+    const row = await prisma.attorneyCaseResult.create({
+      data: { ...input, attorneyId: attorney.id, status: 'pending' },
     })
 
+    const profile = await prisma.attorneyProfile.findUnique({ where: { attorneyId: attorney.id } })
     res.json({
-      verdict: newVerdict,
-      profile: updatedProfile
+      verdict: serializeCaseResult(row),
+      profile: profile ? await withCaseResults(profile, attorney.id) : null,
     })
   } catch (error: any) {
-    logger.error('Failed to add verified verdict', { error: error.message })
-    res.status(500).json({ error: 'Failed to add verified verdict' })
+    logger.error('Failed to add case result', { error: error.message })
+    res.status(500).json({ error: 'Failed to add case result' })
   }
 })
 
-// Get verified verdicts
+// List case results
 router.get('/verified-verdicts', authMiddleware, async (req: any, res) => {
   try {
     if (!req.user || !req.user.email) {
       return res.status(401).json({ error: 'Authentication required' })
     }
 
-    const attorney = await prisma.attorney.findUnique({
-      where: { email: req.user.email }
-    })
-
+    const attorney = await prisma.attorney.findUnique({ where: { email: req.user.email } })
     if (!attorney) {
       return res.status(404).json({ error: 'Attorney not found' })
     }
 
-    const attorneyId = attorney.id
-
-    const profile = await prisma.attorneyProfile.findUnique({
-      where: { attorneyId }
-    })
-
-    if (!profile) {
-      return res.json({ verdicts: [] })
-    }
-
-    const verdicts = profile.verifiedVerdicts ? JSON.parse(profile.verifiedVerdicts) : []
-
-    res.json({ verdicts })
+    res.json({ verdicts: await listCaseResults(attorney.id) })
   } catch (error: any) {
-    logger.error('Failed to get verified verdicts', { error: error.message })
-    res.status(500).json({ error: 'Failed to get verified verdicts' })
+    logger.error('Failed to get case results', { error: error.message })
+    res.status(500).json({ error: 'Failed to get case results' })
   }
 })
 
-// Update verified verdict
+// Update case result
 router.put('/verified-verdicts/:verdictId', authMiddleware, async (req: any, res) => {
   try {
     if (!req.user || !req.user.email) {
       return res.status(401).json({ error: 'Authentication required' })
     }
 
-    const attorney = await prisma.attorney.findUnique({
-      where: { email: req.user.email }
-    })
-
+    const attorney = await prisma.attorney.findUnique({ where: { email: req.user.email } })
     if (!attorney) {
       return res.status(404).json({ error: 'Attorney not found' })
     }
 
-    const attorneyId = attorney.id
-    const { verdictId } = req.params
-    const updates = req.body
-
-    const profile = await prisma.attorneyProfile.findUnique({
-      where: { attorneyId }
+    const existing = await prisma.attorneyCaseResult.findFirst({
+      where: { id: req.params.verdictId, attorneyId: attorney.id },
     })
-
-    if (!profile) {
-      return res.status(404).json({ error: 'Profile not found' })
+    if (!existing) {
+      return res.status(404).json({ error: 'Case result not found' })
     }
 
-    const verdicts = profile.verifiedVerdicts ? JSON.parse(profile.verifiedVerdicts) : []
-    const verdictIndex = verdicts.findIndex((v: any) => v.id === verdictId)
-
-    if (verdictIndex === -1) {
-      return res.status(404).json({ error: 'Verdict not found' })
+    const input = readCaseResultInput(req.body)
+    if (!input.caseType) {
+      return res.status(400).json({ error: 'Case type is required' })
     }
 
-    verdicts[verdictIndex] = { ...verdicts[verdictIndex], ...updates }
+    // Editing the facts invalidates any prior decision, otherwise a modest
+    // result could be approved and then have its number changed afterwards.
+    const factsChanged =
+      input.caseType !== existing.caseType ||
+      input.resultType !== existing.resultType ||
+      input.settlementAmount !== existing.settlementAmount ||
+      input.date !== existing.date ||
+      input.venue !== existing.venue ||
+      input.caseNumber !== existing.caseNumber
+    const reset =
+      factsChanged && existing.status !== 'pending'
+        ? { status: 'pending', reviewedById: null, reviewedAt: null, reviewNote: null }
+        : {}
 
-    const updatedProfile = await prisma.attorneyProfile.update({
-      where: { attorneyId },
-      data: {
-        verifiedVerdicts: JSON.stringify(verdicts)
-      }
+    const row = await prisma.attorneyCaseResult.update({
+      where: { id: existing.id },
+      data: { ...input, ...reset },
     })
 
+    const profile = await prisma.attorneyProfile.findUnique({ where: { attorneyId: attorney.id } })
     res.json({
-      verdict: verdicts[verdictIndex],
-      profile: updatedProfile
+      verdict: serializeCaseResult(row),
+      profile: profile ? await withCaseResults(profile, attorney.id) : null,
     })
   } catch (error: any) {
-    logger.error('Failed to update verified verdict', { error: error.message })
-    res.status(500).json({ error: 'Failed to update verified verdict' })
+    logger.error('Failed to update case result', { error: error.message })
+    res.status(500).json({ error: 'Failed to update case result' })
   }
 })
 
-// Delete verified verdict
+// Delete case result
 router.delete('/verified-verdicts/:verdictId', authMiddleware, async (req: any, res) => {
   try {
     if (!req.user || !req.user.email) {
       return res.status(401).json({ error: 'Authentication required' })
     }
 
-    const attorney = await prisma.attorney.findUnique({
-      where: { email: req.user.email }
-    })
-
+    const attorney = await prisma.attorney.findUnique({ where: { email: req.user.email } })
     if (!attorney) {
       return res.status(404).json({ error: 'Attorney not found' })
     }
 
-    const attorneyId = attorney.id
-    const { verdictId } = req.params
-
-    const profile = await prisma.attorneyProfile.findUnique({
-      where: { attorneyId }
+    // Scoped by attorney so an id from another firm's profile deletes nothing.
+    const deleted = await prisma.attorneyCaseResult.deleteMany({
+      where: { id: req.params.verdictId, attorneyId: attorney.id },
     })
-
-    if (!profile) {
-      return res.status(404).json({ error: 'Profile not found' })
+    if (deleted.count === 0) {
+      return res.status(404).json({ error: 'Case result not found' })
     }
 
-    const verdicts = profile.verifiedVerdicts ? JSON.parse(profile.verifiedVerdicts) : []
-    const filteredVerdicts = verdicts.filter((v: any) => v.id !== verdictId)
-
-    const updatedProfile = await prisma.attorneyProfile.update({
-      where: { attorneyId },
-      data: {
-        verifiedVerdicts: JSON.stringify(filteredVerdicts)
-      }
-    })
-
+    const profile = await prisma.attorneyProfile.findUnique({ where: { attorneyId: attorney.id } })
     res.json({
-      verdicts: filteredVerdicts,
-      profile: updatedProfile
+      verdicts: await listCaseResults(attorney.id),
+      profile: profile ? await withCaseResults(profile, attorney.id) : null,
     })
   } catch (error: any) {
-    logger.error('Failed to delete verified verdict', { error: error.message })
-    res.status(500).json({ error: 'Failed to delete verified verdict' })
+    logger.error('Failed to delete case result', { error: error.message })
+    res.status(500).json({ error: 'Failed to delete case result' })
   }
 })
 

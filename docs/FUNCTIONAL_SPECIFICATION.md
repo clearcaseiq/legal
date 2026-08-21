@@ -431,9 +431,11 @@ simulation) — distinct from the LLM-backed ChatGPT analysis. Useful for canned
   verification, e-signature requests, and compliance status (mock Jumio/Onfido/DocuSign).
 - **Profile** (`AttorneyProfile`) — public profile editor (bio, photo, specialties, languages, years
   of experience, firm), performance metrics, and "Verified Verdicts"; auto-refreshes every 30s.
-- **Preferences** (`AttorneyPreferences`) — firm locations, jurisdictions, case preferences (min
-  severity, excluded case types, min/max damages), capacity, and buying preferences (pricing/payment
-  model, subscription tier).
+- **Profile settings** (`AttorneyDashboardProfileTab`, `/attorney-dashboard/settings/profile`) — firm
+  name and office locations, jurisdictions, case preferences (min severity, excluded case types,
+  min/max damages), capacity and intake hours, and buying preferences (pricing/payment model,
+  subscription tier), plus decision profile, license verification, and calendar/Zoom sync. The
+  standalone `/attorney-preferences` page is retired; the path redirects here.
 
 ### 4.2 Profile Claiming (Yelp-style) (`ClaimProfile`, `attorney-claim`, `lib/claims.ts`)
 A pre-imported attorney profile is claimed via a tokenized link: start the claim (returns a masked

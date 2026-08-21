@@ -22,6 +22,9 @@ const statusBadgeClass = (record: PlatformPaymentRecord) => {
   if (record.paid) return 'bg-emerald-100 text-emerald-700'
   const s = record.status?.toLowerCase() || ''
   if (s.startsWith('skipped')) return 'bg-slate-100 text-slate-600'
+  // An abandoned checkout is not a failure, just a purchase that never happened —
+  // keep it neutral rather than alarming the attorney with red.
+  if (s === 'expired') return 'bg-slate-100 text-slate-600'
   if (s.includes('fail') || s.includes('cancel')) return 'bg-red-100 text-red-700'
   return 'bg-amber-100 text-amber-700'
 }
@@ -29,6 +32,7 @@ const statusLabel = (record: PlatformPaymentRecord) => {
   if (record.paid) return 'Paid'
   const s = record.status?.toLowerCase() || ''
   if (s.startsWith('skipped')) return 'No charge'
+  if (s === 'expired') return 'Not completed'
   if (s === 'checkout_created' || s === 'requires_payment_method' || s === 'processing') return 'Pending'
   return record.status || 'Unknown'
 }

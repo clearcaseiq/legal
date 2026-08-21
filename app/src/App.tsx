@@ -130,7 +130,6 @@ const FirmDashboard = lazy(() => import('./pages/FirmDashboard'))
 const FirmSettings = lazy(() => import('./pages/FirmSettings'))
 const AttorneyBilling = lazy(() => import('./pages/AttorneyBilling'))
 const AttorneyProfile = lazy(() => import('./pages/AttorneyProfile'))
-const AttorneyPreferences = lazy(() => import('./pages/AttorneyPreferences'))
 const Integrations = lazy(() => import('./pages/Integrations'))
 const MedicalProviders = lazy(() => import('./pages/MedicalProviders'))
 // The standalone Evidence Upload page is retired in favor of the richer intake
@@ -205,6 +204,7 @@ const AdminCaseDetail = lazy(() => import('./pages/admin/AdminCaseDetail'))
 const AdminRoutingQueue = lazy(() => import('./pages/admin/AdminRoutingQueue'))
 const AdminCaseFlow = lazy(() => import('./pages/admin/AdminCaseFlow'))
 const AdminAttorneys = lazy(() => import('./pages/admin/AdminAttorneys'))
+const AdminCaseResults = lazy(() => import('./pages/admin/AdminCaseResults'))
 const AdminAttorneyDetail = lazy(() => import('./pages/admin/AdminAttorneyDetail'))
 const AdminMatchingRules = lazy(() => import('./pages/admin/AdminMatchingRules'))
 const AdminHeuristics = lazy(() => import('./pages/admin/AdminHeuristics'))
@@ -458,6 +458,7 @@ function App() {
                 <Route path="routing-queue" element={<AdminRoutingQueue />} />
                 <Route path="case-flow" element={<AdminCaseFlow />} />
                 <Route path="attorneys" element={<AdminAttorneys />} />
+                <Route path="case-results" element={<AdminCaseResults />} />
                 <Route path="attorneys/:id" element={<AdminAttorneyDetail />} />
                 <Route path="matching-rules" element={<AdminMatchingRules />} />
                 <Route path="heuristics" element={<AdminHeuristics />} />
@@ -659,7 +660,9 @@ function App() {
               <Route path="/firm-settings" element={<FirmSettings />} />
               <Route path="/attorney-billing" element={<AttorneyBilling />} />
               <Route path="/attorney-profile" element={<AttorneyProfile />} />
-              <Route path="/attorney-preferences" element={<AttorneyPreferences />} />
+              {/* Retired standalone preferences page: every setting it owned now
+                  lives in dashboard settings. Kept as a redirect for bookmarks. */}
+              <Route path="/attorney-preferences" element={<Navigate to="/attorney-dashboard/settings/profile" replace />} />
               <Route path="/integrations" element={<Integrations />} />
               <Route path="/medical-providers" element={<MedicalProviders />} />
             </Route>

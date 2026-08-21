@@ -9,6 +9,7 @@ export default function PaymentSuccess() {
   const type = searchParams.get('type')
   const leadId = searchParams.get('leadId')
   const [acceptanceStatus, setAcceptanceStatus] = useState<'idle' | 'accepting' | 'accepted' | 'failed'>('idle')
+  const [acceptanceError, setAcceptanceError] = useState<string | null>(null)
   const caseWorkspacePath = leadId ? `/attorney-dashboard/lead/${leadId}/overview` : '/attorney-dashboard'
   // Carry a one-time flag into the workspace so it can greet the attorney with a
   // "Congratulations, this case is now yours" banner right after the purchase.
@@ -45,7 +46,12 @@ export default function PaymentSuccess() {
       })
       .catch((error) => {
         console.error('Failed to accept lead after routing fee payment:', error)
-        if (!cancelled) setAcceptanceStatus('failed')
+        if (cancelled) return
+        // Surface the server's reason. The common one is a stale second tab that
+        // already declined this case: without it the attorney sees a celebration
+        // for a case they will never receive and no explanation of the charge.
+        setAcceptanceError(error?.response?.data?.error || null)
+        setAcceptanceStatus('failed')
       })
 
     return () => {
@@ -64,10 +70,35 @@ export default function PaymentSuccess() {
     return () => clearTimeout(timer)
   }, [acceptanceStatus, type, leadId, caseWorkspacePathAfterAccept, navigate])
 
+  // Never congratulate the attorney on a case the accept did not actually secure —
+  // they have been charged and the case is not theirs, so this has to read as a
+  // problem to resolve, not a purchase confirmation.
+  const acceptanceFailed = type === 'routing_fee' && acceptanceStatus === 'failed'
+
   return (
     <div className="mx-auto max-w-2xl px-4 py-16">
-      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-8 text-emerald-950 shadow-sm">
-        {type === 'routing_fee' ? (
+      <div
+        className={
+          acceptanceFailed
+            ? 'rounded-2xl border border-amber-200 bg-amber-50 p-8 text-amber-950 shadow-sm'
+            : 'rounded-2xl border border-emerald-200 bg-emerald-50 p-8 text-emerald-950 shadow-sm'
+        }
+      >
+        {acceptanceFailed ? (
+          <>
+            <p className="text-sm font-semibold uppercase tracking-wide text-amber-700">
+              Payment received — case not assigned
+            </p>
+            <h1 className="mt-2 text-3xl font-bold">We could not finalize this case.</h1>
+            <p className="mt-3 text-sm text-amber-900">
+              {acceptanceError || 'The case acceptance could not be completed.'}
+            </p>
+            <p className="mt-3 text-sm text-amber-900">
+              Your card was charged for the routing fee but the case was not assigned to you.
+              Contact support and we will reverse the charge.
+            </p>
+          </>
+        ) : type === 'routing_fee' ? (
           <>
             <p className="text-sm font-semibold uppercase tracking-wide text-emerald-700">Payment received</p>
             <h1 className="mt-2 text-3xl font-bold">Congratulations. This case is now yours! 🎉</h1>
@@ -78,7 +109,6 @@ export default function PaymentSuccess() {
             <p className="mt-3 text-sm text-emerald-800">
               {acceptanceStatus === 'accepting' && 'Finalizing your case…'}
               {acceptanceStatus === 'accepted' && 'Taking you to your Case Workspace so you can get started…'}
-              {acceptanceStatus === 'failed' && 'Payment succeeded, but the case acceptance could not be finalized automatically. Please open the case from your attorney dashboard and try again.'}
             </p>
           </>
         ) : (
@@ -95,9 +125,17 @@ export default function PaymentSuccess() {
             Your payment method has been saved for automatic routing-fee charges.
           </p>
         )}
-        {sessionId && <p className="mt-4 text-xs text-emerald-700">Stripe session: {sessionId}</p>}
+        {sessionId && (
+          <p className={`mt-4 text-xs ${acceptanceFailed ? 'text-amber-700' : 'text-emerald-700'}`}>
+            Stripe session: {sessionId}
+          </p>
+        )}
         <div className="mt-6 flex flex-wrap gap-3">
-          {type === 'routing_fee' ? (
+          {acceptanceFailed ? (
+            <Link to="/attorney-dashboard/leadgen/matches" className="btn-primary">
+              Back to New Matches
+            </Link>
+          ) : type === 'routing_fee' ? (
             <Link to={caseWorkspacePathAfterAccept} className="btn-primary">
               Open Case Workspace
             </Link>

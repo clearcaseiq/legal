@@ -1561,8 +1561,36 @@ const CASE_FLOW_STAGES = [
 ] as const
 type CaseFlowStageKey = (typeof CASE_FLOW_STAGES)[number]['key']
 
-router.get('/case-flow', authMiddleware, adminMiddleware, async (_req: AuthRequest, res) => {
+// Stage and stuck are derived in JS from a cascade of lead + assessment fields,
+// so they can't be expressed as a Prisma where clause. Every case therefore has
+// to be scanned to produce honest funnel counts, and only then can the response
+// be paged. This is the ceiling on that scan; `meta.truncated` tells the console
+// when it was hit so the counts are never quietly understated.
+const CASE_FLOW_SCAN_LIMIT = 5000
+const CASE_FLOW_DEFAULT_LIMIT = 50
+const CASE_FLOW_MAX_LIMIT = 200
+
+const CASE_FLOW_SORTS = ['age', 'value', 'plaintiff', 'stage'] as const
+type CaseFlowSort = (typeof CASE_FLOW_SORTS)[number]
+
+router.get('/case-flow', authMiddleware, adminMiddleware, async (req: AuthRequest, res) => {
   try {
+    const stageParam = String(req.query.stage || '').trim()
+    const stageFilter = CASE_FLOW_STAGES.some((s) => s.key === stageParam)
+      ? (stageParam as CaseFlowStageKey)
+      : null
+    const stuckOnly = String(req.query.stuckOnly || '') === 'true'
+    const search = String(req.query.search || '').trim().toLowerCase()
+    const sort: CaseFlowSort = CASE_FLOW_SORTS.includes(req.query.sort as CaseFlowSort)
+      ? (req.query.sort as CaseFlowSort)
+      : 'age'
+    const direction = String(req.query.direction || '') === 'asc' ? 'asc' : 'desc'
+    const limit = Math.min(
+      CASE_FLOW_MAX_LIMIT,
+      Math.max(1, Number.parseInt(String(req.query.limit || ''), 10) || CASE_FLOW_DEFAULT_LIMIT),
+    )
+    const offset = Math.max(0, Number.parseInt(String(req.query.offset || ''), 10) || 0)
+
     const matchingRules = await getMatchingRules()
     const responseDeadlineMinutes = getAttorneyResponseDeadlineMinutes(matchingRules)
     const now = Date.now()
@@ -1577,7 +1605,7 @@ router.get('/case-flow', authMiddleware, adminMiddleware, async (_req: AuthReque
 
     const leads = await prisma.leadSubmission.findMany({
       orderBy: { updatedAt: 'desc' },
-      take: 800,
+      take: CASE_FLOW_SCAN_LIMIT,
       select: {
         status: true,
         lifecycleState: true,
@@ -1769,6 +1797,9 @@ router.get('/case-flow', authMiddleware, adminMiddleware, async (_req: AuthReque
         }
       })
 
+    // Counts are always computed across every scanned case, never across the page
+    // being returned — the funnel header has to describe the whole pipeline even
+    // when the table below it is showing 50 rows of one stage.
     const stages = CASE_FLOW_STAGES.map((s) => {
       const inStage = cases.filter((c) => c.stage === s.key)
       return {
@@ -1779,12 +1810,54 @@ router.get('/case-flow', authMiddleware, adminMiddleware, async (_req: AuthReque
       }
     })
 
+    const filtered = cases.filter((c) => {
+      if (stageFilter && c.stage !== stageFilter) return false
+      if (stuckOnly && !c.stuck) return false
+      if (search) {
+        const haystack = [
+          c.plaintiffName,
+          c.referenceCode,
+          c.claimType,
+          c.venueState,
+          c.assignedAttorneyName,
+          c.latestIntro?.name,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase()
+        if (!haystack.includes(search)) return false
+      }
+      return true
+    })
+
+    // Sorting runs over the whole filtered set before slicing, so "oldest first"
+    // means oldest in the pipeline rather than oldest on the current page.
+    const stageOrder = new Map(CASE_FLOW_STAGES.map((s, i) => [s.key, i]))
+    const sign = direction === 'asc' ? 1 : -1
+    const sorted = [...filtered].sort((a, b) => {
+      switch (sort) {
+        case 'value':
+          return sign * ((a.valueEstimate ?? -1) - (b.valueEstimate ?? -1))
+        case 'plaintiff':
+          return sign * (a.plaintiffName || '').localeCompare(b.plaintiffName || '')
+        case 'stage':
+          return sign * ((stageOrder.get(a.stage) ?? 0) - (stageOrder.get(b.stage) ?? 0))
+        default:
+          return sign * ((a.ageHours ?? -1) - (b.ageHours ?? -1))
+      }
+    })
+
     res.json({
       stages,
-      cases,
+      cases: sorted.slice(offset, offset + limit),
       meta: {
         totalCases: cases.length,
         stuckCases: cases.filter((c) => c.stuck).length,
+        /** Rows matching the active stage/stuck/search filters — what the pager counts. */
+        filteredCases: sorted.length,
+        limit,
+        offset,
+        truncated: leads.length >= CASE_FLOW_SCAN_LIMIT,
         responseDeadlineMinutes,
         generatedAt: new Date().toISOString(),
       },

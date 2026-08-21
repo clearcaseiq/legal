@@ -355,12 +355,15 @@ export default function Dashboard() {
       if (assessment.caseName?.trim()) {
         return dateLabel ? `${assessment.caseName.trim()} · ${dateLabel}` : assessment.caseName.trim()
       }
-      if (assessment.reference_code) {
-        return dateLabel
-          ? `${typeLabel} (${assessment.reference_code}) · ${dateLabel}`
-          : `${typeLabel} (${assessment.reference_code})`
-      }
-      return dateLabel ? `${typeLabel} · ${dateLabel}` : typeLabel
+      // Same formatter the header badge uses, so a claimant reading a case number
+      // off this list quotes the same string support sees — the raw reference_code
+      // is a different identifier and showing both invited mismatches.
+      const caseId = formatCaseId({
+        id: assessment.id,
+        claimType: assessment.claimType,
+        createdAt: assessment.created_at,
+      })
+      return dateLabel ? `${typeLabel} (${caseId}) · ${dateLabel}` : `${typeLabel} (${caseId})`
     },
     [locale, localizeClaimType],
   )
@@ -1801,37 +1804,6 @@ export default function Dashboard() {
                   t('plaintiffDashboard.status.noCase')
                 )}
               </p>
-              {assessments.length > 1 && activeAssessment && (
-                <div className="mt-3 max-w-md">
-                  <label
-                    htmlFor="plaintiff-case-switcher"
-                    className="mb-1 block text-sm font-bold text-slate-800 dark:text-slate-200"
-                  >
-                    {t('plaintiffDashboard.caseSwitcher.label')}
-                  </label>
-                  <div className="relative">
-                    <select
-                      id="plaintiff-case-switcher"
-                      value={activeAssessment.id}
-                      onChange={(e) => selectCase(e.target.value)}
-                      className="w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-3 pr-10 text-sm font-medium text-slate-900 shadow-sm transition hover:border-brand-300 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
-                    >
-                      {assessments.map((assessment) => (
-                        <option key={assessment.id} value={assessment.id}>
-                          {caseOptionLabel(assessment)}
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronRight
-                      className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 rotate-90 text-slate-400"
-                      aria-hidden
-                    />
-                  </div>
-                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                    {t('plaintiffDashboard.caseSwitcher.hint', { count: assessments.length })}
-                  </p>
-                </div>
-              )}
             </div>
             <div className="flex shrink-0 flex-col items-start gap-2 sm:items-end">
           {activeAssessment && (
@@ -1876,6 +1848,49 @@ export default function Dashboard() {
             </div>
           </div>
         </header>
+
+        {/* Picking which case to view is a separate job from reading the status of
+            the one you're on, so it gets its own section rather than sitting inside
+            the greeting card. */}
+        {assessments.length > 1 && activeAssessment && (
+          <section
+            aria-labelledby="plaintiff-case-switcher-label"
+            className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.05),0_10px_30px_-16px_rgba(15,23,42,0.16)] transition-colors dark:border-slate-700/80 dark:bg-slate-900 dark:shadow-none sm:p-5"
+          >
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
+              <div className="min-w-0">
+                <label
+                  id="plaintiff-case-switcher-label"
+                  htmlFor="plaintiff-case-switcher"
+                  className="block text-sm font-bold text-slate-800 dark:text-slate-200"
+                >
+                  {t('plaintiffDashboard.caseSwitcher.label')}
+                </label>
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                  {t('plaintiffDashboard.caseSwitcher.hint', { count: assessments.length })}
+                </p>
+              </div>
+              <div className="relative w-full sm:max-w-md">
+                <select
+                  id="plaintiff-case-switcher"
+                  value={activeAssessment.id}
+                  onChange={(e) => selectCase(e.target.value)}
+                  className="w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-3 pr-10 text-sm font-medium text-slate-900 shadow-sm transition hover:border-brand-300 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                >
+                  {assessments.map((assessment) => (
+                    <option key={assessment.id} value={assessment.id}>
+                      {caseOptionLabel(assessment)}
+                    </option>
+                  ))}
+                </select>
+                <ChevronRight
+                  className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 rotate-90 text-slate-400"
+                  aria-hidden
+                />
+              </div>
+            </div>
+          </section>
+        )}
 
         {activeAssessment && (() => {
           const visibleTabs = TABS.filter((tab) => tab.id !== 'attorney' || !attorneyMatched)

@@ -23,6 +23,7 @@ import { clearStoredAuth, getLoginRedirect, hasValidAuthToken } from '../lib/aut
 import { getAttorneyCaseStatusKey, caseStatusLabel, caseStatusColor } from '../lib/caseStatus'
 import { engagedLeadsOnly } from '../lib/leadStatus'
 import { formatPhoneInput } from '../lib/phone'
+import { computeProfileStrength } from '../lib/profileStrength'
 import { useAttorneyCommunications } from '../hooks/useAttorneyCommunications'
 import { useAttorneyCaseActivity } from '../hooks/useAttorneyCaseActivity'
 import { useAttorneyCaseHealth } from '../hooks/useAttorneyCaseHealth'
@@ -2814,11 +2815,13 @@ export default function AttorneyDashboardShell({ chromeless = false, initialView
           >
             Retry
           </button>
+          {/* Not the dashboard's own settings route — that remounts this shell and
+              would fail the same way. /attorney-profile loads independently. */}
           <button
-            onClick={() => window.location.href = '/attorney-preferences'}
+            onClick={() => window.location.href = '/attorney-profile'}
             className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors"
           >
-            Go to Preferences
+            Go to My Profile
           </button>
         </div>
         <div className="mt-4 text-xs text-gray-500">
@@ -2986,17 +2989,12 @@ export default function AttorneyDashboardShell({ chromeless = false, initialView
     { label: 'Aging Over 24h', count: agingOver24hCount, onClick: () => openLeadQueue({ status: 'submitted', pipelineStage: 'matched', routingInboxView: 'staleMatches' }, { pipelineTile: 'matched' }) },
     { label: 'Consult Ready', count: consultReadyCount, onClick: () => openLeadQueue({ status: 'contacted', pipelineStage: 'accepted', routingInboxView: 'consultReady' }, { pipelineTile: 'accepted' }) },
   ]
-  const hasHeadshot = Boolean(attorneyProfile.photoUrl || dashboardData.dashboard?.attorney?.photoUrl)
-  const hasPracticeDescription = Boolean(String(attorneyProfile.bio || dashboardData.dashboard?.attorney?.profile || '').trim())
-  const hasSpanishLanguage = profileLanguages.some((language) => String(language).toLowerCase().includes('spanish'))
-  const hasSettlementHistory = Number(attorneyProfile.totalSettlements || dashboardData.analytics?.averageFee || 0) > 0
-  const profileStrengthItems = [
-    { label: 'Headshot', done: hasHeadshot },
-    { label: 'Practice Description', done: hasPracticeDescription },
-    { label: 'Spanish Language', done: hasSpanishLanguage },
-    { label: 'Settlement History', done: hasSettlementHistory },
-  ]
-  const profileStrength = Math.round((profileStrengthItems.filter((item) => item.done).length / profileStrengthItems.length) * 100)
+  const { items: profileStrengthItems, percent: profileStrength } = computeProfileStrength({
+    photoUrl: attorneyProfile.photoUrl || dashboardData.dashboard?.attorney?.photoUrl,
+    bio: attorneyProfile.bio || dashboardData.dashboard?.attorney?.profile,
+    languages: profileLanguages.map((language) => String(language)),
+    totalSettlements: Number(attorneyProfile.totalSettlements || dashboardData.analytics?.averageFee || 0),
+  })
   const parsedJurisdictions = safeJsonParse(attorneyProfile.jurisdictions, [])
   const hasCountyCoverage = Array.isArray(parsedJurisdictions) && parsedJurisdictions.length > 0
   const hasCaseCapacity = Number(attorneyProfile.maxCasesPerWeek || attorneyProfile.maxCasesPerMonth || 0) > 0

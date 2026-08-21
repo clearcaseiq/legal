@@ -218,6 +218,19 @@ export default function Layout({ children }: LayoutProps) {
   // English-only — so the switcher can never show there. Excludes the public
   // /attorney-network marketing page (not in ATTORNEY_ROUTE_PREFIXES).
   const isAttorneyWorkspace = isAttorney || isWideAttorneyRoute(location.pathname)
+  // Language switcher is for claimants/guests. Attorneys work the platform in
+  // English only, so it is hidden for attorney sessions and on every attorney
+  // workspace route (#7).
+  const showHeaderLanguageSwitcher = !isAttorneyWorkspace
+  const showThemeToggle = showWorkspaceThemeToggle && !isAttorney
+  // The footer's language anchors are the only crawlable way into the Spanish
+  // and Chinese editions, so they cannot simply be deleted — crawl-inventory.mjs
+  // fails when a sitemap URL is unreachable by navigation. Crawlers are never
+  // signed in, though, so hiding them for an active session keeps every
+  // translated page linked while leaving them out of the app's own chrome.
+  // Attorney and admin workspaces are English-only regardless, matching the
+  // header switcher, which is already hidden there.
+  const showFooterLanguageLinks = !isAuthenticated && !isAttorneyWorkspace && !isAdminArea
   // Claimant/marketing routes (everything that isn't the attorney workspace or
   // admin) opt into a scoped visual polish so the attorney UI stays untouched.
   const isClaimantRoute = !isAttorney && !isAdmin && !isAdminArea
@@ -490,7 +503,7 @@ export default function Layout({ children }: LayoutProps) {
 
             {/* Right: Language + Primary CTA + User menu */}
             <div className="flex min-w-0 items-center gap-2 lg:gap-3">
-              {showWorkspaceThemeToggle && !isAttorney && (
+              {showThemeToggle && (
                 <button
                   type="button"
                   onClick={toggle}
@@ -500,15 +513,17 @@ export default function Layout({ children }: LayoutProps) {
                   {darkMode ? <SunIcon className="h-5 w-5" /> : <MoonIcon className="h-5 w-5" />}
                 </button>
               )}
-              {/* Language switcher is for claimants/guests. Attorneys work the
-                  platform in English only, so it is hidden for attorney sessions
-                  and on every attorney workspace route (#7). */}
-              {!isAttorneyWorkspace && (
+              {showHeaderLanguageSwitcher && (
                 <div className="hidden lg:block">
                   <LanguageSwitcher />
                 </div>
               )}
-              <span className="hidden h-6 w-px bg-slate-200 dark:bg-slate-800 lg:block" aria-hidden />
+              {/* Everything left of this divider is conditional, so the divider is
+                  too — on an attorney workspace neither control renders and it was
+                  left standing on its own, dividing nothing. */}
+              {(showThemeToggle || showHeaderLanguageSwitcher) && (
+                <span className="hidden h-6 w-px bg-slate-200 dark:bg-slate-800 lg:block" aria-hidden />
+              )}
               {isAuthenticated ? (
                 <>
                   {/* Notification bell for attorneys */}
@@ -558,23 +573,41 @@ export default function Layout({ children }: LayoutProps) {
                     </button>
                     {userMenuOpen && (
                       <div className="absolute right-0 mt-2 w-64 overflow-hidden rounded-2xl border border-slate-200 bg-white py-1.5 shadow-xl shadow-slate-900/10 ring-1 ring-black/5 dark:border-slate-800 dark:bg-slate-900 dark:ring-white/5">
-                        <div className="flex items-center gap-3 px-4 py-3">
-                          {headerAvatarUrl ? (
-                            <img
-                              src={headerAvatarUrl}
-                              alt=""
-                              className="h-9 w-9 rounded-full object-cover"
-                            />
-                          ) : (
-                            <span className="grid h-9 w-9 place-items-center rounded-full bg-gradient-to-br from-brand-500 to-brand-700 text-sm font-bold text-white">
-                              {avatarInitial}
-                            </span>
-                          )}
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">{headerLabel}</p>
-                            <p className="text-xs font-medium text-slate-500 dark:text-slate-400">{roleLabel}</p>
-                          </div>
-                        </div>
+                        {(() => {
+                          const identity = (
+                            <>
+                              {headerAvatarUrl ? (
+                                <img
+                                  src={headerAvatarUrl}
+                                  alt=""
+                                  className="h-9 w-9 rounded-full object-cover"
+                                />
+                              ) : (
+                                <span className="grid h-9 w-9 place-items-center rounded-full bg-gradient-to-br from-brand-500 to-brand-700 text-sm font-bold text-white">
+                                  {avatarInitial}
+                                </span>
+                              )}
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">{headerLabel}</p>
+                                <p className="text-xs font-medium text-slate-500 dark:text-slate-400">{roleLabel}</p>
+                              </div>
+                            </>
+                          )
+                          // Admins have no profile page of their own, so their name
+                          // stays plain text rather than linking somewhere arbitrary.
+                          if (isAdmin) {
+                            return <div className="flex items-center gap-3 px-4 py-3">{identity}</div>
+                          }
+                          return (
+                            <Link
+                              to={isAttorney ? '/attorney-profile' : '/profile'}
+                              onClick={() => setUserMenuOpen(false)}
+                              className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500 dark:hover:bg-slate-800"
+                            >
+                              {identity}
+                            </Link>
+                          )
+                        })()}
                         <div className="mx-2 my-1 h-px bg-slate-100 dark:bg-slate-800" />
                         <Link
                           to={isAdminArea ? '/admin' : isAttorney ? '/attorney-dashboard' : '/dashboard'}
@@ -952,18 +985,20 @@ export default function Layout({ children }: LayoutProps) {
                   crawlable routes into the translated editions. Each points at the
                   twin of the current page where one exists and at that language's
                   home otherwise, so every page links into every translated set. */}
-              <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                {alternateLanguageLinks.map((alternate) => (
-                  <Link
-                    key={alternate.hrefLang}
-                    to={alternate.to}
-                    hrefLang={alternate.hrefLang}
-                    className="text-slate-400 underline decoration-slate-600 underline-offset-2 transition-colors hover:text-white"
-                  >
-                    {alternate.label}
-                  </Link>
-                ))}
-              </span>
+              {showFooterLanguageLinks && (
+                <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  {alternateLanguageLinks.map((alternate) => (
+                    <Link
+                      key={alternate.hrefLang}
+                      to={alternate.to}
+                      hrefLang={alternate.hrefLang}
+                      className="text-slate-400 underline decoration-slate-600 underline-offset-2 transition-colors hover:text-white"
+                    >
+                      {alternate.label}
+                    </Link>
+                  ))}
+                </span>
+              )}
             </div>
           </div>
         </div>

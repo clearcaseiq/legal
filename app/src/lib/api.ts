@@ -1523,6 +1523,11 @@ export async function updateAttorneyVerifiedVerdict(verdictId: string, payload: 
 
 // Upload a supporting document for a case result; returns a { url, name } ref to
 // attach to the verdict payload on submit.
+export async function deleteAttorneyVerifiedVerdict(verdictId: string) {
+  const { data } = await api.delete(`/v1/attorney-profile/verified-verdicts/${verdictId}`)
+  return data
+}
+
 export async function uploadVerifiedVerdictDocument(file: File): Promise<{ url: string; name: string }> {
   const form = new FormData()
   form.append('document', file)
@@ -4349,12 +4354,45 @@ export type AdminCaseFlowCase = {
   manualReviewReason: string | null
 }
 
-export async function getAdminCaseFlow() {
-  const { data } = await api.get('/v1/admin/case-flow')
+export type AdminCaseFlowSort = 'age' | 'value' | 'plaintiff' | 'stage'
+
+export type AdminCaseFlowParams = {
+  stage?: string | null
+  stuckOnly?: boolean
+  /** Matches plaintiff name, reference code, claim type, venue or attorney. */
+  search?: string
+  sort?: AdminCaseFlowSort
+  direction?: 'asc' | 'desc'
+  limit?: number
+  offset?: number
+}
+
+export async function getAdminCaseFlow(params: AdminCaseFlowParams = {}) {
+  const search = new URLSearchParams()
+  if (params.stage) search.append('stage', params.stage)
+  if (params.stuckOnly) search.append('stuckOnly', 'true')
+  if (params.search) search.append('search', params.search)
+  if (params.sort) search.append('sort', params.sort)
+  if (params.direction) search.append('direction', params.direction)
+  if (params.limit != null) search.append('limit', String(params.limit))
+  if (params.offset != null) search.append('offset', String(params.offset))
+  const qs = search.toString()
+  const { data } = await api.get(`/v1/admin/case-flow${qs ? `?${qs}` : ''}`)
   return data as {
     stages: AdminCaseFlowStage[]
     cases: AdminCaseFlowCase[]
-    meta: { totalCases: number; stuckCases: number; responseDeadlineMinutes: number; generatedAt: string }
+    meta: {
+      totalCases: number
+      stuckCases: number
+      /** Rows matching the active filters — the number the pager counts against. */
+      filteredCases: number
+      limit: number
+      offset: number
+      /** True when the pipeline exceeded the server's scan ceiling. */
+      truncated: boolean
+      responseDeadlineMinutes: number
+      generatedAt: string
+    }
   }
 }
 
@@ -4455,6 +4493,66 @@ export async function getAdminAttorneys(params?: {
   if (params?.status) search.append('status', params.status)
   const qs = search.toString()
   const { data } = await api.get(`/v1/admin/attorneys${qs ? `?${qs}` : ''}`)
+  return data
+}
+
+export type AdminCaseResult = {
+  id: string
+  attorneyId: string
+  attorneyName: string | null
+  attorneyEmail: string | null
+  firmName: string | null
+  caseType: string
+  resultType: 'settlement' | 'verdict'
+  settlementAmount: number
+  caseDescription: string | null
+  date: string | null
+  venue: string | null
+  caseNumber: string | null
+  documentUrl: string | null
+  documentName: string | null
+  status: 'pending' | 'verified' | 'rejected'
+  reviewNote: string | null
+  reviewedAt: string | null
+  reviewedBy: string | null
+  submittedAt: string
+}
+
+export async function getAdminCaseResults(params?: {
+  limit?: number
+  offset?: number
+  search?: string
+  /** 'pending' (default) | 'verified' | 'rejected' | 'all' */
+  status?: string
+}) {
+  const search = new URLSearchParams()
+  if (params?.limit != null) search.append('limit', String(params.limit))
+  if (params?.offset != null) search.append('offset', String(params.offset))
+  if (params?.search) search.append('search', params.search)
+  if (params?.status) search.append('status', params.status)
+  const qs = search.toString()
+  const { data } = await api.get<{
+    success: boolean
+    data: AdminCaseResult[]
+    pendingCount: number
+    total: number
+    limit: number
+    offset: number
+    hasMore: boolean
+  }>(`/v1/admin/case-results${qs ? `?${qs}` : ''}`)
+  return data
+}
+
+/** A rejection requires a note; the API rejects the request without one. */
+export async function reviewAdminCaseResult(
+  id: string,
+  action: 'verify' | 'reject',
+  note?: string,
+) {
+  const { data } = await api.patch<{ success: boolean; caseResult: AdminCaseResult }>(
+    `/v1/admin/case-results/${id}/review`,
+    { action, note },
+  )
   return data
 }
 

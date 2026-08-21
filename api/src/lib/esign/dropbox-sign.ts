@@ -47,6 +47,40 @@ function isTestMode(): boolean {
   return process.env.NODE_ENV !== 'production'
 }
 
+/** Platform mailbox already used for SES/Resend mail. */
+export const DEFAULT_REQUESTER_EMAIL = 'noreply@clearcaseiq.com'
+
+/**
+ * Who Dropbox Sign names in the "X has requested a signature" email.
+ *
+ * Without these fields the provider uses the API-key holder's personal
+ * profile (name + Gmail), which is how claimants were seeing "Sridhar Reddy"
+ * instead of the product. Name and email both default to the platform
+ * identity. Email can be blanked with DROPBOX_SIGN_REQUESTER_EMAIL="" if
+ * Dropbox Sign has not yet accepted noreply@ on the team.
+ */
+export function requesterIdentity(): { name: string; email: string | null } {
+  const name = (process.env.DROPBOX_SIGN_REQUESTER_NAME || 'ClearCaseIQ').trim() || 'ClearCaseIQ'
+  const raw = process.env.DROPBOX_SIGN_REQUESTER_EMAIL
+  const email =
+    raw === undefined ? DEFAULT_REQUESTER_EMAIL : raw.trim() || null
+  return { name, email }
+}
+
+function applyRequester(form: FormData, includeEmail: boolean): void {
+  const requester = requesterIdentity()
+  form.append('custom_requester_name', requester.name)
+  if (includeEmail && requester.email) {
+    form.append('custom_requester_email_address', requester.email)
+  }
+}
+
+function isUnknownRequesterEmail(errorText: string): boolean {
+  return /custom_requester_email|unknown requester|not (a )?member|not on (the )?team|invalid requester/i.test(
+    errorText,
+  )
+}
+
 /** Fetch the raw signature_request object (used by remind/update helpers). */
 async function fetchSignatureRequest(externalEnvelopeId: string): Promise<{
   signatures?: { signature_id?: string; signer_email_address?: string; status_code?: string }[]
@@ -153,31 +187,49 @@ export const dropboxSignProvider: ESignatureProvider = {
     if (!configured()) throw new ESignNotConfiguredError('dropbox_sign')
 
     const fileBuf = await readFile(input.filePath)
-    const form = new FormData()
-    form.append('title', input.title)
-    form.append('subject', input.title)
-    form.append('signers[0][name]', input.signerName)
-    form.append('signers[0][email_address]', input.signerEmail)
-    form.append('signers[0][order]', '0')
-    form.append(
-      'file[0]',
-      new Blob([new Uint8Array(fileBuf)], { type: 'application/pdf' }),
-      basename(input.filePath)
-    )
-    if (input.reference) form.append('metadata[reference]', input.reference)
-    for (const [k, v] of Object.entries(input.metadata ?? {})) {
-      form.append(`metadata[${k}]`, v)
-    }
-    if (isTestMode()) form.append('test_mode', '1')
+    const send = async (includeEmail: boolean) => {
+      const form = new FormData()
+      form.append('title', input.title)
+      form.append('subject', input.title)
+      form.append('signers[0][name]', input.signerName)
+      form.append('signers[0][email_address]', input.signerEmail)
+      form.append('signers[0][order]', '0')
+      form.append(
+        'file[0]',
+        new Blob([new Uint8Array(fileBuf)], { type: 'application/pdf' }),
+        basename(input.filePath)
+      )
+      if (input.reference) form.append('metadata[reference]', input.reference)
+      for (const [k, v] of Object.entries(input.metadata ?? {})) {
+        form.append(`metadata[${k}]`, v)
+      }
+      applyRequester(form, includeEmail)
+      if (isTestMode()) form.append('test_mode', '1')
 
-    const res = await fetch(`${API_BASE}/signature_request/send`, {
-      method: 'POST',
-      headers: { Authorization: authHeader() },
-      body: form,
-    })
+      return fetch(`${API_BASE}/signature_request/send`, {
+        method: 'POST',
+        headers: { Authorization: authHeader() },
+        body: form,
+      })
+    }
+
+    // Ask Dropbox Sign to show the platform mailbox. If that address is not
+    // yet on the team, retry with the name only so a retainer still goes out.
+    let res = await send(true)
     if (!res.ok) {
       const text = await res.text().catch(() => '')
-      throw new Error(`Dropbox Sign send failed (${res.status}): ${text.slice(0, 500)}`)
+      if (requesterIdentity().email && isUnknownRequesterEmail(text)) {
+        logger.warn('Dropbox Sign rejected the platform requester email; sending with name only', {
+          email: requesterIdentity().email,
+        })
+        res = await send(false)
+        if (!res.ok) {
+          const retryText = await res.text().catch(() => '')
+          throw new Error(`Dropbox Sign send failed (${res.status}): ${retryText.slice(0, 500)}`)
+        }
+      } else {
+        throw new Error(`Dropbox Sign send failed (${res.status}): ${text.slice(0, 500)}`)
+      }
     }
 
     const data = (await res.json()) as {

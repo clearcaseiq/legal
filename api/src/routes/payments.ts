@@ -3,7 +3,12 @@ import { prisma } from '../lib/prisma'
 import { authMiddleware, type AuthRequest } from '../lib/auth'
 import { logger } from '../lib/logger'
 import { ENV } from '../env'
-import { getAttorneySubscriptionTier, getCaseRoutingFee, getMatchingRules } from '../lib/matching-rules-config'
+import {
+  getAttorneyResponseDeadlineMinutes,
+  getAttorneySubscriptionTier,
+  getCaseRoutingFee,
+  getMatchingRules,
+} from '../lib/matching-rules-config'
 import {
   getStripe,
   webUrl,
@@ -16,6 +21,10 @@ import {
 
 const router = Router()
 const db = prisma as any
+
+// Statuses that mean money already moved, so an expiry notice must never overwrite
+// them (Stripe can deliver events out of order).
+const SETTLED_STATUSES = ['paid', 'succeeded', 'complete', 'completed', 'refunded']
 
 function stripeError(res: any, error: any, fallback = 'Stripe request failed') {
   const status = error?.statusCode || 500
@@ -81,7 +90,7 @@ async function getAuthorizedLeadForAttorney(req: AuthRequest, leadId: string) {
 
   const intro = await db.introduction.findFirst({
     where: { assessmentId: lead.assessmentId, attorneyId: attorney.id },
-    select: { id: true },
+    select: { id: true, status: true, requestedAt: true },
   })
   const isShared = lead.assignmentType === 'shared'
   const isAssigned = lead.assignedAttorneyId === attorney.id
@@ -96,6 +105,39 @@ async function getAuthorizedLeadForAttorney(req: AuthRequest, leadId: string) {
     !!lead.routingLocked && !!lead.assignedAttorneyId && lead.assignedAttorneyId !== attorney.id
   if (claimedByOther) {
     return { error: { status: 409, message: 'This case has already been assigned to another attorney.' } }
+  }
+
+  // The client sends the attorney to Stripe BEFORE calling the decision endpoint, so
+  // every reason that endpoint would refuse an accept has to be checked here too.
+  // Otherwise a stale tab — one that declined the case in another tab — charges the
+  // routing fee and only then gets a 409, leaving the attorney billed for a case they
+  // never receive. Mirror the decision endpoint's checks and wording exactly.
+  if (intro && intro.status !== 'PENDING') {
+    const already =
+      intro.status === 'ACCEPTED' ? 'accepted' : intro.status === 'DECLINED' ? 'declined' : null
+    return {
+      error: {
+        status: 409,
+        message: already
+          ? `You have already ${already} this case.`
+          : 'This match is no longer available to respond to.',
+        code: 'ALREADY_RESPONDED',
+      },
+    }
+  }
+
+  if (intro?.requestedAt) {
+    const matchingRules = await getMatchingRules()
+    const deadlineMinutes = getAttorneyResponseDeadlineMinutes(matchingRules)
+    if (intro.requestedAt.getTime() + deadlineMinutes * 60 * 1000 <= Date.now()) {
+      return {
+        error: {
+          status: 409,
+          message:
+            'The response window for this match has expired and it has been released to another attorney.',
+        },
+      }
+    }
   }
 
   return { attorney, lead }
@@ -413,7 +455,12 @@ router.post('/platform/routing-fee-session', authMiddleware, async (req: AuthReq
     if (!leadId) return res.status(400).json({ error: 'leadId is required' })
 
     const auth = await getAuthorizedLeadForAttorney(req, leadId)
-    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    if (auth.error) {
+      return res.status(auth.error.status).json({
+        error: auth.error.message,
+        ...(auth.error.code ? { code: auth.error.code } : {}),
+      })
+    }
     const { attorney, lead } = auth
 
     const matchingRules = await getMatchingRules()
@@ -763,12 +810,14 @@ router.get('/platform/history', authMiddleware, async (req: AuthRequest, res) =>
     const isPaid = (status: unknown) =>
       ['succeeded', 'paid', 'complete', 'completed'].includes(String(status || '').toLowerCase())
 
-    // Self-heal pending rows before rendering. The webhook is the primary updater,
+    // Self-heal unsettled rows before rendering. The webhook is the primary updater,
     // but a missed delivery (or an endpoint that wasn't configured yet) leaves a
-    // genuinely-paid routing fee stuck at "checkout_created" — so the attorney
-    // sees "Pending" for a case they already paid for and received (CP: payment
-    // status shows pending even though we paid and got the case). Poll Stripe for
-    // any still-open checkout sessions and settle them on read.
+    // genuinely-paid charge stuck at "checkout_created" — so the attorney sees
+    // "Pending" for something they already paid for (CP: payment status shows
+    // pending even though we paid and got the case). We write the ledger row when
+    // the checkout session is created, so this also has to retire sessions the
+    // attorney abandoned; nothing else ever clears them and they would otherwise
+    // read "Pending" permanently.
     if (ENV.STRIPE_SECRET_KEY) {
       const reconcilable = records.filter((r: any) => {
         const s = String(r.status || '').toLowerCase()
@@ -794,20 +843,33 @@ router.get('/platform/history', authMiddleware, async (req: AuthRequest, res) =>
                     : session.payment_intent?.id || null
                 const customerId =
                   typeof session.customer === 'string' ? session.customer : session.customer?.id || null
-                await db.platformPayment.update({
-                  where: { id: r.id },
+                // Claim the row before granting anything. Two concurrent loads of
+                // this page would otherwise both settle it and double-count the
+                // attorney's platform spend.
+                const claimed = await db.platformPayment.updateMany({
+                  where: { id: r.id, status: r.status },
                   data: {
                     status: 'paid',
                     stripePaymentIntentId: paymentIntentId,
                     stripeCustomerId: customerId || r.stripeCustomerId || null,
                   },
                 })
+                if (claimed.count === 0) return
+                // Run the same settlement the webhook would have, so a missed
+                // delivery still grants what was bought (e.g. featured placement).
+                await settleCompletedCheckout(stripe, session)
                 // Mutate the in-memory row so this same response reflects the fix.
                 r.status = 'paid'
                 r.stripePaymentIntentId = paymentIntentId
+              } else if (String(session.status || '').toLowerCase() === 'expired') {
+                await db.platformPayment.updateMany({
+                  where: { id: r.id, status: r.status },
+                  data: { status: 'expired' },
+                })
+                r.status = 'expired'
               }
             } catch (err: any) {
-              logger.warn('Routing fee reconcile failed', { paymentId: r.id, error: err?.message })
+              logger.warn('Platform payment reconcile failed', { paymentId: r.id, error: err?.message })
             }
           }),
         )
@@ -1224,6 +1286,24 @@ async function resetSubscriptionAllotmentFromInvoice(stripe: any, invoice: any) 
   })
 }
 
+// Apply everything a completed checkout is supposed to grant. The webhook is the
+// primary caller, but the billing-history reconcile settles missed deliveries and
+// must run the same work: marking a featured-placement row "paid" without also
+// setting isFeatured/boostLevel/featuredUntil would charge the attorney and never
+// give them the placement.
+async function settleCompletedCheckout(stripe: any, session: any) {
+  const kind = session.metadata?.kind
+  if (kind === 'case_invoice') {
+    await recordCaseInvoicePayment(session)
+  } else if (kind === 'attorney_payment_method') {
+    await saveDefaultPaymentMethodFromSetupSession(stripe, session)
+  } else if (kind === 'featured_placement') {
+    await applyFeaturedPlacementFromSession(session)
+  } else if (kind === 'attorney_subscription' || kind === 'lead_credit' || kind === 'routing_fee') {
+    await recordPlatformCheckout(session)
+  }
+}
+
 router.post('/stripe-webhook', async (req, res) => {
   if (!ENV.STRIPE_WEBHOOK_SECRET) {
     return res.status(503).json({ error: 'Stripe webhook secret is not configured' })
@@ -1256,17 +1336,18 @@ router.post('/stripe-webhook', async (req, res) => {
   try {
     switch (event.type) {
       case 'checkout.session.completed': {
+        await settleCompletedCheckout(stripe, event.data.object as any)
+        break
+      }
+      // An abandoned checkout expires after ~24h. Retire the ledger row we wrote
+      // when the session was created, otherwise it shows "Pending" forever for a
+      // purchase that will never complete.
+      case 'checkout.session.expired': {
         const session = event.data.object as any
-        const kind = session.metadata?.kind
-        if (kind === 'case_invoice') {
-          await recordCaseInvoicePayment(session)
-        } else if (kind === 'attorney_payment_method') {
-          await saveDefaultPaymentMethodFromSetupSession(stripe, session)
-        } else if (kind === 'featured_placement') {
-          await applyFeaturedPlacementFromSession(session)
-        } else if (kind === 'attorney_subscription' || kind === 'lead_credit' || kind === 'routing_fee') {
-          await recordPlatformCheckout(session)
-        }
+        await db.platformPayment.updateMany({
+          where: { stripeCheckoutSessionId: session.id, status: { notIn: SETTLED_STATUSES } },
+          data: { status: 'expired' },
+        })
         break
       }
       case 'customer.subscription.created':
