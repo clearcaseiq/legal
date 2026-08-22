@@ -948,6 +948,26 @@ export async function attorneyAcceptCase(
     })
   })
 
+  // Acceptance is the moment the case becomes retained, so seed the attorney-side
+  // Case Coach tasks (next-best actions + baseline Intelligent Question tasks) now
+  // rather than waiting for the next document upload or the periodic sweep. Without
+  // this, an accepted case shows an empty Tasks queue until some later trigger
+  // fires. Dynamic import avoids a static import cycle; failures are swallowed so a
+  // task-generation problem can never roll back a successful acceptance.
+  try {
+    const { syncCaseCoachTasks } = await import('./case-coach-loop')
+    await syncCaseCoachTasks(intro.assessmentId, {
+      attorneyId,
+      trigger: 'attorney_accept',
+    })
+  } catch (err: unknown) {
+    logger.warn('Failed to seed coach tasks after acceptance', {
+      attorneyId,
+      assessmentId: intro.assessmentId,
+      error: (err as Error).message,
+    })
+  }
+
   logger.info('Attorney accepted case', { introductionId, attorneyId, assessmentId: intro.assessmentId })
   return { success: true }
 }

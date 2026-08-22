@@ -20,6 +20,7 @@ import { processEvidenceFileForExtraction, shouldAutoProcessEvidence, extractDat
 import { syncCaseCoachTasks } from '../lib/case-coach-loop'
 import { analyzeImageRelevance, analyzePdfRelevance, analyzeVideoRelevance, type VisionRelevanceResult } from '../lib/evidence-vision'
 import { syncPlaintiffDocumentRequestStatuses } from '../lib/document-request-status'
+import { uploadLimiter } from '../lib/rate-limits'
 
 const router = Router()
 
@@ -361,7 +362,7 @@ function buildHighlights(extractedData: any, ocrText: string) {
 
 // Lightweight image relevance pre-check (no persistence). Used during intake before an
 // assessment exists, so the UI can warn about obviously off-topic photos immediately.
-router.post('/vision-precheck', optionalAuthMiddleware, memoryUpload.single('file'), async (req: any, res) => {
+router.post('/vision-precheck', uploadLimiter, optionalAuthMiddleware, memoryUpload.single('file'), async (req: any, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' })
@@ -405,7 +406,7 @@ router.post('/vision-precheck', optionalAuthMiddleware, memoryUpload.single('fil
  * Ephemeral document extraction for intake previews. OCRs the uploaded file in memory
  * and returns parsed dollar amounts without persisting anything (mirrors vision-precheck).
  */
-router.post('/extract-precheck', optionalAuthMiddleware, memoryUpload.single('file'), async (req: any, res) => {
+router.post('/extract-precheck', uploadLimiter, optionalAuthMiddleware, memoryUpload.single('file'), async (req: any, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' })
@@ -438,7 +439,7 @@ router.post('/extract-precheck', optionalAuthMiddleware, memoryUpload.single('fi
  * The check has to run after multer, since `assessmentId` arrives in the
  * multipart body, so a rejected upload deletes the file multer already wrote.
  */
-router.post('/upload', optionalAuthMiddleware, upload.single('file'), async (req: any, res) => {
+router.post('/upload', uploadLimiter, optionalAuthMiddleware, upload.single('file'), async (req: any, res) => {
   try {
     logger.info('Upload request received', { 
       hasFile: !!req.file, 
@@ -691,7 +692,7 @@ router.post('/upload', optionalAuthMiddleware, upload.single('file'), async (req
 })
 
 // Upload multiple files
-router.post('/upload-multiple', optionalAuthMiddleware, upload.array('files', 10), async (req: any, res) => {
+router.post('/upload-multiple', uploadLimiter, optionalAuthMiddleware, upload.array('files', 10), async (req: any, res) => {
   try {
     const files = req.files as Express.Multer.File[]
     if (!files || files.length === 0) {
@@ -968,7 +969,7 @@ router.get('/:fileId', authMiddleware, async (req: any, res) => {
 })
 
 // Process evidence file (OCR, NLP)
-router.post('/:fileId/process', optionalAuthMiddleware, async (req: any, res) => {
+router.post('/:fileId/process', uploadLimiter, optionalAuthMiddleware, async (req: any, res) => {
   try {
     const { fileId } = req.params
     const authedUserId = req.user?.id || null

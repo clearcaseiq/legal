@@ -63,7 +63,7 @@ import publicBooking from './routes/public-booking'
 import calendarEvents from './routes/calendar-events'
 import calls from './routes/calls'
 import connectWebhook from './routes/connect-webhook'
-import { authLimiter, intakeLimiter, uploadLimiter } from './lib/rate-limits'
+import { authLimiter, intakeLimiter } from './lib/rate-limits'
 
 /**
  * Fully configured Express app (no listen). Used by index.ts and integration tests.
@@ -88,7 +88,13 @@ export function buildApp(): Express {
   app.use('/v1/attorney-register', attorneyRegister)
   app.use('/v1/attorney-claim', attorneyClaim)
   app.use('/v1/medical-providers', medicalProviders)
-  app.use('/v1/evidence', uploadLimiter, evidence)
+  // The tight upload limiter is applied per-route inside the evidence router to
+  // only the expensive write/OCR endpoints (upload, upload-multiple, the two
+  // prechecks, and process). Mounting it on the whole router also throttled the
+  // list read, the status/jobs polling, and annotation reads that a single
+  // evidence session fires many times, which exhausted the small budget and
+  // returned "Server is busy" before the user had uploaded anything.
+  app.use('/v1/evidence', evidence)
   app.use('/v1/consent', consent)
   app.use('/v1/chatgpt', chatgpt)
   app.use('/v1/incident-extraction', incidentExtraction)
