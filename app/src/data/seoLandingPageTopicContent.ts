@@ -42,11 +42,14 @@ import { transitCityGuideTopicContentBySlug } from './seoTransitCityGuides'
 import { scooterCityGuideTopicContentBySlug } from './seoScooterCityGuides'
 import { constructionCityGuideTopicContentBySlug } from './seoConstructionCityGuides'
 import { constructionCityGuideTopicContentBySlug2 } from './seoConstructionCityGuides2'
+import { constructionCityGuideTopicContentBySlug3 } from './seoConstructionCityGuides3'
 import { negligentSecurityCityGuideTopicContentBySlug } from './seoNegligentSecurityCityGuides'
 import { negligentSecurityCityGuideTopicContentBySlug2 } from './seoNegligentSecurityCityGuides2'
+import { negligentSecurityCityGuideTopicContentBySlug3 } from './seoNegligentSecurityCityGuides3'
 import { boatingCityGuideTopicContentBySlug } from './seoBoatingCityGuides'
 import { burnInjuryCityGuideTopicContentBySlug } from './seoBurnInjuryCityGuides'
 import { burnInjuryCityGuideTopicContentBySlug2 } from './seoBurnInjuryCityGuides2'
+import { burnInjuryCityGuideTopicContentBySlug3 } from './seoBurnInjuryCityGuides3'
 import { wrongfulDeathCityGuideTopicContentBySlug } from './seoWrongfulDeathCityGuides'
 import { wrongfulDeathCityGuideTopicContentBySlug2 } from './seoWrongfulDeathCityGuides2'
 import { wrongfulDeathCityGuideTopicContentBySlug3 } from './seoWrongfulDeathCityGuides3'
@@ -753,11 +756,14 @@ Object.assign(topicContentBySlug, transitCityGuideTopicContentBySlug)
 Object.assign(topicContentBySlug, scooterCityGuideTopicContentBySlug)
 Object.assign(topicContentBySlug, constructionCityGuideTopicContentBySlug)
 Object.assign(topicContentBySlug, constructionCityGuideTopicContentBySlug2)
+Object.assign(topicContentBySlug, constructionCityGuideTopicContentBySlug3)
 Object.assign(topicContentBySlug, negligentSecurityCityGuideTopicContentBySlug)
 Object.assign(topicContentBySlug, negligentSecurityCityGuideTopicContentBySlug2)
+Object.assign(topicContentBySlug, negligentSecurityCityGuideTopicContentBySlug3)
 Object.assign(topicContentBySlug, boatingCityGuideTopicContentBySlug)
 Object.assign(topicContentBySlug, burnInjuryCityGuideTopicContentBySlug)
 Object.assign(topicContentBySlug, burnInjuryCityGuideTopicContentBySlug2)
+Object.assign(topicContentBySlug, burnInjuryCityGuideTopicContentBySlug3)
 Object.assign(topicContentBySlug, wrongfulDeathCityGuideTopicContentBySlug)
 Object.assign(topicContentBySlug, wrongfulDeathCityGuideTopicContentBySlug2)
 Object.assign(topicContentBySlug, wrongfulDeathCityGuideTopicContentBySlug3)

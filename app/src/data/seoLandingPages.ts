@@ -43,11 +43,14 @@ import { transitCityGuidePages } from './seoTransitCityGuides'
 import { scooterCityGuidePages } from './seoScooterCityGuides'
 import { constructionCityGuidePages } from './seoConstructionCityGuides'
 import { constructionCityGuidePages2 } from './seoConstructionCityGuides2'
+import { constructionCityGuidePages3 } from './seoConstructionCityGuides3'
 import { negligentSecurityCityGuidePages } from './seoNegligentSecurityCityGuides'
 import { negligentSecurityCityGuidePages2 } from './seoNegligentSecurityCityGuides2'
+import { negligentSecurityCityGuidePages3 } from './seoNegligentSecurityCityGuides3'
 import { boatingCityGuidePages } from './seoBoatingCityGuides'
 import { burnInjuryCityGuidePages } from './seoBurnInjuryCityGuides'
 import { burnInjuryCityGuidePages2 } from './seoBurnInjuryCityGuides2'
+import { burnInjuryCityGuidePages3 } from './seoBurnInjuryCityGuides3'
 import { wrongfulDeathCityGuidePages } from './seoWrongfulDeathCityGuides'
 import { wrongfulDeathCityGuidePages2 } from './seoWrongfulDeathCityGuides2'
 import { wrongfulDeathCityGuidePages3 } from './seoWrongfulDeathCityGuides3'
@@ -215,11 +218,14 @@ export const CONTENT_UPDATED = {
   scooterCityGuides: '2026-08-21',
   constructionCityGuides: '2026-08-21',
   constructionCityGuides2: '2026-08-22',
+  constructionCityGuides3: '2026-08-22',
   negligentSecurityCityGuides: '2026-08-21',
   negligentSecurityCityGuides2: '2026-08-22',
+  negligentSecurityCityGuides3: '2026-08-22',
   boatingCityGuides: '2026-08-21',
   burnInjuryCityGuides: '2026-08-21',
   burnInjuryCityGuides2: '2026-08-22',
+  burnInjuryCityGuides3: '2026-08-22',
   wrongfulDeathCityGuides: '2026-08-21',
   wrongfulDeathCityGuides2: '2026-08-22',
   wrongfulDeathCityGuides3: '2026-08-22',
@@ -341,11 +347,14 @@ export const CONTENT_PUBLISHED = {
   scooterCityGuides: '2026-08-21',
   constructionCityGuides: '2026-08-21',
   constructionCityGuides2: '2026-08-22',
+  constructionCityGuides3: '2026-08-22',
   negligentSecurityCityGuides: '2026-08-21',
   negligentSecurityCityGuides2: '2026-08-22',
+  negligentSecurityCityGuides3: '2026-08-22',
   boatingCityGuides: '2026-08-21',
   burnInjuryCityGuides: '2026-08-21',
   burnInjuryCityGuides2: '2026-08-22',
+  burnInjuryCityGuides3: '2026-08-22',
   wrongfulDeathCityGuides: '2026-08-21',
   wrongfulDeathCityGuides2: '2026-08-22',
   wrongfulDeathCityGuides3: '2026-08-22',
@@ -821,11 +830,14 @@ export const allLandingPages: LandingPage[] = [
   ...stamp(scooterCityGuidePages, CONTENT_UPDATED.scooterCityGuides, CONTENT_PUBLISHED.scooterCityGuides),
   ...stamp(constructionCityGuidePages, CONTENT_UPDATED.constructionCityGuides, CONTENT_PUBLISHED.constructionCityGuides),
   ...stamp(constructionCityGuidePages2, CONTENT_UPDATED.constructionCityGuides2, CONTENT_PUBLISHED.constructionCityGuides2),
+  ...stamp(constructionCityGuidePages3, CONTENT_UPDATED.constructionCityGuides3, CONTENT_PUBLISHED.constructionCityGuides3),
   ...stamp(negligentSecurityCityGuidePages, CONTENT_UPDATED.negligentSecurityCityGuides, CONTENT_PUBLISHED.negligentSecurityCityGuides),
   ...stamp(negligentSecurityCityGuidePages2, CONTENT_UPDATED.negligentSecurityCityGuides2, CONTENT_PUBLISHED.negligentSecurityCityGuides2),
+  ...stamp(negligentSecurityCityGuidePages3, CONTENT_UPDATED.negligentSecurityCityGuides3, CONTENT_PUBLISHED.negligentSecurityCityGuides3),
   ...stamp(boatingCityGuidePages, CONTENT_UPDATED.boatingCityGuides, CONTENT_PUBLISHED.boatingCityGuides),
   ...stamp(burnInjuryCityGuidePages, CONTENT_UPDATED.burnInjuryCityGuides, CONTENT_PUBLISHED.burnInjuryCityGuides),
   ...stamp(burnInjuryCityGuidePages2, CONTENT_UPDATED.burnInjuryCityGuides2, CONTENT_PUBLISHED.burnInjuryCityGuides2),
+  ...stamp(burnInjuryCityGuidePages3, CONTENT_UPDATED.burnInjuryCityGuides3, CONTENT_PUBLISHED.burnInjuryCityGuides3),
   ...stamp(wrongfulDeathCityGuidePages, CONTENT_UPDATED.wrongfulDeathCityGuides, CONTENT_PUBLISHED.wrongfulDeathCityGuides),
   ...stamp(wrongfulDeathCityGuidePages2, CONTENT_UPDATED.wrongfulDeathCityGuides2, CONTENT_PUBLISHED.wrongfulDeathCityGuides2),
   ...stamp(wrongfulDeathCityGuidePages3, CONTENT_UPDATED.wrongfulDeathCityGuides3, CONTENT_PUBLISHED.wrongfulDeathCityGuides3),

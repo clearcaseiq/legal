@@ -731,6 +731,10 @@ function App() {
             <Route path="/fresno-construction-accident" element={<SeoLandingPage />} />
             <Route path="/oakland-construction-accident" element={<SeoLandingPage />} />
             <Route path="/long-beach-construction-accident" element={<SeoLandingPage />} />
+            <Route path="/riverside-construction-accident" element={<SeoLandingPage />} />
+            <Route path="/san-bernardino-construction-accident" element={<SeoLandingPage />} />
+            <Route path="/bakersfield-construction-accident" element={<SeoLandingPage />} />
+            <Route path="/anaheim-construction-accident" element={<SeoLandingPage />} />
             {/* Geo layer batch 15: negligent security x metros. */}
             <Route path="/los-angeles-negligent-security" element={<SeoLandingPage />} />
             <Route path="/oakland-negligent-security" element={<SeoLandingPage />} />
@@ -740,6 +744,10 @@ function App() {
             <Route path="/san-jose-negligent-security" element={<SeoLandingPage />} />
             <Route path="/fresno-negligent-security" element={<SeoLandingPage />} />
             <Route path="/long-beach-negligent-security" element={<SeoLandingPage />} />
+            <Route path="/riverside-negligent-security" element={<SeoLandingPage />} />
+            <Route path="/san-bernardino-negligent-security" element={<SeoLandingPage />} />
+            <Route path="/bakersfield-negligent-security" element={<SeoLandingPage />} />
+            <Route path="/anaheim-negligent-security" element={<SeoLandingPage />} />
             {/* Geo layer batch 16: boating/watercraft x water metros. */}
             <Route path="/san-diego-boating-accident" element={<SeoLandingPage />} />
             <Route path="/sacramento-delta-boating-accident" element={<SeoLandingPage />} />
@@ -754,6 +762,10 @@ function App() {
             <Route path="/fresno-burn-injury" element={<SeoLandingPage />} />
             <Route path="/long-beach-burn-injury" element={<SeoLandingPage />} />
             <Route path="/oakland-burn-injury" element={<SeoLandingPage />} />
+            <Route path="/riverside-burn-injury" element={<SeoLandingPage />} />
+            <Route path="/san-bernardino-burn-injury" element={<SeoLandingPage />} />
+            <Route path="/bakersfield-burn-injury" element={<SeoLandingPage />} />
+            <Route path="/anaheim-burn-injury" element={<SeoLandingPage />} />
             {/* Geo layer batch 18: wrongful death x metros. */}
             <Route path="/los-angeles-wrongful-death" element={<SeoLandingPage />} />
             <Route path="/san-francisco-wrongful-death" element={<SeoLandingPage />} />
