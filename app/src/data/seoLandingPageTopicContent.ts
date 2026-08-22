@@ -1,6 +1,12 @@
 import { requestedTopicContentBySlug } from './seoRequestedPages'
 import { priorityTopicContentBySlug } from './seoPriorityPages'
 import { cityGuideTopicContentBySlug } from './seoCityGuides'
+import { cityGuideTopicContentBySlug2 } from './seoCityGuides2'
+import { cityGuideTopicContentBySlug3 } from './seoCityGuides3'
+import { medicalMalpracticeCityGuideTopicContentBySlug } from './seoMedicalMalpracticeCityGuides'
+import { medicalMalpracticeCityGuideTopicContentBySlug2 } from './seoMedicalMalpracticeCityGuides2'
+import { medicalMalpracticeCityGuideTopicContentBySlug3 } from './seoMedicalMalpracticeCityGuides3'
+import { medicalMalpracticeCityGuideTopicContentBySlug4 } from './seoMedicalMalpracticeCityGuides4'
 import { injuryDemandGuideTopicContentBySlug } from './seoInjuryDemandGuides'
 import { injuryValueGuideTopicContentBySlug } from './seoInjuryValueGuides'
 import { expansionTopicContentBySlug } from './seoExpansionPages'
@@ -9,6 +15,91 @@ import { caseStrengthGuideTopicContentBySlug } from './seoCaseStrengthGuide'
 import { attorneyGuideTopicContentBySlug } from './seoAttorneyGuides'
 import { solGuideTopicContentBySlug } from './seoSolGuides'
 import { medicalRecordsGuideTopicContentBySlug } from './seoMedicalRecordsGuides'
+import { dogBiteGuideTopicContentBySlug } from './seoDogBiteGuides'
+import { slipAndFallGuideTopicContentBySlug } from './seoSlipAndFallGuides'
+import { productLiabilityGuideTopicContentBySlug } from './seoProductLiabilityGuides'
+import { wrongfulDeathGuideTopicContentBySlug } from './seoWrongfulDeathGuides'
+import { rideshareGuideTopicContentBySlug } from './seoRideshareGuides'
+import { bicycleGuideTopicContentBySlug } from './seoBicycleGuides'
+import { pedestrianGuideTopicContentBySlug } from './seoPedestrianGuides'
+import { motorcycleGuideTopicContentBySlug } from './seoMotorcycleGuides'
+import { elderAbuseGuideTopicContentBySlug } from './seoElderAbuseGuides'
+import { truckAccidentGuideTopicContentBySlug } from './seoTruckAccidentGuides'
+import { medicalMalpracticeGuideTopicContentBySlug } from './seoMedicalMalpracticeGuides'
+import { workInjuryThirdPartyGuideTopicContentBySlug } from './seoWorkInjuryThirdPartyGuides'
+import { localPracticeGuideTopicContentBySlug } from './seoLocalPracticeGuides'
+import { localPracticeGuideTopicContentBySlug2 } from './seoLocalPracticeGuides2'
+import { localPracticeGuideTopicContentBySlug3 } from './seoLocalPracticeGuides3'
+import { motorcycleCityGuideTopicContentBySlug } from './seoMotorcycleCityGuides'
+import { rideshareCityGuideTopicContentBySlug } from './seoRideshareCityGuides'
+import { localPracticeGuideTopicContentBySlug4 } from './seoLocalPracticeGuides4'
+import { dogBiteCityGuideTopicContentBySlug } from './seoDogBiteCityGuides'
+import { slipAndFallCityGuideTopicContentBySlug } from './seoSlipAndFallCityGuides'
+import { truckAccidentCityGuideTopicContentBySlug } from './seoTruckAccidentCityGuides'
+import { motorcycleCityGuideTopicContentBySlug2 } from './seoMotorcycleCityGuides2'
+import { rideshareCityGuideTopicContentBySlug2 } from './seoRideshareCityGuides2'
+import { transitCityGuideTopicContentBySlug } from './seoTransitCityGuides'
+import { scooterCityGuideTopicContentBySlug } from './seoScooterCityGuides'
+import { constructionCityGuideTopicContentBySlug } from './seoConstructionCityGuides'
+import { constructionCityGuideTopicContentBySlug2 } from './seoConstructionCityGuides2'
+import { negligentSecurityCityGuideTopicContentBySlug } from './seoNegligentSecurityCityGuides'
+import { negligentSecurityCityGuideTopicContentBySlug2 } from './seoNegligentSecurityCityGuides2'
+import { boatingCityGuideTopicContentBySlug } from './seoBoatingCityGuides'
+import { burnInjuryCityGuideTopicContentBySlug } from './seoBurnInjuryCityGuides'
+import { burnInjuryCityGuideTopicContentBySlug2 } from './seoBurnInjuryCityGuides2'
+import { wrongfulDeathCityGuideTopicContentBySlug } from './seoWrongfulDeathCityGuides'
+import { wrongfulDeathCityGuideTopicContentBySlug2 } from './seoWrongfulDeathCityGuides2'
+import { duiVictimCityGuideTopicContentBySlug } from './seoDuiVictimCityGuides'
+import { duiVictimCityGuideTopicContentBySlug2 } from './seoDuiVictimCityGuides2'
+import { themeParkCityGuideTopicContentBySlug } from './seoThemeParkCityGuides'
+import { poolDrowningCityGuideTopicContentBySlug } from './seoPoolDrowningCityGuides'
+import { poolDrowningCityGuideTopicContentBySlug2 } from './seoPoolDrowningCityGuides2'
+import { deliveryVehicleCityGuideTopicContentBySlug } from './seoDeliveryVehicleCityGuides'
+import { uninsuredMotoristCityGuideTopicContentBySlug } from './seoUninsuredMotoristCityGuides'
+import { uninsuredMotoristCityGuideTopicContentBySlug2 } from './seoUninsuredMotoristCityGuides2'
+import { foodPoisoningCityGuideTopicContentBySlug } from './seoFoodPoisoningCityGuides'
+import { wildfireCityGuideTopicContentBySlug } from './seoWildfireCityGuides'
+import { dangerousRoadwayCityGuideTopicContentBySlug } from './seoDangerousRoadwayCityGuides'
+import { dangerousRoadwayCityGuideTopicContentBySlug2 } from './seoDangerousRoadwayCityGuides2'
+import { elderAbuseCityGuideTopicContentBySlug } from './seoElderAbuseCityGuides'
+import { elderAbuseCityGuideTopicContentBySlug2 } from './seoElderAbuseCityGuides2'
+import { apartmentInjuryCityGuideTopicContentBySlug } from './seoApartmentInjuryCityGuides'
+import { trainAccidentCityGuideTopicContentBySlug } from './seoTrainAccidentCityGuides'
+import { warehouseInjuryCityGuideTopicContentBySlug } from './seoWarehouseInjuryCityGuides'
+import { farmInjuryCityGuideTopicContentBySlug } from './seoFarmInjuryCityGuides'
+import { birthInjuryCityGuideTopicContentBySlug } from './seoBirthInjuryCityGuides'
+import { birthInjuryCityGuideTopicContentBySlug2 } from './seoBirthInjuryCityGuides2'
+import { brainInjuryCityGuideTopicContentBySlug } from './seoBrainInjuryCityGuides'
+import { brainInjuryCityGuideTopicContentBySlug2 } from './seoBrainInjuryCityGuides2'
+import { spinalInjuryCityGuideTopicContentBySlug } from './seoSpinalInjuryCityGuides'
+import { spinalInjuryCityGuideTopicContentBySlug2 } from './seoSpinalInjuryCityGuides2'
+import { childInjuryCityGuideTopicContentBySlug } from './seoChildInjuryCityGuides'
+import { vehicleDefectCityGuideTopicContentBySlug } from './seoVehicleDefectCityGuides'
+import { carbonMonoxideCityGuideTopicContentBySlug } from './seoCarbonMonoxideCityGuides'
+import { trampolineParkCityGuideTopicContentBySlug } from './seoTrampolineParkCityGuides'
+import { aviationCityGuideTopicContentBySlug } from './seoAviationCityGuides'
+import { electrocutionCityGuideTopicContentBySlug } from './seoElectrocutionCityGuides'
+import { securityForceCityGuideTopicContentBySlug } from './seoSecurityForceCityGuides'
+import { elevatorCityGuideTopicContentBySlug } from './seoElevatorCityGuides'
+import { moldHabitabilityCityGuideTopicContentBySlug } from './seoMoldHabitabilityCityGuides'
+import { offRoadVehicleCityGuideTopicContentBySlug } from './seoOffRoadVehicleCityGuides'
+import { dramShopCityGuideTopicContentBySlug } from './seoDramShopCityGuides'
+import { consumerProductCityGuideTopicContentBySlug } from './seoConsumerProductCityGuides'
+import { hotelInjuryCityGuideTopicContentBySlug } from './seoHotelInjuryCityGuides'
+import { gymInjuryCityGuideTopicContentBySlug } from './seoGymInjuryCityGuides'
+import { eventCrowdCityGuideTopicContentBySlug } from './seoEventCrowdCityGuides'
+import { vacationRentalCityGuideTopicContentBySlug } from './seoVacationRentalCityGuides'
+import { skiResortCityGuideTopicContentBySlug } from './seoSkiResortCityGuides'
+import { equestrianCityGuideTopicContentBySlug } from './seoEquestrianCityGuides'
+import { dogBiteCityGuideTopicContentBySlug2 } from './seoDogBiteCityGuides2'
+import { slipAndFallCityGuideTopicContentBySlug2 } from './seoSlipAndFallCityGuides2'
+import { truckAccidentCityGuideTopicContentBySlug2 } from './seoTruckAccidentCityGuides2'
+import { truckAccidentCityGuideTopicContentBySlug3 } from './seoTruckAccidentCityGuides3'
+import { transitCityGuideTopicContentBySlug2 } from './seoTransitCityGuides2'
+import { rideshareCityGuideTopicContentBySlug3 } from './seoRideshareCityGuides3'
+import { motorcycleCityGuideTopicContentBySlug3 } from './seoMotorcycleCityGuides3'
+import { dogBiteCityGuideTopicContentBySlug3 } from './seoDogBiteCityGuides3'
+import { slipAndFallCityGuideTopicContentBySlug3 } from './seoSlipAndFallCityGuides3'
 
 export type TopicTreatmentStep = {
   label: string
@@ -619,9 +710,100 @@ Object.assign(topicContentBySlug, priorityTopicContentBySlug)
 Object.assign(topicContentBySlug, injuryValueGuideTopicContentBySlug)
 Object.assign(topicContentBySlug, injuryDemandGuideTopicContentBySlug)
 Object.assign(topicContentBySlug, cityGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, cityGuideTopicContentBySlug2)
+Object.assign(topicContentBySlug, cityGuideTopicContentBySlug3)
+Object.assign(topicContentBySlug, medicalMalpracticeCityGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, medicalMalpracticeCityGuideTopicContentBySlug2)
+Object.assign(topicContentBySlug, medicalMalpracticeCityGuideTopicContentBySlug3)
+Object.assign(topicContentBySlug, medicalMalpracticeCityGuideTopicContentBySlug4)
 Object.assign(topicContentBySlug, expansionTopicContentBySlug)
 Object.assign(topicContentBySlug, insuranceGuideTopicContentBySlug)
 Object.assign(topicContentBySlug, caseStrengthGuideTopicContentBySlug)
 Object.assign(topicContentBySlug, attorneyGuideTopicContentBySlug)
 Object.assign(topicContentBySlug, solGuideTopicContentBySlug)
 Object.assign(topicContentBySlug, medicalRecordsGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, dogBiteGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, slipAndFallGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, productLiabilityGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, wrongfulDeathGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, rideshareGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, bicycleGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, pedestrianGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, motorcycleGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, elderAbuseGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, truckAccidentGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, medicalMalpracticeGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, workInjuryThirdPartyGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, localPracticeGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, localPracticeGuideTopicContentBySlug2)
+Object.assign(topicContentBySlug, localPracticeGuideTopicContentBySlug3)
+Object.assign(topicContentBySlug, motorcycleCityGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, rideshareCityGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, localPracticeGuideTopicContentBySlug4)
+Object.assign(topicContentBySlug, dogBiteCityGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, slipAndFallCityGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, truckAccidentCityGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, motorcycleCityGuideTopicContentBySlug2)
+Object.assign(topicContentBySlug, rideshareCityGuideTopicContentBySlug2)
+Object.assign(topicContentBySlug, transitCityGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, scooterCityGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, constructionCityGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, constructionCityGuideTopicContentBySlug2)
+Object.assign(topicContentBySlug, negligentSecurityCityGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, negligentSecurityCityGuideTopicContentBySlug2)
+Object.assign(topicContentBySlug, boatingCityGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, burnInjuryCityGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, burnInjuryCityGuideTopicContentBySlug2)
+Object.assign(topicContentBySlug, wrongfulDeathCityGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, wrongfulDeathCityGuideTopicContentBySlug2)
+Object.assign(topicContentBySlug, duiVictimCityGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, duiVictimCityGuideTopicContentBySlug2)
+Object.assign(topicContentBySlug, themeParkCityGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, poolDrowningCityGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, poolDrowningCityGuideTopicContentBySlug2)
+Object.assign(topicContentBySlug, deliveryVehicleCityGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, uninsuredMotoristCityGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, uninsuredMotoristCityGuideTopicContentBySlug2)
+Object.assign(topicContentBySlug, foodPoisoningCityGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, wildfireCityGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, dangerousRoadwayCityGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, dangerousRoadwayCityGuideTopicContentBySlug2)
+Object.assign(topicContentBySlug, elderAbuseCityGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, elderAbuseCityGuideTopicContentBySlug2)
+Object.assign(topicContentBySlug, apartmentInjuryCityGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, trainAccidentCityGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, warehouseInjuryCityGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, farmInjuryCityGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, birthInjuryCityGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, birthInjuryCityGuideTopicContentBySlug2)
+Object.assign(topicContentBySlug, brainInjuryCityGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, brainInjuryCityGuideTopicContentBySlug2)
+Object.assign(topicContentBySlug, spinalInjuryCityGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, spinalInjuryCityGuideTopicContentBySlug2)
+Object.assign(topicContentBySlug, childInjuryCityGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, vehicleDefectCityGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, carbonMonoxideCityGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, trampolineParkCityGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, aviationCityGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, electrocutionCityGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, securityForceCityGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, elevatorCityGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, moldHabitabilityCityGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, offRoadVehicleCityGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, dramShopCityGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, consumerProductCityGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, hotelInjuryCityGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, gymInjuryCityGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, eventCrowdCityGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, vacationRentalCityGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, skiResortCityGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, equestrianCityGuideTopicContentBySlug)
+Object.assign(topicContentBySlug, dogBiteCityGuideTopicContentBySlug2)
+Object.assign(topicContentBySlug, slipAndFallCityGuideTopicContentBySlug2)
+Object.assign(topicContentBySlug, truckAccidentCityGuideTopicContentBySlug2)
+Object.assign(topicContentBySlug, truckAccidentCityGuideTopicContentBySlug3)
+Object.assign(topicContentBySlug, transitCityGuideTopicContentBySlug2)
+Object.assign(topicContentBySlug, rideshareCityGuideTopicContentBySlug3)
+Object.assign(topicContentBySlug, motorcycleCityGuideTopicContentBySlug3)
+Object.assign(topicContentBySlug, dogBiteCityGuideTopicContentBySlug3)
+Object.assign(topicContentBySlug, slipAndFallCityGuideTopicContentBySlug3)

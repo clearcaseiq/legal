@@ -598,14 +598,11 @@ const settlementSeeds: RequestedPageSeed[] = [
   },
 ]
 
-const citySeeds: RequestedPageSeed[] = [
-  ['Los Angeles', '/los-angeles-car-accident', 'Los Angeles County', 'dense traffic, rideshare vehicles, commercial fleets, freeway collisions, and complex venue considerations'],
-  ['Orange County', '/orange-county-car-accident', 'Orange County', 'freeway crashes, suburban intersections, high medical costs, and disputed soft-tissue claims'],
-  ['San Diego', '/san-diego-car-accident', 'San Diego County', 'freeway and border-region traffic, military and student populations, rideshare use, and venue-specific case posture'],
-  ['San Francisco', '/san-francisco-car-accident', 'San Francisco County', 'dense urban traffic, rideshare and delivery vehicles, cyclists, pedestrians, and high medical costs'],
-  ['Sacramento', '/sacramento-car-accident', 'Sacramento County', 'commuter corridors, government vehicles, regional medical networks, and local venue considerations'],
-  ['San Jose', '/san-jose-car-accident', 'Santa Clara County', 'Silicon Valley commute traffic, rideshare and delivery vehicles, high wage-loss exposure, and complex insurance layers'],
-].map(([city, slug, county, localContext]) => ({
+// All six major-metro car-accident pages that once lived here as thin templated
+// seeds have been upgraded to authored, locally specific guides: Los Angeles, San
+// Diego, Sacramento and San Jose in seoCityGuides2.ts, and Orange County and San
+// Francisco in seoCityGuides3.ts. This seed list is intentionally empty.
+const citySeeds: RequestedPageSeed[] = ([] as [string, string, string, string][]).map(([city, slug, county, localContext]) => ({
   slug,
   category: 'Attorney Intent' as const,
   cluster: `${city} Car Accident Claims`,

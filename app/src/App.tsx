@@ -591,6 +591,447 @@ function App() {
             <Route path="/california-statute-of-limitations-personal-injury" element={<SeoLandingPage />} />
             <Route path="/california-statute-of-limitations-wrongful-death" element={<SeoLandingPage />} />
             <Route path="/missed-the-statute-of-limitations" element={<SeoLandingPage />} />
+            {/* Dog-bite hub — first dedicated practice-area cluster (CP-678). */}
+            <Route path="/how-much-is-a-dog-bite-case-worth" element={<SeoLandingPage />} />
+            <Route path="/who-is-liable-for-a-dog-bite-in-california" element={<SeoLandingPage />} />
+            <Route path="/california-dog-bite-statute-of-limitations" element={<SeoLandingPage />} />
+            <Route path="/when-to-hire-a-dog-bite-lawyer-in-california" element={<SeoLandingPage />} />
+            {/* Slip-and-fall / premises-liability hub. */}
+            <Route path="/how-much-is-a-slip-and-fall-case-worth" element={<SeoLandingPage />} />
+            <Route path="/who-is-liable-for-a-slip-and-fall-in-california" element={<SeoLandingPage />} />
+            <Route path="/california-slip-and-fall-statute-of-limitations" element={<SeoLandingPage />} />
+            <Route path="/do-i-need-a-lawyer-for-a-slip-and-fall-in-california" element={<SeoLandingPage />} />
+            {/* Product-liability (defective product) hub. */}
+            <Route path="/how-much-is-a-defective-product-case-worth" element={<SeoLandingPage />} />
+            <Route path="/who-is-liable-for-a-defective-product-in-california" element={<SeoLandingPage />} />
+            <Route path="/california-product-liability-statute-of-limitations" element={<SeoLandingPage />} />
+            <Route path="/do-i-need-a-lawyer-for-a-defective-product-claim-in-california" element={<SeoLandingPage />} />
+            {/* Wrongful-death spokes (SOL page already registered above). */}
+            <Route path="/how-much-is-a-wrongful-death-case-worth-in-california" element={<SeoLandingPage />} />
+            <Route path="/who-can-file-a-wrongful-death-claim-in-california" element={<SeoLandingPage />} />
+            {/* Rideshare spokes (coverage page lives at /insurance/rideshare-commercial-coverage). */}
+            <Route path="/how-much-is-an-uber-or-lyft-accident-case-worth" element={<SeoLandingPage />} />
+            <Route path="/california-rideshare-accident-statute-of-limitations" element={<SeoLandingPage />} />
+            <Route path="/do-i-need-a-lawyer-for-an-uber-or-lyft-accident-in-california" element={<SeoLandingPage />} />
+            {/* Bicycle hub. */}
+            <Route path="/how-much-is-a-bicycle-accident-case-worth" element={<SeoLandingPage />} />
+            <Route path="/who-is-at-fault-in-a-bicycle-accident-in-california" element={<SeoLandingPage />} />
+            <Route path="/california-bicycle-accident-statute-of-limitations" element={<SeoLandingPage />} />
+            <Route path="/do-i-need-a-lawyer-for-a-bicycle-accident-in-california" element={<SeoLandingPage />} />
+            {/* Pedestrian spokes (value page already registered above). */}
+            <Route path="/who-is-at-fault-in-a-pedestrian-accident-in-california" element={<SeoLandingPage />} />
+            <Route path="/california-pedestrian-accident-statute-of-limitations" element={<SeoLandingPage />} />
+            <Route path="/do-i-need-a-lawyer-for-a-pedestrian-accident-in-california" element={<SeoLandingPage />} />
+            {/* Motorcycle spokes (value page already registered above). */}
+            <Route path="/who-is-at-fault-in-a-motorcycle-accident-in-california" element={<SeoLandingPage />} />
+            <Route path="/california-motorcycle-accident-statute-of-limitations" element={<SeoLandingPage />} />
+            <Route path="/do-i-need-a-lawyer-for-a-motorcycle-accident-in-california" element={<SeoLandingPage />} />
+            {/* Nursing home / elder abuse hub — legally distinct (Elder Abuse Act). */}
+            <Route path="/how-much-is-a-nursing-home-abuse-case-worth-in-california" element={<SeoLandingPage />} />
+            <Route path="/who-is-liable-for-nursing-home-abuse-in-california" element={<SeoLandingPage />} />
+            <Route path="/california-nursing-home-abuse-statute-of-limitations" element={<SeoLandingPage />} />
+            <Route path="/do-i-need-a-lawyer-for-nursing-home-abuse-in-california" element={<SeoLandingPage />} />
+            {/* Truck accident hub — expands the thin /commercial/truck-accident-settlement page. */}
+            <Route path="/how-much-is-a-truck-accident-case-worth-in-california" element={<SeoLandingPage />} />
+            <Route path="/who-is-liable-for-a-truck-accident-in-california" element={<SeoLandingPage />} />
+            <Route path="/truck-accident-evidence-and-statute-of-limitations-california" element={<SeoLandingPage />} />
+            <Route path="/do-i-need-a-lawyer-for-a-truck-accident-in-california" element={<SeoLandingPage />} />
+            {/* Medical malpractice hub — MICRA-accurate. */}
+            <Route path="/do-i-have-a-medical-malpractice-case-in-california" element={<SeoLandingPage />} />
+            <Route path="/how-much-is-a-medical-malpractice-case-worth-in-california" element={<SeoLandingPage />} />
+            <Route path="/how-to-prove-medical-malpractice-in-california" element={<SeoLandingPage />} />
+            <Route path="/california-medical-malpractice-statute-of-limitations" element={<SeoLandingPage />} />
+            {/* Third-party work-injury hub — scoped to non-employer liability (not workers' comp). */}
+            <Route path="/can-i-sue-a-third-party-for-a-work-injury-in-california" element={<SeoLandingPage />} />
+            <Route path="/workers-comp-vs-third-party-claim-in-california" element={<SeoLandingPage />} />
+            <Route path="/do-i-need-a-lawyer-for-a-third-party-work-injury-in-california" element={<SeoLandingPage />} />
+            {/* Geo layer: practice x city — pedestrian & bicycle across top metros. */}
+            <Route path="/los-angeles-pedestrian-accident" element={<SeoLandingPage />} />
+            <Route path="/san-francisco-pedestrian-accident" element={<SeoLandingPage />} />
+            <Route path="/san-diego-pedestrian-accident" element={<SeoLandingPage />} />
+            <Route path="/san-francisco-bicycle-accident" element={<SeoLandingPage />} />
+            <Route path="/los-angeles-bicycle-accident" element={<SeoLandingPage />} />
+            <Route path="/san-diego-bicycle-accident" element={<SeoLandingPage />} />
+            {/* Geo layer batch 2: San Jose, Sacramento, Oakland. */}
+            <Route path="/san-jose-pedestrian-accident" element={<SeoLandingPage />} />
+            <Route path="/sacramento-pedestrian-accident" element={<SeoLandingPage />} />
+            <Route path="/oakland-pedestrian-accident" element={<SeoLandingPage />} />
+            <Route path="/san-jose-bicycle-accident" element={<SeoLandingPage />} />
+            <Route path="/sacramento-bicycle-accident" element={<SeoLandingPage />} />
+            <Route path="/oakland-bicycle-accident" element={<SeoLandingPage />} />
+            {/* Geo layer batch 3: Fresno, Long Beach, Bakersfield, Anaheim. */}
+            <Route path="/fresno-pedestrian-accident" element={<SeoLandingPage />} />
+            <Route path="/long-beach-pedestrian-accident" element={<SeoLandingPage />} />
+            <Route path="/bakersfield-pedestrian-accident" element={<SeoLandingPage />} />
+            <Route path="/anaheim-pedestrian-accident" element={<SeoLandingPage />} />
+            <Route path="/fresno-bicycle-accident" element={<SeoLandingPage />} />
+            <Route path="/long-beach-bicycle-accident" element={<SeoLandingPage />} />
+            <Route path="/bakersfield-bicycle-accident" element={<SeoLandingPage />} />
+            <Route path="/anaheim-bicycle-accident" element={<SeoLandingPage />} />
+            {/* Geo layer batch 4: motorcycle x top metros. */}
+            <Route path="/los-angeles-motorcycle-accident" element={<SeoLandingPage />} />
+            <Route path="/san-diego-motorcycle-accident" element={<SeoLandingPage />} />
+            <Route path="/san-jose-motorcycle-accident" element={<SeoLandingPage />} />
+            <Route path="/sacramento-motorcycle-accident" element={<SeoLandingPage />} />
+            {/* Geo layer batch 5: rideshare x top metros. */}
+            <Route path="/los-angeles-rideshare-accident" element={<SeoLandingPage />} />
+            <Route path="/san-francisco-rideshare-accident" element={<SeoLandingPage />} />
+            <Route path="/san-diego-rideshare-accident" element={<SeoLandingPage />} />
+            <Route path="/anaheim-rideshare-accident" element={<SeoLandingPage />} />
+            {/* Geo layer batch 6: Riverside, Stockton, Santa Ana, Irvine. */}
+            <Route path="/riverside-pedestrian-accident" element={<SeoLandingPage />} />
+            <Route path="/stockton-pedestrian-accident" element={<SeoLandingPage />} />
+            <Route path="/santa-ana-pedestrian-accident" element={<SeoLandingPage />} />
+            <Route path="/irvine-pedestrian-accident" element={<SeoLandingPage />} />
+            <Route path="/riverside-bicycle-accident" element={<SeoLandingPage />} />
+            <Route path="/stockton-bicycle-accident" element={<SeoLandingPage />} />
+            <Route path="/santa-ana-bicycle-accident" element={<SeoLandingPage />} />
+            <Route path="/irvine-bicycle-accident" element={<SeoLandingPage />} />
+            {/* Geo layer batch 7: dog-bite x top metros. */}
+            <Route path="/los-angeles-dog-bite" element={<SeoLandingPage />} />
+            <Route path="/san-francisco-dog-bite" element={<SeoLandingPage />} />
+            <Route path="/san-diego-dog-bite" element={<SeoLandingPage />} />
+            <Route path="/sacramento-dog-bite" element={<SeoLandingPage />} />
+            {/* Geo layer batch 8: slip-and-fall x top metros. */}
+            <Route path="/los-angeles-slip-and-fall" element={<SeoLandingPage />} />
+            <Route path="/san-francisco-slip-and-fall" element={<SeoLandingPage />} />
+            <Route path="/san-diego-slip-and-fall" element={<SeoLandingPage />} />
+            <Route path="/sacramento-slip-and-fall" element={<SeoLandingPage />} />
+            {/* Geo layer batch 9: truck accident x freight corridors. */}
+            <Route path="/riverside-truck-accident" element={<SeoLandingPage />} />
+            <Route path="/long-beach-truck-accident" element={<SeoLandingPage />} />
+            <Route path="/fresno-truck-accident" element={<SeoLandingPage />} />
+            <Route path="/oakland-truck-accident" element={<SeoLandingPage />} />
+            {/* Geo layer batch 10: motorcycle x remaining metros. */}
+            <Route path="/long-beach-motorcycle-accident" element={<SeoLandingPage />} />
+            <Route path="/riverside-motorcycle-accident" element={<SeoLandingPage />} />
+            <Route path="/fresno-motorcycle-accident" element={<SeoLandingPage />} />
+            <Route path="/oakland-motorcycle-accident" element={<SeoLandingPage />} />
+            {/* Geo layer batch 11: rideshare x remaining metros. */}
+            <Route path="/san-jose-rideshare-accident" element={<SeoLandingPage />} />
+            <Route path="/sacramento-rideshare-accident" element={<SeoLandingPage />} />
+            <Route path="/oakland-rideshare-accident" element={<SeoLandingPage />} />
+            <Route path="/long-beach-rideshare-accident" element={<SeoLandingPage />} />
+            {/* Geo layer batch 12: bus/transit x transit-heavy metros. */}
+            <Route path="/los-angeles-bus-accident" element={<SeoLandingPage />} />
+            <Route path="/san-francisco-muni-accident" element={<SeoLandingPage />} />
+            <Route path="/san-diego-trolley-accident" element={<SeoLandingPage />} />
+            <Route path="/sacramento-light-rail-accident" element={<SeoLandingPage />} />
+            {/* Geo layer batch 13: e-scooter x micromobility metros. */}
+            <Route path="/los-angeles-scooter-accident" element={<SeoLandingPage />} />
+            <Route path="/san-diego-scooter-accident" element={<SeoLandingPage />} />
+            <Route path="/san-francisco-scooter-accident" element={<SeoLandingPage />} />
+            <Route path="/long-beach-scooter-accident" element={<SeoLandingPage />} />
+            {/* Geo layer batch 14: construction (third-party) x build-heavy metros. */}
+            <Route path="/los-angeles-construction-accident" element={<SeoLandingPage />} />
+            <Route path="/san-francisco-construction-accident" element={<SeoLandingPage />} />
+            <Route path="/san-jose-construction-accident" element={<SeoLandingPage />} />
+            <Route path="/san-diego-construction-accident" element={<SeoLandingPage />} />
+            <Route path="/sacramento-construction-accident" element={<SeoLandingPage />} />
+            <Route path="/fresno-construction-accident" element={<SeoLandingPage />} />
+            <Route path="/oakland-construction-accident" element={<SeoLandingPage />} />
+            <Route path="/long-beach-construction-accident" element={<SeoLandingPage />} />
+            {/* Geo layer batch 15: negligent security x metros. */}
+            <Route path="/los-angeles-negligent-security" element={<SeoLandingPage />} />
+            <Route path="/oakland-negligent-security" element={<SeoLandingPage />} />
+            <Route path="/san-francisco-negligent-security" element={<SeoLandingPage />} />
+            <Route path="/san-diego-negligent-security" element={<SeoLandingPage />} />
+            <Route path="/sacramento-negligent-security" element={<SeoLandingPage />} />
+            <Route path="/san-jose-negligent-security" element={<SeoLandingPage />} />
+            <Route path="/fresno-negligent-security" element={<SeoLandingPage />} />
+            <Route path="/long-beach-negligent-security" element={<SeoLandingPage />} />
+            {/* Geo layer batch 16: boating/watercraft x water metros. */}
+            <Route path="/san-diego-boating-accident" element={<SeoLandingPage />} />
+            <Route path="/sacramento-delta-boating-accident" element={<SeoLandingPage />} />
+            <Route path="/long-beach-boating-accident" element={<SeoLandingPage />} />
+            <Route path="/newport-beach-boating-accident" element={<SeoLandingPage />} />
+            {/* Geo layer batch 17: burn injury x metros. */}
+            <Route path="/los-angeles-burn-injury" element={<SeoLandingPage />} />
+            <Route path="/san-francisco-burn-injury" element={<SeoLandingPage />} />
+            <Route path="/san-diego-burn-injury" element={<SeoLandingPage />} />
+            <Route path="/sacramento-burn-injury" element={<SeoLandingPage />} />
+            <Route path="/san-jose-burn-injury" element={<SeoLandingPage />} />
+            <Route path="/fresno-burn-injury" element={<SeoLandingPage />} />
+            <Route path="/long-beach-burn-injury" element={<SeoLandingPage />} />
+            <Route path="/oakland-burn-injury" element={<SeoLandingPage />} />
+            {/* Geo layer batch 18: wrongful death x metros. */}
+            <Route path="/los-angeles-wrongful-death" element={<SeoLandingPage />} />
+            <Route path="/san-francisco-wrongful-death" element={<SeoLandingPage />} />
+            <Route path="/san-diego-wrongful-death" element={<SeoLandingPage />} />
+            <Route path="/sacramento-wrongful-death" element={<SeoLandingPage />} />
+            <Route path="/san-jose-wrongful-death" element={<SeoLandingPage />} />
+            <Route path="/fresno-wrongful-death" element={<SeoLandingPage />} />
+            <Route path="/long-beach-wrongful-death" element={<SeoLandingPage />} />
+            <Route path="/oakland-wrongful-death" element={<SeoLandingPage />} />
+            {/* Geo layer batch 19: DUI victim x metros. */}
+            <Route path="/los-angeles-dui-accident" element={<SeoLandingPage />} />
+            <Route path="/san-diego-dui-accident" element={<SeoLandingPage />} />
+            <Route path="/sacramento-dui-accident" element={<SeoLandingPage />} />
+            <Route path="/riverside-dui-accident" element={<SeoLandingPage />} />
+            <Route path="/san-jose-dui-accident" element={<SeoLandingPage />} />
+            <Route path="/fresno-dui-accident" element={<SeoLandingPage />} />
+            <Route path="/long-beach-dui-accident" element={<SeoLandingPage />} />
+            <Route path="/oakland-dui-accident" element={<SeoLandingPage />} />
+            {/* Geo layer batch 20: theme park / amusement ride injury x metros. */}
+            <Route path="/anaheim-theme-park-injury" element={<SeoLandingPage />} />
+            <Route path="/los-angeles-theme-park-injury" element={<SeoLandingPage />} />
+            <Route path="/san-diego-theme-park-injury" element={<SeoLandingPage />} />
+            <Route path="/santa-clara-theme-park-injury" element={<SeoLandingPage />} />
+            {/* Geo layer batch 21: pool / drowning injury x hot inland metros. */}
+            <Route path="/sacramento-pool-drowning-injury" element={<SeoLandingPage />} />
+            <Route path="/fresno-pool-drowning-injury" element={<SeoLandingPage />} />
+            <Route path="/bakersfield-pool-drowning-injury" element={<SeoLandingPage />} />
+            <Route path="/riverside-pool-drowning-injury" element={<SeoLandingPage />} />
+            <Route path="/los-angeles-pool-drowning-injury" element={<SeoLandingPage />} />
+            <Route path="/san-diego-pool-drowning-injury" element={<SeoLandingPage />} />
+            <Route path="/san-jose-pool-drowning-injury" element={<SeoLandingPage />} />
+            <Route path="/long-beach-pool-drowning-injury" element={<SeoLandingPage />} />
+            {/* Geo layer batch 22: delivery-van / gig-delivery accident x metros. */}
+            <Route path="/los-angeles-delivery-truck-accident" element={<SeoLandingPage />} />
+            <Route path="/riverside-delivery-truck-accident" element={<SeoLandingPage />} />
+            <Route path="/oakland-delivery-truck-accident" element={<SeoLandingPage />} />
+            <Route path="/sacramento-delivery-truck-accident" element={<SeoLandingPage />} />
+            {/* Geo layer batch 23: uninsured / hit-and-run motorist x high-uninsured metros. */}
+            <Route path="/los-angeles-uninsured-motorist-accident" element={<SeoLandingPage />} />
+            <Route path="/san-bernardino-uninsured-motorist-accident" element={<SeoLandingPage />} />
+            <Route path="/fresno-uninsured-motorist-accident" element={<SeoLandingPage />} />
+            <Route path="/bakersfield-uninsured-motorist-accident" element={<SeoLandingPage />} />
+            <Route path="/san-diego-uninsured-motorist-accident" element={<SeoLandingPage />} />
+            <Route path="/san-jose-uninsured-motorist-accident" element={<SeoLandingPage />} />
+            <Route path="/sacramento-uninsured-motorist-accident" element={<SeoLandingPage />} />
+            <Route path="/oakland-uninsured-motorist-accident" element={<SeoLandingPage />} />
+            {/* Geo layer batch 24: food poisoning / foodborne illness x metros. */}
+            <Route path="/los-angeles-food-poisoning" element={<SeoLandingPage />} />
+            <Route path="/san-francisco-food-poisoning" element={<SeoLandingPage />} />
+            <Route path="/san-diego-food-poisoning" element={<SeoLandingPage />} />
+            <Route path="/fresno-food-poisoning" element={<SeoLandingPage />} />
+            {/* Geo layer batch 25: wildfire / utility-caused fire x fire-prone regions. */}
+            <Route path="/los-angeles-wildfire-claim" element={<SeoLandingPage />} />
+            <Route path="/santa-rosa-wildfire-claim" element={<SeoLandingPage />} />
+            <Route path="/chico-paradise-wildfire-claim" element={<SeoLandingPage />} />
+            <Route path="/san-diego-wildfire-claim" element={<SeoLandingPage />} />
+            {/* Geo layer batch 26: dangerous roadway / public property x metros. */}
+            <Route path="/los-angeles-dangerous-road-accident" element={<SeoLandingPage />} />
+            <Route path="/oakland-dangerous-road-accident" element={<SeoLandingPage />} />
+            <Route path="/sacramento-dangerous-road-accident" element={<SeoLandingPage />} />
+            <Route path="/san-jose-dangerous-road-accident" element={<SeoLandingPage />} />
+            <Route path="/san-diego-dangerous-road-accident" element={<SeoLandingPage />} />
+            <Route path="/fresno-dangerous-road-accident" element={<SeoLandingPage />} />
+            <Route path="/riverside-dangerous-road-accident" element={<SeoLandingPage />} />
+            <Route path="/bakersfield-dangerous-road-accident" element={<SeoLandingPage />} />
+            {/* Geo layer batch 27: nursing home / elder abuse x metros. */}
+            <Route path="/los-angeles-nursing-home-abuse-claim" element={<SeoLandingPage />} />
+            <Route path="/san-diego-nursing-home-abuse-claim" element={<SeoLandingPage />} />
+            <Route path="/sacramento-nursing-home-abuse-claim" element={<SeoLandingPage />} />
+            <Route path="/san-jose-nursing-home-abuse-claim" element={<SeoLandingPage />} />
+            <Route path="/santa-ana-nursing-home-abuse-claim" element={<SeoLandingPage />} />
+            <Route path="/riverside-nursing-home-abuse-claim" element={<SeoLandingPage />} />
+            <Route path="/fresno-nursing-home-abuse-claim" element={<SeoLandingPage />} />
+            <Route path="/long-beach-nursing-home-abuse-claim" element={<SeoLandingPage />} />
+            <Route path="/los-angeles-medical-malpractice-claim" element={<SeoLandingPage />} />
+            <Route path="/san-francisco-medical-malpractice-claim" element={<SeoLandingPage />} />
+            <Route path="/san-diego-medical-malpractice-claim" element={<SeoLandingPage />} />
+            <Route path="/sacramento-medical-malpractice-claim" element={<SeoLandingPage />} />
+            <Route path="/santa-ana-medical-malpractice-claim" element={<SeoLandingPage />} />
+            <Route path="/san-jose-medical-malpractice-claim" element={<SeoLandingPage />} />
+            <Route path="/fresno-medical-malpractice-claim" element={<SeoLandingPage />} />
+            <Route path="/long-beach-medical-malpractice-claim" element={<SeoLandingPage />} />
+            <Route path="/oakland-medical-malpractice-claim" element={<SeoLandingPage />} />
+            <Route path="/riverside-medical-malpractice-claim" element={<SeoLandingPage />} />
+            <Route path="/san-bernardino-medical-malpractice-claim" element={<SeoLandingPage />} />
+            <Route path="/bakersfield-medical-malpractice-claim" element={<SeoLandingPage />} />
+            <Route path="/anaheim-medical-malpractice-claim" element={<SeoLandingPage />} />
+            <Route path="/stockton-medical-malpractice-claim" element={<SeoLandingPage />} />
+            <Route path="/modesto-medical-malpractice-claim" element={<SeoLandingPage />} />
+            <Route path="/chula-vista-medical-malpractice-claim" element={<SeoLandingPage />} />
+            {/* Geo layer batch 28: apartment / landlord premises injury x metros. */}
+            <Route path="/los-angeles-apartment-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/oakland-apartment-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/san-francisco-apartment-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/sacramento-apartment-injury-claim" element={<SeoLandingPage />} />
+            {/* Geo layer batch 29: train / railroad & grade-crossing x metros. */}
+            <Route path="/los-angeles-train-accident" element={<SeoLandingPage />} />
+            <Route path="/san-jose-train-accident" element={<SeoLandingPage />} />
+            <Route path="/san-diego-train-accident" element={<SeoLandingPage />} />
+            <Route path="/sacramento-train-accident" element={<SeoLandingPage />} />
+            {/* Geo layer batch 30: warehouse / logistics third-party injury x metros. */}
+            <Route path="/riverside-warehouse-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/san-bernardino-warehouse-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/stockton-warehouse-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/fresno-warehouse-injury-claim" element={<SeoLandingPage />} />
+            {/* Geo layer batch 31: agricultural / farm equipment injury x metros. */}
+            <Route path="/fresno-farm-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/bakersfield-farm-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/salinas-farm-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/modesto-farm-injury-claim" element={<SeoLandingPage />} />
+            {/* Geo layer batch 32: birth injury / labor & delivery x metros. */}
+            <Route path="/los-angeles-birth-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/san-diego-birth-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/san-francisco-birth-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/sacramento-birth-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/san-jose-birth-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/fresno-birth-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/long-beach-birth-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/oakland-birth-injury-claim" element={<SeoLandingPage />} />
+            {/* Geo layer batch 33: traumatic brain injury (TBI) x metros. */}
+            <Route path="/los-angeles-brain-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/san-diego-brain-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/san-francisco-brain-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/sacramento-brain-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/san-jose-brain-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/fresno-brain-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/long-beach-brain-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/oakland-brain-injury-claim" element={<SeoLandingPage />} />
+            {/* Geo layer batch 34: spinal cord injury / paralysis x metros. */}
+            <Route path="/los-angeles-spinal-cord-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/san-diego-spinal-cord-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/san-francisco-spinal-cord-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/sacramento-spinal-cord-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/san-jose-spinal-cord-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/fresno-spinal-cord-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/long-beach-spinal-cord-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/oakland-spinal-cord-injury-claim" element={<SeoLandingPage />} />
+            {/* Geo layer batch 35: daycare / school child injury x metros. */}
+            <Route path="/los-angeles-daycare-school-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/san-diego-daycare-school-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/san-jose-daycare-school-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/sacramento-daycare-school-injury-claim" element={<SeoLandingPage />} />
+            {/* Geo layer batch 36: defective vehicle / crashworthiness x metros. */}
+            <Route path="/los-angeles-defective-vehicle-claim" element={<SeoLandingPage />} />
+            <Route path="/san-diego-defective-vehicle-claim" element={<SeoLandingPage />} />
+            <Route path="/san-francisco-defective-vehicle-claim" element={<SeoLandingPage />} />
+            <Route path="/sacramento-defective-vehicle-claim" element={<SeoLandingPage />} />
+            {/* Geo layer batch 37: carbon monoxide poisoning x metros. */}
+            <Route path="/los-angeles-carbon-monoxide-poisoning-claim" element={<SeoLandingPage />} />
+            <Route path="/oakland-carbon-monoxide-poisoning-claim" element={<SeoLandingPage />} />
+            <Route path="/san-francisco-carbon-monoxide-poisoning-claim" element={<SeoLandingPage />} />
+            <Route path="/sacramento-carbon-monoxide-poisoning-claim" element={<SeoLandingPage />} />
+            {/* Geo layer batch 38: trampoline park / FEC injury x metros. */}
+            <Route path="/los-angeles-trampoline-park-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/san-diego-trampoline-park-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/sacramento-trampoline-park-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/san-jose-trampoline-park-injury-claim" element={<SeoLandingPage />} />
+            {/* Geo layer batch 39: aviation (GA / helicopter / charter) x metros. */}
+            <Route path="/los-angeles-aviation-accident-claim" element={<SeoLandingPage />} />
+            <Route path="/san-diego-aviation-accident-claim" element={<SeoLandingPage />} />
+            <Route path="/san-jose-aviation-accident-claim" element={<SeoLandingPage />} />
+            <Route path="/sacramento-aviation-accident-claim" element={<SeoLandingPage />} />
+            {/* Geo layer batch 40: electrocution / power-line & utility injury x metros. */}
+            <Route path="/los-angeles-electrocution-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/san-diego-electrocution-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/oakland-electrocution-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/sacramento-electrocution-injury-claim" element={<SeoLandingPage />} />
+            {/* Geo layer batch 41: security guard / bouncer excessive force x metros. */}
+            <Route path="/los-angeles-security-guard-assault-claim" element={<SeoLandingPage />} />
+            <Route path="/san-diego-security-guard-assault-claim" element={<SeoLandingPage />} />
+            <Route path="/sacramento-security-guard-assault-claim" element={<SeoLandingPage />} />
+            <Route path="/san-jose-security-guard-assault-claim" element={<SeoLandingPage />} />
+            {/* Geo layer batch 42: escalator / elevator injury x metros. */}
+            <Route path="/los-angeles-elevator-escalator-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/san-francisco-elevator-escalator-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/san-diego-elevator-escalator-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/sacramento-elevator-escalator-injury-claim" element={<SeoLandingPage />} />
+            {/* Geo layer batch 43: toxic mold / uninhabitable rental x metros. */}
+            <Route path="/los-angeles-toxic-mold-apartment-claim" element={<SeoLandingPage />} />
+            <Route path="/oakland-toxic-mold-apartment-claim" element={<SeoLandingPage />} />
+            <Route path="/san-francisco-toxic-mold-apartment-claim" element={<SeoLandingPage />} />
+            <Route path="/long-beach-toxic-mold-apartment-claim" element={<SeoLandingPage />} />
+            {/* Geo layer batch 44: ATV / off-road / dirt-bike injury x regions. */}
+            <Route path="/bakersfield-atv-off-road-accident-claim" element={<SeoLandingPage />} />
+            <Route path="/san-bernardino-atv-off-road-accident-claim" element={<SeoLandingPage />} />
+            <Route path="/riverside-atv-off-road-accident-claim" element={<SeoLandingPage />} />
+            <Route path="/fresno-atv-off-road-accident-claim" element={<SeoLandingPage />} />
+            {/* Geo layer batch 45: dram shop / over-service (bar & nightclub) x metros. */}
+            <Route path="/los-angeles-bar-overservice-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/san-diego-bar-overservice-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/sacramento-bar-overservice-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/san-francisco-bar-overservice-injury-claim" element={<SeoLandingPage />} />
+            {/* Geo layer batch 46: defective product / lithium-battery fire x metros. */}
+            <Route path="/los-angeles-defective-product-battery-fire-claim" element={<SeoLandingPage />} />
+            <Route path="/san-francisco-defective-product-battery-fire-claim" element={<SeoLandingPage />} />
+            <Route path="/san-diego-defective-product-battery-fire-claim" element={<SeoLandingPage />} />
+            <Route path="/oakland-defective-product-battery-fire-claim" element={<SeoLandingPage />} />
+            {/* Geo layer batch 47: hotel bedbug & guest injury x tourism metros. */}
+            <Route path="/anaheim-hotel-bedbug-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/los-angeles-hotel-bedbug-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/san-diego-hotel-bedbug-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/san-francisco-hotel-bedbug-injury-claim" element={<SeoLandingPage />} />
+            {/* Geo layer batch 48: gym / fitness-facility injury x metros. */}
+            <Route path="/los-angeles-gym-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/san-diego-gym-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/san-francisco-gym-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/san-jose-gym-injury-claim" element={<SeoLandingPage />} />
+            {/* Geo layer batch 49: concert / festival / crowd-crush injury x event metros. */}
+            <Route path="/indio-festival-crowd-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/los-angeles-concert-crowd-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/san-francisco-festival-crowd-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/san-bernardino-festival-crowd-injury-claim" element={<SeoLandingPage />} />
+            {/* Geo layer batch 50: short-term vacation rental (Airbnb/Vrbo) injury x metros. */}
+            <Route path="/los-angeles-vacation-rental-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/san-diego-vacation-rental-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/palm-springs-vacation-rental-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/san-francisco-vacation-rental-injury-claim" element={<SeoLandingPage />} />
+            {/* Geo layer batch 51: ski / snowboard resort injury x mountain resorts. */}
+            <Route path="/south-lake-tahoe-ski-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/big-bear-ski-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/mammoth-ski-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/truckee-ski-injury-claim" element={<SeoLandingPage />} />
+            {/* Geo layer batch 52: equestrian / horseback-riding injury x metros. */}
+            <Route path="/los-angeles-horseback-riding-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/san-diego-horseback-riding-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/temecula-horseback-riding-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/sacramento-horseback-riding-injury-claim" element={<SeoLandingPage />} />
+            {/* Geo layer batch 53: dog-bite city guides (batch 2) x metros. */}
+            <Route path="/san-jose-dog-bite" element={<SeoLandingPage />} />
+            <Route path="/fresno-dog-bite" element={<SeoLandingPage />} />
+            <Route path="/long-beach-dog-bite" element={<SeoLandingPage />} />
+            <Route path="/oakland-dog-bite" element={<SeoLandingPage />} />
+            {/* Geo layer batch 54: slip-and-fall city guides (batch 2) x metros. */}
+            <Route path="/san-jose-slip-and-fall" element={<SeoLandingPage />} />
+            <Route path="/fresno-slip-and-fall" element={<SeoLandingPage />} />
+            <Route path="/long-beach-slip-and-fall" element={<SeoLandingPage />} />
+            <Route path="/oakland-slip-and-fall" element={<SeoLandingPage />} />
+            {/* Geo layer batch 55: truck accident city guides (batch 2) x metros. */}
+            <Route path="/los-angeles-truck-accident" element={<SeoLandingPage />} />
+            <Route path="/san-bernardino-truck-accident" element={<SeoLandingPage />} />
+            <Route path="/sacramento-truck-accident" element={<SeoLandingPage />} />
+            <Route path="/stockton-truck-accident" element={<SeoLandingPage />} />
+            <Route path="/san-diego-truck-accident" element={<SeoLandingPage />} />
+            <Route path="/san-jose-truck-accident" element={<SeoLandingPage />} />
+            <Route path="/bakersfield-truck-accident" element={<SeoLandingPage />} />
+            <Route path="/anaheim-truck-accident" element={<SeoLandingPage />} />
+            {/* Geo layer batch 56: bus/transit city guides (batch 2) x metros. */}
+            <Route path="/san-jose-vta-accident" element={<SeoLandingPage />} />
+            <Route path="/oakland-ac-transit-accident" element={<SeoLandingPage />} />
+            <Route path="/long-beach-bus-accident" element={<SeoLandingPage />} />
+            <Route path="/anaheim-octa-bus-accident" element={<SeoLandingPage />} />
+            {/* Geo layer batch 57: rideshare city guides (batch 3) x Central Valley / Inland Empire. */}
+            <Route path="/fresno-rideshare-accident" element={<SeoLandingPage />} />
+            <Route path="/riverside-rideshare-accident" element={<SeoLandingPage />} />
+            <Route path="/san-bernardino-rideshare-accident" element={<SeoLandingPage />} />
+            <Route path="/bakersfield-rideshare-accident" element={<SeoLandingPage />} />
+            {/* Geo layer batch 58: motorcycle city guides (batch 3) x metros. */}
+            <Route path="/san-francisco-motorcycle-accident" element={<SeoLandingPage />} />
+            <Route path="/anaheim-motorcycle-accident" element={<SeoLandingPage />} />
+            <Route path="/santa-ana-motorcycle-accident" element={<SeoLandingPage />} />
+            <Route path="/bakersfield-motorcycle-accident" element={<SeoLandingPage />} />
+            {/* Geo layer batch 59: dog-bite city guides (batch 3) x metros. */}
+            <Route path="/riverside-dog-bite" element={<SeoLandingPage />} />
+            <Route path="/san-bernardino-dog-bite" element={<SeoLandingPage />} />
+            <Route path="/bakersfield-dog-bite" element={<SeoLandingPage />} />
+            <Route path="/anaheim-dog-bite" element={<SeoLandingPage />} />
+            {/* Geo layer batch 60: slip-and-fall city guides (batch 3) x metros. */}
+            <Route path="/riverside-slip-and-fall" element={<SeoLandingPage />} />
+            <Route path="/san-bernardino-slip-and-fall" element={<SeoLandingPage />} />
+            <Route path="/bakersfield-slip-and-fall" element={<SeoLandingPage />} />
+            <Route path="/anaheim-slip-and-fall" element={<SeoLandingPage />} />
+            {/* Geo layer: practice x city (pedestrian + bicycle across top metros). */}
+            <Route path="/los-angeles-pedestrian-accident" element={<SeoLandingPage />} />
+            <Route path="/san-francisco-pedestrian-accident" element={<SeoLandingPage />} />
+            <Route path="/san-diego-pedestrian-accident" element={<SeoLandingPage />} />
+            <Route path="/san-francisco-bicycle-accident" element={<SeoLandingPage />} />
+            <Route path="/los-angeles-bicycle-accident" element={<SeoLandingPage />} />
+            <Route path="/san-diego-bicycle-accident" element={<SeoLandingPage />} />
             <Route path="/medical-records" element={<SeoLandingPage />} />
             <Route path="/how-to-organize-medical-records" element={<SeoLandingPage />} />
             <Route path="/how-to-build-a-medical-chronology" element={<SeoLandingPage />} />
