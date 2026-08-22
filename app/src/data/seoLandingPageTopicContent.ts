@@ -49,6 +49,7 @@ import { burnInjuryCityGuideTopicContentBySlug } from './seoBurnInjuryCityGuides
 import { burnInjuryCityGuideTopicContentBySlug2 } from './seoBurnInjuryCityGuides2'
 import { wrongfulDeathCityGuideTopicContentBySlug } from './seoWrongfulDeathCityGuides'
 import { wrongfulDeathCityGuideTopicContentBySlug2 } from './seoWrongfulDeathCityGuides2'
+import { wrongfulDeathCityGuideTopicContentBySlug3 } from './seoWrongfulDeathCityGuides3'
 import { duiVictimCityGuideTopicContentBySlug } from './seoDuiVictimCityGuides'
 import { duiVictimCityGuideTopicContentBySlug2 } from './seoDuiVictimCityGuides2'
 import { themeParkCityGuideTopicContentBySlug } from './seoThemeParkCityGuides'
@@ -69,10 +70,13 @@ import { warehouseInjuryCityGuideTopicContentBySlug } from './seoWarehouseInjury
 import { farmInjuryCityGuideTopicContentBySlug } from './seoFarmInjuryCityGuides'
 import { birthInjuryCityGuideTopicContentBySlug } from './seoBirthInjuryCityGuides'
 import { birthInjuryCityGuideTopicContentBySlug2 } from './seoBirthInjuryCityGuides2'
+import { birthInjuryCityGuideTopicContentBySlug3 } from './seoBirthInjuryCityGuides3'
 import { brainInjuryCityGuideTopicContentBySlug } from './seoBrainInjuryCityGuides'
 import { brainInjuryCityGuideTopicContentBySlug2 } from './seoBrainInjuryCityGuides2'
+import { brainInjuryCityGuideTopicContentBySlug3 } from './seoBrainInjuryCityGuides3'
 import { spinalInjuryCityGuideTopicContentBySlug } from './seoSpinalInjuryCityGuides'
 import { spinalInjuryCityGuideTopicContentBySlug2 } from './seoSpinalInjuryCityGuides2'
+import { spinalInjuryCityGuideTopicContentBySlug3 } from './seoSpinalInjuryCityGuides3'
 import { childInjuryCityGuideTopicContentBySlug } from './seoChildInjuryCityGuides'
 import { vehicleDefectCityGuideTopicContentBySlug } from './seoVehicleDefectCityGuides'
 import { carbonMonoxideCityGuideTopicContentBySlug } from './seoCarbonMonoxideCityGuides'
@@ -756,6 +760,7 @@ Object.assign(topicContentBySlug, burnInjuryCityGuideTopicContentBySlug)
 Object.assign(topicContentBySlug, burnInjuryCityGuideTopicContentBySlug2)
 Object.assign(topicContentBySlug, wrongfulDeathCityGuideTopicContentBySlug)
 Object.assign(topicContentBySlug, wrongfulDeathCityGuideTopicContentBySlug2)
+Object.assign(topicContentBySlug, wrongfulDeathCityGuideTopicContentBySlug3)
 Object.assign(topicContentBySlug, duiVictimCityGuideTopicContentBySlug)
 Object.assign(topicContentBySlug, duiVictimCityGuideTopicContentBySlug2)
 Object.assign(topicContentBySlug, themeParkCityGuideTopicContentBySlug)
@@ -776,10 +781,13 @@ Object.assign(topicContentBySlug, warehouseInjuryCityGuideTopicContentBySlug)
 Object.assign(topicContentBySlug, farmInjuryCityGuideTopicContentBySlug)
 Object.assign(topicContentBySlug, birthInjuryCityGuideTopicContentBySlug)
 Object.assign(topicContentBySlug, birthInjuryCityGuideTopicContentBySlug2)
+Object.assign(topicContentBySlug, birthInjuryCityGuideTopicContentBySlug3)
 Object.assign(topicContentBySlug, brainInjuryCityGuideTopicContentBySlug)
 Object.assign(topicContentBySlug, brainInjuryCityGuideTopicContentBySlug2)
+Object.assign(topicContentBySlug, brainInjuryCityGuideTopicContentBySlug3)
 Object.assign(topicContentBySlug, spinalInjuryCityGuideTopicContentBySlug)
 Object.assign(topicContentBySlug, spinalInjuryCityGuideTopicContentBySlug2)
+Object.assign(topicContentBySlug, spinalInjuryCityGuideTopicContentBySlug3)
 Object.assign(topicContentBySlug, childInjuryCityGuideTopicContentBySlug)
 Object.assign(topicContentBySlug, vehicleDefectCityGuideTopicContentBySlug)
 Object.assign(topicContentBySlug, carbonMonoxideCityGuideTopicContentBySlug)

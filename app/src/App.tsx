@@ -763,6 +763,10 @@ function App() {
             <Route path="/fresno-wrongful-death" element={<SeoLandingPage />} />
             <Route path="/long-beach-wrongful-death" element={<SeoLandingPage />} />
             <Route path="/oakland-wrongful-death" element={<SeoLandingPage />} />
+            <Route path="/riverside-wrongful-death" element={<SeoLandingPage />} />
+            <Route path="/san-bernardino-wrongful-death" element={<SeoLandingPage />} />
+            <Route path="/bakersfield-wrongful-death" element={<SeoLandingPage />} />
+            <Route path="/anaheim-wrongful-death" element={<SeoLandingPage />} />
             {/* Geo layer batch 19: DUI victim x metros. */}
             <Route path="/los-angeles-dui-accident" element={<SeoLandingPage />} />
             <Route path="/san-diego-dui-accident" element={<SeoLandingPage />} />
@@ -873,6 +877,10 @@ function App() {
             <Route path="/fresno-birth-injury-claim" element={<SeoLandingPage />} />
             <Route path="/long-beach-birth-injury-claim" element={<SeoLandingPage />} />
             <Route path="/oakland-birth-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/riverside-birth-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/san-bernardino-birth-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/bakersfield-birth-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/anaheim-birth-injury-claim" element={<SeoLandingPage />} />
             {/* Geo layer batch 33: traumatic brain injury (TBI) x metros. */}
             <Route path="/los-angeles-brain-injury-claim" element={<SeoLandingPage />} />
             <Route path="/san-diego-brain-injury-claim" element={<SeoLandingPage />} />
@@ -882,6 +890,10 @@ function App() {
             <Route path="/fresno-brain-injury-claim" element={<SeoLandingPage />} />
             <Route path="/long-beach-brain-injury-claim" element={<SeoLandingPage />} />
             <Route path="/oakland-brain-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/riverside-brain-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/san-bernardino-brain-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/bakersfield-brain-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/anaheim-brain-injury-claim" element={<SeoLandingPage />} />
             {/* Geo layer batch 34: spinal cord injury / paralysis x metros. */}
             <Route path="/los-angeles-spinal-cord-injury-claim" element={<SeoLandingPage />} />
             <Route path="/san-diego-spinal-cord-injury-claim" element={<SeoLandingPage />} />
@@ -891,6 +903,10 @@ function App() {
             <Route path="/fresno-spinal-cord-injury-claim" element={<SeoLandingPage />} />
             <Route path="/long-beach-spinal-cord-injury-claim" element={<SeoLandingPage />} />
             <Route path="/oakland-spinal-cord-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/riverside-spinal-cord-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/san-bernardino-spinal-cord-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/bakersfield-spinal-cord-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/anaheim-spinal-cord-injury-claim" element={<SeoLandingPage />} />
             {/* Geo layer batch 35: daycare / school child injury x metros. */}
             <Route path="/los-angeles-daycare-school-injury-claim" element={<SeoLandingPage />} />
             <Route path="/san-diego-daycare-school-injury-claim" element={<SeoLandingPage />} />

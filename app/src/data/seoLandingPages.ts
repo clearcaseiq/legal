@@ -50,6 +50,7 @@ import { burnInjuryCityGuidePages } from './seoBurnInjuryCityGuides'
 import { burnInjuryCityGuidePages2 } from './seoBurnInjuryCityGuides2'
 import { wrongfulDeathCityGuidePages } from './seoWrongfulDeathCityGuides'
 import { wrongfulDeathCityGuidePages2 } from './seoWrongfulDeathCityGuides2'
+import { wrongfulDeathCityGuidePages3 } from './seoWrongfulDeathCityGuides3'
 import { duiVictimCityGuidePages } from './seoDuiVictimCityGuides'
 import { duiVictimCityGuidePages2 } from './seoDuiVictimCityGuides2'
 import { themeParkCityGuidePages } from './seoThemeParkCityGuides'
@@ -70,10 +71,13 @@ import { warehouseInjuryCityGuidePages } from './seoWarehouseInjuryCityGuides'
 import { farmInjuryCityGuidePages } from './seoFarmInjuryCityGuides'
 import { birthInjuryCityGuidePages } from './seoBirthInjuryCityGuides'
 import { birthInjuryCityGuidePages2 } from './seoBirthInjuryCityGuides2'
+import { birthInjuryCityGuidePages3 } from './seoBirthInjuryCityGuides3'
 import { brainInjuryCityGuidePages } from './seoBrainInjuryCityGuides'
 import { brainInjuryCityGuidePages2 } from './seoBrainInjuryCityGuides2'
+import { brainInjuryCityGuidePages3 } from './seoBrainInjuryCityGuides3'
 import { spinalInjuryCityGuidePages } from './seoSpinalInjuryCityGuides'
 import { spinalInjuryCityGuidePages2 } from './seoSpinalInjuryCityGuides2'
+import { spinalInjuryCityGuidePages3 } from './seoSpinalInjuryCityGuides3'
 import { childInjuryCityGuidePages } from './seoChildInjuryCityGuides'
 import { vehicleDefectCityGuidePages } from './seoVehicleDefectCityGuides'
 import { carbonMonoxideCityGuidePages } from './seoCarbonMonoxideCityGuides'
@@ -218,6 +222,7 @@ export const CONTENT_UPDATED = {
   burnInjuryCityGuides2: '2026-08-22',
   wrongfulDeathCityGuides: '2026-08-21',
   wrongfulDeathCityGuides2: '2026-08-22',
+  wrongfulDeathCityGuides3: '2026-08-22',
   duiVictimCityGuides: '2026-08-21',
   duiVictimCityGuides2: '2026-08-22',
   themeParkCityGuides: '2026-08-21',
@@ -238,10 +243,13 @@ export const CONTENT_UPDATED = {
   farmInjuryCityGuides: '2026-08-21',
   birthInjuryCityGuides: '2026-08-21',
   birthInjuryCityGuides2: '2026-08-22',
+  birthInjuryCityGuides3: '2026-08-22',
   brainInjuryCityGuides: '2026-08-21',
   brainInjuryCityGuides2: '2026-08-22',
+  brainInjuryCityGuides3: '2026-08-22',
   spinalInjuryCityGuides: '2026-08-21',
   spinalInjuryCityGuides2: '2026-08-22',
+  spinalInjuryCityGuides3: '2026-08-22',
   childInjuryCityGuides: '2026-08-21',
   vehicleDefectCityGuides: '2026-08-21',
   carbonMonoxideCityGuides: '2026-08-21',
@@ -340,6 +348,7 @@ export const CONTENT_PUBLISHED = {
   burnInjuryCityGuides2: '2026-08-22',
   wrongfulDeathCityGuides: '2026-08-21',
   wrongfulDeathCityGuides2: '2026-08-22',
+  wrongfulDeathCityGuides3: '2026-08-22',
   duiVictimCityGuides: '2026-08-21',
   duiVictimCityGuides2: '2026-08-22',
   themeParkCityGuides: '2026-08-21',
@@ -360,10 +369,13 @@ export const CONTENT_PUBLISHED = {
   farmInjuryCityGuides: '2026-08-21',
   birthInjuryCityGuides: '2026-08-21',
   birthInjuryCityGuides2: '2026-08-22',
+  birthInjuryCityGuides3: '2026-08-22',
   brainInjuryCityGuides: '2026-08-21',
   brainInjuryCityGuides2: '2026-08-22',
+  brainInjuryCityGuides3: '2026-08-22',
   spinalInjuryCityGuides: '2026-08-21',
   spinalInjuryCityGuides2: '2026-08-22',
+  spinalInjuryCityGuides3: '2026-08-22',
   childInjuryCityGuides: '2026-08-21',
   vehicleDefectCityGuides: '2026-08-21',
   carbonMonoxideCityGuides: '2026-08-21',
@@ -816,6 +828,7 @@ export const allLandingPages: LandingPage[] = [
   ...stamp(burnInjuryCityGuidePages2, CONTENT_UPDATED.burnInjuryCityGuides2, CONTENT_PUBLISHED.burnInjuryCityGuides2),
   ...stamp(wrongfulDeathCityGuidePages, CONTENT_UPDATED.wrongfulDeathCityGuides, CONTENT_PUBLISHED.wrongfulDeathCityGuides),
   ...stamp(wrongfulDeathCityGuidePages2, CONTENT_UPDATED.wrongfulDeathCityGuides2, CONTENT_PUBLISHED.wrongfulDeathCityGuides2),
+  ...stamp(wrongfulDeathCityGuidePages3, CONTENT_UPDATED.wrongfulDeathCityGuides3, CONTENT_PUBLISHED.wrongfulDeathCityGuides3),
   ...stamp(duiVictimCityGuidePages, CONTENT_UPDATED.duiVictimCityGuides, CONTENT_PUBLISHED.duiVictimCityGuides),
   ...stamp(duiVictimCityGuidePages2, CONTENT_UPDATED.duiVictimCityGuides2, CONTENT_PUBLISHED.duiVictimCityGuides2),
   ...stamp(themeParkCityGuidePages, CONTENT_UPDATED.themeParkCityGuides, CONTENT_PUBLISHED.themeParkCityGuides),
@@ -836,10 +849,13 @@ export const allLandingPages: LandingPage[] = [
   ...stamp(farmInjuryCityGuidePages, CONTENT_UPDATED.farmInjuryCityGuides, CONTENT_PUBLISHED.farmInjuryCityGuides),
   ...stamp(birthInjuryCityGuidePages, CONTENT_UPDATED.birthInjuryCityGuides, CONTENT_PUBLISHED.birthInjuryCityGuides),
   ...stamp(birthInjuryCityGuidePages2, CONTENT_UPDATED.birthInjuryCityGuides2, CONTENT_PUBLISHED.birthInjuryCityGuides2),
+  ...stamp(birthInjuryCityGuidePages3, CONTENT_UPDATED.birthInjuryCityGuides3, CONTENT_PUBLISHED.birthInjuryCityGuides3),
   ...stamp(brainInjuryCityGuidePages, CONTENT_UPDATED.brainInjuryCityGuides, CONTENT_PUBLISHED.brainInjuryCityGuides),
   ...stamp(brainInjuryCityGuidePages2, CONTENT_UPDATED.brainInjuryCityGuides2, CONTENT_PUBLISHED.brainInjuryCityGuides2),
+  ...stamp(brainInjuryCityGuidePages3, CONTENT_UPDATED.brainInjuryCityGuides3, CONTENT_PUBLISHED.brainInjuryCityGuides3),
   ...stamp(spinalInjuryCityGuidePages, CONTENT_UPDATED.spinalInjuryCityGuides, CONTENT_PUBLISHED.spinalInjuryCityGuides),
   ...stamp(spinalInjuryCityGuidePages2, CONTENT_UPDATED.spinalInjuryCityGuides2, CONTENT_PUBLISHED.spinalInjuryCityGuides2),
+  ...stamp(spinalInjuryCityGuidePages3, CONTENT_UPDATED.spinalInjuryCityGuides3, CONTENT_PUBLISHED.spinalInjuryCityGuides3),
   ...stamp(childInjuryCityGuidePages, CONTENT_UPDATED.childInjuryCityGuides, CONTENT_PUBLISHED.childInjuryCityGuides),
   ...stamp(vehicleDefectCityGuidePages, CONTENT_UPDATED.vehicleDefectCityGuides, CONTENT_PUBLISHED.vehicleDefectCityGuides),
   ...stamp(carbonMonoxideCityGuidePages, CONTENT_UPDATED.carbonMonoxideCityGuides, CONTENT_PUBLISHED.carbonMonoxideCityGuides),
