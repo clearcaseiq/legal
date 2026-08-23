@@ -43,6 +43,16 @@ const COPY = {
     unreviewed:
       'Contenido informativo. No ha sido revisado por un abogado para su situación y no constituye asesoría legal. ClearCaseIQ no es un bufete de abogados.',
   },
+  zh: {
+    by: '作者',
+    updated: '更新于',
+    published: '发布于',
+    originally: '最初发布于',
+    reviewedBy: '审核人',
+    standardsLink: '我们如何撰写此内容',
+    unreviewed:
+      '仅供参考的资讯内容，未经律师针对您的具体情况审核，不构成法律建议。ClearCaseIQ 并非律师事务所。',
+  },
 } as const
 
 export default function ContentByline({
@@ -57,7 +67,7 @@ export default function ContentByline({
   updated: string
   reviewedBy?: string
   /** Language of the page this byline sits on. */
-  locale?: 'en' | 'es'
+  locale?: 'en' | 'es' | 'zh'
   /** Where "how we write this" points, so a translated page can link its own. */
   standardsTo?: string
   className?: string

@@ -17,34 +17,64 @@ export const LOCALE_PATH_PAIRS: Array<{ en: string; translations: Partial<Record
   { en: '/help', translations: { es: '/es/centro-de-ayuda', zh: '/zh/bangzhu-zhongxin' } },
   { en: '/disclosures', translations: { es: '/es/divulgaciones', zh: '/zh/pilu-shengming' } },
   { en: '/attorney-network', translations: { es: '/es/red-de-abogados', zh: '/zh/lvshi-wangluo' } },
-  // No Chinese twin: /es/temas indexes the Spanish landing pages, and there are
-  // no Chinese landing pages for an equivalent hub to list.
-  { en: '/topics', translations: { es: '/es/temas' } },
+  // /es/temas and /zh/zhuti both index their language's landing pages.
+  { en: '/topics', translations: { es: '/es/temas', zh: '/zh/zhuti' } },
   // Landing pages with a Spanish edition. /es/estatus-migratorio-y-reclamos is
   // absent because it has no English original: it was written for a question
-  // Spanish-speaking readers ask and English-speaking ones do not.
-  { en: '/how-much-is-my-case-worth', translations: { es: '/es/cuanto-vale-mi-caso' } },
+  // Spanish-speaking readers ask and English-speaking ones do not. The `zh`
+  // entries cover the six pillars that have a Chinese edition.
+  {
+    en: '/how-much-is-my-case-worth',
+    translations: { es: '/es/cuanto-vale-mi-caso', zh: '/zh/anjian-jiazhi' },
+  },
   {
     en: '/california-statute-of-limitations-personal-injury',
-    translations: { es: '/es/plazo-para-demandar-en-california' },
+    translations: { es: '/es/plazo-para-demandar-en-california', zh: '/zh/jiazhou-susong-shixiao' },
   },
   {
     en: '/injuries/neck-pain-after-accident',
-    translations: { es: '/es/dolor-de-cuello-despues-de-un-accidente' },
+    translations: { es: '/es/dolor-de-cuello-despues-de-un-accidente', zh: '/zh/chehuo-hou-jingbu-tengtong' },
   },
   {
     en: '/injuries/lower-back-pain-after-accident',
-    translations: { es: '/es/dolor-de-espalda-despues-de-un-accidente' },
+    translations: { es: '/es/dolor-de-espalda-despues-de-un-accidente', zh: '/zh/chehuo-hou-beibu-tengtong' },
   },
   {
     en: '/when-to-hire-a-lawyer-after-accident',
-    translations: { es: '/es/cuando-contratar-un-abogado' },
+    translations: { es: '/es/cuando-contratar-un-abogado', zh: '/zh/heshi-qing-lvshi' },
   },
   {
     en: '/education/insurance-settlement-tactics',
-    translations: { es: '/es/tacticas-de-las-aseguradoras' },
+    translations: { es: '/es/tacticas-de-las-aseguradoras', zh: '/zh/baoxian-gongsi-shouduan' },
   },
-  { en: '/commercial/rideshare-accidents', translations: { es: '/es/accidentes-de-uber-y-lyft' } },
+  {
+    en: '/commercial/rideshare-accidents',
+    translations: { es: '/es/accidentes-de-uber-y-lyft', zh: '/zh/uber-lyft-shigu' },
+  },
+  {
+    en: '/how-much-is-a-dog-bite-case-worth',
+    translations: { es: '/es/cuanto-vale-un-caso-de-mordedura-de-perro' },
+  },
+  {
+    en: '/how-much-is-a-slip-and-fall-case-worth',
+    translations: { es: '/es/cuanto-vale-un-caso-de-resbalon-y-caida' },
+  },
+  {
+    en: '/how-much-is-a-wrongful-death-case-worth-in-california',
+    translations: { es: '/es/cuanto-vale-un-caso-de-muerte-por-negligencia' },
+  },
+  {
+    en: '/how-much-is-a-truck-accident-case-worth-in-california',
+    translations: { es: '/es/cuanto-vale-un-caso-de-accidente-de-camion' },
+  },
+  {
+    en: '/how-much-is-a-pedestrian-accident-case-worth',
+    translations: { es: '/es/cuanto-vale-un-caso-de-atropello-de-peaton' },
+  },
+  {
+    en: '/how-much-is-a-bicycle-accident-case-worth',
+    translations: { es: '/es/cuanto-vale-un-caso-de-accidente-de-bicicleta' },
+  },
 ]
 
 const englishByLocalizedPath = new Map<string, string>()

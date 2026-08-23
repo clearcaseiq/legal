@@ -113,6 +113,7 @@ import { elevatorCityGuideTopicContentBySlug2 } from './seoElevatorCityGuides2'
 import { moldHabitabilityCityGuideTopicContentBySlug } from './seoMoldHabitabilityCityGuides'
 import { moldHabitabilityCityGuideTopicContentBySlug2 } from './seoMoldHabitabilityCityGuides2'
 import { scooterCityGuideTopicContentBySlug2 } from './seoScooterCityGuides2'
+import { scooterCityGuideTopicContentBySlug3 } from './seoScooterCityGuides3'
 import { offRoadVehicleCityGuideTopicContentBySlug } from './seoOffRoadVehicleCityGuides'
 import { offRoadVehicleCityGuideTopicContentBySlug2 } from './seoOffRoadVehicleCityGuides2'
 import { dramShopCityGuideTopicContentBySlug } from './seoDramShopCityGuides'
@@ -862,6 +863,7 @@ Object.assign(topicContentBySlug, elevatorCityGuideTopicContentBySlug2)
 Object.assign(topicContentBySlug, moldHabitabilityCityGuideTopicContentBySlug)
 Object.assign(topicContentBySlug, moldHabitabilityCityGuideTopicContentBySlug2)
 Object.assign(topicContentBySlug, scooterCityGuideTopicContentBySlug2)
+Object.assign(topicContentBySlug, scooterCityGuideTopicContentBySlug3)
 Object.assign(topicContentBySlug, offRoadVehicleCityGuideTopicContentBySlug)
 Object.assign(topicContentBySlug, offRoadVehicleCityGuideTopicContentBySlug2)
 Object.assign(topicContentBySlug, dramShopCityGuideTopicContentBySlug)

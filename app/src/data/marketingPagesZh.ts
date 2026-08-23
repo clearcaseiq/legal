@@ -18,9 +18,11 @@ export const MARKETING_CONTENT_UPDATED_ZH = '2026-08-17'
  * English URL and there was no Chinese page to index. Giving the locale its own
  * path turns an existing asset into something that can rank.
  *
- * No topic hub here, unlike the Spanish set. `/es/temas` lists the eight Spanish
- * landing pages; there are no Chinese landing pages yet, so the equivalent would
- * be an empty index inviting a crawler to a dead end.
+ * `/zh/zhuti` is the topic hub, mirroring `/es/temas`. It exists now that there
+ * are Chinese landing pages for it to list; the shared footer's `/topics` link
+ * resolves here for a Chinese reader, which is the one crawlable route into the
+ * set. Without it those pages would be reachable from the sitemap alone, which
+ * is how the English landing pages spent months orphaned.
  *
  * Simplified only, matching the dictionary. If Traditional is added later it
  * needs its own registry and its own `zh-Hant` annotations, not a toggle: the
@@ -107,5 +109,20 @@ export const marketingPagesZh: MarketingPage[] = [
     locale: 'zh',
     translationOf: '/attorney-network',
     namespaces: ['common', 'footer', 'attorneyNet', 'auth', 'results'],
+  },
+  {
+    // The topic hub. Its body is the TopicsZh component, not translated chrome,
+    // so it needs no namespaces beyond what the shared Layout reads.
+    path: '/zh/zhuti',
+    title: '加州人身伤害中文指南 | ClearCaseIQ',
+    description: '加州人身伤害索赔的中文指南：案件价值、法律时效、医疗记录与您的权利。',
+    serverRender: true,
+    // Newer than the rest of the set: this hub was added with the Chinese
+    // landing pages, so it carries their date rather than restamping the seven
+    // pages above with a day they did not change.
+    contentUpdated: '2026-08-23',
+    locale: 'zh',
+    translationOf: '/topics',
+    namespaces: ['common', 'footer'],
   },
 ]

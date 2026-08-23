@@ -112,6 +112,7 @@ import { elevatorCityGuidePages2 } from './seoElevatorCityGuides2'
 import { moldHabitabilityCityGuidePages } from './seoMoldHabitabilityCityGuides'
 import { moldHabitabilityCityGuidePages2 } from './seoMoldHabitabilityCityGuides2'
 import { scooterCityGuidePages2 } from './seoScooterCityGuides2'
+import { scooterCityGuidePages3 } from './seoScooterCityGuides3'
 import { offRoadVehicleCityGuidePages } from './seoOffRoadVehicleCityGuides'
 import { offRoadVehicleCityGuidePages2 } from './seoOffRoadVehicleCityGuides2'
 import { dramShopCityGuidePages } from './seoDramShopCityGuides'
@@ -144,6 +145,7 @@ import { motorcycleCityGuidePages3 } from './seoMotorcycleCityGuides3'
 import { dogBiteCityGuidePages3 } from './seoDogBiteCityGuides3'
 import { slipAndFallCityGuidePages3 } from './seoSlipAndFallCityGuides3'
 import { CONTENT_PUBLISHED_ES, CONTENT_UPDATED_ES, landingPagesEs } from './seoLandingPagesEs'
+import { CONTENT_PUBLISHED_ZH, CONTENT_UPDATED_ZH, landingPagesZh } from './seoLandingPagesZh'
 import {
   SETTLEMENT_CALCULATOR_FAQS,
   SETTLEMENT_CALCULATOR_WHAT_TO_TRACK,
@@ -324,6 +326,7 @@ export const CONTENT_UPDATED = {
   moldHabitabilityCityGuides: '2026-08-21',
   moldHabitabilityCityGuides2: '2026-08-22',
   scooterCityGuides2: '2026-08-22',
+  scooterCityGuides3: '2026-08-22',
   offRoadVehicleCityGuides: '2026-08-21',
   offRoadVehicleCityGuides2: '2026-08-22',
   dramShopCityGuides: '2026-08-21',
@@ -488,6 +491,7 @@ export const CONTENT_PUBLISHED = {
   moldHabitabilityCityGuides: '2026-08-21',
   moldHabitabilityCityGuides2: '2026-08-22',
   scooterCityGuides2: '2026-08-22',
+  scooterCityGuides3: '2026-08-22',
   offRoadVehicleCityGuides: '2026-08-21',
   offRoadVehicleCityGuides2: '2026-08-22',
   dramShopCityGuides: '2026-08-21',
@@ -1006,6 +1010,7 @@ export const allLandingPages: LandingPage[] = [
   ...stamp(moldHabitabilityCityGuidePages, CONTENT_UPDATED.moldHabitabilityCityGuides, CONTENT_PUBLISHED.moldHabitabilityCityGuides),
   ...stamp(moldHabitabilityCityGuidePages2, CONTENT_UPDATED.moldHabitabilityCityGuides2, CONTENT_PUBLISHED.moldHabitabilityCityGuides2),
   ...stamp(scooterCityGuidePages2, CONTENT_UPDATED.scooterCityGuides2, CONTENT_PUBLISHED.scooterCityGuides2),
+  ...stamp(scooterCityGuidePages3, CONTENT_UPDATED.scooterCityGuides3, CONTENT_PUBLISHED.scooterCityGuides3),
   ...stamp(offRoadVehicleCityGuidePages, CONTENT_UPDATED.offRoadVehicleCityGuides, CONTENT_PUBLISHED.offRoadVehicleCityGuides),
   ...stamp(offRoadVehicleCityGuidePages2, CONTENT_UPDATED.offRoadVehicleCityGuides2, CONTENT_PUBLISHED.offRoadVehicleCityGuides2),
   ...stamp(dramShopCityGuidePages, CONTENT_UPDATED.dramShopCityGuides, CONTENT_PUBLISHED.dramShopCityGuides),
@@ -1038,6 +1043,8 @@ export const allLandingPages: LandingPage[] = [
   // The Spanish set is dated separately: restamping it with an English content
   // date would claim these pages changed on a day they did not exist.
   ...stamp(landingPagesEs, CONTENT_UPDATED_ES, CONTENT_PUBLISHED_ES),
+  // The Chinese set, dated separately for the same reason.
+  ...stamp(landingPagesZh, CONTENT_UPDATED_ZH, CONTENT_PUBLISHED_ZH),
 ]
 
 export const landingPagesBySlug = new Map(allLandingPages.map((page) => [page.slug, page]))

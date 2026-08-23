@@ -20,6 +20,12 @@ export const LANDING_ES_SLUGS = [
   '/es/cuando-contratar-un-abogado',
   '/es/tacticas-de-las-aseguradoras',
   '/es/accidentes-de-uber-y-lyft',
+  '/es/cuanto-vale-un-caso-de-mordedura-de-perro',
+  '/es/cuanto-vale-un-caso-de-resbalon-y-caida',
+  '/es/cuanto-vale-un-caso-de-muerte-por-negligencia',
+  '/es/cuanto-vale-un-caso-de-accidente-de-camion',
+  '/es/cuanto-vale-un-caso-de-atropello-de-peaton',
+  '/es/cuanto-vale-un-caso-de-accidente-de-bicicleta',
 ] as const
 
 export type LandingEsSlug = (typeof LANDING_ES_SLUGS)[number]

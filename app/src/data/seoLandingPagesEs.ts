@@ -1012,6 +1012,636 @@ const writtenPages: Array<Omit<LandingPageEs, 'namespaces'>> = [
       },
     ],
   },
+
+  {
+    slug: '/es/cuanto-vale-un-caso-de-mordedura-de-perro',
+    locale: 'es',
+    translationOf: '/how-much-is-a-dog-bite-case-worth',
+    category: 'Settlement',
+    cluster: 'Valor de un caso de mordedura de perro',
+    title: '¿Cuánto vale un caso de mordedura de perro?',
+    eyebrow: 'Guía de valor del caso',
+    description:
+      'Qué determina el valor de una mordedura de perro en California: gravedad, cicatrices, responsabilidad del dueño y la póliza del hogar.',
+    psychology: 'Me mordió un perro y no sé cuánto podría valer mi caso ni quién responde.',
+    cta: 'Abrir la calculadora de acuerdos',
+    exampleQueries: [
+      'cuánto vale una demanda por mordedura de perro',
+      'cuánto paga el seguro por mordedura de perro california',
+      'responsabilidad del dueño de un perro en california',
+      'cicatriz por mordedura de perro indemnización',
+    ],
+    signals: [
+      'Responsabilidad estricta del dueño',
+      'Gravedad e infección',
+      'Cicatrices y cirugía',
+      'Póliza del hogar o del inquilino',
+      'Trauma psicológico',
+      'Continuidad del cuidado',
+    ],
+    sections: {
+      whyItMatters:
+        'California responsabiliza al dueño de un perro por las lesiones de una mordedura aunque el animal nunca hubiera mordido antes. Eso simplifica la culpa, pero no fija la cifra: el valor práctico depende de la gravedad de la herida, de si quedan cicatrices, del riesgo de infección y de la póliza disponible para responder.',
+      whatToTrack: [
+        'Fecha, lugar y circunstancias de la mordedura, con fotos de las heridas',
+        'Quién es el dueño del perro y dónde vive, para ubicar la póliza del hogar',
+        'Atención recibida: urgencias, suturas, antibióticos y cirugía plástica',
+        'Cicatrices visibles y su ubicación, sobre todo en la cara o las manos',
+        'Efectos emocionales, miedo a los perros y pesadillas, en especial en menores',
+      ],
+      howClearCaseHelps:
+        'ClearCaseIQ ordena las fotos, los expedientes y los datos del dueño en una cronología, señala qué factores elevan o reducen el rango y advierte qué información falta para afinar la estimación. ' +
+        NOT_A_LAW_FIRM,
+    },
+    intro:
+      'Después de una mordedura de perro, la primera duda suele ser quién paga y la segunda cuánto. En California la ley facilita lo primero, porque el dueño responde por las lesiones sin que haya que probar que el perro era peligroso. Lo segundo depende de varios factores que esta página explica, y que hacen que dos mordeduras parecidas terminen en cifras muy distintas.',
+    body: [
+      {
+        heading: 'El dueño responde aunque el perro nunca hubiera mordido',
+        body: 'El Código Civil de California establece la responsabilidad estricta del dueño: si su perro muerde a una persona que estaba legalmente en un lugar público o privado, el dueño responde por esas lesiones sin que importe si sabía que el animal era agresivo. La antigua idea de que "el primer mordisco es gratis" no rige aquí. Esto quita de la mesa gran parte de la discusión sobre culpa y traslada el foco a la gravedad de la herida y a la cobertura disponible.',
+      },
+      {
+        heading: 'La gravedad de la herida marca el punto de partida',
+        body: 'Una mordedura superficial que sana en dos semanas no se valora igual que una que llega al músculo, que daña un nervio o que exige cirugía. Cuentan la profundidad, el número de heridas, la necesidad de suturas y la aparición de una infección, que es un riesgo real en las mordeduras. La zona del cuerpo también pesa: una herida en la cara, en una mano o cerca de una articulación suele tener más consecuencias funcionales y estéticas.',
+      },
+      {
+        heading: 'Las cicatrices permanentes pesan por sí solas',
+        body: 'Una cicatriz visible, sobre todo en el rostro, es un daño que perdura y que se valora aparte del costo de curar la herida. Las fotos tomadas en distintos momentos, desde el día de la mordedura hasta la cicatriz ya formada, documentan esa evolución. Cuando hay una cirugía plástica recomendada o ya realizada, su costo y su resultado esperado forman parte de lo reclamable.',
+      },
+      {
+        heading: 'El daño emocional es real, sobre todo en niños',
+        body: 'Muchas mordeduras dejan una huella que no se ve: miedo intenso a los perros, ansiedad, pesadillas y evitar salir a la calle. En los niños este efecto puede ser más profundo y durar más. Un registro de esos síntomas y, cuando corresponde, la atención psicológica documentada, permiten que ese daño se tome en cuenta en lugar de quedar fuera por no constar en ningún papel.',
+      },
+      {
+        heading: 'La póliza disponible suele ser el techo real',
+        body: 'La mayoría de las mordeduras las paga el seguro del hogar o del inquilino del dueño del perro, no el dueño de su bolsillo. Por eso, ubicar esa póliza y su límite es tan importante como describir la herida: un caso grave vale poco en la práctica si no hay cobertura de dónde cobrar. Cuando la mordedura ocurrió en una propiedad rentada o en un negocio, puede haber una segunda póliza que revisar.',
+      },
+    ],
+    checklist: {
+      heading: 'Qué reunir antes de estimar el valor',
+      intro:
+        'Una estimación es tan buena como los documentos que la respaldan. Si le falta alguno, anote el proveedor y las fechas.',
+      items: [
+        'Fotos de las heridas en distintas fechas y de las cicatrices',
+        'Expedientes y facturas de urgencias, suturas, antibióticos y cirugía',
+        'Nombre y domicilio del dueño del perro y de cualquier testigo',
+        'Reporte a control de animales o a la policía, si se hizo',
+        'Constancia de cualquier atención psicológica o de los síntomas emocionales',
+        'Días de escuela o de trabajo perdidos por la lesión',
+      ],
+    },
+    warning: {
+      heading: 'El plazo también corre en las mordeduras',
+      body: 'El plazo general para reclamar por una mordedura de perro en California es de dos años desde la fecha de la lesión. Si el dueño era una entidad pública, o si el animal era un perro policía en servicio, pueden regir reglas y plazos distintos y más cortos, así que conviene confirmar la fecha límite pronto.',
+    },
+    faqs: [
+      {
+        q: '¿Tengo que probar que el perro era agresivo?',
+        a: 'No. California aplica la responsabilidad estricta del dueño, así que no hace falta demostrar que el perro había mordido antes ni que el dueño sabía que era peligroso. Basta con que usted estuviera legalmente en el lugar donde ocurrió la mordedura.',
+      },
+      {
+        q: '¿Quién paga si el dueño no tiene dinero?',
+        a: 'Casi siempre responde la póliza del hogar o del inquilino del dueño, no su bolsillo. Ubicar esa póliza y su límite es clave, porque en la práctica marca el máximo que se puede recuperar.',
+      },
+      {
+        q: '¿Cuentan las cicatrices en el valor del caso?',
+        a: 'Sí. Una cicatriz permanente, en especial en la cara o las manos, se valora por separado del costo de curar la herida. Las fotos en distintos momentos ayudan a documentar cómo quedó.',
+      },
+      {
+        q: '¿Y si mordieron a mi hijo?',
+        a: 'El caso de un menor puede incluir el daño físico y el emocional, que en los niños suele ser mayor. Además, el plazo para demandar funciona distinto para los menores, aunque conviene no confiarse y revisar las fechas cuanto antes.',
+      },
+      {
+        q: '¿Pierdo el caso si yo provoqué al perro?',
+        a: 'No necesariamente. La provocación puede reducir la recuperación bajo la negligencia comparativa, pero rara vez la elimina por completo. Lo que ocurrió justo antes de la mordedura se evalúa según los hechos.',
+      },
+    ],
+  },
+
+  {
+    slug: '/es/cuanto-vale-un-caso-de-resbalon-y-caida',
+    locale: 'es',
+    translationOf: '/how-much-is-a-slip-and-fall-case-worth',
+    category: 'Settlement',
+    cluster: 'Valor de un caso de resbalón y caída',
+    title: '¿Cuánto vale un caso de resbalón y caída?',
+    eyebrow: 'Guía de valor del caso',
+    description:
+      'Qué mueve el valor de una caída en California: gravedad de la lesión, prueba del peligro, aviso al dueño y su parte de culpa.',
+    psychology: 'Me caí en una tienda y no sé si tengo caso ni cuánto podría valer.',
+    cta: 'Abrir la calculadora de acuerdos',
+    exampleQueries: [
+      'cuánto vale una demanda por caída en una tienda',
+      'me caí en un supermercado indemnización california',
+      'responsabilidad del local por una caída',
+      'cuánto paga el seguro por una caída',
+    ],
+    signals: [
+      'Prueba del peligro',
+      'Aviso previo al dueño',
+      'Gravedad de la lesión',
+      'Su parte de culpa',
+      'Fotos y video del lugar',
+      'Continuidad del cuidado',
+    ],
+    sections: {
+      whyItMatters:
+        'Una caída se valora distinto que un choque, porque aquí lo difícil no es la lesión sino probar que el lugar era peligroso y que el dueño debió haberlo arreglado. Cuando esa prueba es sólida, la gravedad de la lesión manda; cuando es débil, incluso una lesión seria puede quedar sin cobrar.',
+      whatToTrack: [
+        'Qué causó la caída: líquido en el piso, un desnivel, mala luz o un cable suelto',
+        'Cuánto tiempo llevaba ahí el peligro y si el personal pudo haberlo visto',
+        'Fotos y video del lugar el mismo día, antes de que lo limpiaran',
+        'Reporte del incidente hecho al local y el nombre de quien lo atendió',
+        'La lesión, la atención recibida y la continuidad del cuidado',
+      ],
+      howClearCaseHelps:
+        'ClearCaseIQ ordena las fotos, el reporte del local y los expedientes en una cronología, marca dónde falta la prueba del peligro y le indica qué conviene solicitar antes de que desaparezca. ' +
+        NOT_A_LAW_FIRM,
+    },
+    intro:
+      'La pregunta de cuánto vale una caída tiene una respuesta poco intuitiva: depende menos de lo grave que sea la lesión y más de si se puede probar que el lugar era peligroso y que el dueño lo sabía o debió saberlo. Esta página explica qué convierte una caída en un caso con valor y qué lo debilita.',
+    body: [
+      {
+        heading: 'Caerse no basta: hay que probar un peligro',
+        body: 'Que usted se haya caído y lesionado no significa por sí solo que alguien deba pagar. En California hay que demostrar que existía una condición peligrosa en el lugar, como un derrame, un piso disparejo o una escalera sin pasamanos. Sin esa condición, no hay responsabilidad del dueño, por dolorosa que haya sido la caída. Por eso la prueba del peligro es el primer factor de valor.',
+      },
+      {
+        heading: 'El aviso: que el dueño lo supiera o debiera saberlo',
+        body: 'No basta con que existiera un peligro; hay que mostrar que el responsable del lugar lo conocía o que llevaba ahí el tiempo suficiente como para que un negocio cuidadoso lo hubiera detectado y corregido. Un derrame que ocurrió un minuto antes es distinto de uno que estuvo dos horas a la vista de los empleados. Por eso importa cuánto tiempo llevaba el peligro y si había cámaras o registros que lo muestren.',
+      },
+      {
+        heading: 'La gravedad de la lesión fija el rango',
+        body: 'Una vez que la responsabilidad es sólida, el valor sigue las mismas reglas que otras lesiones: una fractura de muñeca o de cadera, una lesión de cabeza o una cirugía valen mucho más que un golpe que sana solo. Las caídas producen con frecuencia fracturas y lesiones de cabeza, sobre todo en personas mayores, y esas consecuencias, bien documentadas, son el motor de la cifra.',
+      },
+      {
+        heading: 'Su propia parte de culpa reduce la cifra',
+        body: 'California aplica la negligencia comparativa pura, así que su parte de responsabilidad reduce la recuperación en ese porcentaje, pero no la elimina. El local argumentará que usted no miraba por dónde caminaba, que llevaba calzado inadecuado o que ignoró una señal de advertencia. Esos argumentos bajan la cifra en la medida en que se acepten, y por eso conviene documentar bien las circunstancias reales de la caída.',
+      },
+      {
+        heading: 'La prueba desaparece rápido',
+        body: 'El derrame se limpia, la caja rota se retira y el video de seguridad se borra, a veces en cuestión de días. Un caso de caída se gana o se pierde en buena parte por lo que se logre conservar el mismo día: fotos del piso, el nombre de los testigos y un reporte por escrito hecho al local. Pedir que se guarde el video cuanto antes puede ser lo que sostenga todo el caso.',
+      },
+    ],
+    checklist: {
+      heading: 'Qué reunir el mismo día, si puede',
+      intro:
+        'Cuanto más cerca del momento de la caída, mejor. Lo que se pierde no siempre se recupera.',
+      items: [
+        'Fotos del lugar exacto y de lo que causó la caída, antes de que lo limpien',
+        'Nombres y teléfonos de testigos que la hayan visto',
+        'Un reporte del incidente por escrito y el nombre de quien lo tomó',
+        'Fotos de sus lesiones y del calzado que llevaba',
+        'Expedientes y facturas de la atención recibida',
+        'Una nota pidiendo que se conserve el video de seguridad',
+      ],
+    },
+    warning: {
+      heading: 'Si el lugar es público, el plazo es mucho más corto',
+      body: 'El plazo general para una caída es de dos años, pero si ocurrió en una acera, un edificio del gobierno o cualquier propiedad pública, primero hay que presentar un reclamo administrativo en unos seis meses. Confundir un caso privado con uno público es una forma frecuente de perder el derecho por vencimiento del plazo.',
+    },
+    faqs: [
+      {
+        q: '¿Puedo cobrar solo porque me caí en una tienda?',
+        a: 'No de forma automática. Hay que probar que existía una condición peligrosa y que el negocio la conocía o debió conocerla. Sin ese peligro y ese aviso, la caída, aunque real, no genera responsabilidad del local.',
+      },
+      {
+        q: '¿Qué es lo más importante que puedo hacer?',
+        a: 'Conservar la prueba el mismo día: fotos de lo que causó la caída antes de que lo limpien, los nombres de los testigos, un reporte por escrito y una solicitud de que se guarde el video de seguridad.',
+      },
+      {
+        q: '¿Pierdo el caso si iba distraído?',
+        a: 'No necesariamente. Su parte de culpa reduce la recuperación en ese porcentaje bajo la negligencia comparativa pura, pero rara vez la elimina si el peligro y el aviso están bien probados.',
+      },
+      {
+        q: '¿Cuánto vale una caída con fractura?',
+        a: 'No hay una cifra fija. Una vez que la responsabilidad es sólida, una fractura o una lesión de cabeza eleva bastante el rango, pero el valor final depende de la gravedad documentada, de la recuperación y de la cobertura disponible.',
+      },
+      {
+        q: '¿Y si me caí en una propiedad del gobierno?',
+        a: 'Cambia el calendario por completo. Antes de demandar hay que presentar un reclamo administrativo ante la entidad en un plazo aproximado de seis meses, mucho más corto que los dos años habituales.',
+      },
+    ],
+  },
+
+  {
+    slug: '/es/cuanto-vale-un-caso-de-muerte-por-negligencia',
+    locale: 'es',
+    translationOf: '/how-much-is-a-wrongful-death-case-worth-in-california',
+    category: 'Settlement',
+    cluster: 'Valor de un caso de muerte por negligencia',
+    title: 'Valor de un caso de muerte por negligencia',
+    eyebrow: 'Guía de valor del caso',
+    description:
+      'Qué se puede recuperar por una muerte por negligencia en California, quién puede reclamar y qué determina el valor del caso.',
+    psychology: 'Perdí a un familiar por culpa de otro y no sé qué corresponde ni por dónde empezar.',
+    cta: 'Empezar una evaluación confidencial',
+    exampleQueries: [
+      'demanda por muerte por negligencia california',
+      'cuánto se paga por una muerte injusta',
+      'quién puede demandar por la muerte de un familiar',
+      'indemnización por accidente mortal california',
+    ],
+    signals: [
+      'Quién tiene derecho a reclamar',
+      'Ingresos que aportaba el fallecido',
+      'Pérdida de compañía y apoyo',
+      'Gastos funerarios',
+      'Cobertura disponible',
+      'Plazo de dos años',
+    ],
+    sections: {
+      whyItMatters:
+        'Ningún cálculo devuelve a la persona, y decirlo con claridad importa. Aun así, la ley de California reconoce pérdidas concretas para la familia, y entender qué reconoce y qué exige ayuda a que la familia no quede además con el peso de un proceso que no comprende.',
+      whatToTrack: [
+        'La relación de cada familiar con la persona fallecida',
+        'Los ingresos y el apoyo económico que la persona aportaba al hogar',
+        'Las tareas y el cuidado que la persona daba y que ahora hay que suplir',
+        'Los gastos funerarios y de entierro pagados',
+        'Quién causó la muerte y qué cobertura o bienes existen para responder',
+      ],
+      howClearCaseHelps:
+        'ClearCaseIQ organiza los documentos y los hechos con discreción, ordena las pérdidas que la ley reconoce y señala el plazo aplicable, para que la familia llegue con la información lista a hablar con un abogado. ' +
+        NOT_A_LAW_FIRM,
+    },
+    intro:
+      'Hablar del valor de una vida es incómodo, y esta página lo hace solo porque la falta de información clara deja a muchas familias sin reclamar lo que la ley sí reconoce. En California, cuando la negligencia de otro causa una muerte, ciertos familiares pueden recuperar por pérdidas económicas y por la pérdida de la compañía. Aquí se explica quién puede reclamar y qué determina la cifra.',
+    body: [
+      {
+        heading: 'Quién puede presentar el reclamo',
+        body: 'La ley de California define quién tiene derecho a reclamar por una muerte por negligencia, y el orden importa. En primer lugar suelen estar el cónyuge o la pareja de hecho registrada y los hijos. Cuando no hay, el derecho puede pasar a otros familiares según las reglas de herencia, y también a personas que dependían económicamente del fallecido. Definir bien quién reclama es el primer paso, porque afecta todo lo demás.',
+      },
+      {
+        heading: 'Las pérdidas económicas de la familia',
+        body: 'Una parte del valor son los aportes económicos que la persona ya no hará: el salario que llevaba a casa, los beneficios y la ayuda económica que daba a su familia, calculados a lo largo de los años que razonablemente habría seguido aportando. También cuentan el valor de las tareas del hogar y del cuidado que la persona brindaba, que ahora alguien tiene que hacer o pagar. Los gastos funerarios y de entierro se suman a este rubro.',
+      },
+      {
+        heading: 'La pérdida de compañía y apoyo',
+        body: 'La ley reconoce además una pérdida que no tiene factura: la compañía, la orientación moral, el afecto y el apoyo que la persona daba a su cónyuge y a sus hijos. No hay una fórmula que la convierta en una cifra exacta, y por eso este rubro depende mucho de la relación real y de cómo se describa. En California, el dolor y el sufrimiento del propio fallecido antes de morir se reclaman por una vía distinta, a nombre de su patrimonio.',
+      },
+      {
+        heading: 'La cobertura disponible fija el límite práctico',
+        body: 'Como en cualquier caso, el valor teórico sirve de poco si no hay de dónde cobrar. Hay que ubicar todas las fuentes posibles: la póliza de auto del responsable, una póliza comercial si conducía por trabajo, la cobertura de un negocio o de una propiedad, y a veces más de un responsable. En casos de muerte, buscar todas las capas de cobertura suele marcar una diferencia grande en lo que la familia recibe.',
+      },
+      {
+        heading: 'Por qué conviene actuar sin demora',
+        body: 'Además del peso emocional, hay razones prácticas para no esperar. La evidencia del hecho que causó la muerte, como un video, los restos de un vehículo o la memoria de los testigos, se pierde con el tiempo. Y el plazo legal corre desde la fecha del fallecimiento. Empezar a ordenar la información pronto no obliga a la familia a decidir nada de inmediato, pero preserva las opciones.',
+      },
+    ],
+    checklist: {
+      heading: 'Qué reunir, con calma y sin presión',
+      intro:
+        'No hace falta tenerlo todo de una vez. Cada documento ayuda a que la evaluación sea más precisa.',
+      items: [
+        'Acta de defunción y, si existe, el reporte del hecho que causó la muerte',
+        'Comprobantes de los ingresos y beneficios que aportaba la persona',
+        'Facturas de gastos funerarios y de entierro',
+        'La relación familiar de cada persona que podría reclamar',
+        'Datos del responsable y de cualquier seguro o bien conocido',
+        'Nombres y teléfonos de testigos del hecho',
+      ],
+    },
+    warning: {
+      heading: 'El plazo corre desde el fallecimiento',
+      body: 'En California el plazo general para reclamar por muerte por negligencia es de dos años desde la fecha del fallecimiento. Si el responsable es una entidad pública, primero hay que presentar un reclamo administrativo en unos seis meses. Perder ese plazo cierra el caso sin importar cuán clara sea la culpa.',
+    },
+    faqs: [
+      {
+        q: '¿Quién puede demandar por la muerte de un familiar?',
+        a: 'La ley de California da prioridad al cónyuge o pareja de hecho registrada y a los hijos. A falta de ellos, el derecho puede pasar a otros familiares según las reglas de herencia y a personas que dependían económicamente del fallecido.',
+      },
+      {
+        q: '¿Qué se puede recuperar exactamente?',
+        a: 'Las pérdidas económicas, como los ingresos y el apoyo que la persona aportaba, el valor de las tareas del hogar que hacía y los gastos funerarios; y las pérdidas no económicas, como la compañía y el apoyo. El sufrimiento del propio fallecido se reclama por una vía separada.',
+      },
+      {
+        q: '¿Cuánto se paga por una muerte por negligencia?',
+        a: 'No hay una cifra fija ni un promedio útil. Depende de la edad y los ingresos de la persona, de quién dependía de ella, de la relación familiar y, en la práctica, de la cobertura o los bienes disponibles para responder.',
+      },
+      {
+        q: '¿Importa el estatus migratorio de la familia?',
+        a: 'El derecho a reclamar por la muerte de un familiar no depende del estatus migratorio, y en los casos por lesiones y muerte esa información normalmente no es admisible. Tenemos una página dedicada a este tema.',
+      },
+      {
+        q: '¿Cuánto tiempo tenemos para reclamar?',
+        a: 'En general dos años desde el fallecimiento, y solo unos seis meses para el reclamo administrativo si el responsable es una entidad pública. Conviene confirmar la fecha límite pronto para no perder el derecho.',
+      },
+    ],
+  },
+
+  {
+    slug: '/es/cuanto-vale-un-caso-de-accidente-de-camion',
+    locale: 'es',
+    translationOf: '/how-much-is-a-truck-accident-case-worth-in-california',
+    category: 'Commercial',
+    cluster: 'Valor de un caso de accidente de camión',
+    title: 'Valor de un caso de accidente de camión',
+    eyebrow: 'Guía de valor del caso',
+    description:
+      'Por qué un choque con un camión comercial en California suele valer más: lesiones graves, varias pólizas y prueba que se pierde rápido.',
+    psychology: 'Me chocó un camión grande y no sé a quién reclamarle ni cuánto vale.',
+    cta: 'Identificar la cobertura de mi caso',
+    exampleQueries: [
+      'accidente con camión de carga quién paga',
+      'demanda por choque con tráiler california',
+      'cuánto vale un accidente con camión comercial',
+      'seguro de camiones comerciales california',
+    ],
+    signals: [
+      'Varias pólizas posibles',
+      'Empresa de transporte responsable',
+      'Bitácoras y caja negra',
+      'Lesiones graves',
+      'Prueba que se pierde rápido',
+      'Cobertura alta disponible',
+    ],
+    sections: {
+      whyItMatters:
+        'Un choque con un camión comercial no es un choque de autos más grande. Las lesiones suelen ser más graves, puede haber varias empresas responsables y varias pólizas, y existe evidencia propia del transporte que se destruye o se sobrescribe en poco tiempo si nadie la reclama de inmediato.',
+      whatToTrack: [
+        'El nombre de la empresa de transporte y del conductor, y a quién pertenece el camión',
+        'La carga que llevaba y quién la cargó',
+        'Las bitácoras de horas del conductor y los datos de la caja negra del camión',
+        'El reporte del accidente y los datos de todos los involucrados',
+        'Toda la atención recibida, desde la primera visita',
+      ],
+      howClearCaseHelps:
+        'ClearCaseIQ identifica a los posibles responsables y las capas de cobertura, y señala qué evidencia del camión conviene pedir que se conserve antes de que se pierda. ' +
+        NOT_A_LAW_FIRM,
+    },
+    intro:
+      'Los casos de camión comercial se distinguen de un choque común en tres cosas: las lesiones suelen ser más serias, casi siempre hay más de un responsable y más de una póliza, y hay evidencia que desaparece rápido. Esas tres diferencias, juntas, explican por qué estos casos valen más y por qué actuar pronto importa tanto.',
+    body: [
+      {
+        heading: 'No es un choque de autos más grande',
+        body: 'La diferencia de peso entre un camión de carga y un auto hace que las lesiones sean, en promedio, mucho más graves: fracturas, lesiones de columna, lesiones de cabeza y a veces consecuencias permanentes. Esa gravedad es el primer motor del valor, y también la razón por la que la parte contraria pelea estos casos con más recursos que un choque menor.',
+      },
+      {
+        heading: 'Casi siempre hay más de un responsable',
+        body: 'Detrás de un camión suele haber varias partes: el conductor, la empresa de transporte que lo emplea, el dueño del camión si es distinto, la empresa que cargó la mercancía y, a veces, el fabricante de una pieza que falló. Cada una puede tener su propia responsabilidad y su propia póliza. Identificar a todas es lo que distingue un reclamo bien armado de uno que se conforma con la primera póliza que aparece.',
+      },
+      {
+        heading: 'Varias pólizas y cobertura más alta',
+        body: 'Los camiones comerciales suelen estar obligados a llevar coberturas mucho mayores que un auto particular. Eso significa que, cuando la responsabilidad está bien establecida, hay más dinero disponible para responder por una lesión grave. Pero acceder a esa cobertura depende de identificar a la empresa correcta y de vincularla con el accidente, que no siempre es evidente en el lugar del choque.',
+      },
+      {
+        heading: 'La evidencia del camión se pierde pronto',
+        body: 'Un camión moderno guarda datos en una caja negra: velocidad, frenado y horas de conducción. El conductor lleva bitácoras de sus tiempos de manejo. Nada de eso dura para siempre; algunos registros se sobrescriben en semanas si nadie pide formalmente que se conserven. Una carta de preservación enviada pronto puede ser la diferencia entre probar que el conductor iba cansado o excedido de horas y quedarse sin esa prueba.',
+      },
+      {
+        heading: 'Por qué la primera oferta suele quedarse corta',
+        body: 'Cuando la aseguradora de la empresa ofrece pronto, suele ser antes de que se conozca el alcance real de las lesiones y antes de que se identifiquen todos los responsables. Aceptar esa cifra cierra el reclamo contra todos. En un caso con lesiones graves y varias pólizas en juego, la diferencia entre esa primera oferta y un resultado bien documentado puede ser enorme.',
+      },
+    ],
+    checklist: {
+      heading: 'Qué asegurar cuanto antes',
+      intro:
+        'Parte de esta evidencia solo existe en manos de la empresa y desaparece si nadie la reclama a tiempo.',
+      items: [
+        'Nombre de la empresa de transporte, del conductor y del dueño del camión',
+        'Fotos del camión, de las placas, de los logotipos y del lugar',
+        'El reporte del accidente y los datos de los testigos',
+        'Una carta pidiendo que se conserven la caja negra y las bitácoras',
+        'Todos los expedientes y facturas de la atención recibida',
+        'Comprobantes de los ingresos que dejó de recibir',
+      ],
+    },
+    warning: {
+      heading: 'La evidencia y el plazo corren en su contra',
+      body: 'El plazo general para reclamar por lesiones es de dos años, y de unos seis meses si un vehículo del gobierno estuvo involucrado. Pero en estos casos la evidencia del camión puede perderse mucho antes de esos plazos, así que pedir que se conserve no debe esperar.',
+    },
+    faqs: [
+      {
+        q: '¿Por qué un accidente con camión vale más que uno con un auto?',
+        a: 'Porque las lesiones suelen ser más graves, casi siempre hay más de un responsable y los camiones comerciales llevan coberturas más altas. Esos tres factores, cuando la responsabilidad está clara, elevan el valor frente a un choque común.',
+      },
+      {
+        q: '¿A quién le reclamo, al conductor o a la empresa?',
+        a: 'A menudo a varias partes: el conductor, la empresa que lo emplea, el dueño del camión y hasta quien cargó la mercancía. Cada una puede tener su propia responsabilidad y su propia póliza.',
+      },
+      {
+        q: '¿Qué es la caja negra y por qué importa?',
+        a: 'Es el registro electrónico del camión, con datos de velocidad, frenado y tiempos de manejo. Puede probar cómo ocurrió el choque, pero algunos datos se sobrescriben pronto, así que hay que pedir por escrito que se conserven.',
+      },
+      {
+        q: '¿Debo aceptar la primera oferta de la aseguradora?',
+        a: 'Conviene ser cauteloso. Las primeras ofertas suelen llegar antes de conocerse el alcance de las lesiones y de identificar a todos los responsables, y aceptarlas cierra el reclamo contra todos ellos.',
+      },
+      {
+        q: '¿Cuánto tiempo tengo para reclamar?',
+        a: 'En general dos años desde el choque, y unos seis meses si un vehículo del gobierno estuvo involucrado. Aparte de eso, la evidencia del camión puede perderse antes, así que actuar pronto protege el caso.',
+      },
+    ],
+  },
+
+  {
+    slug: '/es/cuanto-vale-un-caso-de-atropello-de-peaton',
+    locale: 'es',
+    translationOf: '/how-much-is-a-pedestrian-accident-case-worth',
+    category: 'Commercial',
+    cluster: 'Valor de un caso de atropello de peatón',
+    title: '¿Cuánto vale un caso de atropello de peatón?',
+    eyebrow: 'Guía de valor del caso',
+    description:
+      'Qué determina el valor de un atropello de peatón en California: gravedad de la lesión, culpa del conductor y coberturas disponibles.',
+    psychology: 'Me atropelló un carro caminando y no sé qué me corresponde.',
+    cta: 'Abrir la calculadora de acuerdos',
+    exampleQueries: [
+      'me atropelló un carro cuánto me toca',
+      'demanda por atropello de peatón california',
+      'atropello en paso de peatones indemnización',
+      'me atropellaron y el conductor no tenía seguro',
+    ],
+    signals: [
+      'Gravedad de la lesión',
+      'Culpa del conductor',
+      'Su propia cobertura sin seguro',
+      'Paso de peatones o cruce',
+      'Testigos y video',
+      'Continuidad del cuidado',
+    ],
+    sections: {
+      whyItMatters:
+        'Una persona a pie no tiene nada que amortigüe el golpe, así que las lesiones de un atropello suelen ser graves. Eso eleva el valor, pero la cifra real depende de quién tuvo la culpa y, sobre todo, de qué cobertura hay para responder cuando el conductor tiene poco o ningún seguro.',
+      whatToTrack: [
+        'Dónde ocurrió: paso de peatones, esquina, banqueta o media calle',
+        'Qué hacía el conductor: velocidad, giro, distracción o luz en rojo',
+        'Datos del conductor y de su seguro, y si huyó del lugar',
+        'Su propia póliza de auto y la cobertura para conductores sin seguro',
+        'La lesión, la atención recibida y la continuidad del cuidado',
+      ],
+      howClearCaseHelps:
+        'ClearCaseIQ ordena los hechos del atropello y sus expedientes, identifica las coberturas que podrían responder, incluida la suya, y señala qué evidencia conviene conservar. ' +
+        NOT_A_LAW_FIRM,
+    },
+    intro:
+      'Cuando un carro atropella a una persona a pie, la lesión suele ser seria justamente porque no hay carrocería que la proteja. Por eso estos casos parten de un valor alto. Pero el valor teórico y lo que se recupera son cosas distintas, y la diferencia casi siempre está en la cobertura disponible. Esta página explica qué mueve la cifra.',
+    body: [
+      {
+        heading: 'La gravedad marca el punto de partida',
+        body: 'Un atropello concentra toda la fuerza del impacto en el cuerpo de la persona, sin nada que la absorba. Fracturas, lesiones de cabeza, daño a la columna y lesiones internas son frecuentes. Esa gravedad, bien documentada desde la primera atención, es el primer motor del valor, y también la razón por la que la continuidad del cuidado pesa tanto en estos casos.',
+      },
+      {
+        heading: 'La culpa no siempre es del conductor, pero suele serlo',
+        body: 'El peatón tiene preferencia en muchos cruces, pero no en todos ni en toda circunstancia. La aseguradora buscará argumentar que usted cruzó fuera del paso, contra la señal o de forma imprevista. Bajo la negligencia comparativa pura, su parte de culpa reduce la recuperación pero rara vez la elimina. Dónde y cómo ocurrió el atropello, con testigos y video, es lo que define ese reparto.',
+      },
+      {
+        heading: 'El gran problema: el conductor con poco seguro',
+        body: 'Aquí está la clave práctica de casi todos estos casos. Si el conductor llevaba el seguro mínimo o ninguno, o si huyó y no se le identificó, la cifra real ya no depende de su póliza. Depende de la suya. La cobertura para conductores sin seguro o con seguro insuficiente de su propia póliza de auto puede responder por un atropello, incluso si usted iba a pie y aunque el otro conductor haya escapado.',
+      },
+      {
+        heading: 'Su propia póliza puede ser la que pague',
+        body: 'Mucha gente no sabe que su seguro de auto la protege como peatón. La cobertura para conductores sin seguro suele aplicar cuando a usted lo atropella alguien sin cobertura suficiente, sea usted quien conducía, un pasajero o una persona a pie. Revisar su propia póliza cuanto antes, antes de aceptar cualquier oferta, es uno de los pasos que más cambia el resultado en un atropello.',
+      },
+      {
+        heading: 'La evidencia del lugar se pierde rápido',
+        body: 'El video de una cámara de tráfico o de un negocio cercano puede mostrar quién tenía el paso, pero se borra en poco tiempo. Los testigos que se detuvieron a ayudar se van y se olvidan de los detalles. Conseguir el nombre de esos testigos y pedir que se conserve cualquier video el mismo día puede ser lo que decida quién tuvo la culpa.',
+      },
+    ],
+    checklist: {
+      heading: 'Qué reunir después de un atropello',
+      intro:
+        'Algunas de estas cosas solo existen los primeros días. Vale la pena buscarlas pronto.',
+      items: [
+        'El reporte del accidente y los datos del conductor y su seguro',
+        'Nombres y teléfonos de los testigos que se detuvieron',
+        'Fotos del lugar, del cruce y de la posición de los vehículos',
+        'Una nota pidiendo que se conserve el video de cámaras cercanas',
+        'Su propia póliza de auto, para revisar la cobertura sin seguro',
+        'Expedientes y facturas de toda la atención recibida',
+      ],
+    },
+    warning: {
+      heading: 'No acepte una oferta sin revisar su propia póliza',
+      body: 'Si el conductor tenía poco o ningún seguro, su cobertura para conductores sin seguro puede ser la fuente principal de dinero. Aceptar la oferta del conductor y firmar la liberación antes de revisar su propia póliza puede cerrar la puerta a esa cobertura.',
+    },
+    faqs: [
+      {
+        q: '¿Cuánto vale que me atropelle un carro?',
+        a: 'No hay una cifra fija. Los atropellos suelen partir de un valor alto por la gravedad de las lesiones, pero lo que se recupera depende de la culpa y, sobre todo, de la cobertura disponible cuando el conductor tiene poco o ningún seguro.',
+      },
+      {
+        q: '¿Y si el conductor huyó o no tenía seguro?',
+        a: 'Su propia cobertura para conductores sin seguro o con seguro insuficiente puede responder por el atropello, incluso si el conductor escapó. Por eso conviene revisar su póliza de auto antes de aceptar cualquier cosa.',
+      },
+      {
+        q: '¿Pierdo el caso si crucé fuera del paso de peatones?',
+        a: 'No necesariamente. Su parte de culpa reduce la recuperación bajo la negligencia comparativa pura, pero rara vez la elimina. El lugar y la forma del atropello, con testigos y video, definen ese reparto.',
+      },
+      {
+        q: '¿Mi seguro de auto me cubre aunque iba a pie?',
+        a: 'Con frecuencia sí. La cobertura para conductores sin seguro suele aplicar cuando a usted lo atropella alguien sin cobertura suficiente, sea que usted condujera, fuera pasajero o caminara.',
+      },
+      {
+        q: '¿Qué es lo más urgente que puedo hacer?',
+        a: 'Conseguir los datos de los testigos y pedir que se conserve el video de cámaras cercanas el mismo día, además de buscar atención pronto y revisar su propia póliza de auto.',
+      },
+    ],
+  },
+
+  {
+    slug: '/es/cuanto-vale-un-caso-de-accidente-de-bicicleta',
+    locale: 'es',
+    translationOf: '/how-much-is-a-bicycle-accident-case-worth',
+    category: 'Commercial',
+    cluster: 'Valor de un caso de accidente de bicicleta',
+    title: '¿Cuánto vale un caso de accidente de bicicleta?',
+    eyebrow: 'Guía de valor del caso',
+    description:
+      'Qué determina el valor de un choque en bicicleta en California: gravedad, culpa del conductor, ley de los tres pies y coberturas.',
+    psychology: 'Me chocó un carro andando en bicicleta y no sé cuánto vale mi caso.',
+    cta: 'Abrir la calculadora de acuerdos',
+    exampleQueries: [
+      'me chocó un carro en bicicleta indemnización',
+      'demanda por accidente de bicicleta california',
+      'ley de los tres pies para ciclistas california',
+      'ciclista atropellado quién paga',
+    ],
+    signals: [
+      'Gravedad de la lesión',
+      'Culpa del conductor',
+      'Ley de los tres pies',
+      'Su propia cobertura sin seguro',
+      'Testigos y video',
+      'Continuidad del cuidado',
+    ],
+    sections: {
+      whyItMatters:
+        'Un ciclista tiene los mismos derechos que un conductor en la vía, pero nada que lo proteja del impacto. Por eso las lesiones son a menudo graves y el valor parte alto, aunque la cifra final depende de la culpa del conductor y de la cobertura que exista para responder.',
+      whatToTrack: [
+        'Cómo ocurrió el choque: giro del carro, puerta abierta, paso demasiado cerca',
+        'Datos del conductor y de su seguro, y si huyó del lugar',
+        'Su propia póliza de auto y la cobertura para conductores sin seguro',
+        'La bicicleta y el casco, que conviene conservar sin repararlos',
+        'La lesión, la atención recibida y la continuidad del cuidado',
+      ],
+      howClearCaseHelps:
+        'ClearCaseIQ ordena los hechos del choque y sus expedientes, identifica las coberturas que podrían responder, incluida la suya, y le indica qué conservar. ' +
+        NOT_A_LAW_FIRM,
+    },
+    intro:
+      'Un ciclista lesionado por un carro parte de una posición fuerte, porque en California tiene los mismos derechos que un conductor y la ley lo protege de forma expresa. Pero el valor teórico y lo que se recupera dependen de dos cosas: quién tuvo la culpa y qué cobertura hay disponible. Esta página explica ambas.',
+    body: [
+      {
+        heading: 'El ciclista tiene los mismos derechos que un conductor',
+        body: 'En California quien va en bicicleta tiene, en general, los mismos derechos y deberes que quien conduce un vehículo. Un conductor que gira delante del ciclista, que abre la puerta en su camino o que lo pasa demasiado cerca puede ser responsable, igual que en un choque entre autos. Ese punto de partida legal es una ventaja, siempre que se documente bien cómo ocurrió el choque.',
+      },
+      {
+        heading: 'La ley de los tres pies y otras protecciones',
+        body: 'La ley de California obliga a un conductor a dejar al menos tres pies de distancia al rebasar a un ciclista. Pasar más cerca, invadir el carril de la bicicleta o abrir una puerta sin mirar son conductas que suelen ser negligentes. Cuando el choque encaja en una de esas reglas, la responsabilidad del conductor es más fácil de establecer y el caso se fortalece.',
+      },
+      {
+        heading: 'La gravedad de la lesión fija el rango',
+        body: 'Sin carrocería ni cinturón, un ciclista recibe el impacto en el cuerpo. Fracturas, lesiones de cabeza incluso con casco y lesiones de columna son comunes. La gravedad documentada desde la primera atención es el motor principal del valor, y la continuidad del cuidado es lo que sostiene que la lesión fue real y seria.',
+      },
+      {
+        heading: 'Cuando el conductor tiene poco o ningún seguro',
+        body: 'Igual que con los peatones, el problema práctico aparece cuando el conductor llevaba el seguro mínimo, no tenía o huyó. En esos casos su propia cobertura para conductores sin seguro o con seguro insuficiente puede responder por el choque, aunque usted iba en bicicleta. Revisar su póliza de auto antes de aceptar cualquier oferta es uno de los pasos que más cambia el resultado.',
+      },
+      {
+        heading: 'Conserve la bicicleta y el casco',
+        body: 'La bicicleta dañada y el casco golpeado son evidencia. Muestran la fuerza del impacto y a veces contradicen la versión del conductor. Conviene no repararlos ni tirarlos hasta que el caso avance, y fotografiarlos desde varios ángulos. Si una pieza falló, ese detalle puede abrir además un reclamo aparte contra el fabricante.',
+      },
+    ],
+    checklist: {
+      heading: 'Qué reunir después del choque',
+      intro:
+        'Algunas de estas cosas solo están disponibles los primeros días.',
+      items: [
+        'El reporte del accidente y los datos del conductor y su seguro',
+        'Nombres y teléfonos de testigos',
+        'Fotos del lugar, de la bicicleta, del casco y de las lesiones',
+        'Una nota pidiendo que se conserve el video de cámaras cercanas',
+        'Su propia póliza de auto, para revisar la cobertura sin seguro',
+        'Expedientes y facturas de toda la atención recibida',
+      ],
+    },
+    warning: {
+      heading: 'No repare la bicicleta ni acepte una oferta sin revisar su póliza',
+      body: 'La bicicleta y el casco son evidencia, así que conviene conservarlos. Y si el conductor tenía poco o ningún seguro, su propia cobertura para conductores sin seguro puede ser la fuente principal de dinero, de modo que revísela antes de firmar cualquier liberación.',
+    },
+    faqs: [
+      {
+        q: '¿Cuánto vale un accidente de bicicleta?',
+        a: 'No hay una cifra fija. Suele partir de un valor alto por la gravedad de las lesiones, pero lo que se recupera depende de la culpa del conductor y de la cobertura disponible cuando este tiene poco o ningún seguro.',
+      },
+      {
+        q: '¿Qué es la ley de los tres pies?',
+        a: 'Es la norma de California que obliga a un conductor a dejar al menos tres pies al rebasar a un ciclista. Pasar más cerca suele ser negligencia y ayuda a establecer la responsabilidad del conductor.',
+      },
+      {
+        q: '¿Y si el conductor no tenía seguro o huyó?',
+        a: 'Su propia cobertura para conductores sin seguro o con seguro insuficiente puede responder por el choque, aunque usted iba en bicicleta. Por eso conviene revisar su póliza de auto antes de aceptar nada.',
+      },
+      {
+        q: '¿Debo reparar mi bicicleta?',
+        a: 'Todavía no. La bicicleta y el casco son evidencia de la fuerza del impacto, así que conviene conservarlos sin reparar y fotografiarlos hasta que el caso avance.',
+      },
+      {
+        q: '¿Pierdo el caso si no llevaba casco?',
+        a: 'No de forma automática. Para un adulto el casco no es obligatorio, y su ausencia puede discutirse dentro de la negligencia comparativa, pero rara vez elimina un caso cuando la culpa del conductor es clara.',
+      },
+    ],
+  },
 ]
 
 export { NOT_A_LAW_FIRM }

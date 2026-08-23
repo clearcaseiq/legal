@@ -16,6 +16,7 @@ import {
 import { topicHubs } from './data/seoTopicHubDefs'
 import { CALCULATOR_VARIANT_SLUGS } from './data/settlementCalculatorVariantSlugs'
 import { LANDING_ES_SLUGS } from './data/seoLandingPagesEsSlugs'
+import { LANDING_ZH_SLUGS } from './data/seoLandingPagesZhSlugs'
 import { ensureAppMessages } from './i18n'
 
 /**
@@ -246,6 +247,8 @@ const PaymentCancel = lazy(() => import('./pages/PaymentCancel'))
 const SeoLandingPage = dynamic(() => import('./pages/SeoLandingPage'), { ssr: true })
 const SeoLandingPageEs = dynamic(() => import('./pages/SeoLandingPageEs'), { ssr: true })
 const TopicsEs = dynamic(() => import('./pages/TopicsEs'), { ssr: true })
+const SeoLandingPageZh = dynamic(() => import('./pages/SeoLandingPageZh'), { ssr: true })
+const TopicsZh = dynamic(() => import('./pages/TopicsZh'), { ssr: true })
 const TopicHub = dynamic(() => import('./pages/TopicHub'), { ssr: true })
 
 const NotFound = lazy(() => import('./pages/NotFound'))
@@ -531,6 +534,13 @@ function App() {
             <Route path="/zh/bangzhu-zhongxin" element={<Help />} />
             <Route path="/zh/pilu-shengming" element={<Disclosures />} />
             <Route path="/zh/lvshi-wangluo" element={<AttorneyNetwork />} />
+            {/* The Chinese landing pages and their hub. A written template like the
+                Spanish one, because the English template falls back to English prose
+                the same way. See SeoLandingPageZh. */}
+            <Route path="/zh/zhuti" element={<TopicsZh />} />
+            {LANDING_ZH_SLUGS.map((slug) => (
+              <Route key={slug} path={slug} element={<SeoLandingPageZh />} />
+            ))}
             {/* Consolidated: the old marketing page now points at the single attorney landing page. */}
             <Route path="/for-attorneys" element={<Navigate to="/attorney-network" replace />} />
             <Route path="/claim/:token" element={<ClaimProfile />} />
@@ -727,6 +737,12 @@ function App() {
             <Route path="/sacramento-scooter-accident" element={<SeoLandingPage />} />
             <Route path="/oakland-scooter-accident" element={<SeoLandingPage />} />
             <Route path="/santa-monica-scooter-accident" element={<SeoLandingPage />} />
+            {/* Niche wave 5 batch 3: scooter to 12-metro standard (Fresno, Riverside, San Bernardino, Bakersfield, Anaheim). */}
+            <Route path="/fresno-scooter-accident" element={<SeoLandingPage />} />
+            <Route path="/riverside-scooter-accident" element={<SeoLandingPage />} />
+            <Route path="/san-bernardino-scooter-accident" element={<SeoLandingPage />} />
+            <Route path="/bakersfield-scooter-accident" element={<SeoLandingPage />} />
+            <Route path="/anaheim-scooter-accident" element={<SeoLandingPage />} />
             {/* Geo layer batch 14: construction (third-party) x build-heavy metros. */}
             <Route path="/los-angeles-construction-accident" element={<SeoLandingPage />} />
             <Route path="/san-francisco-construction-accident" element={<SeoLandingPage />} />
@@ -1174,11 +1190,19 @@ function App() {
             <Route path="/san-jose-horseback-riding-injury-claim" element={<SeoLandingPage />} />
             <Route path="/fresno-horseback-riding-injury-claim" element={<SeoLandingPage />} />
             <Route path="/norco-horseback-riding-injury-claim" element={<SeoLandingPage />} />
-            {/* Missing-vertical hub: e-bike collision x LA, San Diego, San Francisco, San Jose. */}
+            {/* Missing-vertical hub: e-bike collision, deepened to the 12-metro standard. */}
             <Route path="/los-angeles-e-bike-accident" element={<SeoLandingPage />} />
             <Route path="/san-diego-e-bike-accident" element={<SeoLandingPage />} />
             <Route path="/san-francisco-e-bike-accident" element={<SeoLandingPage />} />
             <Route path="/san-jose-e-bike-accident" element={<SeoLandingPage />} />
+            <Route path="/sacramento-e-bike-accident" element={<SeoLandingPage />} />
+            <Route path="/fresno-e-bike-accident" element={<SeoLandingPage />} />
+            <Route path="/long-beach-e-bike-accident" element={<SeoLandingPage />} />
+            <Route path="/oakland-e-bike-accident" element={<SeoLandingPage />} />
+            <Route path="/riverside-e-bike-accident" element={<SeoLandingPage />} />
+            <Route path="/san-bernardino-e-bike-accident" element={<SeoLandingPage />} />
+            <Route path="/bakersfield-e-bike-accident" element={<SeoLandingPage />} />
+            <Route path="/anaheim-e-bike-accident" element={<SeoLandingPage />} />
             {/* Geo layer batch 53: dog-bite city guides (batch 2) x metros. */}
             <Route path="/san-jose-dog-bite" element={<SeoLandingPage />} />
             <Route path="/fresno-dog-bite" element={<SeoLandingPage />} />

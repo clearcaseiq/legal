@@ -203,6 +203,10 @@ export function formatContentDate(iso: string, locale: LanguageCode = DEFAULT_LA
   // one-character disagreement is a hydration mismatch that discards the
   // server's markup for the whole subtree.
   if (locale === 'es') return `${day} de ${MONTHS_ES[month - 1]} de ${year}`
+  // Same reasoning as Spanish: spelled out from parts so the server render and
+  // the hydration agree exactly, rather than trusting two ICU builds to format
+  // a Chinese date identically.
+  if (locale === 'zh') return `${year}年${month}月${day}日`
   return new Date(year, month - 1, day).toLocaleDateString('en-US', {
     year: 'numeric',
     month: 'long',
@@ -280,6 +284,24 @@ export function ogImageUrl(title: string, eyebrow = '', origin: string = siteUrl
 }
 
 /**
+ * Per-locale breadcrumb chrome for a translated page.
+ *
+ * A translated page's structured trail has to stay inside its own language:
+ * sending a Chinese page up to a Spanish "Inicio" describes a path the reader
+ * cannot take and contradicts the rendered breadcrumb. `inLanguage` follows the
+ * hreflang convention — Simplified Chinese is `zh-Hans`, not a bare `zh` — so a
+ * future Traditional set is not silently claimed by this one.
+ */
+const TRANSLATED_NAV: Record<string, { home: string; homeLabel: string; topics: string; topicsLabel: string; inLanguage: string }> = {
+  es: { home: '/es', homeLabel: 'Inicio', topics: '/es/temas', topicsLabel: 'Temas', inLanguage: 'es' },
+  zh: { home: '/zh', homeLabel: '首页', topics: '/zh/zhuti', topicsLabel: '主题', inLanguage: 'zh-Hans' },
+}
+
+function translatedNav(locale: LanguageCode) {
+  return TRANSLATED_NAV[locale] ?? TRANSLATED_NAV.es
+}
+
+/**
  * Structured data for a marketing page that has none of its own.
  *
  * Most marketing pages emit schema from their own component. `/attorneys`,
@@ -299,6 +321,7 @@ export function buildMarketingPageSchema(
   const canonical = `${origin}${page.path === '/' ? '' : page.path}`
   const locale = page.locale ?? DEFAULT_LANGUAGE
   const isTranslated = locale !== DEFAULT_LANGUAGE
+  const nav = translatedNav(locale)
 
   const name = bareTitle(page.title)
 
@@ -309,7 +332,7 @@ export function buildMarketingPageSchema(
         '@type': page.schemaType || 'WebPage',
         name,
         description: clampDescription(page.description),
-        inLanguage: isTranslated ? locale : 'en-US',
+        inLanguage: isTranslated ? nav.inLanguage : 'en-US',
         url: canonical,
         isPartOf: { '@type': 'WebSite', name: 'ClearCaseIQ', url: origin },
         publisher: { '@type': 'Organization', name: 'ClearCaseIQ', url: origin },
@@ -320,8 +343,8 @@ export function buildMarketingPageSchema(
           {
             '@type': 'ListItem',
             position: 1,
-            name: isTranslated ? 'Inicio' : 'Home',
-            item: isTranslated ? `${origin}/es` : `${origin}/`,
+            name: isTranslated ? nav.homeLabel : 'Home',
+            item: isTranslated ? `${origin}${nav.home}` : `${origin}/`,
           },
           { '@type': 'ListItem', position: 2, name, item: canonical },
         ],
@@ -349,12 +372,13 @@ export function buildLandingPageSchema(page: LandingPage, origin: string = siteU
   const canonical = landingPageCanonical(page, origin)
   const locale = page.locale ?? DEFAULT_LANGUAGE
   const isTranslated = locale !== DEFAULT_LANGUAGE
+  const nav = translatedNav(locale)
 
   // The trail has to stay inside the page's own language. Sending a Spanish page's
   // breadcrumb up to the English home and an English hub describes a path the
   // reader cannot take and contradicts what the rendered breadcrumb shows.
   const breadcrumbs: Array<Record<string, unknown>> = isTranslated
-    ? [{ '@type': 'ListItem', position: 1, name: 'Inicio', item: `${origin}/es` }]
+    ? [{ '@type': 'ListItem', position: 1, name: nav.homeLabel, item: `${origin}${nav.home}` }]
     : [{ '@type': 'ListItem', position: 1, name: 'Home', item: `${origin}/` }]
 
   // Point the section crumb at the category hub. It used to derive a URL from the
@@ -365,8 +389,8 @@ export function buildLandingPageSchema(page: LandingPage, origin: string = siteU
     breadcrumbs.push({
       '@type': 'ListItem',
       position: breadcrumbs.length + 1,
-      name: 'Temas',
-      item: `${origin}/es/temas`,
+      name: nav.topicsLabel,
+      item: `${origin}${nav.topics}`,
     })
   } else if (hub) {
     breadcrumbs.push({
@@ -392,7 +416,7 @@ export function buildLandingPageSchema(page: LandingPage, origin: string = siteU
         '@type': 'Article',
         headline: page.title,
         description: page.description,
-        inLanguage: isTranslated ? 'es' : 'en-US',
+        inLanguage: isTranslated ? nav.inLanguage : 'en-US',
         // Injury and treatment content is health-adjacent, where recency is part
         // of how the page is judged. Without these the article reads as undated.
         datePublished: landingPageFirstPublished(page),
