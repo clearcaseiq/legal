@@ -48,6 +48,7 @@ import { negligentSecurityCityGuidePages } from './seoNegligentSecurityCityGuide
 import { negligentSecurityCityGuidePages2 } from './seoNegligentSecurityCityGuides2'
 import { negligentSecurityCityGuidePages3 } from './seoNegligentSecurityCityGuides3'
 import { boatingCityGuidePages } from './seoBoatingCityGuides'
+import { boatingCityGuidePages2 } from './seoBoatingCityGuides2'
 import { burnInjuryCityGuidePages } from './seoBurnInjuryCityGuides'
 import { burnInjuryCityGuidePages2 } from './seoBurnInjuryCityGuides2'
 import { burnInjuryCityGuidePages3 } from './seoBurnInjuryCityGuides3'
@@ -56,22 +57,34 @@ import { wrongfulDeathCityGuidePages2 } from './seoWrongfulDeathCityGuides2'
 import { wrongfulDeathCityGuidePages3 } from './seoWrongfulDeathCityGuides3'
 import { duiVictimCityGuidePages } from './seoDuiVictimCityGuides'
 import { duiVictimCityGuidePages2 } from './seoDuiVictimCityGuides2'
+import { duiVictimCityGuidePages3 } from './seoDuiVictimCityGuides3'
 import { themeParkCityGuidePages } from './seoThemeParkCityGuides'
 import { poolDrowningCityGuidePages } from './seoPoolDrowningCityGuides'
 import { poolDrowningCityGuidePages2 } from './seoPoolDrowningCityGuides2'
+import { poolDrowningCityGuidePages3 } from './seoPoolDrowningCityGuides3'
 import { deliveryVehicleCityGuidePages } from './seoDeliveryVehicleCityGuides'
+import { deliveryVehicleCityGuidePages2 } from './seoDeliveryVehicleCityGuides2'
 import { uninsuredMotoristCityGuidePages } from './seoUninsuredMotoristCityGuides'
 import { uninsuredMotoristCityGuidePages2 } from './seoUninsuredMotoristCityGuides2'
+import { uninsuredMotoristCityGuidePages3 } from './seoUninsuredMotoristCityGuides3'
 import { foodPoisoningCityGuidePages } from './seoFoodPoisoningCityGuides'
+import { foodPoisoningCityGuidePages2 } from './seoFoodPoisoningCityGuides2'
 import { wildfireCityGuidePages } from './seoWildfireCityGuides'
+import { wildfireCityGuidePages2 } from './seoWildfireCityGuides2'
 import { dangerousRoadwayCityGuidePages } from './seoDangerousRoadwayCityGuides'
 import { dangerousRoadwayCityGuidePages2 } from './seoDangerousRoadwayCityGuides2'
+import { dangerousRoadwayCityGuidePages3 } from './seoDangerousRoadwayCityGuides3'
 import { elderAbuseCityGuidePages } from './seoElderAbuseCityGuides'
 import { elderAbuseCityGuidePages2 } from './seoElderAbuseCityGuides2'
+import { elderAbuseCityGuidePages3 } from './seoElderAbuseCityGuides3'
 import { apartmentInjuryCityGuidePages } from './seoApartmentInjuryCityGuides'
+import { apartmentInjuryCityGuidePages2 } from './seoApartmentInjuryCityGuides2'
 import { trainAccidentCityGuidePages } from './seoTrainAccidentCityGuides'
+import { trainAccidentCityGuidePages2 } from './seoTrainAccidentCityGuides2'
 import { warehouseInjuryCityGuidePages } from './seoWarehouseInjuryCityGuides'
+import { warehouseInjuryCityGuidePages2 } from './seoWarehouseInjuryCityGuides2'
 import { farmInjuryCityGuidePages } from './seoFarmInjuryCityGuides'
+import { farmInjuryCityGuidePages2 } from './seoFarmInjuryCityGuides2'
 import { birthInjuryCityGuidePages } from './seoBirthInjuryCityGuides'
 import { birthInjuryCityGuidePages2 } from './seoBirthInjuryCityGuides2'
 import { birthInjuryCityGuidePages3 } from './seoBirthInjuryCityGuides3'
@@ -82,28 +95,50 @@ import { spinalInjuryCityGuidePages } from './seoSpinalInjuryCityGuides'
 import { spinalInjuryCityGuidePages2 } from './seoSpinalInjuryCityGuides2'
 import { spinalInjuryCityGuidePages3 } from './seoSpinalInjuryCityGuides3'
 import { childInjuryCityGuidePages } from './seoChildInjuryCityGuides'
+import { childInjuryCityGuidePages2 } from './seoChildInjuryCityGuides2'
 import { vehicleDefectCityGuidePages } from './seoVehicleDefectCityGuides'
+import { vehicleDefectCityGuidePages2 } from './seoVehicleDefectCityGuides2'
 import { carbonMonoxideCityGuidePages } from './seoCarbonMonoxideCityGuides'
+import { carbonMonoxideCityGuidePages2 } from './seoCarbonMonoxideCityGuides2'
 import { trampolineParkCityGuidePages } from './seoTrampolineParkCityGuides'
 import { aviationCityGuidePages } from './seoAviationCityGuides'
+import { aviationCityGuidePages2 } from './seoAviationCityGuides2'
 import { electrocutionCityGuidePages } from './seoElectrocutionCityGuides'
+import { electrocutionCityGuidePages2 } from './seoElectrocutionCityGuides2'
 import { securityForceCityGuidePages } from './seoSecurityForceCityGuides'
+import { securityForceCityGuidePages2 } from './seoSecurityForceCityGuides2'
 import { elevatorCityGuidePages } from './seoElevatorCityGuides'
+import { elevatorCityGuidePages2 } from './seoElevatorCityGuides2'
 import { moldHabitabilityCityGuidePages } from './seoMoldHabitabilityCityGuides'
+import { moldHabitabilityCityGuidePages2 } from './seoMoldHabitabilityCityGuides2'
+import { scooterCityGuidePages2 } from './seoScooterCityGuides2'
 import { offRoadVehicleCityGuidePages } from './seoOffRoadVehicleCityGuides'
+import { offRoadVehicleCityGuidePages2 } from './seoOffRoadVehicleCityGuides2'
 import { dramShopCityGuidePages } from './seoDramShopCityGuides'
+import { dramShopCityGuidePages2 } from './seoDramShopCityGuides2'
 import { consumerProductCityGuidePages } from './seoConsumerProductCityGuides'
+import { consumerProductCityGuidePages2 } from './seoConsumerProductCityGuides2'
 import { hotelInjuryCityGuidePages } from './seoHotelInjuryCityGuides'
+import { hotelInjuryCityGuidePages2 } from './seoHotelInjuryCityGuides2'
 import { gymInjuryCityGuidePages } from './seoGymInjuryCityGuides'
+import { gymInjuryCityGuidePages2 } from './seoGymInjuryCityGuides2'
 import { eventCrowdCityGuidePages } from './seoEventCrowdCityGuides'
+import { eventCrowdCityGuidePages2 } from './seoEventCrowdCityGuides2'
+import { themeParkCityGuidePages2 } from './seoThemeParkCityGuides2'
+import { trampolineParkCityGuidePages2 } from './seoTrampolineParkCityGuides2'
 import { vacationRentalCityGuidePages } from './seoVacationRentalCityGuides'
+import { vacationRentalCityGuidePages2 } from './seoVacationRentalCityGuides2'
 import { skiResortCityGuidePages } from './seoSkiResortCityGuides'
+import { skiResortCityGuidePages2 } from './seoSkiResortCityGuides2'
 import { equestrianCityGuidePages } from './seoEquestrianCityGuides'
+import { equestrianCityGuidePages2 } from './seoEquestrianCityGuides2'
+import { ebikeCityGuidePages } from './seoEbikeCityGuides'
 import { dogBiteCityGuidePages2 } from './seoDogBiteCityGuides2'
 import { slipAndFallCityGuidePages2 } from './seoSlipAndFallCityGuides2'
 import { truckAccidentCityGuidePages2 } from './seoTruckAccidentCityGuides2'
 import { truckAccidentCityGuidePages3 } from './seoTruckAccidentCityGuides3'
 import { transitCityGuidePages2 } from './seoTransitCityGuides2'
+import { transitCityGuidePages3 } from './seoTransitCityGuides3'
 import { rideshareCityGuidePages3 } from './seoRideshareCityGuides3'
 import { motorcycleCityGuidePages3 } from './seoMotorcycleCityGuides3'
 import { dogBiteCityGuidePages3 } from './seoDogBiteCityGuides3'
@@ -223,6 +258,7 @@ export const CONTENT_UPDATED = {
   negligentSecurityCityGuides2: '2026-08-22',
   negligentSecurityCityGuides3: '2026-08-22',
   boatingCityGuides: '2026-08-21',
+  boatingCityGuides2: '2026-08-22',
   burnInjuryCityGuides: '2026-08-21',
   burnInjuryCityGuides2: '2026-08-22',
   burnInjuryCityGuides3: '2026-08-22',
@@ -231,22 +267,35 @@ export const CONTENT_UPDATED = {
   wrongfulDeathCityGuides3: '2026-08-22',
   duiVictimCityGuides: '2026-08-21',
   duiVictimCityGuides2: '2026-08-22',
+  duiVictimCityGuides3: '2026-08-22',
   themeParkCityGuides: '2026-08-21',
+  themeParkCityGuides2: '2026-08-22',
   poolDrowningCityGuides: '2026-08-21',
   poolDrowningCityGuides2: '2026-08-22',
+  poolDrowningCityGuides3: '2026-08-22',
   deliveryVehicleCityGuides: '2026-08-21',
+  deliveryVehicleCityGuides2: '2026-08-22',
   uninsuredMotoristCityGuides: '2026-08-21',
   uninsuredMotoristCityGuides2: '2026-08-22',
+  uninsuredMotoristCityGuides3: '2026-08-22',
   foodPoisoningCityGuides: '2026-08-21',
+  foodPoisoningCityGuides2: '2026-08-22',
   wildfireCityGuides: '2026-08-21',
+  wildfireCityGuides2: '2026-08-22',
   dangerousRoadwayCityGuides: '2026-08-21',
   dangerousRoadwayCityGuides2: '2026-08-22',
+  dangerousRoadwayCityGuides3: '2026-08-22',
   elderAbuseCityGuides: '2026-08-21',
   elderAbuseCityGuides2: '2026-08-21',
+  elderAbuseCityGuides3: '2026-08-22',
   apartmentInjuryCityGuides: '2026-08-21',
+  apartmentInjuryCityGuides2: '2026-08-22',
   trainAccidentCityGuides: '2026-08-21',
+  trainAccidentCityGuides2: '2026-08-22',
   warehouseInjuryCityGuides: '2026-08-21',
+  warehouseInjuryCityGuides2: '2026-08-22',
   farmInjuryCityGuides: '2026-08-21',
+  farmInjuryCityGuides2: '2026-08-22',
   birthInjuryCityGuides: '2026-08-21',
   birthInjuryCityGuides2: '2026-08-22',
   birthInjuryCityGuides3: '2026-08-22',
@@ -257,28 +306,49 @@ export const CONTENT_UPDATED = {
   spinalInjuryCityGuides2: '2026-08-22',
   spinalInjuryCityGuides3: '2026-08-22',
   childInjuryCityGuides: '2026-08-21',
+  childInjuryCityGuides2: '2026-08-22',
   vehicleDefectCityGuides: '2026-08-21',
+  vehicleDefectCityGuides2: '2026-08-22',
   carbonMonoxideCityGuides: '2026-08-21',
+  carbonMonoxideCityGuides2: '2026-08-22',
   trampolineParkCityGuides: '2026-08-21',
+  trampolineParkCityGuides2: '2026-08-22',
   aviationCityGuides: '2026-08-21',
+  aviationCityGuides2: '2026-08-22',
   electrocutionCityGuides: '2026-08-21',
+  electrocutionCityGuides2: '2026-08-22',
   securityForceCityGuides: '2026-08-21',
+  securityForceCityGuides2: '2026-08-22',
   elevatorCityGuides: '2026-08-21',
+  elevatorCityGuides2: '2026-08-22',
   moldHabitabilityCityGuides: '2026-08-21',
+  moldHabitabilityCityGuides2: '2026-08-22',
+  scooterCityGuides2: '2026-08-22',
   offRoadVehicleCityGuides: '2026-08-21',
+  offRoadVehicleCityGuides2: '2026-08-22',
   dramShopCityGuides: '2026-08-21',
+  dramShopCityGuides2: '2026-08-22',
   consumerProductCityGuides: '2026-08-21',
+  consumerProductCityGuides2: '2026-08-22',
   hotelInjuryCityGuides: '2026-08-21',
+  hotelInjuryCityGuides2: '2026-08-22',
   gymInjuryCityGuides: '2026-08-21',
+  gymInjuryCityGuides2: '2026-08-22',
   eventCrowdCityGuides: '2026-08-21',
+  eventCrowdCityGuides2: '2026-08-22',
   vacationRentalCityGuides: '2026-08-21',
+  vacationRentalCityGuides2: '2026-08-22',
   skiResortCityGuides: '2026-08-21',
+  skiResortCityGuides2: '2026-08-22',
   equestrianCityGuides: '2026-08-21',
+  equestrianCityGuides2: '2026-08-22',
+  ebikeCityGuides: '2026-08-22',
   dogBiteCityGuides2: '2026-08-21',
   slipAndFallCityGuides2: '2026-08-21',
   truckAccidentCityGuides2: '2026-08-21',
   truckAccidentCityGuides3: '2026-08-22',
   transitCityGuides2: '2026-08-21',
+  transitCityGuides3: '2026-08-22',
   rideshareCityGuides3: '2026-08-21',
   motorcycleCityGuides3: '2026-08-21',
   dogBiteCityGuides3: '2026-08-21',
@@ -352,6 +422,7 @@ export const CONTENT_PUBLISHED = {
   negligentSecurityCityGuides2: '2026-08-22',
   negligentSecurityCityGuides3: '2026-08-22',
   boatingCityGuides: '2026-08-21',
+  boatingCityGuides2: '2026-08-22',
   burnInjuryCityGuides: '2026-08-21',
   burnInjuryCityGuides2: '2026-08-22',
   burnInjuryCityGuides3: '2026-08-22',
@@ -360,22 +431,35 @@ export const CONTENT_PUBLISHED = {
   wrongfulDeathCityGuides3: '2026-08-22',
   duiVictimCityGuides: '2026-08-21',
   duiVictimCityGuides2: '2026-08-22',
+  duiVictimCityGuides3: '2026-08-22',
   themeParkCityGuides: '2026-08-21',
+  themeParkCityGuides2: '2026-08-22',
   poolDrowningCityGuides: '2026-08-21',
   poolDrowningCityGuides2: '2026-08-22',
+  poolDrowningCityGuides3: '2026-08-22',
   deliveryVehicleCityGuides: '2026-08-21',
+  deliveryVehicleCityGuides2: '2026-08-22',
   uninsuredMotoristCityGuides: '2026-08-21',
   uninsuredMotoristCityGuides2: '2026-08-22',
+  uninsuredMotoristCityGuides3: '2026-08-22',
   foodPoisoningCityGuides: '2026-08-21',
+  foodPoisoningCityGuides2: '2026-08-22',
   wildfireCityGuides: '2026-08-21',
+  wildfireCityGuides2: '2026-08-22',
   dangerousRoadwayCityGuides: '2026-08-21',
   dangerousRoadwayCityGuides2: '2026-08-22',
+  dangerousRoadwayCityGuides3: '2026-08-22',
   elderAbuseCityGuides: '2026-08-21',
   elderAbuseCityGuides2: '2026-08-21',
+  elderAbuseCityGuides3: '2026-08-22',
   apartmentInjuryCityGuides: '2026-08-21',
+  apartmentInjuryCityGuides2: '2026-08-22',
   trainAccidentCityGuides: '2026-08-21',
+  trainAccidentCityGuides2: '2026-08-22',
   warehouseInjuryCityGuides: '2026-08-21',
+  warehouseInjuryCityGuides2: '2026-08-22',
   farmInjuryCityGuides: '2026-08-21',
+  farmInjuryCityGuides2: '2026-08-22',
   birthInjuryCityGuides: '2026-08-21',
   birthInjuryCityGuides2: '2026-08-22',
   birthInjuryCityGuides3: '2026-08-22',
@@ -386,28 +470,49 @@ export const CONTENT_PUBLISHED = {
   spinalInjuryCityGuides2: '2026-08-22',
   spinalInjuryCityGuides3: '2026-08-22',
   childInjuryCityGuides: '2026-08-21',
+  childInjuryCityGuides2: '2026-08-22',
   vehicleDefectCityGuides: '2026-08-21',
+  vehicleDefectCityGuides2: '2026-08-22',
   carbonMonoxideCityGuides: '2026-08-21',
+  carbonMonoxideCityGuides2: '2026-08-22',
   trampolineParkCityGuides: '2026-08-21',
+  trampolineParkCityGuides2: '2026-08-22',
   aviationCityGuides: '2026-08-21',
+  aviationCityGuides2: '2026-08-22',
   electrocutionCityGuides: '2026-08-21',
+  electrocutionCityGuides2: '2026-08-22',
   securityForceCityGuides: '2026-08-21',
+  securityForceCityGuides2: '2026-08-22',
   elevatorCityGuides: '2026-08-21',
+  elevatorCityGuides2: '2026-08-22',
   moldHabitabilityCityGuides: '2026-08-21',
+  moldHabitabilityCityGuides2: '2026-08-22',
+  scooterCityGuides2: '2026-08-22',
   offRoadVehicleCityGuides: '2026-08-21',
+  offRoadVehicleCityGuides2: '2026-08-22',
   dramShopCityGuides: '2026-08-21',
+  dramShopCityGuides2: '2026-08-22',
   consumerProductCityGuides: '2026-08-21',
+  consumerProductCityGuides2: '2026-08-22',
   hotelInjuryCityGuides: '2026-08-21',
+  hotelInjuryCityGuides2: '2026-08-22',
   gymInjuryCityGuides: '2026-08-21',
+  gymInjuryCityGuides2: '2026-08-22',
   eventCrowdCityGuides: '2026-08-21',
+  eventCrowdCityGuides2: '2026-08-22',
   vacationRentalCityGuides: '2026-08-21',
+  vacationRentalCityGuides2: '2026-08-22',
   skiResortCityGuides: '2026-08-21',
+  skiResortCityGuides2: '2026-08-22',
   equestrianCityGuides: '2026-08-21',
+  equestrianCityGuides2: '2026-08-22',
+  ebikeCityGuides: '2026-08-22',
   dogBiteCityGuides2: '2026-08-21',
   slipAndFallCityGuides2: '2026-08-21',
   truckAccidentCityGuides2: '2026-08-21',
   truckAccidentCityGuides3: '2026-08-22',
   transitCityGuides2: '2026-08-21',
+  transitCityGuides3: '2026-08-22',
   rideshareCityGuides3: '2026-08-21',
   motorcycleCityGuides3: '2026-08-21',
   dogBiteCityGuides3: '2026-08-21',
@@ -835,6 +940,7 @@ export const allLandingPages: LandingPage[] = [
   ...stamp(negligentSecurityCityGuidePages2, CONTENT_UPDATED.negligentSecurityCityGuides2, CONTENT_PUBLISHED.negligentSecurityCityGuides2),
   ...stamp(negligentSecurityCityGuidePages3, CONTENT_UPDATED.negligentSecurityCityGuides3, CONTENT_PUBLISHED.negligentSecurityCityGuides3),
   ...stamp(boatingCityGuidePages, CONTENT_UPDATED.boatingCityGuides, CONTENT_PUBLISHED.boatingCityGuides),
+  ...stamp(boatingCityGuidePages2, CONTENT_UPDATED.boatingCityGuides2, CONTENT_PUBLISHED.boatingCityGuides2),
   ...stamp(burnInjuryCityGuidePages, CONTENT_UPDATED.burnInjuryCityGuides, CONTENT_PUBLISHED.burnInjuryCityGuides),
   ...stamp(burnInjuryCityGuidePages2, CONTENT_UPDATED.burnInjuryCityGuides2, CONTENT_PUBLISHED.burnInjuryCityGuides2),
   ...stamp(burnInjuryCityGuidePages3, CONTENT_UPDATED.burnInjuryCityGuides3, CONTENT_PUBLISHED.burnInjuryCityGuides3),
@@ -843,22 +949,35 @@ export const allLandingPages: LandingPage[] = [
   ...stamp(wrongfulDeathCityGuidePages3, CONTENT_UPDATED.wrongfulDeathCityGuides3, CONTENT_PUBLISHED.wrongfulDeathCityGuides3),
   ...stamp(duiVictimCityGuidePages, CONTENT_UPDATED.duiVictimCityGuides, CONTENT_PUBLISHED.duiVictimCityGuides),
   ...stamp(duiVictimCityGuidePages2, CONTENT_UPDATED.duiVictimCityGuides2, CONTENT_PUBLISHED.duiVictimCityGuides2),
+  ...stamp(duiVictimCityGuidePages3, CONTENT_UPDATED.duiVictimCityGuides3, CONTENT_PUBLISHED.duiVictimCityGuides3),
   ...stamp(themeParkCityGuidePages, CONTENT_UPDATED.themeParkCityGuides, CONTENT_PUBLISHED.themeParkCityGuides),
+  ...stamp(themeParkCityGuidePages2, CONTENT_UPDATED.themeParkCityGuides2, CONTENT_PUBLISHED.themeParkCityGuides2),
   ...stamp(poolDrowningCityGuidePages, CONTENT_UPDATED.poolDrowningCityGuides, CONTENT_PUBLISHED.poolDrowningCityGuides),
   ...stamp(poolDrowningCityGuidePages2, CONTENT_UPDATED.poolDrowningCityGuides2, CONTENT_PUBLISHED.poolDrowningCityGuides2),
+  ...stamp(poolDrowningCityGuidePages3, CONTENT_UPDATED.poolDrowningCityGuides3, CONTENT_PUBLISHED.poolDrowningCityGuides3),
   ...stamp(deliveryVehicleCityGuidePages, CONTENT_UPDATED.deliveryVehicleCityGuides, CONTENT_PUBLISHED.deliveryVehicleCityGuides),
+  ...stamp(deliveryVehicleCityGuidePages2, CONTENT_UPDATED.deliveryVehicleCityGuides2, CONTENT_PUBLISHED.deliveryVehicleCityGuides2),
   ...stamp(uninsuredMotoristCityGuidePages, CONTENT_UPDATED.uninsuredMotoristCityGuides, CONTENT_PUBLISHED.uninsuredMotoristCityGuides),
   ...stamp(uninsuredMotoristCityGuidePages2, CONTENT_UPDATED.uninsuredMotoristCityGuides2, CONTENT_PUBLISHED.uninsuredMotoristCityGuides2),
+  ...stamp(uninsuredMotoristCityGuidePages3, CONTENT_UPDATED.uninsuredMotoristCityGuides3, CONTENT_PUBLISHED.uninsuredMotoristCityGuides3),
   ...stamp(foodPoisoningCityGuidePages, CONTENT_UPDATED.foodPoisoningCityGuides, CONTENT_PUBLISHED.foodPoisoningCityGuides),
+  ...stamp(foodPoisoningCityGuidePages2, CONTENT_UPDATED.foodPoisoningCityGuides2, CONTENT_PUBLISHED.foodPoisoningCityGuides2),
   ...stamp(wildfireCityGuidePages, CONTENT_UPDATED.wildfireCityGuides, CONTENT_PUBLISHED.wildfireCityGuides),
+  ...stamp(wildfireCityGuidePages2, CONTENT_UPDATED.wildfireCityGuides2, CONTENT_PUBLISHED.wildfireCityGuides2),
   ...stamp(dangerousRoadwayCityGuidePages, CONTENT_UPDATED.dangerousRoadwayCityGuides, CONTENT_PUBLISHED.dangerousRoadwayCityGuides),
   ...stamp(dangerousRoadwayCityGuidePages2, CONTENT_UPDATED.dangerousRoadwayCityGuides2, CONTENT_PUBLISHED.dangerousRoadwayCityGuides2),
+  ...stamp(dangerousRoadwayCityGuidePages3, CONTENT_UPDATED.dangerousRoadwayCityGuides3, CONTENT_PUBLISHED.dangerousRoadwayCityGuides3),
   ...stamp(elderAbuseCityGuidePages, CONTENT_UPDATED.elderAbuseCityGuides, CONTENT_PUBLISHED.elderAbuseCityGuides),
   ...stamp(elderAbuseCityGuidePages2, CONTENT_UPDATED.elderAbuseCityGuides2, CONTENT_PUBLISHED.elderAbuseCityGuides2),
+  ...stamp(elderAbuseCityGuidePages3, CONTENT_UPDATED.elderAbuseCityGuides3, CONTENT_PUBLISHED.elderAbuseCityGuides3),
   ...stamp(apartmentInjuryCityGuidePages, CONTENT_UPDATED.apartmentInjuryCityGuides, CONTENT_PUBLISHED.apartmentInjuryCityGuides),
+  ...stamp(apartmentInjuryCityGuidePages2, CONTENT_UPDATED.apartmentInjuryCityGuides2, CONTENT_PUBLISHED.apartmentInjuryCityGuides2),
   ...stamp(trainAccidentCityGuidePages, CONTENT_UPDATED.trainAccidentCityGuides, CONTENT_PUBLISHED.trainAccidentCityGuides),
+  ...stamp(trainAccidentCityGuidePages2, CONTENT_UPDATED.trainAccidentCityGuides2, CONTENT_PUBLISHED.trainAccidentCityGuides2),
   ...stamp(warehouseInjuryCityGuidePages, CONTENT_UPDATED.warehouseInjuryCityGuides, CONTENT_PUBLISHED.warehouseInjuryCityGuides),
+  ...stamp(warehouseInjuryCityGuidePages2, CONTENT_UPDATED.warehouseInjuryCityGuides2, CONTENT_PUBLISHED.warehouseInjuryCityGuides2),
   ...stamp(farmInjuryCityGuidePages, CONTENT_UPDATED.farmInjuryCityGuides, CONTENT_PUBLISHED.farmInjuryCityGuides),
+  ...stamp(farmInjuryCityGuidePages2, CONTENT_UPDATED.farmInjuryCityGuides2, CONTENT_PUBLISHED.farmInjuryCityGuides2),
   ...stamp(birthInjuryCityGuidePages, CONTENT_UPDATED.birthInjuryCityGuides, CONTENT_PUBLISHED.birthInjuryCityGuides),
   ...stamp(birthInjuryCityGuidePages2, CONTENT_UPDATED.birthInjuryCityGuides2, CONTENT_PUBLISHED.birthInjuryCityGuides2),
   ...stamp(birthInjuryCityGuidePages3, CONTENT_UPDATED.birthInjuryCityGuides3, CONTENT_PUBLISHED.birthInjuryCityGuides3),
@@ -869,28 +988,49 @@ export const allLandingPages: LandingPage[] = [
   ...stamp(spinalInjuryCityGuidePages2, CONTENT_UPDATED.spinalInjuryCityGuides2, CONTENT_PUBLISHED.spinalInjuryCityGuides2),
   ...stamp(spinalInjuryCityGuidePages3, CONTENT_UPDATED.spinalInjuryCityGuides3, CONTENT_PUBLISHED.spinalInjuryCityGuides3),
   ...stamp(childInjuryCityGuidePages, CONTENT_UPDATED.childInjuryCityGuides, CONTENT_PUBLISHED.childInjuryCityGuides),
+  ...stamp(childInjuryCityGuidePages2, CONTENT_UPDATED.childInjuryCityGuides2, CONTENT_PUBLISHED.childInjuryCityGuides2),
   ...stamp(vehicleDefectCityGuidePages, CONTENT_UPDATED.vehicleDefectCityGuides, CONTENT_PUBLISHED.vehicleDefectCityGuides),
+  ...stamp(vehicleDefectCityGuidePages2, CONTENT_UPDATED.vehicleDefectCityGuides2, CONTENT_PUBLISHED.vehicleDefectCityGuides2),
   ...stamp(carbonMonoxideCityGuidePages, CONTENT_UPDATED.carbonMonoxideCityGuides, CONTENT_PUBLISHED.carbonMonoxideCityGuides),
+  ...stamp(carbonMonoxideCityGuidePages2, CONTENT_UPDATED.carbonMonoxideCityGuides2, CONTENT_PUBLISHED.carbonMonoxideCityGuides2),
   ...stamp(trampolineParkCityGuidePages, CONTENT_UPDATED.trampolineParkCityGuides, CONTENT_PUBLISHED.trampolineParkCityGuides),
+  ...stamp(trampolineParkCityGuidePages2, CONTENT_UPDATED.trampolineParkCityGuides2, CONTENT_PUBLISHED.trampolineParkCityGuides2),
   ...stamp(aviationCityGuidePages, CONTENT_UPDATED.aviationCityGuides, CONTENT_PUBLISHED.aviationCityGuides),
+  ...stamp(aviationCityGuidePages2, CONTENT_UPDATED.aviationCityGuides2, CONTENT_PUBLISHED.aviationCityGuides2),
   ...stamp(electrocutionCityGuidePages, CONTENT_UPDATED.electrocutionCityGuides, CONTENT_PUBLISHED.electrocutionCityGuides),
+  ...stamp(electrocutionCityGuidePages2, CONTENT_UPDATED.electrocutionCityGuides2, CONTENT_PUBLISHED.electrocutionCityGuides2),
   ...stamp(securityForceCityGuidePages, CONTENT_UPDATED.securityForceCityGuides, CONTENT_PUBLISHED.securityForceCityGuides),
+  ...stamp(securityForceCityGuidePages2, CONTENT_UPDATED.securityForceCityGuides2, CONTENT_PUBLISHED.securityForceCityGuides2),
   ...stamp(elevatorCityGuidePages, CONTENT_UPDATED.elevatorCityGuides, CONTENT_PUBLISHED.elevatorCityGuides),
+  ...stamp(elevatorCityGuidePages2, CONTENT_UPDATED.elevatorCityGuides2, CONTENT_PUBLISHED.elevatorCityGuides2),
   ...stamp(moldHabitabilityCityGuidePages, CONTENT_UPDATED.moldHabitabilityCityGuides, CONTENT_PUBLISHED.moldHabitabilityCityGuides),
+  ...stamp(moldHabitabilityCityGuidePages2, CONTENT_UPDATED.moldHabitabilityCityGuides2, CONTENT_PUBLISHED.moldHabitabilityCityGuides2),
+  ...stamp(scooterCityGuidePages2, CONTENT_UPDATED.scooterCityGuides2, CONTENT_PUBLISHED.scooterCityGuides2),
   ...stamp(offRoadVehicleCityGuidePages, CONTENT_UPDATED.offRoadVehicleCityGuides, CONTENT_PUBLISHED.offRoadVehicleCityGuides),
+  ...stamp(offRoadVehicleCityGuidePages2, CONTENT_UPDATED.offRoadVehicleCityGuides2, CONTENT_PUBLISHED.offRoadVehicleCityGuides2),
   ...stamp(dramShopCityGuidePages, CONTENT_UPDATED.dramShopCityGuides, CONTENT_PUBLISHED.dramShopCityGuides),
+  ...stamp(dramShopCityGuidePages2, CONTENT_UPDATED.dramShopCityGuides2, CONTENT_PUBLISHED.dramShopCityGuides2),
   ...stamp(consumerProductCityGuidePages, CONTENT_UPDATED.consumerProductCityGuides, CONTENT_PUBLISHED.consumerProductCityGuides),
+  ...stamp(consumerProductCityGuidePages2, CONTENT_UPDATED.consumerProductCityGuides2, CONTENT_PUBLISHED.consumerProductCityGuides2),
   ...stamp(hotelInjuryCityGuidePages, CONTENT_UPDATED.hotelInjuryCityGuides, CONTENT_PUBLISHED.hotelInjuryCityGuides),
+  ...stamp(hotelInjuryCityGuidePages2, CONTENT_UPDATED.hotelInjuryCityGuides2, CONTENT_PUBLISHED.hotelInjuryCityGuides2),
   ...stamp(gymInjuryCityGuidePages, CONTENT_UPDATED.gymInjuryCityGuides, CONTENT_PUBLISHED.gymInjuryCityGuides),
+  ...stamp(gymInjuryCityGuidePages2, CONTENT_UPDATED.gymInjuryCityGuides2, CONTENT_PUBLISHED.gymInjuryCityGuides2),
   ...stamp(eventCrowdCityGuidePages, CONTENT_UPDATED.eventCrowdCityGuides, CONTENT_PUBLISHED.eventCrowdCityGuides),
+  ...stamp(eventCrowdCityGuidePages2, CONTENT_UPDATED.eventCrowdCityGuides2, CONTENT_PUBLISHED.eventCrowdCityGuides2),
   ...stamp(vacationRentalCityGuidePages, CONTENT_UPDATED.vacationRentalCityGuides, CONTENT_PUBLISHED.vacationRentalCityGuides),
+  ...stamp(vacationRentalCityGuidePages2, CONTENT_UPDATED.vacationRentalCityGuides2, CONTENT_PUBLISHED.vacationRentalCityGuides2),
   ...stamp(skiResortCityGuidePages, CONTENT_UPDATED.skiResortCityGuides, CONTENT_PUBLISHED.skiResortCityGuides),
+  ...stamp(skiResortCityGuidePages2, CONTENT_UPDATED.skiResortCityGuides2, CONTENT_PUBLISHED.skiResortCityGuides2),
   ...stamp(equestrianCityGuidePages, CONTENT_UPDATED.equestrianCityGuides, CONTENT_PUBLISHED.equestrianCityGuides),
+  ...stamp(equestrianCityGuidePages2, CONTENT_UPDATED.equestrianCityGuides2, CONTENT_PUBLISHED.equestrianCityGuides2),
+  ...stamp(ebikeCityGuidePages, CONTENT_UPDATED.ebikeCityGuides, CONTENT_PUBLISHED.ebikeCityGuides),
   ...stamp(dogBiteCityGuidePages2, CONTENT_UPDATED.dogBiteCityGuides2, CONTENT_PUBLISHED.dogBiteCityGuides2),
   ...stamp(slipAndFallCityGuidePages2, CONTENT_UPDATED.slipAndFallCityGuides2, CONTENT_PUBLISHED.slipAndFallCityGuides2),
   ...stamp(truckAccidentCityGuidePages2, CONTENT_UPDATED.truckAccidentCityGuides2, CONTENT_PUBLISHED.truckAccidentCityGuides2),
   ...stamp(truckAccidentCityGuidePages3, CONTENT_UPDATED.truckAccidentCityGuides3, CONTENT_PUBLISHED.truckAccidentCityGuides3),
   ...stamp(transitCityGuidePages2, CONTENT_UPDATED.transitCityGuides2, CONTENT_PUBLISHED.transitCityGuides2),
+  ...stamp(transitCityGuidePages3, CONTENT_UPDATED.transitCityGuides3, CONTENT_PUBLISHED.transitCityGuides3),
   ...stamp(rideshareCityGuidePages3, CONTENT_UPDATED.rideshareCityGuides3, CONTENT_PUBLISHED.rideshareCityGuides3),
   ...stamp(motorcycleCityGuidePages3, CONTENT_UPDATED.motorcycleCityGuides3, CONTENT_PUBLISHED.motorcycleCityGuides3),
   ...stamp(dogBiteCityGuidePages3, CONTENT_UPDATED.dogBiteCityGuides3, CONTENT_PUBLISHED.dogBiteCityGuides3),

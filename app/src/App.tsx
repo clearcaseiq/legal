@@ -722,6 +722,11 @@ function App() {
             <Route path="/san-diego-scooter-accident" element={<SeoLandingPage />} />
             <Route path="/san-francisco-scooter-accident" element={<SeoLandingPage />} />
             <Route path="/long-beach-scooter-accident" element={<SeoLandingPage />} />
+            {/* Niche wave 5 batch 2: scooter x San Jose, Sacramento, Oakland, Santa Monica. */}
+            <Route path="/san-jose-scooter-accident" element={<SeoLandingPage />} />
+            <Route path="/sacramento-scooter-accident" element={<SeoLandingPage />} />
+            <Route path="/oakland-scooter-accident" element={<SeoLandingPage />} />
+            <Route path="/santa-monica-scooter-accident" element={<SeoLandingPage />} />
             {/* Geo layer batch 14: construction (third-party) x build-heavy metros. */}
             <Route path="/los-angeles-construction-accident" element={<SeoLandingPage />} />
             <Route path="/san-francisco-construction-accident" element={<SeoLandingPage />} />
@@ -753,6 +758,11 @@ function App() {
             <Route path="/sacramento-delta-boating-accident" element={<SeoLandingPage />} />
             <Route path="/long-beach-boating-accident" element={<SeoLandingPage />} />
             <Route path="/newport-beach-boating-accident" element={<SeoLandingPage />} />
+            {/* Niche wave 6 batch 2: boating x Lake Tahoe, SF Bay, Shasta Lake, Marina del Rey. */}
+            <Route path="/lake-tahoe-boating-accident" element={<SeoLandingPage />} />
+            <Route path="/san-francisco-bay-boating-accident" element={<SeoLandingPage />} />
+            <Route path="/shasta-lake-boating-accident" element={<SeoLandingPage />} />
+            <Route path="/marina-del-rey-boating-accident" element={<SeoLandingPage />} />
             {/* Geo layer batch 17: burn injury x metros. */}
             <Route path="/los-angeles-burn-injury" element={<SeoLandingPage />} />
             <Route path="/san-francisco-burn-injury" element={<SeoLandingPage />} />
@@ -788,6 +798,11 @@ function App() {
             <Route path="/fresno-dui-accident" element={<SeoLandingPage />} />
             <Route path="/long-beach-dui-accident" element={<SeoLandingPage />} />
             <Route path="/oakland-dui-accident" element={<SeoLandingPage />} />
+            {/* Geo layer mid-tier batch 3: DUI-victim x SF, SB, Bakersfield, Anaheim. */}
+            <Route path="/san-francisco-dui-accident" element={<SeoLandingPage />} />
+            <Route path="/san-bernardino-dui-accident" element={<SeoLandingPage />} />
+            <Route path="/bakersfield-dui-accident" element={<SeoLandingPage />} />
+            <Route path="/anaheim-dui-accident" element={<SeoLandingPage />} />
             {/* Geo layer batch 20: theme park / amusement ride injury x metros. */}
             <Route path="/anaheim-theme-park-injury" element={<SeoLandingPage />} />
             <Route path="/los-angeles-theme-park-injury" element={<SeoLandingPage />} />
@@ -802,6 +817,11 @@ function App() {
             <Route path="/san-diego-pool-drowning-injury" element={<SeoLandingPage />} />
             <Route path="/san-jose-pool-drowning-injury" element={<SeoLandingPage />} />
             <Route path="/long-beach-pool-drowning-injury" element={<SeoLandingPage />} />
+            {/* Geo layer mid-tier batch 3: pool/drowning x SF, Oakland, SB, Anaheim. */}
+            <Route path="/san-francisco-pool-drowning-injury" element={<SeoLandingPage />} />
+            <Route path="/oakland-pool-drowning-injury" element={<SeoLandingPage />} />
+            <Route path="/san-bernardino-pool-drowning-injury" element={<SeoLandingPage />} />
+            <Route path="/anaheim-pool-drowning-injury" element={<SeoLandingPage />} />
             {/* Geo layer batch 22: delivery-van / gig-delivery accident x metros. */}
             <Route path="/los-angeles-delivery-truck-accident" element={<SeoLandingPage />} />
             <Route path="/riverside-delivery-truck-accident" element={<SeoLandingPage />} />
@@ -816,6 +836,11 @@ function App() {
             <Route path="/san-jose-uninsured-motorist-accident" element={<SeoLandingPage />} />
             <Route path="/sacramento-uninsured-motorist-accident" element={<SeoLandingPage />} />
             <Route path="/oakland-uninsured-motorist-accident" element={<SeoLandingPage />} />
+            {/* Geo layer mid-tier batch 3: uninsured motorist x SF, Riverside, LB, Anaheim. */}
+            <Route path="/san-francisco-uninsured-motorist-accident" element={<SeoLandingPage />} />
+            <Route path="/riverside-uninsured-motorist-accident" element={<SeoLandingPage />} />
+            <Route path="/long-beach-uninsured-motorist-accident" element={<SeoLandingPage />} />
+            <Route path="/anaheim-uninsured-motorist-accident" element={<SeoLandingPage />} />
             {/* Geo layer batch 24: food poisoning / foodborne illness x metros. */}
             <Route path="/los-angeles-food-poisoning" element={<SeoLandingPage />} />
             <Route path="/san-francisco-food-poisoning" element={<SeoLandingPage />} />
@@ -826,6 +851,11 @@ function App() {
             <Route path="/santa-rosa-wildfire-claim" element={<SeoLandingPage />} />
             <Route path="/chico-paradise-wildfire-claim" element={<SeoLandingPage />} />
             <Route path="/san-diego-wildfire-claim" element={<SeoLandingPage />} />
+            {/* Niche wave 6B batch 2: wildfire x Redding, Napa, San Bernardino, Ventura. */}
+            <Route path="/redding-wildfire-claim" element={<SeoLandingPage />} />
+            <Route path="/napa-wildfire-claim" element={<SeoLandingPage />} />
+            <Route path="/san-bernardino-wildfire-claim" element={<SeoLandingPage />} />
+            <Route path="/ventura-wildfire-claim" element={<SeoLandingPage />} />
             {/* Geo layer batch 26: dangerous roadway / public property x metros. */}
             <Route path="/los-angeles-dangerous-road-accident" element={<SeoLandingPage />} />
             <Route path="/oakland-dangerous-road-accident" element={<SeoLandingPage />} />
@@ -835,6 +865,11 @@ function App() {
             <Route path="/fresno-dangerous-road-accident" element={<SeoLandingPage />} />
             <Route path="/riverside-dangerous-road-accident" element={<SeoLandingPage />} />
             <Route path="/bakersfield-dangerous-road-accident" element={<SeoLandingPage />} />
+            {/* Geo layer mid-tier batch 3: dangerous roadway x SF, SB, LB, Anaheim. */}
+            <Route path="/san-francisco-dangerous-road-accident" element={<SeoLandingPage />} />
+            <Route path="/san-bernardino-dangerous-road-accident" element={<SeoLandingPage />} />
+            <Route path="/long-beach-dangerous-road-accident" element={<SeoLandingPage />} />
+            <Route path="/anaheim-dangerous-road-accident" element={<SeoLandingPage />} />
             {/* Geo layer batch 27: nursing home / elder abuse x metros. */}
             <Route path="/los-angeles-nursing-home-abuse-claim" element={<SeoLandingPage />} />
             <Route path="/san-diego-nursing-home-abuse-claim" element={<SeoLandingPage />} />
@@ -844,6 +879,11 @@ function App() {
             <Route path="/riverside-nursing-home-abuse-claim" element={<SeoLandingPage />} />
             <Route path="/fresno-nursing-home-abuse-claim" element={<SeoLandingPage />} />
             <Route path="/long-beach-nursing-home-abuse-claim" element={<SeoLandingPage />} />
+            {/* Geo layer mid-tier batch 3: elder abuse x SF, Oakland, SB, Bakersfield. */}
+            <Route path="/san-francisco-nursing-home-abuse-claim" element={<SeoLandingPage />} />
+            <Route path="/oakland-nursing-home-abuse-claim" element={<SeoLandingPage />} />
+            <Route path="/san-bernardino-nursing-home-abuse-claim" element={<SeoLandingPage />} />
+            <Route path="/bakersfield-nursing-home-abuse-claim" element={<SeoLandingPage />} />
             <Route path="/los-angeles-medical-malpractice-claim" element={<SeoLandingPage />} />
             <Route path="/san-francisco-medical-malpractice-claim" element={<SeoLandingPage />} />
             <Route path="/san-diego-medical-malpractice-claim" element={<SeoLandingPage />} />
@@ -865,21 +905,41 @@ function App() {
             <Route path="/oakland-apartment-injury-claim" element={<SeoLandingPage />} />
             <Route path="/san-francisco-apartment-injury-claim" element={<SeoLandingPage />} />
             <Route path="/sacramento-apartment-injury-claim" element={<SeoLandingPage />} />
+            {/* Niche hub 4->8: apartment injury x SD, SJ, Fresno, Riverside. */}
+            <Route path="/san-diego-apartment-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/san-jose-apartment-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/fresno-apartment-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/riverside-apartment-injury-claim" element={<SeoLandingPage />} />
             {/* Geo layer batch 29: train / railroad & grade-crossing x metros. */}
             <Route path="/los-angeles-train-accident" element={<SeoLandingPage />} />
             <Route path="/san-jose-train-accident" element={<SeoLandingPage />} />
             <Route path="/san-diego-train-accident" element={<SeoLandingPage />} />
             <Route path="/sacramento-train-accident" element={<SeoLandingPage />} />
+            {/* Niche wave 6 batch 2: train x Oakland, Anaheim, Fresno, Riverside. */}
+            <Route path="/oakland-train-accident" element={<SeoLandingPage />} />
+            <Route path="/anaheim-train-accident" element={<SeoLandingPage />} />
+            <Route path="/fresno-train-accident" element={<SeoLandingPage />} />
+            <Route path="/riverside-train-accident" element={<SeoLandingPage />} />
             {/* Geo layer batch 30: warehouse / logistics third-party injury x metros. */}
             <Route path="/riverside-warehouse-injury-claim" element={<SeoLandingPage />} />
             <Route path="/san-bernardino-warehouse-injury-claim" element={<SeoLandingPage />} />
             <Route path="/stockton-warehouse-injury-claim" element={<SeoLandingPage />} />
             <Route path="/fresno-warehouse-injury-claim" element={<SeoLandingPage />} />
+            {/* Niche hub 4->8: warehouse injury x Ontario, Fontana, Bakersfield, Tracy. */}
+            <Route path="/ontario-warehouse-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/fontana-warehouse-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/bakersfield-warehouse-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/tracy-warehouse-injury-claim" element={<SeoLandingPage />} />
             {/* Geo layer batch 31: agricultural / farm equipment injury x metros. */}
             <Route path="/fresno-farm-injury-claim" element={<SeoLandingPage />} />
             <Route path="/bakersfield-farm-injury-claim" element={<SeoLandingPage />} />
             <Route path="/salinas-farm-injury-claim" element={<SeoLandingPage />} />
             <Route path="/modesto-farm-injury-claim" element={<SeoLandingPage />} />
+            {/* Niche wave 6B batch 2: farm injury x Stockton, Visalia, Merced, Oxnard. */}
+            <Route path="/stockton-farm-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/visalia-farm-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/merced-farm-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/oxnard-farm-injury-claim" element={<SeoLandingPage />} />
             {/* Geo layer batch 32: birth injury / labor & delivery x metros. */}
             <Route path="/los-angeles-birth-injury-claim" element={<SeoLandingPage />} />
             <Route path="/san-diego-birth-injury-claim" element={<SeoLandingPage />} />
@@ -934,6 +994,11 @@ function App() {
             <Route path="/oakland-carbon-monoxide-poisoning-claim" element={<SeoLandingPage />} />
             <Route path="/san-francisco-carbon-monoxide-poisoning-claim" element={<SeoLandingPage />} />
             <Route path="/sacramento-carbon-monoxide-poisoning-claim" element={<SeoLandingPage />} />
+            {/* Niche wave 5 batch 2: carbon monoxide x San Diego, San Jose, Fresno, Long Beach. */}
+            <Route path="/san-diego-carbon-monoxide-poisoning-claim" element={<SeoLandingPage />} />
+            <Route path="/san-jose-carbon-monoxide-poisoning-claim" element={<SeoLandingPage />} />
+            <Route path="/fresno-carbon-monoxide-poisoning-claim" element={<SeoLandingPage />} />
+            <Route path="/long-beach-carbon-monoxide-poisoning-claim" element={<SeoLandingPage />} />
             {/* Geo layer batch 38: trampoline park / FEC injury x metros. */}
             <Route path="/los-angeles-trampoline-park-injury-claim" element={<SeoLandingPage />} />
             <Route path="/san-diego-trampoline-park-injury-claim" element={<SeoLandingPage />} />
@@ -944,6 +1009,11 @@ function App() {
             <Route path="/san-diego-aviation-accident-claim" element={<SeoLandingPage />} />
             <Route path="/san-jose-aviation-accident-claim" element={<SeoLandingPage />} />
             <Route path="/sacramento-aviation-accident-claim" element={<SeoLandingPage />} />
+            {/* Niche wave 6 batch 2: aviation x Oakland, Long Beach, Fresno, Riverside. */}
+            <Route path="/oakland-aviation-accident-claim" element={<SeoLandingPage />} />
+            <Route path="/long-beach-aviation-accident-claim" element={<SeoLandingPage />} />
+            <Route path="/fresno-aviation-accident-claim" element={<SeoLandingPage />} />
+            <Route path="/riverside-aviation-accident-claim" element={<SeoLandingPage />} />
             {/* Geo layer batch 40: electrocution / power-line & utility injury x metros. */}
             <Route path="/los-angeles-electrocution-injury-claim" element={<SeoLandingPage />} />
             <Route path="/san-diego-electrocution-injury-claim" element={<SeoLandingPage />} />
@@ -954,6 +1024,11 @@ function App() {
             <Route path="/san-diego-security-guard-assault-claim" element={<SeoLandingPage />} />
             <Route path="/sacramento-security-guard-assault-claim" element={<SeoLandingPage />} />
             <Route path="/san-jose-security-guard-assault-claim" element={<SeoLandingPage />} />
+            {/* Niche wave 5 batch 2: security-force x Oakland, Fresno, Long Beach, Anaheim. */}
+            <Route path="/oakland-security-guard-assault-claim" element={<SeoLandingPage />} />
+            <Route path="/fresno-security-guard-assault-claim" element={<SeoLandingPage />} />
+            <Route path="/long-beach-security-guard-assault-claim" element={<SeoLandingPage />} />
+            <Route path="/anaheim-security-guard-assault-claim" element={<SeoLandingPage />} />
             {/* Geo layer batch 42: escalator / elevator injury x metros. */}
             <Route path="/los-angeles-elevator-escalator-injury-claim" element={<SeoLandingPage />} />
             <Route path="/san-francisco-elevator-escalator-injury-claim" element={<SeoLandingPage />} />
@@ -964,11 +1039,21 @@ function App() {
             <Route path="/oakland-toxic-mold-apartment-claim" element={<SeoLandingPage />} />
             <Route path="/san-francisco-toxic-mold-apartment-claim" element={<SeoLandingPage />} />
             <Route path="/long-beach-toxic-mold-apartment-claim" element={<SeoLandingPage />} />
+            {/* Niche wave 5 batch 2: mold/habitability x San Diego, San Jose, Sacramento, Fresno. */}
+            <Route path="/san-diego-toxic-mold-apartment-claim" element={<SeoLandingPage />} />
+            <Route path="/san-jose-toxic-mold-apartment-claim" element={<SeoLandingPage />} />
+            <Route path="/sacramento-toxic-mold-apartment-claim" element={<SeoLandingPage />} />
+            <Route path="/fresno-toxic-mold-apartment-claim" element={<SeoLandingPage />} />
             {/* Geo layer batch 44: ATV / off-road / dirt-bike injury x regions. */}
             <Route path="/bakersfield-atv-off-road-accident-claim" element={<SeoLandingPage />} />
             <Route path="/san-bernardino-atv-off-road-accident-claim" element={<SeoLandingPage />} />
             <Route path="/riverside-atv-off-road-accident-claim" element={<SeoLandingPage />} />
             <Route path="/fresno-atv-off-road-accident-claim" element={<SeoLandingPage />} />
+            {/* Niche wave 6 batch 2: off-road x LA, San Diego, Sacramento, Imperial County (Glamis). */}
+            <Route path="/los-angeles-atv-off-road-accident-claim" element={<SeoLandingPage />} />
+            <Route path="/san-diego-atv-off-road-accident-claim" element={<SeoLandingPage />} />
+            <Route path="/sacramento-atv-off-road-accident-claim" element={<SeoLandingPage />} />
+            <Route path="/imperial-county-atv-off-road-accident-claim" element={<SeoLandingPage />} />
             {/* Geo layer batch 45: dram shop / over-service (bar & nightclub) x metros. */}
             <Route path="/los-angeles-bar-overservice-injury-claim" element={<SeoLandingPage />} />
             <Route path="/san-diego-bar-overservice-injury-claim" element={<SeoLandingPage />} />
@@ -984,6 +1069,11 @@ function App() {
             <Route path="/los-angeles-hotel-bedbug-injury-claim" element={<SeoLandingPage />} />
             <Route path="/san-diego-hotel-bedbug-injury-claim" element={<SeoLandingPage />} />
             <Route path="/san-francisco-hotel-bedbug-injury-claim" element={<SeoLandingPage />} />
+            {/* Niche hub 4->8: hotel bedbug x SJ, Sacramento, LB, Oakland. */}
+            <Route path="/san-jose-hotel-bedbug-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/sacramento-hotel-bedbug-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/long-beach-hotel-bedbug-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/oakland-hotel-bedbug-injury-claim" element={<SeoLandingPage />} />
             {/* Geo layer batch 48: gym / fitness-facility injury x metros. */}
             <Route path="/los-angeles-gym-injury-claim" element={<SeoLandingPage />} />
             <Route path="/san-diego-gym-injury-claim" element={<SeoLandingPage />} />
@@ -999,16 +1089,96 @@ function App() {
             <Route path="/san-diego-vacation-rental-injury-claim" element={<SeoLandingPage />} />
             <Route path="/palm-springs-vacation-rental-injury-claim" element={<SeoLandingPage />} />
             <Route path="/san-francisco-vacation-rental-injury-claim" element={<SeoLandingPage />} />
+            {/* Niche hub 4->8: vacation rental x Tahoe, Big Bear, Santa Cruz, Mammoth. */}
+            <Route path="/south-lake-tahoe-vacation-rental-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/big-bear-vacation-rental-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/santa-cruz-vacation-rental-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/mammoth-lakes-vacation-rental-injury-claim" element={<SeoLandingPage />} />
+            {/* Niche wave 2 batch 2: gym injury x Sacramento, Fresno, Long Beach, Anaheim. */}
+            <Route path="/sacramento-gym-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/fresno-gym-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/long-beach-gym-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/anaheim-gym-injury-claim" element={<SeoLandingPage />} />
+            {/* Niche wave 2 batch 2: theme park x Buena Park, Valencia, Vallejo, Gilroy. */}
+            <Route path="/buena-park-theme-park-injury" element={<SeoLandingPage />} />
+            <Route path="/valencia-theme-park-injury" element={<SeoLandingPage />} />
+            <Route path="/vallejo-theme-park-injury" element={<SeoLandingPage />} />
+            <Route path="/gilroy-theme-park-injury" element={<SeoLandingPage />} />
+            {/* Niche wave 2 batch 2: trampoline park x Fresno, Long Beach, Anaheim, Oakland. */}
+            <Route path="/fresno-trampoline-park-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/long-beach-trampoline-park-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/anaheim-trampoline-park-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/oakland-trampoline-park-injury-claim" element={<SeoLandingPage />} />
+            {/* Niche wave 2 batch 2: event crowd x San Diego, Sacramento, Oakland, San Jose. */}
+            <Route path="/san-diego-concert-crowd-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/sacramento-festival-crowd-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/oakland-concert-crowd-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/san-jose-concert-crowd-injury-claim" element={<SeoLandingPage />} />
+            {/* Niche wave 3 batch 2: child/daycare/school x Fresno, Long Beach, Oakland, Anaheim. */}
+            <Route path="/fresno-daycare-school-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/long-beach-daycare-school-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/oakland-daycare-school-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/anaheim-daycare-school-injury-claim" element={<SeoLandingPage />} />
+            {/* Niche wave 3 batch 2: dram-shop x San Jose, Fresno, Long Beach, Oakland. */}
+            <Route path="/san-jose-bar-overservice-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/fresno-bar-overservice-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/long-beach-bar-overservice-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/oakland-bar-overservice-injury-claim" element={<SeoLandingPage />} />
+            {/* Niche wave 3 batch 2: food poisoning x San Jose, Sacramento, Long Beach, Oakland. */}
+            <Route path="/san-jose-food-poisoning" element={<SeoLandingPage />} />
+            <Route path="/sacramento-food-poisoning" element={<SeoLandingPage />} />
+            <Route path="/long-beach-food-poisoning" element={<SeoLandingPage />} />
+            <Route path="/oakland-food-poisoning" element={<SeoLandingPage />} />
+            {/* Niche wave 3 batch 2: consumer product/battery fire x San Jose, Sacramento, Fresno, Long Beach. */}
+            <Route path="/san-jose-defective-product-battery-fire-claim" element={<SeoLandingPage />} />
+            <Route path="/sacramento-defective-product-battery-fire-claim" element={<SeoLandingPage />} />
+            <Route path="/fresno-defective-product-battery-fire-claim" element={<SeoLandingPage />} />
+            <Route path="/long-beach-defective-product-battery-fire-claim" element={<SeoLandingPage />} />
+            {/* Niche wave 4 batch 2: defective vehicle x San Jose, Fresno, Long Beach, Oakland. */}
+            <Route path="/san-jose-defective-vehicle-claim" element={<SeoLandingPage />} />
+            <Route path="/fresno-defective-vehicle-claim" element={<SeoLandingPage />} />
+            <Route path="/long-beach-defective-vehicle-claim" element={<SeoLandingPage />} />
+            <Route path="/oakland-defective-vehicle-claim" element={<SeoLandingPage />} />
+            {/* Niche wave 4 batch 2: delivery vehicle x San Diego, San Jose, Fresno, Long Beach. */}
+            <Route path="/san-diego-delivery-truck-accident" element={<SeoLandingPage />} />
+            <Route path="/san-jose-delivery-truck-accident" element={<SeoLandingPage />} />
+            <Route path="/fresno-delivery-truck-accident" element={<SeoLandingPage />} />
+            <Route path="/long-beach-delivery-truck-accident" element={<SeoLandingPage />} />
+            {/* Niche wave 4 batch 2: electrocution x San Jose, Fresno, Long Beach, Riverside. */}
+            <Route path="/san-jose-electrocution-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/fresno-electrocution-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/long-beach-electrocution-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/riverside-electrocution-injury-claim" element={<SeoLandingPage />} />
+            {/* Niche wave 4 batch 2: elevator/escalator x San Jose, Oakland, Long Beach, Fresno. */}
+            <Route path="/san-jose-elevator-escalator-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/oakland-elevator-escalator-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/long-beach-elevator-escalator-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/fresno-elevator-escalator-injury-claim" element={<SeoLandingPage />} />
             {/* Geo layer batch 51: ski / snowboard resort injury x mountain resorts. */}
             <Route path="/south-lake-tahoe-ski-injury-claim" element={<SeoLandingPage />} />
             <Route path="/big-bear-ski-injury-claim" element={<SeoLandingPage />} />
             <Route path="/mammoth-ski-injury-claim" element={<SeoLandingPage />} />
             <Route path="/truckee-ski-injury-claim" element={<SeoLandingPage />} />
+            {/* Niche wave 6B batch 2: ski x Wrightwood, Olympic Valley, Bear Valley, Shaver Lake. */}
+            <Route path="/wrightwood-ski-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/olympic-valley-ski-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/bear-valley-ski-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/shaver-lake-ski-injury-claim" element={<SeoLandingPage />} />
             {/* Geo layer batch 52: equestrian / horseback-riding injury x metros. */}
             <Route path="/los-angeles-horseback-riding-injury-claim" element={<SeoLandingPage />} />
             <Route path="/san-diego-horseback-riding-injury-claim" element={<SeoLandingPage />} />
             <Route path="/temecula-horseback-riding-injury-claim" element={<SeoLandingPage />} />
             <Route path="/sacramento-horseback-riding-injury-claim" element={<SeoLandingPage />} />
+            {/* Niche wave 6B batch 2: equestrian x Riverside, San Jose, Fresno, Norco. */}
+            <Route path="/riverside-horseback-riding-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/san-jose-horseback-riding-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/fresno-horseback-riding-injury-claim" element={<SeoLandingPage />} />
+            <Route path="/norco-horseback-riding-injury-claim" element={<SeoLandingPage />} />
+            {/* Missing-vertical hub: e-bike collision x LA, San Diego, San Francisco, San Jose. */}
+            <Route path="/los-angeles-e-bike-accident" element={<SeoLandingPage />} />
+            <Route path="/san-diego-e-bike-accident" element={<SeoLandingPage />} />
+            <Route path="/san-francisco-e-bike-accident" element={<SeoLandingPage />} />
+            <Route path="/san-jose-e-bike-accident" element={<SeoLandingPage />} />
             {/* Geo layer batch 53: dog-bite city guides (batch 2) x metros. */}
             <Route path="/san-jose-dog-bite" element={<SeoLandingPage />} />
             <Route path="/fresno-dog-bite" element={<SeoLandingPage />} />
@@ -1033,6 +1203,11 @@ function App() {
             <Route path="/oakland-ac-transit-accident" element={<SeoLandingPage />} />
             <Route path="/long-beach-bus-accident" element={<SeoLandingPage />} />
             <Route path="/anaheim-octa-bus-accident" element={<SeoLandingPage />} />
+            {/* Geo layer mid-tier batch 3: transit x Fresno, Riverside, SB, Bakersfield. */}
+            <Route path="/fresno-fax-bus-accident" element={<SeoLandingPage />} />
+            <Route path="/riverside-rta-bus-accident" element={<SeoLandingPage />} />
+            <Route path="/san-bernardino-omnitrans-accident" element={<SeoLandingPage />} />
+            <Route path="/bakersfield-get-bus-accident" element={<SeoLandingPage />} />
             {/* Geo layer batch 57: rideshare city guides (batch 3) x Central Valley / Inland Empire. */}
             <Route path="/fresno-rideshare-accident" element={<SeoLandingPage />} />
             <Route path="/riverside-rideshare-accident" element={<SeoLandingPage />} />
