@@ -1327,9 +1327,11 @@ router.post('/license/upload', authMiddleware, licenseUpload.single('licenseFile
         licenseState: licenseState || null,
         licenseFileUrl: `/uploads/licenses/${req.file.filename}`,
         licenseFileName: req.file.originalname,
-        licenseVerificationMethod: verificationMethod,
-        licenseVerified: verificationMethod === 'state_bar_lookup' ? true : false, // Auto-verify if from state bar lookup
-        licenseVerifiedAt: verificationMethod === 'state_bar_lookup' ? new Date() : null
+        // A file upload is never proof of verification: verification only happens
+        // through the server-side state-bar lookup endpoint. Record the document
+        // as a manual upload and leave licenseVerified/At untouched so a client
+        // can neither self-verify nor un-verify a genuine prior lookup.
+        licenseVerificationMethod: 'manual_upload',
       }
     })
 

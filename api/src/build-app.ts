@@ -16,11 +16,8 @@ import appointments from './routes/appointments'
 import attorneyProfiles from './routes/attorney-profiles'
 import messaging from './routes/messaging'
 import caseTracker from './routes/case-tracker'
-import aiCopilot from './routes/ai-copilot'
 import financing from './routes/financing'
-import recoveryHub from './routes/recovery-hub'
 import smartRecommendations from './routes/smart-recommendations'
-import verification from './routes/verification'
 import attorneyDashboard from './routes/attorney-dashboard'
 import leadQuality from './routes/lead-quality'
 import attorneyProfile from './routes/attorney-profile'
@@ -77,11 +74,8 @@ export function buildApp(): Express {
   app.use('/v1/attorney-profiles', attorneyProfiles)
   app.use('/v1/messaging', messaging)
   app.use('/v1/case-tracker', caseTracker)
-  app.use('/v1/ai-copilot', aiCopilot)
   app.use('/v1/financing', financing)
-  app.use('/v1/recovery-hub', recoveryHub)
   app.use('/v1/smart-recommendations', smartRecommendations)
-  app.use('/v1/verification', verification)
   app.use('/v1/attorney-dashboard', attorneyDashboard)
   app.use('/v1/lead-quality', leadQuality)
   app.use('/v1/attorney-profile', attorneyProfile)
@@ -154,11 +148,8 @@ export function buildApp(): Express {
         attorneyProfiles: '/v1/attorney-profiles',
         messaging: '/v1/messaging',
         caseTracker: '/v1/case-tracker',
-        aiCopilot: '/v1/ai-copilot',
         financing: '/v1/financing',
-        recoveryHub: '/v1/recovery-hub',
         smartRecommendations: '/v1/smart-recommendations',
-        verification: '/v1/verification',
         attorneyDashboard: '/v1/attorney-dashboard',
         leadQuality: '/v1/lead-quality',
         attorneyProfile: '/v1/attorney-profile',

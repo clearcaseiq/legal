@@ -69,13 +69,13 @@ export default function BillingPage() {
     <div className="space-y-4">
       <PageHeader
         title="Billing"
-        description="Fees collected year-to-date, rolled up from every case's payments."
+        description="Fees collected year-to-date, rolled up from every case's payments. Open a case to raise invoices and record payments."
         actions={
           <Link
             to="/attorney-billing"
             className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
           >
-            Full billing
+            Subscription &amp; payouts
           </Link>
         }
       />

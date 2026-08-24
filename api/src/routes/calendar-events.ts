@@ -91,19 +91,58 @@ function expandOccurrences(
     return out
   }
   const until = ev.repeatUntil ? new Date(Math.min(ev.repeatUntil.getTime(), to.getTime())) : to
-  const cur = new Date(ev.startAt)
-  let idx = 0
+  const base = new Date(ev.startAt)
+  const baseDay = base.getDate()
+  const dayMs = 1000 * 60 * 60 * 24
+
+  // Occurrence n counted from the base start. Monthly is anchored to the base
+  // month + n and the day is clamped to that month's length, so a 31st-of-the-
+  // month event lands on the last day of shorter months instead of drifting
+  // (setMonth(+1) on Jan 31 rolled forward to Mar 3 and stayed wrong after).
+  const occurrenceStart = (n: number): Date => {
+    if (ev.repeatFreq === 'weekly') {
+      const d = new Date(base)
+      d.setDate(base.getDate() + n * 7)
+      return d
+    }
+    if (ev.repeatFreq === 'monthly') {
+      const d = new Date(base)
+      d.setDate(1)
+      d.setMonth(base.getMonth() + n)
+      const daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()
+      d.setDate(Math.min(baseDay, daysInMonth))
+      return d
+    }
+    // daily (and any unexpected value falls back to daily-safe stepping)
+    const d = new Date(base)
+    d.setDate(base.getDate() + n)
+    return d
+  }
+
+  // Skip ahead to just before the window so a long-running daily/weekly event
+  // (whose base start may be years before `from`) is not truncated by the loop
+  // guard before its in-window occurrences are ever reached.
+  let startN = 0
+  if (ev.repeatFreq === 'weekly') {
+    startN = Math.max(0, Math.floor((from.getTime() - base.getTime()) / (dayMs * 7)) - 1)
+  } else if (ev.repeatFreq === 'monthly') {
+    startN = Math.max(
+      0,
+      (from.getFullYear() - base.getFullYear()) * 12 + (from.getMonth() - base.getMonth()) - 1,
+    )
+  } else {
+    startN = Math.max(0, Math.floor((from.getTime() - base.getTime()) / dayMs) - 1)
+  }
+
+  let idx = startN
   let guard = 0
-  while (cur.getTime() <= until.getTime() && guard < 1000) {
-    const start = new Date(cur)
-    const end = new Date(cur.getTime() + durationMs)
+  while (guard < 5000) {
+    const start = occurrenceStart(idx)
+    if (start.getTime() > until.getTime()) break
+    const end = new Date(start.getTime() + durationMs)
     if (start.getTime() < to.getTime() && end.getTime() > from.getTime()) {
       out.push({ start, end, idx })
     }
-    if (ev.repeatFreq === 'daily') cur.setDate(cur.getDate() + 1)
-    else if (ev.repeatFreq === 'weekly') cur.setDate(cur.getDate() + 7)
-    else if (ev.repeatFreq === 'monthly') cur.setMonth(cur.getMonth() + 1)
-    else break
     idx += 1
     guard += 1
   }
@@ -385,6 +424,25 @@ async function notifyAttendees(
 }
 
 // POST /v1/calendar-events — create an event.
+/**
+ * An event may only be attached to a case the attorney has taken. Shared leads
+ * carry no assignedAttorneyId until they're claimed, so an accepted introduction
+ * counts as the attorney's case too (CP-426).
+ */
+async function attorneyMayAttachCase(attorneyId: string, assessmentId: string): Promise<boolean> {
+  const lead = await prisma.leadSubmission.findFirst({
+    where: {
+      assessmentId,
+      OR: [
+        { assignedAttorneyId: attorneyId },
+        { assessment: { introductions: { some: { attorneyId } } } },
+      ],
+    },
+    select: { status: true },
+  })
+  return !!lead && isEngagedLeadStatus(lead.status)
+}
+
 router.post('/', authMiddleware, async (req: AuthRequest, res) => {
   try {
     const attorney = await getAttorney(req)
@@ -401,23 +459,8 @@ router.post('/', authMiddleware, async (req: AuthRequest, res) => {
       return res.status(400).json({ error: 'End time must be after start time' })
     }
 
-    // An event may only be attached to a case the attorney has taken. The route
-    // previously accepted any assessmentId, so an unaccepted case reaching the
-    // picker could still be written against (CP-426).
     if (d.assessmentId) {
-      const lead = await prisma.leadSubmission.findFirst({
-        where: {
-          assessmentId: d.assessmentId,
-          // Shared leads carry no assignedAttorneyId until they're claimed, so
-          // an accepted introduction counts as the attorney's case too.
-          OR: [
-            { assignedAttorneyId: attorney.id },
-            { assessment: { introductions: { some: { attorneyId: attorney.id } } } },
-          ],
-        },
-        select: { status: true },
-      })
-      if (!lead || !isEngagedLeadStatus(lead.status)) {
+      if (!(await attorneyMayAttachCase(attorney.id, d.assessmentId))) {
         return res.status(409).json({ error: 'Accept this case before adding events to it.' })
       }
     }
@@ -470,6 +513,15 @@ router.patch('/:id', authMiddleware, async (req: AuthRequest, res) => {
       return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() })
     }
     const d = parsed.data
+
+    // Re-attaching to a case must pass the same engagement gate as POST, or the
+    // check could be sidestepped by creating an unattached event then patching
+    // an assessmentId onto it.
+    if (d.assessmentId) {
+      if (!(await attorneyMayAttachCase(attorney.id, d.assessmentId))) {
+        return res.status(409).json({ error: 'Accept this case before adding events to it.' })
+      }
+    }
 
     const data: Record<string, unknown> = {}
     if (d.title !== undefined) data.title = d.title

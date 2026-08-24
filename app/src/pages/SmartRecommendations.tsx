@@ -606,10 +606,6 @@ export default function SmartRecommendations() {
             <BarChart3 className="h-4 w-4 mr-2" />
             Track Your Case
           </Link>
-          <Link to="/ai-copilot" className="btn-outline">
-            <Lightbulb className="h-4 w-4 mr-2" />
-            Ask AI Questions
-          </Link>
         </div>
       </div>
     </div>

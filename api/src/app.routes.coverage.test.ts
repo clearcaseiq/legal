@@ -254,24 +254,6 @@ describe('HTTP API route coverage (mocked prisma)', () => {
     expect(res.status).toBe(401)
   })
 
-  it('POST /v1/ai-copilot/ask without token → 401', async () => {
-    const res = await request(app).post('/v1/ai-copilot/ask').send({})
-    expectHandledStatus(res.status)
-    expect(res.status).toBe(401)
-  })
-
-  it('GET /v1/recovery-hub/dashboard without token → 401', async () => {
-    const res = await request(app).get('/v1/recovery-hub/dashboard')
-    expectHandledStatus(res.status)
-    expect(res.status).toBe(401)
-  })
-
-  it('GET /v1/verification/status without token → 401', async () => {
-    const res = await request(app).get('/v1/verification/status')
-    expectHandledStatus(res.status)
-    expect(res.status).toBe(401)
-  })
-
   it('GET /v1/attorney-dashboard/dashboard without token → 401', async () => {
     const res = await request(app).get('/v1/attorney-dashboard/dashboard')
     expectHandledStatus(res.status)

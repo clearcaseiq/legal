@@ -88,9 +88,7 @@ const AttorneysEnhanced = lazy(() => import('./pages/AttorneysEnhanced'))
 const FirmProfile = lazy(() => import('./pages/FirmProfile'))
 const Firms = lazy(() => import('./pages/Firms'))
 const CaseTracker = lazy(() => import('./pages/CaseTracker'))
-const AICopilot = lazy(() => import('./pages/AICopilot'))
 const Messaging = lazy(() => import('./pages/Messaging'))
-const RecoveryHub = lazy(() => import('./pages/RecoveryHub'))
 const SmartRecommendations = lazy(() => import('./pages/SmartRecommendations'))
 // Two-domain attorney workspace (Lead Generation vs Case Management)
 const AttorneyWorkspaceLayout = lazy(() => import('./features/shared/AttorneyWorkspaceLayout'))
@@ -441,7 +439,14 @@ function App() {
               <Route path="/profile" element={<UserProfile />} />
               <Route path="/consent-management" element={<ConsentManagement />} />
               <Route path="/case-tracker" element={<CaseTracker />} />
-              <Route path="/ai-copilot" element={<AICopilot />} />
+              {/* /ai-copilot and its `/v1/ai-copilot` router were removed. The page
+                  answered legal questions with canned prose citing a "State Bar Legal
+                  Database" that does not exist, reported statute-of-limitations
+                  deadlines from a three-state table that silently fell back to
+                  California for every other jurisdiction, and returned fixed
+                  diagnoses, adjusters and coverage limits for uploaded documents
+                  whose contents it never read. The attorney-side "AI Copilot" tab in
+                  the case workspace is a separate feature and is unaffected. */}
               {/* /financing is unrouted until there are signed funding partner
                   agreements. The page listed named lenders (Oasis Financial,
                   Law Cash) and lien-based clinics with interest rates, approval
@@ -449,7 +454,13 @@ function App() {
                   something to show injury claimants. Restore the route once
                   /v1/financing/partners returns real partners. */}
               <Route path="/messaging" element={<Messaging />} />
-              <Route path="/recovery-hub" element={<RecoveryHub />} />
+              {/* /recovery-hub and its `/v1/recovery-hub` router were removed. No
+                  recovery tables were ever added to the schema, so none of the seven
+                  endpoints touched the database: the dashboard reported a fixed 68%
+                  recovery figure and named providers who do not exist, pain trends
+                  were 27 hardcoded values, and the entry and goal endpoints returned
+                  201 "added successfully" while discarding the claimant's submission.
+                  Rebuilding this needs RecoveryEntry/RecoveryGoal models first. */}
               <Route path="/smart-recommendations/:assessmentId" element={<SmartRecommendations />} />
             </Route>
             <Route element={<ProtectedRoute role="admin" />}>

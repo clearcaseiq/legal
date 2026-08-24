@@ -342,9 +342,12 @@ upload links.
   expiration date, years/days remaining, and a status (`safe > 365d`, `warning > 90d`, else
   `critical`). A richer helper additionally applies the **discovery rule** and **minor tolling** and
   is used by routing/attorney surfaces. The public `/calculate` endpoint is unauthenticated.
-- **Recovery Hub** — tabs (Overview, Recovery Log, Goals, Trends) with summary cards, activity feed,
-  goals, and recommendations. **Mock/in-memory**: the API returns hardcoded data and the
-  Add Entry/Goal buttons currently just show a success alert.
+- **Recovery Hub** — **removed**. The page and its `/v1/recovery-hub` route were deleted: no recovery
+  tables were ever added to the schema, so all seven endpoints returned hardcoded data (a fixed 68%
+  recovery figure, invented provider names, 27 canned pain-trend values, and a suggestion to reduce
+  pain medication) while the Add Entry/Goal endpoints answered `201 "added successfully"` and
+  discarded the claimant's submission. Reinstating it requires `RecoveryEntry` / `RecoveryGoal`
+  models and real persistence first.
 - **Medical Providers directory** — searchable provider list with lien terms, a referrals tab, and
   analytics. The page currently loads **client-side mock data**; the (real) API supports
   provider search, referral CRUD, and analytics, though distance is a stub.
@@ -411,9 +414,14 @@ Builds the medical chronology (merging incident + facts + extracted record timel
 preparation report (missing docs, treatment gaps > 30 days, strengths/weaknesses, readiness 0–100),
 and settlement benchmarks (p25/p50/p75/p90 from comparable settlement records).
 
-### 3.6 AI Copilot (`routes/ai-copilot.ts`)
-A **heuristic/mock** assistant (rule/keyword answers, mocked document analysis, SOL, and settlement
-simulation) — distinct from the LLM-backed ChatGPT analysis. Useful for canned guidance.
+### 3.6 AI Copilot (removed)
+The claimant-facing `/v1/ai-copilot` route and its `/ai-copilot` page were **removed**. Nothing in
+them performed real work: answers were canned prose attributed to a non-existent "State Bar Legal
+Database", document analysis returned fixed diagnoses, adjusters and coverage limits without ever
+reading the uploaded content, and the SOL checker held rules for three states and silently applied
+California's to every other jurisdiction. Statute-of-limitations questions are served by `/v1/sol`
+and the California-scoped public checker; LLM analysis is served by `/v1/chatgpt`. The attorney-side
+"AI Copilot" tab in the case workspace (`CaseCopilotPanel`) is a separate feature and is unaffected.
 
 ---
 
@@ -426,9 +434,12 @@ simulation) — distinct from the LLM-backed ChatGPT analysis. Useful for canned
   profile, links the firm, and issues an auth token.
 - **Login** (`AttorneyLogin`) — email/password + Google SSO; attorney login additionally requires a
   matching attorney record.
-- **License upload & verification** (`AttorneyLicenseUpload`, `verification`) — State Bar lookup
-  (CA today) or manual document upload (≤ 10 MB). The verification route also models ID
-  verification, e-signature requests, and compliance status (mock Jumio/Onfido/DocuSign).
+- **License upload & verification** (`AttorneyLicenseUpload`) — State Bar lookup (CA today) or
+  manual document upload (≤ 10 MB). A document upload is recorded as a manual upload only and
+  never sets `licenseVerified`; verification happens solely through the server-side State Bar
+  lookup. Claimant ID verification (Jumio/Onfido-style) is **not implemented** — the former
+  `/v1/verification` route was removed because it returned randomised confidence scores and
+  hardcoded SOC 2 / HIPAA / GDPR attestations that the platform cannot substantiate.
 - **Profile** (`AttorneyProfile`) — public profile editor (bio, photo, specialties, languages, years
   of experience, firm), performance metrics, and "Verified Verdicts"; auto-refreshes every 30s.
 - **Profile settings** (`AttorneyDashboardProfileTab`, `/attorney-dashboard/settings/profile`) — firm
@@ -668,7 +679,6 @@ All routes are mounted under `/v1`. Selected groups:
 | `/v1/evidence` | Upload (single/multi), vision/extract prechecks, list/detail, process, annotations, insights. |
 | `/v1/files` | Legacy generic file store (simulated processing). |
 | `/v1/chatgpt` | LLM case analysis + retrieval; analysis status. |
-| `/v1/ai-copilot` | Heuristic/mock copilot (ask, analyze-document, SOL, settlement). |
 | `/v1/demands` | Demand drafting/generation and DOCX export. |
 | `/v1/case-insights` | Medical chronology, plaintiff review, case prep, benchmarks. |
 | `/v1/notify` | Direct notification send/lookup. |
@@ -701,9 +711,11 @@ All routes are mounted under `/v1`. Selected groups:
   contact info and saves a server-side lead snapshot; backend/frontend code to email/SMS a tokenized
   resume link and the finished-report link is drafted. Delivery requires `RESEND_API_KEY` /
   `RESEND_FROM_EMAIL` (and Twilio credentials) to be configured.
-- **Mock / in-memory surfaces** (not production-persisted): Recovery Hub, Financing partner/medical
-  lists and funding requests, the Medical Providers page's client-side data, the AI Copilot route,
-  the legacy `/v1/files` store, and Rose conversation state.
+- **Mock / in-memory surfaces** (not production-persisted): Financing partner/medical lists and
+  funding requests, the Medical Providers page's client-side data, the legacy `/v1/files` store, and
+  Rose conversation state. The Recovery Hub and AI Copilot surfaces were removed outright rather
+  than left mocked; `/v1/files` no longer writes placeholder extraction text or marks uploads
+  `PROCESSED`, so those rows now stay `UPLOADED` until a real pipeline exists.
 - **Email verification** is a stub (501); consent/verification gates skip guest-case emails.
 - **Step hiding by injury type** exists in code but is currently a no-op — all 8 intake steps are
   shown to every claimant, with branching inside steps.

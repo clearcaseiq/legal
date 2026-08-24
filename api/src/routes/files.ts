@@ -84,19 +84,11 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req: AuthRe
       size: req.file.size 
     })
 
-    // TODO: Queue background job for OCR/processing
-    // For now, just simulate processing completion
-    setTimeout(async () => {
-      await prisma.file.update({
-        where: { id: fileId },
-        data: {
-          status: 'PROCESSED',
-          extractedText: 'Sample extracted text from document...',
-          summary: 'Medical records, police report, insurance correspondence'
-        }
-      })
-    }, 2000)
-
+    // The record stays UPLOADED. There is no OCR pipeline behind this legacy
+    // endpoint, so nothing may write extractedText or flip the row to PROCESSED —
+    // a consumer cannot distinguish placeholder text from a real extraction once
+    // it is persisted. Real extraction runs in lib/evidence-processing.ts via
+    // /v1/evidence.
     res.json({
       file_id: fileId,
       original_name: req.file.originalname,

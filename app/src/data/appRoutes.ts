@@ -54,7 +54,6 @@ export const KNOWN_ROUTE_PREFIXES = [
 /** Routes with no dynamic segments. */
 export const KNOWN_ROUTE_PATHS = new Set([
   '/',
-  '/ai-copilot',
   '/ai-ml-consent',
   '/assess',
   '/assessment/start',
@@ -104,7 +103,6 @@ export const KNOWN_ROUTE_PATHS = new Set([
   '/oauth/zoom/complete',
   '/privacy-policy',
   '/profile',
-  '/recovery-hub',
   '/register',
   '/reset-password',
   '/rose',

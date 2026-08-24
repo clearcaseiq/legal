@@ -1682,7 +1682,7 @@ export default function AttorneyDashboardShell({ chromeless = false, initialView
           })
           if (payment.checkoutUrl) {
             window.location.assign(payment.checkoutUrl)
-            return
+            return true
           }
         }
         const updated = await decideLead(
@@ -1710,6 +1710,7 @@ export default function AttorneyDashboardShell({ chromeless = false, initialView
           // "Congratulations, this case is now yours" banner.
           navigate(`/attorney-dashboard/lead/${leadId}/overview?accepted=1`)
         }
+        return true
       } catch (err: any) {
         console.error('Failed to update lead decision:', err)
         const message = err.response?.data?.error || 'Failed to update lead decision'
@@ -1719,6 +1720,9 @@ export default function AttorneyDashboardShell({ chromeless = false, initialView
         setBulkActionMessage(message)
         setLeadDecisionError(message)
         setTimeout(() => setBulkActionMessage(null), 5000)
+        // Report the failure so callers (e.g. the decline modal) don't render a
+        // success state for a decision the server rejected.
+        return false
       } finally {
         setLeadDecisionLoading(false)
       }
@@ -4219,25 +4223,25 @@ export default function AttorneyDashboardShell({ chromeless = false, initialView
           }}
           onSubmit={async (reason, otherText) => {
             if (!declineLeadId) return
-            try {
-              await handleLeadDecision(
-                declineLeadId,
-                'reject',
-                reason === 'other' ? otherText : undefined,
-                reason
-              )
-              setDeclineSuccess(true)
-              setSelectedLead(null)
-              // Declining releases the match and removes it from the attorney's
-              // queue — return them to the New Matches list instead of leaving
-              // them on the now-declined lead's detail view.
-              if (chromeless) {
-                setDeclineModalOpen(false)
-                setDeclineLeadId(null)
-                navigate('/attorney-dashboard/leadgen/matches')
-              }
-            } catch {
-              // Error already shown by handleLeadDecision
+            // handleLeadDecision resolves even when the API rejects (it surfaces
+            // the error itself), so gate the success UI on its boolean result
+            // rather than merely on the call not throwing.
+            const ok = await handleLeadDecision(
+              declineLeadId,
+              'reject',
+              reason === 'other' ? otherText : undefined,
+              reason
+            )
+            if (!ok) return
+            setDeclineSuccess(true)
+            setSelectedLead(null)
+            // Declining releases the match and removes it from the attorney's
+            // queue — return them to the New Matches list instead of leaving
+            // them on the now-declined lead's detail view.
+            if (chromeless) {
+              setDeclineModalOpen(false)
+              setDeclineLeadId(null)
+              navigate('/attorney-dashboard/leadgen/matches')
             }
           }}
           loading={leadDecisionLoading}

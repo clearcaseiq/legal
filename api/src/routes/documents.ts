@@ -237,6 +237,9 @@ router.get('/leads/:leadId/envelopes', authMiddleware, async (req: AuthRequest, 
   try {
     const attorney = await resolveAttorney(req)
     if (!attorney) return res.status(403).json({ error: 'Not an attorney account' })
+    const resolved = await resolveLeadForAttorney(req.params.leadId, attorney.id)
+    if (resolved.error === 404) return res.status(404).json({ error: 'Lead not found' })
+    if (resolved.error === 403) return res.status(403).json({ error: 'Lead is assigned to another attorney' })
 
     const envelopes = await listEnvelopesForLead(req.params.leadId)
     res.json({ envelopes })
@@ -521,6 +524,9 @@ router.post('/leads/:leadId/envelopes/refresh', authMiddleware, async (req: Auth
   try {
     const attorney = await resolveAttorney(req)
     if (!attorney) return res.status(403).json({ error: 'Not an attorney account' })
+    const resolved = await resolveLeadForAttorney(req.params.leadId, attorney.id)
+    if (resolved.error === 404) return res.status(404).json({ error: 'Lead not found' })
+    if (resolved.error === 403) return res.status(403).json({ error: 'Lead is assigned to another attorney' })
 
     const envelopes = await refreshLeadEnvelopes(req.params.leadId)
     res.json({ envelopes })

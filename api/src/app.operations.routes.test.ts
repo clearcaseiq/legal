@@ -194,6 +194,9 @@ describe('HTTP operations regressions', () => {
           id: 'attorney-record-1',
           email: 'attorney@example.com',
           lawFirmId: 'firm-1',
+          // Reading a lead that is only reachable through the shared/marketplace
+          // pool requires a vetted attorney, so the default fixture is verified.
+          isVerified: true,
         } as any
       }
       return null
@@ -201,7 +204,7 @@ describe('HTTP operations regressions', () => {
 
     vi.mocked(prisma.attorney.findUnique).mockImplementation(async (args: any) => {
       if (args?.where?.email === 'attorney@example.com') {
-        return { id: 'attorney-record-1', email: 'attorney@example.com' } as any
+        return { id: 'attorney-record-1', email: 'attorney@example.com', isVerified: true } as any
       }
       return null
     })
@@ -2581,6 +2584,7 @@ describe('HTTP operations regressions', () => {
     vi.mocked(prisma.attorney.findFirst).mockResolvedValueOnce({
       id: 'attorney-record-1',
       name: 'Ari Attorney',
+      isVerified: true,
     } as any)
     vi.mocked(prisma.leadContact.create).mockResolvedValue({
       id: 'contact-1',
@@ -2691,6 +2695,7 @@ describe('HTTP operations regressions', () => {
       email: 'attorney@example.com',
       name: 'Ari Attorney',
       lawFirmId: 'firm-1',
+      isVerified: true,
     } as any)
     vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValue({
       id: 'lead-1',
@@ -2795,6 +2800,7 @@ describe('HTTP operations regressions', () => {
       email: 'attorney@example.com',
       name: 'Ari Attorney',
       lawFirmId: 'firm-1',
+      isVerified: true,
     } as any)
     vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValue({
       id: 'lead-1',
@@ -2880,6 +2886,7 @@ describe('HTTP operations regressions', () => {
   it('GET /v1/attorney-dashboard/leads/:leadId/contacts returns compact contact history payload', async () => {
     vi.mocked(prisma.attorney.findFirst).mockResolvedValueOnce({
       id: 'attorney-record-1',
+      isVerified: true,
     } as any)
     vi.mocked(prisma.leadContact.findMany).mockResolvedValue([
       {
@@ -3025,6 +3032,7 @@ describe('HTTP operations regressions', () => {
       email: 'attorney@example.com',
       name: 'Ari Attorney',
       lawFirmId: 'firm-1',
+      isVerified: true,
     } as any)
     vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValue({
       id: 'lead-1',
@@ -3094,6 +3102,7 @@ describe('HTTP operations regressions', () => {
       email: 'attorney@example.com',
       name: 'Ari Attorney',
       lawFirmId: 'firm-1',
+      isVerified: true,
     } as any)
     vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValue({
       id: 'lead-1',
@@ -3181,6 +3190,7 @@ describe('HTTP operations regressions', () => {
       email: 'attorney@example.com',
       name: 'Ari Attorney',
       lawFirmId: 'firm-1',
+      isVerified: true,
     } as any)
     vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValue({
       id: 'lead-1',
@@ -3263,6 +3273,7 @@ describe('HTTP operations regressions', () => {
       email: 'attorney@example.com',
       name: 'Ari Attorney',
       lawFirmId: 'firm-1',
+      isVerified: true,
     } as any)
     vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValue({
       id: 'lead-1',
@@ -3288,6 +3299,7 @@ describe('HTTP operations regressions', () => {
       email: 'attorney@example.com',
       name: 'Ari Attorney',
       lawFirmId: 'firm-1',
+      isVerified: true,
     } as any)
     vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValue({
       id: 'lead-1',
@@ -3326,6 +3338,7 @@ describe('HTTP operations regressions', () => {
       email: 'attorney@example.com',
       name: 'Ari Attorney',
       lawFirmId: 'firm-1',
+      isVerified: true,
     } as any)
     vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValue({
       id: 'lead-1',
@@ -3406,6 +3419,7 @@ describe('HTTP operations regressions', () => {
       email: 'attorney@example.com',
       name: 'Ari Attorney',
       lawFirmId: 'firm-1',
+      isVerified: true,
     } as any)
     vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValue({
       id: 'lead-1',
@@ -3486,6 +3500,7 @@ describe('HTTP operations regressions', () => {
       email: 'attorney@example.com',
       name: 'Ari Attorney',
       lawFirmId: 'firm-1',
+      isVerified: true,
     } as any)
     vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValue({
       id: 'lead-1',
@@ -3522,6 +3537,7 @@ describe('HTTP operations regressions', () => {
       email: 'attorney@example.com',
       name: 'Ari Attorney',
       lawFirmId: 'firm-1',
+      isVerified: true,
     } as any)
     vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValue({
       id: 'lead-1',
@@ -3626,6 +3642,7 @@ describe('HTTP operations regressions', () => {
       email: 'attorney@example.com',
       name: 'Ari Attorney',
       lawFirmId: 'firm-1',
+      isVerified: true,
     } as any)
     vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValue({
       id: 'lead-1',
@@ -3679,6 +3696,7 @@ describe('HTTP operations regressions', () => {
       email: 'attorney@example.com',
       name: 'Ari Attorney',
       lawFirmId: 'firm-1',
+      isVerified: true,
     } as any)
     vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValue({
       id: 'lead-1',
@@ -3747,6 +3765,7 @@ describe('HTTP operations regressions', () => {
       email: 'attorney@example.com',
       name: 'Ari Attorney',
       lawFirmId: 'firm-1',
+      isVerified: true,
     } as any)
     vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValue({
       id: 'lead-1',
@@ -3826,6 +3845,7 @@ describe('HTTP operations regressions', () => {
       email: 'attorney@example.com',
       name: 'Ari Attorney',
       lawFirmId: 'firm-1',
+      isVerified: true,
     } as any)
     vi.mocked(prisma.leadSubmission.findUnique)
       .mockResolvedValueOnce({
@@ -5680,6 +5700,7 @@ describe('HTTP operations regressions', () => {
     vi.mocked(prisma.attorney.findFirst).mockResolvedValueOnce({
       id: 'attorney-record-1',
       lawFirmId: 'firm-1',
+      isVerified: true,
     } as any)
     vi.mocked(prisma.leadSubmission.findMany)
       .mockResolvedValueOnce([

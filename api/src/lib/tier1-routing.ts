@@ -39,10 +39,10 @@ export interface Tier1FirmForRouting {
   practiceAreas: string[] // specialties
   tier1Enabled: boolean // derived from subscriptionTier/pricingModel
   dailyCapRemaining: number // derived from maxCasesPerWeek/calculated
-  accountBalance: number // placeholder - not in schema yet
-  subscriptionActive: boolean // paymentModel === 'subscription' || paymentModel === 'both'
+  accountBalance: number // attorneyProfile.accountBalance
+  subscriptionActive: boolean // attorneyProfile.subscriptionActive, or derived from payment model
   subscriptionTier?: string | null // subscriptionTier field
-  subscriptionRemainingCases?: number // placeholder - not in schema yet
+  subscriptionRemainingCases?: number // attorneyProfile.subscriptionRemainingCases
   // Additional fields for ranking
   historicalAcceptanceRate?: number
   responseSpeedScore?: number
@@ -260,14 +260,16 @@ export async function buildEligibleFirmPool(
     }
 
     // 6. firm.accountBalance > 0 OR firm.subscriptionActive === true
-    const subscriptionActive = 
-      paymentModel === 'subscription' || 
+    // Mirrors the tier 2-4 resolution order: trust the Stripe-maintained
+    // subscriptionActive flag first, then fall back to the configured payment
+    // model for firms billed outside Stripe.
+    const subscriptionActive =
+      profile?.subscriptionActive ||
+      paymentModel === 'subscription' ||
       paymentModel === 'both' ||
       (subscriptionTier !== null && subscriptionTier !== '')
-    
-    // For now, assume subscriptionActive firms have balance
-    // In production, check actual account balance
-    const accountBalance = subscriptionActive ? 1000 : 0 // Placeholder
+
+    const accountBalance = profile?.accountBalance || 0
 
     if (!subscriptionActive && accountBalance <= 0) {
       ineligible.push({ firmId: attorney.id, reason: 'No account balance and no active subscription' })
@@ -302,7 +304,8 @@ export async function buildEligibleFirmPool(
       accountBalance,
       subscriptionActive,
       subscriptionTier: subscriptionTier || null,
-      subscriptionRemainingCases: subscriptionActive ? 10 : undefined, // Placeholder - would need subscription tracking table
+      subscriptionRemainingCases: profile?.subscriptionRemainingCases ?? undefined,
+      accountBalanceWeight: profile?.accountBalanceWeight ?? undefined,
       attorney
     }
 
@@ -475,7 +478,10 @@ async function routeSubscriptionAllocation(
       const response = await waitForOfferResponse(introductionId, TIER_1_SUBSCRIPTION_TIMEOUT_MS)
 
       if (response === 'accepted') {
-        // Decrement subscription remaining cases (placeholder - would update actual field)
+        // Billing is not applied here. The attorney's acceptance runs through
+        // the routing-fee endpoint in routes/payments.ts, which consumes an
+        // included subscription case (decrementing subscriptionRemainingCases)
+        // behind an idempotency guard. Decrementing here too would double-bill.
         logger.info('Tier 1 subscription offer accepted', {
           caseId: caseData.id,
           firmId: firm.id,
@@ -550,7 +556,8 @@ async function routeFixedPrice(
       const response = await waitForOfferResponse(introductionId, TIER_1_FIXED_TIMEOUT_MS)
 
       if (response === 'accepted') {
-        // Charge firm (placeholder - would update account balance)
+        // As above, the charge is raised by the routing-fee endpoint in
+        // routes/payments.ts rather than here.
         logger.info('Tier 1 fixed-price offer accepted', {
           caseId: caseData.id,
           firmId: firm.id,

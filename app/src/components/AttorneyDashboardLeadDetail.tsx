@@ -63,7 +63,9 @@ type AttorneyDashboardLeadDetailProps = {
     rationaleOverride?: string,
     declineReason?: string,
     opts?: { conflictAcknowledged?: boolean },
-  ) => void | Promise<void>
+    // Resolves false when the decision failed, so callers (e.g. the decline
+    // modal) can avoid reporting success on a rejected request.
+  ) => void | Promise<void> | Promise<boolean>
   setDeclineLeadId: (value: string | null) => void
   setDeclineModalOpen: (value: boolean) => void
   leadDecisionLoading: boolean

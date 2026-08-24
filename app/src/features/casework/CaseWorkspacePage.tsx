@@ -97,6 +97,8 @@ import MedicalTimelinePanel from './MedicalTimelinePanel'
 import PlaintiffImpactJournalPanel from './PlaintiffImpactJournalPanel'
 import CaseWorkflowPanel from './CaseWorkflowPanel'
 import CaseTimePanel from './CaseTimePanel'
+import CaseBillingPanel from './CaseBillingPanel'
+import CaseReferralsPanel from './CaseReferralsPanel'
 import CaseIntelligencePanel from './CaseIntelligencePanel'
 import CaseCopilotPanel from './CaseCopilotPanel'
 import CaseRosePanel from './CaseRosePanel'
@@ -143,7 +145,7 @@ const ROW_TONE: Record<Tone, string> = {
   danger: 'text-rose-700',
 }
 
-const TABS = ['Overview', 'AI Copilot', 'Rose', 'Workflow', 'Tasks', 'Evidence', 'Signatures', 'Medical', 'Liability', 'Insurance', 'Damages', 'Negotiation', 'Demand', 'Timeline', 'Deadlines', 'Settlement', 'Time'] as const
+const TABS = ['Overview', 'AI Copilot', 'Rose', 'Workflow', 'Tasks', 'Evidence', 'Signatures', 'Medical', 'Liability', 'Insurance', 'Damages', 'Negotiation', 'Demand', 'Timeline', 'Deadlines', 'Settlement', 'Time', 'Billing', 'Referrals'] as const
 type Tab = (typeof TABS)[number]
 
 const SECTION_TO_TAB: Record<string, Tab> = {
@@ -174,7 +176,15 @@ const SECTION_TO_TAB: Record<string, Tab> = {
   chronology: 'Timeline',
   deadlines: 'Deadlines',
   settlement: 'Settlement',
-  billing: 'Settlement',
+  billing: 'Billing',
+  invoices: 'Billing',
+  invoice: 'Billing',
+  payments: 'Billing',
+  referrals: 'Referrals',
+  referral: 'Referrals',
+  'co-counsel': 'Referrals',
+  collaboration: 'Referrals',
+  sharing: 'Referrals',
   tasks: 'Tasks',
   time: 'Time',
 }
@@ -197,6 +207,8 @@ const TAB_TO_SECTION: Record<Tab, string> = {
   Settlement: 'settlement',
   Tasks: 'tasks',
   Time: 'time',
+  Billing: 'billing',
+  Referrals: 'referrals',
 }
 
 type TabMeta = { icon: ComponentType<{ className?: string }>; blurb: string }
@@ -225,6 +237,8 @@ const TAB_META: Record<Tab, TabMeta> = {
   Deadlines: { icon: CalendarClock, blurb: 'Statute of limitations and key case milestones.' },
   Settlement: { icon: Scale, blurb: 'Net-to-client waterfall: fees, case costs, and lien reductions.' },
   Time: { icon: Clock, blurb: 'Log team hours on this case for profitability and fee petitions.' },
+  Billing: { icon: Receipt, blurb: 'Client invoices, payments received, and recurring billing for this case.' },
+  Referrals: { icon: Handshake, blurb: 'Case sharing, referral fee splits, and co-counsel arrangements.' },
 }
 
 // Command-center next-best-action → button label + icon on the Overview card.
@@ -1361,6 +1375,14 @@ function WorkstreamPanel({
 
   if (tab === 'Time') {
     return <CaseTimePanel leadId={lead.id} />
+  }
+
+  if (tab === 'Billing') {
+    return <CaseBillingPanel leadId={lead.id} />
+  }
+
+  if (tab === 'Referrals') {
+    return <CaseReferralsPanel leadId={lead.id} />
   }
 
   if (tab === 'Deadlines') {

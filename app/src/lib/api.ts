@@ -1246,27 +1246,6 @@ export async function getCaseCommandCenter(caseId: string) {
   return data
 }
 
-// AI Copilot API
-export async function askAICopilot(question: string, context?: any) {
-  const { data } = await api.post('/v1/ai-copilot/ask', { question, context })
-  return data
-}
-
-export async function analyzeDocument(documentData: any) {
-  const { data } = await api.post('/v1/ai-copilot/analyze-document', documentData)
-  return data
-}
-
-export async function checkSOL(solData: any) {
-  const { data } = await api.post('/v1/ai-copilot/check-sol', solData)
-  return data
-}
-
-export async function simulateSettlement(simulationData: any) {
-  const { data } = await api.post('/v1/ai-copilot/simulate-settlement', simulationData)
-  return data
-}
-
 // Financing API
 export async function getFundingPartners(amount?: number, caseType?: string) {
   const params = new URLSearchParams()
@@ -1298,48 +1277,6 @@ export async function getMedicalProviders(location?: string, specialty?: string)
   if (specialty) params.append('specialty', specialty)
   
   const { data } = await api.get(`/v1/financing/medical-providers?${params.toString()}`)
-  return data
-}
-
-// Recovery Hub API
-export async function getRecoveryDashboard() {
-  const { data } = await api.get('/v1/recovery-hub/dashboard')
-  return data
-}
-
-export async function getRecoveryEntries(type?: string, startDate?: string, endDate?: string, limit = 50) {
-  const params = new URLSearchParams()
-  if (type) params.append('type', type)
-  if (startDate) params.append('startDate', startDate)
-  if (endDate) params.append('endDate', endDate)
-  params.append('limit', limit.toString())
-  
-  const { data } = await api.get(`/v1/recovery-hub/entries?${params.toString()}`)
-  return data
-}
-
-export async function addRecoveryEntry(entryData: any) {
-  const { data } = await api.post('/v1/recovery-hub/entries', entryData)
-  return data
-}
-
-export async function getRecoveryGoals() {
-  const { data } = await api.get('/v1/recovery-hub/goals')
-  return data
-}
-
-export async function addRecoveryGoal(goalData: any) {
-  const { data } = await api.post('/v1/recovery-hub/goals', goalData)
-  return data
-}
-
-export async function getPainTrends(days = 30) {
-  const { data } = await api.get(`/v1/recovery-hub/pain-trends?days=${days}`)
-  return data
-}
-
-export async function getTreatmentRecommendations() {
-  const { data } = await api.get('/v1/recovery-hub/recommendations')
   return data
 }
 

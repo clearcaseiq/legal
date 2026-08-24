@@ -68,7 +68,7 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/attorney-dashboard/cases/tasks', id: 'tasks', label: 'Tasks', description: 'Cross-case queue', icon: ListChecks },
       { to: '/attorney-dashboard/cases/deadlines', id: 'deadlines', label: 'Deadlines', description: 'Statute-of-limitations radar', icon: AlarmClock },
       { to: '/attorney-dashboard/cases/contacts', id: 'contacts', label: 'Contacts', description: 'Parties directory', icon: Contact },
-      { to: '/attorney-dashboard/cases/billing', id: 'billing', label: 'Billing', description: 'Fees, invoices, costs', icon: Wallet },
+      { to: '/attorney-dashboard/cases/billing', id: 'billing', label: 'Billing', description: 'Fees collected by case', icon: Wallet },
       { to: '/attorney-dashboard/cases/firm', id: 'firm', label: 'Firm Dashboard', description: 'Team caseload', icon: Building2, firmAdminOnly: true },
       { to: '/attorney-dashboard/cases/intake', id: 'intake', label: 'Intake', description: 'Manual & imported leads', icon: Upload },
     ],

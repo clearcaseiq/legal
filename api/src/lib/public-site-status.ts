@@ -137,7 +137,11 @@ function readCertificate(hostname: string, port: number): Promise<PeerCertificat
           reject(new Error(`Unreadable expiry: ${cert.valid_to}`))
           return
         }
-        resolve({ validTo, issuer: cert.issuer?.O ?? cert.issuer?.CN ?? null })
+        // Node types these subject fields as string | string[]: a certificate
+        // may carry the same attribute more than once.
+        const firstOf = (value?: string | string[]): string | null =>
+          Array.isArray(value) ? value[0] ?? null : value ?? null
+        resolve({ validTo, issuer: firstOf(cert.issuer?.O) ?? firstOf(cert.issuer?.CN) })
       },
     )
 

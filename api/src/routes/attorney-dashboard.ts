@@ -26,7 +26,7 @@ import { z } from 'zod'
 import { Document, Packer, Paragraph, TextRun } from 'docx'
 import PDFDocument from 'pdfkit'
 import crypto from 'crypto'
-import { calculateSOL, getSOLStatus, deriveSOLStatus } from '../lib/solRules'
+import { calculateSOL, getSOLStatus, deriveSOLStatusFromFacts } from '../lib/solRules'
 import { buildMedicalChronology, buildMedicalChronologySummary, computeCasePreparation, getSettlementBenchmarks } from '../lib/case-insights'
 import { recordCaseOutcome } from '../lib/case-outcomes'
 import { computeMarketplacePerformance } from '../lib/marketplace-performance'
@@ -530,7 +530,14 @@ async function getAuthorizedLead(
     return { error: { status: 403, message: 'Access restricted by ethical wall' } }
   }
 
-  if (!isShared && !isAssigned && !intro && !sameFirm && !acceptedShare) {
+  // The shared/marketplace pool exposes live claimant PII. Access to a lead that
+  // is *only* reachable because it sits in that pool requires a vetted attorney;
+  // an unverified account must not read PII before its bar status is confirmed.
+  // A real relationship (assigned, introduced, same firm, accepted share) still
+  // grants access regardless, since that attorney has already engaged the case.
+  const sharedAccess = isShared && attorney.isVerified
+
+  if (!sharedAccess && !isAssigned && !intro && !sameFirm && !acceptedShare) {
     return { error: { status: 403, message: 'Not authorized to view this lead' } }
   }
 
@@ -4879,17 +4886,16 @@ router.get('/deadlines', authMiddleware, async (req: any, res) => {
       } catch {
         facts = {}
       }
-      const incidentDate = facts?.incident?.date || null
-      const birthDate = facts?.claimant?.dateOfBirth || facts?.claimant?.dob || null
-      const discoveryDate = facts?.incident?.discoveryDate || null
-
-      if (incidentDate && a.venueState && a.claimType) {
-        const sol = deriveSOLStatus({
-          incidentDate,
-          discoveryDate,
-          birthDate,
-          venue: { state: a.venueState },
+      if (a.claimType) {
+        // Resolve through the canonical fact reader so the deadlines board agrees
+        // with the routing gate and the SOL sweep. Hand-extracting fields here
+        // read the claimant's DOB from the wrong key (`claimant` vs
+        // `plaintiffContext`), which silently dropped minor tolling and produced
+        // statute dates years too early — a malpractice risk (CP finding #5).
+        const sol = deriveSOLStatusFromFacts({
+          facts,
           claimType: a.claimType,
+          venueState: a.venueState,
         })
         if (sol.status !== 'unknown' && sol.expiresAt && typeof sol.daysRemaining === 'number') {
           items.push({
@@ -9085,6 +9091,13 @@ router.patch('/leads/:leadId/insurance/:id', authMiddleware, async (req: any, re
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
+    // Scope the child record to this case. Without it, an attorney authorized on
+    // any one lead could edit another firm's insurance record by its id (IDOR).
+    const owned = await prisma.insuranceDetail.findFirst({
+      where: { id, assessmentId: auth.lead.assessmentId },
+      select: { id: true },
+    })
+    if (!owned) return res.status(404).json({ error: 'Insurance record not found' })
     const {
       carrierName,
       policyNumber,
@@ -9149,7 +9162,10 @@ router.delete('/leads/:leadId/insurance/:id', authMiddleware, async (req: any, r
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
-    await prisma.insuranceDetail.delete({ where: { id } })
+    const removed = await prisma.insuranceDetail.deleteMany({
+      where: { id, assessmentId: auth.lead.assessmentId },
+    })
+    if (removed.count === 0) return res.status(404).json({ error: 'Insurance record not found' })
     res.json({ ok: true })
   } catch (error: any) {
     logger.error('Failed to delete insurance detail', { error: error.message })
@@ -9295,6 +9311,12 @@ router.patch('/leads/:leadId/liens/:id', authMiddleware, async (req: any, res) =
     }
     const { name, type, amount, finalAmount, status, notes } = req.body
 
+    const owned = await prisma.lienHolder.findFirst({
+      where: { id, assessmentId: auth.lead.assessmentId },
+      select: { id: true },
+    })
+    if (!owned) return res.status(404).json({ error: 'Lien holder not found' })
+
     const record = await prisma.lienHolder.update({
       where: { id },
       data: {
@@ -9323,7 +9345,10 @@ router.delete('/leads/:leadId/liens/:id', authMiddleware, async (req: any, res) 
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
-    await prisma.lienHolder.delete({ where: { id } })
+    const removed = await prisma.lienHolder.deleteMany({
+      where: { id, assessmentId: auth.lead.assessmentId },
+    })
+    if (removed.count === 0) return res.status(404).json({ error: 'Lien holder not found' })
     res.json({ ok: true })
   } catch (error: any) {
     logger.error('Failed to delete lien holder', { error: error.message })
@@ -9569,6 +9594,11 @@ router.patch('/leads/:leadId/expenses/:id', authMiddleware, async (req: any, res
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
     const { category, description, amount, incurredAt } = req.body
+    const owned = await prisma.caseExpense.findFirst({
+      where: { id, assessmentId: auth.lead.assessmentId },
+      select: { id: true },
+    })
+    if (!owned) return res.status(404).json({ error: 'Case expense not found' })
     const record = await prisma.caseExpense.update({
       where: { id },
       data: {
@@ -9593,7 +9623,10 @@ router.delete('/leads/:leadId/expenses/:id', authMiddleware, async (req: any, re
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
-    await prisma.caseExpense.delete({ where: { id } })
+    const removed = await prisma.caseExpense.deleteMany({
+      where: { id, assessmentId: auth.lead.assessmentId },
+    })
+    if (removed.count === 0) return res.status(404).json({ error: 'Case expense not found' })
     res.json({ ok: true })
   } catch (error: any) {
     logger.error('Failed to delete case expense', { error: error.message })
@@ -9701,6 +9734,11 @@ router.patch('/leads/:leadId/damages/:id', authMiddleware, async (req: any, res)
     if (incurredAt !== undefined) data.incurredAt = incurredAt ? new Date(incurredAt) : null
     if (isFuture !== undefined) data.isFuture = Boolean(isFuture)
     if (notes !== undefined) data.notes = notes || null
+    const owned = await (prisma as any).damageItem.findFirst({
+      where: { id, assessmentId: auth.lead.assessmentId },
+      select: { id: true },
+    })
+    if (!owned) return res.status(404).json({ error: 'Damage item not found' })
     const record = await (prisma as any).damageItem.update({ where: { id }, data, select: damageItemSelect })
     const summary = await writeThroughDamages(auth.lead.assessmentId, { source: 'attorney', actorId: req.user?.id ?? null })
     res.json({ item: record, summary })
@@ -9717,7 +9755,10 @@ router.delete('/leads/:leadId/damages/:id', authMiddleware, async (req: any, res
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
-    await (prisma as any).damageItem.delete({ where: { id } })
+    const removed = await (prisma as any).damageItem.deleteMany({
+      where: { id, assessmentId: auth.lead.assessmentId },
+    })
+    if (removed.count === 0) return res.status(404).json({ error: 'Damage item not found' })
     const summary = await writeThroughDamages(auth.lead.assessmentId, { source: 'attorney', actorId: req.user?.id ?? null })
     res.json({ ok: true, summary })
   } catch (error: any) {
