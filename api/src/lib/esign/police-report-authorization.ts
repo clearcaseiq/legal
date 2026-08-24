@@ -10,6 +10,7 @@ import fs from 'fs'
 import path from 'path'
 import PDFDocument from 'pdfkit'
 import { logger } from '../logger'
+import { persistUpload } from '../object-storage'
 
 const OUTPUT_DIR = path.join(process.cwd(), 'uploads', 'signable-documents')
 
@@ -158,6 +159,7 @@ export async function renderPoliceReportAuthorizationPdf(
     doc.end()
   })
 
+  await persistUpload(filePath)
   logger.info('Rendered police report authorization PDF', { leadId: ctx.leadId, filePath })
   return { filePath, title }
 }

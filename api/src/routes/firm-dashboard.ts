@@ -5,6 +5,7 @@ import multer from 'multer'
 import { Router, Request, Response } from 'express'
 import { prisma } from '../lib/prisma'
 import { logger } from '../lib/logger'
+import { replicateUploads } from '../lib/object-storage'
 import { webBaseUrl } from '../lib/app-url'
 import { authMiddleware, AuthRequest } from '../lib/auth'
 import { sendTransactionalEmail } from '../lib/claims'
@@ -2942,6 +2943,7 @@ router.post(
   '/templates/:id/file',
   authMiddleware as any,
   templateUpload.single('file'),
+  replicateUploads,
   async (req: any, res: Response) => {
     try {
       const context = await getFirmContext(req)

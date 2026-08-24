@@ -130,8 +130,33 @@ export async function sendSms(to: string, body: string): Promise<boolean> {
   const provider = resolveSmsProvider()
   if (provider === 'sns') return sendViaSns(to, body)
   if (provider === 'twilio') return sendViaTwilio(to, body)
-  logger.info('SMS not configured (no provider). Skipping send.', { to: to.slice(-4), bodyLength: body.length })
+  // Warn rather than info: unlike email this is survivable, because routing
+  // offers also reach the attorney in-app and by email. But a deployment that
+  // believes it sends SMS and does not should be able to see that in the logs.
+  logger.warn('SMS dropped: no SMS provider is configured', {
+    to: to.slice(-4),
+    bodyLength: body.length,
+  })
   return false
+}
+
+/**
+ * Warn at boot when SMS is unconfigured.
+ *
+ * This is a warning rather than a startup failure because the case-offer flow
+ * degrades honestly without it — the offer still reaches the attorney in-app and
+ * by email, only the ACCEPT/DECLINE-by-text shortcut is lost.
+ *
+ * It is easy to get wrong in exactly one direction: SNS needs an explicit
+ * `SMS_PROVIDER=sns` because AWS credentials are ambient and cannot be detected,
+ * so an EC2 host with a perfectly good instance role sends nothing until someone
+ * sets that variable.
+ */
+export function checkSmsProviderConfig(): void {
+  if (isSmsConfigured()) return
+  logger.warn(
+    'No SMS provider is configured. Set SMS_PROVIDER=sns (SNS is never auto-detected, since AWS credentials are ambient) or supply the three TWILIO_* variables. Routing offers will still deliver in-app and by email; reply-to-accept will not work.',
+  )
 }
 
 /**

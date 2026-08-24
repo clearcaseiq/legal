@@ -255,8 +255,34 @@ export async function sendClaimEmail(params: EmailParams): Promise<boolean> {
   const provider = resolveEmailProvider()
   if (provider === 'ses') return sendViaSes(params)
   if (provider === 'resend') return sendViaResend(params)
-  logger.info('Claim email not sent (no email provider configured)', { to: params.to.slice(0, 3) })
+  // Logged at error, not info: reaching here means something asked for a
+  // password reset or a document request and the user will never receive it.
+  // `checkEmailProviderConfig` should have stopped the process at boot, so this
+  // is a backstop for a provider that was configured and later removed.
+  logger.error('Email dropped: no email provider is configured', {
+    to: params.to.slice(0, 3),
+    subject: params.subject,
+  })
   return false
+}
+
+/**
+ * Refuse to start production with no way to send mail.
+ *
+ * `resolveEmailProvider` returning 'none' is invisible at runtime — every send
+ * returns false, and the call sites are all best-effort, so a deployment with no
+ * SES or Resend credentials looks completely healthy while no user can reset a
+ * password, verify an address, or receive a document request. Partial config is
+ * the common way in: setting RESEND_API_KEY but not RESEND_FROM_EMAIL resolves
+ * to 'none' with nothing to indicate it.
+ */
+export function checkEmailProviderConfig(): void {
+  if (resolveEmailProvider() !== 'none') return
+
+  const message =
+    'No email provider is configured. Set EMAIL_PROVIDER=ses with SES_FROM_EMAIL, or RESEND_API_KEY together with RESEND_FROM_EMAIL. Without one, password resets, email verification, attorney claim invitations and document requests are all accepted and silently never delivered.'
+  if (process.env.NODE_ENV === 'production') throw new Error(message)
+  logger.warn(message)
 }
 
 /**

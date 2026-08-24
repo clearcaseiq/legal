@@ -1,6 +1,7 @@
 import type { Express } from 'express'
 import { createServer } from './server'
 import { logger } from './lib/logger'
+import { recordServerError } from './lib/error-rate-monitor'
 import assessments from './routes/assessments'
 import files from './routes/files'
 import predict from './routes/predict'
@@ -174,6 +175,11 @@ export function buildApp(): Express {
       stack: err.stack,
       requestId: req.id,
     })
+
+    // Feeds the error-rate tripwire. The label is the error type plus the route
+    // pattern rather than the message or URL, so a spike can be named in the
+    // alert without putting request data or PII into an email.
+    recordServerError(`${err.name} at ${req.method} ${req.route?.path ?? req.baseUrl ?? 'unknown'}`)
 
     res.status(500).json({
       error: 'Internal server error',

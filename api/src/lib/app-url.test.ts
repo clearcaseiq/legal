@@ -51,8 +51,10 @@ describe('webBaseUrl', () => {
   })
 
   it('falls back to localhost outside production', () => {
+    // 3100 is where the Next dev server runs; the dev CORS allowlist in
+    // server.ts names the same port.
     process.env.NODE_ENV = 'development'
-    expect(webBaseUrl()).toBe('http://localhost:3000')
+    expect(webBaseUrl()).toBe('http://localhost:3100')
   })
 
   it('refuses to guess a hostname in production', () => {

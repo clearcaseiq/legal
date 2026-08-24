@@ -14,6 +14,7 @@ import { z } from 'zod'
 import { authMiddleware, type AuthRequest } from '../lib/auth'
 import { prisma } from '../lib/prisma'
 import { logger } from '../lib/logger'
+import { replicateUploads } from '../lib/object-storage'
 import {
   createEnvelopeForLead,
   createHipaaAuthorizationEnvelope,
@@ -815,6 +816,7 @@ router.post(
   '/leads/:leadId/fee-agreement',
   authMiddleware,
   feeAgreementUpload.single('file'),
+  replicateUploads,
   async (req: AuthRequest, res) => {
     try {
       const attorney = await resolveAttorney(req)
@@ -869,6 +871,7 @@ router.post(
   '/leads/:leadId/retainer/upload',
   authMiddleware,
   feeAgreementUpload.single('file'),
+  replicateUploads,
   async (req: AuthRequest, res) => {
     req.body = { ...(req.body || {}), documentType: 'retainer' }
     // Reuse fee-agreement route logic by forwarding — call same shape inline.

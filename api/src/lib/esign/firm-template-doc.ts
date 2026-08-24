@@ -12,6 +12,7 @@ import path from 'path'
 import PDFDocument from 'pdfkit'
 import { prisma } from '../prisma'
 import { logger } from '../logger'
+import { persistUpload } from '../object-storage'
 
 const OUTPUT_DIR = path.join(process.cwd(), 'uploads', 'signable-documents')
 
@@ -159,6 +160,7 @@ export async function renderTemplateBodyPdf(params: {
     doc.end()
   })
 
+  await persistUpload(filePath)
   logger.info('Rendered firm template PDF', { leadId: params.leadId, filePath })
   return { filePath, title: params.title }
 }

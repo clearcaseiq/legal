@@ -21,6 +21,7 @@ import { syncCaseCoachTasks } from '../lib/case-coach-loop'
 import { analyzeImageRelevance, analyzePdfRelevance, analyzeVideoRelevance, type VisionRelevanceResult } from '../lib/evidence-vision'
 import { syncPlaintiffDocumentRequestStatuses } from '../lib/document-request-status'
 import { uploadLimiter } from '../lib/rate-limits'
+import { replicateUploads } from '../lib/object-storage'
 
 const router = Router()
 
@@ -439,7 +440,7 @@ router.post('/extract-precheck', uploadLimiter, optionalAuthMiddleware, memoryUp
  * The check has to run after multer, since `assessmentId` arrives in the
  * multipart body, so a rejected upload deletes the file multer already wrote.
  */
-router.post('/upload', uploadLimiter, optionalAuthMiddleware, upload.single('file'), async (req: any, res) => {
+router.post('/upload', uploadLimiter, optionalAuthMiddleware, upload.single('file'), replicateUploads, async (req: any, res) => {
   try {
     logger.info('Upload request received', { 
       hasFile: !!req.file, 
@@ -692,7 +693,7 @@ router.post('/upload', uploadLimiter, optionalAuthMiddleware, upload.single('fil
 })
 
 // Upload multiple files
-router.post('/upload-multiple', uploadLimiter, optionalAuthMiddleware, upload.array('files', 10), async (req: any, res) => {
+router.post('/upload-multiple', uploadLimiter, optionalAuthMiddleware, upload.array('files', 10), replicateUploads, async (req: any, res) => {
   try {
     const files = req.files as Express.Multer.File[]
     if (!files || files.length === 0) {

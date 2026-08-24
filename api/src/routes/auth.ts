@@ -7,6 +7,7 @@ import multer from 'multer'
 import { v4 as uuidv4 } from 'uuid'
 import { prisma } from '../lib/prisma'
 import { logger } from '../lib/logger'
+import { replicateUploads } from '../lib/object-storage'
 import { webUrl } from '../lib/app-url'
 import { UserRegister, UserLogin, UserUpdate, PasswordResetRequest, PasswordReset } from '../lib/validators'
 import { generateToken, authMiddleware, AuthRequest } from '../lib/auth'
@@ -846,7 +847,7 @@ router.put('/me', authMiddleware, async (req: AuthRequest, res) => {
 })
 
 // Upload / replace plaintiff profile photo (stored on User.avatar)
-router.post('/me/avatar', authMiddleware, runPlaintiffAvatarUpload, async (req: AuthRequest, res) => {
+router.post('/me/avatar', authMiddleware, runPlaintiffAvatarUpload, replicateUploads, async (req: AuthRequest, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No photo uploaded' })

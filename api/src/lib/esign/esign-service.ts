@@ -15,6 +15,7 @@ import { renderHipaaAuthorizationPdf } from './hipaa-authorization'
 import { renderPoliceReportAuthorizationPdf } from './police-report-authorization'
 import { renderRetainerAgreementPdf } from './retainer-agreement'
 import type { EnvelopeStatus, SignableDocumentType } from './types'
+import { ensureLocalCopy, persistUpload } from '../object-storage'
 
 const SIGNED_DIR = path.join(process.cwd(), 'uploads', 'signed-documents')
 
@@ -61,7 +62,10 @@ export async function ensureSignedFile(envelopeId: string): Promise<string | nul
   const envelope = await prisma.documentEnvelope.findUnique({ where: { id: envelopeId } })
   if (!envelope || envelope.status !== 'signed') return null
 
-  if (envelope.signedFilePath && fs.existsSync(envelope.signedFilePath)) {
+  // Checks object storage as well as disk, so a replaced instance serves the
+  // executed document from the durable copy instead of re-pulling it from the
+  // provider (which stops working once the envelope ages out on their side).
+  if (envelope.signedFilePath && (await ensureLocalCopy(envelope.signedFilePath))) {
     return envelope.signedFilePath
   }
   if (!envelope.externalEnvelopeId) return null
@@ -72,6 +76,7 @@ export async function ensureSignedFile(envelopeId: string): Promise<string | nul
     if (!fs.existsSync(SIGNED_DIR)) fs.mkdirSync(SIGNED_DIR, { recursive: true })
     const dest = path.join(SIGNED_DIR, `${envelope.id}.pdf`)
     fs.writeFileSync(dest, buf)
+    await persistUpload(dest)
     await prisma.documentEnvelope.update({
       where: { id: envelope.id },
       data: { signedFilePath: dest },
@@ -344,6 +349,7 @@ async function finalizeStatusTransition(
       if (!fs.existsSync(SIGNED_DIR)) fs.mkdirSync(SIGNED_DIR, { recursive: true })
       const dest = path.join(SIGNED_DIR, `${envelope.id}.pdf`)
       fs.writeFileSync(dest, buf)
+      await persistUpload(dest)
       signedFilePath = dest
     } catch (err) {
       logger.warn('Failed to download executed document; status still updated', {

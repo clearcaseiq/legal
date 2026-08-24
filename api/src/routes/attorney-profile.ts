@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { prisma } from '../lib/prisma'
 import { authMiddleware } from '../lib/auth'
 import { logger } from '../lib/logger'
+import { replicateUploads } from '../lib/object-storage'
 import { z } from 'zod'
 import multer from 'multer'
 import path from 'path'
@@ -325,7 +326,7 @@ function runVerdictDocUpload(req: any, res: any, next: any) {
 
 // Upload a supporting document for a case result. Returns a reference the client
 // then attaches to the verdict payload on submit.
-router.post('/verified-verdict-document', authMiddleware, runVerdictDocUpload, async (req: any, res) => {
+router.post('/verified-verdict-document', authMiddleware, runVerdictDocUpload, replicateUploads, async (req: any, res) => {
   try {
     if (!req.user?.email) return res.status(401).json({ error: 'Authentication required' })
     const file = req.file
@@ -712,7 +713,7 @@ router.put('/profile', authMiddleware, async (req: any, res) => {
 })
 
 // Upload attorney profile photo (avatar)
-router.post('/photo', authMiddleware, runAvatarUpload, async (req: any, res) => {
+router.post('/photo', authMiddleware, runAvatarUpload, replicateUploads, async (req: any, res) => {
   try {
     if (!req.user?.email) {
       return res.status(401).json({ error: 'Authentication required' })
@@ -1266,7 +1267,7 @@ router.get('/performance', authMiddleware, async (req: any, res) => {
 // Attorney License Management
 
 // Upload attorney license file
-router.post('/license/upload', authMiddleware, licenseUpload.single('licenseFile'), async (req: any, res) => {
+router.post('/license/upload', authMiddleware, licenseUpload.single('licenseFile'), replicateUploads, async (req: any, res) => {
   try {
     if (!req.user || !req.user.email) {
       return res.status(401).json({ 

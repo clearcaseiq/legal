@@ -24,5 +24,22 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # The Prisma client is generated from schema.prisma and is not committed,
+      # so the typecheck inside `pnpm build` cannot resolve model types without
+      # this. It also means a schema change that breaks a query fails here.
+      - name: Generate Prisma client
+        run: pnpm --filter caseiq-api prisma:generate
+
       - name: Build
         run: pnpm build
+
+      # Until now `pnpm build` was the entire gate: no tests, on a repo with a
+      # thousand-test suite. A commit that broke routing, authorization or SOL
+      # calculation reached main unchallenged, and `images.yml` published it to
+      # ECR on the same push.
+      #
+      # Scoped to the API rather than the root `pnpm test`, which also shells out
+      # to a Python suite this runner has no interpreter for. Widen it once the
+      # web and Python suites are green in CI.
+      - name: Test (API)
+        run: pnpm --filter caseiq-api test

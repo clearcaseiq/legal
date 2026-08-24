@@ -24,6 +24,20 @@
 # The pgvector tables it held (legal_document_chunks, llm_groundings) belong to
 # apps/ml-service, which only runs in the dev compose file. Restore a pgvector
 # service here if that service is ever deployed.
+# Bounded logs, applied to every service below.
+#
+# Docker's json-file driver defaults to unlimited size. The API logs every
+# request through morgan and runs a sweep every 15 seconds, and container logs
+# are the only diagnostic surface this deployment has — so left uncapped they
+# fill the disk on a host that has already hit ENOSPC, and they do it at the
+# moment you most need them. 50 MB x 5 files bounds each service at 250 MB while
+# still holding enough history to investigate an incident from the day before.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "5"
+
 services:
   api:
     build:
@@ -38,6 +52,7 @@ services:
     image: ${API_IMAGE:-clearcaseiq-api:local}
     container_name: clearcaseiq-${DEPLOY_ENV:?DEPLOY_ENV is required (prod or qa)}-api
     restart: unless-stopped
+    logging: *default-logging
     env_file:
       - .env.${DEPLOY_ENV}
     environment:
@@ -111,6 +126,7 @@ services:
     image: ${WEB_IMAGE:-clearcaseiq-web:local}
     container_name: clearcaseiq-${DEPLOY_ENV}-web
     restart: unless-stopped
+    logging: *default-logging
     environment:
       NODE_ENV: production
       PORT: 3000
@@ -160,6 +176,7 @@ services:
     image: nginx:1.27-alpine
     container_name: clearcaseiq-${DEPLOY_ENV}-nginx
     restart: unless-stopped
+    logging: *default-logging
     depends_on:
       - web
       - api

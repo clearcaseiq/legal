@@ -12,6 +12,7 @@ import fs from 'fs'
 import path from 'path'
 import PDFDocument from 'pdfkit'
 import { logger } from '../logger'
+import { persistUpload } from '../object-storage'
 
 const OUTPUT_DIR = path.join(process.cwd(), 'uploads', 'signable-documents')
 
@@ -172,6 +173,7 @@ export async function renderRetainerAgreementPdf(
     doc.end()
   })
 
+  await persistUpload(filePath)
   logger.info('Rendered retainer agreement PDF', { leadId: ctx.leadId, filePath })
   return { filePath, title }
 }

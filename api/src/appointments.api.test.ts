@@ -93,12 +93,17 @@ describe('POST /v1/appointments', () => {
       })
 
     expect(res.status).toBe(201)
-    expect(prisma.leadSubmission.updateMany).toHaveBeenCalledWith({
-      where: { assessmentId: 'asm-1' },
-      data: expect.objectContaining({
-        lifecycleState: 'consultation_scheduled',
+    // The `where` also carries guards that stop an already-engaged or retained
+    // case being regressed to consultation_scheduled, so match loosely on both
+    // halves rather than pinning the exact query shape.
+    expect(prisma.leadSubmission.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ assessmentId: 'asm-1' }),
+        data: expect.objectContaining({
+          lifecycleState: 'consultation_scheduled',
+        }),
       }),
-    })
+    )
     expect(prisma.routingAnalytics.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
         assessmentId: 'asm-1',
@@ -161,13 +166,23 @@ describe('POST /v1/appointments', () => {
 describe('GET /v1/appointments/attorney/:attorneyId/availability', () => {
   beforeEach(() => {
     resetUniversalPrismaMock()
-    vi.mocked(prisma.attorneyAvailability.findUnique).mockResolvedValue({
-      attorneyId: 'att-1',
-      dayOfWeek: 1,
-      isAvailable: true,
-      startTime: '09:00',
-      endTime: '11:00',
+    // The route resolves the attorney first (for the scheduling timezone) and
+    // 404s when there is none. UTC keeps the expected slot times below literal.
+    vi.mocked(prisma.attorney.findUnique).mockResolvedValue({
+      id: 'att-1',
+      schedulingTimezone: 'UTC',
     } as any)
+    // An attorney can have multiple windows per weekday, so the route reads
+    // these with findMany rather than findUnique.
+    vi.mocked(prisma.attorneyAvailability.findMany).mockResolvedValue([
+      {
+        attorneyId: 'att-1',
+        dayOfWeek: 1,
+        isAvailable: true,
+        startTime: '09:00',
+        endTime: '11:00',
+      },
+    ] as any)
     vi.mocked(prisma.appointment.findMany).mockResolvedValue([] as any)
     vi.mocked(prisma.attorneyCalendarBusyBlock.findMany).mockResolvedValue([
       {

@@ -5,6 +5,7 @@ import fs from 'fs'
 import { v4 as uuidv4 } from 'uuid'
 import { prisma } from '../lib/prisma'
 import { logger } from '../lib/logger'
+import { replicateUploads } from '../lib/object-storage'
 
 const router = Router()
 
@@ -134,7 +135,7 @@ router.get('/:token', async (req, res) => {
 })
 
 // Public: external recipient uploads a file against the request (no auth, token-gated).
-router.post('/:token/upload', upload.single('file'), async (req: any, res) => {
+router.post('/:token/upload', upload.single('file'), replicateUploads, async (req: any, res) => {
   try {
     const docRequest = await loadOpposingRequest(req.params.token)
     if (!docRequest) {

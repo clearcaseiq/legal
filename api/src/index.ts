@@ -14,6 +14,7 @@ import { runCaseReminderSweep } from './lib/case-reminder-sweep'
 import { runSolExpirySweep } from './lib/sol-expiry-sweep'
 import { runAiCaseManagerSweep, isAiCaseManagerEnabled } from './lib/ai-case-manager-sweep'
 import { runActivityCanarySweep, isActivityCanaryEnabled } from './lib/activity-canary-sweep'
+import { runErrorRateSweep, isErrorRateMonitorEnabled } from './lib/error-rate-monitor'
 import { reconcileAllAttorneyRatingAggregates } from './lib/attorney-rating-aggregates'
 import { beginSweep, registerSweep } from './lib/ops-status'
 
@@ -29,6 +30,7 @@ let caseReminderTimer: NodeJS.Timeout | null = null
 let solExpiryTimer: NodeJS.Timeout | null = null
 let aiCaseManagerTimer: NodeJS.Timeout | null = null
 let activityCanaryTimer: NodeJS.Timeout | null = null
+let errorRateTimer: NodeJS.Timeout | null = null
 
 async function runCalendarWebhookRenewalSweep(trigger: 'startup' | 'interval') {
   const sweep = beginSweep('calendar-webhook-renewal')
@@ -339,6 +341,35 @@ function startActivityCanaryLoop() {
   }, intervalMs)
 }
 
+async function runErrorRateLoop(trigger: 'startup' | 'interval') {
+  const sweep = beginSweep('error-rate')
+  try {
+    const result = await runErrorRateSweep()
+    sweep.succeed()
+    if (result.alerted) {
+      logger.info('Error rate sweep alerted', { trigger, ...result })
+    }
+  } catch (error) {
+    sweep.fail(error)
+    logger.error('Error rate sweep failed', { error, trigger })
+  }
+}
+
+function startErrorRateLoop() {
+  if (!isErrorRateMonitorEnabled()) {
+    registerSweep('error-rate', { label: 'Error rate monitor', enabled: false })
+    logger.info('Error rate monitor disabled')
+    return
+  }
+  // Runs on a fraction of the alert window so a spike is caught partway through
+  // it rather than up to a full window late.
+  const intervalMs = 5 * 60 * 1000
+  registerSweep('error-rate', { label: 'Error rate monitor', enabled: true, intervalMs })
+  errorRateTimer = setInterval(() => {
+    void runErrorRateLoop('interval')
+  }, intervalMs)
+}
+
 const server = app.listen(ENV.PORT, ENV.HOST, () => {
   logger.info(`API server listening on http://${ENV.HOST}:${ENV.PORT}`)
   // Heal any stale attorney rating aggregates left by reviews created before
@@ -354,6 +385,7 @@ const server = app.listen(ENV.PORT, ENV.HOST, () => {
   startCaseReminderLoop()
   startAiCaseManagerLoop()
   startActivityCanaryLoop()
+  startErrorRateLoop()
 })
 
 function stopBackgroundLoops() {
@@ -367,6 +399,7 @@ function stopBackgroundLoops() {
   if (caseReminderTimer) clearInterval(caseReminderTimer)
   if (aiCaseManagerTimer) clearInterval(aiCaseManagerTimer)
   if (activityCanaryTimer) clearInterval(activityCanaryTimer)
+  if (errorRateTimer) clearInterval(errorRateTimer)
   calendarWebhookRenewalTimer = null
   appointmentEngagementTimer = null
   notificationRetryTimer = null
@@ -377,6 +410,7 @@ function stopBackgroundLoops() {
   caseReminderTimer = null
   aiCaseManagerTimer = null
   activityCanaryTimer = null
+  errorRateTimer = null
 }
 
 function closeHttpServer() {

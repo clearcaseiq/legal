@@ -123,6 +123,8 @@ vi.mock('./lib/auth', () => {
 vi.mock('./lib/prisma', () => import('./test/universalPrismaMock'))
 vi.mock('./lib/sms', () => ({
   sendCaseOfferSms,
+  // createServer calls this at boot to warn when SMS is unconfigured.
+  checkSmsProviderConfig: () => {},
 }))
 vi.mock('./lib/routing-lifecycle', () => ({
   runEscalationWave,
@@ -1706,6 +1708,31 @@ describe('HTTP operations regressions', () => {
       ],
     } as any)
 
+    // The stored AttorneyDashboard counters above are no longer what the firm
+    // KPIs read: the accept flow never updates them, which made every firm show
+    // $0 spend. The route now recomputes all three live, so the mocks below are
+    // what actually drive the assertions.
+    //
+    // Platform spend = billable platform_payments (skipped_* rows are excluded).
+    vi.mocked(prisma.platformPayment.findMany).mockResolvedValue([
+      { amount: 5000, status: 'succeeded' },
+      { amount: 2000, status: 'succeeded' },
+      { amount: 900, status: 'skipped_subscription' },
+    ] as any)
+    // Leads received = every lead routed to the firm.
+    vi.mocked(prisma.leadSubmission.count).mockResolvedValue(15 as any)
+    // Leads accepted = firm cases an attorney actually took on, so five rows in
+    // an active status.
+    vi.mocked((prisma as any).assessment.findMany).mockResolvedValue(
+      Array.from({ length: 5 }, (_, i) => ({
+        id: `asm-${i + 1}`,
+        user: { firstName: 'Pat', lastName: 'Plaintiff' },
+        leadSubmission: { id: `lead-${i + 1}`, status: 'contacted', assignedAttorneyId: 'attorney-record-1' },
+        caseTasks: [],
+        firmCaseAssignments: [],
+      })) as any,
+    )
+
     const res = await request(app)
       .get('/v1/firm-dashboard')
       .set('Authorization', 'Bearer attorney')
@@ -1827,6 +1854,14 @@ describe('HTTP operations regressions', () => {
         },
       ] as any)
     vi.mocked(prisma.leadSubmission.count).mockResolvedValue(1 as any)
+    // Platform spend is computed live from platform_payments rather than the
+    // stored dashboard counter, which the accept flow never updates. The
+    // skipped_* row is excluded, so billable spend is 4000.
+    vi.mocked(prisma.platformPayment.findMany).mockResolvedValue([
+      { amount: 2500, status: 'succeeded' },
+      { amount: 1500, status: 'succeeded' },
+      { amount: 750, status: 'skipped_no_stripe' },
+    ] as any)
 
     const res = await request(app)
       .get('/v1/attorney-dashboard/dashboard')
@@ -1838,7 +1873,10 @@ describe('HTTP operations regressions', () => {
     expect(res.body.dashboard.feesCollectedFromPayments).toBe(27500)
     expect(res.body.dashboard.totalPlatformSpend).toBe(4000)
     expect(res.body.analytics.roi).toBe(6.875)
-    expect(prisma.leadSubmission.findMany).toHaveBeenCalledTimes(2)
+    // Three, and no more: the capped recent-leads fetch, the lean pipeline
+    // fetch, and the marketplace-performance lead universe. The point of the
+    // count is to catch a fourth appearing by accident.
+    expect(prisma.leadSubmission.findMany).toHaveBeenCalledTimes(3)
     expect(vi.mocked(prisma.billingPayment.aggregate).mock.calls[0]?.[0]).toMatchObject({
       where: {
         assessment: {
@@ -2041,8 +2079,9 @@ describe('HTTP operations regressions', () => {
     })
     expect(vi.mocked(prisma.appointment.findMany).mock.calls[0]?.[0]).toMatchObject({
       where: {
+        // No assessmentId filter: the calendar deliberately includes public
+        // "Calendly-style" bookings, which have no assessment attached.
         attorneyId: 'attorney-record-1',
-        assessmentId: { not: null },
         status: { in: ['SCHEDULED', 'CONFIRMED', 'COMPLETED', 'NO_SHOW'] },
       },
       orderBy: { scheduledAt: 'asc' },
@@ -2107,6 +2146,7 @@ describe('HTTP operations regressions', () => {
         lastNudgeAt: '2026-04-10T10:00:00.000Z',
         createdAt: '2026-04-09T09:00:00.000Z',
         claimType: 'slip_and_fall',
+        clientName: 'Slip And Fall',
         uploadedCount: 0,
       },
     ])
@@ -2130,7 +2170,16 @@ describe('HTTP operations regressions', () => {
         lead: {
           select: {
             id: true,
-            assessment: { select: { claimType: true } },
+            assessmentId: true,
+            // The list now shows who each request belongs to, so it pulls the
+            // case name and the claimant's name alongside the claim type.
+            assessment: {
+              select: {
+                claimType: true,
+                caseName: true,
+                user: { select: { firstName: true, lastName: true } },
+              },
+            },
           },
         },
       },
@@ -2807,6 +2856,9 @@ describe('HTTP operations regressions', () => {
       assessmentId: 'asm-1',
       assignmentType: 'shared',
       assignedAttorneyId: null,
+      // Scheduling with the plaintiff is only in bounds once the attorney has
+      // taken the case; without an engaged status the route answers 409.
+      status: 'contacted',
     } as any)
     vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
       userId: 'plaintiff-user-1',
@@ -2825,11 +2877,16 @@ describe('HTTP operations regressions', () => {
       status: 'SCHEDULED',
     } as any)
 
+    // Relative rather than a fixed day: the route rejects a slot in the past, so
+    // a hardcoded date turns this into a test that passes until it silently does
+    // not. Nothing below asserts the date itself.
+    const futureDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+
     const res = await request(app)
       .post('/v1/attorney-dashboard/leads/lead-1/schedule-consult')
       .set('Authorization', 'Bearer attorney')
       .send({
-        date: '2026-04-20',
+        date: futureDate,
         time: '2:30 PM',
         meetingType: 'video',
         notes: 'Bring any available records.',
@@ -3753,6 +3810,7 @@ describe('HTTP operations regressions', () => {
           take: 1,
           select: {
             id: true,
+            viability: true,
           },
         },
       },
@@ -4626,6 +4684,7 @@ describe('HTTP operations regressions', () => {
         name: 'Hospital',
         type: 'medical',
         amount: 5000,
+        finalAmount: null,
         status: 'open',
         notes: 'Pending negotiation',
       },
@@ -4635,6 +4694,7 @@ describe('HTTP operations regressions', () => {
         name: true,
         type: true,
         amount: true,
+        finalAmount: true,
         status: true,
         notes: true,
         createdAt: true,
@@ -6180,7 +6240,7 @@ describe('HTTP operations regressions', () => {
         assessmentId: true,
         lastMessageAt: true,
         user: {
-          select: { id: true, firstName: true, lastName: true, email: true },
+          select: { id: true, firstName: true, lastName: true, email: true, avatar: true },
         },
         assessment: {
           select: { id: true, claimType: true, venueState: true },
@@ -6270,7 +6330,7 @@ describe('HTTP operations regressions', () => {
         id: true,
         lastMessageAt: true,
         user: {
-          select: { id: true, firstName: true, lastName: true, email: true },
+          select: { id: true, firstName: true, lastName: true, email: true, avatar: true },
         },
         assessment: {
           select: { id: true, claimType: true, venueState: true },

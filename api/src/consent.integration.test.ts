@@ -108,13 +108,17 @@ describe('Consent API (integration)', () => {
     })
 
     it('200 idempotently returns the existing consent when already granted', async () => {
-      vi.mocked(prisma.consent.findFirst).mockResolvedValue({
+      const existing = {
         id: 'consent-existing',
         userId: plaintiffUser.id,
         consentType: 'terms',
         version: '1.0',
         granted: true,
-      } as any)
+      }
+      vi.mocked(prisma.consent.findFirst).mockResolvedValue(existing as any)
+      // The route re-grants the existing row rather than creating a second one,
+      // and returns what the update produced — so this is the response body.
+      vi.mocked(prisma.consent.update).mockResolvedValue(existing as any)
 
       const res = await request(app)
         .post('/v1/consent')

@@ -12,7 +12,7 @@ Because the existing historical Prisma migration SQL in `prisma/migrations/` was
 
 ```bash
 pnpm prisma:generate
-pnpm prisma:deploy:fresh
+pnpm prisma:reset:local
 ```
 
 4. Optionally seed:
@@ -21,8 +21,22 @@ pnpm prisma:deploy:fresh
 pnpm prisma db seed
 ```
 
+## Deployed environments
+
+Do **not** run the command above against QA or production. It carries
+`--accept-data-loss`, which drops columns and tables without prompting, and it is
+guarded to refuse any non-local `DATABASE_URL` for that reason.
+
+Deployed environments get their schema from the API container entrypoint, which
+runs `prisma db push` *without* that flag on every boot: additive changes apply,
+anything destructive aborts and the container refuses to start. To apply a schema
+change, deploy the new image.
+
 ## Notes
 
-- `prisma:dev` now uses `prisma db push --accept-data-loss` for fresh-schema sync.
+- `prisma:reset:local` was previously named `prisma:deploy:fresh`, which read like
+  a production deploy command while being the most destructive script in the repo.
+- `prisma:dev` also uses `prisma db push --accept-data-loss` for fresh-schema sync,
+  behind the same guard.
 - The app no longer expects MySQL-specific native Prisma types like `@db.LongText`.
 - The LegalMatch importer is production-gated and can run against the fresh Postgres-backed app once `DATABASE_URL` points at the new database.

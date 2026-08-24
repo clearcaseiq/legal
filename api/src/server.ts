@@ -12,9 +12,37 @@ import { logger } from './lib/logger'
 import { checkWebBaseUrl } from './lib/app-url'
 import { runReadinessProbes } from './lib/ops-status'
 import { requireSessionForPrivateUploads } from './lib/uploads-access'
+import { checkObjectStorageConfig, ensureLocalCopy, isObjectStorageEnabled } from './lib/object-storage'
+import { checkEmailProviderConfig } from './lib/claims'
+import { checkSmsProviderConfig } from './lib/sms'
 
 const AUDITED_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
-const PLACEHOLDER_SECRETS = new Set(['your-secret-key', 'development-secret', 'changeme'])
+/**
+ * Values that must never sign a production token or session.
+ *
+ * The list has to include the placeholders this repo actually ships, not just
+ * generic ones: the realistic way a bad secret reaches production is someone
+ * copying an example env file and filling in the database URL. Every string
+ * below appears verbatim in a tracked `.env*.example` or setup script, so any of
+ * them reaching production means the signing key is public. `JWT_SECRET` is also
+ * the fallback encryption key for stored CMS credentials (see lib/cms/crypto.ts),
+ * so the blast radius is wider than sessions.
+ *
+ * Keep this in step with the example files.
+ */
+const PLACEHOLDER_SECRETS = new Set([
+  'your-secret-key',
+  'development-secret',
+  'changeme',
+  // .env.prod.example
+  'replace-with-long-random-secret',
+  'replace-with-long-random-session-secret',
+  // .env.qa.example
+  'generate-a-new-one-do-not-copy-from-prod',
+  // api/.env.example and api/env.example
+  'your-super-secret-jwt-key-here',
+  'your-super-secret-jwt-key-change-this-in-production',
+])
 
 function parseCommaSeparatedEnv(value: string | undefined) {
   return (value || '')
@@ -272,6 +300,18 @@ export function createServer(): Express {
   if (warning) logger.warn(warning)
   logger.info(`Web app base URL: ${baseUrl}`)
 
+  // Same reasoning as the URL check above: `FILE_BUCKET=s3` without a bucket
+  // name produces no error, just uploads that persist to a container filesystem
+  // and are gone with the instance.
+  checkObjectStorageConfig()
+
+  // And the same again for the outbound channels. An unconfigured email provider
+  // is the quietest failure on the platform: every send returns false from a
+  // best-effort call site, so nothing surfaces while no user can reset a
+  // password. SMS only warns — routing offers still reach attorneys in-app.
+  checkEmailProviderConfig()
+  checkSmsProviderConfig()
+
   // Initialize Passport
   app.use(passport.initialize())
   app.use(passport.session())
@@ -342,6 +382,28 @@ export function createServer(): Express {
   // getEvidenceObjectUrl and downloadEvidenceByUrl), so it already sends a
   // bearer token and only needs the server to start checking it.
   app.use('/uploads', requireSessionForPrivateUploads)
+
+  // Read-through from object storage, between the authorization check and the
+  // static handler so a restored file is still subject to the same decision.
+  //
+  // A replaced instance starts with an empty uploads volume. Without this, every
+  // historical evidence file and executed retainer would 404 even though S3 has
+  // them. `ensureLocalCopy` is a no-op when the file is already on disk, so the
+  // warm path costs one `existsSync`.
+  if (isObjectStorageEnabled()) {
+    app.use('/uploads', async (req: Request, _res: Response, next: NextFunction) => {
+      try {
+        let pathname = decodeURIComponent(req.path)
+        pathname = pathname.replace(/\\/g, '/')
+        if (pathname.includes('..')) return next()
+        await ensureLocalCopy(path.join(process.cwd(), 'uploads', pathname))
+      } catch {
+        // Fall through to the static handler, which answers 404 on its own.
+      }
+      next()
+    })
+  }
+
   app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')))
   
   return app

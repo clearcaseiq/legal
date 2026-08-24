@@ -11,6 +11,7 @@ import fs from 'fs'
 import path from 'path'
 import PDFDocument from 'pdfkit'
 import { logger } from '../logger'
+import { persistUpload } from '../object-storage'
 import { CONSENT_TEMPLATES } from '../consent-templates'
 
 const OUTPUT_DIR = path.join(process.cwd(), 'uploads', 'signable-documents')
@@ -111,6 +112,7 @@ export async function renderHipaaAuthorizationPdf(
     doc.end()
   })
 
+  await persistUpload(filePath)
   logger.info('Rendered HIPAA authorization PDF', { leadId: ctx.leadId, filePath })
   return { filePath, title }
 }
