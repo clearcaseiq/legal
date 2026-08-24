@@ -350,7 +350,14 @@ upload links.
   models and real persistence first.
 - **Medical Providers directory** — searchable provider list with lien terms, a referrals tab, and
   analytics. The page currently loads **client-side mock data**; the (real) API supports
-  provider search, referral CRUD, and analytics, though distance is a stub.
+  provider search, referral CRUD, and analytics. Radius search is now measured rather than
+  simulated: `lib/geo-distance.ts` geocodes ZIP centre points through the Google Geocoding API and
+  caches them in `ZipCentroid`, and results carry a `distanceFilter` block reporting whether the
+  radius was actually applied. Requires `GOOGLE_GEOCODING_API_KEY` (or a `GOOGLE_PLACES_API_KEY`
+  with the Geocoding API enabled); without one, the radius is skipped and reported as
+  `GEOCODING_NOT_CONFIGURED` rather than guessed. Providers store no language or insurance fields,
+  so `languages` and `insuranceAccepted` come back in `unsupportedFilters` instead of being
+  silently ignored.
 - **Financing** — tabs for Pre-Settlement Funding (partner cards with APR/term/approval-rate),
   Medical Liens, and a **Cost Calculator** (amortization → monthly payment, total payback, effective
   rate, settlement-impact, and rule-based recommendations). Partners/medical lists are **hardcoded**

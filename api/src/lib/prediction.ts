@@ -838,9 +838,12 @@ export function predictViabilityHeuristic(features: any, calibrationOverride?: V
     ? Math.max(0.05, Math.min(0.95, liabilityScore.score))
     : Math.max(0.05, Math.min(0.95, overall - 0.04)) // Fallback if not calculated
   
-  // Causation and damages still use variation (can be upgraded later)
-  const causation = Math.max(0.05, Math.min(0.95, overall - 0.06 + (Math.random() - 0.5) * 0.1))
-  const damages = Math.max(0.05, Math.min(0.95, overall + 0.08 + (Math.random() - 0.5) * 0.1))
+  // Fixed offsets from the overall score until these get their own models, as
+  // liability did above. They previously carried a +/-0.05 random term, which
+  // meant re-scoring the same case moved numbers attorneys use to decide whether
+  // to take it.
+  const causation = Math.max(0.05, Math.min(0.95, overall - 0.06))
+  const damages = Math.max(0.05, Math.min(0.95, overall + 0.08))
   
   // Confidence interval
   const ci = [Math.max(0.05, overall - 0.09), Math.min(0.95, overall + 0.09)]

@@ -3725,6 +3725,22 @@ model MedicalProvider {
   @@map("medical_providers")
 }
 
+/// Geocoded centre point of a 5-digit US ZIP, cached so provider radius search
+/// does not pay for a geocode on every request. A row with null coordinates
+/// records a ZIP the geocoder could not resolve, which stops an unresolvable
+/// ZIP from re-hitting the paid API on each search.
+model ZipCentroid {
+  zipCode   String  @id
+  latitude  Float?
+  longitude Float?
+  source    String  @default("google")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("zip_centroids")
+}
+
 model ProviderReferral {
   id         String          @id @default(cuid())
   leadId     String

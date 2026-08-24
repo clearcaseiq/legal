@@ -137,6 +137,13 @@ export const ENV = {
    * per request and must never reach the browser.
    */
   GOOGLE_PLACES_API_KEY: process.env.GOOGLE_PLACES_API_KEY,
+  /**
+   * Server-side key for the Geocoding API, used to resolve ZIP centre points for
+   * provider radius search. Falls back to GOOGLE_PLACES_API_KEY, which only works
+   * if the Geocoding API is enabled on that same project. With neither set,
+   * radius search reports that it could not be applied rather than guessing.
+   */
+  GOOGLE_GEOCODING_API_KEY: process.env.GOOGLE_GEOCODING_API_KEY,
   GOOGLE_CALENDAR_CLIENT_ID: process.env.GOOGLE_CALENDAR_CLIENT_ID,
   GOOGLE_CALENDAR_CLIENT_SECRET: process.env.GOOGLE_CALENDAR_CLIENT_SECRET,
   GOOGLE_CALENDAR_REDIRECT_URI: process.env.GOOGLE_CALENDAR_REDIRECT_URI,

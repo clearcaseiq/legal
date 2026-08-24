@@ -3,8 +3,110 @@ import { authMiddleware } from '../lib/auth'
 import { logger } from '../lib/logger'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma'
+import {
+  haversineMiles,
+  isGeocodingConfigured,
+  normalizeZip,
+  resolveZipCentroids,
+} from '../lib/geo-distance'
 
 const router = Router()
+
+/**
+ * Ceiling on providers pulled into memory for a radius search. Radius filtering
+ * cannot run in SQL while providers carry only a ZIP and no coordinates, so the
+ * rows are scored in the API. Hitting this cap is reported to the client rather
+ * than quietly truncating the result.
+ */
+const RADIUS_CANDIDATE_LIMIT = 1000
+
+type RadiusUnavailableReason =
+  | 'INVALID_ORIGIN_ZIP'
+  | 'GEOCODING_NOT_CONFIGURED'
+  | 'ORIGIN_ZIP_UNRESOLVED'
+
+type ProviderWithDistance<T> = T & { distanceMiles: number | null }
+
+type RadiusResult<T> = {
+  providers: Array<ProviderWithDistance<T>>
+  /** False means every candidate is returned and no radius was enforced. */
+  applied: boolean
+  reason: RadiusUnavailableReason | null
+  /** Providers kept despite an unresolvable ZIP, so the caller can say so. */
+  unresolvedProviderCount: number
+}
+
+/**
+ * Annotates providers with their distance from `originZip` and drops those
+ * outside `maxDistanceMiles`.
+ *
+ * A provider whose own ZIP cannot be resolved is kept with a null distance
+ * rather than dropped: hiding a real provider because of a gap in our geocode
+ * cache is worse than showing one that may be out of range, and the null makes
+ * the gap visible instead of implying a measured distance.
+ */
+async function applyRadiusFilter<T extends { zipCode: string }>(
+  providers: T[],
+  originZip: string,
+  maxDistanceMiles: number,
+): Promise<RadiusResult<T>> {
+  const unfiltered = (reason: RadiusUnavailableReason): RadiusResult<T> => ({
+    providers: providers.map((provider) => ({ ...provider, distanceMiles: null })),
+    applied: false,
+    reason,
+    unresolvedProviderCount: providers.length,
+  })
+
+  const origin = normalizeZip(originZip)
+  if (!origin) return unfiltered('INVALID_ORIGIN_ZIP')
+  if (!isGeocodingConfigured()) return unfiltered('GEOCODING_NOT_CONFIGURED')
+
+  const centroids = await resolveZipCentroids([
+    origin,
+    ...providers.map((provider) => provider.zipCode),
+  ])
+
+  const originCoordinates = centroids.get(origin)
+  if (!originCoordinates) return unfiltered('ORIGIN_ZIP_UNRESOLVED')
+
+  let unresolvedProviderCount = 0
+
+  const scored = providers.map((provider) => {
+    const zip = normalizeZip(provider.zipCode)
+    const coordinates = zip ? centroids.get(zip) : null
+    if (!coordinates) {
+      unresolvedProviderCount += 1
+      return { ...provider, distanceMiles: null }
+    }
+    return { ...provider, distanceMiles: haversineMiles(originCoordinates, coordinates) }
+  })
+
+  const withinRadius = scored.filter(
+    (provider) => provider.distanceMiles === null || provider.distanceMiles <= maxDistanceMiles,
+  )
+
+  withinRadius.sort((a, b) => {
+    if (a.distanceMiles === null) return b.distanceMiles === null ? 0 : 1
+    if (b.distanceMiles === null) return -1
+    return a.distanceMiles - b.distanceMiles
+  })
+
+  return { providers: withinRadius, applied: true, reason: null, unresolvedProviderCount }
+}
+
+/** Clamps paging input so a bad query cannot ask for the whole table. */
+function parsePaging(page: unknown, limit: unknown): { page: number; limit: number } {
+  const parsedPage = Math.max(1, Number.parseInt(String(page ?? 1), 10) || 1)
+  const parsedLimit = Math.min(100, Math.max(1, Number.parseInt(String(limit ?? 20), 10) || 20))
+  return { page: parsedPage, limit: parsedLimit }
+}
+
+/** Positive, finite mile count, or null when the caller did not ask for a radius. */
+function parseMaxDistance(value: unknown): number | null {
+  if (value === undefined || value === null || value === '') return null
+  const miles = Number(value)
+  return Number.isFinite(miles) && miles > 0 ? miles : null
+}
 
 /**
  * Attorney-to-provider referrals, off by default.
@@ -64,41 +166,73 @@ router.get('/providers', authMiddleware, requireProviderReferralsEnabled, async 
       limit = 20
     } = req.query
 
+    const paging = parsePaging(page, limit)
+    const maxDistanceMiles = parseMaxDistance(maxDistance)
+    // With a radius, the ZIP is where the attorney is searching from, so it must
+    // not also narrow the query to providers sitting in that exact ZIP.
+    const radiusOrigin = maxDistanceMiles !== null && zipCode ? String(zipCode) : null
+
     const whereClause: any = {}
 
     if (specialty) whereClause.specialty = specialty
     if (city) whereClause.city = { contains: city, mode: 'insensitive' }
     if (state) whereClause.state = state
-    if (zipCode) whereClause.zipCode = zipCode
+    if (zipCode && !radiusOrigin) whereClause.zipCode = zipCode
     if (acceptsLien !== undefined) whereClause.acceptsLien = acceptsLien === 'true'
     if (isVerified !== undefined) whereClause.isVerified = isVerified === 'true'
 
-    const providers = await prisma.medicalProvider.findMany({
-      where: whereClause,
-      orderBy: [
-        { isVerified: 'desc' },
-        { rating: 'desc' }
-      ],
-      skip: (parseInt(page as string) - 1) * parseInt(limit as string),
-      take: parseInt(limit as string)
-    })
+    const orderBy = [{ isVerified: 'desc' as const }, { rating: 'desc' as const }]
 
-    // Filter by distance if zipCode and maxDistance provided
-    let filteredProviders = providers
-    if (zipCode && maxDistance) {
-      // In a real implementation, you would use a geolocation service
-      // For now, we'll simulate distance filtering
-      filteredProviders = providers.filter(provider => {
-        const distance = calculateDistance(zipCode as string, provider.zipCode)
-        return distance <= parseInt(maxDistance as string)
+    if (!radiusOrigin) {
+      const [providers, totalCount] = await Promise.all([
+        prisma.medicalProvider.findMany({
+          where: whereClause,
+          orderBy,
+          skip: (paging.page - 1) * paging.limit,
+          take: paging.limit,
+        }),
+        prisma.medicalProvider.count({ where: whereClause }),
+      ])
+
+      return res.json({
+        providers,
+        totalCount,
+        page: paging.page,
+        limit: paging.limit,
+        distanceFilter: { requested: false, applied: false, reason: null },
       })
     }
 
+    // Radius searches score in memory, so candidates are fetched before paging.
+    const candidates = await prisma.medicalProvider.findMany({
+      where: whereClause,
+      orderBy,
+      take: RADIUS_CANDIDATE_LIMIT + 1,
+    })
+    const truncated = candidates.length > RADIUS_CANDIDATE_LIMIT
+
+    const radius = await applyRadiusFilter(
+      truncated ? candidates.slice(0, RADIUS_CANDIDATE_LIMIT) : candidates,
+      radiusOrigin,
+      maxDistanceMiles as number,
+    )
+
+    const start = (paging.page - 1) * paging.limit
+
     res.json({
-      providers: filteredProviders,
-      totalCount: filteredProviders.length,
-      page: parseInt(page as string),
-      limit: parseInt(limit as string)
+      providers: radius.providers.slice(start, start + paging.limit),
+      totalCount: radius.providers.length,
+      page: paging.page,
+      limit: paging.limit,
+      distanceFilter: {
+        requested: true,
+        applied: radius.applied,
+        reason: radius.reason,
+        originZip: radiusOrigin,
+        maxDistanceMiles,
+        unresolvedProviderCount: radius.unresolvedProviderCount,
+        candidatesTruncated: truncated,
+      },
     })
   } catch (error: any) {
     logger.error('Failed to get medical providers', { error: error.message })
@@ -338,6 +472,12 @@ router.post('/search', authMiddleware, requireProviderReferralsEnabled, async (r
       limit = 20
     } = req.body
 
+    const paging = parsePaging(page, limit)
+    const maxDistanceMiles = parseMaxDistance(maxDistance)
+    // As on GET /providers, a radius makes the ZIP an origin rather than a filter.
+    const radiusOrigin =
+      maxDistanceMiles !== null && location?.zipCode ? String(location.zipCode) : null
+
     const whereClause: any = {}
 
     if (specialty) whereClause.specialty = specialty
@@ -348,44 +488,56 @@ router.post('/search', authMiddleware, requireProviderReferralsEnabled, async (r
     // Location-based filtering
     if (location?.city) whereClause.city = { contains: location.city, mode: 'insensitive' }
     if (location?.state) whereClause.state = location.state
-    if (location?.zipCode) whereClause.zipCode = location.zipCode
+    if (location?.zipCode && !radiusOrigin) whereClause.zipCode = location.zipCode
 
-    const providers = await prisma.medicalProvider.findMany({
+    const candidates = await prisma.medicalProvider.findMany({
       where: whereClause,
       orderBy: [
         { isVerified: 'desc' },
         { rating: 'desc' }
-      ]
+      ],
+      take: RADIUS_CANDIDATE_LIMIT + 1
     })
+    const truncated = candidates.length > RADIUS_CANDIDATE_LIMIT
+    const providers = truncated ? candidates.slice(0, RADIUS_CANDIDATE_LIMIT) : candidates
 
-    // Apply distance filtering if location provided
-    let filteredProviders = providers
-    if (location?.zipCode && maxDistance) {
-      filteredProviders = providers.filter(provider => {
-        const distance = calculateDistance(location.zipCode, provider.zipCode)
-        return distance <= maxDistance
-      })
-    }
+    const radius = radiusOrigin
+      ? await applyRadiusFilter(providers, radiusOrigin, maxDistanceMiles as number)
+      : null
 
-    // Apply language filtering (if provider had language field)
-    if (languages && languages.length > 0) {
-      filteredProviders = filteredProviders.filter(provider => {
-        // In a real implementation, providers would have a languages field
-        // For now, we'll assume all providers speak English
-        return true
-      })
+    const filteredProviders = radius ? radius.providers : providers
+
+    // `languages` and `insuranceAccepted` are accepted by this endpoint's contract
+    // but MedicalProvider stores neither, so they cannot be honoured. They used to
+    // run through a filter callback that returned true for every provider, which
+    // read as a working filter. The request is now reported back as unsupported
+    // instead of being silently dropped.
+    const unsupportedFilters: string[] = []
+    if (Array.isArray(languages) && languages.length > 0) unsupportedFilters.push('languages')
+    if (Array.isArray(insuranceAccepted) && insuranceAccepted.length > 0) {
+      unsupportedFilters.push('insuranceAccepted')
     }
 
     // Pagination
-    const startIndex = (parseInt(page as string) - 1) * parseInt(limit as string)
-    const endIndex = startIndex + parseInt(limit as string)
+    const startIndex = (paging.page - 1) * paging.limit
+    const endIndex = startIndex + paging.limit
     const paginatedProviders = filteredProviders.slice(startIndex, endIndex)
 
     res.json({
       providers: paginatedProviders,
       totalCount: filteredProviders.length,
-      page: parseInt(page as string),
-      limit: parseInt(limit as string),
+      page: paging.page,
+      limit: paging.limit,
+      distanceFilter: {
+        requested: maxDistanceMiles !== null,
+        applied: radius?.applied ?? false,
+        reason: radius?.reason ?? null,
+        originZip: radiusOrigin,
+        maxDistanceMiles,
+        unresolvedProviderCount: radius?.unresolvedProviderCount ?? 0,
+        candidatesTruncated: truncated
+      },
+      unsupportedFilters,
       searchCriteria: {
         location,
         specialty,
@@ -920,16 +1072,5 @@ router.delete('/treatment-records/:id', authMiddleware, async (req: any, res) =>
     res.status(500).json({ error: 'Failed to delete treatment record' })
   }
 })
-
-// Helper functions
-
-function calculateDistance(zipCode1: string, zipCode2: string): number {
-  // Simplified distance calculation
-  // In a real implementation, you would use a proper geolocation service
-  // like Google Maps API or a ZIP code distance lookup service
-  
-  // For demo purposes, return a random distance between 0-50 miles
-  return Math.floor(Math.random() * 50)
-}
 
 export default router
