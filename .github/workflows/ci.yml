@@ -44,4 +44,13 @@ jobs:
       # to a Python suite this runner has no interpreter for. Widen it once the
       # web and Python suites are green in CI.
       - name: Test (API)
+        # env.ts requires these two at import time and there is no .env on a
+        # runner. Nothing here connects to a database — the suite runs against a
+        # mocked Prisma client — so the URL only has to parse. NODE_ENV=test also
+        # keeps the production boot guards (email provider, placeholder secrets)
+        # from failing a run that has no real configuration.
+        env:
+          NODE_ENV: test
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+          JWT_SECRET: ci-only-not-a-real-secret
         run: pnpm --filter caseiq-api test
