@@ -23,6 +23,7 @@
  */
 
 import os from 'os'
+import { randomUUID } from 'crypto'
 import { prisma } from './prisma'
 import { logger } from './logger'
 
@@ -39,8 +40,26 @@ const LEASE_TTL_SECONDS = 90
 /** Renewal cadence. Three attempts fit inside one TTL, so a single failure is survivable. */
 const RENEW_INTERVAL_MS = 30_000
 
-/** Identifies the holder in logs and in the ops view. Not used for correctness. */
-const HOLDER = `${os.hostname()}:${process.pid}`
+/**
+ * Identifies this process. Uniqueness here is load-bearing, not cosmetic: the
+ * renewal path claims a lease whose holder already equals ours, so two
+ * processes sharing an identity each read the other's live lease as their own
+ * and both run the sweeps.
+ *
+ * This was `hostname:pid`, and that is exactly what happened. Inside a
+ * container the hostname is the container id and the pid is always 1, and the
+ * documented way to add an instance is to image a running host — which clones
+ * the container, id included. The second instance came up as
+ * `5b87b9d2f4db:1`, the same string the first was renewing under, took the
+ * lease while the first still held it, and both ran every sweep for three and a
+ * half minutes. Nothing errored and both hosts stayed healthy throughout.
+ *
+ * The random component is what makes it an identity rather than a description
+ * of where the process happens to be running. Host and pid are kept because
+ * "which box is running the sweeps" is a question worth being able to answer
+ * from the ops page.
+ */
+const HOLDER = `${os.hostname()}:${process.pid}:${randomUUID().slice(0, 8)}`
 
 /**
  * Consecutive failures after which a lease that cannot be evaluated is treated

@@ -87,11 +87,22 @@ To see which host currently holds it:
 SELECT holder, "expiresAt" > now() AS live, "updatedAt" FROM scheduler_leases;
 ```
 
-`holder` is `container-hostname:pid`. The admin System Status page reports the
-same thing, and calls the environment **down** if no instance has ever acquired
-the lease — because an instance that cannot read the lease looks exactly like a
-healthy standby otherwise: neither has any sweeps registered, so neither has
-anything to report as failing or overdue.
+`holder` is `container-hostname:pid:random`. The random suffix is not
+decoration. Renewal works by claiming a lease whose holder already matches
+ours, so two processes sharing an identity each read the other's live lease as
+their own and both run the sweeps. The identity was originally
+`container-hostname:pid`, which is not unique across hosts at all: in a
+container the hostname is the container id and the pid is always 1, and imaging
+a running host — the documented way to add an instance, below — clones the
+container id with everything else. The first attempt at a second instance
+duplicated every sweep for three and a half minutes while both hosts reported
+healthy.
+
+The admin System Status page reports the holder, and calls the environment
+**down** if no instance has ever acquired the lease — because an instance that
+cannot read the lease looks exactly like a healthy standby otherwise: neither
+has any sweeps registered, so neither has anything to report as failing or
+overdue.
 
 ### Adding or replacing an instance
 

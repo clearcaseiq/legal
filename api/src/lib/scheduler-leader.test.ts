@@ -224,6 +224,20 @@ describe('scheduler leadership', () => {
     })
   })
 
+  it('gives two processes on the same host different identities', async () => {
+    const a = await load()
+    const b = await load()
+
+    // Same machine, same pid, two loads — which is precisely the case that
+    // broke production. Imaging a running host clones the container, so the
+    // second instance booted with the first's container id as its hostname and
+    // pid 1, exactly as here. Identical identities let the second process renew
+    // the first's live lease as though it were its own, and both ran every
+    // sweep.
+    expect(a.schedulerHolderId()).not.toBe(b.schedulerHolderId())
+    expect(a.schedulerHolderId()).toContain(`:${process.pid}:`)
+  })
+
   it('claims the lease only when it is unheld, expired, or already ours', async () => {
     const { prisma, startSchedulerLeadership } = await load()
     prisma.$executeRaw.mockResolvedValue(1)
