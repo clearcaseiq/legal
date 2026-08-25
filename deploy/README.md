@@ -23,7 +23,7 @@ directly. The differences that matter when reading anything below:
 | TLS terminates at | the ALB, with an ACM certificate | nginx, with Let's Encrypt |
 | nginx listens on | 80 only, no key material | 80 and 443 |
 | Reachable directly | no — the instance only accepts port 80 from the ALB | yes |
-| Certificate renewal | automatic, no host involvement | **certbot, and currently broken — see below** |
+| Certificate renewal | automatic, no host involvement | certbot on a systemd timer, renewing over the webroot |
 
 TLS moved off the host because the certificates were issued with
 `certbot --standalone`, which needs ports 80 and 443 free to answer the
@@ -31,9 +31,9 @@ challenge, and nginx holds both. Renewal could not have succeeded: it would have
 failed quietly and taken the site down roughly 90 days after issue. ACM renews
 itself, so the failure mode is gone rather than patched.
 
-**QA still has that problem.** It terminates its own TLS and will hit the same
-wall. Either give it a load balancer too, or switch its renewal to the webroot
-that `qa.conf` already serves.
+**QA hit exactly that wall and has been fixed in place.** It still terminates
+its own TLS, but renews over the webroot `qa.conf` already served rather than by
+binding the ports nginx holds. See [SSL Certificate](#ssl-certificate).
 
 The ALB is also what makes a second instance possible. That was not true until
 uploads moved to S3 — with files on one box's disk, a second instance would have
@@ -340,27 +340,57 @@ dangerous carried over:
 certificate covering `clearcaseiq.com`, `www` and `api`, which renews itself.
 There is nothing to run on the host and nothing to remember before expiry.
 
-QA still issues its own, and this is where the `--standalone` trap lives: it
-binds ports 80 and 443 to answer the challenge, so it works once — before nginx
-exists — and then fails at every renewal, because nginx holds both ports from
-then on. It fails quietly, and the site goes dark about 90 days later.
+QA still issues its own, and this is where the `--standalone` trap lives. It
+binds ports 80 and 443 to answer the challenge, so it works exactly once —
+during first setup, before nginx exists — and then fails at every renewal
+afterwards, because nginx holds both ports from then on.
 
-So the command below is for **first issue on a host with no nginx running**:
+QA was in precisely that state: `authenticator = standalone` recorded in its
+renewal config, a systemd timer firing twice a day, and every run failing with
+`Could not bind TCP port 80 because it is already in use`. Nothing surfaced it.
+The timer reported no errors anywhere a person would look, and the certificate
+stayed valid, so the only symptom would have been the site going dark about 90
+days after issue.
+
+It now renews over the webroot that `qa.conf` has served all along, which needs
+no ports:
+
+```ini
+# /etc/letsencrypt/renewal/qa.clearcaseiq.com.conf
+authenticator = webroot
+webroot_path = /home/ubuntu/clearcaseiq/legal/deploy/certbot/www,
+renew_hook = docker exec clearcaseiq-qa-nginx nginx -s reload
+```
+
+The `renew_hook` matters as much as the authenticator. nginx reads its
+certificate once at startup, so without a reload it would keep serving the old
+one after a successful renewal — the same silent expiry, reached by a different
+route.
+
+Verify a change here rather than trusting it, because every failure mode in this
+area is quiet:
 
 ```bash
-# QA host
+sudo certbot renew --dry-run
+```
+
+That performs a real HTTP-01 challenge against the running nginx. Expect
+`Congratulations, all simulated renewals succeeded`. It takes several minutes:
+`certbot renew` sleeps a random delay of up to ~8 minutes to spread load on
+Let's Encrypt, which looks like a hang and is not. Pass
+`--no-random-sleep-on-renew` when running it by hand.
+
+**First issue on a new host**, where no nginx is running yet and the ports are
+genuinely free:
+
+```bash
 sudo certbot certonly --standalone \
   -d qa.clearcaseiq.com \
   -d api-qa.clearcaseiq.com
 ```
 
-For renewal, use the webroot `qa.conf` already serves at
-`/.well-known/acme-challenge/`, which does not need the ports:
-
-```bash
-sudo certbot certonly --webroot -w /var/www/certbot \
-  -d qa.clearcaseiq.com -d api-qa.clearcaseiq.com
-```
+Immediately afterwards, switch that certificate's `authenticator` to `webroot`
+as above. Otherwise the host inherits the same buried failure.
 
 Certificates are stored under the first `-d` name, which is what `qa.conf`
 expects:
