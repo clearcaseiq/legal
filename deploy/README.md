@@ -74,19 +74,57 @@ tested rather than a rebuild from a git ref on a different machine.
 It also keeps builds off the hosts. They were building in place after a
 `git pull`, and the production box has already hit `ENOSPC` doing it.
 
-One-time AWS setup:
+One-time AWS setup, already applied to account `302524629649`. It is written out
+in full because the first attempt set the `AWS_ECR_ROLE_ARN` secret without
+creating the provider or the role behind it, and every run then failed with
+`the web identity token provided could not be validated`.
 
 ```bash
-aws ecr create-repository --repository-name clearcaseiq-api
-aws ecr create-repository --repository-name clearcaseiq-web
+aws ecr create-repository --repository-name clearcaseiq-api \
+  --image-scanning-configuration scanOnPush=true
+aws ecr create-repository --repository-name clearcaseiq-web \
+  --image-scanning-configuration scanOnPush=true
+
+# The provider is the step that is easy to miss. Without it the role's trust
+# policy references a federated principal that does not exist, and the failure
+# surfaces at token exchange rather than at role creation.
+aws iam create-open-id-connect-provider \
+  --url https://token.actions.githubusercontent.com \
+  --client-id-list sts.amazonaws.com
+
+aws iam create-role --role-name clearcaseiq-gha-ecr \
+  --assume-role-policy-document file://trust-policy.json
+aws iam put-role-policy --role-name clearcaseiq-gha-ecr \
+  --policy-name ecr-push --policy-document file://ecr-push.json
+
+gh secret set AWS_ECR_ROLE_ARN \
+  --body arn:aws:iam::302524629649:role/clearcaseiq-gha-ecr
 ```
 
-Then create an IAM role GitHub can assume via OIDC — no long-lived AWS keys in
-GitHub secrets. Its trust policy must restrict the
-`token.actions.githubusercontent.com` provider to this repository, or any repo
-on GitHub can assume it. Set its ARN as the `AWS_ECR_ROLE_ARN` secret, alongside
-`NEXT_PUBLIC_GA_MEASUREMENT_ID`, `NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION` and
-`NEXT_PUBLIC_BING_SITE_VERIFICATION`.
+The trust policy restricts the provider to this repository — otherwise any repo
+on GitHub can assume the role — and to `refs/heads/*`, which additionally
+excludes pull requests, including those opened from forks:
+
+```json
+"Condition": {
+  "StringEquals": {
+    "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
+  },
+  "StringLike": {
+    "token.actions.githubusercontent.com:sub": "repo:clearcaseiq/legal:ref:refs/heads/*"
+  }
+}
+```
+
+AWS no longer requires a thumbprint for GitHub's issuer, so `--thumbprint-list`
+is omitted; older runbooks that pin a certificate fingerprint are describing a
+requirement that no longer exists.
+
+`AWS_ECR_ROLE_ARN` sits alongside `NEXT_PUBLIC_GA_MEASUREMENT_ID`,
+`NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION` and `NEXT_PUBLIC_BING_SITE_VERIFICATION`.
+
+Both instance roles carry an `ecr-pull` policy granting read on these two
+repositories, which is what lets the hosts pull what this workflow publishes.
 
 To deploy a published image, point the env file at it and pull rather than
 build:
@@ -298,9 +336,23 @@ there should match `git rev-parse --short HEAD`.
 
 ## AWS S3/Textract
 
-Recommended: attach an IAM role to the EC2 instance with least-privilege access to:
+Each host has an instance role rather than access keys, and each role's
+`clearcaseiq-app` policy grants SES, SNS, Textract and S3 on that environment's
+bucket only:
 
-- S3 bucket used by `S3_BUCKET`
-- Textract `DetectDocumentText`
+| Environment | Instance role         | `S3_BUCKET`                |
+| ----------- | --------------------- | -------------------------- |
+| Production  | `clearcaseiq-ec2-role` | `clearcaseiq-prod-uploads` |
+| QA          | `clearcaseiq-qa-ec2`   | `clearcaseiq-qa-uploads`   |
+
+Both buckets block all public access, default to AES256 encryption at rest and
+have versioning enabled, so an accidental delete of an executed retainer or a
+medical record is recoverable.
+
+The S3 grant must name a real bucket. The production policy shipped with a
+literal `arn:aws:s3:::YOUR_BUCKET` for some time, which meant `FILE_BUCKET=s3`
+would have failed every upload with `AccessDenied` the moment it was switched
+on. If uploads start returning 503 with a storage error, check this policy
+before anything else.
 
 Do not store AWS access keys in git.
