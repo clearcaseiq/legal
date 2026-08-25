@@ -50,7 +50,27 @@ cd "$(dirname "$0")/.."
 ENV_FILE=".env.${ENVIRONMENT}"
 [ -f "$ENV_FILE" ] || die "$ENV_FILE not found. Copy ${ENV_FILE}.example and fill it in."
 
-compose() { docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" "$@"; }
+# Compose ships two ways and the hosts disagree. QA has it as a docker CLI
+# plugin (`docker compose`); production has the same v2 release as a standalone
+# binary (`docker-compose`) and no plugin at all. Both are Compose v2, so either
+# runs this file correctly - only the spelling differs.
+#
+# Hardcoding `docker compose` made production fail with exit 125 and a page of
+# `docker --help`, because an unrecognised subcommand is a usage error rather
+# than a missing-command error. Nothing in that output names compose, so it
+# reads like the deploy script is broken rather than absent from the host.
+#
+# Detected rather than configured per environment: a host rebuilt from a
+# different AMI gets whichever one it has without anyone remembering this.
+if docker compose version >/dev/null 2>&1; then
+  COMPOSE_BIN=(docker compose)
+elif command -v docker-compose >/dev/null 2>&1; then
+  COMPOSE_BIN=(docker-compose)
+else
+  die "neither 'docker compose' nor 'docker-compose' is available on this host"
+fi
+
+compose() { "${COMPOSE_BIN[@]}" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" "$@"; }
 
 # Read back what is deployed now, so a failed rollout has somewhere to return to.
 # Empty on a host that has only ever built locally, in which case there is no
