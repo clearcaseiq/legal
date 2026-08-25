@@ -145,6 +145,33 @@ aws ecr get-login-password --region "$AWS_REGION" \
 
 set_tag "$TAG"
 
+# Reclaim before pulling, not only after succeeding.
+#
+# Pruning used to happen solely on the success path, which meant a run of failed
+# deploys never reclaimed anything while each one still pulled a fresh pair of
+# SHA-tagged images. QA reached 100% of a 30GB disk that way, with 24MB free.
+#
+# The symptom pointed nowhere near the cause. The SSM document worker could no
+# longer write its own state, so it died with "ipc messaging received timeout
+# signal" and the deploy reported a transport error - no mention of disk, from a
+# host that was simply full. It failed identically on retry, which is the only
+# reason it was not written off as a flake.
+#
+# Untagged layers only, so this cannot touch the images the running containers
+# hold, including the previous tag that rollback returns to.
+log "reclaiming untagged images"
+docker image prune -f >/dev/null 2>&1 || true
+
+# A pull needs room for both images before it can replace anything. Warn rather
+# than refuse: the operator reading this during an incident is better placed to
+# decide than a threshold here, and a deploy that might succeed should not be
+# blocked by a guess.
+available_gb="$(df -BG --output=avail / 2>/dev/null | tail -1 | tr -dc '0-9')"
+if [ -n "$available_gb" ] && [ "$available_gb" -lt 5 ]; then
+  log "WARNING: only ${available_gb}GB free on /. The pull may fail, and a full disk"
+  log "         surfaces as an SSM transport error rather than a disk error."
+fi
+
 log "pulling images"
 compose pull
 
@@ -154,8 +181,9 @@ compose up -d
 log "waiting for both services to report healthy"
 if wait_for_health; then
   log "deploy succeeded: $TAG"
-  # Reclaims the disk the previous image held. This host has hit ENOSPC before,
-  # back when it built in place, and untagged layers accumulate the same way.
+  # Again on the way out, now that the tag just replaced is untagged and can
+  # actually be collected. The pre-pull prune above is what stops a run of
+  # failures from filling the disk; this one keeps a steady state tidy.
   docker image prune -f >/dev/null 2>&1 || true
   exit 0
 fi
