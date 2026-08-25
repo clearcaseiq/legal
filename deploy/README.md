@@ -64,15 +64,63 @@ extension and partner embeds.
 `app/src/lib/siteConfig.ts`, because robots.txt, sitemap.xml and the canonical
 tags are all rendered server-side.
 
+## How a change reaches production
+
+`.github/workflows/pipeline.yml` runs four stages on every push to `main`:
+
+```
+test  ->  build images  ->  deploy QA  ->  [approval]  ->  deploy production
+```
+
+Each stage `needs:` the one before it, so a failing test suite stops the line
+rather than running beside it. That connection is the point. `ci.yml` and
+`images.yml` used to be separate workflows on the same trigger, which meant a
+commit that failed its tests was still built and published to ECR ready to
+deploy — the gate existed and gated nothing.
+
+Only one step is manual. The `production` environment carries a required
+reviewer, so the last job waits for a human to approve it in the Actions UI.
+What it then deploys is the image QA just ran, byte for byte, identified by
+commit SHA. Promotion is never a rebuild, so "it worked in QA" is a claim about
+the artifact rather than about a second build of the same source.
+
+Nothing is built on a host any more. They built in place after a `git pull`, and
+the production box has already hit `ENOSPC` doing it. Hosts now only pull.
+
+To deploy an arbitrary tag — a rollback, or a redeploy without a new commit — run
+the **Deploy a specific tag** workflow. It checks that both images exist for that
+tag before touching the host, and deploying to production through it needs the
+same approval, since a rollback that skips review is a way to ship unreviewed
+code by calling it a rollback.
+
+### Deploying to a host
+
+`deploy/deploy.sh <prod|qa> <tag>` does the work, on the host, in both the
+automated and manual paths:
+
+```bash
+cd ~/clearcaseiq/legal        # production; QA path may differ
+git fetch --all && git checkout --detach <sha>
+bash deploy/deploy.sh prod <sha>
+```
+
+It records the currently deployed tag, writes the new one into `API_IMAGE` and
+`WEB_IMAGE`, pulls, starts, and waits for both containers to report healthy. If
+they do not, it puts the previous tag back and exits non-zero.
+
+Both images come from one tag argument, which is what makes it structurally
+impossible to run a web bundle against a different commit's API. That mismatch is
+the worst failure this deployment has, because it does not present as a deploy
+problem: when the API began requiring a share authorization, the older bundle
+just did not render the checkbox, and submitted cases were held at the routing
+gate and never reached an attorney, with no error on either side.
+
+The automated path reaches the host through **SSM Run Command**, not SSH. There
+is no inbound 22 to open to GitHub's runner ranges, no private key in repository
+secrets, and every invocation is attributed in CloudTrail to the run that caused
+it. It also survives moving the hosts into a private subnet.
+
 ## Images
-
-`.github/workflows/images.yml` builds `api` and `web` once per commit to `main`
-and pushes them to ECR tagged with the commit SHA. Both hosts pull the same tag,
-so promoting QA to production is a retag of an artifact that has already been
-tested rather than a rebuild from a git ref on a different machine.
-
-It also keeps builds off the hosts. They were building in place after a
-`git pull`, and the production box has already hit `ENOSPC` doing it.
 
 One-time AWS setup, already applied to account `302524629649`. It is written out
 in full because the first attempt set the `AWS_ECR_ROLE_ARN` secret without
@@ -126,32 +174,37 @@ requirement that no longer exists.
 Both instance roles carry an `ecr-pull` policy granting read on these two
 repositories, which is what lets the hosts pull what this workflow publishes.
 
-To deploy a published image, point the env file at it and pull rather than
-build. `API_IMAGE` and `WEB_IMAGE` are carried in both env examples; set them to
-the tag you are deploying:
-
-```bash
-REGISTRY=302524629649.dkr.ecr.us-east-1.amazonaws.com
-TAG=<full-commit-sha>              # 40 characters, from the workflow run summary
-
-sed -i "s|clearcaseiq-api:.*|clearcaseiq-api:$TAG|" .env.prod
-sed -i "s|clearcaseiq-web:.*|clearcaseiq-web:$TAG|" .env.prod
-
-aws ecr get-login-password --region us-east-1 \
-  | docker login --username AWS --password-stdin "$REGISTRY"
-docker compose -f docker-compose.deploy.yml --env-file .env.prod pull
-docker compose -f docker-compose.deploy.yml --env-file .env.prod up -d
-```
-
-The workflow tags each image with the **full** commit SHA and moves a `main` tag
-alongside it. Deploy the SHA, not `main`: `main` is a moving target, so two hosts
+Each image is tagged with the **full** commit SHA, and a `main` tag moves along
+with the latest. Always deploy the SHA. `main` is a moving target, so two hosts
 pulling it a day apart run different code while appearing to run the same thing.
 
-Set the **same** `TAG` in both env files when promoting. The `build:` blocks are
-still present and used only by `docker compose build`, which remains the local
-and break-glass path — and note that leaving `API_IMAGE`/`WEB_IMAGE` unset does
-not fail loudly. Compose falls back to `clearcaseiq-api:local`, which on a host
-that has never built is simply an image that does not exist.
+### The deploy role
+
+Deploys assume a second role, `clearcaseiq-gha-deploy`, whose only privileges are
+`ssm:SendCommand` against the two instance IDs and the `AWS-RunShellScript`
+document. Its trust policy is scoped to the environment claim rather than the
+repository:
+
+```json
+"token.actions.githubusercontent.com:sub": [
+  "repo:clearcaseiq/legal:environment:qa",
+  "repo:clearcaseiq/legal:environment:production"
+]
+```
+
+So the credentials that can reach a host are obtainable only from a job running
+in one of those two environments, and the production one is approval-gated. A
+workflow added on a branch cannot assume it.
+
+The instance roles carry `AmazonSSMManagedInstanceCore`, which is what lets the
+agent register and receive commands, alongside the `ecr-pull` policy that lets
+them retrieve what the pipeline publishes.
+
+`API_IMAGE` and `WEB_IMAGE` are required, not defaulted. They used to fall back
+to `clearcaseiq-api:local` — an image that exists only where one was built — so a
+host missing the variable failed at pull time complaining about a tag nobody set
+instead of naming the variable that was absent. Set them by hand only for a
+break-glass `docker compose build`, where any local value will do.
 
 ### Why analytics is off outside production
 
@@ -343,16 +396,26 @@ docker compose -f docker-compose.deploy.yml --env-file .env.prod logs -f api
 
 ## Redeploy
 
+Normally you do not. Pushing to `main` deploys QA automatically and offers
+production for approval; see [How a change reaches
+production](#how-a-change-reaches-production).
+
+To put a specific tag on a host outside that flow, use the **Deploy a specific
+tag** workflow, or run the same script the pipeline runs:
+
 ```bash
-git pull
-export GIT_COMMIT=$(git rev-parse --short HEAD)
-export BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-docker compose -f docker-compose.deploy.yml --env-file .env.prod build
-docker compose -f docker-compose.deploy.yml --env-file .env.prod up -d
+cd ~/clearcaseiq/legal
+git fetch --all && git checkout --detach <sha>
+bash deploy/deploy.sh prod <sha>
 ```
 
-Confirm the new build is live on **Admin → System Status**: the commit shown
-there should match `git rev-parse --short HEAD`.
+Building on the host remains available as break-glass, but prefer deploying a
+published image: the build is what has hit `ENOSPC` here before, and an image
+built on the box is not the artifact QA tested.
+
+Confirm what is live on **Admin → System Status**: the commit shown there is
+stamped into the image at build time, so it reports what is actually running
+rather than what the checkout says.
 
 ## AWS S3/Textract
 

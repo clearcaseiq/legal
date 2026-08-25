@@ -49,7 +49,15 @@ services:
       args:
         GIT_COMMIT: ${GIT_COMMIT:-}
         BUILD_TIME: ${BUILD_TIME:-}
-    image: ${API_IMAGE:-clearcaseiq-api:local}
+    # Required rather than defaulted. This fell back to `clearcaseiq-api:local`,
+    # an image that exists only on a host that has built one itself - so a
+    # deployment host missing the variable failed at pull time complaining about
+    # a tag nobody set, instead of naming the variable that was absent.
+    #
+    # deploy/deploy.sh writes both this and WEB_IMAGE from a single tag. Set them
+    # by hand only for a break-glass `docker compose build`, where any local
+    # value will do.
+    image: ${API_IMAGE:?API_IMAGE is required (deploy/deploy.sh sets it from the tag being deployed)}
     container_name: clearcaseiq-${DEPLOY_ENV:?DEPLOY_ENV is required (prod or qa)}-api
     restart: unless-stopped
     logging: *default-logging
@@ -123,7 +131,7 @@ services:
         NEXT_PUBLIC_BING_SITE_VERIFICATION: ${NEXT_PUBLIC_BING_SITE_VERIFICATION:-}
         GIT_COMMIT: ${GIT_COMMIT:-}
         BUILD_TIME: ${BUILD_TIME:-}
-    image: ${WEB_IMAGE:-clearcaseiq-web:local}
+    image: ${WEB_IMAGE:?WEB_IMAGE is required (deploy/deploy.sh sets it from the tag being deployed)}
     container_name: clearcaseiq-${DEPLOY_ENV}-web
     restart: unless-stopped
     logging: *default-logging

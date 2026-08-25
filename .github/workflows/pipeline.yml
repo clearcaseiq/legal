@@ -1,0 +1,194 @@
+name: Pipeline
+
+# test -> build -> deploy QA -> approve -> deploy production.
+#
+# This replaces ci.yml and images.yml, which both triggered on push to main and
+# ran independently. Nothing connected them, so a commit that failed the test
+# suite was still built and published to ECR, ready to deploy. The test gate
+# existed and gated nothing. `needs:` is the whole fix.
+#
+# Promotion is not a rebuild. Production deploys the identical image QA already
+# ran, identified by commit SHA, so "it worked in QA" is a statement about the
+# artifact rather than about a second build of the same source.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  # Serialised per branch, but deliberately NOT cancel-in-progress. Cancelling
+  # mid-build leaves one of the two images pushed and the other not, under a tag
+  # that then looks deployable - which happened, and produced a web image with no
+  # matching API. A superseded run wasting three minutes is the cheaper problem.
+  group: pipeline-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # No `version:` here on purpose. Setting one alongside the `packageManager`
+      # field in package.json makes action-setup@v4 abort with "Multiple versions
+      # of pnpm specified", which is why every CI run failed within ten seconds.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The Prisma client is generated from schema.prisma and is not committed,
+      # so the typecheck inside `pnpm build` cannot resolve model types without
+      # this. It also means a schema change that breaks a query fails here.
+      - name: Generate Prisma client
+        run: pnpm --filter caseiq-api prisma:generate
+
+      - name: Build
+        run: pnpm build
+
+      # Scoped to the API rather than the root `pnpm test`, which also shells out
+      # to a Python suite this runner has no interpreter for. Widen it once the
+      # web and Python suites are green in CI.
+      - name: Test (API)
+        # env.ts requires these two at import time and there is no .env on a
+        # runner. Nothing here connects to a database - the suite runs against a
+        # mocked Prisma client - so the URL only has to parse. NODE_ENV=test also
+        # keeps the production boot guards (email provider, placeholder secrets)
+        # from failing a run that has no real configuration.
+        env:
+          NODE_ENV: test
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+          JWT_SECRET: ci-only-not-a-real-secret
+        run: pnpm --filter caseiq-api test
+
+  build:
+    name: Build images
+    needs: test
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    strategy:
+      # Keep going if one image fails: a red api build should not hide whether
+      # web also broke, which matters when the cause is a shared dependency.
+      fail-fast: false
+      matrix:
+        include:
+          - service: api
+            dockerfile: api/Dockerfile
+            repository: clearcaseiq-api
+          - service: web
+            dockerfile: app/Dockerfile
+            repository: clearcaseiq-web
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          # Assumed via OIDC, so there are no long-lived AWS keys in GitHub
+          # secrets to leak or rotate. The trust policy restricts
+          # token.actions.githubusercontent.com to this repository.
+          role-to-assume: ${{ secrets.AWS_ECR_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Stamp build time
+        id: stamp
+        # Matches the format the manual build on the host used, since the admin
+        # System Status page renders this value as-is.
+        run: echo "value=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push ${{ matrix.service }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: |
+            ${{ steps.ecr.outputs.registry }}/${{ matrix.repository }}:${{ github.sha }}
+            ${{ steps.ecr.outputs.registry }}/${{ matrix.repository }}:${{ github.ref_name }}
+          build-args: |
+            GIT_COMMIT=${{ github.sha }}
+            BUILD_TIME=${{ steps.stamp.outputs.value }}
+            NEXT_PUBLIC_GA_MEASUREMENT_ID=${{ secrets.NEXT_PUBLIC_GA_MEASUREMENT_ID }}
+            NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION=${{ secrets.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION }}
+            NEXT_PUBLIC_BING_SITE_VERIFICATION=${{ secrets.NEXT_PUBLIC_BING_SITE_VERIFICATION }}
+          # Layer cache in the registry rather than on the runner, which starts
+          # empty every run. Without it each build reinstalls the whole pnpm
+          # workspace.
+          cache-from: type=registry,ref=${{ steps.ecr.outputs.registry }}/${{ matrix.repository }}:buildcache
+          cache-to: type=registry,ref=${{ steps.ecr.outputs.registry }}/${{ matrix.repository }}:buildcache,mode=max
+
+  deploy-qa:
+    name: Deploy to QA
+    needs: build
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment:
+      name: qa
+      url: https://qa.clearcaseiq.com
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy
+        uses: ./.github/actions/ssm-deploy
+        with:
+          instance-id: ${{ vars.INSTANCE_ID }}
+          app-dir: ${{ vars.APP_DIR }}
+          environment: qa
+          tag: ${{ github.sha }}
+
+  deploy-production:
+    name: Deploy to production
+    needs: deploy-qa
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    # The `production` environment carries a required reviewer, so this job waits
+    # here until a human approves it. That approval is the only manual step in
+    # the promotion, and it deploys the artifact QA just ran rather than building
+    # a new one.
+    environment:
+      name: production
+      url: https://www.clearcaseiq.com
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy
+        uses: ./.github/actions/ssm-deploy
+        with:
+          instance-id: ${{ vars.INSTANCE_ID }}
+          app-dir: ${{ vars.APP_DIR }}
+          environment: prod
+          tag: ${{ github.sha }}

@@ -1,0 +1,79 @@
+name: Deploy a specific tag
+
+# The manual path: redeploy, or roll back to a known-good image, without pushing
+# a commit. Every tag the pipeline has ever built is still in ECR, so recovery is
+# selecting one rather than reverting source and waiting for a build.
+#
+# Deploying to production here goes through the same `production` environment as
+# the pipeline, so it needs the same approval. A rollback that can skip review is
+# a way to ship unreviewed code by calling it a rollback.
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Where to deploy.
+        required: true
+        type: choice
+        options: [qa, production]
+      tag:
+        description: Full commit SHA of the image to deploy (40 characters).
+        required: true
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  deploy:
+    name: Deploy ${{ inputs.tag }} to ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # Confirms the tag exists in both repositories before touching the host.
+      # Publishing is per-image, so a cancelled or half-failed build can leave one
+      # of the two present - deploying that gives a web bundle with no matching
+      # API, which does not present as a deploy problem at all.
+      - name: Verify both images exist for this tag
+        run: |
+          set -Eeuo pipefail
+          missing=0
+          for repo in clearcaseiq-api clearcaseiq-web; do
+            if aws ecr describe-images --repository-name "$repo" \
+                 --image-ids imageTag="${{ inputs.tag }}" >/dev/null 2>&1; then
+              echo "ok: $repo:${{ inputs.tag }}"
+            else
+              echo "::error::$repo has no image tagged ${{ inputs.tag }}" >&2
+              missing=1
+            fi
+          done
+          [ "$missing" -eq 0 ]
+
+      - name: Resolve environment name
+        id: env
+        run: |
+          case "${{ inputs.environment }}" in
+            production) echo "name=prod" >> "$GITHUB_OUTPUT" ;;
+            qa)         echo "name=qa"   >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      - name: Deploy
+        uses: ./.github/actions/ssm-deploy
+        with:
+          instance-id: ${{ vars.INSTANCE_ID }}
+          app-dir: ${{ vars.APP_DIR }}
+          environment: ${{ steps.env.outputs.name }}
+          tag: ${{ inputs.tag }}

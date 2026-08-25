@@ -1,0 +1,118 @@
+name: Deploy over SSM
+description: Checks the host out at the deployed commit and runs deploy/deploy.sh there.
+
+# SSM rather than SSH, deliberately. There is no inbound port 22 to open to
+# GitHub's runner ranges, no private key living in repository secrets, and every
+# invocation lands in CloudTrail attributed to the workflow run that caused it.
+# It also keeps working unchanged if the hosts ever move to a private subnet.
+
+inputs:
+  instance-id:
+    description: EC2 instance to deploy to.
+    required: true
+  app-dir:
+    description: Absolute path of the repository checkout on that host.
+    required: true
+  environment:
+    description: prod or qa - selects the env file and the container names.
+    required: true
+  tag:
+    description: Image tag to deploy, which is the commit SHA.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Send deploy command
+      shell: bash
+      env:
+        INSTANCE_ID: ${{ inputs.instance-id }}
+        APP_DIR: ${{ inputs.app-dir }}
+        DEPLOY_ENVIRONMENT: ${{ inputs.environment }}
+        TAG: ${{ inputs.tag }}
+      run: |
+        set -Eeuo pipefail
+
+        for required in INSTANCE_ID APP_DIR; do
+          if [ -z "${!required}" ]; then
+            echo "::error::$required is empty. Set it as a variable on this GitHub environment." >&2
+            exit 1
+          fi
+        done
+
+        # The host is checked out at the same commit as the image, so the compose
+        # file and the nginx configs it mounts match what is running. Built with
+        # jq so nothing depends on quoting a shell string correctly, and each
+        # command is a separate array element for the same reason.
+        #
+        # Steps run as root under SSM; the repository belongs to ubuntu, and git
+        # refuses to operate across that boundary. sudo -u inherits the working
+        # directory, so the cd applies to all of them.
+        jq -n \
+          --arg dir "$APP_DIR" \
+          --arg sha "$TAG" \
+          --arg env "$DEPLOY_ENVIRONMENT" \
+          '{
+            commands: [
+              ("cd " + $dir),
+              "sudo -u ubuntu git fetch --all --prune --quiet",
+              ("sudo -u ubuntu git checkout --detach --quiet " + $sha),
+              ("sudo -u ubuntu bash deploy/deploy.sh " + $env + " " + $sha)
+            ],
+            executionTimeout: ["1800"]
+          }' > /tmp/ssm-params.json
+
+        command_id="$(aws ssm send-command \
+          --instance-ids "$INSTANCE_ID" \
+          --document-name AWS-RunShellScript \
+          --comment "Deploy ${TAG:0:12} to $DEPLOY_ENVIRONMENT" \
+          --parameters file:///tmp/ssm-params.json \
+          --query Command.CommandId --output text)"
+
+        echo "SSM command: $command_id"
+        echo "COMMAND_ID=$command_id" >> "$GITHUB_ENV"
+
+        # Polled rather than using `aws ssm wait command-executed`, whose waiter
+        # gives up after 100 seconds. A deploy that pulls two images and then
+        # waits out the API's 60s health start_period routinely exceeds that, and
+        # the waiter timing out is indistinguishable from the deploy failing.
+        status=Pending
+        for _ in $(seq 1 180); do
+          sleep 10
+          status="$(aws ssm get-command-invocation \
+            --command-id "$command_id" \
+            --instance-id "$INSTANCE_ID" \
+            --query Status --output text 2>/dev/null || echo Pending)"
+          case "$status" in
+            Success|Failed|Cancelled|TimedOut) break ;;
+          esac
+          echo "  ... $status"
+        done
+
+        echo "COMMAND_STATUS=$status" >> "$GITHUB_ENV"
+
+    - name: Report host output
+      shell: bash
+      if: always()
+      env:
+        INSTANCE_ID: ${{ inputs.instance-id }}
+      run: |
+        set -Eeuo pipefail
+        [ -n "${COMMAND_ID:-}" ] || exit 0
+
+        invocation="$(aws ssm get-command-invocation \
+          --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" --output json)"
+
+        echo "--- host stdout ---"
+        jq -r '.StandardOutputContent // ""' <<< "$invocation"
+
+        stderr="$(jq -r '.StandardErrorContent // ""' <<< "$invocation")"
+        if [ -n "$stderr" ]; then
+          echo "--- host stderr ---"
+          echo "$stderr"
+        fi
+
+        if [ "${COMMAND_STATUS:-}" != "Success" ]; then
+          echo "::error::Deploy failed on $INSTANCE_ID with status ${COMMAND_STATUS:-unknown}. deploy.sh rolls back on its own when the new image will not come up healthy - read the output above to see whether it did." >&2
+          exit 1
+        fi
