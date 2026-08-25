@@ -4,9 +4,72 @@ Each environment runs on one EC2 host with Docker Compose:
 
 - `web`: Next.js frontend on internal port `3000`
 - `api`: Express API on internal port `4000`
-- `nginx`: public reverse proxy for SSL and routing
+- `nginx`: reverse proxy and routing
 
 Postgres is managed (RDS), not a container. See [Database](#database).
+
+## Production topology
+
+```
+Route 53  ->  ALB (ACM certificate)  ->  EC2: nginx -> web / api  ->  RDS (Multi-AZ)
+                                                                 \->  S3 (uploads)
+```
+
+Production sits behind an Application Load Balancer; QA still faces the internet
+directly. The differences that matter when reading anything below:
+
+| | Production | QA |
+| --- | --- | --- |
+| TLS terminates at | the ALB, with an ACM certificate | nginx, with Let's Encrypt |
+| nginx listens on | 80 only, no key material | 80 and 443 |
+| Reachable directly | no — the instance only accepts port 80 from the ALB | yes |
+| Certificate renewal | automatic, no host involvement | **certbot, and currently broken — see below** |
+
+TLS moved off the host because the certificates were issued with
+`certbot --standalone`, which needs ports 80 and 443 free to answer the
+challenge, and nginx holds both. Renewal could not have succeeded: it would have
+failed quietly and taken the site down roughly 90 days after issue. ACM renews
+itself, so the failure mode is gone rather than patched.
+
+**QA still has that problem.** It terminates its own TLS and will hit the same
+wall. Either give it a load balancer too, or switch its renewal to the webroot
+that `qa.conf` already serves.
+
+The ALB is also what makes a second instance possible. That was not true until
+uploads moved to S3 — with files on one box's disk, a second instance would have
+served 404s for half of them regardless of what sat in front.
+
+## Reaching the database
+
+The production instance is **not publicly accessible**, so a direct connection
+from a laptop no longer works no matter what the security group says. Tunnel
+through the EC2 host over SSM instead — no bastion, no inbound SSH, and the
+session is attributed in CloudTrail:
+
+```bash
+aws ssm start-session \
+  --target i-04eb8893cb09f1222 \
+  --document-name AWS-StartPortForwardingSessionToRemoteHost \
+  --parameters '{"host":["<rds-endpoint>"],"portNumber":["5432"],"localPortNumber":["5432"]}'
+```
+
+Then connect to `localhost:5432` as usual. Leave the instance private; the point
+is that a future security-group edit cannot expose it, because there is nothing
+to expose.
+
+## Monitoring
+
+Alarms publish to the `clearcaseiq-prod-alerts` SNS topic. **A subscription only
+delivers once its confirmation link is clicked** — an unconfirmed subscription
+looks configured in the console and delivers nothing.
+
+Host memory and disk come from the CloudWatch agent, configured from the SSM
+parameter `/clearcaseiq/cloudwatch-agent-config`. Those two alarms treat missing
+data as `missing` rather than `notBreaching`, so they read `INSUFFICIENT_DATA`
+if the agent stops. That is deliberate: with `notBreaching` they sat at `OK`
+while the agent was failing to parse its config and reporting nothing at all,
+which is worse than having no alarm, because it answers the question "are we
+watching memory?" with a confident yes.
 
 ## Environments
 
@@ -273,26 +336,36 @@ dangerous carried over:
 
 ## SSL Certificate
 
-Before starting the full SSL Nginx config, obtain a certificate. If ports 80/443 are free:
+**Production no longer uses certbot.** TLS terminates at the ALB with an ACM
+certificate covering `clearcaseiq.com`, `www` and `api`, which renews itself.
+There is nothing to run on the host and nothing to remember before expiry.
+
+QA still issues its own, and this is where the `--standalone` trap lives: it
+binds ports 80 and 443 to answer the challenge, so it works once — before nginx
+exists — and then fails at every renewal, because nginx holds both ports from
+then on. It fails quietly, and the site goes dark about 90 days later.
+
+So the command below is for **first issue on a host with no nginx running**:
 
 ```bash
-# Production host
-sudo certbot certonly --standalone \
-  -d clearcaseiq.com \
-  -d www.clearcaseiq.com \
-  -d api.clearcaseiq.com
-
 # QA host
 sudo certbot certonly --standalone \
   -d qa.clearcaseiq.com \
   -d api-qa.clearcaseiq.com
 ```
 
-Certificates are stored under the first `-d` name, which is what the nginx
-config for that environment expects:
+For renewal, use the webroot `qa.conf` already serves at
+`/.well-known/acme-challenge/`, which does not need the ports:
 
 ```bash
-/etc/letsencrypt/live/clearcaseiq.com/      # prod.conf
+sudo certbot certonly --webroot -w /var/www/certbot \
+  -d qa.clearcaseiq.com -d api-qa.clearcaseiq.com
+```
+
+Certificates are stored under the first `-d` name, which is what `qa.conf`
+expects:
+
+```bash
 /etc/letsencrypt/live/qa.clearcaseiq.com/   # qa.conf
 ```
 
