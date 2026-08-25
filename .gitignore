@@ -135,6 +135,17 @@ node_modules/
 .env.local
 .env.*.local
 
+# Deployment env files. These live in a checkout on each EC2 host and are edited
+# in place there, so an operator running `git add -A` while troubleshooting would
+# otherwise commit real production credentials - into a public repository. The
+# runbooks say "never commit .env.prod"; this is what enforces it.
+#
+# Ignore every .env.<environment> and re-admit the committed templates, rather
+# than listing prod and qa by name, so a third environment is covered the day it
+# exists instead of the day someone remembers to add it.
+.env.*
+!.env.*.example
+
 # test artifacts
 playwright-report/
 test-results/
