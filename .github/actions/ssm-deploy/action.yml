@@ -43,11 +43,16 @@ runs:
         # The host is checked out at the same commit as the image, so the compose
         # file and the nginx configs it mounts match what is running. Built with
         # jq so nothing depends on quoting a shell string correctly, and each
-        # command is a separate array element for the same reason.
+        # command is a separate array element for the same reason. SSM
+        # concatenates them into one script, so the shell variable below carries
+        # across elements.
         #
-        # Steps run as root under SSM; the repository belongs to ubuntu, and git
-        # refuses to operate across that boundary. sudo -u inherits the working
-        # directory, so the cd applies to all of them.
+        # Steps run as root under SSM while the repository belongs to a login
+        # user, and git refuses to operate across that boundary. That user is not
+        # the same everywhere: QA runs Ubuntu as `ubuntu`, production runs Amazon
+        # Linux as `ec2-user`. Reading the owner off the directory means neither
+        # has to be configured, and a third host with a third convention works
+        # without anyone remembering this exists.
         jq -n \
           --arg dir "$APP_DIR" \
           --arg sha "$TAG" \
@@ -56,9 +61,11 @@ runs:
             commands: [
               "set -e",
               ("cd " + $dir + " || { echo \"No checkout at " + $dir + " on this host. Clone the repository there, or correct the APP_DIR variable on this GitHub environment.\" >&2; exit 1; }"),
-              "sudo -u ubuntu git fetch --all --prune --quiet",
-              ("sudo -u ubuntu git checkout --detach --quiet " + $sha),
-              ("sudo -u ubuntu bash deploy/deploy.sh " + $env + " " + $sha)
+              "APP_USER=$(stat -c %U .)",
+              "echo \"running as $APP_USER in $(pwd)\"",
+              "sudo -u \"$APP_USER\" git fetch --all --prune --quiet",
+              ("sudo -u \"$APP_USER\" git checkout --detach --quiet " + $sha),
+              ("sudo -u \"$APP_USER\" bash deploy/deploy.sh " + $env + " " + $sha)
             ],
             executionTimeout: ["1800"]
           }' > /tmp/ssm-params.json
