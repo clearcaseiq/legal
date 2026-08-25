@@ -50,7 +50,19 @@ group allowing:
 - 80 and 443 from anywhere
 - 22 from your address only
 
-Install Docker with the commands in [`deploy/README.md`](../deploy/README.md).
+Install Docker with the commands in [`deploy/README.md`](../deploy/README.md),
+then clone the repository. Every later step runs from inside it — the compose
+file, the nginx configs it mounts and the certbot webroot all come from the
+checkout, so there is nothing to run until this exists:
+
+```bash
+cd ~
+git clone https://github.com/clearcaseiq/legal.git
+cd legal
+```
+
+The directory is `legal`, lowercase, which is what `cd` in the remaining steps
+refers to.
 
 QA can be stopped outside working hours; nothing in the stack keeps state on the
 instance except the `api_uploads` volume.

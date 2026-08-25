@@ -182,6 +182,19 @@ sudo usermod -aG docker ubuntu
 
 Log out and back in after adding the Docker group.
 
+Then clone the repository. Every command below runs from inside it: the compose
+file, the per-environment nginx configs it mounts and the certbot webroot are
+all in the checkout, so a host without one has nothing to run even when the
+images are already published.
+
+```bash
+cd ~
+git clone https://github.com/clearcaseiq/legal.git
+cd legal
+```
+
+The directory is `legal`, lowercase.
+
 ## Environment
 
 Create the env file for the environment this host serves:
