@@ -139,6 +139,31 @@ the target group but missing from it receives production traffic and never
 receives deploys, so it serves whatever version it was launched with,
 indefinitely, while looking healthy.
 
+### What failover actually looks like
+
+Measured by stopping the leaseholder in production while probing the site every
+1.5 seconds:
+
+| | Observed |
+| --- | --- |
+| Requests failing | ~38 seconds of 502s and timeouts, then steady 200s |
+| Scheduler leadership moved | 28 seconds |
+| Instance rejoined after restart, as a standby | ~4 minutes |
+
+Two instances remove the *sustained* outage from losing a host. They do not make
+the loss invisible: the load balancer still has to notice, and until it does it
+keeps sending a share of requests to a host that is gone. That detection window
+is the health check, not the application — it was three failed checks at fifteen
+second intervals, now two at ten, so worst case is roughly 20 seconds rather
+than 45.
+
+Leadership moved faster than the 90-second lease expiry because a graceful stop
+releases the lease on the way out. An instance that is killed rather than
+stopped — hardware failure, or `stop --force` — has no chance to release, and
+the standby waits out the full expiry instead.
+
+Deploys do not have this window at all, because each host is drained first.
+
 ### What happens on deploy
 
 `deploy/deploy.sh` runs on one host at a time. Each is deregistered from the
