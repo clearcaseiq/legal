@@ -25,6 +25,7 @@ import { isZoomConfigured } from './zoom'
 import { isESignatureConfigured } from './esign'
 import { isActivityCanaryEnabled } from './activity-canary-sweep'
 import { getPublicSiteStatus, type PublicSiteStatus } from './public-site-status'
+import { getSchedulerLeaseState, type SchedulerLeaseState } from './scheduler-leader'
 import { ENV } from '../env'
 
 const HOUR_MS = 60 * 60 * 1000
@@ -522,6 +523,8 @@ export interface SystemStatus {
   readiness: ReadinessResult
   schema: SchemaDriftResult
   sweeps: SweepState[]
+  /** Which instance owns the background sweeps, and whether that is decidable. */
+  scheduler: SchedulerLeaseState
   activity: ActivitySnapshot
   runtime: RuntimeInfo
   integrations: IntegrationState[]
@@ -536,8 +539,22 @@ export async function getSystemStatus(): Promise<SystemStatus> {
     getPublicSiteStatus(),
   ])
   const sweeps = getSweepStates()
+  const scheduler = getSchedulerLeaseState()
   const issues: string[] = []
   const levels: StatusLevel[] = []
+
+  // A standby instance is healthy and reports no sweeps at all, so the absence
+  // of failing or overdue jobs below cannot distinguish "another instance is
+  // running them" from "nobody is". Only the lease can, so check it first.
+  if (scheduler.consecutiveFailures > 0 && !scheduler.everAcquired) {
+    levels.push('down')
+    issues.push(
+      `No instance is running the background jobs: the scheduler lease cannot be read (${scheduler.lastError}).`
+    )
+  } else if (scheduler.consecutiveFailures > 0) {
+    levels.push('degraded')
+    issues.push(`Scheduler lease check is failing (${scheduler.lastError}); jobs may have moved instance.`)
+  }
 
   if (!readiness.ok) {
     levels.push('down')
@@ -608,6 +625,7 @@ export async function getSystemStatus(): Promise<SystemStatus> {
     readiness,
     schema,
     sweeps,
+    scheduler,
     activity,
     runtime: getRuntimeInfo(),
     integrations: getIntegrationStates(),

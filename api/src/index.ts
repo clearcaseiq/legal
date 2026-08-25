@@ -17,6 +17,7 @@ import { runActivityCanarySweep, isActivityCanaryEnabled } from './lib/activity-
 import { runErrorRateSweep, isErrorRateMonitorEnabled } from './lib/error-rate-monitor'
 import { reconcileAllAttorneyRatingAggregates } from './lib/attorney-rating-aggregates'
 import { beginSweep, registerSweep } from './lib/ops-status'
+import { startSchedulerLeadership, stopSchedulerLeadership } from './lib/scheduler-leader'
 
 const app = buildApp()
 
@@ -370,11 +371,7 @@ function startErrorRateLoop() {
   }, intervalMs)
 }
 
-const server = app.listen(ENV.PORT, ENV.HOST, () => {
-  logger.info(`API server listening on http://${ENV.HOST}:${ENV.PORT}`)
-  // Heal any stale attorney rating aggregates left by reviews created before
-  // the on-write sync existed, so ratings render everywhere (CP-308/321/326).
-  void reconcileAllAttorneyRatingAggregates()
+function startBackgroundLoops() {
   startCalendarWebhookRenewalLoop()
   startAppointmentEngagementLoop()
   startNotificationRetryLoop()
@@ -386,6 +383,29 @@ const server = app.listen(ENV.PORT, ENV.HOST, () => {
   startAiCaseManagerLoop()
   startActivityCanaryLoop()
   startErrorRateLoop()
+}
+
+const leadershipHandlers = {
+  onAcquire: startBackgroundLoops,
+  onRelease: stopBackgroundLoops,
+}
+
+const server = app.listen(ENV.PORT, ENV.HOST, () => {
+  logger.info(`API server listening on http://${ENV.HOST}:${ENV.PORT}`)
+  // Heal any stale attorney rating aggregates left by reviews created before
+  // the on-write sync existed, so ratings render everywhere (CP-308/321/326).
+  void reconcileAllAttorneyRatingAggregates()
+
+  // The sweeps start only on the instance that wins the lease, not on every
+  // instance that boots. They mail claimants, escalate offers to attorneys and
+  // generate AI tasks, so a second instance running them in parallel does not
+  // share the work — it does all of it twice, silently, with both instances
+  // reporting healthy.
+  //
+  // On a single-instance deployment this is very nearly a no-op: the one
+  // process wins immediately and starts everything, one database round trip
+  // later than before.
+  startSchedulerLeadership(leadershipHandlers)
 })
 
 function stopBackgroundLoops() {
@@ -427,7 +447,10 @@ function closeHttpServer() {
 
 async function shutdown(signal: 'SIGTERM' | 'SIGINT') {
   logger.info(`${signal} received, shutting down gracefully`)
-  stopBackgroundLoops()
+  // Stops the sweeps and expires our lease while the database is still
+  // reachable, so the other instance takes over in seconds rather than waiting
+  // out the full TTL. This has to happen before $disconnect below.
+  await stopSchedulerLeadership(leadershipHandlers)
   try {
     await closeHttpServer()
     await prisma.$disconnect()

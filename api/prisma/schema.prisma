@@ -3725,6 +3725,38 @@ model MedicalProvider {
   @@map("medical_providers")
 }
 
+/// Which API instance is currently responsible for running the background
+/// sweeps. Exactly one holds this at a time.
+///
+/// The sweeps send email and SMS to claimants and attorneys, escalate routing
+/// offers and generate AI tasks. They were started unconditionally on boot,
+/// which is correct on one instance and actively harmful on two: a second
+/// instance does not share the work, it duplicates it. Nothing would have
+/// errored — both instances would report healthy while every claimant received
+/// two SOL warnings and every offer escalated twice.
+///
+/// A lease rather than a config flag naming one instance, because the flag
+/// stops the work entirely when that instance dies, which gives up half the
+/// reason for running two. Here the lease simply expires and the survivor takes
+/// over.
+///
+/// All timestamps are written and compared using the database clock, never the
+/// application's. Two instances disagreeing about the time by a few seconds is
+/// ordinary; if that skew decided lease expiry, both could believe they hold it.
+model SchedulerLease {
+  /// Fixed key, so the table holds one row per class of scheduled work.
+  name      String   @id
+  /// hostname:pid of the holder. Diagnostic — the lease is correct without it,
+  /// but "which box is actually running the sweeps" is otherwise unanswerable.
+  holder    String
+  expiresAt DateTime
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("scheduler_leases")
+}
+
 /// Geocoded centre point of a 5-digit US ZIP, cached so provider radius search
 /// does not pay for a geocode on every request. A row with null coordinates
 /// records a ZIP the geocoder could not resolve, which stops an unresolvable
