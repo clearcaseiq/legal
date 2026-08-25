@@ -1,17 +1,22 @@
 name: Deploy over SSM
-description: Checks the host out at the deployed commit and runs deploy/deploy.sh there.
+description: Checks each host out at the deployed commit and runs deploy/deploy.sh there, one host at a time.
 
 # SSM rather than SSH, deliberately. There is no inbound port 22 to open to
 # GitHub's runner ranges, no private key living in repository secrets, and every
 # invocation lands in CloudTrail attributed to the workflow run that caused it.
 # It also keeps working unchanged if the hosts ever move to a private subnet.
+#
+# Hosts are deployed in sequence, never together. Deploying both at once would
+# restart every container in the environment simultaneously, which is the outage
+# that running two instances is meant to prevent — the redundancy would exist
+# everywhere except during the deploys that most often cause incidents.
 
 inputs:
-  instance-id:
-    description: EC2 instance to deploy to.
+  instance-ids:
+    description: EC2 instances to deploy to, space- or comma-separated. Deployed in order.
     required: true
   app-dir:
-    description: Absolute path of the repository checkout on that host.
+    description: Absolute path of the repository checkout on those hosts.
     required: true
   environment:
     description: prod or qa - selects the env file and the container names.
@@ -19,108 +24,199 @@ inputs:
   tag:
     description: Image tag to deploy, which is the commit SHA.
     required: true
+  target-group-arn:
+    description: >-
+      Load balancer target group holding these instances. When set and more than
+      one instance is being deployed, each is drained before its turn and
+      restored after. Leave empty for an environment with no load balancer.
+    required: false
+    default: ''
 
 runs:
   using: composite
   steps:
-    - name: Send deploy command
+    - name: Deploy to each host in turn
       shell: bash
       env:
-        INSTANCE_ID: ${{ inputs.instance-id }}
+        INSTANCE_IDS: ${{ inputs.instance-ids }}
         APP_DIR: ${{ inputs.app-dir }}
         DEPLOY_ENVIRONMENT: ${{ inputs.environment }}
         TAG: ${{ inputs.tag }}
+        TARGET_GROUP_ARN: ${{ inputs.target-group-arn }}
       run: |
         set -Eeuo pipefail
 
-        for required in INSTANCE_ID APP_DIR; do
+        for required in INSTANCE_IDS APP_DIR; do
           if [ -z "${!required}" ]; then
             echo "::error::$required is empty. Set it as a variable on this GitHub environment." >&2
             exit 1
           fi
         done
 
-        # The host is checked out at the same commit as the image, so the compose
-        # file and the nginx configs it mounts match what is running. Built with
-        # jq so nothing depends on quoting a shell string correctly, and each
-        # command is a separate array element for the same reason. SSM
-        # concatenates them into one script, so the shell variable below carries
-        # across elements.
-        #
-        # Steps run as root under SSM while the repository belongs to a login
-        # user, and git refuses to operate across that boundary. That user is not
-        # the same everywhere: QA runs Ubuntu as `ubuntu`, production runs Amazon
-        # Linux as `ec2-user`. Reading the owner off the directory means neither
-        # has to be configured, and a third host with a third convention works
-        # without anyone remembering this exists.
-        jq -n \
-          --arg dir "$APP_DIR" \
-          --arg sha "$TAG" \
-          --arg env "$DEPLOY_ENVIRONMENT" \
-          '{
-            commands: [
-              "set -e",
-              ("cd " + $dir + " || { echo \"No checkout at " + $dir + " on this host. Clone the repository there, or correct the APP_DIR variable on this GitHub environment.\" >&2; exit 1; }"),
-              "APP_USER=$(stat -c %U .)",
-              "echo \"running as $APP_USER in $(pwd)\"",
-              "sudo -u \"$APP_USER\" git fetch --all --prune --quiet",
-              ("sudo -u \"$APP_USER\" git checkout --detach --quiet " + $sha),
-              ("sudo -u \"$APP_USER\" bash deploy/deploy.sh " + $env + " " + $sha)
-            ],
-            executionTimeout: ["1800"]
-          }' > /tmp/ssm-params.json
+        IFS=', ' read -r -a INSTANCES <<< "$INSTANCE_IDS"
+        echo "Deploying ${TAG:0:12} to ${#INSTANCES[@]} host(s): ${INSTANCES[*]}"
 
-        command_id="$(aws ssm send-command \
-          --instance-ids "$INSTANCE_ID" \
-          --document-name AWS-RunShellScript \
-          --comment "Deploy ${TAG:0:12} to $DEPLOY_ENVIRONMENT" \
-          --parameters file:///tmp/ssm-params.json \
-          --query Command.CommandId --output text)"
+        # Draining only makes sense with somewhere for the traffic to go. On a
+        # single-instance environment, taking the one host out of the target
+        # group before deploying to it would turn a brief 502 into a guaranteed
+        # outage for the whole deploy.
+        ROLLING=false
+        if [ -n "$TARGET_GROUP_ARN" ] && [ "${#INSTANCES[@]}" -gt 1 ]; then
+          ROLLING=true
+        fi
 
-        echo "SSM command: $command_id"
-        echo "COMMAND_ID=$command_id" >> "$GITHUB_ENV"
+        # Counts targets that are serving right now, ignoring one instance.
+        # Called before draining, so the answer is "what would still be up if
+        # this host went away".
+        healthy_besides() {
+          local skip="$1"
+          aws elbv2 describe-target-health \
+            --target-group-arn "$TARGET_GROUP_ARN" \
+            --query "length(TargetHealthDescriptions[?Target.Id!='$skip' && TargetHealth.State=='healthy'])" \
+            --output text
+        }
 
-        # Polled rather than using `aws ssm wait command-executed`, whose waiter
-        # gives up after 100 seconds. A deploy that pulls two images and then
-        # waits out the API's 60s health start_period routinely exceeds that, and
-        # the waiter timing out is indistinguishable from the deploy failing.
-        status=Pending
-        for _ in $(seq 1 180); do
-          sleep 10
-          status="$(aws ssm get-command-invocation \
-            --command-id "$command_id" \
-            --instance-id "$INSTANCE_ID" \
-            --query Status --output text 2>/dev/null || echo Pending)"
-          case "$status" in
-            Success|Failed|Cancelled|TimedOut) break ;;
-          esac
-          echo "  ... $status"
+        wait_until_healthy() {
+          local id="$1" state=unknown
+          for _ in $(seq 1 60); do
+            state="$(aws elbv2 describe-target-health \
+              --target-group-arn "$TARGET_GROUP_ARN" \
+              --targets "Id=$id" \
+              --query 'TargetHealthDescriptions[0].TargetHealth.State' \
+              --output text 2>/dev/null || echo unknown)"
+            [ "$state" = healthy ] && return 0
+            sleep 5
+          done
+          echo "::error::$id did not become healthy in the target group (last state: $state)." >&2
+          return 1
+        }
+
+        # Runs the deploy on one host and streams back what it printed. Returns
+        # non-zero if SSM reports anything other than Success.
+        deploy_to() {
+          local id="$1"
+
+          # The host is checked out at the same commit as the image, so the
+          # compose file and the nginx configs it mounts match what is running.
+          # Built with jq so nothing depends on quoting a shell string
+          # correctly, and each command is a separate array element for the same
+          # reason. SSM concatenates them into one script, so the shell variable
+          # below carries across elements.
+          #
+          # Steps run as root under SSM while the repository belongs to a login
+          # user, and git refuses to operate across that boundary. That user is
+          # not the same everywhere: QA runs Ubuntu as `ubuntu`, production runs
+          # Amazon Linux as `ec2-user`. Reading the owner off the directory
+          # means neither has to be configured, and a third host with a third
+          # convention works without anyone remembering this exists.
+          jq -n \
+            --arg dir "$APP_DIR" \
+            --arg sha "$TAG" \
+            --arg env "$DEPLOY_ENVIRONMENT" \
+            '{
+              commands: [
+                "set -e",
+                ("cd " + $dir + " || { echo \"No checkout at " + $dir + " on this host. Clone the repository there, or correct the APP_DIR variable on this GitHub environment.\" >&2; exit 1; }"),
+                "APP_USER=$(stat -c %U .)",
+                "echo \"running as $APP_USER in $(pwd)\"",
+                "sudo -u \"$APP_USER\" git fetch --all --prune --quiet",
+                ("sudo -u \"$APP_USER\" git checkout --detach --quiet " + $sha),
+                ("sudo -u \"$APP_USER\" bash deploy/deploy.sh " + $env + " " + $sha)
+              ],
+              executionTimeout: ["1800"]
+            }' > /tmp/ssm-params.json
+
+          local command_id
+          command_id="$(aws ssm send-command \
+            --instance-ids "$id" \
+            --document-name AWS-RunShellScript \
+            --comment "Deploy ${TAG:0:12} to $DEPLOY_ENVIRONMENT" \
+            --parameters file:///tmp/ssm-params.json \
+            --query Command.CommandId --output text)"
+
+          echo "SSM command: $command_id"
+
+          # Polled rather than using `aws ssm wait command-executed`, whose
+          # waiter gives up after 100 seconds. A deploy that pulls two images and
+          # then waits out the API's 60s health start_period routinely exceeds
+          # that, and the waiter timing out is indistinguishable from failure.
+          local status=Pending
+          for _ in $(seq 1 180); do
+            sleep 10
+            status="$(aws ssm get-command-invocation \
+              --command-id "$command_id" \
+              --instance-id "$id" \
+              --query Status --output text 2>/dev/null || echo Pending)"
+            case "$status" in
+              Success|Failed|Cancelled|TimedOut) break ;;
+            esac
+            echo "  ... $status"
+          done
+
+          local invocation
+          invocation="$(aws ssm get-command-invocation \
+            --command-id "$command_id" --instance-id "$id" --output json)"
+
+          echo "--- $id stdout ---"
+          jq -r '.StandardOutputContent // ""' <<< "$invocation"
+
+          local stderr
+          stderr="$(jq -r '.StandardErrorContent // ""' <<< "$invocation")"
+          if [ -n "$stderr" ]; then
+            echo "--- $id stderr ---"
+            echo "$stderr"
+          fi
+
+          [ "$status" = Success ]
+        }
+
+        failed=''
+
+        for id in "${INSTANCES[@]}"; do
+          echo "::group::Deploy $id"
+
+          drained=false
+          if [ "$ROLLING" = true ]; then
+            remaining="$(healthy_besides "$id")"
+            if [ "$remaining" -lt 1 ]; then
+              # Draining here would take the environment offline: this is the
+              # only host currently serving. Deploying in place gives a short
+              # window of 502s instead, which is strictly better, and the
+              # message says why rather than leaving it looking inconsistent.
+              echo "::warning::No other healthy target, so $id will be deployed in place without draining. Expect brief errors."
+            else
+              echo "Draining $id ($remaining other healthy target(s) will serve during the deploy)"
+              aws elbv2 deregister-targets --target-group-arn "$TARGET_GROUP_ARN" --targets "Id=$id"
+              aws elbv2 wait target-deregistered --target-group-arn "$TARGET_GROUP_ARN" --targets "Id=$id"
+              drained=true
+            fi
+          fi
+
+          deploy_ok=true
+          deploy_to "$id" || deploy_ok=false
+
+          if [ "$drained" = true ]; then
+            # Restored even when the deploy failed. deploy.sh rolls back to the
+            # previous image on its own, so the host is serving working code
+            # either way, and leaving it out of the target group would quietly
+            # halve capacity for as long as nobody noticed.
+            echo "Restoring $id to the target group"
+            aws elbv2 register-targets --target-group-arn "$TARGET_GROUP_ARN" --targets "Id=$id"
+            wait_until_healthy "$id" || deploy_ok=false
+          fi
+
+          echo "::endgroup::"
+
+          if [ "$deploy_ok" != true ]; then
+            failed="$id"
+            # Stop here rather than continuing to the next host. Whatever broke
+            # this deploy will almost certainly break the next one too, and the
+            # untouched hosts are still serving the previous release.
+            echo "::error::Deploy failed on $id. Remaining hosts were left untouched and are still serving the previous release. deploy.sh rolls back on its own when the new image will not come up healthy - read the output above to see whether it did." >&2
+            break
+          fi
+
+          echo "$id deployed"
         done
 
-        echo "COMMAND_STATUS=$status" >> "$GITHUB_ENV"
-
-    - name: Report host output
-      shell: bash
-      if: always()
-      env:
-        INSTANCE_ID: ${{ inputs.instance-id }}
-      run: |
-        set -Eeuo pipefail
-        [ -n "${COMMAND_ID:-}" ] || exit 0
-
-        invocation="$(aws ssm get-command-invocation \
-          --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" --output json)"
-
-        echo "--- host stdout ---"
-        jq -r '.StandardOutputContent // ""' <<< "$invocation"
-
-        stderr="$(jq -r '.StandardErrorContent // ""' <<< "$invocation")"
-        if [ -n "$stderr" ]; then
-          echo "--- host stderr ---"
-          echo "$stderr"
-        fi
-
-        if [ "${COMMAND_STATUS:-}" != "Success" ]; then
-          echo "::error::Deploy failed on $INSTANCE_ID with status ${COMMAND_STATUS:-unknown}. deploy.sh rolls back on its own when the new image will not come up healthy - read the output above to see whether it did." >&2
-          exit 1
-        fi
+        [ -z "$failed" ]

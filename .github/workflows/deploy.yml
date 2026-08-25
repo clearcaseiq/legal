@@ -78,7 +78,9 @@ jobs:
       - name: Deploy
         uses: ./.github/actions/ssm-deploy
         with:
-          instance-id: ${{ vars.INSTANCE_ID }}
+          instance-ids: ${{ vars.INSTANCE_IDS || vars.INSTANCE_ID }}
           app-dir: ${{ vars.APP_DIR }}
           environment: ${{ steps.env.outputs.name }}
           tag: ${{ inputs.tag }}
+          # Empty on QA, which has no load balancer; the action skips draining.
+          target-group-arn: ${{ vars.TARGET_GROUP_ARN }}

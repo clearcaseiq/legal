@@ -168,7 +168,10 @@ jobs:
       - name: Deploy
         uses: ./.github/actions/ssm-deploy
         with:
-          instance-id: ${{ vars.INSTANCE_ID }}
+          # INSTANCE_ID is the older single-host variable, kept as a fallback so
+          # an environment that has not been renamed still deploys rather than
+          # failing on an empty input.
+          instance-ids: ${{ vars.INSTANCE_IDS || vars.INSTANCE_ID }}
           app-dir: ${{ vars.APP_DIR }}
           environment: qa
           tag: ${{ github.sha }}
@@ -200,7 +203,12 @@ jobs:
       - name: Deploy
         uses: ./.github/actions/ssm-deploy
         with:
-          instance-id: ${{ vars.INSTANCE_ID }}
+          instance-ids: ${{ vars.INSTANCE_IDS || vars.INSTANCE_ID }}
           app-dir: ${{ vars.APP_DIR }}
           environment: prod
           tag: ${{ github.sha }}
+          # Present so each host is pulled out of the load balancer before its
+          # own containers restart. With it unset the rollout still works, but
+          # the ALB needs three failed checks to notice a host is down, so every
+          # deploy would serve 502s for around 45 seconds.
+          target-group-arn: ${{ vars.TARGET_GROUP_ARN }}
