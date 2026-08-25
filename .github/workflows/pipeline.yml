@@ -17,13 +17,17 @@ on:
   pull_request:
     branches: [main]
 
-concurrency:
-  # Serialised per branch, but deliberately NOT cancel-in-progress. Cancelling
-  # mid-build leaves one of the two images pushed and the other not, under a tag
-  # that then looks deployable - which happened, and produced a web image with no
-  # matching API. A superseded run wasting three minutes is the cheaper problem.
-  group: pipeline-${{ github.ref }}
-  cancel-in-progress: false
+# Deliberately no workflow-level concurrency. It was here, and combined with the
+# approval gate it deadlocked the pipeline: a run parked waiting for someone to
+# approve production holds the group, so every later push queues behind it and no
+# tests run until a human acts. Blocking CI feedback on an unrelated approval is
+# worse than the problem it solved.
+#
+# Cancellation is what has to be avoided, not overlap. Cancelling mid-build
+# leaves one image pushed and the other not, under a tag that still looks
+# deployable - that happened, and produced a web image with no matching API. Two
+# builds running at once is merely wasteful. So builds are left to overlap, and
+# only the deploy jobs serialise, on their own groups below.
 
 permissions:
   id-token: write
@@ -144,6 +148,11 @@ jobs:
     needs: build
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    # One deploy per host at a time. Two rollouts interleaving on the same box
+    # would race over the env file and the running containers.
+    concurrency:
+      group: deploy-qa
+      cancel-in-progress: false
     environment:
       name: qa
       url: https://qa.clearcaseiq.com
@@ -169,6 +178,9 @@ jobs:
     needs: deploy-qa
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
     # The `production` environment carries a required reviewer, so this job waits
     # here until a human approves it. That approval is the only manual step in
     # the promotion, and it deploys the artifact QA just ran rather than building

@@ -32,6 +32,11 @@ jobs:
   deploy:
     name: Deploy ${{ inputs.tag }} to ${{ inputs.environment }}
     runs-on: ubuntu-latest
+    # Shares its group with the pipeline's deploy jobs, so a manual rollback and
+    # an automatic deploy cannot land on the same host at the same time.
+    concurrency:
+      group: deploy-${{ inputs.environment }}
+      cancel-in-progress: false
     environment:
       name: ${{ inputs.environment }}
     steps:
