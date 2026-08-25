@@ -127,24 +127,31 @@ Both instance roles carry an `ecr-pull` policy granting read on these two
 repositories, which is what lets the hosts pull what this workflow publishes.
 
 To deploy a published image, point the env file at it and pull rather than
-build:
+build. `API_IMAGE` and `WEB_IMAGE` are carried in both env examples; set them to
+the tag you are deploying:
 
 ```bash
-export REGISTRY=<account>.dkr.ecr.us-east-1.amazonaws.com
-export TAG=<commit-sha>            # from the workflow's run summary
+REGISTRY=302524629649.dkr.ecr.us-east-1.amazonaws.com
+TAG=<full-commit-sha>              # 40 characters, from the workflow run summary
 
-# In .env.prod / .env.qa:
-#   API_IMAGE=$REGISTRY/clearcaseiq-api:$TAG
-#   WEB_IMAGE=$REGISTRY/clearcaseiq-web:$TAG
+sed -i "s|clearcaseiq-api:.*|clearcaseiq-api:$TAG|" .env.prod
+sed -i "s|clearcaseiq-web:.*|clearcaseiq-web:$TAG|" .env.prod
 
-aws ecr get-login-password | docker login --username AWS --password-stdin "$REGISTRY"
+aws ecr get-login-password --region us-east-1 \
+  | docker login --username AWS --password-stdin "$REGISTRY"
 docker compose -f docker-compose.deploy.yml --env-file .env.prod pull
 docker compose -f docker-compose.deploy.yml --env-file .env.prod up -d
 ```
 
+The workflow tags each image with the **full** commit SHA and moves a `main` tag
+alongside it. Deploy the SHA, not `main`: `main` is a moving target, so two hosts
+pulling it a day apart run different code while appearing to run the same thing.
+
 Set the **same** `TAG` in both env files when promoting. The `build:` blocks are
 still present and used only by `docker compose build`, which remains the local
-and break-glass path.
+and break-glass path — and note that leaving `API_IMAGE`/`WEB_IMAGE` unset does
+not fail loudly. Compose falls back to `clearcaseiq-api:local`, which on a host
+that has never built is simply an image that does not exist.
 
 ### Why analytics is off outside production
 
