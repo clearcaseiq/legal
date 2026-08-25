@@ -54,7 +54,8 @@ runs:
           --arg env "$DEPLOY_ENVIRONMENT" \
           '{
             commands: [
-              ("cd " + $dir),
+              "set -e",
+              ("cd " + $dir + " || { echo \"No checkout at " + $dir + " on this host. Clone the repository there, or correct the APP_DIR variable on this GitHub environment.\" >&2; exit 1; }"),
               "sudo -u ubuntu git fetch --all --prune --quiet",
               ("sudo -u ubuntu git checkout --detach --quiet " + $sha),
               ("sudo -u ubuntu bash deploy/deploy.sh " + $env + " " + $sha)
