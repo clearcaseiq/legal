@@ -1,18 +1,20 @@
 # ClearCaseIQ Deployment
 
-Each environment runs on one EC2 host with Docker Compose:
+Every host runs the same three containers under Docker Compose:
 
 - `web`: Next.js frontend on internal port `3000`
 - `api`: Express API on internal port `4000`
 - `nginx`: reverse proxy and routing
 
-Postgres is managed (RDS), not a container. See [Database](#database).
+Production runs two such hosts, QA one. Postgres is managed (RDS), not a
+container. See [Database](#database).
 
 ## Production topology
 
 ```
-Route 53  ->  ALB (ACM certificate)  ->  EC2: nginx -> web / api  ->  RDS (Multi-AZ)
-                                                                 \->  S3 (uploads)
+                        /->  EC2 (us-east-1a): nginx -> web / api  -\
+Route 53 -> ALB (ACM) --                                             -> RDS (Multi-AZ)
+                        \->  EC2 (us-east-1b): nginx -> web / api  -/     S3 (uploads)
 ```
 
 Production sits behind an Application Load Balancer; QA still faces the internet
@@ -35,9 +37,117 @@ itself, so the failure mode is gone rather than patched.
 its own TLS, but renews over the webroot `qa.conf` already served rather than by
 binding the ports nginx holds. See [SSL Certificate](#ssl-certificate).
 
-The ALB is also what makes a second instance possible. That was not true until
-uploads moved to S3 — with files on one box's disk, a second instance would have
-served 404s for half of them regardless of what sat in front.
+## Running two instances
+
+Production is two instances in different availability zones, both registered in
+the `clearcaseiq-prod-web` target group. Losing one — an instance failure, an AZ
+outage, or a deploy — leaves the other serving.
+
+Three things had to be true before a second host was safe to add, and the first
+two were already done for other reasons:
+
+**Uploads had to leave the local disk.** With files on one box, a second
+instance would have served 404s for roughly half of every request for a
+document, and which half would depend on which host answered. `FILE_BUCKET=s3`
+with `S3_BUCKET=clearcaseiq-prod-uploads` is what makes any host able to answer
+for any file.
+
+**TLS had to leave the host.** Certificates lived on one instance's filesystem;
+a second would have needed its own, renewed separately. ACM on the ALB removed
+the question.
+
+**Only one host may run the background sweeps.** This one was specific to adding
+an instance, and is the reason a second box was not simply launched. See below.
+
+### Why only one host runs the scheduled work
+
+The API runs eleven background sweeps — case reminders, SOL expiry warnings,
+appointment engagement, notification retries, routing escalation, offer expiry,
+the AI case manager, and so on. They used to start on every process that
+booted.
+
+Two instances running them is not two instances sharing the work. It is the same
+work done twice, at the same time, against the same rows: duplicate
+statute-of-limitations warnings to claimants, offers escalated twice, duplicate
+AI-generated tasks. Nothing errors, and both instances report healthy
+throughout, so the first evidence would have been a client asking why they were
+emailed twice.
+
+So the sweeps run only on whichever instance holds a lease in the
+`scheduler_leases` table, renewed every 30 seconds against a 90-second
+expiry. The other instance still serves web and API traffic; it simply does not
+schedule. If the leaseholder stops, is killed, or loses the database, its lease
+expires and the other takes over within a minute and a half — which is why this
+is a lease and not a "jobs run on host A" configuration flag. A flag is simpler
+and stops all background work the moment host A dies.
+
+To see which host currently holds it:
+
+```sql
+SELECT holder, "expiresAt" > now() AS live, "updatedAt" FROM scheduler_leases;
+```
+
+`holder` is `container-hostname:pid`. The admin System Status page reports the
+same thing, and calls the environment **down** if no instance has ever acquired
+the lease — because an instance that cannot read the lease looks exactly like a
+healthy standby otherwise: neither has any sweeps registered, so neither has
+anything to report as failing or overdue.
+
+### Adding or replacing an instance
+
+Image a host that is already serving, launch the copy into the other AZ, and let
+the pipeline deploy to it:
+
+```bash
+# 1. Image a running instance. --no-reboot avoids taking it out of service; the
+#    snapshot is crash-consistent, which is fine because the new host is
+#    redeployed before it serves anything.
+aws ec2 create-image --instance-id <existing> --no-reboot \
+  --name "clearcaseiq-prod-baseline-$(date +%Y%m%d-%H%M)"
+
+# 2. Launch into the AZ the existing host is not in. Same security group (which
+#    is what grants it RDS access) and same instance profile (S3, SES, Textract,
+#    ECR pull, SSM).
+aws ec2 run-instances --image-id <ami> --instance-type t3.large \
+  --subnet-id <subnet in the other AZ> \
+  --security-group-ids sg-056725dd97d15687d \
+  --iam-instance-profile Name=clearcaseiq-ec2-role \
+  --key-name clearcaseiq-key
+
+# 3. Register it, and add it to the INSTANCE_IDS variable on the `production`
+#    GitHub environment so deploys reach it.
+aws elbv2 register-targets --target-group-arn <tg> --targets Id=<new instance>
+```
+
+The AMI carries `.env.prod`, so the secrets are not re-entered by hand — and so
+a stale AMI carries stale secrets. Re-image after rotating anything, or the next
+instance launched from it starts with the old values.
+
+**`INSTANCE_IDS` is the variable that matters.** A host that is registered in
+the target group but missing from it receives production traffic and never
+receives deploys, so it serves whatever version it was launched with,
+indefinitely, while looking healthy.
+
+### What happens on deploy
+
+`deploy/deploy.sh` runs on one host at a time. Each is deregistered from the
+target group, given 30 seconds to drain, deployed, then registered again and
+watched until healthy before the next host is touched. A failure stops the
+rollout, leaving the remaining hosts on the previous release.
+
+Draining is skipped when only one instance is being deployed — pulling the only
+host out of the target group would turn a brief window of 502s into an outage
+lasting the whole deploy.
+
+### The one thing two hosts made worse
+
+The API entrypoint runs `prisma db push` on boot. Deploys are sequential, so
+that is one host at a time as before. Two hosts booting simultaneously — a
+region event, or both being started at once by hand — would run it
+concurrently. Postgres serialises the DDL or one attempt fails; the entrypoint
+treats failure as fatal, the container exits, and Docker restarts it into a
+schema that is by then already correct. It is self-healing rather than
+prevented, and worth knowing before it is diagnosed from scratch.
 
 ## Reaching the database
 
