@@ -3990,6 +3990,22 @@ export interface AdminSystemStatus {
     runs: number
     failures: number
   }[]
+  /**
+   * Which instance runs the sweeps. The jobs run on one host only, so this is
+   * usually not the host that served this request.
+   */
+  scheduler: {
+    /** The instance that served this request. */
+    instance: string
+    /** The instance actually running the jobs; null if nobody is. */
+    leaseHolder: string | null
+    isLeader: boolean
+    everAcquired: boolean
+    consecutiveFailures: number
+    lastError: string | null
+    lastCheckedAt: string | null
+    leaseTtlSeconds: number
+  }
   activity: {
     lastEventAt: string | null
     eventsLastHour: number

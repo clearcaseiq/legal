@@ -69,6 +69,8 @@ const FAILURE_ALERT_THRESHOLD = 3
 
 let renewTimer: NodeJS.Timeout | null = null
 let isLeader = false
+/** Last known holder when it is not us; null when unknown or unheld. */
+let leaseHolder: string | null = null
 let everAcquired = false
 let consecutiveFailures = 0
 let lastError: string | null = null
@@ -83,7 +85,14 @@ export function schedulerHolderId(): string {
 }
 
 export interface SchedulerLeaseState {
-  holder: string
+  /** This process. Not necessarily the one running the sweeps. */
+  instance: string
+  /**
+   * The instance actually holding the lease, or null when nobody does or it
+   * could not be read. Distinct from `instance` because the request reporting
+   * this is usually served by a host that is not the scheduler.
+   */
+  leaseHolder: string | null
   isLeader: boolean
   /** False on a process that has never won the lease — a standby, or a fault. */
   everAcquired: boolean
@@ -102,7 +111,8 @@ export interface SchedulerLeaseState {
  */
 export function getSchedulerLeaseState(): SchedulerLeaseState {
   return {
-    holder: HOLDER,
+    instance: HOLDER,
+    leaseHolder: isLeader ? HOLDER : leaseHolder,
     isLeader,
     everAcquired,
     consecutiveFailures,
@@ -149,6 +159,22 @@ async function acquireOrRenew(): Promise<boolean> {
 }
 
 /**
+ * Who actually holds the lease, which on a standby is somebody else.
+ *
+ * Read only when this process did not get it, so the leader pays nothing for
+ * it. Without this the ops page can report the identity of whichever instance
+ * happened to answer the request and call it the scheduler, which is wrong
+ * exactly when knowing the real answer matters.
+ */
+async function readLeaseHolder(): Promise<string | null> {
+  const rows = await prisma.$queryRaw<{ holder: string }[]>`
+    SELECT "holder" FROM scheduler_leases
+    WHERE "name" = ${LEASE_NAME} AND "expiresAt" > now()
+  `
+  return rows[0]?.holder ?? null
+}
+
+/**
  * Expires our own lease on the way out, so a rolling deploy hands over in
  * seconds instead of leaving the sweeps unowned for the remainder of the TTL.
  * Guarded by holder so a instance that already lost the lease cannot release
@@ -182,6 +208,8 @@ export function startSchedulerLeadership(handlers: LeadershipHandlers): void {
     lastCheckedAt = Date.now()
     try {
       held = await acquireOrRenew()
+      // Only ask who has it when we do not, so the leader adds no query.
+      leaseHolder = held ? HOLDER : await readLeaseHolder()
       consecutiveFailures = 0
       lastError = null
     } catch (error) {
@@ -190,6 +218,8 @@ export function startSchedulerLeadership(handlers: LeadershipHandlers): void {
       // running work that cannot succeed — and risks overlapping with an
       // instance that can still reach it.
       held = false
+      // Do not keep reporting the last holder we saw; we no longer know.
+      leaseHolder = null
       consecutiveFailures += 1
       lastError = error instanceof Error ? error.message : String(error)
 

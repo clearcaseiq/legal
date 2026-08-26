@@ -25,7 +25,12 @@ import { isZoomConfigured } from './zoom'
 import { isESignatureConfigured } from './esign'
 import { isActivityCanaryEnabled } from './activity-canary-sweep'
 import { getPublicSiteStatus, type PublicSiteStatus } from './public-site-status'
-import { getSchedulerLeaseState, type SchedulerLeaseState } from './scheduler-leader'
+import {
+  getSchedulerLeaseState,
+  schedulerHolderId,
+  type SchedulerLeaseState,
+} from './scheduler-leader'
+import { logger } from './logger'
 import { ENV } from '../env'
 
 const HOUR_MS = 60 * 60 * 1000
@@ -219,10 +224,25 @@ interface SweepEntry {
 }
 
 /**
- * In-process, so a restart clears it. That is the honest behaviour: these
- * counters describe the running process, and the page says so.
+ * Kept alongside the database copy because it is the only thing that knows a
+ * sweep is *currently* running: the row is written when a run finishes, so
+ * between start and finish the database still describes the previous run.
  */
 const sweeps = new Map<string, SweepEntry>()
+
+/**
+ * Recording status must never be the reason a sweep fails, so every write here
+ * is best-effort. A status page that is briefly stale is a much smaller problem
+ * than a case-reminder run that aborts because it could not write a counter.
+ */
+function recordQuietly(operation: string, work: Promise<unknown>): void {
+  void work.catch((error) => {
+    logger.warn('Could not record sweep status', {
+      operation,
+      error: error instanceof Error ? error.message : String(error),
+    })
+  })
+}
 
 export function registerSweep(
   name: string,
@@ -241,6 +261,29 @@ export function registerSweep(
     runs: existing?.runs ?? 0,
     failures: existing?.failures ?? 0,
   })
+
+  // Registration only happens on the instance that holds the lease, which is
+  // what lets a standby describe jobs it is not running: the label, cadence and
+  // enabled flag it renders are the leader's, read back from this row.
+  recordQuietly(
+    `register:${name}`,
+    prisma.sweepRun.upsert({
+      where: { name },
+      create: {
+        name,
+        label: options.label,
+        enabled: options.enabled,
+        intervalMs: options.intervalMs ?? null,
+        holder: schedulerHolderId(),
+      },
+      update: {
+        label: options.label,
+        enabled: options.enabled,
+        intervalMs: options.intervalMs ?? null,
+        holder: schedulerHolderId(),
+      },
+    })
+  )
 }
 
 /**
@@ -263,12 +306,33 @@ export function beginSweep(name: string): { succeed: () => void; fail: (error: u
     tracked.durationMs = tracked.finishedAt - startedAt
     tracked.ok = ok
     tracked.runs += 1
+    const message = ok ? null : error instanceof Error ? error.message : String(error)
     if (ok) {
       tracked.lastError = null
     } else {
       tracked.failures += 1
-      tracked.lastError = error instanceof Error ? error.message : String(error)
+      tracked.lastError = message
     }
+
+    // Counters are incremented in SQL rather than written from the value held
+    // here, so they survive a restart and stay right if leadership moves
+    // mid-run.
+    recordQuietly(
+      `finish:${name}`,
+      prisma.sweepRun.update({
+        where: { name },
+        data: {
+          holder: schedulerHolderId(),
+          lastStartedAt: new Date(startedAt),
+          lastFinishedAt: new Date(tracked.finishedAt!),
+          lastDurationMs: tracked.durationMs,
+          ok,
+          lastError: message,
+          runs: { increment: 1 },
+          ...(ok ? {} : { failures: { increment: 1 } }),
+        },
+      })
+    )
   }
 
   return {
@@ -277,40 +341,113 @@ export function beginSweep(name: string): { succeed: () => void; fail: (error: u
   }
 }
 
-export function getSweepStates(): SweepState[] {
+function describe(
+  name: string,
+  entry: {
+    label: string
+    enabled: boolean
+    intervalMs: number | null
+    startedAt: number | null
+    finishedAt: number | null
+    durationMs: number | null
+    ok: boolean | null
+    lastError: string | null
+    runs: number
+    failures: number
+  },
+  now: number
+): SweepState {
+  let status: SweepStatus
+  if (!entry.enabled) status = 'disabled'
+  else if (entry.startedAt && !entry.finishedAt) status = 'running'
+  else if (entry.ok === null) status = 'never'
+  else status = entry.ok ? 'ok' : 'failed'
+
+  // One full interval of grace before calling a sweep overdue, so a run
+  // that merely started late does not read as a dead loop.
+  const stale =
+    entry.enabled &&
+    entry.intervalMs !== null &&
+    entry.finishedAt !== null &&
+    now - entry.finishedAt > entry.intervalMs * 2
+
+  return {
+    name,
+    label: entry.label,
+    enabled: entry.enabled,
+    intervalMs: entry.intervalMs,
+    status,
+    stale,
+    lastStartedAt: entry.startedAt ? new Date(entry.startedAt).toISOString() : null,
+    lastFinishedAt: entry.finishedAt ? new Date(entry.finishedAt).toISOString() : null,
+    lastDurationMs: entry.durationMs,
+    lastError: entry.lastError,
+    runs: entry.runs,
+    failures: entry.failures,
+  }
+}
+
+/**
+ * Read from the database so that an instance which is not running the sweeps
+ * can still report on them, then overlaid with anything this process knows
+ * that the row cannot express — currently only that a run is in flight, since
+ * the row is written at the end of one.
+ *
+ * Falls back to the in-process view if the read fails. That is a worse answer
+ * on a standby, where the map is empty, but the caller already reports a
+ * database it cannot reach as down, so this will not be the only symptom.
+ */
+export async function getSweepStates(): Promise<SweepState[]> {
   const now = Date.now()
-  return Array.from(sweeps.entries())
-    .map(([name, entry]) => {
-      let status: SweepStatus
-      if (!entry.enabled) status = 'disabled'
-      else if (entry.startedAt && !entry.finishedAt) status = 'running'
-      else if (entry.ok === null) status = 'never'
-      else status = entry.ok ? 'ok' : 'failed'
 
-      // One full interval of grace before calling a sweep overdue, so a run
-      // that merely started late does not read as a dead loop.
-      const stale =
-        entry.enabled &&
-        entry.intervalMs !== null &&
-        entry.finishedAt !== null &&
-        now - entry.finishedAt > entry.intervalMs * 2
-
-      return {
-        name,
-        label: entry.label,
-        enabled: entry.enabled,
-        intervalMs: entry.intervalMs,
-        status,
-        stale,
-        lastStartedAt: entry.startedAt ? new Date(entry.startedAt).toISOString() : null,
-        lastFinishedAt: entry.finishedAt ? new Date(entry.finishedAt).toISOString() : null,
-        lastDurationMs: entry.durationMs,
-        lastError: entry.lastError,
-        runs: entry.runs,
-        failures: entry.failures,
-      }
+  let rows: Awaited<ReturnType<typeof prisma.sweepRun.findMany>> = []
+  try {
+    rows = await prisma.sweepRun.findMany()
+  } catch (error) {
+    logger.warn('Could not read sweep status; falling back to this process', {
+      error: error instanceof Error ? error.message : String(error),
     })
-    .sort((a, b) => a.label.localeCompare(b.label))
+    return Array.from(sweeps.entries())
+      .map(([name, entry]) => describe(name, entry, now))
+      .sort((a, b) => a.label.localeCompare(b.label))
+  }
+
+  const states = rows.map((row) => {
+    const local = sweeps.get(row.name)
+    const startedAt = row.lastStartedAt?.getTime() ?? null
+    const finishedAt = row.lastFinishedAt?.getTime() ?? null
+
+    // A run this process started but has not finished is newer than the row,
+    // which still describes the run before it.
+    const running = local && local.startedAt !== null && local.finishedAt === null
+
+    return describe(
+      row.name,
+      {
+        label: row.label,
+        enabled: row.enabled,
+        intervalMs: row.intervalMs,
+        startedAt: running ? local!.startedAt : startedAt,
+        finishedAt: running ? null : finishedAt,
+        durationMs: row.lastDurationMs,
+        ok: row.ok,
+        lastError: row.lastError,
+        runs: row.runs,
+        failures: row.failures,
+      },
+      now
+    )
+  })
+
+  // A sweep this process registered but never persisted — the write is
+  // best-effort — would otherwise vanish from the page entirely.
+  for (const [name, entry] of sweeps) {
+    if (!states.some((state) => state.name === name)) {
+      states.push(describe(name, entry, now))
+    }
+  }
+
+  return states.sort((a, b) => a.label.localeCompare(b.label))
 }
 
 // ---------------------------------------------------------------------------
@@ -532,20 +669,21 @@ export interface SystemStatus {
 }
 
 export async function getSystemStatus(): Promise<SystemStatus> {
-  const [readiness, schema, activity, publicSite] = await Promise.all([
+  const [readiness, schema, activity, publicSite, sweeps] = await Promise.all([
     runReadinessProbes(),
     checkSchemaDrift(),
     getActivitySnapshot(),
     getPublicSiteStatus(),
+    getSweepStates(),
   ])
-  const sweeps = getSweepStates()
   const scheduler = getSchedulerLeaseState()
   const issues: string[] = []
   const levels: StatusLevel[] = []
 
-  // A standby instance is healthy and reports no sweeps at all, so the absence
-  // of failing or overdue jobs below cannot distinguish "another instance is
-  // running them" from "nobody is". Only the lease can, so check it first.
+  // Sweep state is read from the database, so this instance reports on jobs it
+  // may not be running itself. What it cannot infer that way is whether *any*
+  // instance is running them: rows persist after the last leader stops. Only
+  // the lease answers that, so check it first.
   if (scheduler.consecutiveFailures > 0 && !scheduler.everAcquired) {
     levels.push('down')
     issues.push(

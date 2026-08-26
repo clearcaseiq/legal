@@ -421,8 +421,18 @@ export default function AdminSystemStatus() {
               </table>
             </div>
             <p className="mt-3 text-xs text-slate-400 dark:text-slate-500">
-              Counts cover the current API process and reset on restart, so low numbers right after
-              a deploy are expected.
+              {status.scheduler.leaseHolder ? (
+                <>
+                  These jobs run on one instance at a time, currently{' '}
+                  <span className="font-mono">{status.scheduler.leaseHolder}</span>
+                  {status.scheduler.isLeader
+                    ? ', which is the instance serving this page.'
+                    : ' — not the instance serving this page, so the figures below are read from the database rather than from memory.'}
+                </>
+              ) : (
+                <>No instance currently holds the scheduler lease.</>
+              )}{' '}
+              Counts are cumulative and survive restarts and failover.
             </p>
           </SectionCard>
 

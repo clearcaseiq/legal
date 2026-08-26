@@ -22,6 +22,7 @@
  */
 
 import rateLimit, { type Options } from 'express-rate-limit'
+import { PostgresRateLimitStore } from './rate-limit-store'
 
 const FIFTEEN_MINUTES = 15 * 60 * 1000
 
@@ -39,6 +40,11 @@ function build(name: string, max: number, message: string, windowMs = FIFTEEN_MI
     // Preflight is automatic browser traffic; counting it halves the real budget
     // and a throttled OPTIONS breaks every request that follows.
     skip: (req) => req.method === 'OPTIONS' || isExempt(),
+    // Shared across instances, so these budgets describe the platform rather
+    // than one server. The default in-process store multiplies every limit
+    // below by the number of hosts behind the load balancer. See
+    // ./rate-limit-store for why the app-wide limiter is deliberately excluded.
+    ...(isExempt() ? {} : { store: new PostgresRateLimitStore(name) }),
   }
   return rateLimit(options)
 }

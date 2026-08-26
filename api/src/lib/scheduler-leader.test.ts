@@ -224,6 +224,38 @@ describe('scheduler leadership', () => {
     })
   })
 
+  it('names the instance that actually holds the lease, not itself', async () => {
+    const { prisma, startSchedulerLeadership, getSchedulerLeaseState, schedulerHolderId } =
+      await load()
+    // Lost the race, so the row belongs to somebody else.
+    prisma.$executeRaw.mockResolvedValue(0)
+    prisma.$queryRaw.mockResolvedValue([{ holder: 'other-host:1:9f2c1a4b' }])
+
+    startSchedulerLeadership({ onAcquire: vi.fn(), onRelease: vi.fn() })
+    await flush()
+
+    const state = getSchedulerLeaseState()
+
+    // The status page is served by whichever instance the load balancer picks,
+    // so reporting our own identity as the scheduler would be wrong precisely
+    // when someone is asking which instance runs the jobs.
+    expect(state.isLeader).toBe(false)
+    expect(state.instance).toBe(schedulerHolderId())
+    expect(state.leaseHolder).toBe('other-host:1:9f2c1a4b')
+  })
+
+  it('admits it does not know the holder when the lease cannot be read', async () => {
+    const { prisma, startSchedulerLeadership, getSchedulerLeaseState } = await load()
+    prisma.$executeRaw.mockRejectedValue(new Error('connection refused'))
+
+    startSchedulerLeadership({ onAcquire: vi.fn(), onRelease: vi.fn() })
+    await flush()
+
+    // Reporting a remembered holder here would claim the jobs are running
+    // somewhere when we have no basis for saying so.
+    expect(getSchedulerLeaseState().leaseHolder).toBeNull()
+  })
+
   it('gives two processes on the same host different identities', async () => {
     const a = await load()
     const b = await load()

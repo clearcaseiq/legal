@@ -98,18 +98,18 @@ describe('checkSchemaDrift', () => {
 })
 
 describe('sweep tracking', () => {
-  it('records success, failure, and the resulting state', () => {
+  it('records success, failure, and the resulting state', async () => {
     registerSweep('test-sweep', { label: 'Test sweep', enabled: true, intervalMs: 60_000 })
 
     beginSweep('test-sweep').succeed()
-    let state = getSweepStates().find((s) => s.name === 'test-sweep')!
+    let state = (await getSweepStates()).find((s) => s.name === 'test-sweep')!
     expect(state.status).toBe('ok')
     expect(state.runs).toBe(1)
     expect(state.failures).toBe(0)
     expect(state.lastError).toBeNull()
 
     beginSweep('test-sweep').fail(new Error('boom'))
-    state = getSweepStates().find((s) => s.name === 'test-sweep')!
+    state = (await getSweepStates()).find((s) => s.name === 'test-sweep')!
     expect(state.status).toBe('failed')
     expect(state.runs).toBe(2)
     expect(state.failures).toBe(1)
@@ -117,31 +117,74 @@ describe('sweep tracking', () => {
 
     // Recovery clears the error rather than leaving a stale one on screen.
     beginSweep('test-sweep').succeed()
-    state = getSweepStates().find((s) => s.name === 'test-sweep')!
+    state = (await getSweepStates()).find((s) => s.name === 'test-sweep')!
     expect(state.status).toBe('ok')
     expect(state.lastError).toBeNull()
   })
 
-  it('flags a sweep as overdue once it misses two intervals', () => {
+  it('flags a sweep as overdue once it misses two intervals', async () => {
     vi.useFakeTimers()
     try {
       registerSweep('slow-sweep', { label: 'Slow sweep', enabled: true, intervalMs: 60_000 })
       beginSweep('slow-sweep').succeed()
 
       vi.advanceTimersByTime(90_000)
-      expect(getSweepStates().find((s) => s.name === 'slow-sweep')!.stale).toBe(false)
+      expect((await getSweepStates()).find((s) => s.name === 'slow-sweep')!.stale).toBe(false)
 
       vi.advanceTimersByTime(60_000)
-      expect(getSweepStates().find((s) => s.name === 'slow-sweep')!.stale).toBe(true)
+      expect((await getSweepStates()).find((s) => s.name === 'slow-sweep')!.stale).toBe(true)
     } finally {
       vi.useRealTimers()
     }
   })
 
-  it('reports a disabled loop as disabled rather than as never having run', () => {
+  it('reports a disabled loop as disabled rather than as never having run', async () => {
     registerSweep('off-sweep', { label: 'Off sweep', enabled: false })
-    const state = getSweepStates().find((s) => s.name === 'off-sweep')!
+    const state = (await getSweepStates()).find((s) => s.name === 'off-sweep')!
     expect(state.status).toBe('disabled')
     expect(state.stale).toBe(false)
+  })
+
+  it('reports jobs running on another instance', async () => {
+    // A standby: it has registered nothing and run nothing, because the loops
+    // only start on whichever instance holds the scheduler lease. Before these
+    // rows were persisted it returned an empty list, and the status page —
+    // finding nothing failing and nothing overdue — called the environment
+    // healthy while showing no jobs at all.
+    vi.mocked(prisma.sweepRun.findMany).mockResolvedValueOnce([
+      {
+        name: 'sol-expiry',
+        label: 'SOL expiry warnings',
+        enabled: true,
+        intervalMs: 3_600_000,
+        holder: 'other-host:1:9f2c1a4b',
+        lastStartedAt: new Date('2026-08-26T01:00:00Z'),
+        lastFinishedAt: new Date('2026-08-26T01:00:04Z'),
+        lastDurationMs: 4_000,
+        ok: true,
+        lastError: null,
+        runs: 12,
+        failures: 0,
+        createdAt: new Date('2026-08-25T00:00:00Z'),
+        updatedAt: new Date('2026-08-26T01:00:04Z'),
+      },
+    ] as any)
+
+    const states = await getSweepStates()
+    const sol = states.find((s) => s.name === 'sol-expiry')!
+
+    expect(sol.label).toBe('SOL expiry warnings')
+    expect(sol.status).toBe('ok')
+    expect(sol.runs).toBe(12)
+  })
+
+  it('falls back to this process when the sweep table cannot be read', async () => {
+    registerSweep('local-only', { label: 'Local only', enabled: true, intervalMs: 60_000 })
+    beginSweep('local-only').succeed()
+
+    vi.mocked(prisma.sweepRun.findMany).mockRejectedValueOnce(new Error('connection refused'))
+
+    const state = (await getSweepStates()).find((s) => s.name === 'local-only')!
+    expect(state.status).toBe('ok')
   })
 })
