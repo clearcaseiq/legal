@@ -42,6 +42,10 @@ export default function Register() {
   // redirect lands on the just-claimed case.
   const [claimedAssessmentId, setClaimedAssessmentId] = useState<string | null>(null)
   const [acceptedLegalSignup, setAcceptedLegalSignup] = useState(false)
+  // Set while an already-signed-in visitor's claim link is being redeemed, and
+  // when a signup fails only because the account already exists.
+  const [claimingExistingSession, setClaimingExistingSession] = useState(false)
+  const [offerSignIn, setOfferSignIn] = useState(false)
   const [consentSaving, setConsentSaving] = useState(false)
   const [consentSaveError, setConsentSaveError] = useState<string | null>(null)
   // When the user came from intake we already know their contact details, so the
@@ -59,6 +63,10 @@ export default function Register() {
   const redirectTo = assessmentId
     ? `/dashboard?case=${encodeURIComponent(assessmentId)}`
     : searchParams.get('redirect') || '/dashboard'
+  // The claim token has to ride along to sign-in. The confirmation email offers
+  // only "create an account", so anyone who already had one used to arrive at a
+  // signup form they could not complete, with no way to attach their case.
+  const signInHref = claimToken ? `/login?claim=${encodeURIComponent(claimToken)}` : '/login'
 
   // Account benefits shown as tiles so guests can see what an account unlocks.
   const accountFeatures = [
@@ -76,6 +84,38 @@ export default function Register() {
       localStorage.setItem('pending_assessment_id', assessmentId)
     }
   }, [assessmentId])
+
+  // A visitor who is already signed in has nothing to register. Redeem the case
+  // and take them to it rather than showing a signup form they cannot use.
+  useEffect(() => {
+    if (!claimToken) return
+    // Only a plaintiff session may claim. Attaching the case to a signed-in
+    // attorney or staff user would hand the case to the wrong account.
+    const isPlaintiffSession =
+      Boolean(localStorage.getItem('auth_token')) && localStorage.getItem('auth_role') === 'plaintiff'
+    if (!isPlaintiffSession) return
+
+    let cancelled = false
+    setClaimingExistingSession(true)
+    claimAssessmentByToken(claimToken)
+      .then(async (result) => {
+        if (cancelled || !result?.assessmentId) return
+        const assessments = await listAssessments()
+        updateCachedPlaintiffAssessments(assessments || [])
+        navigate(`/dashboard?case=${encodeURIComponent(result.assessmentId)}`, { replace: true })
+      })
+      .catch((claimError) => {
+        console.error('Failed to claim case for signed-in user:', claimError)
+        if (!cancelled) setError(t('auth.claimAttachFailed'))
+      })
+      .finally(() => {
+        if (!cancelled) setClaimingExistingSession(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [claimToken])
 
   // Prefill the details the plaintiff already gave during intake so they only
   // need to set a password to finish.
@@ -110,6 +150,7 @@ export default function Register() {
 
     setIsLoading(true)
     setError(null)
+    setOfferSignIn(false)
 
     try {
       const response = await register({
@@ -167,7 +208,16 @@ export default function Register() {
       })
       setShowConsentWorkflow(true)
     } catch (err: any) {
-      setError(err.response?.data?.error || err.message || 'Registration failed. Please try again.')
+      // "User already exists" is a wrong turn rather than a failure: the person
+      // has an account and needs to sign in. Left as a raw error it dead-ends
+      // anyone following a claim link, because their case is only attachable
+      // once they are authenticated.
+      if (err.response?.status === 409) {
+        setError(t('auth.claimAlreadyRegistered'))
+        setOfferSignIn(true)
+      } else {
+        setError(err.response?.data?.error || err.message || 'Registration failed. Please try again.')
+      }
     } finally {
       setIsLoading(false)
     }
@@ -224,6 +274,14 @@ export default function Register() {
     })
   }
 
+  if (claimingExistingSession) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+        <p className="text-sm text-slate-600">{t('auth.claimAttaching')}</p>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col justify-start pt-6 pb-12 sm:px-6 lg:px-8 relative">
       {consentSaving && (
@@ -262,14 +320,17 @@ export default function Register() {
             t('auth.createAccountTitle')
           )}
         </h2>
-        {streamlined ? (
+        {streamlined && (
           <p className="mt-2 text-center text-sm text-gray-600">
             {t('auth.streamlinedSubtitle')}
           </p>
-        ) : (
+        )}
+        {/* Shown to claim-link visitors even in the streamlined flow, which
+            otherwise offers no way to reach sign-in. */}
+        {(!streamlined || claimToken) && (
           <p className="mt-2 text-center text-sm text-gray-600">
             {t('auth.alreadyHaveAccount')}{' '}
-            <Link to="/login" className="font-medium text-brand-600 hover:text-brand-500">
+            <Link to={signInHref} className="font-medium text-brand-600 hover:text-brand-500">
               {t('auth.signIn')}
             </Link>
           </p>
@@ -281,6 +342,14 @@ export default function Register() {
           {error && (
             <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-md">
               <p className="text-sm text-red-600">{error}</p>
+              {offerSignIn && (
+                <Link
+                  to={signInHref}
+                  className="mt-2 inline-block text-sm font-semibold text-brand-600 underline underline-offset-2 hover:text-brand-700"
+                >
+                  {claimToken ? t('auth.claimSignInToAttach') : t('auth.signIn')}
+                </Link>
+              )}
             </div>
           )}
 

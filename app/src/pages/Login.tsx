@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { login } from '../lib/api-auth'
 import { getPlaintiffConsentCompliance } from '../lib/api-consent'
-import { associateAssessments, listAssessments } from '../lib/api-plaintiff'
+import { associateAssessments, claimAssessmentByToken, listAssessments } from '../lib/api-plaintiff'
 import OAuthButtons from '../components/OAuthButtons'
 import LoginLayout from '../components/LoginLayout'
 import { PasswordInputWithReveal } from '../components/PasswordInputWithReveal'
@@ -19,6 +19,10 @@ export default function Login() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const assessmentId = searchParams.get('assessmentId')
+  // Signed "claim your case" token from the guest confirmation email. That email
+  // links to /register, but the person may already have an account, so the token
+  // has to survive the trip to sign-in or the case can never be attached.
+  const claimToken = searchParams.get('claim')
   const rawRedirectTo = searchParams.get('redirect') || (assessmentId ? `/results/${assessmentId}` : '/dashboard')
   const redirectTo = assessmentId && rawRedirectTo === '/dashboard'
     ? `/dashboard?case=${encodeURIComponent(assessmentId)}`
@@ -73,6 +77,23 @@ export default function Login() {
         }
       }
 
+      // Attach the case named by an emailed claim link and land on it. The
+      // endpoint is idempotent and refuses cases owned by a real account, so a
+      // re-clicked or forwarded link is harmless.
+      let destination = redirectTo
+      if (claimToken) {
+        try {
+          const claimResult = await claimAssessmentByToken(claimToken)
+          if (claimResult?.assessmentId) {
+            destination = `/dashboard?case=${encodeURIComponent(claimResult.assessmentId)}`
+            const assessments = await listAssessments()
+            updateCachedPlaintiffAssessments(assessments || [])
+          }
+        } catch (err) {
+          console.error('Failed to claim case after login:', err)
+        }
+      }
+
       try {
         const compliance = await getPlaintiffConsentCompliance(response.user.id)
         if (!compliance.allRequiredConsentsGranted) {
@@ -84,7 +105,7 @@ export default function Login() {
             /* ignore */
           }
           if (!recentlyCompleted) {
-            const dest = redirectTo.startsWith('/') ? redirectTo : `/${redirectTo}`
+            const dest = destination.startsWith('/') ? destination : `/${destination}`
             window.location.assign(
               `${window.location.origin}/auth/complete-consent?redirect=${encodeURIComponent(dest)}`
             )
@@ -95,7 +116,7 @@ export default function Login() {
         /* proceed if status check fails */
       }
 
-      const target = redirectTo.startsWith('/') ? `${window.location.origin}${redirectTo}` : redirectTo
+      const target = destination.startsWith('/') ? `${window.location.origin}${destination}` : destination
       window.location.assign(target)
       return
     } catch (err: any) {
