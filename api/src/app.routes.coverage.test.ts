@@ -4,6 +4,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import request from 'supertest'
+import crypto from 'crypto'
 
 vi.mock('./services/chatgpt', () => ({
   analyzeCaseWithChatGPT: vi.fn().mockResolvedValue({ summary: 'mock' }),
@@ -13,6 +14,28 @@ vi.mock('./lib/prisma', () => import('./test/universalPrismaMock'))
 
 import { buildApp } from './build-app'
 import { prisma, resetUniversalPrismaMock } from './test/universalPrismaMock'
+
+// The inbound SMS webhook rejects anything it cannot verify, so reaching the
+// handler at all requires a signature. Pinning the URL keeps it deterministic.
+const TWILIO_TOKEN = 'coverage-twilio-token'
+const TWILIO_URL = 'https://api.test.local/v1/sms/webhook'
+process.env.TWILIO_AUTH_TOKEN = TWILIO_TOKEN
+process.env.TWILIO_WEBHOOK_URL = TWILIO_URL
+
+function signedSmsPost(app: any, params: Record<string, string>) {
+  const signature = crypto
+    .createHmac('sha1', TWILIO_TOKEN)
+    .update(
+      Buffer.from(
+        Object.keys(params)
+          .sort()
+          .reduce((acc, key) => acc + key + params[key], TWILIO_URL),
+        'utf8',
+      ),
+    )
+    .digest('base64')
+  return request(app).post('/v1/sms/webhook').type('form').set('X-Twilio-Signature', signature).send(params)
+}
 
 describe('HTTP API route coverage (mocked prisma)', () => {
   const app = buildApp()
@@ -57,19 +80,28 @@ describe('HTTP API route coverage (mocked prisma)', () => {
   })
 
   it('POST /v1/sms/webhook missing fields → 400', async () => {
-    const res = await request(app).post('/v1/sms/webhook').type('form').send({})
+    const res = await signedSmsPost(app, {})
     expectHandledStatus(res.status)
     expect(res.status).toBe(400)
   })
 
   it('POST /v1/sms/webhook unknown keyword → 200 TwiML', async () => {
-    const res = await request(app).post('/v1/sms/webhook').type('form').send({
+    const res = await signedSmsPost(app, {
       From: '+15555550100',
       Body: 'HELLO',
     })
     expectHandledStatus(res.status)
     expect(res.status).toBe(200)
     expect(res.text).toContain('Response')
+  })
+
+  it('POST /v1/sms/webhook without a signature → 403', async () => {
+    const res = await request(app).post('/v1/sms/webhook').type('form').send({
+      From: '+15555550100',
+      Body: 'ACCEPT',
+    })
+    expectHandledStatus(res.status)
+    expect(res.status).toBe(403)
   })
 
   it('GET /v1/attorneys/search', async () => {

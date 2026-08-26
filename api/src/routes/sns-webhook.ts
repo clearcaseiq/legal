@@ -10,14 +10,16 @@
  *   - Notification            → the inbound SMS; we parse and process it.
  *   - UnsubscribeConfirmation → logged, no action.
  *
- * Optional hardening: set SNS_INBOUND_TOPIC_ARN to only accept messages from
- * your topic.
+ * Every message must carry a valid SNS signature; unsigned or unverifiable
+ * envelopes are rejected outright. Set SNS_INBOUND_TOPIC_ARN to additionally
+ * restrict accepted messages to a single topic.
  */
 import express from 'express'
 import { Router } from 'express'
 import https from 'https'
 import { logger } from '../lib/logger'
 import { processInboundSmsDecision } from '../lib/sms-inbound'
+import { verifySnsSignature } from '../lib/sms-webhook-verification'
 
 const router = Router()
 
@@ -54,7 +56,17 @@ router.post('/inbound', async (req, res) => {
       return res.status(400).send('Bad request')
     }
 
-    // Optional topic allow-list.
+    // Nothing in this envelope means anything until the signature holds: the
+    // origination number decides which attorney is answering, and "ACCEPT"
+    // claims a case. Verify before reading any field, including the topic and
+    // the SubscribeURL we would otherwise call back.
+    const verification = await verifySnsSignature(envelope)
+    if (!verification.ok) {
+      logger.warn('SNS webhook: rejected unverified message', { reason: verification.reason })
+      return res.status(403).send('forbidden')
+    }
+
+    // Now that the envelope is authenticated, the topic is worth checking.
     const allowedTopic = process.env.SNS_INBOUND_TOPIC_ARN
     if (allowedTopic && envelope.TopicArn && envelope.TopicArn !== allowedTopic) {
       logger.warn('SNS webhook: topic ARN mismatch', { topic: envelope.TopicArn })
