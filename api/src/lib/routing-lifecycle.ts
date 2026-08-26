@@ -805,6 +805,26 @@ export async function placeAssessmentInManualReview(
   extra?: { fraudScore?: number; fraudSignals?: unknown[] }
 ): Promise<void> {
   try {
+    // Re-entry is normal rather than exceptional: a parked case can be selected
+    // by the sweep again, an admin can re-route a held case that then fails the
+    // same way, and callers upstream retry. Repeating the write is not harmless —
+    // it clears the reviewer attribution below, resets the held-at clock so the
+    // review queue's ageing is wrong, and sends the claimant another "no attorney
+    // could take your case" email each time. Hold the first placement and let
+    // later ones pass through quietly; a genuinely new reason still updates,
+    // and a released case is no longer `pending` so it can be held again.
+    const existing = await prisma.assessment.findUnique({
+      where: { id: assessmentId },
+      select: { manualReviewStatus: true, manualReviewReason: true }
+    })
+    if (existing?.manualReviewStatus === 'pending' && existing.manualReviewReason === reason) {
+      logger.info('Assessment already held for manual review; skipping duplicate placement', {
+        assessmentId,
+        reason
+      })
+      return
+    }
+
     await Promise.all([
       prisma.assessment.update({
         where: { id: assessmentId },
@@ -859,6 +879,75 @@ export async function placeAssessmentInManualReview(
 }
 
 /**
+ * Sentinel used to unwind the claim transaction when the case is already gone.
+ * Prisma rolls an interactive transaction back on throw, which is what releases
+ * the offer claim made moments earlier in the same transaction.
+ */
+export const ROUTING_CASE_ALREADY_CLAIMED = 'routing:case-already-claimed'
+
+/**
+ * Claim the case itself for one attorney, atomically.
+ *
+ * Claiming the Introduction makes a single *offer* single-writer, which is what
+ * stops one attorney answering twice from two tabs. It does nothing about a
+ * wave: wave 1 offers the same case to three attorneys, each with their own
+ * PENDING row, so three offer claims can all succeed. The lead write was
+ * unconditional, so it was last-writer-wins — two attorneys ended up holding the
+ * same case, both with ACCEPTED offers, and the claimant received two "an
+ * attorney accepted your case" emails naming two different firms.
+ *
+ * `routingLocked` is the case-level flag and is only ever set by an acceptance,
+ * which makes it the natural claim key: as a WHERE predicate it lets exactly one
+ * writer move it false -> true, and every other writer sees `count === 0`.
+ */
+export async function claimCaseForAttorney(
+  assessmentId: string,
+  attorneyId: string,
+  client: { leadSubmission: { updateMany: (args: any) => Promise<{ count: number }> } } = prisma,
+): Promise<boolean> {
+  const claimed = await client.leadSubmission.updateMany({
+    where: { assessmentId, routingLocked: false },
+    data: {
+      assignedAttorneyId: attorneyId,
+      assignmentType: 'exclusive',
+      status: 'contacted',
+      lifecycleState: 'attorney_matched',
+      routingLocked: true,
+      lastContactAt: new Date(),
+    },
+  })
+  return claimed.count > 0
+}
+
+/**
+ * Close out the other offers on a case once someone has won it.
+ *
+ * Nothing used to retire them: the expiry sweep skips locked cases, so the
+ * losing attorneys' offers stayed PENDING forever and remained acceptable months
+ * later — the delivery mechanism for a second attorney claiming the same case.
+ *
+ * They are marked EXPIRED rather than given a status of their own because
+ * EXPIRED already means "released to another attorney" everywhere else: it is in
+ * `TERMINAL_INTRO_STATUSES`, so the offer drops out of the losing attorney's
+ * caseload, and the existing UI copy and analytics already handle it. A new
+ * value would leave the case lingering in their list.
+ */
+export async function retireCompetingOffers(
+  assessmentId: string,
+  winningIntroductionId: string,
+): Promise<number> {
+  const retired = await prisma.introduction.updateMany({
+    where: {
+      assessmentId,
+      status: 'PENDING',
+      id: { not: winningIntroductionId },
+    },
+    data: { status: 'EXPIRED', respondedAt: new Date() },
+  })
+  return retired.count
+}
+
+/**
  * Step 10 & 11: Attorney accepts case → lock routing, notify plaintiff
  */
 export async function attorneyAcceptCase(
@@ -885,17 +974,48 @@ export async function attorneyAcceptCase(
     return { success: false, error: `Introduction already ${intro.status}` }
   }
 
-  // Atomically claim the PENDING introduction. The check above is a fast path,
-  // but two tabs (or a concurrent decline) can both read PENDING before either
-  // writes; a plain update would then let a stale accept overwrite a decline —
-  // the case ends up ACCEPTED with a decline reason still attached. The
-  // conditional updateMany makes the transition itself the point of truth: only
-  // one writer can move PENDING -> ACCEPTED (CP: accept after decline in 2 tabs).
-  const claimed = await prisma.introduction.updateMany({
-    where: { id: introductionId, attorneyId, status: 'PENDING' },
-    data: { status: 'ACCEPTED', respondedAt: new Date() },
-  })
-  if (claimed.count === 0) {
+  // Claim the offer and the case together, in one transaction.
+  //
+  // The offer claim is conditional on PENDING because the check above is only a
+  // fast path: two tabs (or a concurrent decline) can both read PENDING before
+  // either writes, and a plain update would let a stale accept overwrite a
+  // decline — the case ending up ACCEPTED with a decline reason still attached
+  // (CP: accept after decline in 2 tabs).
+  //
+  // The case claim covers the other half, which the offer claim cannot: a wave
+  // gives three attorneys three separate PENDING rows, so three offer claims can
+  // all succeed against the same case. Both run in one transaction so that
+  // losing the race for the case also releases the offer. Otherwise the loser
+  // keeps an ACCEPTED offer against a case someone else holds, which grants them
+  // access to the file and counts toward their acceptance rate.
+  let claimOutcome: 'claimed' | 'offer_taken'
+  try {
+    claimOutcome = await prisma.$transaction(async (tx: any) => {
+      const claimedOffer = await tx.introduction.updateMany({
+        where: { id: introductionId, attorneyId, status: 'PENDING' },
+        data: { status: 'ACCEPTED', respondedAt: new Date() },
+      })
+      if (claimedOffer.count === 0) return 'offer_taken' as const
+
+      if (intro.assessment.leadSubmission) {
+        const wonCase = await claimCaseForAttorney(intro.assessmentId, attorneyId, tx)
+        if (!wonCase) throw new Error(ROUTING_CASE_ALREADY_CLAIMED)
+      }
+      return 'claimed' as const
+    })
+  } catch (err: unknown) {
+    if ((err as Error)?.message === ROUTING_CASE_ALREADY_CLAIMED) {
+      logger.info('Accept refused: case already claimed by another attorney', {
+        introductionId,
+        attorneyId,
+        assessmentId: intro.assessmentId,
+      })
+      return { success: false, error: 'This case has already been assigned to another attorney.' }
+    }
+    throw err
+  }
+
+  if (claimOutcome === 'offer_taken') {
     const current = await prisma.introduction.findUnique({
       where: { id: introductionId },
       select: { status: true },
@@ -903,19 +1023,12 @@ export async function attorneyAcceptCase(
     return { success: false, error: `Introduction already ${current?.status ?? 'responded'}` }
   }
 
-  if (intro.assessment.leadSubmission) {
-    await prisma.leadSubmission.update({
-      where: { assessmentId: intro.assessmentId },
-      data: {
-        assignedAttorneyId: attorneyId,
-        assignmentType: 'exclusive',
-        status: 'contacted',
-        lifecycleState: 'attorney_matched',
-        routingLocked: true,
-        lastContactAt: new Date()
-      }
+  await retireCompetingOffers(intro.assessmentId, introductionId).catch((err: unknown) => {
+    logger.warn('Failed to retire competing offers after acceptance', {
+      assessmentId: intro.assessmentId,
+      error: (err as Error).message,
     })
-  }
+  })
 
   // Step 14: Analytics
   await recordRoutingEvent(intro.assessmentId, introductionId, attorneyId, 'accepted', {
@@ -1103,6 +1216,40 @@ export async function isRoutingLocked(assessmentId: string): Promise<boolean> {
 }
 
 /**
+ * Retire a wave so the escalation sweep stops selecting it.
+ *
+ * The sweep picks waves whose `nextEscalationAt` has passed and whose
+ * `escalatedAt` is still null, so any wave that has been acted on has to be
+ * stamped or it comes back every sweep interval. Pass `clearNextEscalation` when
+ * nothing further is scheduled — manual review, or a hold waiting on the
+ * claimant — as opposed to when a later wave has taken over the schedule.
+ *
+ * Failures are logged rather than thrown: an escalation that has already routed
+ * should not be unwound because the bookkeeping write failed.
+ */
+async function markWaveEscalated(
+  assessmentId: string,
+  waveNumber: number,
+  options: { clearNextEscalation?: boolean } = {}
+): Promise<void> {
+  try {
+    await prisma.routingWave.update({
+      where: { assessmentId_waveNumber: { assessmentId, waveNumber } },
+      data: {
+        escalatedAt: new Date(),
+        ...(options.clearNextEscalation ? { nextEscalationAt: null } : {})
+      }
+    })
+  } catch (err: unknown) {
+    logger.warn('Failed to mark routing wave escalated', {
+      assessmentId,
+      waveNumber,
+      error: (err as Error).message
+    })
+  }
+}
+
+/**
  * Step 13: Run next escalation wave
  * Called when wave N timeout expires and no attorney has accepted
  */
@@ -1125,8 +1272,23 @@ export async function runEscalationWave(assessmentId: string): Promise<{
 
   const rankedAttorneyIds = getRankedAttorneyIdsFromLead(lead)
   if (rankedAttorneyIds.length > 0) {
+    // Capture the wave that just came due before advancing, because a successful
+    // advance creates the next one — stamping the newest wave would retire a
+    // window that has not opened yet.
+    const dueWave = await prisma.routingWave.findFirst({
+      where: { assessmentId },
+      orderBy: { waveNumber: 'desc' },
+      select: { waveNumber: true }
+    })
+
     const nextRankedRoute = await advanceRankedRouting(assessmentId, lead, 'timeout')
     if (nextRankedRoute.routed) {
+      // Retire the wave that timed out. Nothing on this path did, so the sweep
+      // kept re-selecting the same overdue wave every ten minutes and walked the
+      // claimant's entire ranked list in about half an hour — each pass sending
+      // another "your case has been sent to..." email and consuming a real
+      // attorney's offer window in the time it takes to read the first one.
+      if (dueWave) await markWaveEscalated(assessmentId, dueWave.waveNumber)
       logger.info('Advanced to next ranked attorney after timeout', {
         assessmentId,
         nextAttorneyId: nextRankedRoute.attorneyId,
@@ -1139,6 +1301,11 @@ export async function runEscalationWave(assessmentId: string): Promise<{
     }
 
     if (nextRankedRoute.awaitingApproval) {
+      // Nothing further is scheduled here — the claimant has to approve the
+      // proposed batch — so park the wave rather than leaving it due.
+      if (dueWave) {
+        await markWaveEscalated(assessmentId, dueWave.waveNumber, { clearNextEscalation: true })
+      }
       logger.info('Holding routing for plaintiff approval after timeout', {
         assessmentId,
         proposedAttorneyIds: nextRankedRoute.proposedAttorneyIds
@@ -1146,6 +1313,9 @@ export async function runEscalationWave(assessmentId: string): Promise<{
       return { escalated: false, waveNumber: nextRankedRoute.waveNumber }
     }
 
+    if (dueWave) {
+      await markWaveEscalated(assessmentId, dueWave.waveNumber, { clearNextEscalation: true })
+    }
     await placeAssessmentInManualReview(
       assessmentId,
       'plaintiff_ranked_routing_exhausted',

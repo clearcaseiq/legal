@@ -112,6 +112,8 @@ describe('attorneyAcceptCase', () => {
     // Default the atomic PENDING->terminal claim to "won" (count 1); tests that
     // exercise the lost-race path override this explicitly.
     vi.mocked(prisma.introduction.updateMany).mockResolvedValue({ count: 1 } as any)
+    // Likewise for the case-level claim: the case is unclaimed by default.
+    vi.mocked(prisma.leadSubmission.updateMany).mockResolvedValue({ count: 1 } as any)
     vi.mocked(sendPlaintiffAttorneyAccepted).mockClear()
     vi.mocked(sendPlaintiffManualReviewNeeded).mockClear()
     vi.mocked(sendPlaintiffNoAttorneyResponse).mockClear()
@@ -130,7 +132,7 @@ describe('attorneyAcceptCase', () => {
     const r = await attorneyAcceptCase('intro-1', aid)
     expect(r.success).toBe(true)
     expect(prisma.introduction.updateMany).toHaveBeenCalled()
-    expect(prisma.leadSubmission.update).toHaveBeenCalled()
+    expect(prisma.leadSubmission.updateMany).toHaveBeenCalled()
     expect(sendPlaintiffAttorneyAccepted).toHaveBeenCalledWith(
       'asm-1',
       aid,
@@ -138,6 +140,55 @@ describe('attorneyAcceptCase', () => {
       'Firm LLC',
       12
     )
+  })
+
+  it('locks the case only while it is still unclaimed', async () => {
+    const aid = 'att-99'
+    vi.mocked(prisma.introduction.findUnique).mockResolvedValue(pendingIntro(aid, true) as any)
+    vi.mocked(prisma.$transaction).mockImplementation(async (cb: any) => cb(prisma))
+
+    await attorneyAcceptCase('intro-1', aid)
+
+    // A wave hands the same case to several attorneys, each with their own
+    // PENDING row, so the offer claim alone cannot keep them apart. Before this
+    // predicate the lead write was unconditional and the last accept simply
+    // overwrote the first attorney's assignment.
+    const claim = vi.mocked(prisma.leadSubmission.updateMany).mock.calls[0][0] as any
+    expect(claim.where).toMatchObject({ assessmentId: 'asm-1', routingLocked: false })
+    expect(claim.data).toMatchObject({ routingLocked: true, assignedAttorneyId: aid })
+  })
+
+  it('refuses the accept that loses the race for the case', async () => {
+    const aid = 'att-99'
+    vi.mocked(prisma.introduction.findUnique).mockResolvedValue(pendingIntro(aid, true) as any)
+    vi.mocked(prisma.$transaction).mockImplementation(async (cb: any) => cb(prisma))
+    vi.mocked(prisma.leadSubmission.updateMany).mockResolvedValue({ count: 0 } as any)
+
+    const r = await attorneyAcceptCase('intro-1', aid)
+
+    expect(r.success).toBe(false)
+    expect(r.error).toMatch(/already been assigned/i)
+    // The claimant must not be told a second firm took the case.
+    expect(sendPlaintiffAttorneyAccepted).not.toHaveBeenCalled()
+  })
+
+  it('retires the other offers on the case once it is won', async () => {
+    const aid = 'att-99'
+    vi.mocked(prisma.introduction.findUnique).mockResolvedValue(pendingIntro(aid, true) as any)
+    vi.mocked(prisma.$transaction).mockImplementation(async (cb: any) => cb(prisma))
+
+    await attorneyAcceptCase('intro-1', aid)
+
+    // The expiry sweep skips locked cases, so nothing else retires these. Left
+    // PENDING they stay acceptable indefinitely — the route by which a second
+    // attorney could claim a case that was already assigned.
+    const retire = vi
+      .mocked(prisma.introduction.updateMany)
+      .mock.calls.find((call: any) => call[0]?.where?.id?.not)
+    expect(retire?.[0]).toMatchObject({
+      where: { assessmentId: 'asm-1', status: 'PENDING', id: { not: 'intro-1' } },
+      data: expect.objectContaining({ status: 'EXPIRED' }),
+    })
   })
 
   it('fails when introduction not found', async () => {
@@ -418,6 +469,61 @@ describe('runEscalationWave', () => {
     }))
   })
 
+  // The sweep selects waves whose nextEscalationAt has passed and whose
+  // escalatedAt is still null. The ranked path never stamped the wave it had just
+  // acted on, so every pass re-selected the same overdue wave and advanced one
+  // more attorney: a claimant's whole ranked list was consumed in about half an
+  // hour, each pass sending another "your case has been sent to..." email and
+  // burning a real attorney's response window.
+  it('retires the timed-out wave after advancing the ranked queue', async () => {
+    vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValue({
+      routingLocked: false,
+      sourceDetails: JSON.stringify({
+        plaintiffAttorneyPreferences: { rankedAttorneyIds: ['att-1', 'att-2', 'att-3'] },
+      }),
+    } as any)
+    vi.mocked(prisma.introduction.findMany).mockResolvedValue([{ attorneyId: 'att-1' }] as any)
+    vi.mocked(prisma.routingWave.findFirst).mockResolvedValue({ waveNumber: 1 } as any)
+    vi.mocked(runRoutingEngine).mockResolvedValue({
+      success: true,
+      routedTo: ['att-2'],
+      introductionIds: ['intro-2'],
+    } as any)
+
+    await runEscalationWave('asm-1')
+
+    // Wave 1, not the wave the advance just created — that window has not opened.
+    expect(prisma.routingWave.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { assessmentId_waveNumber: { assessmentId: 'asm-1', waveNumber: 1 } },
+        data: expect.objectContaining({ escalatedAt: expect.any(Date) }),
+      })
+    )
+  })
+
+  it('parks the wave when the ranked queue runs out', async () => {
+    vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValue({
+      routingLocked: false,
+      sourceDetails: JSON.stringify({
+        plaintiffAttorneyPreferences: { rankedAttorneyIds: ['att-1'] },
+      }),
+    } as any)
+    vi.mocked(prisma.introduction.findMany).mockResolvedValue([{ attorneyId: 'att-1' }] as any)
+    vi.mocked(prisma.routingWave.findFirst).mockResolvedValue({ waveNumber: 2 } as any)
+    vi.mocked(prisma.attorney.findMany).mockResolvedValue([] as any)
+
+    await runEscalationWave('asm-1')
+
+    // Nothing further is scheduled once the case is with a human, so the due
+    // timestamp is cleared rather than left in the past for the sweep to find.
+    expect(prisma.routingWave.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { assessmentId_waveNumber: { assessmentId: 'asm-1', waveNumber: 2 } },
+        data: expect.objectContaining({ escalatedAt: expect.any(Date), nextEscalationAt: null }),
+      })
+    )
+  })
+
   // SB 37 / § 6155(g)(2): once the attorneys the plaintiff chose are used up we may
   // not quietly continue to a batch they never saw.
   it('holds for plaintiff approval instead of routing to a fresh batch', async () => {
@@ -540,6 +646,69 @@ describe('runEscalationWave', () => {
       'Fraud signals detected',
     )
     expect(sendPlaintiffNoAttorneyResponse).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * Landing here twice is ordinary: a parked case can be selected by the sweep
+ * again, an admin can re-route a held case that then fails the same way, and
+ * callers retry. Repeating the placement is not free — it re-notifies the
+ * claimant, resets the ageing clock the review queue is sorted by, and wipes the
+ * reviewer attribution.
+ */
+describe('placeAssessmentInManualReview is idempotent', () => {
+  beforeEach(() => {
+    resetUniversalPrismaMock()
+    vi.clearAllMocks()
+  })
+
+  function alreadyHeld(reason: string) {
+    vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
+      manualReviewStatus: 'pending',
+      manualReviewReason: reason,
+    } as any)
+  }
+
+  it('does not email the claimant again about a case already held', async () => {
+    alreadyHeld('routing_timeout')
+
+    await placeAssessmentInManualReview('asm-1', 'routing_timeout', 'No attorney accepted.')
+
+    expect(sendPlaintiffNoAttorneyResponse).not.toHaveBeenCalled()
+    expect(sendPlaintiffManualReviewNeeded).not.toHaveBeenCalled()
+  })
+
+  it('leaves the held-at clock and reviewer attribution alone', async () => {
+    alreadyHeld('routing_timeout')
+
+    await placeAssessmentInManualReview('asm-1', 'routing_timeout')
+
+    expect(prisma.assessment.update).not.toHaveBeenCalled()
+  })
+
+  it('still records a hold for a different reason', async () => {
+    alreadyHeld('routing_gate_review')
+
+    await placeAssessmentInManualReview('asm-1', 'routing_timeout', 'No attorney accepted.')
+
+    expect(prisma.assessment.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ manualReviewReason: 'routing_timeout' }),
+      })
+    )
+    expect(sendPlaintiffNoAttorneyResponse).toHaveBeenCalledWith('asm-1', 'routing_timeout')
+  })
+
+  it('holds a released case again', async () => {
+    // Release clears the pending flag, so the same reason is a genuinely new hold.
+    vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
+      manualReviewStatus: 'released',
+      manualReviewReason: 'routing_timeout',
+    } as any)
+
+    await placeAssessmentInManualReview('asm-1', 'routing_timeout')
+
+    expect(prisma.assessment.update).toHaveBeenCalled()
   })
 })
 

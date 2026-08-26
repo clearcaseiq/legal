@@ -8,6 +8,11 @@
  * flips the row out of PENDING. These cases pin that: the second response must
  * be refused, and — just as important — it must be refused BEFORE the lead is
  * mutated, so a losing accept cannot assign or lock the case on its way out.
+ *
+ * That covers one attorney answering twice. A wave gives several attorneys their
+ * own PENDING rows on the same case, so the case itself needs its own claim:
+ * these cases also pin that only the attorney who flips `routingLocked` wins,
+ * and that winning retires everyone else's offer.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import request from 'supertest'
@@ -47,6 +52,11 @@ function givenClaimLost() {
   vi.mocked((prisma as any).introduction.findUnique).mockResolvedValue({ status: 'DECLINED' } as any)
 }
 
+/** Simulate another attorney in the same wave locking the case first. */
+function givenCaseLost() {
+  vi.mocked((prisma as any).leadSubmission.updateMany).mockResolvedValue({ count: 0 } as any)
+}
+
 async function decide(decision: 'accept' | 'reject', declineReason?: string) {
   return request(app)
     .post('/v1/attorney-dashboard/leads/lead-1/decision')
@@ -54,7 +64,11 @@ async function decide(decision: 'accept' | 'reject', declineReason?: string) {
     .send({ decision, declineReason, conflictAcknowledged: true })
 }
 
-const leadWrites = () => vi.mocked((prisma as any).leadSubmission.update).mock.calls
+/** Every write that could assign or lock the case, whichever call shape it uses. */
+const leadWrites = () => [
+  ...vi.mocked((prisma as any).leadSubmission.update).mock.calls,
+  ...vi.mocked((prisma as any).leadSubmission.updateMany).mock.calls,
+]
 
 describe('lead decision is final', () => {
   beforeEach(() => {
@@ -64,6 +78,8 @@ describe('lead decision is final', () => {
     vi.mocked((prisma as any).leadSubmission.findUnique).mockResolvedValue(LEAD as any)
     vi.mocked((prisma as any).leadSubmission.update).mockResolvedValue(LEAD as any)
     vi.mocked((prisma as any).introduction.updateMany).mockResolvedValue({ count: 1 } as any)
+    // The case is unclaimed, so the conditional lock matches.
+    vi.mocked((prisma as any).leadSubmission.updateMany).mockResolvedValue({ count: 1 } as any)
     givenIntroduction({
       id: 'intro-1',
       status: 'PENDING',
@@ -142,5 +158,51 @@ describe('lead decision is final', () => {
     expect(res.status).toBe(200)
     expect(leadWrites()).toHaveLength(1)
     expect(leadWrites()[0][0].data).toMatchObject({ routingLocked: true, assignedAttorneyId: 'att-1' })
+  })
+
+  it('locks the case only while it is still unclaimed', async () => {
+    await decide('accept')
+
+    // Without this predicate the lead write was unconditional, so a second
+    // attorney's accept simply overwrote the first attorney's assignment.
+    expect(leadWrites()[0][0].where).toMatchObject({
+      assessmentId: 'assess-1',
+      routingLocked: false,
+    })
+  })
+
+  it('refuses the accept that loses the race for the case', async () => {
+    givenCaseLost()
+
+    const res = await decide('accept')
+
+    expect(res.status).toBe(409)
+    expect(res.body.code).toBe('CASE_ALREADY_CLAIMED')
+  })
+
+  it('retires the other offers on the case once it is won', async () => {
+    await decide('accept')
+
+    // The expiry sweep skips locked cases, so nothing else retires these: left
+    // PENDING they stay acceptable indefinitely, which is how a second attorney
+    // could claim a case that had already been assigned.
+    const retire = vi
+      .mocked((prisma as any).introduction.updateMany)
+      .mock.calls.find((call: any) => call[0]?.where?.id?.not)
+    expect(retire?.[0].where).toMatchObject({
+      assessmentId: 'assess-1',
+      status: 'PENDING',
+      id: { not: 'intro-1' },
+    })
+    expect(retire?.[0].data.status).toBe('EXPIRED')
+  })
+
+  it('leaves the other offers alone when the case is declined', async () => {
+    await decide('reject', 'too_busy')
+
+    const retire = vi
+      .mocked((prisma as any).introduction.updateMany)
+      .mock.calls.find((call: any) => call[0]?.where?.id?.not)
+    expect(retire).toBeUndefined()
   })
 })

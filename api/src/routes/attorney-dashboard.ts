@@ -31,8 +31,11 @@ import { buildMedicalChronology, buildMedicalChronologySummary, computeCasePrepa
 import { recordCaseOutcome } from '../lib/case-outcomes'
 import { computeMarketplacePerformance } from '../lib/marketplace-performance'
 import {
+  ROUTING_CASE_ALREADY_CLAIMED,
   calculateAttorneyReputationScore,
+  claimCaseForAttorney,
   recordRoutingEvent,
+  retireCompetingOffers,
   syncDecisionMemoryForAssessment
 } from '../lib/routing-lifecycle'
 import { sendPlaintiffAttorneyAccepted, notifyPlaintiffInApp, sendPlaintiffCaseClosed } from '../lib/case-notifications'
@@ -385,6 +388,33 @@ function buildEngagedLeadVisibilityOr(attorneyId: string, firm: FirmVisibility):
     )
   }
   return or
+}
+
+/**
+ * Whether a firm with firm-wide visibility has a claim on this lead: it is
+ * assigned to one of the firm's attorneys, the assessment is stamped to the
+ * firm, or one of its attorneys holds an offer on it.
+ *
+ * Mirrors the firm terms in `buildLeadVisibilityOr` so a firm admin can act on a
+ * colleague's offer without that permission widening to leads the firm was never
+ * shown.
+ */
+async function firmHoldsLead(
+  lead: { id: string },
+  lawFirmId: string,
+): Promise<boolean> {
+  const match = await prisma.leadSubmission.findFirst({
+    where: {
+      id: lead.id,
+      OR: [
+        { assignedAttorney: { lawFirmId } },
+        { assessment: { lawFirmId } },
+        { assessment: { introductions: { some: { attorney: { lawFirmId } } } } },
+      ],
+    },
+    select: { id: true },
+  })
+  return !!match
 }
 
 async function getAttorneyFromReq(req: any) {
@@ -15617,6 +15647,13 @@ router.post('/leads/:leadId/decision', authMiddleware, async (req: any, res) => 
     const { leadId } = req.params
     const { decision, notes, declineReason, conflictAcknowledged } = req.body // decision: 'accept' or 'reject'; declineReason for routing learning
 
+    // Anything that is not exactly 'accept' used to fall through to the reject
+    // branch, so a typo or a missing field silently declined the case on the
+    // attorney's behalf and pushed it back into routing.
+    if (decision !== 'accept' && decision !== 'reject') {
+      return res.status(400).json({ error: "decision must be 'accept' or 'reject'" })
+    }
+
     if (!req.user?.email) {
       return res.status(401).json({ error: 'Authentication required' })
     }
@@ -15630,6 +15667,7 @@ router.post('/leads/:leadId/decision', authMiddleware, async (req: any, res) => 
     }
 
     const attorneyId = attorney.id
+    const firmVisibility = await resolveFirmVisibility(req, attorney)
 
     const existingLead = await prisma.leadSubmission.findUnique({
       where: { id: leadId }
@@ -15639,7 +15677,6 @@ router.post('/leads/:leadId/decision', authMiddleware, async (req: any, res) => 
       return res.status(404).json({ error: 'Lead not found' })
     }
 
-    const isShared = existingLead.assignmentType === 'shared'
     const isAssigned = existingLead.assignedAttorneyId === attorneyId
     const intro = await prisma.introduction.findFirst({
       where: {
@@ -15648,7 +15685,20 @@ router.post('/leads/:leadId/decision', authMiddleware, async (req: any, res) => 
       }
     })
 
-    if (!isShared && !isAssigned && !intro) {
+    // Acting on a lead requires an actual relationship to it: an offer routed
+    // here, or a case already in hand.
+    //
+    // `assignmentType === 'shared'` is not such a relationship and must never be
+    // treated as one. It is the schema default and what the routing engine sets,
+    // so every un-accepted lead carries it, and it names no attorney — honouring
+    // it here let any authenticated attorney accept any unclaimed case just by
+    // knowing its id, then take assignment of it through the backfill branch
+    // below. This is the same defect CP-481 removed from the read surfaces.
+    let authorized = isAssigned || !!intro
+    if (!authorized && firmVisibility.canViewAllCases && firmVisibility.lawFirmId) {
+      authorized = await firmHoldsLead(existingLead, firmVisibility.lawFirmId)
+    }
+    if (!authorized) {
       return res.status(403).json({ error: 'Not authorized to update this lead' })
     }
 
@@ -15704,83 +15754,134 @@ router.post('/leads/:leadId/decision', authMiddleware, async (req: any, res) => 
       }
     }
 
-    // Finalize the attorney's decision on the Introduction FIRST and atomically.
-    // A response is final: opening the same offer in two tabs and declining in one
-    // then accepting in the other used to leave the case ACCEPTED with a decline
-    // reason still attached, because both requests read PENDING and then wrote
-    // last-write-wins (CP: accept after decline). The Introduction is the decision
-    // ledger, so claim it here — only the writer that flips PENDING proceeds; a
-    // stale/second response is turned away before any lead mutation.
-    //
-    // The tiles are derived entirely from this ledger, so a lead that reached the
-    // attorney WITHOUT a formal Introduction row (shared/pool or directly assigned)
-    // gets one backfilled so every explicit decision is logged exactly once.
+    // A response is final: opening the same offer in two tabs and declining in
+    // one then accepting in the other used to leave the case ACCEPTED with a
+    // decline reason still attached, because both requests read PENDING and then
+    // wrote last-write-wins (CP: accept after decline). The Introduction is the
+    // decision ledger, so the transition itself is the point of truth — only the
+    // writer that flips PENDING proceeds.
     const respondedStatus = decision === 'accept' ? 'ACCEPTED' : 'DECLINED'
     let decisionIntroId: string | null = intro?.id ?? null
-    if (intro) {
-      if (intro.status !== 'PENDING') {
-        const already =
-          intro.status === 'ACCEPTED' ? 'accepted' : intro.status === 'DECLINED' ? 'declined' : null
-        return res.status(409).json({
-          error: already
-            ? `You have already ${already} this case.`
-            : 'This match is no longer available to respond to.',
-          code: 'ALREADY_RESPONDED',
-        })
-      }
-      const introUpdate: Record<string, unknown> = {
-        status: respondedStatus,
-        respondedAt: new Date(),
-      }
-      if (decision === 'reject' && declineReason) {
-        introUpdate.declineReason = declineReason
-      }
-      const claimed = await prisma.introduction.updateMany({
-        where: { id: intro.id, status: 'PENDING' },
-        data: introUpdate as any,
+
+    if (intro && intro.status !== 'PENDING') {
+      const already =
+        intro.status === 'ACCEPTED' ? 'accepted' : intro.status === 'DECLINED' ? 'declined' : null
+      return res.status(409).json({
+        error: already
+          ? `You have already ${already} this case.`
+          : 'This match is no longer available to respond to.',
+        code: 'ALREADY_RESPONDED',
       })
-      if (claimed.count === 0) {
-        const current = await prisma.introduction.findUnique({
-          where: { id: intro.id },
-          select: { status: true },
-        })
-        const already =
-          current?.status === 'ACCEPTED' ? 'accepted' : current?.status === 'DECLINED' ? 'declined' : null
-        return res.status(409).json({
-          error: already
-            ? `You have already ${already} this case.`
-            : 'This match is no longer available to respond to.',
-          code: 'ALREADY_RESPONDED',
-        })
-      }
-    } else {
-      const backfilled = await prisma.introduction.create({
-        data: {
-          assessmentId: existingLead.assessmentId,
-          attorneyId,
-          status: respondedStatus,
-          // Anchor the "offer time" to when the lead reached the attorney so
-          // speed-to-lead analytics stay meaningful instead of reading ~0.
-          requestedAt: existingLead.submittedAt ?? existingLead.createdAt ?? new Date(),
-          respondedAt: new Date(),
-          ...(decision === 'reject' && declineReason ? { declineReason } : {})
-        } as any
-      })
-      decisionIntroId = backfilled.id
     }
 
-    // Only now — after the decision is exclusively claimed — mutate the lead.
-    const lead = await prisma.leadSubmission.update({
-      where: { id: leadId },
-      data: {
-        status: decision === 'accept' ? 'contacted' : 'rejected',
-        assignedAttorneyId: decision === 'accept' ? attorneyId : null,
-        assignmentType: decision === 'accept' ? 'exclusive' : existingLead.assignmentType,
-        lifecycleState: decision === 'accept' ? 'attorney_matched' : 'routing_active',
-        routingLocked: decision === 'accept',
-        ...(decision === 'accept' ? { lastContactAt: new Date() } : {})
+    // Claim the decision and, on an accept, the case itself — together, in one
+    // transaction.
+    //
+    // Claiming the Introduction only makes a single offer single-writer, which
+    // is enough to stop one attorney answering twice. A wave hands the same case
+    // to three attorneys as three separate PENDING rows, so three accepts could
+    // each claim their own row and then race on an unconditional lead write,
+    // leaving two attorneys holding the same case. `routingLocked` is the
+    // case-level claim key. Losing that race has to release the decision too, or
+    // the loser is left with an ACCEPTED offer on a case someone else holds.
+    let offerLost = false
+    let lead: any
+    try {
+      lead = await prisma.$transaction(async (tx: any) => {
+        if (intro) {
+          const introUpdate: Record<string, unknown> = {
+            status: respondedStatus,
+            respondedAt: new Date(),
+          }
+          if (decision === 'reject' && declineReason) {
+            introUpdate.declineReason = declineReason
+          }
+          const claimed = await tx.introduction.updateMany({
+            where: { id: intro.id, status: 'PENDING' },
+            data: introUpdate as any,
+          })
+          if (claimed.count === 0) {
+            offerLost = true
+            return null
+          }
+        } else {
+          // The tiles are derived entirely from this ledger, so a lead that
+          // reached the attorney WITHOUT a formal Introduction row (shared/pool
+          // or directly assigned) gets one backfilled so every explicit decision
+          // is logged exactly once.
+          const backfilled = await tx.introduction.create({
+            data: {
+              assessmentId: existingLead.assessmentId,
+              attorneyId,
+              status: respondedStatus,
+              // Anchor the "offer time" to when the lead reached the attorney so
+              // speed-to-lead analytics stay meaningful instead of reading ~0.
+              requestedAt: existingLead.submittedAt ?? existingLead.createdAt ?? new Date(),
+              respondedAt: new Date(),
+              ...(decision === 'reject' && declineReason ? { declineReason } : {})
+            } as any
+          })
+          decisionIntroId = backfilled.id
+        }
+
+        if (decision === 'accept') {
+          const wonCase = await claimCaseForAttorney(existingLead.assessmentId, attorneyId, tx)
+          if (!wonCase) throw new Error(ROUTING_CASE_ALREADY_CLAIMED)
+          return {
+            ...existingLead,
+            status: 'contacted',
+            assignedAttorneyId: attorneyId,
+            assignmentType: 'exclusive',
+            lifecycleState: 'attorney_matched',
+            routingLocked: true,
+            lastContactAt: new Date(),
+          }
+        }
+
+        return tx.leadSubmission.update({
+          where: { id: leadId },
+          data: {
+            status: 'rejected',
+            assignedAttorneyId: null,
+            assignmentType: existingLead.assignmentType,
+            lifecycleState: 'routing_active',
+            routingLocked: false,
+          }
+        })
+      })
+    } catch (err: unknown) {
+      if ((err as Error)?.message === ROUTING_CASE_ALREADY_CLAIMED) {
+        return res.status(409).json({
+          error: 'This case has already been assigned to another attorney.',
+          code: 'CASE_ALREADY_CLAIMED',
+        })
       }
-    })
+      throw err
+    }
+
+    if (offerLost) {
+      const current = await prisma.introduction.findUnique({
+        where: { id: intro!.id },
+        select: { status: true },
+      })
+      const already =
+        current?.status === 'ACCEPTED' ? 'accepted' : current?.status === 'DECLINED' ? 'declined' : null
+      return res.status(409).json({
+        error: already
+          ? `You have already ${already} this case.`
+          : 'This match is no longer available to respond to.',
+        code: 'ALREADY_RESPONDED',
+      })
+    }
+
+    if (decision === 'accept' && decisionIntroId) {
+      await retireCompetingOffers(existingLead.assessmentId, decisionIntroId).catch((err: unknown) => {
+        logger.warn('Failed to retire competing offers after acceptance', {
+          assessmentId: existingLead.assessmentId,
+          error: (err as Error).message,
+        })
+      })
+    }
 
     // Record routing event for analytics, admin dashboard, and matching algorithm
     if (decisionIntroId) {
@@ -16102,6 +16203,7 @@ router.post('/leads/:leadId/status', authMiddleware, async (req: any, res) => {
     }
 
     const attorneyId = attorney.id
+    const firmVisibility = await resolveFirmVisibility(req, attorney)
 
     const existingLead = await prisma.leadSubmission.findUnique({
       where: { id: leadId }
@@ -16111,7 +16213,6 @@ router.post('/leads/:leadId/status', authMiddleware, async (req: any, res) => {
       return res.status(404).json({ error: 'Lead not found' })
     }
 
-    const isShared = existingLead.assignmentType === 'shared'
     const isAssigned = existingLead.assignedAttorneyId === attorneyId
     const intro = await prisma.introduction.findFirst({
       where: {
@@ -16120,7 +16221,16 @@ router.post('/leads/:leadId/status', authMiddleware, async (req: any, res) => {
       }
     })
 
-    if (!isShared && !isAssigned && !intro) {
+    // Same relationship requirement as the accept/decline endpoint, and for the
+    // same reason: `assignmentType === 'shared'` names no attorney and is set on
+    // every un-accepted lead. Advancing a lead to 'retained' here assigns it and
+    // sets routingLocked, so honouring 'shared' was a second way to claim any
+    // unclaimed case by id without ever being offered it.
+    let authorized = isAssigned || !!intro
+    if (!authorized && firmVisibility.canViewAllCases && firmVisibility.lawFirmId) {
+      authorized = await firmHoldsLead(existingLead, firmVisibility.lawFirmId)
+    }
+    if (!authorized) {
       return res.status(403).json({ error: 'Not authorized to update this lead' })
     }
 
