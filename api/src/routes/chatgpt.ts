@@ -25,13 +25,13 @@ async function canAccessAssessment(assessmentId: string, userId?: string, userEm
   })
   if (intro) return true
 
+  // Access has to name this attorney. A blanket `assignmentType: 'shared'` term
+  // used to sit alongside the assignment check, and since "shared" is the default
+  // every un-accepted lead in the table matched it for every caller.
   const lead = await prisma.leadSubmission.findFirst({
     where: {
       assessmentId,
-      OR: [
-        { assignedAttorneyId: attorney.id },
-        { assignmentType: 'shared' }
-      ]
+      assignedAttorneyId: attorney.id
     }
   })
   return !!lead

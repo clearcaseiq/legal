@@ -10,6 +10,7 @@ import { retryPendingPlatformNotifications } from './lib/platform-notifications'
 import { runIntakeAbandonmentSweep } from './lib/intake-abandonment'
 import { runRoutingEscalationSweep } from './lib/routing-escalation-sweep'
 import { runOfferExpirySweep } from './lib/offer-expiry-sweep'
+import { runRoutingStallSweep } from './lib/routing-stall-sweep'
 import { runCaseReminderSweep } from './lib/case-reminder-sweep'
 import { runSolExpirySweep } from './lib/sol-expiry-sweep'
 import { runAiCaseManagerSweep, isAiCaseManagerEnabled } from './lib/ai-case-manager-sweep'
@@ -27,6 +28,7 @@ let notificationRetryTimer: NodeJS.Timeout | null = null
 let intakeAbandonmentTimer: NodeJS.Timeout | null = null
 let routingEscalationTimer: NodeJS.Timeout | null = null
 let offerExpiryTimer: NodeJS.Timeout | null = null
+let routingStallTimer: NodeJS.Timeout | null = null
 let caseReminderTimer: NodeJS.Timeout | null = null
 let solExpiryTimer: NodeJS.Timeout | null = null
 let aiCaseManagerTimer: NodeJS.Timeout | null = null
@@ -227,6 +229,31 @@ function startOfferExpiryLoop() {
   }, intervalMs)
 }
 
+async function runRoutingStallLoop(trigger: 'startup' | 'interval') {
+  const sweep = beginSweep('routing-stall')
+  try {
+    const result = await runRoutingStallSweep()
+    sweep.succeed()
+    if (result.stalled > 0 || trigger === 'startup') {
+      logger.info('Routing stall sweep completed', { trigger, ...result })
+    }
+  } catch (error) {
+    sweep.fail(error)
+    logger.error('Routing stall sweep failed', { error, trigger })
+  }
+}
+
+function startRoutingStallLoop() {
+  // A stalled case is already stuck, so finding it a few minutes sooner changes
+  // nothing; the scan is the expensive part and hourly keeps it cheap.
+  const intervalMs = 60 * 60 * 1000
+  registerSweep('routing-stall', { label: 'Stalled routing reconciliation', enabled: true, intervalMs })
+  void runRoutingStallLoop('startup')
+  routingStallTimer = setInterval(() => {
+    void runRoutingStallLoop('interval')
+  }, intervalMs)
+}
+
 async function runSolExpiryLoop(trigger: 'startup' | 'interval') {
   const sweep = beginSweep('sol-expiry')
   try {
@@ -378,6 +405,7 @@ function startBackgroundLoops() {
   startIntakeAbandonmentLoop()
   startRoutingEscalationLoop()
   startOfferExpiryLoop()
+  startRoutingStallLoop()
   startSolExpiryLoop()
   startCaseReminderLoop()
   startAiCaseManagerLoop()
@@ -415,6 +443,7 @@ function stopBackgroundLoops() {
   if (intakeAbandonmentTimer) clearInterval(intakeAbandonmentTimer)
   if (routingEscalationTimer) clearInterval(routingEscalationTimer)
   if (offerExpiryTimer) clearInterval(offerExpiryTimer)
+  if (routingStallTimer) clearInterval(routingStallTimer)
   if (solExpiryTimer) clearInterval(solExpiryTimer)
   if (caseReminderTimer) clearInterval(caseReminderTimer)
   if (aiCaseManagerTimer) clearInterval(aiCaseManagerTimer)
@@ -426,6 +455,7 @@ function stopBackgroundLoops() {
   intakeAbandonmentTimer = null
   routingEscalationTimer = null
   offerExpiryTimer = null
+  routingStallTimer = null
   solExpiryTimer = null
   caseReminderTimer = null
   aiCaseManagerTimer = null

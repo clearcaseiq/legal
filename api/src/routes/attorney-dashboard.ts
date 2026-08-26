@@ -5,6 +5,7 @@ import path from 'path'
 import multer from 'multer'
 import { v4 as uuidv4 } from 'uuid'
 import { prisma } from '../lib/prisma'
+import { leadAccessOr, TERMINAL_INTRO_STATUSES } from '../lib/lead-access'
 import { authMiddleware } from '../lib/auth'
 import { logger } from '../lib/logger'
 import { recordCaseChange } from '../lib/data-authority'
@@ -321,14 +322,10 @@ async function resolveFirmVisibility(req: any, attorney: any): Promise<FirmVisib
   }
 }
 
-/**
- * Introduction statuses that mean the offer is no longer this attorney's to act
- * on: the response window lapsed (EXPIRED) or they declined (DECLINED). A lead
- * that only has terminal introductions for an attorney must NOT surface in that
- * attorney's caseload — otherwise a lead that expires and re-routes to the next
- * attorney keeps lingering in the first attorney's cases/New Matches (bug fix).
- */
-const TERMINAL_INTRO_STATUSES = ['EXPIRED', 'DECLINED'] as const
+// Re-exported for the surfaces already importing it from here. The definition
+// lives beside `leadAccessOr` so the routes outside this file that apply the same
+// rule cannot drift from it.
+export { TERMINAL_INTRO_STATUSES }
 
 /**
  * Build the lead visibility OR-clause for a caller. Always includes the
@@ -5534,10 +5531,7 @@ router.get('/leads/:leadId/quality', authMiddleware, async (req: any, res) => {
     const lead = await prisma.leadSubmission.findFirst({
       where: {
         id: leadId,
-        OR: [
-          { assignedAttorneyId: attorneyId },
-          { assignmentType: 'shared' }
-        ]
+        OR: leadAccessOr(attorneyId)
       },
       select: {
         id: true,
@@ -5736,7 +5730,7 @@ router.get('/leads/filtered', authMiddleware, async (req: any, res) => {
     const whereClause: any = {
       OR: engagedCaseloadOnly
         ? buildEngagedLeadVisibilityOr(attorneyId, firmVisibility)
-        : buildLeadVisibilityOr(attorneyId, firmVisibility, [{ assignmentType: 'shared' }])
+        : buildLeadVisibilityOr(attorneyId, firmVisibility)
     }
 
     if (caseType) whereClause.assessment = { claimType: caseType }

@@ -2377,9 +2377,16 @@ describe('HTTP operations regressions', () => {
     expect(vi.mocked(prisma.leadSubmission.findFirst).mock.calls[0]?.[0]).toEqual({
       where: {
         id: 'lead-1',
+        // A blanket `assignmentType: 'shared'` branch used to sit here. It names
+        // no attorney, and "shared" is the default, so it matched every
+        // un-accepted lead in the table for every caller.
         OR: [
           { assignedAttorneyId: 'attorney-record-1' },
-          { assignmentType: 'shared' },
+          {
+            assessment: {
+              introductions: { some: { attorneyId: 'attorney-record-1', status: { notIn: ['EXPIRED', 'DECLINED'] } } },
+            },
+          },
         ],
       },
       select: {
@@ -2534,7 +2541,6 @@ describe('HTTP operations regressions', () => {
               introductions: { some: { attorneyId: 'attorney-record-1', status: { notIn: ['EXPIRED', 'DECLINED'] } } },
             },
           },
-          { assignmentType: 'shared' },
           { assignedAttorney: { lawFirmId: 'firm-1' } },
           { assessment: { lawFirmId: 'firm-1' } },
           {

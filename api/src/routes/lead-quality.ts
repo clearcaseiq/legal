@@ -3,6 +3,7 @@ import { authMiddleware } from '../lib/auth'
 import { logger } from '../lib/logger'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma'
+import { leadAccessOr, resolveRequestAttorneyId } from '../lib/lead-access'
 import {
   runAndPersistConflictCheck,
   resolveConflictCheckAndCompleteTasks,
@@ -11,20 +12,7 @@ import {
 
 const router = Router()
 
-/**
- * Leads are assigned to Attorney records, but req.user is a User record.
- * The two share an email, not an id — resolving by email here keeps access
- * checks correct (previously this compared a User id to assignedAttorneyId).
- */
-async function resolveAttorneyId(req: any): Promise<string | null> {
-  const email = String(req.user?.email || '').trim()
-  if (!email) return null
-  const attorney = await prisma.attorney.findFirst({
-    where: { email: { equals: email, mode: 'insensitive' } },
-    select: { id: true },
-  })
-  return attorney?.id ?? null
-}
+const resolveAttorneyId = (req: any) => resolveRequestAttorneyId(req, prisma)
 
 // Quality Report endpoints
 
@@ -41,10 +29,7 @@ router.post('/report', authMiddleware, async (req: any, res) => {
     const lead = await prisma.leadSubmission.findFirst({
       where: {
         id: leadId,
-        OR: [
-          { assignedAttorneyId: attorneyId },
-          { assignmentType: 'shared' }
-        ]
+        OR: leadAccessOr(attorneyId)
       }
     })
 
@@ -149,10 +134,7 @@ router.post('/conflict-check', authMiddleware, async (req: any, res) => {
     const lead = await prisma.leadSubmission.findFirst({
       where: {
         id: leadId,
-        OR: [
-          { assignedAttorneyId: attorneyId },
-          { assignmentType: 'shared' }
-        ]
+        OR: leadAccessOr(attorneyId)
       },
       include: {
         assessment: true
@@ -273,10 +255,7 @@ router.put('/evidence-checklist/:leadId', authMiddleware, async (req: any, res) 
     const lead = await prisma.leadSubmission.findFirst({
       where: {
         id: leadId,
-        OR: [
-          { assignedAttorneyId: attorneyId },
-          { assignmentType: 'shared' }
-        ]
+        OR: leadAccessOr(attorneyId)
       }
     })
 

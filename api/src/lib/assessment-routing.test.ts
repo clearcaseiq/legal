@@ -41,7 +41,7 @@ import { startAssessmentRouting } from './assessment-routing'
 import { runRoutingEngine } from './routing-engine'
 import { assignCaseTier } from './case-tier-classifier'
 import { routeTier1Case } from './tier1-routing'
-import { recordRoutingEvent } from './routing-lifecycle'
+import { recordRoutingEvent, placeAssessmentInManualReview } from './routing-lifecycle'
 import { assertShareAuthorization } from './share-authorization'
 
 /**
@@ -168,6 +168,116 @@ describe('startAssessmentRouting', () => {
       expect.objectContaining({ tierNumber: 1, holdReason: 'No subscription inventory' })
     )
     expect(runRoutingEngine).toHaveBeenCalledWith('asm-2', expect.objectContaining({ skipPreRoutingGate: true }))
+  })
+
+  /**
+   * A case that matches nobody used to end here with no state written at all:
+   * no wave, so the escalation sweep never saw it; no offer, so the expiry sweep
+   * never saw it; and still `routing_active`, so no human was looking either. The
+   * admin release and bulk-route paths call this fire-and-forget, so those cases
+   * were simply lost.
+   */
+  it('holds the case when classic routing matches nobody', async () => {
+    vi.mocked(prisma.assessment.findUnique).mockResolvedValue(
+      routableAssessment('asm-nomatch', { caseTier: null }) as any
+    )
+    vi.mocked(assignCaseTier).mockResolvedValue({ tierNumber: null } as any)
+    vi.mocked(runRoutingEngine).mockResolvedValue({
+      success: false,
+      gatePassed: true,
+      routedTo: [],
+      candidatesTotal: 9,
+      candidatesEligible: 2,
+      candidatesQualified: 0,
+      errors: ['No attorneys passed quality gate'],
+    } as any)
+
+    const result = await startAssessmentRouting('asm-nomatch')
+
+    expect(result.success).toBe(false)
+    expect(placeAssessmentInManualReview).toHaveBeenCalledWith(
+      'asm-nomatch',
+      'no_attorney_match',
+      expect.stringContaining('No attorneys passed quality gate')
+    )
+  })
+
+  it('records the funnel so a reviewer can see where the candidates went', async () => {
+    vi.mocked(prisma.assessment.findUnique).mockResolvedValue(
+      routableAssessment('asm-funnel', { caseTier: null }) as any
+    )
+    vi.mocked(assignCaseTier).mockResolvedValue({ tierNumber: null } as any)
+    vi.mocked(runRoutingEngine).mockResolvedValue({
+      success: false,
+      gatePassed: true,
+      routedTo: [],
+      candidatesTotal: 9,
+      candidatesEligible: 2,
+      candidatesQualified: 0,
+      errors: ['No attorneys passed quality gate'],
+    } as any)
+
+    await startAssessmentRouting('asm-funnel')
+
+    const note = vi.mocked(placeAssessmentInManualReview).mock.calls[0][2] as string
+    expect(note).toContain('9 considered')
+    expect(note).toContain('2 eligible')
+    expect(note).toContain('0 qualified')
+  })
+
+  it('does not double-hold a case the gate already stopped', async () => {
+    vi.mocked(prisma.assessment.findUnique).mockResolvedValue(
+      routableAssessment('asm-gated', { caseTier: null }) as any
+    )
+    vi.mocked(assignCaseTier).mockResolvedValue({ tierNumber: null } as any)
+    // The gate persists its own hold and tells the plaintiff why; re-holding here
+    // would overwrite that reason with a vaguer one.
+    vi.mocked(runRoutingEngine).mockResolvedValue({
+      success: false,
+      gatePassed: false,
+      gateStatus: 'manual_review',
+      routedTo: [],
+      errors: ['Fraud signals detected'],
+    } as any)
+
+    await startAssessmentRouting('asm-gated')
+
+    expect(placeAssessmentInManualReview).not.toHaveBeenCalled()
+  })
+
+  it('holds the case when tier routing is the only attempt and it places nobody', async () => {
+    vi.mocked(prisma.assessment.findUnique).mockResolvedValue(
+      routableAssessment('asm-tier-only', { caseTier: { tierNumber: 1 } }) as any
+    )
+    vi.mocked(routeTier1Case).mockResolvedValue({ routed: false, holdReason: 'No subscription inventory' })
+
+    const result = await startAssessmentRouting('asm-tier-only', { fallbackToClassic: false })
+
+    expect(result.success).toBe(false)
+    // The tier hold statuses are read by nothing, so without this the case stops
+    // here with no attorney and no queue.
+    expect(placeAssessmentInManualReview).toHaveBeenCalledWith(
+      'asm-tier-only',
+      'no_attorney_match',
+      expect.stringContaining('No subscription inventory')
+    )
+  })
+
+  it('leaves a successful route alone', async () => {
+    vi.mocked(prisma.assessment.findUnique).mockResolvedValue(
+      routableAssessment('asm-ok', { caseTier: null }) as any
+    )
+    vi.mocked(assignCaseTier).mockResolvedValue({ tierNumber: null } as any)
+    vi.mocked(runRoutingEngine).mockResolvedValue({
+      success: true,
+      gatePassed: true,
+      routedTo: ['att-1'],
+      introductionIds: ['intro-1'],
+    } as any)
+
+    await startAssessmentRouting('asm-ok')
+
+    expect(placeAssessmentInManualReview).not.toHaveBeenCalled()
   })
 
   // skipPreRoutingGate exists so a human clearing a fraud hold is not instantly

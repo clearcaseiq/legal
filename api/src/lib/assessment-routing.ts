@@ -243,6 +243,44 @@ async function enforceShareAuthorization(
   }
 }
 
+/**
+ * Leave a case that matched nobody somewhere a human will pick it up.
+ *
+ * The engine reports "no eligible attorneys" or "none passed the quality gate"
+ * to its caller and writes no state at all. The only background driver reads
+ * RoutingWave, and a wave row is created only once at least one introduction has
+ * gone out — so a case that matched zero attorneys had no wave, was never swept,
+ * and sat in `routing_active` indefinitely with no attorney and no review.
+ *
+ * Parking it here rather than at each call site is deliberate: the consumer
+ * submit paths happened to fall back to manual review themselves, but the admin
+ * release and bulk-route paths call this fire-and-forget, so those cases were
+ * simply lost. Every caller now gets the same guarantee.
+ */
+async function parkUnroutableCase(
+  assessmentId: string,
+  outcome: AssessmentRoutingStartResult
+): Promise<void> {
+  const cause = outcome.errors?.[0] || outcome.holdReason || 'Routing matched no attorney'
+  const funnel = [
+    outcome.candidatesTotal != null ? `${outcome.candidatesTotal} considered` : null,
+    outcome.candidatesEligible != null ? `${outcome.candidatesEligible} eligible` : null,
+    outcome.candidatesQualified != null ? `${outcome.candidatesQualified} qualified` : null,
+  ].filter(Boolean)
+
+  logger.warn('Routing matched no attorney; holding case for review', {
+    assessmentId,
+    strategy: outcome.strategy,
+    cause,
+  })
+
+  await placeAssessmentInManualReview(
+    assessmentId,
+    'no_attorney_match',
+    funnel.length > 0 ? `${cause} (${funnel.join(', ')})` : cause
+  )
+}
+
 export async function startAssessmentRouting(
   assessmentId: string,
   options?: RoutingEngineOptions & {
@@ -351,7 +389,7 @@ export async function startAssessmentRouting(
       }
 
       if (!fallbackToClassic) {
-        return {
+        const held: AssessmentRoutingStartResult = {
           success: false,
           strategy: 'tier',
           tierNumber,
@@ -365,6 +403,11 @@ export async function startAssessmentRouting(
           price: tierResult?.price,
           errors: [tierResult?.error || tierResult?.holdReason || `Tier ${tierNumber} routing did not place the case`],
         }
+        // Tier routing is the whole attempt when there is no classic fallback,
+        // and its hold statuses are read by nothing, so without this the case
+        // ends here with no attorney and no queue.
+        await parkUnroutableCase(assessmentId, held)
+        return held
       }
 
       await recordRoutingEvent(assessmentId, null, null, 'tier_fallback_to_classic', {
@@ -376,11 +419,19 @@ export async function startAssessmentRouting(
   }
 
   const classic = await runRoutingEngine(assessmentId, engineOptions)
-  return {
+  const outcome: AssessmentRoutingStartResult = {
     ...classic,
     strategy: 'classic',
     tierAttempted: preferTierRouting,
     tierNumber,
     tierOutcome: preferTierRouting ? 'fallback_to_classic' : undefined,
   }
+
+  // A gate hold has already persisted its own state and told the plaintiff why;
+  // this is only for the case that cleared every gate and still matched nobody.
+  if (!outcome.success && !outcome.routedTo?.length && outcome.gatePassed !== false) {
+    await parkUnroutableCase(assessmentId, outcome)
+  }
+
+  return outcome
 }

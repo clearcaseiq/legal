@@ -3,6 +3,7 @@ import { authMiddleware } from '../lib/auth'
 import { logger } from '../lib/logger'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma'
+import { leadAccessOr, resolveRequestAttorneyId } from '../lib/lead-access'
 import {
   haversineMiles,
   isGeocodingConfigured,
@@ -280,17 +281,15 @@ router.get('/providers/:providerId', authMiddleware, requireProviderReferralsEna
 // Create provider referral
 router.post('/referrals', authMiddleware, requireProviderReferralsEnabled, async (req: any, res) => {
   try {
-    const attorneyId = req.user.id
+    const attorneyId = await resolveRequestAttorneyId(req, prisma)
+    if (!attorneyId) return res.status(403).json({ error: 'No attorney record found for this account' })
     const { leadId, providerId, referralType, notes } = req.body
 
     // Verify attorney has access to lead
     const lead = await prisma.leadSubmission.findFirst({
       where: {
         id: leadId,
-        OR: [
-          { assignedAttorneyId: attorneyId },
-          { assignmentType: 'shared' }
-        ]
+        OR: leadAccessOr(attorneyId)
       }
     })
 
@@ -335,7 +334,8 @@ router.post('/referrals', authMiddleware, requireProviderReferralsEnabled, async
 // Get attorney's provider referrals
 router.get('/referrals', authMiddleware, async (req: any, res) => {
   try {
-    const attorneyId = req.user.id
+    const attorneyId = await resolveRequestAttorneyId(req, prisma)
+    if (!attorneyId) return res.status(403).json({ error: 'No attorney record found for this account' })
     const { status, providerId, page = 1, limit = 20 } = req.query
 
     const whereClause: any = {
@@ -384,7 +384,8 @@ router.get('/referrals', authMiddleware, async (req: any, res) => {
 router.put('/referrals/:referralId', authMiddleware, requireProviderReferralsEnabled, async (req: any, res) => {
   try {
     const { referralId } = req.params
-    const attorneyId = req.user.id
+    const attorneyId = await resolveRequestAttorneyId(req, prisma)
+    if (!attorneyId) return res.status(403).json({ error: 'No attorney record found for this account' })
     const { status, notes, treatmentStartDate } = req.body
 
     const referral = await prisma.providerReferral.findFirst({
@@ -558,7 +559,8 @@ router.post('/search', authMiddleware, requireProviderReferralsEnabled, async (r
 // Get referral analytics for attorney
 router.get('/analytics', authMiddleware, async (req: any, res) => {
   try {
-    const attorneyId = req.user.id
+    const attorneyId = await resolveRequestAttorneyId(req, prisma)
+    if (!attorneyId) return res.status(403).json({ error: 'No attorney record found for this account' })
     const { period = 'monthly', startDate, endDate } = req.query
 
     const whereClause: any = {
@@ -745,7 +747,8 @@ async function queueProviderEmail(
 // Accepts an optional `content` override so attorneys can edit before sending.
 router.post('/referrals/:referralId/letter-of-protection', authMiddleware, requireProviderReferralsEnabled, async (req: any, res) => {
   try {
-    const attorneyId = req.user.id
+    const attorneyId = await resolveRequestAttorneyId(req, prisma)
+    if (!attorneyId) return res.status(403).json({ error: 'No attorney record found for this account' })
     const { referralId } = req.params
 
     const referral = await prisma.providerReferral.findFirst({
@@ -806,7 +809,8 @@ router.post('/referrals/:referralId/letter-of-protection', authMiddleware, requi
 // Get the most recent Letter of Protection for a referral (or null).
 router.get('/referrals/:referralId/letter-of-protection', authMiddleware, async (req: any, res) => {
   try {
-    const attorneyId = req.user.id
+    const attorneyId = await resolveRequestAttorneyId(req, prisma)
+    if (!attorneyId) return res.status(403).json({ error: 'No attorney record found for this account' })
     const { referralId } = req.params
 
     const referral = await prisma.providerReferral.findFirst({
@@ -832,7 +836,8 @@ router.get('/referrals/:referralId/letter-of-protection', authMiddleware, async 
 // lien is tracked from the moment it is issued.
 router.post('/letters-of-protection/:id/send', authMiddleware, requireProviderReferralsEnabled, async (req: any, res) => {
   try {
-    const attorneyId = req.user.id
+    const attorneyId = await resolveRequestAttorneyId(req, prisma)
+    if (!attorneyId) return res.status(403).json({ error: 'No attorney record found for this account' })
     const { id } = req.params
 
     const lop = await prisma.letterOfProtection.findFirst({
@@ -927,13 +932,14 @@ async function findOwnedReferral(referralId: string, attorneyId: string) {
 // Used by the demand workstream to show itemized medical specials on screen.
 router.get('/leads/:leadId/treatment-summary', authMiddleware, async (req: any, res) => {
   try {
-    const attorneyId = req.user.id
+    const attorneyId = await resolveRequestAttorneyId(req, prisma)
+    if (!attorneyId) return res.status(403).json({ error: 'No attorney record found for this account' })
     const { leadId } = req.params
 
     const lead = await prisma.leadSubmission.findFirst({
       where: {
         id: leadId,
-        OR: [{ assignedAttorneyId: attorneyId }, { assignmentType: 'shared' }],
+        OR: leadAccessOr(attorneyId),
       },
     })
     if (!lead) {
@@ -951,7 +957,8 @@ router.get('/leads/:leadId/treatment-summary', authMiddleware, async (req: any, 
 // List treatment records for a referral, plus an aggregate summary.
 router.get('/referrals/:referralId/treatment-records', authMiddleware, async (req: any, res) => {
   try {
-    const attorneyId = req.user.id
+    const attorneyId = await resolveRequestAttorneyId(req, prisma)
+    if (!attorneyId) return res.status(403).json({ error: 'No attorney record found for this account' })
     const { referralId } = req.params
 
     const referral = await findOwnedReferral(referralId, attorneyId)
@@ -974,7 +981,8 @@ router.get('/referrals/:referralId/treatment-records', authMiddleware, async (re
 // Add a treatment record (a visit, diagnosis, and/or bill) to a referral.
 router.post('/referrals/:referralId/treatment-records', authMiddleware, async (req: any, res) => {
   try {
-    const attorneyId = req.user.id
+    const attorneyId = await resolveRequestAttorneyId(req, prisma)
+    if (!attorneyId) return res.status(403).json({ error: 'No attorney record found for this account' })
     const { referralId } = req.params
 
     const referral = await findOwnedReferral(referralId, attorneyId)
@@ -1018,7 +1026,8 @@ router.post('/referrals/:referralId/treatment-records', authMiddleware, async (r
 // Update a treatment record.
 router.put('/treatment-records/:id', authMiddleware, async (req: any, res) => {
   try {
-    const attorneyId = req.user.id
+    const attorneyId = await resolveRequestAttorneyId(req, prisma)
+    if (!attorneyId) return res.status(403).json({ error: 'No attorney record found for this account' })
     const { id } = req.params
 
     const existing = await prisma.treatmentRecord.findFirst({ where: { id, attorneyId } })
@@ -1057,7 +1066,8 @@ router.put('/treatment-records/:id', authMiddleware, async (req: any, res) => {
 // Delete a treatment record.
 router.delete('/treatment-records/:id', authMiddleware, async (req: any, res) => {
   try {
-    const attorneyId = req.user.id
+    const attorneyId = await resolveRequestAttorneyId(req, prisma)
+    if (!attorneyId) return res.status(403).json({ error: 'No attorney record found for this account' })
     const { id } = req.params
 
     const existing = await prisma.treatmentRecord.findFirst({ where: { id, attorneyId } })
