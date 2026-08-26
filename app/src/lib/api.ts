@@ -4175,7 +4175,8 @@ export interface MatchingRulesConfig {
   maxAttorneysWave3: number
   defaultAttorneyResponseDeadlineMinutes: number
   defaultAttorneyResponseDeadlineHours?: number
-  wave1WaitHours: number
+  /** @deprecated Wave 1 escalates on the attorney response deadline. */
+  wave1WaitHours?: number
   wave2WaitHours: number
   wave3WaitHours: number
   preRoutingGateMode: 'conservative' | 'balanced' | 'growth' | 'custom'

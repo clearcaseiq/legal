@@ -424,6 +424,51 @@ describe('runEscalationWave', () => {
     expect(sendPlaintiffManualReviewNeeded).not.toHaveBeenCalled()
   })
 
+  /**
+   * The sweep only selects waves with `escalatedAt: null`. A new wave was
+   * created already stamped, so wave 2 was born invisible to the driver meant to
+   * advance it: 1 -> 2 worked because the routing engine creates wave 1
+   * unstamped, and nothing after it did. Those transitions only still happened
+   * because the offer-expiry sweep independently calls this function, which
+   * means the configured wave-2 wait was not what governed wave 3.
+   */
+  it('leaves the wave it creates open for the sweep to pick up', async () => {
+    vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValue({ routingLocked: false } as any)
+    vi.mocked(prisma.routingWave.findFirst).mockResolvedValue({ waveNumber: 1 } as any)
+    vi.mocked(prisma.introduction.findMany).mockResolvedValue([] as any)
+    vi.mocked(runRoutingEngine).mockResolvedValue({ success: true, routedTo: ['att-new-1'] } as any)
+
+    await runEscalationWave('asm-1')
+
+    const created = vi.mocked(prisma.routingWave.upsert).mock.calls[0][0] as any
+    expect(created.create.waveNumber).toBe(2)
+    expect(created.create.escalatedAt).toBeNull()
+    expect(created.create.nextEscalationAt).toBeInstanceOf(Date)
+    // And the wave we just left is the one that is stamped.
+    expect(prisma.routingWave.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { assessmentId_waveNumber: { assessmentId: 'asm-1', waveNumber: 1 } },
+        data: expect.objectContaining({ escalatedAt: expect.any(Date) }),
+      })
+    )
+  })
+
+  it('gives wave 3 a due time so the case reaches a human on its own', async () => {
+    vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValue({ routingLocked: false } as any)
+    vi.mocked(prisma.routingWave.findFirst).mockResolvedValue({ waveNumber: 2 } as any)
+    vi.mocked(prisma.introduction.findMany).mockResolvedValue([] as any)
+    vi.mocked(runRoutingEngine).mockResolvedValue({ success: true, routedTo: ['att-new-1'] } as any)
+
+    await runEscalationWave('asm-1')
+
+    // Wave 3 was created with no nextEscalationAt, so the sweep never came back
+    // and the "past wave 3 -> manual review" branch was unreachable from it.
+    const created = vi.mocked(prisma.routingWave.upsert).mock.calls[0][0] as any
+    expect(created.create.waveNumber).toBe(3)
+    expect(created.create.nextEscalationAt).toBeInstanceOf(Date)
+    expect(created.create.escalatedAt).toBeNull()
+  })
+
   it('escalates to wave 1 when no prior wave and engine routes attorneys', async () => {
     vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValue({ routingLocked: false } as any)
     vi.mocked(prisma.routingWave.findFirst).mockResolvedValue(null as any)

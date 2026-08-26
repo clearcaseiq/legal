@@ -344,7 +344,6 @@ export async function runRoutingEngine(
         maxAttorneysWave2: matchingRules.maxAttorneysWave2,
         maxAttorneysWave3: matchingRules.maxAttorneysWave3,
         defaultAttorneyResponseDeadlineMinutes: matchingRules.defaultAttorneyResponseDeadlineMinutes,
-        wave1WaitHours: matchingRules.wave1WaitHours,
         wave2WaitHours: matchingRules.wave2WaitHours,
         wave3WaitHours: matchingRules.wave3WaitHours,
         minCaseScore: matchingRules.minCaseScore,
@@ -713,9 +712,7 @@ export async function runRoutingEngine(
     // Record RoutingWave for escalation (Step 13)
     if (routedTo.length > 0) {
       const nextEscalationAt = new Date()
-      const waitMinutes = waveNumber === 1
-        ? getAttorneyResponseDeadlineMinutes(matchingRules)
-        : getConfiguredWaveWaitHours(matchingRules, waveNumber) * 60
+      const waitMinutes = getConfiguredWaveWaitHours(matchingRules, waveNumber) * 60
       nextEscalationAt.setTime(nextEscalationAt.getTime() + waitMinutes * 60 * 1000)
       await prisma.routingWave.upsert({
         where: { assessmentId_waveNumber: { assessmentId, waveNumber } },

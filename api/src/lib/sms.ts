@@ -12,6 +12,7 @@
  */
 import { prisma } from './prisma'
 import { logger } from './logger'
+import { offerReplyInstruction } from './offer-reference'
 
 /** Resolve which SMS provider to use. */
 function resolveSmsProvider(): 'sns' | 'twilio' | 'none' {
@@ -181,7 +182,7 @@ export async function sendCaseOfferSms(
   const body = [
     `CaseIQ: New case routed to you.`,
     caseSummary,
-    `Reply ACCEPT to accept or DECLINE to decline. (${timeout} min)`
+    offerReplyInstruction(introductionId, timeout)
   ].join('\n')
   return sendSms(phone, body)
 }

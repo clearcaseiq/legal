@@ -2,12 +2,23 @@
  * Shared inbound-SMS decision processing for attorney Accept/Decline replies.
  *
  * Both the Twilio webhook (application/x-www-form-urlencoded) and the Amazon SNS
- * webhook (two-way SMS delivered via an SNS topic) funnel through this so the
- * business logic — idempotency, attorney lookup, introduction/lead updates — is
- * defined once. Never throws; always returns a response code + message.
+ * webhook (two-way SMS delivered via an SNS topic) funnel through this so that
+ * idempotency, attorney lookup and offer correlation are defined once. Never
+ * throws; always returns a response code + message.
+ *
+ * The decision itself belongs to `attorneyAcceptCase` / `attorneyDeclineCase`.
+ * This module used to write the introduction and the lead directly, which meant
+ * a reply-to-accept skipped everything those routines do: the case was assigned
+ * but never locked, so it kept escalating to new attorneys and stayed claimable
+ * by a second one; the claimant was never told anyone had taken it; and no
+ * analytics, reputation, decision memory, coach tasks or billing were recorded.
+ * SMS is the primary channel for tier-routed offers, so that was the ordinary
+ * outcome rather than an edge case.
  */
 import { prisma } from './prisma'
 import { logger } from './logger'
+import { attorneyAcceptCase, attorneyDeclineCase } from './routing-lifecycle'
+import { selectOfferForReply } from './offer-reference'
 
 export interface InboundSmsResult {
   processingStatus: 'processed' | 'ignored' | 'failed'
@@ -23,10 +34,17 @@ function normalizePhone(phone: string): string {
   return phone.replace(/\D/g, '')
 }
 
-function parseDecision(body: string): 'ACCEPTED' | 'DECLINED' | null {
-  if (/^(ACCEPT|YES|Y)$/i.test(body)) return 'ACCEPTED'
-  if (/^(DECLINE|NO|N|REJECT)$/i.test(body)) return 'DECLINED'
-  return null
+/**
+ * Read the decision and, when the attorney quoted it, the offer reference code
+ * from the outbound message. The code is optional so replies to offers sent
+ * before codes existed, and bare "YES" replies from attorneys with a single open
+ * offer, keep working.
+ */
+function parseDecision(body: string): { decision: 'ACCEPTED' | 'DECLINED'; code: string | null } | null {
+  const match = /^(ACCEPT|YES|Y|DECLINE|NO|N|REJECT)\b[\s.,:-]*([A-Za-z0-9]+)?[\s.!]*$/i.exec(body.trim())
+  if (!match) return null
+  const decision = /^(ACCEPT|YES|Y)$/i.test(match[1]) ? 'ACCEPTED' : 'DECLINED'
+  return { decision, code: match[2] ? match[2].toUpperCase() : null }
 }
 
 function buildPhoneCandidates(from: string, normalizedFrom: string): string[] {
@@ -123,8 +141,8 @@ export async function processInboundSmsDecision(input: {
       return result
     }
 
-    const decision = parseDecision(body)
-    if (!decision) {
+    const parsed = parseDecision(body)
+    if (!parsed) {
       const result: InboundSmsResult = {
         processingStatus: 'ignored',
         responseCode: 200,
@@ -133,83 +151,83 @@ export async function processInboundSmsDecision(input: {
       await updateReceipt(receiptId, result)
       return result
     }
+    const { decision, code } = parsed
 
-    const outcome = await prisma.$transaction(async (tx) => {
-      const attorney = await tx.attorney.findFirst({
-        where: { phone: { in: buildPhoneCandidates(from, normalizedFrom) } },
-        select: { id: true, phone: true },
-      })
-
-      if (!attorney) {
-        logger.warn('Inbound SMS: unknown phone', { from: from.slice(-4) })
-        return {
-          processingStatus: 'ignored' as const,
-          responseCode: 200,
-          responseMessage: 'Phone number not recognized. Please log in to CaseIQ to respond.',
-        }
+    const attorney = await prisma.attorney.findFirst({
+      where: { phone: { in: buildPhoneCandidates(from, normalizedFrom) } },
+      select: { id: true },
+    })
+    if (!attorney) {
+      logger.warn('Inbound SMS: unknown phone', { from: from.slice(-4) })
+      const result: InboundSmsResult = {
+        processingStatus: 'ignored',
+        responseCode: 200,
+        responseMessage: 'Phone number not recognized. Please log in to CaseIQ to respond.',
       }
+      await updateReceipt(receiptId, result)
+      return result
+    }
 
-      const intro = await tx.introduction.findFirst({
-        where: { attorneyId: attorney.id, status: 'PENDING' },
-        orderBy: [{ requestedAt: 'desc' }, { createdAt: 'desc' }],
-        select: { id: true, assessmentId: true },
-      })
+    const pendingOffers = await prisma.introduction.findMany({
+      where: { attorneyId: attorney.id, status: 'PENDING' },
+      orderBy: [{ requestedAt: 'desc' }, { createdAt: 'desc' }],
+      select: { id: true },
+    })
 
-      if (!intro) {
-        return {
-          attorneyId: attorney.id,
-          processingStatus: 'ignored' as const,
-          responseCode: 200,
-          responseMessage: 'No pending case offer found. It may have expired.',
-        }
-      }
-
-      const introUpdate = await tx.introduction.updateMany({
-        where: { id: intro.id, status: 'PENDING' },
-        data: { status: decision, respondedAt: new Date() },
-      })
-
-      if (introUpdate.count === 0) {
-        return {
-          attorneyId: attorney.id,
-          introductionId: intro.id,
-          processingStatus: 'ignored' as const,
-          responseCode: 200,
-          responseMessage: 'This case offer was already updated. View details in CaseIQ.',
-        }
-      }
-
-      let leadSubmissionId: string | null = null
-      const lead = await tx.leadSubmission.findUnique({
-        where: { assessmentId: intro.assessmentId },
-        select: { id: true, assignmentType: true },
-      })
-      if (lead) {
-        leadSubmissionId = lead.id
-        await tx.leadSubmission.update({
-          where: { id: lead.id },
-          data: {
-            status: decision === 'ACCEPTED' ? 'contacted' : 'rejected',
-            assignedAttorneyId: decision === 'ACCEPTED' ? attorney.id : null,
-            assignmentType: decision === 'ACCEPTED' ? 'exclusive' : lead.assignmentType,
-            ...(decision === 'ACCEPTED' ? { lastContactAt: new Date() } : {}),
-          },
-        })
-      }
-
-      return {
+    const selection = selectOfferForReply(pendingOffers, code)
+    if (!selection.ok) {
+      const result: InboundSmsResult = {
         attorneyId: attorney.id,
-        decision,
-        introductionId: intro.id,
-        leadSubmissionId,
-        processingStatus: 'processed' as const,
+        processingStatus: 'ignored',
         responseCode: 200,
         responseMessage:
-          decision === 'ACCEPTED'
-            ? 'You have accepted this case. View details in CaseIQ.'
-            : 'You have declined this case.',
+          selection.reason === 'none'
+            ? 'No pending case offer found. It may have expired.'
+            : selection.reason === 'unknown_code'
+              ? 'That reference code does not match an open offer. Check the code or respond in CaseIQ.'
+              : 'You have more than one open offer. Reply with the reference code from the message, or respond in CaseIQ.',
       }
+      await updateReceipt(receiptId, result)
+      return result
+    }
+
+    const introductionId = selection.introductionId
+    const decided =
+      decision === 'ACCEPTED'
+        ? await attorneyAcceptCase(introductionId, attorney.id)
+        : await attorneyDeclineCase(introductionId, attorney.id, 'declined_by_sms')
+
+    if (!decided.success) {
+      const result: InboundSmsResult = {
+        attorneyId: attorney.id,
+        introductionId,
+        processingStatus: 'ignored',
+        responseCode: 200,
+        // The routine's own wording covers the cases worth distinguishing here:
+        // already responded, and lost the race for a case someone else took.
+        responseMessage: `${decided.error || 'This case offer could not be updated.'} View details in CaseIQ.`,
+      }
+      await updateReceipt(receiptId, result)
+      return result
+    }
+
+    const lead = await prisma.leadSubmission.findFirst({
+      where: { assessment: { introductions: { some: { id: introductionId } } } },
+      select: { id: true },
     })
+
+    const outcome: InboundSmsResult = {
+      attorneyId: attorney.id,
+      decision,
+      introductionId,
+      leadSubmissionId: lead?.id ?? null,
+      processingStatus: 'processed',
+      responseCode: 200,
+      responseMessage:
+        decision === 'ACCEPTED'
+          ? 'You have accepted this case. View details in CaseIQ.'
+          : 'You have declined this case.',
+    }
 
     logger.info('Inbound SMS decision processed', {
       attorneyId: outcome.attorneyId,

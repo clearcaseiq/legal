@@ -7,6 +7,7 @@ vi.mock('./lib/prisma', () => import('./test/universalPrismaMock'))
 import { buildApp } from './build-app'
 import { prisma } from './lib/prisma'
 import { resetUniversalPrismaMock } from './test/universalPrismaMock'
+import { offerReferenceCode } from './lib/offer-reference'
 
 const AUTH_TOKEN = 'test-twilio-auth-token'
 // Pinning the URL keeps the signature deterministic; supertest binds an
@@ -48,15 +49,40 @@ describe('POST /v1/sms/webhook routing replies', () => {
     resetUniversalPrismaMock()
   })
 
-  it('ACCEPT updates introduction and returns TwiML', async () => {
-    vi.mocked(prisma.attorney.findFirst).mockResolvedValue({ id: 'att-sms-1', phone: '+15551234567' } as any)
-    vi.mocked(prisma.introduction.findFirst).mockResolvedValue({
-      id: 'intro-sms-1',
-      assessmentId: 'asm-sms',
-      attorneyId: 'att-sms-1',
+  /**
+   * A reply now runs the same accept/decline routine as the dashboard, so the
+   * mocks have to satisfy that routine rather than a local lead write.
+   */
+  function givenPendingOffer(opts: { attorneyId: string; phone: string; introId: string; assessmentId: string }) {
+    vi.mocked(prisma.attorney.findFirst).mockResolvedValue({ id: opts.attorneyId, phone: opts.phone } as any)
+    const intro = {
+      id: opts.introId,
+      assessmentId: opts.assessmentId,
+      attorneyId: opts.attorneyId,
       status: 'PENDING',
-    } as any)
+      requestedAt: new Date(Date.now() - 60 * 1000),
+      assessment: { id: opts.assessmentId, leadSubmission: { id: 'lead-for-offer' }, user: null },
+      attorney: {
+        id: opts.attorneyId,
+        name: 'Jane Lawyer',
+        attorneyProfile: { yearsExperience: 12 },
+        lawFirm: { name: 'Firm LLC' },
+      },
+    }
+    vi.mocked(prisma.introduction.findMany).mockResolvedValue([{ id: opts.introId }] as any)
+    vi.mocked(prisma.introduction.findUnique).mockResolvedValue(intro as any)
+    vi.mocked(prisma.introduction.findFirst).mockResolvedValue(intro as any)
     vi.mocked(prisma.introduction.updateMany).mockResolvedValue({ count: 1 } as any)
+    vi.mocked(prisma.leadSubmission.updateMany).mockResolvedValue({ count: 1 } as any)
+  }
+
+  it('ACCEPT updates introduction and returns TwiML', async () => {
+    givenPendingOffer({
+      attorneyId: 'att-sms-1',
+      phone: '+15551234567',
+      introId: 'intro-sms-1',
+      assessmentId: 'asm-sms',
+    })
 
     const res = await postSigned(app, { MessageSid: 'SM-accept-1', From: '+1 (555) 123-4567', Body: 'ACCEPT' })
 
@@ -71,14 +97,12 @@ describe('POST /v1/sms/webhook routing replies', () => {
   })
 
   it('DECLINE updates introduction to DECLINED', async () => {
-    vi.mocked(prisma.attorney.findFirst).mockResolvedValue({ id: 'att-sms-2', phone: '+15559876543' } as any)
-    vi.mocked(prisma.introduction.findFirst).mockResolvedValue({
-      id: 'intro-sms-2',
-      assessmentId: 'asm-sms-2',
+    givenPendingOffer({
       attorneyId: 'att-sms-2',
-      status: 'PENDING',
-    } as any)
-    vi.mocked(prisma.introduction.updateMany).mockResolvedValue({ count: 1 } as any)
+      phone: '+15559876543',
+      introId: 'intro-sms-2',
+      assessmentId: 'asm-sms-2',
+    })
 
     const res = await postSigned(app, { MessageSid: 'SM-decline-1', From: '+15559876543', Body: 'decline' })
 
@@ -90,33 +114,88 @@ describe('POST /v1/sms/webhook routing replies', () => {
     )
   })
 
-  it('ACCEPT assigns the lead exclusively to the responding attorney', async () => {
-    vi.mocked(prisma.attorney.findFirst).mockResolvedValue({ id: 'att-sms-3', phone: '+15551112222' } as any)
-    vi.mocked(prisma.introduction.findFirst).mockResolvedValue({
-      id: 'intro-sms-3',
-      assessmentId: 'asm-sms-3',
+  /**
+   * The reply path used to assign the attorney without setting routingLocked,
+   * so the case kept escalating to new attorneys, stayed claimable by a second
+   * one, and the claimant was never told anyone had taken it.
+   */
+  it('ACCEPT locks the case to the responding attorney', async () => {
+    givenPendingOffer({
       attorneyId: 'att-sms-3',
-      status: 'PENDING',
-    } as any)
-    vi.mocked(prisma.introduction.updateMany).mockResolvedValue({ count: 1 } as any)
-    vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValue({
-      id: 'lead-sms-3',
-      assignmentType: 'shared',
-    } as any)
+      phone: '+15551112222',
+      introId: 'intro-sms-3',
+      assessmentId: 'asm-sms-3',
+    })
 
     const res = await postSigned(app, { MessageSid: 'SM-accept-3', From: '+1 555 111 2222', Body: 'YES' })
 
     expect(res.status).toBe(200)
-    expect(prisma.leadSubmission.update).toHaveBeenCalledWith(
+    expect(prisma.leadSubmission.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: 'lead-sms-3' },
+        where: expect.objectContaining({ assessmentId: 'asm-sms-3', routingLocked: false }),
         data: expect.objectContaining({
           status: 'contacted',
           assignedAttorneyId: 'att-sms-3',
           assignmentType: 'exclusive',
+          routingLocked: true,
         }),
       })
     )
+  })
+
+  it('refuses to guess which case a bare reply answers', async () => {
+    vi.mocked(prisma.attorney.findFirst).mockResolvedValue({ id: 'att-sms-5', phone: '+15552223333' } as any)
+    // Two open offers and no reference code: applying this to the most recently
+    // routed one accepts the wrong case whenever the attorney is answering the
+    // older message, and nothing tells them it went to the wrong client.
+    vi.mocked(prisma.introduction.findMany).mockResolvedValue([
+      { id: 'intro-newer' },
+      { id: 'intro-older' },
+    ] as any)
+
+    const res = await postSigned(app, { MessageSid: 'SM-ambiguous-1', From: '+15552223333', Body: 'YES' })
+
+    expect(res.status).toBe(200)
+    expect(res.text).toMatch(/more than one open offer/i)
+    expect(prisma.introduction.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('applies a reply to the offer whose code it quotes', async () => {
+    givenPendingOffer({
+      attorneyId: 'att-sms-6',
+      phone: '+15554445555',
+      introId: 'intro-sms-6',
+      assessmentId: 'asm-sms-6',
+    })
+    vi.mocked(prisma.introduction.findMany).mockResolvedValue([
+      { id: 'intro-sms-6' },
+      { id: 'other-open-offer' },
+    ] as any)
+
+    const res = await postSigned(app, {
+      MessageSid: 'SM-coded-1',
+      From: '+15554445555',
+      Body: `ACCEPT ${offerReferenceCode('intro-sms-6')}`,
+    })
+
+    expect(res.status).toBe(200)
+    expect(prisma.introduction.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: 'intro-sms-6' }),
+        data: expect.objectContaining({ status: 'ACCEPTED' }),
+      })
+    )
+  })
+
+  it('does not act on a code that matches no open offer', async () => {
+    vi.mocked(prisma.attorney.findFirst).mockResolvedValue({ id: 'att-sms-7', phone: '+15556667777' } as any)
+    vi.mocked(prisma.introduction.findMany).mockResolvedValue([{ id: 'intro-sms-7' }] as any)
+
+    const res = await postSigned(app, { MessageSid: 'SM-badcode-1', From: '+15556667777', Body: 'ACCEPT ZZZZZZ' })
+
+    expect(res.status).toBe(200)
+    expect(res.text).toMatch(/does not match an open offer/i)
+    expect(prisma.introduction.updateMany).not.toHaveBeenCalled()
   })
 
   it('unknown phone still 200 with guidance TwiML', async () => {

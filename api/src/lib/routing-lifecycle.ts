@@ -17,12 +17,6 @@ import { assertShareAuthorization, recordShareAuthorization } from './share-auth
 const PROJECTED_CONTINGENCY_RATE = 0.33
 const PROJECTED_PLATFORM_FEE_RATE = 0.1
 
-export const WAVE_TIMING = {
-  wave1WaitHours: 4,
-  wave2WaitHours: 12,
-  wave3WaitHours: 24
-}
-
 type LeadLifecycleState =
   | 'routing_active'
   | 'attorney_review'
@@ -1346,9 +1340,9 @@ export async function runEscalationWave(assessmentId: string): Promise<{
 
   if (latestWave?.nextEscalationAt) {
     const overdueHours = (Date.now() - latestWave.nextEscalationAt.getTime()) / (1000 * 60 * 60)
-    const waitHours = latestWave.waveNumber === 1
-      ? getAttorneyResponseDeadlineMinutes(matchingRules) / 60
-      : getConfiguredWaveWaitHours(matchingRules, latestWave.waveNumber)
+    // Same expression the sweep uses, from the same helper, so the two cannot
+    // drift apart: they previously disagreed by a factor of two on wave 1.
+    const waitHours = getConfiguredWaveWaitHours(matchingRules, latestWave.waveNumber)
     const alertThresholdHours = Math.max(24, waitHours * 2)
     if (overdueHours > alertThresholdHours) {
       await recordRoutingEvent(assessmentId, null, null, 'routing_overdue', {
@@ -1438,6 +1432,12 @@ export async function runEscalationWave(assessmentId: string): Promise<{
   const nextEscalationAt = new Date()
   nextEscalationAt.setTime(nextEscalationAt.getTime() + getConfiguredWaveWaitHours(matchingRules, nextWave) * 60 * 60 * 1000)
 
+  // The wave being created has not escalated — it is only just starting. It was
+  // stamped `escalatedAt` here on creation, and the sweep selects on
+  // `escalatedAt: null`, so wave 2 was born invisible to the very driver meant to
+  // advance it: 1 -> 2 worked (the engine creates wave 1 unstamped) and nothing
+  // after it did. Wave 3 also needs a due time, or the sweep never comes back to
+  // hand the case to a human once wave 3 lapses.
   await prisma.routingWave.upsert({
     where: {
       assessmentId_waveNumber: { assessmentId, waveNumber: nextWave }
@@ -1446,22 +1446,19 @@ export async function runEscalationWave(assessmentId: string): Promise<{
       assessmentId,
       waveNumber: nextWave,
       attorneyIds: JSON.stringify(result.routedTo),
-      nextEscalationAt: nextWave < 3 ? nextEscalationAt : null,
-      escalatedAt: new Date()
+      nextEscalationAt,
+      escalatedAt: null
     },
     update: {
       attorneyIds: JSON.stringify(result.routedTo),
-      nextEscalationAt: nextWave < 3 ? nextEscalationAt : null,
-      escalatedAt: new Date()
+      nextEscalationAt,
+      escalatedAt: null
     }
   })
 
-  // Mark previous wave as escalated so cron doesn't re-pick it
+  // The wave we just left is the one that has escalated.
   if (latestWave) {
-    await prisma.routingWave.update({
-      where: { assessmentId_waveNumber: { assessmentId, waveNumber: latestWave.waveNumber } },
-      data: { escalatedAt: new Date() }
-    })
+    await markWaveEscalated(assessmentId, latestWave.waveNumber)
   }
 
   await recordRoutingEvent(assessmentId, null, null, 'escalated', {

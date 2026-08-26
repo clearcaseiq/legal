@@ -21,9 +21,9 @@ export function TimingRulesTab({ config, update }: MatchingRulesTabProps) {
       </section>
       <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
         <h2 className="mb-4 text-lg font-semibold text-slate-800">Escalation timing</h2>
-        <p className="mb-4 text-sm text-slate-600">Hours to wait before escalating to the next wave if no attorney accepts.</p>
-        <div className="grid gap-4 sm:grid-cols-3">
-          {([['Wave 1 → 2 (hours)', 'wave1WaitHours'], ['Wave 2 → 3 (hours)', 'wave2WaitHours'], ['Wave 3 complete (hours)', 'wave3WaitHours']] as const).map(([label, key]) => (
+        <p className="mb-4 text-sm text-slate-600">Hours to wait before escalating to the next wave if no attorney accepts. Wave 1 escalates on the attorney response deadline set above, so it has no separate setting.</p>
+        <div className="grid gap-4 sm:grid-cols-2">
+          {([['Wave 2 → 3 (hours)', 'wave2WaitHours'], ['Wave 3 complete (hours)', 'wave3WaitHours']] as const).map(([label, key]) => (
             <label key={key} className="block"><span className="text-sm font-medium text-slate-700">{label}</span><input type="number" min={0} max={168} value={config[key]} onChange={(e) => update({ [key]: clampInt(e.target.value, 0, 168, 0) })} className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm" /></label>
           ))}
         </div>

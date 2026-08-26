@@ -9,6 +9,7 @@ import { webUrl } from './app-url'
 import { notifyAttorneyByUserEmail } from './attorney-push'
 import { createNotificationEvent } from './platform-notifications'
 import { ATTORNEY_EVENTS, PLAINTIFF_EVENTS } from './notification-events'
+import { offerReplyInstruction } from './offer-reference'
 
 export interface CaseSummaryForNotification {
   claimType: string
@@ -248,7 +249,7 @@ export async function sendCaseOfferToAttorney(
       body: [
         'CaseIQ: New case routed to you.',
         caseSummary,
-        `Reply ACCEPT to accept or DECLINE to decline. (${timeoutMinutes} min)`
+        offerReplyInstruction(introductionId, timeoutMinutes)
       ].join('\n'),
       recipient: attorney.phone
     })

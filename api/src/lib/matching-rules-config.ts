@@ -79,7 +79,8 @@ export interface MatchingRulesConfig {
   // Escalation timing
   defaultAttorneyResponseDeadlineMinutes: number
   defaultAttorneyResponseDeadlineHours?: number
-  wave1WaitHours: number
+  /** @deprecated Wave 1 escalates on the response deadline; kept so stored configs still parse. */
+  wave1WaitHours?: number
   wave2WaitHours: number
   wave3WaitHours: number
 
@@ -296,13 +297,22 @@ export function getConfiguredWaveSize(config: MatchingRulesConfig, waveNumber: n
   return Math.max(1, Math.round(Number(size || DEFAULT_MATCHING_RULES.maxAttorneysWave1)))
 }
 
+/**
+ * How long to wait on a wave before escalating to the next one.
+ *
+ * Wave 1 is the attorney response deadline rather than a setting of its own.
+ * Wave 1's due time is stamped by the routing engine as "now + deadline", and
+ * the offer-expiry sweep retires those same offers at the deadline, so a second
+ * independent knob could only ever disagree with them: escalating early leaves
+ * live offers on a case that has moved on, escalating late leaves the case with
+ * nobody holding it. `wave1WaitHours` was that second knob — it was editable in
+ * the admin UI, directly beneath the deadline that actually governs wave 1, and
+ * changing it did nothing but shift an alerting threshold.
+ */
 export function getConfiguredWaveWaitHours(config: MatchingRulesConfig, waveNumber: number): number {
-  const waitHours = waveNumber === 1
-    ? config.wave1WaitHours
-    : waveNumber === 2
-      ? config.wave2WaitHours
-      : config.wave3WaitHours
-  return Math.max(0.25, Number(waitHours || DEFAULT_MATCHING_RULES.wave1WaitHours))
+  if (waveNumber === 1) return getAttorneyResponseDeadlineMinutes(config) / 60
+  const waitHours = waveNumber === 2 ? config.wave2WaitHours : config.wave3WaitHours
+  return Math.max(0.25, Number(waitHours || DEFAULT_MATCHING_RULES.wave2WaitHours))
 }
 
 export function getAttorneyResponseDeadlineMinutes(config: MatchingRulesConfig): number {
