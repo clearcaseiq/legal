@@ -156,6 +156,9 @@ coverage/
 .next/
 dist/
 build/
+# TypeScript's incremental cache. Rewritten on every typecheck and specific to the
+# machine that ran it, so tracking it only produces conflicting diffs.
+*.tsbuildinfo
 
 # local databases / local infra
 .local-postgres/
