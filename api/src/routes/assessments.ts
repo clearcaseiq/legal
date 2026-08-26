@@ -1178,13 +1178,14 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
         ? `\n\nYour case reference number is ${referenceCode}. Keep it handy — quote it if you call or email us.`
         : ''
       // Guests have no way back to their case once they close the tab (the URL
-      // is their only key). Give them a one-click path to register and have this
-      // exact case attached to the new account so they can track it.
+      // is their only key). Give them a one-click path to register — or to sign
+      // in, since plenty of submitters already have an account — and have this
+      // exact case attached to it so they can track it.
       let claimLine = ''
       if (!req.user) {
         try {
           const claimUrl = webUrl(`/register?claim=${encodeURIComponent(createClaimToken(id))}`)
-          claimLine = `\n\nWant to track your case and add documents anytime? Create your free account here — your case is already linked:\n${claimUrl}`
+          claimLine = `\n\nWant to track your case and add documents anytime? Create your free account — or sign in, if you already have one — here. Your case is already linked:\n${claimUrl}`
         } catch (linkErr) {
           logger.warn('Could not build claim link for confirmation email', {
             assessmentId: id,
