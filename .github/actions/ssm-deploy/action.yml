@@ -126,13 +126,29 @@ runs:
               executionTimeout: ["1800"]
             }' > /tmp/ssm-params.json
 
-          local command_id
+          local command_id=''
           command_id="$(aws ssm send-command \
             --instance-ids "$id" \
             --document-name AWS-RunShellScript \
             --comment "Deploy ${TAG:0:12} to $DEPLOY_ENVIRONMENT" \
             --parameters file:///tmp/ssm-params.json \
-            --query Command.CommandId --output text)"
+            --query Command.CommandId --output text)" || true
+
+          # Give up here rather than polling for a command that was never
+          # accepted. The poll below reports anything it cannot read as
+          # `Pending`, which is right for a command that has not reached the
+          # host yet and badly wrong for one that does not exist: an empty id
+          # reads as Pending 180 times and the loop runs its full 30 minutes.
+          #
+          # That is not hypothetical either. A missing instance ARN in the
+          # deploy role's ssm:SendCommand policy — an AccessDenied returned in
+          # about two seconds — became a 30-minute hang, and because the host
+          # is drained before this point, production sat at half capacity for
+          # all of it while the run still looked like it was working.
+          if [ -z "$command_id" ] || [ "$command_id" = None ]; then
+            echo "::error::SSM would not accept the deploy command for $id. The AccessDenied or validation error is printed above; the usual cause is that this instance is missing from the ssm:SendCommand resource list on the deploy role." >&2
+            return 1
+          fi
 
           echo "SSM command: $command_id"
 
@@ -140,13 +156,28 @@ runs:
           # waiter gives up after 100 seconds. A deploy that pulls two images and
           # then waits out the API's 60s health start_period routinely exceeds
           # that, and the waiter timing out is indistinguishable from failure.
+          # A read that fails is not the same as a command that is pending, and
+          # conflating the two is how a permissions problem turns into a
+          # half-hour wait. Briefly unreadable is normal — the invocation takes
+          # a moment to appear after SendCommand returns — so tolerate a short
+          # run of failures and give up on a sustained one.
           local status=Pending
+          local unreadable=0
           for _ in $(seq 1 180); do
             sleep 10
-            status="$(aws ssm get-command-invocation \
+            if status="$(aws ssm get-command-invocation \
               --command-id "$command_id" \
               --instance-id "$id" \
-              --query Status --output text 2>/dev/null || echo Pending)"
+              --query Status --output text 2>/dev/null)"; then
+              unreadable=0
+            else
+              unreadable=$((unreadable + 1))
+              if [ "$unreadable" -ge 6 ]; then
+                echo "::error::Cannot read the status of SSM command $command_id on $id after a minute of trying. The deploy may still be running on the host; check there before re-running." >&2
+                return 1
+              fi
+              status=Pending
+            fi
             case "$status" in
               Success|Failed|Cancelled|TimedOut) break ;;
             esac

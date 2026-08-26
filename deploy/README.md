@@ -125,7 +125,11 @@ aws ec2 run-instances --image-id <ami> --instance-type t3.large \
   --iam-instance-profile Name=clearcaseiq-ec2-role \
   --key-name clearcaseiq-key
 
-# 3. Register it, and add it to the INSTANCE_IDS variable on the `production`
+# 3. Tag it. The deploy role's ssm:SendCommand permission is scoped to this
+#    tag, so an untagged host cannot be deployed to.
+aws ec2 create-tags --resources <new instance> --tags Key=DeployTarget,Value=clearcaseiq
+
+# 4. Register it, and add it to the INSTANCE_IDS variable on the `production`
 #    GitHub environment so deploys reach it.
 aws elbv2 register-targets --target-group-arn <tg> --targets Id=<new instance>
 ```
@@ -138,6 +142,13 @@ instance launched from it starts with the old values.
 the target group but missing from it receives production traffic and never
 receives deploys, so it serves whatever version it was launched with,
 indefinitely, while looking healthy.
+
+The `DeployTarget` tag matters for the opposite reason. A host listed in
+`INSTANCE_IDS` but untagged is drained from the target group, refused by SSM,
+and then restored — so the deploy fails, and it fails after taking capacity
+away. The permission used to be a list of instance ARNs on the role, which had
+the same "remember to update this" problem as `INSTANCE_IDS` and no equivalent
+of the target group to make the omission visible.
 
 ### What failover actually looks like
 
