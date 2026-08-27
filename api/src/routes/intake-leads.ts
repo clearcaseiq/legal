@@ -37,19 +37,27 @@ function resultsUrl(assessmentId: string): string {
   return webUrl(`/results/${encodeURIComponent(assessmentId)}`)
 }
 
-/** Best-effort: email/SMS the saved "return later" link. Never throws. */
+/**
+ * Best-effort: email/SMS the saved "return later" link. Never throws.
+ *
+ * This goes out the moment contact details are captured, which is partway
+ * through the wizard while the person is still answering. The copy therefore
+ * cannot say they left off — most recipients have not, and are reading it in
+ * another tab. It is a receipt for saved progress; the genuine "you left"
+ * nudge belongs to the abandonment sweep, which waits for real idleness.
+ */
 async function sendResumeLink(lead: { id: string; email: string | null; phone: string | null }): Promise<void> {
   const link = resumeUrl(lead.id)
   try {
     if (lead.email) {
       await sendClaimEmail({
         to: lead.email,
-        subject: 'Pick up your ClearCaseIQ case where you left off',
-        body: `Hi,\n\nThanks for starting your case assessment with ClearCaseIQ. Your answers are saved, so you can return any time to finish.\n\nContinue your assessment: ${link}\n\nWhen your case report is ready, we'll send it to you here.\n\nIf you didn't start this, you can safely ignore this email.`,
+        subject: 'Your ClearCaseIQ case assessment is saved',
+        body: `Hi,\n\nThanks for starting your case assessment with ClearCaseIQ. Your answers are saved, so you can finish now or come back to it later.\n\nContinue your assessment: ${link}\n\nWhen your case report is ready, we'll send it to you here.\n\nIf you didn't start this, you can safely ignore this email.`,
       })
     }
     if (lead.phone) {
-      await sendSms(lead.phone, `ClearCaseIQ: your case assessment is saved. Continue where you left off: ${link}`)
+      await sendSms(lead.phone, `ClearCaseIQ: your case assessment is saved. Finish it any time: ${link}`)
     }
   } catch (error) {
     logger.warn('Failed to send intake resume link', { leadId: lead.id, error })
