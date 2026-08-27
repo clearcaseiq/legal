@@ -152,12 +152,14 @@ async function runIntakeAbandonmentLoop(trigger: 'startup' | 'interval') {
 
 function startIntakeAbandonmentLoop() {
   const intervalMs = 10 * 60 * 1000
-  // Off by default pending SB 37 review of the outreach copy; the sweep still
-  // registers so the admin ops view shows it as disabled rather than missing.
+  // Off by default: the copy is now SB 37 clean, but the message still cannot
+  // carry the responsible-party disclosure § 6157.2(b) requires until this
+  // platform's status under § 6155 is settled. See intake-abandonment.ts. The
+  // sweep still registers so the admin ops view shows it disabled, not missing.
   if (process.env.INTAKE_ABANDONMENT_OUTREACH_ENABLED !== 'true') {
     registerSweep('intake-abandonment', { label: 'Intake abandonment', enabled: false })
     logger.warn('Intake abandonment outreach is disabled', {
-      reason: 'SB 37 advertising review — set INTAKE_ABANDONMENT_OUTREACH_ENABLED=true to re-enable',
+      reason: 'SB 37 § 6157.2(b) disclosure pending — set INTAKE_ABANDONMENT_OUTREACH_ENABLED=true to re-enable',
     })
     return
   }

@@ -7,19 +7,35 @@ import { webUrl } from './app-url'
 /**
  * Off unless explicitly enabled.
  *
- * The re-engagement copy below promises the recipient "a valuable settlement" on
- * a case nobody has evaluated, and names no attorney or office. Under California
- * SB 37 (Ch. 645, Stats. 2025, effective 2026-01-01) an unsolicited electronic
- * message directed at a limited group of individuals to encourage them to secure
- * a lawyer's services is an "advertisement" (Bus. & Prof. Code § 6157(b)), and
- * such an advertisement may not predict success or promise quick settlements
- * (§ 6157.2(a)(1)-(2)) and must conspicuously name a California-licensed
- * attorney and a bona fide office location (§ 6157.2(b)). Statutory damages run
- * $5,000-$100,000 per advertisement, enforceable by any consumer.
+ * Under California SB 37 (Ch. 645, Stats. 2025, effective 2026-01-01) this
+ * message is an "advertisement": Bus. & Prof. Code § 6157(b) now reaches any
+ * electronic communication directed at "a limited group of individuals" to
+ * encourage them to secure a lawyer's services, which is exactly what a
+ * re-engagement email to abandoned intake leads is. Statutory damages run
+ * $5,000-$100,000 per unique advertisement (§ 6157.2(c)(2)(A)).
  *
- * Do not flip this on until the copy carries those disclosures and drops the
- * settlement prediction. Defaulting to off rather than deleting the sweep keeps
- * the re-engagement mechanism available for compliant copy.
+ * The copy below has been stripped of what § 6157.2(a) forbids — it previously
+ * promised "a valuable settlement" on a case nobody had evaluated, which is both
+ * a quick-settlement claim under (a)(2) and an unsubstantiated one under
+ * § 6157.1. It now states only facts: an assessment was started, the answers are
+ * saved, here is the link.
+ *
+ * Two things still block enabling it:
+ *
+ * 1. § 6157.2(b) requires the advertisement to conspicuously name a responsible
+ *    party — a California-licensed lawyer, the law firm, a *certified* lawyer
+ *    referral service, or a joint advertiser under § 6155(g) — plus a bona fide
+ *    office location. This message goes out before any attorney is matched, so
+ *    there is no lawyer to name, and every remaining option depends on settling
+ *    what this platform is under § 6155. That question carries its own exposure:
+ *    SB 37 added § 6156.5, letting any person sue for a § 6155 violation with no
+ *    State Bar complaint step first.
+ * 2. The SMS leg is separately a TCPA problem. An unsolicited marketing text
+ *    needs prior express written consent and runs $500-$1,500 per message —
+ *    per message, unlike the SB 37 figure above.
+ *
+ * Defaulting to off rather than deleting the sweep keeps the mechanism available
+ * once those are resolved.
  */
 function isIntakeAbandonmentOutreachEnabled(): boolean {
   return process.env.INTAKE_ABANDONMENT_OUTREACH_ENABLED === 'true'
@@ -38,9 +54,9 @@ function resumeUrl(leadId: string): string {
 
 /**
  * Find intake leads that captured contact info but left before finishing, and
- * send a one-time "you left the platform — you may have a valuable settlement"
- * re-engagement email/SMS. The `abandonmentEmailedAt` stamp guarantees each
- * lead is contacted at most once. Never throws per lead.
+ * send a one-time reminder that the assessment is unfinished. The
+ * `abandonmentEmailedAt` stamp guarantees each lead is contacted at most once.
+ * Never throws per lead.
  */
 export async function sweepAbandonedIntakeLeads(): Promise<{ scanned: number; sent: number; skipped?: boolean; reason?: string }> {
   if (!isIntakeAbandonmentOutreachEnabled()) {
@@ -69,15 +85,12 @@ export async function sweepAbandonedIntakeLeads(): Promise<{ scanned: number; se
       if (lead.email) {
         await sendClaimEmail({
           to: lead.email,
-          subject: 'You may have a valuable settlement waiting',
-          body: `Hi,\n\nWe noticed you left ClearCaseIQ before finishing your case assessment. Based on what you started, you could potentially have a valuable settlement, but we can't complete your evaluation until your assessment is finished.\n\nIt only takes a couple of minutes to pick up right where you left off:\n${link}\n\nIf you'd prefer not to continue, you can safely ignore this email.`,
+          subject: 'Finish your ClearCaseIQ case assessment',
+          body: `Hi,\n\nYou started a case assessment with ClearCaseIQ and haven't finished it. Your answers are saved.\n\nFinish your assessment:\n${link}\n\nIf you'd prefer not to continue, you can safely ignore this email.`,
         })
       }
       if (lead.phone) {
-        await sendSms(
-          lead.phone,
-          `ClearCaseIQ: you left before finishing and may have a valuable settlement. Pick up where you left off: ${link}`
-        )
+        await sendSms(lead.phone, `ClearCaseIQ: your case assessment is unfinished. Your answers are saved: ${link}`)
       }
       await prisma.intakeLead.update({
         where: { id: lead.id },
