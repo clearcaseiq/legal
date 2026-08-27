@@ -2662,12 +2662,31 @@ model IntakeLead {
   // so the abandonment sweep only contacts each lead a single time.
   abandonmentEmailedAt DateTime?
 
+  /// When the "your case report is ready" email becomes sendable.
+  ///
+  /// Finishing the assessment and sending the case to attorneys are separate
+  /// steps, and each sent its own email — the report one on the first, the
+  /// receipt on the second. Someone who did both in a single sitting got two
+  /// messages a minute apart, the earlier of which invited them back to
+  /// something they had just finished.
+  ///
+  /// Holding the report email briefly lets a submission supersede it, with the
+  /// receipt carrying the report link instead. It cannot be decided at
+  /// completion time because that is when the report email fires and the
+  /// submission has not happened yet. Cleared once handled, either way.
+  reportReadyDueAt DateTime?
+
+  /// Set when the report email actually went out, so it is never sent twice.
+  reportReadySentAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([email])
   @@index([status, updatedAt])
   @@index([userId])
+  /// Supports the sweep that drains due report-ready emails.
+  @@index([reportReadyDueAt])
   @@map("intake_leads")
 }
 

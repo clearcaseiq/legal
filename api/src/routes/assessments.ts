@@ -10,6 +10,7 @@ import { assignReferenceCode, ensureReferenceCode } from '../lib/case-reference'
 import { createClaimToken, verifyClaimToken } from '../lib/claim-token'
 import { recordCaseChange } from '../lib/data-authority'
 import { webUrl } from '../lib/app-url'
+import { cancelReportReadyForAssessment, caseReportUrl } from '../lib/report-ready'
 import {
   ATTORNEY_PARTICIPATION_DISCLOSURE_VERSION,
   PLATFORM_DISCLOSURE_CONSENT_TYPE,
@@ -1152,6 +1153,10 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
     }
     logger.info('Case submitted for review', { assessmentId: id, userId: req.user?.id })
 
+    // The report email queued when the assessment finished would otherwise land
+    // beside the receipt below, which now carries the report link itself.
+    void cancelReportReadyForAssessment(id)
+
     // Canonical lifecycle event → the change feed external systems sync from.
     void recordCaseChange({
       assessmentId: id,
@@ -1177,6 +1182,9 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
       const referenceLine = referenceCode
         ? `\n\nYour case reference number is ${referenceCode}. Keep it handy — quote it if you call or email us.`
         : ''
+      // Submitting cancels the separate report email, so this is the claimant's
+      // link back to the report they just finished.
+      const reportLine = `\n\nView your case report any time:\n${caseReportUrl(id)}`
       // Guests have no way back to their case once they close the tab (the URL
       // is their only key). Give them a one-click path to register — or to sign
       // in, since plenty of submitters already have an account — and have this
@@ -1197,7 +1205,7 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
         type: 'email',
         recipient: confirmationEmail,
         subject: 'We received your case — ClearCaseIQ',
-        message: `Hi ${submitterName},\n\nThanks for submitting your case to ClearCaseIQ. Our attorney network is reviewing it now, and we'll email you as soon as an attorney responds, typically within about 24 hours.${referenceLine}\n\nWhat happens next:\n• Attorneys review your case summary\n• A matched attorney reaches out to you directly\n• You can add documents anytime to strengthen your case${claimLine}\n\nBest regards,\nClearCaseIQ`,
+        message: `Hi ${submitterName},\n\nThanks for submitting your case to ClearCaseIQ. Our attorney network is reviewing it now, and we'll email you as soon as an attorney responds, typically within about 24 hours.${referenceLine}${reportLine}\n\nWhat happens next:\n• Attorneys review your case summary\n• A matched attorney reaches out to you directly\n• You can add documents anytime to strengthen your case${claimLine}\n\nBest regards,\nClearCaseIQ`,
         userId: req.user?.id || null,
         assessmentId: id,
         role: 'plaintiff',

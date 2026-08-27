@@ -5,6 +5,7 @@ import { logger } from '../lib/logger'
 import { sendClaimEmail } from '../lib/claims'
 import { sendSms } from '../lib/sms'
 import { provisionAndLinkIntakeAccount } from '../lib/intake-account'
+import { scheduleReportReady } from '../lib/report-ready'
 import { webUrl } from '../lib/app-url'
 
 const router = Router()
@@ -33,10 +34,6 @@ function isResumeWindowOpen(lead: { updatedAt: Date }): boolean {
   return Date.now() <= lead.updatedAt.getTime() + RESUME_LINK_TTL_HOURS * 60 * 60_000
 }
 
-function resultsUrl(assessmentId: string): string {
-  return webUrl(`/results/${encodeURIComponent(assessmentId)}`)
-}
-
 /**
  * Best-effort: email/SMS the saved "return later" link. Never throws.
  *
@@ -61,26 +58,6 @@ async function sendResumeLink(lead: { id: string; email: string | null; phone: s
     }
   } catch (error) {
     logger.warn('Failed to send intake resume link', { leadId: lead.id, error })
-  }
-}
-
-/** Best-effort: email/SMS the finished case report link. Never throws. */
-async function sendReportReady(lead: { id: string; email: string | null; phone: string | null; assessmentId: string | null }): Promise<void> {
-  if (!lead.assessmentId) return
-  const link = resultsUrl(lead.assessmentId)
-  try {
-    if (lead.email) {
-      await sendClaimEmail({
-        to: lead.email,
-        subject: 'Your ClearCaseIQ case report is ready',
-        body: `Good news. Your case assessment is complete.\n\nView your case report: ${link}\n\nYou can review your estimated case value, liability analysis, and next steps any time.`,
-      })
-    }
-    if (lead.phone) {
-      await sendSms(lead.phone, `ClearCaseIQ: your case report is ready. View it here: ${link}`)
-    }
-  } catch (error) {
-    logger.warn('Failed to send intake report-ready link', { leadId: lead.id, error })
   }
 }
 
@@ -244,10 +221,12 @@ router.patch('/:id', async (req, res) => {
     if (lead.email && (!existing.email || existing.email !== lead.email)) {
       void provisionAndLinkIntakeAccount({ id: lead.id, email: lead.email, phone: lead.phone })
     }
-    // Send the report link once, when the lead transitions to completed with a linked assessment.
+    // Queue the report link once, when the lead transitions to completed with a
+    // linked assessment. Queued rather than sent because submitting the case is
+    // a separate, later action that sends its own receipt; see report-ready.ts.
     const justCompleted = existing.status !== 'completed' && lead.status === 'completed'
     if (justCompleted && lead.assessmentId && hasContact) {
-      void sendReportReady({ id: lead.id, email: lead.email, phone: lead.phone, assessmentId: lead.assessmentId })
+      void scheduleReportReady(lead.id)
     }
   } catch (error) {
     logger.error('Failed to update intake lead', { error, leadId: req.params.id })

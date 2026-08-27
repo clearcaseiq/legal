@@ -8,6 +8,7 @@ import { renewCalendarWebhookSubscriptions } from './lib/calendar-sync'
 import { runAppointmentEngagementSweep } from './lib/appointment-engagement'
 import { retryPendingPlatformNotifications } from './lib/platform-notifications'
 import { runIntakeAbandonmentSweep } from './lib/intake-abandonment'
+import { runReportReadySweep } from './lib/report-ready'
 import { runRoutingEscalationSweep } from './lib/routing-escalation-sweep'
 import { runOfferExpirySweep } from './lib/offer-expiry-sweep'
 import { runRoutingStallSweep } from './lib/routing-stall-sweep'
@@ -26,6 +27,7 @@ let calendarWebhookRenewalTimer: NodeJS.Timeout | null = null
 let appointmentEngagementTimer: NodeJS.Timeout | null = null
 let notificationRetryTimer: NodeJS.Timeout | null = null
 let intakeAbandonmentTimer: NodeJS.Timeout | null = null
+let reportReadyTimer: NodeJS.Timeout | null = null
 let routingEscalationTimer: NodeJS.Timeout | null = null
 let offerExpiryTimer: NodeJS.Timeout | null = null
 let routingStallTimer: NodeJS.Timeout | null = null
@@ -167,6 +169,31 @@ function startIntakeAbandonmentLoop() {
   void runIntakeAbandonmentLoop('startup')
   intakeAbandonmentTimer = setInterval(() => {
     void runIntakeAbandonmentLoop('interval')
+  }, intervalMs)
+}
+
+async function runReportReadyLoop(trigger: 'startup' | 'interval') {
+  const sweep = beginSweep('report-ready')
+  try {
+    const result = await runReportReadySweep()
+    sweep.succeed()
+    if (result.sent > 0 || result.superseded > 0 || trigger === 'startup') {
+      logger.info('Report-ready sweep completed', { trigger, ...result })
+    }
+  } catch (error) {
+    sweep.fail(error)
+    logger.error('Report-ready sweep failed', { error, trigger })
+  }
+}
+
+function startReportReadyLoop() {
+  // A fraction of the deferral window, so the email lands close to when it came
+  // due rather than up to a full interval late.
+  const intervalMs = 3 * 60 * 1000
+  registerSweep('report-ready', { label: 'Case report ready email', enabled: true, intervalMs })
+  void runReportReadyLoop('startup')
+  reportReadyTimer = setInterval(() => {
+    void runReportReadyLoop('interval')
   }, intervalMs)
 }
 
@@ -403,6 +430,7 @@ function startBackgroundLoops() {
   startAppointmentEngagementLoop()
   startNotificationRetryLoop()
   startIntakeAbandonmentLoop()
+  startReportReadyLoop()
   startRoutingEscalationLoop()
   startOfferExpiryLoop()
   startRoutingStallLoop()
@@ -441,6 +469,7 @@ function stopBackgroundLoops() {
   if (appointmentEngagementTimer) clearInterval(appointmentEngagementTimer)
   if (notificationRetryTimer) clearInterval(notificationRetryTimer)
   if (intakeAbandonmentTimer) clearInterval(intakeAbandonmentTimer)
+  if (reportReadyTimer) clearInterval(reportReadyTimer)
   if (routingEscalationTimer) clearInterval(routingEscalationTimer)
   if (offerExpiryTimer) clearInterval(offerExpiryTimer)
   if (routingStallTimer) clearInterval(routingStallTimer)
@@ -453,6 +482,7 @@ function stopBackgroundLoops() {
   appointmentEngagementTimer = null
   notificationRetryTimer = null
   intakeAbandonmentTimer = null
+  reportReadyTimer = null
   routingEscalationTimer = null
   offerExpiryTimer = null
   routingStallTimer = null
