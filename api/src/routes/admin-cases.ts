@@ -1187,7 +1187,9 @@ router.post('/cases/route', authMiddleware, adminMiddleware, requireAdminCapabil
         const viability = prediction ? JSON.parse(prediction.viability) : {}
         await upsertLeadSubmission(caseId, attorneyId, { viability })
 
-        await sendCaseOfferSms(attorneyId, intro.id, intro.message, 5)
+        // No explicit window: the offer expires on the configured deadline like
+        // any other, so the message must quote that rather than a number here.
+        await sendCaseOfferSms(attorneyId, intro.id, intro.message)
         existingIntroCaseIds.add(caseId)
 
         introductions.push(intro)

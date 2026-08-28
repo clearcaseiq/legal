@@ -688,7 +688,7 @@ export async function runRoutingEngine(
               introductionId: intro.id,
               assessmentId
             },
-            120
+            getAttorneyResponseDeadlineMinutes(matchingRules)
           ).catch(err => {
             logger.warn('Failed to send case offer', { attorneyId: attorney.id, error: (err as Error).message })
           }),

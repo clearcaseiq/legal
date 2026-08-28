@@ -20,10 +20,27 @@ export function offerReferenceCode(introductionId: string): string {
   return introductionId.replace(/[^a-zA-Z0-9]/g, '').slice(0, CODE_LENGTH).toUpperCase()
 }
 
+/**
+ * Render a response window the way a person would say it.
+ *
+ * The window is configurable and defaults to a day, so printing raw minutes
+ * would put "(1440 min)" in a text message.
+ */
+export function formatResponseWindow(minutes: number): string {
+  if (minutes < 60) return `${Math.max(1, Math.round(minutes))} min`
+  const hours = minutes / 60
+  if (hours < 48) {
+    const rounded = Math.round(hours * 10) / 10
+    const label = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1)
+    return `${label} ${rounded === 1 ? 'hour' : 'hours'}`
+  }
+  return `${Math.round(hours / 24)} days`
+}
+
 /** The line asking the attorney to quote the code back. */
 export function offerReplyInstruction(introductionId: string, timeoutMinutes: number): string {
   const code = offerReferenceCode(introductionId)
-  return `Reply ACCEPT ${code} to accept or DECLINE ${code} to decline. (${timeoutMinutes} min)`
+  return `Reply ACCEPT ${code} to accept or DECLINE ${code} to decline. (${formatResponseWindow(timeoutMinutes)})`
 }
 
 export type OfferSelection =

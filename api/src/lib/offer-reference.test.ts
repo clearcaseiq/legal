@@ -5,7 +5,12 @@
  * their behalf without either side noticing.
  */
 import { describe, expect, it } from 'vitest'
-import { offerReferenceCode, offerReplyInstruction, selectOfferForReply } from './offer-reference'
+import {
+  formatResponseWindow,
+  offerReferenceCode,
+  offerReplyInstruction,
+  selectOfferForReply,
+} from './offer-reference'
 
 describe('offerReferenceCode', () => {
   it('is stable for an id', () => {
@@ -31,7 +36,40 @@ describe('offerReplyInstruction', () => {
     expect(instruction).toContain(offerReferenceCode('intro-abc123'))
     expect(instruction).toMatch(/ACCEPT/)
     expect(instruction).toMatch(/DECLINE/)
-    expect(instruction).toContain('120 min')
+  })
+
+  it('states the window in the message', () => {
+    expect(offerReplyInstruction('intro-abc123', 45)).toContain('45 min')
+    expect(offerReplyInstruction('intro-abc123', 120)).toContain('2 hours')
+  })
+})
+
+/**
+ * The window is configurable and defaults to a day. Printing raw minutes put
+ * "(1440 min)" in front of an attorney, so these pin the readable forms.
+ */
+describe('formatResponseWindow', () => {
+  it('keeps sub-hour windows in minutes, which is how the tier routers are sized', () => {
+    expect(formatResponseWindow(45)).toBe('45 min')
+    expect(formatResponseWindow(3)).toBe('3 min')
+  })
+
+  it('never rounds a real window down to zero', () => {
+    expect(formatResponseWindow(0.5)).toBe('1 min')
+  })
+
+  it('switches to hours, singular where it should be', () => {
+    expect(formatResponseWindow(60)).toBe('1 hour')
+    expect(formatResponseWindow(120)).toBe('2 hours')
+    expect(formatResponseWindow(90)).toBe('1.5 hours')
+  })
+
+  it('says a day the way a person would, not 1440 minutes', () => {
+    expect(formatResponseWindow(24 * 60)).toBe('24 hours')
+  })
+
+  it('switches to days once hours stop being useful', () => {
+    expect(formatResponseWindow(72 * 60)).toBe('3 days')
   })
 })
 

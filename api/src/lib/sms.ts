@@ -13,6 +13,7 @@
 import { prisma } from './prisma'
 import { logger } from './logger'
 import { offerReplyInstruction } from './offer-reference'
+import { getCurrentAttorneyResponseDeadlineMinutes } from './matching-rules-config'
 
 /** Resolve which SMS provider to use. */
 function resolveSmsProvider(): 'sns' | 'twilio' | 'none' {
@@ -178,7 +179,9 @@ export async function sendCaseOfferSms(
     return false
   }
   const phone = normalizePhone(attorney.phone)
-  const timeout = timeoutMinutes ?? 2
+  // Callers that enforce their own window (the tier routers) pass it; everyone
+  // else gets the deadline the expiry sweep will actually apply.
+  const timeout = timeoutMinutes ?? (await getCurrentAttorneyResponseDeadlineMinutes())
   const body = [
     `CaseIQ: New case routed to you.`,
     caseSummary,

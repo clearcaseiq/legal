@@ -315,6 +315,20 @@ export function getConfiguredWaveWaitHours(config: MatchingRulesConfig, waveNumb
   return Math.max(0.25, Number(waitHours || DEFAULT_MATCHING_RULES.wave2WaitHours))
 }
 
+/**
+ * The response window currently in force, for callers that quote it to an
+ * attorney without otherwise needing the config.
+ *
+ * Offers used to be sent with a hardcoded window in the message — 120 minutes
+ * from the routing engine, 5 from admin bulk routing, 2 from the SMS default —
+ * while the expiry sweep retired them on this value. An attorney was told two
+ * hours and actually had a day, and changing the deadline in the admin screen
+ * moved the enforcement without moving the number they were shown.
+ */
+export async function getCurrentAttorneyResponseDeadlineMinutes(): Promise<number> {
+  return getAttorneyResponseDeadlineMinutes(await getMatchingRules())
+}
+
 export function getAttorneyResponseDeadlineMinutes(config: MatchingRulesConfig): number {
   return Math.max(
     1,

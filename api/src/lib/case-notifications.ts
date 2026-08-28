@@ -10,6 +10,7 @@ import { notifyAttorneyByUserEmail } from './attorney-push'
 import { createNotificationEvent } from './platform-notifications'
 import { ATTORNEY_EVENTS, PLAINTIFF_EVENTS } from './notification-events'
 import { offerReplyInstruction } from './offer-reference'
+import { getCurrentAttorneyResponseDeadlineMinutes } from './matching-rules-config'
 
 export interface CaseSummaryForNotification {
   claimType: string
@@ -196,8 +197,10 @@ export async function sendCaseOfferToAttorney(
   attorneyId: string,
   introductionId: string,
   summary: CaseSummaryForNotification,
-  timeoutMinutes = 120
+  timeoutMinutes?: number
 ): Promise<{ sms: boolean; email: boolean; inPlatform: boolean }> {
+  // Quote the window the expiry sweep will apply, not a number of its own.
+  const responseWindowMinutes = timeoutMinutes ?? (await getCurrentAttorneyResponseDeadlineMinutes())
   const attorney = await prisma.attorney.findUnique({
     where: { id: attorneyId },
     select: { email: true, phone: true, name: true }
@@ -249,7 +252,7 @@ export async function sendCaseOfferToAttorney(
       body: [
         'CaseIQ: New case routed to you.',
         caseSummary,
-        offerReplyInstruction(introductionId, timeoutMinutes)
+        offerReplyInstruction(introductionId, responseWindowMinutes)
       ].join('\n'),
       recipient: attorney.phone
     })
