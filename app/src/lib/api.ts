@@ -5818,3 +5818,72 @@ export async function exportFirmTimeCsv(filters: FirmTimeFilters = {}): Promise<
   })
   return URL.createObjectURL(data as Blob)
 }
+
+export type BlogPost = {
+  id: string
+  slug: string
+  title: string
+  excerpt: string
+  body?: string
+  published: boolean
+  publishedAt: string | null
+  createdAt: string
+  updatedAt: string
+  authorName: string
+}
+
+export async function listPublishedBlogPosts(params?: { limit?: number; offset?: number }) {
+  const search = new URLSearchParams()
+  if (params?.limit != null) search.append('limit', String(params.limit))
+  if (params?.offset != null) search.append('offset', String(params.offset))
+  const qs = search.toString()
+  const { data } = await api.get<{ success: boolean; data: BlogPost[]; total: number }>(
+    `/v1/blog${qs ? `?${qs}` : ''}`,
+  )
+  return data
+}
+
+export async function getPublishedBlogPost(slug: string) {
+  const { data } = await api.get<{ success: boolean; data: BlogPost }>(`/v1/blog/${encodeURIComponent(slug)}`)
+  return data.data
+}
+
+export async function listAdminBlogPosts(params?: { limit?: number; offset?: number; status?: string }) {
+  const search = new URLSearchParams()
+  if (params?.limit != null) search.append('limit', String(params.limit))
+  if (params?.offset != null) search.append('offset', String(params.offset))
+  if (params?.status) search.append('status', params.status)
+  const qs = search.toString()
+  const { data } = await api.get<{ success: boolean; data: BlogPost[]; total: number }>(
+    `/v1/admin/blog${qs ? `?${qs}` : ''}`,
+  )
+  return data
+}
+
+export async function getAdminBlogPost(id: string) {
+  const { data } = await api.get<{ success: boolean; data: BlogPost }>(`/v1/admin/blog/${id}`)
+  return data.data
+}
+
+export async function createAdminBlogPost(payload: {
+  title: string
+  slug?: string
+  excerpt?: string
+  body: string
+  published?: boolean
+}) {
+  const { data } = await api.post<{ success: boolean; data: BlogPost }>('/v1/admin/blog', payload)
+  return data.data
+}
+
+export async function updateAdminBlogPost(
+  id: string,
+  payload: Partial<{ title: string; slug: string; excerpt: string; body: string; published: boolean }>,
+) {
+  const { data } = await api.patch<{ success: boolean; data: BlogPost }>(`/v1/admin/blog/${id}`, payload)
+  return data.data
+}
+
+export async function deleteAdminBlogPost(id: string) {
+  await api.delete(`/v1/admin/blog/${id}`)
+}

@@ -38,6 +38,7 @@ export function derivedPriorityForPath(path: string) {
   if (path.endsWith('-car-accident')) return '0.8'
   if (path.startsWith('/california-statute-of-limitations-') || path === '/missed-the-statute-of-limitations') return '0.8'
   if (path.startsWith('/medical-records') || path.includes('medical-records') || path.includes('medical-chronology')) return '0.8'
+  if (path === '/blog' || path.startsWith('/blog/')) return '0.7'
   if (path.startsWith('/education/')) return '0.7'
   return '0.75'
 }

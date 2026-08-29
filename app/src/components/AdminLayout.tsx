@@ -29,6 +29,7 @@ import {
   Sun,
   LogOut,
   Inbox,
+  Newspaper,
 } from 'lucide-react'
 import { BrandMark } from './BrandLogo'
 import { useAdminRoutingStatus } from '../hooks/useAdminRoutingStatus'
@@ -85,6 +86,7 @@ const navGroups: {
       { path: '/admin/analytics', id: 'analytics', label: 'Analytics', icon: BarChart3 },
       { path: '/admin/routing-feedback', id: 'routingFeedback', label: 'Routing Feedback', icon: BrainCircuit },
       { path: '/admin/communications', id: 'communications', label: 'Communications', icon: MessageSquare },
+      { path: '/admin/blog', id: 'blog', label: 'Blog', icon: Newspaper },
       { path: '/admin/documents', id: 'documents', label: 'Documents & OCR', icon: FileSearch },
       { path: '/admin/audit-logs', id: 'auditLogs', label: 'Audit Logs', icon: ScrollText },
       { path: '/admin/system-status', id: 'systemStatus', label: 'System Status', icon: Activity },

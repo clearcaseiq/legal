@@ -62,8 +62,27 @@ model User {
   intakeLeads                IntakeLead[]
   passwordResetTokens        PasswordResetToken[]
   emailVerificationTokens    EmailVerificationToken[]
+  blogPosts                  BlogPost[]
 
   @@map("users")
+}
+
+/// Public marketing posts authored in Admin → Blog. Drafts stay off /blog until published.
+model BlogPost {
+  id          String    @id @default(cuid())
+  slug        String    @unique
+  title       String
+  excerpt     String    @default("")
+  body        String
+  published   Boolean   @default(false)
+  publishedAt DateTime?
+  authorId    String?
+  author      User?     @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([published, publishedAt])
+  @@map("blog_posts")
 }
 
 // Single-use, expiring tokens for the password reset / "set password" flow.

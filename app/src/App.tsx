@@ -215,6 +215,10 @@ const AdminAnalytics = lazy(() => import('./pages/admin/AdminAnalytics'))
 const AdminAuditLogs = lazy(() => import('./pages/admin/AdminAuditLogs'))
 const AdminSystemStatus = lazy(() => import('./pages/admin/AdminSystemStatus'))
 const AdminSettings = lazy(() => import('./pages/admin/AdminSettings'))
+const AdminBlog = lazy(() => import('./pages/admin/AdminBlog'))
+const AdminBlogEditor = lazy(() => import('./pages/admin/AdminBlogEditor'))
+const BlogIndex = lazy(() => import('./pages/BlogIndex'))
+const BlogPostPage = lazy(() => import('./pages/BlogPost'))
 const About = dynamic(() => import('./pages/About'), { ssr: true })
 const PressPage = dynamic(() => import('./pages/PressPage'), { ssr: true })
 const InsightsPage = dynamic(() => import('./pages/InsightsPage'), { ssr: true })
@@ -485,6 +489,9 @@ function App() {
                 <Route path="system-status" element={<AdminSystemStatus />} />
                 <Route path="compliance" element={<ComplianceAdmin />} />
                 <Route path="settings" element={<AdminSettings />} />
+                <Route path="blog" element={<AdminBlog />} />
+                <Route path="blog/new" element={<AdminBlogEditor />} />
+                <Route path="blog/:id" element={<AdminBlogEditor />} />
                 <Route path="users" element={<AdminUserRoles />} />
                 <Route path="feature-toggles" element={<AdminFeatureToggles />} />
                 <Route path="firm-settings" element={<AdminFirmSettings />} />
@@ -503,6 +510,8 @@ function App() {
             <Route path="/about" element={<About />} />
             <Route path="/press" element={<PressPage />} />
             <Route path="/insights" element={<InsightsPage />} />
+            <Route path="/blog" element={<BlogIndex />} />
+            <Route path="/blog/:slug" element={<BlogPostPage />} />
             <Route path="/partners/badge" element={<PartnerBadgePage />} />
             <Route path="/help" element={<Help />} />
             <Route path="/contact" element={<Contact />} />

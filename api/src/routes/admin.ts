@@ -10,6 +10,7 @@ import users from './admin-users'
 import cases from './admin-cases'
 import attorneys from './admin-attorneys'
 import caseResults from './admin-case-results'
+import blog from './admin-blog'
 import docs from './admin-docs'
 
 const router: ExpressRouter = Router()
@@ -21,6 +22,7 @@ router.use(users)
 router.use(cases)
 router.use(attorneys)
 router.use(caseResults)
+router.use(blog)
 router.use(docs)
 
 export default router

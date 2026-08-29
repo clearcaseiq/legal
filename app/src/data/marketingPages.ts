@@ -89,6 +89,14 @@ export const marketingPages: MarketingPage[] = [
     serverRender: true,
   },
   {
+    path: '/blog',
+    title: 'Blog | ClearCaseIQ',
+    description:
+      'ClearCaseIQ blog: California injury claim education, case readiness, and platform notes. Not legal advice.',
+    serverRender: false,
+    contentUpdated: '2026-08-29',
+  },
+  {
     path: '/partners/badge',
     title: 'Partner Badge | ClearCaseIQ',
     description:

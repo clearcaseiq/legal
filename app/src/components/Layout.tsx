@@ -66,6 +66,7 @@ const MOBILE_ASSESSMENT_CTA_ROUTES = new Set<string>([
   '/about',
   '/press',
   '/insights',
+  '/blog',
   '/partners/badge',
   '/tools/california-sol-checker',
   '/tools/medical-records-checklist',
@@ -245,7 +246,9 @@ export default function Layout({ children }: LayoutProps) {
       location.pathname.startsWith('/login'))
   // Show the mobile Start Assessment bar on informational claimant pages so the
   // primary CTA is always one tap away (it lives in the hamburger otherwise).
-  const showMobileAssessmentCta = isClaimantRoute && MOBILE_ASSESSMENT_CTA_ROUTES.has(location.pathname)
+  const showMobileAssessmentCta =
+    isClaimantRoute &&
+    (MOBILE_ASSESSMENT_CTA_ROUTES.has(location.pathname) || location.pathname.startsWith('/blog/'))
   // Home has its own scroll-aware sticky CTA; lift the chat launcher on mobile
   // wherever a bottom CTA bar can appear so the two don't overlap.
   const raiseChatLauncher = isClaimantRoute && (showMobileAssessmentCta || location.pathname === navLinks.home)
@@ -975,6 +978,7 @@ export default function Layout({ children }: LayoutProps) {
                 <li><Link to="/attorneys" className="text-slate-400 transition-colors hover:text-white">Attorney directory</Link></li>
                 <li><Link to="/tools/california-sol-checker" className="text-slate-400 transition-colors hover:text-white">SOL checker</Link></li>
                 <li><Link to="/tools/medical-records-checklist" className="text-slate-400 transition-colors hover:text-white">Records checklist</Link></li>
+                <li><Link to="/blog" className="text-slate-400 transition-colors hover:text-white">Blog</Link></li>
                 <li><Link to="/insights" className="text-slate-400 transition-colors hover:text-white">Insights</Link></li>
                 <li><Link to="/press" className="text-slate-400 transition-colors hover:text-white">Press</Link></li>
                 <li><Link to={navLinks.helpResolve} className="text-slate-400 transition-colors hover:text-white">{t('footer.support')}</Link></li>
