@@ -87,35 +87,45 @@ async function upsertLeadSubmission(
   const scores = getLeadScores(prediction)
   const evidenceChecklist = JSON.stringify({ required: [] })
 
+  const existing = await prisma.leadSubmission.findUnique({
+    where: { assessmentId },
+    select: { routingLocked: true, assignedAttorneyId: true },
+  })
+
+  // Routing a case offers it; it does not claim it. `routingLocked` is what
+  // "an attorney accepted this" means everywhere else — the accept path sets it
+  // alongside the assignee, and the decision endpoint and the payment guard both
+  // read it to refuse a case that is genuinely gone. Setting it here told every
+  // attorney an admin routed to, except whichever one this loop wrote last, that
+  // the case was already taken, while still showing them a running clock and an
+  // Accept button (CP-812).
+  const claimed = !!existing?.routingLocked && !!existing.assignedAttorneyId
+
+  const scoreFields = {
+    viabilityScore: scores.viabilityScore,
+    liabilityScore: scores.liabilityScore,
+    causationScore: scores.causationScore,
+    damagesScore: scores.damagesScore,
+    evidenceChecklist,
+    sourceType: 'admin',
+    status: 'submitted',
+  }
+
   await prisma.leadSubmission.upsert({
     where: { assessmentId },
     create: {
       assessmentId,
-      viabilityScore: scores.viabilityScore,
-      liabilityScore: scores.liabilityScore,
-      causationScore: scores.causationScore,
-      damagesScore: scores.damagesScore,
-      evidenceChecklist,
+      ...scoreFields,
       isExclusive: true,
-      sourceType: 'admin',
       assignedAttorneyId: attorneyId,
       assignmentType: 'exclusive',
-      routingLocked: true,
-      status: 'submitted'
+      routingLocked: false,
     },
-    update: {
-      viabilityScore: scores.viabilityScore,
-      liabilityScore: scores.liabilityScore,
-      causationScore: scores.causationScore,
-      damagesScore: scores.damagesScore,
-      evidenceChecklist,
-      isExclusive: true,
-      sourceType: 'admin',
-      assignedAttorneyId: attorneyId,
-      assignmentType: 'exclusive',
-      routingLocked: true,
-      status: 'submitted'
-    }
+    // Re-routing never reopens a case an attorney already holds: leave their
+    // claim, and the assignment it rests on, exactly as the accept left it.
+    update: claimed
+      ? scoreFields
+      : { ...scoreFields, isExclusive: true, assignedAttorneyId: attorneyId, assignmentType: 'exclusive' },
   })
 }
 

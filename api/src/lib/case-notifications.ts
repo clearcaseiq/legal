@@ -40,10 +40,20 @@ function formatCurrency(n: number): string {
   return `$${n.toLocaleString()}`
 }
 
+/**
+ * The login account behind an email, for notifications that need a `User`.
+ *
+ * Matched case-insensitively because nothing normalizes the column: signup
+ * stores an address exactly as it was typed, and an attorney record is entered
+ * separately by staff. When those two differed only in capitalization, this
+ * returned null and every in-app notification for that attorney was silently
+ * dropped — email and SMS kept arriving, because they address `attorney.email`
+ * directly and never come through here (CP-813).
+ */
 async function findUserByEmail(email?: string | null) {
   if (!email) return null
   return prisma.user.findFirst({
-    where: { email },
+    where: { email: { equals: email, mode: 'insensitive' } },
     select: { id: true, email: true }
   })
 }
@@ -78,7 +88,14 @@ export async function notifyAttorneyInApp(input: {
         select: { email: true },
       })
       const user = await findUserByEmail(attorney?.email)
-      if (!user) return false
+      if (!user) {
+        logger.warn('No login account for attorney; in-app notification skipped', {
+          attorneyId: input.attorneyId,
+          eventType: input.eventType,
+          attorneyEmail: attorney?.email,
+        })
+        return false
+      }
       userId = user.id
       email = user.email
     }
@@ -307,6 +324,14 @@ export async function sendCaseOfferToAttorney(
         }
       })
       inPlatformSent = true
+    } else {
+      // The bell is keyed on a User id, so an attorney with no login account
+      // cannot receive one. Say so: this branch used to fall through in silence,
+      // leaving an attorney who got the email wondering why the bell was empty.
+      logger.warn('No login account for attorney; in-app notification skipped', {
+        attorneyId,
+        attorneyEmail: attorney.email,
+      })
     }
   } catch (err: unknown) {
     logger.error('Failed to create in-platform notification', { attorneyId, error: (err as Error).message })

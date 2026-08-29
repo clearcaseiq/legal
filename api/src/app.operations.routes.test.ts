@@ -1370,6 +1370,74 @@ describe('HTTP operations regressions', () => {
     expect(prisma.leadSubmission.upsert).toHaveBeenCalledTimes(1)
   })
 
+  // Routing offers a case; only an accept claims it. Locking here told every
+  // other attorney the admin routed to that the case was already assigned, while
+  // still showing them a running clock and an Accept button.
+  it('POST /v1/admin/cases/route offers the case without claiming it', async () => {
+    vi.mocked(prisma.attorney.findUnique).mockResolvedValue({
+      id: 'attorney-record-1',
+      isActive: true,
+      isVerified: true,
+      specialties: JSON.stringify(['auto']),
+      attorneyProfile: {},
+    } as any)
+    vi.mocked(prisma.assessment.findMany).mockResolvedValue([
+      { id: 'asm-new', predictions: [{ viability: JSON.stringify({ overall: 0.81 }) }] },
+    ] as any)
+    vi.mocked(prisma.introduction.findMany).mockResolvedValue([] as any)
+    vi.mocked(prisma.introduction.create).mockResolvedValue({
+      id: 'intro-new-1',
+      assessmentId: 'asm-new',
+      attorneyId: 'attorney-record-1',
+      status: 'PENDING',
+    } as any)
+    vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValue(null as any)
+
+    await request(app)
+      .post('/v1/admin/cases/route')
+      .set('Authorization', 'Bearer admin')
+      .send({ caseIds: ['asm-new'], attorneyId: 'attorney-record-1' })
+      .expect(200)
+
+    const upsert = vi.mocked(prisma.leadSubmission.upsert).mock.calls[0]?.[0] as any
+    expect(upsert.create).toMatchObject({ routingLocked: false })
+    expect(upsert.update).not.toHaveProperty('routingLocked')
+  })
+
+  it('POST /v1/admin/cases/route leaves an accepted case with the attorney holding it', async () => {
+    vi.mocked(prisma.attorney.findUnique).mockResolvedValue({
+      id: 'attorney-record-2',
+      isActive: true,
+      isVerified: true,
+      specialties: JSON.stringify(['auto']),
+      attorneyProfile: {},
+    } as any)
+    vi.mocked(prisma.assessment.findMany).mockResolvedValue([
+      { id: 'asm-held', predictions: [{ viability: JSON.stringify({ overall: 0.7 }) }] },
+    ] as any)
+    vi.mocked(prisma.introduction.findMany).mockResolvedValue([] as any)
+    vi.mocked(prisma.introduction.create).mockResolvedValue({
+      id: 'intro-2',
+      assessmentId: 'asm-held',
+      attorneyId: 'attorney-record-2',
+      status: 'PENDING',
+    } as any)
+    vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValue({
+      routingLocked: true,
+      assignedAttorneyId: 'attorney-who-accepted',
+    } as any)
+
+    await request(app)
+      .post('/v1/admin/cases/route')
+      .set('Authorization', 'Bearer admin')
+      .send({ caseIds: ['asm-held'], attorneyId: 'attorney-record-2' })
+      .expect(200)
+
+    const upsert = vi.mocked(prisma.leadSubmission.upsert).mock.calls[0]?.[0] as any
+    expect(upsert.update).not.toHaveProperty('assignedAttorneyId')
+    expect(upsert.update).not.toHaveProperty('routingLocked')
+  })
+
   it('POST /v1/admin/cases/escalate-due batches unique due assessments', async () => {
     vi.mocked(prisma.routingWave.findMany).mockResolvedValue([
       { assessmentId: 'asm-1' },
