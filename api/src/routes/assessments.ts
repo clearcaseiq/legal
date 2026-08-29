@@ -22,6 +22,7 @@ import {
   requireVerifiedEmailMiddleware,
   isGuestCaseUserEmail,
 } from '../lib/client-consent-guard'
+import { assessmentContactEmails, isTransferableCaseOwner } from '../lib/guest-case-adoption'
 import { findOrCreateIntakeUser } from '../lib/intake-account'
 import { analyzeCaseWithChatGPT, CaseAnalysisRequest } from '../services/chatgpt'
 import { startAssessmentRouting } from '../lib/assessment-routing'
@@ -1425,20 +1426,40 @@ router.post('/associate', authMiddleware, async (req: AuthRequest, res) => {
       select: {
         id: true,
         userId: true,
+        facts: true,
         user: {
           select: {
             email: true,
+            passwordHash: true,
+            provider: true,
           },
         },
       },
     })
 
-    const transferableAssessmentIds = candidates
-      .filter((assessment) => {
-        if (!assessment.userId) return true
-        return isGuestCaseUserEmail(assessment.user?.email || '')
-      })
-      .map((assessment) => assessment.id)
+    const callerEmail = req.user!.email?.trim().toLowerCase() || ''
+    const transferableAssessmentIds: string[] = []
+    for (const assessment of candidates) {
+      if (!isTransferableCaseOwner(assessment.userId ? assessment.user : null)) continue
+
+      // Holding an id is not evidence the case is yours. Ids travel — through
+      // URLs, the `?case=` param, shared links — and the caller simply names
+      // them in the request body, so this endpoint would hand any unclaimed case
+      // to whoever asked for it by id. The submitter's own address is the check
+      // the id cannot stand in for. A case that recorded no address is genuinely
+      // anonymous: there is no one it could belong to instead, and possession
+      // stays the only signal it will ever have (CP-815).
+      const contactEmails = await assessmentContactEmails(assessment.id, assessment.facts)
+      if (contactEmails.length > 0 && !contactEmails.includes(callerEmail)) {
+        logger.warn('Refused to associate a case submitted under another address', {
+          assessmentId: assessment.id,
+          userId: req.user!.id,
+        })
+        continue
+      }
+
+      transferableAssessmentIds.push(assessment.id)
+    }
 
     const updatedAssessments = transferableAssessmentIds.length > 0
       ? await prisma.assessment.updateMany({
@@ -1482,10 +1503,15 @@ router.post('/associate', authMiddleware, async (req: AuthRequest, res) => {
 /**
  * Claim a case from an emailed "claim your case" link.
  *
- * The signed token names one assessment. We transfer it to the now-authenticated
- * user under the same rule as `/associate` — only unowned or synthetic
- * guest-owned cases move — so a stale/forwarded link can never capture a case
- * already belonging to a real account.
+ * The signed token names one assessment, and it was delivered to the address the
+ * case was submitted under, so clicking it proves control of that inbox. That is
+ * why this route asks nothing about the caller's own address, where `/associate`
+ * must: the link is the evidence, and requiring the two addresses to match would
+ * lock out the very case this link exists to hand back — one submitted under an
+ * address the person then did not sign up with.
+ *
+ * A case held by a real account still never moves, so a stale or forwarded link
+ * cannot capture one.
  */
 router.post('/claim', authMiddleware, async (req: AuthRequest, res) => {
   try {
@@ -1499,7 +1525,12 @@ router.post('/claim', authMiddleware, async (req: AuthRequest, res) => {
 
     const assessment = await prisma.assessment.findUnique({
       where: { id: assessmentId },
-      select: { id: true, userId: true, referenceCode: true, user: { select: { email: true } } },
+      select: {
+        id: true,
+        userId: true,
+        referenceCode: true,
+        user: { select: { email: true, passwordHash: true, provider: true } },
+      },
     })
     if (!assessment) return res.status(404).json({ error: 'Case not found' })
 
@@ -1509,8 +1540,7 @@ router.post('/claim', authMiddleware, async (req: AuthRequest, res) => {
       return res.json({ claimed: true, assessmentId, reference_code: assessment.referenceCode })
     }
 
-    const transferable = !assessment.userId || isGuestCaseUserEmail(assessment.user?.email || '')
-    if (!transferable) {
+    if (!isTransferableCaseOwner(assessment.userId ? assessment.user : null)) {
       return res.status(409).json({ error: 'This case is already linked to another account.' })
     }
 

@@ -34,6 +34,52 @@ function contactEmailFromFacts(rawFacts: string | null | undefined): string | nu
   }
 }
 
+/**
+ * Whether a case's current owner is one it may be moved off.
+ *
+ * Three owners mean nobody has yet proven the case is theirs: no owner at all,
+ * the synthetic `guest+<id>@caseiq.local` shadow user evidence upload creates,
+ * and the provisional passwordless account intake provisions from an address
+ * typed into the wizard. Registration already treats that third kind as
+ * claimable, upgrading it in place rather than refusing it as a duplicate, and
+ * leaving it out here stranded anyone who submitted under one address and then
+ * signed up with another. A password-backed or OAuth account is someone who has
+ * proven who they are, and its cases never move.
+ */
+export function isTransferableCaseOwner(
+  owner: { email?: string | null; passwordHash?: string | null; provider?: string | null } | null | undefined
+): boolean {
+  if (!owner) return true
+  if (isGuestCaseUserEmail(owner.email || '')) return true
+  return !owner.passwordHash && owner.provider === 'intake'
+}
+
+/**
+ * Every address on record as the submitter's, lowercased.
+ *
+ * The case itself only carries one, inside the `facts` blob, and only from
+ * submit onwards. The intake lead holds the address from the moment it was
+ * typed, so it is the copy that exists for a case abandoned before submit.
+ * An empty result means the case is genuinely anonymous rather than that it
+ * belongs to nobody in particular.
+ */
+export async function assessmentContactEmails(
+  assessmentId: string,
+  facts: string | null | undefined
+): Promise<string[]> {
+  const emails = new Set<string>()
+  const fromFacts = contactEmailFromFacts(facts)
+  if (fromFacts) emails.add(fromFacts)
+
+  const lead = await prisma.intakeLead
+    .findUnique({ where: { assessmentId }, select: { email: true } })
+    .catch(() => null)
+  const fromLead = lead?.email?.trim().toLowerCase()
+  if (fromLead) emails.add(fromLead)
+
+  return [...emails]
+}
+
 export interface AdoptGuestCasesResult {
   adoptedCount: number
   assessmentIds: string[]

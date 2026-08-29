@@ -261,6 +261,96 @@ describe('HTTP operations regressions', () => {
     })
   })
 
+  // The caller names the ids in the request body, and ids travel through URLs,
+  // the ?case= param and shared links. Without this the endpoint hands any
+  // unclaimed case to whoever asks for it by id.
+  it('POST /v1/assessments/associate refuses a case submitted under another address', async () => {
+    vi.mocked(prisma.assessment.findMany).mockResolvedValue([
+      {
+        id: 'asm-someone-else',
+        userId: null,
+        user: null,
+        facts: JSON.stringify({ plaintiffContext: { email: 'victim@example.com' } }),
+      },
+    ] as any)
+    vi.mocked(prisma.intakeLead.findUnique).mockResolvedValue(null as any)
+
+    const res = await request(app)
+      .post('/v1/assessments/associate')
+      .set('Authorization', 'Bearer plaintiff')
+      .send({ assessmentIds: ['asm-someone-else'] })
+      .expect(200)
+
+    expect(prisma.assessment.updateMany).not.toHaveBeenCalled()
+    expect(prisma.evidenceFile.updateMany).not.toHaveBeenCalled()
+    expect(res.body).toMatchObject({ updatedCount: 0 })
+  })
+
+  it('POST /v1/assessments/associate takes a case submitted under the caller own address', async () => {
+    vi.mocked(prisma.assessment.findMany).mockResolvedValue([
+      {
+        id: 'asm-mine',
+        userId: null,
+        user: null,
+        facts: JSON.stringify({ plaintiffContext: { email: 'Plaintiff@Example.com' } }),
+      },
+    ] as any)
+    vi.mocked(prisma.intakeLead.findUnique).mockResolvedValue(null as any)
+    vi.mocked(prisma.assessment.updateMany).mockResolvedValue({ count: 1 } as any)
+    vi.mocked(prisma.evidenceFile.updateMany).mockResolvedValue({ count: 0 } as any)
+
+    const res = await request(app)
+      .post('/v1/assessments/associate')
+      .set('Authorization', 'Bearer plaintiff')
+      .send({ assessmentIds: ['asm-mine'] })
+      .expect(200)
+
+    expect(res.body).toMatchObject({ updatedCount: 1 })
+  })
+
+  // The address typed into the wizard is on the lead even when the person
+  // stopped before submit wrote it onto the case.
+  it('POST /v1/assessments/associate matches the address recorded on the intake lead', async () => {
+    vi.mocked(prisma.assessment.findMany).mockResolvedValue([
+      { id: 'asm-draft', userId: null, user: null, facts: null },
+    ] as any)
+    vi.mocked(prisma.intakeLead.findUnique).mockResolvedValue({ email: 'someone@example.com' } as any)
+
+    const res = await request(app)
+      .post('/v1/assessments/associate')
+      .set('Authorization', 'Bearer plaintiff')
+      .send({ assessmentIds: ['asm-draft'] })
+      .expect(200)
+
+    expect(prisma.assessment.updateMany).not.toHaveBeenCalled()
+    expect(res.body).toMatchObject({ updatedCount: 0 })
+  })
+
+  // Submitting now parks the case on a provisional passwordless account, which
+  // is not a claim by anyone: registration upgrades that row in place. Treating
+  // it as owned locked people out of their own case.
+  it('POST /v1/assessments/associate takes a case parked on a provisional account', async () => {
+    vi.mocked(prisma.assessment.findMany).mockResolvedValue([
+      {
+        id: 'asm-provisional',
+        userId: 'provisional-1',
+        user: { email: 'plaintiff@example.com', passwordHash: null, provider: 'intake' },
+        facts: JSON.stringify({ plaintiffContext: { email: 'plaintiff@example.com' } }),
+      },
+    ] as any)
+    vi.mocked(prisma.intakeLead.findUnique).mockResolvedValue(null as any)
+    vi.mocked(prisma.assessment.updateMany).mockResolvedValue({ count: 1 } as any)
+    vi.mocked(prisma.evidenceFile.updateMany).mockResolvedValue({ count: 0 } as any)
+
+    const res = await request(app)
+      .post('/v1/assessments/associate')
+      .set('Authorization', 'Bearer plaintiff')
+      .send({ assessmentIds: ['asm-provisional'] })
+      .expect(200)
+
+    expect(res.body).toMatchObject({ updatedCount: 1 })
+  })
+
   it('GET /v1/admin/stats rejects non-admin users', async () => {
     const res = await request(app)
       .get('/v1/admin/stats')
