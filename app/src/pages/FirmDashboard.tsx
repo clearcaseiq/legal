@@ -66,6 +66,8 @@ import { formatCurrency } from '../lib/formatters'
 import { formatClaimType } from '../lib/claimTypes'
 import { US_STATES } from '../lib/constants'
 import { StateMultiSelect } from '../components/StateMultiSelect'
+import { CountyCoverageEditor } from '../components/CountyCoverageEditor'
+import { buildAttorneyJurisdictions, readAttorneyCounties, type CountiesByState } from '../lib/attorneyJurisdictions'
 import { invalidateFirmDashboardSummary, useFirmDashboardSummary } from '../hooks/useFirmDashboardSummary'
 import { FirmTemplatesTab } from '../features/firm/FirmTemplatesTab'
 import { FirmWorkflowsTab } from '../features/firm/FirmWorkflowsTab'
@@ -389,7 +391,7 @@ export default function FirmDashboard() {
   const [adding, setAdding] = useState(false)
   const [addError, setAddError] = useState<string | null>(null)
   const [addSuccess, setAddSuccess] = useState<string | null>(null)
-  const [newAttorney, setNewAttorney] = useState({ firstName: '', middleName: '', lastName: '', email: '', specialties: [] as string[], jurisdictions: [] as string[], officeId: '' })
+  const [newAttorney, setNewAttorney] = useState({ firstName: '', middleName: '', lastName: '', email: '', specialties: [] as string[], jurisdictions: [] as string[], counties: {} as CountiesByState, officeId: '' })
   const [newMember, setNewMember] = useState({ firstName: '', lastName: '', email: '', role: 'case_manager', title: '', officeId: '' })
   const [memberOfficeSavingId, setMemberOfficeSavingId] = useState<string | null>(null)
   const [resendingMemberId, setResendingMemberId] = useState<string | null>(null)
@@ -429,7 +431,7 @@ export default function FirmDashboard() {
   const [editingAttorneyId, setEditingAttorneyId] = useState<string | null>(null)
   const [editError, setEditError] = useState<string | null>(null)
   const [editSaving, setEditSaving] = useState(false)
-  const [editAttorney, setEditAttorney] = useState({ firstName: '', middleName: '', lastName: '', specialties: [] as string[], jurisdictions: [] as string[] })
+  const [editAttorney, setEditAttorney] = useState({ firstName: '', middleName: '', lastName: '', specialties: [] as string[], jurisdictions: [] as string[], counties: {} as CountiesByState })
 
   // Member permissions editor state
   const [editingMember, setEditingMember] = useState<any>(null)
@@ -561,6 +563,7 @@ export default function FirmDashboard() {
       lastName: nameParts.length > 1 ? nameParts[nameParts.length - 1] : '',
       specialties: Array.isArray(attorney.specialties) ? attorney.specialties : [],
       jurisdictions: Array.isArray(attorney.jurisdictions) ? attorney.jurisdictions.map((j) => j.state) : [],
+      counties: readAttorneyCounties(attorney.jurisdictions),
     })
   }
 
@@ -577,7 +580,7 @@ export default function FirmDashboard() {
         lastName: editAttorney.lastName.trim() || undefined,
         specialties: editAttorney.specialties,
         venues: editAttorney.jurisdictions,
-        jurisdictions: editAttorney.jurisdictions.map((state) => ({ state })),
+        jurisdictions: buildAttorneyJurisdictions(editAttorney.jurisdictions, editAttorney.counties),
       })
       setEditingAttorneyId(null)
       invalidateFirmDashboardSummary()
@@ -605,7 +608,7 @@ export default function FirmDashboard() {
         lastName: newAttorney.lastName.trim() || undefined,
         specialties: newAttorney.specialties,
         venues: newAttorney.jurisdictions,
-        jurisdictions: newAttorney.jurisdictions.map((state) => ({ state })),
+        jurisdictions: buildAttorneyJurisdictions(newAttorney.jurisdictions, newAttorney.counties),
         officeId: newAttorney.officeId || undefined,
       })
       setAddSuccess(
@@ -613,7 +616,7 @@ export default function FirmDashboard() {
           ? 'Attorney added, but the invitation email could not be delivered. Ask them to use “Forgot password” to set their password.'
           : 'Attorney added to firm. An invitation email is on its way.',
       )
-      setNewAttorney({ firstName: '', middleName: '', lastName: '', email: '', specialties: [], jurisdictions: [], officeId: '' })
+      setNewAttorney({ firstName: '', middleName: '', lastName: '', email: '', specialties: [], jurisdictions: [], counties: {}, officeId: '' })
       invalidateFirmDashboardSummary()
     } catch (err: any) {
       setAddError(err.response?.data?.error || 'Failed to add attorney.')
@@ -1970,6 +1973,16 @@ export default function FirmDashboard() {
               />
             </div>
                 <div>
+                  <label className="mb-2 block text-sm font-medium text-slate-700">
+                    Counties <span className="ml-2 text-xs font-normal text-slate-500">Optional — leave a state open to cover all of it</span>
+                  </label>
+                  <CountyCoverageEditor
+                    states={newAttorney.jurisdictions}
+                    value={newAttorney.counties}
+                    onChange={(next) => setNewAttorney((prev) => ({ ...prev, counties: next }))}
+                  />
+                </div>
+                <div>
                   <label className="mb-2 block text-sm font-medium text-slate-700">Office</label>
                   <select value={newAttorney.officeId} onChange={(e) => setNewAttorney({ ...newAttorney, officeId: e.target.value })} className={inputCls}>
                     <option value="">No Office (unassigned)</option>
@@ -2677,6 +2690,16 @@ export default function FirmDashboard() {
                 <StateMultiSelect
                   value={editAttorney.jurisdictions}
                   onChange={(next) => setEditAttorney((prev) => ({ ...prev, jurisdictions: next }))}
+                />
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">
+                  Counties <span className="ml-2 text-xs font-normal text-slate-500">Optional — leave a state open to cover all of it</span>
+                </label>
+                <CountyCoverageEditor
+                  states={editAttorney.jurisdictions}
+                  value={editAttorney.counties}
+                  onChange={(next) => setEditAttorney((prev) => ({ ...prev, counties: next }))}
                 />
               </div>
               {editError && <p className="text-sm text-red-600">{editError}</p>}

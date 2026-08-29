@@ -23,6 +23,7 @@ import {
 import { respondESignError } from '../lib/esign/http'
 import { resolveTemplateTokens, fillTemplateTokens, renderTemplateBodyPdf } from '../lib/esign/firm-template-doc'
 import { applyFirmWorkflowToCase } from '../lib/case-workflow'
+import { normalizeJurisdictionInput } from '../lib/jurisdictions'
 import { AI_SIGNALS, CONDITION_FIELDS, CONDITION_OPS, isValidAiSignal } from '../lib/workflow-signals'
 import {
   TIME_ROLES,
@@ -671,11 +672,13 @@ router.post('/members', authMiddleware as any, async (req: any, res: Response) =
             }
           })
 
+      const memberJurisdictions = JSON.stringify(normalizeJurisdictionInput(jurisdictions))
+
       await prisma.attorneyProfile.upsert({
         where: { attorneyId: attorney.id },
         update: {
           specialties: JSON.stringify(parsedSpecialties),
-          jurisdictions: JSON.stringify(Array.isArray(jurisdictions) ? jurisdictions : [])
+          jurisdictions: memberJurisdictions
         },
         create: {
           attorneyId: attorney.id,
@@ -690,7 +693,7 @@ router.post('/members', authMiddleware as any, async (req: any, res: Response) =
           verifiedVerdicts: JSON.stringify([]),
           totalReviews: 0,
           averageRating: 0,
-          jurisdictions: JSON.stringify(Array.isArray(jurisdictions) ? jurisdictions : [])
+          jurisdictions: memberJurisdictions
         }
       })
     }
@@ -1545,9 +1548,9 @@ router.post('/attorneys', authMiddleware as any, async (req: any, res: Response)
     const parsedVenues = Array.isArray(venues)
       ? venues.filter((item: any) => typeof item === 'string' && item.trim())
       : []
-    const parsedJurisdictions = Array.isArray(jurisdictions)
-      ? jurisdictions.filter((item: any) => item && typeof item.state === 'string' && item.state.trim())
-      : parsedVenues.map((state: string) => ({ state }))
+    const parsedJurisdictions = normalizeJurisdictionInput(
+      Array.isArray(jurisdictions) ? jurisdictions : parsedVenues.map((state: string) => ({ state }))
+    )
 
     if (parsedSpecialties.length === 0) {
       return res.status(400).json({ error: 'At least one specialty is required' })
@@ -1745,9 +1748,9 @@ router.put('/attorneys/:attorneyId', authMiddleware as any, async (req: any, res
     const parsedVenues = Array.isArray(venues)
       ? venues.filter((item: any) => typeof item === 'string' && item.trim())
       : []
-    const parsedJurisdictions = Array.isArray(jurisdictions)
-      ? jurisdictions.filter((item: any) => item && typeof item.state === 'string' && item.state.trim())
-      : parsedVenues.map((state: string) => ({ state }))
+    const parsedJurisdictions = normalizeJurisdictionInput(
+      Array.isArray(jurisdictions) ? jurisdictions : parsedVenues.map((state: string) => ({ state }))
+    )
 
     if (parsedSpecialties.length === 0) {
       return res.status(400).json({ error: 'At least one specialty is required' })

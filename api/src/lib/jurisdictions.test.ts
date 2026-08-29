@@ -3,6 +3,7 @@ import {
   buildJurisdictions,
   mergeJurisdictions,
   mergeSerializedJurisdictions,
+  normalizeJurisdictionInput,
   parseJurisdictions,
   serializeJurisdictions,
 } from './jurisdictions'
@@ -56,6 +57,35 @@ describe('parseJurisdictions', () => {
     expect(parseJurisdictions('not json')).toEqual([])
     expect(parseJurisdictions('{"state":"CA"}')).toEqual([])
     expect(parseJurisdictions('[null,42,{"counties":["Orange"]}]')).toEqual([])
+  })
+})
+
+describe('normalizeJurisdictionInput', () => {
+  it('keeps the counties a form submits', () => {
+    expect(
+      normalizeJurisdictionInput([{ state: 'CA', counties: ['Los Angeles', 'Orange'] }])
+    ).toEqual([{ state: 'CA', counties: ['Los Angeles', 'Orange'] }])
+  })
+
+  it('treats a state with no counties as statewide rather than dropping it', () => {
+    expect(normalizeJurisdictionInput([{ state: 'CA' }])).toEqual([{ state: 'CA', counties: [] }])
+  })
+
+  it('strips non-string counties, which would otherwise throw inside routing', () => {
+    // checkAttorneyEligibility calls county.toLowerCase(); anything else throws
+    // in the try block and silently removes the attorney from every case.
+    expect(
+      normalizeJurisdictionInput([{ state: 'CA', counties: ['Orange', 42, null, { a: 1 }] }])
+    ).toEqual([{ state: 'CA', counties: ['Orange'] }])
+  })
+
+  it('ignores entries with no usable state', () => {
+    expect(normalizeJurisdictionInput([null, 'CA', { counties: ['Orange'] }, { state: '  ' }])).toEqual([])
+  })
+
+  it('returns nothing for a non-array body', () => {
+    expect(normalizeJurisdictionInput(undefined)).toEqual([])
+    expect(normalizeJurisdictionInput('CA')).toEqual([])
   })
 })
 

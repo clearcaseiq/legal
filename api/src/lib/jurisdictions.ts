@@ -30,12 +30,17 @@ function normalizeState(value: string | null | undefined): string | null {
   return state.length > 0 ? state : null
 }
 
-function normalizeList(values: readonly (string | null | undefined)[] | null | undefined): string[] {
+// Drops anything that is not a string rather than coercing it. Coercion turned
+// a stray object in a request body into the county "[object Object]", which
+// stores cleanly and then matches nothing — a silent narrowing of coverage that
+// looks like valid data on inspection.
+function normalizeList(values: readonly unknown[] | null | undefined): string[] {
   if (!values) return []
   const seen = new Set<string>()
   const result: string[] = []
   for (const value of values) {
-    const trimmed = String(value ?? '').trim()
+    if (typeof value !== 'string') continue
+    const trimmed = value.trim()
     if (!trimmed) continue
     const key = trimmed.toLowerCase()
     if (seen.has(key)) continue
@@ -70,19 +75,20 @@ export function buildJurisdictions(input: {
   return [jurisdiction]
 }
 
-/** Parse the stored column, tolerating null, malformed JSON, and legacy shapes. */
-export function parseJurisdictions(raw: string | null | undefined): Jurisdiction[] {
-  if (!raw) return []
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(raw)
-  } catch {
-    return []
-  }
-  if (!Array.isArray(parsed)) return []
+/**
+ * Coerce an already-decoded jurisdictions array into the canonical shape.
+ *
+ * Use this on request bodies. Entries without a usable state are dropped, and
+ * counties are reduced to trimmed, de-duplicated strings — routing calls
+ * `.toLowerCase()` on each county, so a number or object in that array throws
+ * inside the guard that reads this column, which silently removes the attorney
+ * from every case rather than reporting a malformed profile.
+ */
+export function normalizeJurisdictionInput(value: unknown): Jurisdiction[] {
+  if (!Array.isArray(value)) return []
 
   const result: Jurisdiction[] = []
-  for (const entry of parsed) {
+  for (const entry of value) {
     if (!entry || typeof entry !== 'object') continue
     const record = entry as Record<string, unknown>
     const state = normalizeState(typeof record.state === 'string' ? record.state : null)
@@ -98,6 +104,16 @@ export function parseJurisdictions(raw: string | null | undefined): Jurisdiction
     result.push(jurisdiction)
   }
   return result
+}
+
+/** Parse the stored column, tolerating null, malformed JSON, and legacy shapes. */
+export function parseJurisdictions(raw: string | null | undefined): Jurisdiction[] {
+  if (!raw) return []
+  try {
+    return normalizeJurisdictionInput(JSON.parse(raw))
+  } catch {
+    return []
+  }
 }
 
 /**
