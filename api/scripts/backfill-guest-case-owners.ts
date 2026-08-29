@@ -64,27 +64,51 @@ async function main() {
       continue
     }
 
+    // Only an account that already exists. The script never creates one: a case
+    // whose submitter never came back has nowhere to go, and inventing an
+    // account would email a stranger about a case they cannot see.
+    const selectOwner = { id: true, email: true, emailVerified: true, passwordHash: true }
+
     const email = contactEmailFromFacts(assessment.facts)
-    if (!email) {
-      noEmail++
+    let owner = email
+      ? await prisma.user.findUnique({ where: { email }, select: selectOwner })
+      : null
+    let via = 'facts email'
+
+    // The wizard mirrors contact details to an intake lead and provisions the
+    // passwordless account from there, recording both the account and the
+    // assessment on that row. That link is what should have been copied onto the
+    // case in the first place, and it survives the cases the facts blob misses:
+    // an email captured mid-wizard is on the lead even when the person stopped
+    // before submit enriched plaintiffContext.
+    if (!owner) {
+      const lead = await prisma.intakeLead.findUnique({
+        where: { assessmentId: assessment.id },
+        select: { user: { select: selectOwner } },
+      })
+      if (lead?.user) {
+        owner = lead.user
+        via = 'intake lead'
+      }
+    }
+
+    if (!owner) {
+      if (email) noAccount++
+      else noEmail++
       continue
     }
 
-    // Only an account that already exists for this address. The script never
-    // creates one: a case whose submitter never came back has nowhere to go, and
-    // inventing an account would email a stranger about a case they cannot see.
-    const owner = await prisma.user.findUnique({
-      where: { email },
-      select: { id: true, email: true, emailVerified: true, passwordHash: true },
-    })
-    if (!owner) {
+    // A shadow user is what we are moving cases away from, so it can never be
+    // the destination — the lead could point at one if the address it captured
+    // was itself synthetic.
+    if (isGuestCaseUserEmail(owner.email)) {
       noAccount++
       continue
     }
 
     const label = assessment.referenceCode || assessment.id
     const status = owner.passwordHash ? 'active' : 'passwordless'
-    console.log(`  ${label} -> ${owner.email} (${status}, verified=${owner.emailVerified})`)
+    console.log(`  ${label} -> ${owner.email} (${status}, verified=${owner.emailVerified}, via ${via})`)
 
     if (APPLY) {
       await prisma.assessment.update({ where: { id: assessment.id }, data: { userId: owner.id } })
