@@ -22,6 +22,7 @@ import {
   requireVerifiedEmailMiddleware,
   isGuestCaseUserEmail,
 } from '../lib/client-consent-guard'
+import { findOrCreateIntakeUser } from '../lib/intake-account'
 import { analyzeCaseWithChatGPT, CaseAnalysisRequest } from '../services/chatgpt'
 import { startAssessmentRouting } from '../lib/assessment-routing'
 import { generateSceneImageForAssessment } from '../services/incident-scene'
@@ -1003,14 +1004,6 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
       return res.json({ ok: true, submitted: true, message: 'Case already submitted for review' })
     }
 
-    // Associate assessment with user when logged in (so it appears on their dashboard)
-    if (req.user) {
-      await prisma.assessment.updateMany({
-        where: { id, userId: null },
-        data: { userId: req.user.id }
-      })
-    }
-
     const facts = typeof assessment.facts === 'string' ? JSON.parse(assessment.facts) : (assessment.facts || {})
     const plaintiffContext = (facts.plaintiffContext || {}) as Record<string, unknown>
     if (firstName) plaintiffContext.firstName = firstName
@@ -1018,6 +1011,35 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
     if (phone) plaintiffContext.phone = phone
     if (preferredContactMethod) plaintiffContext.preferredContactMethod = preferredContactMethod
     facts.plaintiffContext = plaintiffContext
+
+    // Give the case an owner the submitter can actually sign in as.
+    //
+    // A guest submit left the case on nobody, or on the synthetic
+    // `guest+<id>@caseiq.local` shadow user that evidence upload creates, while
+    // intake separately provisioned a passwordless account under their real
+    // email. Setting a password on that account then produced a sign-in with an
+    // empty dashboard, because nothing ever joined the two rows (CP-811).
+    const contactEmail = (email || (plaintiffContext.email as string | undefined) || '').trim()
+    const contactPhone = (phone || (plaintiffContext.phone as string | undefined) || '').trim()
+    let caseOwnerUserId = req.user?.id ?? assessment.userId ?? null
+    if (!req.user && contactEmail) {
+      const intakeUser = await findOrCreateIntakeUser({ email: contactEmail, phone: contactPhone })
+      if (intakeUser) caseOwnerUserId = intakeUser.id
+    }
+    if (caseOwnerUserId && caseOwnerUserId !== assessment.userId) {
+      // Ownership moves off an absent or shadow owner only. A case already held
+      // by a real account stays put, the same rule `/associate` and `/claim` use,
+      // so submitting can never capture someone else's case.
+      const currentOwnerEmail = assessment.userId
+        ? (await prisma.user.findUnique({ where: { id: assessment.userId }, select: { email: true } }))?.email || ''
+        : ''
+      if (!assessment.userId || isGuestCaseUserEmail(currentOwnerEmail)) {
+        await prisma.assessment.update({ where: { id }, data: { userId: caseOwnerUserId } })
+        await prisma.evidenceFile.updateMany({ where: { assessmentId: id }, data: { userId: caseOwnerUserId } })
+      } else {
+        caseOwnerUserId = assessment.userId
+      }
+    }
     // Removals are recorded even when the slate ends up empty, so a plaintiff who
     // rejected everyone is not offered the same attorneys again.
     const plaintiffAttorneyPreferences =
@@ -1053,7 +1075,7 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
       // above — no version, hash, IP or timestamp.
       await recordShareAuthorization({
         assessmentId: id,
-        userId: req.user?.id ?? assessment.userId ?? null,
+        userId: caseOwnerUserId,
         attorneyIds: rankedAttorneyIds,
         context: 'case_submission',
         signatureMethod: 'clicked',

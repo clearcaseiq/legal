@@ -12,6 +12,7 @@ import { webUrl } from '../lib/app-url'
 import { UserRegister, UserLogin, UserUpdate, PasswordResetRequest, PasswordReset } from '../lib/validators'
 import { generateToken, authMiddleware, AuthRequest } from '../lib/auth'
 import { isAdminUser, resolveAdminCapabilities } from '../lib/admin-access'
+import { adoptGuestCasesByEmail } from '../lib/guest-case-adoption'
 import { sendClaimEmail } from '../lib/claims'
 import { permissionsForRole } from '../lib/firm-roles'
 
@@ -257,6 +258,15 @@ router.post('/login', async (req, res) => {
       data: { lastLoginAt: new Date() }
     })
 
+    // Catch any case still stranded on the guest shadow user — cases submitted
+    // before this account could adopt them at submit time, or by a claimant who
+    // reached the account through a route that skips the claim link. Gated on a
+    // verified email so an unverified signup cannot name a stranger's address
+    // and inherit their case.
+    if (user.emailVerified && !isAdminUser(user)) {
+      await adoptGuestCasesByEmail(user.id, user.email)
+    }
+
     // Generate token
     const token = generateToken(user.id)
 
@@ -383,7 +393,7 @@ router.post('/reset-password', async (req, res) => {
     const { token: rawToken, password } = parsed.data
     const record = await prisma.passwordResetToken.findUnique({
       where: { tokenHash: hashResetToken(rawToken) },
-      include: { user: { select: { role: true } } },
+      include: { user: { select: { role: true, email: true } } },
     })
 
     if (!record || record.usedAt || record.expiresAt < new Date()) {
@@ -423,6 +433,16 @@ router.post('/reset-password', async (req, res) => {
         userId: record.userId,
         error: activateErr instanceof Error ? activateErr.message : activateErr,
       })
+    }
+
+    // Setting a password through an emailed link is how most guests first get an
+    // account, and it reaches neither of the paths that attach a pre-account case
+    // (the `pending_assessment_id` in `localStorage` and the emailed claim link).
+    // Without this they signed in to an empty dashboard while their case sat on
+    // the guest shadow user. The transaction above just proved control of the
+    // inbox, which is the same authority the claim link runs on.
+    if (userRole === 'client') {
+      await adoptGuestCasesByEmail(record.userId, record.user.email)
     }
 
     logger.info('Password reset completed', { userId: record.userId })
