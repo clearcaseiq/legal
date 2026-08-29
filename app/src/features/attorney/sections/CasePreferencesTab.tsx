@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { CheckCircle, Clock, Filter, Gauge, Loader2, Wallet } from 'lucide-react'
+import { CheckCircle, Clock, Filter, Gauge, Loader2 } from 'lucide-react'
 import { ATTORNEY_CASE_TYPES, formatSpecialty } from '../../../lib/constants'
 import { formatCurrency } from '../../../lib/formatters'
 import { useAttorneyDecisionProfile } from '../useAttorneyDecisionProfile'
@@ -34,12 +34,10 @@ type Draft = Pick<
   | 'minDamagesRange'
   | 'maxDamagesRange'
   | 'excludedCaseTypes'
+  | 'specialties'
   | 'maxCasesPerWeek'
   | 'maxCasesPerMonth'
   | 'intakeHours'
-  | 'pricingModel'
-  | 'paymentModel'
-  | 'subscriptionTier'
   | 'responseTimeHours'
 >
 
@@ -48,12 +46,10 @@ const toDraft = (p: AttorneyProfileModel): Draft => ({
   minDamagesRange: p.minDamagesRange,
   maxDamagesRange: p.maxDamagesRange,
   excludedCaseTypes: [...p.excludedCaseTypes],
+  specialties: [...p.specialties],
   maxCasesPerWeek: p.maxCasesPerWeek,
   maxCasesPerMonth: p.maxCasesPerMonth,
   intakeHours: p.intakeHours === '24/7' ? '24/7' : p.intakeHours.map((w) => ({ ...w })),
-  pricingModel: p.pricingModel,
-  paymentModel: p.paymentModel,
-  subscriptionTier: p.subscriptionTier,
   responseTimeHours: p.responseTimeHours,
 })
 
@@ -110,12 +106,27 @@ export default function CasePreferencesTab({ profile, saving, onSave }: Props) {
       intakeHours: intakeWindows.map((w) => (w.dayOfWeek === dayOfWeek ? { ...w, ...windowPatch } : w)),
     })
 
-  const toggleExcluded = (caseType: string) =>
+  /**
+   * The attorney picks the work they want; routing reads the opposite.
+   *
+   * `excludedCaseTypes` is the stored field and the one the router filters on,
+   * but asking someone to tick the cases they do *not* want inverts the choice
+   * they already made at registration, and left the list looking empty when they
+   * had in fact chosen their practice areas. The checkboxes are the accepted set
+   * — seeded from those registration specialties — and the complement is written
+   * back on save so routing behaviour is unchanged.
+   */
+  const acceptedCaseTypes = draft.specialties.filter((value) => !draft.excludedCaseTypes.includes(value))
+
+  const toggleAccepted = (caseType: string) => {
+    const nextAccepted = acceptedCaseTypes.includes(caseType)
+      ? acceptedCaseTypes.filter((v) => v !== caseType)
+      : [...acceptedCaseTypes, caseType]
     patch({
-      excludedCaseTypes: draft.excludedCaseTypes.includes(caseType)
-        ? draft.excludedCaseTypes.filter((v) => v !== caseType)
-        : [...draft.excludedCaseTypes, caseType],
+      specialties: nextAccepted,
+      excludedCaseTypes: ATTORNEY_CASE_TYPES.map((t) => t.value).filter((v) => !nextAccepted.includes(v)),
     })
+  }
 
   const save = async () => {
     if (await onSave(draft)) setDirty(false)
@@ -197,14 +208,17 @@ export default function CasePreferencesTab({ profile, saving, onSave }: Props) {
         </div>
 
         <div className="mt-5">
-          <label className={LABEL}>Excluded Case Types</label>
+          <label className={LABEL}>Accepted Case Types</label>
+          <p className="mb-2 text-xs text-slate-500">
+            The case types you took on at signup. Untick one to stop being routed that work.
+          </p>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {ATTORNEY_CASE_TYPES.map((type) => (
               <label key={type.value} className="flex cursor-pointer items-center gap-2">
                 <input
                   type="checkbox"
-                  checked={draft.excludedCaseTypes.includes(type.value)}
-                  onChange={() => toggleExcluded(type.value)}
+                  checked={acceptedCaseTypes.includes(type.value)}
+                  onChange={() => toggleAccepted(type.value)}
                   className="rounded border-slate-300 text-brand-600 focus:ring-brand-500"
                 />
                 <span className="text-sm text-slate-700">{formatSpecialty(type.value)}</span>
@@ -371,60 +385,6 @@ export default function CasePreferencesTab({ profile, saving, onSave }: Props) {
               <Clock className="mr-2 h-4 w-4" />
               {responseBadge(draft.responseTimeHours)}
             </div>
-          </div>
-        </div>
-      </div>
-
-      <div className={CARD}>
-        <div className="flex items-start gap-3">
-          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600">
-            <Wallet className="h-5 w-5" />
-          </span>
-          <div>
-            <h3 className={HEADING}>Buying Preferences</h3>
-            <p className="mt-0.5 text-sm text-slate-500">How you prefer to pay for the cases you take.</p>
-          </div>
-        </div>
-
-        <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-3">
-          <div>
-            <label className={LABEL}>Pricing Model</label>
-            <select
-              value={draft.pricingModel || ''}
-              onChange={(e) => patch({ pricingModel: e.target.value || null })}
-              className={INPUT}
-            >
-              <option value="">Select...</option>
-              <option value="fixed_price">Fixed Price</option>
-              <option value="auction">Auction</option>
-              <option value="both">Both</option>
-            </select>
-          </div>
-          <div>
-            <label className={LABEL}>Payment Model</label>
-            <select
-              value={draft.paymentModel || ''}
-              onChange={(e) => patch({ paymentModel: e.target.value || null })}
-              className={INPUT}
-            >
-              <option value="">Select...</option>
-              <option value="subscription">Subscription</option>
-              <option value="pay_per_case">Pay Per Case</option>
-              <option value="both">Both</option>
-            </select>
-          </div>
-          <div>
-            <label className={LABEL}>Subscription Tier</label>
-            <select
-              value={draft.subscriptionTier || ''}
-              onChange={(e) => patch({ subscriptionTier: e.target.value || null })}
-              className={INPUT}
-            >
-              <option value="">Select...</option>
-              <option value="basic">Basic</option>
-              <option value="premium">Premium</option>
-              <option value="enterprise">Enterprise</option>
-            </select>
           </div>
         </div>
       </div>

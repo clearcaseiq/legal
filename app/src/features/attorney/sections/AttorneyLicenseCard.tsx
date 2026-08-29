@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCircle, Eye, Shield, Upload } from 'lucide-react'
+import { AlertTriangle, CheckCircle, Eye, Shield, ShieldAlert, Upload } from 'lucide-react'
 import { US_STATES } from '../../../lib/constants'
 import { getApiOrigin } from '../../../lib/runtimeEnv'
 import type { useAttorneyLicense } from '../useAttorneyLicense'
@@ -78,6 +78,15 @@ export default function AttorneyLicenseCard({
           <div className="flex items-center gap-2 rounded-md border border-yellow-200 bg-yellow-50 px-3 py-1">
             <AlertTriangle className="h-5 w-5 text-yellow-600" />
             <span className="text-sm font-medium text-yellow-700">Pending Verification</span>
+          </div>
+        ) : null}
+        {/* An unverified licence with nothing uploaded used to render no badge at
+            all, so the card looked the same whether the licence had been checked
+            or never supplied. Say so plainly instead. */}
+        {!licenseStatus?.licenseVerified && !licenseStatus?.hasLicense ? (
+          <div className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-1">
+            <ShieldAlert className="h-5 w-5 text-red-600" />
+            <span className="text-sm font-medium text-red-700">License not verified</span>
           </div>
         ) : null}
       </div>

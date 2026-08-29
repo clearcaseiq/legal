@@ -150,9 +150,15 @@ export default function AttorneyRegister() {
 
     try {
       const name = `${data.firstName} ${data.lastName}, Esq.`
+      // Counties are picked into one flat list while coverage is stored per
+      // state, so each state may only keep the counties that are actually its
+      // own. Copying the whole list into every entry — which is what this did —
+      // signed an attorney covering CA and NV up for NV counties they had never
+      // seen, because the picker only ever showed them California's.
+      const selectedCountySet = new Set((data.preferredCounties || []).filter((c) => c))
       const jurisdictions = data.venues.map((stateCode) => ({
         state: stateCode,
-        counties: (data.preferredCounties || []).filter((c) => c),
+        counties: getCountiesForState(stateCode).filter((county) => selectedCountySet.has(county)),
         cities: []
       }))
 
