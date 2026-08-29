@@ -1809,6 +1809,13 @@ export default function IntakeWizardQuick() {
     return formData.incidentDate
   }
 
+  /**
+   * What the exact-date field shows. A month/year answer sets `incidentDate` but
+   * is not a full date, so the field stays empty for it — and empty is what
+   * drives the placeholder.
+   */
+  const exactDateValue = formData.incidentDatePreset === 'custom' ? customDate : ''
+
   /** Month/year produces an estimated date — deadline math from it is approximate. */
   const incidentDateIsApproximate = formData.incidentDatePreset === 'month_year'
 
@@ -3925,12 +3932,14 @@ export default function IntakeWizardQuick() {
                         <div className="flex items-center gap-3">
                           <div className="min-w-0 flex-1">
                             <label htmlFor="incident-exact-date" className="block text-center !text-[13px] font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">{tx('when_selectDate')}</label>
+                            <div className="relative">
                             <input
                               id="incident-exact-date"
                               type="date"
                               min={MIN_INCIDENT_DATE}
                               max={isoToday()}
-                              value={formData.incidentDatePreset === 'custom' ? customDate : ''}
+                              data-empty={exactDateValue ? undefined : 'true'}
+                              value={exactDateValue}
                               onChange={e => {
                                 const val = e.target.value
                                 // An incident can't happen in the future. `max` disables
@@ -3951,6 +3960,15 @@ export default function IntakeWizardQuick() {
                               }}
                               className="date-input-clean !min-h-0 w-full min-w-0 max-w-full !border-0 !bg-transparent !p-0 text-center !text-[17px] font-medium text-gray-900 focus:!ring-0 dark:text-slate-100"
                             />
+                            {!exactDateValue && (
+                              <span
+                                aria-hidden
+                                className="pointer-events-none absolute inset-0 flex items-center justify-center text-[17px] font-medium tracking-wide text-slate-400 dark:text-slate-500"
+                              >
+                                {tx('when_datePlaceholder')}
+                              </span>
+                            )}
+                            </div>
                           </div>
                           {/* A <label> bound to the input is the only reliable way to open
                               the native date picker on iOS Safari, where showPicker() is
@@ -4613,7 +4631,8 @@ export default function IntakeWizardQuick() {
                   )
                 })}
               </div>
-              {errors.injurySeverity && <p className="mt-2 text-xs text-red-600">{errors.injurySeverity}</p>}
+              {/* Reported by the step's error summary banner, same as every other
+                  field. Repeating it here showed the message twice. */}
             </div>
 
             {/* Case-type module that leads (toxic / med-mal / wrongful death):
@@ -6235,7 +6254,12 @@ export default function IntakeWizardQuick() {
                     >
                       <BIcon className={`h-5 w-5 ${selected ? 'text-brand-600' : 'text-slate-400'}`} aria-hidden />
                       {selected && <Check className="absolute top-2 right-2 h-4 w-4 text-brand-600" aria-hidden />}
-                      <span>{label}</span>
+                      {/* A range like "$2,500 - $10,000" is one value, so it has to
+                          stay on one line. The step scales every button up to
+                          text-base, at which the longer ranges no longer fit two
+                          per row and broke at the dash, leaving some tiles one
+                          line tall and others two. */}
+                      <span className="whitespace-nowrap !text-[13px] leading-tight">{label}</span>
                     </button>
                     )
                   })}
@@ -6731,9 +6755,9 @@ export default function IntakeWizardQuick() {
                   </span>
                 </label>
               </div>
-              {(errors.tos || errors.privacy || errors.ml_use) && (
-                <p className="mt-2 text-xs font-medium text-red-600">{errors.tos || errors.privacy || errors.ml_use}</p>
-              )}
+              {/* No inline copy of the consent errors here: the step already
+                  renders every error in the summary banner at the top, so this
+                  printed the same sentence twice on one screen. */}
               <p className="mt-2 flex items-center gap-1.5 text-xs text-gray-400"><Lock className="h-3 w-3" aria-hidden />{tx('consent_privacySecure')}</p>
             </div>
 

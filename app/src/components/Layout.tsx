@@ -300,6 +300,19 @@ export default function Layout({ children }: LayoutProps) {
   // their Dashboard tapped the logo and nothing happened (same-route navigation) —
   // reported as "home page not opening on logo click" (CP-549).
   const logoDestination = navLinks.home
+  /**
+   * Warm the home page's chunk before the logo is clicked.
+   *
+   * The logo is the one link that jumps from the signed-in app back out to the
+   * marketing home page, and those routes never load its chunk. Clicking it cold
+   * therefore downloads the chunk first, showing the empty route fallback — which
+   * reads as a full page reload, unlike the same click from a page that already
+   * has home in cache. Vite resolves this to the same module the route imports,
+   * so a warmed chunk costs one fetch rather than two.
+   */
+  const prefetchLogoDestination = () => {
+    void import('../pages/Home')
+  }
   const shouldLoadPlaintiffSummary = !!authToken && !isAttorney
   const userName = storedUser?.firstName || 'User'
   const headerLabel = isAdmin ? 'Admin' : (userName || 'User')
@@ -475,6 +488,9 @@ export default function Layout({ children }: LayoutProps) {
               <Link
                 to={logoDestination}
                 aria-label={t('common.appName')}
+                onMouseEnter={prefetchLogoDestination}
+                onFocus={prefetchLogoDestination}
+                onTouchStart={prefetchLogoDestination}
                 className="flex shrink-0 items-center rounded-xl py-1 transition-colors hover:bg-white/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 dark:hover:bg-slate-800/70 dark:focus-visible:ring-offset-slate-900"
               >
                 <BrandLogo appName={t('common.appName')} size="xl" />

@@ -1951,6 +1951,7 @@
     "when_exactLabel": "事故是什么时候发生的？",
     "when_exactHelper": "最准确：可为您提供精确的诉讼提交期限。",
     "when_selectDate": "选择日期",
+    "when_datePlaceholder": "MM-DD-YYYY",
     "when_dateReassure": "最准确的日期有助于保护您的权益。",
     "where_reassure": "我们仅用于为您匹配本地律师，绝不会公开分享。",
     "when_orApprox": "或选择一个大致的时间范围",

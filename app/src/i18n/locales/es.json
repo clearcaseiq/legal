@@ -1951,6 +1951,7 @@
     "when_exactLabel": "¿Cuándo ocurrió el incidente?",
     "when_exactHelper": "Lo más preciso: le da un plazo de presentación exacto.",
     "when_selectDate": "Seleccione la fecha",
+    "when_datePlaceholder": "MM-DD-AAAA",
     "when_dateReassure": "La fecha más precisa ayuda a proteger sus derechos.",
     "where_reassure": "Usamos esto solo para conectarlo con abogados locales. Nunca se compartirá públicamente.",
     "when_orApprox": "o elija un rango aproximado",

@@ -871,6 +871,7 @@
     "when_exactLabel": "When did the incident happen?",
     "when_exactHelper": "Most accurate: gives you a precise filing deadline.",
     "when_selectDate": "Select date",
+    "when_datePlaceholder": "MM-DD-YYYY",
     "when_dateReassure": "The most accurate date helps protect your rights.",
     "where_reassure": "We use this only to match you with local attorneys. It will never be shared publicly.",
     "when_orApprox": "or pick an approximate range",

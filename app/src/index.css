@@ -48,10 +48,15 @@
     text-align: center;
     width: 100%;
     padding: 0;
-    /* The empty native date field renders its "mm/dd/yyyy" placeholder in lowercase;
-       uppercase it to "MM/DD/YYYY" for a cleaner, consistent look. Date values are
-       numeric so this only affects the placeholder letters (CP-541). */
-    text-transform: uppercase;
+  }
+  /* Browsers disagree completely on what an empty date field looks like: Chrome
+     paints a lowercase "mm/dd/yyyy", Firefox its own variant, and iOS Safari
+     nothing at all once `appearance: none` above is applied — which is why the
+     field read as blank next to the calendar button on phones. Hide whatever
+     the browser would paint so the app can position one placeholder over it and
+     every device shows the same hint. */
+  .date-input-clean[data-empty='true'] {
+    color: transparent;
   }
 
   /* Structural guard against horizontal overflow on narrow phones.

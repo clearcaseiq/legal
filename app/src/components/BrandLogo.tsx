@@ -107,7 +107,11 @@ export default function BrandLogo({
           wordmark sits snug against the mark instead of floating apart. */}
       <BrandMark size={size} className={clsx('-mr-1', size === 'xl' && '-mr-1.5')} />
       {showWordmark && (
-        <span className={clsx('font-display font-bold tracking-[-0.02em] leading-none', wordSize)}>
+        // `whitespace-nowrap` because the wordmark is a brand name, not prose.
+        // Inside an `.overflow-safe` container (index.css) every span inherits
+        // `overflow-wrap: anywhere`, which broke "ClearCaseIQ" mid-word onto a
+        // second line and pushed it over the shield on narrow phones.
+        <span className={clsx('whitespace-nowrap font-display font-bold tracking-[-0.02em] leading-none', wordSize)}>
           {iqPart ? (
             isFooter ? (
               <>
