@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { registerAttorney, lookupStateBarLicense, uploadAttorneyLicense, checkAttorneyEmailAvailable } from '../lib/api-auth'
 import { US_STATES, ATTORNEY_CASE_TYPES } from '../lib/constants'
-import { STATE_COUNTIES } from '../lib/us-counties'
+import { getCountiesForState } from '../lib/usLocationData'
 import { useLanguage } from '../contexts/LanguageContext'
 import {
   ATTORNEY_REGISTER_DEFAULTS,
@@ -616,7 +616,7 @@ export default function AttorneyRegister() {
                 {serviceAreaMode === 'counties' && venues.length > 0 && (
                   <div className="space-y-4">
                     {venues.map((stateCode) => {
-                      const stateCounties = STATE_COUNTIES[stateCode] || []
+                      const stateCounties = getCountiesForState(stateCode)
                       if (stateCounties.length === 0) return null
                       const stateName = US_STATES.find((s) => s.code === stateCode)?.name || stateCode
                       return (

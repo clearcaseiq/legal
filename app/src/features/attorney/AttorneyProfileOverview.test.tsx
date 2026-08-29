@@ -1,10 +1,11 @@
 /**
- * The Overview lets an attorney edit several fields and commit them with one
+ * The Profile tab lets an attorney edit several fields and commit them with one
  * "Save Changes" button. The failure modes worth guarding are the ones that
- * quietly corrupt routing data: writing a county back under the wrong state,
- * offering a county from a state the attorney does not practise in, or letting
- * personal-injury years exceed years at the bar (which the API would clamp,
- * leaving the screen disagreeing with what was stored).
+ * quietly disagree with what was stored: dropping a fluency entry alongside its
+ * language, or letting personal-injury years exceed years at the bar (which the
+ * API clamps, leaving the screen showing an impossible pair).
+ *
+ * Service areas moved to the Practice tab and are covered by its own tests.
  */
 import { it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createRoot, type Root } from 'react-dom/client'
@@ -18,12 +19,12 @@ let root: Root | null = null
 let onSave: ReturnType<typeof vi.fn>
 
 const BASE: OverviewProfile = {
+  name: 'Dana Reyes',
   bio: 'Representing injured Californians.',
   photoUrl: '/uploads/a.png',
   specialties: ['vehicle'],
   languages: ['English'],
   languageProficiency: { English: 'native' },
-  jurisdictions: [{ state: 'CA', counties: ['Los Angeles'], cities: [] }],
   licenseState: 'CA',
   licenseVerified: true,
   yearsExperience: 15,
@@ -46,13 +47,7 @@ afterEach(() => {
 function mount(overrides: Partial<OverviewProfile> = {}) {
   root = createRoot(container)
   act(() => {
-    root!.render(
-      <AttorneyProfileOverview
-        profile={{ ...BASE, ...overrides }}
-        onSave={onSave}
-        onOpenDashboardProfile={() => {}}
-      />,
-    )
+    root!.render(<AttorneyProfileOverview profile={{ ...BASE, ...overrides }} onSave={onSave} />)
   })
 }
 
@@ -150,40 +145,13 @@ it('drops the fluency entry when its language is removed', async () => {
   expect(draft.languageProficiency).toEqual({ English: 'native' })
 })
 
-it('puts an added county back under its own state', async () => {
-  mount({
-    jurisdictions: [
-      { state: 'CA', counties: ['Los Angeles'], cities: [] },
-      { state: 'NV', counties: ['Clark'], cities: [] },
-    ],
-  })
-  act(() => byText('Add area').click())
-  act(() => setValue(byLabel<HTMLSelectElement>('Add service area'), 'NV::Washoe'))
+it('saves the display name, which is stored on the attorney rather than the profile', async () => {
+  mount()
+  const nameInput = container.querySelector('#attorney-display-name') as HTMLInputElement
+  act(() => setValue(nameInput, 'Dana R. Reyes'))
   await act(async () => saveButton().click())
 
-  expect(onSave.mock.calls[0][0].jurisdictions).toEqual([
-    { state: 'CA', counties: ['Los Angeles'], cities: [] },
-    { state: 'NV', counties: ['Clark', 'Washoe'], cities: [] },
-  ])
-})
-
-it('only offers counties from states the attorney already covers', () => {
-  mount()
-  act(() => byText('Add area').click())
-  const options = Array.from(byLabel<HTMLSelectElement>('Add service area').options)
-    .map((o) => o.value)
-    .filter(Boolean)
-
-  expect(options.length).toBeGreaterThan(0)
-  expect(options.every((v) => v.startsWith('CA::'))).toBe(true)
-  // Already selected, so it must not be offered a second time.
-  expect(options).not.toContain('CA::Los Angeles')
-})
-
-it('says a state with no counties chosen is covered statewide', () => {
-  mount({ jurisdictions: [{ state: 'CA', counties: [], cities: [] }] })
-  expect(container.textContent).toContain('California — statewide')
-  expect(container.textContent).toContain('cases from anywhere in the state')
+  expect(onSave.mock.calls[0][0].name).toBe('Dana R. Reyes')
 })
 
 it('shows the bar admission as verified and does not offer to edit it', () => {

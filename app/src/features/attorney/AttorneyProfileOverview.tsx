@@ -16,18 +16,17 @@ import {
   X,
 } from 'lucide-react'
 import { ATTORNEY_CASE_TYPES, formatSpecialty, US_STATES } from '../../lib/constants'
-import { STATE_COUNTIES } from '../../lib/us-counties'
+import { getCountiesForState } from '../../lib/usLocationData'
 import { computeProfileStrength } from '../../lib/profileStrength'
-
-export type Jurisdiction = { state: string; counties: string[]; cities: string[] }
 
 /** The editable slice of the profile. Everything here round-trips through PUT /profile. */
 export type OverviewDraft = {
+  /** Stored on the attorney record rather than the profile; the page maps it. */
+  name: string
   bio: string
   specialties: string[]
   languages: string[]
   languageProficiency: Record<string, string>
-  jurisdictions: Jurisdiction[]
   yearsExperience: number
   yearsPiExperience: number
 }
@@ -44,8 +43,6 @@ type Props = {
   profile: OverviewProfile
   /** Persists the draft. Rejects on failure so the dirty state is kept. */
   onSave: (draft: OverviewDraft) => Promise<void>
-  /** Where "how to improve" sends the attorney to fix missing items. */
-  onOpenDashboardProfile: () => void
 }
 
 /**
@@ -79,11 +76,11 @@ const CHIP_REMOVE = 'rounded p-0.5 text-slate-400 transition hover:bg-slate-200 
 const FIELD_LABEL = 'text-sm text-slate-500'
 
 const toDraft = (p: OverviewProfile): OverviewDraft => ({
+  name: p.name,
   bio: p.bio,
   specialties: [...p.specialties],
   languages: [...p.languages],
   languageProficiency: { ...p.languageProficiency },
-  jurisdictions: p.jurisdictions.map((j) => ({ ...j, counties: [...j.counties], cities: [...j.cities] })),
   yearsExperience: p.yearsExperience,
   yearsPiExperience: p.yearsPiExperience,
 })
@@ -151,13 +148,12 @@ function EditableYears({
   )
 }
 
-export default function AttorneyProfileOverview({ profile, onSave, onOpenDashboardProfile }: Props) {
+export default function AttorneyProfileOverview({ profile, onSave }: Props) {
   const [draft, setDraft] = useState<OverviewDraft>(() => toDraft(profile))
   const [addingLanguage, setAddingLanguage] = useState(false)
   const [newLanguage, setNewLanguage] = useState('')
   const [newProficiency, setNewProficiency] = useState('professional')
   const [addingFocus, setAddingFocus] = useState(false)
-  const [addingArea, setAddingArea] = useState(false)
   const [editingBio, setEditingBio] = useState(false)
   const [saving, setSaving] = useState(false)
   const [justSaved, setJustSaved] = useState(false)
@@ -222,23 +218,6 @@ export default function AttorneyProfileOverview({ profile, onSave, onOpenDashboa
 
   const unusedCaseTypes = ATTORNEY_CASE_TYPES.filter((t) => !draft.specialties.includes(t.value))
 
-  // Counties are shown flat but stored per state, so only counties from states
-  // the attorney already covers are offered. Adding one from a new state would
-  // silently widen their routing footprint.
-  const selectedCounties = draft.jurisdictions.flatMap((j) =>
-    j.counties.map((c) => ({ county: c, state: j.state })),
-  )
-  const availableCounties = draft.jurisdictions.flatMap((j) =>
-    (STATE_COUNTIES[j.state] || [])
-      .filter((c) => !j.counties.includes(c))
-      .map((c) => ({ county: c, state: j.state })),
-  )
-
-  const setCounties = (state: string, counties: string[]) =>
-    patch({
-      jurisdictions: draft.jurisdictions.map((j) => (j.state === state ? { ...j, counties } : j)),
-    })
-
   return (
     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
       {/* Header: purpose on the left, completeness on the right */}
@@ -263,15 +242,11 @@ export default function AttorneyProfileOverview({ profile, onSave, onOpenDashboa
           <div className="mt-2 sm:flex sm:justify-end">
             <StrengthMeter percent={strength.percent} segments={strength.items.length} />
           </div>
-          <button
-            onClick={onOpenDashboardProfile}
-            className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-brand-600 transition hover:text-brand-700"
-          >
-            How to improve
-            <ChevronRight className="h-4 w-4" />
-          </button>
+          {/* The checklist used to hide behind a "How to improve" link to the
+              other profile page. Both pages are one page now, so every item it
+              named is directly below. */}
           {strength.missing.length > 0 && (
-            <p className="mt-1 text-xs text-slate-400">
+            <p className="mt-2 text-xs text-slate-400">
               Missing: {strength.missing.map((m) => m.label).join(', ')}
             </p>
           )}
@@ -290,6 +265,21 @@ export default function AttorneyProfileOverview({ profile, onSave, onOpenDashboa
               Tell us about your experience and the clients you serve.
             </p>
           </div>
+        </div>
+
+        <div className="mt-6">
+          <label htmlFor="attorney-display-name" className={FIELD_LABEL}>
+            Display name
+          </label>
+          <input
+            id="attorney-display-name"
+            type="text"
+            value={draft.name}
+            onChange={(e) => patch({ name: e.target.value })}
+            placeholder="Your name as clients should see it"
+            maxLength={120}
+            className="mt-1 w-full max-w-sm rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
+          />
         </div>
 
         <div className="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-3 sm:divide-x sm:divide-slate-100">
@@ -455,81 +445,8 @@ export default function AttorneyProfileOverview({ profile, onSave, onOpenDashboa
           </div>
         </div>
 
-        {/* Service areas */}
-        <div className="mt-5">
-          <p className={FIELD_LABEL}>Service areas</p>
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            {draft.jurisdictions.length === 0 ? (
-              <span className="text-sm text-slate-400">
-                No states on file yet — add them in your dashboard profile settings.
-              </span>
-            ) : (
-              <>
-                {selectedCounties.length === 0 && (
-                  <span className={CHIP}>
-                    <MapPin className="h-4 w-4 text-slate-400" />
-                    {draft.jurisdictions.map((j) => stateName(j.state)).join(', ')} — statewide
-                  </span>
-                )}
-                {selectedCounties.map(({ county, state }) => (
-                  <span key={`${state}-${county}`} className={CHIP}>
-                    <MapPin className="h-4 w-4 text-slate-400" />
-                    {county} County
-                    <button
-                      onClick={() =>
-                        setCounties(
-                          state,
-                          (draft.jurisdictions.find((j) => j.state === state)?.counties || []).filter(
-                            (c) => c !== county,
-                          ),
-                        )
-                      }
-                      aria-label={`Remove ${county} County`}
-                      className={CHIP_REMOVE}
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </span>
-                ))}
-                {addingArea ? (
-                  <select
-                    autoFocus
-                    defaultValue=""
-                    onChange={(e) => {
-                      setAddingArea(false)
-                      if (!e.target.value) return
-                      const [state, county] = e.target.value.split('::')
-                      setCounties(state, [
-                        ...(draft.jurisdictions.find((j) => j.state === state)?.counties || []),
-                        county,
-                      ])
-                    }}
-                    onBlur={() => setAddingArea(false)}
-                    aria-label="Add service area"
-                    className="rounded-lg border border-brand-300 px-2 py-1.5 text-sm focus:outline-none"
-                  >
-                    <option value="">Select a county…</option>
-                    {availableCounties.map(({ county, state }) => (
-                      <option key={`${state}-${county}`} value={`${state}::${county}`}>
-                        {county} County ({state})
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <button onClick={() => setAddingArea(true)} className={ADD_CHIP}>
-                    <Plus className="h-4 w-4" />
-                    Add area
-                  </button>
-                )}
-              </>
-            )}
-          </div>
-          {selectedCounties.length === 0 && draft.jurisdictions.length > 0 && (
-            <p className="mt-1.5 text-xs text-slate-400">
-              With no counties chosen you receive cases from anywhere in the state.
-            </p>
-          )}
-        </div>
+        {/* Service areas live on the Practice tab, where states and their
+            counties are edited together. */}
       </div>
 
       {/* About you */}

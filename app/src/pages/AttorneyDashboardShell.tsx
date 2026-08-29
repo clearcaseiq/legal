@@ -14,7 +14,7 @@ import {
   FileText,
   X,
 } from 'lucide-react'
-import { getAttorneyDashboard, decideLead, updateLeadStatus, createDocumentRequest, scheduleConsultation, getCaseContacts, createLeadSolTask, getAttorneyRoiAnalytics, downloadLeadCaseFile, createCaseFromLead, saveLeadDecisionOverride, getAnalyticsIntelligence, transferLeadToFirmAttorney, getLeadCommandCenter, askLeadCommandCenterCopilot, syncLeadReadinessAutomation, updateLeadReminder, getAttorneyCalendarHealth, getAttorneyCalendarConnectUrl, syncAttorneyCalendar, disconnectAttorneyCalendar, getAttorneyZoomStatus, getAttorneyZoomConnectUrl, disconnectAttorneyZoom, createRoutingFeePaymentSession, type AttorneyCalendarConnection, type AttorneyZoomStatus, type CaseCommandCenter } from '../lib/api'
+import { getAttorneyDashboard, getMyAttorneyProfile, decideLead, updateLeadStatus, createDocumentRequest, scheduleConsultation, getCaseContacts, createLeadSolTask, getAttorneyRoiAnalytics, downloadLeadCaseFile, createCaseFromLead, saveLeadDecisionOverride, getAnalyticsIntelligence, transferLeadToFirmAttorney, getLeadCommandCenter, askLeadCommandCenterCopilot, syncLeadReadinessAutomation, updateLeadReminder, getAttorneyCalendarHealth, createRoutingFeePaymentSession, type AttorneyCalendarConnection, type CaseCommandCenter } from '../lib/api'
 import Tooltip from '../components/Tooltip'
 import { formatClaimType as formatCanonicalClaimType } from '../lib/claimTypes'
 import ErrorBoundary from '../components/ErrorBoundary'
@@ -31,7 +31,6 @@ import { useAttorneyCaseInsights } from '../hooks/useAttorneyCaseInsights'
 import { useAttorneyCommentThreads } from '../hooks/useAttorneyCommentThreads'
 import { useAttorneyDecisionSupport } from '../hooks/useAttorneyDecisionSupport'
 import { useAttorneyFinanceCollaboration } from '../hooks/useAttorneyFinanceCollaboration'
-import { useAttorneyProfileLicense } from '../hooks/useAttorneyProfileLicense'
 import { useAttorneyTaskWorkflow } from '../hooks/useAttorneyTaskWorkflow'
 import { invalidateAttorneyDashboardSummary } from '../hooks/useAttorneyDashboardSummary'
 import { invalidateFirmDashboardSummary, loadFirmDashboardSummary } from '../hooks/useFirmDashboardSummary'
@@ -41,7 +40,6 @@ const loadAttorneyDashboardAnalyticsTab = () => import('../components/AttorneyDa
 const loadAttorneyDashboardDeferredInlineWorkstream = () => import('../components/AttorneyDashboardDeferredInlineWorkstream')
 const loadAttorneyDashboardLeadDetail = () => import('../components/AttorneyDashboardLeadDetail')
 const loadAttorneyDashboardLeadsTab = () => import('../components/AttorneyDashboardLeadsTab')
-const loadAttorneyDashboardProfileTab = () => import('../components/AttorneyDashboardProfileTab')
 const loadAttorneyDashboardIntakeTab = () => import('../components/AttorneyDashboardIntakeTab')
 const loadAttorneyDashboardWorkstreamBilling = () => import('../components/AttorneyDashboardWorkstreamBilling')
 const loadAttorneyDashboardWorkstreamCaseInsights = () => import('../components/AttorneyDashboardWorkstreamCaseInsights')
@@ -127,7 +125,6 @@ const AttorneyDashboardAnalyticsTab = lazy(loadAttorneyDashboardAnalyticsTab)
 const AttorneyDashboardDeferredInlineWorkstream = lazy(loadAttorneyDashboardDeferredInlineWorkstream)
 const AttorneyDashboardLeadDetail = lazy(loadAttorneyDashboardLeadDetail)
 const AttorneyDashboardLeadsTab = lazy(loadAttorneyDashboardLeadsTab)
-const AttorneyDashboardProfileTab = lazy(loadAttorneyDashboardProfileTab)
 const AttorneyDashboardIntakeTab = lazy(loadAttorneyDashboardIntakeTab)
 const AttorneyDashboardWorkstreamBilling = lazy(loadAttorneyDashboardWorkstreamBilling)
 const AttorneyDashboardWorkstreamCaseInsights = lazy(loadAttorneyDashboardWorkstreamCaseInsights)
@@ -306,7 +303,9 @@ const DEFAULT_CASE_LEADS_FILTER = {
   routingInboxView: '' as '' | 'newMatches' | 'awaitingDecision' | 'hotMatches' | 'staleMatches' | 'consultReady' | 'expired',
 }
 
-const ATTORNEY_DASHBOARD_TABS = ['overview', 'leads', 'analytics', 'intake', 'profile'] as const
+// 'profile' is gone: the settings tab it named moved to /attorney-profile, and
+// the legacy ?tab=profile deep link redirects there from App.tsx.
+const ATTORNEY_DASHBOARD_TABS = ['overview', 'leads', 'analytics', 'intake'] as const
 
 const ATTORNEY_DASHBOARD_NAV = [
   { id: 'overview', name: 'Overview', description: 'Dashboard', icon: BarChart3 },
@@ -393,29 +392,20 @@ export default function AttorneyDashboardShell({ chromeless = false, initialView
       return 'due_asc'
     }
   })
-  const {
-    editing,
-    handleLicenseFileChange,
-    handleLicenseFileUpload,
-    handleSaveProfile,
-    handleStateBarLookup,
-    licenseError,
-    licenseLoading,
-    licenseMethod,
-    licenseNumber,
-    licenseState,
-    licenseStatus,
-    licenseSuccess,
-    profile,
-    profileLoading,
-    selectedLicenseFile,
-    setEditing,
-    setLicenseError,
-    setLicenseMethod,
-    setLicenseNumber,
-    setLicenseState,
-    setProfile,
-  } = useAttorneyProfileLicense(setError)
+  // Read-only here. The analytics and billing panels display a few profile
+  // fields; everything editable moved to /attorney-profile.
+  const [profile, setProfile] = useState<any | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    getMyAttorneyProfile()
+      .then((data) => {
+        if (!cancelled) setProfile(data)
+      })
+      .catch((err) => console.error('Failed to load attorney profile:', err))
+    return () => {
+      cancelled = true
+    }
+  }, [])
   const [leadDecisionLoading, setLeadDecisionLoading] = useState(false)
   const [leadDecisionError, setLeadDecisionError] = useState<string | null>(null)
   const [decisionRationale, setDecisionRationale] = useState('')
@@ -617,18 +607,6 @@ export default function AttorneyDashboardShell({ chromeless = false, initialView
   const [bulkActionLoading, setBulkActionLoading] = useState(false)
   const [bulkActionMessage, setBulkActionMessage] = useState<string | null>(null)
   const [calendarConnections, setCalendarConnections] = useState<AttorneyCalendarConnection[]>([])
-  const [calendarHealthSummary, setCalendarHealthSummary] = useState<{
-    totalConnections: number
-    connectedCount: number
-    healthyCount: number
-    warningCount: number
-    errorCount: number
-    disconnectedCount: number
-  } | null>(null)
-  const [calendarConnectionsLoading, setCalendarConnectionsLoading] = useState(false)
-  const [calendarActionProvider, setCalendarActionProvider] = useState<string | null>(null)
-  const [zoomStatus, setZoomStatus] = useState<AttorneyZoomStatus | null>(null)
-  const [zoomActionLoading, setZoomActionLoading] = useState(false)
   const [documentRequestModalOpen, setDocumentRequestModalOpen] = useState(false)
   const [scheduleConsultModalOpen, setScheduleConsultModalOpen] = useState(false)
   const [consultCalendarModalOpen, setConsultCalendarModalOpen] = useState(false)
@@ -1119,26 +1097,11 @@ export default function AttorneyDashboardShell({ chromeless = false, initialView
 
   const loadCalendarConnections = useCallback(async () => {
     try {
-      setCalendarConnectionsLoading(true)
       const response = await getAttorneyCalendarHealth()
       setCalendarConnections(Array.isArray(response?.connections) ? response.connections : [])
-      setCalendarHealthSummary(response?.summary || null)
     } catch (err: any) {
       console.error('Failed to load calendar connections:', err)
       setCalendarConnections([])
-      setCalendarHealthSummary(null)
-    } finally {
-      setCalendarConnectionsLoading(false)
-    }
-  }, [])
-
-  const loadZoomStatus = useCallback(async () => {
-    try {
-      const status = await getAttorneyZoomStatus()
-      setZoomStatus(status)
-    } catch (err: any) {
-      console.error('Failed to load Zoom status:', err)
-      setZoomStatus(null)
     }
   }, [])
 
@@ -1798,8 +1761,7 @@ export default function AttorneyDashboardShell({ chromeless = false, initialView
   useEffect(() => {
     if (!hasValidAuthToken()) return
     void loadCalendarConnections()
-    void loadZoomStatus()
-  }, [loadCalendarConnections, loadZoomStatus])
+  }, [loadCalendarConnections])
 
   // Keep dashboard navigation and lead filters restorable from the URL.
   useEffect(() => {
@@ -1891,97 +1853,9 @@ export default function AttorneyDashboardShell({ chromeless = false, initialView
     return () => window.clearTimeout(timer)
   }, [searchParams, setSearchParams, loadCalendarConnections])
 
-  useEffect(() => {
-    const zoomSync = searchParams.get('zoom_sync')
-    if (!zoomSync) {
-      return
-    }
-
-    if (zoomSync === 'success') {
-      setBulkActionMessage('Zoom account connected.')
-      void loadZoomStatus()
-    } else {
-      setBulkActionMessage(searchParams.get('zoom_error') || 'Zoom connection failed.')
-    }
-    const timer = window.setTimeout(() => setBulkActionMessage(null), 5000)
-
-    const nextParams = new URLSearchParams(searchParams)
-    nextParams.delete('zoom_sync')
-    nextParams.delete('zoom_error')
-    setSearchParams(nextParams, { replace: true })
-
-    return () => window.clearTimeout(timer)
-  }, [searchParams, setSearchParams, loadZoomStatus])
-
-  const handleConnectZoom = useCallback(async () => {
-    try {
-      setZoomActionLoading(true)
-      const response = await getAttorneyZoomConnectUrl()
-      window.location.assign(response.authorizeUrl)
-    } catch (err: any) {
-      setBulkActionMessage(err?.response?.data?.error || 'Failed to connect Zoom.')
-      setTimeout(() => setBulkActionMessage(null), 5000)
-    } finally {
-      setZoomActionLoading(false)
-    }
-  }, [])
-
-  const handleDisconnectZoom = useCallback(async () => {
-    try {
-      setZoomActionLoading(true)
-      await disconnectAttorneyZoom()
-      setBulkActionMessage('Zoom account disconnected.')
-      await loadZoomStatus()
-    } catch (err: any) {
-      setBulkActionMessage(err?.response?.data?.error || 'Failed to disconnect Zoom.')
-    } finally {
-      setZoomActionLoading(false)
-      setTimeout(() => setBulkActionMessage(null), 5000)
-    }
-  }, [loadZoomStatus])
-
-  const handleConnectCalendar = useCallback(async (provider: 'google' | 'microsoft') => {
-    try {
-      setCalendarActionProvider(provider)
-      const response = await getAttorneyCalendarConnectUrl(provider)
-      window.location.assign(response.authorizeUrl)
-    } catch (err: any) {
-      setBulkActionMessage(err?.response?.data?.error || `Failed to connect ${provider} calendar.`)
-      setTimeout(() => setBulkActionMessage(null), 5000)
-    } finally {
-      setCalendarActionProvider(null)
-    }
-  }, [])
-
-  const handleSyncCalendarConnection = useCallback(async (provider: 'google' | 'microsoft') => {
-    try {
-      setCalendarActionProvider(provider)
-      const response = await syncAttorneyCalendar(provider)
-      setBulkActionMessage(
-        `Synced ${response.syncedBlocks} busy time block(s) from ${provider === 'google' ? 'Google' : 'Microsoft'}${response.autoSyncEnabled ? '. Auto-sync is active.' : '.'}`
-      )
-      await loadCalendarConnections()
-    } catch (err: any) {
-      setBulkActionMessage(err?.response?.data?.error || `Failed to sync ${provider} calendar.`)
-    } finally {
-      setCalendarActionProvider(null)
-      setTimeout(() => setBulkActionMessage(null), 5000)
-    }
-  }, [loadCalendarConnections])
-
-  const handleDisconnectCalendarConnection = useCallback(async (provider: 'google' | 'microsoft') => {
-    try {
-      setCalendarActionProvider(provider)
-      await disconnectAttorneyCalendar(provider)
-      setBulkActionMessage(`${provider === 'google' ? 'Google' : 'Microsoft'} calendar disconnected.`)
-      await loadCalendarConnections()
-    } catch (err: any) {
-      setBulkActionMessage(err?.response?.data?.error || `Failed to disconnect ${provider} calendar.`)
-    } finally {
-      setCalendarActionProvider(null)
-      setTimeout(() => setBulkActionMessage(null), 5000)
-    }
-  }, [loadCalendarConnections])
+  // Connecting and disconnecting calendars and Zoom is owned by
+  // SchedulingSettingsPage. The shell only reads whether a calendar is attached,
+  // to decide whether consult availability can be offered.
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -2781,7 +2655,6 @@ export default function AttorneyDashboardShell({ chromeless = false, initialView
     // flickered on the way back to My Cases.
     return scheduleIdlePrefetch(() => {
       void loadAttorneyDashboardAnalyticsTab()
-      void loadAttorneyDashboardProfileTab()
       void loadAttorneyDashboardLeadsTab()
     })
   }, [])
@@ -3505,7 +3378,7 @@ export default function AttorneyDashboardShell({ chromeless = false, initialView
               <div key={item.label} className="rounded-lg bg-amber-50 px-3 py-2 font-medium text-amber-800">{item.label}</div>
             )) : <div className="rounded-lg bg-emerald-50 px-3 py-2 font-medium text-emerald-800">Profile basics complete</div>}
           </div>
-          <button type="button" onClick={() => setActiveTab('profile')} className="mt-4 rounded-lg bg-amber-600 px-3 py-2 text-sm font-semibold text-white hover:bg-amber-700">
+          <button type="button" onClick={() => navigate('/attorney-profile')} className="mt-4 rounded-lg bg-amber-600 px-3 py-2 text-sm font-semibold text-white hover:bg-amber-700">
             Improve Ranking
           </button>
         </section>
@@ -3947,62 +3820,6 @@ export default function AttorneyDashboardShell({ chromeless = false, initialView
         </Suspense>
       )}
 
-      {activeTab === 'profile' && (
-        <Suspense fallback={<AttorneyDashboardPanelSkeleton message="Loading profile settings..." />}>
-          <ErrorBoundary name="AttorneyDashboardProfileTab">
-          <div className="space-y-6">
-            <AttorneyDashboardProfileTab
-              error={error}
-              profileLoading={profileLoading}
-              profile={profile}
-              editing={editing}
-              setEditing={setEditing}
-              setProfile={setProfile}
-              handleSaveProfile={handleSaveProfile}
-              negotiationStyle={negotiationStyle}
-              setNegotiationStyle={setNegotiationStyle}
-              riskTolerance={riskTolerance}
-              setRiskTolerance={setRiskTolerance}
-              handleSaveDecisionProfile={handleSaveDecisionProfile}
-              decisionProfileLoading={decisionProfileLoading}
-              licenseStatus={licenseStatus}
-              licenseSuccess={licenseSuccess}
-              licenseError={licenseError}
-              setLicenseError={setLicenseError}
-              licenseLoading={licenseLoading}
-              licenseMethod={licenseMethod}
-              setLicenseMethod={setLicenseMethod}
-              licenseNumber={licenseNumber}
-              setLicenseNumber={setLicenseNumber}
-              licenseState={licenseState}
-              setLicenseState={setLicenseState}
-              selectedLicenseFile={selectedLicenseFile}
-              handleStateBarLookup={handleStateBarLookup}
-              handleLicenseFileUpload={handleLicenseFileUpload}
-              handleLicenseFileChange={handleLicenseFileChange}
-            />
-            <CalendarSyncSettings
-              connections={calendarConnections}
-              healthSummary={calendarHealthSummary}
-              loading={calendarConnectionsLoading}
-              actionProvider={calendarActionProvider}
-              onRefresh={loadCalendarConnections}
-              onConnect={handleConnectCalendar}
-              onSync={handleSyncCalendarConnection}
-              onDisconnect={handleDisconnectCalendarConnection}
-            />
-            <ZoomSyncSettings
-              status={zoomStatus}
-              loading={zoomActionLoading}
-              onRefresh={loadZoomStatus}
-              onConnect={handleConnectZoom}
-              onDisconnect={handleDisconnectZoom}
-            />
-          </div>
-          </ErrorBoundary>
-        </Suspense>
-      )}
-
         </>
       )}
 
@@ -4402,255 +4219,6 @@ function buildAttorneyAiOpportunities(data: DashboardData): AttorneyAiOpportunit
     seen.add(item.id)
     return true
   })
-}
-
-function CalendarSyncSettings({
-  connections,
-  healthSummary,
-  loading,
-  actionProvider,
-  onRefresh,
-  onConnect,
-  onSync,
-  onDisconnect,
-}: {
-  connections: AttorneyCalendarConnection[]
-  healthSummary: {
-    totalConnections: number
-    connectedCount: number
-    healthyCount: number
-    warningCount: number
-    errorCount: number
-    disconnectedCount: number
-  } | null
-  loading: boolean
-  actionProvider: string | null
-  onRefresh: () => void | Promise<void>
-  onConnect: (provider: 'google' | 'microsoft') => void | Promise<void>
-  onSync: (provider: 'google' | 'microsoft') => void | Promise<void>
-  onDisconnect: (provider: 'google' | 'microsoft') => void | Promise<void>
-}) {
-  return (
-    <section className="card">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h3 className="text-sm font-semibold text-gray-700">Calendar sync</h3>
-          <p className="mt-1 text-sm text-gray-600">
-            Connect Google or Microsoft Calendar so plaintiff consultations only use current availability.
-          </p>
-        </div>
-        <button
-          onClick={() => void onRefresh()}
-          disabled={loading}
-          className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-60"
-        >
-          Refresh
-        </button>
-      </div>
-      <div className="mt-4 grid gap-3 md:grid-cols-2">
-        {healthSummary && (
-          <div className="md:col-span-2 rounded-xl border border-slate-200 bg-white p-4">
-            <div className="flex flex-wrap gap-3 text-xs">
-              <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-700">
-                {healthSummary.connectedCount}/{healthSummary.totalConnections} connected
-              </span>
-              <span className="rounded-full bg-emerald-100 px-3 py-1 text-emerald-700">
-                {healthSummary.healthyCount} healthy
-              </span>
-              <span className="rounded-full bg-amber-100 px-3 py-1 text-amber-700">
-                {healthSummary.warningCount} warning
-              </span>
-              <span className="rounded-full bg-rose-100 px-3 py-1 text-rose-700">
-                {healthSummary.errorCount} error
-              </span>
-            </div>
-          </div>
-        )}
-        {(['google', 'microsoft'] as const).map((provider) => {
-          const connection = connections.find((item) => item.provider === provider)
-          const providerLabel = provider === 'google' ? 'Google Calendar' : 'Microsoft Outlook'
-          const actionLoading = actionProvider === provider
-          const healthTone =
-            connection?.health?.status === 'healthy'
-              ? 'bg-emerald-100 text-emerald-700'
-              : connection?.health?.status === 'warning'
-                ? 'bg-amber-100 text-amber-700'
-                : connection?.health?.status === 'error'
-                  ? 'bg-rose-100 text-rose-700'
-                  : 'bg-slate-200 text-slate-700'
-
-          return (
-            <div key={provider} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-sm font-semibold text-slate-900">{providerLabel}</p>
-                  <p className="mt-1 text-xs text-slate-600">
-                    {connection?.connected
-                      ? `${connection.externalAccountEmail || 'Connected'}${connection.lastSyncedAt ? ` | synced ${new Date(connection.lastSyncedAt).toLocaleString()}` : ''}`
-                      : 'Not connected'}
-                  </p>
-                  {connection?.connected && (
-                    <p className={`mt-1 text-xs ${connection.autoSyncEnabled ? 'text-emerald-700' : 'text-amber-700'}`}>
-                      {connection.autoSyncEnabled
-                        ? `Auto-sync active${connection.webhookExpiresAt ? ` until ${new Date(connection.webhookExpiresAt).toLocaleString()}` : ''}`
-                        : 'Auto-sync is not active yet. Manual sync still works.'}
-                    </p>
-                  )}
-                  {connection?.lastWebhookAt && (
-                    <p className="mt-1 text-xs text-slate-500">
-                      Last webhook: {new Date(connection.lastWebhookAt).toLocaleString()}
-                    </p>
-                  )}
-                  {connection?.lastSyncError && (
-                    <p className="mt-1 text-xs text-amber-700">{connection.lastSyncError}</p>
-                  )}
-                </div>
-                <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${healthTone}`}>
-                  {connection?.health?.status
-                    ? connection.health.status.charAt(0).toUpperCase() + connection.health.status.slice(1)
-                    : connection?.connected ? 'Connected' : 'Disconnected'}
-                </span>
-              </div>
-              {connection?.health && (
-                <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
-                  <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600">
-                    <span>{connection.health.busyBlockCount} busy block(s) synced</span>
-                    <span>Recommendation: {connection.health.recommendedAction}</span>
-                  </div>
-                  {connection.health.issues.length > 0 && (
-                    <div className="mt-2 space-y-1">
-                      {connection.health.issues.map((issue) => (
-                        <p key={issue} className="text-xs text-slate-600">
-                          {issue}
-                        </p>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-              <div className="mt-3 flex flex-wrap gap-2">
-                <button
-                  onClick={() => void onConnect(provider)}
-                  disabled={actionLoading}
-                  className="rounded-lg bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-60"
-                >
-                  {connection?.connected ? 'Reconnect' : 'Connect'}
-                </button>
-                {connection?.connected && (
-                  <>
-                    <button
-                      onClick={() => void onSync(provider)}
-                      disabled={actionLoading}
-                      className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-medium text-sky-700 hover:bg-sky-100 disabled:opacity-60"
-                    >
-                      Sync now
-                    </button>
-                    <button
-                      onClick={() => void onDisconnect(provider)}
-                      disabled={actionLoading}
-                      className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-60"
-                    >
-                      Disconnect
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-          )
-        })}
-      </div>
-    </section>
-  )
-}
-
-function ZoomSyncSettings({
-  status,
-  loading,
-  onRefresh,
-  onConnect,
-  onDisconnect,
-}: {
-  status: AttorneyZoomStatus | null
-  loading: boolean
-  onRefresh: () => void | Promise<void>
-  onConnect: () => void | Promise<void>
-  onDisconnect: () => void | Promise<void>
-}) {
-  const configured = status?.configured ?? false
-  const connected = status?.connected ?? false
-
-  return (
-    <section className="card">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h3 className="text-sm font-semibold text-gray-700">Zoom</h3>
-          <p className="mt-1 text-sm text-gray-600">
-            Connect your Zoom account so video consultations create a real Zoom meeting on your calendar and
-            share a join link with the client automatically.
-          </p>
-        </div>
-        <button
-          onClick={() => void onRefresh()}
-          disabled={loading}
-          className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-60"
-        >
-          Refresh
-        </button>
-      </div>
-
-      <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
-        {!configured ? (
-          <p className="text-xs text-amber-700">
-            Zoom isn't configured on this server yet. Add <code>ZOOM_CLIENT_ID</code> and{' '}
-            <code>ZOOM_CLIENT_SECRET</code> to the API environment to enable per-attorney Zoom.
-          </p>
-        ) : (
-          <>
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold text-slate-900">Zoom Meetings</p>
-                <p className="mt-1 text-xs text-slate-600">
-                  {connected
-                    ? `${status?.email || status?.displayName || 'Connected'}`
-                    : 'Not connected'}
-                </p>
-                {connected && status?.syncStatus === 'sync_error' && (
-                  <p className="mt-1 text-xs text-amber-700">
-                    Last meeting sync failed. Try reconnecting Zoom.
-                  </p>
-                )}
-              </div>
-              <span
-                className={`rounded-full px-2.5 py-1 text-xs font-medium ${
-                  connected ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-700'
-                }`}
-              >
-                {connected ? 'Connected' : 'Disconnected'}
-              </span>
-            </div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button
-                onClick={() => void onConnect()}
-                disabled={loading}
-                className="rounded-lg bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-60"
-              >
-                {connected ? 'Reconnect' : 'Connect'}
-              </button>
-              {connected && (
-                <button
-                  onClick={() => void onDisconnect()}
-                  disabled={loading}
-                  className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-60"
-                >
-                  Disconnect
-                </button>
-              )}
-            </div>
-          </>
-        )}
-      </div>
-    </section>
-  )
 }
 
 

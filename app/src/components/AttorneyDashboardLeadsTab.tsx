@@ -977,7 +977,7 @@ export default function AttorneyDashboardLeadsTab({
                         : 'Try adjusting filters or check back for new matches.'}
                     </p>
                     <p className="mt-4 text-sm text-gray-500">
-                      <a href="/attorney-dashboard/settings/profile" className="text-brand-600 hover:text-brand-500">
+                      <a href="/attorney-profile?tab=preferences" className="text-brand-600 hover:text-brand-500">
                         Configure preferences
                       </a>{' '}
                       to receive relevant cases.

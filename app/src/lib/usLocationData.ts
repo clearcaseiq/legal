@@ -15,6 +15,16 @@ function sortCounties(counties: string[]): string[] {
   return [...counties].sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }))
 }
 
+function dedupe(counties: string[]): string[] {
+  const seen = new Set<string>()
+  return counties.filter((county) => {
+    const key = county.toLowerCase()
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
 function buildCountiesByState(): Record<string, readonly string[]> {
   const entries = readStatesWithCounties()
     .filter((state) => Array.isArray(state.counties) && state.counties.length > 0)
@@ -22,7 +32,7 @@ function buildCountiesByState(): Record<string, readonly string[]> {
       (state) =>
         [
           state.abbreviation,
-          sortCounties(state.counties!.map((county) => normalizeCountyName(county))),
+          sortCounties(dedupe(state.counties!.map((county) => normalizeCountyName(county)))),
         ] as const,
     )
 
@@ -35,13 +45,30 @@ function buildCountiesByState(): Record<string, readonly string[]> {
 
 const COUNTIES_BY_STATE = buildCountiesByState()
 
+/**
+ * Reduces a county to the bare name routing compares on.
+ *
+ * Routing matches an attorney's stored county against an assessment's
+ * `venueCounty` with case-insensitive string equality, so the two sides have to
+ * agree on spelling exactly. The upstream dataset writes the full legal name --
+ * "Acadia Parish", "Aleutians West Census Area", "Anchorage, Municipality of" --
+ * while everything already stored in this system uses the bare form.
+ *
+ * Independent cities are the exception: they keep a "City" suffix rather than
+ * collapsing to the bare name. Virginia has both a Bedford County and a City of
+ * Bedford, and Maryland and Missouri have the same split. Stripping the suffix
+ * would merge two distinct venues into one entry and silently widen coverage
+ * for anyone who had picked only the county.
+ */
 export function normalizeCountyName(county: string): string {
   return county
     .replace(/,\s*City and County of$/i, '')
     .replace(/,\s*Consolidated Municipality of$/i, '')
-    .replace(/,\s*City of$/i, '')
     .replace(/,\s*Town and County of$/i, '')
-    .replace(/\s+County\s*$/i, '')
+    .replace(/,\s*City and Borough( of)?$/i, '')
+    .replace(/,\s*Municipality of$/i, '')
+    .replace(/,\s*City of$/i, ' City')
+    .replace(/\s+(County|Parish|Borough|Census Area|Municipality)\s*$/i, '')
     .trim()
 }
 

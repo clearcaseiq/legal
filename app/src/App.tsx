@@ -95,7 +95,6 @@ const AttorneyWorkspaceLayout = lazy(() => import('./features/shared/AttorneyWor
 const NewMatchesPage = lazy(() => import('./features/leadgen/NewMatchesPage'))
 const AttorneyAnalyticsPage = lazy(() => import('./features/leadgen/AttorneyAnalyticsPage'))
 const AttorneyOverviewPage = lazy(() => import('./features/leadgen/AttorneyOverviewPage'))
-const AttorneyProfileSettingsPage = lazy(() => import('./features/casework/AttorneyProfileSettingsPage'))
 const IntakePage = lazy(() => import('./features/leadgen/IntakePage'))
 const MarketplacePerformancePage = lazy(() => import('./features/leadgen/MarketplacePerformancePage'))
 const MatchQualityPage = lazy(() => import('./features/leadgen/MatchQualityPage'))
@@ -271,7 +270,7 @@ const LEGACY_TAB_REDIRECTS: Record<string, string> = {
   intake: '/attorney-dashboard/cases/intake',
   analytics: '/attorney-dashboard/leadgen/analytics',
   overview: '/attorney-dashboard/overview',
-  profile: '/attorney-dashboard/settings/profile',
+  profile: '/attorney-profile',
 }
 
 function AttorneyDashboardEntry() {
@@ -1295,7 +1294,13 @@ function App() {
                 <Route path="/attorney-dashboard/leadgen/analytics" element={<AttorneyAnalyticsPage />} />
                 {/* Standalone homes for the retired legacy dashboard tabs. */}
                 <Route path="/attorney-dashboard/overview" element={<AttorneyOverviewPage />} />
-                <Route path="/attorney-dashboard/settings/profile" element={<AttorneyProfileSettingsPage />} />
+                {/* Settings and the standalone profile page were two views of the
+                    same six fields against the same endpoint. /attorney-profile is
+                    the survivor; this path stays for bookmarks and stored links. */}
+                <Route
+                  path="/attorney-dashboard/settings/profile"
+                  element={<Navigate to="/attorney-profile" replace />}
+                />
                 {/* Intake now lives under Case Management; keep the old leadgen path as a redirect. */}
                 <Route path="/attorney-dashboard/leadgen/intake" element={<Navigate to="/attorney-dashboard/cases/intake" replace />} />
                 {/* Case Management */}
@@ -1340,8 +1345,11 @@ function App() {
               <Route path="/attorney-billing" element={<AttorneyBilling />} />
               <Route path="/attorney-profile" element={<AttorneyProfile />} />
               {/* Retired standalone preferences page: every setting it owned now
-                  lives in dashboard settings. Kept as a redirect for bookmarks. */}
-              <Route path="/attorney-preferences" element={<Navigate to="/attorney-dashboard/settings/profile" replace />} />
+                  lives on the profile's Case Preferences tab. */}
+              <Route
+                path="/attorney-preferences"
+                element={<Navigate to="/attorney-profile?tab=preferences" replace />}
+              />
               <Route path="/integrations" element={<Integrations />} />
               <Route path="/medical-providers" element={<MedicalProviders />} />
             </Route>

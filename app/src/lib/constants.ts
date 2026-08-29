@@ -159,9 +159,11 @@ export function formatClaimTypeShort(value: string | null | undefined): string {
   return formatClaimType(value)
 }
 
-export { STATE_COUNTIES } from './us-counties'
-
-/** California counties — kept for backward compat; prefer STATE_COUNTIES['CA'] */
+/**
+ * California counties — a fallback for `usLocationData`, which is the county
+ * source everything else should use. Kept only so a failed load of the upstream
+ * dataset degrades to California rather than to an empty picker.
+ */
 export const CA_COUNTIES = [
   'Alameda', 'Alpine', 'Amador', 'Butte', 'Calaveras', 'Colusa', 'Contra Costa', 'Del Norte', 'El Dorado',
   'Fresno', 'Glenn', 'Humboldt', 'Imperial', 'Inyo', 'Kern', 'Kings', 'Lake', 'Lassen', 'Los Angeles',

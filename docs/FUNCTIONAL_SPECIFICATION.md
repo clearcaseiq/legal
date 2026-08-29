@@ -447,13 +447,23 @@ and the California-scoped public checker; LLM analysis is served by `/v1/chatgpt
   lookup. Claimant ID verification (Jumio/Onfido-style) is **not implemented** — the former
   `/v1/verification` route was removed because it returned randomised confidence scores and
   hardcoded SOC 2 / HIPAA / GDPR attestations that the platform cannot substantiate.
-- **Profile** (`AttorneyProfile`) — public profile editor (bio, photo, specialties, languages, years
-  of experience, firm), performance metrics, and "Verified Verdicts"; auto-refreshes every 30s.
-- **Profile settings** (`AttorneyDashboardProfileTab`, `/attorney-dashboard/settings/profile`) — firm
-  name and office locations, jurisdictions, case preferences (min severity, excluded case types,
-  min/max damages), capacity and intake hours, and buying preferences (pricing/payment model,
-  subscription tier), plus decision profile, license verification, and calendar/Zoom sync. The
-  standalone `/attorney-preferences` page is retired; the path redirects here.
+- **Profile** (`AttorneyProfile`, `/attorney-profile`) — the single place an attorney manages their
+  own record, auto-refreshing every 30s. Five tabs, each addressable as `?tab=`:
+  - *Profile* — display name, bio, photo, specialties, languages and proficiency, years of
+    experience, and a profile-strength meter.
+  - *Practice* — service areas (states plus per-state counties), firm name and office locations,
+    and State Bar license verification.
+  - *Case Preferences* — case filters (min severity, min/max damages, excluded case types),
+    capacity and intake hours, response-time commitment, buying preferences (pricing/payment
+    model, subscription tier), and the decision profile.
+  - *Performance* — lead volume, financial and success metrics.
+  - *Case Results* — self-reported settlements and verdicts, verified by staff against an
+    uploaded supporting document.
+
+  This page absorbed the former "Profile settings" dashboard tab, which edited the same fields
+  against the same endpoint. `/attorney-dashboard/settings/profile` and `/attorney-preferences`
+  are retired and redirect here. Calendar and Zoom sync live on scheduling settings
+  (`/attorney-dashboard/cases/scheduling`).
 
 ### 4.2 Profile Claiming (Yelp-style) (`ClaimProfile`, `attorney-claim`, `lib/claims.ts`)
 A pre-imported attorney profile is claimed via a tokenized link: start the claim (returns a masked
@@ -472,8 +482,6 @@ invites; OTPs are hashed with TTLs and attempt limits; emails/phones/bar numbers
   Litify / spreadsheets (with documents, history, tasks, and medical ingestion). Configures a
   **Smart Intake Engine** (dynamic questionnaires, conditional logic, missing-info detection,
   auto-follow-ups).
-- **Profile** — the public profile view (bio, specialties, languages, firm, jurisdictions, case
-  preferences, capacity, response-time commitments, license status).
 - **Analytics** — conversion snapshot (acceptance/consult/retain), operations pulse (readiness,
   demand-ready, doc-blocked, overdue tasks), decision intelligence (decisions captured, override
   rate), case-level intelligence (cost vs outcome, duration vs value, settlement efficiency),

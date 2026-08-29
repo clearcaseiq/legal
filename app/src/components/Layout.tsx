@@ -634,11 +634,10 @@ export default function Layout({ children }: LayoutProps) {
                             >
                               {t('common.myProfile')}
                             </Link>
+                            {/* "Profile Settings" used to sit here as a second
+                                entry. It is the same page as "My Profile" now. */}
                             {isAttorney && (
                               <>
-                                <Link to="/attorney-dashboard/settings/profile" onClick={() => setUserMenuOpen(false)} className={menuItemCls}>
-                                  {t('common.profileSettings')}
-                                </Link>
                                 <Link to="/firm-dashboard" onClick={() => setUserMenuOpen(false)} className={menuItemCls}>
                                   Firm Dashboard
                                 </Link>
@@ -784,7 +783,6 @@ export default function Layout({ children }: LayoutProps) {
                       )}
                       {isAttorney && (
                         <>
-                          <Link to="/attorney-dashboard/settings/profile" onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">{t('common.profileSettings')}</Link>
                           <Link to="/firm-dashboard" onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">Firm Dashboard</Link>
                           <Link to="/firm-settings" onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">Firm Settings</Link>
                         </>

@@ -1,16 +1,13 @@
 import { useState, useEffect, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { 
-  User, 
-  Star, 
-  Award, 
-  TrendingUp, 
-  DollarSign, 
-  Target, 
-  Settings, 
-  Upload, 
-  Edit, 
-  Plus, 
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import {
+  User,
+  Star,
+  Award,
+  TrendingUp,
+  DollarSign,
+  Upload,
+  Plus,
   Trash2,
   CheckCircle,
   XCircle,
@@ -26,22 +23,25 @@ import {
   ChevronLeft,
   ChevronRight,
   Loader2,
+  MapPin,
+  Pencil,
+  SlidersHorizontal,
 } from 'lucide-react'
 import {
   addAttorneyVerifiedVerdict,
   updateAttorneyVerifiedVerdict,
   deleteAttorneyVerifiedVerdict,
   uploadVerifiedVerdictDocument,
-  getAttorneyDashboard,
-  getAttorneyProfilePerformance,
-  getMyAttorneyProfile,
-  updateAttorneyProfile,
   uploadAttorneyProfilePhoto,
 } from '../lib/api'
 import { getApiOrigin } from '../lib/runtimeEnv'
 import { formatSpecialty } from '../lib/constants'
 import { BackButton } from '../features/shared/ui'
 import AttorneyProfileOverview from '../features/attorney/AttorneyProfileOverview'
+import PracticeTab from '../features/attorney/sections/PracticeTab'
+import CasePreferencesTab from '../features/attorney/sections/CasePreferencesTab'
+import { normalizeAttorneyProfile } from '../features/attorney/attorneyProfileModel'
+import { useAttorneyProfileModel } from '../features/attorney/useAttorneyProfileModel'
 import { useLanguage } from '../contexts/LanguageContext'
 import { fallbackAvatar } from '../lib/avatar'
 
@@ -62,73 +62,22 @@ function resolvePhotoUrl(photoUrl: string | null, name?: string | null): string 
   return `${origin}${photoUrl.startsWith('/') ? '' : '/'}${photoUrl}`
 }
 
-interface AttorneyProfile {
-  id: string
-  bio: string
-  photoUrl: string | null
-  specialties: string[]
-  languages: string[]
-  /** Fluency keyed by language name. A language absent here shows no badge. */
-  languageProficiency: Record<string, string>
-  /**
-   * The stored [{ state, counties, cities }] shape, kept intact rather than
-   * flattened to county names because it drives routing and a save has to put
-   * each county back under the state it came from.
-   */
-  jurisdictions: Array<{ state: string; counties: string[]; cities: string[] }>
-  /** Set by license verification, so shown here as read-only. */
-  licenseState: string | null
-  licenseVerified: boolean
-  yearsExperience: number
-  yearsPiExperience: number
-  totalCases: number
-  totalSettlements: number
-  averageSettlement: number
-  successRate: number
-  verifiedVerdicts: any[]
-  isFeatured: boolean
-  boostLevel: number
-  totalReviews: number
-  averageRating: number
-  attorney?: {
-    name?: string | null
-    email?: string | null
-  }
-}
+/**
+ * The tabs, in order. `id` doubles as the `?tab=` value so a link can point at
+ * a specific section — several places in the app deep-link to case preferences.
+ */
+const PROFILE_TABS = [
+  { id: 'profile', name: 'Profile', icon: User },
+  { id: 'practice', name: 'Practice', icon: MapPin },
+  { id: 'preferences', name: 'Case Preferences', icon: SlidersHorizontal },
+  { id: 'performance', name: 'Performance', icon: TrendingUp },
+  { id: 'results', name: 'Case Results', icon: Award },
+] as const
 
-type AttorneyPerformance = {
-  leadMetrics?: {
-    totalLeads?: number
-    acceptanceRate?: number
-    conversionRate?: number
-    overallConversionRate?: number
-  }
-  financialMetrics?: {
-    feesCollectedFromPayments?: number
-    averageFee?: number
-    platformSpend?: number
-    roi?: number
-  }
-  reviews?: {
-    totalReviews?: number
-    averageRating?: number
-  }
-}
+type ProfileTabId = (typeof PROFILE_TABS)[number]['id']
 
-type AttorneyDashboardSnapshot = {
-  recentLeads?: Array<{ status?: string; submittedAt?: string }>
-  activeCases?: {
-    contacted?: number
-    consultScheduled?: number
-    retained?: number
-    closed?: number
-  }
-  dashboard?: {
-    totalLeadsReceived?: number
-    totalLeadsAccepted?: number
-    feesCollectedFromPayments?: number
-  }
-}
+const isProfileTab = (value: string | null): value is ProfileTabId =>
+  PROFILE_TABS.some((tab) => tab.id === value)
 
 // Common case-result categories for the "Case Results" picker. The chosen label
 // is stored verbatim as the verdict's caseType so it renders consistently.
@@ -184,15 +133,32 @@ const VERDICT_PAGE_SIZE = 4
 export default function AttorneyProfile() {
   const { t } = useLanguage()
   const navigate = useNavigate()
-  const [profile, setProfile] = useState<AttorneyProfile | null>(null)
-  const [performance, setPerformance] = useState<AttorneyPerformance | null>(null)
-  const [dashboard, setDashboard] = useState<AttorneyDashboardSnapshot | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null)
-  const [activeTab, setActiveTab] = useState('overview')
-  const [editing, setEditing] = useState(false)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const {
+    dashboard,
+    error,
+    lastUpdatedAt,
+    loading,
+    performance,
+    profile,
+    refreshing,
+    reload,
+    saveProfile,
+    saveSuccess,
+    saving,
+    setError,
+    setProfile,
+  } = useAttorneyProfileModel()
+
+  const tabParam = searchParams.get('tab')
+  const activeTab: ProfileTabId = isProfileTab(tabParam) ? tabParam : 'profile'
+  const setActiveTab = (tab: ProfileTabId) => {
+    // `replace` so tabbing around doesn't fill the back button with tab changes.
+    const next = new URLSearchParams(searchParams)
+    next.set('tab', tab)
+    setSearchParams(next, { replace: true })
+  }
+
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
   const [verdictToDelete, setVerdictToDelete] = useState<number | null>(null)
   const [deletingVerdict, setDeletingVerdict] = useState(false)
@@ -217,122 +183,12 @@ export default function AttorneyProfile() {
   const [verdictFilter, setVerdictFilter] = useState<'all' | 'verified' | 'pending'>('all')
   const [verdictPage, setVerdictPage] = useState(1)
   const [openVerdictMenu, setOpenVerdictMenu] = useState<string | null>(null)
+
+  // Adding a result changes the page count, so a page that no longer exists
+  // would otherwise render empty.
   useEffect(() => {
-    void loadProfile({ initial: true })
-    // Warm the Profile Settings chunk so navigating there from the "Profile
-    // Settings" button doesn't flash the route Suspense spinner (#212).
-    void import('../features/casework/AttorneyProfileSettingsPage')
-    const intervalId = window.setInterval(() => {
-      void loadProfile({ initial: false })
-    }, 30000)
-    return () => window.clearInterval(intervalId)
-  }, [])
-
-  const parseJsonArray = (value: unknown): any[] => {
-    if (Array.isArray(value)) return value
-    if (typeof value !== 'string' || !value.trim()) return []
-    try {
-      const parsed = JSON.parse(value)
-      return Array.isArray(parsed) ? parsed : []
-    } catch {
-      return []
-    }
-  }
-
-  const parseJsonObject = (value: any): Record<string, string> => {
-    if (value && typeof value === 'object' && !Array.isArray(value)) return value
-    if (typeof value !== 'string' || !value.trim()) return {}
-    try {
-      const parsed = JSON.parse(value)
-      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
-    } catch {
-      return {}
-    }
-  }
-
-  const normalizeProfile = (raw: any): AttorneyProfile => {
-    // The profile record has its own `specialties` column that defaults to "[]",
-    // while the values chosen at registration are stored on `attorney.specialties`.
-    // A plain `??` never fell back because "[]" is a defined value, so the
-    // registered service types were masked by the default (#68). Prefer the
-    // profile list only when it actually has entries, else use the attorney's.
-    const profileSpecialties = parseJsonArray(raw?.specialties)
-    const attorneySpecialties = parseJsonArray(raw?.attorney?.specialties)
-    const specialties = profileSpecialties.length ? profileSpecialties : attorneySpecialties
-    const languages = parseJsonArray(raw?.languages)
-    const verifiedVerdicts = parseJsonArray(raw?.verifiedVerdicts)
-    const jurisdictions = parseJsonArray(raw?.jurisdictions)
-      .filter((entry: any) => entry && typeof entry === 'object' && entry.state)
-      .map((entry: any) => ({
-        state: String(entry.state),
-        counties: (Array.isArray(entry.counties) ? entry.counties : []).filter(Boolean).map(String),
-        cities: (Array.isArray(entry.cities) ? entry.cities : []).filter(Boolean).map(String),
-      }))
-    const totalSettlements = Number(raw?.totalSettlements || 0)
-    const totalCases = Number(raw?.totalCases || 0)
-
-    return {
-      id: raw?.id || raw?.attorneyId || 'profile',
-      bio: raw?.bio || raw?.attorney?.profile || '',
-      photoUrl: raw?.photoUrl || null,
-      specialties: specialties.length ? specialties : ['Personal Injury'],
-      languages: languages.length ? languages : ['English'],
-      languageProficiency: parseJsonObject(raw?.languageProficiency),
-      jurisdictions,
-      licenseState: raw?.licenseState || raw?.attorney?.barState || null,
-      licenseVerified: Boolean(raw?.licenseVerified),
-      yearsExperience: Number(raw?.yearsExperience || 0),
-      yearsPiExperience: Number(raw?.yearsPiExperience || 0),
-      totalCases,
-      totalSettlements,
-      averageSettlement: Number(raw?.averageSettlement || (totalCases > 0 ? totalSettlements / totalCases : 0)),
-      successRate: Number(raw?.successRate || 0),
-      verifiedVerdicts,
-      isFeatured: Boolean(raw?.isFeatured),
-      boostLevel: Number(raw?.boostLevel || 0),
-      totalReviews: Number(raw?.totalReviews || raw?.attorney?.totalReviews || 0),
-      averageRating: Number(raw?.averageRating || raw?.attorney?.averageRating || 0),
-      attorney: raw?.attorney,
-    }
-  }
-
-  const loadProfile = async ({ initial }: { initial: boolean }) => {
-    try {
-      if (initial) setLoading(true)
-      else setRefreshing(true)
-      setError(null)
-      const [profileData, performanceData, dashboardData] = await Promise.all([
-        getMyAttorneyProfile(),
-        getAttorneyProfilePerformance({ period: 'monthly' }).catch(() => null),
-        getAttorneyDashboard().catch(() => null),
-      ])
-
-      const normalized = normalizeProfile(profileData)
-      if (performanceData?.reviews) {
-        normalized.totalReviews = Number(performanceData.reviews.totalReviews ?? normalized.totalReviews)
-        normalized.averageRating = Number(performanceData.reviews.averageRating ?? normalized.averageRating)
-      }
-      if (performanceData?.leadMetrics) {
-        normalized.totalCases = Number(performanceData.leadMetrics.totalLeads ?? normalized.totalCases)
-        normalized.successRate = Number(performanceData.leadMetrics.conversionRate ?? normalized.successRate)
-      }
-      if (performanceData?.financialMetrics) {
-        normalized.totalSettlements = Number(performanceData.financialMetrics.feesCollectedFromPayments ?? normalized.totalSettlements)
-        normalized.averageSettlement = Number(performanceData.financialMetrics.averageFee ?? normalized.averageSettlement)
-      }
-
-      setProfile(normalized)
-      setPerformance(performanceData)
-      setDashboard(dashboardData as unknown as AttorneyDashboardSnapshot | null)
-      setLastUpdatedAt(new Date())
-    } catch (err: any) {
-      console.error('Failed to load profile:', err)
-      setError(err?.response?.data?.error || 'Failed to load live attorney profile.')
-    } finally {
-      setLoading(false)
-      setRefreshing(false)
-    }
-  }
+    setVerdictPage(1)
+  }, [activeTab])
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -348,36 +204,6 @@ export default function AttorneyProfile() {
     // one decimal for fractional rates (e.g. "87.5%").
     const rounded = Math.round((Number(value) || 0) * 10) / 10
     return `${Number.isInteger(rounded) ? rounded : rounded.toFixed(1)}%`
-  }
-
-  const handleSaveProfile = async () => {
-    if (!profile) return
-    try {
-      const cleanLanguages = profile.languages.map((l) => l.trim()).filter(Boolean)
-      const updated = await updateAttorneyProfile({
-        name: profile.attorney?.name || undefined,
-        bio: profile.bio,
-        photoUrl: profile.photoUrl,
-        // Send raw arrays: the API JSON.stringify()s these itself. Passing a
-        // pre-stringified value double-encodes it, so on reload it parses back
-        // to a string (not an array) and languages/specialties silently reset.
-        specialties: profile.specialties,
-        languages: cleanLanguages,
-        languageProficiency: profile.languageProficiency,
-        yearsExperience: profile.yearsExperience,
-        yearsPiExperience: profile.yearsPiExperience,
-        totalCases: profile.totalCases,
-        totalSettlements: profile.totalSettlements,
-        averageSettlement: profile.averageSettlement,
-        successRate: profile.successRate,
-      })
-      setProfile(normalizeProfile(updated))
-      setLastUpdatedAt(new Date())
-      setEditing(false)
-      setError(null)
-    } catch (err: any) {
-      setError(err?.response?.data?.error || 'Failed to save profile changes.')
-    }
   }
 
   const resetVerdictForm = () => {
@@ -458,9 +284,8 @@ export default function AttorneyProfile() {
         : await addAttorneyVerifiedVerdict(payload)
 
       if (response?.profile) {
-        setProfile(normalizeProfile(response.profile))
+        setProfile(normalizeAttorneyProfile(response.profile))
       }
-      setLastUpdatedAt(new Date())
       setError(null)
       closeVerdictPanel()
     } catch (err: any) {
@@ -469,31 +294,6 @@ export default function AttorneyProfile() {
       setSavingVerdict(false)
     }
   }
-
-  // Persist the whole profile with a few overridden fields so unrelated columns
-  // aren't wiped (the API skips undefined fields but sends full arrays here).
-  const persistProfileFields = async (overrides: Record<string, any>) => {
-    if (!profile) return
-    const updated = await updateAttorneyProfile({
-      name: profile.attorney?.name || undefined,
-      bio: profile.bio,
-      photoUrl: profile.photoUrl,
-      specialties: profile.specialties,
-      languages: profile.languages,
-      languageProficiency: profile.languageProficiency,
-      jurisdictions: profile.jurisdictions,
-      yearsExperience: profile.yearsExperience,
-      yearsPiExperience: profile.yearsPiExperience,
-      totalCases: profile.totalCases,
-      totalSettlements: profile.totalSettlements,
-      averageSettlement: profile.averageSettlement,
-      successRate: profile.successRate,
-      ...overrides,
-    })
-    setProfile(normalizeProfile(updated))
-    setLastUpdatedAt(new Date())
-  }
-
 
   const handlePhotoFileSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -523,7 +323,6 @@ export default function AttorneyProfile() {
       // relation), so replacing the whole profile wiped the displayed name/bio.
       // Merge just the new photo URL and keep the rest of the loaded profile.
       setProfile((prev) => (prev ? { ...prev, photoUrl: updated?.photoUrl ?? prev.photoUrl } : prev))
-      setLastUpdatedAt(new Date())
     } catch (err: any) {
       setError(err?.response?.data?.error || 'Failed to upload profile photo.')
     } finally {
@@ -546,8 +345,7 @@ export default function AttorneyProfile() {
     setDeletingVerdict(true)
     try {
       const response = await deleteAttorneyVerifiedVerdict(String(target.id))
-      if (response?.profile) setProfile(normalizeProfile(response.profile))
-      setLastUpdatedAt(new Date())
+      if (response?.profile) setProfile(normalizeAttorneyProfile(response.profile))
       setError(null)
       setVerdictToDelete(null)
     } catch (err: any) {
@@ -615,32 +413,10 @@ export default function AttorneyProfile() {
               </span>
             ) : null}
           </p>
+          {/* Inline, next to the thing that failed. A save error used to replace
+              the whole page, taking the unsaved edits with it. */}
           {error ? <p className="mt-2 text-sm text-red-600">{error}</p> : null}
-        </div>
-        <div className="flex space-x-4">
-          {editing ? (
-            <>
-              <button onClick={() => setEditing(false)} className="btn-secondary">
-                <X className="h-4 w-4 mr-2" />
-                Cancel
-              </button>
-              <button onClick={handleSaveProfile} className="btn-primary">
-                <CheckCircle className="h-4 w-4 mr-2" />
-                Save Changes
-              </button>
-            </>
-          ) : (
-            <>
-              <button onClick={() => setEditing(true)} className="btn-secondary">
-                <Edit className="h-4 w-4 mr-2" />
-                Edit Profile
-              </button>
-              <button className="btn-primary" onClick={() => navigate('/attorney-dashboard/settings/profile')}>
-                <Settings className="h-4 w-4 mr-2" />
-                {t('common.profileSettings')}
-              </button>
-            </>
-          )}
+          {saveSuccess ? <p className="mt-2 text-sm font-medium text-emerald-600">Profile saved.</p> : null}
         </div>
       </div>
 
@@ -672,18 +448,9 @@ export default function AttorneyProfile() {
           </div>
           <div className="flex-1">
             <div className="flex items-center space-x-2 mb-2">
-              {editing ? (
-                <input
-                  type="text"
-                  value={profile.attorney?.name || ''}
-                  onChange={(e) => setProfile({ ...profile, attorney: { ...profile.attorney, name: e.target.value } })}
-                  className="text-2xl font-bold text-gray-900 border border-gray-300 rounded-md px-2 py-1"
-                  placeholder="Your name"
-                  maxLength={120}
-                />
-              ) : (
-                <h2 className="text-2xl font-bold text-gray-900">{profile.attorney?.name || 'Your Profile'}</h2>
-              )}
+              {/* Read-only here. Name and bio are edited on the Profile tab
+                  below, so there is one place to change them and one save. */}
+              <h2 className="text-2xl font-bold text-gray-900">{profile.attorney?.name || 'Your Profile'}</h2>
               {profile.isFeatured && (
                 <div className="flex items-center space-x-1">
                   <Star className="h-5 w-5 text-yellow-500" />
@@ -696,19 +463,8 @@ export default function AttorneyProfile() {
                 </span>
               ) : null}
             </div>
-            {editing ? (
-              <textarea
-                value={profile.bio}
-                onChange={(e) => setProfile({ ...profile, bio: e.target.value })}
-                className="w-full p-3 border border-gray-300 rounded-md"
-                rows={3}
-                placeholder="Write your professional bio..."
-                maxLength={2000}
-              />
-            ) : (
-              <p className="text-gray-600">{profile.bio}</p>
-            )}
-            
+            <p className="text-gray-600">{profile.bio}</p>
+
             <div className="mt-4 flex flex-wrap gap-2">
               {profile.specialties.map((specialty, index) => (
                 <span key={index} className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
@@ -731,18 +487,14 @@ export default function AttorneyProfile() {
 
       {/* Tabs */}
       <div className="border-b border-gray-200">
-        <nav className="-mb-px flex space-x-8">
-          {[
-            { id: 'overview', name: 'Overview', icon: User },
-            { id: 'performance', name: 'Performance', icon: TrendingUp },
-            { id: 'verdicts', name: 'Case Results', icon: Award }
-          ].map((tab) => {
+        <nav className="-mb-px flex space-x-8 overflow-x-auto">
+          {PROFILE_TABS.map((tab) => {
             const Icon = tab.icon
             return (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center py-2 px-1 border-b-2 font-medium text-sm ${
+                className={`flex shrink-0 items-center py-2 px-1 border-b-2 font-medium text-sm ${
                   activeTab === tab.id
                     ? 'border-primary-500 text-primary-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -757,34 +509,48 @@ export default function AttorneyProfile() {
       </div>
 
       {/* Tab Content */}
-      {activeTab === 'overview' && (
-        <div className="space-y-6">
-          <AttorneyProfileOverview
-            profile={{
-              bio: profile.bio,
-              photoUrl: profile.photoUrl,
-              specialties: profile.specialties,
-              languages: profile.languages,
-              languageProficiency: profile.languageProficiency,
-              jurisdictions: profile.jurisdictions,
-              licenseState: profile.licenseState,
-              licenseVerified: profile.licenseVerified,
-              yearsExperience: profile.yearsExperience,
-              yearsPiExperience: profile.yearsPiExperience,
-              totalSettlements: profile.totalSettlements,
-            }}
-            onSave={async (draft) => {
-              try {
-                await persistProfileFields(draft)
-                setError(null)
-              } catch (err: any) {
-                setError(err?.response?.data?.error || 'Failed to save profile changes.')
-                throw err
-              }
-            }}
-            onOpenDashboardProfile={() => navigate('/attorney-dashboard/settings/profile')}
-          />
+      {activeTab === 'profile' && (
+        <AttorneyProfileOverview
+          profile={{
+            name: profile.attorney?.name || '',
+            bio: profile.bio,
+            photoUrl: profile.photoUrl,
+            specialties: profile.specialties,
+            languages: profile.languages,
+            languageProficiency: profile.languageProficiency,
+            licenseState: profile.licenseState,
+            licenseVerified: profile.licenseVerified,
+            yearsExperience: profile.yearsExperience,
+            yearsPiExperience: profile.yearsPiExperience,
+            totalSettlements: profile.totalSettlements,
+          }}
+          onSave={async ({ name, ...draft }) => {
+            const saved = await saveProfile({
+              ...draft,
+              attorney: { ...profile.attorney, name },
+            })
+            // The overview keeps its dirty state on a rejection, so the edits
+            // survive a failed save and can be retried.
+            if (!saved) throw new Error('Failed to save profile changes.')
+          }}
+        />
+      )}
 
+      {activeTab === 'practice' && (
+        <PracticeTab
+          profile={profile}
+          saving={saving}
+          onSave={(patch) => saveProfile(patch)}
+          onProfileChanged={() => reload({ initial: false })}
+        />
+      )}
+
+      {activeTab === 'preferences' && (
+        <CasePreferencesTab profile={profile} saving={saving} onSave={(patch) => saveProfile(patch)} />
+      )}
+
+      {activeTab === 'performance' && (
+        <div className="space-y-6">
           {/* Quick Stats */}
           <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
             <div className="border-b border-slate-100 px-6 py-4">
@@ -809,11 +575,7 @@ export default function AttorneyProfile() {
               </div>
             </div>
           </div>
-        </div>
-      )}
 
-      {activeTab === 'performance' && (
-        <div className="space-y-6">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="card">
               <h3 className="text-lg font-medium text-gray-900 mb-4">Case Volume</h3>
@@ -872,7 +634,7 @@ export default function AttorneyProfile() {
         </div>
       )}
 
-      {activeTab === 'verdicts' && (() => {
+      {activeTab === 'results' && (() => {
         const allVerdicts = profile.verifiedVerdicts || []
         const totalAmount = allVerdicts.reduce((sum, v) => sum + Number(v.settlementAmount || 0), 0)
         const practiceAreas = new Set(
@@ -1037,7 +799,7 @@ export default function AttorneyProfile() {
                                     onClick={() => openEditVerdictPanel(i)}
                                     className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
                                   >
-                                    <Edit className="h-4 w-4" /> Edit
+                                    <Pencil className="h-4 w-4" /> Edit
                                   </button>
                                   <button
                                     onClick={() => { setOpenVerdictMenu(null); handleDeleteVerdict(i) }}
