@@ -81,17 +81,40 @@ async function resolveAttorney(req: AuthRequest) {
   })
 }
 
-/** Load a lead and assert the caller attorney may act on it (or it's unassigned). */
-async function resolveLeadForAttorney(leadId: string, attorneyId: string) {
+/**
+ * Load a lead and assert the caller attorney may act on it (or it's unassigned).
+ *
+ * Access follows the firm, not the assignment alone. A lead assigned to one
+ * attorney is still the firm's matter, and a firm admin sending a retainer on a
+ * colleague's case is ordinary practice — the firm dashboard already lets them
+ * assign and reassign these very cases. Matching on the assigned attorney only
+ * left a firm admin unable to send anything, and because the read endpoints
+ * share this rule it also broke the panel that was meant to show the error:
+ * listing envelopes 403'd, so the provider list never loaded and the picker sat
+ * on "Loading signature tools…" indefinitely.
+ */
+async function resolveLeadForAttorney(
+  leadId: string,
+  attorney: { id: string; lawFirmId: string | null },
+) {
   const lead = await prisma.leadSubmission.findUnique({
     where: { id: leadId },
     select: { id: true, assignedAttorneyId: true },
   })
   if (!lead) return { error: 404 as const }
-  if (lead.assignedAttorneyId && lead.assignedAttorneyId !== attorneyId) {
-    return { error: 403 as const }
+  if (!lead.assignedAttorneyId || lead.assignedAttorneyId === attorney.id) {
+    return { lead }
   }
-  return { lead }
+  if (attorney.lawFirmId) {
+    const assigned = await prisma.attorney.findUnique({
+      where: { id: lead.assignedAttorneyId },
+      select: { lawFirmId: true },
+    })
+    if (assigned?.lawFirmId && assigned.lawFirmId === attorney.lawFirmId) {
+      return { lead }
+    }
+  }
+  return { error: 403 as const }
 }
 
 // Lets the UI render a provider picker of only the tools configured on this
@@ -105,7 +128,7 @@ router.get('/leads/:leadId/firm-templates', authMiddleware, async (req: AuthRequ
   try {
     const attorney = await resolveAttorney(req)
     if (!attorney) return res.status(403).json({ error: 'Not an attorney account' })
-    const resolved = await resolveLeadForAttorney(req.params.leadId, attorney.id)
+    const resolved = await resolveLeadForAttorney(req.params.leadId, attorney)
     if (resolved.error === 404) return res.status(404).json({ error: 'Lead not found' })
     if (resolved.error === 403) return res.status(403).json({ error: 'Lead is assigned to another attorney' })
     if (!attorney.lawFirmId) {
@@ -142,7 +165,7 @@ router.post(
       if (!attorney.lawFirmId) {
         return res.status(400).json({ error: 'No law firm is linked to this attorney account' })
       }
-      const resolved = await resolveLeadForAttorney(req.params.leadId, attorney.id)
+      const resolved = await resolveLeadForAttorney(req.params.leadId, attorney)
       if (resolved.error === 404) return res.status(404).json({ error: 'Lead not found' })
       if (resolved.error === 403) {
         return res.status(403).json({ error: 'Lead is assigned to another attorney' })
@@ -238,7 +261,7 @@ router.get('/leads/:leadId/envelopes', authMiddleware, async (req: AuthRequest, 
   try {
     const attorney = await resolveAttorney(req)
     if (!attorney) return res.status(403).json({ error: 'Not an attorney account' })
-    const resolved = await resolveLeadForAttorney(req.params.leadId, attorney.id)
+    const resolved = await resolveLeadForAttorney(req.params.leadId, attorney)
     if (resolved.error === 404) return res.status(404).json({ error: 'Lead not found' })
     if (resolved.error === 403) return res.status(403).json({ error: 'Lead is assigned to another attorney' })
 
@@ -262,14 +285,10 @@ router.post('/leads/:leadId/envelopes', authMiddleware, async (req: AuthRequest,
       return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() })
     }
 
-    const lead = await prisma.leadSubmission.findUnique({
-      where: { id: req.params.leadId },
-      select: { id: true, assignedAttorneyId: true },
-    })
-    if (!lead) return res.status(404).json({ error: 'Lead not found' })
-    if (lead.assignedAttorneyId && lead.assignedAttorneyId !== attorney.id) {
-      return res.status(403).json({ error: 'Lead is assigned to another attorney' })
-    }
+    const resolved = await resolveLeadForAttorney(req.params.leadId, attorney)
+    if (resolved.error === 404) return res.status(404).json({ error: 'Lead not found' })
+    if (resolved.error === 403) return res.status(403).json({ error: 'Lead is assigned to another attorney' })
+    const lead = resolved.lead!
 
     const { provider, ...rest } = parsed.data
     const envelope = await createEnvelopeForLead({
@@ -307,14 +326,10 @@ router.post('/leads/:leadId/hipaa-authorization', authMiddleware, async (req: Au
       return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() })
     }
 
-    const lead = await prisma.leadSubmission.findUnique({
-      where: { id: req.params.leadId },
-      select: { id: true, assignedAttorneyId: true },
-    })
-    if (!lead) return res.status(404).json({ error: 'Lead not found' })
-    if (lead.assignedAttorneyId && lead.assignedAttorneyId !== attorney.id) {
-      return res.status(403).json({ error: 'Lead is assigned to another attorney' })
-    }
+    const resolved = await resolveLeadForAttorney(req.params.leadId, attorney)
+    if (resolved.error === 404) return res.status(404).json({ error: 'Lead not found' })
+    if (resolved.error === 403) return res.status(403).json({ error: 'Lead is assigned to another attorney' })
+    const lead = resolved.lead!
 
     const { provider, ...rest } = parsed.data
     const envelope = await createHipaaAuthorizationEnvelope({
@@ -356,14 +371,10 @@ router.post('/leads/:leadId/police-report-authorization', authMiddleware, async 
       return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() })
     }
 
-    const lead = await prisma.leadSubmission.findUnique({
-      where: { id: req.params.leadId },
-      select: { id: true, assignedAttorneyId: true },
-    })
-    if (!lead) return res.status(404).json({ error: 'Lead not found' })
-    if (lead.assignedAttorneyId && lead.assignedAttorneyId !== attorney.id) {
-      return res.status(403).json({ error: 'Lead is assigned to another attorney' })
-    }
+    const resolved = await resolveLeadForAttorney(req.params.leadId, attorney)
+    if (resolved.error === 404) return res.status(404).json({ error: 'Lead not found' })
+    if (resolved.error === 403) return res.status(403).json({ error: 'Lead is assigned to another attorney' })
+    const lead = resolved.lead!
 
     const { provider, attorneyName, firmName, ...rest } = parsed.data
     const envelope = await createPoliceReportAuthorizationEnvelope({
@@ -406,14 +417,10 @@ router.post('/leads/:leadId/retainer', authMiddleware, async (req: AuthRequest, 
       return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() })
     }
 
-    const lead = await prisma.leadSubmission.findUnique({
-      where: { id: req.params.leadId },
-      select: { id: true, assignedAttorneyId: true },
-    })
-    if (!lead) return res.status(404).json({ error: 'Lead not found' })
-    if (lead.assignedAttorneyId && lead.assignedAttorneyId !== attorney.id) {
-      return res.status(403).json({ error: 'Lead is assigned to another attorney' })
-    }
+    const resolved = await resolveLeadForAttorney(req.params.leadId, attorney)
+    if (resolved.error === 404) return res.status(404).json({ error: 'Lead not found' })
+    if (resolved.error === 403) return res.status(403).json({ error: 'Lead is assigned to another attorney' })
+    const lead = resolved.lead!
 
     const { provider, attorneyName, firmName, ...rest } = parsed.data
     const envelope = await createRetainerAgreementEnvelope({
@@ -455,14 +462,10 @@ router.post('/leads/:leadId/medical-records-request', authMiddleware, async (req
       return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() })
     }
 
-    const lead = await prisma.leadSubmission.findUnique({
-      where: { id: req.params.leadId },
-      select: { id: true, assignedAttorneyId: true },
-    })
-    if (!lead) return res.status(404).json({ error: 'Lead not found' })
-    if (lead.assignedAttorneyId && lead.assignedAttorneyId !== attorney.id) {
-      return res.status(403).json({ error: 'Lead is assigned to another attorney' })
-    }
+    const resolved = await resolveLeadForAttorney(req.params.leadId, attorney)
+    if (resolved.error === 404) return res.status(404).json({ error: 'Lead not found' })
+    if (resolved.error === 403) return res.status(403).json({ error: 'Lead is assigned to another attorney' })
+    const lead = resolved.lead!
 
     const request = await createMedicalRecordsRequest({
       leadId: lead.id,
@@ -525,7 +528,7 @@ router.post('/leads/:leadId/envelopes/refresh', authMiddleware, async (req: Auth
   try {
     const attorney = await resolveAttorney(req)
     if (!attorney) return res.status(403).json({ error: 'Not an attorney account' })
-    const resolved = await resolveLeadForAttorney(req.params.leadId, attorney.id)
+    const resolved = await resolveLeadForAttorney(req.params.leadId, attorney)
     if (resolved.error === 404) return res.status(404).json({ error: 'Lead not found' })
     if (resolved.error === 403) return res.status(403).json({ error: 'Lead is assigned to another attorney' })
 
@@ -547,7 +550,7 @@ router.post('/leads/:leadId/confirm-retainer-signed', authMiddleware, async (req
   try {
     const attorney = await resolveAttorney(req)
     if (!attorney) return res.status(403).json({ error: 'Not an attorney account' })
-    const resolved = await resolveLeadForAttorney(req.params.leadId, attorney.id)
+    const resolved = await resolveLeadForAttorney(req.params.leadId, attorney)
     if (resolved.error === 404) return res.status(404).json({ error: 'Lead not found' })
     if (resolved.error === 403) {
       return res.status(403).json({ error: 'Lead is assigned to another attorney' })
@@ -571,7 +574,7 @@ router.post('/leads/:leadId/check-police-report', authMiddleware, async (req: Au
   try {
     const attorney = await resolveAttorney(req)
     if (!attorney) return res.status(403).json({ error: 'Not an attorney account' })
-    const resolved = await resolveLeadForAttorney(req.params.leadId, attorney.id)
+    const resolved = await resolveLeadForAttorney(req.params.leadId, attorney)
     if (resolved.error === 404) return res.status(404).json({ error: 'Lead not found' })
     if (resolved.error === 403) {
       return res.status(403).json({ error: 'Lead is assigned to another attorney' })
@@ -595,7 +598,7 @@ router.post('/leads/:leadId/check-evidence-collect', authMiddleware, async (req:
   try {
     const attorney = await resolveAttorney(req)
     if (!attorney) return res.status(403).json({ error: 'Not an attorney account' })
-    const resolved = await resolveLeadForAttorney(req.params.leadId, attorney.id)
+    const resolved = await resolveLeadForAttorney(req.params.leadId, attorney)
     if (resolved.error === 404) return res.status(404).json({ error: 'Lead not found' })
     if (resolved.error === 403) {
       return res.status(403).json({ error: 'Lead is assigned to another attorney' })
@@ -782,7 +785,7 @@ router.post('/leads/:leadId/onboarding-packet', authMiddleware, async (req: Auth
       return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() })
     }
 
-    const resolved = await resolveLeadForAttorney(req.params.leadId, attorney.id)
+    const resolved = await resolveLeadForAttorney(req.params.leadId, attorney)
     if (resolved.error === 404) return res.status(404).json({ error: 'Lead not found' })
     if (resolved.error === 403) return res.status(403).json({ error: 'Lead is assigned to another attorney' })
 
@@ -837,7 +840,7 @@ router.post(
         return res.status(400).json({ error: 'signerName and signerEmail are required' })
       }
 
-      const resolved = await resolveLeadForAttorney(req.params.leadId, attorney.id)
+      const resolved = await resolveLeadForAttorney(req.params.leadId, attorney)
       if (resolved.error === 404) return res.status(404).json({ error: 'Lead not found' })
       if (resolved.error === 403) return res.status(403).json({ error: 'Lead is assigned to another attorney' })
 
@@ -887,7 +890,7 @@ router.post(
       if (!signerName || !signerEmail) {
         return res.status(400).json({ error: 'signerName and signerEmail are required' })
       }
-      const resolved = await resolveLeadForAttorney(req.params.leadId, attorney.id)
+      const resolved = await resolveLeadForAttorney(req.params.leadId, attorney)
       if (resolved.error === 404) return res.status(404).json({ error: 'Lead not found' })
       if (resolved.error === 403) return res.status(403).json({ error: 'Lead is assigned to another attorney' })
       const envelope = await createEnvelopeForLead({

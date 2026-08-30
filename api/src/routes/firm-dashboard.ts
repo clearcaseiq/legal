@@ -858,7 +858,12 @@ router.patch('/members/:memberId', authMiddleware as any, async (req: any, res: 
       select: {
         id: true, role: true, title: true, permissions: true, status: true,
         officeId: true, office: { select: { id: true, name: true } },
-        user: { select: { id: true, email: true, name: true } },
+        // `User` stores firstName/lastName; there is no `name` column. Selecting
+        // one made Prisma reject the query before the update ran, so every edit
+        // through this endpoint — title, office, role, permissions, status —
+        // failed with a 500 and silently kept the old values. The `prisma as any`
+        // cast below is why the compiler never flagged it.
+        user: { select: { id: true, email: true, firstName: true, lastName: true } },
       }
     })
 

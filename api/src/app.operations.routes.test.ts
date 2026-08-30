@@ -4,6 +4,9 @@ import request from 'supertest'
 const { sendCaseOfferSms } = vi.hoisted(() => ({
   sendCaseOfferSms: vi.fn(),
 }))
+const { sendCaseOfferToAttorney } = vi.hoisted(() => ({
+  sendCaseOfferToAttorney: vi.fn(),
+}))
 const { runEscalationWave } = vi.hoisted(() => ({
   runEscalationWave: vi.fn(),
 }))
@@ -126,6 +129,12 @@ vi.mock('./lib/sms', () => ({
   // createServer calls this at boot to warn when SMS is unconfigured.
   checkSmsProviderConfig: () => {},
 }))
+// Only the offer notifier is stubbed; the rest of the module stays real so the
+// other routes exercised here keep their actual notification behaviour.
+vi.mock('./lib/case-notifications', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./lib/case-notifications')>()),
+  sendCaseOfferToAttorney,
+}))
 vi.mock('./lib/routing-lifecycle', () => ({
   runEscalationWave,
   calculateAttorneyReputationScore,
@@ -151,6 +160,8 @@ describe('HTTP operations regressions', () => {
     resetUniversalPrismaMock()
     sendCaseOfferSms.mockReset()
     sendCaseOfferSms.mockResolvedValue(true)
+    sendCaseOfferToAttorney.mockReset()
+    sendCaseOfferToAttorney.mockResolvedValue({ sms: true, email: true, inPlatform: true })
     runEscalationWave.mockReset()
     calculateAttorneyReputationScore.mockReset()
     calculateAttorneyReputationScore.mockResolvedValue(undefined)
@@ -1456,7 +1467,10 @@ describe('HTTP operations regressions', () => {
     })
     expect(prisma.introduction.findFirst).not.toHaveBeenCalled()
     expect(prisma.assessment.findUnique).not.toHaveBeenCalled()
-    expect(sendCaseOfferSms).toHaveBeenCalledTimes(1)
+    // Admin routing sends the same multi-channel offer as the matching engine,
+    // not SMS alone — an admin-routed case has to reach the attorney's inbox and
+    // notification bell too.
+    expect(sendCaseOfferToAttorney).toHaveBeenCalledTimes(1)
     expect(prisma.leadSubmission.upsert).toHaveBeenCalledTimes(1)
   })
 

@@ -9,7 +9,7 @@ import { CaseForRouting, AttorneyForRouting, routeCaseToAttorneys, filterEligibl
 import { startAssessmentRouting } from '../lib/assessment-routing'
 import { routeReleasedCaseRespectingConsumerSlate } from '../lib/routing-lifecycle'
 import { runRoutingEscalationSweep } from '../lib/routing-escalation-sweep'
-import { sendCaseOfferSms } from '../lib/sms'
+import { sendCaseOfferToAttorney } from '../lib/case-notifications'
 import { getMatchingRules, getAttorneyResponseDeadlineMinutes } from '../lib/matching-rules-config'
 import { CLAIM_INVITE_TTL_DAYS, claimUrl, generateClaimToken, sendClaimEmail } from '../lib/claims'
 import { prismaAny, safeJsonParse } from './admin-shared'
@@ -1084,12 +1084,19 @@ router.post('/cases/route', authMiddleware, adminMiddleware, requireAdminCapabil
       ;[assessments, existingIntros] = await Promise.all([
         prisma.assessment.findMany({
           where: { id: { in: uniqueCaseIds } },
+          // Same shape as the eligibility-checked branch below: skipping the
+          // check skips the check, not the offer notification, which needs the
+          // claim type, venue and value bands to describe the case.
           select: {
             id: true,
+            claimType: true,
+            venueState: true,
+            venueCounty: true,
+            facts: true,
             predictions: {
               orderBy: { createdAt: 'desc' },
               take: 1,
-              select: { viability: true }
+              select: { viability: true, bands: true }
             }
           }
         }),
@@ -1197,9 +1204,37 @@ router.post('/cases/route', authMiddleware, adminMiddleware, requireAdminCapabil
         const viability = prediction ? JSON.parse(prediction.viability) : {}
         await upsertLeadSubmission(caseId, attorneyId, { viability })
 
+        // An admin-routed case is the same offer the matching engine makes, so it
+        // has to reach the attorney the same way. This previously sent SMS alone,
+        // which left no email and — because the in-app record is written by the
+        // shared notifier — an empty notification bell, so a case routed by hand
+        // was invisible to an attorney who does not read texts (CP-812).
         // No explicit window: the offer expires on the configured deadline like
         // any other, so the message must quote that rather than a number here.
-        await sendCaseOfferSms(attorneyId, intro.id, intro.message)
+        // Value bands are optional on a prediction, so parse defensively: an
+        // absent band should cost the offer its dollar figures, not the notification.
+        const bands = safeJsonParse<{ p25?: number; p75?: number }>(prediction?.bands) || {}
+        // Best-effort, like the matching engine: the introduction is the record
+        // that matters, so a notification failure is logged rather than reported
+        // as a case that failed to route.
+        await sendCaseOfferToAttorney(attorneyId, intro.id, {
+          claimType: assessment.claimType,
+          jurisdiction: [assessment.venueState, assessment.venueCounty].filter(Boolean).join(', '),
+          estimatedValueLow: bands.p25 ?? 0,
+          estimatedValueHigh: bands.p75 ?? 0,
+          evidenceSummary: 'See case file',
+          liabilityConfidence:
+            (viability.liability ?? 0.5) >= 0.7 ? 'Strong' : (viability.liability ?? 0.5) >= 0.4 ? 'Moderate' : 'Weak',
+          introductionId: intro.id,
+          assessmentId: caseId,
+        }).catch((err) => {
+          logger.error('Admin routing: failed to notify attorney of case offer', {
+            caseId,
+            attorneyId,
+            introductionId: intro.id,
+            error: err instanceof Error ? err.message : String(err),
+          })
+        })
         existingIntroCaseIds.add(caseId)
 
         introductions.push(intro)
