@@ -15,6 +15,7 @@ import { requireSessionForPrivateUploads } from './lib/uploads-access'
 import { checkObjectStorageConfig, ensureLocalCopy, isObjectStorageEnabled } from './lib/object-storage'
 import { checkEmailProviderConfig } from './lib/claims'
 import { checkSmsProviderConfig } from './lib/sms'
+import { checkStripeConfig } from './lib/stripe'
 
 const AUDITED_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 /**
@@ -311,6 +312,11 @@ export function createServer(): Express {
   // password. SMS only warns — routing offers still reach attorneys in-app.
   checkEmailProviderConfig()
   checkSmsProviderConfig()
+
+  // Payments are the quietest of the lot: the compose file has no `:?` guard on
+  // the STRIPE_* variables, so an env file that omits them yields a healthy
+  // stack that simply cannot take money.
+  checkStripeConfig()
 
   // Initialize Passport
   app.use(passport.initialize())
