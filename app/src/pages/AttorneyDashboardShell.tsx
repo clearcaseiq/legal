@@ -35,6 +35,7 @@ import { useAttorneyTaskWorkflow } from '../hooks/useAttorneyTaskWorkflow'
 import { invalidateAttorneyDashboardSummary } from '../hooks/useAttorneyDashboardSummary'
 import { invalidateFirmDashboardSummary, loadFirmDashboardSummary } from '../hooks/useFirmDashboardSummary'
 import { useLanguage } from '../contexts/LanguageContext'
+import { useToast } from '../contexts/ToastContext'
 
 const loadAttorneyDashboardAnalyticsTab = () => import('../components/AttorneyDashboardAnalyticsTab')
 const loadAttorneyDashboardDeferredInlineWorkstream = () => import('../components/AttorneyDashboardDeferredInlineWorkstream')
@@ -352,6 +353,7 @@ export interface AttorneyDashboardProps {
 
 export default function AttorneyDashboardShell({ chromeless = false, initialView }: AttorneyDashboardProps = {}) {
   const { t } = useLanguage()
+  const { showToast } = useToast()
   const navigate = useNavigate()
   const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -1647,6 +1649,21 @@ export default function AttorneyDashboardShell({ chromeless = false, initialView
             window.location.assign(payment.checkoutUrl)
             return true
           }
+          // No checkout URL means the fee was bypassed rather than charged.
+          // This used to fall straight through to the accept, so the attorney
+          // took the case for free with nothing to indicate a fee was expected
+          // and no way to tell a free case from a paid one.
+          if (payment.status?.startsWith('skipped')) {
+            const fee =
+              typeof payment.amount === 'number'
+                ? ` of $${payment.amount.toFixed(2)}`
+                : ''
+            showToast({
+              variant: 'info',
+              title: 'Accepted without payment',
+              message: `The case fee${fee} was not charged because payments are not currently configured. You may be invoiced for it later.`,
+            })
+          }
         }
         const updated = await decideLead(
           leadId,
@@ -1690,7 +1707,7 @@ export default function AttorneyDashboardShell({ chromeless = false, initialView
         setLeadDecisionLoading(false)
       }
     },
-    [updateLeadInState, decisionRationale, navigate, loadDashboardData]
+    [updateLeadInState, decisionRationale, navigate, loadDashboardData, showToast]
   )
 
   const handleTransferLead = useCallback(async () => {

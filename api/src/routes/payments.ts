@@ -481,11 +481,26 @@ router.post('/platform/routing-fee-session', authMiddleware, async (req: AuthReq
     }
     const amount = fromCents(caseFee.priceCents)
     if (!matchingRules.routingFeePaymentsEnabled || !ENV.STRIPE_SECRET_KEY) {
-      logger.warn('Routing fee payment bypassed', {
+      const paymentsDisabled = !matchingRules.routingFeePaymentsEnabled
+      // Two very different situations were logged identically at `warn`.
+      // Payments being switched off is a deliberate configuration choice, but a
+      // missing Stripe key while fees are switched ON means the platform
+      // believes it is charging for this case and is not: revenue is being
+      // given away silently, so it is logged at error with the amount.
+      const context = {
         attorneyId: attorney.id,
         leadId: lead.id,
-        reason: !matchingRules.routingFeePaymentsEnabled ? 'routing_fee_payments_disabled' : 'stripe_not_configured',
-      })
+        amount,
+        reason: paymentsDisabled ? 'routing_fee_payments_disabled' : 'stripe_not_configured',
+      }
+      if (paymentsDisabled) {
+        logger.warn('Routing fee not charged: routing-fee payments are disabled', context)
+      } else {
+        logger.error(
+          'Routing fee NOT CHARGED: routing-fee payments are enabled but STRIPE_SECRET_KEY is missing. The case is being accepted for free.',
+          context,
+        )
+      }
       await db.platformPayment.create({
         data: {
           attorneyId: attorney.id,
