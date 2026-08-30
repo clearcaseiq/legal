@@ -1914,7 +1914,7 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
         where: { lawFirmId: firm.id, status: { in: ['active', 'invited'] } },
         include: {
           user: true,
-          attorney: true,
+          attorney: { include: { attorneyProfile: { select: { photoUrl: true } } } },
           office: true
         },
         orderBy: [{ role: 'asc' }, { createdAt: 'asc' }]
@@ -2358,6 +2358,10 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
           lastName: member.user?.lastName,
           role: member.user?.role
         },
+        // The roster showed initials for everyone because no picture was ever
+        // sent. An attorney's uploaded profile photo is the better likeness;
+        // staff have only the account avatar.
+        photoUrl: member.attorney?.attorneyProfile?.photoUrl || member.user?.avatar || null,
         attorney: member.attorney ? {
           id: member.attorney.id,
           name: member.attorney.name,

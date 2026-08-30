@@ -465,6 +465,12 @@ export default function SignatureRequestPanel({
       }
     } catch (err) {
       console.error('Failed to load e-signature data', err)
+      // Providers and envelopes are fetched together, so one failing call left
+      // the whole panel empty with nothing on screen to say why.
+      setError(
+        (err as any)?.response?.data?.error ||
+          'Could not load the signature tools for this case. Refresh to try again.',
+      )
     } finally {
       setLoading(false)
     }
@@ -851,6 +857,7 @@ export default function SignatureRequestPanel({
               documentType={documentType}
               value={provider}
               onChange={setProvider}
+              loading={loading}
             />
           </div>
         </div>

@@ -126,10 +126,16 @@ export default function Layout({ children }: LayoutProps) {
   const isAuthenticated = browserStateReady && hasValidAuthToken()
   const storedRole = browserStateReady ? getStoredRole() : null
   const [storedUser, setStoredUser] = useState<{ firstName?: string; role?: string; avatar?: string | null } | null>(null)
+  // An attorney's header name comes from their own record, not the account's
+  // `firstName`. The two are different values — the profile's display name is a
+  // single free-text field ("Mike Marteen, Esq.") — so reading `firstName` here
+  // left the header showing the signup name long after the profile was renamed.
+  const [storedAttorney, setStoredAttorney] = useState<{ name?: string } | null>(null)
   useEffect(() => {
     if (!browserStateReady) return
     const refresh = () => {
       setStoredUser(getStoredUser<{ firstName?: string; role?: string; avatar?: string | null }>('user'))
+      setStoredAttorney(getStoredUser<{ name?: string }>('attorney'))
     }
     refresh()
     window.addEventListener('clearcaseiq:user-updated', refresh)
@@ -317,7 +323,8 @@ export default function Layout({ children }: LayoutProps) {
     void import('../pages/Home')
   }
   const shouldLoadPlaintiffSummary = !!authToken && !isAttorney
-  const userName = storedUser?.firstName || 'User'
+  const userName =
+    (isAttorney ? storedAttorney?.name?.trim() : '') || storedUser?.firstName || 'User'
   const headerLabel = isAdmin ? 'Admin' : (userName || 'User')
   const avatarInitial = (headerLabel || 'U').trim().charAt(0).toUpperCase()
   const headerAvatarUrl = (() => {

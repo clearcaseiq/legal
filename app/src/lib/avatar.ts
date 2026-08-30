@@ -1,3 +1,5 @@
+import { getApiOrigin } from './runtimeEnv'
+
 const NAME_PREFIXES = new Set(['mr', 'mrs', 'ms', 'miss', 'dr', 'prof', 'hon'])
 const NAME_SUFFIXES = new Set(['esq', 'esquire', 'jr', 'sr', 'ii', 'iii', 'iv', 'jd', 'phd', 'llm', 'md'])
 
@@ -34,4 +36,21 @@ export function nameInitials(name: string): string {
 export function fallbackAvatar(name?: string | null): string {
   const label = nameInitials((name || '').trim()) || 'A'
   return `https://ui-avatars.com/api/?name=${encodeURIComponent(label)}&background=e0f2fe&color=075985`
+}
+
+/**
+ * Absolute URL for a stored photo.
+ *
+ * Uploads are saved as server-relative paths (`/uploads/avatars/...`), and the
+ * web app is served from a different host than the API, so those must be
+ * resolved against the API origin. Absolute and data URLs (legacy rows) pass
+ * through untouched. Returns null when there is no photo, letting callers fall
+ * back to initials.
+ */
+export function resolveUploadedPhotoUrl(photoUrl?: string | null): string | null {
+  if (!photoUrl) return null
+  if (/^(https?:)?\/\//.test(photoUrl) || photoUrl.startsWith('data:')) return photoUrl
+  const origin = getApiOrigin()
+  if (!origin) return photoUrl
+  return `${origin}${photoUrl.startsWith('/') ? '' : '/'}${photoUrl}`
 }

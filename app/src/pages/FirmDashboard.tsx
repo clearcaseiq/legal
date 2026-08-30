@@ -68,6 +68,7 @@ import { US_STATES } from '../lib/constants'
 import { StateMultiSelect } from '../components/StateMultiSelect'
 import { CountyCoverageEditor } from '../components/CountyCoverageEditor'
 import { buildAttorneyJurisdictions, readAttorneyCounties, type CountiesByState } from '../lib/attorneyJurisdictions'
+import { resolveUploadedPhotoUrl } from '../lib/avatar'
 import { invalidateFirmDashboardSummary, useFirmDashboardSummary } from '../hooks/useFirmDashboardSummary'
 import { FirmTemplatesTab } from '../features/firm/FirmTemplatesTab'
 import { FirmWorkflowsTab } from '../features/firm/FirmWorkflowsTab'
@@ -1770,7 +1771,7 @@ export default function FirmDashboard() {
                         title="View & edit permissions"
                         className="group flex items-center gap-3 text-left"
                       >
-                        <Avatar name={displayName} />
+                        <Avatar name={displayName} src={resolveUploadedPhotoUrl(m.photoUrl)} />
                   <div>
                           <div className="flex items-center gap-2">
                             <span className="font-medium text-slate-800 group-hover:text-brand-700 group-hover:underline">{displayName}</span>

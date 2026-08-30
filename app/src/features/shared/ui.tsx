@@ -647,15 +647,39 @@ export function initials(name: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
 }
 
-/** Circular initials avatar. Pops to white on row hover (inside a `group` row). */
-export function Avatar({ name, className = '' }: { name: string; className?: string }) {
-  return (
-    <span
-      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[11px] font-semibold text-slate-500 ring-1 ring-inset ring-slate-200 group-hover:bg-white dark:bg-slate-800 dark:text-slate-400 dark:ring-slate-700 dark:group-hover:bg-slate-700 ${className}`}
-    >
-      {initials(name)}
-    </span>
-  )
+/**
+ * Circular avatar. Pops to white on row hover (inside a `group` row).
+ *
+ * Shows the person's picture when one is known and falls back to initials
+ * otherwise — including when the image fails to load, so a broken or expired
+ * URL degrades to initials rather than a broken-image icon.
+ */
+export function Avatar({
+  name,
+  src,
+  className = '',
+}: {
+  name: string
+  src?: string | null
+  className?: string
+}) {
+  const [failed, setFailed] = useState(false)
+  const base = `flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-slate-100 text-[11px] font-semibold text-slate-500 ring-1 ring-inset ring-slate-200 group-hover:bg-white dark:bg-slate-800 dark:text-slate-400 dark:ring-slate-700 dark:group-hover:bg-slate-700 ${className}`
+
+  if (src && !failed) {
+    return (
+      <span className={base}>
+        <img
+          src={src}
+          alt=""
+          onError={() => setFailed(true)}
+          className="h-full w-full object-cover"
+        />
+      </span>
+    )
+  }
+
+  return <span className={base}>{initials(name)}</span>
 }
 
 export type BadgeTone = 'neutral' | 'brand' | 'blue' | 'success' | 'warning' | 'danger'

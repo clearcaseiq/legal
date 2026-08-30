@@ -11,16 +11,23 @@ export function EsignProviderPicker({
   documentType,
   value,
   onChange,
+  loading = false,
 }: {
   providers: EsignProviderMeta[]
   documentType: string
   value: string | null
   onChange: (id: string) => void
+  /** True only while the list is still being fetched. */
+  loading?: boolean
 }) {
   const requiresHipaa = documentType === 'hipaa_authorization'
   const available = providers.filter((p) => p.configured && (!requiresHipaa || p.hipaaCapable))
 
-  if (providers.length === 0) {
+  // An empty list used to render as "Loading…" regardless of whether the fetch
+  // was still running, had returned nothing, or had failed — so a failed load
+  // left this sitting on a spinner message forever. Only say "loading" while
+  // something is actually in flight.
+  if (loading) {
     return <p className="text-sm text-gray-500">Loading signature tools…</p>
   }
 

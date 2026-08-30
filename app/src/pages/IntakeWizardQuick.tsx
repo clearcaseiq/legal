@@ -5744,23 +5744,30 @@ export default function IntakeWizardQuick() {
             // fulfilled from this upload step (CP-583).
             { id: 'financial', title: tx('evidence_groupFinancial'), helper: tx('evidence_groupFinancialHelper'), items: [itemDefs.dec_page, itemDefs.insurance_letters, itemDefs.wage_verification] },
           ]
-          let focusCategory = ''
+          // `?focus=` carries every requested type, comma-separated. An attorney
+          // asking for six documents sent the plaintiff here focused on one of
+          // them, so the other five looked like they had not been asked for.
+          let focusCategories: string[] = []
           try {
-            focusCategory = new URLSearchParams(window.location.search).get('focus') || ''
+            focusCategories = (new URLSearchParams(window.location.search).get('focus') || '')
+              .split(',')
+              .map((value) => value.trim())
+              .filter((value) => value && itemDefs[value])
           } catch { /* ignore */ }
-          const focusKnown = Boolean(focusCategory && itemDefs[focusCategory])
+          const focusSet = new Set(focusCategories)
           const focusingOne =
-            isDocumentsMode && focusKnown && !expandAllEvidenceCategories
+            isDocumentsMode && focusSet.size > 0 && !expandAllEvidenceCategories
           const evGroups = focusingOne
             ? allEvGroups
                 .map((g) => ({
                   ...g,
-                  items: g.items.filter((it) => it.category === focusCategory),
+                  items: g.items.filter((it) => focusSet.has(it.category)),
                 }))
                 .filter((g) => g.items.length > 0)
             : allEvGroups
-          const focusedItemTitle =
-            focusingOne && focusCategory ? itemDefs[focusCategory]?.title || '' : ''
+          const focusedItemTitle = focusingOne
+            ? focusCategories.map((cat) => itemDefs[cat]?.title).filter(Boolean).join(', ')
+            : ''
           // Only files the vision precheck accepted (or the user confirmed) count as
           // uploaded — a flagged mismatch stays "not uploaded" until confirmed/deleted.
           const isUploaded = (cat: string) => validEvidenceCount(cat) > 0

@@ -12,6 +12,24 @@ import {
   type AttorneyProfileModel,
 } from './attorneyProfileModel'
 
+/**
+ * Keep the cached `attorney` blob the site header renders from in step with a
+ * renamed profile, then tell the header to re-read it.
+ */
+function syncStoredAttorneyName(name: string | null | undefined) {
+  const trimmed = (name || '').trim()
+  if (!trimmed || typeof window === 'undefined') return
+  try {
+    const raw = window.localStorage.getItem('attorney')
+    const stored = raw ? (JSON.parse(raw) as Record<string, unknown>) : {}
+    if (stored.name === trimmed) return
+    window.localStorage.setItem('attorney', JSON.stringify({ ...stored, name: trimmed }))
+    window.dispatchEvent(new Event('clearcaseiq:user-updated'))
+  } catch {
+    /* a malformed or unavailable cache is not worth failing a successful save */
+  }
+}
+
 export type AttorneyPerformance = {
   leadMetrics?: {
     totalLeads?: number
@@ -145,12 +163,18 @@ export function useAttorneyProfileModel() {
         setSaving(true)
         setError(null)
         const updated = await updateAttorneyProfile(toProfileUpdatePayload(next))
-        setProfile(applyPerformance(normalizeAttorneyProfile(updated), performance))
+        const savedProfile = applyPerformance(normalizeAttorneyProfile(updated), performance)
+        setProfile(savedProfile)
         setLastUpdatedAt(new Date())
         setSaveSuccess(true)
         // The dashboard header reads the name from a separately cached summary;
         // refresh it so a renamed attorney updates without a full page reload (#66).
         invalidateAttorneyDashboardSummary()
+        // The site header reads the cached `attorney` blob written at sign-in,
+        // which no save touched — so a rename showed on this page while every
+        // other screen kept the old name until the next login. Update it here
+        // and fire the event the header already listens for.
+        syncStoredAttorneyName(savedProfile.attorney?.name)
         return true
       } catch (err: any) {
         console.error('Failed to save attorney profile:', err)

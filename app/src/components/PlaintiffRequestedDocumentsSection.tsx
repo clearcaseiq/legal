@@ -166,9 +166,17 @@ export default function PlaintiffRequestedDocumentsSection({
               singleRemaining && canInlineUploadRequestKey(singleRemaining.key)
                 ? evidenceTargetForRequestKey(singleRemaining.key)
                 : null
+            // Every outstanding type, not just the first: the upload page filters
+            // to what it is given, so passing one turned a six-document request
+            // into a one-document page.
             const primaryFocus =
-              evidenceTargetForRequestKey(remainingItems[0]?.key || '')?.focus ||
-              undefined
+              Array.from(
+                new Set(
+                  remainingItems
+                    .map((item) => evidenceTargetForRequestKey(item.key)?.focus)
+                    .filter((focus): focus is string => Boolean(focus)),
+                ),
+              ).join(',') || undefined
             const requestUploadHref = hrefFor({
               focus: primaryFocus,
               requestId: request.id,
