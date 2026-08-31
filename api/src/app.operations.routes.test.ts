@@ -1474,6 +1474,44 @@ describe('HTTP operations regressions', () => {
     expect(prisma.leadSubmission.upsert).toHaveBeenCalledTimes(1)
   })
 
+  // A lapsed offer used to count as "already routed", so one expired offer
+  // permanently burned that attorney for that case — and expiry is exactly when
+  // a case wants re-offering. The exclusion has to happen in the query: filtering
+  // after the fact would still load the row and is easy to drop later.
+  it('POST /v1/admin/cases/route ignores an expired offer when checking for a duplicate', async () => {
+    vi.mocked(prisma.attorney.findUnique).mockResolvedValue({
+      id: 'attorney-record-1',
+      isActive: true,
+      isVerified: true,
+      specialties: JSON.stringify(['auto']),
+      attorneyProfile: {},
+    } as any)
+    vi.mocked(prisma.assessment.findMany).mockResolvedValue([
+      { id: 'asm-lapsed', predictions: [{ viability: JSON.stringify({ overall: 0.55 }) }] },
+    ] as any)
+    // The attorney's only prior introduction on this case is EXPIRED, so the
+    // narrowed query returns nothing and the case is offered again.
+    vi.mocked(prisma.introduction.findMany).mockResolvedValue([] as any)
+    vi.mocked(prisma.introduction.create).mockResolvedValue({
+      id: 'intro-reoffer',
+      assessmentId: 'asm-lapsed',
+      attorneyId: 'attorney-record-1',
+      status: 'PENDING',
+    } as any)
+    vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValue(null as any)
+
+    const res = await request(app)
+      .post('/v1/admin/cases/route')
+      .set('Authorization', 'Bearer admin')
+      .send({ caseIds: ['asm-lapsed'], attorneyId: 'attorney-record-1' })
+      .expect(200)
+
+    expect(res.body).toMatchObject({ success: true, routed: 1, failed: 0 })
+    expect(vi.mocked(prisma.introduction.findMany).mock.calls[0]?.[0]).toMatchObject({
+      where: { status: { not: 'EXPIRED' } },
+    })
+  })
+
   // Routing offers a case; only an accept claims it. Locking here told every
   // other attorney the admin routed to that the case was already assigned, while
   // still showing them a running clock and an Accept button.

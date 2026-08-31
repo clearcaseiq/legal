@@ -1103,7 +1103,15 @@ router.post('/cases/route', authMiddleware, adminMiddleware, requireAdminCapabil
         prisma.introduction.findMany({
           where: {
             assessmentId: { in: uniqueCaseIds },
-            attorneyId
+            attorneyId,
+            // An offer that lapsed must not block a fresh one. This used to
+            // match any prior introduction at all, so a single expired offer
+            // permanently burned that attorney for that case — and expiry is
+            // precisely when you want to re-offer, especially while attorneys
+            // had no working way to answer. A live (PENDING), won (ACCEPTED)
+            // or refused (DECLINED) offer still blocks: those are genuine
+            // "already routed" states.
+            status: { not: 'EXPIRED' }
           },
           select: { assessmentId: true }
         })
@@ -1128,7 +1136,15 @@ router.post('/cases/route', authMiddleware, adminMiddleware, requireAdminCapabil
         prisma.introduction.findMany({
           where: {
             assessmentId: { in: uniqueCaseIds },
-            attorneyId
+            attorneyId,
+            // An offer that lapsed must not block a fresh one. This used to
+            // match any prior introduction at all, so a single expired offer
+            // permanently burned that attorney for that case — and expiry is
+            // precisely when you want to re-offer, especially while attorneys
+            // had no working way to answer. A live (PENDING), won (ACCEPTED)
+            // or refused (DECLINED) offer still blocks: those are genuine
+            // "already routed" states.
+            status: { not: 'EXPIRED' }
           },
           select: { assessmentId: true }
         })
