@@ -43,16 +43,25 @@ function isProductionDeployment(): boolean {
 }
 
 export function checkStripeConfig(): void {
-  // Checked before the "is it configured" early return, because this failure
-  // looks perfectly configured. Production ran on sandbox keys and every signal
-  // was green: /payments/config reported enabled, checkout completed, webhooks
-  // verified and settled. No money was ever captured. The preflight script was
-  // no help either — it treated test keys as unconditionally fine, so on
-  // production it printed "Keys are test mode" and passed.
+  // Checked before the "is it configured" early return, because this state looks
+  // perfectly configured. On sandbox keys every signal is green:
+  // /payments/config reports enabled, checkout completes, webhooks verify and
+  // settle — and no money is ever captured.
+  //
+  // Running sandbox keys in production is a legitimate pre-launch choice, so
+  // this is acknowledgeable. Unconditional shouting about a deliberate state is
+  // how a log stops being read, and the point is to still be heard on the day
+  // payments go live and someone forgets to rotate the keys.
   if (isProductionDeployment() && ENV.STRIPE_SECRET_KEY?.startsWith('sk_test_')) {
-    logger.error(
-      'Stripe is using TEST keys in production. Payments will appear to succeed — checkout completes, webhooks verify, records settle — while no money is ever captured. Every routing fee an attorney believes they paid is void. Replace the STRIPE_* values in .env.prod with live keys.',
-    )
+    if (process.env.ALLOW_STRIPE_TEST_KEYS === 'yes-payments-not-live') {
+      logger.warn(
+        'Stripe is in TEST mode in production, acknowledged via ALLOW_STRIPE_TEST_KEYS. No payment captures real money. Remove that variable when payments go live so a stale test key is caught.',
+      )
+    } else {
+      logger.error(
+        'Stripe is using TEST keys in production. Payments will appear to succeed — checkout completes, webhooks verify, records settle — while no money is ever captured. Every routing fee an attorney believes they paid is void. Replace the STRIPE_* values in .env.prod with live keys, or set ALLOW_STRIPE_TEST_KEYS=yes-payments-not-live if this is deliberate.',
+      )
+    }
   }
 
   if (isStripeConfigured()) return

@@ -91,12 +91,18 @@ async function main() {
       // The mirror image of the check above, and the more expensive direction.
       // Live keys in QA announce themselves — someone sees a real charge. Test
       // keys in production are silent: checkout succeeds, the receipt looks
-      // right, the webhook settles, and no money moves. Every routing fee an
-      // attorney believes they paid is void.
-      record(
-        'fail',
-        `TEST keys in production (${envName}). Payments appear to succeed and settle, but no money is ever captured — every charge is void.`,
-      )
+      // right, the webhook settles, and no money moves.
+      if (process.env.ALLOW_STRIPE_TEST_KEYS === 'yes-payments-not-live') {
+        record(
+          'warn',
+          `TEST keys in production (${envName}), acknowledged via ALLOW_STRIPE_TEST_KEYS. No payment captures real money. Remove that variable when payments go live.`,
+        )
+      } else {
+        record(
+          'fail',
+          `TEST keys in production (${envName}). Payments appear to succeed and settle, but no money is ever captured — every charge is void. Set ALLOW_STRIPE_TEST_KEYS=yes-payments-not-live if this is deliberate.`,
+        )
+      }
     } else if (secretMode === 'test') {
       record('ok', 'Keys are test mode.')
     } else {
