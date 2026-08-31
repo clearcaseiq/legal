@@ -28,6 +28,12 @@ export interface InboundSmsResult {
   decision?: 'ACCEPTED' | 'DECLINED' | null
   introductionId?: string | null
   leadSubmissionId?: string | null
+  /**
+   * True when this was a repeat delivery of a message already handled. Callers
+   * that answer the attorney out-of-band use it to stay quiet, so an
+   * at-least-once redelivery does not text the same person twice.
+   */
+  duplicate?: boolean
 }
 
 function normalizePhone(phone: string): string {
@@ -123,6 +129,7 @@ export async function processInboundSmsDecision(input: {
           const existing = await prisma.smsWebhookReceipt.findUnique({ where: { messageSid } })
           return {
             processingStatus: 'ignored',
+            duplicate: true,
             responseCode: existing?.responseCode || 200,
             responseMessage: existing?.responseMessage || 'This SMS reply was already processed. View details in CaseIQ.',
           }

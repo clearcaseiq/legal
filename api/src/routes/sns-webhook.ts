@@ -19,6 +19,7 @@ import { Router } from 'express'
 import https from 'https'
 import { logger } from '../lib/logger'
 import { processInboundSmsDecision } from '../lib/sms-inbound'
+import { sendSms } from '../lib/sms'
 import { verifySnsSignature } from '../lib/sms-webhook-verification'
 
 const router = Router()
@@ -105,6 +106,23 @@ router.post('/inbound', async (req, res) => {
 
       const result = await processInboundSmsDecision({ fromPhone, body, messageId })
       logger.info('SNS webhook: inbound processed', { status: result.processingStatus })
+
+      // The Twilio route answers the attorney simply by returning TwiML from
+      // its handler. SNS discards the response body, so the same reply has to
+      // be sent explicitly — without this, every reply-to-accept over SNS is
+      // met with silence, whether it claimed the case, lost the race to another
+      // attorney, or could not be parsed. An accepted case looked identical to
+      // a text that never arrived.
+      if (!result.duplicate) {
+        const reply =
+          result.processingStatus === 'failed'
+            ? 'Something went wrong handling your reply. Please respond in CaseIQ.'
+            : result.responseMessage
+        await sendSms(fromPhone, reply).catch((err: any) =>
+          logger.warn('SNS webhook: failed to send reply', { error: err?.message }),
+        )
+      }
+
       // SNS ignores the response body; 200 acknowledges receipt.
       return res.status(200).send('ok')
     }
