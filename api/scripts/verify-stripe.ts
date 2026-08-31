@@ -87,6 +87,16 @@ async function main() {
       )
     } else if (secretMode === 'live' && envName !== 'prod' && envName !== 'production') {
       record('fail', `LIVE keys in a non-production environment (${envName}). These would charge real cards.`)
+    } else if (secretMode === 'test' && (envName === 'prod' || envName === 'production')) {
+      // The mirror image of the check above, and the more expensive direction.
+      // Live keys in QA announce themselves — someone sees a real charge. Test
+      // keys in production are silent: checkout succeeds, the receipt looks
+      // right, the webhook settles, and no money moves. Every routing fee an
+      // attorney believes they paid is void.
+      record(
+        'fail',
+        `TEST keys in production (${envName}). Payments appear to succeed and settle, but no money is ever captured — every charge is void.`,
+      )
     } else if (secretMode === 'test') {
       record('ok', 'Keys are test mode.')
     } else {

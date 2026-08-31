@@ -36,7 +36,25 @@ export function isStripeConfigured(): boolean {
  * A warning, not a throw: payments being off is a legitimate state for local
  * development, and refusing to boot would take down every unrelated route.
  */
+/** True only when this process can positively identify itself as production. */
+function isProductionDeployment(): boolean {
+  const deployEnv = (process.env.DEPLOY_ENV || '').toLowerCase()
+  return deployEnv === 'prod' || deployEnv === 'production'
+}
+
 export function checkStripeConfig(): void {
+  // Checked before the "is it configured" early return, because this failure
+  // looks perfectly configured. Production ran on sandbox keys and every signal
+  // was green: /payments/config reported enabled, checkout completed, webhooks
+  // verified and settled. No money was ever captured. The preflight script was
+  // no help either — it treated test keys as unconditionally fine, so on
+  // production it printed "Keys are test mode" and passed.
+  if (isProductionDeployment() && ENV.STRIPE_SECRET_KEY?.startsWith('sk_test_')) {
+    logger.error(
+      'Stripe is using TEST keys in production. Payments will appear to succeed — checkout completes, webhooks verify, records settle — while no money is ever captured. Every routing fee an attorney believes they paid is void. Replace the STRIPE_* values in .env.prod with live keys.',
+    )
+  }
+
   if (isStripeConfigured()) return
 
   const missing = [

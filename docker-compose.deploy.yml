@@ -67,6 +67,11 @@ services:
       NODE_ENV: production
       HOST: 0.0.0.0
       PORT: 4000
+      # Both environments run with NODE_ENV=production, so the app had no way to
+      # tell which one it was. That is fine until a setting is only wrong in one
+      # of them — production was found running Stripe sandbox keys, and nothing
+      # could detect it because the process could not tell prod from QA.
+      DEPLOY_ENV: ${DEPLOY_ENV}
       # Required, not defaulted. This previously fell back to a local db
       # container, so losing the variable silently pointed the API at an empty
       # database instead of failing — the same quiet-failure pattern that let a
