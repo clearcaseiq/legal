@@ -39,8 +39,14 @@ import { prisma } from '../src/lib/prisma'
 const APPLY = process.argv.includes('--apply')
 const CONFIRM_HOST = (process.argv.find((a) => a.startsWith('--confirm-host=')) || '').split('=')[1]
 
-/** Logins that survive. Everything else in `users` is removed. */
-const KEEP_USER_EMAILS = ['admin@clearcaseiq.com', 'sri@clearcaseiq.com']
+/**
+ * Logins that survive. Everything else in `users` is removed.
+ *
+ * Deliberately just the admin. An attorney login would outlive its own
+ * `Attorney` row — every one of those is deleted — leaving an account with an
+ * attorney role and nothing behind it.
+ */
+const KEEP_USER_EMAILS = ['admin@clearcaseiq.com']
 
 /**
  * Tables kept in full. Both are singleton global settings with no foreign keys,
