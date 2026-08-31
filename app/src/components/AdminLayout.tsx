@@ -30,6 +30,7 @@ import {
   LogOut,
   Inbox,
   Newspaper,
+  Receipt,
 } from 'lucide-react'
 import { BrandMark } from './BrandLogo'
 import { useAdminRoutingStatus } from '../hooks/useAdminRoutingStatus'
@@ -84,6 +85,7 @@ const navGroups: {
     label: 'Oversight',
     items: [
       { path: '/admin/analytics', id: 'analytics', label: 'Analytics', icon: BarChart3 },
+      { path: '/admin/payments', id: 'payments', label: 'Transactions', icon: Receipt },
       { path: '/admin/routing-feedback', id: 'routingFeedback', label: 'Routing Feedback', icon: BrainCircuit },
       { path: '/admin/communications', id: 'communications', label: 'Communications', icon: MessageSquare },
       { path: '/admin/blog', id: 'blog', label: 'Blog', icon: Newspaper },

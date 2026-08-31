@@ -45,6 +45,12 @@
       "communications": {
         "label": "通讯"
       },
+      "blog": {
+        "label": "博客"
+      },
+      "payments": {
+        "label": "交易记录"
+      },
       "documents": {
         "label": "文档与 OCR"
       },

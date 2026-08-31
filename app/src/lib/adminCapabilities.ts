@@ -63,6 +63,7 @@ export function capabilityForAdminPath(path: string): AdminCapability | null {
     path.startsWith('/admin/routing-feedback') ||
     path.startsWith('/admin/communications') ||
     path.startsWith('/admin/blog') ||
+    path.startsWith('/admin/payments') ||
     path.startsWith('/admin/documents') ||
     path.startsWith('/admin/audit-logs') ||
     path.startsWith('/admin/system-status') ||

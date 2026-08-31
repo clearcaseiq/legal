@@ -48,6 +48,12 @@
       "communications": {
         "label": "Communications"
       },
+      "blog": {
+        "label": "Blog"
+      },
+      "payments": {
+        "label": "Transactions"
+      },
       "documents": {
         "label": "Documents & OCR"
       },

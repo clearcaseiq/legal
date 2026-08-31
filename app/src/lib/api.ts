@@ -4587,6 +4587,78 @@ export async function updateAdminUserCapabilities(userId: string, capabilities: 
   return data
 }
 
+/**
+ * Create an internal staff or admin account. No password is sent: the API
+ * emails the new user a link to set their own. `inviteSent` reports whether
+ * that email actually went out — the account exists either way.
+ */
+export async function createAdminUser(input: {
+  email: string
+  firstName: string
+  lastName: string
+  role: 'staff' | 'admin'
+  capabilities?: string[]
+}) {
+  const { data } = await api.post('/v1/admin/users', input)
+  return data
+}
+
+export async function updateAdminUserStatus(userId: string, isActive: boolean) {
+  const { data } = await api.patch(`/v1/admin/users/${userId}/status`, { isActive })
+  return data
+}
+
+export type AdminPaymentOutcome =
+  | 'collected'
+  | 'pending'
+  | 'abandoned'
+  | 'subscription'
+  | 'waived'
+  | 'other'
+
+export interface AdminPayment {
+  id: string
+  type: string
+  amount: number | null
+  currency: string
+  status: string
+  outcome: AdminPaymentOutcome
+  stripeCheckoutSessionId: string | null
+  stripePaymentIntentId: string | null
+  createdAt: string
+  attorney: { id: string; name: string | null; email: string | null; firmName: string | null } | null
+}
+
+export async function getAdminPayments(params?: {
+  limit?: number
+  offset?: number
+  search?: string
+  type?: string
+  status?: string
+  outcome?: string
+  from?: string
+  to?: string
+}) {
+  const search = new URLSearchParams()
+  if (params?.limit != null) search.append('limit', String(params.limit))
+  if (params?.offset != null) search.append('offset', String(params.offset))
+  if (params?.search) search.append('search', params.search)
+  if (params?.type) search.append('type', params.type)
+  if (params?.status) search.append('status', params.status)
+  if (params?.outcome) search.append('outcome', params.outcome)
+  if (params?.from) search.append('from', params.from)
+  if (params?.to) search.append('to', params.to)
+  const qs = search.toString()
+  const { data } = await api.get(`/v1/admin/payments${qs ? `?${qs}` : ''}`)
+  return data
+}
+
+/** Ask Stripe about rows still reading as unsettled and correct any drift. */
+export async function reconcileAdminPayments() {
+  const { data } = await api.post('/v1/admin/payments/reconcile')
+  return data
+}
+
 export type AdminOpsInboxItem = {
   id: string
   kind: 'routing' | 'manual_review' | 'failed_notification'

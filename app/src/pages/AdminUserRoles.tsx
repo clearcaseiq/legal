@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getAdminUsers, updateAdminUserCapabilities, updateAdminUserRole } from '../lib/api'
+import {
+  createAdminUser,
+  getAdminUsers,
+  updateAdminUserCapabilities,
+  updateAdminUserRole,
+  updateAdminUserStatus,
+} from '../lib/api'
 import { getAdminLoginPath, isAdminAuthError } from '../lib/auth'
 import {
   ADMIN_CAPABILITIES,
@@ -29,7 +35,18 @@ interface AdminUser {
 }
 
 const ROLE_OPTIONS = ['client', 'attorney', 'staff', 'admin']
+// Clients sign themselves up and attorneys register a firm, so neither can be
+// created from here without leaving an account with nothing behind it.
+const CREATABLE_ROLES = ['staff', 'admin'] as const
 const DEFAULT_LIMIT = 50
+
+const EMPTY_DRAFT = {
+  email: '',
+  firstName: '',
+  lastName: '',
+  role: 'staff' as (typeof CREATABLE_ROLES)[number],
+  capabilities: [...ADMIN_CAPABILITIES] as AdminCapability[],
+}
 
 export default function AdminUserRoles() {
   const navigate = useNavigate()
@@ -43,6 +60,10 @@ export default function AdminUserRoles() {
   const [appliedSearch, setAppliedSearch] = useState('')
   const [roleFilter, setRoleFilter] = useState('')
   const [savingId, setSavingId] = useState<string | null>(null)
+  const [showAdd, setShowAdd] = useState(false)
+  const [draft, setDraft] = useState(EMPTY_DRAFT)
+  const [creating, setCreating] = useState(false)
+  const [notice, setNotice] = useState<string | null>(null)
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -133,6 +154,61 @@ export default function AdminUserRoles() {
     }
   }
 
+  const handleCreate = async (event: React.FormEvent) => {
+    event.preventDefault()
+    try {
+      setCreating(true)
+      setError(null)
+      setNotice(null)
+      const result = await createAdminUser({
+        email: draft.email.trim(),
+        firstName: draft.firstName.trim(),
+        lastName: draft.lastName.trim(),
+        role: draft.role,
+        capabilities: draft.role === 'admin' ? draft.capabilities : undefined,
+      })
+      setShowAdd(false)
+      setDraft(EMPTY_DRAFT)
+      // The account exists whether or not the email left the building, so say
+      // which happened rather than implying an invite is on its way.
+      setNotice(
+        result.inviteSent
+          ? `Invited ${result.data.email}. They have 72 hours to set a password.`
+          : `Created ${result.data.email}, but the invite email could not be sent. They can use "Forgot password" to set one.`,
+      )
+      await load()
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to create user')
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  const handleStatusToggle = async (user: AdminUser) => {
+    const next = !user.isActive
+    if (
+      !next &&
+      !window.confirm(
+        `Deactivate ${user.email}? They will be signed out on their next request and cannot log back in. Their history is kept.`,
+      )
+    ) {
+      return
+    }
+    try {
+      setSavingId(user.id)
+      setError(null)
+      setNotice(null)
+      const updated = await updateAdminUserStatus(user.id, next)
+      setUsers((prev) =>
+        prev.map((row) => (row.id === user.id ? { ...row, isActive: updated.data.isActive } : row)),
+      )
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to update status')
+    } finally {
+      setSavingId(null)
+    }
+  }
+
   const columns: DataTableColumn<AdminUser>[] = [
     {
       key: 'user',
@@ -208,6 +284,20 @@ export default function AdminUserRoles() {
         </Badge>
       ),
     },
+    {
+      key: 'actions',
+      header: '',
+      cell: (user) => (
+        <button
+          type="button"
+          disabled={savingId === user.id}
+          onClick={() => handleStatusToggle(user)}
+          className={user.isActive ? 'btn-outline text-ui-sm' : 'btn-primary text-ui-sm'}
+        >
+          {user.isActive ? 'Deactivate' : 'Reactivate'}
+        </button>
+      ),
+    },
   ]
 
   return (
@@ -216,11 +306,126 @@ export default function AdminUserRoles() {
         title="User & role management"
         description="Grant platform roles and scope admin capabilities (ops, network, oversight, config, users). Allowlisted ADMIN_EMAILS accounts always keep full access."
         actions={
-          <button type="button" onClick={() => navigate('/admin')} className="btn-outline text-ui-sm">
-            Back to dashboard
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setShowAdd((open) => !open)
+                setError(null)
+                setNotice(null)
+              }}
+              className="btn-primary text-ui-sm"
+            >
+              {showAdd ? 'Cancel' : 'Add user'}
+            </button>
+            <button type="button" onClick={() => navigate('/admin')} className="btn-outline text-ui-sm">
+              Back to dashboard
+            </button>
+          </div>
         }
       />
+
+      {notice && (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
+          {notice}
+        </div>
+      )}
+
+      {showAdd && (
+        <SectionCard title="Add a team member">
+          <form onSubmit={handleCreate} className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400">First name</span>
+                <input
+                  className="input w-full"
+                  required
+                  value={draft.firstName}
+                  onChange={(e) => setDraft((d) => ({ ...d, firstName: e.target.value }))}
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400">Last name</span>
+                <input
+                  className="input w-full"
+                  required
+                  value={draft.lastName}
+                  onChange={(e) => setDraft((d) => ({ ...d, lastName: e.target.value }))}
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400">Work email</span>
+                <input
+                  className="input w-full"
+                  type="email"
+                  required
+                  value={draft.email}
+                  onChange={(e) => setDraft((d) => ({ ...d, email: e.target.value }))}
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400">Role</span>
+                <select
+                  className="input w-full capitalize"
+                  value={draft.role}
+                  onChange={(e) =>
+                    setDraft((d) => ({ ...d, role: e.target.value as (typeof CREATABLE_ROLES)[number] }))
+                  }
+                >
+                  {CREATABLE_ROLES.map((role) => (
+                    <option key={role} value={role}>
+                      {role}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            {draft.role === 'admin' && (
+              <div>
+                <span className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400">
+                  Admin capabilities
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {ADMIN_CAPABILITIES.map((cap) => {
+                    const on = draft.capabilities.includes(cap)
+                    return (
+                      <button
+                        key={cap}
+                        type="button"
+                        className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                        onClick={() =>
+                          setDraft((d) => ({
+                            ...d,
+                            capabilities: on
+                              ? d.capabilities.filter((c) => c !== cap)
+                              : ADMIN_CAPABILITIES.filter((c) => c === cap || d.capabilities.includes(c)),
+                          }))
+                        }
+                      >
+                        <Badge tone={on ? 'success' : 'neutral'}>{ADMIN_CAPABILITY_LABELS[cap]}</Badge>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center gap-3">
+              <button
+                type="submit"
+                className="btn-primary text-ui-sm"
+                disabled={creating || (draft.role === 'admin' && draft.capabilities.length === 0)}
+              >
+                {creating ? 'Sending invite…' : 'Send invite'}
+              </button>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                They receive a link to set their own password. No password is set here.
+              </p>
+            </div>
+          </form>
+        </SectionCard>
+      )}
 
       {error && (
         <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">

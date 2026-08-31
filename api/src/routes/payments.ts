@@ -797,6 +797,83 @@ router.post('/portal-session', authMiddleware, async (req: AuthRequest, res) => 
   }
 })
 
+/**
+ * Self-heal unsettled platform-payment rows against Stripe.
+ *
+ * The webhook is the primary updater, but a missed delivery (or an endpoint that
+ * wasn't configured yet) leaves a genuinely-paid charge stuck at
+ * "checkout_created" — so the payer sees "Pending" for something they already
+ * paid for (CP: payment status shows pending even though we paid and got the
+ * case). The ledger row is written when the checkout session is created, so this
+ * also has to retire sessions the attorney abandoned; nothing else ever clears
+ * them and they would otherwise read "Pending" permanently.
+ *
+ * Rows are mutated in place so the caller's response reflects the correction
+ * without a second query. Shared by the attorney's own billing history and the
+ * admin transactions view, which must not drift apart on what "paid" means.
+ */
+export async function reconcilePlatformPaymentRows(records: any[]): Promise<void> {
+  if (!ENV.STRIPE_SECRET_KEY) return
+
+  const settled = (status: unknown) =>
+    ['succeeded', 'paid', 'complete', 'completed'].includes(String(status || '').toLowerCase())
+
+  const reconcilable = records.filter((r: any) => {
+    const s = String(r.status || '').toLowerCase()
+    return (
+      r.stripeCheckoutSessionId &&
+      !settled(s) &&
+      !s.startsWith('skipped') &&
+      !/(fail|cancel|refund|expired)/.test(s)
+    )
+  })
+  if (!reconcilable.length) return
+
+  const stripe = getStripe()
+  await Promise.all(
+    reconcilable.slice(0, 25).map(async (r: any) => {
+      try {
+        const session = await stripe.checkout.sessions.retrieve(r.stripeCheckoutSessionId, {
+          expand: ['payment_intent'],
+        })
+        if (String(session.payment_status || '').toLowerCase() === 'paid') {
+          const paymentIntentId =
+            typeof session.payment_intent === 'string'
+              ? session.payment_intent
+              : session.payment_intent?.id || null
+          const customerId =
+            typeof session.customer === 'string' ? session.customer : session.customer?.id || null
+          // Claim the row before granting anything. Two concurrent loads of
+          // this page would otherwise both settle it and double-count the
+          // attorney's platform spend.
+          const claimed = await db.platformPayment.updateMany({
+            where: { id: r.id, status: r.status },
+            data: {
+              status: 'paid',
+              stripePaymentIntentId: paymentIntentId,
+              stripeCustomerId: customerId || r.stripeCustomerId || null,
+            },
+          })
+          if (claimed.count === 0) return
+          // Run the same settlement the webhook would have, so a missed
+          // delivery still grants what was bought (e.g. featured placement).
+          await settleCompletedCheckout(stripe, session)
+          r.status = 'paid'
+          r.stripePaymentIntentId = paymentIntentId
+        } else if (String(session.status || '').toLowerCase() === 'expired') {
+          await db.platformPayment.updateMany({
+            where: { id: r.id, status: r.status },
+            data: { status: 'expired' },
+          })
+          r.status = 'expired'
+        }
+      } catch (err: any) {
+        logger.warn('Platform payment reconcile failed', { paymentId: r.id, error: err?.message })
+      }
+    }),
+  )
+}
+
 // Attorney-facing ledger of platform charges (routing fees, subscriptions, lead
 // credits, featured placement) so an attorney can see what they've paid CaseIQ.
 // Reads the platform_payments records the checkout/charge flows already write.
@@ -825,71 +902,7 @@ router.get('/platform/history', authMiddleware, async (req: AuthRequest, res) =>
     const isPaid = (status: unknown) =>
       ['succeeded', 'paid', 'complete', 'completed'].includes(String(status || '').toLowerCase())
 
-    // Self-heal unsettled rows before rendering. The webhook is the primary updater,
-    // but a missed delivery (or an endpoint that wasn't configured yet) leaves a
-    // genuinely-paid charge stuck at "checkout_created" — so the attorney sees
-    // "Pending" for something they already paid for (CP: payment status shows
-    // pending even though we paid and got the case). We write the ledger row when
-    // the checkout session is created, so this also has to retire sessions the
-    // attorney abandoned; nothing else ever clears them and they would otherwise
-    // read "Pending" permanently.
-    if (ENV.STRIPE_SECRET_KEY) {
-      const reconcilable = records.filter((r: any) => {
-        const s = String(r.status || '').toLowerCase()
-        return (
-          r.stripeCheckoutSessionId &&
-          !isPaid(s) &&
-          !s.startsWith('skipped') &&
-          !/(fail|cancel|refund|expired)/.test(s)
-        )
-      })
-      if (reconcilable.length) {
-        const stripe = getStripe()
-        await Promise.all(
-          reconcilable.slice(0, 25).map(async (r: any) => {
-            try {
-              const session = await stripe.checkout.sessions.retrieve(r.stripeCheckoutSessionId, {
-                expand: ['payment_intent'],
-              })
-              if (String(session.payment_status || '').toLowerCase() === 'paid') {
-                const paymentIntentId =
-                  typeof session.payment_intent === 'string'
-                    ? session.payment_intent
-                    : session.payment_intent?.id || null
-                const customerId =
-                  typeof session.customer === 'string' ? session.customer : session.customer?.id || null
-                // Claim the row before granting anything. Two concurrent loads of
-                // this page would otherwise both settle it and double-count the
-                // attorney's platform spend.
-                const claimed = await db.platformPayment.updateMany({
-                  where: { id: r.id, status: r.status },
-                  data: {
-                    status: 'paid',
-                    stripePaymentIntentId: paymentIntentId,
-                    stripeCustomerId: customerId || r.stripeCustomerId || null,
-                  },
-                })
-                if (claimed.count === 0) return
-                // Run the same settlement the webhook would have, so a missed
-                // delivery still grants what was bought (e.g. featured placement).
-                await settleCompletedCheckout(stripe, session)
-                // Mutate the in-memory row so this same response reflects the fix.
-                r.status = 'paid'
-                r.stripePaymentIntentId = paymentIntentId
-              } else if (String(session.status || '').toLowerCase() === 'expired') {
-                await db.platformPayment.updateMany({
-                  where: { id: r.id, status: r.status },
-                  data: { status: 'expired' },
-                })
-                r.status = 'expired'
-              }
-            } catch (err: any) {
-              logger.warn('Platform payment reconcile failed', { paymentId: r.id, error: err?.message })
-            }
-          }),
-        )
-      }
-    }
+    await reconcilePlatformPaymentRows(records)
 
     const now = new Date()
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)

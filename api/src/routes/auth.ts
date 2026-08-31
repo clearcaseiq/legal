@@ -15,6 +15,7 @@ import { isAdminUser, resolveAdminCapabilities } from '../lib/admin-access'
 import { adoptGuestCasesByEmail } from '../lib/guest-case-adoption'
 import { sendClaimEmail } from '../lib/claims'
 import { permissionsForRole } from '../lib/firm-roles'
+import { PASSWORD_RESET_TTL_MS, hashResetToken, passwordResetUrl } from '../lib/password-reset'
 
 // Look up a user's active firm membership (the record that makes a paralegal /
 // case manager / etc. a real firm staffer). Returns null for plaintiffs.
@@ -26,17 +27,6 @@ async function findActiveFirmMembership(userId: string) {
       orderBy: { createdAt: 'asc' },
     })
     .catch(() => null)
-}
-
-// Password-reset tokens are valid for one hour and are single-use.
-const PASSWORD_RESET_TTL_MS = 60 * 60 * 1000
-
-function hashResetToken(rawToken: string): string {
-  return crypto.createHash('sha256').update(rawToken).digest('hex')
-}
-
-function passwordResetUrl(rawToken: string): string {
-  return webUrl(`/reset-password?token=${encodeURIComponent(rawToken)}`)
 }
 
 // Email verification tokens share the reset-token security model: single-use,
