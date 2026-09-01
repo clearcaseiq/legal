@@ -7,6 +7,7 @@ import {
   Globe,
   Info,
   Loader2,
+  Clock,
   MapPin,
   Pencil,
   Plus,
@@ -17,6 +18,7 @@ import {
 } from 'lucide-react'
 import { ATTORNEY_CASE_TYPES, formatSpecialty, US_STATES } from '../../lib/constants'
 import { getCountiesForState } from '../../lib/usLocationData'
+import { requestEmailVerification } from '../../lib/api'
 import { computeProfileStrength } from '../../lib/profileStrength'
 
 /** The editable slice of the profile. Everything here round-trips through PUT /profile. */
@@ -37,6 +39,14 @@ export type OverviewProfile = OverviewDraft & {
   licenseState: string | null
   licenseVerified: boolean
   totalSettlements: number
+  /** The signup address, shown alongside its confirmation state. */
+  email: string | null
+  /**
+   * Whether that address has been confirmed. Deliberately separate from
+   * licenseVerified and from the attorney's vetting status, so a confirmed
+   * email never reads as "this attorney has been vetted".
+   */
+  emailVerified: boolean
 }
 
 type Props = {
@@ -58,6 +68,77 @@ const PROFICIENCY_OPTIONS = [
 ]
 
 const stateName = (code: string | null) => US_STATES.find((s) => s.code === code)?.name || code || ''
+
+/**
+ * Confirmation state for the signup address, with a re-send for the common case
+ * where the first message was missed. Worded as "Email address" rather than a
+ * bare "Verified" so it cannot be mistaken for license or vetting status, both
+ * of which are shown elsewhere on this page and mean something quite different.
+ */
+function EmailVerificationStatus({ email, verified }: { email: string | null; verified: boolean }) {
+  const [sending, setSending] = useState(false)
+  const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null)
+
+  const resend = async () => {
+    setSending(true)
+    setNotice(null)
+    try {
+      const { data } = await requestEmailVerification()
+      setNotice({
+        ok: true,
+        text: data?.message || 'Verification email sent. Please check your inbox, including spam.',
+      })
+    } catch (error: any) {
+      setNotice({
+        ok: false,
+        text:
+          error?.response?.data?.error ||
+          'We could not send the verification email right now. Please try again shortly.',
+      })
+    } finally {
+      setSending(false)
+    }
+  }
+
+  return (
+    <div className="mt-6">
+      <p className={FIELD_LABEL}>Email address</p>
+      <div className="mt-1 flex flex-wrap items-center gap-2">
+        <span className="text-sm font-semibold text-slate-900">{email || 'Not on file'}</span>
+        {verified ? (
+          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">
+            <CheckCircle2 className="h-3 w-3" />
+            Verified
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">
+            <Clock className="h-3 w-3" />
+            Pending
+          </span>
+        )}
+        {!verified && (
+          <button
+            type="button"
+            onClick={resend}
+            disabled={sending}
+            className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600 underline-offset-2 hover:underline disabled:opacity-60"
+          >
+            {sending && <Loader2 className="h-3 w-3 animate-spin" />}
+            {sending ? 'Sending…' : 'Resend verification email'}
+          </button>
+        )}
+      </div>
+      {!verified && !notice && (
+        <p className="mt-1 text-xs text-slate-400">
+          We emailed you a verification button. Your email shows as verified once you use it.
+        </p>
+      )}
+      {notice && (
+        <p className={`mt-1 text-xs ${notice.ok ? 'text-emerald-600' : 'text-red-600'}`}>{notice.text}</p>
+      )}
+    </div>
+  )
+}
 
 /**
  * Chip text for a case type. The canonical labels carry a parenthetical listing
@@ -281,6 +362,8 @@ export default function AttorneyProfileOverview({ profile, onSave }: Props) {
             className="mt-1 w-full max-w-sm rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
           />
         </div>
+
+        <EmailVerificationStatus email={profile.email} verified={profile.emailVerified} />
 
         <div className="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-3 sm:divide-x sm:divide-slate-100">
           <EditableYears

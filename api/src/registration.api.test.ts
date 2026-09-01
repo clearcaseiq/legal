@@ -11,8 +11,13 @@ vi.mock('bcryptjs', () => ({
 
 vi.mock('./lib/prisma', () => import('./test/universalPrismaMock'))
 
+vi.mock('./lib/email-verification', () => ({
+  issueEmailVerification: vi.fn().mockResolvedValue(true),
+}))
+
 import { buildApp } from './build-app'
 import { prisma } from './lib/prisma'
+import { issueEmailVerification } from './lib/email-verification'
 import { resetUniversalPrismaMock } from './test/universalPrismaMock'
 
 const plaintiffValid = {
@@ -197,6 +202,64 @@ describe('Attorney registration POST /v1/attorney-register/register', () => {
     expect(prisma.user.create).toHaveBeenCalledOnce()
     expect(prisma.attorney.create).toHaveBeenCalledOnce()
     expect(prisma.attorneyProfile.create).toHaveBeenCalledOnce()
+  })
+
+  // Attorneys used to be created with an unconfirmed address and never told
+  // about it, so the profile could only ever read "Pending".
+  it('emails a verification link and reports the address as unconfirmed', async () => {
+    vi.mocked(issueEmailVerification).mockClear()
+    vi.mocked(prisma.user.findUnique).mockResolvedValue(null as any)
+    vi.mocked(prisma.attorney.findUnique).mockResolvedValue(null as any)
+
+    vi.mocked(prisma.user.create).mockResolvedValue({
+      id: 'u-att-verify',
+      email: attorneyValidMinimal.email,
+      firstName: attorneyValidMinimal.firstName,
+      lastName: attorneyValidMinimal.lastName,
+      phone: null,
+      role: 'attorney',
+      emailVerified: false,
+    } as any)
+    vi.mocked(prisma.attorney.create).mockResolvedValue({
+      id: 'att-verify',
+      name: 'Amy Advocate, Esq.',
+      email: attorneyValidMinimal.email,
+      specialties: JSON.stringify(['auto']),
+      venues: JSON.stringify(['CA']),
+      isActive: true,
+      isVerified: false,
+    } as any)
+    vi.mocked(prisma.attorneyProfile.create).mockResolvedValue({ id: 'prof-verify' } as any)
+
+    const res = await request(app).post('/v1/attorney-register/register').send(attorneyValidMinimal)
+
+    expect(res.status).toBe(201)
+    expect(res.body.user.emailVerified).toBe(false)
+    expect(issueEmailVerification).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'u-att-verify', email: attorneyValidMinimal.email }),
+      { welcome: true }
+    )
+  })
+
+  // Confirming an email must not make the attorney routable: isVerified is a
+  // vetting decision a human makes, and it stays false through signup.
+  it('leaves the attorney unvetted regardless of email confirmation', async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue(null as any)
+    vi.mocked(prisma.attorney.findUnique).mockResolvedValue(null as any)
+    vi.mocked(prisma.user.create).mockResolvedValue({ id: 'u-att-gate', email: attorneyValidMinimal.email } as any)
+    vi.mocked(prisma.attorney.create).mockResolvedValue({
+      id: 'att-gate',
+      email: attorneyValidMinimal.email,
+      specialties: JSON.stringify(['auto']),
+      venues: JSON.stringify(['CA']),
+    } as any)
+    vi.mocked(prisma.attorneyProfile.create).mockResolvedValue({ id: 'prof-gate' } as any)
+
+    await request(app).post('/v1/attorney-register/register').send(attorneyValidMinimal)
+
+    expect(prisma.attorney.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ isVerified: false }) })
+    )
   })
 
   it('201 with extended profile fields', async () => {

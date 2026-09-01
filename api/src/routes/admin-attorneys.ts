@@ -372,11 +372,19 @@ router.get('/attorneys', authMiddleware, adminMiddleware, async (req: AuthReques
           select: {
             email: true,
             lastLoginAt: true,
+            emailVerified: true,
           },
         })
       : []
     const lastLoginByEmail = new Map(
       attorneyUsers.map((user) => [user.email.trim().toLowerCase(), user.lastLoginAt])
+    )
+    // Distinct from isVerified: this only says the signup address was confirmed,
+    // not that the attorney has been vetted. Attorneys with no login account
+    // (bulk directory imports) have nothing to confirm, hence null rather than
+    // false, so the admin table can show "—" instead of implying a problem.
+    const emailVerifiedByEmail = new Map(
+      attorneyUsers.map((user) => [user.email.trim().toLowerCase(), user.emailVerified])
     )
 
     let formattedAttorneys = attorneys.map(attorney => ({
@@ -392,6 +400,9 @@ router.get('/attorneys', authMiddleware, adminMiddleware, async (req: AuthReques
       totalReviews: attorney.totalReviews,
       verifiedReviewCount: verifiedReviewCountMap.get(attorney.id) || 0,
       lastActiveAt: attorney.email ? lastLoginByEmail.get(attorney.email.trim().toLowerCase()) || null : null,
+      emailVerified: attorney.email
+        ? emailVerifiedByEmail.get(attorney.email.trim().toLowerCase()) ?? null
+        : null,
       lawFirm: attorney.lawFirm,
       subscriptionTier: attorney.attorneyProfile?.subscriptionTier || null,
       profile: attorney.attorneyProfile

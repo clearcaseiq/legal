@@ -53,6 +53,11 @@ export type AttorneyProfileModel = {
   /** Set by license verification, so shown read-only. */
   licenseState: string | null
   licenseVerified: boolean
+  /**
+   * Whether the signup email has been confirmed. Distinct from licenseVerified
+   * and from the attorney's vetting status — this only reflects the account.
+   */
+  emailVerified: boolean
   yearsExperience: number
   yearsPiExperience: number
   totalCases: number
@@ -172,6 +177,7 @@ export function normalizeAttorneyProfile(raw: any): AttorneyProfileModel {
     responseTimeHours: Number(raw?.responseTimeHours ?? raw?.attorney?.responseTimeHours ?? 24),
     licenseState: raw?.licenseState || raw?.attorney?.barState || null,
     licenseVerified: Boolean(raw?.licenseVerified),
+    emailVerified: Boolean(raw?.emailVerified),
     yearsExperience: Number(raw?.yearsExperience || 0),
     yearsPiExperience: Number(raw?.yearsPiExperience || 0),
     totalCases,

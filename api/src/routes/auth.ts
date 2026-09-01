@@ -8,7 +8,6 @@ import { v4 as uuidv4 } from 'uuid'
 import { prisma } from '../lib/prisma'
 import { logger } from '../lib/logger'
 import { replicateUploads } from '../lib/object-storage'
-import { webUrl } from '../lib/app-url'
 import { UserRegister, UserLogin, UserUpdate, PasswordResetRequest, PasswordReset } from '../lib/validators'
 import { generateToken, authMiddleware, AuthRequest } from '../lib/auth'
 import { isAdminUser, resolveAdminCapabilities } from '../lib/admin-access'
@@ -16,6 +15,7 @@ import { adoptGuestCasesByEmail } from '../lib/guest-case-adoption'
 import { sendClaimEmail } from '../lib/claims'
 import { permissionsForRole } from '../lib/firm-roles'
 import { PASSWORD_RESET_TTL_MS, hashResetToken, passwordResetUrl } from '../lib/password-reset'
+import { issueEmailVerification } from '../lib/email-verification'
 
 // Look up a user's active firm membership (the record that makes a paralegal /
 // case manager / etc. a real firm staffer). Returns null for plaintiffs.
@@ -27,50 +27,6 @@ async function findActiveFirmMembership(userId: string) {
       orderBy: { createdAt: 'asc' },
     })
     .catch(() => null)
-}
-
-// Email verification tokens share the reset-token security model: single-use,
-// expiring, and stored only as a SHA-256 hash. They live longer than reset
-// tokens since verifying an email is lower-risk and users may act on it later.
-const EMAIL_VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000
-
-function emailVerificationUrl(rawToken: string): string {
-  return webUrl(`/verify-email?token=${encodeURIComponent(rawToken)}`)
-}
-
-// Mint a single-use, expiring email-verification token and email the link.
-// Best-effort: returns whether the message was actually dispatched, and never
-// throws so callers (e.g. signup) can fire-and-forget without blocking (#224).
-async function issueEmailVerification(user: { id: string; email: string; firstName?: string | null }): Promise<boolean> {
-  try {
-    await prisma.emailVerificationToken.deleteMany({ where: { userId: user.id, usedAt: null } })
-    const rawToken = crypto.randomBytes(32).toString('hex')
-    await prisma.emailVerificationToken.create({
-      data: {
-        userId: user.id,
-        tokenHash: hashResetToken(rawToken),
-        expiresAt: new Date(Date.now() + EMAIL_VERIFICATION_TTL_MS),
-      },
-    })
-    const link = emailVerificationUrl(rawToken)
-    const body = [
-      `Hi ${user.firstName || 'there'},`,
-      '',
-      'Welcome to ClearCaseIQ! Please confirm your email address so we can keep your account secure and send you case updates. Click the link below to verify. This link expires in 24 hours and can be used once.',
-      '',
-      link,
-      '',
-      "If you didn't create this account, you can safely ignore this email.",
-      '',
-      '— The ClearCaseIQ team',
-    ].join('\n')
-    const sent = await sendClaimEmail({ to: user.email, subject: 'Verify your ClearCaseIQ email', body })
-    logger.info('Email verification issued', { userId: user.id, emailSent: sent })
-    return sent
-  } catch (error) {
-    logger.error('Failed to issue email verification', { userId: user.id, error })
-    return false
-  }
 }
 
 const router = Router()
@@ -161,7 +117,7 @@ router.post('/register', async (req, res) => {
 
     // Send the email-verification link on signup (best-effort — never blocks or
     // fails registration if the email provider is unconfigured or slow) (#224).
-    void issueEmailVerification(user)
+    void issueEmailVerification(user, { welcome: true })
 
     res.status(201).json({
       user,
@@ -732,33 +688,7 @@ router.post('/request-email-verification', authMiddleware, async (req: AuthReque
       return res.json({ ok: true, alreadyVerified: true, message: 'Your email is already verified.' })
     }
 
-    // Invalidate any outstanding tokens before issuing a fresh one.
-    await prisma.emailVerificationToken.deleteMany({ where: { userId: user.id, usedAt: null } })
-
-    const rawToken = crypto.randomBytes(32).toString('hex')
-    await prisma.emailVerificationToken.create({
-      data: {
-        userId: user.id,
-        tokenHash: hashResetToken(rawToken),
-        expiresAt: new Date(Date.now() + EMAIL_VERIFICATION_TTL_MS),
-      },
-    })
-
-    const link = emailVerificationUrl(rawToken)
-    const body = [
-      `Hi ${user.firstName || 'there'},`,
-      '',
-      'Please confirm your email address so we can keep your ClearCaseIQ account secure and send you case updates. Click the link below to verify. This link expires in 24 hours and can be used once.',
-      '',
-      link,
-      '',
-      "If you didn't request this, you can safely ignore this email.",
-      '',
-      '— The ClearCaseIQ team',
-    ].join('\n')
-
-    const sent = await sendClaimEmail({ to: user.email, subject: 'Verify your ClearCaseIQ email', body })
-    logger.info('Email verification requested', { userId: user.id, emailSent: sent })
+    const sent = await issueEmailVerification(user)
 
     if (!sent) {
       // No email provider configured (e.g. local/dev). Surface a clear, honest

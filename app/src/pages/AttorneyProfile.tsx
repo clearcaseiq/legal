@@ -520,6 +520,8 @@ export default function AttorneyProfile() {
             languageProficiency: profile.languageProficiency,
             licenseState: profile.licenseState,
             licenseVerified: profile.licenseVerified,
+            email: profile.attorney?.email || null,
+            emailVerified: profile.emailVerified,
             yearsExperience: profile.yearsExperience,
             yearsPiExperience: profile.yearsPiExperience,
             totalSettlements: profile.totalSettlements,

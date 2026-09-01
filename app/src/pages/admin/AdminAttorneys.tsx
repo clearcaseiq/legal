@@ -220,6 +220,17 @@ export default function AdminAttorneys() {
             <Badge tone={a.isVerified ? 'blue' : 'warning'}>
               {a.isVerified ? 'Verified' : 'Unverified'}
             </Badge>
+            {/*
+              Confirmation of the signup address, which says nothing about
+              vetting — hence the explicit "Email" prefix next to the badge
+              above. Null means no login account (a directory import), where
+              there is no address to confirm and a badge would be misleading.
+            */}
+            {a.emailVerified !== null && a.emailVerified !== undefined && (
+              <Badge tone={a.emailVerified ? 'success' : 'warning'}>
+                {a.emailVerified ? 'Email verified' : 'Email pending'}
+              </Badge>
+            )}
           </div>
           <div className="mt-2 flex items-center text-xs text-slate-500 dark:text-slate-400">
             <Clock className="mr-1 h-3 w-3" />~{a.responseTimeHours ?? 24}h response

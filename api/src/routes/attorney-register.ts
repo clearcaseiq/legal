@@ -5,6 +5,7 @@ import { logger } from '../lib/logger'
 import { z } from 'zod'
 import { generateToken } from '../lib/auth'
 import { optionalPhone } from '../lib/phone'
+import { issueEmailVerification } from '../lib/email-verification'
 
 const router = Router()
 
@@ -299,6 +300,11 @@ router.post('/register', async (req, res) => {
       })
     }
 
+    // Fire-and-forget, as on plaintiff signup: a mail outage must not turn a
+    // completed registration into a 500. The profile page shows the pending
+    // state and offers a re-send if this never lands.
+    void issueEmailVerification(user, { welcome: true })
+
     const token = generateToken(user.id)
 
     logger.info('Attorney registered', { attorneyId: attorney.id, userId: user.id, email: attorney.email })
@@ -309,7 +315,8 @@ router.post('/register', async (req, res) => {
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
-        phone: user.phone
+        phone: user.phone,
+        emailVerified: user.emailVerified
       },
       attorney: {
         id: attorney.id,

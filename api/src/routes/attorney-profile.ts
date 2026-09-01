@@ -397,6 +397,10 @@ router.get('/profile', authMiddleware, async (req: any, res) => {
     }
 
     const attorneyId = attorney.id
+    // Email confirmation is a property of the login account, not the attorney
+    // record. It stays separate from Attorney.isVerified (a vetting decision
+    // that gates lead routing) and from license verification.
+    const emailVerified = !!req.user?.emailVerified
 
     let profile
     try {
@@ -417,7 +421,7 @@ router.get('/profile', authMiddleware, async (req: any, res) => {
         attorneyId,
         errorCode: dbError?.code
       })
-      return res.json(buildProfileFallback(attorney))
+      return res.json({ ...buildProfileFallback(attorney), emailVerified })
     }
 
     if (!profile) {
@@ -442,19 +446,19 @@ router.get('/profile', authMiddleware, async (req: any, res) => {
             attorney: true
           }
         })
-        return res.json({ ...newProfile, verifiedVerdicts: [] })
+        return res.json({ ...newProfile, verifiedVerdicts: [], emailVerified })
       } catch (createError: any) {
         logger.warn('Profile create failed; returning attorney fallback profile', {
           attorneyId,
           error: createError?.message,
           errorCode: createError?.code,
         })
-        return res.json(buildProfileFallback(attorney))
+        return res.json({ ...buildProfileFallback(attorney), emailVerified })
       }
     }
 
     // Case results come from their own table now; the key stays for clients.
-    res.json({ ...profile, verifiedVerdicts: await listCaseResults(attorneyId) })
+    res.json({ ...profile, verifiedVerdicts: await listCaseResults(attorneyId), emailVerified })
   } catch (error: any) {
     logger.error('Failed to get attorney profile', { 
       error: error?.message || String(error), 

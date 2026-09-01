@@ -2,10 +2,31 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import LoginLayout from '../components/LoginLayout'
 import { verifyEmail } from '../lib/api'
+import { getStoredRole } from '../lib/auth'
+
+/**
+ * Attorneys and firm staff verify through this same page, so a hardcoded
+ * /dashboard would drop them on the plaintiff view. Anyone verifying on a
+ * device they aren't signed in on falls back to the plaintiff dashboard, which
+ * redirects to the right login.
+ */
+function dashboardPath(): string {
+  switch (getStoredRole()) {
+    case 'attorney':
+      return '/attorney-dashboard'
+    case 'staff':
+      return '/firm-dashboard'
+    case 'admin':
+      return '/admin'
+    default:
+      return '/dashboard'
+  }
+}
 
 export default function VerifyEmail() {
   const [searchParams] = useSearchParams()
   const token = searchParams.get('token') || ''
+  const [destination] = useState(dashboardPath)
 
   const [status, setStatus] = useState<'checking' | 'success' | 'error'>('checking')
   const [message, setMessage] = useState<string>('')
@@ -44,7 +65,7 @@ export default function VerifyEmail() {
       error={null}
       footerDividerText="Need help?"
       footerContent={
-        <Link to="/dashboard" className="font-semibold text-brand-600 hover:text-brand-700 transition-colors block">
+        <Link to={destination} className="font-semibold text-brand-600 hover:text-brand-700 transition-colors block">
           Go to dashboard
         </Link>
       }
@@ -58,7 +79,7 @@ export default function VerifyEmail() {
           <p className="font-semibold">Email verified</p>
           <p className="mt-2">{message}</p>
           <Link
-            to="/dashboard"
+            to={destination}
             className="mt-4 inline-block font-semibold text-brand-600 underline underline-offset-2 hover:text-brand-700"
           >
             Continue to your dashboard
@@ -71,7 +92,7 @@ export default function VerifyEmail() {
           <p className="font-semibold">Verification failed</p>
           <p className="mt-2">{message}</p>
           <Link
-            to="/dashboard"
+            to={destination}
             className="mt-4 inline-block font-semibold text-brand-600 underline underline-offset-2 hover:text-brand-700"
           >
             Back to dashboard

@@ -10,7 +10,12 @@
 import { it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createRoot, type Root } from 'react-dom/client'
 import { act } from 'react'
+vi.mock('../../lib/api', () => ({
+  requestEmailVerification: vi.fn().mockResolvedValue({ data: { message: 'Verification link sent.' } }),
+}))
+
 import AttorneyProfileOverview, { type OverviewProfile } from './AttorneyProfileOverview'
+import { requestEmailVerification } from '../../lib/api'
 
 ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -27,6 +32,8 @@ const BASE: OverviewProfile = {
   languageProficiency: { English: 'native' },
   licenseState: 'CA',
   licenseVerified: true,
+  email: 'dana@reyeslaw.test',
+  emailVerified: true,
   yearsExperience: 15,
   yearsPiExperience: 12,
   totalSettlements: 250_000,
@@ -77,6 +84,36 @@ const editYears = (label: string) => {
   act(() => byLabel<HTMLButtonElement>(`Edit ${label}`).click())
   return byLabel<HTMLInputElement>(label)
 }
+
+/**
+ * The email badge is easy to confuse with the two other verification states on
+ * this page (bar admissions, and the vetting flag an admin sets), so these
+ * assertions pin the wording rather than just the presence of a badge.
+ */
+it('shows the signup address as pending, with a way to re-send, until it is confirmed', () => {
+  mount({ emailVerified: false })
+
+  expect(container.textContent).toContain('dana@reyeslaw.test')
+  expect(container.textContent).toContain('Pending')
+  expect(byText('Resend verification email')).toBeTruthy()
+})
+
+it('drops the pending state and the re-send once the address is confirmed', () => {
+  mount({ emailVerified: true })
+
+  expect(container.textContent).not.toContain('Pending')
+  expect(container.textContent).not.toContain('Resend verification email')
+})
+
+it('re-sends the verification email on request', async () => {
+  vi.mocked(requestEmailVerification).mockClear()
+  mount({ emailVerified: false })
+
+  await act(async () => byText('Resend verification email').click())
+
+  expect(requestEmailVerification).toHaveBeenCalledTimes(1)
+  expect(container.textContent).toContain('Verification link sent.')
+})
 
 it('keeps Save Changes disabled until something is edited', () => {
   mount()
