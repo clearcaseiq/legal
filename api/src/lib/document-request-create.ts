@@ -247,12 +247,13 @@ async function notifyPlaintiffAboutDocumentRequest(params: {
     const subject = 'Your attorney requested additional documents'
     const message = `Hi ${plaintiffName},\n\n${attorneyName} has requested the following documents to strengthen your case:\n\n${docList}\n\n${
       customMessage ? `Message from your attorney: ${customMessage}\n\n` : ''
-    }Upload here: ${uploadLink}\n\nBest regards,\nClearCaseIQ`
+    }Best regards,\nClearCaseIQ`
     await deliverDirectNotification({
       type: 'email',
       recipient: plaintiffEmail,
       subject,
       message,
+      cta: { label: 'Upload your documents', url: uploadLink },
       userId: assessment?.userId || null,
       assessmentId,
       role: 'plaintiff',

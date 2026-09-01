@@ -86,7 +86,8 @@ export async function sweepAbandonedIntakeLeads(): Promise<{ scanned: number; se
         await sendClaimEmail({
           to: lead.email,
           subject: 'Finish your ClearCaseIQ case assessment',
-          body: `Hi,\n\nYou started a case assessment with ClearCaseIQ and haven't finished it. Your answers are saved.\n\nFinish your assessment:\n${link}\n\nIf you'd prefer not to continue, you can safely ignore this email.`,
+          body: `Hi,\n\nYou started a case assessment with ClearCaseIQ and haven't finished it. Your answers are saved.\n\nIf you'd prefer not to continue, you can safely ignore this email.`,
+          cta: { label: 'Finish your assessment', url: link },
         })
       }
       if (lead.phone) {

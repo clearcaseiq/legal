@@ -54,7 +54,11 @@ const NAV_LINKS = {
   startAssessment: START_ASSESSMENT_HREF,
   plaintiffLogin: '/login/plaintiff',
   attorneyLogin: '/login/attorney',
-  adminLogin: '/login/admin',
+  // Firm staff (paralegals and other firm members), not ClearCaseIQ employees.
+  // The admin login is deliberately absent: it serves a handful of internal
+  // people who arrive by invite link or bookmark, so putting it on the public
+  // marketing site only advertised an internal entry point to every crawler.
+  staffLogin: '/login/staff',
 }
 
 // Informational/marketing pages where a mobile visitor should always have a
@@ -712,8 +716,8 @@ export default function Layout({ children }: LayoutProps) {
                         <Link to={navLinks.attorneyLogin} onClick={() => setSignInOpen(false)} className={menuItemCls}>
                           {t('common.attorneyLogin')}
                         </Link>
-                        <Link to={navLinks.adminLogin} onClick={() => setSignInOpen(false)} className={menuItemCls}>
-                          {t('common.adminLogin')}
+                        <Link to={navLinks.staffLogin} onClick={() => setSignInOpen(false)} className={menuItemCls}>
+                          {t('common.staffLogin')}
                         </Link>
                       </div>
                     )}
@@ -845,7 +849,7 @@ export default function Layout({ children }: LayoutProps) {
                     <p className="text-xs font-medium text-slate-500 uppercase mb-2">{t('common.signIn')}</p>
                     <Link to={navLinks.plaintiffLogin} onClick={() => setMobileMenuOpen(false)} className="block rounded-xl px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">{t('common.plaintiffLogin')}</Link>
                     <Link to={navLinks.attorneyLogin} onClick={() => setMobileMenuOpen(false)} className="block rounded-xl px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">{t('common.attorneyLogin')}</Link>
-                    <Link to={navLinks.adminLogin} onClick={() => setMobileMenuOpen(false)} className="block rounded-xl px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">{t('common.adminLogin')}</Link>
+                    <Link to={navLinks.staffLogin} onClick={() => setMobileMenuOpen(false)} className="block rounded-xl px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">{t('common.staffLogin')}</Link>
                   </div>
                   {!['/assess', '/intake', '/intake2', '/rose', '/assessment/start'].includes(location.pathname) &&
                     !location.pathname.startsWith('/results') &&

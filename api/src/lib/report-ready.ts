@@ -52,7 +52,8 @@ export async function sendReportReady(lead: {
       await sendClaimEmail({
         to: lead.email,
         subject: 'Your ClearCaseIQ case report is ready',
-        body: `Good news. Your case assessment is complete.\n\nView your case report: ${link}\n\nYou can review your estimated case value, liability analysis, and next steps any time.`,
+        body: `Good news. Your case assessment is complete.\n\nYou can review your estimated case value, liability analysis, and next steps any time.`,
+        cta: { label: 'View your case report', url: link },
       })
     }
     if (lead.phone) {

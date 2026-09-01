@@ -3,6 +3,8 @@
  * Event types and template keys for plaintiff, attorney, and system notifications.
  */
 
+import type { EmailCta } from './claims'
+
 export const PLAINTIFF_EVENTS = {
   account_created: 'plaintiff.account_created',
   assessment_started: 'plaintiff.assessment_started',
@@ -66,6 +68,12 @@ export interface CreateNotificationEventInput {
   templateKey?: string
   subject?: string
   body?: string
+  /**
+   * Primary action for an email event, rendered as a button. Ignored on other
+   * channels. The body should not repeat the destination — the mailer prints it
+   * under the button and appends it to the plain-text alternative.
+   */
+  cta?: EmailCta
   payload?: Record<string, unknown>
   recipient?: string
 }

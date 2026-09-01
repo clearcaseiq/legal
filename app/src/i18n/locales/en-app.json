@@ -2655,6 +2655,8 @@
       "couldNotLoadMatches": "We could not load attorney matches",
       "couldNotLoadMatchesBody1": "You can still send your case. We will show you which attorneys we suggest and wait for your approval before contacting any of them. Or",
       "couldNotLoadMatchesBody2": "to choose them now.",
+      "noMatchesYetTitle": "We’re still matching your case",
+      "noMatchesYetBody": "You can send your case now. Our team will review it and look for attorneys who handle this type of claim in your area, and we won’t contact anyone without your approval.",
       "customizeOrder": "Customize order",
       "doNotContactAnyone": "Do not contact anyone",
       "done": "Done",

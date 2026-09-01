@@ -49,10 +49,28 @@ export function normalizeBarNumber(value: string | null | undefined): string {
   return (value ?? '').replace(/[^a-z0-9]/gi, '').toLowerCase()
 }
 
+/**
+ * The primary action in an email, rendered as a button.
+ *
+ * Passed alongside the body rather than marked up inside it. Bodies interpolate
+ * user-supplied text (claimant names, case details, attorney-written messages),
+ * so a marker the renderer parsed out of the body would let a user get a
+ * branded ClearCaseIQ button pointing wherever they chose.
+ *
+ * The body should not also spell out the destination: the renderer prints it
+ * below the button and appends it to the plain-text alternative.
+ */
+export type EmailCta = {
+  /** Button text. Keep it short — Outlook will not wrap it gracefully. */
+  label: string
+  url: string
+}
+
 type EmailParams = {
   to: string
   subject: string
   body: string
+  cta?: EmailCta | null
   // Optional sender identity overrides so attorney-originated mail appears to
   // come from the attorney (display name) and replies route back to them, while
   // still being physically sent through the platform provider for deliverability.
@@ -75,7 +93,60 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
-function bodyToHtml(body: string): string {
+/** Escape for use inside a double-quoted HTML attribute. */
+function escapeAttr(s: string): string {
+  return escapeHtml(s).replace(/"/g, '&quot;')
+}
+
+/** Accept only http(s), so a bad caller cannot ship a `javascript:` button. */
+function safeHttpUrl(url: string | null | undefined): string | null {
+  try {
+    const parsed = new URL(String(url || ''))
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null
+    return parsed.toString()
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Render the call to action as a real button.
+ *
+ * The padding and background sit on the `<td>`, not the `<a>`: Outlook on
+ * Windows renders through Word, which drops both from an inline element, so a
+ * CSS-styled link collapses into bare underlined text.
+ *
+ * The destination is repeated underneath because a button is not always what
+ * arrives — corporate filters strip markup, and people move a link to another
+ * device by hand.
+ */
+function ctaToHtml(cta: EmailCta): string {
+  const url = safeHttpUrl(cta.url)
+  if (!url) return ''
+  const href = escapeAttr(url)
+  const label = escapeHtml(cta.label || 'Open')
+  const font = `-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif`
+  return (
+    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:4px 0 12px;">` +
+    `<tr><td align="center" bgcolor="#2563eb" style="border-radius:8px;padding:13px 26px;">` +
+    `<a href="${href}" style="display:inline-block;font-family:${font};font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;">${label}</a>` +
+    `</td></tr></table>` +
+    `<p style="margin:0;font-size:12px;line-height:1.5;color:#94a3b8;">Or paste this into your browser:<br />` +
+    `<a href="${href}" style="color:#94a3b8;text-decoration:underline;word-break:break-all;">${escapeHtml(url)}</a></p>`
+  )
+}
+
+/**
+ * The plain-text alternative has to carry the action too: some clients show
+ * only that part, and link scanners generally read nothing else.
+ */
+function bodyToText(body: string, cta?: EmailCta | null): string {
+  const url = cta ? safeHttpUrl(cta.url) : null
+  if (!cta || !url) return body
+  return `${body}\n\n${cta.label}: ${url}`
+}
+
+function bodyToHtml(body: string, cta?: EmailCta | null): string {
   // Turn bare http(s) URLs into clickable links. We escape first, then match on
   // the escaped text (query separators become `&amp;`, which is still valid
   // inside an href), so reset/verification links are actually clickable in mail
@@ -94,7 +165,7 @@ function bodyToHtml(body: string): string {
       return `<p style="margin:0 0 12px;font-size:15px;line-height:1.6;color:#1f2937">${linked}</p>`
     })
     .join('')
-  return wrapBrandedEmail(paragraphs)
+  return wrapBrandedEmail(paragraphs + (cta ? ctaToHtml(cta) : ''))
 }
 
 /**
@@ -193,8 +264,8 @@ async function sendViaSes(params: EmailParams): Promise<boolean> {
           Simple: {
             Subject: { Data: params.subject, Charset: 'UTF-8' },
             Body: {
-              Text: { Data: params.body, Charset: 'UTF-8' },
-              Html: { Data: bodyToHtml(params.body), Charset: 'UTF-8' },
+              Text: { Data: bodyToText(params.body, params.cta), Charset: 'UTF-8' },
+              Html: { Data: bodyToHtml(params.body, params.cta), Charset: 'UTF-8' },
             },
           },
         },
@@ -226,8 +297,8 @@ async function sendViaResend(params: EmailParams): Promise<boolean> {
         from: formatFromAddress(from, params.fromName),
         to: [params.to],
         subject: params.subject,
-        text: params.body,
-        html: bodyToHtml(params.body),
+        text: bodyToText(params.body, params.cta),
+        html: bodyToHtml(params.body, params.cta),
         ...(params.replyTo ? { reply_to: params.replyTo } : {}),
       }),
     })
@@ -251,6 +322,15 @@ export async function sendClaimEmail(params: EmailParams): Promise<boolean> {
   if (!params.to) {
     logger.info('Claim email not sent (no recipient)')
     return false
+  }
+  // A rejected CTA is not cosmetic. Bodies that carry a button no longer spell
+  // the destination out in the text, so dropping it silently sends a mail with
+  // nothing to act on — and the recipient is the only one who would notice.
+  if (params.cta && !safeHttpUrl(params.cta.url)) {
+    logger.error('Email CTA dropped: not an http(s) URL', {
+      subject: params.subject,
+      label: params.cta.label,
+    })
   }
   const provider = resolveEmailProvider()
   if (provider === 'ses') return sendViaSes(params)

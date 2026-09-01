@@ -62,7 +62,8 @@ describe('runReportReadySweep', () => {
       expect.objectContaining({
         to: 'claimant@example.com',
         subject: 'Your ClearCaseIQ case report is ready',
-        body: expect.stringContaining('/results/asm-1'),
+        // The link is the button now, not prose in the body.
+        cta: expect.objectContaining({ url: expect.stringContaining('/results/asm-1') }),
       })
     )
   })

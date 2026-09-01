@@ -425,6 +425,7 @@ export async function sendPlaintiffAttorneyAccepted(
       templateKey: 'plaintiff_attorney_match_found_email',
       subject: 'An attorney is interested in your case',
       body: message,
+      cta: { label: 'View your case', url: webUrl(`/results/${assessmentId}`) },
       recipient: assessment.user.email,
       payload: {
         assessmentId,
@@ -475,13 +476,18 @@ export async function sendPlaintiffManualReviewNeeded(
     return false
   }
 
-  const reasonLine = reason ? `Reason: ${reason.replace(/_/g, ' ')}` : 'Reason: attorney review requires a human check'
-  const noteLine = note ? `Note: ${note}` : 'Our team is reviewing your case and will follow up with next steps.'
+  // `reason` and `note` stay out of the body. They are engine diagnostics built
+  // for the admin queue — the note is a candidate funnel, so this email used to
+  // tell a claimant "No eligible attorneys (0 considered, 0 eligible)" or
+  // "No attorneys passed quality gate (14 considered, 3 eligible, 0 qualified)".
+  // They are still carried on the payload, where operators can see them.
+  //
+  // The copy also sets no timeframe. Every reason that lands here means routing
+  // could not find a home for the case, so any estimate would be a guess.
   const message = [
     'Your case is being reviewed by our team.',
     '',
-    reasonLine,
-    noteLine,
+    'We are going over the details and working out the best next step for your claim.',
     '',
     'No action is required right now unless we contact you for additional information.'
   ].join('\n')
@@ -496,6 +502,7 @@ export async function sendPlaintiffManualReviewNeeded(
       templateKey: 'plaintiff_manual_review_email',
       subject: 'Your case is in manual review',
       body: message,
+      cta: { label: 'View your case', url: webUrl(`/results/${assessmentId}`) },
       recipient: assessment.user.email,
       payload: {
         assessmentId,
@@ -577,11 +584,10 @@ export async function sendPlaintiffBatchApprovalRequest(
     '',
     nameLines,
     '',
-    `Review and approve: ${reviewUrl}`,
-    '',
     'You can change the order, remove anyone you would rather not work with, or stop here.'
   ].join('\n')
   const subject = 'Approve the next attorneys for your case'
+  const cta = { label: 'Review and approve', url: reviewUrl }
 
   try {
     if (assessment.userId && assessment.user?.email) {
@@ -592,7 +598,7 @@ export async function sendPlaintiffBatchApprovalRequest(
           role: 'plaintiff',
           channel,
           eventType: PLAINTIFF_EVENTS.batch_approval_requested,
-          ...(channel === 'email' ? { templateKey: `plaintiff_batch_approval_email` } : {}),
+          ...(channel === 'email' ? { templateKey: `plaintiff_batch_approval_email`, cta } : {}),
           subject,
           body: message,
           recipient: assessment.user.email,
@@ -606,6 +612,7 @@ export async function sendPlaintiffBatchApprovalRequest(
         recipient,
         subject,
         message,
+        cta,
         assessmentId,
         role: 'plaintiff',
         metadata: { eventType: PLAINTIFF_EVENTS.batch_approval_requested, assessmentId }
@@ -679,11 +686,10 @@ export async function sendPlaintiffNoAttorneyResponse(
     'this type of matter in your area. We will contact you before reaching out to',
     'anyone new.',
     '',
-    `View your case: ${caseUrl}`,
-    '',
     'If you would rather approach a firm directly in the meantime, you can — nothing',
     'here commits you to working with us.'
   ].join('\n')
+  const cta = { label: 'View your case', url: caseUrl }
 
   try {
     if (assessment.userId && assessment.user?.email) {
@@ -694,7 +700,7 @@ export async function sendPlaintiffNoAttorneyResponse(
           role: 'plaintiff',
           channel,
           eventType: PLAINTIFF_EVENTS.no_attorney_response,
-          ...(channel === 'email' ? { templateKey: 'plaintiff_no_attorney_response_email' } : {}),
+          ...(channel === 'email' ? { templateKey: 'plaintiff_no_attorney_response_email', cta } : {}),
           subject,
           body: message,
           recipient: assessment.user.email,
@@ -708,6 +714,7 @@ export async function sendPlaintiffNoAttorneyResponse(
         recipient,
         subject,
         message,
+        cta,
         assessmentId,
         role: 'plaintiff',
         metadata: { eventType: PLAINTIFF_EVENTS.no_attorney_response, assessmentId }
@@ -764,6 +771,7 @@ export async function sendPlaintiffCaseValueUpdated(
       templateKey: 'plaintiff_case_value_updated_email',
       subject: 'Case Value Updated',
       body: message,
+      cta: { label: 'View your case', url: webUrl(`/results/${assessmentId}`) },
       recipient: user.email,
       payload: {
         assessmentId,
@@ -856,6 +864,7 @@ export async function sendPlaintiffCaseClosed(
       eventType: PLAINTIFF_EVENTS.case_closed,
       subject,
       body: message,
+      cta: { label: 'View your case file', url: webUrl(`/results/${assessmentId}`) },
       recipient: assessment.user.email,
       payload,
     })

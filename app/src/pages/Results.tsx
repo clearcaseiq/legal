@@ -865,6 +865,11 @@ export default function Results() {
   const [medicalReviewError, setMedicalReviewError] = useState<string | null>(null)
   const [matchedAttorneys, setMatchedAttorneys] = useState<any[]>([])
   const [attorneySearchLoading, setAttorneySearchLoading] = useState(false)
+  // An empty result and a failed request both used to end up as an empty array,
+  // so a marketplace with nobody matching this claim was reported to the
+  // claimant as "We could not load attorney matches" — an error they cannot fix
+  // by retrying, about a problem that is not theirs.
+  const [attorneySearchFailed, setAttorneySearchFailed] = useState(false)
   const [rankedAttorneyIds, setRankedAttorneyIds] = useState<string[]>([])
   // Drag-and-drop reordering of the ranked attorney slate.
   const [draggingAttorneyId, setDraggingAttorneyId] = useState<string | null>(null)
@@ -983,6 +988,7 @@ export default function Results() {
       })
       const list = (Array.isArray(data) ? data : (data?.attorneys ?? [])).slice(0, Math.max(waveOneSize, 3))
       setMatchedAttorneys(list)
+      setAttorneySearchFailed(false)
       const defaultIds = list.map((attorney: any) => attorney.id || attorney.attorney_id).filter(Boolean)
       // If the plaintiff already customized their attorney order (persisted on the
       // assessment when they sent it for review), preserve that order instead of
@@ -1009,6 +1015,7 @@ export default function Results() {
     } catch {
       setMatchedAttorneys([])
       setRankedAttorneyIds([])
+      setAttorneySearchFailed(true)
       return []
     } finally {
       setAttorneySearchLoading(false)
@@ -3790,7 +3797,7 @@ Checklist:
                   )}
                 </div>
               )}
-                {!attorneySearchLoading && rankedAttorneyCards.length === 0 && dismissedAttorneyIds.length === 0 && (
+                {!attorneySearchLoading && attorneySearchFailed && rankedAttorneyCards.length === 0 && dismissedAttorneyIds.length === 0 && (
                   <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
                     <p className="font-medium text-amber-950">{t('results.calc.couldNotLoadMatches')}</p>
                     <p className="mt-1 text-xs leading-relaxed text-amber-900/90">
@@ -3800,6 +3807,12 @@ Checklist:
                   </p>
                 </div>
               )}
+                {!attorneySearchLoading && !attorneySearchFailed && rankedAttorneyCards.length === 0 && dismissedAttorneyIds.length === 0 && (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800">
+                    <p className="font-medium text-slate-900">{t('results.calc.noMatchesYetTitle')}</p>
+                    <p className="mt-1 text-xs leading-relaxed text-slate-600">{t('results.calc.noMatchesYetBody')}</p>
+                  </div>
+                )}
               </section>
               <section className="rounded-2xl border border-slate-200 bg-white px-4 py-4 sm:px-6">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">

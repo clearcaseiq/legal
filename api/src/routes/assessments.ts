@@ -1207,7 +1207,7 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
         : ''
       // Submitting cancels the separate report email, so this is the claimant's
       // link back to the report they just finished.
-      const reportLine = `\n\nView your case report any time:\n${caseReportUrl(id)}`
+      const reportCta = { label: 'View your case report', url: caseReportUrl(id) }
       // Guests have no way back to their case once they close the tab (the URL
       // is their only key). Give them a one-click path to register — or to sign
       // in, since plenty of submitters already have an account — and have this
@@ -1228,7 +1228,12 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
         type: 'email',
         recipient: confirmationEmail,
         subject: 'We received your case — ClearCaseIQ',
-        message: `Hi ${submitterName},\n\nThanks for submitting your case to ClearCaseIQ. Our attorney network is reviewing it now, and we'll email you as soon as an attorney responds, typically within about 24 hours.${referenceLine}${reportLine}\n\nWhat happens next:\n• Attorneys review your case summary\n• A matched attorney reaches out to you directly\n• You can add documents anytime to strengthen your case${claimLine}\n\nBest regards,\nClearCaseIQ`,
+        // No response time is quoted here. This goes out before routing runs, so
+        // it cannot know whether anyone will be offered the case at all — it was
+        // promising an attorney reply "within about 24 hours" even when nobody
+        // eligible existed, and the follow-up then had to contradict it.
+        message: `Hi ${submitterName},\n\nThanks for submitting your case to ClearCaseIQ. Our team is reviewing it now and looking for attorneys who handle this type of claim in your area. We'll email you as soon as there is an update.${referenceLine}\n\nWhat happens next:\n• We review your case summary and match it against attorneys in your area\n• We email you as soon as an attorney responds\n• You can add documents anytime to strengthen your case${claimLine}\n\nBest regards,\nClearCaseIQ`,
+        cta: reportCta,
         userId: req.user?.id || null,
         assessmentId: id,
         role: 'plaintiff',

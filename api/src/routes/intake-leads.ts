@@ -50,7 +50,8 @@ async function sendResumeLink(lead: { id: string; email: string | null; phone: s
       await sendClaimEmail({
         to: lead.email,
         subject: 'Your ClearCaseIQ case assessment is saved',
-        body: `Hi,\n\nThanks for starting your case assessment with ClearCaseIQ. Your answers are saved, so you can finish now or come back to it later.\n\nContinue your assessment: ${link}\n\nWhen your case report is ready, we'll send it to you here.\n\nIf you didn't start this, you can safely ignore this email.`,
+        body: `Hi,\n\nThanks for starting your case assessment with ClearCaseIQ. Your answers are saved, so you can finish now or come back to it later.\n\nWhen your case report is ready, we'll send it to you here.\n\nIf you didn't start this, you can safely ignore this email.`,
+        cta: { label: 'Continue your assessment', url: link },
       })
     }
     if (lead.phone) {

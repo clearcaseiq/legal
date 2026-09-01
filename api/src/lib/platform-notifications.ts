@@ -8,7 +8,7 @@ import { logger } from './logger'
 import type { CreateNotificationEventInput } from './notification-events'
 import { sendSms } from './sms'
 import { sendExpoPushNotifications } from './expo-push'
-import { sendTransactionalEmail } from './claims'
+import { sendTransactionalEmail, type EmailCta } from './claims'
 
 const MAX_RESENDS_PER_24H = 3
 
@@ -21,12 +21,14 @@ async function sendNotificationEmail(params: {
   body?: string | null
   replyTo?: string | null
   fromName?: string | null
+  cta?: EmailCta | null
 }): Promise<boolean> {
   if (!params.to) return false
   return sendTransactionalEmail({
     to: params.to,
     subject: params.subject || 'ClearCaseIQ notification',
     body: params.body || '',
+    cta: params.cta || undefined,
     replyTo: params.replyTo || undefined,
     fromName: params.fromName || undefined,
   })
@@ -104,7 +106,16 @@ export async function createNotificationEvent(input: CreateNotificationEventInpu
       templateKey: input.templateKey,
       subject: input.subject,
       body: input.body,
-      payloadJson: input.payload ? JSON.stringify(input.payload) : null,
+      // The CTA rides on the payload alongside replyTo/fromName. Delivery is a
+      // separate step that reads only the stored row, so a retry has to be able
+      // to render the same button the first attempt would have.
+      payloadJson:
+        input.payload || input.cta
+          ? JSON.stringify({
+              ...(input.payload || {}),
+              ...(input.cta ? { cta: input.cta } : {}),
+            })
+          : null,
       recipient: input.recipient,
       status: 'pending',
     },
@@ -138,11 +149,15 @@ export async function attemptDelivery(notificationId: string): Promise<boolean> 
   // attorney-originated mail can appear to come from the attorney.
   let senderReplyTo: string | undefined
   let senderFromName: string | undefined
+  let cta: EmailCta | undefined
   if (event.payloadJson) {
     try {
       const payload = JSON.parse(event.payloadJson)
       if (typeof payload?.replyTo === 'string') senderReplyTo = payload.replyTo
       if (typeof payload?.fromName === 'string') senderFromName = payload.fromName
+      if (typeof payload?.cta?.label === 'string' && typeof payload?.cta?.url === 'string') {
+        cta = { label: payload.cta.label, url: payload.cta.url }
+      }
     } catch {}
   }
 
@@ -153,6 +168,7 @@ export async function attemptDelivery(notificationId: string): Promise<boolean> 
         to: event.recipient || '',
         subject: event.subject,
         body: event.body,
+        cta,
         replyTo: senderReplyTo,
         fromName: senderFromName,
       })
@@ -314,6 +330,8 @@ export async function deliverDirectNotification(input: {
   attorneyId?: string | null
   assessmentId?: string | null
   role?: 'plaintiff' | 'attorney' | 'admin'
+  /** Primary action for an email, rendered as a button. Ignored on other channels. */
+  cta?: EmailCta | null
   // When set, email is sent through the platform provider but shows this display
   // name and routes replies to this address (attorney-originated mail).
   replyTo?: string | null
@@ -343,6 +361,7 @@ export async function deliverDirectNotification(input: {
     templateKey: 'direct_notification',
     subject: input.subject || 'ClearCaseIQ update',
     body: input.message,
+    cta: input.cta || undefined,
     payload: {
       ...(input.metadata || {}),
       notificationId: notification.id,
