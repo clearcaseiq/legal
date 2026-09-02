@@ -11,15 +11,15 @@
  */
 import { logger } from './logger'
 import { ENV } from '../env'
-import { getLlmChatClient, LLM_CHAT_MODEL, isKimiProvider } from './llm-client'
+import { getLlmChatClient, LLM_CHAT_MODEL } from './llm-client'
 
 const openai = getLlmChatClient()
 const ROSE_LLM_MODEL = ENV.ROSE_LLM_MODEL ?? LLM_CHAT_MODEL
-// Kimi K3 is a reasoning model (thinking always on), so it needs a much larger
-// budget than the fast gpt-4o-mini path. Default higher when Kimi is active.
-const ROSE_LLM_TIMEOUT_MS = Number(
-  process.env.ROSE_LLM_TIMEOUT_MS ?? (isKimiProvider() ? 20000 : 1800),
-)
+// Tuned for the fast gpt-4o-mini path. The 20s variant this used to pick was
+// for Kimi K3, a reasoning model that always spent thinking tokens; with that
+// provider gone the budget is the fast one. Override per-deployment if
+// ROSE_LLM_MODEL is pointed at something slower.
+const ROSE_LLM_TIMEOUT_MS = Number(process.env.ROSE_LLM_TIMEOUT_MS ?? 1800)
 
 export type CaseType =
   | 'auto_accident'

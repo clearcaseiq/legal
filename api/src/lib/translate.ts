@@ -1,7 +1,6 @@
 /**
  * Translate attorney/plaintiff communications to a target language.
- * Uses the configured LLM provider (OpenAI or Kimi) when available; falls back
- * to original text otherwise.
+ * Uses OpenAI when configured; falls back to the original text otherwise.
  */
 import { logger } from './logger'
 import { getLlmChatClient, LLM_CHAT_MODEL } from './llm-client'

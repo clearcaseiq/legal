@@ -23,12 +23,12 @@ export const ENV = {
   OPENAI_ANALYSIS_MODEL: process.env.OPENAI_ANALYSIS_MODEL ?? 'gpt-4o-mini',
   /**
    * Stronger model for case-scoped Workflow/Task planning.
-   * Defaults to gpt-4o. Planning always tries OpenAI first, then Kimi backup.
+   * Defaults to gpt-4o, falling back to OPENAI_ANALYSIS_MODEL if it fails.
    */
   OPENAI_PLANNING_MODEL: process.env.OPENAI_PLANNING_MODEL ?? 'gpt-4o',
   /**
    * Optional model for prose/writing (coach narration, intelligent questions).
-   * When unset, those paths use OPENAI_ANALYSIS_MODEL, then Kimi as backup.
+   * When unset, those paths use OPENAI_ANALYSIS_MODEL.
    */
   OPENAI_WRITING_MODEL: process.env.OPENAI_WRITING_MODEL,
   /**
@@ -59,11 +59,6 @@ export const ENV = {
    * has approved sending PHI in prompts. Contact PII is always redacted.
    */
   LLM_ALLOW_PHI: process.env.LLM_ALLOW_PHI === 'true',
-  // Kimi / Moonshot AI (optional, OpenAI-compatible drop-in for text completions).
-  KIMI_API_KEY: process.env.KIMI_API_KEY,
-  KIMI_BASE_URL: process.env.KIMI_BASE_URL ?? 'https://api.moonshot.ai/v1',
-  KIMI_MODEL: process.env.KIMI_MODEL ?? 'kimi-k3',
-  KIMI_PLANNING_MODEL: process.env.KIMI_PLANNING_MODEL,
   // Baichuan (optional OpenAI-compatible bake-off / experiment provider).
   BAICHUAN_API_KEY: process.env.BAICHUAN_API_KEY,
   BAICHUAN_BASE_URL: process.env.BAICHUAN_BASE_URL ?? 'https://api.baichuan-ai.com/v1',
@@ -72,7 +67,6 @@ export const ENV = {
   DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY,
   DEEPSEEK_BASE_URL: process.env.DEEPSEEK_BASE_URL ?? 'https://api.deepseek.com/v1',
   DEEPSEEK_MODEL: process.env.DEEPSEEK_MODEL ?? 'deepseek-chat',
-  AI_PROVIDER: process.env.AI_PROVIDER ?? 'openai',
   ROSE_LLM_MODEL: process.env.ROSE_LLM_MODEL,
   // Anthropic Claude (optional) — incident extraction + planning bake-off.
   ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,

@@ -4,22 +4,26 @@ import { logger } from './logger'
 import { sanitizeLlmMessages } from './llm-prompt-sanitize'
 
 /**
- * Unified LLM client that lets the app switch between OpenAI and Kimi
- * (Moonshot AI) without rewriting every call site. Kimi exposes an
- * OpenAI-compatible chat-completions API, so we reuse the `openai` SDK and
- * only change the baseURL, apiKey, and model.
+ * The app's single text-completion provider: OpenAI.
  *
- * Image generation is NOT routed here — Kimi does not support image
- * generation, so incident-scene images continue to use the native OpenAI
- * DALL-E client.
+ * This used to switch between OpenAI and Kimi (Moonshot AI) on `AI_PROVIDER`.
+ * Kimi was removed because claimant narratives and medical detail are PHI, and
+ * that traffic needs to sit with one provider we hold a BAA with. Consolidating
+ * also retired a class of bug the old code documented: an OpenAI model name
+ * paired with the Kimi client, which failed silently.
+ *
+ * Resilience did not come from having a second vendor — it came from having a
+ * second candidate. `resolveLlmPlanningCandidates` and its writing counterpart
+ * still return a list, now a stronger OpenAI model followed by the standard
+ * analysis model, so `llmChatCompleteWithFallback` still has somewhere to go
+ * when the first attempt fails.
+ *
+ * Image generation uses `openaiImageClient` below and never routes through the
+ * chat path.
  *
  * Privacy: every chat.completions payload is PII-redacted (SSN, email, phone,
  * street address) before it leaves the process — see llm-prompt-sanitize.ts.
  */
-
-const provider = (ENV.AI_PROVIDER || 'openai').toLowerCase()
-
-export const isKimiProvider = () => provider === 'kimi'
 
 /**
  * Wrap chat.completions.create so contact/identity PII can never ride along
@@ -43,60 +47,38 @@ const openaiChatClient = ENV.OPENAI_API_KEY
   ? withPromptSanitizer(new OpenAI({ apiKey: ENV.OPENAI_API_KEY }))
   : null
 
-const kimiChatClient = ENV.KIMI_API_KEY
-  ? withPromptSanitizer(new OpenAI({ apiKey: ENV.KIMI_API_KEY, baseURL: ENV.KIMI_BASE_URL }))
-  : null
-
 type LlmChatResolved = {
   client: OpenAI
   model: string
-  provider: 'openai' | 'kimi'
+  provider: 'openai'
 }
 
-/**
- * Resolve the chat client + matching model together. Prefers AI_PROVIDER, but
- * falls back to the other provider when credentials are missing — and always
- * pairs the fallback client with that provider's model (using an OpenAI model
- * name against Kimi was a common cause of silent incident-extraction failures).
- */
+/** Build the candidate list for a task, dropping duplicate models. */
+function candidatesFor(models: Array<string | undefined>): LlmChatResolved[] {
+  if (!openaiChatClient) return []
+  const seen = new Set<string>()
+  const out: LlmChatResolved[] = []
+  for (const model of models) {
+    if (!model || seen.has(model)) continue
+    seen.add(model)
+    out.push({ client: openaiChatClient, model, provider: 'openai' })
+  }
+  return out
+}
+
+/** Resolve the chat client and its matching model together. */
 export function resolveLlmChat(): LlmChatResolved | null {
-  if (provider === 'kimi') {
-    if (kimiChatClient) {
-      return { client: kimiChatClient, model: ENV.KIMI_MODEL, provider: 'kimi' }
-    }
-    if (openaiChatClient) {
-      logger.warn(
-        'AI_PROVIDER=kimi but KIMI_API_KEY is missing; falling back to OpenAI for text completions.',
-      )
-      return {
-        client: openaiChatClient,
-        model: ENV.OPENAI_ANALYSIS_MODEL,
-        provider: 'openai',
-      }
-    }
-    return null
+  if (!openaiChatClient) return null
+  return {
+    client: openaiChatClient,
+    model: ENV.OPENAI_ANALYSIS_MODEL,
+    provider: 'openai',
   }
-
-  if (openaiChatClient) {
-    return {
-      client: openaiChatClient,
-      model: ENV.OPENAI_ANALYSIS_MODEL,
-      provider: 'openai',
-    }
-  }
-  if (kimiChatClient) {
-    logger.warn(
-      'AI_PROVIDER=openai but OPENAI_API_KEY is missing; falling back to Kimi for text completions.',
-    )
-    return { client: kimiChatClient, model: ENV.KIMI_MODEL, provider: 'kimi' }
-  }
-  return null
 }
 
 /**
- * Return the configured chat-completion client. Prefers the provider
- * selected by AI_PROVIDER, but falls back to the other provider if the
- * chosen one is missing credentials.
+ * Return the configured chat-completion client, or null when no API key is
+ * set.
  */
 export function getLlmChatClient(): OpenAI | null {
   return resolveLlmChat()?.client ?? null
@@ -104,35 +86,19 @@ export function getLlmChatClient(): OpenAI | null {
 
 /** Model paired with the active chat client (see resolveLlmChat). */
 export function getLlmChatModel(): string {
-  return resolveLlmChat()?.model ?? (provider === 'kimi' ? ENV.KIMI_MODEL : ENV.OPENAI_ANALYSIS_MODEL)
+  return resolveLlmChat()?.model ?? ENV.OPENAI_ANALYSIS_MODEL
 }
 
-/** Model for the active chat provider, including credential fallbacks. */
+/** Model paired with the active chat client (see resolveLlmChat). */
 export const LLM_CHAT_MODEL = getLlmChatModel()
 
 /**
- * Stronger (or explicitly configured) model for Workflow/Task planning.
- *
- * Planning always prefers OpenAI (gpt-4o by default) with Kimi as backup —
- * independent of AI_PROVIDER — based on the planning bake-off (latency/cost).
+ * Models for Workflow/Task planning, strongest first. The analysis model
+ * trails the planning model so a failure on the stronger model still produces
+ * a plan rather than an error.
  */
 export function resolveLlmPlanningCandidates(): LlmChatResolved[] {
-  const out: LlmChatResolved[] = []
-  if (openaiChatClient) {
-    out.push({
-      client: openaiChatClient,
-      model: ENV.OPENAI_PLANNING_MODEL,
-      provider: 'openai',
-    })
-  }
-  if (kimiChatClient) {
-    out.push({
-      client: kimiChatClient,
-      model: ENV.KIMI_PLANNING_MODEL || ENV.KIMI_MODEL,
-      provider: 'kimi',
-    })
-  }
-  return out
+  return candidatesFor([ENV.OPENAI_PLANNING_MODEL, ENV.OPENAI_ANALYSIS_MODEL])
 }
 
 export function resolveLlmPlanning(): LlmChatResolved | null {
@@ -150,33 +116,12 @@ export function getLlmPlanningModel(): string {
 export const LLM_PLANNING_MODEL = getLlmPlanningModel()
 
 /**
- * Optional writing model (coach narration, intelligent questions). Falls back
- * to the standard chat model when OPENAI_WRITING_MODEL is unset.
- * Candidates: OpenAI first, then Kimi (same backup posture as planning).
+ * Models for the writing paths (coach narration, intelligent questions).
+ * Falls back to the standard analysis model when OPENAI_WRITING_MODEL is
+ * unset, and again as the second candidate when it is.
  */
 export function resolveLlmWritingCandidates(): LlmChatResolved[] {
-  const out: LlmChatResolved[] = []
-  if (openaiChatClient) {
-    out.push({
-      client: openaiChatClient,
-      model: ENV.OPENAI_WRITING_MODEL || ENV.OPENAI_ANALYSIS_MODEL,
-      provider: 'openai',
-    })
-  }
-  if (kimiChatClient) {
-    out.push({
-      client: kimiChatClient,
-      model: ENV.KIMI_MODEL,
-      provider: 'kimi',
-    })
-  }
-  // If AI_PROVIDER prefers Kimi and OpenAI is missing, candidates already cover it.
-  // If only Kimi exists, out has one entry.
-  if (out.length === 0) {
-    const base = resolveLlmChat()
-    if (base) out.push(base)
-  }
-  return out
+  return candidatesFor([ENV.OPENAI_WRITING_MODEL, ENV.OPENAI_ANALYSIS_MODEL])
 }
 
 export function resolveLlmWriting(): LlmChatResolved | null {
@@ -196,25 +141,9 @@ export const openaiImageClient = ENV.OPENAI_API_KEY
   ? new OpenAI({ apiKey: ENV.OPENAI_API_KEY })
   : null
 
-/** kimi-k3 currently rejects temperatures other than 1. */
-export function llmTemperatureForProvider(
-  provider: 'openai' | 'kimi' | string | null | undefined,
-  preferred = 0.3,
-): number {
-  return provider === 'kimi' ? 1 : preferred
-}
-
-/** kimi-k3 spends tokens on reasoning — needs a higher completion ceiling. */
-export function llmMaxTokensForProvider(
-  provider: 'openai' | 'kimi' | string | null | undefined,
-  preferred = 1600,
-): number {
-  return provider === 'kimi' ? Math.max(preferred, 8192) : preferred
-}
-
 /**
- * Try chat.completions across candidates in order (OpenAI → Kimi for planning).
- * Returns the first successful completion plus which provider won.
+ * Try chat.completions across candidates in order, strongest model first.
+ * Returns the first successful completion plus which candidate produced it.
  */
 export async function llmChatCompleteWithFallback<T>(params: {
   kind: string
@@ -263,5 +192,5 @@ export async function llmChatCompleteWithFallback<T>(params: {
 
 /** True when no chat-completion provider is configured at all. */
 export function llmChatDisabled(): boolean {
-  return !openaiChatClient && !kimiChatClient
+  return !openaiChatClient
 }

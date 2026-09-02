@@ -619,13 +619,11 @@ export interface IntegrationState {
 export function getIntegrationStates(): IntegrationState[] {
   const emailProvider = resolveEmailProvider()
   const smsProvider = (process.env.SMS_PROVIDER || '').trim().toLowerCase() || 'auto'
-  const llm = ENV.KIMI_API_KEY
-    ? 'Kimi'
-    : ENV.OPENAI_API_KEY
-      ? 'OpenAI'
-      : ENV.ANTHROPIC_API_KEY
-        ? 'Anthropic'
-        : null
+  const llm = ENV.OPENAI_API_KEY
+    ? 'OpenAI'
+    : ENV.ANTHROPIC_API_KEY
+      ? 'Anthropic'
+      : null
 
   return [
     {

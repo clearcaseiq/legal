@@ -11,12 +11,7 @@
 import { logger } from '../lib/logger'
 import type { CaseIntelligence } from '../lib/case-intelligence'
 import type { IntelligentQuestion, QuestionSection } from '../lib/intake-questions'
-import {
-  resolveLlmWritingCandidates,
-  llmChatCompleteWithFallback,
-  llmTemperatureForProvider,
-  llmMaxTokensForProvider,
-} from '../lib/llm-client'
+import { resolveLlmWritingCandidates, llmChatCompleteWithFallback } from '../lib/llm-client'
 import { prepareCaseIntelligenceForLlm, llmPhiMode } from '../lib/llm-prompt-sanitize'
 import { recordAiRun } from '../lib/ai-run'
 import { normalizeQuestionText } from '../lib/task-identity'
@@ -139,8 +134,8 @@ export async function generateIntelligentQuestions(
             },
             { role: 'user', content: buildPrompt(intel, baselineDeduped) },
           ],
-          temperature: llmTemperatureForProvider(candidate.provider, 0.4),
-          max_tokens: llmMaxTokensForProvider(candidate.provider, 1200),
+            temperature: 0.4,
+            max_tokens: 1200,
           response_format: { type: 'json_object' },
         }),
     })

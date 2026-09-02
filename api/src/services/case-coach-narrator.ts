@@ -12,12 +12,7 @@
 import { logger } from '../lib/logger'
 import type { CaseIntelligence } from '../lib/case-intelligence'
 import type { CaseCoachResult } from '../lib/case-coach'
-import {
-  resolveLlmWritingCandidates,
-  llmChatCompleteWithFallback,
-  llmTemperatureForProvider,
-  llmMaxTokensForProvider,
-} from '../lib/llm-client'
+import { resolveLlmWritingCandidates, llmChatCompleteWithFallback } from '../lib/llm-client'
 import { prepareCaseIntelligenceForLlm, llmPhiMode } from '../lib/llm-prompt-sanitize'
 import { recordAiRun } from '../lib/ai-run'
 
@@ -95,8 +90,8 @@ export async function narrateCaseCoach(
             },
             { role: 'user', content: buildPrompt(intel, coach) },
           ],
-          temperature: llmTemperatureForProvider(candidate.provider, 0.4),
-          max_tokens: llmMaxTokensForProvider(candidate.provider, 900),
+            temperature: 0.4,
+            max_tokens: 900,
           response_format: { type: 'json_object' },
         }),
     })

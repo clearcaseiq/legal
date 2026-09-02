@@ -4,7 +4,6 @@
  * Compares providers that have keys configured:
  *   - OpenAI (gpt-4o planning model)
  *   - Anthropic Claude (Messages API; planning model defaults to Sonnet)
- *   - Kimi / Moonshot
  *   - Baichuan
  *   - DeepSeek (optional)
  *
@@ -32,7 +31,7 @@ import {
 import { toGapKeysOnlyCaseIntelligence } from '../src/lib/llm-prompt-sanitize'
 import type { CaseIntelligence } from '../src/lib/case-intelligence'
 
-type ProviderId = 'openai' | 'claude' | 'kimi' | 'baichuan' | 'deepseek'
+type ProviderId = 'openai' | 'claude' | 'baichuan' | 'deepseek'
 
 type ProviderRun = {
   provider: ProviderId
@@ -80,7 +79,6 @@ const PRICE: Record<string, { in: number; out: number }> = {
   'claude-haiku-4-5-20251001': { in: 1, out: 5 },
   'claude-haiku-4-5': { in: 1, out: 5 },
   'claude-3-5-haiku-latest': { in: 0.8, out: 4 },
-  'kimi-k3': { in: 0.6, out: 2.5 },
   'Baichuan4-Air': { in: 0.1, out: 0.1 },
   'Baichuan4-Turbo': { in: 0.5, out: 0.5 },
   'deepseek-chat': { in: 0.27, out: 1.1 },
@@ -586,17 +584,6 @@ function resolveProviders(filter?: Set<string>): ProviderSpec[] {
       mergeSystemIntoUser: false,
     })
   }
-  if (ENV.KIMI_API_KEY) {
-    all.push({
-      id: 'kimi',
-      model: ENV.KIMI_PLANNING_MODEL || ENV.KIMI_MODEL || 'kimi-k3',
-      client: new OpenAI({ apiKey: ENV.KIMI_API_KEY, baseURL: ENV.KIMI_BASE_URL }),
-      temperature: 1,
-      maxTokens: 8192,
-      useJsonObjectFormat: true,
-      mergeSystemIntoUser: false,
-    })
-  }
   if (ENV.BAICHUAN_API_KEY) {
     all.push({
       id: 'baichuan',
@@ -651,7 +638,7 @@ async function main() {
   const providers = resolveProviders(filter)
   if (!providers.length) {
     console.error(
-      'No providers configured. Set OPENAI_API_KEY and/or ANTHROPIC_API_KEY and/or KIMI_API_KEY and/or BAICHUAN_API_KEY and/or DEEPSEEK_API_KEY.',
+      'No providers configured. Set OPENAI_API_KEY and/or ANTHROPIC_API_KEY and/or BAICHUAN_API_KEY and/or DEEPSEEK_API_KEY.',
     )
     process.exit(1)
   }

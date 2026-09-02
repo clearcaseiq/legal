@@ -9,12 +9,7 @@ import { ENV } from '../env'
 import { logger } from './logger'
 import { buildCaseIntelligence } from './case-intelligence'
 import { prepareCaseIntelligenceForLlm, llmPhiMode } from './llm-prompt-sanitize'
-import {
-  resolveLlmPlanningCandidates,
-  llmChatCompleteWithFallback,
-  llmTemperatureForProvider,
-  llmMaxTokensForProvider,
-} from './llm-client'
+import { resolveLlmPlanningCandidates, llmChatCompleteWithFallback } from './llm-client'
 import { recordAiRun } from './ai-run'
 import { prisma } from './prisma'
 import { syncWorkflowStepTasks } from './workflow-step-tasks'
@@ -569,8 +564,8 @@ async function requestAdaptPlan(params: {
         candidate.client.chat.completions.create({
           model: candidate.model,
           messages,
-          temperature: llmTemperatureForProvider(candidate.provider, 0.3),
-          max_tokens: llmMaxTokensForProvider(candidate.provider, 2400),
+          temperature: 0.3,
+          max_tokens: 2400,
           response_format: { type: 'json_object' },
         }),
     })
