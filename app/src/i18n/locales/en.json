@@ -36,6 +36,9 @@
       "attorneys": {
         "label": "Attorneys"
       },
+      "invitations": {
+        "label": "Invitations"
+      },
       "caseResults": {
         "label": "Case Results"
       },

@@ -193,6 +193,7 @@ const UserProfile = lazy(() => import('./pages/UserProfile'))
 const ComplianceAdmin = lazy(() => import('./pages/ComplianceAdmin'))
 const AdminUserRoles = lazy(() => import('./pages/AdminUserRoles'))
 const AdminPayments = lazy(() => import('./pages/AdminPayments'))
+const AdminInvitations = lazy(() => import('./pages/AdminInvitations'))
 const AdminFeatureToggles = lazy(() => import('./pages/AdminFeatureToggles'))
 const AdminFirmSettings = lazy(() => import('./pages/AdminFirmSettings'))
 const AdminLayout = lazy(() => import('./components/AdminLayout'))
@@ -495,6 +496,7 @@ function App() {
                 <Route path="blog/:id" element={<AdminBlogEditor />} />
                 <Route path="users" element={<AdminUserRoles />} />
               <Route path="payments" element={<AdminPayments />} />
+              <Route path="invitations" element={<AdminInvitations />} />
                 <Route path="feature-toggles" element={<AdminFeatureToggles />} />
                 <Route path="firm-settings" element={<AdminFirmSettings />} />
               </Route>

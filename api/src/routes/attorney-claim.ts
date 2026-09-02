@@ -6,9 +6,10 @@
  *   POST /v1/attorney-claim/send-code  { token, method }               -> emails/texts an OTP
  *   POST /v1/attorney-claim/verify     { token, code } | { token, method:'bar_number', barNumber }
  *   POST /v1/attorney-claim/complete   { token, password, firstName, lastName, email? }
+ *   POST /v1/attorney-claim/decline    { token }                       -> refuse the invitation
  *
  * Admin:
- *   POST /v1/attorney-claim/invite     { attorneyId }                  -> create claim + send invite
+ *   POST /v1/attorney-claim/invite     { attorneyId, force? }          -> create claim + send invite
  *
  * New Prisma model (ProfileClaim) and Attorney claim columns require a
  * `prisma db push` + `prisma generate`; until then they are accessed via
@@ -69,7 +70,14 @@ function isExpired(date: Date | null | undefined): boolean {
 // ---------------------------------------------------------------------------
 // Admin: create a claim invite and email it to the attorney on file.
 // ---------------------------------------------------------------------------
-const InviteSchema = z.object({ attorneyId: z.string().min(1) })
+const InviteSchema = z.object({
+  attorneyId: z.string().min(1),
+  /**
+   * Deliberately re-invite someone who previously declined. Off by default so
+   * a bulk invite pass cannot quietly pester an attorney who already said no.
+   */
+  force: z.boolean().optional(),
+})
 
 router.post('/invite', authMiddleware, requireRole(['admin']), async (req, res) => {
   const parsed = InviteSchema.safeParse(req.body)
@@ -82,21 +90,43 @@ router.post('/invite', authMiddleware, requireRole(['admin']), async (req, res) 
   if ((attorney as any).claimStatus === 'claimed') {
     return res.status(409).json({ error: 'This profile has already been claimed' })
   }
+  if ((attorney as any).claimStatus === 'declined' && !parsed.data.force) {
+    return res.status(409).json({
+      error: 'This attorney declined a previous invitation.',
+      code: 'PREVIOUSLY_DECLINED',
+    })
+  }
   if (!attorney.email) {
     return res.status(422).json({ error: 'Attorney has no email on file to send an invite to' })
   }
 
   const token = generateClaimToken()
   const expiresAt = new Date(Date.now() + CLAIM_INVITE_TTL_DAYS * 24 * 60 * 60 * 1000)
-  await db.profileClaim.create({
-    data: {
-      attorneyId: attorney.id,
-      token,
-      email: attorney.email,
-      phone: attorney.phone,
-      status: 'sent',
-      expiresAt,
-    },
+
+  await prisma.$transaction(async (tx) => {
+    const txDb = tx as any
+    // Retire any live invite first, so a re-send leaves exactly one working
+    // link rather than several the attorney could pick between.
+    await txDb.profileClaim.updateMany({
+      where: { attorneyId: attorney.id, status: { in: ['sent', 'verified'] } },
+      data: { status: 'expired' },
+    })
+    await txDb.profileClaim.create({
+      data: {
+        attorneyId: attorney.id,
+        token,
+        email: attorney.email,
+        phone: attorney.phone,
+        status: 'sent',
+        expiresAt,
+      },
+    })
+    // Until now the invite left no mark on the attorney, so an invited profile
+    // was indistinguishable from one nobody had ever contacted.
+    await txDb.attorney.update({
+      where: { id: attorney.id },
+      data: { claimStatus: 'pending' },
+    })
   })
 
   const url = claimUrl(token)
@@ -108,10 +138,9 @@ router.post('/invite', authMiddleware, requireRole(['admin']), async (req, res) 
       '',
       'Your firm already has a profile on CaseIQ. Claim it to manage your details, receive matched cases, and respond to clients.',
       '',
-      `Claim your profile: ${url}`,
-      '',
-      `This link expires in ${CLAIM_INVITE_TTL_DAYS} days. If this isn't you, you can ignore this email.`,
+      `This link expires in ${CLAIM_INVITE_TTL_DAYS} days. If this isn't you, or you would rather not be listed, you can decline from that page and we won't email you again.`,
     ].join('\n'),
+    cta: { label: 'Claim your profile', url },
   })
 
   logger.info('Claim invite created', { attorneyId: attorney.id, emailSent: sent })
@@ -121,6 +150,48 @@ router.post('/invite', authMiddleware, requireRole(['admin']), async (req, res) 
     // Surface the URL in non-production so it can be tested without a mail provider.
     claimUrl: process.env.NODE_ENV === 'production' ? undefined : url,
   })
+})
+
+// ---------------------------------------------------------------------------
+// Decline: the attorney says no. Recorded for operators only — nothing about a
+// refusal is shown on the public directory, and the attorney's own profile is
+// left exactly as it was.
+// ---------------------------------------------------------------------------
+const DeclineSchema = z.object({ token: z.string().min(1) })
+
+router.post('/decline', async (req, res) => {
+  const parsed = DeclineSchema.safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid request' })
+
+  const found = await loadClaim(parsed.data.token)
+  if (!found) return res.status(404).json({ error: 'Invalid or expired claim link' })
+  const { claim, attorney } = found
+
+  if (claim.status === 'completed' || (attorney as any).claimStatus === 'claimed') {
+    return res.status(409).json({ error: 'This profile has already been claimed' })
+  }
+
+  // Declining twice is not an error: a second click on the same link should
+  // land on the same confirmation rather than a failure.
+  if (claim.status !== 'rejected') {
+    await prisma.$transaction(async (tx) => {
+      const txDb = tx as any
+      await txDb.profileClaim.update({
+        where: { id: claim.id },
+        data: { status: 'rejected' },
+      })
+      // Sticky on the attorney, not just this invite. Left only on the claim it
+      // would be invisible to the next person working through the directory,
+      // who would invite them again.
+      await txDb.attorney.update({
+        where: { id: attorney.id },
+        data: { claimStatus: 'declined' },
+      })
+    })
+    logger.info('Claim invite declined', { attorneyId: attorney.id, claimId: claim.id })
+  }
+
+  return res.json({ ok: true })
 })
 
 // ---------------------------------------------------------------------------
@@ -138,6 +209,12 @@ router.post('/start', async (req, res) => {
 
   if (claim.status === 'completed' || (attorney as any).claimStatus === 'claimed') {
     return res.status(409).json({ error: 'This profile has already been claimed' })
+  }
+  if (claim.status === 'rejected') {
+    return res.status(409).json({
+      error: 'This invitation was declined.',
+      code: 'CLAIM_DECLINED',
+    })
   }
   if (isExpired(claim.expiresAt)) {
     await db.profileClaim.update({ where: { id: claim.id }, data: { status: 'expired' } })
@@ -309,6 +386,15 @@ router.post('/complete', async (req, res) => {
   if (claim.status === 'completed' || (attorney as any).claimStatus === 'claimed') {
     return res.status(409).json({ error: 'This profile has already been claimed' })
   }
+  // A declined invite must not remain completable. The attorney may still hold
+  // a working link in their inbox, and without this a refusal could be undone
+  // by clicking the original email.
+  if (claim.status === 'rejected' || (attorney as any).claimStatus === 'declined') {
+    return res.status(409).json({
+      error: 'This invitation was declined.',
+      code: 'CLAIM_DECLINED',
+    })
+  }
   if (claim.status !== 'verified') {
     return res.status(403).json({ error: 'Please verify your identity before finishing.' })
   }
@@ -344,11 +430,16 @@ router.post('/complete', async (req, res) => {
     })
 
     // Ensure the attorney email matches the user email so dashboard lookups resolve.
+    //
+    // isVerified is deliberately untouched. Claiming proves the person controls
+    // the address or bar number on file; it says nothing about whether we want
+    // to send them cases, which is the question that flag answers. Setting it
+    // here meant anyone who received an invite could make themselves eligible
+    // for lead routing without a human ever looking at them.
     await (tx as any).attorney.update({
       where: { id: attorney.id },
       data: {
         email,
-        isVerified: true,
         claimStatus: 'claimed',
         claimedByUserId: user.id,
         claimedAt: new Date(),

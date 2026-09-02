@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   getAdminAttorneys,
+  inviteAttorneyToClaim,
   updateAdminAttorneyStatus,
   updateAdminAttorneyVerification,
 } from '../../lib/api'
@@ -10,6 +11,7 @@ import {
   CheckCircle,
   Clock,
   ExternalLink,
+  MailCheck,
   Power,
   RefreshCw,
   Search,
@@ -98,6 +100,7 @@ export default function AdminAttorneys() {
   const [statusFilter, setStatusFilter] = useState('active')
   const [pendingAction, setPendingAction] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [actionNotice, setActionNotice] = useState<string | null>(null)
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -151,6 +154,30 @@ export default function AdminAttorneys() {
       await loadAttorneys()
     } catch (err: any) {
       setActionError(err.response?.data?.error || 'Failed to update attorney verification')
+    } finally {
+      setPendingAction(null)
+    }
+  }
+
+  const sendInvite = async (attorney: any) => {
+    // A previous refusal is recorded precisely so we stop emailing them, so
+    // overriding it has to be a deliberate act rather than a second click.
+    const declined = attorney.claimStatus === 'declined'
+    if (declined) {
+      const ok = window.confirm(
+        `${attorney.name || 'This attorney'} declined a previous invitation. Send another one anyway?`,
+      )
+      if (!ok) return
+    }
+    setPendingAction(attorney.id)
+    setActionError(null)
+    setActionNotice(null)
+    try {
+      await inviteAttorneyToClaim(attorney.id, declined)
+      setActionNotice(`Invitation sent to ${attorney.email}.`)
+      await loadAttorneys()
+    } catch (err: any) {
+      setActionError(err.response?.data?.error || 'Failed to send the invitation')
     } finally {
       setPendingAction(null)
     }
@@ -231,6 +258,14 @@ export default function AdminAttorneys() {
                 {a.emailVerified ? 'Email verified' : 'Email pending'}
               </Badge>
             )}
+            {/*
+              Where a directory profile stands with its owner. Only shown once
+              we've actually contacted them, since "unclaimed" is the default
+              for every imported record and says nothing.
+            */}
+            {a.claimStatus === 'pending' && <Badge tone="warning">Invite pending</Badge>}
+            {a.claimStatus === 'declined' && <Badge tone="danger">Invite declined</Badge>}
+            {a.claimStatus === 'claimed' && <Badge tone="success">Claimed</Badge>}
           </div>
           <div className="mt-2 flex items-center text-xs text-slate-500 dark:text-slate-400">
             <Clock className="mr-1 h-3 w-3" />~{a.responseTimeHours ?? 24}h response
@@ -252,8 +287,32 @@ export default function AdminAttorneys() {
         // and a proper hit area (CP-440).
         const btn =
           'inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors disabled:opacity-40'
+        // Nothing to invite without an address, and a claimed profile has an
+        // owner already.
+        const canInvite = Boolean(a.email) && a.claimStatus !== 'claimed'
         return (
           <div className="flex flex-wrap items-center justify-end gap-1.5">
+            {canInvite && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  void sendInvite(a)
+                }}
+                title={
+                  a.claimStatus === 'declined'
+                    ? 'This attorney declined a previous invitation'
+                    : a.claimStatus === 'pending'
+                      ? 'Re-send the invitation to claim this profile'
+                      : 'Invite this attorney to claim their profile'
+                }
+                className={`${btn} border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800`}
+              >
+                <MailCheck className="h-3.5 w-3.5" />
+                {a.claimStatus === 'pending' ? 'Re-invite' : 'Invite'}
+              </button>
+            )}
             <button
               type="button"
               disabled={busy}
@@ -325,6 +384,12 @@ export default function AdminAttorneys() {
       {(error || actionError) && (
         <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
           {error || actionError}
+        </div>
+      )}
+
+      {actionNotice && (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
+          {actionNotice}
         </div>
       )}
 

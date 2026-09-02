@@ -30,6 +30,7 @@ import {
   LogOut,
   Inbox,
   Newspaper,
+  MailCheck,
   Receipt,
 } from 'lucide-react'
 import { BrandMark } from './BrandLogo'
@@ -77,6 +78,7 @@ const navGroups: {
     label: 'Network',
     items: [
       { path: '/admin/attorneys', id: 'attorneys', label: 'Attorneys', icon: Users },
+      { path: '/admin/invitations', id: 'invitations', label: 'Invitations', icon: MailCheck },
       { path: '/admin/case-results', id: 'caseResults', label: 'Case Results', icon: BadgeCheck },
     ],
   },

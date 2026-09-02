@@ -36,6 +36,9 @@
       "attorneys": {
         "label": "Abogados"
       },
+      "invitations": {
+        "label": "Invitaciones"
+      },
       "analytics": {
         "label": "Analíticas"
       },

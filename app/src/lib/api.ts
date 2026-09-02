@@ -4669,6 +4669,53 @@ export async function reconcileAdminPayments() {
   return data
 }
 
+export type AdminInvitationOutcome = 'pending' | 'accepted' | 'declined' | 'expired'
+
+export interface AdminInvitation {
+  id: string
+  outcome: AdminInvitationOutcome
+  status: string
+  email: string | null
+  sentAt: string
+  expiresAt: string
+  respondedAt: string | null
+  attorney: {
+    id: string
+    name: string | null
+    email: string | null
+    claimStatus: string | null
+    isVerified: boolean
+  } | null
+}
+
+export async function getAdminInvitations(params?: {
+  limit?: number
+  offset?: number
+  search?: string
+  outcome?: string
+}) {
+  const search = new URLSearchParams()
+  if (params?.limit != null) search.append('limit', String(params.limit))
+  if (params?.offset != null) search.append('offset', String(params.offset))
+  if (params?.search) search.append('search', params.search)
+  if (params?.outcome) search.append('outcome', params.outcome)
+  const qs = search.toString()
+  const { data } = await api.get(`/v1/admin/attorney-invitations${qs ? `?${qs}` : ''}`)
+  return data
+}
+
+/** Kill an outstanding invite link without recording it as a refusal. */
+export async function revokeAdminInvitation(id: string) {
+  const { data } = await api.post(`/v1/admin/attorney-invitations/${id}/revoke`)
+  return data
+}
+
+/** Send (or re-send) a profile claim invitation to an attorney. */
+export async function inviteAttorneyToClaim(attorneyId: string, force = false) {
+  const { data } = await api.post('/v1/attorney-claim/invite', { attorneyId, force })
+  return data
+}
+
 export type AdminOpsInboxItem = {
   id: string
   kind: 'routing' | 'manual_review' | 'failed_notification'

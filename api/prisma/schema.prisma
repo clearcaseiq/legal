@@ -1053,7 +1053,9 @@ model Attorney {
   // This is a vetting decision, not a data-quality flag — bulk importers must
   // leave it false and let a human or a bar-status lookup flip it.
   isVerified        Boolean  @default(false)
-  // Yelp-style profile claiming: unclaimed | pending | claimed
+  // Yelp-style profile claiming: unclaimed | pending | claimed | declined.
+  // "declined" is sticky and operator-facing only: it stops the next invite
+  // pass re-inviting someone who already said no, and is never shown publicly.
   claimStatus       String   @default("unclaimed")
   claimedByUserId   String?
   claimedAt         DateTime?

@@ -57,7 +57,12 @@ export function capabilityForAdminPath(path: string): AdminCapability | null {
   ) {
     return 'ops'
   }
-  if (path.startsWith('/admin/attorneys') || path.startsWith('/admin/case-results')) return 'network'
+  if (
+    path.startsWith('/admin/attorneys') ||
+    path.startsWith('/admin/invitations') ||
+    path.startsWith('/admin/case-results')
+  )
+    return 'network'
   if (
     path.startsWith('/admin/analytics') ||
     path.startsWith('/admin/routing-feedback') ||

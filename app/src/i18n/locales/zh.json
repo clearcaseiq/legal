@@ -36,6 +36,9 @@
       "attorneys": {
         "label": "律师"
       },
+      "invitations": {
+        "label": "邀请"
+      },
       "analytics": {
         "label": "分析"
       },

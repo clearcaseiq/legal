@@ -4,6 +4,7 @@ import BrandLogo from '../components/BrandLogo'
 import { PasswordInputWithReveal } from '../components/PasswordInputWithReveal'
 import {
   completeClaim,
+  declineClaim,
   sendClaimCode,
   startClaim,
   verifyClaimBarNumber,
@@ -11,7 +12,7 @@ import {
   type ClaimPreview,
 } from '../lib/api-claim'
 
-type Step = 'loading' | 'error' | 'choose' | 'code' | 'bar' | 'account' | 'done'
+type Step = 'loading' | 'error' | 'choose' | 'code' | 'bar' | 'account' | 'done' | 'declined'
 type Method = 'email' | 'sms' | 'bar_number'
 
 const METHOD_LABEL: Record<Method, string> = {
@@ -79,6 +80,19 @@ export default function ClaimProfile() {
       setStep('code')
     } catch (err: any) {
       setError(apiError(err, 'Could not send a code. Please try another method.'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const onDecline = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      await declineClaim(token)
+      setStep('declined')
+    } catch (err: any) {
+      setError(apiError(err, 'Could not record your response. Please try again.'))
     } finally {
       setBusy(false)
     }
@@ -215,13 +229,15 @@ export default function ClaimProfile() {
                   ))}
                 </div>
                 <p className="pt-2 text-xs text-slate-500">
-                  Not you?{' '}
-                  <a
-                    href="mailto:support@clearcaseiq.com?subject=Remove%20my%20profile"
-                    className="font-medium text-brand-700 hover:text-brand-800"
+                  Not you, or not interested?{' '}
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={onDecline}
+                    className="font-medium text-brand-700 underline-offset-2 hover:text-brand-800 hover:underline disabled:opacity-50"
                   >
-                    Request removal
-                  </a>
+                    Decline this invitation
+                  </button>
                 </p>
               </div>
             )}
@@ -352,6 +368,23 @@ export default function ClaimProfile() {
               <div className="space-y-3">
                 <p className="text-sm font-semibold text-emerald-700">Your profile is claimed.</p>
                 <p className="text-sm text-slate-600">Taking you to your dashboard…</p>
+              </div>
+            )}
+
+            {step === 'declined' && (
+              <div className="space-y-3">
+                <p className="text-sm font-semibold text-slate-900">Thanks for letting us know.</p>
+                <p className="text-sm text-slate-600">
+                  We won't email you about this profile again. If you change your mind, or you'd like
+                  the listing removed altogether, contact{' '}
+                  <a
+                    href="mailto:support@clearcaseiq.com?subject=Attorney%20profile"
+                    className="font-medium text-brand-700 hover:text-brand-800"
+                  >
+                    support@clearcaseiq.com
+                  </a>
+                  .
+                </p>
               </div>
             )}
           </div>

@@ -43,6 +43,12 @@ export async function verifyClaimBarNumber(
   return data
 }
 
+/** Refuse the invitation. Recorded for operators only; nothing is shown publicly. */
+export async function declineClaim(token: string): Promise<{ ok: boolean }> {
+  const { data } = await api.post('/v1/attorney-claim/decline', { token })
+  return data
+}
+
 export interface ClaimCompleteResponse {
   token: string
   user: { id: string; email: string; firstName: string; lastName: string }
