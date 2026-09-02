@@ -176,21 +176,54 @@ jobs:
           environment: qa
           tag: ${{ github.sha }}
 
-  deploy-production:
-    name: Deploy to production
+  # The approval wait and the rollout are separate jobs on purpose.
+  #
+  # A job holds its concurrency group from the moment it is queued, and that
+  # includes the entire time it sits waiting for a reviewer. With the gate and
+  # the group on one job, a run parked at the approval blocked every later run
+  # from reaching its own gate: the newer run sat in `pending` with nothing to
+  # approve, and the only way to clear it was to cancel the older run. This is
+  # the same deadlock the workflow-level concurrency above was removed for,
+  # reproduced between two runs rather than across the whole pipeline.
+  #
+  # So the gate carries the environment, and therefore the required reviewer,
+  # but no group - waiting here blocks nothing.
+  approve-production:
+    name: Approve production
     needs: deploy-qa
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
-    concurrency:
-      group: deploy-production
-      cancel-in-progress: false
-    # The `production` environment carries a required reviewer, so this job waits
-    # here until a human approves it. That approval is the only manual step in
-    # the promotion, and it deploys the artifact QA just ran rather than building
-    # a new one.
     environment:
       name: production
       url: https://www.clearcaseiq.com
+    # Passed through as outputs because the rollout below no longer has the
+    # environment to read them from. These are variables, not secrets, so they
+    # survive the hop; AWS_DEPLOY_ROLE_ARN is repo-scoped and read directly.
+    outputs:
+      instance-ids: ${{ steps.targets.outputs.instance-ids }}
+      app-dir: ${{ steps.targets.outputs.app-dir }}
+      target-group-arn: ${{ steps.targets.outputs.target-group-arn }}
+    steps:
+      - name: Resolve production targets
+        id: targets
+        run: |
+          {
+            echo "instance-ids=${{ vars.INSTANCE_IDS || vars.INSTANCE_ID }}"
+            echo "app-dir=${{ vars.APP_DIR }}"
+            echo "target-group-arn=${{ vars.TARGET_GROUP_ARN }}"
+          } >> "$GITHUB_OUTPUT"
+
+  deploy-production:
+    name: Deploy to production
+    needs: approve-production
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    # One rollout per host at a time, as with QA. Now that the approval wait sits
+    # in the job above, this group is only held while a deploy is actually
+    # running, which is the thing that must not overlap.
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
 
@@ -203,12 +236,12 @@ jobs:
       - name: Deploy
         uses: ./.github/actions/ssm-deploy
         with:
-          instance-ids: ${{ vars.INSTANCE_IDS || vars.INSTANCE_ID }}
-          app-dir: ${{ vars.APP_DIR }}
+          instance-ids: ${{ needs.approve-production.outputs.instance-ids }}
+          app-dir: ${{ needs.approve-production.outputs.app-dir }}
           environment: prod
           tag: ${{ github.sha }}
           # Present so each host is pulled out of the load balancer before its
           # own containers restart. With it unset the rollout still works, but
           # the ALB needs three failed checks to notice a host is down, so every
           # deploy would serve 502s for around 45 seconds.
-          target-group-arn: ${{ vars.TARGET_GROUP_ARN }}
+          target-group-arn: ${{ needs.approve-production.outputs.target-group-arn }}
