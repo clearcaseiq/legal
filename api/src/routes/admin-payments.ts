@@ -12,7 +12,13 @@ import { authMiddleware, AuthRequest } from '../lib/auth'
 import { adminMiddleware, requireAdminCapability } from '../lib/admin-access'
 import { parsePagination, paginated } from '../lib/pagination'
 import { writeAdminAudit } from '../lib/admin-audit'
-import { prismaAny } from './admin-shared'
+// Deliberately the typed client rather than the `prismaAny` escape hatch the
+// other admin routes use. This endpoint shipped selecting `Attorney.firmName`,
+// a field that does not exist on that model, and every request 500ed until it
+// was found by hand — `prismaAny` is what let a name the client would have
+// rejected reach production.
+import { prisma } from '../lib/prisma'
+import type { Prisma } from '@prisma/client'
 import { reconcilePlatformPaymentRows } from './payments'
 import { ENV } from '../env'
 
@@ -35,14 +41,61 @@ const router: ExpressRouter = Router()
  */
 export type PaymentOutcome = 'collected' | 'pending' | 'abandoned' | 'subscription' | 'waived' | 'other'
 
+/**
+ * Every spelling Stripe gives a settled checkout. `payment_status` is normally
+ * `paid`, but the webhook handler falls back to `completed` when the session
+ * carries none, and reconciliation accepts `succeeded` and `complete` as well.
+ *
+ * This list used to be just `paid`, which quietly understated revenue: a row
+ * written from a session reporting any of the other three was classified
+ * `other` and left out of the collected total, even though `SETTLED_STATUSES`
+ * and the `isPaid` checks in payments.ts both count it as money.
+ */
+const COLLECTED_STATUSES = ['paid', 'succeeded', 'complete', 'completed']
+
 export function classifyPaymentStatus(status: string | null | undefined): PaymentOutcome {
   const value = String(status || '').toLowerCase()
   if (value.startsWith('skipped')) return 'waived'
-  if (value === 'paid') return 'collected'
+  if (COLLECTED_STATUSES.includes(value)) return 'collected'
   if (value === 'checkout_created') return 'pending'
   if (value === 'expired') return 'abandoned'
   if (value === 'applied' || value === 'subscription_applied') return 'subscription'
   return 'other'
+}
+
+/** The statuses behind each outcome, kept beside the classifier that reads them. */
+const OUTCOME_STATUSES: Record<'collected' | 'pending' | 'abandoned' | 'subscription', string[]> = {
+  collected: COLLECTED_STATUSES,
+  pending: ['checkout_created'],
+  abandoned: ['expired'],
+  subscription: ['applied', 'subscription_applied'],
+}
+
+const CLASSIFIED_STATUSES = Object.values(OUTCOME_STATUSES).flat()
+
+/**
+ * `classifyPaymentStatus` expressed as a database filter.
+ *
+ * The outcome filter was previously applied to the page after it had been
+ * fetched, so asking for "collected" returned however many collected rows
+ * happened to fall in the first 50 — next to a total that counted every row
+ * matching the *other* filters, and pages that could come back empty. Rows,
+ * count, and pager only agree if the filter reaches the query.
+ */
+export function outcomeWhere(outcome: string): Prisma.PlatformPaymentWhereInput | null {
+  if (outcome === 'waived') return { status: { startsWith: 'skipped', mode: 'insensitive' } }
+
+  // Anything the classifier does not recognise, which is also the bucket that
+  // catches a new Stripe status nobody has mapped yet.
+  if (outcome === 'other') {
+    return {
+      status: { notIn: CLASSIFIED_STATUSES },
+      NOT: { status: { startsWith: 'skipped', mode: 'insensitive' } },
+    }
+  }
+
+  const statuses = OUTCOME_STATUSES[outcome as keyof typeof OUTCOME_STATUSES]
+  return statuses ? { status: { in: statuses } } : null
 }
 
 router.get(
@@ -58,7 +111,10 @@ router.get(
         maxLimit: 200,
       })
 
-      const where: Record<string, any> = {}
+      // Typed rather than `Record<string, any>`: this is the other half of the
+      // query that referenced a field Attorney does not have, and only the
+      // typed form makes the compiler check it.
+      const where: Prisma.PlatformPaymentWhereInput = {}
 
       const typeFilter = typeof type === 'string' ? type.trim() : ''
       if (typeFilter) where.type = typeFilter
@@ -68,11 +124,16 @@ router.get(
 
       const searchTerm = typeof search === 'string' ? search.trim() : ''
       if (searchTerm) {
+        // Firm name is not on Attorney. It lives on the linked LawFirm, and on
+        // AttorneyProfile for anyone not attached to a firm record, so a search
+        // for a firm has to reach through both or it silently misses half of
+        // them.
         where.attorney = {
           OR: [
             { name: { contains: searchTerm, mode: 'insensitive' } },
             { email: { contains: searchTerm, mode: 'insensitive' } },
-            { firmName: { contains: searchTerm, mode: 'insensitive' } },
+            { lawFirm: { name: { contains: searchTerm, mode: 'insensitive' } } },
+            { attorneyProfile: { firmName: { contains: searchTerm, mode: 'insensitive' } } },
           ],
         }
       }
@@ -89,8 +150,14 @@ router.get(
       }
       if (Object.keys(createdAt).length) where.createdAt = createdAt
 
+      // Combined with AND so it composes with an explicit `status` filter
+      // instead of one silently overwriting the other.
+      const outcomeFilter = typeof outcome === 'string' ? outcome.trim() : ''
+      const outcomeClause = outcomeFilter ? outcomeWhere(outcomeFilter) : null
+      if (outcomeClause) where.AND = [outcomeClause]
+
       const [rows, total, byStatus, byType] = await Promise.all([
-        prismaAny.platformPayment.findMany({
+        prisma.platformPayment.findMany({
           where,
           select: {
             id: true,
@@ -101,23 +168,31 @@ router.get(
             stripeCheckoutSessionId: true,
             stripePaymentIntentId: true,
             createdAt: true,
-            attorney: { select: { id: true, name: true, email: true, firmName: true } },
+            attorney: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                lawFirm: { select: { name: true } },
+                attorneyProfile: { select: { firmName: true } },
+              },
+            },
           },
           orderBy: { createdAt: 'desc' },
           take,
           skip,
         }),
-        prismaAny.platformPayment.count({ where }),
+        prisma.platformPayment.count({ where }),
         // Totals are computed over everything matching the filters, not just the
         // page in front of the user — a revenue figure that changed when you
         // turned the page would be worse than no figure.
-        prismaAny.platformPayment.groupBy({
+        prisma.platformPayment.groupBy({
           by: ['status'],
           where,
           _sum: { amount: true },
           _count: { _all: true },
         }),
-        prismaAny.platformPayment.groupBy({
+        prisma.platformPayment.groupBy({
           by: ['type'],
           where,
           _sum: { amount: true },
@@ -161,25 +236,32 @@ router.get(
         }
       }
 
-      const data = rows.map((row: any) => ({
+      const data = rows.map((row) => ({
         ...row,
         amount: row.amount == null ? null : Number(row.amount),
         outcome: classifyPaymentStatus(row.status),
+        // Flattened back to the shape the console already renders. The firm
+        // record wins over the profile's free-text field when both exist.
+        attorney: row.attorney
+          ? {
+              id: row.attorney.id,
+              name: row.attorney.name,
+              email: row.attorney.email,
+              firmName: row.attorney.lawFirm?.name ?? row.attorney.attorneyProfile?.firmName ?? null,
+            }
+          : null,
       }))
-
-      const outcomeFilter = typeof outcome === 'string' ? outcome.trim() : ''
-      const filtered = outcomeFilter ? data.filter((row: any) => row.outcome === outcomeFilter) : data
 
       res.json({
         success: true,
-        data: filtered,
+        data,
         summary,
-        byType: byType.map((group: any) => ({
+        byType: byType.map((group) => ({
           type: group.type,
           amount: Number(group._sum?.amount ?? 0),
           count: Number(group._count?._all ?? 0),
         })),
-        ...paginated(filtered, total, { take, skip }),
+        ...paginated(data, total, { take, skip }),
       })
     } catch (error) {
       logger.error('Failed to list platform payments', { error })
@@ -210,7 +292,7 @@ router.post(
       }
 
       // Only rows with a checkout session can be looked up in Stripe at all.
-      const candidates = await prismaAny.platformPayment.findMany({
+      const candidates = await prisma.platformPayment.findMany({
         where: {
           stripeCheckoutSessionId: { not: null },
           status: { notIn: ['paid', 'expired', 'refunded', 'partially_refunded'] },
