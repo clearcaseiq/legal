@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describe, it, expect } from 'vitest'
 import { topicLabel } from './SeoLandingPage'
 import { allLandingPages } from '../data/seoLandingPages'
@@ -93,6 +95,34 @@ describe('landing page H2 headings', () => {
         expect(heading, page.slug).toContain(topic)
       }
     }
+  })
+
+  /**
+   * "Specific guidance for {cluster}" and "What to do next for {cluster}" used
+   * to lower-case the cluster to make it read as part of the sentence. A cluster
+   * is a topic label rather than a phrase, though: 38 of them carry an acronym
+   * and most carry a city, so that rendered "Specific guidance for anaheim brain
+   * injury (tbi) claims" — and on the value pages, "tbi claim value".
+   *
+   * Asserted against the source because both headings are built inline in the
+   * JSX, so there is no function to call. Lower-casing the cluster to *match*
+   * on it is fine and the component still does that to pick a scenario, so only
+   * a folded copy that is not immediately tested with `.includes()` fails here.
+   */
+  it('does not lower-case the cluster label it renders', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/pages/SeoLandingPage.tsx'), 'utf8')
+    const rendered = [...source.matchAll(/page\.cluster\.toLowerCase\(\)(?!\s*\.includes\()/g)].map(
+      (match) => source.slice(Math.max(0, (match.index ?? 0) - 45), (match.index ?? 0) + 26),
+    )
+    expect(rendered).toEqual([])
+  })
+
+  it('keeps acronyms and place names intact in the label', () => {
+    expect(topicLabel('TBI Claim Value')).toBe('TBI Claim Value')
+    expect(topicLabel('Anaheim Brain Injury (TBI) Claims')).toBe('Anaheim Brain Injury (TBI)')
+    expect(topicLabel('Oakland AC Transit and BART Accident Claims')).toBe(
+      'Oakland AC Transit and BART Accident',
+    )
   })
 
   it('no longer emits the fixed strings the crawl flagged', () => {

@@ -410,7 +410,10 @@ function getScenario(page: { category: string; cluster: string; title: string; s
     return 'A crash involving a delivery or rideshare vehicle created multiple coverage questions. The driver status, employer relationship, app activity, and commercial policy layer all became important underwriting facts.'
   }
 
-  return `A claimant started with uncertainty about ${page.cluster.toLowerCase()}, then gathered medical records, bills, insurance letters, and treatment notes. The clearer timeline helped identify which facts supported value, which facts created risk, and what documents were still missing.`
+  // Cluster is a topic label, not a phrase: it carries acronyms and city names
+  // ("Anaheim Brain Injury (TBI) Claims"), so lower-casing it to fit a sentence
+  // produced "anaheim brain injury (tbi) claims" on 38 clusters' worth of pages.
+  return `A claimant started with uncertainty about ${page.cluster}, then gathered medical records, bills, insurance letters, and treatment notes. The clearer timeline helped identify which facts supported value, which facts created risk, and what documents were still missing.`
 }
 
 function getDiagramCopy(page: { category: string; cluster: string; title: string }) {
@@ -641,7 +644,7 @@ function buildPlaintiffGuidance(page: TopicContent & { pageTitle: string; cluste
   return {
     overview: `For ${page.pageTitle.toLowerCase()}, the most helpful plaintiff move is to preserve the timeline and proof. Start with the earliest documented facts: ${earlyTimeline || 'initial symptoms, accident facts, and first treatment.'} Then connect them to what happened later: ${laterTimeline || 'follow-up care, bills, restrictions, and insurance communications.'}`,
     actions: [
-      `Write down the exact timeline for ${page.cluster.toLowerCase()}: what happened first, what changed, and what still affects daily life.`,
+      `Write down the exact timeline for ${page.cluster}: what happened first, what changed, and what still affects daily life.`,
       firstTreatmentStep ? `Collect the records tied to ${firstTreatmentStep.label.toLowerCase()}: ${firstTreatmentStep.copy}` : 'Collect first-treatment records, discharge papers, and bills.',
       escalationStep ? `Flag escalation points such as ${escalationStep.label.toLowerCase()}: ${escalationStep.copy}` : 'Flag any referral, imaging, procedure, surgery discussion, or future-care recommendation.',
       `Save insurance letters, adjuster emails, offers, denials, and any explanation that mentions ${page.insuranceProblems[0]?.toLowerCase() || 'fault, causation, treatment, or coverage'}.`,
@@ -1147,7 +1150,7 @@ export default function SeoLandingPage() {
       {deepDiveSections.length > 0 && (
         <section className="mt-8 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Expanded topic intelligence</p>
-          <h2 className="mt-1 text-3xl font-semibold tracking-tight text-slate-950">Specific guidance for {page.cluster.toLowerCase()}</h2>
+          <h2 className="mt-1 text-3xl font-semibold tracking-tight text-slate-950">Specific guidance for {page.cluster}</h2>
           <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-700">
             This section adds the page-specific substance behind the calculator, timeline, and intake flow. It is written around the actual signals this topic needs, not generic accident content.
           </p>
@@ -1172,7 +1175,7 @@ export default function SeoLandingPage() {
 
       <section className="mt-8 rounded-3xl border border-indigo-100 bg-gradient-to-br from-indigo-50 via-white to-white p-6 shadow-sm sm:p-8">
         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-indigo-700">Plaintiff action plan</p>
-        <h2 className="mt-1 text-3xl font-semibold tracking-tight text-slate-950">What to do next for {page.cluster.toLowerCase()}</h2>
+        <h2 className="mt-1 text-3xl font-semibold tracking-tight text-slate-950">What to do next for {page.cluster}</h2>
         <p className="mt-3 max-w-4xl text-sm leading-7 text-slate-700">{plaintiffGuidance.overview}</p>
 
         <div className="mt-6 grid gap-4 lg:grid-cols-3">
