@@ -186,6 +186,7 @@ Thumbs.db
 
 # Local-only scratch/debug artifacts (screenshots, throwaway scripts, schema reports)
 tmp-*
+_tmp-*
 app/tmp-*
 api/_schema-diff-report.json
 COMMIT_MSG.txt
@@ -194,6 +195,19 @@ COMMIT_MSG.txt
 # rendered changelog. Regenerate with app/scripts/seo-sheet-export.ts and
 # app/scripts/spanish-review-export.ts rather than versioning the output.
 seo-sheet-export/
+
+# Brand kit handout. `brand-kit/` is assembled for people outside the repo, so
+# every image in it is a copy of something already tracked under `app/public/`
+# or `apps/mobile/assets/`. Committing them would store the same bytes twice and
+# let the copies drift from the originals that actually ship, which is how the
+# tagline typo survived in five files at once. Re-assemble the folder from the
+# tracked originals instead.
+#
+# The written guidance is the exception: it is not a copy of anything and it
+# diffs usefully, so the Markdown stays tracked.
+clearcaseiq-brand-kit.zip
+brand-kit/*
+!brand-kit/*.md
 
 # Local dev tooling (e.g. downloaded Stripe CLI binary)
 .tools/

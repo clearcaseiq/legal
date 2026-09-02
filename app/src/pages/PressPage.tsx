@@ -80,29 +80,39 @@ export default function PressPage() {
       <section className="space-y-4">
         <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-50">Brand assets</h2>
         <div className="grid gap-4 sm:grid-cols-2">
+          {/* Each card offers the file that suits the background it is shown on.
+              These were the other way round, which meant the dark card handed
+              out the navy wordmark — a logo that is invisible on dark. */}
           <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900/60">
-            <p className="mb-4 text-xs font-semibold uppercase tracking-wide text-slate-500">Primary logo</p>
+            <p className="mb-4 text-xs font-semibold uppercase tracking-wide text-slate-500">On light</p>
             <BrandLogo mode="header" size="md" appName="ClearCaseIQ" />
             <a
-              href="/clearcaseiq-logo.png"
+              href="/clearcaseiq-logo-transparent.png"
               download
               className="mt-4 inline-block text-sm font-semibold text-brand-700 hover:text-brand-800"
             >
-              Download PNG
+              Download transparent PNG
             </a>
           </div>
           <div className="rounded-2xl border border-slate-200 bg-slate-950 p-5">
             <p className="mb-4 text-xs font-semibold uppercase tracking-wide text-slate-400">On dark</p>
             <BrandLogo mode="footer" size="md" appName="ClearCaseIQ" />
             <a
-              href="/clearcaseiq-logo-transparent.png"
+              href="/clearcaseiq-logo.png"
               download
               className="mt-4 inline-block text-sm font-semibold text-brand-300 hover:text-brand-200"
             >
-              Download transparent PNG
+              Download PNG
             </a>
           </div>
         </div>
+        <p className="text-sm text-slate-600 dark:text-slate-300">
+          Vector mark:{' '}
+          <a href="/clearcaseiq-mark.svg" download className="font-semibold text-brand-700 hover:text-brand-800">
+            clearcaseiq-mark.svg
+          </a>{' '}
+          (scalable, preferred for print and large formats)
+        </p>
         <p className="text-sm text-slate-600 dark:text-slate-300">
           Social / OG card:{' '}
           <a href="/clearcaseiq-og-card.png" download className="font-semibold text-brand-700 hover:text-brand-800">
