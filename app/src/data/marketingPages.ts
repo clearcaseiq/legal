@@ -55,9 +55,15 @@ export const MARKETING_CONTENT_UPDATED = '2026-08-07'
 export const marketingPages: MarketingPage[] = [
   {
     path: '/',
-    title: 'Personal Injury Case Evaluation | ClearCaseIQ',
+    // The state earns its place in both fields. Every commercial search here
+    // carries a place name, and a title without one competes nationally
+    // against firms with thousands of links. The description leads with the
+    // free 60-second assessment because that is the one thing on this results
+    // page no law firm offers, and ends on consent because attorney contact
+    // being optional is the objection a nervous searcher has.
+    title: 'California Personal Injury Case Evaluation | ClearCaseIQ',
     description:
-      'ClearCaseIQ helps accident victims evaluate personal injury claims, estimate settlement value, organize medical records, and connect with attorneys.',
+      'Free California injury case assessment in 60 seconds. See what your claim may be worth, organize your medical records, and reach an attorney only if you choose.',
     serverRender: true,
   },
   {

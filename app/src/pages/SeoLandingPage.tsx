@@ -168,6 +168,28 @@ export function sectionCopy(category: LandingPageCategory, key: SectionKey): Sec
   return SECTION_COPY_BY_CATEGORY[category]?.[key] ?? DEFAULT_SECTION_COPY[key]
 }
 
+/**
+ * The page's subject, as a noun phrase that can be dropped in front of a
+ * heading.
+ *
+ * Section headings used to be fixed strings, which meant a crawl of the site
+ * found the same eleven H2s on all 674 pages and reported the corpus as
+ * near-duplicate. The prose underneath was never duplicated — every page has
+ * its own `topicContent` — so only the headings needed to carry the subject.
+ *
+ * `cluster` is close to unique already (687 distinct values across 695 pages),
+ * so it is what distinguishes them. The trailing "Claims" is dropped because
+ * these headings go on to say "case" or "claim" themselves, and the doubled
+ * word reads badly. Headings are built as "<subject>: <what the section is>"
+ * rather than by inflecting a sentence around the subject, because the subject
+ * is sometimes plural ("Rideshare Accidents") and sometimes a mass noun
+ * ("Orthopedic Treatment"), and no single sentence frame stays grammatical
+ * across all of them.
+ */
+export function topicLabel(cluster: string): string {
+  return cluster.replace(/\s+claims?$/i, '').trim() || cluster
+}
+
 const symptomTimeline = [
   ['Same day', 'Soreness, stiffness, headache, anxiety, or localized pain may appear as adrenaline wears off.'],
   ['24-72 hours', 'Radiating pain, numbness, dizziness, sleep disruption, or increased inflammation may become more obvious.'],
@@ -612,6 +634,7 @@ export default function SeoLandingPage() {
   if (!page) return <Navigate to="/" replace />
 
   const tone = categoryTone[page.category] || 'from-brand-50 to-white border-brand-100 text-brand-950'
+  const topic = topicLabel(page.cluster)
   const timelineCopy = sectionCopy(page.category, 'timeline')
   const severityCopy = sectionCopy(page.category, 'severity')
   const progressionCopy = sectionCopy(page.category, 'progression')
@@ -762,7 +785,11 @@ export default function SeoLandingPage() {
         <div className="grid gap-6 sm:gap-8 lg:grid-cols-[minmax(0,1.05fr)_minmax(340px,0.95fr)]">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-brand-200">Interactive underwriting preview</p>
-            <h2 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">Personalize this page to your facts.</h2>
+            {/* Styled as a headline but not marked up as one. The five calls to
+                action on this page are the same sentence everywhere, so as H2s
+                they put identical entries in the outline of all 674 pages while
+                describing no section of the document. */}
+            <p className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">Personalize this page to your facts.</p>
             <p className="mt-3 text-sm leading-7 text-slate-300">
               Select the signals that apply. The page adapts settlement factors, severity explanations, intake prompts, and attorney-fit indicators in real time.
             </p>
@@ -898,7 +925,7 @@ export default function SeoLandingPage() {
       <section className="mt-6 grid gap-6 sm:mt-8 lg:grid-cols-[minmax(0,1.05fr)_minmax(340px,0.95fr)]">
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Example scenario</p>
-          <h2 className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">How a real injury story can evolve</h2>
+          <h2 className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">{topic}: how a real case can evolve</h2>
           <blockquote className="mt-4 rounded-2xl border border-brand-100 bg-brand-50 p-5 text-sm leading-7 text-brand-950">
             “{scenario}”
           </blockquote>
@@ -1036,7 +1063,7 @@ export default function SeoLandingPage() {
         <aside className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex items-center gap-2">
             <Shield className="h-5 w-5 text-brand-700" aria-hidden />
-            <h2 className="text-lg font-semibold text-slate-950">Underwriting signals captured</h2>
+            <h2 className="text-lg font-semibold text-slate-950">{topic}: underwriting signals captured</h2>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
             {page.signals.map((signal) => (
@@ -1136,7 +1163,7 @@ export default function SeoLandingPage() {
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex items-center gap-2">
             <Calculator className="h-5 w-5 text-emerald-700" aria-hidden />
-            <h2 className="text-xl font-semibold text-slate-950">Factors that may affect case value</h2>
+            <h2 className="text-xl font-semibold text-slate-950">{topic}: factors that may affect case value</h2>
           </div>
           <p className="mt-2 text-sm leading-7 text-slate-700">
             Settlement value is not just the injury name. It is the combination of proof, treatment, liability, economics, and available coverage.
@@ -1171,7 +1198,7 @@ export default function SeoLandingPage() {
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex items-center gap-2">
             <AlertTriangle className="h-5 w-5 text-amber-700" aria-hidden />
-            <h2 className="text-xl font-semibold text-slate-950">Insurance problems to watch for</h2>
+            <h2 className="text-xl font-semibold text-slate-950">{topic}: insurance problems to watch for</h2>
           </div>
           <p className="mt-2 text-sm leading-7 text-slate-700">
             These are common friction points that can turn a simple claim into a disputed claim.
@@ -1186,7 +1213,7 @@ export default function SeoLandingPage() {
 
       <section className="mt-8 rounded-2xl border border-brand-100 bg-brand-50 p-6 shadow-sm">
         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-brand-700">Structured intake CTA</p>
-        <h2 className="mt-1 text-2xl font-semibold tracking-tight text-brand-950">Turn uncertainty into underwriting signals.</h2>
+        <p className="mt-1 text-2xl font-semibold tracking-tight text-brand-950">Turn uncertainty into underwriting signals.</p>
         <p className="mt-2 max-w-3xl text-sm leading-7 text-brand-900">
           The free assessment progressively asks about symptoms, imaging, treatment, surgery risk, missed work, liability, and insurance behavior. Each answer helps build the case-readiness report.
         </p>
@@ -1217,7 +1244,7 @@ export default function SeoLandingPage() {
       <section className="mt-8 grid gap-6 lg:grid-cols-2">
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Attorney-side mirror</p>
-          <h2 className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">The same underwriting logic can power attorney review.</h2>
+          <p className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">The same underwriting logic can power attorney review.</p>
           <p className="mt-3 text-sm leading-7 text-slate-700">
             Plaintiff-facing intake should map directly into attorney-facing chronology, injury severity, medical economics, liability clarity, insurance complexity, and missing-document flags. That creates marketplace trust because the user experience and attorney dashboard are reading from the same signal set.
           </p>
@@ -1230,7 +1257,7 @@ export default function SeoLandingPage() {
 
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Proprietary data narrative</p>
-          <h2 className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">From landing page to underwriting operating system.</h2>
+          <p className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">From landing page to underwriting operating system.</p>
           <p className="mt-3 text-sm leading-7 text-slate-700">
             As more assessments are completed, ClearCaseIQ can explain patterns such as: cases with documented imaging, consistent treatment, clear liability, and economic damages are generally easier to route and review than cases with missing records or disputed causation.
           </p>
@@ -1242,7 +1269,7 @@ export default function SeoLandingPage() {
 
       <section className="mt-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Related legal and medical topics</p>
-        <h2 className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">Explore the litigation-underwriting knowledge graph</h2>
+        <h2 className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">{topic}: related legal and medical topics</h2>
         <p className="mt-2 text-sm leading-7 text-slate-700">
           These internal links connect injury symptoms, treatment decisions, insurance disputes, liability, and settlement valuation into a stronger topical cluster.
         </p>
@@ -1293,7 +1320,7 @@ export default function SeoLandingPage() {
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-brand-200">Free preliminary review</p>
-            <h2 className="mt-2 text-2xl font-semibold tracking-tight">See how your facts affect case readiness.</h2>
+            <p className="mt-2 text-2xl font-semibold tracking-tight">See how your facts affect case readiness.</p>
             <p className="mt-2 text-sm leading-6 text-slate-300">Answer a few questions, upload documents when available, and get a ClearCaseIQ report.</p>
           </div>
           <Link

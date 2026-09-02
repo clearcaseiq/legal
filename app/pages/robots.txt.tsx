@@ -48,38 +48,25 @@ export const getServerSideProps: GetServerSideProps = async ({ res }) => {
     'Disallow: /results',
     'Disallow: /edit-assessment',
     '',
-    // Deliberately not disallowed: /login, /register, /intake, /profile and the
-    // other app routes. They serve `noindex` instead, and a crawler has to be
-    // able to fetch a page to read that — blocking them here would leave the
-    // bare URLs in the index with no way to remove them.
+    // Deliberately not disallowed: /assess, /login, /register, /intake, /profile
+    // and the other app routes. They serve `noindex` instead, and a crawler has
+    // to be able to fetch a page to read that — blocking them here would leave
+    // the bare URLs in the index with no way to remove them.
+    //
+    // A site audit asked for `Disallow: /assess` to keep the funnel out of
+    // search. It is already out: /assess and /assess?fresh=1 both return
+    // `noindex, follow`, which removes them properly. Adding the rule would
+    // stop Google fetching the page and therefore stop it ever seeing the
+    // noindex, which is the failure this comment exists to prevent.
     '# Social share cards, exempt from the /api rule above so link previews render',
     'Allow: /api/og',
     '',
-    '# Allow SEO Content',
-    // The translated editions. Their URLs are not disallowed anywhere above, so
-    // these are documentation rather than rules, but a crawler operator reading
-    // this file should be able to see that /es and /zh are deliberate, indexable
-    // sections rather than accidental duplicates of the English pages.
-    'Allow: /es/',
-    'Allow: /zh/',
-    'Allow: /injuries/',
-    'Allow: /treatment/',
-    'Allow: /settlements/',
-    'Allow: /insurance/',
-    'Allow: /liability/',
-    'Allow: /education/',
-    'Allow: /commercial/',
-    'Allow: /legal/',
-    'Allow: /tools/',
-    'Allow: /case-strength/',
-    'Allow: /how-much-is-',
-    'Allow: /average-',
-    'Allow: /california-statute-of-limitations-',
-    'Allow: /medical-records',
-    'Allow: /how-to-organize-medical-records',
-    'Allow: /how-to-build-a-medical-chronology',
-    'Allow: /what-medical-records-do-lawyers-need',
-    'Allow: /how-insurance-companies-review-medical-records',
+    // The 21 `Allow:` rules that used to sit here were removed. Nothing above
+    // disallows those paths, so every one of them was a no-op, and three were
+    // not paths at all but prefixes — /how-much-is-, /average-, and
+    // /california-statute-of-limitations-. Twenty-one inert lines around six
+    // real ones is how a rule that matters gets missed.
+    '# /es and /zh are deliberate indexable editions, not duplicate English pages.',
     '',
     '# Sitemap',
     `Sitemap: ${SITE_URL}/sitemap.xml`,

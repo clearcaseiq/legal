@@ -88,8 +88,11 @@ export default function SeoCiteEmbed({
       aria-label="Cite or embed this resource"
     >
       <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Cite or embed</p>
+      {/* Names the resource rather than saying "this resource". The component is
+          embedded on every landing page, so a fixed string here was one more
+          heading repeated site-wide. */}
       <h2 className={`${compact ? 'mt-1 text-base' : 'mt-2 text-lg'} font-semibold text-slate-900 dark:text-slate-50`}>
-        Link to this ClearCaseIQ resource
+        Link to {title}
       </h2>
       <p className="mt-1 text-sm leading-relaxed text-slate-600 dark:text-slate-300">
         For journalists, clinics, and educators: copy a citation or embed an educational tool. Attribution is required —
