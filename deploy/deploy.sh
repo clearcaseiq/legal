@@ -97,6 +97,28 @@ set_tag() {
   done
 }
 
+# How many releases to keep on disk: the one running, and the one rollback
+# returns to. Raise it on a host where you want more history to roll back
+# through, at ~4GB per release for the pair.
+RELEASE_KEEP="${RELEASE_KEEP:-2}"
+
+# `docker image prune -f` collects dangling images only, and every release here
+# carries its commit SHA as a tag - so a tagged release is never dangling and
+# that call has never reclaimed one. QA reached 97% of a 58GB disk this way,
+# holding 51 images worth 47GB, while each deploy still pulled a fresh pair.
+#
+# `docker images` lists newest first, so everything past RELEASE_KEEP is older
+# than the release rollback would return to. rmi without -f, so an image a
+# container still holds is refused rather than pulled out from under it.
+prune_old_releases() {
+  local repo
+  for repo in clearcaseiq-api clearcaseiq-web; do
+    docker images "${REGISTRY}/${repo}" --format '{{.Repository}}:{{.Tag}}' \
+      | tail -n +$((RELEASE_KEEP + 1)) \
+      | xargs -r -n1 docker rmi >/dev/null 2>&1 || true
+  done
+}
+
 container_state() {
   docker inspect -f '{{.State.Status}}' "clearcaseiq-${ENVIRONMENT}-$1" 2>/dev/null || echo missing
 }
@@ -159,8 +181,9 @@ set_tag "$TAG"
 #
 # Untagged layers only, so this cannot touch the images the running containers
 # hold, including the previous tag that rollback returns to.
-log "reclaiming untagged images"
+log "reclaiming untagged images and releases older than the last ${RELEASE_KEEP}"
 docker image prune -f >/dev/null 2>&1 || true
+prune_old_releases
 
 # A pull needs room for both images before it can replace anything. Warn rather
 # than refuse: the operator reading this during an incident is better placed to
@@ -185,6 +208,7 @@ if wait_for_health; then
   # actually be collected. The pre-pull prune above is what stops a run of
   # failures from filling the disk; this one keeps a steady state tidy.
   docker image prune -f >/dev/null 2>&1 || true
+  prune_old_releases
   exit 0
 fi
 
