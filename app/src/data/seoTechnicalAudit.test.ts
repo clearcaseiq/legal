@@ -72,6 +72,20 @@ describe('the sitemap', () => {
     const duplicates = sitemapPaths.filter((path, i) => sitemapPaths.indexOf(path) !== i)
     expect(duplicates).toEqual([])
   })
+
+  it('lists no client-only page', () => {
+    // A client-only page has nothing in its response to index, so nominating
+    // one asks a crawler to index a blank shell. `/blog` was listed this way:
+    // a real route with a working API behind it, no published posts, and a body
+    // that arrives after load, so the response was 7KB with no h1. A crawl
+    // reported it as the one client-only URL among 740 in the sitemap.
+    const clientOnly = allMarketingPages
+      .filter((page) => !page.serverRender)
+      .map((page) => page.path)
+      .filter((path) => sitemapPaths.includes(path))
+
+    expect(clientOnly).toEqual([])
+  })
 })
 
 describe('page metadata', () => {

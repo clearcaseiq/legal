@@ -33,7 +33,7 @@ export function serverSiteUrl(): string {
 }
 
 /**
- * QA serves the same 176 indexable pages as production. Left crawlable it would
+ * QA serves the same indexable pages as production. Left crawlable it would
  * compete with the real site for the same queries and split the signal, so
  * non-production deployments set SEARCH_ENGINE_INDEXING=disabled, which turns
  * robots.txt into a blanket disallow and marks every page `noindex`.

@@ -177,7 +177,7 @@ the four-line blanket disallow, and the page carries `noindex`.
 
 **If `robots.txt` comes back as the full 42-line production file**, then
 `SEARCH_ENGINE_INDEXING=disabled` did not reach the container and QA is
-indexable. Fix that before anything crawls it — QA serves the same 176 pages as
+indexable. Fix that before anything crawls it — QA serves the same pages as
 production and will compete with the live site for its own queries.
 
 The same flag also clears `publicPage`, which gates `SiteAnalytics`. That is

@@ -4,8 +4,13 @@ Everything here lives outside the application code — DNS, hosting, and
 third-party consoles — so it can't be verified from the repository. Work through
 it before and immediately after the domain goes live.
 
-Run `node scripts/check-ssr-coverage.mjs` against production once it's up. It
-should report 176 server-rendered, 3 client-only, 0 failures.
+Run `BASE_URL=https://www.clearcaseiq.com node scripts/check-ssr-coverage.mjs`
+against production. Read it as an invariant rather than a count: **client-only
+and failures should both be 0, and server-rendered should equal the sitemap
+entry count it prints on the first line.** A fixed number goes stale every time
+a page is added — this file claimed 176 and 3 long after the corpus reached 740.
+
+Last run: 739 entries, 739 server-rendered, 0 client-only, 0 failures.
 
 ---
 
@@ -37,14 +42,19 @@ somewhere the visitor isn't.
 ### Host and redirect rules
 
 Canonicals, Open Graph URLs, and the sitemap all declare `www.clearcaseiq.com`.
-The hosting layer must agree, or the same 176 pages become reachable at several
+The hosting layer must agree, or the same pages become reachable at several
 addresses and the ranking signals split between them.
 
-- [ ] `http://clearcaseiq.com` → 301 → `https://www.clearcaseiq.com`
-- [ ] `https://clearcaseiq.com` → 301 → `https://www.clearcaseiq.com`
-- [ ] `http://www.clearcaseiq.com` → 301 → `https://www.clearcaseiq.com`
-- [ ] Valid TLS certificate covering both apex and `www`
-- [ ] Confirm with `curl -I` that each returns a single 301 and not a chain
+- [x] `http://clearcaseiq.com` → 301 → `https://www.clearcaseiq.com`
+- [x] `https://clearcaseiq.com` → 301 → `https://www.clearcaseiq.com`
+- [x] `http://www.clearcaseiq.com` → 301 → `https://www.clearcaseiq.com`
+- [x] Valid TLS certificate covering both apex and `www`
+- [ ] **One deviation, not blocking.** `http://clearcaseiq.com` reaches the
+      canonical host in two hops rather than one, redirecting to
+      `https://clearcaseiq.com` first. The `Location` headers also carry an
+      explicit `:443`, which resolves identically but is not canonical form.
+      Every variant does arrive at `https://www.clearcaseiq.com`, so this is a
+      tidiness item in the hosting layer rather than a split-signal problem.
 
 ### Staging must not compete
 

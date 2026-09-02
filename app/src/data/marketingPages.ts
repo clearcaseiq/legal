@@ -217,5 +217,22 @@ export const allMarketingPages: MarketingPage[] = [
 
 export const marketingPagesByPath = new Map(allMarketingPages.map((page) => [page.path, page]))
 
-/** Paths the sitemap lists in addition to the SEO landing pages. */
-export const marketingSitemapPaths = allMarketingPages.map((page) => page.path)
+/**
+ * Paths the sitemap lists in addition to the SEO landing pages.
+ *
+ * Client-only pages are withheld. A sitemap entry is a request to index that
+ * URL, and by the rule at the top of this file a client-only page has nothing
+ * in its response to index — so listing one asks a crawler to index a blank
+ * shell, which is how a URL earns "Discovered - currently not indexed" or a
+ * soft-404 judgement rather than a ranking.
+ *
+ * `/blog` is the only page this currently removes, and it is the case the rule
+ * was written for: the route works and the API behind it responds, but it has
+ * no published posts and its body arrives after load, so the response is a 7KB
+ * document with no `h1`. Withholding it needs no undoing later — setting its
+ * `serverRender` to true, once the index renders posts on the server, puts it
+ * back in the sitemap on its own.
+ */
+export const marketingSitemapPaths = allMarketingPages
+  .filter((page) => page.serverRender)
+  .map((page) => page.path)

@@ -152,7 +152,7 @@ services:
       # applies if something reaches Next directly; without it the rewrite would
       # point at 127.0.0.1 inside the web container, which is the web container.
       API_PROXY_ORIGIN: http://api:4000
-      # QA must never be indexable — it serves the same 176 pages as production
+      # QA must never be indexable — it serves the same pages as production
       # and would compete with the real site for its own queries. `.env.qa`
       # carries the `disabled` that does that.
       #

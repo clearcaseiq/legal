@@ -10,8 +10,14 @@
  *   node scripts/check-ssr-coverage.mjs
  *   BASE_URL=https://staging.example.com node scripts/check-ssr-coverage.mjs
  *
- * The three legal/attorney-directory pages are client-only by design because
- * their body comes from the API; everything else should be server-rendered.
+ * Expect `client-only: 0`. The sitemap no longer nominates a page that does not
+ * server-render, so anything counted there is a URL whose response a crawler
+ * cannot read while the sitemap asks for it to be indexed — the contradiction
+ * this check exists to catch. See `marketingSitemapPaths`.
+ *
+ * The attorney-directory pages are not that case, despite their bodies arriving
+ * from the API: they server-render their headings and structured data, which is
+ * what this looks for.
  */
 const BASE = process.env.BASE_URL || 'http://localhost:3000'
 const MIN_RENDERED_BYTES = 20000
