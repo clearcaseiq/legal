@@ -64,7 +64,7 @@ export const SAC_WD_SLUG = '/sacramento-wrongful-death'
 export const wrongfulDeathCityGuidePages: LandingPage[] = [
   {
     slug: LA_WD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Los Angeles Wrongful Death Claims',
     title: 'Los Angeles Wrongful Death Claims',
     eyebrow: 'California local injury guide',
@@ -126,7 +126,7 @@ export const wrongfulDeathCityGuidePages: LandingPage[] = [
   },
   {
     slug: SF_WD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Francisco Wrongful Death Claims',
     title: 'San Francisco Wrongful Death Claims',
     eyebrow: 'California local injury guide',
@@ -188,7 +188,7 @@ export const wrongfulDeathCityGuidePages: LandingPage[] = [
   },
   {
     slug: SD_WD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Diego Wrongful Death Claims',
     title: 'San Diego Wrongful Death Claims',
     eyebrow: 'California local injury guide',
@@ -250,7 +250,7 @@ export const wrongfulDeathCityGuidePages: LandingPage[] = [
   },
   {
     slug: SAC_WD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Sacramento Wrongful Death Claims',
     title: 'Sacramento Wrongful Death Claims',
     eyebrow: 'California local injury guide',

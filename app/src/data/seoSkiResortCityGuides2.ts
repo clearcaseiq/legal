@@ -47,7 +47,7 @@ export const SHAVERLAKE_SKI_SLUG = '/shaver-lake-ski-injury-claim'
 export const skiResortCityGuidePages2: LandingPage[] = [
   {
     slug: WRIGHTWOOD_SKI_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Wrightwood / Mountain High Ski Injury Claims',
     title: 'Wrightwood / Mountain High Ski Injury Claims',
     eyebrow: 'California local injury guide',
@@ -109,7 +109,7 @@ export const skiResortCityGuidePages2: LandingPage[] = [
   },
   {
     slug: OLYMPICVALLEY_SKI_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Palisades Tahoe (Olympic Valley) Ski Injury Claims',
     title: 'Palisades Tahoe (Olympic Valley) Ski Injury Claims',
     eyebrow: 'California local injury guide',
@@ -171,7 +171,7 @@ export const skiResortCityGuidePages2: LandingPage[] = [
   },
   {
     slug: BEARVALLEY_SKI_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Bear Valley Ski Injury Claims',
     title: 'Bear Valley Ski Injury Claims',
     eyebrow: 'California local injury guide',
@@ -233,7 +233,7 @@ export const skiResortCityGuidePages2: LandingPage[] = [
   },
   {
     slug: SHAVERLAKE_SKI_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Shaver Lake / China Peak Ski Injury Claims',
     title: 'Shaver Lake / China Peak Ski Injury Claims',
     eyebrow: 'California local injury guide',

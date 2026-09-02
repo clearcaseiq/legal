@@ -56,7 +56,7 @@ export const OAK_BIRTH_SLUG = '/oakland-birth-injury-claim'
 export const birthInjuryCityGuidePages2: LandingPage[] = [
   {
     slug: SJ_BIRTH_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Jose Birth Injury Claims',
     title: 'San Jose Birth Injury Claims',
     eyebrow: 'California local injury guide',
@@ -118,7 +118,7 @@ export const birthInjuryCityGuidePages2: LandingPage[] = [
   },
   {
     slug: FRESNO_BIRTH_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Fresno Birth Injury Claims',
     title: 'Fresno Birth Injury Claims',
     eyebrow: 'California local injury guide',
@@ -180,7 +180,7 @@ export const birthInjuryCityGuidePages2: LandingPage[] = [
   },
   {
     slug: LB_BIRTH_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Long Beach Birth Injury Claims',
     title: 'Long Beach Birth Injury Claims',
     eyebrow: 'California local injury guide',
@@ -242,7 +242,7 @@ export const birthInjuryCityGuidePages2: LandingPage[] = [
   },
   {
     slug: OAK_BIRTH_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Oakland Birth Injury Claims',
     title: 'Oakland Birth Injury Claims',
     eyebrow: 'California local injury guide',

@@ -62,7 +62,7 @@ export const SAC_MOTORCYCLE_SLUG = '/sacramento-motorcycle-accident'
 export const motorcycleCityGuidePages: LandingPage[] = [
   {
     slug: LA_MOTORCYCLE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Los Angeles Motorcycle Accident Claims',
     title: 'Los Angeles Motorcycle Accident Claims',
     eyebrow: 'California local injury guide',
@@ -124,7 +124,7 @@ export const motorcycleCityGuidePages: LandingPage[] = [
   },
   {
     slug: SD_MOTORCYCLE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Diego Motorcycle Accident Claims',
     title: 'San Diego Motorcycle Accident Claims',
     eyebrow: 'California local injury guide',
@@ -186,7 +186,7 @@ export const motorcycleCityGuidePages: LandingPage[] = [
   },
   {
     slug: SJ_MOTORCYCLE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Jose Motorcycle Accident Claims',
     title: 'San Jose Motorcycle Accident Claims',
     eyebrow: 'California local injury guide',
@@ -248,7 +248,7 @@ export const motorcycleCityGuidePages: LandingPage[] = [
   },
   {
     slug: SAC_MOTORCYCLE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Sacramento Motorcycle Accident Claims',
     title: 'Sacramento Motorcycle Accident Claims',
     eyebrow: 'California local injury guide',

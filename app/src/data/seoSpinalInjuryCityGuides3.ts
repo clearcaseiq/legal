@@ -57,7 +57,7 @@ export const ANAHEIM_SCI_SLUG = '/anaheim-spinal-cord-injury-claim'
 export const spinalInjuryCityGuidePages3: LandingPage[] = [
   {
     slug: RIV_SCI_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Riverside Spinal Cord Injury & Paralysis Claims',
     title: 'Riverside Spinal Cord Injury & Paralysis Claims',
     eyebrow: 'California local injury guide',
@@ -119,7 +119,7 @@ export const spinalInjuryCityGuidePages3: LandingPage[] = [
   },
   {
     slug: SB_SCI_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Bernardino Spinal Cord Injury & Paralysis Claims',
     title: 'San Bernardino Spinal Cord Injury & Paralysis Claims',
     eyebrow: 'California local injury guide',
@@ -181,7 +181,7 @@ export const spinalInjuryCityGuidePages3: LandingPage[] = [
   },
   {
     slug: BAKERSFIELD_SCI_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Bakersfield Spinal Cord Injury & Paralysis Claims',
     title: 'Bakersfield Spinal Cord Injury & Paralysis Claims',
     eyebrow: 'California local injury guide',
@@ -243,7 +243,7 @@ export const spinalInjuryCityGuidePages3: LandingPage[] = [
   },
   {
     slug: ANAHEIM_SCI_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Anaheim Spinal Cord Injury & Paralysis Claims',
     title: 'Anaheim Spinal Cord Injury & Paralysis Claims',
     eyebrow: 'California local injury guide',

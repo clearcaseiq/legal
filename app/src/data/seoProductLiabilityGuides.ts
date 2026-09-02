@@ -155,7 +155,7 @@ export const productLiabilityGuidePages: LandingPage[] = [
   },
   {
     slug: PRODUCT_SOL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Statute of Limitations',
     cluster: 'Product Liability Filing Deadlines',
     title: 'California Product Liability Statute of Limitations',
     eyebrow: 'Filing deadlines',

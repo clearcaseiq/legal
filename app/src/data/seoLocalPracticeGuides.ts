@@ -48,7 +48,7 @@ export const SD_BICYCLE_SLUG = '/san-diego-bicycle-accident'
 export const localPracticeGuidePages: LandingPage[] = [
   {
     slug: LA_PEDESTRIAN_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Los Angeles Pedestrian Accident Claims',
     title: 'Los Angeles Pedestrian Accident Claims',
     eyebrow: 'California local injury guide',
@@ -110,7 +110,7 @@ export const localPracticeGuidePages: LandingPage[] = [
   },
   {
     slug: SF_PEDESTRIAN_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Francisco Pedestrian Accident Claims',
     title: 'San Francisco Pedestrian Accident Claims',
     eyebrow: 'California local injury guide',
@@ -172,7 +172,7 @@ export const localPracticeGuidePages: LandingPage[] = [
   },
   {
     slug: SD_PEDESTRIAN_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Diego Pedestrian Accident Claims',
     title: 'San Diego Pedestrian Accident Claims',
     eyebrow: 'California local injury guide',
@@ -234,7 +234,7 @@ export const localPracticeGuidePages: LandingPage[] = [
   },
   {
     slug: SF_BICYCLE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Francisco Bicycle Accident Claims',
     title: 'San Francisco Bicycle Accident Claims',
     eyebrow: 'California local injury guide',
@@ -296,7 +296,7 @@ export const localPracticeGuidePages: LandingPage[] = [
   },
   {
     slug: LA_BICYCLE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Los Angeles Bicycle Accident Claims',
     title: 'Los Angeles Bicycle Accident Claims',
     eyebrow: 'California local injury guide',
@@ -358,7 +358,7 @@ export const localPracticeGuidePages: LandingPage[] = [
   },
   {
     slug: SD_BICYCLE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Diego Bicycle Accident Claims',
     title: 'San Diego Bicycle Accident Claims',
     eyebrow: 'California local injury guide',

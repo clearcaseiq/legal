@@ -61,7 +61,7 @@ export const LB_MEDMAL_SLUG = '/long-beach-medical-malpractice-claim'
 export const medicalMalpracticeCityGuidePages2: LandingPage[] = [
   {
     slug: SANTAANA_MEDMAL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Santa Ana Medical Malpractice Claims',
     title: 'Orange County Medical Malpractice Claims',
     eyebrow: 'California local injury guide',
@@ -123,7 +123,7 @@ export const medicalMalpracticeCityGuidePages2: LandingPage[] = [
   },
   {
     slug: SJ_MEDMAL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Jose Medical Malpractice Claims',
     title: 'San Jose Medical Malpractice Claims',
     eyebrow: 'California local injury guide',
@@ -185,7 +185,7 @@ export const medicalMalpracticeCityGuidePages2: LandingPage[] = [
   },
   {
     slug: FRESNO_MEDMAL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Fresno Medical Malpractice Claims',
     title: 'Fresno Medical Malpractice Claims',
     eyebrow: 'California local injury guide',
@@ -247,7 +247,7 @@ export const medicalMalpracticeCityGuidePages2: LandingPage[] = [
   },
   {
     slug: LB_MEDMAL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Long Beach Medical Malpractice Claims',
     title: 'Long Beach Medical Malpractice Claims',
     eyebrow: 'California local injury guide',

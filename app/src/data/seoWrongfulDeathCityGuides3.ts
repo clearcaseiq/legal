@@ -56,7 +56,7 @@ export const ANAHEIM_WD_SLUG = '/anaheim-wrongful-death'
 export const wrongfulDeathCityGuidePages3: LandingPage[] = [
   {
     slug: RIV_WD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Riverside Wrongful Death Claims',
     title: 'Riverside Wrongful Death Claims',
     eyebrow: 'California local injury guide',
@@ -118,7 +118,7 @@ export const wrongfulDeathCityGuidePages3: LandingPage[] = [
   },
   {
     slug: SB_WD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Bernardino Wrongful Death Claims',
     title: 'San Bernardino Wrongful Death Claims',
     eyebrow: 'California local injury guide',
@@ -180,7 +180,7 @@ export const wrongfulDeathCityGuidePages3: LandingPage[] = [
   },
   {
     slug: BAKERSFIELD_WD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Bakersfield Wrongful Death Claims',
     title: 'Bakersfield Wrongful Death Claims',
     eyebrow: 'California local injury guide',
@@ -242,7 +242,7 @@ export const wrongfulDeathCityGuidePages3: LandingPage[] = [
   },
   {
     slug: ANAHEIM_WD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Anaheim Wrongful Death Claims',
     title: 'Anaheim Wrongful Death Claims',
     eyebrow: 'California local injury guide',

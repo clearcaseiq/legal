@@ -60,7 +60,7 @@ export const OAKLAND_MOTORCYCLE_SLUG = '/oakland-motorcycle-accident'
 export const motorcycleCityGuidePages2: LandingPage[] = [
   {
     slug: LONGBEACH_MOTORCYCLE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Long Beach Motorcycle Accident Claims',
     title: 'Long Beach Motorcycle Accident Claims',
     eyebrow: 'California local injury guide',
@@ -122,7 +122,7 @@ export const motorcycleCityGuidePages2: LandingPage[] = [
   },
   {
     slug: RIVERSIDE_MOTORCYCLE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Riverside Motorcycle Accident Claims',
     title: 'Riverside Motorcycle Accident Claims',
     eyebrow: 'California local injury guide',
@@ -184,7 +184,7 @@ export const motorcycleCityGuidePages2: LandingPage[] = [
   },
   {
     slug: FRESNO_MOTORCYCLE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Fresno Motorcycle Accident Claims',
     title: 'Fresno Motorcycle Accident Claims',
     eyebrow: 'California local injury guide',
@@ -246,7 +246,7 @@ export const motorcycleCityGuidePages2: LandingPage[] = [
   },
   {
     slug: OAKLAND_MOTORCYCLE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Oakland Motorcycle Accident Claims',
     title: 'Oakland Motorcycle Accident Claims',
     eyebrow: 'California local injury guide',

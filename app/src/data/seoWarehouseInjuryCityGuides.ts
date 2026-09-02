@@ -69,7 +69,7 @@ export const FRE_WHSE_SLUG = '/fresno-warehouse-injury-claim'
 export const warehouseInjuryCityGuidePages: LandingPage[] = [
   {
     slug: RIV_WHSE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Riverside Warehouse & Logistics Injury Claims',
     title: 'Riverside Warehouse & Logistics Injury Claims',
     eyebrow: 'California local injury guide',
@@ -131,7 +131,7 @@ export const warehouseInjuryCityGuidePages: LandingPage[] = [
   },
   {
     slug: SB_WHSE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Bernardino Warehouse & Logistics Injury Claims',
     title: 'San Bernardino Warehouse & Logistics Injury Claims',
     eyebrow: 'California local injury guide',
@@ -193,7 +193,7 @@ export const warehouseInjuryCityGuidePages: LandingPage[] = [
   },
   {
     slug: STK_WHSE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Stockton Warehouse & Port Logistics Injury Claims',
     title: 'Stockton Warehouse & Port Logistics Injury Claims',
     eyebrow: 'California local injury guide',
@@ -255,7 +255,7 @@ export const warehouseInjuryCityGuidePages: LandingPage[] = [
   },
   {
     slug: FRE_WHSE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Fresno Warehouse & Processing Injury Claims',
     title: 'Fresno Warehouse & Processing Injury Claims',
     eyebrow: 'California local injury guide',

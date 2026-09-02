@@ -54,7 +54,7 @@ export const LONGBEACH_RIDESHARE_SLUG = '/long-beach-rideshare-accident'
 export const rideshareCityGuidePages2: LandingPage[] = [
   {
     slug: SJ_RIDESHARE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Jose Rideshare Accident Claims',
     title: 'San Jose Rideshare Accident Claims',
     eyebrow: 'California local injury guide',
@@ -116,7 +116,7 @@ export const rideshareCityGuidePages2: LandingPage[] = [
   },
   {
     slug: SAC_RIDESHARE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Sacramento Rideshare Accident Claims',
     title: 'Sacramento Rideshare Accident Claims',
     eyebrow: 'California local injury guide',
@@ -178,7 +178,7 @@ export const rideshareCityGuidePages2: LandingPage[] = [
   },
   {
     slug: OAKLAND_RIDESHARE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Oakland Rideshare Accident Claims',
     title: 'Oakland Rideshare Accident Claims',
     eyebrow: 'California local injury guide',
@@ -240,7 +240,7 @@ export const rideshareCityGuidePages2: LandingPage[] = [
   },
   {
     slug: LONGBEACH_RIDESHARE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Long Beach Rideshare Accident Claims',
     title: 'Long Beach Rideshare Accident Claims',
     eyebrow: 'California local injury guide',

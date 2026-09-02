@@ -44,7 +44,7 @@ export const IMPERIAL_OHV_SLUG = '/imperial-county-atv-off-road-accident-claim'
 export const offRoadVehicleCityGuidePages2: LandingPage[] = [
   {
     slug: LA_OHV_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Los Angeles ATV & Off-Road Accident Claims',
     title: 'Los Angeles ATV & Off-Road Accident Claims',
     eyebrow: 'California local injury guide',
@@ -106,7 +106,7 @@ export const offRoadVehicleCityGuidePages2: LandingPage[] = [
   },
   {
     slug: SD_OHV_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Diego ATV & Off-Road Accident Claims',
     title: 'San Diego ATV & Off-Road Accident Claims',
     eyebrow: 'California local injury guide',
@@ -168,7 +168,7 @@ export const offRoadVehicleCityGuidePages2: LandingPage[] = [
   },
   {
     slug: SAC_OHV_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Sacramento ATV & Off-Road Accident Claims',
     title: 'Sacramento ATV & Off-Road Accident Claims',
     eyebrow: 'California local injury guide',
@@ -230,7 +230,7 @@ export const offRoadVehicleCityGuidePages2: LandingPage[] = [
   },
   {
     slug: IMPERIAL_OHV_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Imperial Sand Dunes (Glamis) ATV & Off-Road Accident Claims',
     title: 'Imperial Sand Dunes (Glamis) ATV & Off-Road Accident Claims',
     eyebrow: 'California local injury guide',

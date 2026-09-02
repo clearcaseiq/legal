@@ -33,7 +33,7 @@ const CLAIMS_ACT =
 export const cityGuidePages: LandingPage[] = [
   {
     slug: '/long-beach-car-accident',
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Long Beach Car Accident Claims',
     title: 'Long Beach Car Accident Claims',
     eyebrow: 'California local accident guide',
@@ -99,7 +99,7 @@ export const cityGuidePages: LandingPage[] = [
   },
   {
     slug: '/anaheim-car-accident',
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Anaheim Car Accident Claims',
     title: 'Anaheim Car Accident Claims',
     eyebrow: 'California local accident guide',
@@ -165,7 +165,7 @@ export const cityGuidePages: LandingPage[] = [
   },
   {
     slug: '/irvine-car-accident',
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Irvine Car Accident Claims',
     title: 'Irvine Car Accident Claims',
     eyebrow: 'California local accident guide',
@@ -231,7 +231,7 @@ export const cityGuidePages: LandingPage[] = [
   },
   {
     slug: '/riverside-car-accident',
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Riverside Car Accident Claims',
     title: 'Riverside Car Accident Claims',
     eyebrow: 'California local accident guide',
@@ -297,7 +297,7 @@ export const cityGuidePages: LandingPage[] = [
   },
   {
     slug: '/oakland-car-accident',
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Oakland Car Accident Claims',
     title: 'Oakland Car Accident Claims',
     eyebrow: 'California local accident guide',
@@ -363,7 +363,7 @@ export const cityGuidePages: LandingPage[] = [
   },
   {
     slug: '/fresno-car-accident',
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Fresno Car Accident Claims',
     title: 'Fresno Car Accident Claims',
     eyebrow: 'California local accident guide',
@@ -429,7 +429,7 @@ export const cityGuidePages: LandingPage[] = [
   },
   {
     slug: '/bakersfield-car-accident',
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Bakersfield Car Accident Claims',
     title: 'Bakersfield Car Accident Claims',
     eyebrow: 'California local accident guide',

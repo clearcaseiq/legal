@@ -59,7 +59,7 @@ export const LB_ELDER_SLUG = '/long-beach-nursing-home-abuse-claim'
 export const elderAbuseCityGuidePages2: LandingPage[] = [
   {
     slug: SANTAANA_ELDER_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Santa Ana Nursing Home & Elder Abuse Claims',
     title: 'Santa Ana Nursing Home & Elder Abuse Claims',
     eyebrow: 'California local injury guide',
@@ -121,7 +121,7 @@ export const elderAbuseCityGuidePages2: LandingPage[] = [
   },
   {
     slug: RIVERSIDE_ELDER_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Riverside Nursing Home & Elder Abuse Claims',
     title: 'Riverside Nursing Home & Elder Abuse Claims',
     eyebrow: 'California local injury guide',
@@ -183,7 +183,7 @@ export const elderAbuseCityGuidePages2: LandingPage[] = [
   },
   {
     slug: FRESNO_ELDER_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Fresno Nursing Home & Elder Abuse Claims',
     title: 'Fresno Nursing Home & Elder Abuse Claims',
     eyebrow: 'California local injury guide',
@@ -245,7 +245,7 @@ export const elderAbuseCityGuidePages2: LandingPage[] = [
   },
   {
     slug: LB_ELDER_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Long Beach Nursing Home & Elder Abuse Claims',
     title: 'Long Beach Nursing Home & Elder Abuse Claims',
     eyebrow: 'California local injury guide',

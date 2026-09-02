@@ -61,7 +61,7 @@ export const SJ_TRAMP_SLUG = '/san-jose-trampoline-park-injury-claim'
 export const trampolineParkCityGuidePages: LandingPage[] = [
   {
     slug: LA_TRAMP_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Los Angeles Trampoline Park & Play-Center Injury Claims',
     title: 'Los Angeles Trampoline Park & Play-Center Injury Claims',
     eyebrow: 'California local injury guide',
@@ -123,7 +123,7 @@ export const trampolineParkCityGuidePages: LandingPage[] = [
   },
   {
     slug: SD_TRAMP_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Diego Trampoline Park & Play-Center Injury Claims',
     title: 'San Diego Trampoline Park & Play-Center Injury Claims',
     eyebrow: 'California local injury guide',
@@ -185,7 +185,7 @@ export const trampolineParkCityGuidePages: LandingPage[] = [
   },
   {
     slug: SAC_TRAMP_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Sacramento Trampoline Park & Play-Center Injury Claims',
     title: 'Sacramento Trampoline Park & Play-Center Injury Claims',
     eyebrow: 'California local injury guide',
@@ -247,7 +247,7 @@ export const trampolineParkCityGuidePages: LandingPage[] = [
   },
   {
     slug: SJ_TRAMP_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Jose Trampoline Park & Play-Center Injury Claims',
     title: 'San Jose Trampoline Park & Play-Center Injury Claims',
     eyebrow: 'California local injury guide',

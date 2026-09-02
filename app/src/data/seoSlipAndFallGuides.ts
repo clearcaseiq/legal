@@ -156,7 +156,7 @@ export const slipAndFallGuidePages: LandingPage[] = [
   },
   {
     slug: SLIP_SOL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Statute of Limitations',
     cluster: 'Slip and Fall Filing Deadlines',
     title: 'California Slip and Fall Statute of Limitations',
     eyebrow: 'Filing deadlines',

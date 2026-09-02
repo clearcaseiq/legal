@@ -56,7 +56,7 @@ export const BAKERSFIELD_TRANSIT_SLUG = '/bakersfield-get-bus-accident'
 export const transitCityGuidePages3: LandingPage[] = [
   {
     slug: FRESNO_TRANSIT_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Fresno FAX and Transit Accident Claims',
     title: 'Fresno FAX Bus & Transit Accident Claims',
     eyebrow: 'California local injury guide',
@@ -118,7 +118,7 @@ export const transitCityGuidePages3: LandingPage[] = [
   },
   {
     slug: RIV_TRANSIT_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Riverside RTA and Transit Accident Claims',
     title: 'Riverside RTA Bus & Transit Accident Claims',
     eyebrow: 'California local injury guide',
@@ -180,7 +180,7 @@ export const transitCityGuidePages3: LandingPage[] = [
   },
   {
     slug: SB_TRANSIT_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Bernardino Omnitrans and Transit Accident Claims',
     title: 'San Bernardino Omnitrans & Transit Accident Claims',
     eyebrow: 'California local injury guide',
@@ -242,7 +242,7 @@ export const transitCityGuidePages3: LandingPage[] = [
   },
   {
     slug: BAKERSFIELD_TRANSIT_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Bakersfield GET and Transit Accident Claims',
     title: 'Bakersfield GET Bus & Transit Accident Claims',
     eyebrow: 'California local injury guide',

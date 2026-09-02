@@ -66,7 +66,7 @@ export const SAC_SCI_SLUG = '/sacramento-spinal-cord-injury-claim'
 export const spinalInjuryCityGuidePages: LandingPage[] = [
   {
     slug: LA_SCI_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Los Angeles Spinal Cord Injury & Paralysis Claims',
     title: 'Los Angeles Spinal Cord Injury & Paralysis Claims',
     eyebrow: 'California local injury guide',
@@ -128,7 +128,7 @@ export const spinalInjuryCityGuidePages: LandingPage[] = [
   },
   {
     slug: SD_SCI_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Diego Spinal Cord Injury & Paralysis Claims',
     title: 'San Diego Spinal Cord Injury & Paralysis Claims',
     eyebrow: 'California local injury guide',
@@ -190,7 +190,7 @@ export const spinalInjuryCityGuidePages: LandingPage[] = [
   },
   {
     slug: SF_SCI_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Francisco Spinal Cord Injury & Paralysis Claims',
     title: 'San Francisco Spinal Cord Injury & Paralysis Claims',
     eyebrow: 'California local injury guide',
@@ -252,7 +252,7 @@ export const spinalInjuryCityGuidePages: LandingPage[] = [
   },
   {
     slug: SAC_SCI_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Sacramento Spinal Cord Injury & Paralysis Claims',
     title: 'Sacramento Spinal Cord Injury & Paralysis Claims',
     eyebrow: 'California local injury guide',

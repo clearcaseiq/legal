@@ -60,7 +60,7 @@ export const BAKERSFIELD_MEDMAL_SLUG = '/bakersfield-medical-malpractice-claim'
 export const medicalMalpracticeCityGuidePages3: LandingPage[] = [
   {
     slug: OAK_MEDMAL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Oakland Medical Malpractice Claims',
     title: 'Oakland Medical Malpractice Claims',
     eyebrow: 'California local injury guide',
@@ -122,7 +122,7 @@ export const medicalMalpracticeCityGuidePages3: LandingPage[] = [
   },
   {
     slug: RIVERSIDE_MEDMAL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Riverside Medical Malpractice Claims',
     title: 'Riverside Medical Malpractice Claims',
     eyebrow: 'California local injury guide',
@@ -184,7 +184,7 @@ export const medicalMalpracticeCityGuidePages3: LandingPage[] = [
   },
   {
     slug: SANBERNARDINO_MEDMAL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Bernardino Medical Malpractice Claims',
     title: 'San Bernardino Medical Malpractice Claims',
     eyebrow: 'California local injury guide',
@@ -246,7 +246,7 @@ export const medicalMalpracticeCityGuidePages3: LandingPage[] = [
   },
   {
     slug: BAKERSFIELD_MEDMAL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Bakersfield Medical Malpractice Claims',
     title: 'Bakersfield Medical Malpractice Claims',
     eyebrow: 'California local injury guide',

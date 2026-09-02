@@ -67,7 +67,7 @@ export const LB_MOLD_SLUG = '/long-beach-toxic-mold-apartment-claim'
 export const moldHabitabilityCityGuidePages: LandingPage[] = [
   {
     slug: LA_MOLD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Los Angeles Toxic Mold & Uninhabitable Rental Claims',
     title: 'Los Angeles Toxic Mold & Uninhabitable Rental Claims',
     eyebrow: 'California local injury guide',
@@ -129,7 +129,7 @@ export const moldHabitabilityCityGuidePages: LandingPage[] = [
   },
   {
     slug: OAK_MOLD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Oakland Toxic Mold & Uninhabitable Rental Claims',
     title: 'Oakland Toxic Mold & Uninhabitable Rental Claims',
     eyebrow: 'California local injury guide',
@@ -191,7 +191,7 @@ export const moldHabitabilityCityGuidePages: LandingPage[] = [
   },
   {
     slug: SF_MOLD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Francisco Toxic Mold & Uninhabitable Rental Claims',
     title: 'San Francisco Toxic Mold & Uninhabitable Rental Claims',
     eyebrow: 'California local injury guide',
@@ -253,7 +253,7 @@ export const moldHabitabilityCityGuidePages: LandingPage[] = [
   },
   {
     slug: LB_MOLD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Long Beach Toxic Mold & Uninhabitable Rental Claims',
     title: 'Long Beach Toxic Mold & Uninhabitable Rental Claims',
     eyebrow: 'California local injury guide',

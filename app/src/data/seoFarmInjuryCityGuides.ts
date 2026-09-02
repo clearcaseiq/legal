@@ -70,7 +70,7 @@ export const MOD_FARM_SLUG = '/modesto-farm-injury-claim'
 export const farmInjuryCityGuidePages: LandingPage[] = [
   {
     slug: FRE_FARM_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Fresno Farm & Agricultural Injury Claims',
     title: 'Fresno Farm & Agricultural Injury Claims',
     eyebrow: 'California local injury guide',
@@ -132,7 +132,7 @@ export const farmInjuryCityGuidePages: LandingPage[] = [
   },
   {
     slug: BAK_FARM_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Bakersfield Farm & Agricultural Injury Claims',
     title: 'Bakersfield Farm & Agricultural Injury Claims',
     eyebrow: 'California local injury guide',
@@ -194,7 +194,7 @@ export const farmInjuryCityGuidePages: LandingPage[] = [
   },
   {
     slug: SAL_FARM_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Salinas Valley Farm & Agricultural Injury Claims',
     title: 'Salinas Valley Farm & Agricultural Injury Claims',
     eyebrow: 'California local injury guide',
@@ -256,7 +256,7 @@ export const farmInjuryCityGuidePages: LandingPage[] = [
   },
   {
     slug: MOD_FARM_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Modesto Farm & Agricultural Injury Claims',
     title: 'Modesto Farm & Agricultural Injury Claims',
     eyebrow: 'California local injury guide',

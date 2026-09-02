@@ -67,7 +67,7 @@ export const LONGBEACH_SCOOTER_SLUG = '/long-beach-scooter-accident'
 export const scooterCityGuidePages: LandingPage[] = [
   {
     slug: LA_SCOOTER_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Los Angeles E-Scooter Accident Claims',
     title: 'Los Angeles E-Scooter Accident Claims',
     eyebrow: 'California local injury guide',
@@ -129,7 +129,7 @@ export const scooterCityGuidePages: LandingPage[] = [
   },
   {
     slug: SD_SCOOTER_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Diego E-Scooter Accident Claims',
     title: 'San Diego E-Scooter Accident Claims',
     eyebrow: 'California local injury guide',
@@ -191,7 +191,7 @@ export const scooterCityGuidePages: LandingPage[] = [
   },
   {
     slug: SF_SCOOTER_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Francisco E-Scooter Accident Claims',
     title: 'San Francisco E-Scooter Accident Claims',
     eyebrow: 'California local injury guide',
@@ -253,7 +253,7 @@ export const scooterCityGuidePages: LandingPage[] = [
   },
   {
     slug: LONGBEACH_SCOOTER_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Long Beach E-Scooter Accident Claims',
     title: 'Long Beach E-Scooter Accident Claims',
     eyebrow: 'California local injury guide',

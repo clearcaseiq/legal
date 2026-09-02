@@ -62,7 +62,7 @@ export const BAKERSFIELD_UM_SLUG = '/bakersfield-uninsured-motorist-accident'
 export const uninsuredMotoristCityGuidePages: LandingPage[] = [
   {
     slug: LA_UM_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Los Angeles Uninsured & Hit-and-Run Accident Claims',
     title: 'Los Angeles Uninsured & Hit-and-Run Accident Claims',
     eyebrow: 'California local injury guide',
@@ -124,7 +124,7 @@ export const uninsuredMotoristCityGuidePages: LandingPage[] = [
   },
   {
     slug: SB_UM_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Bernardino Uninsured & Hit-and-Run Accident Claims',
     title: 'San Bernardino Uninsured & Hit-and-Run Accident Claims',
     eyebrow: 'California local injury guide',
@@ -186,7 +186,7 @@ export const uninsuredMotoristCityGuidePages: LandingPage[] = [
   },
   {
     slug: FRESNO_UM_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Fresno Uninsured & Hit-and-Run Accident Claims',
     title: 'Fresno Uninsured & Hit-and-Run Accident Claims',
     eyebrow: 'California local injury guide',
@@ -248,7 +248,7 @@ export const uninsuredMotoristCityGuidePages: LandingPage[] = [
   },
   {
     slug: BAKERSFIELD_UM_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Bakersfield Uninsured & Hit-and-Run Accident Claims',
     title: 'Bakersfield Uninsured & Hit-and-Run Accident Claims',
     eyebrow: 'California local injury guide',

@@ -54,7 +54,7 @@ export const SAC_SLIPFALL_SLUG = '/sacramento-slip-and-fall'
 export const slipAndFallCityGuidePages: LandingPage[] = [
   {
     slug: LA_SLIPFALL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Los Angeles Slip and Fall Claims',
     title: 'Los Angeles Slip and Fall Claims',
     eyebrow: 'California local injury guide',
@@ -116,7 +116,7 @@ export const slipAndFallCityGuidePages: LandingPage[] = [
   },
   {
     slug: SF_SLIPFALL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Francisco Slip and Fall Claims',
     title: 'San Francisco Slip and Fall Claims',
     eyebrow: 'California local injury guide',
@@ -178,7 +178,7 @@ export const slipAndFallCityGuidePages: LandingPage[] = [
   },
   {
     slug: SD_SLIPFALL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Diego Slip and Fall Claims',
     title: 'San Diego Slip and Fall Claims',
     eyebrow: 'California local injury guide',
@@ -240,7 +240,7 @@ export const slipAndFallCityGuidePages: LandingPage[] = [
   },
   {
     slug: SAC_SLIPFALL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Sacramento Slip and Fall Claims',
     title: 'Sacramento Slip and Fall Claims',
     eyebrow: 'California local injury guide',

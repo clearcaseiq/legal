@@ -58,7 +58,7 @@ export const IRVINE_BICYCLE_SLUG = '/irvine-bicycle-accident'
 export const localPracticeGuidePages4: LandingPage[] = [
   {
     slug: RIVERSIDE_PEDESTRIAN_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Riverside Pedestrian Accident Claims',
     title: 'Riverside Pedestrian Accident Claims',
     eyebrow: 'California local injury guide',
@@ -120,7 +120,7 @@ export const localPracticeGuidePages4: LandingPage[] = [
   },
   {
     slug: STOCKTON_PEDESTRIAN_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Stockton Pedestrian Accident Claims',
     title: 'Stockton Pedestrian Accident Claims',
     eyebrow: 'California local injury guide',
@@ -182,7 +182,7 @@ export const localPracticeGuidePages4: LandingPage[] = [
   },
   {
     slug: SANTAANA_PEDESTRIAN_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Santa Ana Pedestrian Accident Claims',
     title: 'Santa Ana Pedestrian Accident Claims',
     eyebrow: 'California local injury guide',
@@ -244,7 +244,7 @@ export const localPracticeGuidePages4: LandingPage[] = [
   },
   {
     slug: IRVINE_PEDESTRIAN_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Irvine Pedestrian Accident Claims',
     title: 'Irvine Pedestrian Accident Claims',
     eyebrow: 'California local injury guide',
@@ -306,7 +306,7 @@ export const localPracticeGuidePages4: LandingPage[] = [
   },
   {
     slug: RIVERSIDE_BICYCLE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Riverside Bicycle Accident Claims',
     title: 'Riverside Bicycle Accident Claims',
     eyebrow: 'California local injury guide',
@@ -368,7 +368,7 @@ export const localPracticeGuidePages4: LandingPage[] = [
   },
   {
     slug: STOCKTON_BICYCLE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Stockton Bicycle Accident Claims',
     title: 'Stockton Bicycle Accident Claims',
     eyebrow: 'California local injury guide',
@@ -430,7 +430,7 @@ export const localPracticeGuidePages4: LandingPage[] = [
   },
   {
     slug: SANTAANA_BICYCLE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Santa Ana Bicycle Accident Claims',
     title: 'Santa Ana Bicycle Accident Claims',
     eyebrow: 'California local injury guide',
@@ -492,7 +492,7 @@ export const localPracticeGuidePages4: LandingPage[] = [
   },
   {
     slug: IRVINE_BICYCLE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Irvine Bicycle Accident Claims',
     title: 'Irvine Bicycle Accident Claims',
     eyebrow: 'California local injury guide',

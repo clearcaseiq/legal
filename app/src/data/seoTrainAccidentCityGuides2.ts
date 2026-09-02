@@ -46,7 +46,7 @@ export const RIV_TRAIN_SLUG = '/riverside-train-accident'
 export const trainAccidentCityGuidePages2: LandingPage[] = [
   {
     slug: OAK_TRAIN_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Oakland Train & Rail Accident Claims',
     title: 'Oakland Train & Rail Accident Claims',
     eyebrow: 'California local injury guide',
@@ -108,7 +108,7 @@ export const trainAccidentCityGuidePages2: LandingPage[] = [
   },
   {
     slug: ANAHEIM_TRAIN_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Anaheim Train & Rail Accident Claims',
     title: 'Anaheim Train & Rail Accident Claims',
     eyebrow: 'California local injury guide',
@@ -170,7 +170,7 @@ export const trainAccidentCityGuidePages2: LandingPage[] = [
   },
   {
     slug: FRESNO_TRAIN_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Fresno Train & Rail Accident Claims',
     title: 'Fresno Train & Rail Accident Claims',
     eyebrow: 'California local injury guide',
@@ -232,7 +232,7 @@ export const trainAccidentCityGuidePages2: LandingPage[] = [
   },
   {
     slug: RIV_TRAIN_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Riverside Train & Rail Accident Claims',
     title: 'Riverside Train & Rail Accident Claims',
     eyebrow: 'California local injury guide',

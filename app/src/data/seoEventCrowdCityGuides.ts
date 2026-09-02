@@ -70,7 +70,7 @@ export const SB_EVENT_SLUG = '/san-bernardino-festival-crowd-injury-claim'
 export const eventCrowdCityGuidePages: LandingPage[] = [
   {
     slug: INDIO_EVENT_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Indio Festival Crowd Injury Claims',
     title: 'Indio Festival & Crowd-Crush Injury Claims',
     eyebrow: 'California local injury guide',
@@ -132,7 +132,7 @@ export const eventCrowdCityGuidePages: LandingPage[] = [
   },
   {
     slug: LA_EVENT_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Los Angeles Concert Crowd Injury Claims',
     title: 'Los Angeles Concert & Crowd-Crush Injury Claims',
     eyebrow: 'California local injury guide',
@@ -194,7 +194,7 @@ export const eventCrowdCityGuidePages: LandingPage[] = [
   },
   {
     slug: SF_EVENT_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Francisco Festival Crowd Injury Claims',
     title: 'San Francisco Festival & Crowd-Crush Injury Claims',
     eyebrow: 'California local injury guide',
@@ -256,7 +256,7 @@ export const eventCrowdCityGuidePages: LandingPage[] = [
   },
   {
     slug: SB_EVENT_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Bernardino Festival Crowd Injury Claims',
     title: 'San Bernardino Festival & Crowd-Crush Injury Claims',
     eyebrow: 'California local injury guide',

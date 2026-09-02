@@ -66,7 +66,7 @@ export const SAC_VDEF_SLUG = '/sacramento-defective-vehicle-claim'
 export const vehicleDefectCityGuidePages: LandingPage[] = [
   {
     slug: LA_VDEF_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Los Angeles Defective Vehicle & Crashworthiness Claims',
     title: 'Los Angeles Defective Vehicle & Crashworthiness Claims',
     eyebrow: 'California local injury guide',
@@ -128,7 +128,7 @@ export const vehicleDefectCityGuidePages: LandingPage[] = [
   },
   {
     slug: SD_VDEF_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Diego Defective Vehicle & Crashworthiness Claims',
     title: 'San Diego Defective Vehicle & Crashworthiness Claims',
     eyebrow: 'California local injury guide',
@@ -190,7 +190,7 @@ export const vehicleDefectCityGuidePages: LandingPage[] = [
   },
   {
     slug: SF_VDEF_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Francisco Defective Vehicle & ADAS Claims',
     title: 'San Francisco Defective Vehicle & ADAS Claims',
     eyebrow: 'California local injury guide',
@@ -252,7 +252,7 @@ export const vehicleDefectCityGuidePages: LandingPage[] = [
   },
   {
     slug: SAC_VDEF_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Sacramento Defective Vehicle & Rollover Claims',
     title: 'Sacramento Defective Vehicle & Rollover Claims',
     eyebrow: 'California local injury guide',

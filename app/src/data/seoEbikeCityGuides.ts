@@ -59,7 +59,7 @@ export const ANA_EBIKE_SLUG = '/anaheim-e-bike-accident'
 export const ebikeCityGuidePages: LandingPage[] = [
   {
     slug: LA_EBIKE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Los Angeles E-Bike Accident Claims',
     title: 'Los Angeles E-Bike Accident Claims',
     eyebrow: 'California local injury guide',
@@ -121,7 +121,7 @@ export const ebikeCityGuidePages: LandingPage[] = [
   },
   {
     slug: SD_EBIKE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Diego E-Bike Accident Claims',
     title: 'San Diego E-Bike Accident Claims',
     eyebrow: 'California local injury guide',
@@ -183,7 +183,7 @@ export const ebikeCityGuidePages: LandingPage[] = [
   },
   {
     slug: SF_EBIKE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Francisco E-Bike Accident Claims',
     title: 'San Francisco E-Bike Accident Claims',
     eyebrow: 'California local injury guide',
@@ -245,7 +245,7 @@ export const ebikeCityGuidePages: LandingPage[] = [
   },
   {
     slug: SJ_EBIKE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Jose E-Bike Accident Claims',
     title: 'San Jose E-Bike Accident Claims',
     eyebrow: 'California local injury guide',
@@ -307,7 +307,7 @@ export const ebikeCityGuidePages: LandingPage[] = [
   },
   {
     slug: SAC_EBIKE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Sacramento E-Bike Accident Claims',
     title: 'Sacramento E-Bike Accident Claims',
     eyebrow: 'California local injury guide',
@@ -369,7 +369,7 @@ export const ebikeCityGuidePages: LandingPage[] = [
   },
   {
     slug: FRESNO_EBIKE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Fresno E-Bike Accident Claims',
     title: 'Fresno E-Bike Accident Claims',
     eyebrow: 'California local injury guide',
@@ -431,7 +431,7 @@ export const ebikeCityGuidePages: LandingPage[] = [
   },
   {
     slug: LB_EBIKE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Long Beach E-Bike Accident Claims',
     title: 'Long Beach E-Bike Accident Claims',
     eyebrow: 'California local injury guide',
@@ -493,7 +493,7 @@ export const ebikeCityGuidePages: LandingPage[] = [
   },
   {
     slug: OAK_EBIKE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Oakland E-Bike Accident Claims',
     title: 'Oakland E-Bike Accident Claims',
     eyebrow: 'California local injury guide',
@@ -555,7 +555,7 @@ export const ebikeCityGuidePages: LandingPage[] = [
   },
   {
     slug: RIV_EBIKE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Riverside E-Bike Accident Claims',
     title: 'Riverside E-Bike Accident Claims',
     eyebrow: 'California local injury guide',
@@ -617,7 +617,7 @@ export const ebikeCityGuidePages: LandingPage[] = [
   },
   {
     slug: SB_EBIKE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Bernardino E-Bike Accident Claims',
     title: 'San Bernardino E-Bike Accident Claims',
     eyebrow: 'California local injury guide',
@@ -679,7 +679,7 @@ export const ebikeCityGuidePages: LandingPage[] = [
   },
   {
     slug: BAK_EBIKE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Bakersfield E-Bike Accident Claims',
     title: 'Bakersfield E-Bike Accident Claims',
     eyebrow: 'California local injury guide',
@@ -741,7 +741,7 @@ export const ebikeCityGuidePages: LandingPage[] = [
   },
   {
     slug: ANA_EBIKE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Anaheim E-Bike Accident Claims',
     title: 'Anaheim E-Bike Accident Claims',
     eyebrow: 'California local injury guide',

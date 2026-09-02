@@ -42,7 +42,7 @@ export const SM_SCOOTER_SLUG = '/santa-monica-scooter-accident'
 export const scooterCityGuidePages2: LandingPage[] = [
   {
     slug: SJ_SCOOTER_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Jose E-Scooter Accident Claims',
     title: 'San Jose E-Scooter Accident Claims',
     eyebrow: 'California local injury guide',
@@ -104,7 +104,7 @@ export const scooterCityGuidePages2: LandingPage[] = [
   },
   {
     slug: SAC_SCOOTER_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Sacramento E-Scooter Accident Claims',
     title: 'Sacramento E-Scooter Accident Claims',
     eyebrow: 'California local injury guide',
@@ -166,7 +166,7 @@ export const scooterCityGuidePages2: LandingPage[] = [
   },
   {
     slug: OAK_SCOOTER_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Oakland E-Scooter Accident Claims',
     title: 'Oakland E-Scooter Accident Claims',
     eyebrow: 'California local injury guide',
@@ -228,7 +228,7 @@ export const scooterCityGuidePages2: LandingPage[] = [
   },
   {
     slug: SM_SCOOTER_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Santa Monica E-Scooter Accident Claims',
     title: 'Santa Monica E-Scooter Accident Claims',
     eyebrow: 'California local injury guide',

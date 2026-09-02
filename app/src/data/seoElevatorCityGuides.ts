@@ -61,7 +61,7 @@ export const SAC_ELEV_SLUG = '/sacramento-elevator-escalator-injury-claim'
 export const elevatorCityGuidePages: LandingPage[] = [
   {
     slug: LA_ELEV_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Los Angeles Elevator & Escalator Injury Claims',
     title: 'Los Angeles Elevator & Escalator Injury Claims',
     eyebrow: 'California local injury guide',
@@ -123,7 +123,7 @@ export const elevatorCityGuidePages: LandingPage[] = [
   },
   {
     slug: SF_ELEV_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Francisco Elevator & Escalator Injury Claims',
     title: 'San Francisco Elevator & Escalator Injury Claims',
     eyebrow: 'California local injury guide',
@@ -185,7 +185,7 @@ export const elevatorCityGuidePages: LandingPage[] = [
   },
   {
     slug: SD_ELEV_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Diego Elevator & Escalator Injury Claims',
     title: 'San Diego Elevator & Escalator Injury Claims',
     eyebrow: 'California local injury guide',
@@ -247,7 +247,7 @@ export const elevatorCityGuidePages: LandingPage[] = [
   },
   {
     slug: SAC_ELEV_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Sacramento Elevator & Escalator Injury Claims',
     title: 'Sacramento Elevator & Escalator Injury Claims',
     eyebrow: 'California local injury guide',

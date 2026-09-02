@@ -52,7 +52,7 @@ export const ANAHEIM_SLIPFALL_SLUG = '/anaheim-slip-and-fall'
 export const slipAndFallCityGuidePages3: LandingPage[] = [
   {
     slug: RIVERSIDE_SLIPFALL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Riverside Slip and Fall Claims',
     title: 'Riverside Slip and Fall Claims',
     eyebrow: 'California local injury guide',
@@ -114,7 +114,7 @@ export const slipAndFallCityGuidePages3: LandingPage[] = [
   },
   {
     slug: SANBERNARDINO_SLIPFALL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Bernardino Slip and Fall Claims',
     title: 'San Bernardino Slip and Fall Claims',
     eyebrow: 'California local injury guide',
@@ -176,7 +176,7 @@ export const slipAndFallCityGuidePages3: LandingPage[] = [
   },
   {
     slug: BAKERSFIELD_SLIPFALL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Bakersfield Slip and Fall Claims',
     title: 'Bakersfield Slip and Fall Claims',
     eyebrow: 'California local injury guide',
@@ -238,7 +238,7 @@ export const slipAndFallCityGuidePages3: LandingPage[] = [
   },
   {
     slug: ANAHEIM_SLIPFALL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Anaheim Slip and Fall Claims',
     title: 'Anaheim Slip and Fall Claims',
     eyebrow: 'California local injury guide',

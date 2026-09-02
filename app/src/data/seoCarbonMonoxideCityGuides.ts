@@ -65,7 +65,7 @@ export const SAC_CO_SLUG = '/sacramento-carbon-monoxide-poisoning-claim'
 export const carbonMonoxideCityGuidePages: LandingPage[] = [
   {
     slug: LA_CO_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Los Angeles Carbon Monoxide Poisoning Claims',
     title: 'Los Angeles Carbon Monoxide Poisoning Claims',
     eyebrow: 'California local injury guide',
@@ -127,7 +127,7 @@ export const carbonMonoxideCityGuidePages: LandingPage[] = [
   },
   {
     slug: OAK_CO_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Oakland Carbon Monoxide Poisoning Claims',
     title: 'Oakland Carbon Monoxide Poisoning Claims',
     eyebrow: 'California local injury guide',
@@ -189,7 +189,7 @@ export const carbonMonoxideCityGuidePages: LandingPage[] = [
   },
   {
     slug: SF_CO_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Francisco Carbon Monoxide Poisoning Claims',
     title: 'San Francisco Carbon Monoxide Poisoning Claims',
     eyebrow: 'California local injury guide',
@@ -251,7 +251,7 @@ export const carbonMonoxideCityGuidePages: LandingPage[] = [
   },
   {
     slug: SAC_CO_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Sacramento Carbon Monoxide Poisoning Claims',
     title: 'Sacramento Carbon Monoxide Poisoning Claims',
     eyebrow: 'California local injury guide',

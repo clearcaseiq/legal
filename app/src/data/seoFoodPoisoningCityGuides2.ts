@@ -40,7 +40,7 @@ export const OAK_FOOD_SLUG = '/oakland-food-poisoning'
 export const foodPoisoningCityGuidePages2: LandingPage[] = [
   {
     slug: SJ_FOOD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Jose Food Poisoning Claims',
     title: 'San Jose Food Poisoning Claims',
     eyebrow: 'California local injury guide',
@@ -102,7 +102,7 @@ export const foodPoisoningCityGuidePages2: LandingPage[] = [
   },
   {
     slug: SAC_FOOD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Sacramento Food Poisoning Claims',
     title: 'Sacramento Food Poisoning Claims',
     eyebrow: 'California local injury guide',
@@ -164,7 +164,7 @@ export const foodPoisoningCityGuidePages2: LandingPage[] = [
   },
   {
     slug: LB_FOOD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Long Beach Food Poisoning Claims',
     title: 'Long Beach Food Poisoning Claims',
     eyebrow: 'California local injury guide',
@@ -226,7 +226,7 @@ export const foodPoisoningCityGuidePages2: LandingPage[] = [
   },
   {
     slug: OAK_FOOD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Oakland Food Poisoning Claims',
     title: 'Oakland Food Poisoning Claims',
     eyebrow: 'California local injury guide',

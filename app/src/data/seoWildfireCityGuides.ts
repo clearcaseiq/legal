@@ -65,7 +65,7 @@ export const SD_FIRE_SLUG = '/san-diego-wildfire-claim'
 export const wildfireCityGuidePages: LandingPage[] = [
   {
     slug: LA_FIRE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Los Angeles Wildfire Claims',
     title: 'Los Angeles Wildfire Claims',
     eyebrow: 'California local injury guide',
@@ -127,7 +127,7 @@ export const wildfireCityGuidePages: LandingPage[] = [
   },
   {
     slug: SANTAROSA_FIRE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Santa Rosa & Wine Country Wildfire Claims',
     title: 'Santa Rosa & Wine Country Wildfire Claims',
     eyebrow: 'California local injury guide',
@@ -189,7 +189,7 @@ export const wildfireCityGuidePages: LandingPage[] = [
   },
   {
     slug: CHICO_FIRE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Chico & Paradise Wildfire Claims',
     title: 'Chico & Paradise Wildfire Claims',
     eyebrow: 'California local injury guide',
@@ -251,7 +251,7 @@ export const wildfireCityGuidePages: LandingPage[] = [
   },
   {
     slug: SD_FIRE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Diego Wildfire Claims',
     title: 'San Diego Wildfire Claims',
     eyebrow: 'California local injury guide',

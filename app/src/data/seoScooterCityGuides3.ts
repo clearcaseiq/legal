@@ -106,7 +106,7 @@ const CITY_FAQ = {
 export const scooterCityGuidePages3: LandingPage[] = [
   {
     slug: FRESNO_SCOOTER_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Fresno E-Scooter Accident Claims',
     title: 'Fresno E-Scooter Accident Claims',
     eyebrow: 'California local injury guide',
@@ -124,7 +124,7 @@ export const scooterCityGuidePages3: LandingPage[] = [
   },
   {
     slug: RIV_SCOOTER_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Riverside E-Scooter Accident Claims',
     title: 'Riverside E-Scooter Accident Claims',
     eyebrow: 'California local injury guide',
@@ -142,7 +142,7 @@ export const scooterCityGuidePages3: LandingPage[] = [
   },
   {
     slug: SB_SCOOTER_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Bernardino E-Scooter Accident Claims',
     title: 'San Bernardino E-Scooter Accident Claims',
     eyebrow: 'California local injury guide',
@@ -160,7 +160,7 @@ export const scooterCityGuidePages3: LandingPage[] = [
   },
   {
     slug: BAK_SCOOTER_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Bakersfield E-Scooter Accident Claims',
     title: 'Bakersfield E-Scooter Accident Claims',
     eyebrow: 'California local injury guide',
@@ -178,7 +178,7 @@ export const scooterCityGuidePages3: LandingPage[] = [
   },
   {
     slug: ANA_SCOOTER_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Anaheim E-Scooter Accident Claims',
     title: 'Anaheim E-Scooter Accident Claims',
     eyebrow: 'California local injury guide',

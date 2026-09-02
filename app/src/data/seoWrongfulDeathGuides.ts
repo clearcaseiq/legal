@@ -89,7 +89,7 @@ export const wrongfulDeathGuidePages: LandingPage[] = [
   },
   {
     slug: WD_ELIGIBILITY_SLUG,
-    category: 'Attorney Intent',
+    category: 'Claim Types',
     cluster: 'Wrongful Death Eligibility',
     title: 'Who Can File a Wrongful Death Claim in California?',
     eyebrow: 'Wrongful death eligibility',

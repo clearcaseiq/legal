@@ -59,7 +59,7 @@ export const MAMMOTH_STR_SLUG = '/mammoth-lakes-vacation-rental-injury-claim'
 export const vacationRentalCityGuidePages2: LandingPage[] = [
   {
     slug: TAHOE_STR_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'South Lake Tahoe Vacation Rental Injury Claims',
     title: 'South Lake Tahoe Vacation Rental Injury Claims',
     eyebrow: 'California local injury guide',
@@ -121,7 +121,7 @@ export const vacationRentalCityGuidePages2: LandingPage[] = [
   },
   {
     slug: BIGBEAR_STR_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Big Bear Vacation Rental Injury Claims',
     title: 'Big Bear Vacation Rental Injury Claims',
     eyebrow: 'California local injury guide',
@@ -183,7 +183,7 @@ export const vacationRentalCityGuidePages2: LandingPage[] = [
   },
   {
     slug: SANTACRUZ_STR_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Santa Cruz Vacation Rental Injury Claims',
     title: 'Santa Cruz Vacation Rental Injury Claims',
     eyebrow: 'California local injury guide',
@@ -245,7 +245,7 @@ export const vacationRentalCityGuidePages2: LandingPage[] = [
   },
   {
     slug: MAMMOTH_STR_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Mammoth Lakes Vacation Rental Injury Claims',
     title: 'Mammoth Lakes Vacation Rental Injury Claims',
     eyebrow: 'California local injury guide',

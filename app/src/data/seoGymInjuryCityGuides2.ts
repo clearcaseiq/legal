@@ -59,7 +59,7 @@ export const ANAHEIM_GYM_SLUG = '/anaheim-gym-injury-claim'
 export const gymInjuryCityGuidePages2: LandingPage[] = [
   {
     slug: SAC_GYM_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Sacramento Gym & Fitness Injury Claims',
     title: 'Sacramento Gym & Fitness Injury Claims',
     eyebrow: 'California local injury guide',
@@ -121,7 +121,7 @@ export const gymInjuryCityGuidePages2: LandingPage[] = [
   },
   {
     slug: FRE_GYM_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Fresno Gym & Fitness Injury Claims',
     title: 'Fresno Gym & Fitness Injury Claims',
     eyebrow: 'California local injury guide',
@@ -183,7 +183,7 @@ export const gymInjuryCityGuidePages2: LandingPage[] = [
   },
   {
     slug: LB_GYM_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Long Beach Gym & Fitness Injury Claims',
     title: 'Long Beach Gym & Fitness Injury Claims',
     eyebrow: 'California local injury guide',
@@ -245,7 +245,7 @@ export const gymInjuryCityGuidePages2: LandingPage[] = [
   },
   {
     slug: ANAHEIM_GYM_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Anaheim Gym & Fitness Injury Claims',
     title: 'Anaheim Gym & Fitness Injury Claims',
     eyebrow: 'California local injury guide',

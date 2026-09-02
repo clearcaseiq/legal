@@ -139,7 +139,12 @@ const SEO_CLUSTER_PREFIX_CATEGORIES: Record<string, LandingPageCategory> = {
   '/education': 'Educational / SEO Moat',
   '/injuries': 'Symptoms',
   '/insurance': 'Insurance',
-  '/legal': 'Attorney Intent',
+  // `/legal` has exactly one child, /legal/california-personal-injury, and it
+  // asks whether a claim exists rather than whether to hire someone. It moved to
+  // Claim Types when the Attorney Intent bucket was split, and this follows it —
+  // otherwise a truncated /legal lands on the hiring hub, which is not what the
+  // page under it is about.
+  '/legal': 'Claim Types',
   '/liability': 'Liability',
   '/settlements': 'Settlement',
   '/treatment': 'Treatment',

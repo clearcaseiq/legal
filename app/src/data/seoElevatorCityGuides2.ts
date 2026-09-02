@@ -42,7 +42,7 @@ export const FRESNO_ELEV_SLUG = '/fresno-elevator-escalator-injury-claim'
 export const elevatorCityGuidePages2: LandingPage[] = [
   {
     slug: SJ_ELEV_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Jose Elevator & Escalator Injury Claims',
     title: 'San Jose Elevator & Escalator Injury Claims',
     eyebrow: 'California local injury guide',
@@ -104,7 +104,7 @@ export const elevatorCityGuidePages2: LandingPage[] = [
   },
   {
     slug: OAK_ELEV_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Oakland Elevator & Escalator Injury Claims',
     title: 'Oakland Elevator & Escalator Injury Claims',
     eyebrow: 'California local injury guide',
@@ -166,7 +166,7 @@ export const elevatorCityGuidePages2: LandingPage[] = [
   },
   {
     slug: LB_ELEV_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Long Beach Elevator & Escalator Injury Claims',
     title: 'Long Beach Elevator & Escalator Injury Claims',
     eyebrow: 'California local injury guide',
@@ -228,7 +228,7 @@ export const elevatorCityGuidePages2: LandingPage[] = [
   },
   {
     slug: FRESNO_ELEV_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Fresno Elevator & Escalator Injury Claims',
     title: 'Fresno Elevator & Escalator Injury Claims',
     eyebrow: 'California local injury guide',

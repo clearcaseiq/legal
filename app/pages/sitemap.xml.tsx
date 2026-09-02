@@ -6,7 +6,7 @@ import {
   marketingSitemapPaths,
 } from '../src/data/marketingPages'
 import { alternatesForPath } from '../src/data/localeAlternates'
-import { allLandingPages, landingPagesBySlug } from '../src/data/seoLandingPages'
+import { indexableLandingPages, landingPagesBySlug } from '../src/data/seoLandingPages'
 import { priorityForPath } from '../src/data/sitemapPriority'
 import { serverSiteUrl } from '../src/lib/siteConfig'
 
@@ -53,7 +53,9 @@ function alternateLinks(path: string, siteUrl: string) {
 
 export const getServerSideProps: GetServerSideProps = async ({ res }) => {
   const SITE_URL = serverSiteUrl()
-  const uniqueSeoPaths = Array.from(new Set(allLandingPages.map((page) => page.slug))).sort()
+  // Indexable only: a page marked `noindex` serves a tag telling crawlers to
+  // drop it, and nominating it here at the same time is a contradiction.
+  const uniqueSeoPaths = Array.from(new Set(indexableLandingPages().map((page) => page.slug))).sort()
   const paths = Array.from(new Set([...marketingSitemapPaths, ...uniqueSeoPaths]))
 
   const urls = paths

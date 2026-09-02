@@ -41,7 +41,7 @@ export const OAK_TRAMP_SLUG = '/oakland-trampoline-park-injury-claim'
 export const trampolineParkCityGuidePages2: LandingPage[] = [
   {
     slug: FRESNO_TRAMP_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Fresno Trampoline Park Injury Claims',
     title: 'Fresno Trampoline Park & Indoor Adventure Injury Claims',
     eyebrow: 'California local injury guide',
@@ -103,7 +103,7 @@ export const trampolineParkCityGuidePages2: LandingPage[] = [
   },
   {
     slug: LB_TRAMP_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Long Beach Trampoline Park Injury Claims',
     title: 'Long Beach Trampoline Park & Indoor Adventure Injury Claims',
     eyebrow: 'California local injury guide',
@@ -165,7 +165,7 @@ export const trampolineParkCityGuidePages2: LandingPage[] = [
   },
   {
     slug: ANAHEIM_TRAMP_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Anaheim Trampoline Park Injury Claims',
     title: 'Anaheim Trampoline Park & Indoor Adventure Injury Claims',
     eyebrow: 'California local injury guide',
@@ -227,7 +227,7 @@ export const trampolineParkCityGuidePages2: LandingPage[] = [
   },
   {
     slug: OAK_TRAMP_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Oakland Trampoline Park Injury Claims',
     title: 'Oakland Trampoline Park & Indoor Adventure Injury Claims',
     eyebrow: 'California local injury guide',

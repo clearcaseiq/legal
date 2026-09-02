@@ -245,7 +245,10 @@ const resolvePage: GetServerSideProps<PageProps> = async ({ params, query, res }
           canonical: landingPageCanonical(page),
           schema: isEmbed ? null : JSON.stringify(buildLandingPageSchema(page)),
           ogImage: landingPageOgImage(page),
-          noindex: isEmbed,
+          // `page.noindex` is the thinning switch; see the field on LandingPage.
+          // The page still renders and still 200s — a crawler has to fetch it to
+          // read the tag that removes it.
+          noindex: isEmbed || page.noindex === true,
           alternates: isEmbed ? [] : alternatesFor(pathname),
         },
       },

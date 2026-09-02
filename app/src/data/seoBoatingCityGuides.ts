@@ -62,7 +62,7 @@ export const NEWPORT_BOATING_SLUG = '/newport-beach-boating-accident'
 export const boatingCityGuidePages: LandingPage[] = [
   {
     slug: SD_BOATING_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Diego Boating Accident Claims',
     title: 'San Diego Boating Accident Claims',
     eyebrow: 'California local injury guide',
@@ -124,7 +124,7 @@ export const boatingCityGuidePages: LandingPage[] = [
   },
   {
     slug: DELTA_BOATING_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Sacramento Delta Boating Accident Claims',
     title: 'Sacramento Delta Boating Accident Claims',
     eyebrow: 'California local injury guide',
@@ -186,7 +186,7 @@ export const boatingCityGuidePages: LandingPage[] = [
   },
   {
     slug: LONGBEACH_BOATING_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Long Beach Boating Accident Claims',
     title: 'Long Beach Boating Accident Claims',
     eyebrow: 'California local injury guide',
@@ -248,7 +248,7 @@ export const boatingCityGuidePages: LandingPage[] = [
   },
   {
     slug: NEWPORT_BOATING_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Newport Beach Boating Accident Claims',
     title: 'Newport Beach Boating Accident Claims',
     eyebrow: 'California local injury guide',

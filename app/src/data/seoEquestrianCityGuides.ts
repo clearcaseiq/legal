@@ -72,7 +72,7 @@ export const SAC_EQ_SLUG = '/sacramento-horseback-riding-injury-claim'
 export const equestrianCityGuidePages: LandingPage[] = [
   {
     slug: LA_EQ_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Los Angeles Horseback Riding Injury Claims',
     title: 'Los Angeles Horseback Riding & Stable Injury Claims',
     eyebrow: 'California local injury guide',
@@ -134,7 +134,7 @@ export const equestrianCityGuidePages: LandingPage[] = [
   },
   {
     slug: SD_EQ_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Diego Horseback Riding Injury Claims',
     title: 'San Diego Horseback Riding & Trail Injury Claims',
     eyebrow: 'California local injury guide',
@@ -196,7 +196,7 @@ export const equestrianCityGuidePages: LandingPage[] = [
   },
   {
     slug: TEMECULA_EQ_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Temecula Horseback Riding Injury Claims',
     title: 'Temecula Wine-Country Trail Ride Injury Claims',
     eyebrow: 'California local injury guide',
@@ -258,7 +258,7 @@ export const equestrianCityGuidePages: LandingPage[] = [
   },
   {
     slug: SAC_EQ_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Sacramento Horseback Riding Injury Claims',
     title: 'Sacramento Horseback Riding & Boarding Injury Claims',
     eyebrow: 'California local injury guide',

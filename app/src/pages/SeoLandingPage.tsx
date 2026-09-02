@@ -21,6 +21,9 @@ const categoryTone: Record<string, string> = {
   Insurance: 'from-amber-50 to-white border-amber-100 text-amber-950',
   Liability: 'from-violet-50 to-white border-violet-100 text-violet-950',
   Commercial: 'from-slate-100 to-white border-slate-200 text-slate-950',
+  Cities: 'from-teal-50 to-white border-teal-100 text-teal-950',
+  'Claim Types': 'from-indigo-50 to-white border-indigo-100 text-indigo-950',
+  'Statute of Limitations': 'from-orange-50 to-white border-orange-100 text-orange-950',
   'Attorney Intent': 'from-brand-50 to-white border-brand-100 text-brand-950',
   'Educational / SEO Moat': 'from-cyan-50 to-white border-cyan-100 text-cyan-950',
 }
@@ -140,6 +143,69 @@ const SECTION_COPY_BY_CATEGORY: Partial<
       title: 'How the case file comes together',
       intro:
         'A reviewable file is assembled in a particular order, because each part determines what the next one needs to answer.',
+    },
+  },
+  // The geo layer. These pages were reading the Attorney Intent copy above
+  // while they shared its category, so this is written to keep them out of the
+  // symptom-language default rather than to change how they read.
+  Cities: {
+    timeline: {
+      eyebrow: 'Claim timeline',
+      title: 'How a local claim develops from the incident date',
+      intro:
+        'The clock starts at the incident, and it is much shorter when a city, county, or transit agency is involved. This timeline shows what should exist at each point and when the shorter deadline attaches.',
+    },
+    severity: {
+      eyebrow: 'Claim complexity',
+      title: 'How many parties and policies are involved',
+      intro:
+        'Locally, complexity usually comes from who owns the vehicle, the road, or the property rather than from the injury itself. A public entity or a commercial operator changes both the deadline and the available coverage.',
+    },
+    progression: {
+      eyebrow: 'Building the local record',
+      title: 'How the local case file comes together',
+      intro:
+        'Reports, footage, and roadway records sit with different local agencies, and each has its own request process and retention window. The order matters because the shortest-lived evidence has to be asked for first.',
+    },
+  },
+  'Claim Types': {
+    timeline: {
+      eyebrow: 'Claim timeline',
+      title: 'How a claim takes shape after an injury',
+      intro:
+        'Whether a claim exists is usually settled early, by who was responsible and what the records show. This timeline covers when each of those becomes answerable.',
+    },
+    severity: {
+      eyebrow: 'Claim viability',
+      title: 'What makes a claim viable',
+      intro:
+        'Viability is a combination of a responsible party, a documented injury, and a route to coverage. A claim can be strong on one and fail on another.',
+    },
+    progression: {
+      eyebrow: 'Assembling the file',
+      title: 'How the case file comes together',
+      intro:
+        'A reviewable file is assembled in a particular order, because each part determines what the next one needs to answer.',
+    },
+  },
+  'Statute of Limitations': {
+    timeline: {
+      eyebrow: 'Deadline timeline',
+      title: 'How the filing deadline runs from the incident date',
+      intro:
+        'The deadline runs from the incident, not from the denial or the last treatment, and it is the one part of a claim that cannot be repaired after the fact. This timeline shows what should exist at each point.',
+    },
+    severity: {
+      eyebrow: 'Deadline exposure',
+      title: 'Which deadline applies',
+      intro:
+        'There is no single deadline. Who the defendant is decides which one runs, and a public entity or a medical provider shortens it well below the general injury limit.',
+    },
+    progression: {
+      eyebrow: 'Before the deadline',
+      title: 'What has to be in place before the deadline',
+      intro:
+        'Filing on time is not the same as being ready to file. Each item below is something a firm needs before it can take the case on with the deadline close.',
     },
   },
   Commercial: {

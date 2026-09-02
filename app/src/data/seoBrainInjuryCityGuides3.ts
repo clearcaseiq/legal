@@ -55,7 +55,7 @@ export const ANAHEIM_TBI_SLUG = '/anaheim-brain-injury-claim'
 export const brainInjuryCityGuidePages3: LandingPage[] = [
   {
     slug: RIV_TBI_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Riverside Brain Injury (TBI) Claims',
     title: 'Riverside Brain Injury (TBI) Claims',
     eyebrow: 'California local injury guide',
@@ -117,7 +117,7 @@ export const brainInjuryCityGuidePages3: LandingPage[] = [
   },
   {
     slug: SB_TBI_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Bernardino Brain Injury (TBI) Claims',
     title: 'San Bernardino Brain Injury (TBI) Claims',
     eyebrow: 'California local injury guide',
@@ -179,7 +179,7 @@ export const brainInjuryCityGuidePages3: LandingPage[] = [
   },
   {
     slug: BAKERSFIELD_TBI_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Bakersfield Brain Injury (TBI) Claims',
     title: 'Bakersfield Brain Injury (TBI) Claims',
     eyebrow: 'California local injury guide',
@@ -241,7 +241,7 @@ export const brainInjuryCityGuidePages3: LandingPage[] = [
   },
   {
     slug: ANAHEIM_TBI_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Anaheim Brain Injury (TBI) Claims',
     title: 'Anaheim Brain Injury (TBI) Claims',
     eyebrow: 'California local injury guide',

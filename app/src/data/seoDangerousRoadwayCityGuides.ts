@@ -67,7 +67,7 @@ export const SJ_ROAD_SLUG = '/san-jose-dangerous-road-accident'
 export const dangerousRoadwayCityGuidePages: LandingPage[] = [
   {
     slug: LA_ROAD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Los Angeles Dangerous Road & Public Property Claims',
     title: 'Los Angeles Dangerous Road & Public Property Claims',
     eyebrow: 'California local injury guide',
@@ -129,7 +129,7 @@ export const dangerousRoadwayCityGuidePages: LandingPage[] = [
   },
   {
     slug: OAK_ROAD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Oakland Dangerous Road & Public Property Claims',
     title: 'Oakland Dangerous Road & Public Property Claims',
     eyebrow: 'California local injury guide',
@@ -191,7 +191,7 @@ export const dangerousRoadwayCityGuidePages: LandingPage[] = [
   },
   {
     slug: SAC_ROAD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Sacramento Dangerous Road & Public Property Claims',
     title: 'Sacramento Dangerous Road & Public Property Claims',
     eyebrow: 'California local injury guide',
@@ -253,7 +253,7 @@ export const dangerousRoadwayCityGuidePages: LandingPage[] = [
   },
   {
     slug: SJ_ROAD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Jose Dangerous Road & Public Property Claims',
     title: 'San Jose Dangerous Road & Public Property Claims',
     eyebrow: 'California local injury guide',

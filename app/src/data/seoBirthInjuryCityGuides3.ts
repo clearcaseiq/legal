@@ -58,7 +58,7 @@ export const ANAHEIM_BIRTH_SLUG = '/anaheim-birth-injury-claim'
 export const birthInjuryCityGuidePages3: LandingPage[] = [
   {
     slug: RIV_BIRTH_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Riverside Birth Injury Claims',
     title: 'Riverside Birth Injury Claims',
     eyebrow: 'California local injury guide',
@@ -120,7 +120,7 @@ export const birthInjuryCityGuidePages3: LandingPage[] = [
   },
   {
     slug: SB_BIRTH_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Bernardino Birth Injury Claims',
     title: 'San Bernardino Birth Injury Claims',
     eyebrow: 'California local injury guide',
@@ -182,7 +182,7 @@ export const birthInjuryCityGuidePages3: LandingPage[] = [
   },
   {
     slug: BAKERSFIELD_BIRTH_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Bakersfield Birth Injury Claims',
     title: 'Bakersfield Birth Injury Claims',
     eyebrow: 'California local injury guide',
@@ -244,7 +244,7 @@ export const birthInjuryCityGuidePages3: LandingPage[] = [
   },
   {
     slug: ANAHEIM_BIRTH_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Anaheim Birth Injury Claims',
     title: 'Anaheim Birth Injury Claims',
     eyebrow: 'California local injury guide',

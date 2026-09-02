@@ -1,6 +1,7 @@
 import { Link, useLocation } from 'react-router-dom'
 import LocaleLink from '../components/LocaleLink'
 import { START_ASSESSMENT_HREF } from '../data/appRoutes'
+import { organizationSchema } from '../data/organizationSchema'
 import { useEffect } from 'react'
 import { Building2, FileCheck2, HeartHandshake, Scale, ShieldCheck } from 'lucide-react'
 import { useLanguage } from '../contexts/LanguageContext'
@@ -46,19 +47,7 @@ export default function About() {
       name: 'ClearCaseIQ',
       url: 'https://www.clearcaseiq.com',
     },
-    about: {
-      '@type': 'Organization',
-      name: 'ClearCaseIQ',
-      legalName: 'ClearCaseIQ Corp.',
-      url: 'https://www.clearcaseiq.com',
-      email: 'support@clearcaseiq.com',
-      address: {
-        '@type': 'PostalAddress',
-        addressLocality: 'Los Angeles',
-        addressRegion: 'CA',
-        addressCountry: 'US',
-      },
-    },
+    about: organizationSchema({ nested: true }),
     mainEntity: {
       '@type': 'Person',
       name: 'Sri Reddy',

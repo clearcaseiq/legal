@@ -62,7 +62,7 @@ export const SAC_TBI_SLUG = '/sacramento-brain-injury-claim'
 export const brainInjuryCityGuidePages: LandingPage[] = [
   {
     slug: LA_TBI_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Los Angeles Brain Injury (TBI) Claims',
     title: 'Los Angeles Brain Injury (TBI) Claims',
     eyebrow: 'California local injury guide',
@@ -124,7 +124,7 @@ export const brainInjuryCityGuidePages: LandingPage[] = [
   },
   {
     slug: SD_TBI_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Diego Brain Injury (TBI) Claims',
     title: 'San Diego Brain Injury (TBI) Claims',
     eyebrow: 'California local injury guide',
@@ -186,7 +186,7 @@ export const brainInjuryCityGuidePages: LandingPage[] = [
   },
   {
     slug: SF_TBI_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Francisco Brain Injury (TBI) Claims',
     title: 'San Francisco Brain Injury (TBI) Claims',
     eyebrow: 'California local injury guide',
@@ -248,7 +248,7 @@ export const brainInjuryCityGuidePages: LandingPage[] = [
   },
   {
     slug: SAC_TBI_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Sacramento Brain Injury (TBI) Claims',
     title: 'Sacramento Brain Injury (TBI) Claims',
     eyebrow: 'California local injury guide',

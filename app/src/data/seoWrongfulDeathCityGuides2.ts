@@ -55,7 +55,7 @@ export const OAK_WD_SLUG = '/oakland-wrongful-death'
 export const wrongfulDeathCityGuidePages2: LandingPage[] = [
   {
     slug: SJ_WD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Jose Wrongful Death Claims',
     title: 'San Jose Wrongful Death Claims',
     eyebrow: 'California local injury guide',
@@ -117,7 +117,7 @@ export const wrongfulDeathCityGuidePages2: LandingPage[] = [
   },
   {
     slug: FRESNO_WD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Fresno Wrongful Death Claims',
     title: 'Fresno Wrongful Death Claims',
     eyebrow: 'California local injury guide',
@@ -179,7 +179,7 @@ export const wrongfulDeathCityGuidePages2: LandingPage[] = [
   },
   {
     slug: LB_WD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Long Beach Wrongful Death Claims',
     title: 'Long Beach Wrongful Death Claims',
     eyebrow: 'California local injury guide',
@@ -241,7 +241,7 @@ export const wrongfulDeathCityGuidePages2: LandingPage[] = [
   },
   {
     slug: OAK_WD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Oakland Wrongful Death Claims',
     title: 'Oakland Wrongful Death Claims',
     eyebrow: 'California local injury guide',

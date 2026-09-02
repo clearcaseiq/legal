@@ -44,7 +44,7 @@ export const LB_PRODUCT_SLUG = '/long-beach-defective-product-battery-fire-claim
 export const consumerProductCityGuidePages2: LandingPage[] = [
   {
     slug: SJ_PRODUCT_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Jose Defective Product & Battery Fire Claims',
     title: 'San Jose Defective Product & Lithium Battery Fire Claims',
     eyebrow: 'California local injury guide',
@@ -106,7 +106,7 @@ export const consumerProductCityGuidePages2: LandingPage[] = [
   },
   {
     slug: SAC_PRODUCT_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Sacramento Defective Product & Battery Fire Claims',
     title: 'Sacramento Defective Product & Lithium Battery Fire Claims',
     eyebrow: 'California local injury guide',
@@ -168,7 +168,7 @@ export const consumerProductCityGuidePages2: LandingPage[] = [
   },
   {
     slug: FRESNO_PRODUCT_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Fresno Defective Product & Battery Fire Claims',
     title: 'Fresno Defective Product & Lithium Battery Fire Claims',
     eyebrow: 'California local injury guide',
@@ -230,7 +230,7 @@ export const consumerProductCityGuidePages2: LandingPage[] = [
   },
   {
     slug: LB_PRODUCT_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Long Beach Defective Product & Battery Fire Claims',
     title: 'Long Beach Defective Product & Lithium Battery Fire Claims',
     eyebrow: 'California local injury guide',

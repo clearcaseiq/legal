@@ -56,7 +56,7 @@ export const OAK_SCI_SLUG = '/oakland-spinal-cord-injury-claim'
 export const spinalInjuryCityGuidePages2: LandingPage[] = [
   {
     slug: SJ_SCI_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Jose Spinal Cord Injury & Paralysis Claims',
     title: 'San Jose Spinal Cord Injury & Paralysis Claims',
     eyebrow: 'California local injury guide',
@@ -118,7 +118,7 @@ export const spinalInjuryCityGuidePages2: LandingPage[] = [
   },
   {
     slug: FRESNO_SCI_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Fresno Spinal Cord Injury & Paralysis Claims',
     title: 'Fresno Spinal Cord Injury & Paralysis Claims',
     eyebrow: 'California local injury guide',
@@ -180,7 +180,7 @@ export const spinalInjuryCityGuidePages2: LandingPage[] = [
   },
   {
     slug: LB_SCI_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Long Beach Spinal Cord Injury & Paralysis Claims',
     title: 'Long Beach Spinal Cord Injury & Paralysis Claims',
     eyebrow: 'California local injury guide',
@@ -242,7 +242,7 @@ export const spinalInjuryCityGuidePages2: LandingPage[] = [
   },
   {
     slug: OAK_SCI_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Oakland Spinal Cord Injury & Paralysis Claims',
     title: 'Oakland Spinal Cord Injury & Paralysis Claims',
     eyebrow: 'California local injury guide',

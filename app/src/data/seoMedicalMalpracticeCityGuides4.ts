@@ -61,7 +61,7 @@ export const CHULAVISTA_MEDMAL_SLUG = '/chula-vista-medical-malpractice-claim'
 export const medicalMalpracticeCityGuidePages4: LandingPage[] = [
   {
     slug: ANAHEIM_MEDMAL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Anaheim Medical Malpractice Claims',
     title: 'Anaheim Medical Malpractice Claims',
     eyebrow: 'California local injury guide',
@@ -123,7 +123,7 @@ export const medicalMalpracticeCityGuidePages4: LandingPage[] = [
   },
   {
     slug: STOCKTON_MEDMAL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Stockton Medical Malpractice Claims',
     title: 'Stockton Medical Malpractice Claims',
     eyebrow: 'California local injury guide',
@@ -185,7 +185,7 @@ export const medicalMalpracticeCityGuidePages4: LandingPage[] = [
   },
   {
     slug: MODESTO_MEDMAL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Modesto Medical Malpractice Claims',
     title: 'Modesto Medical Malpractice Claims',
     eyebrow: 'California local injury guide',
@@ -247,7 +247,7 @@ export const medicalMalpracticeCityGuidePages4: LandingPage[] = [
   },
   {
     slug: CHULAVISTA_MEDMAL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Chula Vista Medical Malpractice Claims',
     title: 'Chula Vista Medical Malpractice Claims',
     eyebrow: 'California local injury guide',

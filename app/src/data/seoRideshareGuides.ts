@@ -96,7 +96,7 @@ export const rideshareGuidePages: LandingPage[] = [
   },
   {
     slug: RIDESHARE_SOL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Statute of Limitations',
     cluster: 'Rideshare Filing Deadlines',
     title: 'California Rideshare Accident Statute of Limitations',
     eyebrow: 'Filing deadlines',

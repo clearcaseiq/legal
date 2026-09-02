@@ -55,7 +55,7 @@ export const OAK_DUI_SLUG = '/oakland-dui-accident'
 export const duiVictimCityGuidePages2: LandingPage[] = [
   {
     slug: SJ_DUI_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Jose Drunk Driving Accident Claims',
     title: 'San Jose Drunk Driving Accident Claims',
     eyebrow: 'California local injury guide',
@@ -117,7 +117,7 @@ export const duiVictimCityGuidePages2: LandingPage[] = [
   },
   {
     slug: FRESNO_DUI_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Fresno Drunk Driving Accident Claims',
     title: 'Fresno Drunk Driving Accident Claims',
     eyebrow: 'California local injury guide',
@@ -179,7 +179,7 @@ export const duiVictimCityGuidePages2: LandingPage[] = [
   },
   {
     slug: LB_DUI_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Long Beach Drunk Driving Accident Claims',
     title: 'Long Beach Drunk Driving Accident Claims',
     eyebrow: 'California local injury guide',
@@ -241,7 +241,7 @@ export const duiVictimCityGuidePages2: LandingPage[] = [
   },
   {
     slug: OAK_DUI_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Oakland Drunk Driving Accident Claims',
     title: 'Oakland Drunk Driving Accident Claims',
     eyebrow: 'California local injury guide',

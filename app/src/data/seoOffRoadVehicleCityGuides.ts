@@ -71,7 +71,7 @@ export const FRESNO_OHV_SLUG = '/fresno-atv-off-road-accident-claim'
 export const offRoadVehicleCityGuidePages: LandingPage[] = [
   {
     slug: BAKERSFIELD_OHV_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Bakersfield ATV & Off-Road Accident Claims',
     title: 'Bakersfield ATV & Off-Road Accident Claims',
     eyebrow: 'California local injury guide',
@@ -133,7 +133,7 @@ export const offRoadVehicleCityGuidePages: LandingPage[] = [
   },
   {
     slug: SAN_BERNARDINO_OHV_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Bernardino ATV & Off-Road Accident Claims',
     title: 'San Bernardino ATV & Off-Road Accident Claims',
     eyebrow: 'California local injury guide',
@@ -195,7 +195,7 @@ export const offRoadVehicleCityGuidePages: LandingPage[] = [
   },
   {
     slug: RIVERSIDE_OHV_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Riverside ATV & Off-Road Accident Claims',
     title: 'Riverside ATV & Off-Road Accident Claims',
     eyebrow: 'California local injury guide',
@@ -257,7 +257,7 @@ export const offRoadVehicleCityGuidePages: LandingPage[] = [
   },
   {
     slug: FRESNO_OHV_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Fresno ATV & Off-Road Accident Claims',
     title: 'Fresno ATV & Off-Road Accident Claims',
     eyebrow: 'California local injury guide',

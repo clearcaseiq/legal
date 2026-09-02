@@ -57,7 +57,7 @@ export const ANAHEIM_RIDESHARE_SLUG = '/anaheim-rideshare-accident'
 export const rideshareCityGuidePages: LandingPage[] = [
   {
     slug: LA_RIDESHARE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Los Angeles Rideshare Accident Claims',
     title: 'Los Angeles Rideshare Accident Claims',
     eyebrow: 'California local injury guide',
@@ -119,7 +119,7 @@ export const rideshareCityGuidePages: LandingPage[] = [
   },
   {
     slug: SF_RIDESHARE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Francisco Rideshare Accident Claims',
     title: 'San Francisco Rideshare Accident Claims',
     eyebrow: 'California local injury guide',
@@ -181,7 +181,7 @@ export const rideshareCityGuidePages: LandingPage[] = [
   },
   {
     slug: SD_RIDESHARE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Diego Rideshare Accident Claims',
     title: 'San Diego Rideshare Accident Claims',
     eyebrow: 'California local injury guide',
@@ -243,7 +243,7 @@ export const rideshareCityGuidePages: LandingPage[] = [
   },
   {
     slug: ANAHEIM_RIDESHARE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Anaheim Rideshare Accident Claims',
     title: 'Anaheim Rideshare Accident Claims',
     eyebrow: 'California local injury guide',

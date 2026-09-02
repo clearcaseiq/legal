@@ -43,7 +43,7 @@ export const SJ_EVENT_SLUG = '/san-jose-concert-crowd-injury-claim'
 export const eventCrowdCityGuidePages2: LandingPage[] = [
   {
     slug: SD_EVENT_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Diego Event Crowd Injury Claims',
     title: 'San Diego Concert, Festival & Event Crowd Injury Claims',
     eyebrow: 'California local injury guide',
@@ -105,7 +105,7 @@ export const eventCrowdCityGuidePages2: LandingPage[] = [
   },
   {
     slug: SAC_EVENT_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Sacramento Event Crowd Injury Claims',
     title: 'Sacramento Concert, Festival & Event Crowd Injury Claims',
     eyebrow: 'California local injury guide',
@@ -167,7 +167,7 @@ export const eventCrowdCityGuidePages2: LandingPage[] = [
   },
   {
     slug: OAK_EVENT_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Oakland Event Crowd Injury Claims',
     title: 'Oakland Concert, Festival & Event Crowd Injury Claims',
     eyebrow: 'California local injury guide',
@@ -229,7 +229,7 @@ export const eventCrowdCityGuidePages2: LandingPage[] = [
   },
   {
     slug: SJ_EVENT_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Jose Event Crowd Injury Claims',
     title: 'San Jose Concert, Festival & Event Crowd Injury Claims',
     eyebrow: 'California local injury guide',

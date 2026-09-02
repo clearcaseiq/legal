@@ -58,7 +58,7 @@ export const ANAHEIM_UM_SLUG = '/anaheim-uninsured-motorist-accident'
 export const uninsuredMotoristCityGuidePages3: LandingPage[] = [
   {
     slug: SF_UM_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Francisco Uninsured Motorist Claims',
     title: 'San Francisco Uninsured & Hit-and-Run Motorist Claims',
     eyebrow: 'California local injury guide',
@@ -120,7 +120,7 @@ export const uninsuredMotoristCityGuidePages3: LandingPage[] = [
   },
   {
     slug: RIV_UM_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Riverside Uninsured Motorist Claims',
     title: 'Riverside Uninsured & Hit-and-Run Motorist Claims',
     eyebrow: 'California local injury guide',
@@ -182,7 +182,7 @@ export const uninsuredMotoristCityGuidePages3: LandingPage[] = [
   },
   {
     slug: LB_UM_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Long Beach Uninsured Motorist Claims',
     title: 'Long Beach Uninsured & Hit-and-Run Motorist Claims',
     eyebrow: 'California local injury guide',
@@ -244,7 +244,7 @@ export const uninsuredMotoristCityGuidePages3: LandingPage[] = [
   },
   {
     slug: ANAHEIM_UM_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Anaheim Uninsured Motorist Claims',
     title: 'Anaheim Uninsured & Hit-and-Run Motorist Claims',
     eyebrow: 'California local injury guide',

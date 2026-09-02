@@ -55,7 +55,7 @@ export const OAK_HOTEL_SLUG = '/oakland-hotel-bedbug-injury-claim'
 export const hotelInjuryCityGuidePages2: LandingPage[] = [
   {
     slug: SJ_HOTEL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Jose Hotel Injury & Bedbug Claims',
     title: 'San Jose Hotel Injury & Bedbug Claims',
     eyebrow: 'California local injury guide',
@@ -117,7 +117,7 @@ export const hotelInjuryCityGuidePages2: LandingPage[] = [
   },
   {
     slug: SAC_HOTEL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Sacramento Hotel Injury & Bedbug Claims',
     title: 'Sacramento Hotel Injury & Bedbug Claims',
     eyebrow: 'California local injury guide',
@@ -179,7 +179,7 @@ export const hotelInjuryCityGuidePages2: LandingPage[] = [
   },
   {
     slug: LB_HOTEL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Long Beach Hotel Injury & Bedbug Claims',
     title: 'Long Beach Hotel Injury & Bedbug Claims',
     eyebrow: 'California local injury guide',
@@ -241,7 +241,7 @@ export const hotelInjuryCityGuidePages2: LandingPage[] = [
   },
   {
     slug: OAK_HOTEL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Oakland Hotel Injury & Bedbug Claims',
     title: 'Oakland Hotel Injury & Bedbug Claims',
     eyebrow: 'California local injury guide',

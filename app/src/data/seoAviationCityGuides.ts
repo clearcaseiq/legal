@@ -65,7 +65,7 @@ export const SAC_AV_SLUG = '/sacramento-aviation-accident-claim'
 export const aviationCityGuidePages: LandingPage[] = [
   {
     slug: LA_AV_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Los Angeles Aviation & Helicopter Accident Claims',
     title: 'Los Angeles Aviation & Helicopter Accident Claims',
     eyebrow: 'California local injury guide',
@@ -127,7 +127,7 @@ export const aviationCityGuidePages: LandingPage[] = [
   },
   {
     slug: SD_AV_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Diego Aviation & Helicopter Accident Claims',
     title: 'San Diego Aviation & Helicopter Accident Claims',
     eyebrow: 'California local injury guide',
@@ -189,7 +189,7 @@ export const aviationCityGuidePages: LandingPage[] = [
   },
   {
     slug: SJ_AV_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Jose Aviation & Charter Accident Claims',
     title: 'San Jose Aviation & Charter Accident Claims',
     eyebrow: 'California local injury guide',
@@ -251,7 +251,7 @@ export const aviationCityGuidePages: LandingPage[] = [
   },
   {
     slug: SAC_AV_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Sacramento Aviation & Agricultural-Aircraft Accident Claims',
     title: 'Sacramento Aviation & Agricultural-Aircraft Accident Claims',
     eyebrow: 'California local injury guide',

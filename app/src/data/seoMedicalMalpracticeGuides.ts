@@ -40,7 +40,7 @@ export const MEDMAL_SOL_SLUG = '/california-medical-malpractice-statute-of-limit
 export const medicalMalpracticeGuidePages: LandingPage[] = [
   {
     slug: MEDMAL_QUALIFY_SLUG,
-    category: 'Attorney Intent',
+    category: 'Claim Types',
     cluster: 'Medical Malpractice Qualification',
     title: 'Do I Have a Medical Malpractice Case in California?',
     eyebrow: 'Do I have a case?',
@@ -228,7 +228,7 @@ export const medicalMalpracticeGuidePages: LandingPage[] = [
   },
   {
     slug: MEDMAL_SOL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Statute of Limitations',
     cluster: 'Medical Malpractice Deadlines',
     title: 'California Medical Malpractice Statute of Limitations',
     eyebrow: 'Filing deadlines',

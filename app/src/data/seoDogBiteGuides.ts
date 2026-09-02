@@ -163,7 +163,7 @@ export const dogBiteGuidePages: LandingPage[] = [
   },
   {
     slug: DOG_BITE_SOL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Statute of Limitations',
     cluster: 'Dog Bite Filing Deadlines',
     title: 'California Dog Bite Statute of Limitations',
     eyebrow: 'Filing deadlines',

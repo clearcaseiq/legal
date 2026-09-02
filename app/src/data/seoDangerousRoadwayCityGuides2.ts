@@ -68,7 +68,7 @@ export const BAKERSFIELD_ROAD_SLUG = '/bakersfield-dangerous-road-accident'
 export const dangerousRoadwayCityGuidePages2: LandingPage[] = [
   {
     slug: SD_ROAD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Diego Dangerous Road & Public Property Claims',
     title: 'San Diego Dangerous Road & Public Property Claims',
     eyebrow: 'California local injury guide',
@@ -130,7 +130,7 @@ export const dangerousRoadwayCityGuidePages2: LandingPage[] = [
   },
   {
     slug: FRESNO_ROAD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Fresno Dangerous Road & Public Property Claims',
     title: 'Fresno Dangerous Road & Public Property Claims',
     eyebrow: 'California local injury guide',
@@ -192,7 +192,7 @@ export const dangerousRoadwayCityGuidePages2: LandingPage[] = [
   },
   {
     slug: RIV_ROAD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Riverside Dangerous Road & Public Property Claims',
     title: 'Riverside Dangerous Road & Public Property Claims',
     eyebrow: 'California local injury guide',
@@ -254,7 +254,7 @@ export const dangerousRoadwayCityGuidePages2: LandingPage[] = [
   },
   {
     slug: BAKERSFIELD_ROAD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Bakersfield Dangerous Road & Public Property Claims',
     title: 'Bakersfield Dangerous Road & Public Property Claims',
     eyebrow: 'California local injury guide',

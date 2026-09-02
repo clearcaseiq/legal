@@ -43,7 +43,7 @@ export const FRESNO_MOLD_SLUG = '/fresno-toxic-mold-apartment-claim'
 export const moldHabitabilityCityGuidePages2: LandingPage[] = [
   {
     slug: SD_MOLD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Diego Toxic Mold & Habitability Claims',
     title: 'San Diego Toxic Mold & Habitability Claims',
     eyebrow: 'California local injury guide',
@@ -105,7 +105,7 @@ export const moldHabitabilityCityGuidePages2: LandingPage[] = [
   },
   {
     slug: SJ_MOLD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Jose Toxic Mold & Habitability Claims',
     title: 'San Jose Toxic Mold & Habitability Claims',
     eyebrow: 'California local injury guide',
@@ -167,7 +167,7 @@ export const moldHabitabilityCityGuidePages2: LandingPage[] = [
   },
   {
     slug: SAC_MOLD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Sacramento Toxic Mold & Habitability Claims',
     title: 'Sacramento Toxic Mold & Habitability Claims',
     eyebrow: 'California local injury guide',
@@ -229,7 +229,7 @@ export const moldHabitabilityCityGuidePages2: LandingPage[] = [
   },
   {
     slug: FRESNO_MOLD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Fresno Toxic Mold & Habitability Claims',
     title: 'Fresno Toxic Mold & Habitability Claims',
     eyebrow: 'California local injury guide',

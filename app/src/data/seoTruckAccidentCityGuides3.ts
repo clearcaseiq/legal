@@ -58,7 +58,7 @@ export const ANAHEIM_TRUCK_SLUG = '/anaheim-truck-accident'
 export const truckAccidentCityGuidePages3: LandingPage[] = [
   {
     slug: SD_TRUCK_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Diego Truck Accident Claims',
     title: 'San Diego Truck Accident Claims',
     eyebrow: 'California local injury guide',
@@ -120,7 +120,7 @@ export const truckAccidentCityGuidePages3: LandingPage[] = [
   },
   {
     slug: SJ_TRUCK_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Jose Truck Accident Claims',
     title: 'San Jose Truck Accident Claims',
     eyebrow: 'California local injury guide',
@@ -182,7 +182,7 @@ export const truckAccidentCityGuidePages3: LandingPage[] = [
   },
   {
     slug: BAKERSFIELD_TRUCK_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Bakersfield Truck Accident Claims',
     title: 'Bakersfield Truck Accident Claims',
     eyebrow: 'California local injury guide',
@@ -244,7 +244,7 @@ export const truckAccidentCityGuidePages3: LandingPage[] = [
   },
   {
     slug: ANAHEIM_TRUCK_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Anaheim Truck Accident Claims',
     title: 'Anaheim Truck Accident Claims',
     eyebrow: 'California local injury guide',

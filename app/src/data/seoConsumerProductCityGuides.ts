@@ -68,7 +68,7 @@ export const OAK_PRODUCT_SLUG = '/oakland-defective-product-battery-fire-claim'
 export const consumerProductCityGuidePages: LandingPage[] = [
   {
     slug: LA_PRODUCT_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Los Angeles Defective Product & Battery Fire Claims',
     title: 'Los Angeles Defective Product & Battery Fire Claims',
     eyebrow: 'California local injury guide',
@@ -130,7 +130,7 @@ export const consumerProductCityGuidePages: LandingPage[] = [
   },
   {
     slug: SF_PRODUCT_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Francisco Defective Product & Battery Fire Claims',
     title: 'San Francisco Defective Product & Battery Fire Claims',
     eyebrow: 'California local injury guide',
@@ -192,7 +192,7 @@ export const consumerProductCityGuidePages: LandingPage[] = [
   },
   {
     slug: SD_PRODUCT_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Diego Defective Product & Battery Fire Claims',
     title: 'San Diego Defective Product & Battery Fire Claims',
     eyebrow: 'California local injury guide',
@@ -254,7 +254,7 @@ export const consumerProductCityGuidePages: LandingPage[] = [
   },
   {
     slug: OAK_PRODUCT_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Oakland Defective Product & Battery Fire Claims',
     title: 'Oakland Defective Product & Battery Fire Claims',
     eyebrow: 'California local injury guide',

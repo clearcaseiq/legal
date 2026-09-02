@@ -51,7 +51,7 @@ export const OAK_SLIPFALL_SLUG = '/oakland-slip-and-fall'
 export const slipAndFallCityGuidePages2: LandingPage[] = [
   {
     slug: SJ_SLIPFALL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Jose Slip and Fall Claims',
     title: 'San Jose Slip and Fall Claims',
     eyebrow: 'California local injury guide',
@@ -113,7 +113,7 @@ export const slipAndFallCityGuidePages2: LandingPage[] = [
   },
   {
     slug: FRESNO_SLIPFALL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Fresno Slip and Fall Claims',
     title: 'Fresno Slip and Fall Claims',
     eyebrow: 'California local injury guide',
@@ -175,7 +175,7 @@ export const slipAndFallCityGuidePages2: LandingPage[] = [
   },
   {
     slug: LB_SLIPFALL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Long Beach Slip and Fall Claims',
     title: 'Long Beach Slip and Fall Claims',
     eyebrow: 'California local injury guide',
@@ -237,7 +237,7 @@ export const slipAndFallCityGuidePages2: LandingPage[] = [
   },
   {
     slug: OAK_SLIPFALL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Oakland Slip and Fall Claims',
     title: 'Oakland Slip and Fall Claims',
     eyebrow: 'California local injury guide',

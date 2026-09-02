@@ -55,7 +55,7 @@ export const ANAHEIM_TRANSIT_SLUG = '/anaheim-octa-bus-accident'
 export const transitCityGuidePages2: LandingPage[] = [
   {
     slug: SJ_TRANSIT_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Jose VTA and Transit Accident Claims',
     title: 'San Jose VTA and Transit Accident Claims',
     eyebrow: 'California local injury guide',
@@ -117,7 +117,7 @@ export const transitCityGuidePages2: LandingPage[] = [
   },
   {
     slug: OAK_TRANSIT_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Oakland AC Transit and BART Accident Claims',
     title: 'Oakland AC Transit and BART Accident Claims',
     eyebrow: 'California local injury guide',
@@ -179,7 +179,7 @@ export const transitCityGuidePages2: LandingPage[] = [
   },
   {
     slug: LB_TRANSIT_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Long Beach Bus and Transit Accident Claims',
     title: 'Long Beach Bus and Transit Accident Claims',
     eyebrow: 'California local injury guide',
@@ -241,7 +241,7 @@ export const transitCityGuidePages2: LandingPage[] = [
   },
   {
     slug: ANAHEIM_TRANSIT_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Anaheim OCTA and Resort Transit Accident Claims',
     title: 'Anaheim OCTA and Resort Transit Accident Claims',
     eyebrow: 'California local injury guide',

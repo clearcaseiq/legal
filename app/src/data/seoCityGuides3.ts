@@ -34,7 +34,7 @@ export const SF_CAR_SLUG = '/san-francisco-car-accident'
 export const cityGuidePages3: LandingPage[] = [
   {
     slug: OC_CAR_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Orange County Car Accident Claims',
     title: 'Orange County Car Accident Claims',
     eyebrow: 'California local accident guide',
@@ -100,7 +100,7 @@ export const cityGuidePages3: LandingPage[] = [
   },
   {
     slug: SF_CAR_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Francisco Car Accident Claims',
     title: 'San Francisco Car Accident Claims',
     eyebrow: 'California local accident guide',

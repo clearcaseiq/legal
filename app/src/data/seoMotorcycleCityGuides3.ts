@@ -55,7 +55,7 @@ export const BAKERSFIELD_MOTORCYCLE_SLUG = '/bakersfield-motorcycle-accident'
 export const motorcycleCityGuidePages3: LandingPage[] = [
   {
     slug: SF_MOTORCYCLE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Francisco Motorcycle Accident Claims',
     title: 'San Francisco Motorcycle Accident Claims',
     eyebrow: 'California local injury guide',
@@ -117,7 +117,7 @@ export const motorcycleCityGuidePages3: LandingPage[] = [
   },
   {
     slug: ANAHEIM_MOTORCYCLE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Anaheim Motorcycle Accident Claims',
     title: 'Anaheim Motorcycle Accident Claims',
     eyebrow: 'California local injury guide',
@@ -179,7 +179,7 @@ export const motorcycleCityGuidePages3: LandingPage[] = [
   },
   {
     slug: SANTAANA_MOTORCYCLE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Santa Ana Motorcycle Accident Claims',
     title: 'Santa Ana Motorcycle Accident Claims',
     eyebrow: 'California local injury guide',
@@ -241,7 +241,7 @@ export const motorcycleCityGuidePages3: LandingPage[] = [
   },
   {
     slug: BAKERSFIELD_MOTORCYCLE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Bakersfield Motorcycle Accident Claims',
     title: 'Bakersfield Motorcycle Accident Claims',
     eyebrow: 'California local injury guide',

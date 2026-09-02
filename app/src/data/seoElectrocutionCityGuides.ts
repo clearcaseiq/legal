@@ -65,7 +65,7 @@ export const SAC_ELEC_SLUG = '/sacramento-electrocution-injury-claim'
 export const electrocutionCityGuidePages: LandingPage[] = [
   {
     slug: LA_ELEC_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Los Angeles Electrocution & Power-Line Injury Claims',
     title: 'Los Angeles Electrocution & Power-Line Injury Claims',
     eyebrow: 'California local injury guide',
@@ -127,7 +127,7 @@ export const electrocutionCityGuidePages: LandingPage[] = [
   },
   {
     slug: SD_ELEC_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Diego Electrocution & Power-Line Injury Claims',
     title: 'San Diego Electrocution & Power-Line Injury Claims',
     eyebrow: 'California local injury guide',
@@ -189,7 +189,7 @@ export const electrocutionCityGuidePages: LandingPage[] = [
   },
   {
     slug: OAK_ELEC_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Oakland Electrocution & Power-Line Injury Claims',
     title: 'Oakland Electrocution & Power-Line Injury Claims',
     eyebrow: 'California local injury guide',
@@ -251,7 +251,7 @@ export const electrocutionCityGuidePages: LandingPage[] = [
   },
   {
     slug: SAC_ELEC_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Sacramento Electrocution & Power-Line Injury Claims',
     title: 'Sacramento Electrocution & Power-Line Injury Claims',
     eyebrow: 'California local injury guide',

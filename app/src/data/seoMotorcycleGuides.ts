@@ -95,7 +95,7 @@ export const motorcycleGuidePages: LandingPage[] = [
   },
   {
     slug: MOTO_SOL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Statute of Limitations',
     cluster: 'Motorcycle Filing Deadlines',
     title: 'California Motorcycle Accident Statute of Limitations',
     eyebrow: 'Filing deadlines',

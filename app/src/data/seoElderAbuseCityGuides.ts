@@ -74,7 +74,7 @@ export const SJ_ELDER_SLUG = '/san-jose-nursing-home-abuse-claim'
 export const elderAbuseCityGuidePages: LandingPage[] = [
   {
     slug: LA_ELDER_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Los Angeles Nursing Home & Elder Abuse Claims',
     title: 'Los Angeles Nursing Home & Elder Abuse Claims',
     eyebrow: 'California local injury guide',
@@ -136,7 +136,7 @@ export const elderAbuseCityGuidePages: LandingPage[] = [
   },
   {
     slug: SD_ELDER_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Diego Nursing Home & Elder Abuse Claims',
     title: 'San Diego Nursing Home & Elder Abuse Claims',
     eyebrow: 'California local injury guide',
@@ -198,7 +198,7 @@ export const elderAbuseCityGuidePages: LandingPage[] = [
   },
   {
     slug: SAC_ELDER_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Sacramento Nursing Home & Elder Abuse Claims',
     title: 'Sacramento Nursing Home & Elder Abuse Claims',
     eyebrow: 'California local injury guide',
@@ -260,7 +260,7 @@ export const elderAbuseCityGuidePages: LandingPage[] = [
   },
   {
     slug: SJ_ELDER_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Jose Nursing Home & Elder Abuse Claims',
     title: 'San Jose Nursing Home & Elder Abuse Claims',
     eyebrow: 'California local injury guide',

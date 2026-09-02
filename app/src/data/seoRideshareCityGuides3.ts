@@ -58,7 +58,7 @@ export const BAKERSFIELD_RIDESHARE_SLUG = '/bakersfield-rideshare-accident'
 export const rideshareCityGuidePages3: LandingPage[] = [
   {
     slug: FRESNO_RIDESHARE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Fresno Rideshare Accident Claims',
     title: 'Fresno Rideshare Accident Claims',
     eyebrow: 'California local injury guide',
@@ -120,7 +120,7 @@ export const rideshareCityGuidePages3: LandingPage[] = [
   },
   {
     slug: RIVERSIDE_RIDESHARE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Riverside Rideshare Accident Claims',
     title: 'Riverside Rideshare Accident Claims',
     eyebrow: 'California local injury guide',
@@ -182,7 +182,7 @@ export const rideshareCityGuidePages3: LandingPage[] = [
   },
   {
     slug: SANBERNARDINO_RIDESHARE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Bernardino Rideshare Accident Claims',
     title: 'San Bernardino Rideshare Accident Claims',
     eyebrow: 'California local injury guide',
@@ -244,7 +244,7 @@ export const rideshareCityGuidePages3: LandingPage[] = [
   },
   {
     slug: BAKERSFIELD_RIDESHARE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Bakersfield Rideshare Accident Claims',
     title: 'Bakersfield Rideshare Accident Claims',
     eyebrow: 'California local injury guide',

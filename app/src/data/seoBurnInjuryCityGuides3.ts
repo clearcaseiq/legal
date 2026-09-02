@@ -53,7 +53,7 @@ export const ANAHEIM_BURN_SLUG = '/anaheim-burn-injury'
 export const burnInjuryCityGuidePages3: LandingPage[] = [
   {
     slug: RIV_BURN_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Riverside Burn Injury Claims',
     title: 'Riverside Burn Injury Claims',
     eyebrow: 'California local injury guide',
@@ -115,7 +115,7 @@ export const burnInjuryCityGuidePages3: LandingPage[] = [
   },
   {
     slug: SB_BURN_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Bernardino Burn Injury Claims',
     title: 'San Bernardino Burn Injury Claims',
     eyebrow: 'California local injury guide',
@@ -177,7 +177,7 @@ export const burnInjuryCityGuidePages3: LandingPage[] = [
   },
   {
     slug: BAKERSFIELD_BURN_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Bakersfield Burn Injury Claims',
     title: 'Bakersfield Burn Injury Claims',
     eyebrow: 'California local injury guide',
@@ -239,7 +239,7 @@ export const burnInjuryCityGuidePages3: LandingPage[] = [
   },
   {
     slug: ANAHEIM_BURN_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Anaheim Burn Injury Claims',
     title: 'Anaheim Burn Injury Claims',
     eyebrow: 'California local injury guide',

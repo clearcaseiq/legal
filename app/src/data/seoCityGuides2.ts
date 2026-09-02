@@ -43,7 +43,7 @@ export const SAC_CAR_SLUG = '/sacramento-car-accident'
 export const cityGuidePages2: LandingPage[] = [
   {
     slug: LA_CAR_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Los Angeles Car Accident Claims',
     title: 'Los Angeles Car Accident Claims',
     eyebrow: 'California local accident guide',
@@ -109,7 +109,7 @@ export const cityGuidePages2: LandingPage[] = [
   },
   {
     slug: SD_CAR_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Diego Car Accident Claims',
     title: 'San Diego Car Accident Claims',
     eyebrow: 'California local accident guide',
@@ -175,7 +175,7 @@ export const cityGuidePages2: LandingPage[] = [
   },
   {
     slug: SJ_CAR_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Jose Car Accident Claims',
     title: 'San Jose Car Accident Claims',
     eyebrow: 'California local accident guide',
@@ -241,7 +241,7 @@ export const cityGuidePages2: LandingPage[] = [
   },
   {
     slug: SAC_CAR_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Sacramento Car Accident Claims',
     title: 'Sacramento Car Accident Claims',
     eyebrow: 'California local accident guide',

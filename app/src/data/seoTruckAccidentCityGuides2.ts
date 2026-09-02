@@ -59,7 +59,7 @@ export const STOCKTON_TRUCK_SLUG = '/stockton-truck-accident'
 export const truckAccidentCityGuidePages2: LandingPage[] = [
   {
     slug: LA_TRUCK_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Los Angeles Truck Accident Claims',
     title: 'Los Angeles Truck Accident Claims',
     eyebrow: 'California local injury guide',
@@ -121,7 +121,7 @@ export const truckAccidentCityGuidePages2: LandingPage[] = [
   },
   {
     slug: SANBERNARDINO_TRUCK_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Bernardino Truck Accident Claims',
     title: 'San Bernardino Truck Accident Claims',
     eyebrow: 'California local injury guide',
@@ -183,7 +183,7 @@ export const truckAccidentCityGuidePages2: LandingPage[] = [
   },
   {
     slug: SAC_TRUCK_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Sacramento Truck Accident Claims',
     title: 'Sacramento Truck Accident Claims',
     eyebrow: 'California local injury guide',
@@ -245,7 +245,7 @@ export const truckAccidentCityGuidePages2: LandingPage[] = [
   },
   {
     slug: STOCKTON_TRUCK_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Stockton Truck Accident Claims',
     title: 'Stockton Truck Accident Claims',
     eyebrow: 'California local injury guide',

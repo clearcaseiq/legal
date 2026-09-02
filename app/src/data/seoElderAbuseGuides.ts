@@ -159,7 +159,7 @@ export const elderAbuseGuidePages: LandingPage[] = [
   },
   {
     slug: ELDER_SOL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Statute of Limitations',
     cluster: 'Elder Abuse Filing Deadlines',
     title: 'California Nursing Home Abuse Statute of Limitations',
     eyebrow: 'Filing deadlines',

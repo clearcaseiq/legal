@@ -3,8 +3,11 @@ import { reviewerFor } from './contentReviewers'
 import { cityLocalFacts } from './seoCityLocalFacts'
 import type { LandingPage } from './seoLandingPages'
 import { hubForPage } from './seoTopicHubDefs'
+import { DEFAULT_SITE_URL } from './siteOrigin'
 
-export const DEFAULT_SITE_URL = 'https://www.clearcaseiq.com'
+// Re-exported so the existing importers keep working; the constant itself lives
+// in a leaf module so that reading it does not pull this file's data imports in.
+export { DEFAULT_SITE_URL }
 
 export const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || DEFAULT_SITE_URL
 

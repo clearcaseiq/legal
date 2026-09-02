@@ -63,7 +63,7 @@ export const SD_NEGSECURITY_SLUG = '/san-diego-negligent-security'
 export const negligentSecurityCityGuidePages: LandingPage[] = [
   {
     slug: LA_NEGSECURITY_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Los Angeles Negligent Security Claims',
     title: 'Los Angeles Negligent Security Claims',
     eyebrow: 'California local injury guide',
@@ -125,7 +125,7 @@ export const negligentSecurityCityGuidePages: LandingPage[] = [
   },
   {
     slug: OAKLAND_NEGSECURITY_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Oakland Negligent Security Claims',
     title: 'Oakland Negligent Security Claims',
     eyebrow: 'California local injury guide',
@@ -187,7 +187,7 @@ export const negligentSecurityCityGuidePages: LandingPage[] = [
   },
   {
     slug: SF_NEGSECURITY_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Francisco Negligent Security Claims',
     title: 'San Francisco Negligent Security Claims',
     eyebrow: 'California local injury guide',
@@ -249,7 +249,7 @@ export const negligentSecurityCityGuidePages: LandingPage[] = [
   },
   {
     slug: SD_NEGSECURITY_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Diego Negligent Security Claims',
     title: 'San Diego Negligent Security Claims',
     eyebrow: 'California local injury guide',

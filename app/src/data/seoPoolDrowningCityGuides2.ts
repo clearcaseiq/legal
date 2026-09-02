@@ -59,7 +59,7 @@ export const LB_POOL_SLUG = '/long-beach-pool-drowning-injury'
 export const poolDrowningCityGuidePages2: LandingPage[] = [
   {
     slug: LA_POOL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Los Angeles Pool & Drowning Injury Claims',
     title: 'Los Angeles Pool & Drowning Injury Claims',
     eyebrow: 'California local injury guide',
@@ -121,7 +121,7 @@ export const poolDrowningCityGuidePages2: LandingPage[] = [
   },
   {
     slug: SD_POOL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Diego Pool & Drowning Injury Claims',
     title: 'San Diego Pool & Drowning Injury Claims',
     eyebrow: 'California local injury guide',
@@ -183,7 +183,7 @@ export const poolDrowningCityGuidePages2: LandingPage[] = [
   },
   {
     slug: SJ_POOL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Jose Pool & Drowning Injury Claims',
     title: 'San Jose Pool & Drowning Injury Claims',
     eyebrow: 'California local injury guide',
@@ -245,7 +245,7 @@ export const poolDrowningCityGuidePages2: LandingPage[] = [
   },
   {
     slug: LB_POOL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Long Beach Pool & Drowning Injury Claims',
     title: 'Long Beach Pool & Drowning Injury Claims',
     eyebrow: 'California local injury guide',

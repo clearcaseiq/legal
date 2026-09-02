@@ -54,7 +54,7 @@ export const ANAHEIM_POOL_SLUG = '/anaheim-pool-drowning-injury'
 export const poolDrowningCityGuidePages3: LandingPage[] = [
   {
     slug: SF_POOL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Francisco Pool & Drowning Injury Claims',
     title: 'San Francisco Pool & Drowning Injury Claims',
     eyebrow: 'California local injury guide',
@@ -116,7 +116,7 @@ export const poolDrowningCityGuidePages3: LandingPage[] = [
   },
   {
     slug: OAK_POOL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Oakland Pool & Drowning Injury Claims',
     title: 'Oakland Pool & Drowning Injury Claims',
     eyebrow: 'California local injury guide',
@@ -178,7 +178,7 @@ export const poolDrowningCityGuidePages3: LandingPage[] = [
   },
   {
     slug: SB_POOL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Bernardino Pool & Drowning Injury Claims',
     title: 'San Bernardino Pool & Drowning Injury Claims',
     eyebrow: 'California local injury guide',
@@ -240,7 +240,7 @@ export const poolDrowningCityGuidePages3: LandingPage[] = [
   },
   {
     slug: ANAHEIM_POOL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Anaheim Pool & Drowning Injury Claims',
     title: 'Anaheim Pool & Drowning Injury Claims',
     eyebrow: 'California local injury guide',

@@ -43,7 +43,7 @@ export const ANAHEIM_CHILD_SLUG = '/anaheim-daycare-school-injury-claim'
 export const childInjuryCityGuidePages2: LandingPage[] = [
   {
     slug: FRESNO_CHILD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Fresno Daycare & School Injury Claims',
     title: 'Fresno Daycare, School & Camp Injury Claims',
     eyebrow: 'California local injury guide',
@@ -105,7 +105,7 @@ export const childInjuryCityGuidePages2: LandingPage[] = [
   },
   {
     slug: LB_CHILD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Long Beach Daycare & School Injury Claims',
     title: 'Long Beach Daycare, School & Camp Injury Claims',
     eyebrow: 'California local injury guide',
@@ -167,7 +167,7 @@ export const childInjuryCityGuidePages2: LandingPage[] = [
   },
   {
     slug: OAK_CHILD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Oakland Daycare & School Injury Claims',
     title: 'Oakland Daycare, School & Camp Injury Claims',
     eyebrow: 'California local injury guide',
@@ -229,7 +229,7 @@ export const childInjuryCityGuidePages2: LandingPage[] = [
   },
   {
     slug: ANAHEIM_CHILD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Anaheim Daycare & School Injury Claims',
     title: 'Anaheim Daycare, School & Camp Injury Claims',
     eyebrow: 'California local injury guide',

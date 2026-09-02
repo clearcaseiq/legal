@@ -56,7 +56,7 @@ export const ANAHEIM_DUI_SLUG = '/anaheim-dui-accident'
 export const duiVictimCityGuidePages3: LandingPage[] = [
   {
     slug: SF_DUI_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Francisco DUI Victim Claims',
     title: 'San Francisco DUI Victim Injury Claims',
     eyebrow: 'California local injury guide',
@@ -118,7 +118,7 @@ export const duiVictimCityGuidePages3: LandingPage[] = [
   },
   {
     slug: SB_DUI_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Bernardino DUI Victim Claims',
     title: 'San Bernardino DUI Victim Injury Claims',
     eyebrow: 'California local injury guide',
@@ -180,7 +180,7 @@ export const duiVictimCityGuidePages3: LandingPage[] = [
   },
   {
     slug: BAKERSFIELD_DUI_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Bakersfield DUI Victim Claims',
     title: 'Bakersfield DUI Victim Injury Claims',
     eyebrow: 'California local injury guide',
@@ -242,7 +242,7 @@ export const duiVictimCityGuidePages3: LandingPage[] = [
   },
   {
     slug: ANAHEIM_DUI_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Anaheim DUI Victim Claims',
     title: 'Anaheim DUI Victim Injury Claims',
     eyebrow: 'California local injury guide',

@@ -59,7 +59,7 @@ export const SAC_TRANSIT_SLUG = '/sacramento-light-rail-accident'
 export const transitCityGuidePages: LandingPage[] = [
   {
     slug: LA_TRANSIT_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Los Angeles Bus and Transit Accident Claims',
     title: 'Los Angeles Bus and Transit Accident Claims',
     eyebrow: 'California local injury guide',
@@ -121,7 +121,7 @@ export const transitCityGuidePages: LandingPage[] = [
   },
   {
     slug: SF_TRANSIT_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Francisco Muni and Transit Accident Claims',
     title: 'San Francisco Muni and Transit Accident Claims',
     eyebrow: 'California local injury guide',
@@ -183,7 +183,7 @@ export const transitCityGuidePages: LandingPage[] = [
   },
   {
     slug: SD_TRANSIT_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Diego Trolley and Transit Accident Claims',
     title: 'San Diego Trolley and Transit Accident Claims',
     eyebrow: 'California local injury guide',
@@ -245,7 +245,7 @@ export const transitCityGuidePages: LandingPage[] = [
   },
   {
     slug: SAC_TRANSIT_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Sacramento Light Rail and Transit Accident Claims',
     title: 'Sacramento Light Rail and Transit Accident Claims',
     eyebrow: 'California local injury guide',

@@ -152,6 +152,19 @@ import {
   SETTLEMENT_CALCULATOR_WHY_IT_MATTERS,
 } from './settlementCalculatorContent'
 
+/**
+ * The bucket a page belongs to. One category, one topic hub — see
+ * `seoTopicHubDefs`.
+ *
+ * `Attorney Intent` was once the catch-all for anything with commercial intent,
+ * and it grew to 544 of the 674 English pages: the entire city layer, every
+ * filing-deadline page, and the do-I-have-a-claim pages all sat under a hub
+ * titled "Working With an Injury Attorney". That put a wrong breadcrumb and a
+ * wrong hub link on 80% of the corpus, and it collapsed the sibling-link cycle
+ * into one undifferentiated ring, so a Fresno scooter page offered a Fresno
+ * theme-park page as its related reading. The three categories below carve it
+ * back down to what its name actually claims — the decision to hire a lawyer.
+ */
 export type LandingPageCategory =
   | 'Symptoms'
   | 'Treatment'
@@ -159,6 +172,13 @@ export type LandingPageCategory =
   | 'Insurance'
   | 'Liability'
   | 'Commercial'
+  /** Geo pages: "<city> <claim type>". The largest layer by far. */
+  | 'Cities'
+  /** Statewide "do I have a claim, and what kind" pages. */
+  | 'Claim Types'
+  /** Filing deadlines. High intent, and wrong answers here are unrecoverable. */
+  | 'Statute of Limitations'
+  /** Hiring, fees, and switching firms. */
   | 'Attorney Intent'
   | 'Educational / SEO Moat'
 
@@ -199,6 +219,27 @@ export type LandingPage = {
    * penalise when it turns out to be false.
    */
   reviewedBy?: string
+  /**
+   * Keep the page live but ask search engines to drop it from the index.
+   *
+   * For thinning: a page too thin to rank competes with the pages that can,
+   * because a library judged as a whole is dragged down by its weakest members.
+   * Setting this serves `noindex, follow` and withholds the URL from the
+   * sitemap, while the page keeps answering 200 and keeps its internal links —
+   * `follow` is what lets the links out of it still count, and a crawler has to
+   * be able to fetch the page to ever read the tag.
+   *
+   * Prefer improving or merging a page over hiding it. Deleting the route
+   * instead would turn every existing link and every crawled URL into a 404,
+   * which is a worse signal than a thin page and cannot be undone by editing
+   * one field.
+   *
+   * Deliberately unset everywhere today: the duplication audit finds no page
+   * below 40% unique content and no two pages with identical bodies, so nothing
+   * currently qualifies. This exists so the decision is one field rather than a
+   * refactor when it does.
+   */
+  noindex?: boolean
 }
 
 /**
@@ -785,7 +826,7 @@ export const landingPages: LandingPage[] = [
   },
   {
     slug: '/legal/california-personal-injury',
-    category: 'Attorney Intent',
+    category: 'Claim Types',
     cluster: 'General Legal Intent',
     title: 'California Personal Injury Case Review',
     eyebrow: 'Attorney-readiness screening',
@@ -1048,3 +1089,22 @@ export const allLandingPages: LandingPage[] = [
 ]
 
 export const landingPagesBySlug = new Map(allLandingPages.map((page) => [page.slug, page]))
+
+/**
+ * The pages this site asks search engines to index.
+ *
+ * The sitemap builds from this rather than `allLandingPages`, because listing a
+ * URL that serves `noindex` sends two contradictory instructions about the same
+ * page — the sitemap nominates it as worth indexing and the page refuses. That
+ * is the specific mistake that makes thinning look like a bug in the site.
+ *
+ * Pages excluded here are still routed, still rendered, and still linked from
+ * their topic hub. Only the nomination is withdrawn.
+ *
+ * A function rather than a constant so it reads the flags as they are now. The
+ * sitemap rebuilds per request regardless, and a snapshot taken at module load
+ * is a quiet way for the two signals to drift apart.
+ */
+export function indexableLandingPages(): LandingPage[] {
+  return allLandingPages.filter((page) => !page.noindex)
+}

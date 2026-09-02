@@ -158,7 +158,7 @@ export const truckAccidentGuidePages: LandingPage[] = [
   },
   {
     slug: TRUCK_EVIDENCE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Statute of Limitations',
     cluster: 'Truck Accident Evidence & Deadlines',
     title: 'Truck Accident Evidence and Statute of Limitations in California',
     eyebrow: 'Evidence & deadlines',

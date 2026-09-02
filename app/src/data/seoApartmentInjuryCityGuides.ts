@@ -68,7 +68,7 @@ export const SAC_APT_SLUG = '/sacramento-apartment-injury-claim'
 export const apartmentInjuryCityGuidePages: LandingPage[] = [
   {
     slug: LA_APT_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Los Angeles Apartment & Landlord Injury Claims',
     title: 'Los Angeles Apartment & Landlord Injury Claims',
     eyebrow: 'California local injury guide',
@@ -130,7 +130,7 @@ export const apartmentInjuryCityGuidePages: LandingPage[] = [
   },
   {
     slug: OAK_APT_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Oakland Apartment & Landlord Injury Claims',
     title: 'Oakland Apartment & Landlord Injury Claims',
     eyebrow: 'California local injury guide',
@@ -192,7 +192,7 @@ export const apartmentInjuryCityGuidePages: LandingPage[] = [
   },
   {
     slug: SF_APT_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Francisco Apartment & Landlord Injury Claims',
     title: 'San Francisco Apartment & Landlord Injury Claims',
     eyebrow: 'California local injury guide',
@@ -254,7 +254,7 @@ export const apartmentInjuryCityGuidePages: LandingPage[] = [
   },
   {
     slug: SAC_APT_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Sacramento Apartment & Landlord Injury Claims',
     title: 'Sacramento Apartment & Landlord Injury Claims',
     eyebrow: 'California local injury guide',

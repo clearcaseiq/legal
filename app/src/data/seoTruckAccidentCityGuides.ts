@@ -63,7 +63,7 @@ export const OAKLAND_TRUCK_SLUG = '/oakland-truck-accident'
 export const truckAccidentCityGuidePages: LandingPage[] = [
   {
     slug: RIVERSIDE_TRUCK_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Riverside Truck Accident Claims',
     title: 'Riverside Truck Accident Claims',
     eyebrow: 'California local injury guide',
@@ -125,7 +125,7 @@ export const truckAccidentCityGuidePages: LandingPage[] = [
   },
   {
     slug: LONGBEACH_TRUCK_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Long Beach Truck Accident Claims',
     title: 'Long Beach Truck Accident Claims',
     eyebrow: 'California local injury guide',
@@ -187,7 +187,7 @@ export const truckAccidentCityGuidePages: LandingPage[] = [
   },
   {
     slug: FRESNO_TRUCK_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Fresno Truck Accident Claims',
     title: 'Fresno Truck Accident Claims',
     eyebrow: 'California local injury guide',
@@ -249,7 +249,7 @@ export const truckAccidentCityGuidePages: LandingPage[] = [
   },
   {
     slug: OAKLAND_TRUCK_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Oakland Truck Accident Claims',
     title: 'Oakland Truck Accident Claims',
     eyebrow: 'California local injury guide',

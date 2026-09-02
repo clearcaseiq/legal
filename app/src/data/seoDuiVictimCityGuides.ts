@@ -64,7 +64,7 @@ export const RIV_DUI_SLUG = '/riverside-dui-accident'
 export const duiVictimCityGuidePages: LandingPage[] = [
   {
     slug: LA_DUI_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Los Angeles Drunk Driving Accident Claims',
     title: 'Los Angeles Drunk Driving Accident Claims',
     eyebrow: 'California local injury guide',
@@ -126,7 +126,7 @@ export const duiVictimCityGuidePages: LandingPage[] = [
   },
   {
     slug: SD_DUI_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Diego Drunk Driving Accident Claims',
     title: 'San Diego Drunk Driving Accident Claims',
     eyebrow: 'California local injury guide',
@@ -188,7 +188,7 @@ export const duiVictimCityGuidePages: LandingPage[] = [
   },
   {
     slug: SAC_DUI_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Sacramento Drunk Driving Accident Claims',
     title: 'Sacramento Drunk Driving Accident Claims',
     eyebrow: 'California local injury guide',
@@ -250,7 +250,7 @@ export const duiVictimCityGuidePages: LandingPage[] = [
   },
   {
     slug: RIV_DUI_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Riverside Drunk Driving Accident Claims',
     title: 'Riverside Drunk Driving Accident Claims',
     eyebrow: 'California local injury guide',

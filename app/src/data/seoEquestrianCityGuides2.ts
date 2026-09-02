@@ -44,7 +44,7 @@ export const NORCO_EQ_SLUG = '/norco-horseback-riding-injury-claim'
 export const equestrianCityGuidePages2: LandingPage[] = [
   {
     slug: RIV_EQ_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Riverside Horseback Riding Injury Claims',
     title: 'Riverside Horseback Riding Injury Claims',
     eyebrow: 'California local injury guide',
@@ -106,7 +106,7 @@ export const equestrianCityGuidePages2: LandingPage[] = [
   },
   {
     slug: SJ_EQ_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Jose Horseback Riding Injury Claims',
     title: 'San Jose Horseback Riding Injury Claims',
     eyebrow: 'California local injury guide',
@@ -168,7 +168,7 @@ export const equestrianCityGuidePages2: LandingPage[] = [
   },
   {
     slug: FRESNO_EQ_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Fresno Horseback Riding Injury Claims',
     title: 'Fresno Horseback Riding Injury Claims',
     eyebrow: 'California local injury guide',
@@ -230,7 +230,7 @@ export const equestrianCityGuidePages2: LandingPage[] = [
   },
   {
     slug: NORCO_EQ_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Norco Horseback Riding Injury Claims',
     title: 'Norco Horseback Riding Injury Claims',
     eyebrow: 'California local injury guide',

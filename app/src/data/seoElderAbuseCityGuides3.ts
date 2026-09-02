@@ -58,7 +58,7 @@ export const BAKERSFIELD_ELDER_SLUG = '/bakersfield-nursing-home-abuse-claim'
 export const elderAbuseCityGuidePages3: LandingPage[] = [
   {
     slug: SF_ELDER_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Francisco Nursing Home & Elder Abuse Claims',
     title: 'San Francisco Nursing Home & Elder Abuse Claims',
     eyebrow: 'California local injury guide',
@@ -120,7 +120,7 @@ export const elderAbuseCityGuidePages3: LandingPage[] = [
   },
   {
     slug: OAK_ELDER_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Oakland Nursing Home & Elder Abuse Claims',
     title: 'Oakland Nursing Home & Elder Abuse Claims',
     eyebrow: 'California local injury guide',
@@ -182,7 +182,7 @@ export const elderAbuseCityGuidePages3: LandingPage[] = [
   },
   {
     slug: SB_ELDER_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Bernardino Nursing Home & Elder Abuse Claims',
     title: 'San Bernardino Nursing Home & Elder Abuse Claims',
     eyebrow: 'California local injury guide',
@@ -244,7 +244,7 @@ export const elderAbuseCityGuidePages3: LandingPage[] = [
   },
   {
     slug: BAKERSFIELD_ELDER_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Bakersfield Nursing Home & Elder Abuse Claims',
     title: 'Bakersfield Nursing Home & Elder Abuse Claims',
     eyebrow: 'California local injury guide',

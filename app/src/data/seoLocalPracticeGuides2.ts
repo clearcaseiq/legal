@@ -44,7 +44,7 @@ export const OAK_BICYCLE_SLUG = '/oakland-bicycle-accident'
 export const localPracticeGuidePages2: LandingPage[] = [
   {
     slug: SJ_PEDESTRIAN_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Jose Pedestrian Accident Claims',
     title: 'San Jose Pedestrian Accident Claims',
     eyebrow: 'California local injury guide',
@@ -106,7 +106,7 @@ export const localPracticeGuidePages2: LandingPage[] = [
   },
   {
     slug: SAC_PEDESTRIAN_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Sacramento Pedestrian Accident Claims',
     title: 'Sacramento Pedestrian Accident Claims',
     eyebrow: 'California local injury guide',
@@ -168,7 +168,7 @@ export const localPracticeGuidePages2: LandingPage[] = [
   },
   {
     slug: OAK_PEDESTRIAN_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Oakland Pedestrian Accident Claims',
     title: 'Oakland Pedestrian Accident Claims',
     eyebrow: 'California local injury guide',
@@ -230,7 +230,7 @@ export const localPracticeGuidePages2: LandingPage[] = [
   },
   {
     slug: SJ_BICYCLE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Jose Bicycle Accident Claims',
     title: 'San Jose Bicycle Accident Claims',
     eyebrow: 'California local injury guide',
@@ -292,7 +292,7 @@ export const localPracticeGuidePages2: LandingPage[] = [
   },
   {
     slug: SAC_BICYCLE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Sacramento Bicycle Accident Claims',
     title: 'Sacramento Bicycle Accident Claims',
     eyebrow: 'California local injury guide',
@@ -354,7 +354,7 @@ export const localPracticeGuidePages2: LandingPage[] = [
   },
   {
     slug: OAK_BICYCLE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Oakland Bicycle Accident Claims',
     title: 'Oakland Bicycle Accident Claims',
     eyebrow: 'California local injury guide',

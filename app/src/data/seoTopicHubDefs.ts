@@ -23,8 +23,10 @@ export type TopicHub = {
 
 export const TOPICS_INDEX_SLUG = '/topics'
 export const TOPICS_INDEX_TITLE = 'Injury Claim Topic Library'
+// Kept under MAX_DESCRIPTION_LENGTH (155). Past it `clampDescription` truncates,
+// which on a list like this one would cut the last topics off mid-sentence.
 export const TOPICS_INDEX_DESCRIPTION =
-  'Browse every ClearCaseIQ topic on injuries, treatment, settlement value, insurance disputes, liability, and working with an attorney.'
+  'Browse every ClearCaseIQ topic: injuries, treatment, settlement value, insurance, liability, California city guides, filing deadlines, and attorneys.'
 
 export const topicHubs: TopicHub[] = [
   {
@@ -86,6 +88,36 @@ export const topicHubs: TopicHub[] = [
       'Rideshare, trucking, delivery, and employer-vehicle claims — how commercial coverage changes available limits and who is responsible.',
     intro:
       'When a commercial policy is involved the available coverage and the number of parties both change. These pages cover the common scenarios.',
+  },
+  {
+    slug: '/topics/california-cities',
+    category: 'Cities',
+    title: 'California City Injury Guides',
+    eyebrow: 'Local guide',
+    description:
+      'City-by-city guides to California injury claims: the local courts, the agencies and transit operators involved, and the deadlines that attach.',
+    intro:
+      'Where a crash happened changes which court hears the case, which agency holds the report, and whether a six-month public-entity deadline applies. These guides cover each city and the claim types that come up most often there.',
+  },
+  {
+    slug: '/topics/claim-types',
+    category: 'Claim Types',
+    title: 'Do You Have a Claim?',
+    eyebrow: 'Eligibility review',
+    description:
+      'Whether a California injury claim exists at all: who has standing to file, what makes a case viable, and how claim types differ from one another.',
+    intro:
+      'Before value or timing matters, there is a prior question — is there a claim, and whose is it. These pages cover standing, viability, and what separates one kind of claim from another.',
+  },
+  {
+    slug: '/topics/filing-deadlines',
+    category: 'Statute of Limitations',
+    title: 'California Filing Deadlines',
+    eyebrow: 'Deadline review',
+    description:
+      'California statutes of limitations by claim type, the shorter government-claim deadlines, and what happens when a deadline has already passed.',
+    intro:
+      'A missed deadline ends a claim regardless of its merits, and the clock is shorter than most people expect when a public entity or a medical provider is involved. These pages cover the deadline for each claim type and the exceptions that move it.',
   },
   {
     slug: '/topics/working-with-an-attorney',

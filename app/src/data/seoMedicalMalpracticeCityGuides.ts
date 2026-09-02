@@ -79,7 +79,7 @@ export const SAC_MEDMAL_SLUG = '/sacramento-medical-malpractice-claim'
 export const medicalMalpracticeCityGuidePages: LandingPage[] = [
   {
     slug: LA_MEDMAL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Los Angeles Medical Malpractice Claims',
     title: 'Los Angeles Medical Malpractice Claims',
     eyebrow: 'California local injury guide',
@@ -141,7 +141,7 @@ export const medicalMalpracticeCityGuidePages: LandingPage[] = [
   },
   {
     slug: SF_MEDMAL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Francisco Medical Malpractice Claims',
     title: 'San Francisco Medical Malpractice Claims',
     eyebrow: 'California local injury guide',
@@ -203,7 +203,7 @@ export const medicalMalpracticeCityGuidePages: LandingPage[] = [
   },
   {
     slug: SD_MEDMAL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Diego Medical Malpractice Claims',
     title: 'San Diego Medical Malpractice Claims',
     eyebrow: 'California local injury guide',
@@ -265,7 +265,7 @@ export const medicalMalpracticeCityGuidePages: LandingPage[] = [
   },
   {
     slug: SAC_MEDMAL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Sacramento Medical Malpractice Claims',
     title: 'Sacramento Medical Malpractice Claims',
     eyebrow: 'California local injury guide',

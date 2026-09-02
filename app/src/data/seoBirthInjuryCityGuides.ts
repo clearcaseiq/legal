@@ -69,7 +69,7 @@ export const SAC_BIRTH_SLUG = '/sacramento-birth-injury-claim'
 export const birthInjuryCityGuidePages: LandingPage[] = [
   {
     slug: LA_BIRTH_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Los Angeles Birth Injury Claims',
     title: 'Los Angeles Birth Injury Claims',
     eyebrow: 'California local injury guide',
@@ -131,7 +131,7 @@ export const birthInjuryCityGuidePages: LandingPage[] = [
   },
   {
     slug: SD_BIRTH_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Diego Birth Injury Claims',
     title: 'San Diego Birth Injury Claims',
     eyebrow: 'California local injury guide',
@@ -193,7 +193,7 @@ export const birthInjuryCityGuidePages: LandingPage[] = [
   },
   {
     slug: SF_BIRTH_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Francisco Birth Injury Claims',
     title: 'San Francisco Birth Injury Claims',
     eyebrow: 'California local injury guide',
@@ -255,7 +255,7 @@ export const birthInjuryCityGuidePages: LandingPage[] = [
   },
   {
     slug: SAC_BIRTH_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Sacramento Birth Injury Claims',
     title: 'Sacramento Birth Injury Claims',
     eyebrow: 'California local injury guide',

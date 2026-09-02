@@ -39,7 +39,7 @@ export const ANAHEIM_GUARD_SLUG = '/anaheim-security-guard-assault-claim'
 export const securityForceCityGuidePages2: LandingPage[] = [
   {
     slug: OAK_GUARD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Oakland Security Guard & Bouncer Assault Claims',
     title: 'Oakland Security Guard & Bouncer Assault Claims',
     eyebrow: 'California local injury guide',
@@ -101,7 +101,7 @@ export const securityForceCityGuidePages2: LandingPage[] = [
   },
   {
     slug: FRESNO_GUARD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Fresno Security Guard & Bouncer Assault Claims',
     title: 'Fresno Security Guard & Bouncer Assault Claims',
     eyebrow: 'California local injury guide',
@@ -163,7 +163,7 @@ export const securityForceCityGuidePages2: LandingPage[] = [
   },
   {
     slug: LB_GUARD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Long Beach Security Guard & Bouncer Assault Claims',
     title: 'Long Beach Security Guard & Bouncer Assault Claims',
     eyebrow: 'California local injury guide',
@@ -225,7 +225,7 @@ export const securityForceCityGuidePages2: LandingPage[] = [
   },
   {
     slug: ANAHEIM_GUARD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Anaheim Security Guard & Bouncer Assault Claims',
     title: 'Anaheim Security Guard & Bouncer Assault Claims',
     eyebrow: 'California local injury guide',

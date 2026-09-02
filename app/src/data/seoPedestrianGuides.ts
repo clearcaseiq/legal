@@ -92,7 +92,7 @@ export const pedestrianGuidePages: LandingPage[] = [
   },
   {
     slug: PED_SOL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Statute of Limitations',
     cluster: 'Pedestrian Filing Deadlines',
     title: 'California Pedestrian Accident Statute of Limitations',
     eyebrow: 'Filing deadlines',

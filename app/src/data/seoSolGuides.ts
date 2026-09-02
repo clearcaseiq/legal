@@ -36,7 +36,7 @@ const NOT_ADVICE =
 export const solGuidePages: LandingPage[] = [
   {
     slug: INJURY_SOL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Statute of Limitations',
     cluster: 'California Injury Filing Deadlines',
     title: 'California Statute of Limitations for Injury Claims',
     eyebrow: 'Filing deadlines',
@@ -102,7 +102,7 @@ export const solGuidePages: LandingPage[] = [
   },
   {
     slug: WRONGFUL_DEATH_SOL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Statute of Limitations',
     cluster: 'California Wrongful Death Deadlines',
     title: 'California Statute of Limitations for Wrongful Death',
     eyebrow: 'Filing deadlines',
@@ -163,7 +163,7 @@ export const solGuidePages: LandingPage[] = [
   },
   {
     slug: MISSED_SOL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Statute of Limitations',
     cluster: 'Missed Deadline Review',
     title: 'What If You Missed the Filing Deadline?',
     eyebrow: 'Filing deadlines',

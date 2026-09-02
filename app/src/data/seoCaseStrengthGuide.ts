@@ -26,7 +26,7 @@ export const CASE_STRENGTH_SLUG = '/case-strength'
 export const caseStrengthGuidePages: LandingPage[] = [
   {
     slug: CASE_STRENGTH_SLUG,
-    category: 'Attorney Intent',
+    category: 'Claim Types',
     cluster: 'Case Strength and Attorney Fit',
     title: 'How Strong Is My Accident Case?',
     eyebrow: 'Attorney-fit guide',

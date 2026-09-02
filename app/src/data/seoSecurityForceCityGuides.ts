@@ -59,7 +59,7 @@ export const SJ_GUARD_SLUG = '/san-jose-security-guard-assault-claim'
 export const securityForceCityGuidePages: LandingPage[] = [
   {
     slug: LA_GUARD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Los Angeles Security Guard & Bouncer Assault Claims',
     title: 'Los Angeles Security Guard & Bouncer Assault Claims',
     eyebrow: 'California local injury guide',
@@ -121,7 +121,7 @@ export const securityForceCityGuidePages: LandingPage[] = [
   },
   {
     slug: SD_GUARD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Diego Security Guard & Bouncer Assault Claims',
     title: 'San Diego Security Guard & Bouncer Assault Claims',
     eyebrow: 'California local injury guide',
@@ -183,7 +183,7 @@ export const securityForceCityGuidePages: LandingPage[] = [
   },
   {
     slug: SAC_GUARD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Sacramento Security Guard & Bouncer Assault Claims',
     title: 'Sacramento Security Guard & Bouncer Assault Claims',
     eyebrow: 'California local injury guide',
@@ -245,7 +245,7 @@ export const securityForceCityGuidePages: LandingPage[] = [
   },
   {
     slug: SJ_GUARD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Jose Security Guard & Bouncer Assault Claims',
     title: 'San Jose Security Guard & Bouncer Assault Claims',
     eyebrow: 'California local injury guide',

@@ -69,7 +69,7 @@ export const TRUCKEE_SKI_SLUG = '/truckee-ski-injury-claim'
 export const skiResortCityGuidePages: LandingPage[] = [
   {
     slug: TAHOE_SKI_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'South Lake Tahoe Ski & Snowboard Injury Claims',
     title: 'South Lake Tahoe Ski & Snowboard Injury Claims',
     eyebrow: 'California local injury guide',
@@ -131,7 +131,7 @@ export const skiResortCityGuidePages: LandingPage[] = [
   },
   {
     slug: BIGBEAR_SKI_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Big Bear Ski & Snowboard Injury Claims',
     title: 'Big Bear Ski & Snowboard Injury Claims',
     eyebrow: 'California local injury guide',
@@ -193,7 +193,7 @@ export const skiResortCityGuidePages: LandingPage[] = [
   },
   {
     slug: MAMMOTH_SKI_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Mammoth Ski & Snowboard Injury Claims',
     title: 'Mammoth Ski & Snowboard Injury Claims',
     eyebrow: 'California local injury guide',
@@ -255,7 +255,7 @@ export const skiResortCityGuidePages: LandingPage[] = [
   },
   {
     slug: TRUCKEE_SKI_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Truckee Ski & Snowboard Injury Claims',
     title: 'Truckee & North Tahoe Ski Injury Claims',
     eyebrow: 'California local injury guide',

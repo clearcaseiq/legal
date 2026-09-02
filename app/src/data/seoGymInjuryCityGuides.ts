@@ -68,7 +68,7 @@ export const SJ_GYM_SLUG = '/san-jose-gym-injury-claim'
 export const gymInjuryCityGuidePages: LandingPage[] = [
   {
     slug: LA_GYM_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Los Angeles Gym & Fitness Injury Claims',
     title: 'Los Angeles Gym & Fitness Injury Claims',
     eyebrow: 'California local injury guide',
@@ -130,7 +130,7 @@ export const gymInjuryCityGuidePages: LandingPage[] = [
   },
   {
     slug: SD_GYM_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Diego Gym & Fitness Injury Claims',
     title: 'San Diego Gym & Fitness Injury Claims',
     eyebrow: 'California local injury guide',
@@ -192,7 +192,7 @@ export const gymInjuryCityGuidePages: LandingPage[] = [
   },
   {
     slug: SF_GYM_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Francisco Gym & Fitness Injury Claims',
     title: 'San Francisco Gym & Fitness Injury Claims',
     eyebrow: 'California local injury guide',
@@ -254,7 +254,7 @@ export const gymInjuryCityGuidePages: LandingPage[] = [
   },
   {
     slug: SJ_GYM_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Jose Gym & Fitness Injury Claims',
     title: 'San Jose Gym & Fitness Injury Claims',
     eyebrow: 'California local injury guide',

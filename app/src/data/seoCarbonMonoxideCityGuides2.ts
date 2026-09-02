@@ -42,7 +42,7 @@ export const LB_CO_SLUG = '/long-beach-carbon-monoxide-poisoning-claim'
 export const carbonMonoxideCityGuidePages2: LandingPage[] = [
   {
     slug: SD_CO_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Diego Carbon Monoxide Poisoning Claims',
     title: 'San Diego Carbon Monoxide Poisoning Claims',
     eyebrow: 'California local injury guide',
@@ -104,7 +104,7 @@ export const carbonMonoxideCityGuidePages2: LandingPage[] = [
   },
   {
     slug: SJ_CO_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Jose Carbon Monoxide Poisoning Claims',
     title: 'San Jose Carbon Monoxide Poisoning Claims',
     eyebrow: 'California local injury guide',
@@ -166,7 +166,7 @@ export const carbonMonoxideCityGuidePages2: LandingPage[] = [
   },
   {
     slug: FRESNO_CO_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Fresno Carbon Monoxide Poisoning Claims',
     title: 'Fresno Carbon Monoxide Poisoning Claims',
     eyebrow: 'California local injury guide',
@@ -228,7 +228,7 @@ export const carbonMonoxideCityGuidePages2: LandingPage[] = [
   },
   {
     slug: LB_CO_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Long Beach Carbon Monoxide Poisoning Claims',
     title: 'Long Beach Carbon Monoxide Poisoning Claims',
     eyebrow: 'California local injury guide',

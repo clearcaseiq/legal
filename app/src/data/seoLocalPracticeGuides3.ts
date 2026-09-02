@@ -55,7 +55,7 @@ export const ANAHEIM_BICYCLE_SLUG = '/anaheim-bicycle-accident'
 export const localPracticeGuidePages3: LandingPage[] = [
   {
     slug: FRESNO_PEDESTRIAN_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Fresno Pedestrian Accident Claims',
     title: 'Fresno Pedestrian Accident Claims',
     eyebrow: 'California local injury guide',
@@ -117,7 +117,7 @@ export const localPracticeGuidePages3: LandingPage[] = [
   },
   {
     slug: LONGBEACH_PEDESTRIAN_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Long Beach Pedestrian Accident Claims',
     title: 'Long Beach Pedestrian Accident Claims',
     eyebrow: 'California local injury guide',
@@ -179,7 +179,7 @@ export const localPracticeGuidePages3: LandingPage[] = [
   },
   {
     slug: BAKERSFIELD_PEDESTRIAN_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Bakersfield Pedestrian Accident Claims',
     title: 'Bakersfield Pedestrian Accident Claims',
     eyebrow: 'California local injury guide',
@@ -241,7 +241,7 @@ export const localPracticeGuidePages3: LandingPage[] = [
   },
   {
     slug: ANAHEIM_PEDESTRIAN_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Anaheim Pedestrian Accident Claims',
     title: 'Anaheim Pedestrian Accident Claims',
     eyebrow: 'California local injury guide',
@@ -303,7 +303,7 @@ export const localPracticeGuidePages3: LandingPage[] = [
   },
   {
     slug: FRESNO_BICYCLE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Fresno Bicycle Accident Claims',
     title: 'Fresno Bicycle Accident Claims',
     eyebrow: 'California local injury guide',
@@ -365,7 +365,7 @@ export const localPracticeGuidePages3: LandingPage[] = [
   },
   {
     slug: LONGBEACH_BICYCLE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Long Beach Bicycle Accident Claims',
     title: 'Long Beach Bicycle Accident Claims',
     eyebrow: 'California local injury guide',
@@ -427,7 +427,7 @@ export const localPracticeGuidePages3: LandingPage[] = [
   },
   {
     slug: BAKERSFIELD_BICYCLE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Bakersfield Bicycle Accident Claims',
     title: 'Bakersfield Bicycle Accident Claims',
     eyebrow: 'California local injury guide',
@@ -489,7 +489,7 @@ export const localPracticeGuidePages3: LandingPage[] = [
   },
   {
     slug: ANAHEIM_BICYCLE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Anaheim Bicycle Accident Claims',
     title: 'Anaheim Bicycle Accident Claims',
     eyebrow: 'California local injury guide',

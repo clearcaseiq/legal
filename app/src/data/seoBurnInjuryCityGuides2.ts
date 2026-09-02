@@ -55,7 +55,7 @@ export const OAK_BURN_SLUG = '/oakland-burn-injury'
 export const burnInjuryCityGuidePages2: LandingPage[] = [
   {
     slug: SJ_BURN_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Jose Burn Injury Claims',
     title: 'San Jose Burn Injury Claims',
     eyebrow: 'California local injury guide',
@@ -117,7 +117,7 @@ export const burnInjuryCityGuidePages2: LandingPage[] = [
   },
   {
     slug: FRESNO_BURN_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Fresno Burn Injury Claims',
     title: 'Fresno Burn Injury Claims',
     eyebrow: 'California local injury guide',
@@ -179,7 +179,7 @@ export const burnInjuryCityGuidePages2: LandingPage[] = [
   },
   {
     slug: LB_BURN_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Long Beach Burn Injury Claims',
     title: 'Long Beach Burn Injury Claims',
     eyebrow: 'California local injury guide',
@@ -241,7 +241,7 @@ export const burnInjuryCityGuidePages2: LandingPage[] = [
   },
   {
     slug: OAK_BURN_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Oakland Burn Injury Claims',
     title: 'Oakland Burn Injury Claims',
     eyebrow: 'California local injury guide',

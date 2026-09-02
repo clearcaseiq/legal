@@ -57,7 +57,7 @@ export const OAK_UM_SLUG = '/oakland-uninsured-motorist-accident'
 export const uninsuredMotoristCityGuidePages2: LandingPage[] = [
   {
     slug: SD_UM_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Diego Uninsured & Hit-and-Run Accident Claims',
     title: 'San Diego Uninsured & Hit-and-Run Accident Claims',
     eyebrow: 'California local injury guide',
@@ -119,7 +119,7 @@ export const uninsuredMotoristCityGuidePages2: LandingPage[] = [
   },
   {
     slug: SJ_UM_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Jose Uninsured & Hit-and-Run Accident Claims',
     title: 'San Jose Uninsured & Hit-and-Run Accident Claims',
     eyebrow: 'California local injury guide',
@@ -181,7 +181,7 @@ export const uninsuredMotoristCityGuidePages2: LandingPage[] = [
   },
   {
     slug: SAC_UM_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Sacramento Uninsured & Hit-and-Run Accident Claims',
     title: 'Sacramento Uninsured & Hit-and-Run Accident Claims',
     eyebrow: 'California local injury guide',
@@ -243,7 +243,7 @@ export const uninsuredMotoristCityGuidePages2: LandingPage[] = [
   },
   {
     slug: OAK_UM_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Oakland Uninsured & Hit-and-Run Accident Claims',
     title: 'Oakland Uninsured & Hit-and-Run Accident Claims',
     eyebrow: 'California local injury guide',

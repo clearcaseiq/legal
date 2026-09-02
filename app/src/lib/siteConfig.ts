@@ -1,4 +1,4 @@
-import { DEFAULT_SITE_URL } from '../data/seoLandingPageSchema'
+import { DEFAULT_SITE_URL } from '../data/siteOrigin'
 
 /**
  * Server-side deployment identity: which public origin this container is

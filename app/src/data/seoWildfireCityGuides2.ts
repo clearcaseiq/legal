@@ -42,7 +42,7 @@ export const VENTURA_FIRE_SLUG = '/ventura-wildfire-claim'
 export const wildfireCityGuidePages2: LandingPage[] = [
   {
     slug: REDDING_FIRE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Redding Wildfire Claims',
     title: 'Redding Wildfire Claims',
     eyebrow: 'California local injury guide',
@@ -104,7 +104,7 @@ export const wildfireCityGuidePages2: LandingPage[] = [
   },
   {
     slug: NAPA_FIRE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Napa Wildfire Claims',
     title: 'Napa Wildfire Claims',
     eyebrow: 'California local injury guide',
@@ -166,7 +166,7 @@ export const wildfireCityGuidePages2: LandingPage[] = [
   },
   {
     slug: SB_FIRE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Bernardino Wildfire Claims',
     title: 'San Bernardino Wildfire Claims',
     eyebrow: 'California local injury guide',
@@ -228,7 +228,7 @@ export const wildfireCityGuidePages2: LandingPage[] = [
   },
   {
     slug: VENTURA_FIRE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Ventura Wildfire Claims',
     title: 'Ventura Wildfire Claims',
     eyebrow: 'California local injury guide',

@@ -54,7 +54,7 @@ export const OAK_TBI_SLUG = '/oakland-brain-injury-claim'
 export const brainInjuryCityGuidePages2: LandingPage[] = [
   {
     slug: SJ_TBI_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Jose Brain Injury (TBI) Claims',
     title: 'San Jose Brain Injury (TBI) Claims',
     eyebrow: 'California local injury guide',
@@ -116,7 +116,7 @@ export const brainInjuryCityGuidePages2: LandingPage[] = [
   },
   {
     slug: FRESNO_TBI_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Fresno Brain Injury (TBI) Claims',
     title: 'Fresno Brain Injury (TBI) Claims',
     eyebrow: 'California local injury guide',
@@ -178,7 +178,7 @@ export const brainInjuryCityGuidePages2: LandingPage[] = [
   },
   {
     slug: LB_TBI_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Long Beach Brain Injury (TBI) Claims',
     title: 'Long Beach Brain Injury (TBI) Claims',
     eyebrow: 'California local injury guide',
@@ -240,7 +240,7 @@ export const brainInjuryCityGuidePages2: LandingPage[] = [
   },
   {
     slug: OAK_TBI_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Oakland Brain Injury (TBI) Claims',
     title: 'Oakland Brain Injury (TBI) Claims',
     eyebrow: 'California local injury guide',

@@ -57,7 +57,7 @@ export const TRACY_WHSE_SLUG = '/tracy-warehouse-injury-claim'
 export const warehouseInjuryCityGuidePages2: LandingPage[] = [
   {
     slug: ONT_WHSE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Ontario Warehouse & Fulfillment Injury Claims',
     title: 'Ontario Warehouse & Fulfillment Injury Claims',
     eyebrow: 'California local injury guide',
@@ -119,7 +119,7 @@ export const warehouseInjuryCityGuidePages2: LandingPage[] = [
   },
   {
     slug: FON_WHSE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Fontana Warehouse & Fulfillment Injury Claims',
     title: 'Fontana Warehouse & Fulfillment Injury Claims',
     eyebrow: 'California local injury guide',
@@ -181,7 +181,7 @@ export const warehouseInjuryCityGuidePages2: LandingPage[] = [
   },
   {
     slug: BAK_WHSE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Bakersfield Warehouse & Distribution Injury Claims',
     title: 'Bakersfield Warehouse & Distribution Injury Claims',
     eyebrow: 'California local injury guide',
@@ -243,7 +243,7 @@ export const warehouseInjuryCityGuidePages2: LandingPage[] = [
   },
   {
     slug: TRACY_WHSE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Tracy Warehouse & Fulfillment Injury Claims',
     title: 'Tracy Warehouse & Fulfillment Injury Claims',
     eyebrow: 'California local injury guide',

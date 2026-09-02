@@ -1,0 +1,85 @@
+# ClearCaseIQ link disavow file
+#
+# Upload at: https://search.google.com/search-console/disavow-links
+# Select the DOMAIN property for clearcaseiq.com, not a URL-prefix property.
+#
+# ----------------------------------------------------------------------------
+# READ THIS BEFORE UPLOADING
+# ----------------------------------------------------------------------------
+#
+# 1. Uploading REPLACES the entire list. It does not append. Whatever is in the
+#    file you upload becomes the complete disavow set, so this file must always
+#    be the full list rather than a delta. That is why it is in git: the copy
+#    here is the authoritative one, and the console holds a copy of it.
+#
+# 2. Uploading an EMPTY file CLEARS an existing disavow. If this file still has
+#    no domain lines below, do not upload it — there is nothing to submit, and
+#    submitting it would silently undo any previous disavow.
+#
+# 3. Try removal before disavowal. Google's documented order is to get the link
+#    taken down first and disavow only what cannot be removed. For bought links
+#    that means asking the vendor or the site owner to remove them. A disavow is
+#    a statement that you could not clean it up, which is weaker than a clean
+#    profile and cannot be partially undone once the domain is listed.
+#
+# 4. Disavowing is not free. Every domain listed here stops passing any value,
+#    including value it was legitimately passing. A wrongly listed domain is a
+#    self-inflicted loss with no error message, so a domain goes in this file
+#    only on evidence, never on suspicion.
+#
+# 5. Check for a manual action first: Search Console > Security & Manual
+#    Actions > Manual actions. If there is no "Unnatural links to your site"
+#    action, Google's spam systems are most likely already ignoring these links
+#    on their own, and the disavow is insurance rather than a fix. If there IS
+#    one, this file is part of the reconsideration request and the request has
+#    to describe what was bought, from whom, and what was removed.
+#
+# ----------------------------------------------------------------------------
+# HOW TO POPULATE
+# ----------------------------------------------------------------------------
+#
+# Export the referring domains:
+#   Search Console > Links > Top linking sites > Export > "More rows"
+#
+# Cross-check against a backlink index (Ahrefs, Semrush or Moz) as well.
+# Search Console reports a sample, and paid-link networks are often absent
+# from it precisely because they are low-value domains crawled infrequently.
+#
+# Classify each referring domain into one of three buckets:
+#
+#   KEEP     Editorial, topically plausible, and would exist whether or not
+#            anyone paid: bar associations, universities, news coverage, local
+#            government, genuine legal directories (Justia, Avvo, FindLaw).
+#            Do not list these here.
+#
+#   DISAVOW  Evidence of payment or manipulation. Signals, strongest first:
+#            - it appears on an invoice or in correspondence with a vendor
+#            - a sitewide footer or sidebar link on an unrelated site
+#            - a "write for us" / sponsored-post farm, or a private blog
+#              network: thin sites, unrelated topics, outbound links to
+#              casinos, pharma, loans
+#            - exact-match commercial anchors repeated across many domains
+#              ("best personal injury lawyer california")
+#            - a foreign-language site with no plausible reason to link to a
+#              California injury platform
+#
+#   UNSURE   Leave out. Point 4 above: the cost of wrongly disavowing is real
+#            and silent, so an unresolved domain is safer outside the file.
+#
+# Format, one per line. Prefer whole domains: a paid-link site rarely has just
+# one bad URL, and `domain:` covers subdomains too.
+#
+#   domain:example.com          disavows example.com and its subdomains
+#   https://example.com/page    disavows exactly that one URL
+#
+# Limits: 100,000 lines and 2 MB. Comment lines start with `#` and are ignored.
+#
+# ----------------------------------------------------------------------------
+# DISAVOWED DOMAINS
+# ----------------------------------------------------------------------------
+#
+# Keep one short reason per entry, so a future reviewer can judge whether it
+# still belongs here without re-deriving the decision. Group by date added.
+#
+# Nothing is listed yet: the referring-domain export has not been reviewed.
+# Adding entries and uploading are two separate steps — see point 2.

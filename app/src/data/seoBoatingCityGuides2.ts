@@ -40,7 +40,7 @@ export const MDR_BOATING_SLUG = '/marina-del-rey-boating-accident'
 export const boatingCityGuidePages2: LandingPage[] = [
   {
     slug: TAHOE_BOATING_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Lake Tahoe Boating Accident Claims',
     title: 'Lake Tahoe Boating Accident Claims',
     eyebrow: 'California local injury guide',
@@ -102,7 +102,7 @@ export const boatingCityGuidePages2: LandingPage[] = [
   },
   {
     slug: SFBAY_BOATING_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Francisco Bay Boating Accident Claims',
     title: 'San Francisco Bay Boating Accident Claims',
     eyebrow: 'California local injury guide',
@@ -164,7 +164,7 @@ export const boatingCityGuidePages2: LandingPage[] = [
   },
   {
     slug: SHASTA_BOATING_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Shasta Lake Boating Accident Claims',
     title: 'Shasta Lake Boating Accident Claims',
     eyebrow: 'California local injury guide',
@@ -226,7 +226,7 @@ export const boatingCityGuidePages2: LandingPage[] = [
   },
   {
     slug: MDR_BOATING_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Marina del Rey Boating Accident Claims',
     title: 'Marina del Rey Boating Accident Claims',
     eyebrow: 'California local injury guide',

@@ -56,7 +56,7 @@ export const LB_NEGSECURITY_SLUG = '/long-beach-negligent-security'
 export const negligentSecurityCityGuidePages2: LandingPage[] = [
   {
     slug: SAC_NEGSECURITY_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Sacramento Negligent Security Claims',
     title: 'Sacramento Negligent Security Claims',
     eyebrow: 'California local injury guide',
@@ -118,7 +118,7 @@ export const negligentSecurityCityGuidePages2: LandingPage[] = [
   },
   {
     slug: SJ_NEGSECURITY_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Jose Negligent Security Claims',
     title: 'San Jose Negligent Security Claims',
     eyebrow: 'California local injury guide',
@@ -180,7 +180,7 @@ export const negligentSecurityCityGuidePages2: LandingPage[] = [
   },
   {
     slug: FRESNO_NEGSECURITY_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Fresno Negligent Security Claims',
     title: 'Fresno Negligent Security Claims',
     eyebrow: 'California local injury guide',
@@ -242,7 +242,7 @@ export const negligentSecurityCityGuidePages2: LandingPage[] = [
   },
   {
     slug: LB_NEGSECURITY_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Long Beach Negligent Security Claims',
     title: 'Long Beach Negligent Security Claims',
     eyebrow: 'California local injury guide',

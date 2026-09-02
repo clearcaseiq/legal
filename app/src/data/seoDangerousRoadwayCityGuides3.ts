@@ -55,7 +55,7 @@ export const ANAHEIM_ROAD_SLUG = '/anaheim-dangerous-road-accident'
 export const dangerousRoadwayCityGuidePages3: LandingPage[] = [
   {
     slug: SF_ROAD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Francisco Dangerous Roadway Claims',
     title: 'San Francisco Dangerous Roadway & Government Liability Claims',
     eyebrow: 'California local injury guide',
@@ -117,7 +117,7 @@ export const dangerousRoadwayCityGuidePages3: LandingPage[] = [
   },
   {
     slug: SB_ROAD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Bernardino Dangerous Roadway Claims',
     title: 'San Bernardino Dangerous Roadway & Government Liability Claims',
     eyebrow: 'California local injury guide',
@@ -179,7 +179,7 @@ export const dangerousRoadwayCityGuidePages3: LandingPage[] = [
   },
   {
     slug: LB_ROAD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Long Beach Dangerous Roadway Claims',
     title: 'Long Beach Dangerous Roadway & Government Liability Claims',
     eyebrow: 'California local injury guide',
@@ -241,7 +241,7 @@ export const dangerousRoadwayCityGuidePages3: LandingPage[] = [
   },
   {
     slug: ANAHEIM_ROAD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Anaheim Dangerous Roadway Claims',
     title: 'Anaheim Dangerous Roadway & Government Liability Claims',
     eyebrow: 'California local injury guide',

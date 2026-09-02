@@ -65,7 +65,7 @@ export const SANTACLARA_PARK_SLUG = '/santa-clara-theme-park-injury'
 export const themeParkCityGuidePages: LandingPage[] = [
   {
     slug: ANAHEIM_PARK_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Anaheim Theme Park Injury Claims',
     title: 'Anaheim Theme Park Injury Claims',
     eyebrow: 'California local injury guide',
@@ -127,7 +127,7 @@ export const themeParkCityGuidePages: LandingPage[] = [
   },
   {
     slug: LA_PARK_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Los Angeles Theme Park Injury Claims',
     title: 'Los Angeles Theme Park Injury Claims',
     eyebrow: 'California local injury guide',
@@ -189,7 +189,7 @@ export const themeParkCityGuidePages: LandingPage[] = [
   },
   {
     slug: SD_PARK_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Diego Theme Park Injury Claims',
     title: 'San Diego Theme Park Injury Claims',
     eyebrow: 'California local injury guide',
@@ -251,7 +251,7 @@ export const themeParkCityGuidePages: LandingPage[] = [
   },
   {
     slug: SANTACLARA_PARK_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Santa Clara Theme Park Injury Claims',
     title: 'Santa Clara Theme Park Injury Claims',
     eyebrow: 'California local injury guide',

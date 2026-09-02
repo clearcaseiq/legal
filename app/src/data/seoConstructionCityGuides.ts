@@ -68,7 +68,7 @@ export const SD_CONSTRUCTION_SLUG = '/san-diego-construction-accident'
 export const constructionCityGuidePages: LandingPage[] = [
   {
     slug: LA_CONSTRUCTION_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Los Angeles Construction Accident Claims',
     title: 'Los Angeles Construction Accident Claims',
     eyebrow: 'California local injury guide',
@@ -130,7 +130,7 @@ export const constructionCityGuidePages: LandingPage[] = [
   },
   {
     slug: SF_CONSTRUCTION_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Francisco Construction Accident Claims',
     title: 'San Francisco Construction Accident Claims',
     eyebrow: 'California local injury guide',
@@ -192,7 +192,7 @@ export const constructionCityGuidePages: LandingPage[] = [
   },
   {
     slug: SJ_CONSTRUCTION_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Jose Construction Accident Claims',
     title: 'San Jose Construction Accident Claims',
     eyebrow: 'California local injury guide',
@@ -254,7 +254,7 @@ export const constructionCityGuidePages: LandingPage[] = [
   },
   {
     slug: SD_CONSTRUCTION_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Diego Construction Accident Claims',
     title: 'San Diego Construction Accident Claims',
     eyebrow: 'California local injury guide',

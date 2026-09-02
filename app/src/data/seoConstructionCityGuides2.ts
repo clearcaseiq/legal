@@ -57,7 +57,7 @@ export const LB_CONSTRUCTION_SLUG = '/long-beach-construction-accident'
 export const constructionCityGuidePages2: LandingPage[] = [
   {
     slug: SAC_CONSTRUCTION_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Sacramento Construction Accident Claims',
     title: 'Sacramento Construction Accident Claims',
     eyebrow: 'California local injury guide',
@@ -119,7 +119,7 @@ export const constructionCityGuidePages2: LandingPage[] = [
   },
   {
     slug: FRESNO_CONSTRUCTION_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Fresno Construction Accident Claims',
     title: 'Fresno Construction Accident Claims',
     eyebrow: 'California local injury guide',
@@ -181,7 +181,7 @@ export const constructionCityGuidePages2: LandingPage[] = [
   },
   {
     slug: OAK_CONSTRUCTION_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Oakland Construction Accident Claims',
     title: 'Oakland Construction Accident Claims',
     eyebrow: 'California local injury guide',
@@ -243,7 +243,7 @@ export const constructionCityGuidePages2: LandingPage[] = [
   },
   {
     slug: LB_CONSTRUCTION_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Long Beach Construction Accident Claims',
     title: 'Long Beach Construction Accident Claims',
     eyebrow: 'California local injury guide',

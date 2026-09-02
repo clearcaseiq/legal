@@ -44,7 +44,7 @@ export const OAK_DRAM_SLUG = '/oakland-bar-overservice-injury-claim'
 export const dramShopCityGuidePages2: LandingPage[] = [
   {
     slug: SJ_DRAM_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Jose Bar & Nightclub Over-Service Claims',
     title: 'San Jose Bar & Nightclub Over-Service Claims',
     eyebrow: 'California local injury guide',
@@ -106,7 +106,7 @@ export const dramShopCityGuidePages2: LandingPage[] = [
   },
   {
     slug: FRESNO_DRAM_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Fresno Bar & Nightclub Over-Service Claims',
     title: 'Fresno Bar & Nightclub Over-Service Claims',
     eyebrow: 'California local injury guide',
@@ -168,7 +168,7 @@ export const dramShopCityGuidePages2: LandingPage[] = [
   },
   {
     slug: LB_DRAM_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Long Beach Bar & Nightclub Over-Service Claims',
     title: 'Long Beach Bar & Nightclub Over-Service Claims',
     eyebrow: 'California local injury guide',
@@ -230,7 +230,7 @@ export const dramShopCityGuidePages2: LandingPage[] = [
   },
   {
     slug: OAK_DRAM_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Oakland Bar & Nightclub Over-Service Claims',
     title: 'Oakland Bar & Nightclub Over-Service Claims',
     eyebrow: 'California local injury guide',

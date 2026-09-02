@@ -41,7 +41,7 @@ export const OAK_VDEF_SLUG = '/oakland-defective-vehicle-claim'
 export const vehicleDefectCityGuidePages2: LandingPage[] = [
   {
     slug: SJ_VDEF_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Jose Defective Vehicle Claims',
     title: 'San Jose Defective Vehicle & Crashworthiness Claims',
     eyebrow: 'California local injury guide',
@@ -103,7 +103,7 @@ export const vehicleDefectCityGuidePages2: LandingPage[] = [
   },
   {
     slug: FRESNO_VDEF_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Fresno Defective Vehicle Claims',
     title: 'Fresno Defective Vehicle & Crashworthiness Claims',
     eyebrow: 'California local injury guide',
@@ -165,7 +165,7 @@ export const vehicleDefectCityGuidePages2: LandingPage[] = [
   },
   {
     slug: LB_VDEF_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Long Beach Defective Vehicle Claims',
     title: 'Long Beach Defective Vehicle & Crashworthiness Claims',
     eyebrow: 'California local injury guide',
@@ -227,7 +227,7 @@ export const vehicleDefectCityGuidePages2: LandingPage[] = [
   },
   {
     slug: OAK_VDEF_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Oakland Defective Vehicle Claims',
     title: 'Oakland Defective Vehicle & Crashworthiness Claims',
     eyebrow: 'California local injury guide',

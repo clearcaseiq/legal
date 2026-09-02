@@ -42,7 +42,7 @@ export const RIV_AV_SLUG = '/riverside-aviation-accident-claim'
 export const aviationCityGuidePages2: LandingPage[] = [
   {
     slug: OAK_AV_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Oakland Aviation & Helicopter Accident Claims',
     title: 'Oakland Aviation & Helicopter Accident Claims',
     eyebrow: 'California local injury guide',
@@ -104,7 +104,7 @@ export const aviationCityGuidePages2: LandingPage[] = [
   },
   {
     slug: LB_AV_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Long Beach Aviation & Helicopter Accident Claims',
     title: 'Long Beach Aviation & Helicopter Accident Claims',
     eyebrow: 'California local injury guide',
@@ -166,7 +166,7 @@ export const aviationCityGuidePages2: LandingPage[] = [
   },
   {
     slug: FRESNO_AV_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Fresno Aviation & Agricultural-Aircraft Accident Claims',
     title: 'Fresno Aviation & Agricultural-Aircraft Accident Claims',
     eyebrow: 'California local injury guide',
@@ -228,7 +228,7 @@ export const aviationCityGuidePages2: LandingPage[] = [
   },
   {
     slug: RIV_AV_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Riverside Aviation & Helicopter Accident Claims',
     title: 'Riverside Aviation & Helicopter Accident Claims',
     eyebrow: 'California local injury guide',

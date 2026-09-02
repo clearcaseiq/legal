@@ -70,7 +70,7 @@ export const SAC_CHILD_SLUG = '/sacramento-daycare-school-injury-claim'
 export const childInjuryCityGuidePages: LandingPage[] = [
   {
     slug: LA_CHILD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Los Angeles Daycare & School Injury Claims',
     title: 'Los Angeles Daycare & School Injury Claims',
     eyebrow: 'California local injury guide',
@@ -132,7 +132,7 @@ export const childInjuryCityGuidePages: LandingPage[] = [
   },
   {
     slug: SD_CHILD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Diego Daycare & School Injury Claims',
     title: 'San Diego Daycare & School Injury Claims',
     eyebrow: 'California local injury guide',
@@ -194,7 +194,7 @@ export const childInjuryCityGuidePages: LandingPage[] = [
   },
   {
     slug: SJ_CHILD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Jose Daycare & School Injury Claims',
     title: 'San Jose Daycare & School Injury Claims',
     eyebrow: 'California local injury guide',
@@ -256,7 +256,7 @@ export const childInjuryCityGuidePages: LandingPage[] = [
   },
   {
     slug: SAC_CHILD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Sacramento Daycare & School Injury Claims',
     title: 'Sacramento Daycare & School Injury Claims',
     eyebrow: 'California local injury guide',

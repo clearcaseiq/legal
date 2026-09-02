@@ -43,7 +43,7 @@ export const GILROY_PARK_SLUG = '/gilroy-theme-park-injury'
 export const themeParkCityGuidePages2: LandingPage[] = [
   {
     slug: BUENAPARK_PARK_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Buena Park Theme Park Injury Claims',
     title: 'Buena Park Theme Park & Amusement Ride Injury Claims',
     eyebrow: 'California local injury guide',
@@ -105,7 +105,7 @@ export const themeParkCityGuidePages2: LandingPage[] = [
   },
   {
     slug: VALENCIA_PARK_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Valencia Theme Park Injury Claims',
     title: 'Valencia Theme Park & Amusement Ride Injury Claims',
     eyebrow: 'California local injury guide',
@@ -167,7 +167,7 @@ export const themeParkCityGuidePages2: LandingPage[] = [
   },
   {
     slug: VALLEJO_PARK_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Vallejo Theme Park Injury Claims',
     title: 'Vallejo Theme Park & Amusement Ride Injury Claims',
     eyebrow: 'California local injury guide',
@@ -229,7 +229,7 @@ export const themeParkCityGuidePages2: LandingPage[] = [
   },
   {
     slug: GILROY_PARK_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Gilroy Theme Park Injury Claims',
     title: 'Gilroy Theme Park & Family Attraction Injury Claims',
     eyebrow: 'California local injury guide',

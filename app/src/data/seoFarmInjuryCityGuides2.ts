@@ -46,7 +46,7 @@ export const OXN_FARM_SLUG = '/oxnard-farm-injury-claim'
 export const farmInjuryCityGuidePages2: LandingPage[] = [
   {
     slug: STK_FARM_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Stockton Farm & Agricultural Injury Claims',
     title: 'Stockton Farm & Agricultural Injury Claims',
     eyebrow: 'California local injury guide',
@@ -108,7 +108,7 @@ export const farmInjuryCityGuidePages2: LandingPage[] = [
   },
   {
     slug: VIS_FARM_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Visalia Farm & Agricultural Injury Claims',
     title: 'Visalia Farm & Agricultural Injury Claims',
     eyebrow: 'California local injury guide',
@@ -170,7 +170,7 @@ export const farmInjuryCityGuidePages2: LandingPage[] = [
   },
   {
     slug: MER_FARM_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Merced Farm & Agricultural Injury Claims',
     title: 'Merced Farm & Agricultural Injury Claims',
     eyebrow: 'California local injury guide',
@@ -232,7 +232,7 @@ export const farmInjuryCityGuidePages2: LandingPage[] = [
   },
   {
     slug: OXN_FARM_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Oxnard Farm & Agricultural Injury Claims',
     title: 'Oxnard Farm & Agricultural Injury Claims',
     eyebrow: 'California local injury guide',

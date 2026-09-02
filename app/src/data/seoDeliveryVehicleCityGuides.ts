@@ -67,7 +67,7 @@ export const SAC_DELIVERY_SLUG = '/sacramento-delivery-truck-accident'
 export const deliveryVehicleCityGuidePages: LandingPage[] = [
   {
     slug: LA_DELIVERY_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Los Angeles Delivery Vehicle Accident Claims',
     title: 'Los Angeles Delivery Vehicle Accident Claims',
     eyebrow: 'California local injury guide',
@@ -129,7 +129,7 @@ export const deliveryVehicleCityGuidePages: LandingPage[] = [
   },
   {
     slug: RIV_DELIVERY_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Riverside Delivery Vehicle Accident Claims',
     title: 'Riverside Delivery Vehicle Accident Claims',
     eyebrow: 'California local injury guide',
@@ -191,7 +191,7 @@ export const deliveryVehicleCityGuidePages: LandingPage[] = [
   },
   {
     slug: OAK_DELIVERY_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Oakland Delivery Vehicle Accident Claims',
     title: 'Oakland Delivery Vehicle Accident Claims',
     eyebrow: 'California local injury guide',
@@ -253,7 +253,7 @@ export const deliveryVehicleCityGuidePages: LandingPage[] = [
   },
   {
     slug: SAC_DELIVERY_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Sacramento Delivery Vehicle Accident Claims',
     title: 'Sacramento Delivery Vehicle Accident Claims',
     eyebrow: 'California local injury guide',

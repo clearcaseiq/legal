@@ -61,7 +61,7 @@ export const FRESNO_FOOD_SLUG = '/fresno-food-poisoning'
 export const foodPoisoningCityGuidePages: LandingPage[] = [
   {
     slug: LA_FOOD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Los Angeles Food Poisoning Claims',
     title: 'Los Angeles Food Poisoning Claims',
     eyebrow: 'California local injury guide',
@@ -123,7 +123,7 @@ export const foodPoisoningCityGuidePages: LandingPage[] = [
   },
   {
     slug: SF_FOOD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Francisco Food Poisoning Claims',
     title: 'San Francisco Food Poisoning Claims',
     eyebrow: 'California local injury guide',
@@ -185,7 +185,7 @@ export const foodPoisoningCityGuidePages: LandingPage[] = [
   },
   {
     slug: SD_FOOD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Diego Food Poisoning Claims',
     title: 'San Diego Food Poisoning Claims',
     eyebrow: 'California local injury guide',
@@ -247,7 +247,7 @@ export const foodPoisoningCityGuidePages: LandingPage[] = [
   },
   {
     slug: FRESNO_FOOD_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Fresno Food Poisoning & Produce Contamination Claims',
     title: 'Fresno Food Poisoning & Produce Contamination Claims',
     eyebrow: 'California local injury guide',

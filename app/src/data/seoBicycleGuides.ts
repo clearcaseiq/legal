@@ -156,7 +156,7 @@ export const bicycleGuidePages: LandingPage[] = [
   },
   {
     slug: BIKE_SOL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Statute of Limitations',
     cluster: 'Bicycle Filing Deadlines',
     title: 'California Bicycle Accident Statute of Limitations',
     eyebrow: 'Filing deadlines',

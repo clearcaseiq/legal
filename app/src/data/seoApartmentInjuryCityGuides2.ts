@@ -53,7 +53,7 @@ export const RIV_APT_SLUG = '/riverside-apartment-injury-claim'
 export const apartmentInjuryCityGuidePages2: LandingPage[] = [
   {
     slug: SD_APT_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Diego Apartment & Landlord Injury Claims',
     title: 'San Diego Apartment & Landlord Injury Claims',
     eyebrow: 'California local injury guide',
@@ -115,7 +115,7 @@ export const apartmentInjuryCityGuidePages2: LandingPage[] = [
   },
   {
     slug: SJ_APT_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Jose Apartment & Landlord Injury Claims',
     title: 'San Jose Apartment & Landlord Injury Claims',
     eyebrow: 'California local injury guide',
@@ -177,7 +177,7 @@ export const apartmentInjuryCityGuidePages2: LandingPage[] = [
   },
   {
     slug: FRE_APT_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Fresno Apartment & Landlord Injury Claims',
     title: 'Fresno Apartment & Landlord Injury Claims',
     eyebrow: 'California local injury guide',
@@ -239,7 +239,7 @@ export const apartmentInjuryCityGuidePages2: LandingPage[] = [
   },
   {
     slug: RIV_APT_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Riverside Apartment & Landlord Injury Claims',
     title: 'Riverside Apartment & Landlord Injury Claims',
     eyebrow: 'California local injury guide',

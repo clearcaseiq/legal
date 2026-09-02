@@ -56,7 +56,7 @@ export const OAK_DOGBITE_SLUG = '/oakland-dog-bite'
 export const dogBiteCityGuidePages2: LandingPage[] = [
   {
     slug: SJ_DOGBITE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Jose Dog Bite Claims',
     title: 'San Jose Dog Bite Claims',
     eyebrow: 'California local injury guide',
@@ -118,7 +118,7 @@ export const dogBiteCityGuidePages2: LandingPage[] = [
   },
   {
     slug: FRESNO_DOGBITE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Fresno Dog Bite Claims',
     title: 'Fresno Dog Bite Claims',
     eyebrow: 'California local injury guide',
@@ -180,7 +180,7 @@ export const dogBiteCityGuidePages2: LandingPage[] = [
   },
   {
     slug: LB_DOGBITE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Long Beach Dog Bite Claims',
     title: 'Long Beach Dog Bite Claims',
     eyebrow: 'California local injury guide',
@@ -242,7 +242,7 @@ export const dogBiteCityGuidePages2: LandingPage[] = [
   },
   {
     slug: OAK_DOGBITE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Oakland Dog Bite Claims',
     title: 'Oakland Dog Bite Claims',
     eyebrow: 'California local injury guide',

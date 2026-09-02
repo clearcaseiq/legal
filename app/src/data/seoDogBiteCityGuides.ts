@@ -60,7 +60,7 @@ export const SAC_DOGBITE_SLUG = '/sacramento-dog-bite'
 export const dogBiteCityGuidePages: LandingPage[] = [
   {
     slug: LA_DOGBITE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Los Angeles Dog Bite Claims',
     title: 'Los Angeles Dog Bite Claims',
     eyebrow: 'California local injury guide',
@@ -122,7 +122,7 @@ export const dogBiteCityGuidePages: LandingPage[] = [
   },
   {
     slug: SF_DOGBITE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Francisco Dog Bite Claims',
     title: 'San Francisco Dog Bite Claims',
     eyebrow: 'California local injury guide',
@@ -184,7 +184,7 @@ export const dogBiteCityGuidePages: LandingPage[] = [
   },
   {
     slug: SD_DOGBITE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Diego Dog Bite Claims',
     title: 'San Diego Dog Bite Claims',
     eyebrow: 'California local injury guide',
@@ -246,7 +246,7 @@ export const dogBiteCityGuidePages: LandingPage[] = [
   },
   {
     slug: SAC_DOGBITE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Sacramento Dog Bite Claims',
     title: 'Sacramento Dog Bite Claims',
     eyebrow: 'California local injury guide',

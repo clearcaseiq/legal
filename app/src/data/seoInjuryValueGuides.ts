@@ -34,7 +34,14 @@ export const injuryValueGuidePages: LandingPage[] = [
   {
     slug: '/how-much-is-my-case-worth',
     category: 'Settlement',
-    cluster: 'Claim Value',
+    // These eight guides all carried `cluster: 'Claim Value'`. Cluster is the
+    // page's subject: it names the H2s and the Article schema, so eight pages
+    // that answer eight different questions were publishing one identical
+    // outline and competing for the same term as each other. The nine later
+    // value guides (Dog Bite Claim Value, Truck Accident Claim Value, and so on)
+    // already name their subject, and these now follow that convention — this
+    // one keeps the head term, the other seven take theirs.
+    cluster: 'Injury Claim Value',
     title: 'How Much Is My Injury Case Worth?',
     eyebrow: 'Case value guide',
     description:
@@ -101,7 +108,7 @@ export const injuryValueGuidePages: LandingPage[] = [
   {
     slug: '/how-much-is-a-car-accident-case-worth',
     category: 'Settlement',
-    cluster: 'Claim Value',
+    cluster: 'Car Accident Claim Value',
     title: 'How Much Is a Car Accident Case Worth?',
     eyebrow: 'Case value guide',
     description:
@@ -168,7 +175,7 @@ export const injuryValueGuidePages: LandingPage[] = [
   {
     slug: '/how-much-is-a-whiplash-case-worth',
     category: 'Settlement',
-    cluster: 'Claim Value',
+    cluster: 'Whiplash Claim Value',
     title: 'How Much Is a Whiplash Case Worth?',
     eyebrow: 'Case value guide',
     description:
@@ -235,7 +242,7 @@ export const injuryValueGuidePages: LandingPage[] = [
   {
     slug: '/how-much-is-a-herniated-disc-case-worth',
     category: 'Settlement',
-    cluster: 'Claim Value',
+    cluster: 'Herniated Disc Claim Value',
     title: 'How Much Is a Herniated Disc Case Worth?',
     eyebrow: 'Case value guide',
     description:
@@ -303,7 +310,7 @@ export const injuryValueGuidePages: LandingPage[] = [
   {
     slug: '/how-much-is-a-tbi-case-worth',
     category: 'Settlement',
-    cluster: 'Claim Value',
+    cluster: 'TBI Claim Value',
     title: 'How Much Is a TBI Case Worth?',
     eyebrow: 'Case value guide',
     description:
@@ -371,7 +378,7 @@ export const injuryValueGuidePages: LandingPage[] = [
   {
     slug: '/how-much-is-a-back-surgery-case-worth',
     category: 'Settlement',
-    cluster: 'Claim Value',
+    cluster: 'Back Surgery Claim Value',
     title: 'How Much Is a Back Surgery Case Worth?',
     eyebrow: 'Case value guide',
     description:
@@ -438,7 +445,7 @@ export const injuryValueGuidePages: LandingPage[] = [
   {
     slug: '/how-much-is-a-motorcycle-accident-case-worth',
     category: 'Settlement',
-    cluster: 'Claim Value',
+    cluster: 'Motorcycle Accident Claim Value',
     title: 'How Much Is a Motorcycle Accident Case Worth?',
     eyebrow: 'Case value guide',
     description:
@@ -506,7 +513,7 @@ export const injuryValueGuidePages: LandingPage[] = [
   {
     slug: '/how-much-is-a-pedestrian-accident-case-worth',
     category: 'Settlement',
-    cluster: 'Claim Value',
+    cluster: 'Pedestrian Accident Claim Value',
     title: 'How Much Is a Pedestrian Accident Case Worth?',
     eyebrow: 'Case value guide',
     description:

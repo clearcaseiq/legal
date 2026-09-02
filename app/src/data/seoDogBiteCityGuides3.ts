@@ -51,7 +51,7 @@ export const ANAHEIM_DOGBITE_SLUG = '/anaheim-dog-bite'
 export const dogBiteCityGuidePages3: LandingPage[] = [
   {
     slug: RIVERSIDE_DOGBITE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Riverside Dog Bite Claims',
     title: 'Riverside Dog Bite Claims',
     eyebrow: 'California local injury guide',
@@ -113,7 +113,7 @@ export const dogBiteCityGuidePages3: LandingPage[] = [
   },
   {
     slug: SANBERNARDINO_DOGBITE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Bernardino Dog Bite Claims',
     title: 'San Bernardino Dog Bite Claims',
     eyebrow: 'California local injury guide',
@@ -175,7 +175,7 @@ export const dogBiteCityGuidePages3: LandingPage[] = [
   },
   {
     slug: BAKERSFIELD_DOGBITE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Bakersfield Dog Bite Claims',
     title: 'Bakersfield Dog Bite Claims',
     eyebrow: 'California local injury guide',
@@ -237,7 +237,7 @@ export const dogBiteCityGuidePages3: LandingPage[] = [
   },
   {
     slug: ANAHEIM_DOGBITE_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Anaheim Dog Bite Claims',
     title: 'Anaheim Dog Bite Claims',
     eyebrow: 'California local injury guide',

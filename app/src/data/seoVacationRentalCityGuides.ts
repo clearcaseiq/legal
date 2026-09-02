@@ -71,7 +71,7 @@ export const SF_STR_SLUG = '/san-francisco-vacation-rental-injury-claim'
 export const vacationRentalCityGuidePages: LandingPage[] = [
   {
     slug: LA_STR_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Los Angeles Vacation Rental Injury Claims',
     title: 'Los Angeles Airbnb & Vacation Rental Injury Claims',
     eyebrow: 'California local injury guide',
@@ -133,7 +133,7 @@ export const vacationRentalCityGuidePages: LandingPage[] = [
   },
   {
     slug: SD_STR_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Diego Vacation Rental Injury Claims',
     title: 'San Diego Airbnb & Vacation Rental Injury Claims',
     eyebrow: 'California local injury guide',
@@ -195,7 +195,7 @@ export const vacationRentalCityGuidePages: LandingPage[] = [
   },
   {
     slug: PS_STR_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Palm Springs Vacation Rental Injury Claims',
     title: 'Palm Springs Vacation Rental & Pool Injury Claims',
     eyebrow: 'California local injury guide',
@@ -257,7 +257,7 @@ export const vacationRentalCityGuidePages: LandingPage[] = [
   },
   {
     slug: SF_STR_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Francisco Vacation Rental Injury Claims',
     title: 'San Francisco Airbnb & Vacation Rental Injury Claims',
     eyebrow: 'California local injury guide',

@@ -67,7 +67,7 @@ export const SAC_BURN_SLUG = '/sacramento-burn-injury'
 export const burnInjuryCityGuidePages: LandingPage[] = [
   {
     slug: LA_BURN_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Los Angeles Burn Injury Claims',
     title: 'Los Angeles Burn Injury Claims',
     eyebrow: 'California local injury guide',
@@ -129,7 +129,7 @@ export const burnInjuryCityGuidePages: LandingPage[] = [
   },
   {
     slug: SF_BURN_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Francisco Burn Injury Claims',
     title: 'San Francisco Burn Injury Claims',
     eyebrow: 'California local injury guide',
@@ -191,7 +191,7 @@ export const burnInjuryCityGuidePages: LandingPage[] = [
   },
   {
     slug: SD_BURN_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Diego Burn Injury Claims',
     title: 'San Diego Burn Injury Claims',
     eyebrow: 'California local injury guide',
@@ -253,7 +253,7 @@ export const burnInjuryCityGuidePages: LandingPage[] = [
   },
   {
     slug: SAC_BURN_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Sacramento Burn Injury Claims',
     title: 'Sacramento Burn Injury Claims',
     eyebrow: 'California local injury guide',

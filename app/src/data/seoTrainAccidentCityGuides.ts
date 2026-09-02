@@ -68,7 +68,7 @@ export const SAC_TRAIN_SLUG = '/sacramento-train-accident'
 export const trainAccidentCityGuidePages: LandingPage[] = [
   {
     slug: LA_TRAIN_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Los Angeles Train & Railroad Accident Claims',
     title: 'Los Angeles Train & Railroad Accident Claims',
     eyebrow: 'California local injury guide',
@@ -130,7 +130,7 @@ export const trainAccidentCityGuidePages: LandingPage[] = [
   },
   {
     slug: SJ_TRAIN_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Jose Train & Railroad Accident Claims',
     title: 'San Jose Train & Railroad Accident Claims',
     eyebrow: 'California local injury guide',
@@ -192,7 +192,7 @@ export const trainAccidentCityGuidePages: LandingPage[] = [
   },
   {
     slug: SD_TRAIN_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Diego Train & Railroad Accident Claims',
     title: 'San Diego Train & Railroad Accident Claims',
     eyebrow: 'California local injury guide',
@@ -254,7 +254,7 @@ export const trainAccidentCityGuidePages: LandingPage[] = [
   },
   {
     slug: SAC_TRAIN_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Sacramento Train & Railroad Accident Claims',
     title: 'Sacramento Train & Railroad Accident Claims',
     eyebrow: 'California local injury guide',

@@ -65,7 +65,7 @@ export const RIV_POOL_SLUG = '/riverside-pool-drowning-injury'
 export const poolDrowningCityGuidePages: LandingPage[] = [
   {
     slug: SAC_POOL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Sacramento Pool & Drowning Injury Claims',
     title: 'Sacramento Pool & Drowning Injury Claims',
     eyebrow: 'California local injury guide',
@@ -127,7 +127,7 @@ export const poolDrowningCityGuidePages: LandingPage[] = [
   },
   {
     slug: FRESNO_POOL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Fresno Pool & Drowning Injury Claims',
     title: 'Fresno Pool & Drowning Injury Claims',
     eyebrow: 'California local injury guide',
@@ -189,7 +189,7 @@ export const poolDrowningCityGuidePages: LandingPage[] = [
   },
   {
     slug: BAKERSFIELD_POOL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Bakersfield Pool & Drowning Injury Claims',
     title: 'Bakersfield Pool & Drowning Injury Claims',
     eyebrow: 'California local injury guide',
@@ -251,7 +251,7 @@ export const poolDrowningCityGuidePages: LandingPage[] = [
   },
   {
     slug: RIV_POOL_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Riverside Pool & Drowning Injury Claims',
     title: 'Riverside Pool & Drowning Injury Claims',
     eyebrow: 'California local injury guide',

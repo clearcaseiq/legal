@@ -42,7 +42,7 @@ export const RIV_ELEC_SLUG = '/riverside-electrocution-injury-claim'
 export const electrocutionCityGuidePages2: LandingPage[] = [
   {
     slug: SJ_ELEC_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Jose Electrocution Injury Claims',
     title: 'San Jose Electrocution & Electrical Injury Claims',
     eyebrow: 'California local injury guide',
@@ -104,7 +104,7 @@ export const electrocutionCityGuidePages2: LandingPage[] = [
   },
   {
     slug: FRESNO_ELEC_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Fresno Electrocution Injury Claims',
     title: 'Fresno Electrocution & Electrical Injury Claims',
     eyebrow: 'California local injury guide',
@@ -166,7 +166,7 @@ export const electrocutionCityGuidePages2: LandingPage[] = [
   },
   {
     slug: LB_ELEC_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Long Beach Electrocution Injury Claims',
     title: 'Long Beach Electrocution & Electrical Injury Claims',
     eyebrow: 'California local injury guide',
@@ -228,7 +228,7 @@ export const electrocutionCityGuidePages2: LandingPage[] = [
   },
   {
     slug: RIV_ELEC_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Riverside Electrocution Injury Claims',
     title: 'Riverside Electrocution & Electrical Injury Claims',
     eyebrow: 'California local injury guide',

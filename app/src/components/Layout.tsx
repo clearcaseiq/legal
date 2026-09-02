@@ -8,6 +8,7 @@ import RouteProgressBar from './RouteProgressBar'
 // its place while its chunk arrives, and a reflow of the header when it does.
 import LanguageSwitcher from './LanguageSwitcher'
 import { START_ASSESSMENT_HREF } from '../data/appRoutes'
+import { organizationSchema } from '../data/organizationSchema'
 import {
   ChevronDownIcon,
   MenuIcon,
@@ -91,24 +92,7 @@ const MOBILE_ASSESSMENT_CTA_ROUTES = new Set<string>([
 
 const organizationJsonLd = {
   '@context': 'https://schema.org',
-  '@type': 'Organization',
-  name: 'ClearCaseIQ',
-  legalName: 'ClearCaseIQ Corp.',
-  url: 'https://www.clearcaseiq.com',
-  logo: 'https://www.clearcaseiq.com/clearcaseiq-logo.png',
-  email: 'support@clearcaseiq.com',
-  description:
-    'AI-powered legal technology that helps injury victims evaluate personal injury claims and connect with participating attorneys — with consent. Not a law firm.',
-  address: {
-    '@type': 'PostalAddress',
-    addressLocality: 'Los Angeles',
-    addressRegion: 'CA',
-    addressCountry: 'US',
-  },
-  areaServed: {
-    '@type': 'AdministrativeArea',
-    name: 'California',
-  },
+  ...organizationSchema(),
 }
 
 export default function Layout({ children }: LayoutProps) {

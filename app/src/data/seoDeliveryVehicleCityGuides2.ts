@@ -45,7 +45,7 @@ export const LB_DELIVERY_SLUG = '/long-beach-delivery-truck-accident'
 export const deliveryVehicleCityGuidePages2: LandingPage[] = [
   {
     slug: SD_DELIVERY_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Diego Delivery Vehicle Crash Claims',
     title: 'San Diego Delivery Van & Truck Crash Claims',
     eyebrow: 'California local injury guide',
@@ -107,7 +107,7 @@ export const deliveryVehicleCityGuidePages2: LandingPage[] = [
   },
   {
     slug: SJ_DELIVERY_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Jose Delivery Vehicle Crash Claims',
     title: 'San Jose Delivery Van & Truck Crash Claims',
     eyebrow: 'California local injury guide',
@@ -169,7 +169,7 @@ export const deliveryVehicleCityGuidePages2: LandingPage[] = [
   },
   {
     slug: FRESNO_DELIVERY_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Fresno Delivery Vehicle Crash Claims',
     title: 'Fresno Delivery Van & Truck Crash Claims',
     eyebrow: 'California local injury guide',
@@ -231,7 +231,7 @@ export const deliveryVehicleCityGuidePages2: LandingPage[] = [
   },
   {
     slug: LB_DELIVERY_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Long Beach Delivery Vehicle Crash Claims',
     title: 'Long Beach Delivery Van & Truck Crash Claims',
     eyebrow: 'California local injury guide',

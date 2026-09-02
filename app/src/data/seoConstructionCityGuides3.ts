@@ -55,7 +55,7 @@ export const ANAHEIM_CONSTRUCTION_SLUG = '/anaheim-construction-accident'
 export const constructionCityGuidePages3: LandingPage[] = [
   {
     slug: RIV_CONSTRUCTION_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Riverside Construction Accident Claims',
     title: 'Riverside Construction Accident Claims',
     eyebrow: 'California local injury guide',
@@ -117,7 +117,7 @@ export const constructionCityGuidePages3: LandingPage[] = [
   },
   {
     slug: SB_CONSTRUCTION_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Bernardino Construction Accident Claims',
     title: 'San Bernardino Construction Accident Claims',
     eyebrow: 'California local injury guide',
@@ -179,7 +179,7 @@ export const constructionCityGuidePages3: LandingPage[] = [
   },
   {
     slug: BAKERSFIELD_CONSTRUCTION_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Bakersfield Construction Accident Claims',
     title: 'Bakersfield Construction Accident Claims',
     eyebrow: 'California local injury guide',
@@ -241,7 +241,7 @@ export const constructionCityGuidePages3: LandingPage[] = [
   },
   {
     slug: ANAHEIM_CONSTRUCTION_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Anaheim Construction Accident Claims',
     title: 'Anaheim Construction Accident Claims',
     eyebrow: 'California local injury guide',

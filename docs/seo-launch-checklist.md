@@ -121,9 +121,17 @@ Widening this boundary needs a HIPAA review — see
       disclaimers appear where the rules demand.
 - [ ] **E-E-A-T signals.** Personal injury is a YMYL category, where Google
       weighs demonstrable trust unusually heavily. Ship `/about` with founder
-      story, company identity, and content standards (done in-app). Still add
-      named outside legal/medical reviewer bylines and a verifiable street
-      address when available.
+      story, company identity, and content standards (done in-app). The
+      remaining gap is **named outside legal/medical reviewer bylines**, which
+      is now the highest-value trust signal left.
+
+      There is deliberately no street address or phone number in the
+      structured data: the company is remote with no staffed office and support
+      runs on email. Do not add either to "complete" the profile — a Business
+      Profile at an address nobody occupies is grounds for suspension, and a
+      published address or number that disagrees with the authoritative record
+      splits the entity rather than strengthening it. See
+      `app/src/data/organizationSchema.ts`.
 
 ---
 
@@ -139,3 +147,37 @@ Widening this boundary needs a HIPAA review — see
 - [ ] Backlinks remain the dominant off-page factor. A new domain in this
       vertical should not be expected to rank on published content alone for
       several months; plan paid and direct channels for launch traffic.
+
+---
+
+## 5. Bought links and the disavow file
+
+Links were purchased for this domain at some point, which is a violation of
+Google's spam policies and is worth cleaning up deliberately rather than hoping
+it is ignored. `seo/disavow.txt` is the authoritative list and carries the full
+procedure in its own comments; the essentials:
+
+- [ ] **Check for a manual action first.** Search Console → Security & Manual
+      Actions. If there is no "Unnatural links to your site" action, the spam
+      systems are most likely already discounting these links and the disavow is
+      insurance rather than a repair. If there is one, the disavow file becomes
+      part of a reconsideration request, which has to say what was bought, from
+      whom, and what was removed.
+- [ ] **Export the referring domains.** Search Console → Links → Top linking
+      sites → Export. Cross-check against Ahrefs or Semrush: Search Console
+      reports a sample, and paid-link domains are often missing from it because
+      they are low-value and crawled rarely.
+- [ ] **Try removal before disavowal.** Google's documented order is to get the
+      link taken down and disavow only what cannot be removed.
+- [ ] **Add entries to `seo/disavow.txt` with a one-line reason each**, keeping
+      anything uncertain out. A wrongly disavowed domain stops passing the value
+      it was legitimately passing, with no error and no partial undo.
+- [ ] **Upload only once domains are listed.** The tool *replaces* the whole
+      list rather than appending, so the repository copy must always be complete
+      — and uploading the file while it is still empty would clear an existing
+      disavow rather than do nothing.
+
+Do not treat a disavow as the fix on its own. It suppresses bad signal; it does
+not create good signal. The durable answer in a YMYL vertical is the earned kind
+of link the checklist above points at — bar associations, universities, local
+press, and genuine legal directories.

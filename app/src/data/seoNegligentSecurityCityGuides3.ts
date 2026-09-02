@@ -56,7 +56,7 @@ export const ANAHEIM_NEGSECURITY_SLUG = '/anaheim-negligent-security'
 export const negligentSecurityCityGuidePages3: LandingPage[] = [
   {
     slug: RIV_NEGSECURITY_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Riverside Negligent Security Claims',
     title: 'Riverside Negligent Security Claims',
     eyebrow: 'California local injury guide',
@@ -118,7 +118,7 @@ export const negligentSecurityCityGuidePages3: LandingPage[] = [
   },
   {
     slug: SB_NEGSECURITY_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'San Bernardino Negligent Security Claims',
     title: 'San Bernardino Negligent Security Claims',
     eyebrow: 'California local injury guide',
@@ -180,7 +180,7 @@ export const negligentSecurityCityGuidePages3: LandingPage[] = [
   },
   {
     slug: BAKERSFIELD_NEGSECURITY_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Bakersfield Negligent Security Claims',
     title: 'Bakersfield Negligent Security Claims',
     eyebrow: 'California local injury guide',
@@ -242,7 +242,7 @@ export const negligentSecurityCityGuidePages3: LandingPage[] = [
   },
   {
     slug: ANAHEIM_NEGSECURITY_SLUG,
-    category: 'Attorney Intent',
+    category: 'Cities',
     cluster: 'Anaheim Negligent Security Claims',
     title: 'Anaheim Negligent Security Claims',
     eyebrow: 'California local injury guide',
