@@ -408,13 +408,31 @@ repository:
 ```json
 "token.actions.githubusercontent.com:sub": [
   "repo:clearcaseiq/legal:environment:qa",
-  "repo:clearcaseiq/legal:environment:production"
+  "repo:clearcaseiq/legal:environment:production",
+  "repo:clearcaseiq/legal:environment:production-rollout"
 ]
 ```
 
 So the credentials that can reach a host are obtainable only from a job running
-in one of those two environments, and the production one is approval-gated. A
-workflow added on a branch cannot assume it.
+in one of those environments. `production` requires a reviewer and
+`production-rollout` is restricted to `main` by a deployment branch policy, so
+neither can be claimed from a branch. `qa` carries neither, which means a
+workflow on any branch can still name it and reach the QA host — bounded to QA,
+but worth knowing before it is read as a guarantee.
+
+`production-rollout` exists because this claim is the whole authorisation. The
+pipeline's approval wait and its rollout are separate jobs, for reasons in
+`pipeline.yml`, and the rollout is the half that assumes the role — so it needs
+an environment of its own. It cannot reuse `production`, because a second job
+naming an environment with a required reviewer would ask for a second approval
+and hold the rollout's concurrency group while it waited. It carries no reviewer
+of its own; `needs: approve-production` is what keeps it behind the gate.
+
+**A job with no `environment:` cannot assume this role at all**, and the failure
+arrives as `Not authorized to perform sts:AssumeRoleWithWebIdentity` on the
+credentials step, which reads like a broken role ARN rather than a missing
+environment. Every production rollout between the approval split and this note
+failed that way.
 
 The instance roles carry `AmazonSSMManagedInstanceCore`, which is what lets the
 agent register and receive commands, alongside the `ecr-pull` policy that lets

@@ -196,9 +196,10 @@ jobs:
     environment:
       name: production
       url: https://www.clearcaseiq.com
-    # Passed through as outputs because the rollout below no longer has the
-    # environment to read them from. These are variables, not secrets, so they
-    # survive the hop; AWS_DEPLOY_ROLE_ARN is repo-scoped and read directly.
+    # Passed through as outputs because the rollout below runs in its own
+    # environment and so cannot read this one's variables. These are variables,
+    # not secrets, so they survive the hop - a secret would arrive redacted.
+    # AWS_DEPLOY_ROLE_ARN is repo-scoped and read directly on both sides.
     outputs:
       instance-ids: ${{ steps.targets.outputs.instance-ids }}
       app-dir: ${{ steps.targets.outputs.app-dir }}
@@ -218,6 +219,25 @@ jobs:
     needs: approve-production
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    # The deploy role's trust policy accepts only an environment-scoped OIDC
+    # subject, so a job declaring no environment cannot assume it whatever the
+    # role ARN says. Splitting the approval wait out of this job dropped the
+    # `environment:` along with it, and every production rollout from then on
+    # failed at "Configure AWS credentials" with "Not authorized to perform
+    # sts:AssumeRoleWithWebIdentity" - a permissions error, so it did not read
+    # as a consequence of moving a concurrency group.
+    #
+    # This is a second environment rather than `production` because naming
+    # `production` here would make the gate above run twice: every job that
+    # references an environment with a required reviewer waits for its own
+    # approval, and this one holds the concurrency group while it waits, which
+    # is the deadlock the split was written to fix. So it carries no reviewer -
+    # `needs: approve-production` is what keeps it behind the gate - and it is
+    # restricted to `main`, so a workflow on a branch cannot name it to reach a
+    # host.
+    environment:
+      name: production-rollout
+      url: https://www.clearcaseiq.com
     # One rollout per host at a time, as with QA. Now that the approval wait sits
     # in the job above, this group is only held while a deploy is actually
     # running, which is the thing that must not overlap.
