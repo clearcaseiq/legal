@@ -571,7 +571,11 @@ export default function AttorneyProfileOverview({ profile, onSave }: Props) {
         ) : (
           <div className="mt-4 flex gap-3 rounded-xl border border-emerald-100 bg-emerald-50/60 p-4">
             <Quote className="h-5 w-5 shrink-0 text-emerald-400" />
-            <p className="text-sm leading-relaxed text-slate-700">
+            {/* whitespace-pre-line, because the textarea exits edit mode on
+                blur: without it the attorney's paragraphs collapse the instant
+                they click away, before any save, which reads as the save
+                having stripped them. */}
+            <p className="whitespace-pre-line text-sm leading-relaxed text-slate-700">
               {draft.bio.trim() || (
                 <span className="italic text-slate-400">
                   No description yet. A practice description is one of the four things that lift your profile strength.

@@ -1877,6 +1877,111 @@ router.put('/', authMiddleware as any, async (req: any, res: Response) => {
   }
 })
 
+// Firm logo. Kept to raster/SVG web formats and a small ceiling because this is
+// shown at avatar size on the firm profile and marketplace listing.
+const logoUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => {
+      const dir = path.join(process.cwd(), 'uploads', 'firm-logos')
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+      cb(null, dir)
+    },
+    filename: (_req, file, cb) => cb(null, `logo-${Date.now()}-${file.originalname}`),
+  }),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    // Either signal is enough: some OS pickers send an empty or
+    // application/octet-stream mimetype for otherwise-valid PNGs (CP-579).
+    const okExt = /\.(jpe?g|png|gif|webp|svg)$/i.test(file.originalname || '')
+    const okMime = /image\/(jpeg|png|gif|webp|svg\+xml)/i.test(file.mimetype || '')
+    if (okExt || okMime) cb(null, true)
+    else cb(new Error('Logo must be a JPEG, PNG, GIF, WebP, or SVG image'))
+  },
+})
+
+/** Surface multer filter/size failures as JSON rather than an HTML error page. */
+function runLogoUpload(req: any, res: Response, next: any) {
+  logoUpload.single('logo')(req, res, (err: any) => {
+    if (!err) return next()
+    const message =
+      err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE'
+        ? 'Logo must be 5MB or smaller'
+        : err.message || 'Logo must be a JPEG, PNG, GIF, WebP, or SVG image'
+    return res.status(400).json({ error: message })
+  })
+}
+
+/** Delete a previously stored logo, ignoring externally hosted URLs. */
+function removeStoredLogo(logoUrl: string | null | undefined) {
+  if (!logoUrl || !logoUrl.startsWith('/uploads/firm-logos/')) return
+  const filePath = path.join(process.cwd(), logoUrl.replace(/^\/+/, ''))
+  fs.promises.unlink(filePath).catch(() => undefined)
+}
+
+// POST /v1/firm-dashboard/logo — upload or replace the firm logo.
+router.post('/logo', authMiddleware as any, runLogoUpload, replicateUploads, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) {
+      return res.status(404).json({ error: 'No law firm associated with this user' })
+    }
+    if (!requireFirmPermission(context, 'manage_users')) {
+      return res.status(403).json({ error: 'You do not have permission to manage firm settings' })
+    }
+    if (!req.file) {
+      return res.status(400).json({ error: 'No logo uploaded' })
+    }
+
+    const existing = await (prisma as any).lawFirm.findUnique({
+      where: { id: context.lawFirmId },
+      select: { logoUrl: true },
+    })
+
+    const logoUrl = `/uploads/firm-logos/${req.file.filename}`
+    const updatedFirm = await (prisma as any).lawFirm.update({
+      where: { id: context.lawFirmId },
+      data: { logoUrl },
+    })
+
+    removeStoredLogo(existing?.logoUrl)
+
+    res.json({ firm: updatedFirm, logoUrl })
+  } catch (error: any) {
+    logger.error('Failed to upload firm logo', { error: error?.message || String(error) })
+    res.status(500).json({ error: 'Failed to upload firm logo' })
+  }
+})
+
+// DELETE /v1/firm-dashboard/logo — clear the firm logo.
+router.delete('/logo', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) {
+      return res.status(404).json({ error: 'No law firm associated with this user' })
+    }
+    if (!requireFirmPermission(context, 'manage_users')) {
+      return res.status(403).json({ error: 'You do not have permission to manage firm settings' })
+    }
+
+    const existing = await (prisma as any).lawFirm.findUnique({
+      where: { id: context.lawFirmId },
+      select: { logoUrl: true },
+    })
+
+    const updatedFirm = await (prisma as any).lawFirm.update({
+      where: { id: context.lawFirmId },
+      data: { logoUrl: null },
+    })
+
+    removeStoredLogo(existing?.logoUrl)
+
+    res.json({ firm: updatedFirm, logoUrl: null })
+  } catch (error: any) {
+    logger.error('Failed to remove firm logo', { error: error?.message || String(error) })
+    res.status(500).json({ error: 'Failed to remove firm logo' })
+  }
+})
+
 // Get firm-level dashboard for the current attorney's firm
 router.get('/', authMiddleware as any, async (req: any, res: Response) => {
   try {
@@ -2270,6 +2375,7 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
         city: firm.city,
         state: firm.state,
         zip: firm.zip,
+        logoUrl: firm.logoUrl,
         createdAt: firm.createdAt,
       },
       metrics: {

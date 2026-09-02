@@ -423,7 +423,7 @@ export default function Attorneys() {
               {(selectedAttorney.profile?.bio || selectedAttorney.bio) && (
                 <div className="mb-6">
                   <h4 className="font-medium text-gray-900 mb-2">About</h4>
-                  <p className="text-sm text-gray-600">{selectedAttorney.profile?.bio || selectedAttorney.bio}</p>
+                  <p className="whitespace-pre-line text-sm text-gray-600">{selectedAttorney.profile?.bio || selectedAttorney.bio}</p>
                 </div>
               )}
 

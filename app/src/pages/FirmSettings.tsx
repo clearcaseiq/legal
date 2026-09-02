@@ -1,9 +1,16 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Building2, CheckCircle, Lock } from 'lucide-react'
+import { Building2, CheckCircle, Loader2, Lock, Trash2, Upload } from 'lucide-react'
 import { BackButton } from '../features/shared/ui'
 import { US_STATES } from '../lib/constants'
-import { getFirmIntakeSettings, updateFirm, updateFirmIntakeSettings } from '../lib/api'
+import { resolveUploadedPhotoUrl } from '../lib/avatar'
+import {
+  getFirmIntakeSettings,
+  removeFirmLogo,
+  updateFirm,
+  updateFirmIntakeSettings,
+  uploadFirmLogo,
+} from '../lib/api'
 import { invalidateFirmDashboardSummary, useFirmDashboardSummary } from '../hooks/useFirmDashboardSummary'
 
 interface FirmForm {
@@ -39,6 +46,9 @@ export default function FirmSettings() {
   const [autoSendRetainer, setAutoSendRetainer] = useState(false)
   const [intakeSaving, setIntakeSaving] = useState(false)
   const [intakeMsg, setIntakeMsg] = useState<string | null>(null)
+  const [logoBusy, setLogoBusy] = useState(false)
+  const [logoError, setLogoError] = useState<string | null>(null)
+  const logoInputRef = useRef<HTMLInputElement>(null)
 
   const firm = data?.firm
   const canEdit = useMemo(() => {
@@ -72,6 +82,25 @@ export default function FirmSettings() {
   const updateField = (key: keyof FirmForm, value: string) => {
     setForm(prev => ({ ...prev, [key]: value }))
     setSaveSuccess(false)
+  }
+
+  const logoUrl = resolveUploadedPhotoUrl(firm?.logoUrl)
+
+  // The logo saves on its own rather than with the form below: an upload is a
+  // single deliberate action, and holding the file until "Save Changes" would
+  // leave the preview showing something that is not stored yet.
+  const runLogoChange = async (action: () => Promise<unknown>) => {
+    setLogoError(null)
+    setLogoBusy(true)
+    try {
+      await action()
+      invalidateFirmDashboardSummary()
+      await refresh(true)
+    } catch (err: any) {
+      setLogoError(err?.response?.data?.error || err?.message || 'Failed to update the firm logo.')
+    } finally {
+      setLogoBusy(false)
+    }
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -170,6 +199,67 @@ export default function FirmSettings() {
           </p>
         </div>
       )}
+
+      <div className="mb-6 rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+        <h3 className="text-lg font-medium text-gray-900">Firm logo</h3>
+        <p className="mt-1 text-sm text-gray-600">
+          Shown on your firm’s public profile and in the attorney marketplace listing.
+        </p>
+
+        <div className="mt-4 flex flex-wrap items-center gap-4">
+          {logoUrl ? (
+            <img
+              src={logoUrl}
+              alt={`${firm.name} logo`}
+              className="h-20 w-20 rounded-xl border border-slate-200 bg-white object-contain"
+            />
+          ) : (
+            <div className="flex h-20 w-20 items-center justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50">
+              <Building2 className="h-8 w-8 text-slate-400" />
+            </div>
+          )}
+
+          {canEdit && (
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                ref={logoInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/gif,image/webp,image/svg+xml"
+                className="sr-only"
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  // Reset first so picking the same file twice still fires onChange.
+                  e.target.value = ''
+                  if (file) void runLogoChange(() => uploadFirmLogo(file))
+                }}
+              />
+              <button
+                type="button"
+                disabled={logoBusy}
+                onClick={() => logoInputRef.current?.click()}
+                className="inline-flex items-center gap-2 rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              >
+                {logoBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                {logoUrl ? 'Replace logo' : 'Upload logo'}
+              </button>
+              {firm.logoUrl && (
+                <button
+                  type="button"
+                  disabled={logoBusy}
+                  onClick={() => void runLogoChange(removeFirmLogo)}
+                  className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Remove
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
+        <p className="mt-3 text-xs text-gray-500">JPEG, PNG, GIF, WebP, or SVG, up to 5MB.</p>
+        {logoError ? <p className="mt-2 text-xs text-red-600">{logoError}</p> : null}
+      </div>
 
       <div className="mb-6 rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
         <h3 className="text-lg font-medium text-gray-900">Intake automation</h3>

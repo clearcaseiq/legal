@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { Building2, CheckCircle, Clock, Globe, MapPin, Phone, Star, TrendingUp } from 'lucide-react'
 import { getFirmProfile, type FirmProfile as FirmProfileData, type FirmTrustMetrics } from '../lib/api'
 import { formatCurrency } from '../lib/formatters'
+import { resolveUploadedPhotoUrl } from '../lib/avatar'
 
 function pct(value: number) {
   return `${Math.round(value * 100)}%`
@@ -58,7 +59,11 @@ export default function FirmProfile() {
 
       <div className="mt-4 flex flex-wrap items-start gap-4">
         {firm.logoUrl ? (
-          <img src={firm.logoUrl} alt={firm.name} className="h-16 w-16 rounded-xl object-cover" />
+            <img
+              src={resolveUploadedPhotoUrl(firm.logoUrl) || firm.logoUrl}
+              alt={firm.name}
+              className="h-16 w-16 rounded-xl object-contain"
+            />
         ) : (
           <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-brand-50 text-brand-600">
             <Building2 className="h-8 w-8" />

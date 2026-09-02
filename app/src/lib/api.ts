@@ -5078,6 +5078,20 @@ export async function updateFirm(payload: {
   return data
 }
 
+export async function uploadFirmLogo(file: File) {
+  const formData = new FormData()
+  formData.append('logo', file)
+  const { data } = await api.post('/v1/firm-dashboard/logo', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+  return data as { logoUrl: string }
+}
+
+export async function removeFirmLogo() {
+  const { data } = await api.delete('/v1/firm-dashboard/logo')
+  return data as { logoUrl: null }
+}
+
 export async function addFirmAttorney(payload: {
   email: string
   name?: string

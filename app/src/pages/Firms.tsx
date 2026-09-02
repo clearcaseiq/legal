@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Building2, MapPin, Users } from 'lucide-react'
 import { getPublicFirms } from '../lib/api'
+import { resolveUploadedPhotoUrl } from '../lib/avatar'
 
 type FirmListItem = {
   id: string
@@ -64,7 +65,11 @@ export default function Firms() {
             >
               <div className="flex items-center gap-3">
                 {firm.logoUrl ? (
-                  <img src={firm.logoUrl} alt={firm.name} className="h-12 w-12 rounded-lg object-cover" />
+                  <img
+                    src={resolveUploadedPhotoUrl(firm.logoUrl) || firm.logoUrl}
+                    alt={firm.name}
+                    className="h-12 w-12 rounded-lg object-contain"
+                  />
                 ) : (
                   <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-brand-50 text-brand-600">
                     <Building2 className="h-6 w-6" />

@@ -61,6 +61,14 @@ const NAV_LINKS = {
   staffLogin: '/login/staff',
 }
 
+/**
+ * Where "My Cases" takes an attorney: the Active Cases entry in the workspace
+ * sidebar, i.e. the caseload they have actually taken on. Shared by the account
+ * menu and the mobile menu so one label cannot lead to two different screens
+ * depending on the device.
+ */
+const ATTORNEY_ACTIVE_CASES_HREF = '/attorney-dashboard/cases/active'
+
 // Informational/marketing pages where a mobile visitor should always have a
 // one-tap way to start the free assessment (the header CTA is tucked into the
 // hamburger on small screens). Home is excluded — it renders its own scroll-aware
@@ -414,9 +422,9 @@ export default function Layout({ children }: LayoutProps) {
     : isAttorney
       ? {
           name: t('common.myCases'),
-          // Fixed New Matches route in the two-domain workspace shell — a stable
-          // landing page independent of the last sub-tab browsed (#A3-35).
-          href: '/attorney-dashboard/leadgen/matches',
+          // A fixed landing page rather than the last sub-tab browsed (#A3-35),
+          // and the same one the account menu uses so the label is unambiguous.
+          href: ATTORNEY_ACTIVE_CASES_HREF,
           icon: FileTextIcon,
         }
       : (isAuthenticated || hasCase) && !hidePlaintiffContinueMyCase
@@ -648,7 +656,11 @@ export default function Layout({ children }: LayoutProps) {
                         </Link>
                         {(isAdminArea || isAttorney) && (
                           <Link
-                            to={isAdminArea ? '/admin/cases' : '/attorney-dashboard/leadgen/matches'}
+                            // "My Cases" means the attorney's own caseload, so it
+                            // lands on Active Cases in the workspace sidebar. It
+                            // used to open New Matches, which is the inbox of
+                            // offers they have not taken yet — the opposite.
+                            to={isAdminArea ? '/admin/cases' : ATTORNEY_ACTIVE_CASES_HREF}
                             onClick={() => setUserMenuOpen(false)}
                             className={menuItemCls}
                           >
@@ -806,7 +818,7 @@ export default function Layout({ children }: LayoutProps) {
                       <Link to={isAdminArea ? '/admin' : isAttorney ? '/attorney-dashboard' : '/dashboard'} onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">{isAdminArea ? 'Admin Dashboard' : 'Dashboard'}</Link>
                       {/* Plaintiffs already have Dashboard → /dashboard; skip the duplicate "Continue My Case" entry. */}
                       {(isAdminArea || isAttorney || !hidePlaintiffContinueMyCase) && (
-                      <Link to={isAdminArea ? '/admin/cases' : isAttorney ? '/attorney-dashboard/leadgen/matches' : plaintiffCaseHref} onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">{isAdminArea ? 'Cases' : isAttorney ? 'My Cases' : (hasCase ? t('common.continueMyCase') : t('common.myCase'))}</Link>
+                      <Link to={isAdminArea ? '/admin/cases' : isAttorney ? ATTORNEY_ACTIVE_CASES_HREF : plaintiffCaseHref} onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">{isAdminArea ? 'Cases' : isAttorney ? t('common.myCases') : (hasCase ? t('common.continueMyCase') : t('common.myCase'))}</Link>
                       )}
                       {!isAdmin && (
                         <Link to={isAttorney ? '/attorney-profile' : '/profile'} onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">{t('common.myProfile')}</Link>

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ChevronDown, ChevronRight, X } from 'lucide-react'
 import { US_STATES } from '../lib/constants'
 import { getCountiesForState } from '../lib/usLocationData'
@@ -9,8 +9,13 @@ import type { CountiesByState } from '../lib/attorneyJurisdictions'
  *
  * An empty selection is a real setting rather than an unfinished one: routing
  * reads "no counties listed" as serving the entire state, and only filters on
- * county once the list is non-empty. The control says so outright, because an
- * empty box otherwise reads as work someone forgot to do.
+ * county once the list is non-empty.
+ *
+ * That storage shape is deliberately NOT changed here. Persisting all 58
+ * counties instead would freeze coverage to today's county list, so a state
+ * gaining a county would silently stop matching for every attorney who had
+ * chosen "entire state". The whole-state answer stays an empty list; this
+ * control only renders it as what it means — every county ticked.
  */
 export function CountyMultiSelect({
   stateCode,
@@ -24,6 +29,15 @@ export function CountyMultiSelect({
   const [query, setQuery] = useState('')
   const selected = value || []
   const counties = useMemo(() => getCountiesForState(stateCode), [stateCode])
+
+  // An empty list is ambiguous on its own: it is both "the entire state" and
+  // "narrowing, nothing picked yet". Only the second needs a usable empty grid,
+  // so the mode is tracked here rather than inferred from the value alone.
+  const [narrowed, setNarrowed] = useState(selected.length > 0)
+  useEffect(() => {
+    if (selected.length > 0) setNarrowed(true)
+  }, [selected.length])
+  const statewide = !narrowed
 
   const toggle = (county: string) =>
     onChange(selected.includes(county) ? selected.filter((c) => c !== county) : [...selected, county])
@@ -39,9 +53,36 @@ export function CountyMultiSelect({
     )
   }
 
+  const modeButton = (label: string, active: boolean, onClick: () => void) => (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
+        active
+          ? 'border-brand-600 bg-brand-50 text-brand-700'
+          : 'border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50'
+      }`}
+    >
+      {label}
+    </button>
+  )
+
   return (
     <div className="space-y-2.5">
-      {selected.length > 0 ? (
+      <div className="flex flex-wrap gap-2">
+        {modeButton('Entire state', statewide, () => {
+          setNarrowed(false)
+          onChange([])
+        })}
+        {modeButton('Selected counties', narrowed, () => setNarrowed(true))}
+      </div>
+
+      {statewide ? (
+        <p className="text-xs text-slate-500">
+          Covering all {counties.length} counties in {stateCode}. Switch to “Selected counties” to narrow it.
+        </p>
+      ) : selected.length > 0 ? (
         <div className="flex flex-wrap gap-1.5">
           {selected.map((county) => (
             <button
@@ -57,16 +98,18 @@ export function CountyMultiSelect({
           ))}
           <button
             type="button"
-            onClick={() => onChange([])}
+            onClick={() => {
+              setNarrowed(false)
+              onChange([])
+            }}
             className="rounded-full px-2 py-0.5 text-xs font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
           >
             Clear all
           </button>
         </div>
       ) : (
-        <p className="text-xs text-slate-500">
-          No counties selected, so this attorney is matched anywhere in {stateCode}. Pick counties only to narrow
-          that.
+        <p className="text-xs text-amber-700">
+          Pick at least one county — leaving this empty saves as the entire state.
         </p>
       )}
 
@@ -83,18 +126,23 @@ export function CountyMultiSelect({
         ) : (
           <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
             {filtered.map((county) => {
-              const isOn = selected.includes(county)
+              const isOn = statewide || selected.includes(county)
               return (
                 <button
                   key={county}
                   type="button"
                   onClick={() => toggle(county)}
                   aria-pressed={isOn}
+                  // Ticked-but-fixed while statewide: unticking one county here
+                  // would have to narrow to the other 57, which is never what
+                  // someone reaching for a single county wants.
+                  disabled={statewide}
+                  title={statewide ? `Covered — all of ${stateCode} is included` : undefined}
                   className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition ${
                     isOn
                       ? 'bg-brand-50 font-medium text-brand-800 ring-1 ring-inset ring-brand-200'
                       : 'text-slate-700 hover:bg-slate-100'
-                  }`}
+                  } ${statewide ? 'cursor-default opacity-80' : ''}`}
                 >
                   <span
                     className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] ${

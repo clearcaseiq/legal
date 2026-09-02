@@ -463,7 +463,7 @@ export default function AttorneyProfile() {
                 </span>
               ) : null}
             </div>
-            <p className="text-gray-600">{profile.bio}</p>
+            <p className="whitespace-pre-line text-gray-600">{profile.bio}</p>
 
             <div className="mt-4 flex flex-wrap gap-2">
               {profile.specialties.map((specialty, index) => (

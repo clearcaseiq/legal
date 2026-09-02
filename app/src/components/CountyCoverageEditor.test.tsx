@@ -64,10 +64,16 @@ it('hides the county list until a state is expanded', () => {
   expect(container.querySelector('input[type="text"]')).not.toBeNull()
 })
 
-it('adds a county without disturbing the other states', () => {
-  const onChange = render(['CA', 'NV'], { NV: ['Clark'] })
+/** Expand the first state row and switch it out of whole-state coverage. */
+function expandAndNarrow() {
   const row = container.querySelector('button[aria-expanded]') as HTMLButtonElement
   act(() => row.click())
+  act(() => findByText('Selected counties')?.click())
+}
+
+it('adds a county without disturbing the other states', () => {
+  const onChange = render(['CA', 'NV'], { NV: ['Clark'] })
+  expandAndNarrow()
 
   const county = Array.from(container.querySelectorAll('button')).find((el) =>
     el.textContent?.includes('Orange'),
@@ -75,6 +81,28 @@ it('adds a county without disturbing the other states', () => {
   act(() => county.click())
 
   expect(onChange).toHaveBeenCalledWith({ NV: ['Clark'], CA: ['Orange'] })
+})
+
+it('shows every county as covered when the state is served whole', () => {
+  render(['CA'], {})
+  const row = container.querySelector('button[aria-expanded]') as HTMLButtonElement
+  act(() => row.click())
+
+  // Scoped to the scrolling county grid so the mode buttons above it, which
+  // also carry aria-pressed, are not counted as counties.
+  const tiles = Array.from(container.querySelectorAll('.max-h-48 button[aria-pressed]'))
+  expect(tiles.length).toBeGreaterThan(0)
+  expect(tiles.every((el) => el.getAttribute('aria-pressed') === 'true')).toBe(true)
+})
+
+it('still stores whole-state coverage as an empty list, not every county', () => {
+  // Persisting all 58 would freeze coverage to today's county list.
+  const onChange = render(['CA'], { CA: ['Orange'] })
+  const row = container.querySelector('button[aria-expanded]') as HTMLButtonElement
+  act(() => row.click())
+  act(() => findByText('Entire state')?.click())
+
+  expect(onChange).toHaveBeenCalledWith({ CA: [] })
 })
 
 it('asks for a state first when none are selected', () => {

@@ -548,7 +548,7 @@ export default function AttorneysEnhanced() {
 
                   <div>
                     <h4 className="text-lg font-medium text-gray-900 mb-2">About</h4>
-                    <p className="text-sm text-gray-600">{selectedAttorneyProfile.profile?.bio || selectedAttorneyProfile.profile?.headline || 'No profile summary yet.'}</p>
+                    <p className="whitespace-pre-line text-sm text-gray-600">{selectedAttorneyProfile.profile?.bio || selectedAttorneyProfile.profile?.headline || 'No profile summary yet.'}</p>
                   </div>
 
                   <div>
