@@ -2623,7 +2623,18 @@
     "documents_send": "Enviar documentos",
     "documents_sending": "Enviando…",
     "documents_sent": "Enviado",
-    "documents_sentToast": "Sus documentos fueron enviados a su abogado."
+    "documents_sentToast": "Sus documentos fueron enviados a su abogado.",
+    "ai_field_date": "Fecha",
+    "ai_field_location": "Ubicación",
+    "ai_field_severity": "Gravedad de la lesión",
+    "ai_field_firstCare": "Primera atención",
+    "ai_field_careTiming": "Cuándo lo atendieron",
+    "ai_field_ambulance": "Ambulancia",
+    "ai_field_bodyParts": "Áreas lesionadas",
+    "ai_autoFilledTitle": "Completado según su descripción",
+    "ai_autoFilledHelp": "Respondimos esto por usted. Borre lo que no sea correcto; también puede cambiarlo más adelante.",
+    "ai_clearField": "Borrar",
+    "ai_retry": "Reintentar"
   },
   "results": {
     "title": "Evaluación de caso ClearCaseIQ",

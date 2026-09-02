@@ -212,6 +212,120 @@ export function sanitizeDetectedCounty(state: string, county: string): string {
   return counties.find((entry) => entry.toLowerCase() === normalizedCounty.toLowerCase()) ?? ''
 }
 
+/**
+ * One field the narrative can answer on the claimant's behalf. A discriminated
+ * union rather than a bag of strings so the caller writing these into the form
+ * cannot forget the extra data a fill needs — a body-part merge has to say
+ * which parts it added, and a location fill carries two values, not one.
+ */
+export type DetectionFill =
+  | { key: 'incidentDate'; date: string }
+  | { key: 'venue'; state: string; county: string }
+  | { key: 'injurySeverity'; value: string }
+  | { key: 'medicalTreatment'; value: string }
+  | { key: 'initialCareTiming'; value: string }
+  | { key: 'emsResponded'; value: 'yes' | 'no' }
+  | { key: 'bodyParts'; parts: string[] }
+  | { key: 'crashType'; value: string }
+  | { key: 'faultParty'; value: string }
+  | { key: 'policeReport' }
+  | { key: 'witnesses' }
+  | { key: 'photosVideo' }
+
+/** The parts of the intake form that decide whether a detected fact may be written. */
+export type DetectionFillSnapshot = {
+  incidentDatePreset: string
+  incidentDate: string
+  venue: { state: string; county: string }
+  injurySeverity: string
+  medicalTreatmentCount: number
+  initialCareTiming: string
+  emsResponded: string
+  bodyParts: string[]
+  branch: Record<string, unknown>
+}
+
+/**
+ * Decide which detected facts may be written into the form.
+ *
+ * Extraction runs on a debounce while the claimant types, so this can be asked
+ * the same question repeatedly against a form they have since edited. Three
+ * rules make that safe. An answer that already exists is never replaced, so
+ * their own input always wins. The yes/no evidence flags are only ever turned
+ * on, because an auto-cleared checkbox looks exactly like one that was never
+ * touched and a wrong "no" would be invisible to the only person who could
+ * correct it. And since a fill only ever lands on an empty field, undoing one
+ * is always a reset to empty — which is what makes per-field undo trustworthy.
+ *
+ * Shaped as a pure function over a snapshot because the alternative — deciding
+ * this inside a React state updater — cannot be tested and cannot be read.
+ */
+export function planDetectionFill(
+  snapshot: DetectionFillSnapshot,
+  result: {
+    incidentDate?: string | null
+    state?: string | null
+    county?: string | null
+    injurySeverity?: string | null
+    firstCare?: string | null
+    careTiming?: string | null
+    emsResponded?: 'yes' | 'no' | 'unknown'
+    bodyParts?: string[]
+    crashType?: string | null
+    atFault?: string | null
+    policeReport?: 'yes' | 'no' | 'unknown'
+    witnesses?: 'yes' | 'no' | 'unknown'
+    photos?: 'yes' | 'no' | 'unknown'
+  },
+): DetectionFill[] {
+  const fills: DetectionFill[] = []
+
+  if (result.incidentDate && !snapshot.incidentDatePreset && !snapshot.incidentDate) {
+    fills.push({ key: 'incidentDate', date: result.incidentDate })
+  }
+
+  // A county the model invented, or one belonging to another state, is dropped
+  // rather than written — sanitizeDetectedCounty returns '' unless the name
+  // matches a real county in that state.
+  const state = snapshot.venue.state || (result.state ?? '')
+  const county =
+    snapshot.venue.county ||
+    (result.county && state ? sanitizeDetectedCounty(state, result.county) : '')
+  if (state !== snapshot.venue.state || county !== snapshot.venue.county) {
+    fills.push({ key: 'venue', state, county })
+  }
+
+  if (result.injurySeverity && !snapshot.injurySeverity) {
+    fills.push({ key: 'injurySeverity', value: result.injurySeverity })
+  }
+  if (result.firstCare && snapshot.medicalTreatmentCount === 0) {
+    fills.push({ key: 'medicalTreatment', value: result.firstCare })
+  }
+  if (result.careTiming && !snapshot.initialCareTiming) {
+    fills.push({ key: 'initialCareTiming', value: result.careTiming })
+  }
+  if ((result.emsResponded === 'yes' || result.emsResponded === 'no') && !snapshot.emsResponded) {
+    fills.push({ key: 'emsResponded', value: result.emsResponded })
+  }
+
+  // Defaulted because the app and API deploy separately: an API still serving
+  // the previous extraction shape returns no bodyParts at all.
+  const addedParts = (result.bodyParts ?? []).filter(part => !snapshot.bodyParts.includes(part))
+  if (addedParts.length) fills.push({ key: 'bodyParts', parts: addedParts })
+
+  if (result.crashType && !snapshot.branch.crashType) {
+    fills.push({ key: 'crashType', value: result.crashType })
+  }
+  if (result.atFault && !snapshot.branch.faultParty) {
+    fills.push({ key: 'faultParty', value: result.atFault })
+  }
+  if (result.policeReport === 'yes' && !snapshot.branch.policeReport) fills.push({ key: 'policeReport' })
+  if (result.witnesses === 'yes' && !snapshot.branch.witnesses) fills.push({ key: 'witnesses' })
+  if (result.photos === 'yes' && !snapshot.branch.photosVideo) fills.push({ key: 'photosVideo' })
+
+  return fills
+}
+
 export function injuryTypeToClaimType(injuryType: string): string {
   // An unrecognised incident type is by definition not a product claim; the
   // old 'product' fallback mislabelled anything unmapped.

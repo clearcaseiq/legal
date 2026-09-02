@@ -598,7 +598,9 @@ export async function calculateSOL(incidentDate: string, venue: { state: string;
   return data
 }
 
-// Incident narrative -> structured details (best-effort; extraction may be null)
+// Incident narrative -> structured details (best-effort; extraction may be null).
+// Every enum mirrors an option list in IntakeWizardQuick — see the note on the
+// server-side type in api/src/lib/incident-extraction.ts.
 export interface IncidentExtraction {
   crashType: 'rear_end' | 'side_impact' | 'head_on' | 'left_turn' | 'multi_vehicle' | 'pedestrian' | 'bicycle' | 'not_sure' | null
   atFault: 'other_driver' | 'shared' | 'not_sure' | null
@@ -606,6 +608,14 @@ export interface IncidentExtraction {
   policeReport: 'yes' | 'no' | 'unknown'
   witnesses: 'yes' | 'no' | 'unknown'
   photos: 'yes' | 'no' | 'unknown'
+  incidentDate: string | null
+  state: string | null
+  county: string | null
+  injurySeverity: 'minor' | 'moderate' | 'serious' | 'surgery' | 'unsure' | null
+  firstCare: 'er' | 'urgent_care' | 'primary_care' | 'other' | 'none' | null
+  careTiming: 'same_day' | 'next_day' | 'within_2_3_days' | 'within_week' | 'more_than_week' | 'not_sure' | null
+  emsResponded: 'yes' | 'no' | 'unknown'
+  bodyParts: Array<'neck' | 'lower_back' | 'shoulder' | 'knee' | 'head_concussion' | 'hand_wrist' | 'hip' | 'other'>
   summary: string
   confidence: number
 }

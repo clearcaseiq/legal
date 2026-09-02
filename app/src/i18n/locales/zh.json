@@ -2623,7 +2623,18 @@
     "documents_send": "发送文件",
     "documents_sending": "发送中…",
     "documents_sent": "已发送",
-    "documents_sentToast": "您的文件已发送给您的律师。"
+    "documents_sentToast": "您的文件已发送给您的律师。",
+    "ai_field_date": "日期",
+    "ai_field_location": "地点",
+    "ai_field_severity": "受伤严重程度",
+    "ai_field_firstCare": "首次就医",
+    "ai_field_careTiming": "就医时间",
+    "ai_field_ambulance": "救护车",
+    "ai_field_bodyParts": "受伤部位",
+    "ai_autoFilledTitle": "已根据您的描述填写",
+    "ai_autoFilledHelp": "我们已为您填写这些内容。如有错误请清除，之后也可以更改。",
+    "ai_clearField": "清除",
+    "ai_retry": "重试"
   },
   "results": {
     "title": "ClearCaseIQ案件评估",

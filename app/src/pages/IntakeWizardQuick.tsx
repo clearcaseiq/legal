@@ -15,7 +15,7 @@ import RecoveryImpactSection from '../components/RecoveryImpactSection'
 import { REGION_LIBRARY, ALL_REGION_OPTIONS, deriveLegacyInjuryFields, type RegionDetailMap } from '../data/injuryQuestionLibrary'
 import { caseTypeModuleFor } from '../data/caseTypeIntake'
 import { useLanguage } from '../contexts/LanguageContext'
-import { buildCaseTaxonomy, injuryTypeToClaimType, sanitizeDetectedCounty, usesPoliceReportLabel } from '../lib/intakeQuickHelpers'
+import { buildCaseTaxonomy, injuryTypeToClaimType, planDetectionFill, sanitizeDetectedCounty, usesPoliceReportLabel } from '../lib/intakeQuickHelpers'
 import { INCIDENT_SUBTYPE_PROMPTS, INCIDENT_SUBTYPE_FREE_TEXT, getIncidentSubtypes, hasIncidentSubtypes } from '../lib/caseTaxonomy'
 import { US_STATES } from '../lib/constants'
 import { getCountiesForState } from '../lib/usLocationData'
@@ -260,6 +260,37 @@ const BODY_PART_OPTION_DEFS = [
   { value: 'hip', labelKey: 'body_hip' },
   { value: 'other', labelKey: 'optionOther' },
 ]
+
+/**
+ * A form field the narrative filled in on the claimant's behalf.
+ *
+ * `key` is what the rest of the form calls the field, so an edit anywhere else
+ * can drop the mark; `value` is the label shown back to them; `parts` carries
+ * the body regions added by a merge, which is the only fill that is not simply
+ * "was empty, now set" and so the only one whose undo needs to remember what it
+ * changed.
+ */
+type AutoFillKey =
+  | 'incidentDate'
+  | 'venue'
+  | 'injurySeverity'
+  | 'medicalTreatment'
+  | 'initialCareTiming'
+  | 'emsResponded'
+  | 'bodyParts'
+  | 'crashType'
+  | 'faultParty'
+  | 'policeReport'
+  | 'witnesses'
+  | 'photosVideo'
+
+type AutoFilledField = { key: AutoFillKey; label: string; value: string; parts?: string[] }
+
+// Below this a narrative is too thin to extract anything but noise, and every
+// attempt costs a model call.
+const NARRATIVE_DETECT_MIN = 40
+// Long enough to mean "stopped typing" rather than "paused mid-sentence".
+const NARRATIVE_DETECT_DEBOUNCE_MS = 900
 
 const SURGERY_STATUS_OPTION_DEFS = [
   { value: 'recommended', labelKey: 'surgst_recommended' },
@@ -1008,14 +1039,24 @@ export default function IntakeWizardQuick() {
   const [customDate, setCustomDate] = useState('')
   const [detectedLocation, setDetectedLocation] = useState<{ city: string; county: string; state: string } | null>(null)
   const [locationAccepted, setLocationAccepted] = useState(false)
-  // AI narrative extraction ("Detect details"): status + last result + which
-  // narrative text produced it (so a stale card clears when the story changes).
+  // AI narrative extraction: status and last result.
   const [detecting, setDetecting] = useState(false)
   const [detection, setDetection] = useState<IncidentExtraction | null>(null)
-  const [detectionSourceText, setDetectionSourceText] = useState('')
-  const [detectionApplied, setDetectionApplied] = useState(false)
   const [detectionDismissed, setDetectionDismissed] = useState(false)
   const [detectionError, setDetectionError] = useState(false)
+  // What the narrative actually wrote into the form, so the claimant can see
+  // each value and clear any one of them.
+  const [autoFilled, setAutoFilled] = useState<AutoFilledField[]>([])
+  // The last narrative we sent. Detection runs on a debounce as the claimant
+  // types, and without this every re-render of the same text would spend
+  // another model call.
+  const detectionAttemptRef = useRef('')
+  // Increments per request so a slow earlier response cannot overwrite the
+  // result for text the claimant has since replaced.
+  const detectionRunIdRef = useRef(0)
+  // Detection is for what the claimant writes now, not for a narrative restored
+  // from a saved draft — resuming a draft should not spend a model call.
+  const narrativeTypedRef = useRef(false)
   const [solPreview, setSolPreview] = useState<any>(null)
   const [solPreviewError, setSolPreviewError] = useState<string | null>(null)
   const [furthestReachedStepIndex, setFurthestReachedStepIndex] = useState(0)
@@ -1096,6 +1137,13 @@ export default function IntakeWizardQuick() {
     },
     consents: { tos: false, privacy: false, ml_use: false }
   })
+
+  // A detection response lands a second or two after the request, by which time
+  // the claimant may have answered one of the fields it wants to fill. Deciding
+  // from the closure's `formData` would read the form as it was while they were
+  // still typing and overwrite that answer; this always holds the current one.
+  const formDataRef = useRef(formData)
+  formDataRef.current = formData
 
   const activeSteps = STEPS_V2
   const draftKey = 'intake_quick_draft_v2'
@@ -1778,9 +1826,22 @@ export default function IntakeWizardQuick() {
     }
   }, [customDate, formData.claimType, formData.incidentDate, formData.incidentDatePreset, formData.injuryType, formData.venue.county, formData.venue.state])
 
+  /** Forget the "filled in from your description" mark once the claimant edits that field. */
+  const clearAutoFillMarks = (keys: string[]) => {
+    if (!keys.length) return
+    setAutoFilled(prev => (prev.length ? prev.filter(f => !keys.includes(f.key)) : prev))
+  }
+
   const updateForm = (updates: Partial<typeof formData>) => {
     setFormData(prev => ({ ...prev, ...updates }))
     setErrors({})
+    // Once the claimant edits a field themselves it is no longer something the
+    // narrative filled in for them. Keys that were never auto-filled simply do
+    // not match, so this needs no list of its own to stay in sync.
+    clearAutoFillMarks([
+      ...Object.keys(updates),
+      ...('injuryDetails' in updates ? ['bodyParts'] : []),
+    ])
   }
 
   const updateVenue = (venueUpdates: Partial<typeof formData.venue>) => {
@@ -1789,6 +1850,7 @@ export default function IntakeWizardQuick() {
       venue: { ...prev.venue, ...venueUpdates },
     }))
     setErrors({})
+    clearAutoFillMarks(['venue'])
   }
 
   const setBranch = (key: string, value: any) => {
@@ -1802,6 +1864,7 @@ export default function IntakeWizardQuick() {
       }
     })
     setErrors({})
+    clearAutoFillMarks([key])
   }
 
   const getIncidentDate = (): string => {
@@ -2636,45 +2699,219 @@ export default function IntakeWizardQuick() {
     }
   }
 
-  // Ask Claude to turn the free-text narrative into structured incident facts.
-  // Best-effort: any failure silently clears (the manual flow still works).
-  const runIncidentDetection = async () => {
-    const text = formData.narrative.trim()
-    if (text.length < 20 || detecting) return
+  // Turn the free-text narrative into structured incident facts and fold them
+  // straight into the form. Best-effort: any failure leaves the manual flow
+  // untouched.
+  const runIncidentDetection = async (rawText?: string) => {
+    const text = (rawText ?? formDataRef.current.narrative).trim()
+    if (text.length < NARRATIVE_DETECT_MIN) return
+    // Re-sending text we already tried would repeat the charge and, on a
+    // failing endpoint, retry it on every keystroke.
+    if (text === detectionAttemptRef.current) return
+    detectionAttemptRef.current = text
+
+    const runId = detectionRunIdRef.current + 1
+    detectionRunIdRef.current = runId
     setDetecting(true)
     setDetectionError(false)
     setDetectionDismissed(false)
-    setDetectionApplied(false)
     try {
-      const result = await extractIncidentDetails(text, formData.injuryType || undefined)
+      const result = await extractIncidentDetails(text, formDataRef.current.injuryType || undefined)
+      // A response for a narrative the claimant has already rewritten is stale;
+      // applying it would fill the form from a story that no longer exists.
+      if (detectionRunIdRef.current !== runId) return
       if (result) {
         setDetection(result)
-        setDetectionSourceText(text)
+        applyDetection(result)
       } else {
         setDetection(null)
         setDetectionError(true)
       }
     } catch {
+      if (detectionRunIdRef.current !== runId) return
       setDetection(null)
       setDetectionError(true)
     } finally {
-      setDetecting(false)
+      if (detectionRunIdRef.current === runId) setDetecting(false)
     }
   }
 
-  // "Looks right" — fold detected crash/fault into the form so they flow into
-  // the estimate (the same fields the old Accident Details screen set).
-  const applyDetection = () => {
-    if (!detection) return
-    setFormData(prev => ({
-      ...prev,
-      branch: {
-        ...prev.branch,
-        ...(detection.crashType ? { crashType: detection.crashType } : {}),
-        ...(detection.atFault ? { faultParty: detection.atFault } : {}),
+  // Run once the claimant stops typing rather than behind a button they have to
+  // find. The cleanup cancels the pending run on every keystroke, so a single
+  // call goes out per pause, not one per character.
+  useEffect(() => {
+    if (!narrativeTypedRef.current) return
+    const text = formData.narrative.trim()
+    if (text.length < NARRATIVE_DETECT_MIN || text === detectionAttemptRef.current) return
+    const timer = setTimeout(() => { void runIncidentDetection(text) }, NARRATIVE_DETECT_DEBOUNCE_MS)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData.narrative, formData.injuryType])
+
+  const faultPartyLabel = (fault: string) =>
+    fault === 'other_driver' ? tx('fault_otherDriver') : fault === 'shared' ? tx('fault_shared') : tx('optionNotSure')
+
+  // Fold the detected facts into the form so they flow into the estimate, and
+  // record each one so the claimant can see and undo it. planDetectionFill
+  // decides *what* may be written; this decides how to write and describe it.
+  const applyDetection = (result: IncidentExtraction) => {
+    const prev = formDataRef.current
+    const fills = planDetectionFill(
+      {
+        incidentDatePreset: prev.incidentDatePreset,
+        incidentDate: prev.incidentDate,
+        venue: prev.venue,
+        injurySeverity: prev.injurySeverity,
+        medicalTreatmentCount: prev.medicalTreatment.length,
+        initialCareTiming: prev.initialCareTiming,
+        emsResponded: prev.emsResponded,
+        bodyParts: prev.injuryDetails.bodyParts,
+        branch: prev.branch,
       },
+      result,
+    )
+    if (!fills.length) {
+      setAutoFilled([])
+      return
+    }
+
+    const patch: Partial<typeof formData> = {}
+    const branchPatch: Record<string, any> = {}
+    const filled: AutoFilledField[] = []
+
+    for (const fill of fills) {
+      switch (fill.key) {
+        case 'incidentDate':
+          patch.incidentDatePreset = 'custom'
+          patch.incidentDate = fill.date
+          setCustomDate(fill.date)
+          filled.push({ key: fill.key, label: tx('ai_field_date'), value: fill.date })
+          break
+        case 'venue':
+          patch.venue = { ...prev.venue, state: fill.state, county: fill.county }
+          filled.push({
+            key: fill.key,
+            label: tx('ai_field_location'),
+            value: [fill.county, fill.state].filter(Boolean).join(', '),
+          })
+          break
+        case 'injurySeverity':
+          patch.injurySeverity = fill.value
+          filled.push({
+            key: fill.key,
+            label: tx('ai_field_severity'),
+            value: getOptionLabel(INJURY_SEVERITY_OPTIONS, fill.value),
+          })
+          break
+        case 'medicalTreatment':
+          patch.medicalTreatment = [fill.value]
+          filled.push({
+            key: fill.key,
+            label: tx('ai_field_firstCare'),
+            value: getOptionLabel(MEDICAL_TREATMENT_OPTIONS, fill.value),
+          })
+          break
+        case 'initialCareTiming':
+          patch.initialCareTiming = fill.value
+          filled.push({
+            key: fill.key,
+            label: tx('ai_field_careTiming'),
+            value: getOptionLabel(CARE_TIMING_OPTIONS, fill.value),
+          })
+          break
+        case 'emsResponded':
+          patch.emsResponded = fill.value
+          filled.push({
+            key: fill.key,
+            label: tx('ai_field_ambulance'),
+            value: fill.value === 'yes' ? tx('optionYes') : tx('optionNo'),
+          })
+          break
+        case 'bodyParts':
+          patch.injuryDetails = {
+            ...prev.injuryDetails,
+            bodyParts: [...prev.injuryDetails.bodyParts, ...fill.parts],
+          }
+          filled.push({
+            key: fill.key,
+            label: tx('ai_field_bodyParts'),
+            value: labelsForValues(BODY_PART_OPTIONS, fill.parts),
+            parts: fill.parts,
+          })
+          break
+        case 'crashType':
+          branchPatch.crashType = fill.value
+          filled.push({ key: fill.key, label: tx('ai_crashLabel'), value: tx('vehicle_' + fill.value) })
+          break
+        case 'faultParty':
+          branchPatch.faultParty = fill.value
+          filled.push({ key: fill.key, label: tx('ai_faultLabel'), value: faultPartyLabel(fill.value) })
+          break
+        case 'policeReport':
+          branchPatch.policeReport = true
+          filled.push({ key: fill.key, label: tx('ai_police'), value: tx('optionYes') })
+          break
+        case 'witnesses':
+          branchPatch.witnesses = true
+          filled.push({ key: fill.key, label: tx('ai_witnesses'), value: tx('optionYes') })
+          break
+        case 'photosVideo':
+          branchPatch.photosVideo = true
+          filled.push({ key: fill.key, label: tx('ai_photos'), value: tx('optionYes') })
+          break
+      }
+    }
+
+    setFormData(p => ({
+      ...p,
+      ...patch,
+      ...(Object.keys(branchPatch).length ? { branch: { ...p.branch, ...branchPatch } } : {}),
     }))
-    setDetectionApplied(true)
+    setAutoFilled(filled)
+  }
+
+  /** Undo one auto-filled field, returning it to the unanswered state. */
+  const clearAutoFilledField = (field: AutoFilledField) => {
+    switch (field.key) {
+      case 'incidentDate':
+        setCustomDate('')
+        updateForm({ incidentDatePreset: '', incidentDate: '' })
+        break
+      case 'venue':
+        updateVenue({ state: '', county: '' })
+        break
+      case 'injurySeverity':
+        updateForm({ injurySeverity: '' })
+        break
+      case 'medicalTreatment':
+        updateForm({ medicalTreatment: [] })
+        break
+      case 'initialCareTiming':
+        updateForm({ initialCareTiming: '' })
+        break
+      case 'emsResponded':
+        updateForm({ emsResponded: '' })
+        break
+      case 'bodyParts': {
+        const removed = field.parts ?? []
+        setFormData(p => ({
+          ...p,
+          injuryDetails: {
+            ...p.injuryDetails,
+            bodyParts: p.injuryDetails.bodyParts.filter(part => !removed.includes(part)),
+          },
+        }))
+        break
+      }
+      case 'policeReport':
+      case 'witnesses':
+      case 'photosVideo':
+        setBranch(field.key, false)
+        break
+      default:
+        setBranch(field.key, '')
+    }
+    clearAutoFillMarks([field.key])
   }
 
   // "Where did you FIRST receive care?" is a single facility, so selecting one
@@ -4179,7 +4416,13 @@ export default function IntakeWizardQuick() {
                     <div className="relative">
                       <textarea
                         value={formData.narrative}
-                        onChange={e => updateForm({ narrative: e.target.value.slice(0, NARRATIVE_MAX) })}
+                        onChange={e => {
+                          narrativeTypedRef.current = true
+                          updateForm({ narrative: e.target.value.slice(0, NARRATIVE_MAX) })
+                        }}
+                        // Leaving the box is a clearer "I'm done" than any pause,
+                        // so don't make them wait out the debounce.
+                        onBlur={() => { if (narrativeTypedRef.current) void runIncidentDetection() }}
                         placeholder={narrativePlaceholder}
                         rows={5}
                         maxLength={NARRATIVE_MAX}
@@ -4202,73 +4445,67 @@ export default function IntakeWizardQuick() {
                         ))}
                       </div>
                     </div>
-                    {/* AI: turn the free-text story into structured details the claimant confirms */}
-                    {formData.narrative.trim().length >= 20 && (() => {
-                      const current = formData.narrative.trim()
-                      const showCard = !!detection && !detectionDismissed && detectionSourceText === current
-                      if (showCard && detection) {
-                        const crashLabel = detection.crashType ? tx('vehicle_' + detection.crashType) : null
-                        const faultLabel = detection.atFault === 'other_driver' ? tx('fault_otherDriver') : detection.atFault === 'shared' ? tx('fault_shared') : detection.atFault === 'not_sure' ? tx('optionNotSure') : null
-                        const missing = [
-                          detection.policeReport !== 'yes' ? tx('ai_police') : null,
-                          detection.witnesses !== 'yes' ? tx('ai_witnesses') : null,
-                          detection.photos !== 'yes' ? tx('ai_photos') : null,
-                        ].filter(Boolean) as string[]
-                        return (
-                          <div className="mt-3 rounded-xl border border-brand-200 bg-brand-50/60 p-3 dark:border-brand-500/30 dark:bg-brand-500/10">
-                            <div className="flex items-center gap-2">
-                              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white"><Sparkles className="h-3.5 w-3.5" aria-hidden /></span>
-                              <p className="text-sm font-semibold text-gray-900 dark:text-slate-100">{tx('ai_detectedTitle')}</p>
-                            </div>
-                            {detection.summary && (
-                              <p className="mt-2 text-sm leading-snug text-slate-700 dark:text-slate-200"><span className="font-semibold">{tx('ai_summaryLabel')}:</span> {detection.summary}</p>
-                            )}
-                            {(crashLabel || faultLabel) && (
-                              <div className="mt-2 flex flex-wrap gap-1.5">
-                                {crashLabel && <span className="inline-flex items-center gap-1 rounded-full border border-brand-200 bg-white px-2.5 py-1 text-xs font-medium text-brand-700 dark:border-brand-500/30 dark:bg-slate-900/40 dark:text-brand-300"><Car className="h-3.5 w-3.5" aria-hidden /> {tx('ai_crashLabel')}: {crashLabel}</span>}
-                                {faultLabel && <span className="inline-flex items-center gap-1 rounded-full border border-brand-200 bg-white px-2.5 py-1 text-xs font-medium text-brand-700 dark:border-brand-500/30 dark:bg-slate-900/40 dark:text-brand-300"><Scale className="h-3.5 w-3.5" aria-hidden /> {tx('ai_faultLabel')}: {faultLabel}</span>}
-                              </div>
-                            )}
-                            {missing.length > 0 && (
-                              <div className="mt-2.5">
-                                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{tx('ai_missingTitle')}</p>
-                                <div className="mt-1 flex flex-wrap gap-1.5">
-                                  {missing.map(m => (
-                                    <span key={m} className="inline-flex items-center gap-1 rounded-full border border-dashed border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 dark:border-slate-600 dark:bg-slate-900/40 dark:text-slate-300"><Camera className="h-3.5 w-3.5" aria-hidden /> {m}</span>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                            {detectionApplied ? (
-                              <p className="mt-3 flex items-center gap-1.5 text-sm font-medium text-emerald-600 dark:text-emerald-400"><CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden /> {tx('ai_applied')}</p>
-                            ) : (
-                              <div className="mt-3 flex flex-wrap gap-2">
-                                <button type="button" onClick={applyDetection} className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-700">
-                                  <Check className="h-4 w-4" aria-hidden /> {tx('ai_looksRight')}
-                                </button>
-                                <button type="button" onClick={() => setDetectionDismissed(true)} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900/40 dark:text-slate-300">
-                                  {tx('ai_dismiss')}
-                                </button>
-                              </div>
-                            )}
+                    {/*
+                      Detection runs itself once the story is long enough. What
+                      the claimant sees is the result — the fields it filled in,
+                      each one clearable — rather than a button to press and a
+                      confirmation to give before anything happens.
+                    */}
+                    {detecting && (
+                      <p className="mt-3 flex items-center gap-1.5 text-[13px] font-medium text-brand-700 dark:text-brand-300">
+                        <RotateCw className="h-3.5 w-3.5 animate-spin" aria-hidden /> {tx('ai_detecting')}
+                      </p>
+                    )}
+                    {!detecting && detectionError && formData.narrative.trim().length >= NARRATIVE_DETECT_MIN && (
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <p className="text-[11px] text-slate-500">{tx('ai_error')}</p>
+                        <button
+                          type="button"
+                          onClick={() => { detectionAttemptRef.current = ''; void runIncidentDetection() }}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900/40 dark:text-slate-300"
+                        >
+                          <RotateCw className="h-3.5 w-3.5" aria-hidden /> {tx('ai_retry')}
+                        </button>
+                      </div>
+                    )}
+                    {!detecting && !detectionDismissed && autoFilled.length > 0 && (
+                      <div className="mt-3 rounded-xl border border-brand-200 bg-brand-50/60 p-3 dark:border-brand-500/30 dark:bg-brand-500/10">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white"><Sparkles className="h-3.5 w-3.5" aria-hidden /></span>
+                            <p className="text-sm font-semibold text-gray-900 dark:text-slate-100">{tx('ai_autoFilledTitle')}</p>
                           </div>
-                        )
-                      }
-                      return (
-                        <div className="mt-3">
                           <button
                             type="button"
-                            onClick={runIncidentDetection}
-                            disabled={detecting}
-                            className="inline-flex items-center gap-2 rounded-xl border border-brand-300 bg-white px-3 py-2 text-sm font-semibold text-brand-700 shadow-sm transition-colors hover:border-brand-400 hover:bg-brand-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-brand-500/40 dark:bg-slate-900/40 dark:text-brand-300 dark:hover:bg-slate-800"
+                            onClick={() => setDetectionDismissed(true)}
+                            aria-label={tx('ai_dismiss')}
+                            className="shrink-0 rounded-lg p-1 text-slate-400 transition-colors hover:bg-white/60 hover:text-slate-600 dark:hover:bg-slate-800"
                           >
-                            {detecting ? <RotateCw className="h-4 w-4 animate-spin" aria-hidden /> : <Sparkles className="h-4 w-4" aria-hidden />}
-                            {detecting ? tx('ai_detecting') : tx('ai_detectCta')}
+                            <X className="h-4 w-4" aria-hidden />
                           </button>
-                          <p className={`mt-1.5 text-[11px] ${detectionError ? 'text-slate-500' : 'text-slate-400'}`}>{detectionError ? tx('ai_error') : tx('ai_detectHint')}</p>
                         </div>
-                      )
-                    })()}
+                        <p className="mt-1 text-xs leading-snug text-slate-600 dark:text-slate-300">{tx('ai_autoFilledHelp')}</p>
+                        {detection?.summary && (
+                          <p className="mt-2 text-sm leading-snug text-slate-700 dark:text-slate-200"><span className="font-semibold">{tx('ai_summaryLabel')}:</span> {detection.summary}</p>
+                        )}
+                        <ul className="mt-2.5 space-y-1.5">
+                          {autoFilled.map(field => (
+                            <li key={field.key} className="flex items-center justify-between gap-2 rounded-lg border border-brand-200/70 bg-white px-2.5 py-1.5 dark:border-brand-500/20 dark:bg-slate-900/40">
+                              <span className="min-w-0 text-xs text-slate-600 dark:text-slate-300">
+                                <span className="font-semibold text-slate-800 dark:text-slate-100">{field.label}:</span> {field.value}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => clearAutoFilledField(field)}
+                                className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-semibold text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                              >
+                                <X className="h-3 w-3" aria-hidden /> {tx('ai_clearField')}
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                   </div>
                 </div>
 

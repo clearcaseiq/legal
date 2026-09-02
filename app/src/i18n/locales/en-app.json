@@ -1533,7 +1533,18 @@
     "umuim_no_sub": "I don't have this coverage",
     "umuim_notSure_sub": "I'm not sure",
     "review_injuriesTreatmentTitle": "Injuries & treatment",
-    "review_moneyDocsTitle": "Money & documents"
+    "review_moneyDocsTitle": "Money & documents",
+    "ai_field_date": "Date",
+    "ai_field_location": "Location",
+    "ai_field_severity": "Injury severity",
+    "ai_field_firstCare": "First care",
+    "ai_field_careTiming": "How soon you were seen",
+    "ai_field_ambulance": "Ambulance",
+    "ai_field_bodyParts": "Injured areas",
+    "ai_autoFilledTitle": "Filled in from your description",
+    "ai_autoFilledHelp": "We answered these for you. Clear anything that isn't right — you can change it later too.",
+    "ai_clearField": "Clear",
+    "ai_retry": "Try again"
   },
   "results": {
     "title": "ClearCaseIQ Case Assessment",

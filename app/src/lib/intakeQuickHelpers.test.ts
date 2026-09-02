@@ -5,7 +5,9 @@ import {
   INJURY_TO_CLAIM,
   injuryTypeToClaimType,
   normalizeCounty,
+  planDetectionFill,
   sanitizeDetectedCounty,
+  type DetectionFillSnapshot,
 } from './intakeQuickHelpers'
 import { CLAIM_TYPE_OPTIONS, canonicalClaimType, claimTypeSynonyms, formatClaimType } from './claimTypes'
 import { SOL_RULES, normalizeClaimTypeForSOL } from '../../../api/src/lib/solRules'
@@ -202,5 +204,111 @@ describe('CA_COUNTIES', () => {
   it('includes Los Angeles and San Francisco', () => {
     expect(CA_COUNTIES).toContain('Los Angeles')
     expect(CA_COUNTIES).toContain('San Francisco')
+  })
+})
+
+describe('planDetectionFill', () => {
+  const emptyForm = (): DetectionFillSnapshot => ({
+    incidentDatePreset: '',
+    incidentDate: '',
+    venue: { state: '', county: '' },
+    injurySeverity: '',
+    medicalTreatmentCount: 0,
+    initialCareTiming: '',
+    emsResponded: '',
+    bodyParts: [],
+    branch: {},
+  })
+
+  const fullResult = {
+    incidentDate: '2026-03-14',
+    state: 'CA',
+    county: 'Los Angeles',
+    injurySeverity: 'serious',
+    firstCare: 'er',
+    careTiming: 'same_day',
+    emsResponded: 'yes' as const,
+    bodyParts: ['neck', 'lower_back'],
+    crashType: 'rear_end',
+    atFault: 'other_driver',
+    policeReport: 'yes' as const,
+    witnesses: 'yes' as const,
+    photos: 'yes' as const,
+  }
+
+  const keysOf = (snapshot: DetectionFillSnapshot, result: Parameters<typeof planDetectionFill>[1]) =>
+    planDetectionFill(snapshot, result).map(f => f.key)
+
+  it('fills every empty field it has an answer for', () => {
+    expect(keysOf(emptyForm(), fullResult)).toEqual([
+      'incidentDate',
+      'venue',
+      'injurySeverity',
+      'medicalTreatment',
+      'initialCareTiming',
+      'emsResponded',
+      'bodyParts',
+      'crashType',
+      'faultParty',
+      'policeReport',
+      'witnesses',
+      'photosVideo',
+    ])
+  })
+
+  it('never overwrites an answer the claimant already gave', () => {
+    const answered: DetectionFillSnapshot = {
+      incidentDatePreset: 'custom',
+      incidentDate: '2026-01-02',
+      venue: { state: 'NV', county: 'Clark' },
+      injurySeverity: 'minor',
+      medicalTreatmentCount: 1,
+      initialCareTiming: 'within_week',
+      emsResponded: 'no',
+      bodyParts: ['neck', 'lower_back'],
+      branch: { crashType: 'side_impact', faultParty: 'shared', policeReport: true, witnesses: true, photosVideo: true },
+    }
+    expect(planDetectionFill(answered, fullResult)).toEqual([])
+  })
+
+  it('only ever turns evidence flags on, never off', () => {
+    // "no" is a real answer from the narrative, but writing it would clear a box
+    // the claimant cannot tell was cleared.
+    const result = { ...fullResult, policeReport: 'no' as const, witnesses: 'unknown' as const }
+    const keys = keysOf(emptyForm(), result)
+    expect(keys).not.toContain('policeReport')
+    expect(keys).not.toContain('witnesses')
+    expect(keys).toContain('photosVideo')
+  })
+
+  it('drops a county that does not belong to the detected state', () => {
+    const fills = planDetectionFill(emptyForm(), { state: 'CA', county: 'Clark' })
+    expect(fills).toEqual([{ key: 'venue', state: 'CA', county: '' }])
+  })
+
+  it('keeps a county the state really has, however it was written', () => {
+    const fills = planDetectionFill(emptyForm(), { state: 'CA', county: 'los angeles county' })
+    expect(fills).toEqual([{ key: 'venue', state: 'CA', county: 'Los Angeles' }])
+  })
+
+  it('reports only the body parts it added, so undo removes only those', () => {
+    const snapshot = { ...emptyForm(), bodyParts: ['neck'] }
+    const fills = planDetectionFill(snapshot, { bodyParts: ['neck', 'knee'] })
+    expect(fills).toEqual([{ key: 'bodyParts', parts: ['knee'] }])
+  })
+
+  it('adds nothing when every detected body part is already listed', () => {
+    const snapshot = { ...emptyForm(), bodyParts: ['neck', 'knee'] }
+    expect(planDetectionFill(snapshot, { bodyParts: ['knee', 'neck'] })).toEqual([])
+  })
+
+  it('survives an API still returning the older extraction shape', () => {
+    // No bodyParts key at all — the previous server response.
+    expect(() => planDetectionFill(emptyForm(), { crashType: 'rear_end' })).not.toThrow()
+    expect(keysOf(emptyForm(), { crashType: 'rear_end' })).toEqual(['crashType'])
+  })
+
+  it('finds nothing to do in an empty extraction', () => {
+    expect(planDetectionFill(emptyForm(), {})).toEqual([])
   })
 })
