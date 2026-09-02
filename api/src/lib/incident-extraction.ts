@@ -141,10 +141,13 @@ function coerce(raw: any, today: Date): IncidentExtraction {
   const tri = (v: unknown): 'yes' | 'no' | 'unknown' =>
     v === 'yes' || v === 'no' ? v : 'unknown'
   const isVehicle = raw?.isVehicle === true
-  const bodyParts = Array.isArray(raw?.bodyParts)
+  // Bound to a local first: narrowing `raw?.bodyParts` does not carry over to a
+  // later `raw.bodyParts`, which leaves the filter operating on unknown[].
+  const rawBodyParts: unknown = raw?.bodyParts
+  const bodyParts = Array.isArray(rawBodyParts)
     ? Array.from(
         new Set(
-          raw.bodyParts.filter((part: unknown): part is (typeof BODY_PARTS)[number] =>
+          rawBodyParts.filter((part: unknown): part is (typeof BODY_PARTS)[number] =>
             typeof part === 'string' && (BODY_PARTS as readonly string[]).includes(part),
           ),
         ),
