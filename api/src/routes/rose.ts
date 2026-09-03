@@ -21,6 +21,7 @@ import {
   type ConversationReview,
 } from '../lib/rose-engine'
 import { analyzeCaseWithChatGPT, CaseAnalysisRequest } from '../services/chatgpt'
+import { serializeCaseFacts } from '../lib/case-facts'
 import { validateCaseTypeFromFacts } from '../lib/case-type-validation'
 
 const router = Router()
@@ -71,7 +72,8 @@ router.post('/intake', optionalAuthMiddleware, async (req: AuthRequest, res) => 
         venueState: assessmentPayload.venue.state,
         venueCounty: assessmentPayload.venue.county ?? null,
         status: 'DRAFT',
-        facts: JSON.stringify(assessmentPayload)
+        facts: serializeCaseFacts(assessmentPayload),
+        lastWriteSource: 'rose_ai'
       }
     })
 
@@ -180,7 +182,8 @@ router.post('/conversation/:id/turn', optionalAuthMiddleware, async (req: AuthRe
           venueState: assessmentPayload.venue.state,
           venueCounty: assessmentPayload.venue.county ?? null,
           status: 'DRAFT',
-          facts: JSON.stringify(assessmentPayload),
+          facts: serializeCaseFacts(assessmentPayload),
+          lastWriteSource: 'rose_ai',
         },
       })
 

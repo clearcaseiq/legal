@@ -152,6 +152,8 @@ vi.mock('./lib/routing', async (importOriginal) => {
 import { buildApp } from './build-app'
 import { prisma } from './lib/prisma'
 import { resetUniversalPrismaMock } from './test/universalPrismaMock'
+import { wallClockToUtc } from './lib/booking-slots'
+import { resolveSchedulingTimezone } from './lib/scheduling-timezone'
 
 describe('HTTP operations regressions', () => {
   const app = buildApp()
@@ -891,6 +893,81 @@ describe('HTTP operations regressions', () => {
         },
       },
     })
+  })
+
+  /**
+   * Closing a case writes `assessment.status`/`caseStage` and leaves the lead
+   * lifecycle behind, and a matter can also end as won/settled/resolved. An
+   * equality match on 'closed' therefore returned almost nothing, which is why
+   * admins had no usable list of finished cases.
+   */
+  it('GET /v1/admin/cases/all?status=closed matches every closure signal', async () => {
+    vi.mocked(prisma.assessment.findMany).mockResolvedValue([
+      {
+        id: 'asm-closed-1',
+        claimType: 'auto',
+        venueState: 'CA',
+        venueCounty: 'Orange',
+        status: 'closed',
+        caseStage: 'CLOSED',
+        closedAt: new Date('2026-04-20T00:00:00Z'),
+        facts: JSON.stringify({}),
+        createdAt: new Date('2026-04-03T00:00:00Z'),
+        updatedAt: new Date('2026-04-20T00:00:00Z'),
+        user: { id: 'user-1', email: 'pat@example.com', firstName: 'Pat', lastName: 'Plaintiff' },
+        predictions: [],
+        introductions: [],
+        leadSubmission: null,
+        _count: { introductions: 0, files: 2, appointments: 1, chatRooms: 0 },
+      },
+    ] as any)
+    vi.mocked(prisma.assessment.count).mockResolvedValue(1 as any)
+
+    const res = await request(app)
+      .get('/v1/admin/cases/all?status=closed')
+      .set('Authorization', 'Bearer admin')
+      .expect(200)
+
+    // Surfaced so the list can distinguish a finished matter from an active one;
+    // the Routing status column still reflects whatever it last did while live.
+    expect(res.body.cases[0]).toMatchObject({
+      id: 'asm-closed-1',
+      caseStage: 'CLOSED',
+      closedAt: '2026-04-20T00:00:00.000Z',
+    })
+
+    const where = vi.mocked(prisma.assessment.findMany).mock.calls[0]?.[0]?.where as any
+    // Not an equality match, and held in AND so it composes with the search OR
+    // rather than replacing it.
+    expect(where.status).toBeUndefined()
+    expect(where.AND).toEqual([
+      {
+        OR: [
+          { status: { in: ['closed', 'won', 'resolved', 'settled'] } },
+          { caseStage: 'CLOSED' },
+          { leadSubmission: { status: 'closed' } },
+          { leadSubmission: { lifecycleState: 'closed' } },
+        ],
+      },
+    ])
+    // The count has to see the same predicate or the pager reports a total the
+    // list cannot fill.
+    expect(vi.mocked(prisma.assessment.count).mock.calls[0]?.[0]).toMatchObject({ where })
+  })
+
+  it('GET /v1/admin/cases/all keeps a text search alongside the closed filter', async () => {
+    vi.mocked(prisma.assessment.findMany).mockResolvedValue([] as any)
+    vi.mocked(prisma.assessment.count).mockResolvedValue(0 as any)
+
+    await request(app)
+      .get('/v1/admin/cases/all?status=closed&search=pat')
+      .set('Authorization', 'Bearer admin')
+      .expect(200)
+
+    const where = vi.mocked(prisma.assessment.findMany).mock.calls[0]?.[0]?.where as any
+    expect(where.AND).toHaveLength(1)
+    expect(Array.isArray(where.OR)).toBe(true)
+    expect(where.OR).toContainEqual({ id: { contains: 'pat', mode: 'insensitive' } })
   })
 
   it('GET /v1/admin/cases/:id returns compact case detail payload', async () => {
@@ -2320,6 +2397,122 @@ describe('HTTP operations regressions', () => {
     })
   })
 
+  /**
+   * Rescheduling from the calendar used to POST /schedule-consult, which only
+   * reuses a row when the slot is identical — so a new time booked a second
+   * appointment and left the first one SCHEDULED. Both then came back from the
+   * calendar feed and the consult appeared at the old time and the new one.
+   */
+  describe('PATCH /v1/attorney-dashboard/appointments/:id (reschedule)', () => {
+    const existingAppointment = {
+      id: 'apt-resched-1',
+      userId: 'plaintiff-user-1',
+      attorneyId: 'attorney-record-1',
+      assessmentId: 'asm-1',
+      scheduledAt: new Date('2099-04-08T21:00:00.000Z'),
+      type: 'phone',
+      duration: 30,
+      status: 'SCHEDULED',
+      notes: 'Bring records',
+      externalCalendarProvider: null,
+      externalCalendarEventId: null,
+      user: { email: 'plaintiff@example.com', firstName: 'Pat', lastName: 'Plaintiff' },
+      assessment: { claimType: 'auto' },
+    }
+
+    // The route reads the attorney's zone off their profile; the fixture has
+    // none, so resolve it the same way rather than pinning an instant that
+    // depends on whatever the default happens to be.
+    const attorneyTz = resolveSchedulingTimezone(undefined)
+
+    it('moves the existing appointment instead of booking a second one', async () => {
+      vi.mocked(prisma.appointment.findFirst).mockResolvedValue(existingAppointment as any)
+      vi.mocked(prisma.appointment.findMany).mockResolvedValue([] as any)
+      vi.mocked(prisma.appointment.update).mockImplementation(
+        async (args: any) => ({ ...existingAppointment, ...args.data }) as any,
+      )
+
+      const res = await request(app)
+        .patch('/v1/attorney-dashboard/appointments/apt-resched-1')
+        .set('Authorization', 'Bearer attorney')
+        .send({ date: '2099-04-09', time: '9:00 AM', type: 'phone' })
+        .expect(200)
+
+      expect(res.body.id).toBe('apt-resched-1')
+      // The whole point: no second row, so the calendar has one consult to draw.
+      expect(vi.mocked(prisma.appointment.create)).not.toHaveBeenCalled()
+
+      const update = vi.mocked(prisma.appointment.update).mock.calls[0]?.[0] as any
+      expect(update.where).toEqual({ id: 'apt-resched-1' })
+      expect(update.data.scheduledAt).toEqual(wallClockToUtc('2099-04-09', '9:00 AM', attorneyTz))
+      // Omitted notes leave the original in place rather than blanking them.
+      expect(update.data.notes).toBe('Bring records')
+    })
+
+    it('rejects a move onto a slot the attorney has already committed', async () => {
+      vi.mocked(prisma.appointment.findFirst).mockResolvedValue(existingAppointment as any)
+      vi.mocked(prisma.appointment.findMany).mockResolvedValue([
+        {
+          scheduledAt: wallClockToUtc('2099-04-09', '9:00 AM', attorneyTz),
+          duration: 30,
+        },
+      ] as any)
+
+      const res = await request(app)
+        .patch('/v1/attorney-dashboard/appointments/apt-resched-1')
+        .set('Authorization', 'Bearer attorney')
+        .send({ date: '2099-04-09', time: '9:00 AM' })
+        .expect(409)
+
+      expect(res.body.error).toMatch(/already scheduled/i)
+      expect(vi.mocked(prisma.appointment.update)).not.toHaveBeenCalled()
+      // The appointment being moved must not be mistaken for a conflict with
+      // itself, which would make every short hop unbookable.
+      expect(vi.mocked(prisma.appointment.findMany).mock.calls[0]?.[0]).toMatchObject({
+        where: { attorneyId: 'attorney-record-1', status: 'SCHEDULED', id: { not: 'apt-resched-1' } },
+      })
+    })
+
+    it('refuses to move a consult into the past', async () => {
+      vi.mocked(prisma.appointment.findFirst).mockResolvedValue(existingAppointment as any)
+
+      const res = await request(app)
+        .patch('/v1/attorney-dashboard/appointments/apt-resched-1')
+        .set('Authorization', 'Bearer attorney')
+        .send({ date: '2020-01-02', time: '9:00 AM' })
+        .expect(400)
+
+      expect(res.body.error).toMatch(/future/i)
+      expect(vi.mocked(prisma.appointment.update)).not.toHaveBeenCalled()
+    })
+
+    /**
+     * Editing notes on a consult that has already happened is legitimate, so the
+     * future-only rule applies to the time changing, not to every PATCH.
+     */
+    it('still allows editing a past consult when the time is unchanged', async () => {
+      const pastAppointment = {
+        ...existingAppointment,
+        scheduledAt: new Date('2020-01-02T17:00:00.000Z'),
+        status: 'COMPLETED',
+      }
+      vi.mocked(prisma.appointment.findFirst).mockResolvedValue(pastAppointment as any)
+      vi.mocked(prisma.appointment.update).mockImplementation(
+        async (args: any) => ({ ...pastAppointment, ...args.data }) as any,
+      )
+
+      await request(app)
+        .patch('/v1/attorney-dashboard/appointments/apt-resched-1')
+        .set('Authorization', 'Bearer attorney')
+        .send({ notes: 'Client confirmed the settlement figure' })
+        .expect(200)
+
+      const update = vi.mocked(prisma.appointment.update).mock.calls[0]?.[0] as any
+      expect(update.data.notes).toBe('Client confirmed the settlement figure')
+      expect(update.data.scheduledAt).toEqual(pastAppointment.scheduledAt)
+    })
+  })
+
   it('GET /v1/attorney-dashboard/document-requests returns compact request payload', async () => {
     vi.mocked(prisma.documentRequest.findMany).mockResolvedValue([
       {
@@ -3734,7 +3927,7 @@ describe('HTTP operations regressions', () => {
       .set('Authorization', 'Bearer attorney')
       .expect(200)
 
-    expect(res.body).toMatchObject([
+    expect(res.body.files).toMatchObject([
       {
         id: 'ef-1',
         userId: 'plaintiff-user-1',
@@ -3745,6 +3938,13 @@ describe('HTTP operations regressions', () => {
         processingStatus: 'completed',
       },
     ])
+    // HIPAA is on file here, so the medical record comes through and the
+    // evidence tab has nothing to hold back.
+    expect(res.body.medicalSharing).toMatchObject({
+      canShareMedicalData: true,
+      status: 'authorized',
+      message: null,
+    })
     expect(prisma.evidenceFile.updateMany).toHaveBeenCalledWith({
       where: {
         assessmentId: null,
@@ -3797,11 +3997,59 @@ describe('HTTP operations regressions', () => {
       .set('Authorization', 'Bearer attorney')
       .expect(200)
 
-    expect(res.body).toEqual([])
+    expect(res.body.files).toEqual([])
     expect(prisma.evidenceFile.updateMany).not.toHaveBeenCalled()
     expect(vi.mocked(prisma.evidenceFile.findMany).mock.calls[0]?.[0]?.where).toEqual({
       assessmentId: 'asm-1',
     })
+  })
+
+  /**
+   * Withheld medical files used to leave the response indistinguishable from a
+   * case where the client had uploaded nothing, so the evidence tab counted them
+   * missing and offered to request documents the client had already sent.
+   */
+  it('GET /v1/attorney-dashboard/leads/:leadId/evidence reports medical files withheld pending HIPAA', async () => {
+    vi.mocked(prisma.attorney.findFirst).mockResolvedValueOnce({
+      id: 'attorney-record-1',
+      email: 'attorney@example.com',
+      name: 'Ari Attorney',
+      lawFirmId: 'firm-1',
+      isVerified: true,
+    } as any)
+    vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValue({
+      id: 'lead-1',
+      assessmentId: 'asm-1',
+      assignmentType: 'shared',
+      assignedAttorneyId: null,
+    } as any)
+    vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
+      userId: 'plaintiff-user-1',
+      createdAt: new Date('2026-04-01T00:00:00.000Z'),
+      facts: JSON.stringify({ consents: { hipaa: false } }),
+    } as any)
+    vi.mocked(prisma.evidenceFile.count).mockResolvedValue(2 as any)
+    vi.mocked(prisma.assessment.count).mockResolvedValue(1 as any)
+    vi.mocked(prisma.evidenceFile.findMany).mockResolvedValue([
+      { id: 'ef-med', assessmentId: 'asm-1', category: 'medical_records', createdAt: new Date() },
+      { id: 'ef-bill', assessmentId: 'asm-1', category: 'bills', createdAt: new Date() },
+      { id: 'ef-photo', assessmentId: 'asm-1', category: 'photos', createdAt: new Date() },
+    ] as any)
+
+    const res = await request(app)
+      .get('/v1/attorney-dashboard/leads/lead-1/evidence')
+      .set('Authorization', 'Bearer attorney')
+      .expect(200)
+
+    expect(res.body.files.map((f: any) => f.id)).toEqual(['ef-photo'])
+    expect(res.body.medicalSharing).toMatchObject({
+      canShareMedicalData: false,
+      hasHipaaConsent: false,
+      status: 'pending_authorization',
+      // Counted before the filter, so the tab can say how many are held back.
+      medicalFileCount: 2,
+    })
+    expect(res.body.medicalSharing.message).toBeTruthy()
   })
 
   it('POST /v1/attorney-dashboard/leads/:leadId/evidence returns compact uploaded evidence payload', async () => {

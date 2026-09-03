@@ -17,8 +17,11 @@ import { INVITE_TTL_MS, issuePasswordSetupToken, passwordResetUrl } from '../lib
 
 const router: ExpressRouter = Router()
 
+// `staff` is law-firm staff and belongs to a LawFirm; `specialist` is a
+// ClearCaseIQ employee working the Case Assistance queue. Different sides of the
+// platform despite both sounding like "our team".
 const RoleUpdateSchema = z.object({
-  role: z.enum(['client', 'attorney', 'staff', 'admin']),
+  role: z.enum(['client', 'attorney', 'staff', 'admin', 'specialist']),
   capabilities: z.array(z.enum(['ops', 'network', 'oversight', 'config', 'users'])).optional(),
 })
 
@@ -33,7 +36,7 @@ const UserCreateSchema = z.object({
   email: z.string().email(),
   firstName: z.string().trim().min(1, 'First name is required'),
   lastName: z.string().trim().min(1, 'Last name is required'),
-  role: z.enum(['staff', 'admin']),
+  role: z.enum(['staff', 'admin', 'specialist']),
   capabilities: z.array(z.enum(['ops', 'network', 'oversight', 'config', 'users'])).optional(),
 })
 
@@ -50,8 +53,15 @@ router.get('/users', authMiddleware, adminMiddleware, requireAdminCapability('us
     })
 
     const where: Record<string, unknown> = {}
-    const roleFilter = typeof role === 'string' ? role.trim() : ''
-    if (roleFilter) where.role = roleFilter
+    // Comma-separated so one request can ask for a group of roles. The employee
+    // view needs this: ClearCaseIQ employees are `admin` and `specialist`, and
+    // before the list accepted more than one value that view could only show
+    // half of them.
+    const roleFilter = typeof role === 'string'
+      ? role.split(',').map((value) => value.trim()).filter(Boolean)
+      : []
+    if (roleFilter.length === 1) where.role = roleFilter[0]
+    else if (roleFilter.length > 1) where.role = { in: roleFilter }
 
     const searchTerm = typeof search === 'string' ? search.trim() : ''
     if (searchTerm) {

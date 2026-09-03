@@ -50,6 +50,7 @@ export function capabilityForAdminPath(path: string): AdminCapability | null {
   if (
     path.startsWith('/admin/ops-inbox') ||
     path.startsWith('/admin/cases') ||
+    path.startsWith('/admin/case-assistance') ||
     path.startsWith('/admin/case-flow') ||
     path.startsWith('/admin/routing-queue') ||
     path.startsWith('/admin/manual-review') ||

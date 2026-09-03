@@ -10,6 +10,8 @@ import { MessageSquare } from 'lucide-react'
 import { getPlaintiffMessageSummary } from '../lib/api'
 import { sortRoomsByRecency } from '../lib/messaging'
 import { formatClaimType } from '../lib/claimTypes'
+import { MESSAGE_POLL_MS } from '../lib/notificationPolling'
+import { useVisibilityPoll } from '../hooks/useVisibilityPoll'
 
 interface RoomPreview {
   id: string
@@ -42,11 +44,7 @@ export default function PlaintiffNotificationBell() {
     }
   }
 
-  useEffect(() => {
-    void loadData()
-    const interval = setInterval(loadData, 30000)
-    return () => clearInterval(interval)
-  }, [])
+  useVisibilityPoll(() => void loadData(), MESSAGE_POLL_MS)
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {

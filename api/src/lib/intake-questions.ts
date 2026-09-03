@@ -16,6 +16,7 @@ export type QuestionSection = 'Liability' | 'Medical' | 'Damages' | 'Insurance' 
 export interface IntelligentQuestion {
   id: string
   section: QuestionSection
+  /** The question as the claimant would hear it. */
   text: string
   whyAsked: string
   valueImpact: ValueImpact
@@ -23,6 +24,16 @@ export interface IntelligentQuestion {
   source: 'baseline' | 'ai'
   /** Gap registry keys this question addresses; answering it resolves those gaps. */
   gapKeys?: string[]
+  /**
+   * Imperative form for a ClearCaseIQ employee reading this list while on the
+   * phone — "Ask for the claim number" rather than "What is your claim number?".
+   *
+   * Only populated when the caller asks for employee voice, and only for
+   * LLM-generated questions: rewriting the curated baseline text mechanically
+   * produces worse English than leaving the question as written. Surfaces should
+   * fall back to `text`.
+   */
+  askInstruction?: string
 }
 
 interface BankQuestion {

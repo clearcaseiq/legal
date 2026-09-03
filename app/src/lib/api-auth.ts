@@ -20,6 +20,12 @@ export async function loginStaff(payload: any) {
   return data
 }
 
+/** ClearCaseIQ Case Specialists — not the same as `loginStaff`, which is law-firm staff. */
+export async function loginSpecialist(payload: any) {
+  const { data } = await api.post('/v1/auth/specialist-login', payload)
+  return data
+}
+
 export async function requestPasswordReset(email: string) {
   const { data } = await api.post('/v1/auth/request-password-reset', { email })
   return data as { ok: boolean; message: string }
@@ -47,6 +53,12 @@ export async function verifyAdminAccess(): Promise<{ ok: boolean; capabilities: 
     ok: !!data?.ok,
     capabilities: Array.isArray(data?.capabilities) ? data.capabilities : [],
   }
+}
+
+/** Ensures the current JWT is allowed for the Case Assistance queue. */
+export async function verifySpecialistAccess(): Promise<{ ok: boolean; isManager: boolean }> {
+  const { data } = await api.get('/v1/auth/specialist-access')
+  return { ok: !!data?.ok, isManager: !!data?.isManager }
 }
 
 export async function registerAttorney(data: any) {

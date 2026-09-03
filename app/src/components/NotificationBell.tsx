@@ -8,6 +8,8 @@ import { Link } from 'react-router-dom'
 import { MessageSquare } from 'lucide-react'
 import { getAttorneyUnreadSummary } from '../lib/api'
 import { formatClaimType } from '../lib/claimTypes'
+import { MESSAGE_POLL_MS } from '../lib/notificationPolling'
+import { useVisibilityPoll } from '../hooks/useVisibilityPoll'
 
 interface ChatRoomPreview {
   id: string
@@ -43,11 +45,7 @@ export default function NotificationBell() {
     }
   }
 
-  useEffect(() => {
-    loadData()
-    const interval = setInterval(loadData, 60000) // poll every minute
-    return () => clearInterval(interval)
-  }, [])
+  useVisibilityPoll(loadData, MESSAGE_POLL_MS)
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {

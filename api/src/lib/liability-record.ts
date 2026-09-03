@@ -10,7 +10,7 @@
  */
 import { prisma } from './prisma'
 import { logger } from './logger'
-import { recordCaseChange } from './data-authority'
+import { tryUpdateCaseFacts } from './case-facts'
 
 export const FAULT_POSTURES = ['clear', 'admitted', 'disputed', 'shared', 'denied'] as const
 export type FaultPosture = (typeof FAULT_POSTURES)[number]
@@ -230,42 +230,11 @@ async function writeThroughLiability(
   record: any,
   opts?: { source?: 'attorney' | 'rose_ai' | 'system'; actorId?: string | null; actorName?: string | null },
 ): Promise<void> {
+  const compPct = Number(record.comparativeNegPct ?? 0)
+  const comparativeFault = compPct >= 30 ? 'yes' : compPct > 0 ? 'possibly' : 'no'
+
   try {
-    const assessment = await prisma.assessment.findUnique({
-      where: { id: assessmentId },
-      select: { facts: true },
-    })
-    let facts: any = {}
-    try {
-      facts = assessment?.facts ? JSON.parse(assessment.facts) : {}
-    } catch {
-      facts = {}
-    }
-    const existing = facts.liability && typeof facts.liability === 'object' ? facts.liability : {}
-    const compPct = Number(record.comparativeNegPct ?? 0)
-    const comparativeFault = compPct >= 30 ? 'yes' : compPct > 0 ? 'possibly' : 'no'
-    facts.liability = {
-      ...existing,
-      // The engine multiplies expected value by (score/100); it derives its own
-      // score but reads comparative fault + posture/citation signals to adjust.
-      comparativeNegligence: compPct / 100,
-      comparativeFault,
-      faultPosture: record.faultPosture,
-      defendantFaultPct: record.defendantFaultPct,
-      citationIssuedTo: record.citationIssuedTo || null,
-      policeReport: record.policeReportStatus === 'received',
-      hasWitnesses: Boolean(record.hasWitnesses),
-      hasPhotos: Boolean(record.hasPhotos),
-      hasVideo: Boolean(record.hasVideo),
-    }
-    facts.liabilityRecord = toView(record)
-
-    await prisma.assessment.update({
-      where: { id: assessmentId },
-      data: { facts: JSON.stringify(facts) },
-    })
-
-    void recordCaseChange({
+    await tryUpdateCaseFacts({
       assessmentId,
       source: opts?.source ?? 'attorney',
       action: 'liability_updated',
@@ -274,6 +243,27 @@ async function writeThroughLiability(
         compPct ? `, ${compPct}% comparative` : ''
       })`,
       actor: { type: opts?.source === 'rose_ai' ? 'ai' : 'user', id: opts?.actorId ?? null },
+      mutate: (facts) => {
+        const existing = facts.liability && typeof facts.liability === 'object' ? facts.liability : {}
+        return {
+          ...facts,
+          liability: {
+            ...existing,
+            // The engine multiplies expected value by (score/100); it derives its own
+            // score but reads comparative fault + posture/citation signals to adjust.
+            comparativeNegligence: compPct / 100,
+            comparativeFault,
+            faultPosture: record.faultPosture,
+            defendantFaultPct: record.defendantFaultPct,
+            citationIssuedTo: record.citationIssuedTo || null,
+            policeReport: record.policeReportStatus === 'received',
+            hasWitnesses: Boolean(record.hasWitnesses),
+            hasPhotos: Boolean(record.hasPhotos),
+            hasVideo: Boolean(record.hasVideo),
+          },
+          liabilityRecord: toView(record),
+        }
+      },
     })
   } catch (error: any) {
     logger.warn('writeThroughLiability failed', { assessmentId, error: error?.message })

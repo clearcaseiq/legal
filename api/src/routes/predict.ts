@@ -5,6 +5,7 @@ import { PredictionRequest, SimulationRequest } from '../lib/validators'
 import { logger } from '../lib/logger'
 import { authMiddleware, optionalAuthMiddleware, type AuthRequest } from '../lib/auth'
 import { underwriteCase, reconcileValueBandsWithUnderwriting } from '../lib/underwriting-engine'
+import { assignCaseAssistance } from '../lib/case-assistance-assignment'
 
 const router = Router()
 
@@ -162,6 +163,12 @@ router.post('/', optionalAuthMiddleware, async (req: AuthRequest, res) => {
       where: { id: assessmentId },
       data: { status: 'COMPLETED' }
     })
+
+    // A completed report is the moment a case becomes workable by a specialist:
+    // there is a valuation to talk about and a gap list to close. Fire-and-
+    // forget, because the plaintiff is waiting on this response and an
+    // unassigned case is still visible in the queue.
+    void assignCaseAssistance(assessmentId)
 
     logger.info('Prediction completed', { 
       assessmentId, 

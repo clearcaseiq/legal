@@ -46,6 +46,10 @@ const CASE_TABS = [
   { id: 'waiting', label: 'Waiting' },
   { id: 'accepted', label: 'Accepted' },
   { id: 'today', label: 'New today' },
+  // Closed cases are otherwise unreachable here: every other tab filters on
+  // routing, which finished matters have long since left behind, so the only way
+  // to find one was to already know its id and search for it.
+  { id: 'closed', label: 'Closed' },
 ] as const
 
 type CaseTab = typeof CASE_TABS[number]['id']
@@ -59,7 +63,8 @@ function getRoutingStatus(c: any) {
   return 'Queue'
 }
 
-function getCaseTabFromFilters(routingStatus: string, createdToday: boolean): CaseTab {
+function getCaseTabFromFilters(routingStatus: string, createdToday: boolean, status = ''): CaseTab {
+  if (status === 'closed') return 'closed'
   if (createdToday) return 'today'
   if (routingStatus === 'queue') return 'queue'
   if (routingStatus === 'waiting') return 'waiting'
@@ -83,8 +88,13 @@ export default function AdminCases() {
     const ct = searchParams.get('createdToday')
     return ct === '1' || ct === 'true'
   })
+  const [statusFilter, setStatusFilter] = useState(() => searchParams.get('status') || '')
   const [activeCaseTab, setActiveCaseTab] = useState<CaseTab>(() =>
-    getCaseTabFromFilters(searchParams.get('routingStatus') || '', searchParams.get('createdToday') === '1' || searchParams.get('createdToday') === 'true'),
+    getCaseTabFromFilters(
+      searchParams.get('routingStatus') || '',
+      searchParams.get('createdToday') === '1' || searchParams.get('createdToday') === 'true',
+      searchParams.get('status') || '',
+    ),
   )
   const [sortField, setSortField] = useState<SortField>('createdAt')
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc')
@@ -107,14 +117,16 @@ export default function AdminCases() {
   useEffect(() => {
     const rs = searchParams.get('routingStatus') || ''
     const ct = searchParams.get('createdToday')
+    const st = searchParams.get('status') || ''
     setRoutingStatusFilter(rs)
     setCreatedTodayOnly(ct === '1' || ct === 'true')
-    setActiveCaseTab(getCaseTabFromFilters(rs, ct === '1' || ct === 'true'))
+    setStatusFilter(st)
+    setActiveCaseTab(getCaseTabFromFilters(rs, ct === '1' || ct === 'true', st))
   }, [searchParams])
 
   useEffect(() => {
-    setActiveCaseTab(getCaseTabFromFilters(routingStatusFilter, createdTodayOnly))
-  }, [routingStatusFilter, createdTodayOnly])
+    setActiveCaseTab(getCaseTabFromFilters(routingStatusFilter, createdTodayOnly, statusFilter))
+  }, [routingStatusFilter, createdTodayOnly, statusFilter])
 
   // Search runs server-side so it covers every matching case, not only the rows
   // in the loaded page. Debounced so typing doesn't fire a request per keystroke.
@@ -127,7 +139,7 @@ export default function AdminCases() {
   // Any filter change invalidates the page position. Resetting during render
   // (rather than in an effect) means the fetch effect below never runs once
   // with new filters and a stale offset, which would race two requests.
-  const filterKey = `${claimTypeFilter}|${stateFilter}|${routingStatusFilter}|${createdTodayOnly}|${appliedSearch}|${limit}`
+  const filterKey = `${claimTypeFilter}|${stateFilter}|${routingStatusFilter}|${createdTodayOnly}|${statusFilter}|${appliedSearch}|${limit}`
   const [lastFilterKey, setLastFilterKey] = useState(filterKey)
   if (filterKey !== lastFilterKey) {
     setLastFilterKey(filterKey)
@@ -146,6 +158,7 @@ export default function AdminCases() {
         state: stateFilter || undefined,
         routingStatus: routingStatusFilter || undefined,
         createdToday: createdTodayOnly || undefined,
+        status: statusFilter || undefined,
         search: appliedSearch || undefined,
         limit,
         offset,
@@ -157,7 +170,7 @@ export default function AdminCases() {
     } finally {
       setLoading(false)
     }
-  }, [claimTypeFilter, stateFilter, routingStatusFilter, createdTodayOnly, appliedSearch, limit, offset])
+  }, [claimTypeFilter, stateFilter, routingStatusFilter, createdTodayOnly, statusFilter, appliedSearch, limit, offset])
 
   useEffect(() => {
     loadCases()
@@ -348,6 +361,16 @@ export default function AdminCases() {
 
   const applyCaseTab = (tab: CaseTab) => {
     setActiveCaseTab(tab)
+    // Closed is a lifecycle filter rather than a routing one, so it clears the
+    // routing filters instead of setting one — a closed case has no live routing
+    // state to match and would fall out of every routingStatus bucket.
+    if (tab === 'closed') {
+      setStatusFilter('closed')
+      setCreatedTodayOnly(false)
+      setRoutingStatusFilter('')
+      return
+    }
+    setStatusFilter('')
     if (tab === 'today') {
       setCreatedTodayOnly(true)
       setRoutingStatusFilter('')
@@ -441,7 +464,7 @@ export default function AdminCases() {
       </div>
 
       <div className="sticky top-14 z-20 shrink-0 rounded-xl border border-slate-200 bg-white/95 p-2 shadow-sm backdrop-blur dark:border-slate-700 dark:bg-slate-900/95">
-        <div className="grid gap-2 sm:grid-cols-5">
+        <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-6">
           {CASE_TABS.map((tab) => (
             <button
               key={tab.id}
@@ -645,6 +668,14 @@ export default function AdminCases() {
                     </td>
                     <td className="py-3 px-4 text-ui-sm font-mono text-slate-600 dark:text-slate-400">
                       {formatCaseId({ id: c.id, claimType: c.claimType, createdAt: c.createdAt })}
+                      {/* The Routing status column keeps showing whatever the case
+                          last did while it was live, so without this a finished
+                          matter is indistinguishable from an active one. */}
+                      {c.closedAt || c.caseStage === 'CLOSED' ? (
+                        <span className="mt-1 block font-sans text-xs font-medium text-slate-500">
+                          Closed{c.closedAt ? ` ${new Date(c.closedAt).toLocaleDateString()}` : ''}
+                        </span>
+                      ) : null}
                     </td>
                     <td className="py-3 px-4 text-sm">
                       {c.user

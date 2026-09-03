@@ -14,7 +14,7 @@
  */
 import { prisma } from './prisma'
 import { logger } from './logger'
-import { recordCaseChange } from './data-authority'
+import { tryUpdateCaseFacts } from './case-facts'
 
 export const VISIT_TYPES = [
   'initial_eval',
@@ -192,69 +192,59 @@ async function writeThroughMedical(
   view: MedicalTimelineView,
   opts?: { source?: 'attorney' | 'rose_ai' | 'system'; actorId?: string | null; summary?: string },
 ): Promise<void> {
+  const s = view.status
+
   try {
-    const assessment = await prisma.assessment.findUnique({
-      where: { id: assessmentId },
-      select: { facts: true },
-    })
-    let facts: any = {}
-    try {
-      facts = assessment?.facts ? JSON.parse(assessment.facts) : {}
-    } catch {
-      facts = {}
-    }
-
-    // Rebuild facts.treatment[] from the (non-future) entries so demand-readiness
-    // and the underwriting engine see the structured chronology.
-    // Always rewrite — including `[]` when every visit was deleted — so stale
-    // intake / prior write-through rows cannot keep gap banners alive.
-    facts.treatment = view.entries
-      .filter((e) => !e.isFuture)
-      .map((e) => ({
-        provider: e.provider,
-        type: e.visitType,
-        startDate: e.startDate,
-        endDate: e.endDate,
-        date: e.endDate || e.startDate,
-        status: e.status,
-        diagnosis: e.diagnosis,
-      }))
-
-    const existingMedical = facts.medical && typeof facts.medical === 'object' ? facts.medical : {}
-    const s = view.status
-    facts.medical = {
-      ...existingMedical,
-      treatmentStatus: s.treatmentStatus,
-      mmi: s.mmi,
-      mmiDate: s.mmiDate || existingMedical.mmiDate || null,
-      dischargeDate:
-        s.treatmentStatus === 'discharged' || s.mmi ? s.mmiDate || existingMedical.dischargeDate || null : existingMedical.dischargeDate || null,
-      stillTreating: s.stillTreating && !s.mmi,
-      lastTreatmentDate:
-        view.visitCount === 0 ? null : view.lastTreatmentDate || existingMedical.lastTreatmentDate || null,
-      symptoms: s.symptoms,
-      futureTreatment: s.futureTreatment || null,
-    }
-    facts.medicalTimeline = {
-      providerCount: view.providerCount,
-      visitCount: view.visitCount,
-      firstTreatmentDate: view.firstTreatmentDate,
-      lastTreatmentDate: view.lastTreatmentDate,
-      gaps: view.gaps,
-      billedTotal: view.billedTotal,
-    }
-
-    await prisma.assessment.update({
-      where: { id: assessmentId },
-      data: { facts: JSON.stringify(facts) },
-    })
-
-    void recordCaseChange({
+    await tryUpdateCaseFacts({
       assessmentId,
       source: opts?.source ?? 'attorney',
       action: 'medical_updated',
       entityType: 'medical',
       summary: opts?.summary || `Medical timeline updated (${view.visitCount} visits, ${s.treatmentStatus})`,
+      mutate: (facts) => {
+        const existingMedical = facts.medical && typeof facts.medical === 'object' ? facts.medical : {}
+        return {
+          ...facts,
+          // Rebuild facts.treatment[] from the (non-future) entries so demand-readiness
+          // and the underwriting engine see the structured chronology.
+          // Always rewrite — including `[]` when every visit was deleted — so stale
+          // intake / prior write-through rows cannot keep gap banners alive.
+          treatment: view.entries
+            .filter((e) => !e.isFuture)
+            .map((e) => ({
+              provider: e.provider,
+              type: e.visitType,
+              startDate: e.startDate,
+              endDate: e.endDate,
+              date: e.endDate || e.startDate,
+              status: e.status,
+              diagnosis: e.diagnosis,
+            })),
+          medical: {
+            ...existingMedical,
+            treatmentStatus: s.treatmentStatus,
+            mmi: s.mmi,
+            mmiDate: s.mmiDate || existingMedical.mmiDate || null,
+            dischargeDate:
+              s.treatmentStatus === 'discharged' || s.mmi
+                ? s.mmiDate || existingMedical.dischargeDate || null
+                : existingMedical.dischargeDate || null,
+            stillTreating: s.stillTreating && !s.mmi,
+            lastTreatmentDate:
+              view.visitCount === 0 ? null : view.lastTreatmentDate || existingMedical.lastTreatmentDate || null,
+            symptoms: s.symptoms,
+            futureTreatment: s.futureTreatment || null,
+          },
+          medicalTimeline: {
+            providerCount: view.providerCount,
+            visitCount: view.visitCount,
+            firstTreatmentDate: view.firstTreatmentDate,
+            lastTreatmentDate: view.lastTreatmentDate,
+            gaps: view.gaps,
+            billedTotal: view.billedTotal,
+          },
+        }
+      },
       actor: { type: opts?.source === 'rose_ai' ? 'ai' : 'user', id: opts?.actorId ?? null },
     })
   } catch (error: any) {

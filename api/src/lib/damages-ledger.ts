@@ -8,8 +8,7 @@
  * when it has items, is authoritative for those fields.
  */
 import { prisma } from './prisma'
-import { logger } from './logger'
-import { recordCaseChange } from './data-authority'
+import { tryUpdateCaseFacts } from './case-facts'
 
 export const DAMAGE_CATEGORIES = [
   'medical',
@@ -134,52 +133,37 @@ export async function writeThroughDamages(
   const summary = await summarizeDamages(assessmentId)
   if (summary.itemCount === 0) return summary
 
-  try {
-    const assessment = await prisma.assessment.findUnique({
-      where: { id: assessmentId },
-      select: { facts: true },
-    })
-    let facts: any = {}
-    try {
-      facts = assessment?.facts ? JSON.parse(assessment.facts) : {}
-    } catch {
-      facts = {}
-    }
-    const existingDamages = facts.damages && typeof facts.damages === 'object' ? facts.damages : {}
-    facts.damages = {
-      ...existingDamages,
-      medical: summary.factsDamages.medical,
-      futureMedical: summary.factsDamages.futureMedical,
-      estimated_future_med_charges: summary.factsDamages.futureMedical,
-      lostWages: summary.factsDamages.lostWages,
-      other: summary.factsDamages.other,
-      // Also write the canonical legacy keys the underwriting/valuation engine
-      // and the demand-letter assembler read, so the ledger — once it has items
-      // — is authoritative for case value everywhere, not just in this module.
-      med_charges: summary.factsDamages.medical,
-      wage_loss: summary.factsDamages.lostWages,
-      future_medical: summary.factsDamages.futureMedical,
-    }
-    // Keep a structured snapshot alongside the legacy fields for surfaces that
-    // want the full breakdown without re-querying the ledger.
-    facts.damagesLedger = summary
-
-    await prisma.assessment.update({
-      where: { id: assessmentId },
-      data: { facts: JSON.stringify(facts) },
-    })
-
-    void recordCaseChange({
-      assessmentId,
-      source: opts?.source ?? 'attorney',
-      action: 'damages_updated',
-      entityType: 'damages',
-      summary: `Damages ledger updated (specials ${Math.round(summary.totals.specials)}, future ${Math.round(summary.totals.future)})`,
-      actor: { type: opts?.source === 'rose_ai' ? 'ai' : 'user', id: opts?.actorId ?? null },
-    })
-  } catch (error: any) {
-    logger.warn('writeThroughDamages failed', { assessmentId, error: error?.message })
-  }
+  await tryUpdateCaseFacts({
+    assessmentId,
+    source: opts?.source ?? 'attorney',
+    action: 'damages_updated',
+    entityType: 'damages',
+    summary: `Damages ledger updated (specials ${Math.round(summary.totals.specials)}, future ${Math.round(summary.totals.future)})`,
+    actor: { type: opts?.source === 'rose_ai' ? 'ai' : 'user', id: opts?.actorId ?? null },
+    mutate: (facts) => {
+      const existingDamages = facts.damages && typeof facts.damages === 'object' ? facts.damages : {}
+      return {
+        ...facts,
+        damages: {
+          ...existingDamages,
+          medical: summary.factsDamages.medical,
+          futureMedical: summary.factsDamages.futureMedical,
+          estimated_future_med_charges: summary.factsDamages.futureMedical,
+          lostWages: summary.factsDamages.lostWages,
+          other: summary.factsDamages.other,
+          // Also write the canonical legacy keys the underwriting/valuation engine
+          // and the demand-letter assembler read, so the ledger — once it has items
+          // — is authoritative for case value everywhere, not just in this module.
+          med_charges: summary.factsDamages.medical,
+          wage_loss: summary.factsDamages.lostWages,
+          future_medical: summary.factsDamages.futureMedical,
+        },
+        // Keep a structured snapshot alongside the legacy fields for surfaces that
+        // want the full breakdown without re-querying the ledger.
+        damagesLedger: summary,
+      }
+    },
+  })
 
   return summary
 }

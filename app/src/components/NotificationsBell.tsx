@@ -25,6 +25,8 @@ import {
   type AttorneyNotification,
 } from '../lib/api'
 import { notificationDestination } from '../lib/notifications'
+import { NOTIFICATION_POLL_MS } from '../lib/notificationPolling'
+import { useVisibilityPoll } from '../hooks/useVisibilityPoll'
 
 type IconMeta = { Icon: typeof Bell; tone: string }
 
@@ -138,11 +140,7 @@ export default function NotificationsBell() {
     }
   }, [])
 
-  useEffect(() => {
-    loadCount()
-    const interval = setInterval(loadCount, 60000)
-    return () => clearInterval(interval)
-  }, [loadCount])
+  useVisibilityPoll(loadCount, NOTIFICATION_POLL_MS)
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {

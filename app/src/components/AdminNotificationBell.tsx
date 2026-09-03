@@ -10,8 +10,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { AlertTriangle, Bell, Check, Loader2 } from 'lucide-react'
 import { getAdminAlerts, markAdminAlertsRead, type AdminAlert } from '../lib/api'
-
-const POLL_INTERVAL_MS = 60_000
+import { NOTIFICATION_POLL_MS } from '../lib/notificationPolling'
+import { useVisibilityPoll } from '../hooks/useVisibilityPoll'
 
 function relativeTime(iso: string): string {
   const then = Date.parse(iso)
@@ -49,11 +49,7 @@ export default function AdminNotificationBell() {
     }
   }, [])
 
-  useEffect(() => {
-    void load()
-    const timer = window.setInterval(() => void load(), POLL_INTERVAL_MS)
-    return () => window.clearInterval(timer)
-  }, [load])
+  useVisibilityPoll(() => void load(), NOTIFICATION_POLL_MS)
 
   useEffect(() => {
     if (!open) return

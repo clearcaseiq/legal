@@ -6,6 +6,7 @@ import { AssessmentWrite, AssessmentUpdate, SubmitCaseForReview } from '../lib/v
 import { logger } from '../lib/logger'
 import { optionalAuthMiddleware, authMiddleware, AuthRequest } from '../lib/auth'
 import { enforceAssessmentReadAccess } from '../lib/assessment-access'
+import { serializeCaseFacts, updateCaseFacts, type CaseFacts } from '../lib/case-facts'
 import { assignReferenceCode, ensureReferenceCode } from '../lib/case-reference'
 import { createClaimToken, verifyClaimToken } from '../lib/claim-token'
 import { recordCaseChange } from '../lib/data-authority'
@@ -99,7 +100,8 @@ router.post('/', optionalAuthMiddleware, async (req: AuthRequest, res) => {
         venueState: parsed.data.venue.state,
         venueCounty: parsed.data.venue.county ?? null,
         status: 'DRAFT',
-        facts: JSON.stringify(enrichedFacts)
+        facts: serializeCaseFacts(enrichedFacts),
+        lastWriteSource: 'web'
       }
     })
 
@@ -217,38 +219,46 @@ router.post('/:id/damage-estimates', optionalAuthMiddleware, async (req: AuthReq
       }
     }
 
-    const facts = JSON.parse(current.facts)
-    const damages = (facts.damages || {}) as Record<string, unknown>
     const estimates = parsed.data
-    const medicalEstimate = estimates.medicalBillsEstimate ?? Number(damages.estimated_med_charges || 0)
-    const wageEstimate = estimates.lostWagesEstimate ?? Number(damages.estimated_wage_loss || 0)
-
-    facts.damages = {
-      ...damages,
-      estimated_med_charges: medicalEstimate,
-      estimated_wage_loss: wageEstimate,
-      estimated_out_of_pocket: estimates.outOfPocketEstimate ?? Number(damages.estimated_out_of_pocket || 0),
-      estimated_property_damage: estimates.propertyDamageEstimate ?? Number(damages.estimated_property_damage || 0),
-      estimated_future_med_charges: estimates.futureTreatmentEstimate ?? Number(damages.estimated_future_med_charges || 0),
-      damage_estimate_notes: estimates.notes ?? damages.damage_estimate_notes,
-      // Persist the self-reported figure and completeness signal; the authoritative
-      // med_charges/source/discrepancy are derived in runCaseRecalculation below.
-      intake_med_charges: medicalEstimate,
-      bills_complete: estimates.billsComplete ?? damages.bills_complete ?? false,
-      med_charges: Math.max(Number(damages.extracted_med_charges || 0), medicalEstimate),
-      wage_loss: Math.max(Number(damages.extracted_wage_loss || 0), wageEstimate),
-    }
-
-    await prisma.assessment.update({
-      where: { id },
-      data: { facts: JSON.stringify(facts), status: 'IN_PROGRESS' },
+    const written = await updateCaseFacts({
+      assessmentId: id,
+      source: 'web',
+      action: 'damage_estimates_saved',
+      entityType: 'damages',
+      actor: { type: 'user', id: req.user?.id ?? null },
+      columns: { status: 'IN_PROGRESS' },
+      mutate: (facts) => {
+        const damages = (facts.damages || {}) as Record<string, unknown>
+        const medicalEstimate = estimates.medicalBillsEstimate ?? Number(damages.estimated_med_charges || 0)
+        const wageEstimate = estimates.lostWagesEstimate ?? Number(damages.estimated_wage_loss || 0)
+        return {
+          ...facts,
+          damages: {
+            ...damages,
+            estimated_med_charges: medicalEstimate,
+            estimated_wage_loss: wageEstimate,
+            estimated_out_of_pocket: estimates.outOfPocketEstimate ?? Number(damages.estimated_out_of_pocket || 0),
+            estimated_property_damage:
+              estimates.propertyDamageEstimate ?? Number(damages.estimated_property_damage || 0),
+            estimated_future_med_charges:
+              estimates.futureTreatmentEstimate ?? Number(damages.estimated_future_med_charges || 0),
+            damage_estimate_notes: estimates.notes ?? damages.damage_estimate_notes,
+            // Persist the self-reported figure and completeness signal; the authoritative
+            // med_charges/source/discrepancy are derived in runCaseRecalculation below.
+            intake_med_charges: medicalEstimate,
+            bills_complete: estimates.billsComplete ?? damages.bills_complete ?? false,
+            med_charges: Math.max(Number(damages.extracted_med_charges || 0), medicalEstimate),
+            wage_loss: Math.max(Number(damages.extracted_wage_loss || 0), wageEstimate),
+          },
+        }
+      },
     })
 
     const recalculation = await runCaseRecalculation(id, 'plaintiff_damage_estimates')
     const updated = await prisma.assessment.findUnique({ where: { id } })
     res.json({
       assessmentId: id,
-      facts: updated ? JSON.parse(updated.facts) : facts,
+      facts: updated ? JSON.parse(updated.facts) : written?.facts,
       recalculation,
     })
   } catch (error: any) {
@@ -296,20 +306,28 @@ router.patch(
       return res.status(403).json({ error: 'Unauthorized to update this assessment' })
     }
 
-    const currentFacts = JSON.parse(current.facts)
-    const updatedFacts = { ...currentFacts, ...parsed.data }
-    updatedFacts.caseTypeValidation = validateCaseTypeFromFacts(
-      (updatedFacts.claimType as string) || current.claimType,
-      updatedFacts as Record<string, unknown>,
-    )
-
-    const assessment = await prisma.assessment.update({
-      where: { id },
-      data: { 
-        facts: JSON.stringify(updatedFacts),
-        status: 'IN_PROGRESS'
-      }
+    const written = await updateCaseFacts({
+      assessmentId: id,
+      source: 'web',
+      action: 'facts_edited',
+      entityType: 'assessment',
+      summary: `Claimant edited ${Object.keys(parsed.data).join(', ')}`,
+      actor: { type: 'user', id: req.user.id },
+      columns: { status: 'IN_PROGRESS' },
+      mutate: (facts) => {
+        // Shallow, top-level merge: a key present in the body replaces its whole
+        // subtree rather than being deep-merged into it.
+        const next: CaseFacts = { ...facts, ...parsed.data }
+        next.caseTypeValidation = validateCaseTypeFromFacts(
+          (next.claimType as string) || current.claimType,
+          next as Record<string, unknown>,
+        )
+        return next
+      },
     })
+    // `any` to match what `JSON.parse` used to hand the analysis request, which
+    // takes a fully-typed case payload this loose document cannot prove it is.
+    const updatedFacts: any = written?.facts ?? {}
 
     logger.info('Assessment updated', { assessmentId: id })
 
@@ -357,8 +375,8 @@ router.patch(
     
     res.json({ 
       ok: true, 
-      assessment_id: assessment.id,
-      status: assessment.status
+      assessment_id: id,
+      status: 'IN_PROGRESS'
     })
   } catch (error) {
     logger.error('Failed to update assessment', { error, assessmentId: req.params.id })
@@ -1105,9 +1123,20 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
 
     const medicalSharingAuthorized = Boolean(req.user && consents.hipaa === true)
 
-    await prisma.assessment.update({
-      where: { id },
-      data: { facts: JSON.stringify(facts) }
+    await updateCaseFacts({
+      assessmentId: id,
+      source: 'web',
+      action: 'submitted',
+      // The 'submitted' lifecycle event is recorded once the LeadSubmission
+      // lands below, so this write must not add a second one to the feed — and
+      // must not claim the case was submitted if the submission then fails.
+      recordChange: false,
+      mutate: (current) => ({
+        ...current,
+        plaintiffContext,
+        plaintiffAttorneyPreferences,
+        consents,
+      }),
     })
 
     const prediction = assessment.predictions[0]

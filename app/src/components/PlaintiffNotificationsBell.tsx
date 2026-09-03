@@ -23,6 +23,8 @@ import {
   markAllPlaintiffNotificationsRead,
 } from '../lib/api'
 import { formatClaimType as claimLabel } from '../lib/claimTypes'
+import { NOTIFICATION_POLL_MS } from '../lib/notificationPolling'
+import { useVisibilityPoll } from '../hooks/useVisibilityPoll'
 
 type NotificationKind =
   | 'matched'
@@ -243,11 +245,7 @@ export default function PlaintiffNotificationsBell() {
     }
   }
 
-  useEffect(() => {
-    void loadData()
-    const interval = setInterval(loadData, 60000)
-    return () => clearInterval(interval)
-  }, [])
+  useVisibilityPoll(() => void loadData(), NOTIFICATION_POLL_MS)
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {

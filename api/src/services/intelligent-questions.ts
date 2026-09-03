@@ -51,7 +51,31 @@ export interface IntelligentQuestionsResult {
   modelVersion: string
 }
 
-function buildPrompt(intelIn: CaseIntelligence, baseline: IntelligentQuestion[]): string {
+/**
+ * Who is reading the list.
+ *
+ * `client` is the original behaviour: questions phrased as the claimant would
+ * hear them, which is what the attorney workspace stores answers against.
+ *
+ * `employee` additionally asks for an imperative form, because a specialist
+ * working the phone is reading a script of things to ask, not a form to fill
+ * in. It is additive — `text` still holds the client-facing question — so the
+ * baseline fallback stays usable when the LLM is unavailable.
+ */
+export type QuestionVoice = 'client' | 'employee'
+
+const EMPLOYEE_VOICE_INSTRUCTION = `
+This list is read by a ClearCaseIQ case specialist while on the phone with the claimant.
+For each new question, also return "askInstruction": the same question as a short imperative
+instruction to the specialist, e.g. "Ask for the claim number" or "Confirm which shoulder was injured".
+Keep "text" as the question the claimant would hear. The instruction must not tell the specialist
+to give advice, assess the claim, or state what the case is worth — only what to ask or confirm.`
+
+function buildPrompt(
+  intelIn: CaseIntelligence,
+  baseline: IntelligentQuestion[],
+  voice: QuestionVoice = 'client',
+): string {
   const { intel, phiMode } = prepareCaseIntelligenceForLlm(intelIn)
   const known = intel.known.map((k) => `- ${k.label}: ${k.value}`).join('\n')
   const gaps = intel.gaps
@@ -88,12 +112,13 @@ Your job:
 1. From the candidate baseline questions, list the ids that should be PRUNED because they are redundant with what's already known or irrelevant to this specific case.
 2. Add up to ${MAX_AI_QUESTIONS} NEW, case-specific questions that a great attorney would ask given the narrative and gaps. Each must be a question the client can answer (not a task). Do NOT ask for any value/settlement numbers. Never ask for SSN, email, phone, or full street address.
 3. When PHI_MODE=keys_only, do not invent clinical facts; prefer questions tied to open gap keys.
+${voice === 'employee' ? EMPLOYEE_VOICE_INSTRUCTION : ''}
 
 Respond with STRICT JSON only, in this shape:
 {
   "prune": ["id1", "id2"],
   "questions": [
-    { "section": "Liability|Medical|Damages|Insurance|Case Strategy", "text": "...", "whyAsked": "one sentence on why it matters", "valueImpact": "high|medium|low", "confidence": 0.0-1.0 }
+    { "section": "Liability|Medical|Damages|Insurance|Case Strategy", "text": "...", ${voice === 'employee' ? '"askInstruction": "...", ' : ''}"whyAsked": "one sentence on why it matters", "valueImpact": "high|medium|low", "confidence": 0.0-1.0 }
   ]
 }`
 }
@@ -111,7 +136,9 @@ function sanitizeImpact(value: unknown): 'high' | 'medium' | 'low' {
 export async function generateIntelligentQuestions(
   intel: CaseIntelligence,
   baseline: IntelligentQuestion[],
+  options: { voice?: QuestionVoice } = {},
 ): Promise<IntelligentQuestionsResult> {
+  const voice = options.voice ?? 'client'
   const baselineDeduped = dedupeQuestions(baseline)
   if (!QUESTIONS_CANDIDATES.length) {
     return { questions: baselineDeduped, source: 'baseline', modelVersion: 'baseline-v1' }
@@ -132,7 +159,7 @@ export async function generateIntelligentQuestions(
               content:
                 'You are an expert personal-injury intake attorney. Always respond with valid JSON as specified. Never repeat a baseline question with different wording.',
             },
-            { role: 'user', content: buildPrompt(intel, baselineDeduped) },
+            { role: 'user', content: buildPrompt(intel, baselineDeduped, voice) },
           ],
             temperature: 0.4,
             max_tokens: 1200,
@@ -161,6 +188,12 @@ export async function generateIntelligentQuestions(
           valueImpact: sanitizeImpact(raw?.valueImpact),
           confidence: typeof raw?.confidence === 'number' ? Math.max(0, Math.min(1, raw.confidence)) : 0.7,
           source: 'ai' as const,
+          // Dropped in client voice even if the model volunteers one, so the
+          // attorney surface can never start rendering imperatives.
+          askInstruction:
+            voice === 'employee' && typeof raw?.askInstruction === 'string'
+              ? raw.askInstruction.trim() || undefined
+              : undefined,
         })).filter((q: IntelligentQuestion) => q.text.length > 0)
       : []
 

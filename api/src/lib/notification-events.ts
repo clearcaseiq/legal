@@ -20,6 +20,7 @@ export const PLAINTIFF_EVENTS = {
   batch_approval_requested: 'plaintiff.batch_approval_requested',
   more_info_requested: 'plaintiff.more_info_requested',
   no_attorney_response: 'plaintiff.no_attorney_response',
+  demand_sent: 'plaintiff.demand_sent',
   case_closed: 'plaintiff.case_closed',
 } as const
 
@@ -39,6 +40,12 @@ export const ATTORNEY_EVENTS = {
   case_result_rejected: 'attorney.case_result_rejected',
 } as const
 
+/** Case Assistance — ClearCaseIQ specialists working the assisted-intake queue. */
+export const SPECIALIST_EVENTS = {
+  case_assigned: 'specialist.case_assigned',
+  review_overdue: 'specialist.review_overdue',
+} as const
+
 export const SUPPORT_EVENTS = {
   ticket_created: 'support.ticket_created',
   ticket_updated: 'support.ticket_updated',
@@ -49,8 +56,13 @@ export const SUPPORT_EVENTS = {
 
 export type PlaintiffEventType = (typeof PLAINTIFF_EVENTS)[keyof typeof PLAINTIFF_EVENTS]
 export type AttorneyEventType = (typeof ATTORNEY_EVENTS)[keyof typeof ATTORNEY_EVENTS]
+export type SpecialistEventType = (typeof SPECIALIST_EVENTS)[keyof typeof SPECIALIST_EVENTS]
 export type SupportEventType = (typeof SUPPORT_EVENTS)[keyof typeof SUPPORT_EVENTS]
-export type EventType = PlaintiffEventType | AttorneyEventType | SupportEventType
+export type EventType =
+  | PlaintiffEventType
+  | AttorneyEventType
+  | SpecialistEventType
+  | SupportEventType
 
 export const CHANNELS = ['email', 'sms', 'in_app', 'push'] as const
 export type Channel = (typeof CHANNELS)[number]

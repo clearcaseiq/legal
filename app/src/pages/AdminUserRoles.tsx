@@ -34,27 +34,38 @@ interface AdminUser {
   capabilities?: AdminCapability[]
 }
 
-const ROLE_OPTIONS = ['client', 'attorney', 'staff', 'admin']
+const ROLE_OPTIONS = ['client', 'attorney', 'staff', 'admin', 'specialist']
 // Clients sign themselves up and attorneys register a firm, so neither can be
 // created from here without leaving an account with nothing behind it.
-const CREATABLE_ROLES = ['staff', 'admin'] as const
+const CREATABLE_ROLES = ['staff', 'admin', 'specialist'] as const
 const DEFAULT_LIMIT = 50
 
-// `admin` is the only role that means someone who works at ClearCaseIQ. `staff`
-// reads as though it does, but it is law-firm staff — the "Firm Staff Login"
-// screen signs them in — so it sits with the other external roles here.
+// `admin` and `specialist` are the roles that mean someone who works at
+// ClearCaseIQ. `staff` reads as though it does, but it is law-firm staff — the
+// "Firm Staff Login" screen signs them in — so it sits with the other external
+// roles here.
 //
 // Spelled out rather than derived from ROLE_OPTIONS because the bare role names
 // are what caused the confusion: this screen listed every account on the
 // platform, and "staff" gave no hint that those people work somewhere else.
-const EMPLOYEE_ROLE = 'admin'
+const EMPLOYEE_ROLES = ['admin', 'specialist'] as const
+const EMPLOYEE_ROLE_FILTER = EMPLOYEE_ROLES.join(',')
 const ROLE_FILTER_OPTIONS: { value: string; label: string }[] = [
-  { value: EMPLOYEE_ROLE, label: 'ClearCaseIQ employees' },
+  { value: EMPLOYEE_ROLE_FILTER, label: 'ClearCaseIQ employees' },
   { value: '', label: 'All roles' },
   { value: 'client', label: 'Clients' },
   { value: 'attorney', label: 'Attorneys' },
   { value: 'staff', label: 'Firm staff' },
+  { value: 'specialist', label: 'Case specialists' },
 ]
+
+const ROLE_LABELS: Record<string, string> = {
+  client: 'client',
+  attorney: 'attorney',
+  staff: 'firm staff',
+  admin: 'admin',
+  specialist: 'case specialist',
+}
 
 const EMPTY_DRAFT = {
   email: '',
@@ -76,7 +87,7 @@ export default function AdminUserRoles() {
   const [appliedSearch, setAppliedSearch] = useState('')
   // Opens on ClearCaseIQ's own people. Widening to "All roles" stays one click
   // away because this screen is the only way to deactivate a client account.
-  const [roleFilter, setRoleFilter] = useState(EMPLOYEE_ROLE)
+  const [roleFilter, setRoleFilter] = useState(EMPLOYEE_ROLE_FILTER)
   const [savingId, setSavingId] = useState<string | null>(null)
   const [showAdd, setShowAdd] = useState(false)
   const [draft, setDraft] = useState(EMPTY_DRAFT)
@@ -259,7 +270,7 @@ export default function AdminUserRoles() {
         >
           {ROLE_OPTIONS.map((role) => (
             <option key={role} value={role}>
-              {role.replace(/_/g, ' ')}
+              {ROLE_LABELS[role] ?? role.replace(/_/g, ' ')}
             </option>
           ))}
         </select>
@@ -392,7 +403,7 @@ export default function AdminUserRoles() {
                 >
                   {CREATABLE_ROLES.map((role) => (
                     <option key={role} value={role}>
-                      {role}
+                      {ROLE_LABELS[role] ?? role}
                     </option>
                   ))}
                 </select>
@@ -453,7 +464,7 @@ export default function AdminUserRoles() {
 
       <SectionCard
         title={
-          roleFilter === EMPLOYEE_ROLE
+          roleFilter === EMPLOYEE_ROLE_FILTER
             ? `${total.toLocaleString()} ClearCaseIQ employee${total === 1 ? '' : 's'}`
             : `${total.toLocaleString()} user${total === 1 ? '' : 's'}`
         }
@@ -493,7 +504,7 @@ export default function AdminUserRoles() {
             // Searching a plaintiff's address while scoped to employees finds
             // nothing, which reads as "no such account" rather than "not in this
             // filter". Say which it is.
-            roleFilter === EMPLOYEE_ROLE
+            roleFilter === EMPLOYEE_ROLE_FILTER
               ? appliedSearch
                 ? 'No ClearCaseIQ employee matches your search. Choose "All roles" to search every account.'
                 : 'No ClearCaseIQ employees found.'

@@ -4,7 +4,14 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { Video, Check, Loader2 } from 'lucide-react'
-import { getLead, scheduleConsultation, getAttorneyZoomStatus, getAttorneyZoomConnectUrl, type AttorneyZoomStatus } from '../lib/api'
+import {
+  getLead,
+  scheduleConsultation,
+  rescheduleAttorneyAppointment,
+  getAttorneyZoomStatus,
+  getAttorneyZoomConnectUrl,
+  type AttorneyZoomStatus,
+} from '../lib/api'
 import { invalidateAttorneyDashboardSummary } from '../hooks/useAttorneyDashboardSummary'
 import { BackButton } from '../features/shared/ui'
 
@@ -31,7 +38,13 @@ export default function ScheduleConsultPage() {
   // meeting type so we prefill them instead of silently resetting to defaults.
   const timeFromUrl = searchParams.get('time')
   const typeFromUrl = searchParams.get('type')
-  const isReschedule = !!(timeFromUrl || typeFromUrl)
+  // The appointment being moved. This page used to infer "reschedule" from the
+  // prefilled time and then book anyway, which left the original consult in
+  // place — the case held two, and the calendar drew both. With an id we can
+  // move the row instead; without one we fall back to booking, which is what a
+  // genuine second consult on the case should do.
+  const rescheduleId = searchParams.get('rescheduleId')
+  const isReschedule = !!(rescheduleId || timeFromUrl || typeFromUrl)
   // Where "Back"/"Cancel"/success returns to — the caller passes ?returnTo=
   // (e.g. Active Cases). Must be an internal path. Falls back to the Consult &
   // Schedule (calendar) module rather than the New Matches dashboard so a
@@ -217,12 +230,21 @@ export default function ScheduleConsultPage() {
     setError(null)
     setSaving(true)
     try {
-      await scheduleConsultation(leadId, {
-        date,
-        time,
-        meetingType,
-        notes: notes.trim() || undefined
-      })
+      if (rescheduleId) {
+        await rescheduleAttorneyAppointment(rescheduleId, {
+          date,
+          time,
+          type: meetingType,
+          notes: notes.trim() || undefined,
+        })
+      } else {
+        await scheduleConsultation(leadId, {
+          date,
+          time,
+          meetingType,
+          notes: notes.trim() || undefined
+        })
+      }
       invalidateAttorneyDashboardSummary()
       navigate(returnTo)
     } catch (err: any) {

@@ -7,8 +7,10 @@ import { v4 as uuidv4 } from 'uuid'
 import { prisma } from '../lib/prisma'
 import { leadAccessOr, TERMINAL_INTRO_STATUSES } from '../lib/lead-access'
 import { authMiddleware } from '../lib/auth'
+import { canWorkCaseAssistance, isCaseAssistanceManager } from '../lib/specialist-access'
 import { logger } from '../lib/logger'
 import { recordCaseChange } from '../lib/data-authority'
+import { serializeCaseFacts } from '../lib/case-facts'
 import { webUrl } from '../lib/app-url'
 import { taskCreatorName } from '../lib/ai-author'
 import { MAX_CASE_NAME_LENGTH, normalizeCaseName, plaintiffNameOf, resolveCaseName } from '../lib/case-name'
@@ -470,6 +472,38 @@ async function getFirmMemberLeadAccess(
   return sameFirm || assignedStep ? member : null
 }
 
+/**
+ * Case Specialists have no Attorney row, so every lead-scoped endpoint refused
+ * them. They need the read-only intelligence endpoints on the cases they work.
+ *
+ * Scope is the assisted-intake queue and nothing else: the case must have a
+ * `CaseAssistance` row that is either theirs or unassigned. A case an attorney
+ * has taken is firm casework — privileged work product between that firm and
+ * its client — and a specialist has no business in it even if they handled the
+ * intake, so `routingLocked` and the engaged statuses close the door.
+ */
+async function getSpecialistLeadAccess(req: any, lead: { assessmentId: string; status?: string | null; routingLocked?: boolean }) {
+  if (!canWorkCaseAssistance(req.user)) return null
+
+  if (lead.routingLocked || isEngagedLeadStatus(String(lead.status || '').toLowerCase())) {
+    return null
+  }
+
+  const assistance = await prisma.caseAssistance.findUnique({
+    where: { assessmentId: lead.assessmentId },
+    select: { id: true, assignedSpecialistId: true },
+  })
+  if (!assistance) return null
+
+  // Admins supervise the whole queue; a specialist sees their own plus whatever
+  // nobody has picked up.
+  const mine = assistance.assignedSpecialistId === req.user?.id
+  const unassigned = !assistance.assignedSpecialistId
+  if (!mine && !unassigned && !isCaseAssistanceManager(req.user)) return null
+
+  return assistance
+}
+
 async function getAuthorizedLead(
   req: any,
   leadId: string,
@@ -486,6 +520,18 @@ async function getAuthorizedLead(
   })
 
   if (!attorney) {
+    // Checked before the firm-member fallback because a specialist has no
+    // FirmMember row either, and would otherwise fall through to the 403.
+    if (canWorkCaseAssistance(req.user)) {
+      const lead = await prisma.leadSubmission.findUnique({ where: { id: leadId } })
+      if (!lead) {
+        return { error: { status: 404, message: 'Lead not found' } }
+      }
+      const assistance = await getSpecialistLeadAccess(req, lead)
+      if (assistance) {
+        return { attorney: null as any, assistance, lead }
+      }
+    }
     if (options.allowFirmMember) {
       const lead = await prisma.leadSubmission.findUnique({ where: { id: leadId } })
       if (!lead) {
@@ -2073,7 +2119,8 @@ async function createDraftAssessment(payload: {
       venueState,
       venueCounty: payload.venueCounty || null,
       status: 'DRAFT',
-      facts: JSON.stringify(facts)
+      facts: serializeCaseFacts(facts),
+      lastWriteSource: 'cms_inbound'
     }
   })
 }
@@ -4007,14 +4054,61 @@ router.patch('/appointments/:appointmentId', authMiddleware, async (req: any, re
       return res.status(400).json({ error: 'Invalid appointment time' })
     }
 
+    const nextDuration = Number.isFinite(Number(duration)) ? Number(duration) : existing.duration
+    const moved = nextScheduledAt.getTime() !== existing.scheduledAt.getTime()
+
+    // A move has to clear the same bar the create path sets, or rescheduling
+    // becomes the way around both rules: it could land the consult in the past,
+    // or on top of another client's slot, neither of which /schedule-consult
+    // allows. Only checked when the time actually changes, so editing just the
+    // notes or type on an appointment that has since passed still works.
+    if (moved) {
+      if (nextScheduledAt.getTime() < Date.now()) {
+        return res.status(400).json({ error: 'Please choose a time in the future. You cannot schedule a consultation in the past.' })
+      }
+      const otherAppointments = await prisma.appointment.findMany({
+        where: {
+          attorneyId: auth.attorney.id,
+          status: 'SCHEDULED',
+          // Excluding itself matters for a short hop: moving 2:00 to 2:15 would
+          // otherwise collide with the 30-minute block it is vacating.
+          id: { not: appointmentId },
+        },
+        select: { scheduledAt: true, duration: true },
+      })
+      if (hasAppointmentConflict(nextScheduledAt, nextDuration, otherAppointments)) {
+        return res.status(409).json({ error: 'A consultation is already scheduled for this date and time.' })
+      }
+    }
+
+    // The hold on the attorney's connected Google/Outlook calendar is pinned to
+    // the old instant and there is no update-in-place helper, so leaving it
+    // reproduces the duplicate one layer down: the app shows one consult while
+    // the synced calendar still blocks the time it moved off.
+    if (moved && existing.externalCalendarEventId) {
+      await deleteExternalCalendarEvent({
+        attorneyId: auth.attorney.id,
+        provider: existing.externalCalendarProvider,
+        eventId: existing.externalCalendarEventId,
+      }).catch((calendarError) => {
+        logger.warn('External calendar event deletion failed during reschedule', {
+          calendarError,
+          appointmentId,
+        })
+      })
+    }
+
     const appointment = await prisma.appointment.update({
       where: { id: appointmentId },
       data: {
         scheduledAt: nextScheduledAt,
         type: typeof type === 'string' ? type : existing.type,
-        duration: Number.isFinite(Number(duration)) ? Number(duration) : existing.duration,
+        duration: nextDuration,
         notes: typeof notes === 'string' ? notes : existing.notes,
-        status: typeof status === 'string' ? status : existing.status
+        status: typeof status === 'string' ? status : existing.status,
+        ...(moved && existing.externalCalendarEventId
+          ? { externalCalendarEventId: null, externalCalendarSyncedAt: new Date() }
+          : {}),
       }
     })
 
@@ -4024,10 +4118,12 @@ router.patch('/appointments/:appointmentId', authMiddleware, async (req: any, re
       // saying 9:00 PM for a 2:00 PM consult is how CP-307 presented.
       const dateText = appointment.scheduledAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: attorneyTz })
       const timeText = appointment.scheduledAt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: attorneyTz, timeZoneName: 'short' })
+      const subject = moved ? 'Your consultation was rescheduled' : 'Your consultation was updated'
+      const body = `Hi${existing.user.firstName ? ` ${existing.user.firstName}` : ''},\n\n${attorneyName} ${moved ? 'moved your consultation to a new time' : 'updated your consultation'}.\n\nDate: ${dateText}\nTime: ${timeText}\nType: ${appointment.type}\n\n${appointment.notes ? `Notes: ${appointment.notes}\n\n` : ''}Best regards,\nClearCaseIQ`
       await createNotification(
         existing.user.email,
-        'Your consultation was updated',
-        `Hi${existing.user.firstName ? ` ${existing.user.firstName}` : ''},\n\n${attorneyName} updated your consultation.\n\nDate: ${dateText}\nTime: ${timeText}\nType: ${appointment.type}\n\n${appointment.notes ? `Notes: ${appointment.notes}\n\n` : ''}Best regards,\nClearCaseIQ`,
+        subject,
+        body,
         {
           appointmentId: appointment.id,
           assessmentId: appointment.assessmentId,
@@ -4040,6 +4136,24 @@ router.patch('/appointments/:appointmentId', authMiddleware, async (req: any, re
           role: 'plaintiff',
         }
       )
+      // Email alone meant a moved consult only reached someone who reads their
+      // inbox; the dashboard they were told to watch said nothing. The create
+      // and cancel paths both write to the bell, so a reschedule should too.
+      await notifyPlaintiffInApp({
+        userId: existing.userId,
+        recipientEmail: existing.user.email,
+        attorneyId: auth.attorney.id,
+        assessmentId: appointment.assessmentId,
+        eventType: moved ? 'consult_rescheduled' : 'consult_updated',
+        subject,
+        body,
+        link: '/dashboard',
+        payload: {
+          appointmentId: appointment.id,
+          scheduledAt: appointment.scheduledAt.toISOString(),
+          previousScheduledAt: existing.scheduledAt.toISOString(),
+        },
+      }).catch(() => {})
     }
 
     res.json(appointment)
@@ -7202,11 +7316,18 @@ router.get('/leads/:leadId/evidence', authMiddleware, async (req: any, res) => {
       ...assessment,
       evidenceFiles,
     })
-    res.json(
-      medicalSharing.canShareMedicalData
+    // The withheld files were being dropped silently, which the evidence tab could
+    // only read as "the client never sent these" — so it counted them missing and
+    // offered to request documents the client had already uploaded. Sending the
+    // sharing status alongside lets it say "waiting on the authorization" instead.
+    // `medicalFileCount` is computed before the filter, so it still reports how
+    // many are being held back.
+    res.json({
+      files: medicalSharing.canShareMedicalData
         ? evidenceFiles
-        : evidenceFiles.filter((file) => !isMedicalEvidenceFile(file))
-    )
+        : evidenceFiles.filter((file) => !isMedicalEvidenceFile(file)),
+      medicalSharing,
+    })
   } catch (error: any) {
     logger.error('Failed to load lead evidence files', { error: error.message })
     res.status(500).json({ error: 'Failed to load evidence files' })
@@ -14789,6 +14910,54 @@ router.get('/leads/:leadId', authMiddleware, async (req: any, res) => {
 // nothing below may assume one.
 // ---------------------------------------------------------------------------
 
+/**
+ * Tell the plaintiff their demand went to the carrier.
+ *
+ * Sending the demand advances the case stage, and the stage strip on the
+ * plaintiff's dashboard moves with it — but silently, which is how the one
+ * milestone they have been waiting months for reached them as no news at all.
+ * Both send paths (`/send` and an import marked sent) call this.
+ *
+ * Best-effort by design: a notification failure must not fail the send, which
+ * has already been committed by the time this runs.
+ */
+async function notifyPlaintiffDemandSent(input: {
+  assessmentId: string
+  leadId: string
+  demandLetterId: string
+  attorney: { id?: string; name?: string | null } | null
+  sentAt: Date
+}) {
+  try {
+    const assessment = await prisma.assessment.findUnique({
+      where: { id: input.assessmentId },
+      select: { userId: true, user: { select: { email: true } } },
+    })
+    // Guests have no account, and so no bell to write to.
+    if (!assessment?.userId) return
+    await notifyPlaintiffInApp({
+      userId: assessment.userId,
+      recipientEmail: assessment.user?.email,
+      attorneyId: input.attorney?.id ?? null,
+      assessmentId: input.assessmentId,
+      eventType: 'demand_sent',
+      subject: 'Your demand package was sent',
+      body: `${input.attorney?.name || 'Your attorney'} sent the demand package to the insurance carrier. The carrier's response is the next step, and it usually takes a few weeks.`,
+      link: '/dashboard',
+      payload: {
+        leadId: input.leadId,
+        demandLetterId: input.demandLetterId,
+        sentAt: input.sentAt.toISOString(),
+      },
+    })
+  } catch (error: any) {
+    logger.warn('Demand-sent plaintiff notification failed', {
+      error: error?.message,
+      demandId: input.demandLetterId,
+    })
+  }
+}
+
 const demandLetterSelect = {
   id: true,
   assessmentId: true,
@@ -15156,6 +15325,13 @@ router.post(
           actor: { type: 'user', id: req.user?.id ?? null, label: actorName },
         })
         void syncCaseStage(lead.assessmentId, { source: 'attorney' })
+        void notifyPlaintiffDemandSent({
+          assessmentId: lead.assessmentId,
+          leadId: lead.id,
+          demandLetterId: letter.id,
+          attorney,
+          sentAt,
+        })
       }
 
       res.status(201).json(serializeDemandLetter(letter))
@@ -15470,6 +15646,14 @@ router.post('/leads/:leadId/demand-letters/:demandId/send', authMiddleware, asyn
 
     // Advance the case stage to DEMAND_SENT.
     void syncCaseStage(lead.assessmentId, { source: 'attorney' })
+
+    void notifyPlaintiffDemandSent({
+      assessmentId: lead.assessmentId,
+      leadId: lead.id,
+      demandLetterId: letter.id,
+      attorney,
+      sentAt,
+    })
 
     res.json(serializeDemandLetter(letter))
   } catch (error: any) {

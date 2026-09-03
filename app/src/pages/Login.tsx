@@ -28,6 +28,17 @@ export default function Login() {
     ? `/dashboard?case=${encodeURIComponent(assessmentId)}`
     : rawRedirectTo
 
+  // Someone arriving with a case in hand — straight from the post-submission
+  // signup screen, or from a claim link — has already done the assessment, so
+  // offering to start a free one read as though the submission hadn't counted.
+  // The link also has to carry the case: bare /register drops it, and the
+  // account then comes out with nothing attached.
+  const hasCaseInHand = Boolean(assessmentId || claimToken)
+  const registerParams = new URLSearchParams()
+  if (assessmentId) registerParams.set('assessmentId', assessmentId)
+  if (claimToken) registerParams.set('claim', claimToken)
+  const registerHref = registerParams.toString() ? `/register?${registerParams}` : '/register'
+
   const onSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const nextFieldErrors = validateLoginInput(form, t)
@@ -148,14 +159,14 @@ export default function Login() {
       subtitle={t('auth.loginSubtitle')}
       showLogo={false}
       error={error}
-      footerDividerText={t('auth.newToApp')}
+      footerDividerText={hasCaseInHand ? t('auth.noAccountYet') : t('auth.newToApp')}
       footerContent={
         <>
           <Link
-            to="/register"
+            to={registerHref}
             className="font-semibold text-blue-600 hover:text-blue-700 transition-colors block"
           >
-            {t('auth.startFreeAssessment')}
+            {hasCaseInHand ? t('auth.createMyAccount') : t('auth.startFreeAssessment')}
           </Link>
         </>
       }

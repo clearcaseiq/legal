@@ -12,7 +12,10 @@ function isWorkspacePath(pathname: string) {
     pathname.startsWith('/attorney-preferences') ||
     pathname.startsWith('/firm-dashboard') ||
     pathname.startsWith('/medical-providers') ||
-    pathname.startsWith('/admin')
+    pathname.startsWith('/admin') ||
+    // The Case Assistance queue is an employee workspace, and its screens are
+    // styled with the same dark variants the admin shell uses.
+    pathname.startsWith('/assistance')
   )
 }
 

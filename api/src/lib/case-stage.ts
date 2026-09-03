@@ -58,7 +58,16 @@ function isCaseStage(value: unknown): value is CaseStage {
   return typeof value === 'string' && (CASE_STAGES as readonly string[]).includes(value)
 }
 
-const CLOSED_STATUSES = new Set(['closed', 'won', 'resolved', 'settled'])
+/**
+ * Assessment statuses that mean the matter is over.
+ *
+ * `close` writes `'closed'`, but cases also reach the end by being won, settled
+ * or otherwise resolved, and those are set elsewhere. Exported so callers that
+ * need to *select* finished cases — the admin closed-cases list, for one — ask
+ * the same question this module does rather than growing a fourth private copy
+ * of the list (see also `workflow-signals` and `marketplace-performance`).
+ */
+export const CLOSED_STATUSES = new Set(['closed', 'won', 'resolved', 'settled'])
 
 /** Does the case have any documented treatment activity yet? */
 function hasTreatmentActivity(facts: any): boolean {

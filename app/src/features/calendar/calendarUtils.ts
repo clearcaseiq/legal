@@ -9,6 +9,12 @@ import { formatClaimType } from '../../lib/claimTypes'
 export type CalKind = 'consult' | 'task' | 'event'
 
 export interface ConsultInfo {
+  /**
+   * The Appointment row id. `CalItem.id` is namespaced ("c-<id>") to keep chip
+   * keys unique across kinds, so the unprefixed id is carried here for callers
+   * that address the appointment itself, such as rescheduling it.
+   */
+  appointmentId?: string | null
   type?: string | null
   duration?: number | null
   status?: string | null

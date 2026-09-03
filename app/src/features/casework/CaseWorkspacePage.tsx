@@ -70,6 +70,7 @@ import {
   getLead,
   getLeadCommandCenter,
   getLeadEvidenceFiles,
+  type MedicalSharingStatus,
   getLeadMedicalChronologySummary,
   getLeadTasks,
   nudgeDocumentRequest,
@@ -1773,6 +1774,11 @@ const COVERAGE_CHECKLIST = [
   { id: 'photos', label: 'Photos', req: 'injury_photos' },
 ]
 
+// The two buckets the API withholds until the HIPAA authorization is signed.
+// Absent from the file list does not mean the client never sent them, so these
+// cannot offer "request from client" the way the other categories do.
+const HIPAA_GATED_COVERAGE_IDS = new Set(['medical_records', 'bills'])
+
 const STATUS_BADGE: Record<Tone, string> = {
   neutral: 'bg-slate-100 text-slate-600',
   info: 'bg-brand-50 text-brand-700',
@@ -2191,6 +2197,8 @@ function EvidencePanel({
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [bulkBusy, setBulkBusy] = useState(false)
   const [previewDoc, setPreviewDoc] = useState<any | null>(null)
+  // Null until the first load, and on an older API that does not send it.
+  const [medicalSharing, setMedicalSharing] = useState<MedicalSharingStatus | null>(null)
   const [addingDamageId, setAddingDamageId] = useState<string | null>(null)
   const [addedDamageIds, setAddedDamageIds] = useState<Set<string>>(() => new Set())
   const [replacingId, setReplacingId] = useState<string | null>(null)
@@ -2204,7 +2212,10 @@ function EvidencePanel({
 
   const refreshDocs = () => {
     getLeadEvidenceFiles(leadId)
-      .then((files: any) => Array.isArray(files) && setDocs(files))
+      .then(({ files, medicalSharing }) => {
+        if (Array.isArray(files)) setDocs(files)
+        setMedicalSharing(medicalSharing)
+      })
       .catch(() => {})
   }
   const refreshRequests = () => {
@@ -2850,6 +2861,14 @@ function EvidencePanel({
           {COVERAGE_CHECKLIST.map((c) => {
             const have = presentCats.has(c.id)
             const alreadyRequested = pendingRequestedKeys.has(c.req)
+            // The client may well have uploaded these already — we just cannot see
+            // them yet. Showing "request" here had attorneys chasing clients for
+            // files that were sitting behind the authorization.
+            const withheld =
+              !have &&
+              HIPAA_GATED_COVERAGE_IDS.has(c.id) &&
+              medicalSharing?.canShareMedicalData === false &&
+              medicalSharing.medicalFileCount > 0
             return have ? (
               <span
                 key={c.id}
@@ -2858,6 +2877,16 @@ function EvidencePanel({
                 <Check className="h-3.5 w-3.5" />
                 {c.label}
                 <span className="text-emerald-500">· {catCounts[c.id] || 0}</span>
+              </span>
+            ) : withheld ? (
+              <span
+                key={c.id}
+                title={medicalSharing?.message || undefined}
+                className="inline-flex items-center gap-1.5 rounded-full border border-brand-200 bg-brand-50 px-2.5 py-1 text-xs font-medium text-brand-700"
+              >
+                <Shield className="h-3.5 w-3.5" />
+                {c.label}
+                <span className="text-brand-500">· on file, pending authorization</span>
               </span>
             ) : alreadyRequested ? (
               <span
@@ -2884,6 +2913,17 @@ function EvidencePanel({
             )
           })}
         </div>
+        {medicalSharing?.canShareMedicalData === false && medicalSharing.medicalFileCount > 0 ? (
+          <p className="mt-2 text-xs text-brand-700">
+            {medicalSharing.medicalFileCount} medical{' '}
+            {medicalSharing.medicalFileCount === 1 ? 'file is' : 'files are'} on this case but stay hidden
+            until {clientName || 'the client'}
+            {medicalSharing.hasPlaintiffAccount
+              ? ' signs the HIPAA authorization.'
+              : ' creates an account and signs the HIPAA authorization.'}{' '}
+            They do not count toward coverage above.
+          </p>
+        ) : null}
       </div>
 
       {(() => {

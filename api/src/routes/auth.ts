@@ -11,6 +11,7 @@ import { replicateUploads } from '../lib/object-storage'
 import { UserRegister, UserLogin, UserUpdate, PasswordResetRequest, PasswordReset } from '../lib/validators'
 import { generateToken, authMiddleware, AuthRequest } from '../lib/auth'
 import { isAdminUser, resolveAdminCapabilities } from '../lib/admin-access'
+import { canWorkCaseAssistance, isCaseAssistanceManager, isSpecialistRole } from '../lib/specialist-access'
 import { adoptGuestCasesByEmail } from '../lib/guest-case-adoption'
 import { sendClaimEmail } from '../lib/claims'
 import { permissionsForRole } from '../lib/firm-roles'
@@ -147,8 +148,28 @@ router.post('/login', async (req, res) => {
       where: { email }
     })
 
-    if (!user || !user.isActive) {
+    // The client is told the same thing whether or not the address has an
+    // account — that is not something an unauthenticated caller should be able
+    // to probe — but the log has to tell them apart. Every 401 in this handler
+    // used to return in silence, so "nobody can sign in" and "one person is
+    // typing the wrong password" left the same trace in production: none.
+    if (!user) {
+      logger.warn('Login rejected: no account for that email', { email, reason: 'no_such_user' })
       return res.status(401).json({ error: 'Invalid credentials' })
+    }
+
+    if (!user.isActive) {
+      // Deactivated accounts get their own message. Telling someone their
+      // password is wrong when an admin switched their account off sends them
+      // through a password reset that cannot help, and leaves support with no
+      // way to recognise the case. This does confirm the address has an account,
+      // which the branch above deliberately does not — accepted because the
+      // alternative is an unresolvable loop for a real user.
+      logger.warn('Login rejected: account is deactivated', { userId: user.id, reason: 'inactive' })
+      return res.status(403).json({
+        error: 'This account has been deactivated. Please contact support if you think this is a mistake.',
+        code: 'ACCOUNT_DEACTIVATED',
+      })
     }
 
     // Accounts can lack a password for two reasons: (a) created via OAuth, or
@@ -171,6 +192,7 @@ router.post('/login', async (req, res) => {
     // Check password
     const isValidPassword = await bcrypt.compare(password, user.passwordHash)
     if (!isValidPassword) {
+      logger.warn('Login rejected: password mismatch', { userId: user.id, reason: 'bad_password' })
       return res.status(401).json({ error: 'Invalid credentials' })
     }
 
@@ -182,6 +204,16 @@ router.post('/login', async (req, res) => {
       return res.status(403).json({
         error: 'Please use the attorney login page',
         isAttorney: true
+      })
+    }
+
+    // Case Specialists are ClearCaseIQ employees and belong in the assistance
+    // queue, not the plaintiff dashboard. Without this they'd land on /dashboard
+    // and see an empty claimant view with no hint of where to go.
+    if (isSpecialistRole(user)) {
+      return res.status(403).json({
+        error: 'Please use the Case Specialist login page',
+        isSpecialist: true,
       })
     }
 
@@ -417,7 +449,14 @@ router.post('/attorney-login', async (req, res) => {
       where: { email }
     })
 
+    // Logged for the same reason as the plaintiff handler: the response is
+    // deliberately identical in both cases, so without this a failed attorney
+    // sign-in is indistinguishable from a mistyped password in the logs.
     if (!user || !user.isActive) {
+      logger.warn('Attorney login rejected', {
+        email,
+        reason: user ? 'inactive' : 'no_such_user',
+      })
       return res.status(401).json({ error: 'Invalid credentials' })
     }
 
@@ -431,6 +470,7 @@ router.post('/attorney-login', async (req, res) => {
     // Check password
     const isValidPassword = await bcrypt.compare(password, user.passwordHash)
     if (!isValidPassword) {
+      logger.warn('Attorney login rejected', { userId: user.id, reason: 'bad_password' })
       return res.status(401).json({ error: 'Invalid credentials' })
     }
 
@@ -574,6 +614,78 @@ router.post('/staff-login', async (req, res) => {
     logger.error('Staff login failed', { error })
     res.status(500).json({ error: 'Login failed' })
   }
+})
+
+// Case Specialist login — ClearCaseIQ employees who work the assisted-intake
+// queue. Same credentials as everyone else, but requires the `specialist` role
+// so a claimant can't reach the queue by guessing the URL. Admins are accepted
+// because they supervise it.
+router.post('/specialist-login', async (req, res) => {
+  try {
+    const parsed = UserLogin.safeParse(req.body)
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid login data', details: parsed.error.flatten() })
+    }
+
+    const { email, password } = parsed.data
+    const user = await prisma.user.findUnique({ where: { email } })
+
+    if (!user || !user.isActive) {
+      return res.status(401).json({ error: 'Invalid credentials' })
+    }
+
+    if (!user.passwordHash) {
+      return res.status(400).json({
+        error: 'This account has no password on file. Please set a password first.',
+        code: 'NO_PASSWORD_SET',
+      })
+    }
+
+    const isValidPassword = await bcrypt.compare(password, user.passwordHash)
+    if (!isValidPassword) {
+      return res.status(401).json({ error: 'Invalid credentials' })
+    }
+
+    if (!canWorkCaseAssistance(user)) {
+      return res.status(403).json({
+        error: 'This account is not a Case Specialist. Please use the regular login page.',
+        code: 'NOT_SPECIALIST',
+      })
+    }
+
+    await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } })
+    const token = generateToken(user.id)
+
+    logger.info('Specialist logged in', { userId: user.id, role: user.role })
+
+    res.json({
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        phone: user.phone,
+        createdAt: user.createdAt,
+      },
+      token,
+      role: 'specialist',
+    })
+  } catch (error) {
+    logger.error('Specialist login failed', { error })
+    res.status(500).json({ error: 'Login failed' })
+  }
+})
+
+/**
+ * Confirms the current JWT may use the Case Assistance UI. Mirrors
+ * `/admin-access`: the screen needs to know before it renders, rather than
+ * discovering it through a 403 on every request.
+ */
+router.get('/specialist-access', authMiddleware, (req: AuthRequest, res) => {
+  if (!canWorkCaseAssistance(req.user)) {
+    return res.status(403).json({ error: 'Case Assistance access required', code: 'NOT_SPECIALIST' })
+  }
+  res.json({ ok: true, isManager: isCaseAssistanceManager(req.user) })
 })
 
 /**

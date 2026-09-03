@@ -1,4 +1,6 @@
-export type WebAppRole = 'plaintiff' | 'attorney' | 'admin' | 'staff'
+// `staff` is law-firm staff; `specialist` is a ClearCaseIQ employee working the
+// Case Assistance queue. Opposite sides of the platform, similar-sounding names.
+export type WebAppRole = 'plaintiff' | 'attorney' | 'admin' | 'staff' | 'specialist'
 
 // `localStorage` only exists in the browser. These helpers run during render, so
 // they can be evaluated on the server during Next.js prerendering — guard every
@@ -34,13 +36,15 @@ export function getStoredRole(): WebAppRole | null {
   if (normalizedRole === 'admin') return 'admin'
   if (normalizedRole === 'attorney') return 'attorney'
   if (normalizedRole === 'staff') return 'staff'
+  if (normalizedRole === 'specialist') return 'specialist'
 
   const explicitRole = localStorage.getItem('auth_role')?.toLowerCase()
   if (
     explicitRole === 'admin' ||
     explicitRole === 'attorney' ||
     explicitRole === 'plaintiff' ||
-    explicitRole === 'staff'
+    explicitRole === 'staff' ||
+    explicitRole === 'specialist'
   ) {
     return explicitRole
   }
@@ -78,6 +82,11 @@ export function getLoginRedirect(pathname: string, role?: WebAppRole | WebAppRol
   if (roles.includes('admin') || pathname.startsWith('/admin')) {
     return `/login/admin?redirect=${encodeURIComponent(pathname)}`
   }
+  // Case Assistance is open to specialists and to admins supervising them, so it
+  // gets its own login rather than borrowing the admin one.
+  if (roles.includes('specialist') || pathname.startsWith('/assistance')) {
+    return `/login/specialist?redirect=${encodeURIComponent(pathname)}`
+  }
   // Attorney workspace comes first: an attorney-only path should send an
   // unauthenticated user to the attorney login even though staff can also reach
   // the shared /firm-dashboard.
@@ -110,5 +119,7 @@ export function getPostLoginRoute(role?: WebAppRole | null) {
   // Firm staff (paralegals, case managers, etc.) land in the firm workspace,
   // scoped by their permissions.
   if (role === 'staff') return '/firm-dashboard'
+  // Case Specialists land on their queue, not a dashboard — the queue IS the job.
+  if (role === 'specialist') return '/assistance'
   return '/dashboard'
 }

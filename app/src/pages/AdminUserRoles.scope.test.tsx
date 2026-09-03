@@ -3,9 +3,9 @@
  * outside attorneys next to the handful of people who work here — so the screen
  * meant for managing ClearCaseIQ staff was mostly other people's records.
  *
- * It now opens scoped to employees. `admin` is the only role that means an
- * employee: `staff` is law-firm staff despite the name, which is the ambiguity
- * that made the unscoped list hard to read in the first place.
+ * It now opens scoped to employees. `admin` and `specialist` are the roles that
+ * mean an employee: `staff` is law-firm staff despite the name, which is the
+ * ambiguity that made the unscoped list hard to read in the first place.
  *
  * The widening path is load-bearing rather than a convenience. This screen is
  * the only place a client account can be deactivated — attorneys can also be
@@ -81,12 +81,22 @@ async function selectRole(value: string) {
 }
 
 describe('Users & Roles scoping', () => {
-  it('asks for admins only on first load', async () => {
+  it('asks for every employee role on first load', async () => {
     await mount()
 
     expect(getAdminUsers).toHaveBeenCalled()
     const [params] = vi.mocked(getAdminUsers).mock.calls[0]
-    expect(params?.role).toBe('admin')
+    // Case Specialists are employees too. When this filter was a single role,
+    // adding the specialist role would have quietly hidden every one of them
+    // from the screen that manages employees.
+    expect(params?.role?.split(',').sort()).toEqual(['admin', 'specialist'])
+  })
+
+  it('keeps specialists reachable as their own filter', async () => {
+    await mount()
+    await selectRole('specialist')
+
+    expect(lastCallParams()?.role).toBe('specialist')
   })
 
   it('offers a widening option that sends no role at all', async () => {

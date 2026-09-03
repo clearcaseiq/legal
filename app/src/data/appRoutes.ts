@@ -35,6 +35,7 @@ export const START_ASSESSMENT_HREF = '/assess?fresh=1'
 /** Route trees where any child path is valid (record ids, nested sections). */
 export const KNOWN_ROUTE_PREFIXES = [
   '/admin',
+  '/assistance',
   '/attorney-dashboard',
   '/book',
   '/blog',
@@ -99,6 +100,7 @@ export const KNOWN_ROUTE_PATHS = new Set([
   '/login/admin',
   '/login/attorney',
   '/login/plaintiff',
+  '/login/specialist',
   '/login/staff',
   '/medical-providers',
   '/messaging',

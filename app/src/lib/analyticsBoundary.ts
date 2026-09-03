@@ -37,6 +37,7 @@ export const SENSITIVE_ROUTE_PREFIXES = [
   '/assess',
   '/assessment',
   '/assessments',
+  '/assistance',
   '/attorney-billing',
   '/attorney-dashboard',
   '/attorney-license-upload',

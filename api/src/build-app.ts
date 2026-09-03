@@ -39,6 +39,7 @@ import compliance from './routes/compliance'
 import smsWebhook from './routes/sms-webhook'
 import snsWebhook from './routes/sns-webhook'
 import caseInsights from './routes/case-insights'
+import caseAssistance from './routes/case-assistance'
 import caseRouting from './routes/case-routing'
 import rose from './routes/rose'
 import adminCommunications from './routes/admin-communications'
@@ -99,6 +100,7 @@ export function buildApp(): Express {
   app.use('/v1/intake-leads', intakeLimiter, intakeLeads)
   app.use('/v1/rose', rose)
   app.use('/v1/case-insights', caseInsights)
+  app.use('/v1/case-assistance', caseAssistance)
   app.use('/v1/case-routing', caseRouting)
   app.use('/v1/files', files)
   app.use('/v1/predict', predict)

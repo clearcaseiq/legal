@@ -15,6 +15,7 @@ import {
 } from '../lib/case-insights'
 import { optionalAuthMiddleware, AuthRequest } from '../lib/auth'
 import { enforceAssessmentReadAccess } from '../lib/assessment-access'
+import { updateCaseFacts } from '../lib/case-facts'
 import { logger } from '../lib/logger'
 import { maybeVerifyAttorneyReview } from '../lib/appointment-engagement'
 import { recomputeAttorneyRatingAggregates } from '../lib/attorney-rating-aggregates'
@@ -113,43 +114,36 @@ router.post('/assessments/:assessmentId/plaintiff-medical-review', optionalAuthM
     })
     if (!allowed) return
 
-    const assessment = await prisma.assessment.findUnique({
-      where: { id: assessmentId },
-      select: { facts: true },
+    const now = new Date().toISOString()
+    const written = await updateCaseFacts({
+      assessmentId,
+      source: 'web',
+      action: 'medical_review_saved',
+      entityType: 'medical',
+      summary: `Claimant ${parsed.data.status ?? 'updated'} the medical chronology review`,
+      actor: { type: 'user', id: req.user?.id ?? null },
+      mutate: (facts) => {
+        const currentReview = (facts.plaintiffMedicalReview || {}) as Record<string, unknown>
+        const nextStatus = parsed.data.status ?? currentReview.status ?? 'pending'
+        return {
+          ...facts,
+          plaintiffMedicalReview: {
+            ...currentReview,
+            edits: parsed.data.edits ?? currentReview.edits ?? [],
+            skipReason: parsed.data.skipReason ?? currentReview.skipReason,
+            status: nextStatus,
+            // Undefined drops out of the serialized document, so switching
+            // status clears the timestamp belonging to the other outcome.
+            confirmedAt: nextStatus === 'confirmed' ? now : undefined,
+            skippedAt: nextStatus === 'skipped' ? now : undefined,
+            updatedAt: now,
+          },
+        }
+      },
     })
-
-    if (!assessment) {
+    if (!written) {
       return res.status(404).json({ error: 'Assessment not found' })
     }
-
-    let facts: Record<string, unknown> = {}
-    if (typeof assessment.facts === 'string') {
-      try {
-        facts = JSON.parse(assessment.facts) as Record<string, unknown>
-      } catch {
-        facts = {}
-      }
-    } else if (assessment.facts && typeof assessment.facts === 'object') {
-      facts = { ...(assessment.facts as Record<string, unknown>) }
-    }
-    const currentReview = (facts.plaintiffMedicalReview || {}) as Record<string, unknown>
-    const nextStatus = parsed.data.status ?? currentReview.status ?? 'pending'
-    const now = new Date().toISOString()
-
-    facts.plaintiffMedicalReview = {
-      ...currentReview,
-      edits: parsed.data.edits ?? currentReview.edits ?? [],
-      skipReason: parsed.data.skipReason ?? currentReview.skipReason,
-      status: nextStatus,
-      confirmedAt: nextStatus === 'confirmed' ? now : undefined,
-      skippedAt: nextStatus === 'skipped' ? now : undefined,
-      updatedAt: now,
-    }
-
-    await prisma.assessment.update({
-      where: { id: assessmentId },
-      data: { facts: JSON.stringify(facts) },
-    })
 
     const review = await buildPlaintiffMedicalReview(assessmentId)
     res.json(review)

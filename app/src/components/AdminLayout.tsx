@@ -32,6 +32,7 @@ import {
   Newspaper,
   MailCheck,
   Receipt,
+  Headphones,
 } from 'lucide-react'
 import { BrandMark } from './BrandLogo'
 import { useAdminRoutingStatus } from '../hooks/useAdminRoutingStatus'
@@ -68,6 +69,7 @@ const navGroups: {
       { path: '/admin', id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
       { path: '/admin/ops-inbox', id: 'opsInbox', label: 'Ops Inbox', icon: Inbox },
       { path: '/admin/cases', id: 'cases', label: 'Cases', icon: FileText },
+      { path: '/admin/case-assistance', id: 'caseAssistance', label: 'Case Assistance', icon: Headphones },
       { path: '/admin/case-flow', id: 'caseFlow', label: 'Case Flow', icon: Workflow },
       { path: '/admin/routing-queue', id: 'routingQueue', label: 'Routing Queue', icon: GitBranch },
       { path: '/admin/manual-review', id: 'manualReview', label: 'Manual Review', icon: ClipboardCheck },

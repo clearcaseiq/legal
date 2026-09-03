@@ -7,6 +7,7 @@
  */
 import { prisma } from './prisma'
 import { logger } from './logger'
+import { updateCaseFacts } from './case-facts'
 import {
   parseAffirmative,
   applyQuestionAnswerToLiability,
@@ -246,18 +247,13 @@ function patchFromDomain(
   return null
 }
 
-async function writeDamagesInsurancePatch(assessmentId: string, patch: DamagesInsurancePatch): Promise<void> {
-  const assessment = await prisma.assessment.findUnique({
-    where: { id: assessmentId },
-    select: { facts: true },
-  })
-  let facts: any = {}
-  try {
-    facts = assessment?.facts ? JSON.parse(assessment.facts as string) : {}
-  } catch {
-    facts = {}
-  }
-
+/**
+ * Apply the patch onto a facts document and return it.
+ *
+ * Pure, so the choke point owns reading, parsing and provenance — and so this
+ * logic stays testable without a database.
+ */
+function applyDamagesInsurancePatch(facts: any, patch: DamagesInsurancePatch): any {
   const damages = { ...(facts.damages && typeof facts.damages === 'object' ? facts.damages : {}) }
   const insurance = { ...(facts.insurance && typeof facts.insurance === 'object' ? facts.insurance : {}) }
 
@@ -348,9 +344,19 @@ async function writeDamagesInsurancePatch(assessmentId: string, patch: DamagesIn
     }
   }
 
-  await prisma.assessment.update({
-    where: { id: assessmentId },
-    data: { facts: JSON.stringify(facts) },
+  return facts
+}
+
+async function writeDamagesInsurancePatch(assessmentId: string, patch: DamagesInsurancePatch): Promise<void> {
+  await updateCaseFacts({
+    assessmentId,
+    // Derived from an already-saved answer rather than typed straight in, so the
+    // change feed attributes it to the sync rather than to a person.
+    source: 'system',
+    action: 'question_answer_applied',
+    entityType: 'facts',
+    summary: `Intelligent-question answer applied (${Object.keys(patch).join(', ')})`,
+    mutate: (facts) => applyDamagesInsurancePatch(facts, patch),
   })
 }
 

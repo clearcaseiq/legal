@@ -24,6 +24,9 @@
       "cases": {
         "label": "Casos"
       },
+      "caseAssistance": {
+        "label": "Asistencia de casos"
+      },
       "caseFlow": {
         "label": "Flujo de casos"
       },

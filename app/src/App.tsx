@@ -68,6 +68,7 @@ const Home = dynamic(() => import('./pages/Home'), { ssr: true })
 const Login = lazy(() => import('./pages/Login'))
 const AttorneyLogin = lazy(() => import('./pages/AttorneyLogin'))
 const StaffLogin = lazy(() => import('./pages/StaffLogin'))
+const SpecialistLogin = lazy(() => import('./pages/SpecialistLogin'))
 const Register = lazy(() => import('./pages/Register'))
 const ForgotPassword = lazy(() => import('./pages/ForgotPassword'))
 const ResetPassword = lazy(() => import('./pages/ResetPassword'))
@@ -204,6 +205,9 @@ const AdminCases = lazy(() => import('./pages/admin/AdminCases'))
 const AdminCaseDetail = lazy(() => import('./pages/admin/AdminCaseDetail'))
 const AdminRoutingQueue = lazy(() => import('./pages/admin/AdminRoutingQueue'))
 const AdminCaseFlow = lazy(() => import('./pages/admin/AdminCaseFlow'))
+const CaseAssistanceLayout = lazy(() => import('./components/CaseAssistanceLayout'))
+const CaseAssistanceQueue = lazy(() => import('./pages/assistance/CaseAssistanceQueue'))
+const CaseAssistanceWorkspace = lazy(() => import('./pages/assistance/CaseAssistanceWorkspace'))
 const AdminAttorneys = lazy(() => import('./pages/admin/AdminAttorneys'))
 const AdminCaseResults = lazy(() => import('./pages/admin/AdminCaseResults'))
 const AdminAttorneyDetail = lazy(() => import('./pages/admin/AdminAttorneyDetail'))
@@ -455,6 +459,17 @@ function App() {
               <Route path="/staff-login" element={<StaffLogin />} />
               <Route path="/login/staff" element={<StaffLogin />} />
             </Route>
+            <Route element={<GuestRoute role="specialist" />}>
+              <Route path="/login/specialist" element={<SpecialistLogin />} />
+            </Route>
+            {/* Admins are allowed in because they supervise the queue; the API
+                gate agrees, so this is not a wider door than the backend. */}
+            <Route element={<ProtectedRoute role={['specialist', 'admin']} />}>
+              <Route path="/assistance" element={<CaseAssistanceLayout />}>
+                <Route index element={<CaseAssistanceQueue />} />
+                <Route path=":id" element={<CaseAssistanceWorkspace />} />
+              </Route>
+            </Route>
             <Route element={<ProtectedRoute role="plaintiff" />}>
               <Route path="/auth/complete-consent" element={<CompleteConsent />} />
               <Route path="/dashboard" element={<Dashboard />} />
@@ -493,6 +508,10 @@ function App() {
                 <Route path="cases" element={<AdminCases />} />
                 <Route path="cases/:id" element={<AdminCaseDetail />} />
                 <Route path="routing-queue" element={<AdminRoutingQueue />} />
+                {/* Same screens specialists use at /assistance, so a manager
+                    supervising the queue stays inside the admin sidebar. */}
+                <Route path="case-assistance" element={<CaseAssistanceQueue />} />
+                <Route path="case-assistance/:id" element={<CaseAssistanceWorkspace />} />
                 <Route path="case-flow" element={<AdminCaseFlow />} />
                 <Route path="attorneys" element={<AdminAttorneys />} />
                 <Route path="case-results" element={<AdminCaseResults />} />

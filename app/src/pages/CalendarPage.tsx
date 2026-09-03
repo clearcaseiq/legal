@@ -149,6 +149,7 @@ export default function CalendarPage() {
               hasTime: true,
               source: e.source === 'booking' ? 'booking' : 'case',
               consult: {
+                appointmentId: e.id,
                 type: e.type,
                 duration: e.duration,
                 status: e.status,
@@ -1070,6 +1071,11 @@ function ConsultDetailPanel({
                     returnTo: '/attorney-dashboard/cases/calendar',
                   })
                   if (c.type) params.set('type', String(c.type))
+                  // Naming the appointment is what makes this a move rather than
+                  // a second booking. Without it the schedule page could only
+                  // create, so the consult the attorney meant to shift stayed
+                  // put and the calendar showed it at both times.
+                  if (c.appointmentId) params.set('rescheduleId', String(c.appointmentId))
                   go(`/attorney-dashboard/schedule-consult/${item.leadId}?${params.toString()}`)
                 }}
                 className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-400 hover:bg-slate-50"

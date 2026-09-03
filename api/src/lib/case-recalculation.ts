@@ -9,6 +9,7 @@ import { logger } from './logger'
 import { sendPlaintiffCaseValueUpdated, sendAttorneyCaseMaterialUpdate } from './case-notifications'
 import { underwriteCase, reconcileValueBandsWithUnderwriting } from './underwriting-engine'
 import { refreshMedicalProfile } from './medical-profile'
+import { updateCaseFacts } from './case-facts'
 
 const MODEL_VERSION = 'v1.3'
 
@@ -432,7 +433,6 @@ export async function runCaseRecalculation(
 
     if (!assessment) return null
 
-    const factsRaw = typeof assessment.facts === 'string' ? JSON.parse(assessment.facts) : assessment.facts
     const evidenceFiles = assessment.evidenceFiles.map((f) => ({
       id: f.id,
       originalName: f.originalName,
@@ -454,11 +454,16 @@ export async function runCaseRecalculation(
         : null
     }))
 
-    const mergedFacts = mergeEvidenceIntoFacts(factsRaw, evidenceFiles)
-    await prisma.assessment.update({
-      where: { id: assessmentId },
-      data: { facts: JSON.stringify(mergedFacts) }
+    const merged = await updateCaseFacts({
+      assessmentId,
+      source: 'system',
+      action: 'recalculated',
+      entityType: 'assessment',
+      summary: `Case recalculated (${reason})`,
+      mutate: (facts) => mergeEvidenceIntoFacts(facts, evidenceFiles),
     })
+    if (!merged) return null
+    const mergedFacts = merged.facts
 
     const assessmentUpdated = await prisma.assessment.findUnique({
       where: { id: assessmentId }

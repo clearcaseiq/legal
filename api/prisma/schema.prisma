@@ -17,7 +17,11 @@ model User {
   phone         String?
   isActive      Boolean   @default(true)
   emailVerified Boolean   @default(false)
-  role          String    @default("client") // client, attorney, staff, admin
+  // client, attorney, staff, admin, specialist.
+  // `staff` is law-firm staff (paralegals, firm case managers) and is scoped to a
+  // LawFirm; `specialist` is a ClearCaseIQ employee working the assisted-intake
+  // queue. The two are easy to confuse and mean opposite sides of the platform.
+  role          String    @default("client")
   /// Preferred UI + communication language for plaintiffs (`en` | `es` | `zh`).
   /// Used for chat translation and localized notification chrome. Null = English.
   preferredLanguage String?
@@ -45,6 +49,8 @@ model User {
   platformNotificationEvents PlatformNotificationEvent[]
   supportTickets             SupportTicket[]
   assignedTickets            SupportTicket[]             @relation("AssignedTickets")
+  specialistCases            CaseAssistance[]            @relation("SpecialistCases")
+  specialistInteractions     CaseInteraction[]           @relation("SpecialistInteractions")
   appointments               Appointment[]
   reviews                    AttorneyReview[]
   chatRooms                  ChatRoom[]
@@ -267,6 +273,7 @@ model Assessment {
 
   // Lead Management
   leadSubmission LeadSubmission?
+  caseAssistance CaseAssistance?
   lawFirmId      String?
   lawFirm        LawFirm?        @relation(fields: [lawFirmId], references: [id], onDelete: SetNull)
   officeId       String?
@@ -2654,6 +2661,90 @@ model LeadSubmission {
   @@index([assignedAttorneyId, status])
   @@index([lifecycleState])
   @@map("lead_submissions")
+}
+
+/// Human-assisted intake: the ClearCaseIQ specialist working a case between the
+/// consumer assessment and attorney routing.
+///
+/// Hangs off Assessment rather than LeadSubmission because a case is assigned
+/// when its report generates, which is before the plaintiff submits for attorney
+/// review — so there is no LeadSubmission row to hang it on yet.
+model CaseAssistance {
+  id           String     @id @default(cuid())
+  assessmentId String     @unique
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+
+  /// The ClearCaseIQ employee working the case. Null means it sits in the
+  /// unassigned queue. SupportTicket.assignedAdminId is the only other place a
+  /// platform employee owns a work item; every other assignment in this schema
+  /// points at an attorney or a firm member.
+  assignedSpecialistId String?
+  assignedSpecialist   User?   @relation("SpecialistCases", fields: [assignedSpecialistId], references: [id], onDelete: SetNull)
+
+  /// Pre-routing states only — see lib/case-assistance.ts. Once the case reaches
+  /// attorneys, the pipeline is read from LeadSubmission.lifecycleState instead
+  /// of being duplicated here.
+  status String @default("new_submission")
+
+  /// Short imperative for the queue's Next Action column, e.g. "Call plaintiff".
+  nextAction String?
+  priority   String  @default("normal") // low | normal | high
+
+  assignedAt    DateTime?
+  reviewDueAt   DateTime?
+  lastContactAt DateTime?
+  /// Set the first time a specialist reaches the plaintiff, so time-to-first-
+  /// contact stays measurable after later contacts overwrite lastContactAt.
+  firstContactAt DateTime?
+  closedAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  interactions CaseInteraction[]
+
+  // The queue's three tabs: mine, unassigned, and everything by status.
+  @@index([assignedSpecialistId, status])
+  @@index([status, createdAt])
+  @@map("case_assistance")
+}
+
+/// A logged contact attempt between a specialist and a plaintiff.
+///
+/// Nothing recorded manual outreach before this: PlatformNotificationEvent holds
+/// machine-sent notifications, and neither the plaintiff timeline nor the
+/// attorney activity inbox includes calls, texts or email at all.
+model CaseInteraction {
+  id           String         @id @default(cuid())
+  assistanceId String
+  assistance   CaseAssistance @relation(fields: [assistanceId], references: [id], onDelete: Cascade)
+  assessmentId String
+
+  specialistId String?
+  specialist   User?   @relation("SpecialistInteractions", fields: [specialistId], references: [id], onDelete: SetNull)
+  /// Kept alongside the relation so the timeline still names who made contact
+  /// after an employee account is deactivated and the FK nulls out.
+  specialistName String?
+
+  channel   String // call | sms | email | in_app | other
+  direction String @default("outbound") // outbound | inbound
+  /// What came of it: reached | voicemail | no_answer | callback_requested |
+  /// wrong_number | sent | received. Drives contact-success reporting.
+  outcome String?
+  notes   String? @db.Text
+
+  /// Set when the interaction came from a system action rather than being typed
+  /// in by hand, so a document request appears on the timeline without a
+  /// specialist logging it twice.
+  documentRequestId    String?
+  notificationEventId  String?
+
+  occurredAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  @@index([assistanceId, occurredAt])
+  @@index([assessmentId, occurredAt])
+  @@map("case_interactions")
 }
 
 // Partial intake lead captured before the assessment is submitted.

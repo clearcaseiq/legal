@@ -1936,6 +1936,22 @@ export async function getAttorneyCalendarAppointments(
   return data
 }
 
+/**
+ * Move an existing consult to a new slot.
+ *
+ * Distinct from `scheduleConsultation`, which always books: sending a new time
+ * through that endpoint left the original appointment untouched, so the case
+ * ended up holding both and the calendar drew the consult twice. `date`/`time`
+ * are wall-clock and interpreted in the attorney's scheduling timezone.
+ */
+export async function rescheduleAttorneyAppointment(
+  appointmentId: string,
+  payload: { date: string; time: string; type?: string; notes?: string },
+) {
+  const { data } = await api.patch(`/v1/attorney-dashboard/appointments/${appointmentId}`, payload)
+  return data
+}
+
 export async function cancelAttorneyAppointment(appointmentId: string, reason: string) {
   const { data } = await api.post(`/v1/attorney-dashboard/appointments/${appointmentId}/cancel`, { reason })
   return data
@@ -2697,9 +2713,31 @@ export async function scheduleConsultation(
   return data
 }
 
-export async function getLeadEvidenceFiles(leadId: string) {
+export interface MedicalSharingStatus {
+  canShareMedicalData: boolean
+  hasPlaintiffAccount: boolean
+  hasHipaaConsent: boolean
+  /** Medical files on the case, counted before they are withheld. */
+  medicalFileCount: number
+  status: 'authorized' | 'pending_authorization'
+  message: string | null
+}
+
+export interface LeadEvidenceFiles {
+  files: any[]
+  medicalSharing: MedicalSharingStatus | null
+}
+
+export async function getLeadEvidenceFiles(leadId: string): Promise<LeadEvidenceFiles> {
   const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/evidence`)
-  return data
+  // This route returned a bare array until the sharing status was added to it.
+  // Accepting both shapes keeps a browser that is still on the old bundle, or
+  // one pointed at a host mid-rollout, from rendering an empty evidence tab.
+  if (Array.isArray(data)) return { files: data, medicalSharing: null }
+  return {
+    files: Array.isArray(data?.files) ? data.files : [],
+    medicalSharing: data?.medicalSharing ?? null,
+  }
 }
 
 // Fetch an evidence/case document by its stored fileUrl as a blob and return a
@@ -4598,15 +4636,15 @@ export async function updateAdminUserCapabilities(userId: string, capabilities: 
 }
 
 /**
- * Create an internal staff or admin account. No password is sent: the API
- * emails the new user a link to set their own. `inviteSent` reports whether
- * that email actually went out — the account exists either way.
+ * Create an internal account. No password is sent: the API emails the new user
+ * a link to set their own. `inviteSent` reports whether that email actually
+ * went out — the account exists either way.
  */
 export async function createAdminUser(input: {
   email: string
   firstName: string
   lastName: string
-  role: 'staff' | 'admin'
+  role: 'staff' | 'admin' | 'specialist'
   capabilities?: string[]
 }) {
   const { data } = await api.post('/v1/admin/users', input)
@@ -4616,6 +4654,220 @@ export async function createAdminUser(input: {
 export async function updateAdminUserStatus(userId: string, isActive: boolean) {
   const { data } = await api.patch(`/v1/admin/users/${userId}/status`, { isActive })
   return data
+}
+
+/* -------------------------------------------------------------------------- */
+/* Case Assistance — the specialist queue and workspace                        */
+/* -------------------------------------------------------------------------- */
+
+export type AssistanceStatus =
+  | 'new_submission'
+  | 'needs_review'
+  | 'needs_contact'
+  | 'in_progress'
+  | 'waiting_on_plaintiff'
+  | 'waiting_on_documents'
+  | 'ready_for_attorney_review'
+
+/** Where the case sits overall. Only `assistance` is a specialist-owned phase. */
+export type AssistancePhase = 'assistance' | 'routing' | 'engaged' | 'closed'
+
+export interface AssistanceQueueRow {
+  id: string
+  assessmentId: string
+  caseName: string
+  plaintiffName: string | null
+  referenceCode: string | null
+  claimType: string
+  city: string | null
+  venueCounty: string | null
+  email: string | null
+  phone: string | null
+  preferredLanguage: string | null
+  status: AssistanceStatus
+  priority: 'low' | 'normal' | 'high'
+  nextAction: string | null
+  assignedSpecialist: { id: string; name: string } | null
+  assignedAt: string | null
+  reviewDueAt: string | null
+  isOverdue: boolean
+  lastContactAt: string | null
+  firstContactAt: string | null
+  createdAt: string
+  manualReviewStatus: string | null
+  manualReviewReason: string | null
+  phase: AssistancePhase
+}
+
+export interface AssistanceReadinessFactor {
+  key: string
+  label: string
+  points: number
+  max: number
+  hint?: string
+}
+
+export interface AssistanceInteraction {
+  id: string
+  channel: string
+  direction: string
+  outcome: string | null
+  notes: string | null
+  specialistName: string | null
+  occurredAt: string
+}
+
+export interface AssistanceGap {
+  key: string
+  label: string
+  category: string
+  severity: number
+  valueImpact: string
+  rationale: string
+  requestedDoc?: string
+  resolved?: boolean
+}
+
+export interface AssistanceQuestion {
+  id: string
+  section: string
+  text: string
+  whyAsked: string
+  valueImpact: string
+  source: string
+  /** Imperative form for someone reading this on a call. Falls back to `text`. */
+  askInstruction?: string
+}
+
+export async function getAssistanceQueue(params: {
+  tab?: 'mine' | 'unassigned' | 'all'
+  status?: string
+  priority?: string
+  search?: string
+  sort?: string
+  limit?: number
+  offset?: number
+}) {
+  const { data } = await api.get('/v1/case-assistance/queue', { params })
+  return data as {
+    data: AssistanceQueueRow[]
+    total: number
+    limit: number
+    offset: number
+    hasMore: boolean
+  }
+}
+
+export async function getAssistanceCounts() {
+  const { data } = await api.get('/v1/case-assistance/counts')
+  return data as {
+    counts: {
+      mine: number
+      unassigned: number
+      needsContact: number
+      waiting: number
+      overdue: number
+      readyForAttorney: number
+    }
+    isManager: boolean
+  }
+}
+
+export async function getAssistanceManagerOverview() {
+  const { data } = await api.get('/v1/case-assistance/manager/overview')
+  return data as {
+    byStatus: Record<string, number>
+    unassigned: number
+    specialists: { id: string; name: string; active: number; needsContact: number; overdue: number }[]
+  }
+}
+
+export async function getAssistanceSpecialists() {
+  const { data } = await api.get('/v1/case-assistance/specialists')
+  return data as { data: { id: string; name: string; email: string }[] }
+}
+
+export async function getAssistanceCase(id: string) {
+  const { data } = await api.get(`/v1/case-assistance/${id}`)
+  return data as {
+    assistance: AssistanceQueueRow
+    contact: { email: string | null; phone: string | null; city: string | null; preferredLanguage: string | null }
+    readiness: {
+      score: number
+      factors: AssistanceReadinessFactor[]
+      strengths: string[]
+      weaknesses: string[]
+      missingDocs: { key: string; label: string; priority: string }[]
+      treatmentGaps: { startDate: string; endDate: string; gapDays: number }[]
+    } | null
+    summary: Record<string, any>
+    interactions: AssistanceInteraction[]
+  }
+}
+
+export async function getAssistanceAi(id: string) {
+  const { data } = await api.get(`/v1/case-assistance/${id}/ai`)
+  return data as {
+    generatedAt: string
+    summary: Record<string, any>
+    known: { key: string; label: string; value: string; detail?: string }[]
+    gaps: { highPriority: AssistanceGap[]; recommended: AssistanceGap[]; resolved: AssistanceGap[] }
+    questions: AssistanceQuestion[]
+    questionSource: string
+    coach: {
+      headline: string
+      insights: { key: string; title: string; priority: string; why: string; impact: string }[]
+    } | null
+  }
+}
+
+export async function updateAssistanceCase(
+  id: string,
+  input: {
+    status?: AssistanceStatus
+    priority?: 'low' | 'normal' | 'high'
+    nextAction?: string | null
+    assignedSpecialistId?: string | null
+  },
+) {
+  const { data } = await api.patch(`/v1/case-assistance/${id}`, input)
+  return data as { assistance: AssistanceQueueRow | null }
+}
+
+export async function logAssistanceInteraction(
+  id: string,
+  input: {
+    channel: 'call' | 'sms' | 'email' | 'in_app' | 'other'
+    direction?: 'outbound' | 'inbound'
+    outcome?: string
+    notes?: string
+    occurredAt?: string
+    status?: AssistanceStatus
+    nextAction?: string
+  },
+) {
+  const { data } = await api.post(`/v1/case-assistance/${id}/interactions`, input)
+  return data as { interaction: AssistanceInteraction }
+}
+
+export async function getAssistanceTimeline(id: string) {
+  const { data } = await api.get(`/v1/case-assistance/${id}/timeline`)
+  return data as {
+    data: Array<
+      | ({ kind: 'interaction'; at: string } & AssistanceInteraction)
+      | { kind: 'notification'; at: string; id: string; channel: string; eventType: string; subject: string | null; status: string }
+    >
+  }
+}
+
+export async function sendAssistanceDocumentRequest(id: string, input: { docs: string[]; message?: string }) {
+  const { data } = await api.post(`/v1/case-assistance/${id}/document-request`, input)
+  return data as { docs: string[]; uploadLink: string }
+}
+
+export async function sendAssistanceEmail(id: string, input: { subject: string; body: string }) {
+  const { data } = await api.post(`/v1/case-assistance/${id}/email`, input)
+  return data as { interaction: AssistanceInteraction }
 }
 
 export type AdminPaymentOutcome =

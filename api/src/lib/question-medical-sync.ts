@@ -5,6 +5,7 @@
  */
 import { prisma } from './prisma'
 import { logger } from './logger'
+import { updateCaseFacts } from './case-facts'
 import { parseAffirmative } from './question-liability-sync'
 
 function questionIdOf(questionKey: string): string {
@@ -208,18 +209,13 @@ export async function syncMedicalFromSavedQuestionAnswers(assessmentId: string):
   return applied
 }
 
-async function writeMedicalPatchToFacts(assessmentId: string, patch: MedicalFactsPatch): Promise<void> {
-  const assessment = await prisma.assessment.findUnique({
-    where: { id: assessmentId },
-    select: { facts: true },
-  })
-  let facts: any = {}
-  try {
-    facts = assessment?.facts ? JSON.parse(assessment.facts as string) : {}
-  } catch {
-    facts = {}
-  }
-
+/**
+ * Apply the patch onto a facts document and return it.
+ *
+ * Pure, so the choke point owns reading, parsing and provenance — and so this
+ * logic stays testable without a database.
+ */
+function applyMedicalPatch(facts: any, patch: MedicalFactsPatch): any {
   const treatment = Array.isArray(facts.treatment) ? [...facts.treatment] : []
   const surgeryIdx = treatment.findIndex((item: any) => item?.type === 'surgery_status')
 
@@ -313,8 +309,18 @@ async function writeMedicalPatchToFacts(assessmentId: string, patch: MedicalFact
     }
   }
 
-  await prisma.assessment.update({
-    where: { id: assessmentId },
-    data: { facts: JSON.stringify(facts) },
+  return facts
+}
+
+async function writeMedicalPatchToFacts(assessmentId: string, patch: MedicalFactsPatch): Promise<void> {
+  await updateCaseFacts({
+    assessmentId,
+    // Derived from an already-saved answer rather than typed straight in, so the
+    // change feed attributes it to the sync rather than to a person.
+    source: 'system',
+    action: 'question_answer_applied',
+    entityType: 'medical',
+    summary: `Intelligent-question medical answer applied (${Object.keys(patch).join(', ')})`,
+    mutate: (facts) => applyMedicalPatch(facts, patch),
   })
 }

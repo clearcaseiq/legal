@@ -12,6 +12,7 @@ import { runRoutingEscalationSweep } from '../lib/routing-escalation-sweep'
 import { sendCaseOfferToAttorney } from '../lib/case-notifications'
 import { getMatchingRules, getAttorneyResponseDeadlineMinutes } from '../lib/matching-rules-config'
 import { CLAIM_INVITE_TTL_DAYS, claimUrl, generateClaimToken, sendClaimEmail } from '../lib/claims'
+import { CLOSED_STATUSES } from '../lib/case-stage'
 import { prismaAny, safeJsonParse } from './admin-shared'
 
 const router: ExpressRouter = Router()
@@ -532,8 +533,27 @@ router.get('/cases/all', authMiddleware, adminMiddleware, async (req: AuthReques
       maxLimit: 200,
     })
 
+    // Collected rather than assigned so two filters that both need AND can
+    // coexist; `where.AND = [...]` let whichever ran last discard the other.
+    const andConditions: any[] = []
     const where: any = {}
-    if (status) {
+    // `status` is otherwise an exact match on Assessment.status, but "closed" is
+    // not a single column: closing writes assessment.status and caseStage while
+    // leaving the lead lifecycle behind, and a case can also end as won/settled/
+    // resolved. Matching the literal alone therefore missed most finished cases,
+    // which is why there was no usable closed list. Widened to the same four
+    // signals the case-flow buckets read, kept in an AND so it composes with the
+    // search OR instead of overwriting it.
+    if (status === 'closed') {
+      andConditions.push({
+        OR: [
+          { status: { in: [...CLOSED_STATUSES] } },
+          { caseStage: 'CLOSED' },
+          { leadSubmission: { status: 'closed' } },
+          { leadSubmission: { lifecycleState: 'closed' } },
+        ],
+      })
+    } else if (status) {
       where.status = status as string
     }
     // Server-side so the admin list searches every matching case, not just the
@@ -590,10 +610,14 @@ router.get('/cases/all', authMiddleware, adminMiddleware, async (req: AuthReques
       where.introductions = { some: { status: 'ACCEPTED' } }
     } else if (routingStatus === 'waiting') {
       // At least one intro sent, but none accepted yet.
-      where.AND = [
+      andConditions.push(
         { introductions: { some: {} } },
         { introductions: { none: { status: 'ACCEPTED' } } },
-      ]
+      )
+    }
+
+    if (andConditions.length > 0) {
+      where.AND = andConditions
     }
 
     const assessments = await prisma.assessment.findMany({
@@ -607,6 +631,10 @@ router.get('/cases/all', authMiddleware, adminMiddleware, async (req: AuthReques
         facts: true,
         createdAt: true,
         updatedAt: true,
+        // Without these a closed case could say it matched but not when it ended
+        // or how far it got, which is most of what a closed list is for.
+        caseStage: true,
+        closedAt: true,
         user: {
           select: {
             id: true,
@@ -681,6 +709,8 @@ router.get('/cases/all', authMiddleware, adminMiddleware, async (req: AuthReques
         venueState: assessment.venueState,
         venueCounty: assessment.venueCounty,
         status: assessment.status,
+        caseStage: assessment.caseStage,
+        closedAt: assessment.closedAt,
         facts,
         prediction: latestPrediction,
         user: assessment.user,

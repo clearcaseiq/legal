@@ -24,6 +24,9 @@
       "cases": {
         "label": "案件"
       },
+      "caseAssistance": {
+        "label": "案件协助"
+      },
       "caseFlow": {
         "label": "案件流程"
       },

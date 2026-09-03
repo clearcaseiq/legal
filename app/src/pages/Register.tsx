@@ -63,10 +63,16 @@ export default function Register() {
   const redirectTo = assessmentId
     ? `/dashboard?case=${encodeURIComponent(assessmentId)}`
     : searchParams.get('redirect') || '/dashboard'
-  // The claim token has to ride along to sign-in. The confirmation email offers
-  // only "create an account", so anyone who already had one used to arrive at a
-  // signup form they could not complete, with no way to attach their case.
-  const signInHref = claimToken ? `/login?claim=${encodeURIComponent(claimToken)}` : '/login'
+  // The case identifier has to ride along to sign-in, whichever form it takes.
+  // The confirmation email offers only "create an account", so anyone who
+  // already had one used to arrive at a signup form they could not complete,
+  // with no way to attach their case; and a just-submitted assessment sent to
+  // bare /login was never associated with the account they signed into, so the
+  // dashboard came up empty right after they had finished the intake.
+  const signInParams = new URLSearchParams()
+  if (claimToken) signInParams.set('claim', claimToken)
+  if (assessmentId) signInParams.set('assessmentId', assessmentId)
+  const signInHref = signInParams.toString() ? `/login?${signInParams}` : '/login'
 
   // Account benefits shown as tiles so guests can see what an account unlocks.
   const accountFeatures = [
@@ -325,9 +331,11 @@ export default function Register() {
             {t('auth.streamlinedSubtitle')}
           </p>
         )}
-        {/* Shown to claim-link visitors even in the streamlined flow, which
-            otherwise offers no way to reach sign-in. */}
-        {(!streamlined || claimToken) && (
+        {/* Shown even in the streamlined flow whenever the case can ride along
+            to sign-in, which otherwise offers no way to reach it: a returning
+            user who already has an account was left with a signup form as the
+            only exit from their own submitted case. */}
+        {(!streamlined || claimToken || assessmentId) && (
           <p className="mt-2 text-center text-sm text-gray-600">
             {t('auth.alreadyHaveAccount')}{' '}
             <Link to={signInHref} className="font-medium text-brand-600 hover:text-brand-500">

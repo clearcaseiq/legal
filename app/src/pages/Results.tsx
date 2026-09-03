@@ -1371,7 +1371,7 @@ export default function Results() {
     if (isSharedReadOnly) return // view-only shared report cannot submit the case (#12)
     const { firstName, email, phone, preferredContactMethod } = contactForm
     if (!firstName?.trim()) {
-      setContactFormError('First name is required')
+      setContactFormError('Name is required')
       return
     }
     if (!email?.trim()) {

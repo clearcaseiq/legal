@@ -126,7 +126,7 @@ export function useAttorneyCaseInsights(selectedLeadId?: string, isPostAcceptanc
 
     const loadEvidence = async () => {
       try {
-        const files = await getLeadEvidenceFiles(selectedLeadId)
+        const { files } = await getLeadEvidenceFiles(selectedLeadId)
         setLeadEvidenceFiles(Array.isArray(files) ? files : [])
       } catch (err) {
         console.error('Failed to load lead evidence files:', err)
