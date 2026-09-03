@@ -5,6 +5,7 @@ import Layout from './components/Layout'
 import ErrorBoundary from './components/ErrorBoundary'
 import { GuestRoute, ProtectedRoute } from './components/AuthRoute'
 import { getStoredRole, getPostLoginRoute } from './lib/auth'
+import { applyAnalyticsBoundary } from './lib/analyticsBoundary'
 import {
   clearEvidenceReturnTo,
   plaintiffDashboardReturnTo,
@@ -385,6 +386,22 @@ function ResultsRouteBoundary() {
   )
 }
 
+/**
+ * Turns Google Analytics off while the app is on a screen that carries health
+ * information, and back on when it leaves.
+ *
+ * The tag is only ever loaded by a public page, but client-side navigation
+ * keeps it resident, so this runs on every route rather than at mount. See
+ * lib/analyticsBoundary.
+ */
+function AnalyticsBoundary() {
+  const location = useLocation()
+  useEffect(() => {
+    applyAnalyticsBoundary(location.pathname)
+  }, [location.pathname])
+  return null
+}
+
 // Route-scoped boundary that lives inside <Layout> so a render crash on one
 // page shows an inline, recoverable error (with the nav still usable) instead
 // of blanking the whole app. Resetting on pathname change lets the user simply
@@ -405,6 +422,7 @@ function App() {
 
   return (
     <ErrorBoundary>
+      <AnalyticsBoundary />
       <Layout>
         <RouteErrorBoundary>
         <Suspense fallback={<RouteFallback />}>
