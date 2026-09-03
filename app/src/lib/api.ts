@@ -4865,6 +4865,20 @@ export async function sendAssistanceDocumentRequest(id: string, input: { docs: s
   return data as { docs: string[]; uploadLink: string }
 }
 
+/**
+ * A phrase the UPL guard refused to send, with what to say instead.
+ *
+ * Returned on a 422 with `code: 'UPL_BOUNDARY'`. Specialists are not lawyers,
+ * so the server blocks claimant-facing prose that reads as legal advice; the
+ * matched phrases come back so the draft can be corrected rather than guessed
+ * at.
+ */
+export interface UplViolation {
+  category: string
+  matched: string
+  guidance: string
+}
+
 export async function sendAssistanceEmail(id: string, input: { subject: string; body: string }) {
   const { data } = await api.post(`/v1/case-assistance/${id}/email`, input)
   return data as { interaction: AssistanceInteraction }

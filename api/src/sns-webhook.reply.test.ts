@@ -69,9 +69,11 @@ describe('POST /v1/sms/sns/inbound — replying to the attorney', () => {
       .send(notification({ originationNumber: '+15551234567', messageBody: 'ACCEPT' }))
 
     expect(res.status).toBe(200)
+    // A decision reply is an ordinary message, so the opt-out applies to it.
     expect(sendSms).toHaveBeenCalledWith(
       '+15551234567',
       'You have accepted this case. View details in CaseIQ.',
+      { ignoreOptOut: false },
     )
   })
 
@@ -90,6 +92,31 @@ describe('POST /v1/sms/sns/inbound — replying to the attorney', () => {
     expect(sendSms).toHaveBeenCalledWith(
       '+15551234567',
       'This case has already been assigned to another attorney. View details in CaseIQ.',
+      { ignoreOptOut: false },
+    )
+  })
+
+  it('delivers the opt-out confirmation despite the opt-out it just recorded', async () => {
+    // Carriers expect one final message acknowledging a STOP. Since the SNS
+    // path replies by placing a fresh outbound send, without the bypass the
+    // suppression would swallow its own confirmation and honouring the request
+    // would look exactly like a dead number.
+    vi.mocked(processInboundSmsDecision).mockResolvedValue({
+      processingStatus: 'processed',
+      optOutKeyword: 'stop',
+      responseCode: 200,
+      responseMessage: 'ClearCaseIQ: You are unsubscribed and will not receive further texts from us.',
+    })
+
+    await request(app)
+      .post('/v1/sms/sns/inbound')
+      .type('text/plain')
+      .send(notification({ originationNumber: '+15551234567', messageBody: 'STOP' }))
+
+    expect(sendSms).toHaveBeenCalledWith(
+      '+15551234567',
+      expect.stringContaining('unsubscribed'),
+      { ignoreOptOut: true },
     )
   })
 

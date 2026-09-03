@@ -23,6 +23,7 @@ import { logger } from '../lib/logger'
 import { authMiddleware, AuthRequest } from '../lib/auth'
 import { isConnectConfigured, startOutboundCall, stopContact, toE164 } from '../lib/amazon-connect'
 import { getConsentTemplate } from '../lib/consent-templates'
+import { checkRecordingConsent } from '../lib/recording-consent'
 import { createHash } from 'crypto'
 import { ENV } from '../env'
 
@@ -133,10 +134,15 @@ router.post('/start', authMiddleware, async (req: AuthRequest, res) => {
       return res.status(404).json({ error: 'Attorney conversation not found' })
     }
 
-    // Consent: honor an inline acknowledgment, otherwise require prior consent.
-    let consented = await hasActiveRecordingConsent(userId)
-    if (!consented && acknowledgeRecording) {
-      const template = getConsentTemplate(CALL_RECORDING_CONSENT)!
+    const template = getConsentTemplate(CALL_RECORDING_CONSENT)
+    if (!template) {
+      logger.error('calls: call_recording consent template missing')
+      return res.status(500).json({ error: 'Recording consent is unavailable' })
+    }
+
+    // The caller's own acknowledgment, taken inline so consent and call are one
+    // step. This only ever covers the caller.
+    if (!(await hasActiveRecordingConsent(userId)) && acknowledgeRecording) {
       await prisma.consent.create({
         data: {
           userId,
@@ -152,12 +158,40 @@ router.post('/start', authMiddleware, async (req: AuthRequest, res) => {
           consentHash: createHash('sha256').update(template.content).digest('hex'),
         },
       })
-      consented = true
     }
-    if (!consented) {
+
+    // Checked here because it cannot be checked later: the Connect flow records
+    // from its first action, so once the call is placed the recording exists.
+    const assessmentIdForVenue = room.assessmentId || parsed.data.assessmentId || null
+    const assessment = assessmentIdForVenue
+      ? await prisma.assessment.findUnique({
+          where: { id: assessmentIdForVenue },
+          select: { venueState: true },
+        })
+      : null
+
+    const consent = await checkRecordingConsent({
+      plaintiffUserId: userId,
+      attorneyId: room.attorney.id,
+      venueState: assessment?.venueState ?? null,
+      // `barState` is the state that licensed them, which is the closest thing
+      // on the record to where the attorney takes the call. `Attorney` has no
+      // address.
+      attorneyState: room.attorney.barState ?? null,
+      templateVersion: template.version,
+    })
+
+    if (!consent.ok) {
       return res.status(428).json({
-        error: 'Recording consent required',
-        code: 'RECORDING_CONSENT_REQUIRED',
+        error:
+          consent.reason === 'attorney_consent_required'
+            ? 'This call cannot be recorded until the attorney has agreed to recording. Their state requires everyone on the line to consent.'
+            : 'Recording consent required',
+        code:
+          consent.reason === 'attorney_consent_required'
+            ? 'ATTORNEY_RECORDING_CONSENT_REQUIRED'
+            : 'RECORDING_CONSENT_REQUIRED',
+        allPartyState: consent.allParty,
       })
     }
 
@@ -187,6 +221,15 @@ router.post('/start', authMiddleware, async (req: AuthRequest, res) => {
         recordingConsent: true,
         recordingConsentAt: new Date(),
         recordingConsentBy: userId,
+        // Which rule was applied and on what basis, recorded at the time. A
+        // recording's admissibility can turn on this years later, and the state
+        // lists change.
+        recordingConsentNote: JSON.stringify({
+          allPartyState: consent.allParty,
+          governingState: consent.state,
+          attorneyConsentVerified: consent.allParty,
+          templateVersion: template.version,
+        }),
       },
     })
 

@@ -118,7 +118,11 @@ router.post('/inbound', async (req, res) => {
           result.processingStatus === 'failed'
             ? 'Something went wrong handling your reply. Please respond in CaseIQ.'
             : result.responseMessage
-        await sendSms(fromPhone, reply).catch((err: any) =>
+        // An opt-out has to be acknowledged by the one message the opt-out
+        // itself would otherwise block. Carriers expect that confirmation, and
+        // without the bypass a STOP would be answered with silence — the same
+        // thing a broken number looks like.
+        await sendSms(fromPhone, reply, { ignoreOptOut: !!result.optOutKeyword }).catch((err: any) =>
           logger.warn('SNS webhook: failed to send reply', { error: err?.message }),
         )
       }

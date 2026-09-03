@@ -13,6 +13,7 @@ import {
   type AssistancePendingProposal,
   type AssistanceProposableField,
   type AssistanceStatus,
+  type UplViolation,
 } from '../../lib/api'
 import { Badge, BackButton, Breadcrumbs, EmptyState, SectionCard } from '../../features/shared/ui'
 import {
@@ -602,6 +603,7 @@ function ContactActions({
 
   const [subject, setSubject] = useState('')
   const [body, setBody] = useState('')
+  const [uplViolations, setUplViolations] = useState<UplViolation[]>([])
 
   const [fields, setFields] = useState<AssistanceProposableField[]>([])
   const [pending, setPending] = useState<AssistancePendingProposal[]>([])
@@ -642,8 +644,16 @@ function ContactActions({
       setSubject('')
       setBody('')
       setStatus('')
+      setUplViolations([])
       onDone(message)
     } catch (err: any) {
+      // The UPL block is shown in the form rather than as a banner, because the
+      // useful part is which phrases to rewrite — and the draft is still in the
+      // textarea, which `run` only clears on success.
+      if (err.response?.status === 422 && err.response?.data?.code === 'UPL_BOUNDARY') {
+        setUplViolations(err.response.data.violations || [])
+        return
+      }
       onError(err.response?.data?.error || 'That did not go through')
     } finally {
       setBusy(false)
@@ -965,8 +975,27 @@ function ContactActions({
               onChange={(e) => setBody(e.target.value)}
             />
           </label>
+          {uplViolations.length > 0 && (
+            <div className="rounded-md border border-amber-300 bg-amber-50 p-3 dark:border-amber-700/60 dark:bg-amber-950/40">
+              <p className="text-xs font-semibold text-amber-900 dark:text-amber-200">
+                This reads as legal advice, which you cannot give
+              </p>
+              <p className="mt-1 text-xs text-amber-800 dark:text-amber-300">
+                Rewrite the parts below, or tell the claimant you will pass the question to their attorney.
+              </p>
+              <ul className="mt-2 space-y-2">
+                {uplViolations.map((violation) => (
+                  <li key={violation.category} className="text-xs text-amber-900 dark:text-amber-200">
+                    <span className="font-medium">“{violation.matched}”</span>
+                    <span className="mt-0.5 block text-amber-800 dark:text-amber-300">{violation.guidance}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            Sent from your name, with replies routed to your address.
+            Sent from your name, with replies routed to your address. You can gather facts and route questions to the
+            attorney; you cannot advise on the case.
           </p>
           <SubmitRow
             busy={busy}

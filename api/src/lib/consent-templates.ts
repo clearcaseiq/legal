@@ -220,12 +220,18 @@ You may receive occasional updates, educational content, or promotional messages
 Partners may receive limited contact information only where you have agreed separately.
     `.trim(),
   },
+  // Bumped to 1.1 to force re-consent: the 1.0 text told people the spoken
+  // notice at the start of the call gave notice to everyone on the line. The
+  // Connect contact flow plays that notice to the claimant's leg only, and
+  // before the attorney is transferred in, so the attorney never heard it. In an
+  // all-party state that sentence was the whole basis for treating one person's
+  // agreement as everyone's, and it was not true.
   call_recording: {
-    version: '1.0',
-    documentId: 'call-recording-v1.0',
+    version: '1.1',
+    documentId: 'call-recording-v1.1',
     title: 'Call recording consent',
     effectiveDate: '2026-03-01',
-    plainLanguageSummary: `When you connect with your legal team by phone through the platform, the call may be recorded and automatically transcribed so your attorney can capture case details accurately and follow up on what you discussed. You'll also hear a spoken notice at the start of the call. Recordings and transcripts are treated as confidential case material, are stored securely, and are used only to support your case. You can decline recording. If you do, we won't place the recorded call.`,
+    plainLanguageSummary: `When you connect with your legal team by phone through the platform, the call may be recorded and automatically transcribed so your attorney can capture case details accurately and follow up on what you discussed. You'll also hear a spoken notice at the start of the call. Some states require everyone on a call to agree before it can be recorded; where that applies, we won't place the call until your attorney has agreed too. Recordings and transcripts are treated as confidential case material, are stored securely, and are used only to support your case. You can decline recording. If you do, we won't place the recorded call.`,
     content: `
 # Call recording and transcription consent
 
@@ -244,8 +250,10 @@ When you place or receive a phone call with your legal team through this platfor
 - They are retained as long as needed for your case and applicable law, then deleted or de-identified
 - They are not sold and are not shared for marketing
 
-## Two-party notice
-Some states require all parties to a call to consent to recording. By continuing, you consent to recording for calls placed through this platform, and the spoken notice at the start of the call provides notice to everyone on the line.
+## All-party consent states
+Some states require **every** person on a call to consent before it can be recorded. If your case is in one of those states, we will not place a recorded call until your attorney has separately agreed to recording as well. Your consent alone is not enough there, and we will tell you if that is why a call cannot be placed.
+
+A spoken notice also plays at the start of the call. Treat it as a reminder, not as a substitute for consent — consent is collected from each party before we dial.
 
 ## Your choice
 Providing this consent is voluntary. If you decline, we will not place a recorded call. You can still reach your legal team by other means. You may withdraw consent for future calls at any time by contacting your legal team or support.

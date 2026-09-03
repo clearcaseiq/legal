@@ -19,6 +19,15 @@ import { prisma } from './prisma'
 import { logger } from './logger'
 import { attorneyAcceptCase, attorneyDeclineCase } from './routing-lifecycle'
 import { selectOfferForReply } from './offer-reference'
+import {
+  HELP_REPLY,
+  OPT_IN_CONFIRMATION,
+  OPT_OUT_CONFIRMATION,
+  parseSmsKeyword,
+  recordSmsOptIn,
+  recordSmsOptOut,
+  type SmsKeyword,
+} from './sms-opt-out'
 
 export interface InboundSmsResult {
   processingStatus: 'processed' | 'ignored' | 'failed'
@@ -28,6 +37,12 @@ export interface InboundSmsResult {
   decision?: 'ACCEPTED' | 'DECLINED' | null
   introductionId?: string | null
   leadSubmissionId?: string | null
+  /**
+   * Set when the message was STOP/START/HELP. The SNS path uses it to send the
+   * confirmation with suppression bypassed, since a STOP has to be acknowledged
+   * by the one message the opt-out itself would otherwise block.
+   */
+  optOutKeyword?: SmsKeyword | null
   /**
    * True when this was a repeat delivery of a message already handled. Callers
    * that answer the attorney out-of-band use it to stay quiet, so an
@@ -96,6 +111,45 @@ async function updateReceipt(
 }
 
 /**
+ * Apply STOP / START / HELP.
+ *
+ * HELP records nothing: it is a question, not a change of preference, and
+ * answering it must not disturb an opt-out already in force.
+ */
+async function handleOptOutKeyword(
+  keyword: SmsKeyword,
+  from: string,
+  body: string,
+): Promise<InboundSmsResult> {
+  if (keyword === 'stop') {
+    await recordSmsOptOut(from, body.trim().toUpperCase())
+    return {
+      processingStatus: 'processed',
+      optOutKeyword: 'stop',
+      responseCode: 200,
+      responseMessage: OPT_OUT_CONFIRMATION,
+    }
+  }
+
+  if (keyword === 'start') {
+    await recordSmsOptIn(from, body.trim().toUpperCase())
+    return {
+      processingStatus: 'processed',
+      optOutKeyword: 'start',
+      responseCode: 200,
+      responseMessage: OPT_IN_CONFIRMATION,
+    }
+  }
+
+  return {
+    processingStatus: 'processed',
+    optOutKeyword: 'help',
+    responseCode: 200,
+    responseMessage: HELP_REPLY,
+  }
+}
+
+/**
  * Process one inbound SMS reply. Handles idempotency (via messageId), decision
  * parsing, and updating the attorney's pending introduction and lead.
  */
@@ -144,6 +198,17 @@ export async function processInboundSmsDecision(input: {
         responseCode: 400,
         responseMessage: 'Missing sender or message body.',
       }
+      await updateReceipt(receiptId, result)
+      return result
+    }
+
+    // Before the attorney lookup, deliberately. Claimants are not in the
+    // `Attorney` table, so a STOP checked afterwards would fall through to
+    // "Phone number not recognized" — and the people most likely to send one
+    // are exactly the claimants who were promised it would work.
+    const keyword = parseSmsKeyword(body)
+    if (keyword) {
+      const result = await handleOptOutKeyword(keyword, from, body)
       await updateReceipt(receiptId, result)
       return result
     }

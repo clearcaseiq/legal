@@ -178,41 +178,144 @@ Once confirmed, the provenance row attributes the value to the *claimant*, not
 the specialist. That is deliberate: after they confirm, it is their answer. The
 proposal row remains the durable record of who suggested it.
 
-What is left is the UI. `POST /v1/case-assistance/:id/proposals` and the
-confirmation endpoints are wired and tested, but the specialist workspace has no
-control that calls the first and the claimant's case page has none for the
-second.
+Both UI surfaces are now built. The specialist workspace has a "Record an
+answer" panel that proposes an allowlisted field, and
+`PlaintiffFactConfirmations` sits above the tabs on the claimant's results page
+— above, because claimants arrive there from a notification email and a
+confirmation buried under a tab is a proposal that never gets answered.
 
 ## Compliance prerequisites
 
-These gate specific phase 2 features. None of them is satisfied today.
+These gate specific phase 2 features.
 
 ### UPL boundary enforced in the product, not just in training
 
 A specialist under time pressure drifts from "ask about the claim number" to
-"you probably have a good case". Phase 1 states the boundary in the AI panel and
-on the specialist login screen, which is a start and not a control. Before
-on-behalf editing — where a specialist is authoring case content — the boundary
-needs to be enforced by the surface itself.
+"you probably have a good case". Phase 1 stated the boundary in the AI panel and
+on the specialist login screen, which is a start and not a control.
+
+`lib/upl-guard.ts` now enforces it on the only claimant-facing surface where a
+specialist composes prose: the email body and subject in `POST
+/v1/case-assistance/:id/email`. Everything else they can write is either an
+allowlisted typed fact value or an internal note. Six categories are refused —
+grading the claim, putting a number on it, telling the claimant what to do,
+implying a lawyer-client relationship, deciding fault, and advising on an offer.
+The route returns 422 with the matched phrases, and the workspace renders them
+in the form with the draft still in the textarea.
+
+It **blocks rather than warns**. A warning that can be clicked through is a
+slower version of no control, and every one of these has a compliant phrasing.
+
+Two things about it are worth stating plainly rather than discovering later.
+First, it is a keyword check: it catches the phrasings people reach for and
+misses paraphrase, so it shrinks the surface and does not eliminate it. It is
+not a substitute for supervision, and everything a specialist writes remains
+attributable to them.
+
+Second, the hard part was not blocking advice but **not blocking the job**.
+Recording what a claimant told you is the entire role; agreeing with its legal
+conclusion is the violation, and the two are the same sentence with a different
+preamble. So matches preceded by an attribution phrase — "you mentioned", "I
+noted that", "the attorney will" — are exempt, bounded to the current sentence
+because attribution does not survive a full stop. An earlier revision of the
+valuation rule blocked "the attorney will discuss what your case may be worth",
+which is the compliant alternative this module itself recommends; a guard that
+forbids its own suggested rewrite only teaches people to route around it.
 
 ### Two-party recording consent, verified before a call connects
 
-The Amazon Connect stack is already built: `startOutboundCall`, recordings,
-Contact Lens transcripts and LLM summaries. What is missing is the authorization
-path — `POST /v1/calls/start` is plaintiff-authenticated and hardcodes
-`initiatedBy: 'plaintiff'`; the `'staff'` value is documented and dead.
+The Amazon Connect stack was already built: `startOutboundCall`, recordings,
+Contact Lens transcripts and LLM summaries. What was missing was authorization.
 
-California is a two-party consent state. The `call_recording` consent template
-exists in `lib/consent-templates.ts`; it must be **checked before dialling**,
-not recorded afterwards. Until then, phase 1 logs manually placed calls.
+`lib/recording-consent.ts` now gates `POST /v1/calls/start` before dialling.
+This has to happen in the route, not the contact flow: the flow's first action
+is `UpdateContactRecordingBehavior` for both participants, the attorney transfer
+is two actions later, and there is no branch anywhere in it. Once the call is
+placed the recording exists, so the only place to prevent one is before
+`startOutboundCall`.
+
+`ALL_PARTY_CONSENT_STATES` lists the fourteen states whose statutes require
+every party to consent. Where the rule is contested or unsettled — Nevada by
+case law, Michigan and Oregon for telephone calls, Connecticut on its civil
+statute — the state is **included**. Wrongly including one costs an extra
+prompt; wrongly excluding one is a criminal statute plus, in several of them, an
+inadmissible recording, which destroys the evidentiary value that is the whole
+reason for recording.
+
+In an all-party state the attorney must have consented too. Because `Attorney`
+has no user account, their consent is a `Consent` row carrying the attorney id
+in `metadata` — the shape `attorney_share` already uses to name the firms an
+authorization covers. `Call.recordingConsentNote`, previously never written,
+now records which rule was applied and on what basis, because admissibility can
+turn on that years later and these state lists change.
+
+The `call_recording` template went to **1.1**, which forces re-consent. The 1.0
+text told people "the spoken notice at the start of the call provides notice to
+everyone on the line". The flow plays that notice to the claimant's leg only,
+and before the attorney joins, so the attorney never heard it — and in an
+all-party state that sentence was the entire basis for treating one person's
+agreement as everyone's. Consent to that text is not consent to this one.
+
+The honest weakness: **nothing in the schema records where the claimant
+physically is.** `User` has no address, and `Assessment.venueState` is where the
+incident happened, sometimes itself an IP-geolocation guess from intake — so
+someone injured in Nevada who lives in California is stored as `NV`. The gate
+takes the union of venue state and the attorney's `barState` and applies the
+stricter rule. Both are proxies. A real fix needs the claimant's location
+captured at call time.
+
+Still outstanding, and not blocking: the contact flow's disclosure remains
+one-sided, and `POST /v1/calls/start` is still plaintiff-authenticated with
+`initiatedBy` hardcoded, so the `'staff'` value stays dead and phase 1 continues
+to log manually placed specialist calls.
 
 ### Inbound STOP handling before any specialist-initiated SMS
 
-`sendSms` can text a claimant today. Inbound SMS handling only recognises
-attorney `ACCEPT` / `DECLINE` replies via `processInboundSmsDecision` and drops
-everything else — **nothing processes a STOP**. Specialists texting claimants
-without working opt-out is TCPA exposure. SMS stays out of the specialist
-toolset until inbound handling exists.
+The exposure here was not that we texted claimants. It was that
+`IntakeWizardQuick` promised "Reply STOP to opt out" before taking their number,
+in all three languages, while `processInboundSmsDecision` recognised only
+attorney `ACCEPT` / `DECLINE` and dropped everything else. A claimant who texted
+STOP was answered with "Reply ACCEPT to accept or DECLINE to decline the case" —
+and on the SNS path we then sent them another text saying so.
+
+Three pieces now exist:
+
+**`SmsOptOut` is keyed on the phone number, not a user.** It has to be. The
+claimant-facing sends read `IntakeLead.phone`, and an intake lead frequently has
+no `User` row at all — those are exactly the people the abandonment and
+report-ready texts reach, and exactly who would send a STOP. An opt-out attached
+to a user id would have covered the wrong population while looking correct.
+
+**One canonical key.** Five phone normalizers already existed in this repo and
+they disagree: `lib/phone.ts` yields E.164, `sms.ts` yields `+digits`,
+`sms-inbound.ts` yields bare digits. An opt-out is worthless if the number
+written on the way in does not match the number read on the way out, so both
+paths go through `optOutKey()` and nothing else.
+
+**The check lives in `sendSms`.** Six of the eight outbound call sites reach it
+directly and never touch `platform-notifications`, including all three
+claimant-facing sends. A suppression check in the notification layer would have
+looked right and covered the wrong half of the traffic.
+
+Three details that are load-bearing:
+
+- Keywords are parsed **before** the attorney lookup. Claimants are not rows in
+  `Attorney`, so a STOP checked afterwards falls through to "Phone number not
+  recognized".
+- The confirmation reply sets `ignoreOptOut`. Carriers expect one final message
+  acknowledging a STOP, and since the SNS path replies by placing a fresh
+  outbound send, the suppression would otherwise swallow its own confirmation —
+  making a honoured request look exactly like a dead number.
+- `isSmsSuppressed` fails **closed** on a database error. Not texting someone who
+  might have opted out is recoverable; texting someone who did is a statutory
+  violation per message.
+- Keyword matching is strict — the keyword alone, with punctuation. "please stop
+  calling me about the deposition" is a conversation, and unsubscribing someone
+  from case updates over it would be its own failure.
+
+STOP now works, so SMS is no longer categorically barred from the specialist
+toolset. Adding it still needs a claimant-facing consent record for
+specialist-initiated texts; the opt-out is the floor, not the whole obligation.
 
 ## Deferred, non-blocking
 

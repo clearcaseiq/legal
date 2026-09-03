@@ -46,6 +46,7 @@ import { PLAINTIFF_EVENTS } from '../lib/notification-events'
 import { webUrl } from '../lib/app-url'
 import { PROPOSABLE_FACT_PATHS, isProposableFactPath, readFactPath } from '../lib/case-fact-paths'
 import { createSpecialistFactProposal, factPathOf, proposalFieldLabel } from '../lib/case-reconciliation'
+import { checkUplBoundary, describeUplViolations } from '../lib/upl-guard'
 import { parseCaseFacts } from '../lib/case-facts'
 
 const router: ExpressRouter = Router()
@@ -992,6 +993,24 @@ router.post('/:id/email', async (req: AuthRequest, res) => {
     }
 
     const { subject, body } = parsed.data
+
+    // The UPL boundary, enforced on the thing that actually reaches the
+    // claimant. Phase 1 only stated it in copy, which does not stop a helpful
+    // specialist from answering a legal question in prose.
+    const upl = checkUplBoundary(subject, body)
+    if (!upl.ok) {
+      logger.warn('Specialist email blocked at the UPL boundary', {
+        id: req.params.id,
+        specialistId: req.user?.id,
+        violations: describeUplViolations(upl.violations),
+      })
+      return res.status(422).json({
+        error: 'This message reads as legal advice, which a specialist cannot give. Rewrite the flagged parts or route the question to the attorney.',
+        code: 'UPL_BOUNDARY',
+        violations: upl.violations,
+      })
+    }
+
     await deliverDirectNotification({
       type: 'email',
       recipient: contact.email,

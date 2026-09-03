@@ -14,6 +14,7 @@ import { prisma } from './prisma'
 import { logger } from './logger'
 import { offerReplyInstruction } from './offer-reference'
 import { getCurrentAttorneyResponseDeadlineMinutes } from './matching-rules-config'
+import { isSmsSuppressed } from './sms-opt-out'
 
 /** Resolve which SMS provider to use. */
 function resolveSmsProvider(): 'sns' | 'twilio' | 'none' {
@@ -125,10 +126,32 @@ async function sendViaSns(to: string, body: string): Promise<boolean> {
   }
 }
 
+export type SendSmsOptions = {
+  /**
+   * Send even if the number has opted out.
+   *
+   * Only for the confirmation that acknowledges the opt-out itself, which
+   * carriers expect and which is part of honouring the request rather than a
+   * further message. Nothing else should set this.
+   */
+  ignoreOptOut?: boolean
+}
+
 /**
  * Send SMS to a phone number through the configured provider (SNS or Twilio).
+ *
+ * Checked for opt-out here rather than in the notification layer because this is
+ * the only place every outbound message passes through: of the eight call sites,
+ * six reach this function directly and never touch `platform-notifications`. A
+ * suppression check anywhere else would leave the claimant-facing texts — the
+ * ones a STOP is actually about — uncovered.
  */
-export async function sendSms(to: string, body: string): Promise<boolean> {
+export async function sendSms(to: string, body: string, options: SendSmsOptions = {}): Promise<boolean> {
+  if (!options.ignoreOptOut && (await isSmsSuppressed(to))) {
+    logger.info('SMS suppressed: recipient opted out', { to: to.slice(-4), bodyLength: body.length })
+    return false
+  }
+
   const provider = resolveSmsProvider()
   if (provider === 'sns') return sendViaSns(to, body)
   if (provider === 'twilio') return sendViaTwilio(to, body)

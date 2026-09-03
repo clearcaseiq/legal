@@ -4520,6 +4520,35 @@ model CaseChangeEvent {
   @@map("case_change_events")
 }
 
+/// Numbers that have asked not to be texted.
+///
+/// Keyed on the phone number rather than a user because that is the only thing
+/// every outbound text has in common: the claimant-facing sends read
+/// `IntakeLead.phone`, and an intake lead frequently has no `User` row at all.
+/// An opt-out attached to a user id would not cover the people most likely to
+/// send a STOP.
+///
+/// `phone` is always the output of `optOutKey()` in `lib/sms-opt-out.ts`, which
+/// exists because this repo has five disagreeing phone normalizers and an
+/// opt-out is worthless if the number written on the way in does not match the
+/// number read on the way out.
+model SmsOptOut {
+  id String @id @default(cuid())
+  /// E.164, via optOutKey().
+  phone String @unique
+  /// The keyword that caused the most recent change, for the audit trail.
+  keyword String?
+  source  String  @default("inbound_sms")
+  optedOutAt DateTime @default(now())
+  /// Set when they text START. Null means the opt-out stands.
+  optedInAt  DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([optedInAt])
+  @@map("sms_opt_outs")
+}
+
 /// Per-field authorship for `Assessment.facts`.
 ///
 /// `CaseChangeEvent` says the case changed and who caused it; this says which
