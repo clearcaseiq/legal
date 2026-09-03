@@ -95,6 +95,17 @@ export default function handler(req: NextRequest) {
       height: HEIGHT,
       headers: {
         'Cache-Control': 'public, immutable, no-transform, s-maxage=31536000, max-age=31536000',
+        // Every page points og:image here with its own title, so the library
+        // turns into several hundred distinct URLs. robots.txt has to keep
+        // `Allow: /api/og` or link previews stop rendering on Facebook, X and
+        // iMessage, which also lets Google crawl them: Search Console was
+        // holding 578 of these under "crawled, currently not indexed".
+        //
+        // A header is the way out where robots.txt is not. Preview scrapers do
+        // not read X-Robots-Tag and still fetch the image; Google does, and
+        // drops the URLs. Covers the /es and /zh cards too, which arrive here
+        // with translated titles and are otherwise the same problem again.
+        'X-Robots-Tag': 'noindex',
       },
     },
   )
