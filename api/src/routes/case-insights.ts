@@ -16,6 +16,11 @@ import {
 import { optionalAuthMiddleware, AuthRequest } from '../lib/auth'
 import { enforceAssessmentReadAccess } from '../lib/assessment-access'
 import { updateCaseFacts } from '../lib/case-facts'
+import {
+  approveExternalWriteProposal,
+  listClaimantFactProposals,
+  rejectExternalWriteProposal,
+} from '../lib/case-reconciliation'
 import { logger } from '../lib/logger'
 import { maybeVerifyAttorneyReview } from '../lib/appointment-engagement'
 import { recomputeAttorneyRatingAggregates } from '../lib/attorney-rating-aggregates'
@@ -152,6 +157,86 @@ router.post('/assessments/:assessmentId/plaintiff-medical-review', optionalAuthM
     res.status(500).json({ error: 'Failed to save plaintiff medical review' })
   }
 })
+
+// ---------------------------------------------------------------------------
+// Confirming what a specialist entered on the claimant's behalf
+//
+// Same interaction as the medical review above — here is what we have, confirm
+// it or correct it — applied to values a specialist took down on a call. The
+// value is not on the case until the claimant answers here, because a
+// paraphrase of someone's account of their own injury is not their answer.
+// ---------------------------------------------------------------------------
+
+router.get('/assessments/:assessmentId/fact-confirmations', optionalAuthMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const { assessmentId } = req.params
+    const allowed = await enforceAssessmentReadAccess({
+      assessmentId,
+      user: req.user,
+      res,
+      route: 'case-insights.fact-confirmations.read',
+    })
+    if (!allowed) return
+
+    res.json({ confirmations: await listClaimantFactProposals(assessmentId) })
+  } catch (error: any) {
+    logger.error('Failed to list fact confirmations', { error: error.message, assessmentId: req.params.assessmentId })
+    res.status(500).json({ error: 'Failed to list fact confirmations' })
+  }
+})
+
+const FactConfirmation = z.object({
+  /** Decline keeps whatever the claimant already had. */
+  decision: z.enum(['confirm', 'decline']),
+  note: z.string().max(500).optional(),
+})
+
+router.post(
+  '/assessments/:assessmentId/fact-confirmations/:proposalId',
+  optionalAuthMiddleware,
+  async (req: AuthRequest, res) => {
+    try {
+      const { assessmentId, proposalId } = req.params
+      const parsed = FactConfirmation.safeParse(req.body)
+      if (!parsed.success) {
+        return res.status(400).json({ error: 'Invalid confirmation', details: parsed.error.flatten() })
+      }
+
+      const allowed = await enforceAssessmentReadAccess({
+        assessmentId,
+        user: req.user,
+        res,
+        route: 'case-insights.fact-confirmations.write',
+      })
+      if (!allowed) return
+
+      // Scoped to the case the caller was just authorized for, so a proposal id
+      // from someone else's case cannot be confirmed through this route.
+      const proposal = await prisma.externalWriteProposal.findUnique({
+        where: { id: proposalId },
+        select: { assessmentId: true },
+      })
+      if (!proposal || proposal.assessmentId !== assessmentId) {
+        return res.status(404).json({ error: 'Confirmation not found' })
+      }
+
+      const actor = { userId: req.user?.id ?? null, label: req.user?.email ?? null, as: 'claimant' as const }
+      const result =
+        parsed.data.decision === 'confirm'
+          ? await approveExternalWriteProposal(proposalId, actor)
+          : await rejectExternalWriteProposal(proposalId, actor, parsed.data.note ?? 'claimant_declined')
+
+      if (!result.ok) return res.status(409).json({ error: result.reason })
+      res.json({ ok: true, confirmations: await listClaimantFactProposals(assessmentId) })
+    } catch (error: any) {
+      logger.error('Failed to record fact confirmation', {
+        error: error.message,
+        assessmentId: req.params.assessmentId,
+      })
+      res.status(500).json({ error: 'Failed to record fact confirmation' })
+    }
+  },
+)
 
 // Case preparation - missing docs, treatment gaps, strengths/weaknesses
 router.get('/assessments/:assessmentId/case-preparation', optionalAuthMiddleware, async (req: AuthRequest, res) => {

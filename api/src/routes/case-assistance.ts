@@ -11,9 +11,9 @@
  * `buildCaseCoach` — which all take an assessment id directly. Only the
  * authorization and the presentation are new.
  *
- * Read-only on case answers, deliberately. Specialists guide the plaintiff, who
- * updates their own case; nothing here writes to `Assessment.facts`. See
- * `docs/case-assistance-phase-2.md` for why on-behalf editing waits.
+ * Still never writes `Assessment.facts` directly. A specialist who takes an
+ * answer on a call *proposes* it (`POST /:id/proposals`); the claimant confirms
+ * it before it becomes their answer. See `docs/case-assistance-phase-2.md`.
  */
 import { Router, type Router as ExpressRouter } from 'express'
 import { z } from 'zod'
@@ -44,6 +44,9 @@ import { buildCaseCoach } from '../lib/case-coach'
 import { deliverDirectNotification } from '../lib/platform-notifications'
 import { PLAINTIFF_EVENTS } from '../lib/notification-events'
 import { webUrl } from '../lib/app-url'
+import { PROPOSABLE_FACT_PATHS, isProposableFactPath, readFactPath } from '../lib/case-fact-paths'
+import { createSpecialistFactProposal, factPathOf, proposalFieldLabel } from '../lib/case-reconciliation'
+import { parseCaseFacts } from '../lib/case-facts'
 
 const router: ExpressRouter = Router()
 
@@ -700,6 +703,134 @@ router.post('/:id/interactions', async (req: AuthRequest, res) => {
     res.status(201).json({ success: true, interaction: serializeInteraction(interaction) })
   } catch (error) {
     logger.error('Failed to log case interaction', { error, id: req.params.id })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+// ---------------------------------------------------------------------------
+// On-behalf answers
+//
+// A specialist hears an answer on a call and records it here. It does not touch
+// the case: it becomes a pending proposal the claimant confirms or corrects, so
+// the claimant's own account of their injury is never overwritten by someone
+// paraphrasing it. See `lib/case-reconciliation.ts`.
+// ---------------------------------------------------------------------------
+
+const ProposalSchema = z.object({
+  path: z.string().min(1).max(120),
+  // Null clears the field: "no, I never missed work" is an answer.
+  value: z.string().max(5000).nullable(),
+})
+
+/** The fields a specialist may propose, with what the claimant has on file. */
+router.get('/:id/proposals', async (req: AuthRequest, res) => {
+  try {
+    const assistance = await loadAssistance(req, req.params.id)
+    if (!assistance) return res.status(404).json({ error: 'Case not found' })
+
+    const [assessment, pending] = await Promise.all([
+      prisma.assessment.findUnique({
+        where: { id: assistance.assessmentId },
+        select: { facts: true },
+      }),
+      prisma.externalWriteProposal.findMany({
+        where: { assessmentId: assistance.assessmentId, status: 'pending', source: 'specialist' },
+        orderBy: { createdAt: 'asc' },
+      }),
+    ])
+
+    const facts = parseCaseFacts(assessment?.facts ?? null)
+    const fields = Object.entries(PROPOSABLE_FACT_PATHS).map(([path, spec]) => ({
+      path,
+      label: spec.label,
+      type: spec.type,
+      currentValue: readFactPath(facts, path),
+    }))
+
+    res.json({
+      fields,
+      pending: pending.map((proposal: (typeof pending)[number]) => ({
+        id: proposal.id,
+        path: factPathOf(proposal.field),
+        label: proposalFieldLabel(proposal.field),
+        currentValue: proposal.currentValue,
+        proposedValue: proposal.proposedValue,
+        createdAt: proposal.createdAt,
+      })),
+    })
+  } catch (error) {
+    logger.error('Failed to load case proposals', { error, id: req.params.id })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+router.post('/:id/proposals', async (req: AuthRequest, res) => {
+  try {
+    const parsed = ProposalSchema.safeParse(req.body)
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() })
+    }
+
+    const assistance = await loadAssistance(req, req.params.id)
+    if (!assistance) return res.status(404).json({ error: 'Case not found' })
+
+    if (!isProposableFactPath(parsed.data.path)) {
+      return res.status(400).json({ error: 'That field cannot be set on the claimant\u2019s behalf' })
+    }
+
+    const result = await createSpecialistFactProposal({
+      assessmentId: assistance.assessmentId,
+      path: parsed.data.path,
+      proposedValue: parsed.data.value,
+      specialist: {
+        userId: req.user!.id,
+        label: specialistNameOf(req.user) || req.user?.email || 'Case specialist',
+      },
+    })
+    if (!result.ok) return res.status(400).json({ error: result.reason })
+
+    // The claimant has to know something is waiting, or the value sits pending
+    // forever and the call was wasted. Best-effort: a mail failure must not lose
+    // the answer the specialist just took down.
+    const contact = contactOf(assistance.assessment)
+    if (contact.email) {
+      const label = proposalFieldLabel(result.proposal.field).toLowerCase()
+      await deliverDirectNotification({
+        type: 'email',
+        recipient: contact.email,
+        subject: 'Please confirm a detail from your call',
+        message: [
+          `We noted the ${label} you mentioned on your call. Before it goes on your case, we need you to confirm it is right.`,
+          '',
+          'You can confirm it, or correct it, from your case page.',
+        ].join('\n'),
+        cta: { label: 'Review and confirm', url: webUrl(`/results?assessment=${assistance.assessmentId}`) },
+        userId: assistance.assessment.user?.id || null,
+        assessmentId: assistance.assessmentId,
+        role: 'plaintiff',
+        replyTo: req.user?.email || null,
+        fromName: specialistNameOf(req.user) || 'Your ClearCaseIQ case specialist',
+        metadata: {
+          eventType: PLAINTIFF_EVENTS.more_info_requested,
+          proposalId: result.proposal.id,
+          proposedBy: req.user?.id,
+        },
+      }).catch((error: unknown) => {
+        logger.warn('Could not notify claimant of a pending confirmation', {
+          assessmentId: assistance.assessmentId,
+          error,
+        })
+      })
+    }
+
+    logger.info('Specialist proposed a case value', {
+      assessmentId: assistance.assessmentId,
+      path: parsed.data.path,
+      specialistId: req.user?.id,
+    })
+    res.status(201).json({ success: true, proposal: result.proposal })
+  } catch (error) {
+    logger.error('Failed to propose a case value', { error, id: req.params.id })
     res.status(500).json({ error: 'Internal server error' })
   }
 })

@@ -46,7 +46,10 @@ router.get('/proposals', authMiddleware, async (req: AuthRequest, res) => {
   const ctx = await getActorFirmContext(req)
   if (!ctx.lawFirmId) return res.json({ proposals: [] })
   const proposals = await prisma.externalWriteProposal.findMany({
-    where: { lawFirmId: ctx.lawFirmId, status: 'pending' },
+    // Specialist proposals are excluded: they are awaiting the claimant's
+    // confirmation, and listing them here invites a firm user to answer a
+    // question about the claimant's own account that only the claimant can.
+    where: { lawFirmId: ctx.lawFirmId, status: 'pending', source: { not: 'specialist' } },
     orderBy: { createdAt: 'desc' },
     take: 200,
   })
@@ -61,6 +64,7 @@ router.post('/proposals/:id/approve', authMiddleware, async (req: AuthRequest, r
   const result = await approveExternalWriteProposal(req.params.id, {
     userId: req.user?.id ?? null,
     label: req.user?.email ?? null,
+    as: 'firm',
   })
   if (!result.ok) return res.status(409).json({ error: result.reason })
   res.json({ ok: true, proposal: result.proposal })
@@ -76,7 +80,7 @@ router.post('/proposals/:id/reject', authMiddleware, async (req: AuthRequest, re
   const parsed = RejectBody.safeParse(req.body ?? {})
   const result = await rejectExternalWriteProposal(
     req.params.id,
-    { userId: req.user?.id ?? null, label: req.user?.email ?? null },
+    { userId: req.user?.id ?? null, label: req.user?.email ?? null, as: 'firm' },
     parsed.success ? parsed.data.note : undefined,
   )
   if (!result.ok) return res.status(409).json({ error: result.reason })
@@ -134,7 +138,7 @@ router.get('/:ref/proposals', authMiddleware, async (req: AuthRequest, res) => {
   if (!canonical || !actorCanAccess(canonical, ctx)) return res.status(404).json({ error: 'Case not found' })
 
   const proposals = await prisma.externalWriteProposal.findMany({
-    where: { assessmentId, status: 'pending' },
+    where: { assessmentId, status: 'pending', source: { not: 'specialist' } },
     orderBy: { createdAt: 'desc' },
   })
   res.json({ proposals })

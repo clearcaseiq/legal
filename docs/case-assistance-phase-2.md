@@ -8,6 +8,12 @@ Phase 2 is on-behalf editing — a specialist entering an answer for a claimant
 who is on the phone. This document is why that is not a UI task, and what has
 to be built first.
 
+**Status:** the data groundwork is done. A specialist proposes a value, the
+claimant confirms it, and only then does it land — guarded against a concurrent
+edit and recorded per field. The remaining work is the two surfaces that call
+those endpoints, plus the compliance prerequisites below, which gate the
+contact tooling rather than the editing.
+
 ## Why on-behalf editing is blocked
 
 ### `Assessment.facts` is one JSON blob — now behind a choke point
@@ -127,18 +133,55 @@ What is still missing for on-behalf editing: nothing reads these rows yet, and
 no surface offers "the claimant said X, you entered Y — which stands?". The data
 to answer it now exists.
 
-### 3. Extend the two assets that are already the right shape
+### ~~3. Extend the two assets that are already the right shape~~ — done
 
-Neither of these needs inventing; both need widening.
+Neither needed inventing; both needed widening.
 
-- **`ExternalWriteProposal`** already implements preserve-both-values-and-
-  require-review, but only for three scalar `Assessment` fields (`caseName`,
-  `status`, `venueCounty`) arriving from external systems. The mechanism is
-  correct; the scope is narrow.
-- **`buildPlaintiffMedicalReview`** in `lib/case-insights.ts` already implements
-  claimant confirmation with per-item corrections, for the medical chronology.
-  That is exactly the interaction a specialist-entered value needs: the claimant
-  confirms it before it counts as theirs.
+**`ExternalWriteProposal`** already implemented preserve-both-values-and-
+require-review, but only for three scalar `Assessment` columns arriving from
+external systems. It now also carries proposals against paths *inside* the facts
+document, where almost everything a specialist would capture on a call lives.
+The `field` column holds `facts:<dotted.path>` for those, so no migration was
+needed — every column the mechanism uses was already nullable text.
+
+Approving a facts proposal goes through `updateCaseFacts`, which means it
+inherits the revision guard and the `CaseFactChange` row from steps 1 and 2. The
+two allowlists now read as a pair: `RECONCILABLE_FIELDS` for columns,
+`PROPOSABLE_FACT_PATHS` in `lib/case-fact-paths.ts` for facts. The second is
+deliberately narrow — facts a claimant can state plainly on a call. Consent
+fields, derived values like `med_charges_source`, and `plaintiffMedicalReview`
+(which is the claimant's review of *our* output) are absent on purpose.
+
+Two details that would otherwise corrupt the document quietly. Proposals store
+values as text because a reviewer has to see two of them side by side, so each
+path carries the type needed to put the value back as a number or boolean rather
+than `"1200"` where every reader does arithmetic. And several insurance keys
+exist twice under different names — `claim_number` alongside `claimNumber` —
+which `question-facts-sync.ts` already writes in pairs; a proposal writes the
+mirrors too, or the old value keeps showing wherever the duplicate is read.
+
+**Who may review** is now part of the model rather than an accident of which
+route was called. `reviewerForSource` sends a specialist's proposal to the
+claimant and everything else to the firm, and both approve and reject refuse a
+caller whose declared standing does not match. A firm user confirming a
+specialist's value on the claimant's behalf would defeat the entire reason it is
+a proposal. The firm inbox excludes specialist proposals for the same reason.
+
+**`buildPlaintiffMedicalReview`** was the model for the claimant's side rather
+than the host for it: mixing arbitrary fact confirmations into a medical
+chronology payload would be the wrong shape. `GET`/`POST
+/v1/case-insights/assessments/:id/fact-confirmations` implements the same
+interaction — here is what we have, confirm it or correct it — for values a
+specialist took down.
+
+Once confirmed, the provenance row attributes the value to the *claimant*, not
+the specialist. That is deliberate: after they confirm, it is their answer. The
+proposal row remains the durable record of who suggested it.
+
+What is left is the UI. `POST /v1/case-assistance/:id/proposals` and the
+confirmation endpoints are wired and tested, but the specialist workspace has no
+control that calls the first and the claimant's case page has none for the
+second.
 
 ## Compliance prerequisites
 
