@@ -238,12 +238,14 @@ describe('HTTP API (integration)', () => {
       .expect(200)
 
     expect(ok.body.submitted).toBe(true)
-    expect(prisma.assessment.update).toHaveBeenCalledWith(
+    // Facts go through the guarded write in lib/case-facts, so the consent lands
+    // scoped to the revision it was read at rather than as a blind overwrite.
+    expect(prisma.assessment.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: 'assess-int-test-1' },
-        data: {
+        where: expect.objectContaining({ id: 'assess-int-test-1' }),
+        data: expect.objectContaining({
           facts: expect.stringContaining('"hipaa":true'),
-        },
+        }),
       })
     )
     expect(prisma.leadSubmission.create).toHaveBeenCalledOnce()

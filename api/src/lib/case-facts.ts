@@ -20,19 +20,46 @@
  *    comparing two identical numbers and concluding nothing had changed. Every
  *    write through here records a change, so the column now means what it says.
  *
+ * 3. **Two writers silently clobbered each other.** Every site did an unguarded
+ *    read-modify-write, so a specialist and a claimant editing one case in the
+ *    same minute — the normal case for assisted intake, not an edge case — left
+ *    whichever wrote last as the only survivor, undetectably. The write is now
+ *    guarded on the revision it read and the loser re-applies its mutator.
+ *
+ * 4. **Nothing recorded who said what.** `lastWriteSource` is one string for the
+ *    whole case, so it cannot express "the claimant wrote the injury date and a
+ *    specialist wrote the claim number". Every write now also emits per-field
+ *    `CaseFactChange` rows, in the same transaction as the facts.
+ *
  * Read paths deliberately keep using the tolerant `parseCaseFacts`: a corrupt
  * blob should not take down a dashboard that merely displays it.
- *
- * Not yet handled: two writers that read the same revision still last-write-wins,
- * because the guard needs `where: { id, revision }` and callers that can cope
- * with a write being rejected. `updateCaseFacts` returns the revision it
- * produced so that guard can be added here without touching a call site.
  */
 import { prisma } from './prisma'
 import { logger } from './logger'
-import { recordCaseChange, type CaseChangeActor, type CaseWriteSource } from './data-authority'
+import { recordCaseChangeAtRevision, type CaseChangeActor, type CaseWriteSource } from './data-authority'
+import { diffCaseFacts } from './case-facts-diff'
 
 export type CaseFacts = Record<string, any>
+
+/**
+ * How many times to re-read and re-apply after losing a race.
+ *
+ * Three is enough for contention between a claimant and a specialist on one
+ * case. Anything beyond that is not contention, it is a write loop, and failing
+ * loudly is better than spinning.
+ */
+const MAX_WRITE_ATTEMPTS = 3
+
+/** Thrown when a write kept losing the race against another writer. */
+export class CaseFactsConflictError extends Error {
+  readonly assessmentId: string
+
+  constructor(assessmentId: string, attempts: number) {
+    super(`Assessment ${assessmentId} was changed by someone else during ${attempts} write attempts`)
+    this.name = 'CaseFactsConflictError'
+    this.assessmentId = assessmentId
+  }
+}
 
 /** Thrown when the stored blob cannot be parsed, to stop a write replacing it. */
 export class CaseFactsUnreadableError extends Error {
@@ -114,8 +141,12 @@ export type UpdateCaseFactsInput = {
   columns?: { status?: string }
   /**
    * Set false when the caller records its own change event for this mutation, to
-   * keep one user action from producing two rows on the feed. The caller is then
-   * responsible for the `recordCaseChange` that moves `revision`.
+   * keep one user action from producing two rows on the feed.
+   *
+   * The write still bumps `revision` — the guard depends on it — so a caller
+   * that then calls `recordCaseChange` advances it twice for one action. That is
+   * harmless: `revision` is a monotonic concurrency token, not a count of user
+   * actions. Per-field provenance is still recorded either way.
    */
   recordChange?: boolean
   /**
@@ -132,56 +163,117 @@ export type UpdateCaseFactsResult = {
   facts: CaseFacts
   /** False when the mutator declined to change anything. */
   written: boolean
-  /** The revision after this write, or null when the change feed rejected it. */
+  /** The revision after this write. Null when nothing was written. */
   revision: number | null
+  /** How many per-field provenance rows this write recorded. */
+  trackedChanges: number
 }
 
 /**
  * Read, mutate and write `facts` for one case, recording provenance.
  *
+ * The write is guarded on the revision that was read, so two writers who both
+ * read revision 5 cannot both succeed — the loser re-reads and re-applies its
+ * mutator against the winner's document. That is why the mutator has to be a
+ * pure function of the facts it is handed.
+ *
  * Returns `null` when the assessment no longer exists. Throws
- * `CaseFactsUnreadableError` if the stored blob is corrupt — callers that
- * previously swallowed everything still swallow it, but they no longer destroy
- * the document on the way through.
+ * `CaseFactsUnreadableError` if the stored blob is corrupt, and
+ * `CaseFactsConflictError` if it kept losing the race.
  */
 export async function updateCaseFacts(input: UpdateCaseFactsInput): Promise<UpdateCaseFactsResult | null> {
   const { assessmentId, mutate, columns } = input
 
-  const current = await prisma.assessment.findUnique({
-    where: { id: assessmentId },
-    select: { facts: true },
-  })
-  if (!current) return null
+  for (let attempt = 1; attempt <= MAX_WRITE_ATTEMPTS; attempt++) {
+    const current = await prisma.assessment.findUnique({
+      where: { id: assessmentId },
+      select: { facts: true, revision: true, lawFirmId: true },
+    })
+    if (!current) return null
 
-  const facts = requireCaseFacts(assessmentId, current.facts)
-  const next = mutate(facts)
-  if (next === null) return { facts, written: false, revision: null }
+    const facts = requireCaseFacts(assessmentId, current.facts)
+    const next = mutate(facts)
+    if (next === null) return { facts, written: false, revision: null, trackedChanges: 0 }
 
-  await prisma.assessment.update({
-    where: { id: assessmentId },
-    data: {
-      facts: serializeCaseFacts(next),
-      ...(columns?.status ? { status: columns.status } : {}),
-    },
-  })
+    const serialized = serializeCaseFacts(next)
+    const diff = diffCaseFacts(facts, next)
+    // The revision the row will hold once this write lands. Both the feed event
+    // and the provenance rows are stamped with it so they can be correlated.
+    const nextRevision = (current.revision ?? 0) + 1
 
-  if (input.recordChange === false) return { facts: next, written: true, revision: null }
+    const landed = await prisma.$transaction(async (tx) => {
+      const result = await tx.assessment.updateMany({
+        where: { id: assessmentId, revision: current.revision },
+        data: {
+          facts: serialized,
+          // Bumped here rather than by a follow-up `recordCaseChange`: the guard
+          // above only excludes a concurrent writer if the revision it matched on
+          // moves in the same statement.
+          revision: { increment: 1 },
+          lastWriteSource: input.source,
+          ...(columns?.status ? { status: columns.status } : {}),
+        },
+      })
+      if (result.count === 0) return false
 
-  // Awaited rather than fired and forgotten: this is what moves `revision` and
-  // `lastWriteSource`, so a caller that returns the new revision needs it to
-  // have landed. `recordCaseChange` never throws, so awaiting cannot turn a
-  // successful write into a failure.
-  const change = await recordCaseChange({
-    assessmentId,
-    source: input.source,
-    action: input.action,
-    entityType: input.entityType,
-    entityId: input.entityId,
-    summary: input.summary,
-    actor: input.actor,
-  })
+      if (diff.changes.length > 0) {
+        await tx.caseFactChange.createMany({
+          data: diff.changes.map((change) => ({
+            assessmentId,
+            path: change.path,
+            kind: change.kind,
+            previousValue: change.previousValue ?? null,
+            nextValue: change.nextValue ?? null,
+            revision: nextRevision,
+            source: input.source,
+            actorType: input.actor?.type ?? null,
+            actorId: input.actor?.id ?? null,
+            actorLabel: input.actor?.label ?? null,
+            action: input.action,
+          })),
+        })
+      }
+      return true
+    })
 
-  return { facts: next, written: true, revision: change?.revision ?? null }
+    if (!landed) {
+      logger.info('Case facts write lost a race; retrying', { assessmentId, action: input.action, attempt })
+      continue
+    }
+
+    if (diff.truncated) {
+      // A whole-document rewrite rather than someone editing fields. The feed
+      // still records the write; per-field rows are not useful at that volume.
+      logger.info('Case facts change too broad to track per field', {
+        assessmentId,
+        action: input.action,
+        revision: nextRevision,
+      })
+    }
+
+    if (input.recordChange !== false) {
+      // Awaited rather than fired and forgotten so the feed row exists before a
+      // caller acts on the revision. Never throws, so it cannot turn a
+      // successful write into a failure.
+      await recordCaseChangeAtRevision(
+        {
+          assessmentId,
+          source: input.source,
+          action: input.action,
+          entityType: input.entityType,
+          entityId: input.entityId,
+          summary: input.summary,
+          actor: input.actor,
+        },
+        nextRevision,
+        current.lawFirmId ?? null,
+      )
+    }
+
+    return { facts: next, written: true, revision: nextRevision, trackedChanges: diff.changes.length }
+  }
+
+  throw new CaseFactsConflictError(assessmentId, MAX_WRITE_ATTEMPTS)
 }
 
 /**

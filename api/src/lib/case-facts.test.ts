@@ -11,12 +11,15 @@ import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
 vi.mock('./prisma', () => import('../test/universalPrismaMock'))
-vi.mock('./data-authority', () => ({ recordCaseChange: vi.fn().mockResolvedValue({ revision: 4, seq: 9, lawFirmId: null }) }))
+vi.mock('./data-authority', () => ({
+  recordCaseChangeAtRevision: vi.fn().mockResolvedValue({ revision: 6, seq: 9, lawFirmId: null }),
+}))
 
 import { prisma } from './prisma'
 import { resetUniversalPrismaMock } from '../test/universalPrismaMock'
-import { recordCaseChange } from './data-authority'
+import { recordCaseChangeAtRevision } from './data-authority'
 import {
+  CaseFactsConflictError,
   CaseFactsUnreadableError,
   parseCaseFacts,
   requireCaseFacts,
@@ -25,14 +28,27 @@ import {
   updateCaseFacts,
 } from './case-facts'
 
-function storedFacts(): any {
-  return JSON.parse(vi.mocked(prisma.assessment.update).mock.calls[0][0].data.facts)
+/** The row as it was read before each write, including its revision. */
+function existing(facts: string, revision = 5) {
+  prisma.assessment.findUnique.mockResolvedValue({ facts, revision, lawFirmId: 'firm-1' })
+}
+
+function writeCall(index = 0): any {
+  return vi.mocked(prisma.assessment.updateMany).mock.calls[index][0]
+}
+
+function storedFacts(index = 0): any {
+  return JSON.parse(writeCall(index).data.facts)
+}
+
+function provenanceRows(index = 0): any[] {
+  return vi.mocked(prisma.caseFactChange.createMany).mock.calls[index][0].data
 }
 
 beforeEach(() => {
   vi.clearAllMocks()
   resetUniversalPrismaMock()
-  vi.mocked(recordCaseChange).mockResolvedValue({ revision: 4, seq: 9, lawFirmId: null })
+  vi.mocked(recordCaseChangeAtRevision).mockResolvedValue({ revision: 6, seq: 9, lawFirmId: null })
 })
 
 describe('parseCaseFacts', () => {
@@ -80,8 +96,8 @@ describe('serializeCaseFacts', () => {
 })
 
 describe('updateCaseFacts', () => {
-  it('reads, mutates and writes, and records provenance', async () => {
-    prisma.assessment.findUnique.mockResolvedValue({ facts: '{"damages":{"med_charges":100},"keep":true}' })
+  it('reads, mutates and writes, and records the change', async () => {
+    existing('{"damages":{"med_charges":100},"keep":true}')
 
     const result = await updateCaseFacts({
       assessmentId: 'a-1',
@@ -92,15 +108,16 @@ describe('updateCaseFacts', () => {
     })
 
     expect(storedFacts()).toEqual({ damages: { med_charges: 250 }, keep: true })
-    expect(result).toEqual({ facts: expect.any(Object), written: true, revision: 4 })
-    const [event] = vi.mocked(recordCaseChange).mock.calls[0]
+    expect(result).toMatchObject({ written: true, revision: 6, trackedChanges: 1 })
+    const [event, revision, lawFirmId] = vi.mocked(recordCaseChangeAtRevision).mock.calls[0]
     expect(event).toMatchObject({ assessmentId: 'a-1', source: 'attorney', action: 'damages_updated' })
+    // Stamped with the revision this write produced, not one it bumped again.
+    expect(revision).toBe(6)
+    expect(lawFirmId).toBe('firm-1')
   })
 
   it('leaves untouched keys alone', async () => {
-    prisma.assessment.findUnique.mockResolvedValue({
-      facts: '{"incident":{"narrative":"rear-ended"},"injuries":["neck"],"treatment":[{"provider":"Dr A"}]}',
-    })
+    existing('{"incident":{"narrative":"rear-ended"},"injuries":["neck"],"treatment":[{"provider":"Dr A"}]}')
 
     await updateCaseFacts({
       assessmentId: 'a-1',
@@ -128,12 +145,12 @@ describe('updateCaseFacts', () => {
     })
 
     expect(result).toBeNull()
-    expect(prisma.assessment.update).not.toHaveBeenCalled()
-    expect(recordCaseChange).not.toHaveBeenCalled()
+    expect(prisma.assessment.updateMany).not.toHaveBeenCalled()
+    expect(recordCaseChangeAtRevision).not.toHaveBeenCalled()
   })
 
   it('writes nothing when the mutator declines', async () => {
-    prisma.assessment.findUnique.mockResolvedValue({ facts: '{"a":1}' })
+    existing('{"a":1}')
 
     const result = await updateCaseFacts({
       assessmentId: 'a-1',
@@ -142,13 +159,13 @@ describe('updateCaseFacts', () => {
       mutate: () => null,
     })
 
-    expect(result).toEqual({ facts: { a: 1 }, written: false, revision: null })
-    expect(prisma.assessment.update).not.toHaveBeenCalled()
-    expect(recordCaseChange).not.toHaveBeenCalled()
+    expect(result).toEqual({ facts: { a: 1 }, written: false, revision: null, trackedChanges: 0 })
+    expect(prisma.assessment.updateMany).not.toHaveBeenCalled()
+    expect(recordCaseChangeAtRevision).not.toHaveBeenCalled()
   })
 
   it('refuses to overwrite a corrupt document', async () => {
-    prisma.assessment.findUnique.mockResolvedValue({ facts: '{"truncated":' })
+    existing('{"truncated":')
 
     await expect(
       updateCaseFacts({
@@ -160,13 +177,13 @@ describe('updateCaseFacts', () => {
     ).rejects.toThrow(CaseFactsUnreadableError)
 
     // The document survives for someone to recover.
-    expect(prisma.assessment.update).not.toHaveBeenCalled()
+    expect(prisma.assessment.updateMany).not.toHaveBeenCalled()
   })
 
   it('carries extra columns in the same statement as the facts', async () => {
     // Two call sites flip status alongside the facts write; a second round trip
     // would let a request fail between the two and leave the case mislabelled.
-    prisma.assessment.findUnique.mockResolvedValue({ facts: '{}' })
+    existing('{}')
 
     await updateCaseFacts({
       assessmentId: 'a-1',
@@ -176,11 +193,11 @@ describe('updateCaseFacts', () => {
       mutate: (facts) => ({ ...facts, edited: true }),
     })
 
-    expect(vi.mocked(prisma.assessment.update).mock.calls[0][0].data).toMatchObject({ status: 'IN_PROGRESS' })
+    expect(writeCall().data).toMatchObject({ status: 'IN_PROGRESS' })
   })
 
   it('skips the change event when the caller records its own', async () => {
-    prisma.assessment.findUnique.mockResolvedValue({ facts: '{}' })
+    existing('{}')
 
     const result = await updateCaseFacts({
       assessmentId: 'a-1',
@@ -190,16 +207,16 @@ describe('updateCaseFacts', () => {
       mutate: (facts) => ({ ...facts, consents: { hipaa: true } }),
     })
 
-    expect(prisma.assessment.update).toHaveBeenCalled()
-    expect(recordCaseChange).not.toHaveBeenCalled()
+    expect(prisma.assessment.updateMany).toHaveBeenCalled()
+    expect(recordCaseChangeAtRevision).not.toHaveBeenCalled()
     expect(result?.written).toBe(true)
   })
 
   it('still writes when the change feed fails', async () => {
-    // `recordCaseChange` returns null rather than throwing; a lost feed row must
-    // not roll back the mutation the claimant just made.
-    prisma.assessment.findUnique.mockResolvedValue({ facts: '{}' })
-    vi.mocked(recordCaseChange).mockResolvedValue(null)
+    // The feed never throws; a lost feed row must not roll back the mutation the
+    // claimant just made.
+    existing('{}')
+    vi.mocked(recordCaseChangeAtRevision).mockResolvedValue(null)
 
     const result = await updateCaseFacts({
       assessmentId: 'a-1',
@@ -208,8 +225,177 @@ describe('updateCaseFacts', () => {
       mutate: (facts) => ({ ...facts, a: 1 }),
     })
 
-    expect(result).toMatchObject({ written: true, revision: null })
-    expect(prisma.assessment.update).toHaveBeenCalled()
+    expect(result).toMatchObject({ written: true, revision: 6 })
+    expect(prisma.assessment.updateMany).toHaveBeenCalled()
+  })
+})
+
+describe('the revision guard', () => {
+  it('scopes the write to the revision it read and bumps it atomically', async () => {
+    existing('{"a":1}', 5)
+
+    await updateCaseFacts({
+      assessmentId: 'a-1',
+      source: 'web',
+      action: 'facts_edited',
+      mutate: (facts) => ({ ...facts, a: 2 }),
+    })
+
+    const call = writeCall()
+    // Both halves matter: matching on the revision is what excludes a concurrent
+    // writer, and moving it in the same statement is what makes the exclusion
+    // hold for the next writer.
+    expect(call.where).toEqual({ id: 'a-1', revision: 5 })
+    expect(call.data).toMatchObject({ revision: { increment: 1 }, lastWriteSource: 'web' })
+  })
+
+  it('re-reads and re-applies the mutator after losing a race', async () => {
+    // The specialist-and-claimant-at-once case. The loser must rebuild its change
+    // on top of the winner's document rather than replacing it.
+    prisma.assessment.findUnique
+      .mockResolvedValueOnce({ facts: '{"med":100}', revision: 5, lawFirmId: null })
+      .mockResolvedValueOnce({ facts: '{"med":100,"wages":50}', revision: 6, lawFirmId: null })
+    prisma.assessment.updateMany.mockResolvedValueOnce({ count: 0 }).mockResolvedValueOnce({ count: 1 })
+
+    const result = await updateCaseFacts({
+      assessmentId: 'a-1',
+      source: 'attorney',
+      action: 'damages_updated',
+      mutate: (facts) => ({ ...facts, med: 250 }),
+    })
+
+    expect(prisma.assessment.updateMany).toHaveBeenCalledTimes(2)
+    // The concurrent writer's `wages` survived, and this writer's `med` applied.
+    expect(storedFacts(1)).toEqual({ med: 250, wages: 50 })
+    expect(writeCall(1).where).toEqual({ id: 'a-1', revision: 6 })
+    expect(result).toMatchObject({ written: true, revision: 7 })
+  })
+
+  it('gives up rather than spinning when it keeps losing', async () => {
+    existing('{"a":1}')
+    prisma.assessment.updateMany.mockResolvedValue({ count: 0 })
+
+    await expect(
+      updateCaseFacts({
+        assessmentId: 'a-1',
+        source: 'web',
+        action: 'facts_edited',
+        mutate: (facts) => ({ ...facts, a: 2 }),
+      }),
+    ).rejects.toThrow(CaseFactsConflictError)
+
+    expect(prisma.assessment.updateMany).toHaveBeenCalledTimes(3)
+    expect(recordCaseChangeAtRevision).not.toHaveBeenCalled()
+  })
+
+  it('records no change event for a write that never landed', async () => {
+    existing('{"a":1}')
+    prisma.assessment.updateMany.mockResolvedValue({ count: 0 })
+
+    await updateCaseFacts({
+      assessmentId: 'a-1',
+      source: 'web',
+      action: 'facts_edited',
+      mutate: (facts) => ({ ...facts, a: 2 }),
+    }).catch(() => null)
+
+    // A feed row for a write that lost would tell external systems a change
+    // happened that did not.
+    expect(recordCaseChangeAtRevision).not.toHaveBeenCalled()
+    expect(prisma.caseFactChange.createMany).not.toHaveBeenCalled()
+  })
+})
+
+describe('per-field provenance', () => {
+  it('records who changed which field, from what, to what', async () => {
+    existing('{"damages":{"med_charges":100}}')
+
+    await updateCaseFacts({
+      assessmentId: 'a-1',
+      source: 'attorney',
+      action: 'damages_updated',
+      actor: { type: 'user', id: 'spec-1', label: 'Sam Reyes' },
+      mutate: (facts) => ({ ...facts, damages: { ...facts.damages, med_charges: 250 } }),
+    })
+
+    expect(provenanceRows()).toEqual([
+      {
+        assessmentId: 'a-1',
+        path: 'damages.med_charges',
+        kind: 'changed',
+        previousValue: '100',
+        nextValue: '250',
+        revision: 6,
+        source: 'attorney',
+        actorType: 'user',
+        actorId: 'spec-1',
+        actorLabel: 'Sam Reyes',
+        action: 'damages_updated',
+      },
+    ])
+  })
+
+  it('stamps the same revision as the change feed, so the two correlate', async () => {
+    existing('{"a":1}', 11)
+
+    await updateCaseFacts({
+      assessmentId: 'a-1',
+      source: 'web',
+      action: 'facts_edited',
+      mutate: (facts) => ({ ...facts, a: 2 }),
+    })
+
+    const [, feedRevision] = vi.mocked(recordCaseChangeAtRevision).mock.calls[0]
+    expect(provenanceRows()[0].revision).toBe(12)
+    expect(feedRevision).toBe(12)
+  })
+
+  it('writes provenance in the same transaction as the facts', async () => {
+    // Facts without their provenance is the state this whole model exists to
+    // avoid, so the two cannot be allowed to diverge on a partial failure.
+    existing('{"a":1}')
+
+    await updateCaseFacts({
+      assessmentId: 'a-1',
+      source: 'web',
+      action: 'facts_edited',
+      mutate: (facts) => ({ ...facts, a: 2 }),
+    })
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1)
+  })
+
+  it('records nothing when the mutator produced an identical document', async () => {
+    existing('{"damages":{"med_charges":100}}')
+
+    const result = await updateCaseFacts({
+      assessmentId: 'a-1',
+      source: 'system',
+      action: 'damages_updated',
+      // What the write-through helpers do when the ledger has not moved.
+      mutate: (facts) => ({ ...facts, damages: { med_charges: 100 } }),
+    })
+
+    expect(result).toMatchObject({ written: true, trackedChanges: 0 })
+    expect(prisma.caseFactChange.createMany).not.toHaveBeenCalled()
+  })
+
+  it('skips per-field rows on a whole-document rewrite but still writes the facts', async () => {
+    // `runCaseRecalculation` replaces the document on every evidence upload.
+    const before: Record<string, number> = {}
+    for (let i = 0; i < 60; i++) before[`field${i}`] = i
+    existing(JSON.stringify(before))
+
+    const result = await updateCaseFacts({
+      assessmentId: 'a-1',
+      source: 'system',
+      action: 'recalculated',
+      mutate: (facts) => Object.fromEntries(Object.entries(facts).map(([k, v]) => [k, (v as number) + 1])),
+    })
+
+    expect(result).toMatchObject({ written: true, trackedChanges: 0 })
+    expect(prisma.assessment.updateMany).toHaveBeenCalled()
+    expect(prisma.caseFactChange.createMany).not.toHaveBeenCalled()
   })
 })
 

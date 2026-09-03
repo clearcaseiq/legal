@@ -15,8 +15,18 @@ function makeModel() {
         updatedAt: new Date(),
       })
     ),
+    // Reports the number of rows it was handed, so callers that check the count
+    // see the batch they actually passed.
+    createMany: vi.fn().mockImplementation((args: { data?: unknown } = {}) =>
+      Promise.resolve({ count: Array.isArray(args.data) ? args.data.length : args.data ? 1 : 0 })
+    ),
     update: vi.fn().mockResolvedValue({}),
-    updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+    // Defaults to one affected row: an update that silently matched nothing is
+    // the unusual case, and code that guards on `count` (optimistic-concurrency
+    // writes, conditional state transitions) would otherwise take its failure
+    // branch in every test that had not thought about it. Tests that want the
+    // no-match path still set `{ count: 0 }` explicitly.
+    updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     delete: vi.fn().mockResolvedValue({}),
     deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
     count: vi.fn().mockResolvedValue(0),

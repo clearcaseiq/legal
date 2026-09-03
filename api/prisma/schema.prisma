@@ -317,6 +317,8 @@ model Assessment {
   // Data authority: the canonical change feed and the inbound reconciliation queue.
   changeEvents           CaseChangeEvent[]
   externalWriteProposals ExternalWriteProposal[]
+  // Per-field authorship of the facts document.
+  factChanges            CaseFactChange[]
 
   // Phase 2: Communications
   platformNotificationEvents PlatformNotificationEvent[]
@@ -4516,6 +4518,43 @@ model CaseChangeEvent {
   @@index([lawFirmId, seq])
   @@index([createdAt])
   @@map("case_change_events")
+}
+
+/// Per-field authorship for `Assessment.facts`.
+///
+/// `CaseChangeEvent` says the case changed and who caused it; this says which
+/// field, from what, to what. Both are needed: the feed is what external systems
+/// page through, and this is what lets a human resolve "the claimant said three
+/// weeks, the specialist entered three months" instead of one silently winning.
+///
+/// Written only by `lib/case-facts.ts`, in the same transaction as the facts
+/// write it describes.
+model CaseFactChange {
+  id           String     @id @default(cuid())
+  assessmentId String
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  /// Dotted path into the facts document, e.g. `damages.med_charges`.
+  path         String
+  /// added | removed | changed. A field nobody answered is not a field answered
+  /// "no", so an absent value is distinguished from a null one.
+  kind         String
+  /// JSON-encoded, null when the field did not exist on that side.
+  previousValue String? @db.Text
+  nextValue     String? @db.Text
+  /// Case revision AFTER this change was applied, matching CaseChangeEvent.
+  revision     Int
+  source       String // web | mobile | rose_ai | attorney | admin | cms_inbound | reconcile | api | system
+  actorType    String? // user | attorney | ai | system | external
+  actorId      String?
+  actorLabel   String?
+  /// The verb from the write that produced this, e.g. `damages_updated`.
+  action       String
+  createdAt    DateTime @default(now())
+
+  // Answers "who last touched this field", the lookup on-behalf editing needs.
+  @@index([assessmentId, path, createdAt])
+  @@index([assessmentId, revision])
+  @@map("case_fact_changes")
 }
 
 model ExternalWriteProposal {

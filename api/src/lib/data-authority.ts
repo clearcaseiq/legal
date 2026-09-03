@@ -59,19 +59,7 @@ export async function recordCaseChange(input: RecordCaseChangeInput): Promise<Re
         select: { revision: true, lawFirmId: true },
       })
       const created = await tx.caseChangeEvent.create({
-        data: {
-          assessmentId: input.assessmentId,
-          lawFirmId: assessment.lawFirmId,
-          revision: assessment.revision,
-          source: input.source,
-          actorType: input.actor?.type ?? null,
-          actorId: input.actor?.id ?? null,
-          actorLabel: input.actor?.label ?? null,
-          action: input.action,
-          entityType: input.entityType ?? null,
-          entityId: input.entityId ?? null,
-          summary: input.summary ?? null,
-        },
+        data: buildEventData(input, assessment.revision, assessment.lawFirmId),
         select: { seq: true },
       })
       return {
@@ -96,6 +84,66 @@ export async function recordCaseChange(input: RecordCaseChangeInput): Promise<Re
     logger.error('Failed to record case change', {
       assessmentId: input.assessmentId,
       action: input.action,
+      error: error instanceof Error ? error.message : String(error),
+    })
+    return null
+  }
+}
+
+/** The feed row's shape, in one place so both entry points agree on it. */
+function buildEventData(input: RecordCaseChangeInput, revision: number, lawFirmId: string | null) {
+  return {
+    assessmentId: input.assessmentId,
+    lawFirmId,
+    revision,
+    source: input.source,
+    actorType: input.actor?.type ?? null,
+    actorId: input.actor?.id ?? null,
+    actorLabel: input.actor?.label ?? null,
+    action: input.action,
+    entityType: input.entityType ?? null,
+    entityId: input.entityId ?? null,
+    summary: input.summary ?? null,
+  }
+}
+
+/**
+ * Append a feed event for a revision the caller already bumped itself.
+ *
+ * For writers that must bump `revision` in the same statement as their data —
+ * `updateCaseFacts` guards its write on `where: { id, revision }`, so the bump
+ * has to be atomic with the facts, not a second round trip afterwards. Calling
+ * `recordCaseChange` there would increment a second time and leave the feed
+ * event pointing at a revision that never existed as a distinct write.
+ *
+ * Same never-throws contract as `recordCaseChange`.
+ */
+export async function recordCaseChangeAtRevision(
+  input: RecordCaseChangeInput,
+  revision: number,
+  lawFirmId: string | null,
+): Promise<RecordedChange | null> {
+  try {
+    const created = await prisma.caseChangeEvent.create({
+      data: buildEventData(input, revision, lawFirmId),
+      select: { seq: true },
+    })
+
+    if (!input.skipPush) {
+      void emitCaseChange(input.assessmentId, revision, created.seq).catch((error) =>
+        logger.warn('Case change push failed', {
+          assessmentId: input.assessmentId,
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      )
+    }
+
+    return { revision, seq: created.seq, lawFirmId }
+  } catch (error) {
+    logger.error('Failed to record case change at revision', {
+      assessmentId: input.assessmentId,
+      action: input.action,
+      revision,
       error: error instanceof Error ? error.message : String(error),
     })
     return null

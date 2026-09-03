@@ -50,32 +50,29 @@ Two things it fixed on the way through:
 - **`revision` never moved on a facts write.** Every write now records a change,
   so the column finally means what the schema says.
 
-What is still missing for on-behalf editing:
+Two further problems, both since fixed — see steps 1 and 2:
 
-1. **A prior value is gone the moment a write lands.** There is nowhere to hold
-   "the claimant said 3 weeks, the specialist entered 3 months" so a human can
-   choose. Any "original versus updated" view has nothing to read. This needs
-   the provenance record in step 2 below.
+1. **A prior value was gone the moment a write landed.** There was nowhere to
+   hold "the claimant said 3 weeks, the specialist entered 3 months" so a human
+   could choose.
 2. **Last-write-wins between two concurrent editors, silently.** A specialist
    and a claimant editing the same case in the same minute is the normal case
-   for this feature, not an edge case. The choke point returns the revision it
-   produced, so the guard is now a change to one function — see step 1.
+   for this feature, not an edge case.
 
-### The provenance fields cannot express per-field authorship
+### ~~The provenance fields cannot express per-field authorship~~ — addressed
 
 - `Assessment.lastWriteSource` is **one string for the whole case**. It is read
   in two places in `lib/canonical-case.ts` and written by `recordCaseChange()`
-  (and now stamped at creation). Its documented `admin` value still has no call
+  (and stamped at creation). Its documented `admin` value still has no call
   site. It cannot say "the claimant wrote the injury date and a specialist wrote
-  the claim number".
-- `Assessment.revision` is incremented in exactly one place —
-  `recordCaseChange()` in `lib/data-authority.ts`. It used not to move on a facts
-  write at all, because none of the fourteen writers called it; the choke point
-  now does, so it is usable as a concurrency token. Per-field authorship still
-  needs its own record.
-
-Building the editing UI before provenance exists means building it twice: once
-against a data model that cannot record who said what, and again afterwards.
+  the claim number" — `CaseFactChange` now does that instead, and this column is
+  best read as "who touched the case last", nothing finer.
+- `Assessment.revision` is now incremented in two places: `recordCaseChange()`
+  in `lib/data-authority.ts`, and `updateCaseFacts`, which must bump it in the
+  same statement as its guarded write. It used not to move on a facts write at
+  all, because none of the fourteen writers called it. It is now a usable
+  concurrency token, and `CaseChangeEvent` and `CaseFactChange` rows written for
+  the same change share it.
 
 ## The order to build it in
 
@@ -83,28 +80,52 @@ against a data model that cannot record who said what, and again afterwards.
 
 `lib/case-facts.ts`, described above.
 
-### 1. Guard the write on the revision that was read
+### ~~1. Guard the write on the revision that was read~~ — done
 
-`updateCaseFacts` currently reads, mutates and writes without a concurrency
-check, so two writers that read the same revision still race. The fix is a
-`where: { id, revision }` on the write — which means `updateMany` and a
-`count === 0` check — plus a retry that re-reads and re-runs the mutator.
+`updateCaseFacts` scopes its write to `where: { id, revision }` and bumps
+`revision` in the same statement. Both halves are needed: matching on the
+revision excludes a concurrent writer, and moving it in the same statement is
+what makes that exclusion hold for the next one. A writer that matches nothing
+re-reads and re-applies its mutator against the winner's document, up to three
+times before raising `CaseFactsConflictError`. The mutator contract already
+anticipated this — a pure function of the facts it is handed re-runs safely.
 
-Two reasons this was left out of the choke-point change rather than bundled
-with it. It makes writes able to *fail* where they previously always succeeded,
-across ten call sites whose error handling ranges from swallowing to a 500. And
-it needs `prisma.assessment.updateMany` to stop defaulting to `{ count: 0 }` in
-`test/universalPrismaMock.ts`, which every existing test through these paths
-would otherwise trip over. Both are tractable; neither belongs in the same
-commit as a mechanical refactor.
+Because the bump is now atomic with the facts, calling `recordCaseChange`
+afterwards would increment a second time and leave the feed event pointing at a
+revision that never existed as a distinct write. `data-authority.ts` gained
+`recordCaseChangeAtRevision` for callers that bumped it themselves;
+`recordCaseChange` is unchanged for everyone else.
 
-The mutator contract already anticipates this: it must be a pure function of the
-facts it is handed, so re-running it against a fresh read is safe.
+Two things this changed outside the module. `universalPrismaMock` defaulted
+`updateMany` to `{ count: 0 }`, so every guarded write in every test would have
+taken the lost-race branch; the default is now `{ count: 1 }`, with the
+no-match path still available explicitly. And the mock had no `createMany` at
+all, which the provenance rows need.
 
-### 2. Add a provenance record
+### ~~2. Add a provenance record~~ — done
 
-Per-field authorship, not per-case. Which field, what the value was, what it
-became, who changed it, through which surface, and when.
+`CaseFactChange` records per-field authorship: dotted path, previous and next
+value, revision, source, actor and action. Rows are written in the same
+transaction as the facts, because facts without their provenance is the state
+this model exists to prevent.
+
+`lib/case-facts-diff.ts` turns two versions of the document into those paths.
+Three decisions shape what it can answer:
+
+- **Arrays compare whole.** `facts.treatment` is rewritten wholesale by the
+  medical write-through, and pairing elements across two versions of an unkeyed
+  array invents changes nobody made.
+- **Absent is not null.** A field nobody has answered is not a field answered
+  "no", so the two are distinguished rather than both serializing to `null`.
+- **The diff is bounded at 40 paths.** `runCaseRecalculation` replaces the whole
+  document on every evidence upload. Past the cap the diff records nothing and
+  logs that it declined — half a rewrite attributed to one actor would read as a
+  precise claim about fields it never singled out. The change feed still records
+  that the write happened.
+
+What is still missing for on-behalf editing: nothing reads these rows yet, and
+no surface offers "the claimant said X, you entered Y — which stands?". The data
+to answer it now exists.
 
 ### 3. Extend the two assets that are already the right shape
 
