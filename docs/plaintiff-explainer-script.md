@@ -12,7 +12,7 @@
 
 | # | Time | Screen / Visual | Action | Voiceover (VO) | On-screen text |
 |---|------|-----------------|--------|----------------|----------------|
-| 1 | 0:00–0:06 | Home hero | Push-in on headline | "Injured in an accident and not sure what's next? Get clarity in about a minute." | See what your case may be worth |
+| 1 | 0:00–0:06 | Home hero | Push-in on headline | "Injured in an accident and not sure what's next? Get clarity in just a few minutes." | See what your case may be worth |
 | 2 | 0:06–0:12 | Home page | Tap **Start a Case Assessment** | "ClearCaseIQ is free, private, and needs no signup." | Free · No signup · Confidential |
 | 3 | 0:12–0:28 | Wizard montage (5 steps) | Quick cuts; progress bar fills | "Answer a few plain-English questions — what happened, your injuries and treatment, and any insurance. No legal jargon." | Injury · Location · Treatment · Insurance · Review |
 | 4 | 0:28–0:44 | **Your Case Snapshot** | Metrics animate; brief highlight on "add records" | "In seconds, see your case strength, an estimated value range, liability factors, and a likely timeline — and what to add to make it stronger." | Strength · Range · Liability · Timeline |
@@ -21,7 +21,7 @@
 
 ## Full narration (read-through, ~140 words / ~60s)
 
-> Injured in an accident and not sure what's next? Get clarity in about a minute.
+> Injured in an accident and not sure what's next? Get clarity in just a few minutes.
 > ClearCaseIQ is free, private, and needs no signup.
 > Answer a few plain-English questions — what happened, your injuries and treatment, and any insurance. No legal jargon.
 > In seconds, see your case strength, an estimated value range, liability factors, and a likely timeline — and what to add to make it stronger.

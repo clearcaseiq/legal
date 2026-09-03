@@ -67,6 +67,11 @@ function roleSelect(): HTMLSelectElement {
   return select
 }
 
+function lastCallParams() {
+  const calls = vi.mocked(getAdminUsers).mock.calls
+  return calls[calls.length - 1]?.[0]
+}
+
 async function selectRole(value: string) {
   const select = roleSelect()
   await act(async () => {
@@ -94,16 +99,14 @@ describe('Users & Roles scoping', () => {
 
     await selectRole('')
 
-    const [params] = vi.mocked(getAdminUsers).mock.calls.at(-1)!
-    expect(params?.role).toBeUndefined()
+    expect(lastCallParams()?.role).toBeUndefined()
   })
 
   it('can still reach client accounts, the only place they can be deactivated', async () => {
     await mount()
     await selectRole('client')
 
-    const [params] = vi.mocked(getAdminUsers).mock.calls.at(-1)!
-    expect(params?.role).toBe('client')
+    expect(lastCallParams()?.role).toBe('client')
   })
 
   it('names firm staff as external rather than labelling them plain "staff"', async () => {

@@ -1205,13 +1205,6 @@ export default function IntakeWizardQuick() {
         Math.round((currentStepIndex / visibleSteps.length) * 100) + 2,
         Math.round((completedFraction / visibleSteps.length) * 100),
       )
-  // Estimate remaining time from steps left (whole assessment budgeted at ~60s),
-  // rounded to a friendly 5-second increment so the header reflects real progress
-  // instead of showing a static "about 60 seconds total" on every step.
-  const estimatedSecondsLeft = Math.max(
-    5,
-    Math.round(((visibleSteps.length - currentStepIndex - 1) / Math.max(visibleSteps.length, 1)) * 60 / 5) * 5,
-  )
   const uploadedEvidenceCount = Object.values(pendingEvidenceFiles).reduce((total, files) => total + (Array.isArray(files) ? files.length : 0), 0)
 
   // --- Draft autosave: nothing used to be saved until final submit, so a refresh lost all 15 steps. ---
@@ -7340,17 +7333,12 @@ export default function IntakeWizardQuick() {
               </>
             )}
           </span>
+          {/* No time estimate here. The header used to count down from a budget
+              of 60 seconds for the whole assessment, which the step list has
+              long since outgrown - it promised a minute to someone about to
+              answer fifteen steps. "Step N of M" on the left is the honest
+              version of the same reassurance. */}
           <span className="flex min-w-0 items-center gap-2.5 mr-2 sm:mr-3">
-            {/* CP-575: a clock icon reads as "time remaining" far better than a
-                leading bullet point. */}
-            <span className="flex min-w-0 items-center gap-1">
-              <Clock className="h-3.5 w-3.5 shrink-0 text-slate-400 dark:text-slate-500" aria-hidden />
-              <span className="truncate">
-                {currentStepIndex + 1 < visibleSteps.length
-                  ? t('intake.progressTimeRemaining').replace('{seconds}', String(estimatedSecondsLeft))
-                  : t('intake.almostDone')}
-              </span>
-            </span>
             <button
               type="button"
               onClick={() => setShowResetConfirm(true)}

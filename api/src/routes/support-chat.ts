@@ -46,7 +46,7 @@ const LANGUAGE_NAMES: Record<'en' | 'es' | 'zh', string> = {
 const KNOWLEDGE_BASE = `
 ABOUT CLEARCASEIQ
 - ClearCaseIQ is a legal technology platform (a corporation, NOT a law firm) that helps people injured in accidents understand whether they may have a personal injury case before speaking with an attorney. It does not provide legal advice and using it does not create an attorney-client relationship.
-- The free case assessment takes about 60 seconds. You answer a few questions about your accident and injuries.
+- The free case assessment takes just a few minutes. You answer a few questions about your accident and injuries.
 - After the assessment you see "Case Readiness" (a qualitative signal of how developed your case is), an estimated case value range, and typical timelines. These are informational only and are not guarantees or predictions of success.
 
 ACCOUNTS
@@ -80,7 +80,7 @@ const SYSTEM_PROMPT = `You are the ClearCaseIQ Assistant, an AI help assistant o
 Your job: help visitors understand how the ClearCaseIQ platform works, using ONLY the knowledge base below. Be warm, concise (2-4 sentences unless a list is clearer), and plain-spoken.
 
 Hard rules:
-- Do NOT give legal advice, legal opinions, or predictions about whether someone will win, how much a specific case is worth, or what they should do legally. For those, tell them ClearCaseIQ isn't a law firm and can't give legal advice, and that a matched attorney can advise on their specific situation.
+- Do NOT give legal advice, legal opinions, or predictions about whether someone will win, how much a specific case is worth, or what they should do legally. For those, tell them ClearCaseIQ isn't a law firm and can't give legal advice, and that an attorney they choose can advise on their specific situation. Say "an attorney you choose", never "your matched attorney" — this widget answers anonymous visitors who have no attorney, and the Terms describe the claimant selecting the firm rather than us assigning one.
 - Do NOT invent policies, prices, timelines, features, or numbers that aren't in the knowledge base. If you don't know, say so and point them to a support request.
 - Never claim to be a person or an attorney. Never promise outcomes.
 - For account/login trouble, technical bugs, or privacy requests, guide them to submit a support request in the Help Center (or email support@clearcaseiq.com) — and mention it creates a ticket the team triages, usually within one business day.
@@ -90,9 +90,9 @@ KNOWLEDGE BASE:
 ${KNOWLEDGE_BASE}`
 
 const FALLBACK_REPLIES: Record<'en' | 'es' | 'zh', string> = {
-  en: "I can help with questions about how ClearCaseIQ works, like the free case assessment, uploading evidence, attorney matching, privacy, and case value estimates. I'm not able to give legal advice; a matched attorney can help with your specific situation. If you have an account or technical issue, the best next step is to submit a support request in the Help Center and our team will follow up, usually within one business day.",
-  es: 'Puedo ayudarle con preguntas sobre cómo funciona ClearCaseIQ: la evaluación gratuita del caso, la carga de evidencia, la conexión con abogados, la privacidad y las estimaciones del valor del caso. No puedo dar asesoría legal; un abogado asignado puede ayudarle con su situación específica. Si tiene un problema técnico o de cuenta, el mejor siguiente paso es enviar una solicitud de soporte en el Centro de Ayuda y nuestro equipo le responderá, normalmente dentro de un día hábil.',
-  zh: '我可以回答关于 ClearCaseIQ 平台的问题，例如免费案件评估、上传证据、律师匹配、隐私以及案件价值估算。我无法提供法律建议；匹配的律师可以就您的具体情况提供帮助。如果您遇到账户或技术问题，最好的下一步是在帮助中心提交支持请求，我们的团队通常会在一个工作日内跟进。',
+  en: "I can help with questions about how ClearCaseIQ works, like the free case assessment, uploading evidence, attorney matching, privacy, and case value estimates. I'm not able to give legal advice; an attorney you choose can help with your specific situation. If you have an account or technical issue, the best next step is to submit a support request in the Help Center and our team will follow up, usually within one business day.",
+  es: 'Puedo ayudarle con preguntas sobre cómo funciona ClearCaseIQ: la evaluación gratuita del caso, la carga de evidencia, la conexión con abogados, la privacidad y las estimaciones del valor del caso. No puedo dar asesoría legal; un abogado que usted elija puede ayudarle con su situación específica. Si tiene un problema técnico o de cuenta, el mejor siguiente paso es enviar una solicitud de soporte en el Centro de Ayuda y nuestro equipo le responderá, normalmente dentro de un día hábil.',
+  zh: '我可以回答关于 ClearCaseIQ 平台的问题，例如免费案件评估、上传证据、律师匹配、隐私以及案件价值估算。我无法提供法律建议；您选择的律师可以就您的具体情况提供帮助。如果您遇到账户或技术问题，最好的下一步是在帮助中心提交支持请求，我们的团队通常会在一个工作日内跟进。',
 }
 
 router.post('/', async (req, res) => {
