@@ -40,6 +40,22 @@ const ROLE_OPTIONS = ['client', 'attorney', 'staff', 'admin']
 const CREATABLE_ROLES = ['staff', 'admin'] as const
 const DEFAULT_LIMIT = 50
 
+// `admin` is the only role that means someone who works at ClearCaseIQ. `staff`
+// reads as though it does, but it is law-firm staff — the "Firm Staff Login"
+// screen signs them in — so it sits with the other external roles here.
+//
+// Spelled out rather than derived from ROLE_OPTIONS because the bare role names
+// are what caused the confusion: this screen listed every account on the
+// platform, and "staff" gave no hint that those people work somewhere else.
+const EMPLOYEE_ROLE = 'admin'
+const ROLE_FILTER_OPTIONS: { value: string; label: string }[] = [
+  { value: EMPLOYEE_ROLE, label: 'ClearCaseIQ employees' },
+  { value: '', label: 'All roles' },
+  { value: 'client', label: 'Clients' },
+  { value: 'attorney', label: 'Attorneys' },
+  { value: 'staff', label: 'Firm staff' },
+]
+
 const EMPTY_DRAFT = {
   email: '',
   firstName: '',
@@ -58,7 +74,9 @@ export default function AdminUserRoles() {
   const [error, setError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [appliedSearch, setAppliedSearch] = useState('')
-  const [roleFilter, setRoleFilter] = useState('')
+  // Opens on ClearCaseIQ's own people. Widening to "All roles" stays one click
+  // away because this screen is the only way to deactivate a client account.
+  const [roleFilter, setRoleFilter] = useState(EMPLOYEE_ROLE)
   const [savingId, setSavingId] = useState<string | null>(null)
   const [showAdd, setShowAdd] = useState(false)
   const [draft, setDraft] = useState(EMPTY_DRAFT)
@@ -434,7 +452,11 @@ export default function AdminUserRoles() {
       )}
 
       <SectionCard
-        title={`${total.toLocaleString()} user${total === 1 ? '' : 's'}`}
+        title={
+          roleFilter === EMPLOYEE_ROLE
+            ? `${total.toLocaleString()} ClearCaseIQ employee${total === 1 ? '' : 's'}`
+            : `${total.toLocaleString()} user${total === 1 ? '' : 's'}`
+        }
         trailing={
           <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
             <select
@@ -443,13 +465,12 @@ export default function AdminUserRoles() {
                 setRoleFilter(e.target.value)
                 setOffset(0)
               }}
-              className="input w-auto capitalize"
+              className="input w-auto"
               aria-label="Filter by role"
             >
-              <option value="">All roles</option>
-              {ROLE_OPTIONS.map((role) => (
-                <option key={role} value={role}>
-                  {role}
+              {ROLE_FILTER_OPTIONS.map((option) => (
+                <option key={option.value || 'all'} value={option.value}>
+                  {option.label}
                 </option>
               ))}
             </select>
@@ -468,7 +489,18 @@ export default function AdminUserRoles() {
           rowKey={(user) => user.id}
           loading={loading}
           loadingMessage="Loading users…"
-          emptyMessage={appliedSearch ? 'No users match your search.' : 'No users found.'}
+          emptyMessage={
+            // Searching a plaintiff's address while scoped to employees finds
+            // nothing, which reads as "no such account" rather than "not in this
+            // filter". Say which it is.
+            roleFilter === EMPLOYEE_ROLE
+              ? appliedSearch
+                ? 'No ClearCaseIQ employee matches your search. Choose "All roles" to search every account.'
+                : 'No ClearCaseIQ employees found.'
+              : appliedSearch
+                ? 'No users match your search.'
+                : 'No users found.'
+          }
         />
 
         <Pagination
