@@ -206,6 +206,42 @@ export async function savePlaintiffMedicalReview(
   return data
 }
 
+/**
+ * A value a case specialist took down on a call, waiting for the claimant to
+ * say whether it is right. Nothing is on the case until they answer.
+ */
+export interface FactConfirmation {
+  id: string
+  path: string | null
+  label: string
+  type: 'string' | 'number' | 'boolean'
+  /** What the claimant already had. Null when they never answered this. */
+  currentValue: string | null
+  /** What the specialist heard. */
+  proposedValue: string | null
+  proposedBy: string | null
+  proposedAt: string
+}
+
+export async function getFactConfirmations(assessmentId: string): Promise<FactConfirmation[]> {
+  const { data } = await api.get(`/v1/case-insights/assessments/${assessmentId}/fact-confirmations`, {
+    params: freshParams(),
+  })
+  return data.confirmations ?? []
+}
+
+export async function respondToFactConfirmation(
+  assessmentId: string,
+  proposalId: string,
+  payload: { decision: 'confirm' | 'decline'; note?: string },
+): Promise<FactConfirmation[]> {
+  const { data } = await api.post(
+    `/v1/case-insights/assessments/${assessmentId}/fact-confirmations/${proposalId}`,
+    payload,
+  )
+  return data.confirmations ?? []
+}
+
 export async function getSettlementBenchmarks(assessmentId: string) {
   const { data } = await api.get(`/v1/case-insights/assessments/${assessmentId}/settlement-benchmarks`, { params: freshParams() })
   return data.benchmarks

@@ -35,6 +35,7 @@ import { formatAttorneyLicensure } from '../lib/attorneyLicensure'
 import { ResultsPanelSkeleton } from '../components/PageSkeletons'
 import PlaintiffCaseCommandCenter from '../components/PlaintiffCaseCommandCenter'
 import PlaintiffMedicalChronology from '../components/PlaintiffMedicalChronology'
+import PlaintiffFactConfirmations from '../components/PlaintiffFactConfirmations'
 import InfoDisclosure from '../components/InfoDisclosure'
 import EstimateAccuracyStages from '../components/EstimateAccuracyStages'
 import CaseFileChecklist from '../components/CaseFileChecklist'
@@ -4433,6 +4434,12 @@ Checklist:
             ))}
           </div>
         </nav>
+
+        {/* Above the tabs on purpose: the claimant arrives here from an email
+            asking them to confirm something, and it must not be buried in
+            whichever tab happened to be open. Renders nothing when nothing is
+            waiting, which is the normal case. */}
+        <PlaintiffFactConfirmations assessmentId={resolvedAssessmentId} readOnly={isSharedReadOnly} />
 
         {activeResultsTab === 'overview' && (
         <div className="mb-8 space-y-5" aria-label={t('results.aria.overview')}>

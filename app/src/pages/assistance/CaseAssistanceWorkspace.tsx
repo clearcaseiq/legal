@@ -3,11 +3,15 @@ import { useNavigate, useParams } from 'react-router-dom'
 import {
   getAssistanceAi,
   getAssistanceCase,
+  getAssistanceProposals,
   getAssistanceSpecialists,
   logAssistanceInteraction,
+  proposeAssistanceValue,
   sendAssistanceDocumentRequest,
   sendAssistanceEmail,
   updateAssistanceCase,
+  type AssistancePendingProposal,
+  type AssistanceProposableField,
   type AssistanceStatus,
 } from '../../lib/api'
 import { Badge, BackButton, Breadcrumbs, EmptyState, SectionCard } from '../../features/shared/ui'
@@ -34,9 +38,12 @@ type AiData = Awaited<ReturnType<typeof getAssistanceAi>>
  * The specialist workspace.
  *
  * Three panes: who the claimant is and how ready their case is, what they told
- * us, and what to do about it. Read-only on case answers by design — the
- * claimant updates their own case, and a specialist guides them through it.
- * Nothing on this screen writes to `Assessment.facts`.
+ * us, and what to do about it.
+ *
+ * Nothing here writes to the case. An answer taken on a call is *proposed*, and
+ * the claimant confirms it before it becomes their answer — a specialist's
+ * paraphrase of someone's account of their own injury is not that person's
+ * account. See `docs/case-assistance-phase-2.md`.
  */
 export default function CaseAssistanceWorkspace() {
   const { id = '' } = useParams<{ id: string }>()
@@ -583,7 +590,7 @@ function ContactActions({
   onDone: (message: string) => void
   onError: (message: string) => void
 }) {
-  const [open, setOpen] = useState<'call' | 'docs' | 'email' | null>(null)
+  const [open, setOpen] = useState<'call' | 'answer' | 'docs' | 'email' | null>(null)
   const [busy, setBusy] = useState(false)
 
   const [outcome, setOutcome] = useState(CALL_OUTCOMES[0].value)
@@ -596,13 +603,39 @@ function ContactActions({
   const [subject, setSubject] = useState('')
   const [body, setBody] = useState('')
 
+  const [fields, setFields] = useState<AssistanceProposableField[]>([])
+  const [pending, setPending] = useState<AssistancePendingProposal[]>([])
+  const [fieldPath, setFieldPath] = useState('')
+  const [fieldValue, setFieldValue] = useState('')
+  const [proposalsLoaded, setProposalsLoaded] = useState(false)
+
   const uniqueSuggestions = useMemo(() => Array.from(new Set(suggestedDocs || [])), [suggestedDocs])
 
-  const run = async (action: () => Promise<void>, message: string) => {
+  const selectedField = fields.find((field) => field.path === fieldPath)
+
+  // Loaded when the panel is first opened rather than with the page: most visits
+  // are a specialist reading the case, not editing it.
+  useEffect(() => {
+    if (open !== 'answer' || proposalsLoaded) return
+    let cancelled = false
+    getAssistanceProposals(assistanceId)
+      .then((data) => {
+        if (cancelled) return
+        setFields(data.fields)
+        setPending(data.pending)
+        setProposalsLoaded(true)
+      })
+      .catch(() => onError('Could not load the fields for this case'))
+    return () => {
+      cancelled = true
+    }
+  }, [open, proposalsLoaded, assistanceId, onError])
+
+  const run = async (action: () => Promise<void>, message: string, keepOpen = false) => {
     try {
       setBusy(true)
       await action()
-      setOpen(null)
+      if (!keepOpen) setOpen(null)
       setNotes('')
       setDocs([])
       setDocMessage('')
@@ -624,6 +657,9 @@ function ContactActions({
         <div className="flex flex-wrap gap-1.5">
           <ActionButton active={open === 'call'} onClick={() => setOpen(open === 'call' ? null : 'call')}>
             Log a call
+          </ActionButton>
+          <ActionButton active={open === 'answer'} onClick={() => setOpen(open === 'answer' ? null : 'answer')}>
+            Record an answer
           </ActionButton>
           <ActionButton
             active={open === 'docs'}
@@ -707,6 +743,127 @@ function ContactActions({
             </select>
           </label>
           <SubmitRow busy={busy} label="Log call" onCancel={() => setOpen(null)} />
+        </form>
+      )}
+
+      {open === 'answer' && (
+        <form
+          className="space-y-3"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (!fieldPath) return
+            void run(
+              async () => {
+                await proposeAssistanceValue(assistanceId, {
+                  path: fieldPath,
+                  // Empty means "clear it" — "no, I never missed work" is an answer.
+                  value: fieldValue.trim() === '' ? null : fieldValue.trim(),
+                })
+                const refreshed = await getAssistanceProposals(assistanceId)
+                setFields(refreshed.fields)
+                setPending(refreshed.pending)
+                setFieldPath('')
+                setFieldValue('')
+              },
+              'Sent to the claimant to confirm.',
+              // Stays open: a specialist usually takes several answers on one call.
+              true,
+            )
+          }}
+        >
+          <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:bg-slate-800/60 dark:text-slate-400">
+            This does not change the case. The claimant gets an email asking them to confirm what you entered, and it
+            only counts as their answer once they do.
+          </p>
+
+          {!proposalsLoaded ? (
+            <p className="text-sm text-slate-500 dark:text-slate-400">Loading…</p>
+          ) : (
+            <>
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400">
+                  What did they tell you about?
+                </span>
+                <select
+                  className="input w-full"
+                  value={fieldPath}
+                  onChange={(e) => {
+                    setFieldPath(e.target.value)
+                    setFieldValue('')
+                  }}
+                >
+                  <option value="">Choose a detail…</option>
+                  {fields.map((field) => (
+                    <option key={field.path} value={field.path}>
+                      {field.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              {selectedField && (
+                <>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    On file now:{' '}
+                    <span className="font-medium text-slate-700 dark:text-slate-300">
+                      {selectedField.currentValue ?? 'nothing yet'}
+                    </span>
+                  </p>
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400">
+                      What they said
+                    </span>
+                    {selectedField.type === 'boolean' ? (
+                      <select
+                        className="input w-full"
+                        value={fieldValue}
+                        onChange={(e) => setFieldValue(e.target.value)}
+                      >
+                        <option value="">Leave it unanswered</option>
+                        <option value="true">Yes</option>
+                        <option value="false">No</option>
+                      </select>
+                    ) : (
+                      <input
+                        className="input w-full"
+                        inputMode={selectedField.type === 'number' ? 'decimal' : undefined}
+                        value={fieldValue}
+                        maxLength={5000}
+                        onChange={(e) => setFieldValue(e.target.value)}
+                        placeholder={
+                          selectedField.type === 'number' ? 'A number, e.g. 2400' : 'Exactly what they told you'
+                        }
+                      />
+                    )}
+                  </label>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Leave it blank to ask them to clear this.
+                  </p>
+                </>
+              )}
+
+              <SubmitRow busy={busy} disabled={!fieldPath} label="Send to claimant" onCancel={() => setOpen(null)} />
+
+              {pending.length > 0 && (
+                <div className="border-t border-slate-200 pt-3 dark:border-slate-700">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    Waiting on the claimant
+                  </p>
+                  <ul className="mt-2 space-y-2">
+                    {pending.map((proposal) => (
+                      <li key={proposal.id} className="text-sm">
+                        <p className="font-medium text-slate-800 dark:text-slate-200">{proposal.label}</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                          {proposal.currentValue ?? 'nothing'} → {proposal.proposedValue ?? 'cleared'}
+                          <span className="ml-1.5">· asked {timeAgo(proposal.createdAt)}</span>
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </>
+          )}
         </form>
       )}
 

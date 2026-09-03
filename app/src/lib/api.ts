@@ -4870,6 +4870,37 @@ export async function sendAssistanceEmail(id: string, input: { subject: string; 
   return data as { interaction: AssistanceInteraction }
 }
 
+export interface AssistanceProposableField {
+  path: string
+  label: string
+  type: 'string' | 'number' | 'boolean'
+  /** What the claimant has on file now. Null when they never answered. */
+  currentValue: string | null
+}
+
+export interface AssistancePendingProposal {
+  id: string
+  path: string | null
+  label: string
+  currentValue: string | null
+  proposedValue: string | null
+  createdAt: string
+}
+
+export async function getAssistanceProposals(id: string) {
+  const { data } = await api.get(`/v1/case-assistance/${id}/proposals`)
+  return data as { fields: AssistanceProposableField[]; pending: AssistancePendingProposal[] }
+}
+
+/**
+ * Record an answer taken on a call. This does not change the case: the claimant
+ * confirms it first.
+ */
+export async function proposeAssistanceValue(id: string, input: { path: string; value: string | null }) {
+  const { data } = await api.post(`/v1/case-assistance/${id}/proposals`, input)
+  return data as { proposal: { id: string; field: string; currentValue: string | null; proposedValue: string | null } }
+}
+
 export type AdminPaymentOutcome =
   | 'collected'
   | 'pending'
