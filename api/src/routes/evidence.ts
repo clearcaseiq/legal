@@ -22,6 +22,7 @@ import { analyzeImageRelevance, analyzePdfRelevance, analyzeVideoRelevance, type
 import { syncPlaintiffDocumentRequestStatuses } from '../lib/document-request-status'
 import { uploadLimiter } from '../lib/rate-limits'
 import { replicateUploads } from '../lib/object-storage'
+import { isAcceptedUpload } from '../lib/upload-filter'
 
 const router = Router()
 
@@ -137,48 +138,6 @@ const storage = multer.diskStorage({
     cb(null, uniqueName)
   }
 })
-
-const ALLOWED_UPLOAD_MIMETYPES = new Set([
-  'image/jpeg',
-  'image/jpg',
-  'image/png',
-  'image/gif',
-  'image/webp',
-  'image/heic',
-  'image/heif',
-  'video/mp4',
-  'video/quicktime',
-  'video/webm',
-  'application/pdf',
-  'text/plain',
-  'application/msword',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-])
-
-const ALLOWED_UPLOAD_EXTENSIONS = new Set([
-  '.jpg', '.jpeg', '.png', '.gif', '.webp', '.heic', '.heif',
-  '.mp4', '.mov', '.webm',
-  '.pdf', '.txt', '.doc', '.docx',
-])
-
-// Decide whether a picked file is an accepted document. Some browsers/OSes
-// (notably Windows, and iPhone HEIC photos) report a missing or generic MIME
-// type for the same file that has a perfectly valid extension. Relying on MIME
-// alone silently dropped those files (multer sets req.file = undefined), which
-// surfaced only as a confusing "No file uploaded" 400. Fall back to the file
-// extension whenever the MIME type is absent, generic, or a broad image/video type.
-function isAcceptedUpload(file: { mimetype?: string; originalname?: string }): boolean {
-  const mime = (file.mimetype || '').toLowerCase()
-  if (ALLOWED_UPLOAD_MIMETYPES.has(mime)) return true
-  const ext = path.extname(file.originalname || '').toLowerCase()
-  const genericMime =
-    !mime ||
-    mime === 'application/octet-stream' ||
-    mime === 'binary/octet-stream' ||
-    mime.startsWith('image/') ||
-    mime.startsWith('video/')
-  return genericMime && ALLOWED_UPLOAD_EXTENSIONS.has(ext)
-}
 
 const upload = multer({
   storage,

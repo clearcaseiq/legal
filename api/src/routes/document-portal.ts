@@ -6,6 +6,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { prisma } from '../lib/prisma'
 import { logger } from '../lib/logger'
 import { replicateUploads } from '../lib/object-storage'
+import { isAcceptedUpload, SPREADSHEET_EXTENSIONS, SPREADSHEET_MIMETYPES } from '../lib/upload-filter'
 
 const router = Router()
 
@@ -42,22 +43,21 @@ const upload = multer({
   storage,
   limits: { fileSize: 50 * 1024 * 1024 },
   fileFilter: (_req, file, cb: FileFilterCallback) => {
-    const allowedTypes = [
-      'image/jpeg',
-      'image/png',
-      'image/gif',
-      'image/webp',
-      'video/mp4',
-      'video/quicktime',
-      'video/webm',
-      'application/pdf',
-      'text/plain',
-      'application/msword',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      'application/vnd.ms-excel',
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    ]
-    cb(null, allowedTypes.includes(file.mimetype))
+    // Spreadsheets on top of the shared document set: carriers send ledgers as
+    // .xlsx, and this portal is how they reach us.
+    const accepted = isAcceptedUpload(file, {
+      mimetypes: SPREADSHEET_MIMETYPES,
+      extensions: SPREADSHEET_EXTENSIONS,
+    })
+    if (!accepted) {
+      // multer signals rejection by leaving req.file undefined, which reads as
+      // "no file" downstream. Without this the portal drops uploads silently.
+      logger.warn('Document portal upload rejected by file filter', {
+        originalname: file.originalname,
+        mimetype: file.mimetype,
+      })
+    }
+    cb(null, accepted)
   },
 })
 
@@ -143,7 +143,10 @@ router.post('/:token/upload', upload.single('file'), replicateUploads, async (re
       return res.status(404).json({ error: 'This document request was not found or has expired.' })
     }
     if (!req.file) {
-      return res.status(400).json({ error: 'No file uploaded. Allowed types: PDF, images, video, Office docs (max 50MB).' })
+      return res.status(400).json({
+        error:
+          'No file received. If you selected a file, its format may be unsupported. Please use a JPG, PNG, HEIC, PDF, or common Office document (max 50MB).',
+      })
     }
 
     const docType = typeof req.body?.docType === 'string' && req.body.docType ? req.body.docType : null
