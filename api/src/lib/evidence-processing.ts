@@ -547,6 +547,70 @@ function normalizePersonName(raw: string): string | null {
   return meaningful.join(' ')
 }
 
+/**
+ * Pull diagnosis and procedure codes out of a document's OCR text.
+ *
+ * These used to be matched on shape alone — `\b\d{5}\b` for CPT, `\b[A-Z]\d{2}\b`
+ * for ICD. A five-digit number is also the shape of a ZIP code, an invoice
+ * number, an account number and a claim number, and the CPT range the engine
+ * reads as surgery (10021-69990) covers most eastern and midwestern ZIPs. So a
+ * clinic's letterhead address was enough to make `analyzeClinicalCodes` report a
+ * performed surgery, which promotes `surgeryStatus` to 'completed' and adds 30
+ * points of severity plus a general-damages multiplier step. A soft-tissue claim
+ * could be valued as a surgical one because of the ZIP in the letterhead.
+ *
+ * Nothing in the text distinguishes 60601-the-ZIP from 60601-the-CPT, so the
+ * shape can never be enough: the number has to be labelled the way bills,
+ * superbills and EOBs actually print it. That trades recall for precision on
+ * purpose. A missed code costs a signal the engine treats as optional; a
+ * fabricated one silently inflates what a claimant is told their case is worth,
+ * and neither they nor the adjuster can see where the number came from.
+ */
+export function extractClinicalCodes(ocrText: string): { icdCodes: string[]; cptCodes: string[] } {
+  const text = ocrText || ''
+
+  // "CPT 64483", "CPT-4 Code: 20610", "Procedure Code 99213", "HCPCS: 72148".
+  // The separator allows a colon, dash, or whitespace but not another digit, so
+  // it cannot bridge into an unrelated number further down the line.
+  const cptLabelled = /\b(?:CPT(?:[\s-]*4)?|HCPCS|proc(?:edure)?|service|svc)\b[\s.:#-]{0,4}(?:code[\s.:#-]{0,4})?(\d{5})(?![\d-])/gi
+
+  // Billing tables print the code first on the row, followed by a modifier or a
+  // charge: "64483 LT $1,450.00" / "20610-RT 1 175.00". Anchored to line start
+  // so a ZIP inside an address line cannot match.
+  const cptBillingRow = /^[\s|]*(\d{5})(?:[\s-]{1,3}(?:[A-Z]{1,2}\d?|\d{1,2}))?\s+.{0,40}?[$\d]/gim
+
+  const cptCodes = [
+    ...new Set([
+      ...matchGroup(text, cptLabelled),
+      ...matchGroup(text, cptBillingRow),
+    ]),
+  ]
+
+  // ICD-10 diagnosis codes carry a letter, two digits and — on anything billable
+  // — a decimal extension: S13.4XXA, M54.16. Requiring either the extension or an
+  // explicit label keeps bare tokens like a form's "S12" field out.
+  const icdLabelled = /\b(?:ICD(?:[\s-]*10)?(?:[\s-]*CM)?|dx|diag(?:nosis)?)\b[\s.:#-]{0,4}(?:code[\s.:#-]{0,4})?([A-Z]\d{2}(?:\.[\dA-Z]{1,4})?)\b/gi
+  const icdExtended = /\b([A-Z]\d{2}\.[\dA-Z]{1,4})\b/g
+
+  const icdCodes = [
+    ...new Set([
+      ...matchGroup(text, icdLabelled),
+      ...matchGroup(text, icdExtended),
+    ].map((c) => c.toUpperCase())),
+  ]
+
+  return { icdCodes, cptCodes }
+}
+
+/** Collect capture group 1 across every match of a global regex. */
+function matchGroup(text: string, re: RegExp): string[] {
+  const out: string[] = []
+  for (const m of text.matchAll(re)) {
+    if (m[1]) out.push(m[1])
+  }
+  return out
+}
+
 async function processExtractedData(ocrText: string, category: string, originalName: string): Promise<any> {
   try {
     const moneyRegex = /\$[\d,]+\.?\d*/g
@@ -554,11 +618,7 @@ async function processExtractedData(ocrText: string, category: string, originalN
 
     const dates = [...new Set(findDateStrings(ocrText))]
 
-    const icdRegex = /\b[A-Z]\d{2}(?:\.\d+)?\b/g
-    const icdCodes = [...new Set(ocrText.match(icdRegex) || [])]
-
-    const cptRegex = /\b\d{5}(?:\.\d+)?\b/g
-    const cptCodes = [...new Set(ocrText.match(cptRegex) || [])]
+    const { icdCodes, cptCodes } = extractClinicalCodes(ocrText)
 
     const totalAmount = computeDocumentTotal(ocrText, dollarAmounts)
 
