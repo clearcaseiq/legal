@@ -420,6 +420,31 @@ async function finalizeStatusTransition(
 /** Statuses that are still "open" (worth polling / can be reminded or voided). */
 const OPEN_STATUSES = new Set<EnvelopeStatus>(['draft', 'sent', 'viewed'])
 
+/** Exposed so the background sweep selects exactly what this module considers open. */
+export const OPEN_ENVELOPE_STATUSES: readonly EnvelopeStatus[] = Array.from(OPEN_STATUSES)
+
+/**
+ * Poll one open envelope and apply any status change, running the full set of
+ * completion side effects through finalizeStatusTransition. Returns true when
+ * the status actually moved. Never throws — a provider that is down must not
+ * take the caller with it.
+ */
+export async function syncEnvelopeStatus(env: EnvelopeRow): Promise<boolean> {
+  try {
+    const provider = getESignatureProvider(env.provider)
+    const result = await provider.getStatus(env.externalEnvelopeId as string)
+    if (result.status === (env.status as EnvelopeStatus)) return false
+    await finalizeStatusTransition(env, result.status, result.signedAt)
+    return true
+  } catch (err) {
+    logger.warn('Envelope status poll failed', {
+      envelopeId: env.id,
+      error: err instanceof Error ? err.message : String(err),
+    })
+    return false
+  }
+}
+
 /**
  * Poll the provider for every open envelope on a lead and apply any status
  * changes. This is the webhook-less fallback that keeps the panel live in local
@@ -432,18 +457,7 @@ export async function refreshLeadEnvelopes(leadId: string) {
   })
 
   for (const env of open) {
-    try {
-      const provider = getESignatureProvider(env.provider)
-      const result = await provider.getStatus(env.externalEnvelopeId as string)
-      if (result.status !== (env.status as EnvelopeStatus)) {
-        await finalizeStatusTransition(env, result.status, result.signedAt)
-      }
-    } catch (err) {
-      logger.warn('Envelope status poll failed', {
-        envelopeId: env.id,
-        error: err instanceof Error ? err.message : String(err),
-      })
-    }
+    await syncEnvelopeStatus(env)
   }
 
   return listEnvelopesForLead(leadId)

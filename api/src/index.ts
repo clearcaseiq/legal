@@ -14,6 +14,7 @@ import { runOfferExpirySweep } from './lib/offer-expiry-sweep'
 import { runRoutingStallSweep } from './lib/routing-stall-sweep'
 import { runCaseReminderSweep } from './lib/case-reminder-sweep'
 import { runSolExpirySweep } from './lib/sol-expiry-sweep'
+import { runEsignEnvelopeSweep } from './lib/esign-envelope-sweep'
 import { runAiCaseManagerSweep, isAiCaseManagerEnabled } from './lib/ai-case-manager-sweep'
 import { runActivityCanarySweep, isActivityCanaryEnabled } from './lib/activity-canary-sweep'
 import { runErrorRateSweep, isErrorRateMonitorEnabled } from './lib/error-rate-monitor'
@@ -33,6 +34,7 @@ let offerExpiryTimer: NodeJS.Timeout | null = null
 let routingStallTimer: NodeJS.Timeout | null = null
 let caseReminderTimer: NodeJS.Timeout | null = null
 let solExpiryTimer: NodeJS.Timeout | null = null
+let esignEnvelopeTimer: NodeJS.Timeout | null = null
 let aiCaseManagerTimer: NodeJS.Timeout | null = null
 let activityCanaryTimer: NodeJS.Timeout | null = null
 let errorRateTimer: NodeJS.Timeout | null = null
@@ -307,6 +309,36 @@ function startSolExpiryLoop() {
   }, intervalMs)
 }
 
+async function runEsignEnvelopeLoop(trigger: 'startup' | 'interval') {
+  const sweep = beginSweep('esign-envelope')
+  try {
+    const result = await runEsignEnvelopeSweep()
+    sweep.succeed()
+    if (result.advanced > 0 || trigger === 'startup') {
+      logger.info('E-sign envelope sweep completed', { trigger, ...result })
+    }
+  } catch (error) {
+    sweep.fail(error)
+    logger.error('E-sign envelope sweep failed', {
+      trigger,
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
+}
+
+function startEsignEnvelopeLoop() {
+  // A signature the webhook missed holds up the whole case spine, so this is
+  // the reconciliation worth running often. Ten minutes keeps the provider's
+  // rate limit comfortable while bounding how long a signed retainer can sit
+  // unnoticed.
+  const intervalMs = 10 * 60 * 1000
+  registerSweep('esign-envelope', { label: 'E-signature envelope reconciliation', enabled: true, intervalMs })
+  void runEsignEnvelopeLoop('startup')
+  esignEnvelopeTimer = setInterval(() => {
+    void runEsignEnvelopeLoop('interval')
+  }, intervalMs)
+}
+
 async function runCaseReminderLoop(trigger: 'startup' | 'interval') {
   const sweep = beginSweep('case-reminder')
   try {
@@ -437,6 +469,7 @@ function startBackgroundLoops() {
   startOfferExpiryLoop()
   startRoutingStallLoop()
   startSolExpiryLoop()
+  startEsignEnvelopeLoop()
   startCaseReminderLoop()
   startAiCaseManagerLoop()
   startActivityCanaryLoop()
@@ -476,6 +509,7 @@ function stopBackgroundLoops() {
   if (offerExpiryTimer) clearInterval(offerExpiryTimer)
   if (routingStallTimer) clearInterval(routingStallTimer)
   if (solExpiryTimer) clearInterval(solExpiryTimer)
+  if (esignEnvelopeTimer) clearInterval(esignEnvelopeTimer)
   if (caseReminderTimer) clearInterval(caseReminderTimer)
   if (aiCaseManagerTimer) clearInterval(aiCaseManagerTimer)
   if (activityCanaryTimer) clearInterval(activityCanaryTimer)
@@ -489,6 +523,7 @@ function stopBackgroundLoops() {
   offerExpiryTimer = null
   routingStallTimer = null
   solExpiryTimer = null
+  esignEnvelopeTimer = null
   caseReminderTimer = null
   aiCaseManagerTimer = null
   activityCanaryTimer = null
