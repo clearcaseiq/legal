@@ -18,11 +18,19 @@
  */
 
 import { predictViabilityHeuristic } from './prediction'
+import { underwriteCase, type UnderwritingInput } from './underwriting-engine'
 import { IDENTITY_CALIBRATION, type ValuationCalibration } from './valuation-config'
 
 export interface OutcomeSample {
   /** Feature vector (output of computeFeatures) captured at prediction time. */
   features: any
+  /**
+   * Inputs to the underwriting engine, captured at resolution time. When
+   * present this is what gets graded, because it is the engine whose output
+   * reaches the claimant — the heuristic engine's bands are overwritten by it
+   * downstream, so calibrating against them tunes a number nobody sees.
+   */
+  underwriting?: UnderwritingInput | null
   /** The actual resolved amount (gross settlement or verdict). */
   actualAmount: number
   outcomeType?: 'settlement' | 'verdict' | 'dismissed' | 'withdrawn'
@@ -37,6 +45,8 @@ export interface SeverityBreakdown {
 
 export interface BacktestMetrics {
   n: number
+  /** How many of the scored samples were graded against the underwriting engine. */
+  nUnderwriting: number
   /** Median absolute percentage error of the settlement median vs actual. */
   medianAbsPctError: number
   meanAbsPctError: number
@@ -72,6 +82,44 @@ function isScorable(s: OutcomeSample): boolean {
   return (t === 'settlement' || t === 'verdict') && Number(s.actualAmount) > 0
 }
 
+type Band = { p25: number; median: number; p75: number }
+
+/** Severity tiers map onto the 0-4 levels the per-severity breakdown reports. */
+const TIER_LEVELS: Record<string, number> = {
+  'Soft Tissue': 0,
+  Developing: 1,
+  Moderate: 2,
+  'Moderate-Severe': 3,
+  Severe: 4,
+}
+
+/**
+ * Score one sample, preferring the underwriting engine.
+ *
+ * Falls back to the heuristic for samples recorded before underwriting
+ * snapshots existed, so an older dataset still produces a report rather than
+ * an empty one.
+ */
+function scoreSample(
+  sample: OutcomeSample,
+  calibration: ValuationCalibration,
+): { band: Band; severity: number; viaUnderwriting: boolean } {
+  if (sample.underwriting) {
+    const result = underwriteCase(sample.underwriting, calibration)
+    return {
+      band: { p25: result.settlement.low, median: result.settlement.expected, p75: result.settlement.high },
+      severity: TIER_LEVELS[result.severity.tier] ?? 2,
+      viaUnderwriting: true,
+    }
+  }
+  const pred = predictViabilityHeuristic(sample.features, calibration)
+  return {
+    band: pred.value_bands.settlement,
+    severity: Number(sample.features?.severity ?? 0),
+    viaUnderwriting: false,
+  }
+}
+
 /**
  * Replay the engine over labeled outcomes and compute calibration metrics under a given
  * coefficient set (defaults to identity).
@@ -84,12 +132,13 @@ export function backtest(
   const absPct: number[] = []
   const signedPct: number[] = []
   const covered: number[] = []
+  let nUnderwriting = 0
   const bySeverityBuckets: Record<number, { abs: number[]; signed: number[]; covered: number[] }> = {}
 
   for (const sample of scorable) {
     const actual = Number(sample.actualAmount)
-    const pred = predictViabilityHeuristic(sample.features, calibration)
-    const band = pred.value_bands.settlement
+    const { band, severity: sev, viaUnderwriting } = scoreSample(sample, calibration)
+    if (viaUnderwriting) nUnderwriting += 1
     const predicted = band.median
     const signed = (predicted - actual) / actual
     const abs = Math.abs(signed)
@@ -99,7 +148,6 @@ export function backtest(
     signedPct.push(signed)
     covered.push(inBand)
 
-    const sev = Number(sample.features?.severity ?? 0)
     if (!bySeverityBuckets[sev]) bySeverityBuckets[sev] = { abs: [], signed: [], covered: [] }
     bySeverityBuckets[sev].abs.push(abs)
     bySeverityBuckets[sev].signed.push(signed)
@@ -118,6 +166,7 @@ export function backtest(
 
   return {
     n: scorable.length,
+    nUnderwriting,
     medianAbsPctError: median(absPct),
     meanAbsPctError: mean(absPct),
     bias: median(signedPct),

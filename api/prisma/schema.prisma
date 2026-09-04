@@ -1032,6 +1032,10 @@ model CaseOutcome {
   // replay the exact inputs that produced the prediction being evaluated.
   predictedMedian  Float?
   featuresSnapshot String? @db.Text // JSON feature vector (computeFeatures output)
+  // Inputs to the underwriting engine, which is what actually produces the
+  // claimant-facing number. Held separately from featuresSnapshot because the
+  // two engines take different inputs and only this one is worth calibrating.
+  underwritingSnapshot String? @db.Text // JSON UnderwritingInput
   source       String     @default("manual") // manual | attorney_reported | docket_import
   notes        String?    @db.Text
   createdAt    DateTime   @default(now())

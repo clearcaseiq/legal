@@ -201,6 +201,116 @@ describe('calculateSettlement policy limits', () => {
   })
 })
 
+describe('clinical codes reach the settlement figure', () => {
+  const softTissueCase = (facts: Record<string, any> = {}) => ({
+    claimType: 'auto',
+    venueState: 'CA',
+    venueCounty: 'Los Angeles',
+    facts: {
+      claimType: 'auto',
+      liability: { crashType: 'rear_end', comparativeNegligence: 0 },
+      incident: { date: '2026-01-01', narrative: 'Rear-ended at a light. Neck and back pain.' },
+      injuries: [{ diagnoses: ['neck strain'] }],
+      treatment: [{ type: 'physical_therapy' }, { type: 'physical_therapy' }],
+      damages: { med_charges: 30000 },
+      ...facts,
+    },
+    evidenceFiles: [{ category: 'medical_records' }, { category: 'bills' }],
+  })
+
+  it('upgrades the injury when records prove worse than the narrative said', () => {
+    // The narrative describes a strain. The records carry a disc herniation
+    // with radiculopathy, which is what the case is actually worth.
+    const narrativeOnly = underwriteCase(softTissueCase())
+    const coded = underwriteCase(softTissueCase({ clinical: { icdCodes: ['M51.1'] } }))
+
+    expect(narrativeOnly.severity.primaryInjury).toBe('SOFT_TISSUE')
+    expect(coded.severity.primaryInjury).toBe('RADICULOPATHY')
+    expect(coded.severity.injurySource).toBe('clinical_codes')
+    expect(coded.settlement.expected).toBeGreaterThan(narrativeOnly.settlement.expected)
+  })
+
+  it('never downgrades an injury the narrative documented', () => {
+    // A coded sprain does not disprove the herniation a treating physician
+    // described in a report nobody has coded yet.
+    const result = underwriteCase({
+      ...softTissueCase({ clinical: { icdCodes: ['S33.5'] } }),
+      facts: {
+        ...softTissueCase().facts,
+        injuries: [{ diagnoses: ['disc herniation'] }],
+        clinical: { icdCodes: ['S33.5'] },
+      },
+    })
+
+    expect(result.severity.primaryInjury).toBe('DISC_HERNIATION')
+    expect(result.severity.injurySource).toBe('narrative')
+  })
+
+  it('separates a haemorrhage from a concussion in dollars', () => {
+    const concussion = underwriteCase(softTissueCase({ clinical: { icdCodes: ['S06.0X0A'] } }))
+    const haemorrhage = underwriteCase(softTissueCase({ clinical: { icdCodes: ['S06.5X0A'] } }))
+
+    expect(haemorrhage.settlement.expected).toBeGreaterThan(concussion.settlement.expected)
+  })
+
+  it('credits imaging, which the engine used to ignore entirely', () => {
+    const without = underwriteCase(softTissueCase())
+    const withImaging = underwriteCase(softTissueCase({ clinical: { cptCodes: ['72148'] } }))
+
+    expect(withImaging.treatment.score).toBeGreaterThan(without.treatment.score)
+    expect(withImaging.treatment.positives).toContain('Objective imaging (MRI or CT)')
+  })
+})
+
+describe('treatment chronology reaches the settlement figure', () => {
+  const withVisits = (dates: string[]) => ({
+    claimType: 'auto',
+    venueState: 'CA',
+    venueCounty: 'Los Angeles',
+    facts: {
+      claimType: 'auto',
+      liability: { crashType: 'rear_end', comparativeNegligence: 0 },
+      incident: { date: '2026-01-01', narrative: 'Rear-ended at a light. Neck and back pain.' },
+      injuries: [{ diagnoses: ['neck strain'] }],
+      treatment: dates.map((date) => ({ type: 'physical_therapy', date })),
+      damages: { med_charges: 30000 },
+    },
+    evidenceFiles: [{ category: 'medical_records' }, { category: 'bills' }],
+  })
+
+  it('penalises a real gap in care', () => {
+    const continuous = underwriteCase(withVisits(['2026-01-05', '2026-02-05', '2026-03-05', '2026-04-05']))
+    const gapped = underwriteCase(withVisits(['2026-01-05', '2026-02-05', '2026-08-05', '2026-11-05']))
+
+    expect(gapped.treatment.chronology.gapCount).toBeGreaterThan(0)
+    expect(gapped.treatment.score).toBeLessThan(continuous.treatment.score)
+    expect(gapped.settlement.expected).toBeLessThan(continuous.settlement.expected)
+  })
+
+  it('penalises a delayed start, which weakens causation', () => {
+    const prompt = underwriteCase(withVisits(['2026-01-04', '2026-02-04', '2026-03-04']))
+    const delayed = underwriteCase(withVisits(['2026-06-04', '2026-07-04', '2026-08-04']))
+
+    expect(delayed.settlement.expected).toBeLessThan(prompt.settlement.expected)
+  })
+
+  it('does not read a gap into a record that says there was none', () => {
+    // The old check was a bare /gap/ over a text blob, so this narrative
+    // scored a treatment-gap penalty for saying the opposite.
+    const facts = {
+      claimType: 'auto',
+      liability: { crashType: 'rear_end' },
+      incident: { narrative: 'Treated consistently with no gap in care throughout.' },
+      injuries: [{ diagnoses: ['neck strain'] }],
+      treatment: [{ type: 'physical_therapy' }, { type: 'physical_therapy' }],
+      damages: { med_charges: 30000 },
+    }
+    const result = underwriteCase({ claimType: 'auto', venueState: 'CA', venueCounty: 'Los Angeles', facts })
+
+    expect(result.treatment.negatives).not.toContain('Possible treatment gap')
+  })
+})
+
 describe('calculateAttorneyConsensus', () => {
   it('returns median values when three attorneys review', () => {
     const consensus = calculateAttorneyConsensus([

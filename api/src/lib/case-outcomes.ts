@@ -11,6 +11,40 @@ import { prisma } from './prisma'
 import { computeFeatures } from './prediction'
 import { logger } from './logger'
 import type { OutcomeSample } from './valuation-calibration'
+import type { UnderwritingInput } from './underwriting-engine'
+
+function parseFacts(facts: unknown): Record<string, any> {
+  if (!facts) return {}
+  if (typeof facts === 'object') return facts as Record<string, any>
+  try {
+    return JSON.parse(String(facts))
+  } catch {
+    return {}
+  }
+}
+
+/** Reduce an assessment row to exactly what the underwriting engine reads. */
+function buildUnderwritingSnapshot(assessment: any): UnderwritingInput {
+  return {
+    id: assessment.id,
+    claimType: assessment.claimType,
+    venueState: assessment.venueState ?? null,
+    venueCounty: assessment.venueCounty ?? null,
+    facts: parseFacts(assessment.facts),
+    evidenceFiles: (assessment.evidenceFiles ?? []).map((file: any) => ({
+      category: file.category ?? null,
+      originalName: file.originalName ?? null,
+      aiClassification: file.aiClassification ?? null,
+      aiSummary: file.aiSummary ?? null,
+    })),
+    insuranceDetails: (assessment.insuranceDetails ?? []).map((detail: any) => ({
+      insuredParty: detail.insuredParty ?? null,
+      coverageType: detail.coverageType ?? null,
+      policyLimit: detail.policyLimit ?? null,
+      coverageConfirmed: detail.coverageConfirmed ?? null,
+    })),
+  }
+}
 
 export type OutcomeType = 'settlement' | 'verdict' | 'dismissed' | 'withdrawn'
 
@@ -31,7 +65,11 @@ export interface RecordOutcomeInput {
 export async function recordCaseOutcome(input: RecordOutcomeInput) {
   const assessment = await prisma.assessment.findUnique({
     where: { id: input.assessmentId },
-    include: { predictions: { orderBy: { createdAt: 'desc' }, take: 1 } },
+    include: {
+      predictions: { orderBy: { createdAt: 'desc' }, take: 1 },
+      evidenceFiles: true,
+      insuranceDetails: true,
+    },
   })
   if (!assessment) throw new Error(`Assessment not found: ${input.assessmentId}`)
 
@@ -40,6 +78,19 @@ export async function recordCaseOutcome(input: RecordOutcomeInput) {
     featuresSnapshot = JSON.stringify(computeFeatures(assessment))
   } catch (err) {
     logger.warn('Failed to snapshot features for case outcome', {
+      assessmentId: input.assessmentId,
+      error: err instanceof Error ? err.message : String(err),
+    })
+  }
+
+  // Captured now rather than rebuilt at export time, because facts keep moving
+  // after a case resolves and grading the engine against a file that already
+  // contains the settlement would leak the answer into the inputs.
+  let underwritingSnapshot: string | null = null
+  try {
+    underwritingSnapshot = JSON.stringify(buildUnderwritingSnapshot(assessment))
+  } catch (err) {
+    logger.warn('Failed to snapshot underwriting inputs for case outcome', {
       assessmentId: input.assessmentId,
       error: err instanceof Error ? err.message : String(err),
     })
@@ -64,6 +115,7 @@ export async function recordCaseOutcome(input: RecordOutcomeInput) {
       resolvedAt: input.resolvedAt ? new Date(input.resolvedAt) : null,
       predictedMedian,
       featuresSnapshot,
+      underwritingSnapshot,
       source: input.source ?? 'manual',
       notes: input.notes ?? null,
     },
@@ -77,7 +129,7 @@ export async function recordCaseOutcome(input: RecordOutcomeInput) {
 export async function exportOutcomeSamples(): Promise<OutcomeSample[]> {
   const rows = await prisma.caseOutcome.findMany({
     where: { outcomeType: { in: ['settlement', 'verdict'] }, grossAmount: { gt: 0 } },
-    include: { assessment: true },
+    include: { assessment: { include: { evidenceFiles: true, insuranceDetails: true } } },
   })
 
   const samples: OutcomeSample[] = []
@@ -97,9 +149,30 @@ export async function exportOutcomeSamples(): Promise<OutcomeSample[]> {
         continue
       }
     }
-    if (!features) continue
+
+    let underwriting: UnderwritingInput | null = null
+    if (row.underwritingSnapshot) {
+      try {
+        underwriting = JSON.parse(row.underwritingSnapshot)
+      } catch {
+        /* fall through to rebuild */
+      }
+    }
+    // Rebuilding from the live assessment is worse than a snapshot, since the
+    // file has moved on since resolution, but it is better than dropping the
+    // sample from a calibration run entirely.
+    if (!underwriting && row.assessment) {
+      try {
+        underwriting = buildUnderwritingSnapshot(row.assessment)
+      } catch {
+        /* scored against the heuristic engine instead */
+      }
+    }
+
+    if (!features && !underwriting) continue
     samples.push({
       features,
+      underwriting,
       actualAmount: Number(row.grossAmount),
       outcomeType: row.outcomeType as OutcomeType,
     })

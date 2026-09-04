@@ -8,6 +8,7 @@ import {
   IDENTITY_CALIBRATION,
 } from './valuation-config'
 import { calculateInjurySeverity, calculateLiabilityScore, computeFeatures, predictViabilityHeuristic } from './prediction'
+import { underwriteCase } from './underwriting-engine'
 
 function sampleFeatures(overrides: Record<string, unknown> = {}) {
   // Build a realistic feature vector via computeFeatures, then allow overrides.
@@ -107,6 +108,68 @@ describe('backtest', () => {
       { features: sampleFeatures(), actualAmount: 0, outcomeType: 'dismissed' },
     ]
     expect(backtest(samples).n).toBe(0)
+  })
+})
+
+function underwritingSample(actualMultiplier: number): OutcomeSample {
+  const underwriting = {
+    id: 'uw-1',
+    claimType: 'auto',
+    venueState: 'CA',
+    venueCounty: 'Los Angeles',
+    facts: {
+      claimType: 'auto',
+      liability: { crashType: 'rear_end', comparativeNegligence: 0 },
+      incident: { date: '2026-01-01', narrative: 'Rear-ended at a red light; MRI shows a herniation.' },
+      injuries: [{ diagnoses: ['herniation'], lifestyleImpact: ['daily_pain'] }],
+      treatment: [{ type: 'physical_therapy' }, { type: 'injection' }],
+      damages: { med_charges: 60000 },
+    },
+    evidenceFiles: [{ category: 'medical_records' }, { category: 'bills' }],
+  }
+  const predicted = underwriteCase(underwriting, IDENTITY_CALIBRATION).settlement.expected
+  return {
+    features: sampleFeatures(),
+    underwriting,
+    actualAmount: predicted * actualMultiplier,
+    outcomeType: 'settlement',
+  }
+}
+
+describe('backtest grades the engine that produces the number', () => {
+  it('scores against the underwriting engine when a snapshot is present', () => {
+    // The heuristic engine's bands are overwritten downstream, so calibrating
+    // against them tunes a figure nobody ever sees.
+    const metrics = backtest([underwritingSample(1.0), underwritingSample(1.0)])
+
+    expect(metrics.n).toBe(2)
+    expect(metrics.nUnderwriting).toBe(2)
+    // Graded against its own output at identity, the engine is exact.
+    expect(metrics.medianAbsPctError).toBeCloseTo(0, 5)
+  })
+
+  it('falls back to the heuristic for samples recorded before snapshots existed', () => {
+    const metrics = backtest([...makeSamples(), underwritingSample(1.2)])
+
+    expect(metrics.n).toBe(13)
+    expect(metrics.nUnderwriting).toBe(1)
+  })
+
+  it('responds to calibration coefficients', () => {
+    const samples = [underwritingSample(1.4), underwritingSample(1.4)]
+    const atIdentity = backtest(samples, IDENTITY_CALIBRATION)
+    const scaled = backtest(samples, { ...IDENTITY_CALIBRATION, version: 't', settlementScale: 1.4 })
+
+    expect(atIdentity.bias).toBeLessThan(0)
+    expect(scaled.medianAbsPctError).toBeLessThan(atIdentity.medianAbsPctError)
+  })
+
+  it('recommends a higher scale when underwriting under-predicts real outcomes', () => {
+    const samples = Array.from({ length: 12 }, () => underwritingSample(1.4))
+    const result = calibrate(samples)
+
+    expect(result.recommended.settlementScale).toBeGreaterThan(1)
+    expect(result.after.medianAbsPctError).toBeLessThanOrEqual(result.before.medianAbsPctError)
   })
 })
 

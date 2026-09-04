@@ -17,19 +17,18 @@ adjusted for liability and venue. Where we anchor differs and should — Colossu
 is tuned to produce the carrier's opening authority, ours is meant to describe
 fair value.
 
-Below that, four things were wrong or missing. One is now fixed. Three remain,
-and they share a single root cause described in the next section.
+Below that, four things were wrong or missing. All four are now closed.
 
 | Area | Status |
 | --- | --- |
-| Policy limits ignored | Fixed — see "What was fixed" |
-| ICD/CPT codes never reach the number | Open |
-| Treatment gaps and imaging never reach the number | Open |
-| Calibration grades an engine nobody reads | Open |
+| Policy limits ignored | Fixed — `coverage-ceiling.ts` |
+| ICD/CPT codes never reached the number | Fixed — codes now set severity |
+| Treatment gaps and imaging never reached the number | Fixed — real chronology replaces the keyword scan |
+| Calibration graded an engine nobody reads | Fixed — the loop now grades underwriting |
 
-## The root cause behind the open items
+## The root cause the last three shared
 
-There are two valuation engines, and the sophisticated one is discarded.
+There were two valuation engines, and the sophisticated one was discarded.
 
 `prediction.ts` computes a detailed heuristic valuation: it reads ICD and CPT
 codes through `clinical-codes.ts`, measures real treatment gaps and onset delay
@@ -38,11 +37,16 @@ through `treatment-chronology.ts`, and accounts for imaging and policy limits.
 
 In `routes/predict.ts`, `reconcileValueBandsWithUnderwriting` overwrites the
 heuristic bands with the underwriting bands. Underwriting wins. So every signal
-that only `prediction.ts` knows how to read is computed, logged, and thrown
-away before anyone sees a number.
+that only `prediction.ts` knew how to read was computed, logged, and thrown away
+before anyone saw a number.
 
-That is why the three open items look like separate gaps but are one: the
-analysis exists, it just runs in the engine that lost.
+Three of the four gaps were therefore one gap: the analysis existed, it just ran
+in the engine that lost. The fix was to route those signals into the engine that
+wins, rather than to rewrite the analysis.
+
+Both engines still exist and underwriting still overwrites the heuristic. That
+duplication is worth removing eventually, but it is now a tidiness problem
+rather than a correctness one — no signal is lost on the way to the claimant.
 
 ## What was fixed
 
@@ -82,60 +86,77 @@ limited by the policy — an excess judgment is the predicate for a bad-faith
 claim against the carrier, so capping the trial band would erase the one signal
 that says the case is worth more than the coverage.
 
-## Open gaps
-
-### 1. ICD and CPT codes do not affect the dollar figure
+### ICD and CPT codes now set severity
 
 Colossus scores specific diagnosis codes. A cervical radiculopathy with a
 positive EMG scores differently from a cervical strain, and the adjuster's
-authority moves accordingly.
+authority moves accordingly. Our severity was driven by keyword matching on
+narrative text, which cannot make that distinction.
 
-We extract codes and classify them in `clinical-codes.ts`, but two things limit
-it. The classification is at the code *family* level, so codes that Colossus
-separates collapse into one bucket for us. And the result only reaches
-`prediction.ts`, which means it never reaches the number — the string
-`icd`, `cpt`, and `clinical` do not appear anywhere in
-`underwriting-engine.ts`.
+`calculateSeverity` now reads the coded diagnosis. Codes come off the medical
+records, so they outrank narrative keywords — but only upward. A coded sprain
+does not disprove a herniation the treating physician described in a report
+nobody has coded yet, so codes upgrade the injury and never downgrade it.
+Procedure codes are also treated as proof of the procedure, so a surgery or
+injection the bills show but the narrative never mentioned still counts.
 
-Severity in the underwriting engine is instead driven by keyword matching on
-diagnosis text. That is legible and debuggable, but it cannot distinguish the
-gradations a carrier is scoring on.
+The classification itself was at the code *family* level, which collapsed
+distinctions worth six figures. It now reads the subcategory and, where it
+carries severity, the seventh character:
 
-### 2. Treatment gaps and imaging do not affect the dollar figure
+- **Brain injury.** S06.0 (concussion), S06.1-.3 (structural injury) and
+  S06.4-.6 (intracranial haemorrhage) are three different cases, and used to
+  score identically. Loss-of-consciousness duration, encoded as the sixth
+  character, upgrades a concussion that kept someone under for hours.
+- **Spinal.** S14/S24/S34 covers both cord injuries and nerve-root or plexus
+  injuries, and everything in the range scored as a cord injury. Cord injuries
+  and cauda equina are now separated from radiculopathies.
+- **Disc.** The subcategory separates the carrier's best argument from ours:
+  `.3` is degeneration, which they will call pre-existing, while `.1` is a
+  documented radiculopathy and `.0` is cord compression.
+- **Fracture.** A femur or skull fracture no longer scores the same as a finger,
+  ribs are separated from the thoracic vertebrae that share their root, and the
+  seventh character distinguishes an open fracture from a closed one.
+
+### Treatment gaps and imaging now reach the number
 
 Gaps in care are among the largest downward adjustments a carrier makes, and
-imaging is among the largest upward ones. An MRI confirming a herniation is
-what separates a soft-tissue claim from a real one.
+imaging is among the largest upward ones. An MRI confirming a herniation is what
+separates a soft-tissue claim from a real one.
 
-`treatment-chronology.ts` computes genuine gap analysis from treatment dates —
-onset delay, gap length, continuity. None of it reaches the settlement figure.
+`calculateTreatmentQuality` now calls `analyzeTreatmentChronology`, which
+measures gap length, gap count and onset delay from actual treatment dates. What
+it replaced was a regex over a concatenated text blob whose fallback arm was a
+bare `/gap/` — it fired on any use of the word, including a record stating there
+was *no* gap in treatment, and had no notion of how long the gap was or when it
+happened. The keyword scan survives only as a fallback for files with no usable
+dates, and is now narrow enough not to penalise a record for saying the opposite
+of what it means.
 
-What the underwriting engine actually does is at `underwriting-engine.ts:466`:
+Imaging was not considered at all; the term did not appear in the engine. It now
+earns credit from an imaging CPT code, a dated imaging visit, or the narrative.
 
-```
-if (facts?.damages?.treatment_gap || /major gap|large gap|stopped treating/.test(blob)) {
-  ...
-} else if (/gap/.test(blob)) {
-```
+### Calibration now grades the engine that produces the number
 
-That is a regex over a concatenated text blob. It has no notion of how long the
-gap was or when it occurred, and the bare `/gap/` arm fires on any use of the
-word — including a narrative that says there was *no* gap in treatment.
+`valuation-calibration.ts` compared predictions against real outcomes and
+derived correction coefficients, then applied them inside
+`predictViabilityHeuristic` — whose output underwriting overwrites. The loop
+ran, produced coefficients, and adjusted a number nobody saw. The engine
+actually shown to claimants had never been calibrated against a real settlement.
 
-Imaging is not considered at all; the term does not appear in the engine.
+`backtest` now scores samples through `underwriteCase`, and the underwriting
+engine accepts the same coefficients the heuristic did: `settlementScale` on the
+median, `bandWidthScale` on the spread, and `severityAnchorScale` on the
+per-injury floor. Identity calibration reproduces the previous numbers exactly.
 
-### 3. Calibration grades an engine whose output is discarded
+This needed a point-in-time snapshot of the underwriting inputs, since facts
+keep moving after a case resolves and grading against a file that already
+contains the settlement would leak the answer into the inputs. `CaseOutcome`
+gained an `underwritingSnapshot` column for that. Samples recorded before it
+existed fall back to the heuristic engine, and the CLI reports how many of each
+it scored — a run that is mostly heuristic is still tuning the wrong thing.
 
-`valuation-calibration.ts` compares predicted values against real outcomes from
-`case-outcomes.ts` and derives correction coefficients. The coefficients are
-applied in `predictViabilityHeuristic` — inside `prediction.ts`, whose output is
-then overwritten by underwriting.
-
-So the feedback loop runs, produces coefficients, and adjusts a number nobody
-sees. The engine that produces the claimant-facing figure has never been
-calibrated against a real settlement.
-
-This is the one that compounds: the other gaps are static, but an uncalibrated
+This is the fix that compounds: the others are static, but an uncalibrated
 engine drifts and nothing detects it.
 
 ## Where we differ from the carrier on purpose
@@ -153,16 +174,19 @@ question rather than a modelling one.
 carrier's authority range, which is the opening position in a negotiation, not
 an estimate of fair value. Matching its output would mean adopting its purpose.
 
-## Suggested order of work
+## What is still worth doing
 
-1. **Route clinical codes, chronology, and imaging into the underwriting
-   engine.** This closes gaps 1 and 2 together, because it is one change: the
-   analysis already exists and needs a path into the engine that wins. Largest
-   accuracy gain available.
-2. **Point calibration at the underwriting engine.** Cheap once step 1 lands,
-   and it is what keeps the other work from decaying.
-3. **Deepen ICD classification past the family level.** Only worth doing after
-   step 1, since today it would refine an input that gets discarded.
+Nothing here is a correctness gap, but three things would make the model better:
+
+1. **Collapse the two engines.** `prediction.ts` still computes a full valuation
+   that `reconcileValueBandsWithUnderwriting` discards. Now that no signal is
+   lost in the handover, the duplication is dead weight rather than a bug.
+2. **Run a real calibration pass.** The loop is pointed at the right engine, but
+   it needs recorded outcomes carrying underwriting snapshots before its
+   coefficients mean anything. Until then it is correct and idle.
+3. **Capture a UM/UIM limit at intake.** Coverage is captured as a yes/no with
+   no figure, which is why an unconfirmed UM/UIM policy suppresses the cap
+   entirely rather than adding to it.
 
 ## Reference
 

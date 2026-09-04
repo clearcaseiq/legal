@@ -1,8 +1,14 @@
 /**
  * Valuation calibration CLI.
  *
- * Backtests the heuristic valuation engine against historical settlement/verdict outcomes
+ * Backtests the valuation engine against historical settlement/verdict outcomes
  * and recommends calibration coefficients (see lib/valuation-calibration.ts).
+ *
+ * Samples carrying an underwriting snapshot are graded against the underwriting
+ * engine, which is the one whose numbers reach the claimant. Older samples
+ * without a snapshot fall back to the heuristic engine, so the report prints
+ * how many of each it scored — a run that is mostly heuristic is tuning an
+ * engine whose output gets overwritten downstream.
  *
  * Usage:
  *   # From a JSON dataset of labeled samples ([{ features, actualAmount, outcomeType }])
@@ -37,7 +43,7 @@ function pct(n: number): string {
 
 function printMetrics(label: string, m: ReturnType<typeof backtest>) {
   console.log(`\n${label}`)
-  console.log(`  samples:            ${m.n}`)
+  console.log(`  samples:            ${m.n} (${m.nUnderwriting} scored against the underwriting engine)`)
   console.log(`  median abs error:   ${pct(m.medianAbsPctError)}`)
   console.log(`  mean abs error:     ${pct(m.meanAbsPctError)}`)
   console.log(`  bias (median):      ${pct(m.bias)} ${m.bias > 0 ? '(over-predicts)' : m.bias < 0 ? '(under-predicts)' : ''}`)

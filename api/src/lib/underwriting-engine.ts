@@ -1,4 +1,7 @@
 import { applyCoverageCeiling, resolveCoverageCeiling, type CoverageCeiling } from './coverage-ceiling'
+import { analyzeClinicalCodes, INJURY_TYPE_RANK, type ClinicalCodeAnalysis } from './clinical-codes'
+import { analyzeTreatmentChronology, type ChronologyAnalysis } from './treatment-chronology'
+import { getValuationCalibration, isIdentity, type ValuationCalibration } from './valuation-config'
 
 export type LiabilityGrade = 'Weak' | 'Moderate' | 'Strong' | 'Very Strong'
 export type InjuryType =
@@ -24,12 +27,16 @@ export interface SeverityResult {
   score: number
   tier: string
   primaryInjury: InjuryType
+  /** Whether documented codes, rather than narrative text, set the injury. */
+  injurySource: 'narrative' | 'clinical_codes'
+  clinicalCodes: ClinicalCodeAnalysis
   factors: string[]
 }
 
 export interface TreatmentResult {
   score: number
   grade: 'Weak' | 'Developing' | 'Good' | 'Strong'
+  chronology: ChronologyAnalysis
   positives: string[]
   negatives: string[]
 }
@@ -90,7 +97,8 @@ export interface AttorneyConsensusResult extends AttorneyCaseReviewValue {
 }
 
 export interface UnderwritingResult {
-  modelVersion: 'ca-pi-underwriting-v1'
+  /** `ca-pi-underwriting-v1`, suffixed with the calibration version when one is applied. */
+  modelVersion: string
   normalizedCase: {
     caseType: string
     accidentSubtype?: string
@@ -126,7 +134,7 @@ type EvidenceLike = {
   aiSummary?: string | null
 }
 
-type UnderwritingInput = {
+export type UnderwritingInput = {
   id?: string
   claimType: string
   venueState?: string | null
@@ -398,10 +406,27 @@ export function calculateLiability(input: UnderwritingInput): LiabilityResult {
 export function calculateSeverity(input: UnderwritingInput): SeverityResult {
   const facts = input.facts
   const blob = textBlob(facts, input.evidenceFiles)
-  const primaryInjury = getPrimaryInjury(facts, blob)
-  const surgeryStatus = getSurgeryStatus(facts)
-  const injectionCount = countInjections(facts)
+  const narrativeInjury = getPrimaryInjury(facts, blob)
+  const clinicalCodes = analyzeClinicalCodes(facts?.clinical?.icdCodes, facts?.clinical?.cptCodes)
+
+  // Diagnosis codes come off the medical records, so they outrank keywords
+  // scraped from a narrative. They upgrade the injury but never downgrade it:
+  // a coded sprain does not disprove a herniation the treating physician
+  // described in a report we have not coded yet.
+  const codedInjury = clinicalCodes.primaryInjuryType
+  const codesOutrankNarrative =
+    codedInjury !== null && INJURY_TYPE_RANK[codedInjury] > INJURY_TYPE_RANK[narrativeInjury]
+  const primaryInjury = codesOutrankNarrative ? codedInjury! : narrativeInjury
+
+  // Procedure codes are proof of the procedure. Fall back to them when the
+  // narrative never mentioned the surgery or injections the bills show.
+  const surgeryStatus = getSurgeryStatus(facts) || (clinicalCodes.hasSurgery ? 'completed' : '')
+  const injectionCount = Math.max(countInjections(facts), clinicalCodes.hasInjection ? 1 : 0)
+
   const factors: string[] = [primaryInjury.replace(/_/g, ' ').toLowerCase()]
+  if (codesOutrankNarrative) {
+    factors.push(`injury upgraded from ${narrativeInjury.replace(/_/g, ' ').toLowerCase()} by documented codes`)
+  }
   let score = ({
     SOFT_TISSUE: 20,
     DISC_BULGE: 35,
@@ -434,9 +459,24 @@ export function calculateSeverity(input: UnderwritingInput): SeverityResult {
     factors.push('multiple injections')
   }
 
+  // Documented findings lift severity beyond what the injury label alone says:
+  // three coded findings on one claimant is a worse case than one. Capped at
+  // +15 so codes inform the score rather than dominate it.
+  if (clinicalCodes.severityBonus > 0) {
+    score += Math.round(clinicalCodes.severityBonus * 6)
+    factors.push(...clinicalCodes.factors)
+  }
+
   const normalized = clamp(score)
   const tier = normalized >= 85 ? 'Severe' : normalized >= 70 ? 'Moderate-Severe' : normalized >= 45 ? 'Moderate' : normalized >= 25 ? 'Developing' : 'Soft Tissue'
-  return { score: normalized, tier, primaryInjury, factors }
+  return {
+    score: normalized,
+    tier,
+    primaryInjury,
+    injurySource: codesOutrankNarrative ? 'clinical_codes' : 'narrative',
+    clinicalCodes,
+    factors,
+  }
 }
 
 export function calculateTreatmentQuality(input: UnderwritingInput): TreatmentResult {
@@ -463,10 +503,52 @@ export function calculateTreatmentQuality(input: UnderwritingInput): TreatmentRe
     score += 10
     positives.push('Surgical treatment')
   }
-  if (facts?.damages?.treatment_gap || /major gap|large gap|stopped treating/.test(blob)) {
+
+  // Objective imaging is what separates a documented injury from a reported
+  // one, and it was previously ignored here entirely.
+  const clinicalCodes = analyzeClinicalCodes(facts?.clinical?.icdCodes, facts?.clinical?.cptCodes)
+  const imagingInTreatment = treatment.some((item: any) =>
+    /mri|ct scan|cat scan|imaging/i.test(`${item?.type || ''} ${item?.imaging || ''} ${item?.notes || ''}`),
+  )
+  if (clinicalCodes.hasAdvancedImaging || imagingInTreatment || /\bmri\b|\bct scan\b/.test(blob)) {
+    score += 10
+    positives.push('Objective imaging (MRI or CT)')
+  }
+
+  // Gaps in care, measured from treatment dates rather than guessed at from
+  // prose. `analyzeTreatmentChronology` knows how long the gap was and when it
+  // happened; the keyword scan below knows only that someone typed "gap".
+  const chronology = analyzeTreatmentChronology(facts)
+  if (chronology.hasDates) {
+    if (chronology.continuity === 'gapped') {
+      score -= 25
+      negatives.push(`${chronology.gapCount} gap(s) in care, largest ${chronology.largestGapDays} days`)
+    } else if (chronology.continuity === 'continuous') {
+      score += 10
+      positives.push(`Continuous treatment over ${chronology.durationDays} days`)
+    } else if (chronology.largestGapDays > 45) {
+      score -= 10
+      negatives.push(`Gap of ${chronology.largestGapDays} days between visits`)
+    }
+
+    const onset = chronology.treatmentOnsetDays
+    if (onset !== null && onset > 90) {
+      score -= 15
+      negatives.push(`First treatment ${onset} days after the incident, which weakens causation`)
+    } else if (onset !== null && onset > 30) {
+      score -= 8
+      negatives.push(`First treatment ${onset} days after the incident`)
+    } else if (onset !== null && onset <= 7) {
+      score += 5
+      positives.push('Treatment began within a week of the incident')
+    }
+  } else if (facts?.damages?.treatment_gap || /major gap|large gap|stopped treating/.test(blob)) {
+    // No usable dates, so fall back to reading the prose.
     score -= 25
     negatives.push('Major treatment gap')
-  } else if (/gap/.test(blob)) {
+  } else if (/gap in (care|treatment)|treatment gap/.test(blob) && !/no (significant |major )?gaps? in (care|treatment)/.test(blob)) {
+    // Deliberately narrower than a bare /gap/, which fired on any use of the
+    // word — including a record stating there was no gap in treatment.
     score -= 10
     negatives.push('Possible treatment gap')
   }
@@ -474,7 +556,7 @@ export function calculateTreatmentQuality(input: UnderwritingInput): TreatmentRe
 
   const normalized = clamp(score)
   const grade = normalized >= 75 ? 'Strong' : normalized >= 50 ? 'Good' : normalized >= 25 ? 'Developing' : 'Weak'
-  return { score: normalized, grade, positives, negatives }
+  return { score: normalized, grade, chronology, positives, negatives }
 }
 
 export function calculateDocumentation(input: UnderwritingInput): DocumentationResult {
@@ -553,7 +635,19 @@ function getFutureMedicalAdjusted(facts: Record<string, any>) {
   return future * multiplier
 }
 
-export function calculateSettlement(input: UnderwritingInput, liability: LiabilityResult, severity: SeverityResult, treatment: TreatmentResult): SettlementResult {
+/** Map the underwriting severity tier onto the 0-4 level calibration indexes by. */
+function severityLevel(tier: string): number {
+  return { 'Soft Tissue': 0, Developing: 1, Moderate: 2, 'Moderate-Severe': 3, Severe: 4 }[tier] ?? 2
+}
+
+export function calculateSettlement(
+  input: UnderwritingInput,
+  liability: LiabilityResult,
+  severity: SeverityResult,
+  treatment: TreatmentResult,
+  calibrationOverride?: ValuationCalibration,
+): SettlementResult {
+  const calibration = calibrationOverride ?? getValuationCalibration()
   const facts = input.facts
   const damages = facts?.damages || {}
   const medicalBills = Number(damages.med_charges || damages.med_paid || damages.estimated_med_charges || 0)
@@ -571,7 +665,10 @@ export function calculateSettlement(input: UnderwritingInput, liability: Liabili
     futureMedicalAdjusted: money(futureMedicalAdjusted),
     total: money(medicalBills + lostWages + outOfPocket + futureMedicalAdjusted),
   }
-  const baseInjuryValue = BASE_INJURY_VALUES[severity.primaryInjury]
+  // The per-injury floor is the engine's hand-set anchor, so it is what the
+  // calibration loop's per-severity coefficient adjusts.
+  const baseInjuryValue =
+    BASE_INJURY_VALUES[severity.primaryInjury] * (calibration.severityAnchorScale[severityLevel(severity.tier)] ?? 1)
   const venueModifier = getVenueModifier(input.venueCounty)
   const liabilityModifier = Math.max(0.25, liability.score / 100)
   const treatmentModifier = 0.75 + (treatment.score / 100) * 0.5
@@ -589,16 +686,20 @@ export function calculateSettlement(input: UnderwritingInput, liability: Liabili
   if (damages.scarring || damages.disfigurement) generalDamagesMultiplier += 0.5
   const generalDamages = Math.max(baseInjuryValue, medicalSpecials * generalDamagesMultiplier)
 
-  const expected = (generalDamages + economicDamages.total) * venueModifier * liabilityModifier * treatmentModifier
+  const expected =
+    (generalDamages + economicDamages.total) * venueModifier * liabilityModifier * treatmentModifier * calibration.settlementScale
+
+  // Band half-width scales with the calibrated spread (1 = the original ±30%).
+  const halfWidth = 0.3 * calibration.bandWidthScale
 
   // Coverage is applied last and to the finished band, because it is not part
   // of what the case is worth — it is what can be collected on it. A $200k case
   // against a $50k policy is still a $200k case; it is a $50k recovery.
   const coverage = resolveCoverageCeiling(facts, input.insuranceDetails)
   const capped = applyCoverageCeiling(
-    money(expected * 0.7),
+    money(expected * (1 - halfWidth)),
     money(expected),
-    money(expected * 1.3),
+    money(expected * (1 + halfWidth)),
     coverage.ceiling,
   )
 
@@ -732,13 +833,14 @@ export function reconcileValueBandsWithUnderwriting(legacyValueBands: any, settl
   }
 }
 
-export function underwriteCase(input: UnderwritingInput): UnderwritingResult {
+export function underwriteCase(input: UnderwritingInput, calibrationOverride?: ValuationCalibration): UnderwritingResult {
   const facts = input.facts || {}
+  const calibration = calibrationOverride ?? getValuationCalibration()
   const liability = calculateLiability(input)
   const severity = calculateSeverity(input)
   const treatment = calculateTreatmentQuality(input)
   const documentation = calculateDocumentation(input)
-  const settlement = calculateSettlement(input, liability, severity, treatment)
+  const settlement = calculateSettlement(input, liability, severity, treatment, calibration)
   const attorneyAcceptance = calculateAttorneyAcceptance(input, settlement, liability, severity, documentation)
   const caseStrength = clamp(
     liability.score * 0.25 +
@@ -749,7 +851,7 @@ export function underwriteCase(input: UnderwritingInput): UnderwritingResult {
   )
 
   return {
-    modelVersion: 'ca-pi-underwriting-v1',
+    modelVersion: isIdentity(calibration) ? 'ca-pi-underwriting-v1' : `ca-pi-underwriting-v1+cal:${calibration.version}`,
     normalizedCase: {
       caseType: input.claimType,
       accidentSubtype: facts?.caseSubtype || facts?.incident?.caseSubtype || facts?.intakeData?.caseTaxonomy?.caseSubtype,
