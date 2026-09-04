@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { getPlaintiffCaseStatusKey, isPlaintiffRetained } from './caseStatus'
+import { getPlaintiffCaseStatusKey, getPlaintiffPipelineProgress, isPlaintiffRetained } from './caseStatus'
 
 describe('isPlaintiffRetained', () => {
   it('does not treat caseStage alone as retained', () => {
@@ -15,6 +15,23 @@ describe('isPlaintiffRetained', () => {
   it('is true when lifecycle or lead status shows retention', () => {
     expect(isPlaintiffRetained({ lifecycleState: 'engaged', leadStatus: 'submitted' })).toBe(true)
     expect(isPlaintiffRetained({ lifecycleState: 'attorney_review', leadStatus: 'retained' })).toBe(true)
+  })
+
+  // Only `onRetainerSigned` writes the retained lead status, so a retainer that
+  // was sent and never completed left the client's pipeline frozen at
+  // Consultation while the firm was already demanding and negotiating.
+  it('infers retention from stages a firm never reaches unretained', () => {
+    for (const caseStage of ['DEMAND_PREPARATION', 'DEMAND_SENT', 'NEGOTIATION', 'SETTLEMENT_PENDING', 'DISBURSEMENT']) {
+      expect(isPlaintiffRetained({ lifecycleState: 'consultation_scheduled', leadStatus: 'consulted', caseStage })).toBe(true)
+    }
+  })
+
+  it('still refuses to infer retention from an ambiguous stage', () => {
+    // An evidence upload alone can carry a merely-consulted matter to
+    // TREATMENT, which is the stale-stage problem the guard exists for.
+    for (const caseStage of ['OPENING', 'INVESTIGATION', 'TREATMENT', 'RECORD_COLLECTION', 'CLOSED']) {
+      expect(isPlaintiffRetained({ lifecycleState: 'attorney_review', leadStatus: 'submitted', caseStage })).toBe(false)
+    }
   })
 })
 
@@ -55,8 +72,7 @@ describe('getPlaintiffCaseStatusKey', () => {
 })
 
 describe('getPlaintiffPipelineProgress', () => {
-  it('does not jump to treatment from stale caseStage before retain', async () => {
-    const { getPlaintiffPipelineProgress } = await import('./caseStatus')
+  it('does not jump to treatment from stale caseStage before retain', () => {
     expect(
       getPlaintiffPipelineProgress({
         submittedForReview: true,
@@ -66,5 +82,30 @@ describe('getPlaintiffPipelineProgress', () => {
         caseStage: 'TREATMENT',
       }),
     ).toEqual({ currentIdx: 2, completeThrough: 2 })
+  })
+
+  it('lights the demand milestone once a demand has gone out', () => {
+    expect(
+      getPlaintiffPipelineProgress({
+        submittedForReview: true,
+        attorneyMatched: true,
+        hasScheduledConsult: true,
+        retained: isPlaintiffRetained({ leadStatus: 'consulted', caseStage: 'DEMAND_SENT' }),
+        caseStage: 'DEMAND_SENT',
+      }),
+    ).toEqual({ currentIdx: 7, completeThrough: 7 })
+  })
+})
+
+describe('getPlaintiffCaseStatusKey with a lagging retained flag', () => {
+  it('reports demand rather than consultation once the demand is out', () => {
+    expect(
+      getPlaintiffCaseStatusKey({
+        lifecycleState: 'consultation_scheduled',
+        leadStatus: 'consulted',
+        caseStage: 'DEMAND_SENT',
+        attorneyMatched: true,
+      }),
+    ).toBe('demand')
   })
 })

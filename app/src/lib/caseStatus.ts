@@ -108,6 +108,35 @@ export function plaintiffCaseStageBucket(caseStage?: string | null): PlaintiffPo
   return 'retained'
 }
 
+/**
+ * Case stages a firm does not reach without an active representation.
+ *
+ * The server advances `caseStage` for any case an attorney is *working*
+ * (`isCaseRetained` accepts a lead that is merely contacted or consulted),
+ * while retention here means the client actually signed. Those are different
+ * questions and both are right, but the gap between them used to freeze the
+ * plaintiff's pipeline: only `onRetainerSigned` writes the retained lead
+ * status, so a case whose retainer never completed would climb to DEMAND_SENT
+ * on the attorney side while the client still saw "Consultation".
+ *
+ * Reaching one of these stages requires a demand letter with a send date, a
+ * logged negotiation event, or a settlement — none of which a firm does on a
+ * case it was never retained for. So they are treated as proof of retention,
+ * on the reasoning that the paperwork is what is lagging, not the case.
+ *
+ * TREATMENT and RECORD_COLLECTION are deliberately excluded: an evidence
+ * upload alone can carry a merely-consulted matter that far, which is the
+ * stale-stage problem this guard was written for in the first place. CLOSED is
+ * excluded too, since a case can close without ever being retained.
+ */
+const STAGES_PROVING_REPRESENTATION = new Set([
+  'DEMAND_PREPARATION',
+  'DEMAND_SENT',
+  'NEGOTIATION',
+  'SETTLEMENT_PENDING',
+  'DISBURSEMENT',
+])
+
 export function isPlaintiffRetained(routing: {
   lifecycleState?: string | null
   leadStatus?: string | null
@@ -117,10 +146,7 @@ export function isPlaintiffRetained(routing: {
   const leadStatus = routing?.leadStatus || ''
   if (lifecycle === 'engaged' || lifecycle === 'retained') return true
   if (leadStatus === 'retained') return true
-  // Never treat caseStage alone as retained. Routing can leave a stale
-  // caseStage (e.g. TREATMENT after an evidence upload) on a not-yet-accepted
-  // matter; post-retain pipeline badges must wait for real retention.
-  return false
+  return STAGES_PROVING_REPRESENTATION.has(String(routing?.caseStage || '').toUpperCase())
 }
 
 const isPast = (value?: string | Date | null): boolean => {

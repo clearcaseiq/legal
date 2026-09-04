@@ -69,6 +69,19 @@ function isCaseStage(value: unknown): value is CaseStage {
  */
 export const CLOSED_STATUSES = new Set(['closed', 'won', 'resolved', 'settled'])
 
+/**
+ * Stages that cannot be reached without an active representation. Mirrors
+ * `STAGES_PROVING_REPRESENTATION` in the web app's `caseStatus.ts`, which uses
+ * them to unfreeze the plaintiff pipeline when the retained flag is lagging.
+ */
+const STAGES_PROVING_REPRESENTATION = new Set<CaseStage>([
+  'DEMAND_PREPARATION',
+  'DEMAND_SENT',
+  'NEGOTIATION',
+  'SETTLEMENT_PENDING',
+  'DISBURSEMENT',
+])
+
 /** Does the case have any documented treatment activity yet? */
 function hasTreatmentActivity(facts: any): boolean {
   const treatment = facts?.treatment
@@ -210,6 +223,30 @@ export async function syncCaseStage(
         await createCloseoutTasks(assessmentId, { createdByName: 'ClearCaseIQ' })
       } catch (e: any) {
         logger.warn('createCloseoutTasks failed', { assessmentId, error: e?.message })
+      }
+    }
+
+    // A firm does not send a demand or negotiate a settlement on a case it was
+    // never retained for, so reaching one of these stages with the lead still
+    // un-retained means the retainer never completed — usually a signature
+    // request that was sent and left hanging. The plaintiff pipeline now infers
+    // representation from the stage so the client is not left staring at
+    // "Consultation", but the lead record is still wrong and conversion
+    // reporting still counts it as unretained, so say so loudly.
+    if (STAGES_PROVING_REPRESENTATION.has(resolved)) {
+      const lead = await prisma.leadSubmission
+        .findFirst({ where: { assessmentId }, select: { id: true, status: true, lifecycleState: true } })
+        .catch(() => null)
+      const retained =
+        lead?.status === 'retained' || lead?.lifecycleState === 'engaged' || lead?.lifecycleState === 'retained'
+      if (lead && !retained) {
+        logger.warn('Case reached a post-retention stage but the lead is not marked retained', {
+          assessmentId,
+          leadId: lead.id,
+          stage: resolved,
+          leadStatus: lead.status,
+          lifecycleState: lead.lifecycleState,
+        })
       }
     }
 
