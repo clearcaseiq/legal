@@ -144,6 +144,63 @@ describe('calculateSettlement general damages', () => {
   })
 })
 
+describe('calculateSettlement policy limits', () => {
+  const seriousCase = (insurance: Record<string, any>) => ({
+    claimType: 'auto',
+    venueState: 'CA',
+    venueCounty: 'Los Angeles',
+    facts: {
+      claimType: 'auto',
+      liability: { crashType: 'rear_end', comparativeNegligence: 0 },
+      incident: { date: '2026-01-01', narrative: 'Rear-ended at a red light. MRI shows a herniation and an epidural injection was performed.' },
+      injuries: [{ diagnoses: ['herniation'], lifestyleImpact: ['daily_pain'] }],
+      treatment: [{ type: 'physical_therapy' }, { type: 'injection' }, { type: 'orthopedist' }],
+      damages: { med_charges: 60000 },
+      insurance,
+    },
+    evidenceFiles: [{ category: 'medical_records' }, { category: 'bills' }],
+  })
+
+  it('caps the estimate at coverage the claim cannot recover past', () => {
+    // Without this the claimant is shown a six-figure estimate on a claim that
+    // can pay at most $25k, and the number reads as a promise.
+    const uncapped = underwriteCase(seriousCase({}))
+    const capped = underwriteCase(seriousCase({ policy_limit: 25000 }))
+
+    expect(uncapped.settlement.expected).toBeGreaterThan(25000)
+    expect(capped.settlement.high).toBe(25000)
+    expect(capped.settlement.expected).toBeLessThanOrEqual(25000)
+    expect(capped.settlement.policyLimitConstrained).toBe(true)
+    // The underlying valuation is preserved, so the demand and the negotiation
+    // posture still know what the case is actually worth.
+    expect(capped.settlement.uncappedExpected).toBe(uncapped.settlement.expected)
+  })
+
+  it('leaves the estimate alone when no limit is known', () => {
+    const result = underwriteCase(seriousCase({}))
+    expect(result.settlement.policyLimitConstrained).toBe(false)
+    expect(result.settlement.expected).toBe(result.settlement.uncappedExpected)
+  })
+
+  it('does not cap a claimant who carries UM/UIM of an unknown amount', () => {
+    const result = underwriteCase(seriousCase({ policy_limit: 25000, has_um_uim_coverage: true }))
+    expect(result.settlement.policyLimitConstrained).toBe(false)
+    expect(result.settlement.expected).toBeGreaterThan(25000)
+  })
+
+  it('caps at the combined limit once UM/UIM is confirmed', () => {
+    const result = underwriteCase({
+      ...seriousCase({ policy_limit: 25000, has_um_uim_coverage: true }),
+      insuranceDetails: [
+        { insuredParty: 'defendant', policyLimit: 25000 },
+        { insuredParty: 'client', coverageType: 'uim', policyLimit: 50000, coverageConfirmed: true },
+      ],
+    })
+    expect(result.settlement.high).toBe(75000)
+    expect(result.settlement.policyLimitConstrained).toBe(true)
+  })
+})
+
 describe('calculateAttorneyConsensus', () => {
   it('returns median values when three attorneys review', () => {
     const consensus = calculateAttorneyConsensus([

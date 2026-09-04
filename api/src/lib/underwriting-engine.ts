@@ -1,3 +1,5 @@
+import { applyCoverageCeiling, resolveCoverageCeiling, type CoverageCeiling } from './coverage-ceiling'
+
 export type LiabilityGrade = 'Weak' | 'Moderate' | 'Strong' | 'Very Strong'
 export type InjuryType =
   | 'SOFT_TISSUE'
@@ -57,6 +59,11 @@ export interface SettlementResult {
   liabilityModifier: number
   treatmentModifier: number
   formula: string
+  /** True when available coverage, not case value, is what bounds the number. */
+  policyLimitConstrained: boolean
+  coverage: CoverageCeiling
+  /** What the formula produced before coverage was applied. */
+  uncappedExpected: number
 }
 
 export interface AttorneyAcceptanceResult {
@@ -126,6 +133,17 @@ type UnderwritingInput = {
   venueCounty?: string | null
   facts: Record<string, any>
   evidenceFiles?: EvidenceLike[]
+  /**
+   * Attorney-side coverage records, when the caller has them. Optional because
+   * intake runs long before anyone pulls a declarations page; the facts blob is
+   * the fallback.
+   */
+  insuranceDetails?: {
+    insuredParty?: string | null
+    coverageType?: string | null
+    policyLimit?: number | null
+    coverageConfirmed?: boolean | null
+  }[]
 }
 
 const BASE_INJURY_VALUES: Record<InjuryType, number> = {
@@ -573,16 +591,30 @@ export function calculateSettlement(input: UnderwritingInput, liability: Liabili
 
   const expected = (generalDamages + economicDamages.total) * venueModifier * liabilityModifier * treatmentModifier
 
+  // Coverage is applied last and to the finished band, because it is not part
+  // of what the case is worth — it is what can be collected on it. A $200k case
+  // against a $50k policy is still a $200k case; it is a $50k recovery.
+  const coverage = resolveCoverageCeiling(facts, input.insuranceDetails)
+  const capped = applyCoverageCeiling(
+    money(expected * 0.7),
+    money(expected),
+    money(expected * 1.3),
+    coverage.ceiling,
+  )
+
   return {
-    low: money(expected * 0.7),
-    expected: money(expected),
-    high: money(expected * 1.3),
+    low: capped.low,
+    expected: capped.expected,
+    high: capped.high,
     baseInjuryValue,
     economicDamages,
     venueModifier,
     liabilityModifier,
     treatmentModifier,
     formula: '(generalDamages + economicDamages) * venueModifier * liabilityModifier * treatmentModifier; generalDamages = max(baseInjuryValue, medicalSpecials * severityMultiplier)',
+    policyLimitConstrained: capped.constrained,
+    coverage,
+    uncappedExpected: money(expected),
   }
 }
 
@@ -672,7 +704,9 @@ export function reconcileValueBandsWithUnderwriting(legacyValueBands: any, settl
       median: settlement.expected,
       p75: settlement.high,
       formula: settlement.formula,
-      policyLimitConstrained: false,
+      policyLimitConstrained: settlement.policyLimitConstrained,
+      coverageBasis: settlement.coverage.basis,
+      policyLimit: settlement.coverage.defendantLimit,
     },
     trial: {
       ...(legacy.trial || {}),
@@ -680,7 +714,11 @@ export function reconcileValueBandsWithUnderwriting(legacyValueBands: any, settl
       median: money((trialLow + trialHigh) / 2),
       p75: trialHigh,
       formula: 'settlement_high * trial_risk_premium (1.35x low, 3.25x high); most cases settle',
-      policyLimitConstrained: false,
+      // Reported, not applied. A verdict is not capped by the policy — an
+      // excess judgment is the predicate for a bad-faith claim against the
+      // carrier, so capping the trial band would erase the one signal that
+      // says the case is worth more than the coverage.
+      policyLimitConstrained: settlement.policyLimitConstrained,
     },
     economics: {
       ...(legacy.economics || {}),

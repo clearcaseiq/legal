@@ -733,6 +733,9 @@ export async function buildCaseIntelligence(assessmentId: string): Promise<CaseI
       venueCounty: assessment.venueCounty,
       facts,
       evidenceFiles,
+      // Confirmed declarations pages beat the claimant's recollection of their
+      // own limits, and are the only place a UM/UIM amount is ever recorded.
+      insuranceDetails,
     })
   } catch (error: any) {
     logger.warn('Underwriting failed while building case intelligence', { assessmentId, error: error?.message })
