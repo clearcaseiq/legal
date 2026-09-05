@@ -2173,17 +2173,29 @@ export default function Results() {
   // was rising. Worse, the minimum sat *above* small cases, so when a case gained enough
   // evidence to leave the early-stage band it switched to its true, lower figure and looked
   // like it had lost value for supplying proof.
-  const roundEstimateForDisplay = (value: number) => Math.max(1000, Math.floor(value / 1000) * 1000)
+  // Step with the magnitude. A flat step reads as noise on a large figure and swallows
+  // real movement on a small one: at $1,000 steps a $1,800 estimate displayed as $1,000,
+  // a further 44% haircut on top of the early-stage discount below.
+  const roundEstimateForDisplay = (value: number) => {
+    const step = value < 10000 ? 500 : value < 50000 ? 1000 : 5000
+    return Math.max(step, Math.floor(value / step) * step)
+  }
   const isEarlyStageEstimate =
     evidenceLevelConfidence.confidence === 'Low' ||
     effectiveEvidenceCount === 0 ||
     readinessDetails.percent <= 50 ||
     liabilityOutlook !== 'strong'
+  // Before the case is evidenced, show a range that sits just under the modelled one, so it
+  // can only be revised upward as proof arrives. The discount used to be far steeper
+  // (0.4x/0.5x, further clamped against the opposite end of the band) because a $5,000
+  // display minimum propped small cases back up; with that minimum gone the steep version
+  // showed a $4,000 case as $1,000 and the clamps pinned it there regardless of the
+  // multipliers, so both go together.
   const displaySettlementLow = isEarlyStageEstimate
-    ? roundEstimateForDisplay(Math.min(settlementLow * 0.4, settlementHigh * 0.25))
+    ? roundEstimateForDisplay(settlementLow * 0.7)
     : settlementLow
   const displaySettlementHigh = isEarlyStageEstimate
-    ? roundEstimateForDisplay(Math.min(settlementHigh * 0.5, settlementLow * 1.05))
+    ? roundEstimateForDisplay(settlementHigh * 0.9)
     : settlementHigh
   // Keep the band visibly wide without adding a flat sum, which on a small case was itself
   // a large overstatement.
