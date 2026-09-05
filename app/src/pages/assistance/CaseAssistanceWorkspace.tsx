@@ -292,7 +292,11 @@ export default function CaseAssistanceWorkspace() {
               Read-only. Walk the claimant through anything that needs correcting and let them update it themselves —
               their account is the record of what they said.
             </p>
-            <dl className="grid gap-x-6 gap-y-2.5 text-sm sm:grid-cols-2">
+            {/* Single column until the viewport is wide enough that this centre pane
+                actually is too. `sm:` measures the window, not this column, which sits
+                between a 20rem and a 24rem sibling — so it split a ~500px pane into two
+                240px ones on every normal screen. */}
+            <dl className="grid gap-x-6 gap-y-2.5 text-sm 2xl:grid-cols-2">
               <Field label="Claim type" value={humanize(summary.claimType)} />
               <Field
                 label="Venue"
@@ -474,11 +478,17 @@ function Field({
   href?: string
 }) {
   return (
+    // Labels here are not all short: FactBlock builds them by joining nested JSON keys, so
+    // they run to things like "incidentTags taxonomyPath Item 2". The label used to refuse
+    // to shrink and had nowhere to wrap, so it overflowed its column and printed on top of
+    // the neighbouring one, while the value absorbed every pixel of the shrinking and
+    // truncated down to a character or two. Both sides now wrap, and capping the label
+    // keeps a readable share for the value no matter how long the key is.
     <div className="flex items-baseline justify-between gap-3">
-      <dt className="shrink-0 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+      <dt className="min-w-0 max-w-[60%] break-words text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
         {label}
       </dt>
-      <dd className="min-w-0 truncate text-right text-slate-800 dark:text-slate-200">
+      <dd className="min-w-0 flex-1 break-words text-right text-slate-800 dark:text-slate-200">
         {href && value ? (
           <a className="text-brand-700 hover:underline dark:text-brand-400" href={href}>
             {value}
@@ -506,7 +516,9 @@ function FactBlock({ label, value }: { label: string; value: unknown }) {
   return (
     <div className="mt-4">
       <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{label}</p>
-      <dl className="mt-1 grid gap-x-6 gap-y-1.5 text-sm sm:grid-cols-2">
+      {/* Always one column: these labels come from arbitrary nested JSON keys and have no
+          length bound, so there is no width at which two of them reliably fit side by side. */}
+      <dl className="mt-1 grid gap-x-6 gap-y-1.5 text-sm">
         {entries.map(([key, text]) => (
           <Field key={key} label={humanize(key)} value={text} />
         ))}
