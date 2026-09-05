@@ -2072,32 +2072,9 @@ export default function Results() {
   const settlementHigh = underwriting?.settlement?.high ?? settlementRange?.p75 ?? valueBands?.p75 ?? 75000
   const settlementExpected = underwriting?.settlement?.expected ?? settlementRange?.median ?? valueBands?.median ?? Math.round((settlementLow + settlementHigh) / 2)
   const policyLimitConstrained = !!(settlementRange?.policyLimitConstrained || trialRange?.policyLimitConstrained)
-  // The trial band must stay internally consistent with the settlement number actually
-  // shown on this card. Settlement is often sourced from the underwriting engine while the
-  // trial band comes from the prediction engine, and those two are not reconciled — which
-  // produced implausible gaps (e.g. a $25k settlement beside a $677k trial "most likely").
-  // Unless the case is genuinely policy-limit constrained (where a low cap is legitimate),
-  // only trust the backend trial band when it lands within a defensible multiple of the
-  // displayed settlement; otherwise fall back to a settlement-anchored range.
-  const backendTrialLow = typeof trialRange?.p25 === 'number' ? trialRange.p25 : null
-  const backendTrialHigh = typeof trialRange?.p75 === 'number' ? trialRange.p75 : null
-  let potentialTrialLow: number
-  let potentialTrialHigh: number
-  if (policyLimitConstrained && backendTrialLow != null && backendTrialHigh != null) {
-    potentialTrialLow = backendTrialLow
-    potentialTrialHigh = backendTrialHigh
-  } else {
-    const trialFloor = Math.round(settlementHigh * 1.3)
-    const trialCeil = Math.round(settlementHigh * 4)
-    const backendWithinBounds =
-      backendTrialLow != null &&
-      backendTrialHigh != null &&
-      backendTrialHigh >= backendTrialLow &&
-      backendTrialLow >= trialFloor &&
-      backendTrialHigh <= trialCeil
-    potentialTrialLow = backendWithinBounds ? (backendTrialLow as number) : Math.round(settlementHigh * 1.35)
-    potentialTrialHigh = backendWithinBounds ? (backendTrialHigh as number) : Math.round(settlementHigh * 3.25)
-  }
+  // The trial band is derived further down, once the settlement figure actually shown on
+  // the card exists. Anchoring it here to the raw settlement was what let the two numbers
+  // tell different stories — see the note beside displaySettlementLow.
   const settlementRangeText = `${formatCurrency(settlementLow)} - ${formatCurrency(settlementHigh)}`
   const insuranceRecoveryPercent = clampPercent(
     policyLimitConstrained
@@ -2189,7 +2166,14 @@ export default function Results() {
     if (hasMedicalBills) return { level: 'Medical bills', confidence: 'Medium' }
     return { level: 'Other documents', confidence: 'Low' }
   })()
-  const roundEstimateForDisplay = (value: number) => Math.max(5000, Math.round(value / 5000) * 5000)
+  // Round to a readable figure, but never upward. This used to snap to $5,000 steps with a
+  // $5,000 minimum, which pinned every case worth less than roughly $15,000 to exactly
+  // "$5,000 - $10,000" no matter what its inputs were: uploading a police report or medical
+  // records could not move the number a claimant reads, even though the estimate underneath
+  // was rising. Worse, the minimum sat *above* small cases, so when a case gained enough
+  // evidence to leave the early-stage band it switched to its true, lower figure and looked
+  // like it had lost value for supplying proof.
+  const roundEstimateForDisplay = (value: number) => Math.max(1000, Math.floor(value / 1000) * 1000)
   const isEarlyStageEstimate =
     evidenceLevelConfidence.confidence === 'Low' ||
     effectiveEvidenceCount === 0 ||
@@ -2201,7 +2185,9 @@ export default function Results() {
   const displaySettlementHigh = isEarlyStageEstimate
     ? roundEstimateForDisplay(Math.min(settlementHigh * 0.5, settlementLow * 1.05))
     : settlementHigh
-  const displaySettlementHighValue = Math.max(displaySettlementLow + 5000, displaySettlementHigh)
+  // Keep the band visibly wide without adding a flat sum, which on a small case was itself
+  // a large overstatement.
+  const displaySettlementHighValue = Math.max(displaySettlementHigh, Math.round(displaySettlementLow * 1.4))
   const displaySettlementRangeText = `${formatCurrency(displaySettlementLow)} - ${formatCurrency(displaySettlementHighValue)}`
   // Keep the "most likely" point inside the displayed range. When the range is
   // scaled down for early-stage estimates, map the raw expected's relative
@@ -2217,6 +2203,33 @@ export default function Results() {
         ),
       )
     : Math.min(displaySettlementHighValue, Math.max(displaySettlementLow, settlementExpected))
+  // The trial band hangs off the settlement figure on the same card, so the two can never
+  // tell different stories. It used to be anchored to the raw settlement while the number
+  // beside it was discounted for early-stage cases, so evidence visibly moved the trial
+  // range while the settlement range sat still — the claimant saw their police report help
+  // a verdict but not a settlement, which is not a distinction the engine actually makes.
+  // Unless the case is genuinely policy-limit constrained (where a low cap is legitimate),
+  // only trust the backend band when it lands within a defensible multiple; otherwise fall
+  // back to a settlement-anchored range.
+  const backendTrialLow = typeof trialRange?.p25 === 'number' ? trialRange.p25 : null
+  const backendTrialHigh = typeof trialRange?.p75 === 'number' ? trialRange.p75 : null
+  let potentialTrialLow: number
+  let potentialTrialHigh: number
+  if (policyLimitConstrained && backendTrialLow != null && backendTrialHigh != null) {
+    potentialTrialLow = backendTrialLow
+    potentialTrialHigh = backendTrialHigh
+  } else {
+    const trialFloor = Math.round(displaySettlementHighValue * 1.3)
+    const trialCeil = Math.round(displaySettlementHighValue * 4)
+    const backendWithinBounds =
+      backendTrialLow != null &&
+      backendTrialHigh != null &&
+      backendTrialHigh >= backendTrialLow &&
+      backendTrialLow >= trialFloor &&
+      backendTrialHigh <= trialCeil
+    potentialTrialLow = backendWithinBounds ? (backendTrialLow as number) : Math.round(displaySettlementHighValue * 1.35)
+    potentialTrialHigh = backendWithinBounds ? (backendTrialHigh as number) : Math.round(displaySettlementHighValue * 3.25)
+  }
   const treatment = Array.isArray(parsedFacts?.treatment) ? parsedFacts.treatment : []
   const structuredValuationDrivers = valueBands?.drivers || {}
   const hasErTreatment = hasErTreatmentReported(treatment, parsedFacts)
