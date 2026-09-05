@@ -24,7 +24,7 @@ function parseFacts(facts: unknown): Record<string, any> {
 }
 
 /** Reduce an assessment row to exactly what the underwriting engine reads. */
-function buildUnderwritingSnapshot(assessment: any): UnderwritingInput {
+export function buildUnderwritingSnapshot(assessment: any): UnderwritingInput {
   return {
     id: assessment.id,
     claimType: assessment.claimType,

@@ -57,7 +57,14 @@ function fileHasUsableContent(file: {
   return false
 }
 
-function mergeEvidenceIntoFacts(
+/**
+ * Derive damages, evidence credit and clinical codes from a case's uploaded files.
+ *
+ * Pure: takes facts plus files and returns new facts, touching no database. Exported
+ * so offline analysis can recompute a case's figures from corrected inputs and diff
+ * them against what is stored, without duplicating this logic or writing anything.
+ */
+export function mergeEvidenceIntoFacts(
   facts: Record<string, unknown>,
   evidenceFiles: Array<{
     id?: string
