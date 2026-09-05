@@ -473,7 +473,7 @@ export default function Layout({ children }: LayoutProps) {
         {/* Match the wide claimant / dashboard column so the logo lines up with page content. */}
         <div
           className={`mx-auto ${
-            isWideClaimantRoute
+            isWideClaimantRoute || isAdminArea
               ? 'max-w-[1600px] px-4 sm:px-6'
               : isFullWidthWorkspace
                 ? 'max-w-[1440px] px-4 xl:px-6 2xl:px-8'
@@ -875,7 +875,7 @@ export default function Layout({ children }: LayoutProps) {
             ? isWideClaimantRoute
               ? 'max-w-[1600px] px-4 sm:px-6'
               : 'max-w-[1440px] px-4 xl:px-6 2xl:px-8'
-            : isRegisterRoute || isWidePlaintiffAccountRoute
+            : isRegisterRoute || isWidePlaintiffAccountRoute || isAdminArea
               ? 'max-w-[1600px] px-4 sm:px-6'
               : 'max-w-7xl sm:px-6 lg:px-8'
         } ${
@@ -927,7 +927,9 @@ export default function Layout({ children }: LayoutProps) {
             bottom of the footer (the footer lives outside <main>, so main's
             pb-24 doesn't clear it here). Pad the footer's bottom on mobile so its
             legal links and copyright stay above the button. */}
-        <div className={`mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:px-8 ${showMobileAssessmentCta ? 'pb-10 md:pb-4' : ''}`}>
+        {/* Tracks the body column, or the footer sits visibly inset under the
+            widened admin console. */}
+        <div className={`mx-auto px-4 py-4 sm:px-6 ${isAdminArea ? 'max-w-[1600px]' : 'max-w-7xl lg:px-8'} ${showMobileAssessmentCta ? 'pb-10 md:pb-4' : ''}`}>
           <div className="grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-[1.5fr_repeat(4,auto)] md:items-start md:justify-between">
             {/* On mobile the brand block laid out as a narrow vertical stack in a
                 full-width row, leaving a large empty gap on the right. Lay the logo
