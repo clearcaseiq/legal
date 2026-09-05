@@ -273,7 +273,28 @@ export function mergeEvidenceIntoFacts(
   // became the next run's floor: the figure could only ratchet upward, and deleting the
   // wage document left it untouched because the extracted value had already been promoted
   // to look self-reported. That also made a phantom pay-stub figure permanent.
-  const intakeWageLoss = Number(damages.intake_wage_loss ?? damages.wage_loss) || 0
+  //
+  // Falling back to `wage_loss` on a case written before `intake_wage_loss` existed is
+  // not safe on its own: on exactly the rows the ratchet damaged, `wage_loss` IS the
+  // derived figure, so the first run after the fix would stamp it as self-reported and
+  // make the inflation permanent — the opposite of the point. `extracted_wage_loss` is
+  // the tell, because the old code wrote both, so a `wage_loss` equal to it came from a
+  // document rather than from the claimant.
+  //
+  // Where they match we claim nothing on the claimant's behalf. Their original figure is
+  // genuinely unrecoverable, having been overwritten in place, and zero is the honest
+  // statement of that: the total below still reflects the document while it exists, and
+  // if it is deleted the case reads as unsupported rather than keeping a number the
+  // claimant never gave. A claimant who happened to report the documented amount is
+  // unaffected, since the max() puts it straight back.
+  const priorWageLoss = Number(damages.wage_loss) || 0
+  const priorExtractedWageLoss = Number(damages.extracted_wage_loss) || 0
+  const intakeWageLoss =
+    damages.intake_wage_loss != null
+      ? Number(damages.intake_wage_loss) || 0
+      : priorWageLoss > 0 && priorWageLoss === priorExtractedWageLoss
+        ? 0
+        : priorWageLoss
   const totalWageLoss = Math.max(intakeWageLoss, extractedWageLoss)
   merged.damages = {
     ...damages,
