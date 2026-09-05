@@ -259,12 +259,18 @@ export function mergeEvidenceIntoFacts(
     })
   }
 
-  const intakeWageLoss = Number(damages.wage_loss) || 0
+  // Preserve what the claimant actually reported, exactly as med charges do above. This
+  // used to read and write `wage_loss` through the max() below, so every run's output
+  // became the next run's floor: the figure could only ratchet upward, and deleting the
+  // wage document left it untouched because the extracted value had already been promoted
+  // to look self-reported. That also made a phantom pay-stub figure permanent.
+  const intakeWageLoss = Number(damages.intake_wage_loss ?? damages.wage_loss) || 0
   const totalWageLoss = Math.max(intakeWageLoss, extractedWageLoss)
   merged.damages = {
     ...damages,
     intake_med_charges: intakeMedCharges,
     intake_med_paid: intakeMedPaid,
+    intake_wage_loss: intakeWageLoss,
     extracted_med_charges: extractedMedCharges,
     extracted_med_paid: extractedMedPaid,
     extracted_wage_loss: extractedWageLoss,
