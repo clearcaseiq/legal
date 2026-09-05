@@ -57,6 +57,9 @@ function fileHasUsableContent(file: {
   return false
 }
 
+/** Marks treatment entries this module derives from uploads, so they can be re-derived. */
+const DERIVED_TREATMENT_PROVIDER = 'From uploaded records'
+
 /**
  * Derive damages, evidence credit and clinical codes from a case's uploaded files.
  *
@@ -91,7 +94,13 @@ export function mergeEvidenceIntoFacts(
   // to a wage-loss figure. Mirrors the intake wizard's MISSED_WORK_WEEKS mapping.
   const wageLossFacts = ((merged.caseAcceleration as Record<string, unknown>)?.wageLoss as Record<string, unknown>) || {}
   const missedWorkWeeks = MISSED_WORK_WEEKS[String(wageLossFacts.missedWork || '')] || 0
-  const treatment = (merged.treatment as Array<unknown>) || []
+  // Entries below are derived from uploaded records and re-derived on every run, so drop
+  // any left by a previous pass — exactly as the evidence set does. Without this, deleting
+  // the medical record that produced a diagnosis left that diagnosis in the case forever,
+  // still scoring severity and treatment quality with no document behind it.
+  const treatment = ((merged.treatment as Array<any>) || []).filter(
+    (entry) => entry?.provider !== DERIVED_TREATMENT_PROVIDER,
+  )
   const evidence = new Set<string>((merged.evidence as string[]) || [])
   // Documented diagnosis/procedure codes aggregated across all uploaded records, so the
   // valuation engine can score objective ICD-10/CPT findings (not just self-reported severity).
@@ -188,7 +197,7 @@ export function mergeEvidenceIntoFacts(
           const codes = typeof ext.icdCodes === 'string' ? JSON.parse(ext.icdCodes) : ext.icdCodes
           if (Array.isArray(codes) && codes.length > 0 && !treatment.some((t: any) => t?.diagnosis)) {
             treatment.push({
-              provider: 'From uploaded records',
+              provider: DERIVED_TREATMENT_PROVIDER,
               diagnosis: codes[0],
               treatment: file.aiSummary || 'Medical record',
               date: ext.dates ? (typeof ext.dates === 'string' ? JSON.parse(ext.dates) : ext.dates)[0] : null
