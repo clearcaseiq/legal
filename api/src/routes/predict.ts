@@ -4,7 +4,7 @@ import { computeFeatures, predictViability, simulateScenario } from '../lib/pred
 import { PredictionRequest, SimulationRequest } from '../lib/validators'
 import { logger } from '../lib/logger'
 import { authMiddleware, optionalAuthMiddleware, type AuthRequest } from '../lib/auth'
-import { underwriteCase, reconcileValueBandsWithUnderwriting } from '../lib/underwriting-engine'
+import { underwriteCase, reconcileValueBandsWithUnderwriting, reconcileViabilityWithUnderwriting } from '../lib/underwriting-engine'
 import { assignCaseAssistance } from '../lib/case-assistance-assignment'
 
 const router = Router()
@@ -103,13 +103,7 @@ router.post('/', optionalAuthMiddleware, async (req: AuthRequest, res) => {
     const underwritingValueBands = reconcileValueBandsWithUnderwriting(result.value_bands, underwriting.settlement)
     underwritingResult = {
       ...result,
-      viability: {
-        ...result.viability,
-        overall: underwriting.scores.caseStrength / 100,
-        liability: underwriting.scores.liability / 100,
-        damages: Math.max(result.viability.damages, underwriting.scores.severity / 100),
-        attorneyAcceptance: underwriting.attorneyAcceptance.probability / 100,
-      },
+      viability: reconcileViabilityWithUnderwriting(result.viability, underwriting),
       value_bands: underwritingValueBands,
       underwriting,
       severity: {

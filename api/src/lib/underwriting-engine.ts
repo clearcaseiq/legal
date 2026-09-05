@@ -848,6 +848,32 @@ export function reconcileValueBandsWithUnderwriting(legacyValueBands: any, settl
   }
 }
 
+/**
+ * Restate a heuristic `viability` on the underwriting engine's scores.
+ *
+ * The sibling of `reconcileValueBandsWithUnderwriting`, and shared by the same
+ * two writers for the same reason. Reconciling the bands alone was not enough:
+ * `/predict` restated viability from underwriting while the recalculation kept
+ * the raw heuristic, so the same case scored two different ways depending on
+ * which writer happened to run last. That is not a cosmetic difference —
+ * `viability.liability` drives the claimant-facing early-stage discount, so a
+ * case could appear to gain or lose value with no change to its valuation.
+ *
+ * `damages` takes the higher of the two rather than being overwritten, matching
+ * the long-standing /predict behaviour: the heuristic sees reported damages the
+ * severity score does not.
+ */
+export function reconcileViabilityWithUnderwriting(legacyViability: any, underwriting: UnderwritingResult) {
+  const legacy = legacyViability || {}
+  return {
+    ...legacy,
+    overall: underwriting.scores.caseStrength / 100,
+    liability: underwriting.scores.liability / 100,
+    damages: Math.max(Number(legacy.damages) || 0, underwriting.scores.severity / 100),
+    attorneyAcceptance: underwriting.attorneyAcceptance.probability / 100,
+  }
+}
+
 export function underwriteCase(input: UnderwritingInput, calibrationOverride?: ValuationCalibration): UnderwritingResult {
   const facts = input.facts || {}
   const calibration = calibrationOverride ?? getValuationCalibration()

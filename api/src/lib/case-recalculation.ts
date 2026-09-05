@@ -7,7 +7,7 @@ import { prisma } from './prisma'
 import { computeFeatures, predictViability } from './prediction'
 import { logger } from './logger'
 import { sendPlaintiffCaseValueUpdated, sendAttorneyCaseMaterialUpdate } from './case-notifications'
-import { underwriteCase, reconcileValueBandsWithUnderwriting } from './underwriting-engine'
+import { underwriteCase, reconcileValueBandsWithUnderwriting, reconcileViabilityWithUnderwriting } from './underwriting-engine'
 import { refreshMedicalProfile } from './medical-profile'
 import { updateCaseFacts } from './case-facts'
 
@@ -518,6 +518,12 @@ export async function runCaseRecalculation(
     const newBands = underwriting
       ? reconcileValueBandsWithUnderwriting(result.value_bands, underwriting.settlement)
       : result.value_bands
+    // Viability has to be restated too, not just the bands. Persisting the raw
+    // heuristic here while /predict persisted the underwriting scores meant the
+    // same case read differently depending on which writer ran last.
+    const newViability = underwriting
+      ? reconcileViabilityWithUnderwriting(result.viability, underwriting)
+      : result.viability
     const prevPred = assessment.predictions[0]
     const prevBands = prevPred ? (JSON.parse(prevPred.bands) as { p25: number; median: number; p75: number }) : null
 
@@ -525,7 +531,7 @@ export async function runCaseRecalculation(
       data: {
         assessmentId,
         modelVersion: underwriting ? 'ca-pi-underwriting-v1' : MODEL_VERSION,
-        viability: JSON.stringify(result.viability),
+        viability: JSON.stringify(newViability),
         bands: JSON.stringify(newBands),
         explain: JSON.stringify({ ...result.explainability, reason, trigger: reason, underwriting })
       }

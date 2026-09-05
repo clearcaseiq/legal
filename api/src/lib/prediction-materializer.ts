@@ -27,7 +27,7 @@
  */
 import { prisma } from './prisma'
 import { logger } from './logger'
-import { underwriteCase, reconcileValueBandsWithUnderwriting } from './underwriting-engine'
+import { underwriteCase, reconcileValueBandsWithUnderwriting, reconcileViabilityWithUnderwriting } from './underwriting-engine'
 
 /** Marks rows written here rather than by the intake prediction path. */
 export const MATERIALIZED_PREDICTION_SOURCE = 'materialized_underwriting'
@@ -79,12 +79,9 @@ export function buildPredictionRecord(assessment: AssessmentForValuation): {
 
   return {
     modelVersion: underwriting.modelVersion,
-    viability: JSON.stringify({
-      overall: underwriting.scores.caseStrength / 100,
-      liability: underwriting.scores.liability / 100,
-      damages: underwriting.scores.severity / 100,
-      attorneyAcceptance: underwriting.attorneyAcceptance.probability / 100,
-    }),
+    // Same shared reconciler the other two writers use. There is no heuristic
+    // pass here to merge, so it is handed null exactly as the bands are above.
+    viability: JSON.stringify(reconcileViabilityWithUnderwriting(null, underwriting)),
     bands: JSON.stringify(bands),
     explain: JSON.stringify({ underwriting, source: MATERIALIZED_PREDICTION_SOURCE }),
   }

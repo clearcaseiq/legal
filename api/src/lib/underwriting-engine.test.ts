@@ -3,6 +3,7 @@ import {
   calculateAttorneyConsensus,
   calculateLiability,
   calculateSeverity,
+  reconcileViabilityWithUnderwriting,
   underwriteCase,
 } from './underwriting-engine'
 
@@ -388,5 +389,64 @@ describe('calculateAttorneyConsensus', () => {
       reviewCount: 3,
       confidence: 'high',
     })
+  })
+})
+
+describe('reconcileViabilityWithUnderwriting', () => {
+  const underwriting = underwriteCase({
+    claimType: 'auto',
+    venueState: 'CA',
+    facts: {
+      liability: { crashType: 'rear_end', comparativeNegligence: 0 },
+      damages: { med_charges: 18000, wage_loss: 4000 },
+      incident: { narrative: 'Stopped at a light and rear-ended. Police report taken.' },
+    },
+    evidenceFiles: [{ category: 'police_report' }, { category: 'medical_records' }],
+  })
+
+  it('restates the heuristic scores on the underwriting ones', () => {
+    const reconciled = reconcileViabilityWithUnderwriting(
+      { overall: 0.1, liability: 0.1, damages: 0.1, attorneyAcceptance: 0.1 },
+      underwriting
+    )
+
+    expect(reconciled.overall).toBe(underwriting.scores.caseStrength / 100)
+    expect(reconciled.liability).toBe(underwriting.scores.liability / 100)
+    expect(reconciled.attorneyAcceptance).toBe(underwriting.attorneyAcceptance.probability / 100)
+  })
+
+  it('keeps the higher damages figure rather than overwriting it', () => {
+    // The heuristic sees reported damages the severity score does not, so a
+    // larger heuristic value survives; a smaller one is raised.
+    const high = reconcileViabilityWithUnderwriting({ damages: 0.99 }, underwriting)
+    expect(high.damages).toBe(0.99)
+
+    const low = reconcileViabilityWithUnderwriting({ damages: 0 }, underwriting)
+    expect(low.damages).toBe(underwriting.scores.severity / 100)
+  })
+
+  it('carries through fields underwriting has no opinion about', () => {
+    const reconciled = reconcileViabilityWithUnderwriting({ timeliness: 0.42 }, underwriting) as any
+    expect(reconciled.timeliness).toBe(0.42)
+  })
+
+  it('handles a missing heuristic pass', () => {
+    // The materializer has no heuristic result to merge and passes null.
+    const reconciled = reconcileViabilityWithUnderwriting(null, underwriting)
+    expect(reconciled.damages).toBe(underwriting.scores.severity / 100)
+    expect(reconciled.liability).toBe(underwriting.scores.liability / 100)
+  })
+
+  it('gives every writer the same liability score for the same case', () => {
+    // The bug this guards: /predict restated viability from underwriting while
+    // the recalculation persisted the raw heuristic, so whichever wrote last
+    // decided the score. `viability.liability` drives the claimant-facing
+    // early-stage discount, so the case appeared to change value on its own.
+    const fromPredict = reconcileViabilityWithUnderwriting({ liability: 0.2 }, underwriting)
+    const fromRecalculation = reconcileViabilityWithUnderwriting({ liability: 0.9 }, underwriting)
+    const fromMaterializer = reconcileViabilityWithUnderwriting(null, underwriting)
+
+    expect(fromRecalculation.liability).toBe(fromPredict.liability)
+    expect(fromMaterializer.liability).toBe(fromPredict.liability)
   })
 })
