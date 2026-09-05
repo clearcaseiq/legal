@@ -2198,9 +2198,20 @@ export default function Results() {
     ? roundEstimateForDisplay(settlementHigh * 0.9)
     : settlementHigh
   // Keep the band visibly wide without adding a flat sum, which on a small case was itself
-  // a large overstatement.
-  const displaySettlementHighValue = Math.max(displaySettlementHigh, Math.round(displaySettlementLow * 1.4))
-  const displaySettlementRangeText = `${formatCurrency(displaySettlementLow)} - ${formatCurrency(displaySettlementHighValue)}`
+  // a large overstatement — but only ever fill space *below* the modelled high. Widening
+  // past it invents money the engine did not find, and does so worst exactly where it
+  // matters most: when coverage caps a case, low and high are both the policy limit, so
+  // widening pushed the figure a claimant reads above what the policy can actually pay.
+  const displaySettlementHighValue = Math.min(
+    settlementHigh,
+    Math.max(displaySettlementHigh, Math.round(displaySettlementLow * 1.4)),
+  )
+  // A band that coverage has flattened onto a single number is a cap, not a range, and
+  // reads as nonsense written out as "$50,000 - $50,000".
+  const displaySettlementRangeText =
+    displaySettlementLow >= displaySettlementHighValue
+      ? formatCurrency(displaySettlementHighValue)
+      : `${formatCurrency(displaySettlementLow)} - ${formatCurrency(displaySettlementHighValue)}`
   // Keep the "most likely" point inside the displayed range. When the range is
   // scaled down for early-stage estimates, map the raw expected's relative
   // position into the displayed range so it never falls outside the bounds.
