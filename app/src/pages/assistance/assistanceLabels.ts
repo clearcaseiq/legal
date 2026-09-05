@@ -6,35 +6,35 @@ import type { BadgeTone } from '../../features/shared/ui'
  * so a status never reads one way in the list and another on the case.
  */
 export const ASSISTANCE_STATUS_LABELS: Record<AssistanceStatus, string> = {
-  new_submission: 'New submission',
-  needs_review: 'Needs review',
-  needs_contact: 'Needs contact',
-  in_progress: 'In progress',
-  waiting_on_plaintiff: 'Waiting on claimant',
-  waiting_on_documents: 'Waiting on documents',
-  ready_for_attorney_review: 'Ready for attorney review',
+  new_submission: 'New',
+  in_progress: 'In Progress',
+  document_requested: 'Document Requested',
+  ready_for_attorney_review: 'Ready for Attorney',
+  denied: 'Denied',
+  call_not_accepted: 'Call not Accepted',
 }
 
+/** The order the flow actually runs in, with the two off-ramps last. */
 export const ASSISTANCE_STATUS_ORDER: AssistanceStatus[] = [
   'new_submission',
-  'needs_review',
-  'needs_contact',
   'in_progress',
-  'waiting_on_plaintiff',
-  'waiting_on_documents',
+  'document_requested',
   'ready_for_attorney_review',
+  'denied',
+  'call_not_accepted',
 ]
 
 export const ASSISTANCE_STATUS_TONES: Record<AssistanceStatus, BadgeTone> = {
   new_submission: 'brand',
-  needs_review: 'blue',
-  needs_contact: 'warning',
   in_progress: 'blue',
   // Waiting is neutral rather than a warning: the ball is with the claimant, so
   // it is not something the specialist is behind on.
-  waiting_on_plaintiff: 'neutral',
-  waiting_on_documents: 'neutral',
+  document_requested: 'neutral',
   ready_for_attorney_review: 'success',
+  denied: 'danger',
+  // An unanswered call is still ours to chase, so it reads as an open action
+  // rather than an ending.
+  call_not_accepted: 'warning',
 }
 
 export const ASSISTANCE_PHASE_LABELS: Record<AssistancePhase, string> = {

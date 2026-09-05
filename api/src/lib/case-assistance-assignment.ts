@@ -84,10 +84,14 @@ export async function assignCaseAssistance(assessmentId: string): Promise<void> 
     // No specialists configured yet is the normal state before the first hire.
     // The row is still created so the case appears in the unassigned queue the
     // moment someone is available, rather than being invisible until then.
+    // Assignment no longer moves the status. The flow calls a case "New" until a
+    // specialist actually reaches the plaintiff, and having one on the hook is
+    // not the same as having spoken to them; `assignedSpecialistId` and
+    // `reviewDueAt` already carry who owns it and by when.
     const assignment = specialistId
       ? {
           assignedSpecialistId: specialistId,
-          status: 'needs_review',
+          status: 'new_submission',
           assignedAt: now,
           reviewDueAt: reviewDueFrom(now),
         }

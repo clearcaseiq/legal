@@ -4662,12 +4662,11 @@ export async function updateAdminUserStatus(userId: string, isActive: boolean) {
 
 export type AssistanceStatus =
   | 'new_submission'
-  | 'needs_review'
-  | 'needs_contact'
   | 'in_progress'
-  | 'waiting_on_plaintiff'
-  | 'waiting_on_documents'
+  | 'document_requested'
   | 'ready_for_attorney_review'
+  | 'denied'
+  | 'call_not_accepted'
 
 /** Where the case sits overall. Only `assistance` is a specialist-owned phase. */
 export type AssistancePhase = 'assistance' | 'routing' | 'engaged' | 'closed'

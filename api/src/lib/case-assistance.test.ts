@@ -12,6 +12,8 @@ import {
   ACTIVE_ASSISTANCE_STATUSES,
   ASSISTANCE_STATUSES,
   ASSISTANCE_STATUS_LABELS,
+  CLOSED_ASSISTANCE_STATUSES,
+  UNCONTACTED_ASSISTANCE_STATUSES,
   WAITING_ASSISTANCE_STATUSES,
   deriveAssistancePhase,
   isAssistanceOwned,
@@ -26,12 +28,26 @@ describe('assistance status vocabulary', () => {
     }
   })
 
-  it('treats the handover status as no longer active work', () => {
-    // `ready_for_attorney_review` is the last state a specialist owns, so it
-    // must fall out of the working set or every finished case stays at the top
-    // of the queue forever.
+  it('treats both ways out of the queue as no longer active work', () => {
+    // `ready_for_attorney_review` is the last state a specialist owns and
+    // `denied` ends the case outright, so both must fall out of the working set
+    // or finished cases stay at the top of the queue forever.
     expect(ACTIVE_ASSISTANCE_STATUSES).not.toContain('ready_for_attorney_review')
-    expect(ACTIVE_ASSISTANCE_STATUSES.length).toBe(ASSISTANCE_STATUSES.length - 1)
+    expect(ACTIVE_ASSISTANCE_STATUSES).not.toContain('denied')
+    expect(ACTIVE_ASSISTANCE_STATUSES.length).toBe(ASSISTANCE_STATUSES.length - 2)
+  })
+
+  it('keeps an unanswered call as work rather than an ending', () => {
+    // The plaintiff not picking up is the specialist's cue to try again, so it
+    // has to stay in the queue. Reading it as terminal silently drops the case.
+    expect(ACTIVE_ASSISTANCE_STATUSES).toContain('call_not_accepted')
+    expect(CLOSED_ASSISTANCE_STATUSES).not.toContain('call_not_accepted')
+    expect(UNCONTACTED_ASSISTANCE_STATUSES).toContain('call_not_accepted')
+  })
+
+  it('does not count a case as uncontacted once someone has spoken to them', () => {
+    expect(UNCONTACTED_ASSISTANCE_STATUSES).not.toContain('in_progress')
+    expect(UNCONTACTED_ASSISTANCE_STATUSES).not.toContain('document_requested')
   })
 
   it('counts waiting states as active but distinguishes them', () => {
@@ -46,7 +62,15 @@ describe('assistance status vocabulary', () => {
     expect(isAssistanceStatus('routing_active')).toBe(false)
     expect(isAssistanceStatus('retained')).toBe(false)
     expect(isAssistanceStatus('DEMAND_SENT')).toBe(false)
-    expect(isAssistanceStatus('needs_contact')).toBe(true)
+    expect(isAssistanceStatus('document_requested')).toBe(true)
+  })
+
+  it('rejects the statuses the flow retired', () => {
+    // Left in the vocabulary these would keep appearing in the dropdown, and
+    // any row still carrying one is remapped by the accompanying migration.
+    for (const retired of ['needs_review', 'needs_contact', 'waiting_on_plaintiff', 'waiting_on_documents']) {
+      expect(isAssistanceStatus(retired)).toBe(false)
+    }
   })
 
   it('sets the review deadline a fixed window after assignment', () => {
@@ -89,6 +113,17 @@ describe('deriveAssistancePhase', () => {
     // stamped a lifecycle state on it yet.
     expect(deriveAssistancePhase({ hasLeadSubmission: true })).toBe('routing')
     expect(isAssistanceOwned({ hasLeadSubmission: true })).toBe(false)
+  })
+
+  it('reads a denied case as closed rather than live specialist work', () => {
+    expect(deriveAssistancePhase({ assistanceStatus: 'denied' })).toBe('closed')
+    expect(isAssistanceOwned({ assistanceStatus: 'denied' })).toBe(false)
+  })
+
+  it('leaves the other statuses in the assistance phase', () => {
+    for (const status of ['new_submission', 'in_progress', 'document_requested', 'call_not_accepted']) {
+      expect(deriveAssistancePhase({ assistanceStatus: status })).toBe('assistance')
+    }
   })
 
   it('is case-insensitive about stored status strings', () => {

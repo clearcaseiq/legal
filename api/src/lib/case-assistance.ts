@@ -18,49 +18,56 @@
 import { CLOSED_STATUSES } from './case-stage'
 
 export const ASSISTANCE_STATUSES = [
-  /** Report generated, nobody has looked at it yet. */
+  /** Plaintiff submitted the case; no specialist has connected yet. */
   'new_submission',
-  /** Assigned and awaiting the specialist's first read of the case. */
-  'needs_review',
-  /** Read, and the plaintiff needs a call. */
-  'needs_contact',
-  /** Specialist has made contact and is actively working it. */
+  /** A specialist has reached the plaintiff and is working the case. */
   'in_progress',
-  /** Waiting on the plaintiff to answer questions or call back. */
-  'waiting_on_plaintiff',
-  /** Waiting on documents the plaintiff was asked to upload. */
-  'waiting_on_documents',
-  /** Specialist is done; the case is ready to go to attorneys. */
+  /** Specialist has asked the plaintiff to upload something. */
+  'document_requested',
+  /** Documents are in and reviewed; the case is ready to go to attorneys. */
   'ready_for_attorney_review',
+  /** Plaintiff does not want to take the case further. Terminal. */
+  'denied',
+  /** Plaintiff has not accepted or attended the call — still ours to chase. */
+  'call_not_accepted',
 ] as const
 
 export type AssistanceStatus = (typeof ASSISTANCE_STATUSES)[number]
 
 export const ASSISTANCE_STATUS_LABELS: Record<AssistanceStatus, string> = {
-  new_submission: 'New submission',
-  needs_review: 'Needs review',
-  needs_contact: 'Needs contact',
-  in_progress: 'In progress',
-  waiting_on_plaintiff: 'Waiting on plaintiff',
-  waiting_on_documents: 'Waiting on documents',
-  ready_for_attorney_review: 'Ready for attorney review',
+  new_submission: 'New',
+  in_progress: 'In Progress',
+  document_requested: 'Document Requested',
+  ready_for_attorney_review: 'Ready for Attorney',
+  denied: 'Denied',
+  call_not_accepted: 'Call not Accepted',
 }
 
-/** Statuses that still need specialist work — the queue's working set. */
+/**
+ * Statuses that still need specialist work — the queue's working set.
+ *
+ * `call_not_accepted` belongs here: an unanswered call is a case to chase, not
+ * a finished one. `denied` and `ready_for_attorney_review` are both ends of the
+ * line for this queue, for opposite reasons.
+ */
 export const ACTIVE_ASSISTANCE_STATUSES: AssistanceStatus[] = [
   'new_submission',
-  'needs_review',
-  'needs_contact',
   'in_progress',
-  'waiting_on_plaintiff',
-  'waiting_on_documents',
+  'document_requested',
+  'call_not_accepted',
 ]
 
 /** Statuses where the next move belongs to the plaintiff, not the specialist. */
-export const WAITING_ASSISTANCE_STATUSES: AssistanceStatus[] = [
-  'waiting_on_plaintiff',
-  'waiting_on_documents',
+export const WAITING_ASSISTANCE_STATUSES: AssistanceStatus[] = ['document_requested']
+
+/** Statuses where nobody has spoken to the plaintiff yet, so a call is the next move. */
+export const UNCONTACTED_ASSISTANCE_STATUSES: AssistanceStatus[] = [
+  'new_submission',
+  'call_not_accepted',
 ]
+
+/** Statuses that end the case here rather than passing it on. */
+export const CLOSED_ASSISTANCE_STATUSES: AssistanceStatus[] = ['denied']
 
 export function isAssistanceStatus(value: unknown): value is AssistanceStatus {
   return typeof value === 'string' && (ASSISTANCE_STATUSES as readonly string[]).includes(value)
@@ -109,9 +116,16 @@ export function deriveAssistancePhase(input: {
   assessmentStatus?: string | null
   lifecycleState?: string | null
   hasLeadSubmission?: boolean
+  assistanceStatus?: string | null
 }): AssistancePhase {
   const assessmentStatus = String(input.assessmentStatus || '').toLowerCase()
   if (CLOSED_STATUSES.has(assessmentStatus)) return 'closed'
+
+  // A plaintiff who declines to go on ends the case here, so the headline must
+  // not keep reading as live specialist work.
+  if ((CLOSED_ASSISTANCE_STATUSES as string[]).includes(String(input.assistanceStatus || ''))) {
+    return 'closed'
+  }
 
   const lifecycleState = String(input.lifecycleState || '').toLowerCase()
   if (lifecycleState === 'closed') return 'closed'

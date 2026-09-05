@@ -57,6 +57,7 @@
     "ml:discover-ca-pi-web": "node ../node_modules/tsx/dist/cli.mjs scripts/discover-ca-pi-website-cases.ts",
     "ml:discover-ca-pi-firms": "node ../node_modules/tsx/dist/cli.mjs scripts/discover-ca-pi-firms.ts",
     "measure:valuation-inflation": "node ../node_modules/tsx/dist/cli.mjs scripts/measure-valuation-inflation.ts",
+    "backfill:assistance-statuses": "node ../node_modules/tsx/dist/cli.mjs scripts/backfill-assistance-statuses.ts",
     "diagnose:ocr": "node ../node_modules/tsx/dist/cli.mjs scripts/diagnose-evidence-ocr.ts",
     "diagnose:video": "node ../node_modules/tsx/dist/cli.mjs scripts/diagnose-video-vision.ts"
   },

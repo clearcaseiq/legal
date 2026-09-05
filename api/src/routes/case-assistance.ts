@@ -30,6 +30,7 @@ import {
   ACTIVE_ASSISTANCE_STATUSES,
   ASSISTANCE_PRIORITIES,
   ASSISTANCE_STATUSES,
+  UNCONTACTED_ASSISTANCE_STATUSES,
   WAITING_ASSISTANCE_STATUSES,
   deriveAssistancePhase,
 } from '../lib/case-assistance'
@@ -156,13 +157,14 @@ function serializeQueueRow(assistance: any) {
     createdAt: assistance.createdAt,
     // A compliance hold, shown next to the workflow status rather than folded
     // into it — `request_info` would otherwise be indistinguishable from
-    // `waiting_on_plaintiff`, which is an ops state with no legal weight.
+    // `document_requested`, which is an ops state with no legal weight.
     manualReviewStatus: assessment.manualReviewStatus,
     manualReviewReason: assessment.manualReviewReason,
     phase: deriveAssistancePhase({
       assessmentStatus: assessment.status,
       lifecycleState: assessment.leadSubmission?.lifecycleState,
       hasLeadSubmission: !!assessment.leadSubmission,
+      assistanceStatus: assistance.status,
     }),
   }
 }
@@ -293,7 +295,7 @@ router.get('/counts', async (req: AuthRequest, res) => {
         where: { assignedSpecialistId: null, status: { in: ACTIVE_ASSISTANCE_STATUSES } },
       }),
       prisma.caseAssistance.count({
-        where: { ...scope, status: { in: ['new_submission', 'needs_review', 'needs_contact'] } },
+        where: { ...scope, status: { in: UNCONTACTED_ASSISTANCE_STATUSES } },
       }),
       prisma.caseAssistance.count({
         where: { ...scope, status: { in: WAITING_ASSISTANCE_STATUSES } },
@@ -347,7 +349,7 @@ router.get('/manager/overview', async (req: AuthRequest, res) => {
         }),
         prisma.caseAssistance.groupBy({
           by: ['assignedSpecialistId'],
-          where: { status: { in: ['needs_review', 'needs_contact'] } },
+          where: { status: { in: UNCONTACTED_ASSISTANCE_STATUSES } },
           _count: { _all: true },
         }),
         prisma.caseAssistance.groupBy({
@@ -566,7 +568,13 @@ router.patch('/:id', async (req: AuthRequest, res) => {
     if (status !== undefined) data.status = status
     if (priority !== undefined) data.priority = priority
     if (nextAction !== undefined) data.nextAction = nextAction || null
-    if (status === 'ready_for_attorney_review') data.closedAt = new Date()
+    // There are two ways out of this queue and both finish the case: handover to
+    // attorneys, and the plaintiff declining to go on. Moving a case back into
+    // the working set clears the stamp, so one reopened after a denial does not
+    // keep reporting a closing date it no longer has.
+    if (status !== undefined) {
+      data.closedAt = ACTIVE_ASSISTANCE_STATUSES.includes(status) ? null : new Date()
+    }
 
     const updated = Object.keys(data).length
       ? await prisma.caseAssistance.update({
@@ -958,7 +966,7 @@ router.post('/:id/document-request', async (req: AuthRequest, res) => {
 
     await prisma.caseAssistance.update({
       where: { id: assistance.id },
-      data: { status: 'waiting_on_documents' },
+      data: { status: 'document_requested' },
     })
 
     res.status(201).json({ success: true, docs, uploadLink })

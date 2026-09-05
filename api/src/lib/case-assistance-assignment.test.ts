@@ -93,7 +93,9 @@ describe('assignCaseAssistance', () => {
     const created = prisma.caseAssistance.create.mock.calls[0][0].data
     expect(created.assessmentId).toBe('assess-1')
     expect(created.assignedSpecialistId).toBe('spec-1')
-    expect(created.status).toBe('needs_review')
+    // Assignment puts a specialist on the case but does not claim they have
+    // spoken to anyone, so the flow still reads it as New.
+    expect(created.status).toBe('new_submission')
     expect(created.assignedAt).toBeInstanceOf(Date)
     expect(created.reviewDueAt).toBeInstanceOf(Date)
     expect(created.reviewDueAt.getTime()).toBeGreaterThan(created.assignedAt.getTime())
