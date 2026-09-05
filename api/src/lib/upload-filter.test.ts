@@ -19,6 +19,14 @@ describe('isAcceptedUpload', () => {
     }
   })
 
+  // The attorney evidence route kept its own MIME allowlist with no video types on it,
+  // so an attorney could not upload the dash-cam or scene footage their own client could.
+  it('accepts the video formats a phone or dash cam produces', () => {
+    expect(isAcceptedUpload({ mimetype: 'video/mp4', originalname: 'dashcam.mp4' })).toBe(true)
+    expect(isAcceptedUpload({ mimetype: 'video/quicktime', originalname: 'scene.mov' })).toBe(true)
+    expect(isAcceptedUpload({ mimetype: 'application/octet-stream', originalname: 'scene.mov' })).toBe(true)
+  })
+
   it('falls back to the extension when the browser sends a generic MIME type', () => {
     expect(isAcceptedUpload({ mimetype: 'application/octet-stream', originalname: 'scan.pdf' })).toBe(true)
     expect(isAcceptedUpload({ mimetype: '', originalname: 'notes.docx' })).toBe(true)

@@ -17,6 +17,7 @@ import { MAX_CASE_NAME_LENGTH, normalizeCaseName, plaintiffNameOf, resolveCaseNa
 import { ensureReferenceCode } from '../lib/case-reference'
 import { ENGAGED_LEAD_STATUSES, isEngagedLeadStatus } from '../lib/lead-status'
 import { parseTaskDueDate } from '../lib/task-due-date'
+import { isAcceptedUpload } from '../lib/upload-filter'
 import { buildMergedSurvivor, reminderMessagesFor, validateMerge } from '../lib/task-merge'
 import { runAnalysisForAssessment } from './evidence'
 import { generateSceneImageForAssessment } from '../services/incident-scene'
@@ -204,18 +205,21 @@ const leadAttorneyEvidenceMulter = multer({
   }),
   limits: { fileSize: 50 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
-    const allowed = [
-      'image/jpeg',
-      'image/png',
-      'image/gif',
-      'image/webp',
-      'application/pdf',
-      'text/plain',
-      'application/msword',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    ]
-    if (allowed.includes(file.mimetype)) cb(null, true)
-    else cb(new Error('File type not allowed'))
+    // Shares the plaintiff evidence route's filter deliberately. This list used
+    // to be a third private copy, and it had drifted: no video types at all, so
+    // an attorney could not upload the dash-cam or scene footage their client
+    // could, and no HEIC, so an iPhone photo was dropped too.
+    const accepted = isAcceptedUpload(file)
+    if (!accepted) {
+      logger.warn('Attorney evidence upload rejected by file filter', {
+        originalname: file.originalname,
+        mimetype: file.mimetype,
+      })
+    }
+    // Reject by returning false rather than raising. A raised error escapes the
+    // route's own try/catch — it happens in middleware, before the handler — and
+    // surfaces as a generic 500 instead of the clear 400 below.
+    cb(null, accepted)
   },
 })
 
@@ -7421,7 +7425,10 @@ router.post(
       }
 
       if (!req.file) {
-        return res.status(400).json({ error: 'No file uploaded' })
+        return res.status(400).json({
+          error:
+            'No file received. If you selected a file, its format may be unsupported. Please use a JPG, PNG, HEIC, PDF, MP4/MOV video, or common Office document (max 50MB).',
+        })
       }
 
       const assessment = await prisma.assessment.findUnique({

@@ -225,6 +225,21 @@ function hasEvidence(evidenceFiles: EvidenceLike[], category: string, aliases: s
   })
 }
 
+/**
+ * Whether case-recalculation has already derived the verified-content evidence set.
+ *
+ * Recalculation writes `facts.evidence` as an array on every run, even when nothing
+ * passed the content check. So its presence means "we looked", while its emptiness
+ * means "nothing was readable" — two different things. Callers previously tested the
+ * set's size, which conflated them: a case whose only upload was an unreadable scan
+ * still looked unexamined, so the filename fallback credited it anyway. That phantom
+ * credit then disappeared as soon as any other document verified, and the settlement
+ * estimate fell as evidence was added.
+ */
+function hasDerivedEvidenceSet(facts: Record<string, any> | null | undefined): boolean {
+  return Array.isArray(facts?.evidence)
+}
+
 function countInjections(facts: Record<string, any>) {
   const treatment = Array.isArray(facts?.treatment) ? facts.treatment : []
   const procedureCount = treatment.filter((item: any) =>
@@ -301,7 +316,7 @@ export function calculateLiability(input: UnderwritingInput): LiabilityResult {
   // from it (so a blank/unreadable upload does not raise liability via the settlement modifier).
   // Use the narrative — not file names — for self-described evidence to avoid filename self-credit.
   const evidenceSet = new Set<string>(Array.isArray(facts?.evidence) ? facts.evidence : [])
-  const hasVerifiedEvidence = evidenceSet.size > 0
+  const evidenceSetDerived = hasDerivedEvidenceSet(facts)
   const narrative = String(facts?.incident?.narrative || '').toLowerCase()
   const comparativeFaultPercent = Math.round(Number(liability.comparativeNegligence || 0) * 100) ||
     (liability.comparativeFault === 'yes' ? 35 : liability.comparativeFault === 'possibly' ? 15 : 0)
@@ -326,7 +341,7 @@ export function calculateLiability(input: UnderwritingInput): LiabilityResult {
     positives.push('DUI or intoxication facts')
   }
   const policeReportPresent = evidenceSet.has('police_report') ||
-    (!hasVerifiedEvidence && hasEvidence(evidenceFiles, 'police_report', ['incident_report'])) ||
+    (!evidenceSetDerived && hasEvidence(evidenceFiles, 'police_report', ['incident_report'])) ||
     /police report|incident report/.test(narrative)
   if (policeReportPresent) {
     score += 10
@@ -338,7 +353,7 @@ export function calculateLiability(input: UnderwritingInput): LiabilityResult {
   }
   const photosPresent = evidenceSet.has('photos') ||
     Number(facts?.damages?.photo_count || 0) > 0 ||
-    (!hasVerifiedEvidence && hasEvidence(evidenceFiles, 'photos', ['photo', 'image'])) ||
+    (!evidenceSetDerived && hasEvidence(evidenceFiles, 'photos', ['photo', 'image'])) ||
     /photo|picture|video/.test(narrative)
   if (photosPresent) {
     score += 5
@@ -572,18 +587,18 @@ export function calculateDocumentation(input: UnderwritingInput): DocumentationR
   // do not earn documentation credit. Fall back to label-based presence only when no verified
   // set exists yet (e.g. recalculation has not run for this assessment).
   const evidenceSet = new Set<string>(Array.isArray((facts as any)?.evidence) ? (facts as any).evidence : [])
-  const hasVerifiedEvidence = evidenceSet.size > 0
+  const evidenceSetDerived = hasDerivedEvidenceSet(facts)
 
   const medicalRecords = evidenceSet.has('medical_records') || injuries.length > 0 ||
-    (!hasVerifiedEvidence && hasEvidence(evidenceFiles, 'medical_records'))
+    (!evidenceSetDerived && hasEvidence(evidenceFiles, 'medical_records'))
   const medicalBills = evidenceSet.has('medical_bills') || Number(damages.extracted_med_charges || 0) > 0 ||
-    (!hasVerifiedEvidence && (hasEvidence(evidenceFiles, 'bills') || Number(damages.med_charges || damages.med_paid || damages.estimated_med_charges || 0) > 0))
+    (!evidenceSetDerived && (hasEvidence(evidenceFiles, 'bills') || Number(damages.med_charges || damages.med_paid || damages.estimated_med_charges || 0) > 0))
   const policeReport = evidenceSet.has('police_report') ||
-    (!hasVerifiedEvidence && hasEvidence(evidenceFiles, 'police_report', ['incident_report']))
+    (!evidenceSetDerived && hasEvidence(evidenceFiles, 'police_report', ['incident_report']))
   const photos = evidenceSet.has('photos') || Number(damages.photo_count || 0) > 0 ||
-    (!hasVerifiedEvidence && hasEvidence(evidenceFiles, 'photos', ['photo', 'image']))
+    (!evidenceSetDerived && hasEvidence(evidenceFiles, 'photos', ['photo', 'image']))
   const wageProof = Number(damages.extracted_wage_loss || 0) > 0 ||
-    (!hasVerifiedEvidence && (hasEvidence(evidenceFiles, 'wage_loss', ['paystub', 'payroll']) || Number(damages.wage_loss || damages.estimated_wage_loss || 0) > 0))
+    (!evidenceSetDerived && (hasEvidence(evidenceFiles, 'wage_loss', ['paystub', 'payroll']) || Number(damages.wage_loss || damages.estimated_wage_loss || 0) > 0))
   const dailyImpact = injuries.some((injury: any) => Array.isArray(injury?.lifestyleImpact) && injury.lifestyleImpact.length > 0)
 
   const claimType = String(input.claimType || '').toLowerCase().replace(/[\s-]+/g, '_')

@@ -311,6 +311,66 @@ describe('treatment chronology reaches the settlement figure', () => {
   })
 })
 
+describe('evidence credit does not evaporate as documents are added', () => {
+  // A production animal-bite case had its estimate fall from $7,000 to $6,000 after the
+  // attorney uploaded documents. An unreadable scan named "police-report.pdf" was earning
+  // filename credit, then losing it the moment a second document actually verified.
+  const bittenBy = (facts: Record<string, any>, evidenceFiles: any[]) => ({
+    claimType: 'dog_bite',
+    venueState: 'CA',
+    venueCounty: 'Los Angeles',
+    facts: {
+      claimType: 'dog_bite',
+      liability: { comparativeNegligence: 0 },
+      incident: { date: '2026-01-01', narrative: 'Neighbor\u2019s dog bit my forearm while I walked past.' },
+      injuries: [{ diagnoses: ['puncture wound'] }],
+      treatment: [{ type: 'urgent_care' }],
+      damages: { med_charges: 4000 },
+      ...facts,
+    },
+    evidenceFiles,
+  })
+
+  const unreadablePoliceReport = { category: 'police_report', originalName: 'police-report.pdf' }
+  const readableBill = { category: 'bills', originalName: 'er-bill.pdf' }
+
+  it('withholds credit for an upload nothing could be read from', () => {
+    // Recalculation ran and verified nothing, so `evidence` is present but empty.
+    const result = calculateLiability(bittenBy({ evidence: [] }, [unreadablePoliceReport]))
+
+    expect(result.positives).not.toContain('Police or incident report')
+  })
+
+  it('still credits file names before recalculation has ever run', () => {
+    // No `evidence` key at all: nothing has looked at the files yet, so the
+    // label-based fallback is all we have and should stay in effect.
+    const result = calculateLiability(bittenBy({}, [unreadablePoliceReport]))
+
+    expect(result.positives).toContain('Police or incident report')
+  })
+
+  it('does not lower the settlement when a second document verifies', () => {
+    const onlyUnreadable = underwriteCase(bittenBy({ evidence: [] }, [unreadablePoliceReport]))
+    const billNowVerified = underwriteCase(
+      bittenBy({ evidence: ['medical_bills'] }, [unreadablePoliceReport, readableBill]),
+    )
+
+    expect(billNowVerified.settlement.expected).toBeGreaterThanOrEqual(onlyUnreadable.settlement.expected)
+  })
+
+  it('keeps documentation credit monotonic as each document verifies', () => {
+    const scores = [
+      underwriteCase(bittenBy({ evidence: [] }, [unreadablePoliceReport])),
+      underwriteCase(bittenBy({ evidence: ['medical_bills'] }, [unreadablePoliceReport, readableBill])),
+      underwriteCase(
+        bittenBy({ evidence: ['medical_bills', 'police_report'] }, [unreadablePoliceReport, readableBill]),
+      ),
+    ].map((result) => result.documentation.score)
+
+    expect(scores).toEqual([...scores].sort((a, b) => a - b))
+  })
+})
+
 describe('calculateAttorneyConsensus', () => {
   it('returns median values when three attorneys review', () => {
     const consensus = calculateAttorneyConsensus([

@@ -158,7 +158,7 @@ function mergeEvidenceIntoFacts(
       if (amt > 0) {
         if (isLostWageEvidence(file)) {
           const weeklyIncome = parseWageWeeklyIncome(ext.entities)
-          extractedWageLoss += extractWageLossAmount(file.ocrText || '', weeklyIncome, missedWorkWeeks, amt)
+          extractedWageLoss += extractWageLossAmount(file.ocrText || '', weeklyIncome, missedWorkWeeks)
         } else if (isMedicalChargeEvidence(file)) {
           const billKey = `${(file.originalName || '').trim().toLowerCase()}|${Math.round(amt)}`
           if (!seenBillKeys.has(billKey)) {
@@ -355,12 +355,7 @@ function parseWageWeeklyIncome(entities: string | null | undefined): number {
   }
 }
 
-function extractWageLossAmount(
-  ocrText: string,
-  weeklyIncome: number,
-  missedWorkWeeks: number,
-  fallback: number,
-) {
+export function extractWageLossAmount(ocrText: string, weeklyIncome: number, missedWorkWeeks: number) {
   // 1. An explicitly labeled total ("Total Lost Wages: $3,120") — e.g. an employer letter
   //    or wage-loss summary — is authoritative, so use it directly.
   const totalMatch = ocrText.match(/\btotal\s+(?:wage\s+loss|lost\s+wages)\b[^$]{0,40}\$([\d,]+(?:\.\d{1,2})?)/i)
@@ -370,11 +365,15 @@ function extractWageLossAmount(
   }
   // 2. Pay stub: documented weekly income × missed-work duration. A pay stub's raw document
   //    total (gross + net + YTD + deductions) is meaningless as a loss, so once we have a
-  //    parsed pay rate we use it instead of the summed fallback.
+  //    parsed pay rate we use it instead.
   if (weeklyIncome > 0) return Math.round(weeklyIncome * missedWorkWeeks)
-  // 3. Legacy fallback for wage docs whose rate we couldn't parse (e.g. a labeled total
-  //    already surfaced by computeDocumentTotal upstream).
-  return fallback
+  // 3. Neither a labeled loss nor a parseable pay rate: claim nothing. This used to fall back
+  //    to the document's summed total, which on a pay stub is gross + net + YTD + deductions
+  //    — an income figure, not a loss, and one large enough to dominate the valuation. The
+  //    self-reported wage loss still applies via max() upstream, so a real claim is not lost;
+  //    only the phantom one is. Over-claiming here is the costlier error: it inflates the
+  //    demand and costs credibility with the adjuster.
+  return 0
 }
 
 /**
