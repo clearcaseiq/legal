@@ -54,9 +54,25 @@ export const PROPOSABLE_FACT_PATHS: Record<string, FactPathSpec> = {
   'incident.location': { label: 'Where it happened', type: 'string', maxLength: 300 },
   'incident.narrative': { label: 'What happened', type: 'string', maxLength: 5000 },
 
-  'damages.med_charges': { label: 'Medical charges billed', type: 'number' },
-  'damages.med_paid': { label: 'Medical charges already paid', type: 'number' },
-  'damages.wage_loss': { label: 'Lost wages', type: 'number' },
+  // These three are outputs of the recalculation, not storage: it recomputes each
+  // as max(intake_*, extracted_*) on every run. Writing only the visible key
+  // would show the confirmed figure until the next upload or estimate touched
+  // the case, and then silently replace it with the old intake number — the
+  // claimant would watch an answer they confirmed revert on its own. Mirroring
+  // into the intake key is also what the value means: a confirmed proposal is
+  // what the claimant reported. A document that says more still wins the max(),
+  // which is the existing and correct behaviour.
+  'damages.med_charges': {
+    label: 'Medical charges billed',
+    type: 'number',
+    mirrors: ['damages.intake_med_charges'],
+  },
+  'damages.med_paid': {
+    label: 'Medical charges already paid',
+    type: 'number',
+    mirrors: ['damages.intake_med_paid'],
+  },
+  'damages.wage_loss': { label: 'Lost wages', type: 'number', mirrors: ['damages.intake_wage_loss'] },
   'damages.future_medical': { label: 'Expected future medical costs', type: 'number' },
   'damages.estimated_property_damage': { label: 'Property damage', type: 'number' },
   'damages.bills_complete': { label: 'All medical bills accounted for', type: 'boolean' },

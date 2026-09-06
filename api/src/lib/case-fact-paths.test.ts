@@ -90,7 +90,12 @@ describe('applyFactPath', () => {
     const before = { damages: { med_charges: 100, wage_loss: 50 }, injuries: ['neck'] }
     const after = applyFactPath(before, 'damages.med_charges', 250)
 
-    expect(after).toEqual({ damages: { med_charges: 250, wage_loss: 50 }, injuries: ['neck'] })
+    // intake_med_charges rides along: the recalculation recomputes med_charges
+    // from it, so writing one without the other would not survive the next run.
+    expect(after).toEqual({
+      damages: { med_charges: 250, intake_med_charges: 250, wage_loss: 50 },
+      injuries: ['neck'],
+    })
     // The mutator must be pure, or replaying it after a lost race would compound.
     expect(before.damages.med_charges).toBe(100)
   })
