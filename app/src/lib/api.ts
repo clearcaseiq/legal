@@ -4737,6 +4737,12 @@ export interface AssistanceGap {
   actions?: string[]
   /** Who recorded the answer that closed it. */
   resolvedByName?: string | null
+  /**
+   * Fact paths a recorded answer can write to close this gap, resolved by the
+   * server. Empty means asking cannot close it — the remedy is a document or a
+   * change to a structured record — so do not offer to record an answer.
+   */
+  factPaths?: string[]
 }
 
 export interface AssistanceQuestion {

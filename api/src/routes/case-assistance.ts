@@ -37,7 +37,8 @@ import {
 import { reassignCaseAssistance } from '../lib/case-assistance-assignment'
 import { parsePagination, paginated } from '../lib/pagination'
 import { plaintiffNameOf, resolveCaseName } from '../lib/case-name'
-import { buildCaseIntelligence } from '../lib/case-intelligence'
+import { buildCaseIntelligence, type CaseGap } from '../lib/case-intelligence'
+import { factPathsForGap } from '../lib/case-gap-facts'
 import { buildBaselineQuestions } from '../lib/intake-questions'
 import { generateIntelligentQuestions } from '../services/intelligent-questions'
 import { computeCasePreparation } from '../lib/case-insights'
@@ -496,7 +497,12 @@ router.get('/:id/ai', async (req: AuthRequest, res) => {
       buildCaseCoach(assistance.assessmentId).catch(() => null),
     ])
 
-    const openGaps = intelligence.gaps.filter((gap) => !gap.resolved)
+    // Which gaps a recorded answer can close, resolved here so the workbench
+    // does not keep a second copy of the mapping and drift from it. A gap with
+    // no paths needs a document or a structured-record change instead, and the
+    // UI uses that to decide whether offering "record an answer" is honest.
+    const withFactPaths = (gap: CaseGap) => ({ ...gap, factPaths: factPathsForGap(gap.key) })
+    const openGaps = intelligence.gaps.filter((gap) => !gap.resolved).map(withFactPaths)
 
     res.json({
       success: true,
@@ -508,7 +514,7 @@ router.get('/:id/ai', async (req: AuthRequest, res) => {
       gaps: {
         highPriority: openGaps.filter((gap) => gap.severity >= 4),
         recommended: openGaps.filter((gap) => gap.severity < 4),
-        resolved: intelligence.gaps.filter((gap) => gap.resolved),
+        resolved: intelligence.gaps.filter((gap) => gap.resolved).map(withFactPaths),
       },
       questions: questions?.questions ?? [],
       questionSource: questions?.source ?? 'unavailable',

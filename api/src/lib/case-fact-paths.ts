@@ -77,9 +77,33 @@ export const PROPOSABLE_FACT_PATHS: Record<string, FactPathSpec> = {
   'insurance.adjuster_contacted': { label: 'Adjuster has made contact', type: 'boolean' },
   'insurance.recorded_statement': { label: 'Gave a recorded statement', type: 'boolean' },
 
-  'caseAcceleration.wageLoss.employerName': { label: 'Employer', type: 'string', maxLength: 160 },
+  // The employer gap reads `employment.employer` and three aliases, none of
+  // which this path used to write — so recording an employer here left the gap
+  // open however many times it was asked. The mirrors close that loop.
+  'caseAcceleration.wageLoss.employerName': {
+    label: 'Employer',
+    type: 'string',
+    maxLength: 160,
+    mirrors: ['employment.employer', 'damages.employer'],
+  },
   'caseAcceleration.wageLoss.positionTitle': { label: 'Job title', type: 'string', maxLength: 160 },
   'caseAcceleration.wageLoss.datesMissed': { label: 'Work missed', type: 'string', maxLength: 200 },
+
+  // Answers that close an open gap. Each targets the path the gap's own detector
+  // reads; see `case-gap-facts.ts`.
+  'defendant.name': {
+    label: 'Name of the at-fault party',
+    type: 'string',
+    maxLength: 200,
+    mirrors: ['liability.defendantName'],
+  },
+  'injuryDetails.priorInjury': {
+    label: 'Prior injury to the same part of the body',
+    type: 'string',
+    maxLength: 1000,
+  },
+  'product.manufacturer': { label: 'Product manufacturer', type: 'string', maxLength: 160 },
+  'liability.hasWitnesses': { label: 'Anyone else saw it happen', type: 'boolean' },
 }
 
 export function isProposableFactPath(path: string): boolean {

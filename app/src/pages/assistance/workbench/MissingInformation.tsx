@@ -12,13 +12,66 @@ type Tier = { key: string; label: string; tone: 'danger' | 'warning' | 'neutral'
  * turnaround, so each gap says which it is rather than leaving the specialist to
  * infer it from the wording.
  */
+/**
+ * The routes out of a gap, and only the ones that exist.
+ *
+ * `factPaths` comes from the server and says whether a recorded answer can close
+ * this gap at all. Some gaps read structured insurance and liability records
+ * rather than the case facts, so an answer would change nothing — and one of
+ * them asks for a comparative-negligence rebuttal, which is a question for an
+ * attorney to answer, not one to put to an injured claimant on the phone.
+ * Offering "ask the claimant" on those was both useless and a nudge toward
+ * advice a specialist is not allowed to give.
+ */
+function GapActions({
+  gap,
+  onAsk,
+  onRequestDocuments,
+}: {
+  gap: AssistanceGap
+  onAsk: (gap: AssistanceGap) => void
+  onRequestDocuments: () => void
+}) {
+  const canAsk = (gap.factPaths?.length ?? 0) > 0
+
+  if (!canAsk && !gap.requestedDoc) {
+    return (
+      <p className="mt-1 text-xs italic text-slate-400 dark:text-slate-500">Internal follow-up — not a claimant question.</p>
+    )
+  }
+
+  return (
+    <div className="mt-1 flex flex-wrap gap-3">
+      {canAsk && (
+        <button
+          type="button"
+          onClick={() => onAsk(gap)}
+          className="text-xs font-medium text-brand-700 hover:underline dark:text-brand-400"
+        >
+          Ask the claimant
+        </button>
+      )}
+      {gap.requestedDoc && (
+        <button
+          type="button"
+          onClick={onRequestDocuments}
+          className="text-xs font-medium text-brand-700 hover:underline dark:text-brand-400"
+        >
+          Request {humanize(gap.requestedDoc).toLowerCase()}
+        </button>
+      )}
+    </div>
+  )
+}
+
 export function MissingInformation({
   gaps,
   onAsk,
   onRequestDocuments,
 }: {
   gaps: AssistanceGap[]
-  onAsk: () => void
+  /** Receives the gap so the intake flow can open the field that closes it. */
+  onAsk: (gap: AssistanceGap) => void
   onRequestDocuments: () => void
 }) {
   const allTiers: Tier[] = [
@@ -68,13 +121,7 @@ export function MissingInformation({
                     {gap.rationale && (
                       <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{gap.rationale}</p>
                     )}
-                    <button
-                      type="button"
-                      onClick={gap.requestedDoc ? onRequestDocuments : onAsk}
-                      className="mt-1 text-xs font-medium text-brand-700 hover:underline dark:text-brand-400"
-                    >
-                      {gap.requestedDoc ? `Request ${humanize(gap.requestedDoc).toLowerCase()}` : 'Ask the claimant'}
-                    </button>
+                    <GapActions gap={gap} onAsk={onAsk} onRequestDocuments={onRequestDocuments} />
                   </div>
                 </li>
               ))}

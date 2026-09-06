@@ -96,9 +96,19 @@ describe('applyFactPath', () => {
   })
 
   it('creates the branch when the domain is absent', () => {
-    expect(applyFactPath({}, 'caseAcceleration.wageLoss.employerName', 'Acme')).toEqual({
-      caseAcceleration: { wageLoss: { employerName: 'Acme' } },
+    // A path without mirrors, so this stays a test of branch creation alone.
+    expect(applyFactPath({}, 'caseAcceleration.wageLoss.positionTitle', 'Driver')).toEqual({
+      caseAcceleration: { wageLoss: { positionTitle: 'Driver' } },
     })
+  })
+
+  it('routes the employer to the paths the employer gap actually reads', () => {
+    // The gap checks employment.employer and damages.employer. Before these
+    // mirrors, recording an employer wrote only the caseAcceleration key, so the
+    // gap stayed open however many times a specialist asked the question.
+    const after = applyFactPath({}, 'caseAcceleration.wageLoss.employerName', 'Acme')
+    expect(after.employment).toEqual({ employer: 'Acme' })
+    expect(after.damages).toEqual({ employer: 'Acme' })
   })
 
   it('writes the legacy duplicate keys too', () => {

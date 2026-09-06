@@ -6,9 +6,11 @@ import {
   getAssistanceSpecialists,
   updateAssistanceCase,
 } from '../../lib/api'
+import type { AssistanceGap } from '../../lib/api'
 import { BackButton, EmptyState, SectionCard } from '../../features/shared/ui'
 import { useAssistanceBasePath } from './useAssistanceBasePath'
 import { ActivityList } from './workbench/ActivityList'
+import { AssistedIntake } from './workbench/AssistedIntake'
 import { CaseAssistantPanel } from './workbench/CaseAssistantPanel'
 import { CaseCompleteness } from './workbench/CaseCompleteness'
 import { CaseHeader } from './workbench/CaseHeader'
@@ -54,6 +56,7 @@ export default function CaseAssistanceWorkspace() {
   const [saving, setSaving] = useState(false)
   const [specialists, setSpecialists] = useState<{ id: string; name: string }[]>([])
   const [openAction, setOpenAction] = useState<ContactAction | null>(null)
+  const [focusGapKey, setFocusGapKey] = useState<string | null>(null)
 
   const tabParam = searchParams.get('tab')
   const tab: WorkbenchTab = isWorkbenchTab(tabParam) ? tabParam : 'overview'
@@ -128,6 +131,21 @@ export default function CaseAssistanceWorkspace() {
     (action: ContactAction) => {
       setTab(action === 'docs' ? 'documents' : action === 'answer' ? 'intake' : 'communications')
       setOpenAction(action)
+    },
+    [setTab],
+  )
+
+  /**
+   * Open the guided flow on the question that closes this gap.
+   *
+   * Clicking a gap used to drop the specialist at the top of a thirty-item
+   * field list with no indication of which one they had just asked about.
+   */
+  const askAboutGap = useCallback(
+    (gap: AssistanceGap) => {
+      setTab('intake')
+      setOpenAction(null)
+      setFocusGapKey(gap.key)
     },
     [setTab],
   )
@@ -235,42 +253,22 @@ export default function CaseAssistanceWorkspace() {
       {tab === 'intake' && (
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
           <div className="space-y-4">
+            <AssistedIntake
+              assistanceId={id}
+              questions={ai?.questions ?? []}
+              gaps={openGaps}
+              loading={aiLoading}
+              focusGapKey={focusGapKey}
+              onRecorded={setNotice}
+              onError={setError}
+            />
             <ContactActions
               {...actionProps}
               actions={['answer']}
-              idleMessage="Record what the claimant tells you on a call. It goes to them to confirm before it becomes their answer."
+              idleMessage="Working off-script? Record any single detail here instead."
             />
-            <SectionCard title="Ask the claimant">
-              {!ai || ai.questions.length === 0 ? (
-                <EmptyState message="No outstanding questions for this case." />
-              ) : (
-                <ol className="space-y-3">
-                  {ai.questions.map((question) => (
-                    <li key={question.id} className="text-sm">
-                      <p className="font-medium text-slate-800 dark:text-slate-200">
-                        {question.askInstruction || question.text}
-                      </p>
-                      {question.askInstruction && (
-                        <p className="mt-0.5 text-xs italic text-slate-500 dark:text-slate-400">“{question.text}”</p>
-                      )}
-                      {question.whyAsked && (
-                        <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{question.whyAsked}</p>
-                      )}
-                    </li>
-                  ))}
-                </ol>
-              )}
-              <p className="mt-4 border-t border-slate-100 pt-3 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
-                These are questions to ask, not advice to give. Do not tell a claimant whether they have a case, what
-                it is worth, or what they should do legally — that is for an attorney.
-              </p>
-            </SectionCard>
           </div>
-          <MissingInformation
-            gaps={openGaps}
-            onAsk={() => startAction('answer')}
-            onRequestDocuments={() => startAction('docs')}
-          />
+          <MissingInformation gaps={openGaps} onAsk={askAboutGap} onRequestDocuments={() => startAction('docs')} />
         </div>
       )}
 
