@@ -20,6 +20,11 @@ import { logger } from './logger'
 import { sendClaimEmail } from './claims'
 import { sendSms } from './sms'
 import { webUrl } from './app-url'
+import {
+  DEFAULT_NOTIFICATION_TIMING,
+  getNotificationTiming,
+  getReportReadyDelayMs,
+} from './notification-timing-config'
 
 /**
  * How long a finished assessment waits before its report email goes out.
@@ -28,8 +33,12 @@ import { webUrl } from './app-url'
  * toward the person who closes the tab: they are the one relying on this email,
  * and making them wait is a worse outcome than a prompt submitter occasionally
  * receiving both messages.
+ *
+ * Now the starting point rather than the rule — administrators can retune the
+ * delay from the notification timing screen. Still exported because it is the
+ * value in force on a deployment that has never touched that screen.
  */
-export const REPORT_READY_DELAY_MS = 10 * 60_000
+export const REPORT_READY_DELAY_MS = DEFAULT_NOTIFICATION_TIMING.reportReadyDelayMinutes * 60_000
 
 // Cap work per sweep so a backlog cannot hammer the email/SMS providers.
 const BATCH_SIZE = 100
@@ -67,9 +76,13 @@ export async function sendReportReady(lead: {
 /** Queue the report email for later, so a submission can still supersede it. */
 export async function scheduleReportReady(leadId: string): Promise<void> {
   try {
+    // Read at scheduling time, not at send time: the due date is stamped on the
+    // row, so changing the delay only affects assessments finished afterwards.
+    // Retuning it cannot pull forward or push back an email already queued.
+    const delayMs = getReportReadyDelayMs(await getNotificationTiming())
     await prisma.intakeLead.update({
       where: { id: leadId },
-      data: { reportReadyDueAt: new Date(Date.now() + REPORT_READY_DELAY_MS) },
+      data: { reportReadyDueAt: new Date(Date.now() + delayMs) },
     })
   } catch (error) {
     logger.warn('Could not schedule report-ready email', { leadId, error })

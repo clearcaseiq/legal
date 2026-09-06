@@ -214,6 +214,7 @@ const AdminAttorneyDetail = lazy(() => import('./pages/admin/AdminAttorneyDetail
 const AdminMatchingRules = lazy(() => import('./pages/admin/AdminMatchingRules'))
 const AdminHeuristics = lazy(() => import('./pages/admin/AdminHeuristics'))
 const AdminFieldMappings = lazy(() => import('./pages/admin/AdminFieldMappings'))
+const AdminNotificationTiming = lazy(() => import('./pages/admin/AdminNotificationTiming'))
 const AdminManualReview = lazy(() => import('./pages/admin/AdminManualReview'))
 const AdminRoutingFeedback = lazy(() => import('./pages/admin/AdminRoutingFeedback'))
 const AdminCommunications = lazy(() => import('./pages/admin/AdminCommunications'))
@@ -519,6 +520,7 @@ function App() {
                 <Route path="matching-rules" element={<AdminMatchingRules />} />
                 <Route path="heuristics" element={<AdminHeuristics />} />
                 <Route path="field-mappings" element={<AdminFieldMappings />} />
+                <Route path="notification-timing" element={<AdminNotificationTiming />} />
                 <Route path="manual-review" element={<AdminManualReview />} />
                 <Route path="routing-feedback" element={<AdminRoutingFeedback />} />
                 <Route path="communications" element={<AdminCommunications />} />

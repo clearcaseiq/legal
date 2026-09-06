@@ -4,6 +4,7 @@ import { apiDebug } from './debug'
 import type { AttorneyDashboardResponse } from '../../../shared/api-contracts'
 import type { HeuristicsConfig } from './heuristics'
 import type { FieldMappingsConfig } from './field-mappings'
+import type { NotificationTimingConfig } from './notification-timing'
 
 export type { HeuristicsConfig }
 
@@ -4296,6 +4297,16 @@ export async function saveAdminHeuristics(config: Partial<HeuristicsConfig>) {
 
 export async function getHeuristics() {
   const { data } = await api.get<HeuristicsConfig>('/v1/heuristics')
+  return data
+}
+
+export async function getAdminNotificationTiming() {
+  const { data } = await api.get<NotificationTimingConfig>('/v1/admin/notification-timing')
+  return data
+}
+
+export async function saveAdminNotificationTiming(config: Partial<NotificationTimingConfig>) {
+  const { data } = await api.put<NotificationTimingConfig>('/v1/admin/notification-timing', config)
   return data
 }
 

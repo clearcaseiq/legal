@@ -5,11 +5,41 @@ import { parseEventReminders } from './calendar-reminders'
 import { webUrl } from './app-url'
 import { formatInSchedulingTimezone, resolveSchedulingTimezone } from './scheduling-timezone'
 import { recordRoutingEvent } from './routing-lifecycle'
+import {
+  getAppointmentReminderCatchWindowMinutes,
+  getAppointmentReminderOffsetsMinutes,
+  getNotificationTiming,
+} from './notification-timing-config'
 
-const DEFAULT_REMINDER_SCHEDULE = [
-  { key: 'upcoming_24h', minutesBefore: 24 * 60, lead: 'in about 24 hours' },
-  { key: 'upcoming_1h', minutesBefore: 60, lead: 'in about 1 hour' },
-] as const
+/**
+ * Reminder keys double as the record that a reminder was sent: the sweep
+ * remembers a send by the `eventType` stamped on its notification row, and
+ * skips any key it finds there.
+ *
+ * That makes the key format load-bearing across a deploy. The first two offsets
+ * shipped with hand-written keys, so those two offsets keep them — deriving a
+ * new key for 24h would make every already-sent 24h reminder look unsent, and
+ * anyone inside the catch window at deploy time would get it twice.
+ */
+const LEGACY_REMINDER_KEYS: Record<number, string> = {
+  [24 * 60]: 'upcoming_24h',
+  [60]: 'upcoming_1h',
+}
+
+export function reminderKeyForOffset(minutesBefore: number): string {
+  return LEGACY_REMINDER_KEYS[minutesBefore] ?? `upcoming_${minutesBefore}m`
+}
+
+/** The "is in about an hour" fragment, phrased to match the offset it describes. */
+export function reminderLeadLabel(minutesBefore: number): string {
+  if (minutesBefore < 60) return `in about ${minutesBefore} minutes`
+  const hours = minutesBefore / 60
+  // Hours stay hours up to two days: "in about 36 hours" reads better than
+  // rounding it to a day and a half, or to the wrong number of days.
+  if (Number.isInteger(hours) && hours <= 48) return `in about ${hours} hour${hours === 1 ? '' : 's'}`
+  const days = Math.round(minutesBefore / (24 * 60))
+  return `in about ${days} day${days === 1 ? '' : 's'}`
+}
 
 type AssessmentFacts = {
   incident?: { narrative?: string; location?: string }
@@ -73,8 +103,20 @@ async function createNotification(params: {
   })
 }
 
-export function getDefaultReminderSchedule() {
-  return [...DEFAULT_REMINDER_SCHEDULE]
+/**
+ * The reminder schedule currently in force, for the client that displays it.
+ *
+ * Named "default" from when it was one, and kept because the client field is
+ * `reminderSchedule` either way; what changed is that it now answers with the
+ * administrator's configuration rather than a constant.
+ */
+export async function getDefaultReminderSchedule() {
+  const timing = await getNotificationTiming()
+  return getAppointmentReminderOffsetsMinutes(timing).map((minutesBefore) => ({
+    key: reminderKeyForOffset(minutesBefore),
+    minutesBefore,
+    lead: reminderLeadLabel(minutesBefore),
+  }))
 }
 
 export async function buildPrepItemsForAppointment(assessmentId?: string | null) {
@@ -381,12 +423,20 @@ export async function notifyWaitlistForFreedSlot(params: {
 
 export async function sweepUpcomingAppointmentReminders() {
   const now = new Date()
+  const timing = await getNotificationTiming()
+  const offsets = getAppointmentReminderOffsetsMinutes(timing)
+  const catchWindowMinutes = getAppointmentReminderCatchWindowMinutes(timing)
+
+  // Scan out as far as the earliest reminder needs, rather than a fixed day.
+  // The horizon was 24h back when the earliest offset was 24h, so configuring
+  // anything earlier would have selected no appointments and sent nothing.
+  const horizonMinutes = Math.max(...offsets) + catchWindowMinutes
   const upcoming = await prisma.appointment.findMany({
     where: {
       status: { in: ['SCHEDULED', 'CONFIRMED'] },
       scheduledAt: {
         gte: now,
-        lte: new Date(now.getTime() + 24 * 60 * 60 * 1000),
+        lte: new Date(now.getTime() + horizonMinutes * 60_000),
       },
     },
     include: {
@@ -418,13 +468,14 @@ export async function sweepUpcomingAppointmentReminders() {
       timeZone: tz,
     })
 
-    for (const reminder of DEFAULT_REMINDER_SCHEDULE) {
-      const inWindow = minutesUntil <= reminder.minutesBefore && minutesUntil > reminder.minutesBefore - 15
-      if (!inWindow || sentKeys.has(reminder.key)) continue
+    for (const minutesBefore of offsets) {
+      const key = reminderKeyForOffset(minutesBefore)
+      const inWindow = minutesUntil <= minutesBefore && minutesUntil > minutesBefore - catchWindowMinutes
+      if (!inWindow || sentKeys.has(key)) continue
 
       const attorneyName = appointment.attorney?.name || 'your attorney'
       const lines = [
-        `Reminder: your consultation with ${attorneyName} is ${reminder.lead}.`,
+        `Reminder: your consultation with ${attorneyName} is ${reminderLeadLabel(minutesBefore)}.`,
         '',
         `When: ${whenLabel}${tz ? ` (${tz.replace(/_/g, ' ')})` : ''}`,
       ]
@@ -447,7 +498,7 @@ export async function sweepUpcomingAppointmentReminders() {
         metadata: {
           appointmentId: appointment.id,
           assessmentId: appointment.assessmentId,
-          eventType: reminder.key,
+          eventType: key,
         },
       })
       sentCount += 1
@@ -682,7 +733,7 @@ export async function getAppointmentPreparation(appointmentId: string, userId: s
     preparationNotes: notesMetadata?.preparationNotes || '',
     prepItems,
     waitlistStatus: waitlistMetadata?.waitlistStatus || null,
-    reminderSchedule: getDefaultReminderSchedule(),
+    reminderSchedule: await getDefaultReminderSchedule(),
   }
 }
 

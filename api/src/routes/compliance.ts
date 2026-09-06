@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma'
 import { authMiddleware, requireRole } from '../lib/auth'
 import { adminMiddleware } from '../lib/admin-access'
 import { parsePagination, paginated } from '../lib/pagination'
+import { ACTIVITY_HEARTBEAT_ACTION } from '../lib/activity-canary-sweep'
 import { z } from 'zod'
 import { logger } from '../lib/logger'
 
@@ -162,6 +163,12 @@ router.get('/audit-logs', authMiddleware, adminMiddleware, async (req, res) => {
       // `contains`, not equality: the global request middleware writes actions
       // as raw "POST /v1/..." strings, so exact match was unusable for them.
       where.action = { contains: action.trim() }
+    } else {
+      // The activity canary writes a heartbeat every half hour purely to prove
+      // the database still accepts writes. Forty-eight rows a day of it would
+      // bury the entries this viewer exists to show, and none of them mean
+      // anything to an auditor. Filtering explicitly by action still finds them.
+      where.action = { not: ACTIVITY_HEARTBEAT_ACTION }
     }
     if (typeof entityType === 'string' && entityType.trim()) {
       where.entityType = entityType.trim()

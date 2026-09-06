@@ -23,7 +23,7 @@ import { resolveEmailProvider } from './claims'
 import { isConnectConfigured } from './amazon-connect'
 import { isZoomConfigured } from './zoom'
 import { isESignatureConfigured } from './esign'
-import { isActivityCanaryEnabled } from './activity-canary-sweep'
+import { ACTIVITY_HEARTBEAT_ACTION, isActivityCanaryEnabled } from './activity-canary-sweep'
 import { getPublicSiteStatus, type PublicSiteStatus } from './public-site-status'
 import {
   getSchedulerLeaseState,
@@ -488,11 +488,20 @@ export async function getActivitySnapshot(): Promise<ActivitySnapshot> {
 
   try {
     const now = Date.now()
+    // These figures answer "is anyone using the product", so the canary's own
+    // heartbeat rows are excluded — otherwise every deployment would report a
+    // flat 48 events a day and the chart would say nothing. The canary window
+    // below deliberately counts them, because there the heartbeat IS the signal.
+    const human = { action: { not: ACTIVITY_HEARTBEAT_ACTION } }
     const [lastEvent, eventsLastHour, eventsLast24h, eventsInCanaryWindow, activeUsers, daily] =
       await Promise.all([
-        prisma.auditLog.findFirst({ orderBy: { createdAt: 'desc' }, select: { createdAt: true } }),
-        prisma.auditLog.count({ where: { createdAt: { gte: new Date(now - HOUR_MS) } } }),
-        prisma.auditLog.count({ where: { createdAt: { gte: new Date(now - 24 * HOUR_MS) } } }),
+        prisma.auditLog.findFirst({
+          where: human,
+          orderBy: { createdAt: 'desc' },
+          select: { createdAt: true },
+        }),
+        prisma.auditLog.count({ where: { ...human, createdAt: { gte: new Date(now - HOUR_MS) } } }),
+        prisma.auditLog.count({ where: { ...human, createdAt: { gte: new Date(now - 24 * HOUR_MS) } } }),
         prisma.auditLog.count({
           where: { createdAt: { gte: new Date(now - canaryWindowHours * HOUR_MS) } },
         }),
@@ -507,6 +516,7 @@ export async function getActivitySnapshot(): Promise<ActivitySnapshot> {
                  count(DISTINCT "userId") AS users
           FROM audit_logs
           WHERE "createdAt" >= ${new Date(now - ACTIVITY_DAYS * 24 * HOUR_MS)}
+            AND "action" <> ${ACTIVITY_HEARTBEAT_ACTION}
           GROUP BY 1
           ORDER BY 1 DESC
         `,

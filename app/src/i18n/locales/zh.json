@@ -78,6 +78,9 @@
       "fieldMappings": {
         "label": "字段映射"
       },
+      "notificationTiming": {
+        "label": "通知时间设置"
+      },
       "users": {
         "label": "用户角色"
       },

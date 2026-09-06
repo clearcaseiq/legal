@@ -7,9 +7,27 @@ import { writeAdminAudit } from '../lib/admin-audit'
 import { getMatchingRules, saveMatchingRules } from '../lib/matching-rules-config'
 import { getHeuristics, saveHeuristics } from '../lib/heuristics-config'
 import { getFieldMappings, saveFieldMappings } from '../lib/field-mappings-config'
+import { getNotificationTiming, saveNotificationTiming } from '../lib/notification-timing-config'
 import { prismaAny } from './admin-shared'
 
 const router: ExpressRouter = Router()
+
+/**
+ * Shape check only. The ranges live in the config module, which clamps on save
+ * so that values reaching a sweep are sane no matter how they got there —
+ * duplicating the bounds here would give two places to disagree about them.
+ */
+const NotificationTimingUpdate = z
+  .object({
+    reportReadyDelayMinutes: z.number().finite(),
+    appointmentReminderOffsetsMinutes: z.array(z.number().finite()),
+    appointmentReminderCatchWindowMinutes: z.number().finite(),
+    intakeAbandonmentAfterMinutes: z.number().finite(),
+    intakeAbandonmentWindowHours: z.number().finite(),
+    offerExpiryWarningFraction: z.number().finite(),
+    offerExpiryWarningFloorMinutes: z.number().finite(),
+  })
+  .partial()
 
 router.get('/matching-rules', authMiddleware, adminMiddleware, async (_req: AuthRequest, res) => {
   try {
@@ -38,6 +56,42 @@ router.put('/matching-rules', authMiddleware, adminMiddleware, requireAdminCapab
     res.json(config)
   } catch (error) {
     logger.error('Failed to save matching rules', { error })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+// Notification timing (when reminders and follow-ups go out)
+router.get('/notification-timing', authMiddleware, adminMiddleware, async (_req: AuthRequest, res) => {
+  try {
+    const config = await getNotificationTiming()
+    res.json(config)
+  } catch (error: any) {
+    logger.error('Failed to get notification timing', { error, message: error?.message })
+    res.status(500).json({
+      error: 'Internal server error',
+      detail: process.env.NODE_ENV === 'development' ? error?.message : undefined,
+    })
+  }
+})
+
+router.put('/notification-timing', authMiddleware, adminMiddleware, requireAdminCapability('config'), async (req: AuthRequest, res) => {
+  try {
+    const parsed = NotificationTimingUpdate.safeParse(req.body)
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid notification timing', detail: parsed.error.flatten() })
+    }
+    const config = await saveNotificationTiming(parsed.data)
+    // The saved values are the clamped ones, so the audit records what the
+    // sweeps will actually do rather than what was typed.
+    await writeAdminAudit(req, {
+      action: 'notification_timing_updated',
+      entityType: 'notification_timing',
+      entityId: 'global',
+      metadata: { updatedFields: Object.keys(parsed.data), applied: config },
+    })
+    res.json(config)
+  } catch (error) {
+    logger.error('Failed to save notification timing', { error })
     res.status(500).json({ error: 'Internal server error' })
   }
 })

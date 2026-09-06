@@ -81,6 +81,7 @@ export function capabilityForAdminPath(path: string): AdminCapability | null {
     path.startsWith('/admin/matching-rules') ||
     path.startsWith('/admin/heuristics') ||
     path.startsWith('/admin/field-mappings') ||
+    path.startsWith('/admin/notification-timing') ||
     path.startsWith('/admin/feature-toggles') ||
     path.startsWith('/admin/firm-settings')
   ) {

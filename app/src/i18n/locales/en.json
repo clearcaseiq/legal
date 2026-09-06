@@ -81,6 +81,9 @@
       "fieldMappings": {
         "label": "Field Mappings"
       },
+      "notificationTiming": {
+        "label": "Notification Timing"
+      },
       "users": {
         "label": "User Roles"
       },

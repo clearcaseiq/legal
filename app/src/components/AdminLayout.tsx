@@ -33,6 +33,7 @@ import {
   MailCheck,
   Receipt,
   Headphones,
+  AlarmClock,
 } from 'lucide-react'
 import { BrandMark } from './BrandLogo'
 import { useAdminRoutingStatus } from '../hooks/useAdminRoutingStatus'
@@ -106,6 +107,7 @@ const navGroups: {
       { path: '/admin/matching-rules', id: 'matchingRules', label: 'Matching Rules', icon: Sliders },
       { path: '/admin/heuristics', id: 'heuristics', label: 'Heuristics', icon: SlidersHorizontal },
       { path: '/admin/field-mappings', id: 'fieldMappings', label: 'Field Mappings', icon: ArrowLeftRight },
+      { path: '/admin/notification-timing', id: 'notificationTiming', label: 'Notification Timing', icon: AlarmClock },
       { path: '/admin/users', id: 'users', label: 'User Roles', icon: UserCog },
       { path: '/admin/feature-toggles', id: 'featureToggles', label: 'Feature Toggles', icon: ToggleLeft },
       { path: '/admin/firm-settings', id: 'firmSettings', label: 'Firm Settings', icon: Building2 },

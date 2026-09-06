@@ -19,6 +19,7 @@ import { getMatchingRules, getAttorneyResponseDeadlineMinutes } from './matching
 import { runEscalationWave, recordRoutingEvent } from './routing-lifecycle'
 import { notifyAttorneyInApp } from './case-notifications'
 import { ATTORNEY_EVENTS } from './notification-events'
+import { getNotificationTiming, getOfferExpiryWarningMinutes } from './notification-timing-config'
 
 export interface OfferExpirySweepResult {
   expired: number
@@ -41,7 +42,7 @@ export async function runOfferExpirySweep(): Promise<OfferExpirySweepResult> {
   // Warn the attorney once when the response window is nearly up (still PENDING),
   // so a good match is not lost purely for lack of a heads-up. Deduped per offer.
   try {
-    const warnMinutes = Math.max(15, Math.round(deadlineMinutes * 0.2))
+    const warnMinutes = getOfferExpiryWarningMinutes(await getNotificationTiming(), deadlineMinutes)
     const warnStart = new Date(now - (deadlineMinutes - warnMinutes) * 60 * 1000)
     const soon = await prisma.introduction.findMany({
       where: { status: 'PENDING', requestedAt: { lte: warnStart, gt: cutoff } },

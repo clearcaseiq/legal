@@ -3,6 +3,11 @@ import { logger } from './logger'
 import { sendClaimEmail } from './claims'
 import { sendSms } from './sms'
 import { webUrl } from './app-url'
+import {
+  getIntakeAbandonmentAfterMinutes,
+  getIntakeAbandonmentWindowHours,
+  getNotificationTiming,
+} from './notification-timing-config'
 
 /**
  * Off unless explicitly enabled.
@@ -41,10 +46,9 @@ function isIntakeAbandonmentOutreachEnabled(): boolean {
   return process.env.INTAKE_ABANDONMENT_OUTREACH_ENABLED === 'true'
 }
 
-// A lead is "abandoned" once it has been idle this long without completing.
-const ABANDON_AFTER_MINUTES = 45
-// Don't re-engage leads older than this — stale intents aren't worth contacting.
-const ABANDON_WINDOW_HOURS = 72
+// How long a lead sits idle before it counts as abandoned, and how stale one
+// can be and still be worth contacting, both come from the notification timing
+// configuration — see `notification-timing-config.ts`.
 // Cap work per sweep so a backlog can't hammer the email/SMS providers.
 const BATCH_SIZE = 100
 
@@ -63,9 +67,10 @@ export async function sweepAbandonedIntakeLeads(): Promise<{ scanned: number; se
     return { scanned: 0, sent: 0, skipped: true, reason: 'Intake abandonment outreach disabled (SB 37 review)' }
   }
 
+  const timing = await getNotificationTiming()
   const now = Date.now()
-  const idleBefore = new Date(now - ABANDON_AFTER_MINUTES * 60_000)
-  const windowStart = new Date(now - ABANDON_WINDOW_HOURS * 60 * 60_000)
+  const idleBefore = new Date(now - getIntakeAbandonmentAfterMinutes(timing) * 60_000)
+  const windowStart = new Date(now - getIntakeAbandonmentWindowHours(timing) * 60 * 60_000)
 
   const leads = await prisma.intakeLead.findMany({
     where: {

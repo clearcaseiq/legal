@@ -78,6 +78,9 @@
       "fieldMappings": {
         "label": "Asignación de campos"
       },
+      "notificationTiming": {
+        "label": "Programación de notificaciones"
+      },
       "users": {
         "label": "Roles de usuario"
       },
