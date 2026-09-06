@@ -17,8 +17,15 @@
  *
  * Idempotent: re-running once the values are mapped is a no-op.
  *
- * Run:  npm run backfill:assistance-statuses
- *       npm run backfill:assistance-statuses -- --apply
+ * Usage (prod/QA, inside the api container — note the env-suffixed name):
+ *   docker exec -w /app clearcaseiq-prod-api \
+ *     node ../node_modules/tsx/dist/cli.mjs scripts/backfill-assistance-statuses.ts
+ *   docker exec -w /app clearcaseiq-prod-api \
+ *     node ../node_modules/tsx/dist/cli.mjs scripts/backfill-assistance-statuses.ts --apply
+ *
+ * Usage (local):
+ *   npm run backfill:assistance-statuses
+ *   npm run backfill:assistance-statuses -- --apply
  *
  * Defaults to a dry run; pass --apply to write.
  */
