@@ -2,31 +2,31 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import LoginLayout from '../components/LoginLayout'
 import { verifyEmail } from '../lib/api'
-import { getStoredRole } from '../lib/auth'
+import { getLoginPathForRole, getPostLoginRoute, getStoredRole, hasValidAuthToken } from '../lib/auth'
 
 /**
- * Attorneys and firm staff verify through this same page, so a hardcoded
- * /dashboard would drop them on the plaintiff view. Anyone verifying on a
- * device they aren't signed in on falls back to the plaintiff dashboard, which
- * redirects to the right login.
+ * Every role verifies through this page, so where "continue" goes depends on who
+ * is verifying.
+ *
+ * Signed in, it is their own dashboard. Signed out — which is the normal case
+ * for someone activating a brand-new account from an invite — it is the sign-in
+ * screen their account actually uses, taken from the role the verify call
+ * returns. This used to fall back to the plaintiff dashboard, so a new admin
+ * was handed a claimant login and could not get in with it.
  */
-function dashboardPath(): string {
-  switch (getStoredRole()) {
-    case 'attorney':
-      return '/attorney-dashboard'
-    case 'staff':
-      return '/firm-dashboard'
-    case 'admin':
-      return '/admin'
-    default:
-      return '/dashboard'
-  }
+function destinationFor(verifiedRole: string | null): string {
+  if (hasValidAuthToken()) return getPostLoginRoute(getStoredRole())
+  return getLoginPathForRole(verifiedRole)
 }
 
 export default function VerifyEmail() {
   const [searchParams] = useSearchParams()
   const token = searchParams.get('token') || ''
-  const [destination] = useState(dashboardPath)
+  const [verifiedRole, setVerifiedRole] = useState<string | null>(null)
+  const destination = destinationFor(verifiedRole)
+  // The link is a sign-in page for anyone not already authenticated, so it should
+  // not promise a dashboard they will not land on.
+  const continueLabel = hasValidAuthToken() ? 'Continue to your dashboard' : 'Continue to sign in'
 
   const [status, setStatus] = useState<'checking' | 'success' | 'error'>('checking')
   const [message, setMessage] = useState<string>('')
@@ -47,6 +47,7 @@ export default function VerifyEmail() {
     verifyEmail(token)
       .then((res) => {
         setStatus('success')
+        setVerifiedRole(res.role ?? null)
         setMessage(res.message || 'Your email has been verified. Thank you!')
       })
       .catch((err: any) => {
@@ -66,7 +67,7 @@ export default function VerifyEmail() {
       footerDividerText="Need help?"
       footerContent={
         <Link to={destination} className="font-semibold text-brand-600 hover:text-brand-700 transition-colors block">
-          Go to dashboard
+          {continueLabel}
         </Link>
       }
     >
@@ -82,7 +83,7 @@ export default function VerifyEmail() {
             to={destination}
             className="mt-4 inline-block font-semibold text-brand-600 underline underline-offset-2 hover:text-brand-700"
           >
-            Continue to your dashboard
+            {continueLabel}
           </Link>
         </div>
       )}
@@ -95,7 +96,7 @@ export default function VerifyEmail() {
             to={destination}
             className="mt-4 inline-block font-semibold text-brand-600 underline underline-offset-2 hover:text-brand-700"
           >
-            Back to dashboard
+            {continueLabel}
           </Link>
         </div>
       )}

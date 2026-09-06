@@ -77,15 +77,44 @@ export function getAdminLoginPath(pathname?: string) {
   return `/login/admin?redirect=${encodeURIComponent(pathname)}`
 }
 
+/**
+ * The sign-in screen that belongs to a role.
+ *
+ * Distinct from `getLoginRedirect`, which infers a screen from the route being
+ * guarded. This is for flows that already know who the user is because the
+ * account told them — finishing a password reset, or setting the first password
+ * from an invite — where using the route would be guessing about a visitor who
+ * is not signed in yet.
+ */
+export function getLoginPathForRole(role?: string | null): string {
+  // Normalized because callers pass `User.role` straight from the API, and
+  // `client` there is what the rest of the app calls `plaintiff`.
+  switch (role?.toLowerCase()) {
+    case 'admin':
+      return '/login/admin'
+    case 'attorney':
+      return '/login/attorney'
+    case 'staff':
+      return '/login/staff'
+    case 'specialist':
+      return '/login/specialist'
+    default:
+      return '/login'
+  }
+}
+
 export function getLoginRedirect(pathname: string, role?: WebAppRole | WebAppRole[]) {
   const roles = Array.isArray(role) ? role : role ? [role] : []
-  if (roles.includes('admin') || pathname.startsWith('/admin')) {
-    return `/login/admin?redirect=${encodeURIComponent(pathname)}`
-  }
   // Case Assistance is open to specialists and to admins supervising them, so it
-  // gets its own login rather than borrowing the admin one.
+  // gets its own login rather than borrowing the admin one. Checked before the
+  // admin branch because those routes are guarded with both roles, and testing
+  // admin first matched every time — sending specialists to a login that turns
+  // them away. The specialist endpoint accepts admins, so both roles get in here.
   if (roles.includes('specialist') || pathname.startsWith('/assistance')) {
     return `/login/specialist?redirect=${encodeURIComponent(pathname)}`
+  }
+  if (roles.includes('admin') || pathname.startsWith('/admin')) {
+    return `/login/admin?redirect=${encodeURIComponent(pathname)}`
   }
   // Attorney workspace comes first: an attorney-only path should send an
   // unauthenticated user to the attorney login even though staff can also reach

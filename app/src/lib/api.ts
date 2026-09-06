@@ -122,7 +122,7 @@ export function requestEmailVerification() {
 
 export async function verifyEmail(token: string) {
   const { data } = await api.post('/v1/auth/verify-email', { token })
-  return data as { ok: boolean; message?: string; error?: string }
+  return data as { ok: boolean; message?: string; error?: string; role?: string | null }
 }
 
 export const updateConsent = async (consentId: string, updates: {
@@ -4716,6 +4716,14 @@ export interface AssistanceInteraction {
   occurredAt: string
 }
 
+/**
+ * One item the file is missing. `category` is the domain it belongs to
+ * (liability | medical | damages | insurance | evidence | case_strategy) and is
+ * what the completeness bars group on.
+ *
+ * Resolved gaps stay in the list rather than disappearing, so the set doubles as
+ * a checklist: `resolved` marks the ones already crossed off.
+ */
 export interface AssistanceGap {
   key: string
   label: string
@@ -4725,6 +4733,10 @@ export interface AssistanceGap {
   rationale: string
   requestedDoc?: string
   resolved?: boolean
+  /** How the gap can be closed, e.g. request_from_client, generate_doc_request. */
+  actions?: string[]
+  /** Who recorded the answer that closed it. */
+  resolvedByName?: string | null
 }
 
 export interface AssistanceQuestion {
@@ -4736,6 +4748,9 @@ export interface AssistanceQuestion {
   source: string
   /** Imperative form for someone reading this on a call. Falls back to `text`. */
   askInstruction?: string
+  /** Gap keys this question closes when answered. */
+  gapKeys?: string[]
+  confidence?: number
 }
 
 export async function getAssistanceQueue(params: {
@@ -4804,6 +4819,20 @@ export async function getAssistanceCase(id: string) {
   }
 }
 
+/** A ranked next action. `priority` is critical | high | medium | low. */
+export interface AssistanceCoachInsight {
+  key: string
+  title: string
+  priority: string
+  why: string
+  impact: string
+  /** GapCategory, plus 'deadline' and 'strategy'. */
+  category?: string
+  priorityScore?: number
+  valueImpact?: string
+  actions?: string[]
+}
+
 export async function getAssistanceAi(id: string) {
   const { data } = await api.get(`/v1/case-assistance/${id}/ai`)
   return data as {
@@ -4815,7 +4844,7 @@ export async function getAssistanceAi(id: string) {
     questionSource: string
     coach: {
       headline: string
-      insights: { key: string; title: string; priority: string; why: string; impact: string }[]
+      insights: AssistanceCoachInsight[]
     } | null
   }
 }

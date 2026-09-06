@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import LoginLayout from '../components/LoginLayout'
 import { PasswordInputWithReveal } from '../components/PasswordInputWithReveal'
 import { resetPassword, validatePasswordResetToken } from '../lib/api-auth'
+import { getLoginPathForRole } from '../lib/auth'
 import { useLanguage } from '../contexts/LanguageContext'
 
 export default function ResetPassword() {
@@ -65,12 +66,10 @@ export default function ResetPassword() {
       const result = await resetPassword(token, password)
       const role = result.role || userRole
       setDone(true)
-      const loginPath =
-        role === 'attorney' ? '/attorney-login'
-        : role === 'staff' ? '/staff-login'
-        : role === 'admin' ? '/staff-login'
-        : '/login'
-      setTimeout(() => navigate(loginPath), 2500)
+      // Admins used to be sent to the firm staff login, which is a different
+      // sign-in for law-firm employees and rejects them. A new admin setting
+      // their first password from an invite landed there every time.
+      setTimeout(() => navigate(getLoginPathForRole(role)), 2500)
     } catch (err: any) {
       setError(err?.response?.data?.error || t('auth.errResetFailed'))
     } finally {
@@ -89,7 +88,7 @@ export default function ResetPassword() {
       footerDividerText={t('auth.needHelp')}
       footerContent={
         <Link
-          to={userRole === 'attorney' ? '/attorney-login' : userRole === 'staff' || userRole === 'admin' ? '/staff-login' : '/login'}
+          to={getLoginPathForRole(userRole)}
           className="font-semibold text-brand-600 hover:text-brand-700 transition-colors block"
         >
           {t('auth.backToSignIn')}

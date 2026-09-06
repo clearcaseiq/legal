@@ -852,8 +852,20 @@ router.post('/verify-email', async (req, res) => {
       }),
     ])
 
+    // Returned so the page can offer the sign-in screen this account actually
+    // uses. Someone verifying a brand-new account is by definition not signed in
+    // on that device, so the browser has no role to infer one from.
+    const verified = await prisma.user.findUnique({
+      where: { id: record.userId },
+      select: { role: true },
+    })
+
     logger.info('Email verified', { userId: record.userId })
-    return res.json({ ok: true, message: 'Your email has been verified. Thank you!' })
+    return res.json({
+      ok: true,
+      message: 'Your email has been verified. Thank you!',
+      role: verified?.role ?? null,
+    })
   } catch (error) {
     logger.error('Email verification failed', { error })
     return res.status(500).json({ ok: false, error: 'Could not verify your email. Please try again.' })
