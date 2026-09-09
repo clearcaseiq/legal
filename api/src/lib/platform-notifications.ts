@@ -21,6 +21,7 @@ async function sendNotificationEmail(params: {
   body?: string | null
   replyTo?: string | null
   fromName?: string | null
+  fromEmail?: string | null
   cta?: EmailCta | null
 }): Promise<boolean> {
   if (!params.to) return false
@@ -31,6 +32,7 @@ async function sendNotificationEmail(params: {
     cta: params.cta || undefined,
     replyTo: params.replyTo || undefined,
     fromName: params.fromName || undefined,
+    fromEmail: params.fromEmail || undefined,
   })
 }
 
@@ -149,12 +151,14 @@ export async function attemptDelivery(notificationId: string): Promise<boolean> 
   // attorney-originated mail can appear to come from the attorney.
   let senderReplyTo: string | undefined
   let senderFromName: string | undefined
+  let senderFromEmail: string | undefined
   let cta: EmailCta | undefined
   if (event.payloadJson) {
     try {
       const payload = JSON.parse(event.payloadJson)
       if (typeof payload?.replyTo === 'string') senderReplyTo = payload.replyTo
       if (typeof payload?.fromName === 'string') senderFromName = payload.fromName
+      if (typeof payload?.fromEmail === 'string') senderFromEmail = payload.fromEmail
       if (typeof payload?.cta?.label === 'string' && typeof payload?.cta?.url === 'string') {
         cta = { label: payload.cta.label, url: payload.cta.url }
       }
@@ -171,6 +175,7 @@ export async function attemptDelivery(notificationId: string): Promise<boolean> 
         cta,
         replyTo: senderReplyTo,
         fromName: senderFromName,
+        fromEmail: senderFromEmail,
       })
     } else if (event.channel === 'sms') {
       delivered = event.recipient ? await sendSms(event.recipient, event.body || '') : false
@@ -336,6 +341,8 @@ export async function deliverDirectNotification(input: {
   // name and routes replies to this address (attorney-originated mail).
   replyTo?: string | null
   fromName?: string | null
+  /** Sender's own address, used as From when it is on the verified domain. */
+  fromEmail?: string | null
 }) {
   const notification = await prisma.notification.create({
     data: {
@@ -367,6 +374,7 @@ export async function deliverDirectNotification(input: {
       notificationId: notification.id,
       ...(input.replyTo ? { replyTo: input.replyTo } : {}),
       ...(input.fromName ? { fromName: input.fromName } : {}),
+      ...(input.fromEmail ? { fromEmail: input.fromEmail } : {}),
     },
     recipient: input.recipient,
   })

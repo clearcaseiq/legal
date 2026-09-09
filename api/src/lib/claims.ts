@@ -76,16 +76,83 @@ type EmailParams = {
   // still being physically sent through the platform provider for deliverability.
   replyTo?: string
   fromName?: string
+  /**
+   * The address the sender would like the message to come from. Honoured only
+   * on the verified sending domain — see `resolveFromAddress`.
+   */
+  fromEmail?: string
+}
+
+/** The bare address from a value that may already be in `Name <addr>` form. */
+function bareAddress(value: string): string {
+  const match = /<([^<>]+)>/.exec(value)
+  return (match ? match[1] : value).trim()
 }
 
 /**
- * Build an RFC 5322 From value. When a display name is supplied it is sanitized
- * (quotes/newlines stripped) and wrapped as `"Name" <email>`.
+ * Who the platform is when nothing more specific is sending.
+ *
+ * System mail passes no display name, and a deployment configured with a bare
+ * address then went out as `<no-reply@clearcaseiq.com>` — an inbox shows that
+ * as a raw address with no name beside it, which reads like spam and is the one
+ * thing a transactional email cannot afford to look like.
  */
-function formatFromAddress(email: string, fromName?: string): string {
-  if (!fromName) return email
-  const clean = fromName.replace(/["\r\n<>]/g, '').trim()
-  return clean ? `"${clean}" <${email}>` : email
+const DEFAULT_SENDER_NAME = process.env.EMAIL_FROM_NAME?.trim() || 'ClearCaseIQ'
+
+/**
+ * Build an RFC 5322 From value. The display name is sanitized (quotes/newlines
+ * stripped) and wrapped as `"Name" <email>`.
+ *
+ * There is always a name: a caller's own, or the platform's. A configured
+ * sender that already carries one keeps it, and is unwrapped before rewrapping
+ * when a caller overrides it — nesting the two produced
+ * `"Name" <ClearCaseIQ <noreply@…>>`, which is not a valid address and which
+ * SES rejects.
+ */
+export function formatFromAddress(email: string, fromName?: string): string {
+  const clean = (fromName || '').replace(/["\r\n<>]/g, '').trim()
+  // Only fall back when the configured value has no name of its own to lose.
+  if (!clean) return email.includes('<') ? email : `"${DEFAULT_SENDER_NAME}" <${bareAddress(email)}>`
+  return `"${clean}" <${bareAddress(email)}>`
+}
+
+/** The domain of an address, whether bare or in `"Name" <addr>` form. */
+function domainOf(address: string): string {
+  const match = /@([^@\s>]+)/.exec(address)
+  return match ? match[1].toLowerCase() : ''
+}
+
+/**
+ * Decide which address a message may honestly claim to come from.
+ *
+ * Staff mail went out as the platform's no-reply address with the sender's name
+ * on it, so a claimant saw "Sri Reddy <no-reply@clearcaseiq.com>". A staff
+ * member's own address is now used instead — but only when it sits on the same
+ * domain as the configured sender, because that domain is the one the provider
+ * holds a verified identity for and the one SPF and DKIM will align against.
+ *
+ * An address on any other domain is refused rather than passed through. SES
+ * rejects an unverified From outright, so the send would fail and the claimant
+ * would get nothing; a provider that does accept it yields mail that fails
+ * authentication for the domain it claims, which is how a sending reputation
+ * gets destroyed. Those senders keep the platform address and stay reachable
+ * through Reply-To, which needs no verification.
+ */
+export function resolveFromAddress(configured: string, requested?: string | null): string {
+  const wanted = (requested || '').trim().toLowerCase()
+  if (!wanted) return configured
+
+  const configuredDomain = domainOf(configured)
+  const wantedDomain = domainOf(wanted)
+  if (!configuredDomain || !wantedDomain || wantedDomain !== configuredDomain) {
+    logger.info('Sender address is not on the verified domain; sending as the platform address', {
+      requestedDomain: wantedDomain || null,
+      configuredDomain: configuredDomain || null,
+    })
+    return configured
+  }
+
+  return wanted
 }
 
 /** Convert a plain-text body into simple paragraph HTML, escaping unsafe chars. */
@@ -253,11 +320,14 @@ async function sendViaSes(params: EmailParams): Promise<boolean> {
     logger.warn('Claim email not sent (SES SDK unavailable)')
     return false
   }
-  try {
+
+  const sender = resolveFromAddress(from, params.fromEmail)
+
+  const attempt = async (fromAddress: string): Promise<void> => {
     const { SendEmailCommand } = require('@aws-sdk/client-sesv2')
     await client.send(
       new SendEmailCommand({
-        FromEmailAddress: formatFromAddress(from, params.fromName),
+        FromEmailAddress: formatFromAddress(fromAddress, params.fromName),
         Destination: { ToAddresses: [params.to] },
         ...(params.replyTo ? { ReplyToAddresses: [params.replyTo] } : {}),
         Content: {
@@ -274,9 +344,35 @@ async function sendViaSes(params: EmailParams): Promise<boolean> {
           : {}),
       })
     )
+  }
+
+  try {
+    await attempt(sender)
     return true
   } catch (err) {
-    logger.warn('Claim email failed (SES)', { error: err instanceof Error ? err.message : String(err) })
+    const message = err instanceof Error ? err.message : String(err)
+
+    // Sending as a staff member requires SES to hold a verified identity for the
+    // whole domain. If it only holds the platform address, SES refuses — and a
+    // claimant waiting on a document request would receive nothing at all.
+    // Losing the message is far worse than showing the no-reply address, so the
+    // platform address gets one retry.
+    if (sender !== from) {
+      logger.warn('SES refused the staff sender address; retrying as the platform address', {
+        error: message,
+      })
+      try {
+        await attempt(from)
+        return true
+      } catch (retryErr) {
+        logger.warn('Claim email failed (SES)', {
+          error: retryErr instanceof Error ? retryErr.message : String(retryErr),
+        })
+        return false
+      }
+    }
+
+    logger.warn('Claim email failed (SES)', { error: message })
     return false
   }
 }
@@ -289,12 +385,14 @@ async function sendViaResend(params: EmailParams): Promise<boolean> {
     logger.info('Claim email not sent (Resend not configured)', { to: params.to?.slice(0, 3) })
     return false
   }
-  try {
-    const res = await fetch('https://api.resend.com/emails', {
+  const sender = resolveFromAddress(from, params.fromEmail)
+
+  const attempt = (fromAddress: string) =>
+    fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        from: formatFromAddress(from, params.fromName),
+        from: formatFromAddress(fromAddress, params.fromName),
         to: [params.to],
         subject: params.subject,
         text: bodyToText(params.body, params.cta),
@@ -302,6 +400,21 @@ async function sendViaResend(params: EmailParams): Promise<boolean> {
         ...(params.replyTo ? { reply_to: params.replyTo } : {}),
       }),
     })
+
+  try {
+    let res = await attempt(sender)
+
+    // Same reasoning as the SES path: an unverified staff sender must cost the
+    // no-reply display, not the message.
+    if (!res.ok && sender !== from) {
+      const text = await res.text().catch(() => '')
+      logger.warn('Resend refused the staff sender address; retrying as the platform address', {
+        status: res.status,
+        detail: text.slice(0, 200),
+      })
+      res = await attempt(from)
+    }
+
     if (!res.ok) {
       const text = await res.text().catch(() => '')
       logger.warn('Claim email failed', { status: res.status, detail: text.slice(0, 200) })
