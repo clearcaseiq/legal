@@ -4771,15 +4771,31 @@ export interface AssistanceQuestion {
   confidence?: number
 }
 
-export async function getAssistanceQueue(params: {
-  tab?: 'mine' | 'unassigned' | 'all'
-  status?: string
-  priority?: string
-  search?: string
-  sort?: string
-  limit?: number
-  offset?: number
-}) {
+/**
+ * Whose cases, and opened when. Shared by the queue and the counts strip so the
+ * numbers above the table always describe the rows in it.
+ */
+// A type alias rather than an interface on purpose: only anonymous object types
+// get the implicit index signature that the client's `params` record requires.
+export type AssistanceScope = {
+  /** A specialist or admin id, `'unassigned'`, or omitted for everyone. */
+  assignee?: string
+  /** `YYYY-MM-DD`; inclusive of the whole `to` day. */
+  from?: string
+  to?: string
+}
+
+export async function getAssistanceQueue(
+  params: AssistanceScope & {
+    tab?: 'mine' | 'unassigned' | 'all'
+    status?: string
+    priority?: string
+    search?: string
+    sort?: string
+    limit?: number
+    offset?: number
+  },
+) {
   const { data } = await api.get('/v1/case-assistance/queue', { params })
   return data as {
     data: AssistanceQueueRow[]
@@ -4790,8 +4806,8 @@ export async function getAssistanceQueue(params: {
   }
 }
 
-export async function getAssistanceCounts() {
-  const { data } = await api.get('/v1/case-assistance/counts')
+export async function getAssistanceCounts(params: AssistanceScope = {}) {
+  const { data } = await api.get('/v1/case-assistance/counts', { params })
   return data as {
     counts: {
       mine: number

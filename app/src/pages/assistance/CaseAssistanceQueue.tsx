@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   getAssistanceCounts,
-  getAssistanceManagerOverview,
   getAssistanceQueue,
+  getAssistanceSpecialists,
   type AssistanceQueueRow,
 } from '../../lib/api'
 import {
@@ -60,19 +60,27 @@ export default function CaseAssistanceQueue() {
   // status and the table showed a blend of them.
   const [status, setStatus] = useState<string>(ASSISTANCE_STATUS_ORDER[0])
   const [priority, setPriority] = useState('')
-  const [sort, setSort] = useState('due')
+  // Newest first, to match opening on New: the queue's first screen is the work
+  // that just arrived, in the order it arrived.
+  const [sort, setSort] = useState('newest')
   const [searchTerm, setSearchTerm] = useState('')
   const [appliedSearch, setAppliedSearch] = useState('')
 
   const [counts, setCounts] = useState<Awaited<ReturnType<typeof getAssistanceCounts>>['counts'] | null>(null)
-  const [overview, setOverview] = useState<Awaited<ReturnType<typeof getAssistanceManagerOverview>> | null>(null)
 
-  // Seeded from the stored role instead of waiting for the counts response.
-  // Manager-ness gates the Team card, and deriving it from a fetch made the
-  // card arrive two round trips late — long after the table had painted — so
-  // the whole page jumped down once the admin was recognized. The server still
-  // decides: the counts response corrects this, and the overview request 403s
-  // for anyone who only claims to be a manager here.
+  // Whose cases, and opened when. Both scope the counts strip and the table
+  // together — a strip describing a different population than the rows beneath
+  // it is worse than no strip.
+  const [assignee, setAssignee] = useState('')
+  const [fromDate, setFromDate] = useState('')
+  const [toDate, setToDate] = useState('')
+  const [team, setTeam] = useState<{ id: string; name: string; role?: string }[]>([])
+
+  // Seeded from the stored role instead of waiting for the counts response, so
+  // the manager-only controls hold their place from the first paint rather than
+  // appearing a round trip later and shoving the table down. The server still
+  // decides: the counts response corrects this, and the endpoints ignore a
+  // scope the caller is not allowed to widen to.
   const [isManager, setIsManager] = useState(() => getStoredRole() === 'admin')
 
   const load = useCallback(async () => {
@@ -84,6 +92,9 @@ export default function CaseAssistanceQueue() {
         status: status || undefined,
         priority: priority || undefined,
         search: appliedSearch || undefined,
+        assignee: assignee || undefined,
+        from: fromDate || undefined,
+        to: toDate || undefined,
         sort,
         limit,
         offset,
@@ -95,7 +106,7 @@ export default function CaseAssistanceQueue() {
     } finally {
       setLoading(false)
     }
-  }, [tab, status, priority, appliedSearch, sort, limit, offset])
+  }, [tab, status, priority, appliedSearch, assignee, fromDate, toDate, sort, limit, offset])
 
   useEffect(() => {
     load()
@@ -105,7 +116,11 @@ export default function CaseAssistanceQueue() {
   // paging through results does not change them.
   useEffect(() => {
     let cancelled = false
-    getAssistanceCounts()
+    getAssistanceCounts({
+      assignee: assignee || undefined,
+      from: fromDate || undefined,
+      to: toDate || undefined,
+    })
       .then((result) => {
         if (cancelled) return
         setCounts(result.counts)
@@ -115,13 +130,14 @@ export default function CaseAssistanceQueue() {
     return () => {
       cancelled = true
     }
-  }, [tab, status, priority, appliedSearch])
+  }, [tab, status, priority, appliedSearch, assignee, fromDate, toDate])
 
+  // Only managers can look at anyone else's queue, so only they need the list.
   useEffect(() => {
     if (!isManager) return
     let cancelled = false
-    getAssistanceManagerOverview()
-      .then((result) => !cancelled && setOverview(result))
+    getAssistanceSpecialists()
+      .then((result) => !cancelled && setTeam(result.data))
       .catch(() => undefined)
     return () => {
       cancelled = true
@@ -132,6 +148,25 @@ export default function CaseAssistanceQueue() {
     setTab(next)
     setOffset(0)
   }
+
+  /**
+   * Picking a person answers the same question the tabs do, so the tabs follow
+   * rather than contradict it — otherwise selecting a colleague while on "My
+   * cases" asks for cases that are both theirs and yours, and returns nothing.
+   */
+  const applyAssignee = (next: string) => {
+    setAssignee(next)
+    setOffset(0)
+    if (next) setTab('all')
+  }
+
+  const applyDate = (which: 'from' | 'to', value: string) => {
+    if (which === 'from') setFromDate(value)
+    else setToDate(value)
+    setOffset(0)
+  }
+
+  const scopeIsFiltered = !!(assignee || fromDate || toDate)
 
   /** Tiles and the dropdown drive the same single-status filter. */
   const applyStatus = (next: string) => {
@@ -231,6 +266,64 @@ export default function CaseAssistanceQueue() {
       <PageHeader
         title="Case Assistance"
         description="Newly assessed cases waiting on a specialist. Call the claimant, walk them through what their case is missing, and hand it over when it is ready."
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Replaces a roster card that listed each specialist and their
+                counts but could not be acted on. The same information is more
+                useful as a control: pick a person and the whole strip below
+                re-counts as theirs. */}
+            {isManager && (
+              <select
+                value={assignee}
+                onChange={(e) => applyAssignee(e.target.value)}
+                className="input w-auto"
+                aria-label="Filter by assigned user"
+              >
+                <option value="">All users</option>
+                <option value="unassigned">Unassigned</option>
+                {team.map((member) => (
+                  <option key={member.id} value={member.id}>
+                    {member.name}
+                    {member.role === 'admin' ? ' (Admin)' : ''}
+                  </option>
+                ))}
+              </select>
+            )}
+            <div className="flex items-center gap-1.5">
+              <input
+                type="date"
+                value={fromDate}
+                max={toDate || undefined}
+                onChange={(e) => applyDate('from', e.target.value)}
+                className="input w-auto"
+                aria-label="Cases opened from"
+              />
+              <span className="text-sm text-slate-400">to</span>
+              <input
+                type="date"
+                value={toDate}
+                min={fromDate || undefined}
+                onChange={(e) => applyDate('to', e.target.value)}
+                className="input w-auto"
+                aria-label="Cases opened up to"
+              />
+            </div>
+            {scopeIsFiltered && (
+              <button
+                type="button"
+                onClick={() => {
+                  setAssignee('')
+                  setFromDate('')
+                  setToDate('')
+                  setOffset(0)
+                }}
+                className="text-sm font-medium text-brand-700 hover:underline dark:text-brand-400"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        }
       />
 
       {/* Rendered before the counts arrive, showing a dash in place of each
@@ -260,45 +353,6 @@ export default function CaseAssistanceQueue() {
           />
         ))}
       </StatGrid>
-
-      {/* Mounted as soon as we believe the viewer is a manager, rather than
-          waiting for the overview response, so the card occupies its place
-          from the first paint instead of appearing after the table settles. */}
-      {isManager && (
-        <SectionCard title="Team">
-          {!overview ? (
-            <p className="text-sm text-slate-500 dark:text-slate-400">Loading the team…</p>
-          ) : overview.specialists.length === 0 ? (
-            <p className="text-sm text-slate-500 dark:text-slate-400">
-              No active Case Specialists yet. Cases will collect in the unassigned queue until one exists — add them
-              from Configuration → User Roles.
-            </p>
-          ) : (
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {overview.specialists.map((specialist) => (
-                <div
-                  key={specialist.id}
-                  className="rounded-lg border border-slate-200 px-3 py-2.5 dark:border-slate-700"
-                >
-                  <p className="truncate text-sm font-semibold text-slate-800 dark:text-slate-200">
-                    {specialist.name}
-                  </p>
-                  <div className="mt-1.5 flex flex-wrap gap-1.5">
-                    {/* Only listed here while holding a case, so the badge
-                        explains why a supervisor is in the team roster. */}
-                    {specialist.isAdmin && <Badge tone="neutral">Admin</Badge>}
-                    <Badge tone="blue">{specialist.active} active</Badge>
-                    {specialist.needsContact > 0 && (
-                      <Badge tone="warning">{specialist.needsContact} to call</Badge>
-                    )}
-                    {specialist.overdue > 0 && <Badge tone="danger">{specialist.overdue} overdue</Badge>}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </SectionCard>
-      )}
 
       {error && (
         <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
