@@ -47,6 +47,7 @@ import { generateIntelligentQuestions } from '../services/intelligent-questions'
 import { computeCasePreparation } from '../lib/case-insights'
 import { buildCaseCoach } from '../lib/case-coach'
 import { deliverDirectNotification } from '../lib/platform-notifications'
+import { sendMissedCallFollowUp } from '../lib/missed-call-followup'
 import { PLAINTIFF_EVENTS } from '../lib/notification-events'
 import { webUrl } from '../lib/app-url'
 import { PROPOSABLE_FACT_PATHS, isProposableFactPath, readFactPath } from '../lib/case-fact-paths'
@@ -212,6 +213,52 @@ function visibilityWhere(req: AuthRequest): Record<string, unknown> {
   }
 }
 
+/**
+ * The scope the counts strip and the table must agree on: whose cases, and
+ * opened when.
+ *
+ * Both live here rather than in each handler because the two endpoints have to
+ * apply them identically. A strip that counted one population while the table
+ * listed another is the specific bug this replaced — the numbers above the
+ * queue could not be reconciled with the rows below them.
+ */
+function scopeWhere(req: AuthRequest): Record<string, unknown> {
+  const where: Record<string, unknown> = {}
+
+  // `unassigned` is a real choice in the picker, and is not the same as
+  // "everyone": an empty value means no filter at all.
+  const assignee = String(req.query.assignee || '').trim()
+  if (assignee === 'unassigned') where.assignedSpecialistId = null
+  else if (assignee) where.assignedSpecialistId = assignee
+
+  // Dated on when the case arrived, which is what the queue is ordered and
+  // triaged by. `to` is pushed to the end of its day so that picking the same
+  // date for both bounds means "that day" rather than an empty range.
+  const from = parseDateBound(req.query.from)
+  const to = parseDateBound(req.query.to)
+  if (from || to) {
+    where.createdAt = {
+      ...(from ? { gte: from } : {}),
+      ...(to ? { lte: endOfDay(to) } : {}),
+    }
+  }
+
+  return where
+}
+
+function parseDateBound(value: unknown): Date | null {
+  const text = String(value || '').trim()
+  if (!text) return null
+  const parsed = new Date(text)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
+function endOfDay(date: Date): Date {
+  const end = new Date(date)
+  end.setHours(23, 59, 59, 999)
+  return end
+}
+
 router.get('/queue', async (req: AuthRequest, res) => {
   try {
     const { take, skip } = parsePagination(req.query as Record<string, unknown>, {
@@ -224,10 +271,15 @@ router.get('/queue', async (req: AuthRequest, res) => {
     const search = String(req.query.search || '').trim()
     const sort = String(req.query.sort || 'due')
 
-    const where: Record<string, unknown> = { ...visibilityWhere(req) }
+    // Scope first, so an explicitly picked assignee wins over the tab. The two
+    // controls can express the same thing, and the picker is the more specific
+    // statement of intent.
+    const where: Record<string, unknown> = { ...visibilityWhere(req), ...scopeWhere(req) }
 
-    if (tab === 'mine') where.assignedSpecialistId = req.user?.id
-    else if (tab === 'unassigned') where.assignedSpecialistId = null
+    if (where.assignedSpecialistId === undefined) {
+      if (tab === 'mine') where.assignedSpecialistId = req.user?.id
+      else if (tab === 'unassigned') where.assignedSpecialistId = null
+    }
 
     if (status) where.status = status
     // The default view is the working set. Without this, cases handed to
@@ -293,11 +345,19 @@ router.get('/queue', async (req: AuthRequest, res) => {
  */
 router.get('/counts', async (req: AuthRequest, res) => {
   try {
-    const scope = visibilityWhere(req)
+    const filters = scopeWhere(req)
+    const scope = { ...visibilityWhere(req), ...filters }
 
     const [mine, statusGroups] = await Promise.all([
       prisma.caseAssistance.count({
-        where: { assignedSpecialistId: req.user?.id, status: { in: ACTIVE_ASSISTANCE_STATUSES } },
+        // Deliberately ignores the assignee picker — this tile means *your* open
+        // cases whoever else is selected — but honours the date range, so the
+        // whole strip describes one period.
+        where: {
+          ...(filters.createdAt ? { createdAt: filters.createdAt } : {}),
+          assignedSpecialistId: req.user?.id,
+          status: { in: ACTIVE_ASSISTANCE_STATUSES },
+        },
       }),
       // One row per status rather than a hand-picked set of derived buckets.
       // The strip used to mix assignment, SLA and workflow concepts — overdue,
@@ -662,6 +722,24 @@ router.patch('/:id', async (req: AuthRequest, res) => {
         })
       : await loadAssistance(req, req.params.id)
 
+    // A missed call is the one status change the claimant needs to hear about,
+    // because it describes something that failed on our side. Fired only on the
+    // transition into it, so re-saving other fields on a case already marked
+    // this way does not write to them again.
+    if (status === 'call_not_accepted' && assistance.status !== 'call_not_accepted') {
+      const contact = contactOf(assistance.assessment)
+      void sendMissedCallFollowUp({
+        assistanceId: assistance.id,
+        assessmentId: assistance.assessmentId,
+        contact,
+        specialist: {
+          id: req.user?.id || null,
+          name: specialistNameOf(req.user),
+          email: req.user?.email || null,
+        },
+      })
+    }
+
     res.json({ success: true, assistance: updated ? serializeQueueRow(updated) : null })
   } catch (error) {
     logger.error('Failed to update case assistance', { error, id: req.params.id })
@@ -917,6 +995,7 @@ router.post('/:id/proposals', async (req: AuthRequest, res) => {
         assessmentId: assistance.assessmentId,
         role: 'plaintiff',
         replyTo: req.user?.email || null,
+        fromEmail: req.user?.email || null,
         fromName: specialistNameOf(req.user) || 'Your ClearCaseIQ case specialist',
         metadata: {
           eventType: PLAINTIFF_EVENTS.more_info_requested,
@@ -1059,9 +1138,12 @@ router.post('/:id/document-request', async (req: AuthRequest, res) => {
       userId: assistance.assessment.user?.id || null,
       assessmentId: assistance.assessmentId,
       role: 'plaintiff',
-      // Replies reach the specialist who asked, rather than a no-reply address a
-      // confused claimant writes into and never hears back from.
+      // From, and replies, reach the specialist who asked, rather than a
+      // no-reply address a confused claimant writes into and never hears back
+      // from. An address off the verified domain falls back to the platform's
+      // (see `resolveFromAddress`), so Reply-To is set either way.
       replyTo: req.user?.email || null,
+      fromEmail: req.user?.email || null,
       fromName: specialist,
       metadata: { eventType: PLAINTIFF_EVENTS.doc_requested, docs, requestedBy: req.user?.id },
     })
@@ -1138,6 +1220,7 @@ router.post('/:id/email', async (req: AuthRequest, res) => {
       assessmentId: assistance.assessmentId,
       role: 'plaintiff',
       replyTo: req.user?.email || null,
+      fromEmail: req.user?.email || null,
       fromName: specialistNameOf(req.user) || 'ClearCaseIQ',
       metadata: { eventType: 'specialist.email', sentBy: req.user?.id },
     })
