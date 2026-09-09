@@ -172,10 +172,9 @@ router.post('/login', async (req, res) => {
       })
     }
 
-    // Accounts can lack a password for two reasons: (a) created via OAuth, or
-    // (b) auto-provisioned during intake (provider === 'intake') before the user
-    // ever set one. Give the intake case an accurate, actionable message instead
-    // of incorrectly claiming the account was created with Google/Apple.
+    // An account can lack a password for three reasons, and only one of them is
+    // OAuth. Claiming OAuth for the others strands the user: it names a sign-in
+    // method they never used and offers nothing to do about it.
     if (!user.passwordHash) {
       if (user.provider === 'intake') {
         return res.status(400).json({
@@ -183,9 +182,21 @@ router.post('/login', async (req, res) => {
           code: 'NO_PASSWORD_SET',
         })
       }
+      // Only Google and Apple accounts are told to use Google or Apple. An
+      // employee invited from Configuration -> User Roles is created with no
+      // password and no provider, so this branch used to tell every new admin,
+      // Case Specialist and firm staffer that their brand-new account belonged
+      // to an OAuth provider - and left them with no way in.
+      if (user.provider === 'google' || user.provider === 'apple') {
+        return res.status(400).json({
+          error: 'This account was created with Google or Apple. Please sign in using the same method.',
+          useOAuth: true,
+        })
+      }
       return res.status(400).json({
-        error: 'This account was created with Google or Apple. Please sign in using the same method.',
-        useOAuth: true
+        error:
+          'This account does not have a password yet. Open the invitation email and use its link to set one, or use "Forgot your password?" to have a new link sent.',
+        code: 'NO_PASSWORD_SET',
       })
     }
 
