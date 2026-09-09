@@ -1,4 +1,4 @@
-import { SectionCard } from '../../../features/shared/ui'
+import { LoadingState, SectionCard } from '../../../features/shared/ui'
 import type { AssistanceGap } from '../../../lib/api'
 
 /**
@@ -14,17 +14,31 @@ export function NextBestAction({
   headline,
   gaps,
   firstName,
+  loading,
   onStartIntake,
   onRequestDocuments,
 }: {
   headline: string | null
   gaps: AssistanceGap[]
   firstName: string | null
+  /** The analysis arrives a request behind the case file. */
+  loading?: boolean
   onStartIntake: () => void
   onRequestDocuments: () => void
 }) {
   const top = gaps.slice(0, 3)
   const requestable = gaps.some((gap) => gap.requestedDoc)
+
+  // Checked before the empty state, which would otherwise be a lie told during
+  // every load: with no gaps yet, this card said the file had no critical gaps
+  // left and invited the specialist to move the case to Ready for Attorney.
+  if (loading) {
+    return (
+      <SectionCard title="Next best action">
+        <LoadingState message="Working out what this case needs…" />
+      </SectionCard>
+    )
+  }
 
   if (top.length === 0) {
     return (

@@ -7,6 +7,7 @@ import {
   updateAssistanceCase,
 } from '../../lib/api'
 import type { AssistanceGap } from '../../lib/api'
+import { Loader2 } from 'lucide-react'
 import { BackButton, EmptyState, SectionCard } from '../../features/shared/ui'
 import { useAssistanceBasePath } from './useAssistanceBasePath'
 import { COMMUNICATION_CHANNELS } from './assistanceLabels'
@@ -164,8 +165,24 @@ export default function CaseAssistanceWorkspace() {
     [openGaps],
   )
 
+  // A spinner rather than the line of grey text this used to be: opening a case
+  // fetches the file, the analysis and the specialist list, and a sentence in
+  // the top-left corner of an otherwise blank page read as a page that had
+  // failed rather than one that was working.
   if (loading) {
-    return <p className="p-4 text-sm text-slate-500 dark:text-slate-400">Loading case…</p>
+    return (
+      <div className="space-y-4">
+        <BackButton onClick={() => navigate(basePath)} label="Back to queue" />
+        <div
+          className="flex flex-col items-center justify-center gap-3 py-20 text-sm text-slate-500 dark:text-slate-400"
+          role="status"
+          aria-live="polite"
+        >
+          <Loader2 className="h-8 w-8 animate-spin text-brand-600" aria-hidden />
+          Loading the case file…
+        </div>
+      </div>
+    )
   }
   if (error || !data) {
     return (
@@ -229,10 +246,15 @@ export default function CaseAssistanceWorkspace() {
               headline={ai?.coach?.headline ?? null}
               gaps={ai?.gaps.highPriority ?? []}
               firstName={firstName}
+              loading={aiLoading}
               onStartIntake={() => setTab('intake')}
               onRequestDocuments={() => startAction('docs')}
             />
-            <CaseCompleteness gaps={allGaps} evidenceScore={readiness?.score ?? null} />
+            <CaseCompleteness
+              gaps={allGaps}
+              evidenceScore={readiness?.score ?? null}
+              loading={aiLoading}
+            />
             <CaseSnapshot summary={summary} known={ai?.known ?? []} />
           </div>
           <div className="space-y-4">

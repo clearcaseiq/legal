@@ -1,4 +1,4 @@
-import { EmptyState, SectionCard } from '../../../features/shared/ui'
+import { EmptyState, LoadingState, SectionCard } from '../../../features/shared/ui'
 import type { AssistanceGap } from '../../../lib/api'
 
 /**
@@ -72,12 +72,26 @@ export function summarizeDomains(gaps: AssistanceGap[]): {
 export function CaseCompleteness({
   gaps,
   evidenceScore,
+  loading,
 }: {
   gaps: AssistanceGap[]
   /** The readiness score, which measures documents on file rather than answers. */
   evidenceScore: number | null
+  /** The gaps arrive a request behind the case file. */
+  loading?: boolean
 }) {
   const { scored, unflagged } = summarizeDomains(gaps)
+
+  // Every domain looks unflagged before the gaps land, so the bars and the
+  // "nothing flagged in …" line would both report a complete file for as long
+  // as the analysis takes.
+  if (loading) {
+    return (
+      <SectionCard title="Case completeness">
+        <LoadingState message="Measuring what is on file…" />
+      </SectionCard>
+    )
+  }
 
   return (
     <SectionCard title="Case completeness">

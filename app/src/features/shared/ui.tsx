@@ -6,6 +6,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Info,
+  Loader2,
   SlidersHorizontal,
   X,
 } from 'lucide-react'
@@ -619,6 +620,28 @@ export function SectionCard({
 export function EmptyState({ message }: { message: string }) {
   return (
     <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-400">
+      {message}
+    </div>
+  )
+}
+
+/**
+ * The same slot as `EmptyState`, for when the answer is not yet known rather
+ * than known to be nothing.
+ *
+ * Worth keeping separate, because showing an empty state during a load asserts
+ * something false. A panel reading "nothing outstanding has been flagged" while
+ * its request is still in flight does not look unfinished — it looks like a
+ * clean case, which is the opposite of the truth often enough to matter.
+ */
+export function LoadingState({ message }: { message: string }) {
+  return (
+    <div
+      className="flex items-center justify-center gap-2 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-400"
+      role="status"
+      aria-live="polite"
+    >
+      <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
       {message}
     </div>
   )
