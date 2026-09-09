@@ -24,6 +24,8 @@ export const ASSISTANCE_STATUSES = [
   'in_progress',
   /** Specialist has asked the plaintiff to upload something. */
   'document_requested',
+  /** The plaintiff has uploaded; the specialist still has to review what came in. */
+  'document_submitted',
   /** Documents are in and reviewed; the case is ready to go to attorneys. */
   'ready_for_attorney_review',
   /** Plaintiff does not want to take the case further. Terminal. */
@@ -38,6 +40,7 @@ export const ASSISTANCE_STATUS_LABELS: Record<AssistanceStatus, string> = {
   new_submission: 'New',
   in_progress: 'In Progress',
   document_requested: 'Document Requested',
+  document_submitted: 'Document Submitted',
   ready_for_attorney_review: 'Ready for Attorney',
   denied: 'Denied',
   call_not_accepted: 'Call not Accepted',
@@ -54,10 +57,17 @@ export const ACTIVE_ASSISTANCE_STATUSES: AssistanceStatus[] = [
   'new_submission',
   'in_progress',
   'document_requested',
+  'document_submitted',
   'call_not_accepted',
 ]
 
-/** Statuses where the next move belongs to the plaintiff, not the specialist. */
+/**
+ * Statuses where the next move belongs to the plaintiff, not the specialist.
+ *
+ * `document_submitted` is deliberately absent: once the upload lands the ball is
+ * back with the specialist to review it, and counting it as waiting would park
+ * a case that is actually queued for someone here.
+ */
 export const WAITING_ASSISTANCE_STATUSES: AssistanceStatus[] = ['document_requested']
 
 /** Statuses where nobody has spoken to the plaintiff yet, so a call is the next move. */

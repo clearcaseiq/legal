@@ -11,6 +11,7 @@ import { describe, expect, it, vi } from 'vitest'
 vi.mock('../env', () => ({ ENV: { ADMIN_EMAILS: 'boss@clearcaseiq.com' } }))
 
 import {
+  CASE_ASSISTANCE_WORKER_ROLES,
   canWorkCaseAssistance,
   isCaseAssistanceManager,
   isSpecialistRole,
@@ -57,6 +58,28 @@ describe('canWorkCaseAssistance', () => {
     expect(canWorkCaseAssistance({ email: 'a@firm.com', role: 'attorney' })).toBe(false)
     expect(canWorkCaseAssistance(firmStaff)).toBe(false)
     expect(canWorkCaseAssistance(null)).toBe(false)
+  })
+})
+
+describe('CASE_ASSISTANCE_WORKER_ROLES', () => {
+  /**
+   * The list and the predicate drifted once already: the assignment picker
+   * queried specialists only while the save path accepted anyone
+   * `canWorkCaseAssistance` allows, so an admin could hold a case but could not
+   * be chosen from the dropdown that assigns one.
+   */
+  it('covers every role the predicate admits', () => {
+    for (const role of CASE_ASSISTANCE_WORKER_ROLES) {
+      expect(canWorkCaseAssistance({ email: `someone@clearcaseiq.com`, role })).toBe(true)
+    }
+    expect([...CASE_ASSISTANCE_WORKER_ROLES]).toContain('admin')
+    expect([...CASE_ASSISTANCE_WORKER_ROLES]).toContain('specialist')
+  })
+
+  it('admits nobody the predicate would turn away', () => {
+    for (const role of ['client', 'attorney', 'staff']) {
+      expect([...CASE_ASSISTANCE_WORKER_ROLES]).not.toContain(role)
+    }
   })
 })
 

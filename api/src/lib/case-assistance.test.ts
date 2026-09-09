@@ -56,6 +56,16 @@ describe('assistance status vocabulary', () => {
     }
   })
 
+  it('hands the case back to the specialist once documents arrive', () => {
+    // The upload is in, so this is queued work for a specialist to review — not
+    // a case parked on the claimant, and not finished.
+    expect(ACTIVE_ASSISTANCE_STATUSES).toContain('document_submitted')
+    expect(WAITING_ASSISTANCE_STATUSES).not.toContain('document_submitted')
+    expect(UNCONTACTED_ASSISTANCE_STATUSES).not.toContain('document_submitted')
+    expect(CLOSED_ASSISTANCE_STATUSES).not.toContain('document_submitted')
+    expect(deriveAssistancePhase({ assistanceStatus: 'document_submitted' })).toBe('assistance')
+  })
+
   it('rejects statuses borrowed from the other vocabularies', () => {
     // These are real values elsewhere in the schema: a lifecycleState, a lead
     // status and a caseStage. None of them belongs here.

@@ -4675,6 +4675,7 @@ export type AssistanceStatus =
   | 'new_submission'
   | 'in_progress'
   | 'document_requested'
+  | 'document_submitted'
   | 'ready_for_attorney_review'
   | 'denied'
   | 'call_not_accepted'
@@ -4794,11 +4795,8 @@ export async function getAssistanceCounts() {
   return data as {
     counts: {
       mine: number
-      unassigned: number
-      needsContact: number
-      waiting: number
-      overdue: number
-      readyForAttorney: number
+      /** Every workflow status, including the ones nobody is currently in. */
+      byStatus: Record<AssistanceStatus, number>
     }
     isManager: boolean
   }
@@ -4809,13 +4807,37 @@ export async function getAssistanceManagerOverview() {
   return data as {
     byStatus: Record<string, number>
     unassigned: number
-    specialists: { id: string; name: string; active: number; needsContact: number; overdue: number }[]
+    specialists: {
+      id: string
+      name: string
+      active: number
+      needsContact: number
+      overdue: number
+      isAdmin?: boolean
+    }[]
   }
 }
 
+/** Everyone a case can be assigned to — specialists first, then admins. */
 export async function getAssistanceSpecialists() {
   const { data } = await api.get('/v1/case-assistance/specialists')
-  return data as { data: { id: string; name: string; email: string }[] }
+  return data as { data: { id: string; name: string; email: string; role?: string }[] }
+}
+
+/** A file on the case, as the specialist workbench lists it. */
+export interface AssistanceDocument {
+  id: string
+  name: string
+  category: string | null
+  /** Curated name for the category, matching what was requested. */
+  categoryLabel: string | null
+  mimetype: string | null
+  size: number | null
+  /** Stored path, e.g. `/uploads/evidence/…`; fetched as an authenticated blob. */
+  fileUrl: string
+  uploadedAt: string
+  /** `claimant` unless someone added it on their behalf. */
+  source: string
 }
 
 export async function getAssistanceCase(id: string) {
@@ -4833,6 +4855,7 @@ export async function getAssistanceCase(id: string) {
     } | null
     summary: Record<string, any>
     interactions: AssistanceInteraction[]
+    documents: AssistanceDocument[]
   }
 }
 

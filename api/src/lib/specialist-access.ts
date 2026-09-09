@@ -13,6 +13,22 @@ import { isAdminUser } from './admin-access'
 import { logger } from './logger'
 
 export const SPECIALIST_ROLE = 'specialist'
+export const ADMIN_ROLE = 'admin'
+
+/**
+ * The roles `canWorkCaseAssistance` admits, for queries that need to list those
+ * people rather than test one of them.
+ *
+ * Kept beside the predicate so the two cannot drift. They had: the assignment
+ * picker listed specialists only, while the save path accepted anyone this
+ * predicate allows, so an admin could be assigned a case through the API but
+ * never appeared in the dropdown that assigns one.
+ *
+ * Note this covers the roles only. An admin who holds access through the
+ * `ADMIN_EMAILS` allowlist rather than a role is authorized by `isAdminUser`
+ * but is not selectable here, because there may be no `User` row to assign to.
+ */
+export const CASE_ASSISTANCE_WORKER_ROLES = [SPECIALIST_ROLE, ADMIN_ROLE] as const
 
 /** Minimal shape needed to authorize — avoids importing AuthRequest (cycle-free). */
 type SpecialistCandidate = {

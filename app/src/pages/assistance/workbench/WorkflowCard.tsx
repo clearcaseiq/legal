@@ -16,7 +16,7 @@ export function WorkflowCard({
   onPatch,
 }: {
   assistance: AssistanceQueueRow
-  specialists: { id: string; name: string }[]
+  specialists: { id: string; name: string; role?: string }[]
   saving: boolean
   onPatch: (
     input: {
@@ -77,7 +77,9 @@ export function WorkflowCard({
             <option value="">Unassigned</option>
             {specialists.map((specialist) => (
               <option key={specialist.id} value={specialist.id}>
-                {specialist.name}
+                {/* Admins are assignable but are not who a case normally goes
+                    to, so the list says which is which. */}
+                {specialist.role === 'admin' ? `${specialist.name} (Admin)` : specialist.name}
               </option>
             ))}
           </select>

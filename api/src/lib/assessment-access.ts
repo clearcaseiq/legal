@@ -25,6 +25,7 @@ import type { Response } from 'express'
 import { prisma } from './prisma'
 import { logger } from './logger'
 import { isGuestCaseUserEmail } from './client-consent-guard'
+import { isSpecialistRole } from './specialist-access'
 
 export interface AssessmentAccessResult {
   allowed: boolean
@@ -74,6 +75,26 @@ export async function canReadAssessment(
   }
   if (user.role === 'admin') return { allowed: true }
   if (assessment.userId === user.id) return { allowed: true }
+
+  // Case Assistance specialists work the pre-routing queue and already read
+  // everything else on these cases — facts, contact details, medical and wage
+  // figures — through the assistance workspace. Documents were the one thing
+  // they could not open, which left them chasing files they had already been
+  // sent. Scoped to the same visibility rule the assistance router uses, so a
+  // specialist reaches their own cases and the unassigned pool, not the queue
+  // at large. (Admins are already allowed above, in their supervisory role.)
+  if (isSpecialistRole(user)) {
+    const assistance = await prisma.caseAssistance.findUnique({
+      where: { assessmentId: assessment.id },
+      select: { assignedSpecialistId: true },
+    })
+    if (
+      assistance &&
+      (!assistance.assignedSpecialistId || assistance.assignedSpecialistId === user.id)
+    ) {
+      return { allowed: true }
+    }
+  }
 
   // Attorneys and firm staff reach cases through the routing record rather than
   // ownership, so resolve the caller's attorney identity and firm membership.

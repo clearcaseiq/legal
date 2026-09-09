@@ -21,6 +21,8 @@ import { prisma } from '../lib/prisma'
 import { logger } from '../lib/logger'
 import { authMiddleware, type AuthRequest } from '../lib/auth'
 import {
+  ADMIN_ROLE,
+  CASE_ASSISTANCE_WORKER_ROLES,
   canWorkCaseAssistance,
   isCaseAssistanceManager,
   specialistMiddleware,
@@ -31,8 +33,9 @@ import {
   ASSISTANCE_PRIORITIES,
   ASSISTANCE_STATUSES,
   UNCONTACTED_ASSISTANCE_STATUSES,
-  WAITING_ASSISTANCE_STATUSES,
   deriveAssistancePhase,
+  isAssistanceStatus,
+  type AssistanceStatus,
 } from '../lib/case-assistance'
 import { reassignCaseAssistance } from '../lib/case-assistance-assignment'
 import { parsePagination, paginated } from '../lib/pagination'
@@ -50,6 +53,11 @@ import { PROPOSABLE_FACT_PATHS, isProposableFactPath, readFactPath } from '../li
 import { createSpecialistFactProposal, factPathOf, proposalFieldLabel } from '../lib/case-reconciliation'
 import { checkUplBoundary, describeUplViolations } from '../lib/upl-guard'
 import { parseCaseFacts } from '../lib/case-facts'
+import {
+  DOCUMENT_REQUEST_LABELS,
+  normalizeRequestedDocKey,
+  normalizeRequestedDocKeys,
+} from '../lib/document-request-status'
 
 const router: ExpressRouter = Router()
 
@@ -286,32 +294,36 @@ router.get('/queue', async (req: AuthRequest, res) => {
 router.get('/counts', async (req: AuthRequest, res) => {
   try {
     const scope = visibilityWhere(req)
-    const now = new Date()
 
-    const [mine, unassigned, needsContact, waiting, overdue, readyForAttorney] = await Promise.all([
+    const [mine, statusGroups] = await Promise.all([
       prisma.caseAssistance.count({
         where: { assignedSpecialistId: req.user?.id, status: { in: ACTIVE_ASSISTANCE_STATUSES } },
       }),
-      prisma.caseAssistance.count({
-        where: { assignedSpecialistId: null, status: { in: ACTIVE_ASSISTANCE_STATUSES } },
-      }),
-      prisma.caseAssistance.count({
-        where: { ...scope, status: { in: UNCONTACTED_ASSISTANCE_STATUSES } },
-      }),
-      prisma.caseAssistance.count({
-        where: { ...scope, status: { in: WAITING_ASSISTANCE_STATUSES } },
-      }),
-      prisma.caseAssistance.count({
-        where: { ...scope, status: { in: ACTIVE_ASSISTANCE_STATUSES }, reviewDueAt: { lt: now } },
-      }),
-      prisma.caseAssistance.count({
-        where: { ...scope, status: 'ready_for_attorney_review' },
+      // One row per status rather than a hand-picked set of derived buckets.
+      // The strip used to mix assignment, SLA and workflow concepts — overdue,
+      // needs contact, waiting on claimant — which left most of the workflow
+      // itself uncounted and no way to see how many cases sat in any given
+      // status.
+      prisma.caseAssistance.groupBy({
+        by: ['status'],
+        where: scope,
+        _count: { _all: true },
       }),
     ])
 
+    // Seeded with every status so a status nobody is in reports 0 rather than
+    // going missing from the strip.
+    const byStatus = Object.fromEntries(ASSISTANCE_STATUSES.map((status) => [status, 0])) as Record<
+      AssistanceStatus,
+      number
+    >
+    for (const row of statusGroups) {
+      if (isAssistanceStatus(row.status)) byStatus[row.status] = row._count._all
+    }
+
     res.json({
       success: true,
-      counts: { mine, unassigned, needsContact, waiting, overdue, readyForAttorney },
+      counts: { mine, byStatus },
       isManager: isCaseAssistanceManager(req.user),
     })
   } catch (error) {
@@ -339,8 +351,8 @@ router.get('/manager/overview', async (req: AuthRequest, res) => {
       await Promise.all([
         prisma.caseAssistance.groupBy({ by: ['status'], _count: { _all: true } }),
         prisma.user.findMany({
-          where: { role: SPECIALIST_ROLE, isActive: true },
-          select: { id: true, firstName: true, lastName: true, email: true },
+          where: { role: { in: [...CASE_ASSISTANCE_WORKER_ROLES] }, isActive: true },
+          select: { id: true, firstName: true, lastName: true, email: true, role: true },
           orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
         }),
         prisma.caseAssistance.groupBy({
@@ -370,13 +382,20 @@ router.get('/manager/overview', async (req: AuthRequest, res) => {
       success: true,
       byStatus: Object.fromEntries(byStatus.map((row) => [row.status, row._count._all])),
       unassigned: active.get(null) ?? 0,
-      specialists: specialists.map((specialist) => ({
-        id: specialist.id,
-        name: [specialist.firstName, specialist.lastName].filter(Boolean).join(' ') || specialist.email,
-        active: active.get(specialist.id) ?? 0,
-        needsContact: needsContact.get(specialist.id) ?? 0,
-        overdue: overdue.get(specialist.id) ?? 0,
-      })),
+      // Admins can hold a case, so one who does has to appear here or their
+      // workload is invisible to the team view. Those who hold nothing are
+      // left out: this card is about who is carrying what, and listing every
+      // administrator at zero buries the specialists it exists to show.
+      specialists: specialists
+        .map((worker) => ({
+          id: worker.id,
+          name: [worker.firstName, worker.lastName].filter(Boolean).join(' ') || worker.email,
+          active: active.get(worker.id) ?? 0,
+          needsContact: needsContact.get(worker.id) ?? 0,
+          overdue: overdue.get(worker.id) ?? 0,
+          isAdmin: worker.role === ADMIN_ROLE,
+        }))
+        .filter((worker) => !worker.isAdmin || worker.active > 0),
     })
   } catch (error) {
     logger.error('Failed to load case assistance manager overview', { error })
@@ -384,24 +403,39 @@ router.get('/manager/overview', async (req: AuthRequest, res) => {
   }
 })
 
-/** Active specialists, for the reassignment picker. */
+/**
+ * Everyone a case can be assigned to, for the picker.
+ *
+ * Admins are included because they work the queue in their supervisory
+ * capacity — `canWorkCaseAssistance` says so, and the PATCH below already
+ * accepts them. Listing specialists only meant an admin could not assign a case
+ * to themselves or to another admin from the screen, even though the same
+ * assignment succeeded through the API.
+ *
+ * Specialists sort first: they are who a case normally goes to, and an admin
+ * holding one is the exception.
+ */
 router.get('/specialists', async (req: AuthRequest, res) => {
   try {
-    const specialists = await prisma.user.findMany({
-      where: { role: SPECIALIST_ROLE, isActive: true },
-      select: { id: true, firstName: true, lastName: true, email: true },
+    const workers = await prisma.user.findMany({
+      where: { role: { in: [...CASE_ASSISTANCE_WORKER_ROLES] }, isActive: true },
+      select: { id: true, firstName: true, lastName: true, email: true, role: true },
       orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
     })
+    const ranked = [...workers].sort(
+      (a, b) => Number(a.role === ADMIN_ROLE) - Number(b.role === ADMIN_ROLE),
+    )
     res.json({
       success: true,
-      data: specialists.map((specialist) => ({
-        id: specialist.id,
-        name: [specialist.firstName, specialist.lastName].filter(Boolean).join(' ') || specialist.email,
-        email: specialist.email,
+      data: ranked.map((worker) => ({
+        id: worker.id,
+        name: [worker.firstName, worker.lastName].filter(Boolean).join(' ') || worker.email,
+        email: worker.email,
+        role: worker.role,
       })),
     })
   } catch (error) {
-    logger.error('Failed to list specialists', { error })
+    logger.error('Failed to list case assistance workers', { error })
     res.status(500).json({ error: 'Internal server error' })
   }
 })
@@ -421,7 +455,7 @@ router.get('/:id', async (req: AuthRequest, res) => {
     if (!assistance) return res.status(404).json({ error: 'Case not found' })
 
     const assessment = assistance.assessment
-    const [preparation, interactions, evidenceCount] = await Promise.all([
+    const [preparation, interactions, evidenceCount, evidenceFiles] = await Promise.all([
       computeCasePreparation(assessment.id).catch(() => null),
       prisma.caseInteraction.findMany({
         where: { assistanceId: assistance.id },
@@ -429,6 +463,24 @@ router.get('/:id', async (req: AuthRequest, res) => {
         take: 50,
       }),
       prisma.evidenceFile.count({ where: { assessmentId: assessment.id } }),
+      // What is actually on the case, not just how many. A specialist chasing
+      // documents has to be able to see what already arrived before asking for
+      // it again.
+      prisma.evidenceFile.findMany({
+        where: { assessmentId: assessment.id },
+        orderBy: { createdAt: 'desc' },
+        take: 100,
+        select: {
+          id: true,
+          originalName: true,
+          category: true,
+          mimetype: true,
+          size: true,
+          fileUrl: true,
+          createdAt: true,
+          provenanceSource: true,
+        },
+      }),
     ])
 
     const facts = parseFacts(assessment.facts)
@@ -465,6 +517,23 @@ router.get('/:id', async (req: AuthRequest, res) => {
         narrative: typeof facts.narrative === 'string' ? facts.narrative : null,
       },
       interactions: interactions.map(serializeInteraction),
+      documents: evidenceFiles.map((file) => ({
+        id: file.id,
+        name: file.originalName,
+        category: file.category,
+        // The same label the request and the claimant's email use, so "Medical
+        // bills" asked for reads as "Medical bills" received.
+        categoryLabel: file.category
+          ? DOCUMENT_REQUEST_LABELS[normalizeRequestedDocKey(file.category)] || null
+          : null,
+        mimetype: file.mimetype,
+        size: file.size,
+        fileUrl: file.fileUrl,
+        uploadedAt: file.createdAt,
+        // Claimant uploads are the default; anything else was added on their
+        // behalf and should not read as the claimant having sent it.
+        source: file.provenanceSource || 'claimant',
+      })),
     })
   } catch (error) {
     logger.error('Failed to load case assistance workspace', { error, id: req.params.id })
@@ -619,6 +688,23 @@ function serializeInteraction(interaction: any) {
 function specialistNameOf(user: any): string | null {
   const name = [user?.firstName, user?.lastName].filter(Boolean).join(' ').trim()
   return name || user?.email || null
+}
+
+/**
+ * Render a proposed fact for a claimant-facing email. Booleans are stored as
+ * "true"/"false", which means nothing to a claimant reading it in mail, and
+ * large numbers are unreadable without separators.
+ */
+function displayProposedValue(path: string, value: string | null): string | null {
+  const raw = (value ?? '').trim()
+  if (!raw) return null
+  const type = PROPOSABLE_FACT_PATHS[path]?.type
+  if (type === 'boolean') return raw === 'true' ? 'Yes' : 'No'
+  if (type === 'number') {
+    const n = Number(raw)
+    return Number.isFinite(n) ? n.toLocaleString('en-US') : raw
+  }
+  return raw
 }
 
 /**
@@ -809,13 +895,20 @@ router.post('/:id/proposals', async (req: AuthRequest, res) => {
     // the answer the specialist just took down.
     const contact = contactOf(assistance.assessment)
     if (contact.email) {
-      const label = proposalFieldLabel(result.proposal.field).toLowerCase()
+      const label = proposalFieldLabel(result.proposal.field)
+      const shown = displayProposedValue(parsed.data.path, result.proposal.proposedValue)
       await deliverDirectNotification({
         type: 'email',
         recipient: contact.email,
         subject: 'Please confirm a detail from your call',
+        // Name the value, not just the field. "We noted the lost wages you
+        // mentioned" gave the claimant no way to tell whether what we wrote
+        // down matches what they said without clicking through.
         message: [
-          `We noted the ${label} you mentioned on your call. Before it goes on your case, we need you to confirm it is right.`,
+          shown
+            ? `On your call we recorded the following. Before it goes on your case, we need you to confirm it is right.`
+            : `We noted the ${label.toLowerCase()} you mentioned on your call. Before it goes on your case, we need you to confirm it is right.`,
+          ...(shown ? ['', `• ${label}: ${shown}`] : []),
           '',
           'You can confirm it, or correct it, from your case page.',
         ].join('\n'),
@@ -936,18 +1029,29 @@ router.post('/:id/document-request', async (req: AuthRequest, res) => {
       })
     }
 
-    const { docs, message } = parsed.data
     const uploadLink = webUrl(`/evidence-upload/${assistance.assessmentId}`)
-    const labels = docs.map((doc) => doc.replace(/[_-]+/g, ' ')).join(', ')
+    // Canonical keys, so the names the claimant reads are the same ones their
+    // upload page and the attorney's note use, rather than a de-slugged key.
+    const docs = normalizeRequestedDocKeys(parsed.data.docs)
+    const message = parsed.data.message
+    const docNames = docs.map((doc) => DOCUMENT_REQUEST_LABELS[doc] || doc.replace(/[_-]+/g, ' '))
+    const labels = docNames.join(', ')
     const specialist = specialistNameOf(req.user) || 'Your ClearCaseIQ case specialist'
 
     await deliverDirectNotification({
       type: 'email',
       recipient: contact.email,
       subject: 'Documents needed for your case',
+      // The list is always here. It used to be the fallback for an empty
+      // custom message, so the moment a specialist typed one — which is the
+      // normal case — the claimant got "please send those documents" and no
+      // way to know which. A note from the specialist is context for the ask,
+      // not a replacement for it.
       message: [
-        message?.trim() ||
-          `To move your case forward we need a few more documents: ${labels}.`,
+        message?.trim() || 'To move your case forward we need a few more documents.',
+        '',
+        docNames.length === 1 ? 'What we need:' : `What we need (${docNames.length} items):`,
+        ...docNames.map((name) => `• ${name}`),
         '',
         'You can upload them from your case documents page.',
       ].join('\n'),

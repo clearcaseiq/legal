@@ -9,6 +9,7 @@ export const ASSISTANCE_STATUS_LABELS: Record<AssistanceStatus, string> = {
   new_submission: 'New',
   in_progress: 'In Progress',
   document_requested: 'Document Requested',
+  document_submitted: 'Document Submitted',
   ready_for_attorney_review: 'Ready for Attorney',
   denied: 'Denied',
   call_not_accepted: 'Call not Accepted',
@@ -19,6 +20,7 @@ export const ASSISTANCE_STATUS_ORDER: AssistanceStatus[] = [
   'new_submission',
   'in_progress',
   'document_requested',
+  'document_submitted',
   'ready_for_attorney_review',
   'denied',
   'call_not_accepted',
@@ -30,11 +32,25 @@ export const ASSISTANCE_STATUS_TONES: Record<AssistanceStatus, BadgeTone> = {
   // Waiting is neutral rather than a warning: the ball is with the claimant, so
   // it is not something the specialist is behind on.
   document_requested: 'neutral',
+  // The upload has landed and needs a specialist to look at it, so this reads as
+  // an open action rather than the neutral "waiting on them" above.
+  document_submitted: 'blue',
   ready_for_attorney_review: 'success',
   denied: 'danger',
   // An unanswered call is still ours to chase, so it reads as an open action
   // rather than an ending.
   call_not_accepted: 'warning',
+}
+
+/** What each status means, for the queue's stat tiles. */
+export const ASSISTANCE_STATUS_HINTS: Record<AssistanceStatus, string> = {
+  new_submission: 'Submitted, and nobody has spoken to them yet.',
+  in_progress: 'A specialist has reached them and is working the case.',
+  document_requested: 'Waiting on the claimant to upload something.',
+  document_submitted: 'Their upload arrived and needs reviewing.',
+  ready_for_attorney_review: 'Handed over or ready to hand over.',
+  denied: 'The claimant does not want to go further.',
+  call_not_accepted: 'No answer yet — still ours to chase.',
 }
 
 export const ASSISTANCE_PHASE_LABELS: Record<AssistancePhase, string> = {
@@ -55,8 +71,16 @@ export const CHANNEL_LABELS: Record<string, string> = {
   sms: 'Text',
   email: 'Email',
   in_app: 'In-app',
+  document: 'Document',
   other: 'Other',
 }
+
+/**
+ * Channels the Communications tab lists. A claimant's upload and the catch-all
+ * `other` are real activity but not a call or a message, so they belong on the
+ * full Activity timeline and nowhere else.
+ */
+export const COMMUNICATION_CHANNELS = ['call', 'sms', 'email', 'in_app']
 
 /**
  * Outcomes offered when logging a call, in the order they actually happen.

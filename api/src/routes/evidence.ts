@@ -20,6 +20,7 @@ import { processEvidenceFileForExtraction, shouldAutoProcessEvidence, extractDat
 import { syncCaseCoachTasks } from '../lib/case-coach-loop'
 import { analyzeImageRelevance, analyzePdfRelevance, analyzeVideoRelevance, type VisionRelevanceResult } from '../lib/evidence-vision'
 import { syncPlaintiffDocumentRequestStatuses } from '../lib/document-request-status'
+import { recordAssistanceDocumentSubmission } from '../lib/assistance-document-intake'
 import { uploadLimiter } from '../lib/rate-limits'
 import { replicateUploads } from '../lib/object-storage'
 import { isAcceptedUpload } from '../lib/upload-filter'
@@ -633,6 +634,12 @@ router.post('/upload', uploadLimiter, optionalAuthMiddleware, upload.single('fil
       // Advance any attorney "Request from client" document request this upload
       // fulfills so it no longer shows as pending on the attorney side (CP-330).
       void syncPlaintiffDocumentRequestStatuses(assessmentId)
+      // Same for a specialist's request: move the case off "Document Requested"
+      // and put the upload on the workbench timeline.
+      void recordAssistanceDocumentSubmission({
+        assessmentId,
+        files: [{ originalName: evidenceFile.originalName, category: evidenceFile.category }],
+      })
       // Loop: a new document is "new info" — re-run the coach (retention-gated).
       void syncCaseCoachTasks(assessmentId, { trigger: 'document_upload' })
     }
@@ -807,6 +814,14 @@ router.post('/upload-multiple', uploadLimiter, optionalAuthMiddleware, upload.ar
       // Advance any attorney "Request from client" document requests this batch
       // fulfills so they no longer show as pending on the attorney side (CP-330).
       void syncPlaintiffDocumentRequestStatuses(assessmentId)
+      // One timeline entry for the batch rather than one per file, so a claimant
+      // sending six photos does not bury the rest of the case history.
+      void recordAssistanceDocumentSubmission({
+        assessmentId,
+        files: results
+          .filter((file: any) => file && !file.error)
+          .map((file: any) => ({ originalName: file.originalName, category: file.category })),
+      })
     }
     res.status(201).json({ files: results, count: results.length })
   } catch (error) {

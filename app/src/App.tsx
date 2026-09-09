@@ -4,7 +4,7 @@ import { Routes, Route, Navigate, Link, useLocation, useParams, useNavigate, use
 import Layout from './components/Layout'
 import ErrorBoundary from './components/ErrorBoundary'
 import { GuestRoute, ProtectedRoute } from './components/AuthRoute'
-import { getStoredRole, getPostLoginRoute } from './lib/auth'
+import { getStoredRole, getPostLoginRoute, getLoginRedirect, hasValidAuthToken } from './lib/auth'
 import { applyAnalyticsBoundary } from './lib/analyticsBoundary'
 import {
   clearEvidenceReturnTo,
@@ -137,11 +137,21 @@ const MedicalProviders = lazy(() => import('./pages/MedicalProviders'))
 // checks, HIPAA gate). Every /evidence-upload/:id link now forwards there.
 function EvidenceUploadRedirect() {
   const { assessmentId } = useParams()
+  const location = useLocation()
   const [searchParams] = useSearchParams()
   const from = searchParams.get('from')
   const token = searchParams.get('token')
   const returnTo = safeInternalReturnTo(searchParams.get('returnTo'), '')
   if (!assessmentId) return <Navigate to="/assess" replace />
+
+  // This link is mailed to claimants, so it is usually opened from a mail client
+  // with no session. Both destinations below need one — /intake2 would otherwise
+  // render the wizard with no case attached, and /dashboard is plaintiff-gated —
+  // so sign in first and come back to this same URL. The query string rides
+  // along so an attorney request's ?token= survives the round trip.
+  if (!hasValidAuthToken()) {
+    return <Navigate to={getLoginRedirect(`${location.pathname}${location.search}`)} replace />
+  }
 
   // Attorney-sent document-request emails use ?token=…. Land on Tasks, where
   // attorney document requests are listed (Requested Documents tab was folded in).

@@ -64,6 +64,52 @@ describe('canReadAssessment', () => {
     expect(result).toMatchObject({ allowed: false, status: 403 })
   })
 
+  describe('case assistance specialists', () => {
+    const specialist = { id: 'spec-1', role: 'specialist' }
+
+    beforeEach(() => {
+      vi.mocked(prisma.assessment.findUnique).mockResolvedValue(assessment() as any)
+    })
+
+    it('allows the specialist the case is assigned to', async () => {
+      vi.mocked(prisma.caseAssistance.findUnique).mockResolvedValue({
+        assignedSpecialistId: 'spec-1',
+      } as any)
+
+      expect((await canReadAssessment('assess-1', specialist)).allowed).toBe(true)
+    })
+
+    it('allows any specialist to read the unassigned pool they can pick up', async () => {
+      vi.mocked(prisma.caseAssistance.findUnique).mockResolvedValue({
+        assignedSpecialistId: null,
+      } as any)
+
+      expect((await canReadAssessment('assess-1', specialist)).allowed).toBe(true)
+    })
+
+    it('refuses a case another specialist owns', async () => {
+      // The workbench itself scopes to your own cases plus the unassigned pool;
+      // file reads must not be a wider door than the screen that links to them.
+      vi.mocked(prisma.caseAssistance.findUnique).mockResolvedValue({
+        assignedSpecialistId: 'spec-2',
+      } as any)
+
+      expect(await canReadAssessment('assess-1', specialist)).toMatchObject({
+        allowed: false,
+        status: 403,
+      })
+    })
+
+    it('refuses a case that never entered the assistance queue', async () => {
+      vi.mocked(prisma.caseAssistance.findUnique).mockResolvedValue(null as any)
+
+      expect(await canReadAssessment('assess-1', specialist)).toMatchObject({
+        allowed: false,
+        status: 403,
+      })
+    })
+  })
+
   it('allows an admin', async () => {
     vi.mocked(prisma.assessment.findUnique).mockResolvedValue(assessment() as any)
 

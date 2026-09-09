@@ -9,6 +9,7 @@ import {
 import type { AssistanceGap } from '../../lib/api'
 import { BackButton, EmptyState, SectionCard } from '../../features/shared/ui'
 import { useAssistanceBasePath } from './useAssistanceBasePath'
+import { COMMUNICATION_CHANNELS } from './assistanceLabels'
 import { ActivityList } from './workbench/ActivityList'
 import { AssistedIntake } from './workbench/AssistedIntake'
 import { CaseAssistantPanel } from './workbench/CaseAssistantPanel'
@@ -18,6 +19,7 @@ import { CaseSnapshot } from './workbench/CaseSnapshot'
 import { ContactActions, type ContactAction } from './workbench/ContactActions'
 import { MissingInformation } from './workbench/MissingInformation'
 import { NextBestAction } from './workbench/NextBestAction'
+import { UploadedDocuments } from './workbench/UploadedDocuments'
 import { WorkflowCard } from './workbench/WorkflowCard'
 import { WorkbenchTabNav, isWorkbenchTab, type WorkbenchTab } from './workbench/WorkbenchTabs'
 
@@ -54,7 +56,7 @@ export default function CaseAssistanceWorkspace() {
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
-  const [specialists, setSpecialists] = useState<{ id: string; name: string }[]>([])
+  const [specialists, setSpecialists] = useState<{ id: string; name: string; role?: string }[]>([])
   const [openAction, setOpenAction] = useState<ContactAction | null>(null)
   const [focusGapKey, setFocusGapKey] = useState<string | null>(null)
 
@@ -176,9 +178,12 @@ export default function CaseAssistanceWorkspace() {
     )
   }
 
-  const { assistance, contact, readiness, summary, interactions } = data
+  const { assistance, contact, readiness, summary, interactions, documents } = data
+  const uploadedDocuments = documents ?? []
   const firstName = (assistance.plaintiffName || '').split(' ')[0] || null
-  const commsInteractions = interactions.filter((interaction) => interaction.channel !== 'other')
+  const commsInteractions = interactions.filter((interaction) =>
+    COMMUNICATION_CHANNELS.includes(interaction.channel),
+  )
 
   const actionProps = {
     assistanceId: id,
@@ -299,6 +304,7 @@ export default function CaseAssistanceWorkspace() {
               </ul>
             )}
           </SectionCard>
+          <UploadedDocuments documents={uploadedDocuments} />
         </div>
       )}
 
