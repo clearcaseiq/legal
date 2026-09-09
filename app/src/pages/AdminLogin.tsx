@@ -1,6 +1,11 @@
-import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import { login, verifyAdminAccess } from '../lib/api-auth'
+import { type ReactNode, useState } from 'react'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import {
+  login,
+  loginSpecialist,
+  verifyAdminAccess,
+  verifySpecialistAccess,
+} from '../lib/api-auth'
 import { clearStoredAuth } from '../lib/auth'
 import { storeAdminCapabilities } from '../lib/adminCapabilities'
 import LoginLayout from '../components/LoginLayout'
@@ -8,13 +13,37 @@ import { PasswordInputWithReveal } from '../components/PasswordInputWithReveal'
 import { type LoginFieldErrors, type LoginInput, validateLoginInput } from '../lib/loginValidation'
 import { useLanguage } from '../contexts/LanguageContext'
 
+/**
+ * An account turned away here is usually not unauthorized — it is standing at
+ * the wrong one of five doors. Naming the right one beats the previous message,
+ * which told a law-firm paralegal to edit `ADMIN_EMAILS` in `api/.env`.
+ */
+function wrongDoor(label: string, to: string): ReactNode {
+  return (
+    <>
+      This is the ClearCaseIQ admin sign-in. {label}{' '}
+      <Link to={to} className="font-semibold underline">
+        Go to the right sign-in page
+      </Link>
+      .
+    </>
+  )
+}
+
 export default function AdminLogin() {
   const { t } = useLanguage()
   const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<ReactNode>(null)
   const [form, setForm] = useState<LoginInput>({ email: '', password: '' })
   const [fieldErrors, setFieldErrors] = useState<LoginFieldErrors>({})
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+
+  // Only same-origin paths are honoured: the parameter is attacker-controllable,
+  // so an absolute URL would turn this page into an open redirect.
+  const redirectParam = searchParams.get('redirect')
+  const destination =
+    redirectParam?.startsWith('/') && !redirectParam.startsWith('//') ? redirectParam : null
 
   const onSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -27,11 +56,16 @@ export default function AdminLogin() {
     setIsLoading(true)
     setError(null)
 
+    const credentials = { email: form.email.trim(), password: form.password }
+
+    /** Case Specialists share this door; the queue is where they belong. */
+    const enterAsSpecialist = () => {
+      localStorage.setItem('auth_role', 'specialist')
+      navigate(destination || '/assistance')
+    }
+
     try {
-      const response = await login({
-        email: form.email.trim(),
-        password: form.password,
-      })
+      const response = await login(credentials)
       if (!response.token || !response.user) {
         setError(t('auth.errLoginFailedRetry'))
         return
@@ -43,18 +77,58 @@ export default function AdminLogin() {
       try {
         const access = await verifyAdminAccess()
         storeAdminCapabilities(access.capabilities)
+        localStorage.setItem('auth_role', 'admin')
+        navigate(destination || '/admin')
+        return
       } catch {
+        // Not an admin — but specialists sign in here too, and their own gate is
+        // the one that decides. It grants strictly less than admin: the Case
+        // Assistance queue, and nothing else under /admin.
+        const specialist = await verifySpecialistAccess().catch(() => ({ ok: false }))
+        if (specialist.ok) {
+          enterAsSpecialist()
+          return
+        }
+
         clearStoredAuth()
         setError(
-          'This account is not authorized for admin access. Ask an existing admin to grant the admin role (Configuration → User Roles), or add your email to ADMIN_EMAILS in the API environment (api/.env), then try again.',
+          'This account does not have admin or Case Assistance access. Ask an existing admin to grant the role in Configuration → User Roles.',
         )
         return
       }
-
-      localStorage.setItem('auth_role', 'admin')
-      navigate('/admin')
     } catch (err: any) {
-      setError(err.response?.data?.error || err.message || t('auth.errLoginFailed'))
+      // The login endpoint turns away roles that have their own door before it
+      // issues a token, so what to do next comes off the error rather than the
+      // session. A specialist is signed in through their own endpoint; everyone
+      // else is pointed at the page that will actually let them in.
+      const data = err.response?.data
+
+      if (data?.isSpecialist) {
+        try {
+          const response = await loginSpecialist(credentials)
+          if (response.token) {
+            localStorage.setItem('auth_token', response.token)
+            if (response.user) localStorage.setItem('user', JSON.stringify(response.user))
+            enterAsSpecialist()
+            return
+          }
+        } catch {
+          // Fall through to the message below.
+        }
+        setError(wrongDoor('This is a Case Specialist account.', '/login/specialist'))
+        return
+      }
+
+      if (data?.isFirmStaff) {
+        setError(wrongDoor('This is a law-firm staff account.', '/login/staff'))
+        return
+      }
+      if (data?.isAttorney) {
+        setError(wrongDoor('This is an attorney account.', '/login/attorney'))
+        return
+      }
+
+      setError(data?.error || err.message || t('auth.errLoginFailed'))
     } finally {
       setIsLoading(false)
     }

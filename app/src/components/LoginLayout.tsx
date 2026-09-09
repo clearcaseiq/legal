@@ -5,7 +5,8 @@ import { useLanguage } from '../contexts/LanguageContext'
 interface LoginLayoutProps {
   title: string
   subtitle: string
-  error: string | null
+  /** ReactNode, not just string, so a screen can offer a link out of the error. */
+  error: React.ReactNode
   children: React.ReactNode
   footerContent?: React.ReactNode
   footerDividerText?: string
