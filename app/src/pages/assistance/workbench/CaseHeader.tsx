@@ -1,5 +1,6 @@
 import { Badge, BackButton } from '../../../features/shared/ui'
 import type { AssistanceQueueRow } from '../../../lib/api'
+import { formatClaimType } from '../../../lib/claimTypes'
 import {
   ASSISTANCE_PHASE_LABELS,
   ASSISTANCE_STATUS_LABELS,
@@ -53,7 +54,7 @@ export function CaseHeader({
             {assistance.plaintiffName || assistance.caseName}
           </h1>
           <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
-            {[humanize(assistance.claimType), location, `Submitted ${timeAgo(assistance.createdAt)}`]
+            {[formatClaimType(assistance.claimType), location, `Submitted ${timeAgo(assistance.createdAt)}`]
               .filter(Boolean)
               .join(' · ')}
           </p>

@@ -61,6 +61,65 @@ export function formatClaimType(value: string | null | undefined): string {
 }
 
 /**
+ * Labels for the narrower incident type captured during intake
+ * (`facts.caseSubtype`), which says what kind of motor-vehicle or premises case
+ * it is. Kept beside the claim-type map so the pair reads consistently.
+ */
+export const CASE_SUBTYPE_LABELS: Record<string, string> = {
+  auto_accident: 'Auto accident',
+  car_accident: 'Car accident',
+  motorcycle_accident: 'Motorcycle accident',
+  bus_accident: 'Bus or public transit accident',
+  other_vehicle_accident: 'Vehicle accident',
+  rideshare_accident: 'Rideshare accident',
+  truck_accident: 'Truck accident',
+  delivery_vehicle_accident: 'Delivery vehicle accident',
+  pedestrian_accident: 'Pedestrian accident',
+  bicycle_accident: 'Bicycle accident',
+  multi_vehicle_accident: 'Multi-vehicle accident',
+  rear_end_collision: 'Rear-end collision',
+  head_on_collision: 'Head-on collision',
+  left_turn_collision: 'Left-turn collision',
+  grocery_premises: 'Grocery store premises',
+  restaurant_premises: 'Restaurant premises',
+  apartment_premises: 'Apartment premises',
+  hotel_premises: 'Hotel premises',
+  workplace_injury: 'Workplace injury',
+  birth_injury: 'Birth injury malpractice',
+  nursing_home_abuse: 'Nursing home abuse',
+  negligent_security: 'Negligent security',
+  toxic_exposure: 'Toxic exposure',
+  other_pi: 'Personal injury',
+  other: 'Personal injury',
+}
+
+/** Display label for a case-subtype slug, or '' when there is no subtype. */
+export function formatCaseSubtype(value: string | null | undefined): string {
+  const raw = String(value ?? '').trim()
+  if (!raw) return ''
+  const key = raw.toLowerCase().replace(/[\s-]+/g, '_')
+  const mapped = CASE_SUBTYPE_LABELS[key]
+  if (mapped) return mapped
+  const spaced = raw.replace(/_/g, ' ').trim()
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1)
+}
+
+/**
+ * "Motor vehicle (Rear-end collision)" — the claim type, narrowed by the
+ * subtype when intake captured one that says something the claim type does not.
+ * A subtype that reads the same as its parent adds nothing and is dropped.
+ */
+export function formatCaseTypeWithSubtype(
+  claimType: string | null | undefined,
+  subtype: string | null | undefined,
+): string {
+  const label = formatClaimType(claimType)
+  const sub = formatCaseSubtype(subtype)
+  if (!sub || sub.toLowerCase() === label.toLowerCase()) return label
+  return `${label} (${sub})`
+}
+
+/**
  * The one incident type a filter should offer for each label, in the order the
  * options should appear. Several slugs share a label (auto/vehicle/car_accident
  * are all "Motor vehicle"), so listing raw slugs would show the same option

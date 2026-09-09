@@ -19,6 +19,7 @@ import { deriveSOLStatus, normalizeClaimTypeForSOL } from './solRules'
 import { summarizeDamages, type DamagesSummary } from './damages-ledger'
 import { getLiabilityRecord, type LiabilityView } from './liability-record'
 import { syncAllQuestionAnswersToCaseFacts } from './question-facts-sync'
+import { formatCaseTypeWithSubtype } from './claim-types'
 
 export type GapCategory = 'liability' | 'medical' | 'damages' | 'insurance' | 'evidence' | 'case_strategy'
 export type ValueImpact = 'high' | 'medium' | 'low'
@@ -783,7 +784,15 @@ export async function buildCaseIntelligence(assessmentId: string): Promise<CaseI
 
   const known: KnownFact[] = [
     { key: 'incident_date', label: 'Accident date', value: facts?.incident?.date ? new Date(facts.incident.date).toLocaleDateString() : 'Not provided' },
-    { key: 'claim_type', label: 'Case type', value: String(assessment.claimType || '').replace(/_/g, ' ') || '—', detail: underwriting.normalizedCase.accidentSubtype },
+    // The curated label, not the stored slug. This read "auto" where every
+    // other surface says "Motor vehicle", and the subtype intake captured was
+    // carried only in `detail`, which nothing renders.
+    {
+      key: 'claim_type',
+      label: 'Case type',
+      value: formatCaseTypeWithSubtype(assessment.claimType, underwriting.normalizedCase.accidentSubtype),
+      detail: underwriting.normalizedCase.accidentSubtype,
+    },
     { key: 'venue', label: 'Venue', value: [assessment.venueCounty, assessment.venueState].filter(Boolean).join(', ') || 'Not provided' },
     { key: 'defendant', label: 'Defendant', value: defendantName || 'Not yet identified' },
     { key: 'injuries', label: 'Injuries', value: injuryLabel },

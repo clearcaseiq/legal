@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { SectionCard } from '../../../features/shared/ui'
-import { humanize, timeAgo } from '../assistanceLabels'
-import { FactBlock, Field } from './FactList'
+import { formatClaimType } from '../../../lib/claimTypes'
+import { timeAgo } from '../assistanceLabels'
+import { FactBlock, Field, splitFactSegments } from './FactList'
 
 const NARRATIVE_PREVIEW = 320
 
@@ -26,7 +27,33 @@ export function CaseSnapshot({
   const [showFullNarrative, setShowFullNarrative] = useState(false)
 
   const narrative = typeof summary.narrative === 'string' ? summary.narrative : null
-  const isLongNarrative = !!narrative && narrative.length > NARRATIVE_PREVIEW
+
+  // Same treatment as the full case file: what intake stored here is a list of
+  // answers joined with ". ", not a piece of writing, so it reads as a wall
+  // until the facts are given their lines back.
+  const narrativeRows = useMemo(() => (narrative ? splitFactSegments(narrative) : []), [narrative])
+
+  // Preview whole rows rather than a character count. Cutting at 320 characters
+  // now would end mid-fact, and the ellipsis would sit where a row break should.
+  const previewRows = useMemo(() => {
+    const shown: string[] = []
+    let length = 0
+    for (const row of narrativeRows) {
+      if (shown.length && length + row.length > NARRATIVE_PREVIEW) break
+      shown.push(row)
+      length += row.length
+    }
+    return shown
+  }, [narrativeRows])
+
+  const isLongNarrative = previewRows.length < narrativeRows.length
+  const visibleRows = showFullNarrative || !isLongNarrative ? narrativeRows : previewRows
+
+  // The curated facts already carry case type and venue, and carry them better
+  // — "Motor vehicle (Rear-end collision)" against a bare claim type. They
+  // arrive with the AI panel though, a request behind this one, so the plain
+  // fields below stand in until then rather than the card listing each twice.
+  const knownKeys = new Set(known.map((fact) => fact.key))
 
   return (
     <SectionCard
@@ -42,11 +69,15 @@ export function CaseSnapshot({
       }
     >
       <dl className="grid gap-x-6 gap-y-3 text-sm [grid-template-columns:repeat(auto-fit,minmax(11rem,1fr))]">
-        <Field label="Claim type" value={humanize(summary.claimType)} />
-        <Field
-          label="Venue"
-          value={[summary.venueCounty, summary.venueState].filter(Boolean).join(', ') || null}
-        />
+        {!knownKeys.has('claim_type') && (
+          <Field label="Case type" value={formatClaimType(summary.claimType)} />
+        )}
+        {!knownKeys.has('venue') && (
+          <Field
+            label="Venue"
+            value={[summary.venueCounty, summary.venueState].filter(Boolean).join(', ') || null}
+          />
+        )}
         <Field label="Documents uploaded" value={String(summary.evidenceCount ?? 0)} />
         <Field label="Submitted" value={timeAgo(summary.submittedAt)} />
         {known.map((fact) => (
@@ -59,11 +90,13 @@ export function CaseSnapshot({
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
             In their words
           </p>
-          <p className="mt-1 whitespace-pre-wrap text-sm text-slate-700 dark:text-slate-300">
-            {showFullNarrative || !isLongNarrative
-              ? narrative
-              : `${narrative.slice(0, NARRATIVE_PREVIEW).trimEnd()}…`}
-          </p>
+          <div className="mt-1 space-y-1 text-sm text-slate-700 dark:text-slate-300">
+            {visibleRows.map((row, index) => (
+              <p key={index} className="whitespace-pre-wrap">
+                {row}
+              </p>
+            ))}
+          </div>
           {isLongNarrative && (
             <button
               type="button"
