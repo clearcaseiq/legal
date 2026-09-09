@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Headphones, LogOut } from 'lucide-react'
 import { BrandMark } from './BrandLogo'
-import { clearStoredAuth, getStoredUser } from '../lib/auth'
+import { clearStoredAuth, getLoginPathForRole, getLoginRedirect, getStoredUser } from '../lib/auth'
 import { verifySpecialistAccess } from '../lib/api-auth'
 
 /**
@@ -27,7 +27,7 @@ export default function CaseAssistanceLayout() {
       .catch(() => {
         if (cancelled) return
         clearStoredAuth()
-        navigate(`/login/specialist?redirect=${encodeURIComponent(location.pathname)}`, { replace: true })
+        navigate(getLoginRedirect(location.pathname, 'specialist'), { replace: true })
       })
     return () => {
       cancelled = true
@@ -38,7 +38,7 @@ export default function CaseAssistanceLayout() {
 
   const handleSignOut = () => {
     clearStoredAuth()
-    navigate('/login/specialist', { replace: true })
+    navigate(getLoginPathForRole('specialist'), { replace: true })
   }
 
   // `ThemeProvider` puts the `dark` class on documentElement for workspace

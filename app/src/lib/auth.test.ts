@@ -9,7 +9,6 @@ describe('getLoginPathForRole', () => {
     expect(getLoginPathForRole('admin')).toBe('/login/admin')
     expect(getLoginPathForRole('attorney')).toBe('/login/attorney')
     expect(getLoginPathForRole('staff')).toBe('/login/staff')
-    expect(getLoginPathForRole('specialist')).toBe('/login/specialist')
     expect(getLoginPathForRole('plaintiff')).toBe('/login')
     // What the database actually stores for a claimant.
     expect(getLoginPathForRole('client')).toBe('/login')
@@ -24,6 +23,13 @@ describe('getLoginPathForRole', () => {
     expect(getLoginPathForRole('admin')).not.toBe('/staff-login')
   })
 
+  // A Case Specialist who has just set their password is told to sign in with
+  // the admin form, and that form accepts them. Sending them to a second login
+  // screen instead contradicted the instruction and read as a rejection.
+  it('sends a Case Specialist to the admin sign-in they were told to use', () => {
+    expect(getLoginPathForRole('specialist')).toBe('/login/admin')
+  })
+
   it('falls back to the client login when the role is unknown', () => {
     expect(getLoginPathForRole(null)).toBe('/login')
     expect(getLoginPathForRole(undefined)).toBe('/login')
@@ -36,11 +42,20 @@ describe('getLoginRedirect', () => {
     expect(getLoginRedirect('/admin/users', 'admin')).toBe('/login/admin?redirect=%2Fadmin%2Fusers')
   })
 
-  // Case Assistance is guarded with both roles. Testing admin first sent
-  // specialists to a sign-in page that rejects them.
-  it('sends Case Assistance to the specialist login even though admins share it', () => {
-    expect(getLoginRedirect('/assistance/abc', ['specialist', 'admin'])).toContain('/login/specialist')
+  // Case Assistance is guarded with both roles, and the admin form signs in
+  // either one - it tries admin access and falls through to specialist access.
+  // So both go to the same door rather than to two screens that each look like
+  // the wrong one to half the staff who arrive.
+  it('sends Case Assistance and admin routes to the same sign-in', () => {
+    expect(getLoginRedirect('/assistance/abc', ['specialist', 'admin'])).toContain('/login/admin')
+    expect(getLoginRedirect('/assistance', 'specialist')).toContain('/login/admin')
     expect(getLoginRedirect('/admin/users', 'admin')).toContain('/login/admin')
+  })
+
+  it('still carries the page a specialist was trying to open', () => {
+    expect(getLoginRedirect('/assistance/abc', 'specialist')).toBe(
+      '/login/admin?redirect=%2Fassistance%2Fabc',
+    )
   })
 
   it('picks a login from the path when the route names no role', () => {

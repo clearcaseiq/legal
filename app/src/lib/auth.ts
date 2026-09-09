@@ -96,8 +96,13 @@ export function getLoginPathForRole(role?: string | null): string {
       return '/login/attorney'
     case 'staff':
       return '/login/staff'
+    // The admin screen, not `/login/specialist`. Specialists are told to sign in
+    // with the admin form and it accepts them, so sending someone who just set
+    // their password to a second, differently-branded login contradicted the
+    // instruction they were given. `/login/specialist` still works for anyone
+    // holding an older link.
     case 'specialist':
-      return '/login/specialist'
+      return '/login/admin'
     default:
       return '/login'
   }
@@ -105,15 +110,16 @@ export function getLoginPathForRole(role?: string | null): string {
 
 export function getLoginRedirect(pathname: string, role?: WebAppRole | WebAppRole[]) {
   const roles = Array.isArray(role) ? role : role ? [role] : []
-  // Case Assistance is open to specialists and to admins supervising them, so it
-  // gets its own login rather than borrowing the admin one. Checked before the
-  // admin branch because those routes are guarded with both roles, and testing
-  // admin first matched every time — sending specialists to a login that turns
-  // them away. The specialist endpoint accepts admins, so both roles get in here.
-  if (roles.includes('specialist') || pathname.startsWith('/assistance')) {
-    return `/login/specialist?redirect=${encodeURIComponent(pathname)}`
-  }
-  if (roles.includes('admin') || pathname.startsWith('/admin')) {
+  // Case Assistance is open to specialists and to admins supervising them, and
+  // the admin form now signs in both — it tries admin access first and falls
+  // through to specialist access on the same credentials. So both roles go to
+  // the same door, which is the one staff are actually told to use.
+  if (
+    roles.includes('specialist') ||
+    roles.includes('admin') ||
+    pathname.startsWith('/assistance') ||
+    pathname.startsWith('/admin')
+  ) {
     return `/login/admin?redirect=${encodeURIComponent(pathname)}`
   }
   // Attorney workspace comes first: an attorney-only path should send an

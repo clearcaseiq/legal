@@ -119,6 +119,23 @@ export default function AdminLogin() {
         return
       }
 
+      // An invited colleague who never opened the invitation email, or opened it
+      // after the 72-hour link lapsed. There is nothing wrong with their
+      // credentials because they do not have any yet, so the way out is a fresh
+      // link rather than another attempt at the password.
+      if (data?.code === 'NO_PASSWORD_SET') {
+        setError(
+          <>
+            {data.error}{' '}
+            <Link to="/forgot-password" className="font-semibold underline">
+              Send me a link
+            </Link>
+            .
+          </>,
+        )
+        return
+      }
+
       if (data?.isFirmStaff) {
         setError(wrongDoor('This is a law-firm staff account.', '/login/staff'))
         return
