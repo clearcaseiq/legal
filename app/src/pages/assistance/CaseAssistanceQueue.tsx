@@ -18,6 +18,7 @@ import {
   type DataTableColumn,
 } from '../../features/shared/ui'
 import {
+  ASSISTANCE_STATUS_HINTS,
   ASSISTANCE_STATUS_LABELS,
   ASSISTANCE_STATUS_ORDER,
   ASSISTANCE_STATUS_TONES,
@@ -27,6 +28,8 @@ import {
   timeAgo,
 } from './assistanceLabels'
 import { useAssistanceBasePath } from './useAssistanceBasePath'
+import { formatClaimType } from '../../lib/claimTypes'
+import { getStoredRole } from '../../lib/auth'
 
 type Tab = 'mine' | 'unassigned' | 'all'
 
@@ -51,15 +54,26 @@ export default function CaseAssistanceQueue() {
   const [error, setError] = useState<string | null>(null)
 
   const [tab, setTab] = useState<Tab>('mine')
-  const [status, setStatus] = useState('')
+  // The queue always sits on one status. It used to open on an "Open statuses"
+  // option that merged four of them, which made the list impossible to reconcile
+  // against the counts above it — the strip said how many cases were in each
+  // status and the table showed a blend of them.
+  const [status, setStatus] = useState<string>(ASSISTANCE_STATUS_ORDER[0])
   const [priority, setPriority] = useState('')
   const [sort, setSort] = useState('due')
   const [searchTerm, setSearchTerm] = useState('')
   const [appliedSearch, setAppliedSearch] = useState('')
 
   const [counts, setCounts] = useState<Awaited<ReturnType<typeof getAssistanceCounts>>['counts'] | null>(null)
-  const [isManager, setIsManager] = useState(false)
   const [overview, setOverview] = useState<Awaited<ReturnType<typeof getAssistanceManagerOverview>> | null>(null)
+
+  // Seeded from the stored role instead of waiting for the counts response.
+  // Manager-ness gates the Team card, and deriving it from a fetch made the
+  // card arrive two round trips late — long after the table had painted — so
+  // the whole page jumped down once the admin was recognized. The server still
+  // decides: the counts response corrects this, and the overview request 403s
+  // for anyone who only claims to be a manager here.
+  const [isManager, setIsManager] = useState(() => getStoredRole() === 'admin')
 
   const load = useCallback(async () => {
     try {
@@ -119,6 +133,12 @@ export default function CaseAssistanceQueue() {
     setOffset(0)
   }
 
+  /** Tiles and the dropdown drive the same single-status filter. */
+  const applyStatus = (next: string) => {
+    setStatus(next)
+    setOffset(0)
+  }
+
   const columns = useMemo<DataTableColumn<AssistanceQueueRow>[]>(
     () => [
       {
@@ -130,7 +150,7 @@ export default function CaseAssistanceQueue() {
             <div className="min-w-0">
               <p className="truncate font-semibold text-slate-800 dark:text-slate-200">{row.caseName}</p>
               <p className="truncate text-xs text-slate-500 dark:text-slate-400">
-                {row.referenceCode || humanize(row.claimType)}
+                {row.referenceCode || formatClaimType(row.claimType)}
               </p>
             </div>
           </div>
@@ -139,7 +159,9 @@ export default function CaseAssistanceQueue() {
       {
         key: 'claimType',
         header: 'Claim type',
-        cell: (row) => <span className="text-sm text-slate-600 dark:text-slate-400">{humanize(row.claimType)}</span>,
+        cell: (row) => (
+          <span className="text-sm text-slate-600 dark:text-slate-400">{formatClaimType(row.claimType)}</span>
+        ),
       },
       {
         key: 'location',
@@ -211,47 +233,42 @@ export default function CaseAssistanceQueue() {
         description="Newly assessed cases waiting on a specialist. Call the claimant, walk them through what their case is missing, and hand it over when it is ready."
       />
 
-      {counts && (
-        <StatGrid columns={6}>
+      {/* Rendered before the counts arrive, showing a dash in place of each
+          number. Gating the whole grid on the response meant the tiles dropped
+          in above the table a moment after the page painted, shoving
+          everything below them down. */}
+      <StatGrid columns={4}>
+        <FilterStat
+          value={counts?.mine ?? '—'}
+          label="My cases"
+          active={tab === 'mine'}
+          onClick={() => applyTab('mine')}
+          hint="Open cases assigned to you."
+        />
+        {/* One tile per workflow status, in the order the flow runs. Each is a
+            toggle on the same status filter the dropdown below drives, so the
+            strip reads the queue and narrows it with one click. */}
+        {ASSISTANCE_STATUS_ORDER.map((option) => (
           <FilterStat
-            value={counts.mine}
-            label="My cases"
-            active={tab === 'mine'}
-            onClick={() => applyTab('mine')}
-            hint="Open cases assigned to you."
+            key={option}
+            value={counts?.byStatus?.[option] ?? '—'}
+            label={ASSISTANCE_STATUS_LABELS[option]}
+            tone={ASSISTANCE_STATUS_TONES[option]}
+            active={status === option}
+            onClick={() => applyStatus(option)}
+            hint={ASSISTANCE_STATUS_HINTS[option]}
           />
-          <FilterStat
-            value={counts.unassigned}
-            label="Unassigned"
-            tone={counts.unassigned > 0 ? 'warning' : 'neutral'}
-            active={tab === 'unassigned'}
-            onClick={() => applyTab('unassigned')}
-            hint="Nobody has picked these up yet."
-          />
-          <FilterStat
-            value={counts.overdue}
-            label="Overdue"
-            tone={counts.overdue > 0 ? 'danger' : 'neutral'}
-            hint="Past the first-review deadline."
-          />
-          <FilterStat value={counts.needsContact} label="Needs contact" tone="warning" hint="Not yet called." />
-          <FilterStat
-            value={counts.waiting}
-            label="Waiting on claimant"
-            hint="Ball is with the claimant, not you."
-          />
-          <FilterStat
-            value={counts.readyForAttorney}
-            label="Ready for attorneys"
-            tone="success"
-            hint="Handed over or ready to hand over."
-          />
-        </StatGrid>
-      )}
+        ))}
+      </StatGrid>
 
-      {isManager && overview && (
+      {/* Mounted as soon as we believe the viewer is a manager, rather than
+          waiting for the overview response, so the card occupies its place
+          from the first paint instead of appearing after the table settles. */}
+      {isManager && (
         <SectionCard title="Team">
-          {overview.specialists.length === 0 ? (
+          {!overview ? (
+            <p className="text-sm text-slate-500 dark:text-slate-400">Loading the team…</p>
+          ) : overview.specialists.length === 0 ? (
             <p className="text-sm text-slate-500 dark:text-slate-400">
               No active Case Specialists yet. Cases will collect in the unassigned queue until one exists — add them
               from Configuration → User Roles.
@@ -267,6 +284,9 @@ export default function CaseAssistanceQueue() {
                     {specialist.name}
                   </p>
                   <div className="mt-1.5 flex flex-wrap gap-1.5">
+                    {/* Only listed here while holding a case, so the badge
+                        explains why a supervisor is in the team roster. */}
+                    {specialist.isAdmin && <Badge tone="neutral">Admin</Badge>}
                     <Badge tone="blue">{specialist.active} active</Badge>
                     {specialist.needsContact > 0 && (
                       <Badge tone="warning">{specialist.needsContact} to call</Badge>
@@ -317,7 +337,6 @@ export default function CaseAssistanceQueue() {
               className="input w-auto"
               aria-label="Filter by status"
             >
-              <option value="">Open statuses</option>
               {ASSISTANCE_STATUS_ORDER.map((option) => (
                 <option key={option} value={option}>
                   {ASSISTANCE_STATUS_LABELS[option]}
@@ -374,7 +393,12 @@ export default function CaseAssistanceQueue() {
           rows={rows}
           rowKey={(row) => row.id}
           onRowClick={(row) => navigate(`${basePath}/${row.id}`)}
-          loading={loading}
+          // Only while there is nothing to show. `loading` goes true on every
+          // tab, filter and page change, and DataTable's loading state is a
+          // single line, so honouring it collapsed a full table to one row and
+          // back on each click. Holding the previous rows keeps the table still
+          // — Pagination below is already disabled during the fetch.
+          loading={loading && rows.length === 0}
           loadingMessage="Loading the queue…"
           emptyMessage={
             tab === 'mine'
