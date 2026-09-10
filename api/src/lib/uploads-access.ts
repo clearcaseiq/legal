@@ -11,8 +11,10 @@
  *
  * Three tiers, in order of how much can be known about the request:
  *
- *  - `avatars/` is public. Profile photos render in plain `<img>` tags that
- *    cannot carry an Authorization header, and a headshot is not case data.
+ *  - `avatars/` and `firm-logos/` are public. Both render in plain `<img>` tags
+ *    that cannot carry an Authorization header, and neither a headshot nor a
+ *    firm logo is case data — the logo is published on the firm's public
+ *    profile and its marketplace listing by design.
  *  - `evidence/` and `scenes/` resolve back to the case that owns them, so they
  *    get the same per-case decision as every other read of that case via
  *    `canReadAssessment`.
@@ -33,8 +35,13 @@ import { logger } from './logger'
 import { canReadAssessment } from './assessment-access'
 import { optionalAuthMiddleware, type AuthRequest } from './auth'
 
-/** Served without a session; see the tiering note above. */
-const PUBLIC_PREFIXES = ['/avatars/']
+/**
+ * Served without a session; see the tiering note above. Both entries are
+ * branding rendered in plain `<img>` tags — a headshot and a firm logo — which
+ * cannot carry an Authorization header, so gating them behind a session serves
+ * a 401 the browser can only draw as a broken image.
+ */
+const PUBLIC_PREFIXES = ['/avatars/', '/firm-logos/']
 
 /** Resolvable to an owning assessment, so they get a per-case decision. */
 const CASE_SCOPED_PREFIXES = ['/evidence/', '/scenes/']

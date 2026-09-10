@@ -661,6 +661,18 @@ describe('HTTP hardening regressions', () => {
       expect(res.status).toBe(404)
     })
 
+    it('serves firm logos without a session, for the same reason avatars are open', async () => {
+      const server = createServer()
+
+      // A firm logo is published on the firm's public profile and marketplace
+      // listing, and renders in a plain <img> that cannot carry a bearer token.
+      // Gating it returned 401 to the browser, which drew a broken image on the
+      // firm's own settings page right after a successful upload.
+      const res = await request(server).get('/uploads/firm-logos/kia-law.png')
+
+      expect(res.status).toBe(404)
+    })
+
     it('refuses anonymous reads of evidence', async () => {
       const server = createServer()
       vi.mocked(prisma.evidenceFile.findFirst).mockResolvedValue({ assessmentId: 'asm-1' } as any)
