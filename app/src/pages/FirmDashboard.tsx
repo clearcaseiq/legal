@@ -301,6 +301,23 @@ type CaseloadData = {
   offices: Array<{ officeId: string; name: string; capacity: number | null; assignedCases: number; utilization: number | null }>
 }
 
+/**
+ * The stages an Overview tile can drill into. `leadStatus` is free text on the
+ * row, so each of these maps to the set of raw values that mean it rather than
+ * comparing against one literal.
+ */
+type CaseloadStatus = 'all' | 'accepted' | 'retained'
+
+const CASELOAD_STATUS_VALUES: Record<Exclude<CaseloadStatus, 'all'>, string[]> = {
+  accepted: ['accepted', 'attorney_matched', 'matched'],
+  retained: ['retained', 'engaged', 'signed'],
+}
+
+const CASELOAD_STATUS_LABELS: Record<Exclude<CaseloadStatus, 'all'>, string> = {
+  accepted: 'Accepted',
+  retained: 'Retained',
+}
+
 type TabKey = 'overview' | 'newleads' | 'caseload' | 'team' | 'templates' | 'workflow' | 'time'
 const TABS: Array<{ key: TabKey; label: string; icon: typeof LayoutDashboard }> = [
   { key: 'overview', label: 'Overview', icon: LayoutDashboard },
@@ -376,6 +393,7 @@ export default function FirmDashboard() {
   const [caseQuery, setCaseQuery] = useState('')
 
   // Caseload tab (team visibility: who owns / is working on what)
+  const [caseloadStatus, setCaseloadStatus] = useState<CaseloadStatus>('all')
   const [caseloadMember, setCaseloadMember] = useState<string>('all')
   const [caseloadQuery, setCaseloadQuery] = useState('')
   const [assignTarget, setAssignTarget] = useState<FirmCaseRow | null>(null)
@@ -1080,9 +1098,18 @@ export default function FirmDashboard() {
 
   const canSeeTab = (k: TabKey) => visibleTabs.some((t) => t.key === k)
   // Jump to a tab from a summary tile (only if the user can see that tab).
-  const goToTab = (k: TabKey, opts?: { people?: 'all' | 'attorneys' | 'staff' }) => {
+  //
+  // `status` carries the tile's own meaning across. Every status tile used to
+  // land on the same unfiltered caseload, so clicking "Retained" and clicking
+  // "Accepted" produced identical screens and the jump read as a redirect to
+  // somewhere unrelated rather than a drill-down.
+  const goToTab = (
+    k: TabKey,
+    opts?: { people?: 'all' | 'attorneys' | 'staff'; status?: CaseloadStatus },
+  ) => {
     if (!canSeeTab(k)) return
     if (opts?.people) setPeopleFilter(opts.people)
+    if (opts?.status) setCaseloadStatus(opts.status)
     setTab(k)
     if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' })
   }
@@ -1131,6 +1158,10 @@ export default function FirmDashboard() {
 
   const caseloadFiltered = useMemo(() => {
     let list = cases
+    if (caseloadStatus !== 'all') {
+      const wanted = new Set(CASELOAD_STATUS_VALUES[caseloadStatus])
+      list = list.filter((c) => wanted.has(String(c.leadStatus || '').toLowerCase()))
+    }
     if (caseloadMember !== 'all') {
       list = list.filter(
         (c) =>
@@ -1149,7 +1180,7 @@ export default function FirmDashboard() {
       )
     }
     return list
-  }, [cases, caseloadMember, caseloadQuery])
+  }, [cases, caseloadStatus, caseloadMember, caseloadQuery])
 
   // Per-owner rollup (active total + how many have open tasks) for the summary strip.
   const caseloadByOwner = useMemo(() => {
@@ -1330,7 +1361,7 @@ export default function FirmDashboard() {
               tone="blue"
               value={metrics.activeCases || 0}
               label="Active cases"
-              onClick={canSeeTab('caseload') ? () => goToTab('caseload') : undefined}
+              onClick={canSeeTab('caseload') ? () => goToTab('caseload', { status: 'all' }) : undefined}
               hint={canSeeTab('caseload') ? 'Open the active caseload' : undefined}
             />
             <FilterStat
@@ -1347,20 +1378,20 @@ export default function FirmDashboard() {
             <FilterStat
               value={metrics.totalLeadsReceived}
               label="Leads received"
-              onClick={canSeeTab('caseload') ? () => goToTab('caseload') : undefined}
+              onClick={canSeeTab('caseload') ? () => goToTab('caseload', { status: 'all' }) : undefined}
               hint={canSeeTab('caseload') ? 'See cases in the caseload' : undefined}
             />
             <FilterStat
               value={metrics.acceptedCases || 0}
               label="Accepted"
-              onClick={canSeeTab('caseload') ? () => goToTab('caseload') : undefined}
-              hint={canSeeTab('caseload') ? 'See cases in the caseload' : undefined}
+              onClick={canSeeTab('caseload') ? () => goToTab('caseload', { status: 'accepted' }) : undefined}
+              hint={canSeeTab('caseload') ? 'See accepted cases in the caseload' : undefined}
             />
             <FilterStat
               value={metrics.retainedCases || 0}
               label="Retained"
-              onClick={canSeeTab('caseload') ? () => goToTab('caseload') : undefined}
-              hint={canSeeTab('caseload') ? 'See cases in the caseload' : undefined}
+              onClick={canSeeTab('caseload') ? () => goToTab('caseload', { status: 'retained' }) : undefined}
+              hint={canSeeTab('caseload') ? 'See retained cases in the caseload' : undefined}
             />
             <FilterStat
               value={metrics.avgAttorneyRating ? metrics.avgAttorneyRating.toFixed(1) : 'N/A'}
@@ -1589,6 +1620,20 @@ export default function FirmDashboard() {
 
       {tab === 'caseload' && (
         <div className="space-y-6">
+          {caseloadStatus !== 'all' && (
+            <div className="flex items-center gap-3 rounded-lg border border-brand-200 bg-brand-50 px-4 py-2.5 text-sm">
+              <span className="text-brand-800">
+                Showing <span className="font-semibold">{CASELOAD_STATUS_LABELS[caseloadStatus]}</span> cases
+              </span>
+              <button
+                type="button"
+                onClick={() => setCaseloadStatus('all')}
+                className="font-medium text-brand-700 underline underline-offset-2 hover:text-brand-900"
+              >
+                Show all
+              </button>
+            </div>
+          )}
           {caseloadByOwner.length > 0 && (
             <SectionCard title="Caseload by attorney" trailing={<Badge tone="neutral">{cases.length} active</Badge>}>
               <div className="flex flex-wrap gap-2">
