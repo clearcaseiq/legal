@@ -421,7 +421,7 @@ async function getAttorneyFromReq(req: any) {
  */
 async function getFirmMemberLeadAccess(
   req: any,
-  lead: { assessmentId: string },
+  lead: { id: string; assessmentId: string },
   options: { activeOnly?: boolean } = {}
 ) {
   const userId = req.user?.id
@@ -437,13 +437,27 @@ async function getFirmMemberLeadAccess(
     where: { assessmentId: lead.assessmentId },
     select: { lawFirmId: true, items: { select: { assignedFirmMemberId: true } } }
   })
-  if (!caseWorkflow) return null
 
-  const sameFirm = !!member.lawFirmId && caseWorkflow.lawFirmId === member.lawFirmId
-  const assignedStep = (caseWorkflow.items || []).some(
+  const sameFirm = !!member.lawFirmId && caseWorkflow?.lawFirmId === member.lawFirmId
+  const assignedStep = (caseWorkflow?.items || []).some(
     (item: any) => item.assignedFirmMemberId === member.id
   )
-  return sameFirm || assignedStep ? member : null
+  if (sameFirm || assignedStep) return member
+
+  // A routed lead has no CaseWorkflow until somebody applies one, so requiring
+  // that row dead-ended precisely the members whose work starts before it
+  // exists: firm-wide visibility listed the lead for them under New Leads and
+  // opening it then answered 403. Fall back to the same firm claim the list is
+  // built from, so the two agree.
+  //
+  // `resolveFirmVisibility` only grants firm-wide roles, and only to an active
+  // membership, so this fallback adds nothing for a paralegal or an invitee.
+  // That is not a claim they are well guarded: the `sameFirm` term above hands
+  // any member — invited ones included — every firm case that has a workflow
+  // row, which makes `assignedStep` moot. Tightening that is its own change.
+  const firm = await resolveFirmVisibility(req, null)
+  if (!firm.canViewAllCases || !firm.lawFirmId) return null
+  return (await firmHoldsLead(lead, firm.lawFirmId)) ? member : null
 }
 
 /**
