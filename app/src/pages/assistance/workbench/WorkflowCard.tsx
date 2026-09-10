@@ -9,6 +9,18 @@ import {
 } from '../assistanceLabels'
 
 /** The specialist's own workflow fields — never the claimant's case answers. */
+/**
+ * Why nothing here is disabled while a save is in flight.
+ *
+ * These fields used to carry `disabled={saving}`. Disabling a `<select>` that
+ * the browser is currently showing a dropdown for closes the popup and drops
+ * focus to the document body, which on a long page scrolls it back to the top —
+ * so choosing an assignee threw the specialist to the top of a blank-looking
+ * screen and read as the page reloading. Each field is an independent
+ * last-write-wins PATCH, so leaving them live costs nothing worse than a second
+ * request, and the "Saving…" label says what is happening without seizing
+ * anything from the person mid-click.
+ */
 export function WorkflowCard({
   assistance,
   specialists,
@@ -29,14 +41,24 @@ export function WorkflowCard({
   ) => void
 }) {
   return (
-    <SectionCard title="Workflow">
-      <div className="space-y-3">
+    <SectionCard
+      title={
+        <span className="flex items-center gap-2">
+          Workflow
+          {saving && (
+            <span className="text-xs font-normal text-slate-500 dark:text-slate-400" role="status">
+              Saving…
+            </span>
+          )}
+        </span>
+      }
+    >
+      <div className="space-y-3" aria-busy={saving}>
         <label className="block">
           <span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400">Status</span>
           <select
             className="input w-full"
             value={assistance.status}
-            disabled={saving}
             onChange={(e) => onPatch({ status: e.target.value as AssistanceStatus })}
           >
             {ASSISTANCE_STATUS_ORDER.map((option) => (
@@ -51,7 +73,6 @@ export function WorkflowCard({
           <select
             className="input w-full"
             value={assistance.priority}
-            disabled={saving}
             onChange={(e) => onPatch({ priority: e.target.value as 'low' | 'normal' | 'high' })}
           >
             {Object.entries(PRIORITY_LABELS).map(([value, label]) => (
@@ -63,7 +84,6 @@ export function WorkflowCard({
         </label>
         <NextActionField
           value={assistance.nextAction}
-          disabled={saving}
           onSave={(nextAction) => onPatch({ nextAction }, 'Next action saved.')}
         />
         <label className="block">
@@ -71,7 +91,6 @@ export function WorkflowCard({
           <select
             className="input w-full"
             value={assistance.assignedSpecialist?.id || ''}
-            disabled={saving}
             onChange={(e) => onPatch({ assignedSpecialistId: e.target.value || null })}
           >
             <option value="">Unassigned</option>
@@ -94,11 +113,9 @@ export function WorkflowCard({
 
 function NextActionField({
   value,
-  disabled,
   onSave,
 }: {
   value: string | null
-  disabled?: boolean
   onSave: (value: string | null) => void
 }) {
   const [draft, setDraft] = useState(value || '')
@@ -116,7 +133,6 @@ function NextActionField({
         <input
           className="input w-full"
           value={draft}
-          disabled={disabled}
           maxLength={200}
           placeholder="e.g. Call back Thursday morning"
           onChange={(e) => setDraft(e.target.value)}

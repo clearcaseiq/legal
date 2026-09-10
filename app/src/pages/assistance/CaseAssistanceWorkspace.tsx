@@ -54,7 +54,14 @@ export default function CaseAssistanceWorkspace() {
   const [aiError, setAiError] = useState<string | null>(null)
   const [aiLoading, setAiLoading] = useState(true)
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  // Two kinds of failure that must not share a slot. `loadError` means there is
+  // no case to show and the whole screen is the message. `saveError` means the
+  // case is fine and one change did not stick. They were one piece of state, so
+  // a rejected dropdown change replaced the entire workbench with a red box —
+  // the case, the tabs and the claimant's phone number all vanished, which is
+  // why picking an assignee looked like the screen reloading.
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [specialists, setSpecialists] = useState<{ id: string; name: string; role?: string }[]>([])
@@ -79,17 +86,28 @@ export default function CaseAssistanceWorkspace() {
     [setSearchParams],
   )
 
-  const load = useCallback(async () => {
-    try {
-      setLoading(true)
-      setError(null)
-      setData(await getAssistanceCase(id))
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to load this case')
-    } finally {
-      setLoading(false)
-    }
-  }, [id])
+  /**
+   * Read the case.
+   *
+   * `silent` re-reads it without the full-page spinner. That spinner belongs to
+   * opening a case; using it to refresh one already on screen tore the whole
+   * workbench down and rebuilt it, which is indistinguishable from the page
+   * reloading.
+   */
+  const load = useCallback(
+    async (options?: { silent?: boolean }) => {
+      try {
+        if (!options?.silent) setLoading(true)
+        setLoadError(null)
+        setData(await getAssistanceCase(id))
+      } catch (err: any) {
+        setLoadError(err.response?.data?.error || 'Failed to load this case')
+      } finally {
+        setLoading(false)
+      }
+    },
+    [id],
+  )
 
   useEffect(() => {
     load()
@@ -119,11 +137,12 @@ export default function CaseAssistanceWorkspace() {
     try {
       setSaving(true)
       setNotice(null)
+      setSaveError(null)
       const result = await updateAssistanceCase(id, input)
       if (result.assistance) setData((current) => (current ? { ...current, assistance: result.assistance! } : current))
       if (message) setNotice(message)
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Could not save that change')
+      setSaveError(err.response?.data?.error || 'Could not save that change')
     } finally {
       setSaving(false)
     }
@@ -184,12 +203,12 @@ export default function CaseAssistanceWorkspace() {
       </div>
     )
   }
-  if (error || !data) {
+  if (loadError || !data) {
     return (
       <div className="space-y-4 p-4">
         <BackButton onClick={() => navigate(basePath)} label="Back to queue" />
         <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
-          {error || 'Case not found'}
+          {loadError || 'Case not found'}
         </div>
       </div>
     )
@@ -209,9 +228,13 @@ export default function CaseAssistanceWorkspace() {
     onOpenChange: setOpenAction,
     onDone: (message: string) => {
       setNotice(message)
-      load()
+      // Silent: the specialist is mid-task and the confirmation they just
+      // triggered should not cost them the screen they are reading.
+      load({ silent: true })
     },
-    onError: setError,
+    // A call that could not be logged is the same class of problem as a workflow
+    // field that would not save: worth saying, not worth throwing the case away.
+    onError: setSaveError,
   }
 
   return (
@@ -236,6 +259,24 @@ export default function CaseAssistanceWorkspace() {
       {notice && (
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
           {notice}
+        </div>
+      )}
+
+      {saveError && (
+        <div
+          className="flex items-start justify-between gap-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
+          role="alert"
+        >
+          <span>{saveError}</span>
+          {/* Dismissible because the case is still usable underneath it, unlike
+              the load failure this used to be mistaken for. */}
+          <button
+            type="button"
+            onClick={() => setSaveError(null)}
+            className="shrink-0 font-semibold underline"
+          >
+            Dismiss
+          </button>
         </div>
       )}
 
@@ -287,7 +328,7 @@ export default function CaseAssistanceWorkspace() {
               loading={aiLoading}
               focusGapKey={focusGapKey}
               onRecorded={setNotice}
-              onError={setError}
+              onError={setSaveError}
             />
             <ContactActions
               {...actionProps}
