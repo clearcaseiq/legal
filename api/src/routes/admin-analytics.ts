@@ -5,6 +5,10 @@ import { logger } from '../lib/logger'
 import { authMiddleware, AuthRequest } from '../lib/auth'
 import { adminMiddleware } from '../lib/admin-access'
 import { writeAdminAudit } from '../lib/admin-audit'
+import { CLICK_WINDOW_DAYS, MAX_ATTEMPTS } from '../lib/ads-conversion-sweep'
+import { buildChannelReport } from '../lib/attribution-channel'
+import { fetchTrafficReport } from '../lib/ga4-analytics'
+import { isGoogleAdsConfigured } from '../lib/google-ads-conversions'
 import { safeJsonParse } from './admin-shared'
 
 const router: ExpressRouter = Router()
@@ -37,6 +41,12 @@ router.get('/stats', authMiddleware, adminMiddleware, async (_req: AuthRequest, 
     yesterdayStart.setDate(yesterdayStart.getDate() - 1)
     const sevenDaysAgo = new Date(todayStart)
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+    // Six days back plus today makes a seven-day window. The intake volume
+    // chart used to query from `sevenDaysAgo` but only build buckets up to
+    // yesterday, so every case created today was fetched and then discarded —
+    // the one day anyone checking the dashboard is actually looking at.
+    const volumeStart = new Date(todayStart)
+    volumeStart.setDate(volumeStart.getDate() - 6)
 
     const [
       newCasesToday,
@@ -78,11 +88,17 @@ router.get('/stats', authMiddleware, adminMiddleware, async (_req: AuthRequest, 
       prisma.leadSubmission.count({
         where: { routingLocked: true }
       }),
-      prisma.assessment.groupBy({
-        by: ['createdAt'],
-        where: { createdAt: { gte: sevenDaysAgo } },
-        _count: { id: true }
-      }),
+      // Bucketed by the database, not by Prisma. `groupBy: ['createdAt']` groups
+      // on a raw timestamp, so every assessment came back as its own group to be
+      // re-bucketed in JavaScript here — a full week of rows over the wire to
+      // produce seven numbers, growing with volume.
+      prisma.$queryRaw<{ day: Date; count: bigint }[]>`
+        SELECT date_trunc('day', "createdAt")::date AS day, count(*) AS count
+        FROM assessments
+        WHERE "createdAt" >= ${volumeStart}
+        GROUP BY 1
+        ORDER BY 1
+      `,
       prisma.assessment.groupBy({
         by: ['claimType'],
         where: { createdAt: { gte: sevenDaysAgo } },
@@ -125,14 +141,14 @@ router.get('/stats', authMiddleware, adminMiddleware, async (_req: AuthRequest, 
 
     const dayBuckets: Record<string, number> = {}
     for (let d = 0; d < 7; d++) {
-      const dte = new Date(sevenDaysAgo)
+      const dte = new Date(volumeStart)
       dte.setDate(dte.getDate() + d)
       const key = dte.toISOString().split('T')[0]
       dayBuckets[key] = 0
     }
-    intakeByDay.forEach(g => {
-      const key = new Date(g.createdAt).toISOString().split('T')[0]
-      if (dayBuckets[key] !== undefined) dayBuckets[key] += g._count.id
+    intakeByDay.forEach(row => {
+      const key = new Date(row.day).toISOString().split('T')[0]
+      if (dayBuckets[key] !== undefined) dayBuckets[key] += Number(row.count)
     })
 
     // Routing funnel counts
@@ -267,7 +283,12 @@ router.get('/analytics', authMiddleware, adminMiddleware, async (req: AuthReques
 
     const byClaimType: Record<string, number> = {}
     const byState: Record<string, number> = {}
-    const bySource: Record<string, number> = {}
+    // `LeadSubmission.sourceType` holds the internal code path that created the
+    // lead ('plaintiff', 'admin', 'routing_engine', 'tier_auto'), never a
+    // marketing channel, despite the schema comment that once claimed
+    // otherwise. Named `byOrigin` so nobody reads it as acquisition data —
+    // channel comes from GA4 via /v1/admin/traffic.
+    const byOrigin: Record<string, number> = {}
     const intakeByDay: Record<string, number> = {}
 
     for (let d = 0; d < days; d++) {
@@ -279,8 +300,8 @@ router.get('/analytics', authMiddleware, adminMiddleware, async (req: AuthReques
     for (const a of assessments) {
       byClaimType[a.claimType || 'unknown'] = (byClaimType[a.claimType || 'unknown'] || 0) + 1
       byState[a.venueState || 'unknown'] = (byState[a.venueState || 'unknown'] || 0) + 1
-      const src = a.leadSubmission?.sourceType || 'unknown'
-      bySource[src] = (bySource[src] || 0) + 1
+      const origin = a.leadSubmission?.sourceType || 'unknown'
+      byOrigin[origin] = (byOrigin[origin] || 0) + 1
       const key = new Date(a.createdAt).toISOString().split('T')[0]
       if (intakeByDay[key] !== undefined) intakeByDay[key]++
     }
@@ -371,15 +392,54 @@ router.get('/analytics', authMiddleware, adminMiddleware, async (req: AuthReques
     const acceptedTotal = introductions.filter(i => i.status === 'ACCEPTED').length
     const engaged = matched
 
+    // Channel to outcome. Two queries rather than one join because
+    // `IntakeLead.assessmentId` is a bare column with no Prisma relation.
+    const attributedLeads = await prisma.intakeLead.findMany({
+      where: { createdAt: { gte: since } },
+      select: {
+        status: true,
+        assessmentId: true,
+        utmSource: true,
+        utmMedium: true,
+        utmCampaign: true,
+        gclid: true,
+        referrer: true,
+      },
+    })
+
+    const leadAssessmentIds = attributedLeads
+      .map((lead) => lead.assessmentId)
+      .filter((id): id is string => Boolean(id))
+
+    const submissions = leadAssessmentIds.length
+      ? await prisma.leadSubmission.findMany({
+          where: { assessmentId: { in: leadAssessmentIds } },
+          select: { assessmentId: true, status: true, routingLocked: true },
+        })
+      : []
+
+    const channels = buildChannelReport(
+      attributedLeads,
+      new Set(submissions.map((s) => s.assessmentId)),
+      new Set(
+        submissions
+          .filter((s) => s.routingLocked || s.status === 'retained')
+          .map((s) => s.assessmentId),
+      ),
+    )
+
     res.json({
       periodDays: days,
       intake: {
         total: totalCompleted,
         byClaimType: Object.entries(byClaimType).map(([k, v]) => ({ claimType: k, count: v })),
         byState: Object.entries(byState).map(([k, v]) => ({ state: k, count: v })),
-        bySource: Object.entries(bySource).map(([k, v]) => ({ source: k, count: v })),
+        byOrigin: Object.entries(byOrigin).map(([k, v]) => ({ origin: k, count: v })),
         byDay: Object.entries(intakeByDay).sort((a, b) => a[0].localeCompare(b[0]))
       },
+      // Empty until leads start arriving with attribution captured, which only
+      // happens for visits that began after this shipped.
+      channels,
       routing: {
         acceptanceByWave: Object.entries(byWave).map(([w, v]) => ({
           wave: parseInt(w),
@@ -424,6 +484,117 @@ router.get('/analytics', authMiddleware, adminMiddleware, async (req: AuthReques
   }
 })
 
+
+/**
+ * Site traffic, from the GA4 property rather than from our own tables.
+ *
+ * Separate from `/analytics` on purpose. That endpoint reports the case funnel
+ * out of Postgres and always succeeds; this one depends on a third-party API
+ * that can be unconfigured, rate-limited or down. Keeping them apart means a
+ * GA4 outage costs the traffic panel and nothing else.
+ */
+router.get('/traffic', authMiddleware, adminMiddleware, async (req: AuthRequest, res) => {
+  // Same clamp as /analytics so the two panels can share one window selector.
+  const days = Math.min(90, Math.max(7, parseInt(req.query.days as string) || 30))
+
+  try {
+    res.json(await fetchTrafficReport(days))
+  } catch (error: any) {
+    logger.error('Failed to get GA4 traffic', { error: error?.message, stack: error?.stack })
+    // 502, not 500: the failure is upstream at Google, and saying so is what
+    // tells an admin to check the property's access rather than our logs.
+    res.status(502).json({
+      error: 'Could not reach Google Analytics',
+      detail: process.env.NODE_ENV === 'development' ? error?.message : undefined,
+    })
+  }
+})
+
+/**
+ * What has actually been reported to Google Ads, and what has not.
+ *
+ * Worth surfacing rather than leaving in the logs. Conversion upload is the one
+ * place the product writes to a third party that then spends money on the
+ * strength of it, so "did the retentions we think we reported actually land"
+ * needs an answer someone can read without shell access. It is also where the
+ * 90-day click window becomes visible as a real measurement gap rather than an
+ * abstraction in a doc.
+ */
+router.get('/ads-conversions', authMiddleware, adminMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const days = Math.min(90, Math.max(7, parseInt(req.query.days as string) || 30))
+    const since = new Date()
+    since.setDate(since.getDate() - days)
+
+    const configured = isGoogleAdsConfigured()
+
+    const [grouped, exhausted, uploadedValue, recent] = await Promise.all([
+      prisma.adsConversionUpload.groupBy({
+        by: ['status'],
+        where: { convertedAt: { gte: since } },
+        _count: { _all: true },
+      }),
+      // Pending but out of retries. Still 'pending' in the column, because the
+      // sweep never rewrites it — but it will never be picked up again, so
+      // reporting it as pending would be a lie by omission.
+      prisma.adsConversionUpload.count({
+        where: { convertedAt: { gte: since }, status: 'pending', attempts: { gte: MAX_ATTEMPTS } },
+      }),
+      prisma.adsConversionUpload.aggregate({
+        where: { convertedAt: { gte: since }, status: 'uploaded' },
+        _sum: { value: true },
+      }),
+      prisma.adsConversionUpload.findMany({
+        where: { convertedAt: { gte: since } },
+        orderBy: { convertedAt: 'desc' },
+        take: 25,
+      }),
+    ])
+
+    const counts: Record<string, number> = { uploaded: 0, pending: 0, skipped: 0, failed: 0 }
+    for (const row of grouped) counts[row.status] = row._count._all
+    counts.pending = Math.max(0, counts.pending - exhausted)
+
+    // AdsConversionUpload keys on assessmentId without a relation, same as
+    // IntakeLead, so the claim type comes from a second read.
+    const assessments = recent.length
+      ? await prisma.assessment.findMany({
+          where: { id: { in: recent.map((row) => row.assessmentId) } },
+          select: { id: true, claimType: true, venueState: true },
+        })
+      : []
+    const caseDetail = new Map(assessments.map((a) => [a.id, a]))
+
+    res.json({
+      configured,
+      periodDays: days,
+      clickWindowDays: CLICK_WINDOW_DAYS,
+      maxAttempts: MAX_ATTEMPTS,
+      counts: { ...counts, exhausted },
+      uploadedValue: uploadedValue._sum.value || 0,
+      recent: recent.map((row) => ({
+        assessmentId: row.assessmentId,
+        claimType: caseDetail.get(row.assessmentId)?.claimType || null,
+        venueState: caseDetail.get(row.assessmentId)?.venueState || null,
+        gclid: row.gclid,
+        value: row.value,
+        currencyCode: row.currencyCode,
+        convertedAt: row.convertedAt,
+        uploadedAt: row.uploadedAt,
+        // Out of retries reads as its own state here, not as pending.
+        status: row.status === 'pending' && row.attempts >= MAX_ATTEMPTS ? 'exhausted' : row.status,
+        attempts: row.attempts,
+        lastError: row.lastError,
+      })),
+    })
+  } catch (error: any) {
+    logger.error('Failed to get ads conversion status', { error: error?.message, stack: error?.stack })
+    res.status(500).json({
+      error: 'Internal server error',
+      detail: process.env.NODE_ENV === 'development' ? error?.message : undefined,
+    })
+  }
+})
 
 router.get('/routing-feedback/summary', authMiddleware, adminMiddleware, async (req: AuthRequest, res) => {
   try {

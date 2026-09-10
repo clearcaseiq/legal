@@ -121,6 +121,77 @@ own switch and the vendors GTM loads do not read it.
       `NEXT_PUBLIC_GA_MEASUREMENT_ID` is set, the same traffic is measured twice
       and sessions double-count. Pick one.
 
+### Reading GA4 numbers inside the admin section
+
+`/admin/analytics` shows a Traffic panel pulled from the GA4 Data API, so the
+team does not have to leave the product to see where cases came from. Two API
+environment variables switch it on:
+
+| Variable | What it is |
+| --- | --- |
+| `GA4_PROPERTY_ID` | The **numeric** property id from Admin → Property Settings, not `G-XXXXXXXXXX` |
+| `GA4_SERVICE_ACCOUNT_JSON` | A service account key, raw JSON or base64 |
+
+- [ ] Create a service account in Google Cloud and download a JSON key. It needs
+      no IAM roles; access is granted in GA4, not in Cloud.
+- [ ] Enable the **Google Analytics Data API** on that Cloud project.
+- [ ] Add the service account's email in GA4 under Admin → Property Access
+      Management with **Viewer**. Skipping this is the usual cause of a 403.
+
+Unset, the panel says so rather than showing zeros, because an unconfigured
+property and a site nobody visited otherwise look identical.
+
+Two things to say out loud when anyone reads these numbers:
+
+- They cover public marketing and SEO pages only, for the HIPAA reason above.
+  They are top-of-funnel and will not reconcile against case counts.
+- Sessions are not conversions. The "Channel to retained case" table lower down
+  the same screen is the one that connects a campaign to an outcome, and it is
+  built from first-touch attribution stored on our own `IntakeLead` rows, not
+  from anything Google sees.
+
+### Reporting retained cases back to Google Ads
+
+Ads can bid toward retained cases rather than clicks, but only if it is told
+which clicks became cases. It cannot learn that on its own: there is no
+conversion tag on the intake wizard or the results page, and there will not be,
+for the HIPAA reason above. Offline conversion import closes that loop from the
+server instead. What leaves the process is a click id, a timestamp and a
+projected revenue figure — no claim detail, no contact details, nothing about
+the case.
+
+An hourly sweep (`ads-conversion`, visible on the ops status screen) finds
+`LeadSubmission` rows that reached `status = 'retained'` whose intake lead
+carried a `gclid`, and uploads each one exactly once.
+
+- [ ] Apply for a developer token under Ads → Tools → API Center. A test-level
+      token only reaches test accounts; this needs basic access or higher.
+- [ ] Create an OAuth2 client of type **Desktop app** and mint a refresh token
+      once, offline, for an account that can see the Ads account.
+- [ ] Create a conversion action of type **Import → Offline conversions**. Take
+      its numeric id from the `ctId` parameter in its URL.
+- [ ] Set `GOOGLE_ADS_DEVELOPER_TOKEN`, `GOOGLE_ADS_CLIENT_ID`,
+      `GOOGLE_ADS_CLIENT_SECRET`, `GOOGLE_ADS_REFRESH_TOKEN`,
+      `GOOGLE_ADS_CUSTOMER_ID` and `GOOGLE_ADS_CONVERSION_ACTION_ID` on the API.
+      Add `GOOGLE_ADS_LOGIN_CUSTOMER_ID` **only** if the credentials belong to a
+      manager (MCC) account; sending it otherwise is an error.
+- [ ] Set `GOOGLE_ADS_CONVERSION_ENABLED=true`, and only in production. It is a
+      separate switch from the credentials precisely so a staging deployment
+      cannot report conversions into the live account and corrupt its bidding.
+
+Three things worth knowing before anyone reads the numbers:
+
+- **The conversion value is projected fee revenue, not money received.** It
+  comes from the model's median predicted case value at retention, via
+  `buildRevenueProjection`. No settlement exists at that point.
+- **Ads rejects clicks older than the conversion window**, which maxes out at 90
+  days. A case that takes longer than that from ad click to signed retainer
+  cannot be reported at all — the sweep marks those `skipped`, which is a real
+  measurement limit rather than a bug.
+- **Do not also import these through a spreadsheet.** Ads will not dedupe across
+  sources, and the same retention counted twice inflates whatever the bidding
+  strategy is optimising against.
+
 ---
 
 ## 2. Launch week

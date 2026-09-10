@@ -13,86 +13,9 @@ import {
 } from 'lucide-react'
 import EmptyState from '../../components/EmptyState'
 import { PageHeader } from '../../features/shared/ui'
-
-function BarChart({
-  data,
-  labelKey,
-  valueKey,
-  maxBars = 10,
-  color = 'brand',
-}: {
-  data: Array<Record<string, any>>
-  labelKey: string
-  valueKey: string
-  maxBars?: number
-  color?: string
-}) {
-  const sorted = [...data].sort((a, b) => (b[valueKey] || 0) - (a[valueKey] || 0)).slice(0, maxBars)
-  const max = Math.max(1, ...sorted.map((d) => d[valueKey] || 0))
-  const colorClass =
-    color === 'brand'
-      ? 'bg-brand-500'
-      : color === 'emerald'
-        ? 'bg-emerald-500'
-        : color === 'amber'
-          ? 'bg-amber-500'
-          : 'bg-slate-500'
-
-  return (
-    <div className="space-y-2">
-      {sorted.map((d, i) => (
-        <div key={i} className="flex items-center gap-3">
-          <span
-            className="w-32 shrink-0 text-sm text-slate-600 dark:text-slate-400 truncate"
-            title={String(d[labelKey])}
-          >
-            {d[labelKey]}
-          </span>
-          <div className="flex-1 h-6 bg-slate-100 dark:bg-slate-800 rounded overflow-hidden">
-            <div
-              className={`h-full ${colorClass} rounded transition-all`}
-              style={{ width: `${((d[valueKey] || 0) / max) * 100}%` }}
-            />
-          </div>
-          <span className="w-12 text-right text-sm font-medium text-slate-700 dark:text-slate-300">
-            {d[valueKey] || 0}
-          </span>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function SimpleLineChart({ data }: { data: [string, number][] }) {
-  const values = data.map(([, v]) => v)
-  const max = Math.max(1, ...values)
-  const points = values
-    .map((v, i) => {
-      const x = (i / (values.length - 1 || 1)) * 100
-      const y = 100 - (v / max) * 100
-      return `${x},${y}`
-    })
-    .join(' ')
-
-  return (
-    <div className="h-32 w-full">
-      <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-full">
-        <polyline
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="0.5"
-          className="text-brand-500"
-          points={points}
-        />
-      </svg>
-      <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400 mt-1">
-        <span>{data[0]?.[0]}</span>
-        <span>{data[Math.floor(data.length / 2)]?.[0]}</span>
-        <span>{data[data.length - 1]?.[0]}</span>
-      </div>
-    </div>
-  )
-}
+import { BarChart, SimpleLineChart } from './charts'
+import { TrafficPanel } from './TrafficPanel'
+import { AdsConversionsPanel } from './AdsConversionsPanel'
 
 export default function AdminAnalytics() {
   const [data, setData] = useState<any>(null)
@@ -147,6 +70,7 @@ export default function AdminAnalytics() {
   const plaintiffConv = data?.plaintiffConversion ?? {}
   const routingFeedback = routing.feedbackLoop ?? {}
   const routingAuditActions = routing.auditActions ?? []
+  const channels = data?.channels ?? []
 
   return (
     <div className="space-y-8">
@@ -229,6 +153,10 @@ export default function AdminAnalytics() {
         </div>
       </div>
 
+      {/* Traffic sits above intake because it is the stage before it: visits
+          arrive here, and everything below is what became of them. */}
+      <TrafficPanel days={days} />
+
       {/* Intake analytics */}
       <div className="surface-panel p-6">
         <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2 mb-4">
@@ -255,10 +183,17 @@ export default function AdminAnalytics() {
             />
           </div>
           <div>
-            <h3 className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">Cases by source</h3>
+            {/* Not marketing channel. This counts which internal code path
+                created the lead — plaintiff intake, an admin, the routing
+                engine — and was previously labelled "Cases by source", which
+                read as acquisition data it has never contained. Channel lives
+                in the traffic panel above. */}
+            <h3 className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">
+              Lead origin (internal)
+            </h3>
             <BarChart
-              data={intake.bySource ?? []}
-              labelKey="source"
+              data={intake.byOrigin ?? []}
+              labelKey="origin"
               valueKey="count"
               color="amber"
             />
@@ -269,6 +204,13 @@ export default function AdminAnalytics() {
           <SimpleLineChart data={intake.byDay ?? []} />
         </div>
       </div>
+
+      <ChannelTable rows={channels} />
+
+      {/* Directly below the channel table on purpose: that one says which
+          campaigns produced retained cases, this one says whether Ads was
+          actually told. */}
+      <AdsConversionsPanel days={days} />
 
       {/* Routing analytics */}
       <div className="surface-panel p-6">
@@ -420,6 +362,85 @@ export default function AdminAnalytics() {
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+type ChannelRow = {
+  channel: string
+  campaign: string | null
+  leads: number
+  completed: number
+  routed: number
+  retained: number
+}
+
+/**
+ * Channel through to retained case.
+ *
+ * The one place on this screen where marketing spend meets outcome. The traffic
+ * panel above can say a campaign produced sessions; only this can say it
+ * produced cases, because it is built from attribution stored on our own
+ * records rather than from a tag that never runs on the pages where people
+ * convert.
+ */
+function ChannelTable({ rows }: { rows: ChannelRow[] }) {
+  return (
+    <div className="surface-panel p-6">
+      <h2 className="mb-1 flex items-center gap-2 text-lg font-semibold text-slate-900 dark:text-slate-100">
+        <Target className="h-5 w-5" />
+        Channel to retained case
+      </h2>
+      <p className="mb-4 text-xs text-slate-500 dark:text-slate-400">
+        First-touch attribution captured at intake. Counts are cumulative, so the fall between
+        columns is the drop-off.
+      </p>
+
+      {rows.length === 0 ? (
+        <p className="rounded-lg border border-dashed border-slate-300 p-6 text-center text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
+          No attributed leads in this window yet. Attribution is recorded from the visit a claimant
+          arrives on, so this fills in as new traffic comes through — it cannot be backfilled for
+          people who came before it was switched on.
+        </p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 text-left text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                <th className="py-2 pr-4 font-medium">Channel</th>
+                <th className="py-2 pr-4 font-medium">Campaign</th>
+                <th className="py-2 pr-4 text-right font-medium">Leads</th>
+                <th className="py-2 pr-4 text-right font-medium">Completed</th>
+                <th className="py-2 pr-4 text-right font-medium">Routed</th>
+                <th className="py-2 pr-4 text-right font-medium">Retained</th>
+                <th className="py-2 text-right font-medium">Lead to retained</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr
+                  key={`${row.channel}-${row.campaign ?? ''}`}
+                  className="border-b border-slate-100 last:border-0 dark:border-slate-800"
+                >
+                  <td className="py-2 pr-4 text-slate-900 dark:text-slate-100">{row.channel}</td>
+                  <td className="py-2 pr-4 text-slate-500 dark:text-slate-400">
+                    {row.campaign || '—'}
+                  </td>
+                  <td className="py-2 pr-4 text-right text-slate-700 dark:text-slate-300">{row.leads}</td>
+                  <td className="py-2 pr-4 text-right text-slate-700 dark:text-slate-300">{row.completed}</td>
+                  <td className="py-2 pr-4 text-right text-slate-700 dark:text-slate-300">{row.routed}</td>
+                  <td className="py-2 pr-4 text-right font-medium text-slate-900 dark:text-slate-100">
+                    {row.retained}
+                  </td>
+                  <td className="py-2 text-right text-slate-700 dark:text-slate-300">
+                    {row.leads > 0 ? `${Math.round((row.retained / row.leads) * 100)}%` : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }

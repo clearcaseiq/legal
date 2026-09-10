@@ -392,9 +392,14 @@ describe('HTTP operations regressions', () => {
       },
     ] as any)
     vi.mocked(prisma.leadSubmission.count).mockResolvedValue(2 as any)
-    vi.mocked(prisma.assessment.groupBy)
-      .mockResolvedValueOnce([{ createdAt: new Date('2026-04-04T00:00:00Z'), _count: { id: 2 } }] as any)
-      .mockResolvedValueOnce([{ claimType: 'auto', _count: { id: 5 } }] as any)
+    // Intake volume is bucketed by the database now, so it arrives as raw rows
+    // of { day, count } rather than one groupBy group per assessment.
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    vi.mocked(prisma.$queryRaw).mockResolvedValue([{ day: today, count: BigInt(2) }] as any)
+    vi.mocked(prisma.assessment.groupBy).mockResolvedValueOnce([
+      { claimType: 'auto', _count: { id: 5 } },
+    ] as any)
     vi.mocked(prisma.introduction.count)
       .mockResolvedValueOnce(6 as any)
       .mockResolvedValueOnce(4 as any)
@@ -410,6 +415,9 @@ describe('HTTP operations regressions', () => {
     expect(res.body.cards.attorneyAcceptanceRate).toBe(67)
     expect(res.body.routingFunnel.attorneyAccepted).toBe(4)
     expect(res.body.casesByClaimType).toEqual([{ claimType: 'auto', count: 5 }])
+    // Seven days of buckets, with the raw row's bigint landing in today's.
+    expect(res.body.intakeVolume).toHaveLength(7)
+    expect(res.body.intakeVolume.at(-1)).toEqual([today.toISOString().split('T')[0], 2])
   })
 
   it('GET /v1/admin/analytics returns intake, routing, and quality rollups', async () => {

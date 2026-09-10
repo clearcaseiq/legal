@@ -18,6 +18,8 @@ import { runEsignEnvelopeSweep } from './lib/esign-envelope-sweep'
 import { runAiCaseManagerSweep, isAiCaseManagerEnabled } from './lib/ai-case-manager-sweep'
 import { runActivityCanarySweep, isActivityCanaryEnabled } from './lib/activity-canary-sweep'
 import { runErrorRateSweep, isErrorRateMonitorEnabled } from './lib/error-rate-monitor'
+import { runAdsConversionSweep } from './lib/ads-conversion-sweep'
+import { isGoogleAdsConfigured } from './lib/google-ads-conversions'
 import { reconcileAllAttorneyRatingAggregates } from './lib/attorney-rating-aggregates'
 import { beginSweep, registerSweep } from './lib/ops-status'
 import { startSchedulerLeadership, stopSchedulerLeadership } from './lib/scheduler-leader'
@@ -38,6 +40,7 @@ let esignEnvelopeTimer: NodeJS.Timeout | null = null
 let aiCaseManagerTimer: NodeJS.Timeout | null = null
 let activityCanaryTimer: NodeJS.Timeout | null = null
 let errorRateTimer: NodeJS.Timeout | null = null
+let adsConversionTimer: NodeJS.Timeout | null = null
 
 async function runCalendarWebhookRenewalSweep(trigger: 'startup' | 'interval') {
   const sweep = beginSweep('calendar-webhook-renewal')
@@ -459,6 +462,37 @@ function startErrorRateLoop() {
   }, intervalMs)
 }
 
+async function runAdsConversionLoop(trigger: 'startup' | 'interval') {
+  const sweep = beginSweep('ads-conversion')
+  try {
+    const result = await runAdsConversionSweep()
+    sweep.succeed()
+    if (result.uploaded > 0 || result.failed > 0 || trigger === 'startup') {
+      logger.info('Ads conversion sweep completed', { trigger, ...result })
+    }
+  } catch (error) {
+    sweep.fail(error)
+    logger.error('Ads conversion sweep failed', { error, trigger })
+  }
+}
+
+function startAdsConversionLoop() {
+  if (!isGoogleAdsConfigured()) {
+    registerSweep('ads-conversion', { label: 'Google Ads conversion upload', enabled: false })
+    logger.info('Google Ads conversion upload disabled')
+    return
+  }
+  // Hourly. Nothing downstream is waiting on this — Ads uses the conversion's
+  // own timestamp, not its arrival time, so reporting a retention promptly buys
+  // nothing and only spends quota against someone else's API.
+  const intervalMs = 60 * 60 * 1000
+  registerSweep('ads-conversion', { label: 'Google Ads conversion upload', enabled: true, intervalMs })
+  void runAdsConversionLoop('startup')
+  adsConversionTimer = setInterval(() => {
+    void runAdsConversionLoop('interval')
+  }, intervalMs)
+}
+
 function startBackgroundLoops() {
   startCalendarWebhookRenewalLoop()
   startAppointmentEngagementLoop()
@@ -474,6 +508,7 @@ function startBackgroundLoops() {
   startAiCaseManagerLoop()
   startActivityCanaryLoop()
   startErrorRateLoop()
+  startAdsConversionLoop()
 }
 
 const leadershipHandlers = {
@@ -514,6 +549,7 @@ function stopBackgroundLoops() {
   if (aiCaseManagerTimer) clearInterval(aiCaseManagerTimer)
   if (activityCanaryTimer) clearInterval(activityCanaryTimer)
   if (errorRateTimer) clearInterval(errorRateTimer)
+  if (adsConversionTimer) clearInterval(adsConversionTimer)
   calendarWebhookRenewalTimer = null
   appointmentEngagementTimer = null
   notificationRetryTimer = null
@@ -528,6 +564,7 @@ function stopBackgroundLoops() {
   aiCaseManagerTimer = null
   activityCanaryTimer = null
   errorRateTimer = null
+  adsConversionTimer = null
 }
 
 function closeHttpServer() {

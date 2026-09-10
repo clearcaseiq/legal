@@ -2628,8 +2628,14 @@ model LeadSubmission {
   evidenceChecklist String? @db.Text // JSON checklist of uploaded/missing documents
 
   // Exclusivity & Source
-  isExclusive   Boolean @default(false)
-  sourceType    String // 'organic_search', 'paid_ad', 'referral', 'direct'
+  isExclusive Boolean @default(false)
+  /// Which internal code path created this lead, NOT a marketing channel.
+  /// Written as 'plaintiff' (claimant intake), 'admin', 'routing_engine' or
+  /// 'tier_auto'. This comment previously advertised 'organic_search',
+  /// 'paid_ad', 'referral', 'direct' — values nothing has ever written — and an
+  /// admin chart was built on it as if it reported acquisition. Marketing
+  /// attribution lives on `IntakeLead`, and channel comes from GA4.
+  sourceType    String
   sourceDetails String? // JSON additional source info
 
   // Lead Hotness
@@ -2797,6 +2803,32 @@ model IntakeLead {
   /// Set when the report email actually went out, so it is never sent twice.
   reportReadySentAt DateTime?
 
+  /// First-touch marketing attribution, captured when the claimant first landed
+  /// on a public page and carried here when the lead row is created.
+  ///
+  /// This is the join that makes spend measurable. GA4 can report that a
+  /// campaign produced sessions, but it never sees a conversion: the intake
+  /// wizard and the results page carry no analytics tag, by design, because
+  /// their URLs can hold an assessment id or a claim token. So the only place
+  /// "this campaign produced a retained case" can be established is here, in our
+  /// own database, by joining forward through `assessmentId`.
+  ///
+  /// First touch, not last: an internal navigation must not overwrite the
+  /// campaign that actually brought someone in. Null for organic and direct
+  /// arrivals, which is most of them.
+  utmSource   String?
+  utmMedium   String?
+  utmCampaign String?
+  /// Google Ads click id. Kept so conversions can later be uploaded back to Ads
+  /// from the server, which is the only way to close that loop without putting
+  /// a tag on a page that carries claim detail.
+  gclid       String?
+  referrer    String?
+  landingPath String?
+  /// utm_term, utm_content, and other click ids, as JSON. Rarely queried, so
+  /// they stay out of the column list rather than widening the table.
+  attributionExtra String? @db.Text
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -2805,7 +2837,66 @@ model IntakeLead {
   @@index([userId])
   /// Supports the sweep that drains due report-ready emails.
   @@index([reportReadyDueAt])
+  /// Supports the channel breakdown on the admin analytics screen.
+  @@index([utmSource, utmMedium])
+  /// Supports the sweep that finds retained cases with a click id to upload.
+  @@index([gclid])
   @@map("intake_leads")
+}
+
+/// A conversion reported back to Google Ads when a case was retained.
+///
+/// This is the other half of the attribution loop. Ads knows it produced a
+/// click; it cannot know the click became a signed case, because the intake
+/// wizard and results page carry no tag and never will — their URLs can hold an
+/// assessment id or a claim token. Offline conversion import is the only way to
+/// give Ads that signal without tagging those pages, which is what makes
+/// value-based bidding possible at all here.
+///
+/// A row exists per case, created before the upload is attempted, so a crash
+/// mid-flight leaves evidence rather than a silent gap. Kept as its own table
+/// rather than columns on `IntakeLead` because this is a record of what we told
+/// a third party — it wants an audit trail, an attempt count and a failure
+/// reason, none of which belong on an intake row.
+model AdsConversionUpload {
+  id String @id @default(cuid())
+
+  /// One conversion per case. The unique constraint is the dedup guarantee:
+  /// re-reporting the same retention would double-count it in Ads and inflate
+  /// whatever the bidding strategy is optimising against.
+  assessmentId String @unique
+
+  /// Copied at upload time rather than read through `IntakeLead`, so the record
+  /// still says what was actually sent even if the lead row is later changed.
+  gclid String
+
+  /// Conversion value in `currencyCode`, from `buildRevenueProjection`. This is
+  /// projected fee revenue, not a settlement — no money has changed hands when
+  /// a case is retained.
+  value        Float?
+  currencyCode String @default("USD")
+
+  /// When the case was retained, which is the conversion moment Ads is told
+  /// about. Not the same as when we got around to uploading it.
+  convertedAt DateTime
+
+  /// 'pending' | 'uploaded' | 'failed' | 'skipped'
+  ///
+  /// 'skipped' is terminal and not a failure: most often the click is older
+  /// than the conversion window Ads will accept, which no amount of retrying
+  /// fixes.
+  status String @default("pending")
+
+  attempts   Int       @default(0)
+  lastError  String?   @db.Text
+  uploadedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Drives the sweep's "what still needs sending" query.
+  @@index([status, attempts])
+  @@map("ads_conversion_uploads")
 }
 
 model DecisionMemory {

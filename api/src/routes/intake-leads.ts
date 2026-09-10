@@ -67,6 +67,22 @@ const emailField = z.preprocess(
   z.string().email().max(254).optional().or(z.literal(''))
 )
 
+/**
+ * First-touch marketing attribution, sent once when the lead row is created.
+ *
+ * Bounded lengths because these arrive from the query string of a page anyone
+ * can link to, and an unbounded referrer is an unbounded write.
+ */
+const AttributionInput = z.object({
+  utmSource: z.string().trim().max(120).optional(),
+  utmMedium: z.string().trim().max(120).optional(),
+  utmCampaign: z.string().trim().max(200).optional(),
+  gclid: z.string().trim().max(200).optional(),
+  referrer: z.string().trim().max(500).optional(),
+  landingPath: z.string().trim().max(500).optional(),
+  extra: z.record(z.string().max(200)).optional(),
+})
+
 const IntakeLeadCreate = z.object({
   email: emailField,
   phone: z.string().trim().max(40).optional().or(z.literal('')),
@@ -75,7 +91,29 @@ const IntakeLeadCreate = z.object({
   venueCounty: z.string().trim().max(120).optional(),
   currentStep: z.string().trim().max(60).optional(),
   formSnapshot: z.record(z.any()).optional(),
+  attribution: AttributionInput.optional(),
 })
+
+/**
+ * Attribution columns for a new lead.
+ *
+ * Only ever applied on create. First touch is the whole point: the campaign
+ * that brought someone in is the one that earned the case, and a later PATCH
+ * from a page they navigated to internally must not overwrite it.
+ */
+function attributionColumns(input: z.infer<typeof AttributionInput> | undefined) {
+  if (!input) return {}
+  const extra = input.extra && Object.keys(input.extra).length ? JSON.stringify(input.extra) : null
+  return {
+    utmSource: input.utmSource || null,
+    utmMedium: input.utmMedium || null,
+    utmCampaign: input.utmCampaign || null,
+    gclid: input.gclid || null,
+    referrer: input.referrer || null,
+    landingPath: input.landingPath || null,
+    attributionExtra: extra,
+  }
+}
 
 const IntakeLeadUpdate = IntakeLeadCreate.extend({
   assessmentId: z.string().trim().max(64).optional(),
@@ -124,7 +162,7 @@ router.post('/', async (req, res) => {
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() })
     }
-    const { email, phone, injuryType, venueState, venueCounty, currentStep, formSnapshot, assessmentId, status } = parsed.data
+    const { email, phone, injuryType, venueState, venueCounty, currentStep, formSnapshot, assessmentId, status, attribution } = parsed.data
     if (!email && !phone?.trim()) {
       return res.status(400).json({ error: 'An email or phone number is required' })
     }
@@ -141,6 +179,7 @@ router.post('/', async (req, res) => {
         formSnapshot: serializeSnapshot(formSnapshot) ?? null,
         assessmentId: assessmentId || null,
         status: status || 'in_progress',
+        ...attributionColumns(attribution),
       },
     })
 

@@ -1164,7 +1164,15 @@ export type CaseCommandCenter = {
     score: number
     label: string
     detail: string
-    factors: Array<{ key: string; label: string; points: number; max: number; hint?: string }>
+    factors: Array<{
+      key: string
+      label: string
+      points: number
+      max: number
+      /** Whether the points came from an uploaded document or from what the client told us. */
+      basis: 'documented' | 'self_reported' | 'missing'
+      hint?: string
+    }>
   }
   valueStory: {
     median: number
@@ -4129,6 +4137,81 @@ export async function getAdminAnalytics(days?: number) {
   return data
 }
 
+export interface AdminTrafficBreakdown {
+  label: string
+  sessions: number
+  newUsers?: number
+}
+
+/**
+ * GA4 traffic. `configured: false` is a normal state — every environment
+ * without a GA4 property, which is all of them except production.
+ */
+export type AdminTraffic =
+  | { configured: false }
+  | {
+      configured: true
+      periodDays: number
+      totals: {
+        sessions: number
+        totalUsers: number
+        newUsers: number
+        pageViews: number
+        engagementRate: number
+        averageSessionDuration: number
+        bounceRate: number
+      }
+      byDay: { date: string; sessions: number; newUsers: number }[]
+      byChannel: AdminTrafficBreakdown[]
+      bySourceMedium: AdminTrafficBreakdown[]
+      byCampaign: AdminTrafficBreakdown[]
+      byLandingPage: AdminTrafficBreakdown[]
+      byDevice: AdminTrafficBreakdown[]
+      byRegion: AdminTrafficBreakdown[]
+    }
+
+export async function getAdminTraffic(days = 30): Promise<AdminTraffic> {
+  const { data } = await api.get<AdminTraffic>('/v1/admin/traffic', { params: { days } })
+  return data
+}
+
+export interface AdminAdsConversionRow {
+  assessmentId: string
+  claimType: string | null
+  venueState: string | null
+  gclid: string
+  value: number | null
+  currencyCode: string
+  convertedAt: string
+  uploadedAt: string | null
+  /** 'uploaded' | 'pending' | 'skipped' | 'failed' | 'exhausted' */
+  status: string
+  attempts: number
+  lastError: string | null
+}
+
+export interface AdminAdsConversions {
+  configured: boolean
+  periodDays: number
+  clickWindowDays: number
+  maxAttempts: number
+  counts: {
+    uploaded: number
+    pending: number
+    skipped: number
+    failed: number
+    /** Pending rows that are out of retries and will not be picked up again. */
+    exhausted: number
+  }
+  uploadedValue: number
+  recent: AdminAdsConversionRow[]
+}
+
+export async function getAdminAdsConversions(days = 30): Promise<AdminAdsConversions> {
+  const { data } = await api.get<AdminAdsConversions>('/v1/admin/ads-conversions', { params: { days } })
+  return data
+}
+
 export interface AdminRoutingFeedbackSummary {
   periodDays: number
   totals: {
@@ -4715,6 +4798,8 @@ export interface AssistanceReadinessFactor {
   label: string
   points: number
   max: number
+  /** Whether the points came from an uploaded document or from what the client told us. */
+  basis: 'documented' | 'self_reported' | 'missing'
   hint?: string
 }
 

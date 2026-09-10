@@ -6,6 +6,7 @@ import ErrorBoundary from './components/ErrorBoundary'
 import { GuestRoute, ProtectedRoute } from './components/AuthRoute'
 import { getStoredRole, getPostLoginRoute, getLoginRedirect, hasValidAuthToken } from './lib/auth'
 import { applyAnalyticsBoundary } from './lib/analyticsBoundary'
+import { captureAttribution } from './lib/attribution'
 import {
   clearEvidenceReturnTo,
   plaintiffDashboardReturnTo,
@@ -411,6 +412,14 @@ function ResultsRouteBoundary() {
  */
 function AnalyticsBoundary() {
   const location = useLocation()
+
+  // Runs once per visit, before any navigation can wash the campaign out of the
+  // URL. Deliberately not in the effect below: that one is keyed on pathname
+  // and re-runs, and attribution must be captured on the first page only.
+  useEffect(() => {
+    captureAttribution()
+  }, [])
+
   useEffect(() => {
     applyAnalyticsBoundary(location.pathname)
   }, [location.pathname])

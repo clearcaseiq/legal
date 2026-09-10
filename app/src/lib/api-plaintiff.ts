@@ -1,5 +1,6 @@
 import api from './http'
 import { apiDebug } from './debug'
+import { getAttribution } from './attribution'
 
 const freshParams = () => ({ _: Date.now() })
 
@@ -91,8 +92,16 @@ export interface IntakeLeadPayload {
   status?: 'in_progress' | 'completed'
 }
 
+/**
+ * Attribution is attached here rather than by the caller, and only on create.
+ *
+ * The server ignores it on update, because first touch is the point: the
+ * campaign that brought someone in is the one that earned the case. Doing it in
+ * one place means a second call site cannot forget it.
+ */
 export async function createIntakeLead(payload: IntakeLeadPayload): Promise<string> {
-  const { data } = await api.post('/v1/intake-leads', payload)
+  const attribution = getAttribution()
+  const { data } = await api.post('/v1/intake-leads', attribution ? { ...payload, attribution } : payload)
   return data.id
 }
 
