@@ -93,3 +93,34 @@ describe('readiness credits what the claimant reported', () => {
     expect(result.readinessScore).toBeGreaterThan(UNDOCUMENTED_READINESS_CEILING)
   })
 })
+
+/**
+ * The same file is stored under different category names depending on how it
+ * was uploaded. Photos fulfilled from a document request land as
+ * `injury_photos`, and the score only looked for `photos` — so those cases kept
+ * an "Injury/damage photos" item that no upload could ever clear, and never
+ * earned the checklist points.
+ */
+describe('evidence categories fold onto their canonical bucket', () => {
+  beforeEach(() => {
+    resetUniversalPrismaMock()
+    vi.clearAllMocks()
+  })
+
+  it('accepts the synonyms each upload path writes', async () => {
+    givenAssessment(COMPLETED_INTAKE, ['medical_record', 'medical_bills', 'injury_photos', 'police'])
+    const result = await computeCasePreparation('asm-1')
+
+    expect(result.missingDocs).toEqual([])
+    expect(factor(result, 'medical_records')).toMatchObject({ basis: 'documented' })
+    expect(factor(result, 'bills')).toMatchObject({ basis: 'documented' })
+    expect(factor(result, 'checklist')).toMatchObject({ points: 12 })
+  })
+
+  it('still reports a genuinely absent category', async () => {
+    givenAssessment(COMPLETED_INTAKE, ['medical_records', 'bills'])
+    const result = await computeCasePreparation('asm-1')
+
+    expect(result.missingDocs.map((item) => item.key)).toContain('photos')
+  })
+})

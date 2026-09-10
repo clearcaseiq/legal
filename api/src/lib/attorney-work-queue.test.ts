@@ -5,6 +5,7 @@ vi.mock('./prisma', () => import('../test/universalPrismaMock'))
 import { prisma } from './prisma'
 import { resetUniversalPrismaMock } from '../test/universalPrismaMock'
 import { buildAttorneyWorkQueue } from './attorney-work-queue'
+import { scoreCasePreparation } from './case-insights'
 
 describe('buildAttorneyWorkQueue', () => {
   beforeEach(() => {
@@ -61,6 +62,15 @@ describe('buildAttorneyWorkQueue', () => {
     vi.mocked(prisma.negotiationEvent.findMany).mockResolvedValue([] as any)
   }
 
+  /**
+   * A dog-bite file with nothing outstanding.
+   *
+   * The evidence list has to satisfy the served readiness score, which is what
+   * the queue now reads — police report included, since the score asks for one
+   * on a dog-bite claim. Photos are stored as `injury_photos` on purpose: that
+   * is how they arrive from a document request, and the score has to fold the
+   * synonym or the file never clears its checklist.
+   */
   function retainedLead(facts: Record<string, unknown>) {
     return {
       id: 'lead-2',
@@ -68,10 +78,11 @@ describe('buildAttorneyWorkQueue', () => {
       status: 'retained',
       assessment: {
         claimType: 'dog_bite',
-        facts: JSON.stringify(facts),
+        facts: JSON.stringify({ consents: { hipaa: true }, liability: { confidence: 8 }, ...facts }),
         evidenceFiles: [
           { category: 'medical_records' },
           { category: 'bills' },
+          { category: 'police_report' },
           { category: 'injury_photos' },
         ],
         user: { firstName: 'Alex', lastName: 'Smith' },
@@ -101,6 +112,82 @@ describe('buildAttorneyWorkQueue', () => {
     expect(result.leadsWithReadiness[0]?.demandReadiness?.isDemandReady).toBe(true)
     expect(result.leadsWithReadiness[0]?.demandReadiness?.nextAction.actionType).toBe('open_demand')
     expect(result.needsActionToday[0]?.actionType).toBe('open_demand')
+  })
+
+  /**
+   * The reported defect: the case list ran a point ladder of its own, so one
+   * case was two different percentages depending on whether the attorney or the
+   * claimant was looking at it. Both now read the served score.
+   */
+  it('reports the same readiness percentage the claimant is served', async () => {
+    mockEmptyLookups()
+    const facts = {
+      consents: { hipaa: true },
+      liability: { confidence: 8 },
+      treatment: [{ date: daysAgo(40) }, { date: daysAgo(12) }],
+      damages: { med_charges: 24_000 },
+    }
+    const lead = retainedLead(facts)
+
+    const result = await buildAttorneyWorkQueue({
+      attorneyId: 'att-1',
+      prisma,
+      upcomingConsults: [],
+      messagingByAssessmentId: {},
+      leads: [lead],
+    })
+
+    const served = scoreCasePreparation({
+      facts: lead.assessment.facts,
+      claimType: lead.assessment.claimType,
+      evidenceCategories: lead.assessment.evidenceFiles.map((f) => f.category),
+    })
+
+    expect(result.leadsWithReadiness[0]?.demandReadiness?.score).toBe(served.readinessScore)
+  })
+
+  /**
+   * Overdue work used to cost the file readiness points, which is what let the
+   * two numbers drift apart in the first place. An overdue task says nothing
+   * about how complete the evidence is, and the list already shows the count
+   * next to the percentage.
+   */
+  it('does not let an overdue task move the readiness percentage', async () => {
+    mockEmptyLookups()
+    const lead = retainedLead({ treatment: [{ date: daysAgo(12) }] })
+
+    const clean = await buildAttorneyWorkQueue({
+      attorneyId: 'att-1',
+      prisma,
+      upcomingConsults: [],
+      messagingByAssessmentId: {},
+      leads: [lead],
+    })
+
+    mockEmptyLookups()
+    vi.mocked(prisma.caseTask.findMany).mockResolvedValue([
+      {
+        id: 'task-1',
+        assessmentId: 'asm-2',
+        title: 'Overdue thing',
+        dueDate: new Date(Date.now() - 5 * 86_400_000),
+        priority: 'high',
+        taskType: 'checkpoint',
+      },
+    ] as any)
+
+    const overdue = await buildAttorneyWorkQueue({
+      attorneyId: 'att-1',
+      prisma,
+      upcomingConsults: [],
+      messagingByAssessmentId: {},
+      leads: [lead],
+    })
+
+    expect(overdue.leadsWithReadiness[0]?.demandReadiness?.score).toBe(
+      clean.leadsWithReadiness[0]?.demandReadiness?.score,
+    )
+    expect(overdue.leadsWithReadiness[0]?.demandReadiness?.overdueTaskCount).toBe(1)
   })
 
   // Regression: the file is otherwise strong, but the client stopped treating

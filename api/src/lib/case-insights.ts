@@ -701,52 +701,114 @@ export async function buildMedicalChronologySummary(
   }
 }
 
+/**
+ * Evidence categories fold into buckets before the readiness score reads them.
+ *
+ * The same document arrives under different `category` values depending on the
+ * path it took: the inline claimant uploader, an attorney upload, and
+ * document-request fulfillment all name things differently. Photos in
+ * particular are stored as `injury_photos` when they come from a document
+ * request, so a case that had them still scored as missing them — losing both
+ * the checklist points and the "Injury/damage photos" line never clearing.
+ *
+ * Only the buckets the score reads are folded here. The fuller list the
+ * evidence filter uses lives in the workspace page's EVIDENCE_CATEGORY_ALIASES.
+ */
+const EVIDENCE_CATEGORY_ALIASES: Record<string, string> = {
+  medical: 'medical_records',
+  medical_record: 'medical_records',
+  records: 'medical_records',
+  prior_records: 'medical_records',
+  medical_bills: 'bills',
+  medical_bill: 'bills',
+  bill: 'bills',
+  invoice: 'bills',
+  police: 'police_report',
+  incident_report: 'police_report',
+  injury: 'photos',
+  injuries: 'photos',
+  injury_photos: 'photos',
+  photo: 'photos',
+  damage_photos: 'photos',
+  property_damage: 'photos',
+  product_photos: 'photos',
+}
+
+function normalizeEvidenceCategory(value: string | null | undefined): string {
+  const key = String(value || '').trim().toLowerCase().replace(/[\s-]+/g, '_')
+  return EVIDENCE_CATEGORY_ALIASES[key] || key
+}
+
+/** Everything the readiness score is derived from. See scoreCasePreparation. */
+export interface CasePreparationInput {
+  /** The raw `Assessment.facts` JSON string, or the parsed object. */
+  facts: string | Record<string, any> | null
+  claimType?: string | null
+  /** `EvidenceFile.category` for every file on the case. */
+  evidenceCategories: Array<string | null | undefined>
+  /** `Prediction.viability`, from the most recent prediction. */
+  viability?: unknown
+}
+
+/** The columns scoreCasePreparation needs, for a caller batching its own read. */
+export const CASE_PREPARATION_SELECT = {
+  facts: true,
+  claimType: true,
+  evidenceFiles: { select: { category: true } },
+  predictions: {
+    orderBy: { createdAt: 'desc' as const },
+    take: 1,
+    select: { id: true, viability: true },
+  },
+} as const
+
+const EMPTY_PREPARATION: CasePreparationResult = {
+  missingDocs: [],
+  treatmentGaps: [],
+  strengths: [],
+  weaknesses: [],
+  readinessScore: 0,
+  readinessFactors: [],
+}
+
 export async function computeCasePreparation(assessmentId: string): Promise<CasePreparationResult> {
   const assessment = await prisma.assessment.findUnique({
     where: { id: assessmentId },
-    select: {
-      facts: true,
-      claimType: true,
-      evidenceFiles: {
-        select: {
-          category: true,
-        },
-      },
-      predictions: {
-        orderBy: { createdAt: 'desc' },
-        take: 1,
-        select: {
-          id: true,
-          viability: true,
-        },
-      },
-    },
+    select: CASE_PREPARATION_SELECT,
   })
 
-  if (!assessment) {
-    return {
-      missingDocs: [],
-      treatmentGaps: [],
-      strengths: [],
-      weaknesses: [],
-      readinessScore: 0,
-      readinessFactors: [],
-    }
-  }
+  if (!assessment) return { ...EMPTY_PREPARATION }
 
-  const facts = JSON.parse(assessment.facts) as Record<string, any>
+  return scoreCasePreparation({
+    facts: assessment.facts,
+    claimType: assessment.claimType,
+    evidenceCategories: (assessment.evidenceFiles || []).map((f) => f.category),
+    viability: assessment.predictions?.[0]?.viability,
+  })
+}
+
+/**
+ * The readiness score, with no database access.
+ *
+ * Split out of computeCasePreparation so a caller working over a whole caseload
+ * can batch one read and score every case from it. The attorney work queue used
+ * to run a point ladder of its own here — a sixth one — so the percentage in
+ * the case list disagreed with the one the claimant was looking at.
+ */
+export function scoreCasePreparation(input: CasePreparationInput): CasePreparationResult {
+  const facts = (
+    typeof input.facts === 'string' ? parseFactsJson(input.facts) : input.facts || {}
+  ) as Record<string, any>
   const missingDocs: CasePreparationResult['missingDocs'] = []
   const treatmentGaps: CasePreparationResult['treatmentGaps'] = []
   const strengths: string[] = []
   const weaknesses: string[] = []
 
-  // Evidence categories we expect
-  const evidenceCategories = new Set(
-    (assessment.evidenceFiles || []).map((f) => f.category)
-  )
-  const claimKey = String(assessment.claimType || '').toLowerCase().replace(/[\s-]+/g, '_')
+  // Evidence categories we expect, folded onto their canonical bucket.
+  const evidenceCategories = new Set(input.evidenceCategories.map(normalizeEvidenceCategory))
+  const claimKey = String(input.claimType || '').toLowerCase().replace(/[\s-]+/g, '_')
   const isProduct = claimKey === 'product' || claimKey === 'product_liability'
-  const evidenceCount = (assessment.evidenceFiles || []).length
+  const evidenceCount = input.evidenceCategories.length
 
   // Missing docs checklist — claim-type aware (no police report on product cases).
   if (!evidenceCategories.has('medical_records')) {
@@ -831,9 +893,9 @@ export async function computeCasePreparation(assessmentId: string): Promise<Case
 
   // Strengths/weaknesses — liability wording must agree with prediction/underwriting,
   // not a missing facts.liability.confidence field that contradicts "Very Strong".
-  const pred = assessment.predictions?.[0]
+  const pred = input.viability ? { viability: input.viability } : null
   const viability = (() => {
-    const raw = (pred as any)?.viability
+    const raw = input.viability
     if (!raw) return {} as Record<string, number>
     try {
       return (typeof raw === 'string' ? JSON.parse(raw) : raw) as Record<string, number>

@@ -3,6 +3,8 @@ import {
   evaluateDemandGate,
   loadTreatmentCompletionSignals,
 } from './demand-readiness'
+import { scoreCasePreparation } from './case-insights'
+import { getHeuristics, getReadinessLabel } from './heuristics-config'
 
 type Severity = 'high' | 'medium' | 'low'
 type ActionType =
@@ -135,7 +137,14 @@ export async function buildAttorneyWorkQueue(params: {
   // the whole caseload because the demand gate consults it per lead below.
   const treatmentCompleteIds = await loadTreatmentCompletionSignals(params.prisma, assessmentIds)
 
-  const [openTasks, pendingDocumentRequests, latestContacts, demandLetters, negotiationEvents] = await Promise.all([
+  const [
+    openTasks,
+    pendingDocumentRequests,
+    latestContacts,
+    demandLetters,
+    negotiationEvents,
+    predictions,
+  ] = await Promise.all([
     assessmentIds.length > 0
       ? params.prisma.caseTask.findMany({
           where: {
@@ -216,6 +225,15 @@ export async function buildAttorneyWorkQueue(params: {
           },
         })
       : Promise.resolve([]),
+    // Liability, for the readiness score below. Batched for the caseload rather
+    // than read per lead; the leads themselves do not carry predictions.
+    assessmentIds.length > 0
+      ? params.prisma.prediction.findMany({
+          where: { assessmentId: { in: assessmentIds } },
+          orderBy: { createdAt: 'desc' },
+          select: { assessmentId: true, viability: true },
+        })
+      : Promise.resolve([]),
   ])
 
   const tasksByAssessmentId: Record<string, any[]> = {}
@@ -258,6 +276,19 @@ export async function buildAttorneyWorkQueue(params: {
       upcomingConsultByLeadId[consult.leadId] = consult
     }
   }
+
+  const viabilityByAssessmentId: Record<string, unknown> = {}
+  for (const prediction of predictions as any[]) {
+    if (!(prediction.assessmentId in viabilityByAssessmentId)) {
+      viabilityByAssessmentId[prediction.assessmentId] = prediction.viability
+    }
+  }
+
+  // The bands the score is read against are configurable, so an admin moving
+  // "demand-ready" moves it everywhere rather than only on the surfaces that
+  // happened to be updated.
+  const heuristics = await getHeuristics()
+  const { demandReadyMin, demandPrepMin } = heuristics.readinessLabels
 
   const leadsWithReadiness = params.leads.map((lead) => {
     const facts = parseJson<Record<string, any>>(lead?.assessment?.facts, {})
@@ -399,18 +430,23 @@ export async function buildAttorneyWorkQueue(params: {
       hasMedicalRecords: evidenceCategories.has('medical_records') || evidenceCategories.has('bills'),
     })
 
-    let score = 100
-    score -= blockers.reduce((total, blocker) => total + (blocker.severity === 'high' ? 18 : blocker.severity === 'medium' ? 10 : 5), 0)
-    score -= overdueTasks.length * 10
-    score -= todayTasks.length * 4
-    if (hasDemand) score += 6
-    if (negotiation) score += 4
-    score = clamp(score, 5, 100)
+    // The readiness percentage is the served case-preparation score, the same
+    // number the claimant sees on their dashboard. This used to be a ladder of
+    // its own — 100 less a penalty per blocker and per overdue task, plus
+    // credit for having a demand on file — so one case was described by two
+    // different percentages depending on who was looking at it.
+    //
+    // Workflow state deliberately no longer moves it. Whether a task is overdue
+    // says nothing about how complete the evidence file is, and the case list
+    // already shows the overdue count beside the number.
+    const { readinessScore: score } = scoreCasePreparation({
+      facts,
+      claimType,
+      evidenceCategories: ((lead?.assessment?.evidenceFiles as any[]) || []).map((file) => file?.category),
+      viability: viabilityByAssessmentId[lead.assessmentId],
+    })
 
-    let label = 'Early file'
-    if (score >= 85) label = 'Demand-ready'
-    else if (score >= 70) label = 'Nearly demand-ready'
-    else if (score >= 50) label = 'File strengthening'
+    const label = getReadinessLabel(heuristics, score)
 
     const sortedBlockers = blockers.sort((left, right) => severityRank(left.severity) - severityRank(right.severity))
     const missingDocKeys = sortedBlockers
@@ -461,7 +497,7 @@ export async function buildAttorneyWorkQueue(params: {
         targetSection: 'overview',
         messageDraft: 'Just checking in on your case. We are still moving through the next review step, and I wanted to make sure you know what we still need and what comes next.',
       }
-    } else if (score >= 75 && ['consulted', 'retained'].includes(lead.status || '') && !hasDemand && demandGate.ready) {
+    } else if (score >= demandPrepMin && ['consulted', 'retained'].includes(lead.status || '') && !hasDemand && demandGate.ready) {
       nextAction = {
         actionType: 'open_demand',
         title: 'Move this file into demand drafting',
@@ -469,7 +505,7 @@ export async function buildAttorneyWorkQueue(params: {
         targetSection: 'demand',
       }
     } else if (
-      score >= 75 &&
+      score >= demandPrepMin &&
       ['consulted', 'retained'].includes(lead.status || '') &&
       !hasDemand &&
       treatmentPosture.posture !== 'complete'
@@ -503,7 +539,7 @@ export async function buildAttorneyWorkQueue(params: {
       assessmentId: lead.assessmentId,
       score,
       label,
-      isDemandReady: score >= 85 && !hasDemand && demandGate.ready,
+      isDemandReady: score >= demandReadyMin && !hasDemand && demandGate.ready,
       blockerCount: sortedBlockers.length,
       blockers: sortedBlockers.slice(0, 4),
       nextAction,
