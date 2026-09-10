@@ -180,9 +180,10 @@ the four-line blanket disallow, and the page carries `noindex`.
 indexable. Fix that before anything crawls it — QA serves the same pages as
 production and will compete with the live site for its own queries.
 
-The same flag also clears `publicPage`, which gates `SiteAnalytics`. That is
-what keeps QA traffic out of the production GA property, since the measurement
-id is inlined into the image at build time and one promotable image carries it
+The same flag also clears `publicPage`, which gates `SiteAnalytics` and
+`SiteTagManager`. That is what keeps QA traffic out of the production GA
+property and stops production's GTM container firing here, since both ids are
+inlined into the image at build time and one promotable image carries them
 everywhere.
 
 ## 10. OAuth, if you need social login

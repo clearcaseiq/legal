@@ -4,6 +4,7 @@ import Head from 'next/head'
 import SsrRoot from '../src/ssr-root'
 import AppRouteShell from '../src/components/AppRouteShell'
 import SiteAnalytics from '../src/components/SiteAnalytics'
+import SiteTagManager from '../src/components/SiteTagManager'
 import { isKnownAppRoute, topicHubForClusterPrefix } from '../src/data/appRoutes'
 import { indexingEnabled } from '../src/lib/siteConfig'
 import { DEFAULT_LANGUAGE, type LanguageCode } from '../src/i18n'
@@ -94,7 +95,7 @@ type PageProps = {
   seo: SeoProps
   /** Path to render on the server, or null for client-only routes. */
   ssrLocation: string | null
-  /** Public marketing content, so analytics may load. See SiteAnalytics. */
+  /** Public marketing content, so tags may load. See SiteAnalytics. */
   publicPage: boolean
   /** Language the URL fixes this page to, for localized paths. */
   language?: LanguageCode
@@ -139,7 +140,12 @@ export default function CatchAllPage({ seo, ssrLocation, publicPage, language, m
           <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: seo.schema }} />
         ) : null}
       </Head>
-      {publicPage ? <SiteAnalytics /> : null}
+      {publicPage ? (
+        <>
+          <SiteAnalytics />
+          <SiteTagManager />
+        </>
+      ) : null}
       {ssrLocation ? (
         <SsrRoot location={ssrLocation} language={language} messages={messages ?? undefined} />
       ) : embed ? (
@@ -358,11 +364,11 @@ const resolvePage: GetServerSideProps<PageProps> = async ({ params, query, res }
  * the one branch someone forgot would compete with the live site for its own
  * queries — the failure is invisible until rankings move.
  *
- * `publicPage` is what gates SiteAnalytics, and the measurement id is baked into
- * the image at build time because Next inlines `NEXT_PUBLIC_*`. One promotable
- * image therefore carries production's id everywhere it runs, so QA would report
- * its own test traffic into the production property and quietly corrupt the
- * numbers the site is measured on. Clearing the flag here is what stops that,
+ * `publicPage` is what gates SiteAnalytics and SiteTagManager, and both ids are
+ * baked into the image at build time because Next inlines `NEXT_PUBLIC_*`. One
+ * promotable image therefore carries production's ids everywhere it runs, so QA
+ * would report its own test traffic into the production property and quietly
+ * corrupt the numbers the site is measured on. Clearing the flag here stops that,
  * and it follows the same rule: a deployment that is not the public site does
  * not behave as the public site.
  *

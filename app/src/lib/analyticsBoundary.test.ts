@@ -87,4 +87,44 @@ describe('analytics boundary', () => {
     applyAnalyticsBoundary('/assess', undefined, scope)
     expect(Object.keys(scope)).toHaveLength(0)
   })
+
+  /**
+   * The GTM half. `ga-disable` is gtag's own switch and the vendor tags a
+   * container loads do not read it, so a dataLayer variable is the only lever
+   * the app has over them.
+   */
+  it('tells the GTM container when the route is off limits', () => {
+    const dataLayer: unknown[] = []
+    const scope: Record<string, unknown> = { dataLayer }
+    applyAnalyticsBoundary('/assess', undefined, scope)
+    expect(dataLayer[dataLayer.length - 1]).toEqual({
+      event: 'analytics_boundary',
+      analytics_blocked: true,
+    })
+  })
+
+  it('lifts the GTM block on the way back out to a public page', () => {
+    const dataLayer: unknown[] = []
+    const scope: Record<string, unknown> = { dataLayer }
+    applyAnalyticsBoundary('/assess', undefined, scope)
+    applyAnalyticsBoundary('/how-it-works', undefined, scope)
+    expect(dataLayer[dataLayer.length - 1]).toEqual({
+      event: 'analytics_boundary',
+      analytics_blocked: false,
+    })
+  })
+
+  it('signals both tags when both are installed', () => {
+    const dataLayer: unknown[] = []
+    const scope: Record<string, unknown> = { dataLayer }
+    applyAnalyticsBoundary('/dashboard', 'G-TEST123', scope)
+    expect(scope['ga-disable-G-TEST123']).toBe(true)
+    expect(dataLayer).toHaveLength(1)
+  })
+
+  it('stays quiet when no container has created a dataLayer', () => {
+    const scope: Record<string, unknown> = {}
+    applyAnalyticsBoundary('/assess', 'G-TEST123', scope)
+    expect(scope.dataLayer).toBeUndefined()
+  })
 })

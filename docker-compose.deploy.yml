@@ -132,6 +132,7 @@ services:
         # build-time and genuinely production-only. Left unset for QA, which
         # omits the tags entirely — the desired outcome there anyway.
         NEXT_PUBLIC_GA_MEASUREMENT_ID: ${NEXT_PUBLIC_GA_MEASUREMENT_ID:-}
+        NEXT_PUBLIC_GTM_CONTAINER_ID: ${NEXT_PUBLIC_GTM_CONTAINER_ID:-}
         NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION: ${NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION:-}
         NEXT_PUBLIC_BING_SITE_VERIFICATION: ${NEXT_PUBLIC_BING_SITE_VERIFICATION:-}
         GIT_COMMIT: ${GIT_COMMIT:-}

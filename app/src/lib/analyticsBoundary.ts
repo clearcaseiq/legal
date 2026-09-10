@@ -1,9 +1,11 @@
 /**
- * Keeps Google Analytics off the screens that carry health information.
+ * Keeps Google Analytics and Tag Manager off the screens that carry health
+ * information.
  *
  * The server already decides this for the page a visitor lands on: only
- * marketing and SEO landing pages render <SiteAnalytics>, so entering directly
- * on /assess loads no tag at all. This closes the gap that leaves.
+ * marketing and SEO landing pages render <SiteAnalytics> and <SiteTagManager>,
+ * so entering directly on /assess loads no tag at all. This closes the gap that
+ * leaves.
  *
  * The site is a single-page app behind a catch-all route. Someone who arrives
  * on a city landing page and then clicks through to the assessment keeps the
@@ -92,11 +94,26 @@ export function isSensitivePath(pathname: string): boolean {
 }
 
 /**
- * Flips GA's kill switch for the current route.
+ * Flips the kill switches for the current route.
  *
- * Named for the measurement id because that is the only form GA reads; a
- * generically named flag is ignored. No-ops when no id is configured, which is
- * every non-production build.
+ * Two of them, because the two tags read different things.
+ *
+ * `ga-disable-<id>` is gtag's own switch and stops everything the GA snippet
+ * would send, enhanced measurement included. It is named for the measurement id
+ * because that is the only form GA reads; a generically named flag is ignored.
+ *
+ * GTM has no equivalent. A container is a remote loader, and the vendor tags it
+ * installs do not read gtag's switch, so the only lever available from here is
+ * a dataLayer variable the container can be told to respect. `analytics_blocked`
+ * is that variable, and it is inert until someone adds a blocking trigger on it
+ * in the GTM console — an exception that fires on `analytics_blocked equals
+ * true` and is attached to every tag in the container. Until that exists, the
+ * server-side `publicPage` gate is the whole of the GTM boundary: tags will not
+ * load on a private landing, but they will keep running for a visitor who
+ * navigates from a public page into one.
+ *
+ * No-ops for whichever tag is not configured, which for both is every
+ * non-production build.
  */
 export function applyAnalyticsBoundary(
   pathname: string,
@@ -105,6 +122,16 @@ export function applyAnalyticsBoundary(
     ? undefined
     : (window as unknown as Record<string, unknown>),
 ): void {
-  if (!measurementId || !scope) return
-  scope[`ga-disable-${measurementId}`] = isSensitivePath(pathname)
+  if (!scope) return
+
+  const blocked = isSensitivePath(pathname)
+
+  if (measurementId) scope[`ga-disable-${measurementId}`] = blocked
+
+  // Only when GTM is actually on the page: the array is created by its snippet,
+  // so its absence means there is no container to signal.
+  const dataLayer = scope.dataLayer
+  if (Array.isArray(dataLayer)) {
+    dataLayer.push({ event: 'analytics_boundary', analytics_blocked: blocked })
+  }
 }

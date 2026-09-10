@@ -123,6 +123,7 @@ services:
       # /uploads locations in the nginx config, and SITE_URL is read at runtime.
       args:
         NEXT_PUBLIC_GA_MEASUREMENT_ID: ${NEXT_PUBLIC_GA_MEASUREMENT_ID:-}
+        NEXT_PUBLIC_GTM_CONTAINER_ID: ${NEXT_PUBLIC_GTM_CONTAINER_ID:-}
         NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION: ${NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION:-}
         NEXT_PUBLIC_BING_SITE_VERIFICATION: ${NEXT_PUBLIC_BING_SITE_VERIFICATION:-}
     container_name: injury-intelligence-web

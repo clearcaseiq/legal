@@ -135,6 +135,7 @@ jobs:
             GIT_COMMIT=${{ github.sha }}
             BUILD_TIME=${{ steps.stamp.outputs.value }}
             NEXT_PUBLIC_GA_MEASUREMENT_ID=${{ secrets.NEXT_PUBLIC_GA_MEASUREMENT_ID }}
+            NEXT_PUBLIC_GTM_CONTAINER_ID=${{ secrets.NEXT_PUBLIC_GTM_CONTAINER_ID }}
             NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION=${{ secrets.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION }}
             NEXT_PUBLIC_BING_SITE_VERIFICATION=${{ secrets.NEXT_PUBLIC_BING_SITE_VERIFICATION }}
           # Layer cache in the registry rather than on the runner, which starts

@@ -389,7 +389,8 @@ is omitted; older runbooks that pin a certificate fingerprint are describing a
 requirement that no longer exists.
 
 `AWS_ECR_ROLE_ARN` sits alongside `NEXT_PUBLIC_GA_MEASUREMENT_ID`,
-`NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION` and `NEXT_PUBLIC_BING_SITE_VERIFICATION`.
+`NEXT_PUBLIC_GTM_CONTAINER_ID`, `NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION` and
+`NEXT_PUBLIC_BING_SITE_VERIFICATION`.
 
 Both instance roles carry an `ecr-pull` policy granting read on these two
 repositories, which is what lets the hosts pull what this workflow publishes.
@@ -446,14 +447,15 @@ break-glass `docker compose build`, where any local value will do.
 
 ### Why analytics is off outside production
 
-The GA measurement id is a `NEXT_PUBLIC_*` value, so Next inlines it at build
-time and one promotable image necessarily carries production's id everywhere it
-runs. Left alone, QA would report its own test traffic into the production GA
-property and quietly corrupt the numbers the site is measured on.
+The GA measurement id and the GTM container id are `NEXT_PUBLIC_*` values, so
+Next inlines them at build time and one promotable image necessarily carries
+production's ids everywhere it runs. Left alone, QA would report its own test
+traffic into the production GA property and fire production's container tags,
+quietly corrupting the numbers the site is measured on.
 
 `SEARCH_ENGINE_INDEXING=disabled` therefore also clears `publicPage`, which is
-what gates `SiteAnalytics`. Same rule as indexing: a deployment that is not the
-public site does not behave as the public site.
+what gates `SiteAnalytics` and `SiteTagManager`. Same rule as indexing: a
+deployment that is not the public site does not behave as the public site.
 
 ## First-Time EC2 Setup
 

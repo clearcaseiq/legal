@@ -32,6 +32,7 @@ the production build environment, not just in a local `.env`.
 | --- | --- | --- |
 | `NEXT_PUBLIC_SITE_URL` | Absolute URLs in canonicals, Open Graph tags, sitemap | Falls back to `https://www.clearcaseiq.com` |
 | `NEXT_PUBLIC_GA_MEASUREMENT_ID` | GA4 property (`G-XXXXXXXXXX`) | No analytics at all |
+| `NEXT_PUBLIC_GTM_CONTAINER_ID` | Tag Manager container (`GTM-XXXXXXX`) | No container loads |
 | `NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION` | Search Console meta tag | Cannot verify by meta tag |
 | `NEXT_PUBLIC_BING_SITE_VERIFICATION` | Bing Webmaster meta tag | Cannot verify by meta tag |
 
@@ -99,6 +100,26 @@ resident in the document. It sends no pageview for that route, but GA4 enhanced
 measurement can fire on its own, which is why the setting above matters.
 Widening this boundary needs a HIPAA review — see
 `app/src/components/SiteAnalytics.tsx`.
+
+### Tag Manager, if a container is configured
+
+`NEXT_PUBLIC_GTM_CONTAINER_ID` loads GTM under the same public-pages-only gate,
+but the container needs one setup step that code cannot do for it:
+
+- [ ] In the GTM console, create a **blocking trigger** on the custom variable
+      `analytics_blocked` equal to `true`, and attach it as an exception to
+      every tag in the container.
+
+That variable is pushed to the dataLayer on each route change by
+`applyAnalyticsBoundary`. Without the blocking trigger it is inert, and any tag
+in the container keeps firing after a visitor navigates from a landing page into
+the intake wizard — carrying `page_location`, which on those routes can hold an
+assessment id or a claim token. `ga-disable` does not help here; it is gtag's
+own switch and the vendors GTM loads do not read it.
+
+- [ ] Decide where GA4 runs. If the container holds its own GA4 tag *and*
+      `NEXT_PUBLIC_GA_MEASUREMENT_ID` is set, the same traffic is measured twice
+      and sessions double-count. Pick one.
 
 ---
 
