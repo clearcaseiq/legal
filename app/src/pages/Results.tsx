@@ -502,7 +502,8 @@ function getLiabilityModifierExplanation(t: TFn, params: {
   liabilityScore: number
   comparativeFaultPercent: number
 }) {
-  if (params.liabilityScore >= 0.7 && params.comparativeFaultPercent < 20) {
+  const tier = liabilityTier(params.liabilityScore * 100)
+  if ((tier === 'very_strong' || tier === 'strong') && params.comparativeFaultPercent < 20) {
     return {
       label: t('results.calc.liabClearerLabel'),
       effect: t('results.calc.liabClearerEffect'),
@@ -511,7 +512,7 @@ function getLiabilityModifierExplanation(t: TFn, params: {
     }
   }
 
-  if (params.liabilityScore >= 0.4) {
+  if (tier === 'moderate' || tier === 'strong' || tier === 'very_strong') {
     return {
       label: t('results.calc.liabMixedLabel'),
       effect: t('results.calc.liabMixedEffect'),
@@ -3262,11 +3263,24 @@ Checklist:
   const liabMostLikelyAtFault = liabFaultOther >= liabFaultShared && liabFaultOther >= liabFaultYou
     ? t('results.calc.faultOtherDriver')
     : liabFaultShared >= liabFaultYou ? t('results.calc.faultShared') : t('results.calc.faultYou')
-  const sharedFaultRiskWord = liabilityPercent >= 65 ? 'Low' : liabilityPercent >= 45 ? 'Medium' : 'High'
+  // The inverse of the strength meter: shared-fault risk is low exactly when the
+  // shared grader calls liability strong, so the two cannot describe one case as
+  // both favourable and high-risk.
+  const sharedFaultRiskWord = liabilityConfidenceLevel(liabilityTierValue) === 'High'
+    ? 'Low'
+    : liabilityConfidenceLevel(liabilityTierValue) === 'Medium' ? 'Medium' : 'High'
   const sharedFaultRiskLabel = sharedFaultRiskWord === 'Low' ? t('results.calc.riskLow') : sharedFaultRiskWord === 'Medium' ? t('results.calc.strengthModerate') : t('results.calc.strengthHigh')
   const sharedFaultRiskDesc = sharedFaultRiskWord === 'Low' ? t('results.calc.sharedFaultDescLow') : sharedFaultRiskWord === 'Medium' ? t('results.calc.sharedFaultDescMedium') : t('results.calc.sharedFaultDescHigh')
   const sharedFaultRiskPos = sharedFaultRiskWord === 'Low' ? 18 : sharedFaultRiskWord === 'Medium' ? 50 : 82
-  const liabStrengthLabel = liabilityPercent >= 70 ? t('results.calc.liabStronglyFavorable') : liabilityPercent >= 55 ? t('results.calc.liabModeratelyFavorable') : liabilityPercent >= 40 ? t('results.calc.liabMixed') : t('results.calc.liabNeedsProof')
+  // Four phrasings for the four shared tiers. On its own ladder of 70/55/40 this
+  // called a 42 "Mixed" while the snapshot tile above it, and the attorney's
+  // file, called the same case unsupported.
+  const liabStrengthLabel = t({
+    very_strong: 'results.calc.liabStronglyFavorable',
+    strong: 'results.calc.liabModeratelyFavorable',
+    moderate: 'results.calc.liabMixed',
+    weak: 'results.calc.liabNeedsProof',
+  }[liabilityTierValue])
   const liabStrongFactors = ([
     isRearEndCase ? { label: t('results.calc.liabFactorRearEnd'), impact: 25 } : null,
     (treatment.length > 0 || hasMedicalRecords) ? { label: t('results.calc.liabFactorImmediateTreatment'), impact: 10 } : null,

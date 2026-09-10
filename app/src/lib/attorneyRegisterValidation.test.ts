@@ -14,6 +14,7 @@ function validForm(overrides: Partial<AttorneyRegisterFormInput> = {}): Attorney
     password: 'correct-horse',
     firstName: 'Ada',
     lastName: 'Lovelace',
+    firmName: 'Lovelace & Partners',
     phone: '(555) 555-0100',
     specialties: ['vehicle'],
     venues: ['CA'],
@@ -33,8 +34,14 @@ describe('validateAttorneyRegisterInput', () => {
     expect(validateAttorneyRegisterInput(validForm({ phone: '(111) 555-0100' })).fieldErrors.phone).toBeTruthy()
   })
 
-  it('treats a blank phone as optional', () => {
-    expect(validateAttorneyRegisterInput(validForm({ phone: '' })).fieldErrors.phone).toBeUndefined()
+  /**
+   * Phone is required here even though the API schema takes it as optional. The
+   * form is deliberately the stricter of the two: routing offers go out by SMS
+   * with reply-to-accept, so an attorney who registers without a number is
+   * signing up for a queue they cannot answer.
+   */
+  it('requires a phone number', () => {
+    expect(validateAttorneyRegisterInput(validForm({ phone: '' })).fieldErrors.phone).toBeTruthy()
   })
 
   it('ignores the bare http:// placeholder in the website field', () => {

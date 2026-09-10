@@ -1,15 +1,26 @@
 /**
  * Repro for the reported mobile white screen: dog bite intake, Step 2 filled,
- * treatments (ER, PT, MRI, injections) selected, then Next to Step 3
- * (injury_severity). A white screen means a render-time crash, so these tests
- * mount the wizard and fail on any thrown error.
+ * the initial-care block answered, then Next to Step 3 (injury_severity). A
+ * white screen means a render-time crash, so these tests mount the wizard and
+ * fail on any thrown error.
  */
 import { it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createRoot, type Root } from 'react-dom/client'
 import { act } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import { ensureAppMessages } from '../i18n'
+import en from '../i18n/locales/en-app.json'
 import IntakeWizardQuick from './IntakeWizardQuick'
+
+/**
+ * The step 2 answers that satisfy its medical block, read from the dictionary
+ * the wizard renders from rather than repeated as copy. This test spent a while
+ * red for two reasons at once: the option it clicked was reworded from "ER
+ * visit" to "Emergency room", and the block itself was redesigned from a
+ * multi-select of treatment types into a where-and-when pair. Neither had
+ * anything to do with the render crash the test exists to catch.
+ */
+const INITIAL_CARE_ANSWERS = [en.intake.treatment_er, en.intake.careTiming_sameDay]
 
 vi.mock('../lib/api-plaintiff', () => ({
   createAssessment: vi.fn(async () => ({ id: 'a1' })),
@@ -87,12 +98,36 @@ async function flush(ms = 50) {
   await act(async () => { await new Promise((r) => setTimeout(r, ms)) })
 }
 
+/**
+ * Prefers an exact label, and only falls back to a substring when exactly one
+ * button contains it.
+ *
+ * A plain substring search picked the wrong button here for a long time:
+ * choosing a place of care reveals the care-timing options, one of which is
+ * "Next day", and it sits above the footer in the DOM. So "Next" stopped
+ * meaning the Next button the moment the step was half filled in, the wizard
+ * never advanced, and the failure surfaced as step 3 not rendering.
+ */
 function buttonWithText(text: string): HTMLButtonElement {
-  const match = Array.from(document.querySelectorAll('button')).find(
-    (b) => (b.textContent || '').trim().includes(text)
-  )
-  if (!match) throw new Error(`No button containing text: ${text}`)
-  return match as HTMLButtonElement
+  const buttons = Array.from(document.querySelectorAll('button'))
+  const label = (b: Element) => (b.textContent || '').trim()
+
+  const exact = buttons.filter((b) => label(b) === text)
+  if (exact.length > 0) return exact[0] as HTMLButtonElement
+
+  const partial = buttons.filter((b) => label(b).includes(text))
+  // Naming what was on screen: a step that renders different options than the
+  // test expects and a step that fails to render at all both read as "not
+  // found", and they need different fixes.
+  const onScreen = buttons.map((b) => JSON.stringify(label(b))).join(', ')
+  if (partial.length === 0) throw new Error(`No button labelled ${text}\nButtons on screen: ${onScreen}`)
+  if (partial.length > 1) {
+    throw new Error(
+      `${partial.length} buttons contain ${text}, so the intended one is ambiguous: ` +
+        `${partial.map((b) => JSON.stringify(label(b))).join(', ')}`,
+    )
+  }
+  return partial[0] as HTMLButtonElement
 }
 
 async function click(el: Element) {
@@ -124,7 +159,7 @@ function localIsoToday(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-it('full flow: dog bite -> step 2 -> validation error -> treatments -> step 3 renders', async () => {
+it('full flow: dog bite -> step 2 -> validation error -> initial care -> step 3 renders', async () => {
   await mount()
   await flush(100)
 
@@ -169,8 +204,10 @@ it('full flow: dog bite -> step 2 -> validation error -> treatments -> step 3 re
   await flush(100)
   expect(document.body.textContent).toContain('Please select at least one option')
 
-  // Select all four treatments.
-  for (const label of ['ER visit', 'Physical therapy', 'MRI', 'Injections']) {
+  // Answer the initial-care block. It asks where care began and how soon it
+  // started; it used to be a multi-select list of treatment types, which is
+  // what this test was clicking through before.
+  for (const label of INITIAL_CARE_ANSWERS) {
     await click(buttonWithText(label))
     await flush(20)
   }
@@ -181,6 +218,12 @@ it('full flow: dog bite -> step 2 -> validation error -> treatments -> step 3 re
 
   expect(uncaught, `render crashed: ${uncaught.map((e) => (e as Error)?.stack ?? String(e)).join('\n')}`).toEqual([])
   expect(document.body.textContent).toContain('Your Injuries & Treatment')
-  // The step content should actually be visible (not an empty panel).
-  expect(document.body.textContent).toContain('ER visit')
+  // The step content should actually be visible, not an empty panel with only
+  // the wizard chrome. Counted rather than named, so rewording an option here
+  // does not fail a test about whether the step renders at all.
+  const chrome = ['Back', 'Next', 'Start over']
+  const options = Array.from(document.querySelectorAll('button')).filter(
+    (b) => !chrome.includes((b.textContent || '').trim()),
+  )
+  expect(options.length).toBeGreaterThan(0)
 })
