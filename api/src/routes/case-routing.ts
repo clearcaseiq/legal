@@ -15,6 +15,7 @@ import {
 } from '../lib/routing-lifecycle'
 import { formatAttorneyResponseDeadline, getAttorneyResponseDeadlineMinutes, getMatchingRules } from '../lib/matching-rules-config'
 import { getAppointmentPreparation, seedAppointmentPrepItems } from '../lib/appointment-engagement'
+import { careFinishedOnRecord } from '../lib/workflow-signals'
 const router = Router()
 
 async function getAttorneyFromRequest(req: AuthRequest): Promise<{ id: string } | null> {
@@ -176,6 +177,12 @@ router.get('/assessment/:id/status', authMiddleware, async (req: AuthRequest, re
         claimType: true,
         caseStage: true,
         litigationStatus: true,
+        // Whether care is recorded as still ongoing. The claimant's dashboard
+        // asks them to confirm this, and needs to stop asking once answered —
+        // which it cannot infer from `caseStage`, since a case that finishes
+        // treatment with documents still outstanding moves to RECORD_COLLECTION
+        // and stays in the same plaintiff-facing bucket.
+        medicalRecord: { select: { stillTreating: true, treatmentStatus: true, mmi: true } },
         user: { select: { email: true } },
         leadSubmission: {
           select: {
@@ -585,6 +592,9 @@ router.get('/assessment/:id/status', authMiddleware, async (req: AuthRequest, re
       // plaintiff Case Status expands from these after retain.
       caseStage: assessment.caseStage ?? null,
       litigationStatus: assessment.litigationStatus ?? null,
+      // Null when nobody has recorded a clinical position either way, which is
+      // what the dashboard treats as "worth asking".
+      treatmentFinished: assessment.medicalRecord ? careFinishedOnRecord(assessment.medicalRecord) : null,
       statusMessage,
       attorneysRouted: intros.length,
       attorneysReviewing: reviewingCount,

@@ -15,6 +15,7 @@
 import { prisma } from './prisma'
 import { logger } from './logger'
 import { tryUpdateCaseFacts } from './case-facts'
+import type { CaseWriteSource } from './data-authority'
 
 export const VISIT_TYPES = [
   'initial_eval',
@@ -190,7 +191,7 @@ export async function getMedicalTimeline(assessmentId: string): Promise<MedicalT
 async function writeThroughMedical(
   assessmentId: string,
   view: MedicalTimelineView,
-  opts?: { source?: 'attorney' | 'rose_ai' | 'system'; actorId?: string | null; summary?: string },
+  opts?: { source?: CaseWriteSource; actorId?: string | null; summary?: string },
 ): Promise<void> {
   const s = view.status
 
@@ -335,7 +336,11 @@ export async function deleteMedicalEntry(
 export async function upsertMedicalStatus(
   assessmentId: string,
   patch: Record<string, any>,
-  opts?: { actorId?: string | null; actorName?: string | null },
+  // `source` defaults to attorney because the medical panel was the only caller
+  // for a long time. The claimant can now report that care has finished from
+  // their own dashboard, and that write must be attributed to them rather than
+  // appearing in the change feed as something the firm did.
+  opts?: { actorId?: string | null; actorName?: string | null; source?: CaseWriteSource },
 ): Promise<MedicalTimelineView> {
   const data: any = {}
   if (patch.treatmentStatus !== undefined)
@@ -362,6 +367,9 @@ export async function upsertMedicalStatus(
     update: { ...data, updatedById: opts?.actorId ?? null, updatedByName: opts?.actorName ?? null },
   })
   const view = await buildView(assessmentId)
-  await writeThroughMedical(assessmentId, view, { source: 'attorney', actorId: opts?.actorId ?? null })
+  await writeThroughMedical(assessmentId, view, {
+    source: opts?.source ?? 'attorney',
+    actorId: opts?.actorId ?? null,
+  })
   return view
 }

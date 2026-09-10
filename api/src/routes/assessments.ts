@@ -40,6 +40,8 @@ import {
 import { getConfiguredWaveSize, getMatchingRules } from '../lib/matching-rules-config'
 import { validateCaseTypeFromFacts } from '../lib/case-type-validation'
 import { buildMedicalProfile } from '../lib/medical-profile'
+import { upsertMedicalStatus } from '../lib/medical-record'
+import { syncCaseStage } from '../lib/case-stage'
 import { runCaseRecalculation } from '../lib/case-recalculation'
 import { buildCaseValueHistory } from '../lib/case-value-history'
 import {
@@ -267,6 +269,63 @@ router.post('/:id/damage-estimates', optionalAuthMiddleware, async (req: AuthReq
       error: error?.message,
     })
     res.status(500).json({ error: 'Failed to save damage estimates' })
+  }
+})
+
+/**
+ * The claimant reports whether they are still treating.
+ *
+ * Their answer is what unfreezes the Treatment milestone on their own case
+ * status. Until now only the firm could record this, on the medical timeline
+ * panel, and on a case where nobody did the milestone stayed amber for the life
+ * of the matter — which read to the claimant as though their uploads were
+ * incomplete.
+ *
+ * Deliberately coarser than the firm's control. "I have finished treatment"
+ * writes `completed`, not `mmi`: maximum medical improvement is a clinical
+ * determination a treating physician makes, and letting a claimant assert it
+ * would put a term of art with valuation consequences in the hands of someone
+ * who has not been told what it means. `completed` is enough to advance the
+ * stage, and the firm can still upgrade it to MMI when the records support that.
+ */
+router.post('/:id/treatment-status', optionalAuthMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const id = req.params.id
+    const parsed = z.object({ stillTreating: z.boolean() }).safeParse(req.body)
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid treatment status', details: parsed.error.flatten() })
+    }
+
+    const current = await prisma.assessment.findUnique({ where: { id }, select: { id: true, userId: true } })
+    if (!current) return res.status(404).json({ error: 'Assessment not found' })
+    // Same ownership rule as damage estimates, including the guest-case
+    // tolerance for a claimant who has not created an account yet.
+    if (current.userId && current.userId !== req.user?.id) {
+      const owner = await prisma.user.findUnique({ where: { id: current.userId }, select: { email: true } })
+      if (!owner || !isGuestCaseUserEmail(owner.email)) {
+        return res.status(403).json({ error: 'Unauthorized to update this assessment' })
+      }
+    }
+
+    const { stillTreating } = parsed.data
+    await upsertMedicalStatus(
+      id,
+      { stillTreating, treatmentStatus: stillTreating ? 'treating' : 'completed' },
+      { actorId: req.user?.id ?? null, source: 'web' },
+    )
+
+    // The stage engine reads `treatmentComplete`, which this just moved, so the
+    // claimant's pipeline reflects the answer on their next load rather than
+    // waiting for whatever unrelated event would next have triggered a sync.
+    const caseStage = await syncCaseStage(id, { source: 'system' })
+
+    res.json({ ok: true, stillTreating, caseStage })
+  } catch (error: any) {
+    logger.error('Failed to save claimant treatment status', {
+      assessmentId: req.params.id,
+      error: error?.message,
+    })
+    res.status(500).json({ error: 'Failed to save treatment status' })
   }
 })
 
