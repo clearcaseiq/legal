@@ -79,7 +79,46 @@ describe('fetchTrafficReport', () => {
   it('reports not-configured rather than throwing when no property is set', async () => {
     delete process.env.GA4_PROPERTY_ID
 
-    expect(await fetchTrafficReport(30)).toEqual({ configured: false })
+    expect(await fetchTrafficReport(30)).toEqual({ configured: false, reason: 'unset' })
+    expect(request).not.toHaveBeenCalled()
+  })
+
+  /**
+   * The measurement id is the one printed all over the GA4 UI and the one
+   * already set for the browser tag, so reaching for it here is the obvious
+   * mistake. Calling the Data API with it earns a 400 whose text names neither
+   * variable, and the route hides upstream detail outside development — so the
+   * whole diagnosis has to happen before the request goes out.
+   */
+  it('refuses a measurement id in place of the numeric property id', async () => {
+    process.env.GA4_PROPERTY_ID = 'G-8F3T9DFK8Q'
+
+    expect(await fetchTrafficReport(30)).toEqual({
+      configured: false,
+      reason: 'property_id_not_numeric',
+    })
+    expect(request).not.toHaveBeenCalled()
+  })
+
+  it('still accepts the properties/ prefix the GA4 UI sometimes shows', async () => {
+    process.env.GA4_PROPERTY_ID = 'properties/123456789'
+    respondWithReports()
+
+    const result = await fetchTrafficReport(30)
+
+    expect(result).toMatchObject({ configured: true })
+    expect(request).toHaveBeenCalled()
+  })
+
+  it('reports an unreadable service account key as configuration, not as an outage', async () => {
+    // Keys carry literal newlines, which plenty of secret stores mangle. Left
+    // to reach Google this surfaces as an opaque signature error.
+    process.env.GA4_SERVICE_ACCOUNT_JSON = 'not json and not base64 json'
+
+    expect(await fetchTrafficReport(30)).toEqual({
+      configured: false,
+      reason: 'credentials_unparseable',
+    })
     expect(request).not.toHaveBeenCalled()
   })
 

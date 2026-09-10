@@ -61,7 +61,19 @@ export type TrafficReport = {
   byRegion: TrafficBreakdown[]
 }
 
-export type TrafficResult = TrafficReport | { configured: false }
+/**
+ * Why the panel has nothing to show.
+ *
+ * `unset` is the ordinary state — every local checkout and every non-production
+ * deployment. The other two are mistakes, and both used to surface as a bare
+ * "Could not reach Google Analytics": the request was attempted and Google
+ * rejected it, and the route hides the upstream detail outside development. The
+ * two errors below are the ones worth naming, because both are easy to make and
+ * neither is guessable from a 400.
+ */
+export type TrafficUnconfiguredReason = 'unset' | 'property_id_not_numeric' | 'credentials_unparseable'
+
+export type TrafficResult = TrafficReport | { configured: false; reason: TrafficUnconfiguredReason }
 
 type ReportRequest = Record<string, unknown>
 
@@ -237,13 +249,32 @@ async function runBatch(batch: ReportRequest[], property: string): Promise<Ga4Re
  * visited.
  */
 export async function fetchTrafficReport(days: number): Promise<TrafficResult> {
-  if (!isGa4Configured()) return { configured: false }
+  if (!isGa4Configured()) return { configured: false, reason: 'unset' }
+
+  const property = propertyId()
+
+  // The Data API addresses properties by their numeric id. `G-8F3T9DFK8Q` is
+  // the measurement id — the one the browser snippet uses, the one printed all
+  // over the GA4 UI, and the one people reach for. Sending it produces a 400
+  // that says nothing about which of the two ids was wanted.
+  if (!/^\d+$/.test(property)) {
+    logger.warn('GA4_PROPERTY_ID is not numeric; refusing to call the Data API', { property })
+    return { configured: false, reason: 'property_id_not_numeric' }
+  }
+
+  // Parsed here rather than at request time so a mangled key is reported as a
+  // configuration problem instead of an opaque signature failure from Google.
+  try {
+    credentials()
+  } catch {
+    logger.warn('GA4_SERVICE_ACCOUNT_JSON could not be parsed as JSON or base64-encoded JSON')
+    return { configured: false, reason: 'credentials_unparseable' }
+  }
 
   if (cached && cached.key === days && Date.now() - cached.at < CACHE_TTL_MS) {
     return cached.value
   }
 
-  const property = propertyId()
   const definitions = reportDefinitions(days)
   const batches: ReportRequest[][] = []
   for (let i = 0; i < definitions.length; i += MAX_REPORTS_PER_BATCH) {

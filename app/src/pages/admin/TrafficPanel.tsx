@@ -61,7 +61,7 @@ export function TrafficPanel({ days }: { days: number }) {
           {error}
         </div>
       ) : data && !data.configured ? (
-        <NotConfigured />
+        <NotConfigured reason={data.reason} />
       ) : data && data.configured ? (
         <Report data={data} />
       ) : null}
@@ -87,7 +87,46 @@ function Boundary() {
   )
 }
 
-function NotConfigured() {
+/**
+ * The empty state, which doubles as the diagnosis.
+ *
+ * Both mistakes below used to reach the admin as "Could not reach Google
+ * Analytics" and nothing else, because the route withholds the upstream detail
+ * outside development. Naming them here costs nothing and saves the round trip
+ * through the API logs.
+ */
+function NotConfigured({ reason }: { reason?: string }) {
+  if (reason === 'property_id_not_numeric') {
+    return (
+      <div className="rounded-lg border border-dashed border-amber-300 p-6 text-center dark:border-amber-800">
+        <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
+          <code className="font-mono">GA4_PROPERTY_ID</code> is not a property id
+        </p>
+        <p className="mx-auto mt-2 max-w-lg text-xs text-slate-500 dark:text-slate-400">
+          It has to be the numeric id from GA4 Admin &rarr; Property Settings, like{' '}
+          <code className="font-mono">498372615</code>. The value currently set looks like a
+          measurement id (<code className="font-mono">G-XXXXXXXXXX</code>) &mdash; that one belongs
+          in the browser tag and the Data API will not accept it.
+        </p>
+      </div>
+    )
+  }
+
+  if (reason === 'credentials_unparseable') {
+    return (
+      <div className="rounded-lg border border-dashed border-amber-300 p-6 text-center dark:border-amber-800">
+        <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
+          <code className="font-mono">GA4_SERVICE_ACCOUNT_JSON</code> could not be read
+        </p>
+        <p className="mx-auto mt-2 max-w-lg text-xs text-slate-500 dark:text-slate-400">
+          It is neither JSON nor base64-encoded JSON. Service account keys contain literal
+          newlines, which many secret stores and shells mangle on the way into an environment
+          variable &mdash; base64-encode the whole file and paste that instead.
+        </p>
+      </div>
+    )
+  }
+
   return (
     <div className="rounded-lg border border-dashed border-slate-300 p-6 text-center dark:border-slate-700">
       <p className="text-sm font-medium text-slate-700 dark:text-slate-300">

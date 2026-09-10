@@ -4148,7 +4148,10 @@ export interface AdminTrafficBreakdown {
  * without a GA4 property, which is all of them except production.
  */
 export type AdminTraffic =
-  | { configured: false }
+  // `reason` distinguishes "nobody set this up" from the two ways of setting it
+  // up wrongly, so the panel can name the mistake instead of reporting a
+  // generic upstream failure.
+  | { configured: false; reason?: 'unset' | 'property_id_not_numeric' | 'credentials_unparseable' }
   | {
       configured: true
       periodDays: number
