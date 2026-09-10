@@ -1779,7 +1779,14 @@ export default function FirmDashboard() {
                   </div>
                           {att ? (
                             <div className="flex items-center gap-1 text-xs text-slate-400">
-                              <Star className="h-3 w-3 text-yellow-400" /> {Number(att.averageRating || 0).toFixed(1)} · {att.isVerified ? 'Verified' : 'Unverified'}
+                              {/*
+                                Bar-credential vetting, which is what gates routing
+                                eligibility. A bare "Unverified" here read as a
+                                contradiction of the attorney's own profile, where the
+                                badge beside the email reports a confirmed address and
+                                says nothing about vetting.
+                              */}
+                              <Star className="h-3 w-3 text-yellow-400" /> {Number(att.averageRating || 0).toFixed(1)} · {att.isVerified ? 'Credentials verified' : 'Credentials pending'}
                 </div>
                           ) : m.title ? (
                             <div className="text-xs text-slate-400">{m.title}</div>
