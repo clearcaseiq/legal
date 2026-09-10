@@ -54,6 +54,29 @@ export type FunnelStep = {
   timedSamples: number
 }
 
+/**
+ * The same funnel, for one kind of device.
+ *
+ * The wizard is a multi-step form with date pickers and file uploads, and none
+ * of that behaves the same on a phone. Without this split, a phone abandoning
+ * at the upload step and a desktop abandoning there are one number, so a layout
+ * problem and a question problem look identical.
+ */
+export type DeviceFunnel = {
+  device: string
+  leads: number
+  completedLeads: number
+  completionRate: number | null
+  /**
+   * The step this device abandons on most, or null when too few did.
+   *
+   * One step rather than the full per-device funnel: the useful comparison is
+   * "phones give up here, desktops give up there", and four complete funnels
+   * side by side bury that in a table nobody reads.
+   */
+  worstStep: { step: string; droppedHere: number } | null
+}
+
 export type IntakeFunnelReport = {
   periodDays: number
   /** Leads in the window with at least one recorded step. */
@@ -64,13 +87,28 @@ export type IntakeFunnelReport = {
   steps: FunnelStep[]
   /** Steps where claimants abandon most, worst first. Derived from `steps`. */
   worstDropOff: Array<{ step: string; droppedHere: number; dropRate: number }>
+  /**
+   * Completion by device, busiest first. Empty for any window predating the
+   * `deviceType` column, which cannot be backfilled — the header it is derived
+   * from is not kept.
+   */
+  byDevice: DeviceFunnel[]
 }
+
+/**
+ * Below this a device's completion rate is noise.
+ *
+ * A rate printed from four leads invites a redesign off two people who got
+ * distracted, and it will be quoted in a meeting as though it were measured.
+ */
+const MIN_LEADS_FOR_DEVICE_RATE = 20
 
 type LeadRow = {
   stepHistory: string | null
   currentStep: string | null
   status: string
   assessmentId: string | null
+  deviceType: string | null
 }
 
 type ParsedEntry = { step: string; at: number }
@@ -139,7 +177,13 @@ export async function buildIntakeFunnelReport(days: number): Promise<IntakeFunne
 
   const leads: LeadRow[] = await prisma.intakeLead.findMany({
     where: { createdAt: { gte: since }, stepHistory: { not: null } },
-    select: { stepHistory: true, currentStep: true, status: true, assessmentId: true },
+    select: {
+      stepHistory: true,
+      currentStep: true,
+      status: true,
+      assessmentId: true,
+      deviceType: true,
+    },
     orderBy: { createdAt: 'desc' },
     take: MAX_LEADS,
   })
@@ -148,6 +192,7 @@ export async function buildIntakeFunnelReport(days: number): Promise<IntakeFunne
   const reached = new Map<string, number>()
   const droppedHere = new Map<string, number>()
   const dwellSamples = new Map<string, number[]>()
+  const devices = new Map<string, DeviceTally>()
   let completedLeads = 0
 
   for (const lead of leads) {
@@ -159,6 +204,15 @@ export async function buildIntakeFunnelReport(days: number): Promise<IntakeFunne
     // client's own word for it and can lag; the foreign key cannot.
     const completed = Boolean(lead.assessmentId) || lead.status === 'completed'
     if (completed) completedLeads += 1
+
+    // Leads created before the column existed. Counting them as `unknown` would
+    // put a bucket of pre-launch traffic beside the real ones and read as a
+    // device rather than as an absence.
+    const tally = lead.deviceType ? tallyFor(devices, lead.deviceType) : null
+    if (tally) {
+      tally.leads += 1
+      if (completed) tally.completed += 1
+    }
 
     const distinct = new Set(history.map((entry) => entry.step))
     for (const step of distinct) {
@@ -182,7 +236,10 @@ export async function buildIntakeFunnelReport(days: number): Promise<IntakeFunne
       // `currentStep`: the two are written together, but only the history is
       // append-only and so cannot have been overwritten by a later partial save.
       const lastStep = history[history.length - 1].step || lead.currentStep
-      if (lastStep) droppedHere.set(lastStep, (droppedHere.get(lastStep) ?? 0) + 1)
+      if (lastStep) {
+        droppedHere.set(lastStep, (droppedHere.get(lastStep) ?? 0) + 1)
+        if (tally) tally.drops.set(lastStep, (tally.drops.get(lastStep) ?? 0) + 1)
+      }
     }
   }
 
@@ -223,5 +280,37 @@ export async function buildIntakeFunnelReport(days: number): Promise<IntakeFunne
     completionRate: totalLeads > 0 ? completedLeads / totalLeads : null,
     steps,
     worstDropOff,
+    byDevice: summariseDevices(devices),
   }
+}
+
+type DeviceTally = { leads: number; completed: number; drops: Map<string, number> }
+
+function tallyFor(devices: Map<string, DeviceTally>, device: string): DeviceTally {
+  let tally = devices.get(device)
+  if (!tally) {
+    tally = { leads: 0, completed: 0, drops: new Map() }
+    devices.set(device, tally)
+  }
+  return tally
+}
+
+function summariseDevices(devices: Map<string, DeviceTally>): DeviceFunnel[] {
+  return [...devices.entries()]
+    .map(([device, tally]) => {
+      const [worst] = [...tally.drops.entries()].sort((a, b) => b[1] - a[1])
+      return {
+        device,
+        leads: tally.leads,
+        completedLeads: tally.completed,
+        // Withheld rather than rounded from a handful of leads: a rate printed
+        // off four people gets quoted as though it were measured.
+        completionRate:
+          tally.leads >= MIN_LEADS_FOR_DEVICE_RATE ? tally.completed / tally.leads : null,
+        worstStep: worst ? { step: worst[0], droppedHere: worst[1] } : null,
+      }
+    })
+    // Busiest first, so the device most claimants actually use leads the table
+    // regardless of which one happens to convert worst.
+    .sort((a, b) => b.leads - a.leads)
 }

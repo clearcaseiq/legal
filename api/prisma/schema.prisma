@@ -2850,6 +2850,23 @@ model IntakeLead {
   /// they stay out of the column list rather than widening the table.
   attributionExtra String? @db.Text
 
+  /// 'mobile' | 'tablet' | 'desktop' | 'unknown', derived from the User-Agent
+  /// on the request that created the lead.
+  ///
+  /// The wizard is a multi-step form with date pickers and file uploads, and
+  /// none of that behaves the same on a 390px screen. Without this, a phone
+  /// abandoning at the upload step and a desktop abandoning there are the same
+  /// number, so a layout problem is indistinguishable from a question problem.
+  ///
+  /// GA4 has this dimension for everything except intake: the wizard is on the
+  /// HIPAA deny list in `analyticsBoundary.ts`, so no tag runs there. Recording
+  /// it ourselves is the only way to have it.
+  ///
+  /// First touch, like attribution: set on create and never updated. Someone
+  /// who starts on a phone and finishes on a laptop is a phone lead, because
+  /// the question is what device the funnel was entered on.
+  deviceType String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

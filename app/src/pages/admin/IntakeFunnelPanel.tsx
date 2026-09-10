@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Info, ListOrdered, RefreshCw } from 'lucide-react'
-import { getAdminIntakeFunnel, type AdminIntakeFunnel, type AdminIntakeFunnelStep } from '../../lib/api'
+import {
+  getAdminIntakeFunnel,
+  type AdminIntakeFunnel,
+  type AdminIntakeFunnelDevice,
+  type AdminIntakeFunnelStep,
+} from '../../lib/api'
 
 /**
  * The intake wizard's own funnel: reach, drop-off and time per step.
@@ -138,6 +143,106 @@ function Report({ data }: { data: AdminIntakeFunnel }) {
             </tbody>
           </table>
         </div>
+      </div>
+
+      <DeviceSplit rows={data.byDevice} overall={data.completionRate} />
+    </div>
+  )
+}
+
+/**
+ * Completion by device, and where each one gives up.
+ *
+ * The step table above is every device at once, which hides the thing worth
+ * knowing: the wizard has date pickers and file uploads, and none of that
+ * behaves the same on a phone. Rolled together, a phone abandoning at the
+ * upload step and a desktop abandoning there are one number, so a layout
+ * problem cannot be told from a question problem.
+ */
+function DeviceSplit({
+  rows,
+  overall,
+}: {
+  rows: AdminIntakeFunnelDevice[]
+  overall: number | null
+}) {
+  // Absent for any window before the column existed, which cannot be
+  // backfilled. A zeroed table would read as "no mobile traffic".
+  if (rows.length === 0) return null
+
+  return (
+    <div>
+      <h3 className="mb-2 text-sm font-semibold text-slate-900 dark:text-white">By device</h3>
+      <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">
+        Recorded on the first request of each lead, so someone who starts on a phone and finishes on
+        a laptop counts as a phone. Leads from before this was recorded are left out entirely.
+      </p>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[520px] text-sm">
+          <thead>
+            <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:text-slate-400">
+              <th className="pb-2 pr-3 font-medium">Device</th>
+              <th className="pb-2 pr-3 text-right font-medium">Leads</th>
+              <th className="pb-2 pr-3 text-right font-medium">Completed</th>
+              <th className="pb-2 pr-3 text-right font-medium">Completion rate</th>
+              <th className="pb-2 font-medium">Abandons most at</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => {
+              // Flagged against the funnel as a whole rather than a fixed
+              // threshold: what matters is a device doing materially worse than
+              // the product's own average, not the absolute number.
+              const lagging =
+                row.completionRate != null &&
+                overall != null &&
+                row.completionRate < overall * 0.75
+
+              return (
+                <tr
+                  key={row.device}
+                  className="border-b border-slate-100 last:border-0 dark:border-slate-800"
+                >
+                  <td className="py-2 pr-3 font-medium capitalize text-slate-900 dark:text-slate-100">
+                    {row.device}
+                  </td>
+                  <td className="py-2 pr-3 text-right tabular-nums text-slate-700 dark:text-slate-300">
+                    {row.leads.toLocaleString()}
+                  </td>
+                  <td className="py-2 pr-3 text-right tabular-nums text-slate-700 dark:text-slate-300">
+                    {row.completedLeads.toLocaleString()}
+                  </td>
+                  <td
+                    className={`py-2 pr-3 text-right tabular-nums font-medium ${
+                      lagging
+                        ? 'text-red-600 dark:text-red-400'
+                        : 'text-slate-700 dark:text-slate-300'
+                    }`}
+                    // Withheld below the sample floor rather than rounded from a
+                    // handful, so say why instead of printing a bare dash.
+                    title={
+                      row.completionRate == null ? 'Too few leads to report a rate' : undefined
+                    }
+                  >
+                    {formatPercent(row.completionRate)}
+                  </td>
+                  <td className="py-2 text-slate-700 dark:text-slate-300">
+                    {row.worstStep ? (
+                      <>
+                        {row.worstStep.step}
+                        <span className="ml-1.5 text-xs text-slate-500 dark:text-slate-400">
+                          {row.worstStep.droppedHere.toLocaleString()} left here
+                        </span>
+                      </>
+                    ) : (
+                      <span className="text-slate-400 dark:text-slate-500">—</span>
+                    )}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
       </div>
     </div>
   )

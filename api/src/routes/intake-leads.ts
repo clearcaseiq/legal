@@ -7,6 +7,7 @@ import { sendSms } from '../lib/sms'
 import { provisionAndLinkIntakeAccount } from '../lib/intake-account'
 import { scheduleReportReady } from '../lib/report-ready'
 import { webUrl } from '../lib/app-url'
+import { deviceTypeFromUserAgent } from '../lib/device-type'
 
 const router = Router()
 
@@ -180,6 +181,10 @@ router.post('/', async (req, res) => {
         assessmentId: assessmentId || null,
         status: status || 'in_progress',
         ...attributionColumns(attribution),
+        // Read from the header rather than accepted from the body, alongside
+        // the attribution the client does send. The header is already here, and
+        // a client-supplied device is a client-supplied anything.
+        deviceType: deviceTypeFromUserAgent(req.get('user-agent')),
       },
     })
 

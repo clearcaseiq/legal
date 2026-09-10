@@ -1,0 +1,16 @@
+-- What kind of device a claimant started intake on.
+--
+-- The wizard is a multi-step form with date pickers and file uploads, and none
+-- of that behaves the same way on a 390px screen. Without this column, a phone
+-- abandoning at the upload step and a desktop abandoning at the upload step are
+-- the same number, so a layout problem cannot be told from a question problem.
+--
+-- GA4 has this dimension for every other page. It does not have it for intake:
+-- the wizard is on the HIPAA deny list, so no tag runs there and it never will.
+-- Deriving it from the User-Agent on lead creation is the only way to have it.
+--
+-- Nullable, and deliberately not backfilled. The header it comes from is not
+-- retained, so every lead created before this is genuinely unknown -- and
+-- guessing would put invented data in the one place the number is meant to
+-- inform a redesign.
+ALTER TABLE "intake_leads" ADD COLUMN "deviceType" TEXT;

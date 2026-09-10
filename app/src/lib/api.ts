@@ -4260,6 +4260,16 @@ export interface AdminIntakeFunnelStep {
   timedSamples: number
 }
 
+export interface AdminIntakeFunnelDevice {
+  device: string
+  leads: number
+  completedLeads: number
+  /** Null when too few leads on this device to report a rate. */
+  completionRate: number | null
+  /** Where this device abandons most, or null when none did. */
+  worstStep: { step: string; droppedHere: number } | null
+}
+
 export interface AdminIntakeFunnel {
   periodDays: number
   totalLeads: number
@@ -4267,6 +4277,11 @@ export interface AdminIntakeFunnel {
   completionRate: number | null
   steps: AdminIntakeFunnelStep[]
   worstDropOff: Array<{ step: string; droppedHere: number; dropRate: number }>
+  /**
+   * Completion by device. Empty for windows predating the `deviceType` column,
+   * which cannot be backfilled — the header it derives from is not kept.
+   */
+  byDevice: AdminIntakeFunnelDevice[]
 }
 
 export async function getAdminIntakeFunnel(days = 30): Promise<AdminIntakeFunnel> {
