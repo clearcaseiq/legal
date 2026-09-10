@@ -1994,6 +1994,25 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
       return res.status(404).json({ error: 'No law firm associated with this user' })
     }
 
+    /**
+     * Whether the caller may see the firm's caseload and the aggregates over it.
+     *
+     * This endpoint had no permission check at all — active membership alone
+     * returned every case in the firm with the client's name on it, plus the
+     * lead/fee/ROI counters and the acquisition funnel. A paralegal holds
+     * `view_assigned_cases` and nothing else, so the roster and the numbers
+     * were both well outside what their role grants.
+     *
+     * The two permissions are checked together because they are the firm-wide
+     * grants: `view_all_cases` for the roster, `view_analytics` for the
+     * aggregates, and every role that holds either is trusted with both here.
+     * Mirrors the guard `GET /teams/caseload` already applies (see line ~1432),
+     * which is why that panel correctly rendered empty on the same screen this
+     * one was filling in.
+     */
+    const canSeeFirmCaseload =
+      requireFirmPermission(context, 'view_all_cases') || requireFirmPermission(context, 'view_analytics')
+
     // Get firm with all attorneys
     const firm = await (prisma as any).lawFirm.findUnique({
       where: { id: context.lawFirmId },
@@ -2293,20 +2312,24 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
 
     // Marketplace Performance (firm scope): KPI tiles, acquisition funnel, and
     // spend-vs-return monthly series across every attorney in the firm.
+    // Skipped rather than nulled for a caller without the grant, so the work is
+    // not done at all for a response that would discard it.
     let marketplace: any = null
-    try {
-      marketplace = await computeMarketplacePerformance(prisma, {
-        attorneyIds,
-        leadWhere: { assessment: { lawFirmId: firm.id } },
-      })
-      // Per-attorney breakdown so a managing partner can see who drives (or drags)
-      // the firm's acquisition ROI.
-      marketplace.byAttorney = await computeMarketplacePerformanceByAttorney(
-        prisma,
-        attorneys.map((a: any) => ({ id: a.id, name: a.name })),
-      )
-    } catch (mpError: any) {
-      logger.warn('Failed to compute firm marketplace performance', { error: mpError?.message, lawFirmId: firm.id })
+    if (canSeeFirmCaseload) {
+      try {
+        marketplace = await computeMarketplacePerformance(prisma, {
+          attorneyIds,
+          leadWhere: { assessment: { lawFirmId: firm.id } },
+        })
+        // Per-attorney breakdown so a managing partner can see who drives (or drags)
+        // the firm's acquisition ROI.
+        marketplace.byAttorney = await computeMarketplacePerformanceByAttorney(
+          prisma,
+          attorneys.map((a: any) => ({ id: a.id, name: a.name })),
+        )
+      } catch (mpError: any) {
+        logger.warn('Failed to compute firm marketplace performance', { error: mpError?.message, lawFirmId: firm.id })
+      }
     }
 
     // Live per-attorney lead stats for the Match Quality firm view. The stored
@@ -2379,27 +2402,36 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
         createdAt: firm.createdAt,
       },
       metrics: {
+        // The firm directory and its public review standing are org context
+        // every member needs to render the shell; the caseload and money
+        // figures below are the part the grant covers.
         attorneyCount,
-        totalLeadsReceived,
-        totalLeadsAccepted,
-        feesCollectedFromPayments,
-        totalPlatformSpend,
         avgAttorneyRating,
         totalReviews,
         verifiedReviewCount,
-        activeCases: firmCasesList.length,
-        acceptedCases,
-        retainedCases,
-        operationsQueueCount: operationsQueue.length,
-        firmROI: totalPlatformSpend > 0 ? (feesCollectedFromPayments / totalPlatformSpend) : null
+        ...(canSeeFirmCaseload
+          ? {
+              totalLeadsReceived,
+              totalLeadsAccepted,
+              feesCollectedFromPayments,
+              totalPlatformSpend,
+              activeCases: firmCasesList.length,
+              acceptedCases,
+              retainedCases,
+              operationsQueueCount: operationsQueue.length,
+              firmROI: totalPlatformSpend > 0 ? (feesCollectedFromPayments / totalPlatformSpend) : null,
+            }
+          : {}),
       },
       // Marketplace Performance KPIs (firm scope). Mirrors the attorney-dashboard
       // analytics shape the frontend reads for ROI / conversion / average fee.
-      analytics: {
-        conversionRate: acceptedCases > 0 ? Math.round((retainedCases / acceptedCases) * 100) : 0,
-        roi: totalPlatformSpend > 0 ? (feesCollectedFromPayments / totalPlatformSpend) : 0,
-        averageFee: acceptedCases > 0 ? (feesCollectedFromPayments / acceptedCases) : 0
-      },
+      analytics: canSeeFirmCaseload
+        ? {
+            conversionRate: acceptedCases > 0 ? Math.round((retainedCases / acceptedCases) * 100) : 0,
+            roi: totalPlatformSpend > 0 ? (feesCollectedFromPayments / totalPlatformSpend) : 0,
+            averageFee: acceptedCases > 0 ? (feesCollectedFromPayments / acceptedCases) : 0
+          }
+        : null,
       marketplace,
       workspace: {
         currentRole: context?.role || 'attorney',
@@ -2474,8 +2506,10 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
           email: member.attorney.email
         } : null
       })),
-      operationsQueue,
-      cases: firmCasesList,
+      // Both carry client-identifying case data — `cases` has the client's name
+      // on every row — so they are the grant's whole point, not an aggregate.
+      operationsQueue: canSeeFirmCaseload ? operationsQueue : [],
+      cases: canSeeFirmCaseload ? firmCasesList : [],
       attorneys: attorneys.map(a => ({
         id: a.id,
         name: a.name,
@@ -2489,16 +2523,23 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
         specialties: a.attorneyProfile?.specialties ? JSON.parse(a.attorneyProfile.specialties) : [],
         jurisdictions: a.attorneyProfile?.jurisdictions ? JSON.parse(a.attorneyProfile.jurisdictions) : [],
         // Live-computed so the Match Quality firm view reflects real activity
-        // rather than stale stored AttorneyDashboard counters.
-        dashboard: {
-          totalLeadsReceived: attorneyLeadStats.get(a.id)?.routed ?? a.dashboard?.totalLeadsReceived ?? 0,
-          totalLeadsAccepted: attorneyLeadStats.get(a.id)?.accepted ?? a.dashboard?.totalLeadsAccepted ?? 0,
-          totalLeadsRetained: attorneyLeadStats.get(a.id)?.retained ?? 0,
-          feesCollectedFromPayments: totalFeesByAttorneyId.get(a.id) || 0,
-          totalPlatformSpend: attorneySpend.get(a.id) ?? a.dashboard?.totalPlatformSpend ?? 0,
-        },
-        // Lead events (last 90d) for client-side windowing on Match Quality.
-        matchWindowLeads: attorneyLeadEvents.get(a.id) || []
+        // rather than stale stored AttorneyDashboard counters. Per-colleague
+        // lead volume and fee revenue are firm performance data, so they ride
+        // the same grant; the identity fields above stay open to every member
+        // because the roster is how the rest of the app addresses people.
+        ...(canSeeFirmCaseload
+          ? {
+              dashboard: {
+                totalLeadsReceived: attorneyLeadStats.get(a.id)?.routed ?? a.dashboard?.totalLeadsReceived ?? 0,
+                totalLeadsAccepted: attorneyLeadStats.get(a.id)?.accepted ?? a.dashboard?.totalLeadsAccepted ?? 0,
+                totalLeadsRetained: attorneyLeadStats.get(a.id)?.retained ?? 0,
+                feesCollectedFromPayments: totalFeesByAttorneyId.get(a.id) || 0,
+                totalPlatformSpend: attorneySpend.get(a.id) ?? a.dashboard?.totalPlatformSpend ?? 0,
+              },
+              // Lead events (last 90d) for client-side windowing on Match Quality.
+              matchWindowLeads: attorneyLeadEvents.get(a.id) || [],
+            }
+          : {}),
       }))
     }
 
