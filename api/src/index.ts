@@ -20,6 +20,7 @@ import { runActivityCanarySweep, isActivityCanaryEnabled } from './lib/activity-
 import { runErrorRateSweep, isErrorRateMonitorEnabled } from './lib/error-rate-monitor'
 import { runAdsConversionSweep } from './lib/ads-conversion-sweep'
 import { isGoogleAdsConfigured } from './lib/google-ads-conversions'
+import { runInboundSyncSweep, SYNC_INTERVAL_MS } from './lib/cms/inbound-sync-sweep'
 import { reconcileAllAttorneyRatingAggregates } from './lib/attorney-rating-aggregates'
 import { beginSweep, registerSweep } from './lib/ops-status'
 import { startSchedulerLeadership, stopSchedulerLeadership } from './lib/scheduler-leader'
@@ -41,6 +42,7 @@ let aiCaseManagerTimer: NodeJS.Timeout | null = null
 let activityCanaryTimer: NodeJS.Timeout | null = null
 let errorRateTimer: NodeJS.Timeout | null = null
 let adsConversionTimer: NodeJS.Timeout | null = null
+let inboundSyncTimer: NodeJS.Timeout | null = null
 
 async function runCalendarWebhookRenewalSweep(trigger: 'startup' | 'interval') {
   const sweep = beginSweep('calendar-webhook-renewal')
@@ -493,6 +495,41 @@ function startAdsConversionLoop() {
   }, intervalMs)
 }
 
+async function runInboundSyncLoop(trigger: 'startup' | 'interval') {
+  const sweep = beginSweep('cms-inbound-sync')
+  try {
+    const result = await runInboundSyncSweep()
+    sweep.succeed()
+    if (result.attempted > 0 || trigger === 'startup') {
+      logger.info('CMS inbound sync sweep completed', { trigger, ...result })
+    }
+  } catch (error) {
+    sweep.fail(error)
+    logger.error('CMS inbound sync sweep failed', { error, trigger })
+  }
+}
+
+function startInboundSyncLoop() {
+  // Always registered and always running. Unlike the Ads loop there is no
+  // global switch to check: pull sync is opted into per connection, and the
+  // sweep does nothing at all when no connection has opted in. Gating the loop
+  // on a server-wide setting would mean a firm turning sync on in their
+  // integrations screen had no effect until the next deploy.
+  //
+  // Checked more often than SYNC_INTERVAL_MS so a connection becomes due within
+  // an hour of its window opening rather than up to six hours late.
+  const intervalMs = 60 * 60 * 1000
+  registerSweep('cms-inbound-sync', {
+    label: 'CMS caseload pull sync',
+    enabled: true,
+    intervalMs,
+  })
+  void runInboundSyncLoop('startup')
+  inboundSyncTimer = setInterval(() => {
+    void runInboundSyncLoop('interval')
+  }, intervalMs)
+}
+
 function startBackgroundLoops() {
   startCalendarWebhookRenewalLoop()
   startAppointmentEngagementLoop()
@@ -509,6 +546,7 @@ function startBackgroundLoops() {
   startActivityCanaryLoop()
   startErrorRateLoop()
   startAdsConversionLoop()
+  startInboundSyncLoop()
 }
 
 const leadershipHandlers = {
@@ -550,6 +588,7 @@ function stopBackgroundLoops() {
   if (activityCanaryTimer) clearInterval(activityCanaryTimer)
   if (errorRateTimer) clearInterval(errorRateTimer)
   if (adsConversionTimer) clearInterval(adsConversionTimer)
+  if (inboundSyncTimer) clearInterval(inboundSyncTimer)
   calendarWebhookRenewalTimer = null
   appointmentEngagementTimer = null
   notificationRetryTimer = null
@@ -565,6 +604,7 @@ function stopBackgroundLoops() {
   activityCanaryTimer = null
   errorRateTimer = null
   adsConversionTimer = null
+  inboundSyncTimer = null
 }
 
 function closeHttpServer() {
