@@ -34,10 +34,16 @@ interface AdminUser {
   capabilities?: AdminCapability[]
 }
 
-const ROLE_OPTIONS = ['client', 'attorney', 'staff', 'admin', 'specialist']
-// Clients sign themselves up and attorneys register a firm, so neither can be
-// created from here without leaving an account with nothing behind it.
-const CREATABLE_ROLES = ['staff', 'admin', 'specialist'] as const
+// Roles this screen may move an account *to*. `staff` is absent on purpose:
+// firm staff belong to a law firm, and the firm's own team screen creates the
+// FirmMember row that ties them to it. Granting the role here produced a
+// `staff` account with no firm behind it — able to sign in at the Firm Staff
+// login and land in a dashboard scoped to no firm at all.
+const ASSIGNABLE_ROLES = ['client', 'attorney', 'admin', 'specialist'] as const
+// Clients sign themselves up, attorneys register a firm, and firm staff are
+// invited by theirs, so none can be created from here without leaving an
+// account with nothing behind it.
+const CREATABLE_ROLES = ['admin', 'specialist'] as const
 const DEFAULT_LIMIT = 50
 
 // `admin` and `specialist` are the roles that mean someone who works at
@@ -45,9 +51,9 @@ const DEFAULT_LIMIT = 50
 // "Firm Staff Login" screen signs them in — so it sits with the other external
 // roles here.
 //
-// Spelled out rather than derived from ROLE_OPTIONS because the bare role names
-// are what caused the confusion: this screen listed every account on the
-// platform, and "staff" gave no hint that those people work somewhere else.
+// Spelled out rather than derived from the assignable roles because the bare
+// role names are what caused the confusion: this screen listed every account on
+// the platform, and "staff" gave no hint that those people work somewhere else.
 const EMPLOYEE_ROLES = ['admin', 'specialist'] as const
 const EMPLOYEE_ROLE_FILTER = EMPLOYEE_ROLES.join(',')
 const ROLE_FILTER_OPTIONS: { value: string; label: string }[] = [
@@ -67,11 +73,32 @@ const ROLE_LABELS: Record<string, string> = {
   specialist: 'case specialist',
 }
 
+/**
+ * The role choices for one account's row.
+ *
+ * An existing firm staffer's role is not assignable, so it is not in the list —
+ * and a `<select>` whose value matches no option displays the first one
+ * instead, which would show a paralegal as a client and leave them one stray
+ * click from becoming one. Their own role is offered back to them as a disabled
+ * option so the row reads correctly and cannot be re-picked.
+ */
+function roleOptionsFor(role: string): { value: string; label: string; disabled?: boolean }[] {
+  const assignable = ASSIGNABLE_ROLES.map((value) => ({
+    value: value as string,
+    label: ROLE_LABELS[value] ?? value,
+  }))
+  if ((ASSIGNABLE_ROLES as readonly string[]).includes(role)) return assignable
+  return [
+    { value: role, label: ROLE_LABELS[role] ?? role.replace(/_/g, ' '), disabled: true },
+    ...assignable,
+  ]
+}
+
 const EMPTY_DRAFT = {
   email: '',
   firstName: '',
   lastName: '',
-  role: 'staff' as (typeof CREATABLE_ROLES)[number],
+  role: 'specialist' as (typeof CREATABLE_ROLES)[number],
   capabilities: [...ADMIN_CAPABILITIES] as AdminCapability[],
 }
 
@@ -268,9 +295,9 @@ export default function AdminUserRoles() {
           aria-label={`Role for ${user.email}`}
           className="input w-40 capitalize"
         >
-          {ROLE_OPTIONS.map((role) => (
-            <option key={role} value={role}>
-              {ROLE_LABELS[role] ?? role.replace(/_/g, ' ')}
+          {roleOptionsFor(user.role).map((option) => (
+            <option key={option.value} value={option.value} disabled={option.disabled}>
+              {option.label}
             </option>
           ))}
         </select>

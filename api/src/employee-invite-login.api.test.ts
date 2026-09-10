@@ -1,8 +1,9 @@
 /**
  * What an invited colleague is told when they try to sign in too early.
  *
- * A Case Specialist, admin or firm staffer created from Configuration -> User
- * Roles has no password until they open their invitation email. Signing in
+ * A Case Specialist or admin invited from Configuration -> User Roles, or a firm
+ * staffer invited by their firm, has no password until they open their
+ * invitation email. Signing in
  * before that used to return "This account was created with Google or Apple",
  * naming a method they never used and offering nothing to do about it - so a
  * new specialist simply could not get in and had no idea why.

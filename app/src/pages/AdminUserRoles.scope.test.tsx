@@ -35,6 +35,17 @@ vi.mock('../lib/auth', () => ({
 
 ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true
 
+// jsdom has no ResizeObserver, and the data table measures itself to decide
+// whether to show a scroll affordance. Only rendered rows reach that effect,
+// which is why the scoping tests above never needed the stub.
+if (!(globalThis as any).ResizeObserver) {
+  ;(globalThis as any).ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+}
+
 let container: HTMLDivElement
 let root: Root
 
@@ -124,5 +135,82 @@ describe('Users & Roles scoping', () => {
 
     const staff = Array.from(roleSelect().options).find((option) => option.value === 'staff')
     expect(staff?.textContent).toMatch(/firm/i)
+  })
+})
+
+/**
+ * Firm staff are a User *and* a FirmMember tied to a lawFirmId, which only the
+ * firm's own team screen creates. Granting or minting the bare role here left an
+ * account that passed the Firm Staff login and then belonged to no firm, so the
+ * role is readable from this screen but no longer assignable.
+ */
+describe('firm staff are not assignable from the admin screen', () => {
+  const account = (over: Partial<Record<string, unknown>> = {}) => ({
+    id: 'u1',
+    email: 'someone@example.com',
+    firstName: 'Some',
+    lastName: 'One',
+    role: 'client',
+    isActive: true,
+    createdAt: new Date('2026-01-01').toISOString(),
+    ...over,
+  })
+
+  async function mountWith(users: ReturnType<typeof account>[]) {
+    vi.mocked(getAdminUsers).mockResolvedValue({ data: users, total: users.length } as any)
+    await mount()
+  }
+
+  function rowRoleSelect(email: string): HTMLSelectElement {
+    const select = container.querySelector<HTMLSelectElement>(`select[aria-label="Role for ${email}"]`)
+    if (!select) throw new Error(`no role select rendered for ${email}`)
+    return select
+  }
+
+  it('leaves firm staff out of the roles a row can be switched to', async () => {
+    await mountWith([account()])
+
+    const values = Array.from(rowRoleSelect('someone@example.com').options)
+      .filter((option) => !option.disabled)
+      .map((option) => option.value)
+    expect(values).not.toContain('staff')
+    // The roles that do have something behind them stay reachable.
+    expect(values).toEqual(expect.arrayContaining(['client', 'attorney', 'admin', 'specialist']))
+  })
+
+  it('still shows an existing firm staffer their own role rather than the first option', async () => {
+    await mountWith([account({ id: 's1', email: 'para@firm.com', role: 'staff' })])
+
+    const select = rowRoleSelect('para@firm.com')
+    // A select whose value matches no option falls back to displaying the first
+    // one, which here would read "client" — and put a paralegal one stray click
+    // from becoming one.
+    expect(select.value).toBe('staff')
+    const own = Array.from(select.options).find((option) => option.value === 'staff')
+    expect(own?.disabled).toBe(true)
+    expect(own?.textContent).toMatch(/firm/i)
+  })
+
+  it('offers only ClearCaseIQ roles when adding a team member', async () => {
+    await mountWith([])
+
+    const addButton = Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === 'Add user',
+    )
+    if (!addButton) throw new Error('Add user button not rendered')
+    await act(async () => {
+      addButton.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    // The draft form's role select is the only one with no aria-label: the
+    // filter and each row carry one.
+    const draft = Array.from(container.querySelectorAll('select')).find(
+      (select) => !select.getAttribute('aria-label'),
+    )
+    if (!draft) throw new Error('draft role select not rendered')
+    const values = Array.from(draft.options).map((option) => option.value)
+    expect(values).toEqual(['admin', 'specialist'])
+    // Defaulting to a role that cannot be created would fail on submit.
+    expect(values).toContain(draft.value)
   })
 })

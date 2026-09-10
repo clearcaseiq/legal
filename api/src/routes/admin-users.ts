@@ -20,8 +20,13 @@ const router: ExpressRouter = Router()
 // `staff` is law-firm staff and belongs to a LawFirm; `specialist` is a
 // ClearCaseIQ employee working the Case Assistance queue. Different sides of the
 // platform despite both sounding like "our team".
+//
+// `staff` is not grantable here for that reason. A firm staffer is a User *and*
+// a FirmMember tied to a lawFirmId, which is what `POST /v1/firm-dashboard/members`
+// creates; setting the bare role from this screen produced an account that
+// passes the Firm Staff login and then belongs to no firm.
 const RoleUpdateSchema = z.object({
-  role: z.enum(['client', 'attorney', 'staff', 'admin', 'specialist']),
+  role: z.enum(['client', 'attorney', 'admin', 'specialist']),
   capabilities: z.array(z.enum(['ops', 'network', 'oversight', 'config', 'users'])).optional(),
 })
 
@@ -29,14 +34,15 @@ const CapabilitiesUpdateSchema = z.object({
   capabilities: z.array(z.enum(['ops', 'network', 'oversight', 'config', 'users'])),
 })
 
-// Only internal roles can be created here. Clients arrive by signing up and
-// attorneys by registering a firm; minting either from this screen would
-// produce an account with no matching Attorney or intake record behind it.
+// Only ClearCaseIQ's own roles can be created here. Clients arrive by signing
+// up, attorneys by registering a firm, and firm staff by their firm inviting
+// them; minting any of the three from this screen would produce an account with
+// no matching Attorney, FirmMember or intake record behind it.
 const UserCreateSchema = z.object({
   email: z.string().email(),
   firstName: z.string().trim().min(1, 'First name is required'),
   lastName: z.string().trim().min(1, 'Last name is required'),
-  role: z.enum(['staff', 'admin', 'specialist']),
+  role: z.enum(['admin', 'specialist']),
   capabilities: z.array(z.enum(['ops', 'network', 'oversight', 'config', 'users'])).optional(),
 })
 
