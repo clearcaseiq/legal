@@ -48,6 +48,23 @@ export type TrafficTotals = {
 export type TrafficPoint = { date: string; sessions: number; newUsers: number }
 export type TrafficBreakdown = { label: string; sessions: number; newUsers?: number }
 
+/**
+ * One page, with how long it held people.
+ *
+ * `averageEngagementSeconds` is GA4's own definition — engagement duration over
+ * active users — and it is not "time on page" in the old Universal Analytics
+ * sense. GA4 only counts time the tab was actually in the foreground, so a page
+ * left open in a background tab contributes nothing. That makes it a reasonable
+ * attention measure and a poor stopwatch, which is worth saying wherever it is
+ * displayed.
+ */
+export type TrafficPage = {
+  path: string
+  pageViews: number
+  activeUsers: number
+  averageEngagementSeconds: number
+}
+
 export type TrafficReport = {
   configured: true
   periodDays: number
@@ -59,6 +76,7 @@ export type TrafficReport = {
   byLandingPage: TrafficBreakdown[]
   byDevice: TrafficBreakdown[]
   byRegion: TrafficBreakdown[]
+  byPage: TrafficPage[]
 }
 
 /**
@@ -204,6 +222,21 @@ function reportDefinitions(days: number): ReportRequest[] {
       orderBys: SESSIONS_DESC,
       limit: TOP_ROWS,
     },
+    // 8 — pages, and how long each one holds people. Ordered by views rather
+    // than by engagement: the longest-held page is otherwise always some page
+    // three people found, and the question being asked is which of the pages
+    // that matter are holding attention.
+    //
+    // `pagePath`, not `pagePathPlusQueryString` — query strings split one page
+    // across dozens of rows, and every UTM-tagged ad landing would appear
+    // separately from its own organic traffic.
+    {
+      dateRanges,
+      dimensions: [{ name: 'pagePath' }],
+      metrics: [{ name: 'screenPageViews' }, { name: 'activeUsers' }, { name: 'userEngagementDuration' }],
+      orderBys: [{ metric: { metricName: 'screenPageViews' }, desc: true }],
+      limit: TOP_ROWS,
+    },
   ]
 }
 
@@ -311,6 +344,18 @@ export async function fetchTrafficReport(days: number): Promise<TrafficResult> {
     byLandingPage: breakdown(reports[5]),
     byDevice: breakdown(reports[6]),
     byRegion: breakdown(reports[7]),
+    byPage: (reports[8]?.rows || []).map((row) => {
+      const activeUsers = metric(row, 1)
+      return {
+        path: dimension(row, 0),
+        pageViews: metric(row, 0),
+        activeUsers,
+        // GA4 reports the total engaged duration; the per-user average is what
+        // its own Pages report shows, and dividing here keeps that arithmetic
+        // out of the component.
+        averageEngagementSeconds: activeUsers > 0 ? Math.round(metric(row, 2) / activeUsers) : 0,
+      }
+    }),
   }
 
   cached = { key: days, at: Date.now(), value }

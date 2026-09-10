@@ -25,7 +25,7 @@ function row(dimensions: string[], metrics: (string | number)[]) {
   }
 }
 
-/** Eight reports across two batches, in the order the module asks for them. */
+/** Nine reports across two batches, in the order the module asks for them. */
 function respondWithReports() {
   request
     .mockResolvedValueOnce({
@@ -45,6 +45,16 @@ function respondWithReports() {
           { rows: [row(['/car-accident'], [500])] },
           { rows: [row(['mobile'], [800])] },
           { rows: [row(['California'], [450])] },
+          // pagePath, screenPageViews, activeUsers, userEngagementDuration.
+          {
+            rows: [
+              row(['/car-accident'], [500, 400, 34_000]),
+              row(['/pricing'], [120, 100, 1_500]),
+              // A page GA4 reports views for but no active users, which happens
+              // at the edge of a date range.
+              row(['/thanks'], [8, 0, 0]),
+            ],
+          },
         ],
       },
     })
@@ -90,6 +100,36 @@ describe('fetchTrafficReport', () => {
    * variable, and the route hides upstream detail outside development — so the
    * whole diagnosis has to happen before the request goes out.
    */
+  /**
+   * GA4 returns a total engagement duration; its own Pages report shows the
+   * per-active-user average. Doing that division here rather than in the
+   * component is what keeps the panel from inventing its own definition.
+   */
+  it('averages page engagement over active users, not over views', async () => {
+    respondWithReports()
+
+    const result = await fetchTrafficReport(30)
+    if (!result.configured) throw new Error('expected a configured report')
+
+    // 34,000 seconds over 400 active users, not over 500 views.
+    expect(result.byPage[0]).toEqual({
+      path: '/car-accident',
+      pageViews: 500,
+      activeUsers: 400,
+      averageEngagementSeconds: 85,
+    })
+    expect(result.byPage[1].averageEngagementSeconds).toBe(15)
+  })
+
+  it('reports zero engagement rather than dividing by no active users', async () => {
+    respondWithReports()
+
+    const result = await fetchTrafficReport(30)
+    if (!result.configured) throw new Error('expected a configured report')
+
+    expect(result.byPage[2]).toMatchObject({ path: '/thanks', averageEngagementSeconds: 0 })
+  })
+
   it('refuses a measurement id in place of the numeric property id', async () => {
     process.env.GA4_PROPERTY_ID = 'G-8F3T9DFK8Q'
 

@@ -4171,6 +4171,16 @@ export type AdminTraffic =
       byLandingPage: AdminTrafficBreakdown[]
       byDevice: AdminTrafficBreakdown[]
       byRegion: AdminTrafficBreakdown[]
+      byPage: {
+        path: string
+        pageViews: number
+        activeUsers: number
+        /**
+         * GA4's average engagement time per active user. Foreground tab only,
+         * so it measures attention, not elapsed time on the page.
+         */
+        averageEngagementSeconds: number
+      }[]
     }
 
 export async function getAdminTraffic(days = 30): Promise<AdminTraffic> {

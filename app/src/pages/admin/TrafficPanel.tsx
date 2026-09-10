@@ -181,6 +181,50 @@ function Report({ data }: { data: Extract<AdminTraffic, { configured: true }> })
           <BarChart data={data.byRegion} labelKey="label" valueKey="sessions" />
         </Block>
       </div>
+
+      {data.byPage.length > 0 && (
+        <Block
+          title="Pages, and how long they hold people"
+          hint="Engagement time counts only the foreground tab, so it measures attention rather than elapsed time. Ordered by views — sorting by time alone surfaces whichever page three people found."
+        >
+          <PageTable pages={data.byPage} />
+        </Block>
+      )}
+    </div>
+  )
+}
+
+function PageTable({ pages }: { pages: Extract<AdminTraffic, { configured: true }>['byPage'] }) {
+  return (
+    <div className="mt-2 overflow-x-auto">
+      <table className="w-full min-w-[520px] text-sm">
+        <thead>
+          <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:text-slate-400">
+            <th className="pb-2 pr-3 font-medium">Page</th>
+            <th className="pb-2 pr-3 text-right font-medium">Views</th>
+            <th className="pb-2 pr-3 text-right font-medium">Users</th>
+            <th className="pb-2 text-right font-medium">Avg engagement</th>
+          </tr>
+        </thead>
+        <tbody>
+          {pages.map((page) => (
+            <tr key={page.path} className="border-b border-slate-100 last:border-0 dark:border-slate-800">
+              <td className="max-w-[280px] truncate py-2 pr-3 font-mono text-xs text-slate-700 dark:text-slate-300">
+                {page.path}
+              </td>
+              <td className="py-2 pr-3 text-right tabular-nums text-slate-700 dark:text-slate-300">
+                {page.pageViews.toLocaleString()}
+              </td>
+              <td className="py-2 pr-3 text-right tabular-nums text-slate-500 dark:text-slate-400">
+                {page.activeUsers.toLocaleString()}
+              </td>
+              <td className="py-2 text-right tabular-nums text-slate-700 dark:text-slate-300">
+                {duration(page.averageEngagementSeconds)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   )
 }
