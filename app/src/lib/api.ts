@@ -3783,9 +3783,19 @@ export async function getAuditLogFacets() {
 
 export async function createManualIntake(payload: {
   template?: string
-  claimType?: string
-  venueState?: string
+  /** One of CLAIM_TYPES in api/src/lib/validators.ts. */
+  claimType: string
+  venueState: string
+  venueCounty?: string
+  /** Required: the SOL clock runs from here and must not be guessed. */
+  incidentDate: string
+  narrative?: string
   notes?: string
+  plaintiffFirstName?: string
+  plaintiffLastName?: string
+  plaintiffEmail?: string
+  plaintiffPhone?: string
+  sendInvite?: boolean
 }) {
   const { data } = await api.post('/v1/attorney-dashboard/intake/manual', payload)
   return data
@@ -3796,9 +3806,38 @@ export async function createCaseFromLead(payload: { leadId: string }) {
   return data
 }
 
-export async function cloneCaseTemplate(payload: { template: string; venueState?: string }) {
+export async function cloneCaseTemplate(payload: {
+  template: string
+  venueState: string
+  venueCounty?: string
+  /** Required: the SOL clock runs from here and must not be guessed. */
+  incidentDate: string
+}) {
   const { data } = await api.post('/v1/attorney-dashboard/intake/clone-template', payload)
   return data
+}
+
+/** One planned case, as the dry run describes it before anything is written. */
+export interface ImportPreviewRow {
+  fileName: string
+  externalId: string | null
+  claimType: string
+  venueState: string
+  incidentDate: string
+  plaintiffName: string
+  mappedFields: string[]
+}
+
+export interface ImportPreview {
+  importId: string
+  dryRun: true
+  willCreateCount: number
+  duplicateCount: number
+  skippedCount: number
+  preview: ImportPreviewRow[]
+  duplicateRows: Array<{ fileName: string; externalId: string | null; assessmentId: string }>
+  skippedRows: Array<{ fileName: string; externalId: string | null; reason: string }>
+  unsupportedFiles: Array<{ name: string; reason?: string }>
 }
 
 export async function importCase(payload: {
@@ -3810,6 +3849,8 @@ export async function importCase(payload: {
   notes?: string
   mapping?: Record<string, string>
   files?: File[] | { name: string; size?: number }[]
+  /** Report what would happen without writing. See ImportPreview. */
+  dryRun?: boolean
 }) {
   const hasMapping = payload.mapping && Object.keys(payload.mapping).length > 0
   const hasBrowserFiles =
@@ -3825,6 +3866,7 @@ export async function importCase(payload: {
     formData.append('includeMedical', String(payload.includeMedical ?? true))
     if (payload.notes) formData.append('notes', payload.notes)
     if (hasMapping) formData.append('mapping', JSON.stringify(payload.mapping))
+    if (payload.dryRun) formData.append('dryRun', 'true')
     ;(payload.files as File[]).forEach((file) => formData.append('files', file))
     const { data } = await api.post('/v1/attorney-dashboard/intake/import', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },

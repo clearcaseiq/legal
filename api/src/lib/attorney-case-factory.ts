@@ -296,20 +296,23 @@ export async function createAttorneyOwnedCase(
     return assessment.id
   }
 
-  const assessmentId = tx ? await run(tx) : await prisma.$transaction(run)
-
-  // Outside the transaction; both are self-healing if they fail here.
-  const referenceCode = await assignReferenceCode(assessmentId)
-  try {
-    await ensureAssessmentPrediction(assessmentId)
-  } catch (error) {
-    // Never fatal. An unvalued case still appears in the caseload, and the
-    // materializer retries on the next read.
-    logger.warn('Could not value an attorney-created case at creation', {
+  // A caller that supplied a transaction owns its lifecycle, and must call
+  // `finalizeAttorneyCases` once it commits. Minting a reference code here
+  // would write it through the global client, outside their transaction, and
+  // leave the code behind on a case that then rolled away.
+  if (tx) {
+    const assessmentId = await run(tx)
+    logger.info('Attorney-owned case created', {
       assessmentId,
-      error: error instanceof Error ? error.message : String(error),
+      origin,
+      attorneyId: owner.attorneyId,
+      batched: true,
     })
+    return { assessmentId, referenceCode: null }
   }
+
+  const assessmentId = await prisma.$transaction(run)
+  const [referenceCode] = await finalizeAttorneyCases([assessmentId])
 
   logger.info('Attorney-owned case created', {
     assessmentId,
@@ -318,5 +321,32 @@ export async function createAttorneyOwnedCase(
     lawFirmId: owner.lawFirmId,
   })
 
-  return { assessmentId, referenceCode }
+  return { assessmentId, referenceCode: referenceCode ?? null }
+}
+
+/**
+ * The two steps that must happen after the case rows are committed.
+ *
+ * Both are deliberately outside the transaction and neither is fatal:
+ * `ensureReferenceCode` mints lazily on read and `ensureAssessmentPrediction`
+ * backfills on any list that renders the case. Holding a transaction open
+ * across a valuation call would trade a real risk — a long-running lock during
+ * a 500-row import — for a cosmetic one.
+ *
+ * Returns the reference code per input id, in order.
+ */
+export async function finalizeAttorneyCases(assessmentIds: string[]): Promise<Array<string | null>> {
+  const codes: Array<string | null> = []
+  for (const assessmentId of assessmentIds) {
+    codes.push(await assignReferenceCode(assessmentId))
+    try {
+      await ensureAssessmentPrediction(assessmentId)
+    } catch (error) {
+      logger.warn('Could not value an attorney-created case at creation', {
+        assessmentId,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+  return codes
 }

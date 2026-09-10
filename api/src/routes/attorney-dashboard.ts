@@ -16,7 +16,7 @@ import { taskCreatorName } from '../lib/ai-author'
 import { MAX_CASE_NAME_LENGTH, normalizeCaseName, plaintiffNameOf, resolveCaseName } from '../lib/case-name'
 import { ensureReferenceCode } from '../lib/case-reference'
 import { CLAIM_TYPES } from '../lib/validators'
-import { createAttorneyOwnedCase, findExistingImportedCase } from '../lib/attorney-case-factory'
+import { createAttorneyOwnedCase, finalizeAttorneyCases, findExistingImportedCase } from '../lib/attorney-case-factory'
 import { ENGAGED_LEAD_STATUSES, isEngagedLeadStatus } from '../lib/lead-status'
 import { parseTaskDueDate } from '../lib/task-due-date'
 import { isAcceptedUpload } from '../lib/upload-filter'
@@ -2077,6 +2077,11 @@ const intakeImportSchema = z.object({
   // Optional attorney-supplied column mapping (canonical field -> source header).
   // Overrides auto-detection so a preview/mapping UI can correct mismatches.
   mapping: z.record(z.string()).optional(),
+  // Parse, map and check for duplicates, then report what would happen without
+  // writing anything. The upload used to commit on the spot, so the first time
+  // an attorney saw how their columns had been interpreted was after several
+  // hundred cases already existed.
+  dryRun: z.coerce.boolean().optional(),
 })
 
 const smartIntakeSchema = z.object({
@@ -7910,111 +7915,180 @@ router.post('/intake/import', authMiddleware, intakeImportUpload.array('files', 
      */
     const seenExternalIds = new Set<string>()
 
-    if (fileRows.length > 0) {
-      for (const item of fileRows) {
-        const importedCase = normalizeImportedCase(payload.source, item.row, payload.mapping)
-        if (!importedCase.incidentDate) {
+    // --- Plan -------------------------------------------------------------
+    // Decide the fate of every row before writing any of them. Separating the
+    // decisions from the writes is what makes both the dry run and the
+    // all-or-nothing commit below possible, and it means the duplicate check
+    // sees a consistent picture rather than racing the rows in front of it.
+    // `incidentDate` is required here rather than optional: rows without one
+    // are diverted to `skippedRows` below, so everything that reaches the plan
+    // has a date, and the commit should not have to re-check that.
+    const plan: Array<{
+      fileName: string
+      importedCase: NormalizedImportedCase & { incidentDate: string }
+    }> = []
+    for (const item of fileRows) {
+      const importedCase = normalizeImportedCase(payload.source, item.row, payload.mapping)
+      if (!importedCase.incidentDate) {
+        skippedRows.push({
+          fileName: item.fileName,
+          externalId: importedCase.externalId,
+          reason: 'No incident date. Map a date column, or add one to the row.',
+        })
+        continue
+      }
+      if (importedCase.externalId) {
+        if (seenExternalIds.has(importedCase.externalId)) {
           skippedRows.push({
             fileName: item.fileName,
             externalId: importedCase.externalId,
-            reason: 'No incident date. Map a date column, or add one to the row.',
+            reason: 'This external ID appears more than once in the upload.',
           })
           continue
         }
-        if (importedCase.externalId) {
-          if (seenExternalIds.has(importedCase.externalId)) {
-            skippedRows.push({
-              fileName: item.fileName,
-              externalId: importedCase.externalId,
-              reason: 'This external ID appears more than once in the upload.',
-            })
-            continue
-          }
-          seenExternalIds.add(importedCase.externalId)
-          // Re-uploading the same export used to duplicate the whole caseload,
-          // because the external id lived in a JSON blob nothing could key on.
-          const already = await findExistingImportedCase(
-            { importSource: payload.source, externalId: importedCase.externalId },
-            owner,
-          )
-          if (already) {
-            duplicateRows.push({
-              fileName: item.fileName,
-              externalId: importedCase.externalId,
-              assessmentId: already.id,
-            })
-            continue
-          }
-        }
-        const created = await createAttorneyOwnedCase(
-          {
-            claimType: importedCase.claimType,
-            venueState: importedCase.venueState,
-            venueCounty: importedCase.venueCounty,
-            plaintiffFirstName: importedCase.plaintiffFirstName,
-            plaintiffLastName: importedCase.plaintiffLastName,
-            plaintiffEmail: importedCase.plaintiffEmail,
-            plaintiffPhone: importedCase.plaintiffPhone,
-            incidentDate: importedCase.incidentDate,
-            narrative: importedCase.narrative,
-            importSource: payload.source,
-            externalId: importedCase.externalId,
-            rawImport: importedCase.raw,
-            factPaths: importedCase.factPaths,
-          },
+        seenExternalIds.add(importedCase.externalId)
+        // Re-uploading the same export used to duplicate the whole caseload,
+        // because the external id lived in a JSON blob nothing could key on.
+        const already = await findExistingImportedCase(
+          { importSource: payload.source, externalId: importedCase.externalId },
           owner,
-          'import',
         )
-        const assessment = { id: created.assessmentId }
-        await prisma.caseIntakeRequest.create({
-          data: {
-            attorneyId: auth.attorney.id,
-            assessmentId: assessment.id,
-            kind: 'import',
-            source: payload.source,
-            status: 'imported',
-            payload: JSON.stringify({
-              importId,
-              source: payload.source,
+        if (already) {
+          duplicateRows.push({
+            fileName: item.fileName,
+            externalId: importedCase.externalId,
+            assessmentId: already.id,
+          })
+          continue
+        }
+      }
+      plan.push({
+        fileName: item.fileName,
+        importedCase: { ...importedCase, incidentDate: importedCase.incidentDate },
+      })
+    }
+
+    // --- Preview ----------------------------------------------------------
+    if (payload.dryRun) {
+      return res.json({
+        importId,
+        dryRun: true,
+        willCreateCount: plan.length,
+        duplicateCount: duplicateRows.length,
+        skippedCount: skippedRows.length,
+        // A sample rather than the whole file: enough for the attorney to see
+        // how their columns were read, without returning 500 clients' details
+        // to render a confirmation screen.
+        preview: plan.slice(0, 25).map(({ fileName, importedCase }) => ({
+          fileName,
+          externalId: importedCase.externalId,
+          claimType: importedCase.claimType,
+          venueState: importedCase.venueState,
+          incidentDate: importedCase.incidentDate,
+          plaintiffName: [importedCase.plaintiffFirstName, importedCase.plaintiffLastName]
+            .filter(Boolean)
+            .join(' '),
+          mappedFields: Object.keys(importedCase.factPaths),
+        })),
+        duplicateRows,
+        skippedRows,
+        source: payload.source,
+        files: fileSummaries,
+        unsupportedFiles,
+      })
+    }
+
+    // --- Commit -----------------------------------------------------------
+    // One transaction for the whole file. Rows used to be written serially
+    // with no rollback, so a 500-case import that failed at row 300 left 299
+    // cases behind and no record of which ones.
+    if (plan.length > 0) {
+      await prisma.$transaction(
+        async (tx) => {
+          for (const { fileName, importedCase } of plan) {
+            const created = await createAttorneyOwnedCase(
+              {
+                claimType: importedCase.claimType,
+                venueState: importedCase.venueState,
+                venueCounty: importedCase.venueCounty,
+                plaintiffFirstName: importedCase.plaintiffFirstName,
+                plaintiffLastName: importedCase.plaintiffLastName,
+                plaintiffEmail: importedCase.plaintiffEmail,
+                plaintiffPhone: importedCase.plaintiffPhone,
+                incidentDate: importedCase.incidentDate,
+                narrative: importedCase.narrative,
+                importSource: payload.source,
+                externalId: importedCase.externalId,
+                rawImport: importedCase.raw,
+                factPaths: importedCase.factPaths,
+              },
+              owner,
+              'import',
+              tx,
+            )
+            await tx.caseIntakeRequest.create({
+              data: {
+                attorneyId: auth.attorney.id,
+                assessmentId: created.assessmentId,
+                kind: 'import',
+                source: payload.source,
+                status: 'imported',
+                payload: JSON.stringify({
+                  importId,
+                  source: payload.source,
+                  externalId: importedCase.externalId,
+                  fileName,
+                  includeDocuments: payload.includeDocuments ?? true,
+                  includeHistory: payload.includeHistory ?? true,
+                  includeTasks: payload.includeTasks ?? true,
+                  includeMedical: payload.includeMedical ?? true,
+                  notes: payload.notes || null,
+                  importedCase,
+                  files: fileSummaries,
+                })
+              }
+            })
+            if (payload.includeTasks && importedCase.taskTitle) {
+              await tx.caseTask.create({
+                data: {
+                  assessmentId: created.assessmentId,
+                  title: importedCase.taskTitle,
+                  dueDate: importedCase.taskDueDate || null,
+                  priority: 'medium',
+                  status: 'open',
+                }
+              })
+            }
+            await tx.caseNote.create({
+              data: {
+                assessmentId: created.assessmentId,
+                authorName: auth.attorney.name || null,
+                authorEmail: auth.attorney.email || null,
+                noteType: 'update',
+                message: [
+                  `${payload.source} import`,
+                  importedCase.narrative,
+                  payload.notes ? `Import notes: ${payload.notes}` : '',
+                  importedCase.externalId ? `External ID: ${importedCase.externalId}` : '',
+                ].filter(Boolean).join('\n\n') || `Imported from ${payload.source}.`,
+              }
+            })
+            createdAssessments.push({
+              id: created.assessmentId,
+              fileName,
               externalId: importedCase.externalId,
-              fileName: item.fileName,
-              includeDocuments: payload.includeDocuments ?? true,
-              includeHistory: payload.includeHistory ?? true,
-              includeTasks: payload.includeTasks ?? true,
-              includeMedical: payload.includeMedical ?? true,
-              notes: payload.notes || null,
-              importedCase,
-              files: fileSummaries,
             })
           }
-        })
-        if (payload.includeTasks && importedCase.taskTitle) {
-          await prisma.caseTask.create({
-            data: {
-              assessmentId: assessment.id,
-              title: importedCase.taskTitle,
-              dueDate: importedCase.taskDueDate || null,
-              priority: 'medium',
-              status: 'open',
-            }
-          })
-        }
-        await prisma.caseNote.create({
-          data: {
-            assessmentId: assessment.id,
-            authorName: auth.attorney.name || null,
-            authorEmail: auth.attorney.email || null,
-            noteType: 'update',
-            message: [
-              `${payload.source} import`,
-              importedCase.narrative,
-              payload.notes ? `Import notes: ${payload.notes}` : '',
-              importedCase.externalId ? `External ID: ${importedCase.externalId}` : '',
-            ].filter(Boolean).join('\n\n') || `Imported from ${payload.source}.`,
-          }
-        })
-        createdAssessments.push({ id: assessment.id, fileName: item.fileName, externalId: importedCase.externalId })
-      }
+        },
+        // The default 5s ceiling is far too low for a few hundred rows, and
+        // blowing it would roll back an import that was otherwise fine.
+        { maxWait: 15_000, timeout: 120_000 },
+      )
+
+      // After the commit, deliberately. Reference codes and valuations are
+      // self-healing on read, so they must not extend the transaction or
+      // strand a code on a case that rolled away.
+      await finalizeAttorneyCases(createdAssessments.map((entry) => entry.id))
     }
 
     // A parse that produced no rows used to create one placeholder case

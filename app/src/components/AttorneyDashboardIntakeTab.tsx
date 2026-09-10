@@ -15,11 +15,29 @@ import {
   ArrowRight,
   Wand2,
 } from 'lucide-react'
-import { cloneCaseTemplate, createManualIntake, importCase, saveSmartIntakeConfig } from '../lib/api'
+import { cloneCaseTemplate, createManualIntake, importCase, saveSmartIntakeConfig, type ImportPreview } from '../lib/api'
 
 type AttorneyDashboardIntakeTabProps = {
   onGoToLeads: () => void
 }
+
+// Mirrors CLAIM_TYPES in api/src/lib/validators.ts, which the create endpoint
+// now validates against.
+const CLAIM_TYPE_OPTIONS = [
+  { value: 'auto', label: 'Auto accident' },
+  { value: 'slip_and_fall', label: 'Slip and fall' },
+  { value: 'premises_liability', label: 'Premises liability' },
+  { value: 'workplace_injury', label: 'Workplace injury' },
+  { value: 'intentional_tort', label: 'Intentional tort' },
+  { value: 'toxic_exposure', label: 'Toxic exposure' },
+  { value: 'dog_bite', label: 'Dog bite' },
+  { value: 'medmal', label: 'Medical malpractice' },
+  { value: 'product', label: 'Product liability' },
+  { value: 'nursing_home_abuse', label: 'Nursing home abuse' },
+  { value: 'wrongful_death', label: 'Wrongful death' },
+  { value: 'high_severity_surgery', label: 'High-severity surgery' },
+  { value: 'other_pi', label: 'Other personal injury' },
+]
 
 // Canonical fields the importer understands, shown in the mapping UI.
 const MAP_FIELDS: Array<{ key: string; label: string; synonyms: string[] }> = [
@@ -185,10 +203,12 @@ export default function AttorneyDashboardIntakeTab({ onGoToLeads }: AttorneyDash
   const navigate = useNavigate()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [intakeTemplate, setIntakeTemplate] = useState('PI')
+  const [newCase, setNewCase] = useState({ claimType: 'auto', venueState: '', incidentDate: '' })
   const [intakeMessage, setIntakeMessage] = useState<string | null>(null)
   const [manualBusy, setManualBusy] = useState(false)
   const [cloneBusy, setCloneBusy] = useState(false)
   const [importMessage, setImportMessage] = useState<string | null>(null)
+  const [importPreview, setImportPreview] = useState<ImportPreview | null>(null)
   const [importing, setImporting] = useState(false)
   const [dragOver, setDragOver] = useState(false)
   const [preview, setPreview] = useState<ParsedPreview | null>(null)
@@ -273,60 +293,122 @@ export default function AttorneyDashboardIntakeTab({ onGoToLeads }: AttorneyDash
     setTimeout(() => URL.revokeObjectURL(url), 10_000)
   }
 
+  /** Null when the form is complete, otherwise what is still missing. */
+  const newCaseGap = (): string | null => {
+    if (!newCase.claimType) return 'Choose a claim type.'
+    if (newCase.venueState.trim().length !== 2) return 'Enter a two-letter venue state.'
+    if (!newCase.incidentDate) return 'Enter the incident date.'
+    return null
+  }
+
   const handleManual = async () => {
+    const gap = newCaseGap()
+    if (gap) {
+      setIntakeMessage(gap)
+      return
+    }
     try {
       setManualBusy(true)
-      setIntakeMessage('Creating draft case…')
-                  const data = await createManualIntake({ template: intakeTemplate })
-      setIntakeMessage('Draft case created. Opening intake…')
-                  navigate(`/edit-assessment/${data.assessmentId}`)
-                } catch (err: any) {
-                  setIntakeMessage(err.response?.data?.error || 'Failed to create draft case')
+      setIntakeMessage('Creating case…')
+      const data = await createManualIntake({
+        template: intakeTemplate,
+        claimType: newCase.claimType,
+        venueState: newCase.venueState.trim().toUpperCase(),
+        incidentDate: newCase.incidentDate,
+      })
+      setIntakeMessage('Case created. Opening intake…')
+      navigate(`/edit-assessment/${data.assessmentId}`)
+    } catch (err: any) {
+      setIntakeMessage(err.response?.data?.error || 'Failed to create the case')
     } finally {
       setManualBusy(false)
     }
   }
 
   const handleClone = async () => {
+    const gap = newCaseGap()
+    if (gap) {
+      setIntakeMessage(gap)
+      return
+    }
     try {
       setCloneBusy(true)
       setIntakeMessage(`Cloning ${intakeTemplate} template…`)
-                    const data = await cloneCaseTemplate({ template: intakeTemplate })
-                    navigate(`/edit-assessment/${data.assessmentId}`)
-                  } catch (err: any) {
-                    setIntakeMessage(err.response?.data?.error || 'Failed to clone template')
+      const data = await cloneCaseTemplate({
+        template: intakeTemplate,
+        venueState: newCase.venueState.trim().toUpperCase(),
+        incidentDate: newCase.incidentDate,
+      })
+      navigate(`/edit-assessment/${data.assessmentId}`)
+    } catch (err: any) {
+      setIntakeMessage(err.response?.data?.error || 'Failed to clone template')
     } finally {
       setCloneBusy(false)
     }
   }
 
-  const handleImport = async () => {
-    if (importForm.source === 'spreadsheet' && importForm.files.length === 0) {
-      setImportMessage('Add at least one spreadsheet file to import.')
+  const importPayload = () => {
+    const cleanMapping = Object.fromEntries(Object.entries(mapping).filter(([, v]) => v))
+    return {
+      source: importForm.source,
+      includeDocuments: importForm.includeDocuments,
+      includeHistory: importForm.includeHistory,
+      includeTasks: importForm.includeTasks,
+      includeMedical: importForm.includeMedical,
+      notes: importForm.notes,
+      mapping: Object.keys(cleanMapping).length ? cleanMapping : undefined,
+      files: importForm.files,
+    }
+  }
+
+  /**
+   * Step one: show the attorney what the import would do.
+   *
+   * The upload used to commit on the spot, so the first time anyone saw how
+   * their columns had been interpreted was after several hundred cases already
+   * existed — and undoing that meant deleting them one at a time.
+   */
+  const handlePreview = async () => {
+    if (importForm.files.length === 0) {
+      setImportMessage('Add at least one file to import.')
       return
     }
     try {
       setImporting(true)
-      setImportMessage('Submitting import request…')
-      const cleanMapping = Object.fromEntries(Object.entries(mapping).filter(([, v]) => v))
-                  const data = await importCase({
-                    source: importForm.source,
-                    includeDocuments: importForm.includeDocuments,
-                    includeHistory: importForm.includeHistory,
-                    includeTasks: importForm.includeTasks,
-                    includeMedical: importForm.includeMedical,
-                    notes: importForm.notes,
-        mapping: Object.keys(cleanMapping).length ? cleanMapping : undefined,
-                    files: importForm.files,
-                  })
-                  const createdCount = data.createdCount ?? data.assessmentIds?.length ?? 0
-                  setImportMessage(
-                    createdCount > 0
-                      ? `Imported ${createdCount} case${createdCount === 1 ? '' : 's'} from ${importForm.source}.`
-                      : 'Import queued. We will hydrate the case once files are processed.',
-                  )
-                } catch (err: any) {
-                  setImportMessage(err.response?.data?.error || 'Failed to import case')
+      setImportMessage(null)
+      setImportPreview(null)
+      const data = await importCase({ ...importPayload(), dryRun: true })
+      setImportPreview(data)
+    } catch (err: any) {
+      setImportMessage(err.response?.data?.error || 'Could not read those files')
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  /** Step two: commit the plan the attorney just confirmed. */
+  const handleImport = async () => {
+    try {
+      setImporting(true)
+      setImportMessage('Importing…')
+      const data = await importCase(importPayload())
+      const createdCount = data.createdCount ?? data.assessmentIds?.length ?? 0
+      const duplicateCount = data.duplicateCount ?? 0
+      const skippedCount = data.skippedRows?.length ?? 0
+      setImportPreview(null)
+      setImportMessage(
+        [
+          createdCount > 0
+            ? `Imported ${createdCount} case${createdCount === 1 ? '' : 's'} from ${importForm.source}.`
+            : 'No new cases to import.',
+          duplicateCount > 0 ? `${duplicateCount} already on file.` : '',
+          skippedCount > 0 ? `${skippedCount} skipped.` : '',
+        ]
+          .filter(Boolean)
+          .join(' '),
+      )
+    } catch (err: any) {
+      setImportMessage(err.response?.data?.error || 'Failed to import cases')
     } finally {
       setImporting(false)
     }
@@ -398,6 +480,45 @@ export default function AttorneyDashboardIntakeTab({ onGoToLeads }: AttorneyDash
             </button>
           </div>
         </div>
+
+        {/* The three facts a case cannot be created without. They used to be
+            guessed — claim type from the template, California as the venue and
+            today as the incident date, which silently put a statute-of-
+            limitations deadline on the record that nobody had said. */}
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-slate-600">Claim type</span>
+            <select
+              value={newCase.claimType}
+              onChange={(e) => setNewCase((prev) => ({ ...prev, claimType: e.target.value }))}
+              className={inputCls}
+            >
+              {CLAIM_TYPE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-slate-600">Venue state</span>
+            <input
+              value={newCase.venueState}
+              onChange={(e) => setNewCase((prev) => ({ ...prev, venueState: e.target.value.toUpperCase().slice(0, 2) }))}
+              placeholder="CA"
+              maxLength={2}
+              className={inputCls}
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-slate-600">Incident date</span>
+            <input
+              type="date"
+              value={newCase.incidentDate}
+              onChange={(e) => setNewCase((prev) => ({ ...prev, incidentDate: e.target.value }))}
+              className={inputCls}
+            />
+          </label>
+        </div>
+
         {intakeMessage && <Banner message={intakeMessage} />}
       </div>
 
@@ -602,12 +723,94 @@ export default function AttorneyDashboardIntakeTab({ onGoToLeads }: AttorneyDash
         />
 
         <div className="mt-4 flex items-center gap-3">
-          <button onClick={handleImport} disabled={importing} className={btnPrimary}>
+          <button onClick={handlePreview} disabled={importing} className={btnPrimary}>
             {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-            {importing ? 'Importing…' : 'Start import'}
+            {importing ? 'Reading…' : 'Review import'}
           </button>
           {importForm.files.length > 0 && <span className="text-xs text-slate-400">{importForm.files.length} file{importForm.files.length === 1 ? '' : 's'} ready</span>}
         </div>
+
+        {importPreview && (
+          <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
+            <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-sm">
+              <span className="font-semibold text-slate-900">
+                {importPreview.willCreateCount} new case{importPreview.willCreateCount === 1 ? '' : 's'}
+              </span>
+              {importPreview.duplicateCount > 0 && (
+                <span className="text-slate-500">{importPreview.duplicateCount} already on file</span>
+              )}
+              {importPreview.skippedCount > 0 && (
+                <span className="text-amber-700">{importPreview.skippedCount} cannot be imported</span>
+              )}
+            </div>
+
+            {importPreview.preview.length > 0 && (
+              <div className="mt-3 overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="text-slate-500">
+                    <tr>
+                      <th className="py-1 pr-3 font-medium">Client</th>
+                      <th className="py-1 pr-3 font-medium">Claim type</th>
+                      <th className="py-1 pr-3 font-medium">Incident date</th>
+                      <th className="py-1 pr-3 font-medium">Venue</th>
+                      <th className="py-1 font-medium">External ID</th>
+                    </tr>
+                  </thead>
+                  <tbody className="text-slate-700">
+                    {importPreview.preview.map((row, index) => (
+                      <tr key={`${row.externalId ?? 'row'}-${index}`} className="border-t border-slate-200">
+                        <td className="py-1 pr-3">{row.plaintiffName || <span className="text-slate-400">No name</span>}</td>
+                        <td className="py-1 pr-3">{row.claimType}</td>
+                        <td className="py-1 pr-3">{row.incidentDate}</td>
+                        <td className="py-1 pr-3">{row.venueState}</td>
+                        <td className="py-1 text-slate-500">{row.externalId || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {importPreview.willCreateCount > importPreview.preview.length && (
+                  <p className="mt-2 text-xs text-slate-500">
+                    Showing the first {importPreview.preview.length} of {importPreview.willCreateCount}.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Named individually: "12 skipped" tells an attorney nothing about
+                which rows to go and fix. */}
+            {importPreview.skippedRows.length > 0 && (
+              <ul className="mt-3 space-y-1 text-xs text-amber-700">
+                {importPreview.skippedRows.slice(0, 10).map((row, index) => (
+                  <li key={`${row.externalId ?? 'skip'}-${index}`}>
+                    {row.externalId ? `${row.externalId}: ` : `${row.fileName}: `}
+                    {row.reason}
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <div className="mt-4 flex items-center gap-3">
+              <button
+                onClick={handleImport}
+                disabled={importing || importPreview.willCreateCount === 0}
+                className={btnPrimary}
+              >
+                {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                {importing
+                  ? 'Importing…'
+                  : `Import ${importPreview.willCreateCount} case${importPreview.willCreateCount === 1 ? '' : 's'}`}
+              </button>
+              <button
+                onClick={() => setImportPreview(null)}
+                disabled={importing}
+                className="text-sm text-slate-500 hover:text-slate-700"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
         {importMessage && <Banner message={importMessage} />}
       </div>
 

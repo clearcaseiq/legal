@@ -26,6 +26,7 @@ import { ENGAGED_LEAD_STATUSES } from './lead-status'
 import {
   ATTORNEY_SELF_SOURCE,
   createAttorneyOwnedCase,
+  finalizeAttorneyCases,
   findExistingImportedCase,
   importOwnerKeyFor,
   isAttorneyOwnedCase,
@@ -49,6 +50,15 @@ function leadCreateArg() {
 
 function assessmentCreateArg() {
   return vi.mocked(prisma.assessment.create).mock.calls[0]?.[0] as any
+}
+
+/** A stand-in for the transaction client a bulk import passes in. */
+function txClient() {
+  return {
+    assessment: { create: vi.fn().mockResolvedValue({ id: 'asm-tx' }), update: vi.fn() },
+    user: { create: vi.fn().mockResolvedValue({ id: 'shadow-tx' }) },
+    leadSubmission: { create: vi.fn() },
+  } as any
 }
 
 beforeEach(() => {
@@ -192,19 +202,43 @@ describe('createAttorneyOwnedCase', () => {
   })
 
   it('joins an ambient transaction when one is supplied', async () => {
-    const tx = {
-      assessment: { create: vi.fn().mockResolvedValue({ id: 'asm-tx' }), update: vi.fn() },
-      user: { create: vi.fn().mockResolvedValue({ id: 'shadow-tx' }) },
-      leadSubmission: { create: vi.fn() },
-    } as any
-
-    const result = await createAttorneyOwnedCase(INPUT, OWNER, 'import', tx)
+    const result = await createAttorneyOwnedCase(INPUT, OWNER, 'import', txClient())
 
     // A bulk import commits many cases as one unit; opening a nested
     // transaction per row would defeat that.
     expect(result.assessmentId).toBe('asm-tx')
     expect(prisma.$transaction).not.toHaveBeenCalled()
-    expect(tx.leadSubmission.create).toHaveBeenCalledOnce()
+  })
+
+  /**
+   * The contract for batch callers. Minting a reference code here would write
+   * it through the global client, outside the caller's transaction, and leave
+   * a code stranded on a case that then rolled away.
+   */
+  it('defers the reference code and valuation to the caller when batching', async () => {
+    const result = await createAttorneyOwnedCase(INPUT, OWNER, 'import', txClient())
+
+    expect(result.referenceCode).toBeNull()
+    expect(assignReferenceCode).not.toHaveBeenCalled()
+    expect(ensureAssessmentPrediction).not.toHaveBeenCalled()
+  })
+})
+
+describe('finalizeAttorneyCases', () => {
+  it('codes and values every case the batch committed', async () => {
+    const codes = await finalizeAttorneyCases(['asm-1', 'asm-2'])
+
+    expect(codes).toEqual(['CCIQ-7Q2K9F', 'CCIQ-7Q2K9F'])
+    expect(ensureAssessmentPrediction).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps going when one case cannot be valued', async () => {
+    // Neither step is fatal: both self-heal on the next read, and one bad row
+    // must not leave the rest of a committed import uncoded.
+    ensureAssessmentPrediction.mockRejectedValueOnce(new Error('ml service down'))
+
+    await expect(finalizeAttorneyCases(['asm-1', 'asm-2'])).resolves.toHaveLength(2)
+    expect(ensureAssessmentPrediction).toHaveBeenCalledTimes(2)
   })
 })
 
