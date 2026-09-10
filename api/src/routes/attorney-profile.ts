@@ -37,6 +37,98 @@ function parseJsonArray(value: string | null | undefined, fallback: any[] = []) 
   }
 }
 
+/**
+ * Office locations for the profile's Firm Information panel.
+ *
+ * An attorney who belongs to a firm does not own their offices: the firm does,
+ * in `FirmOffice`, managed from the Firm Dashboard. `AttorneyProfile.firmLocations`
+ * is only ever populated by a solo attorney editing their own profile, so
+ * serving that column to a firm member showed "No offices added" next to a
+ * panel that says the firm manages them.
+ *
+ * Returns null for a solo attorney, leaving their own column to answer.
+ */
+async function firmOwnedLocations(lawFirm: any): Promise<string | null> {
+  if (!lawFirm?.id) return null
+
+  const offices = await prisma.firmOffice.findMany({
+    where: { lawFirmId: lawFirm.id, isActive: true },
+    orderBy: { createdAt: 'asc' },
+    select: { name: true, address: true, city: true, state: true, phone: true },
+  })
+
+  if (offices.length > 0) {
+    // No zip on FirmOffice; the panel renders it as an empty tail rather than
+    // showing "undefined".
+    return JSON.stringify(
+      offices.map((office) => ({
+        name: office.name,
+        address: office.address || '',
+        city: office.city || '',
+        state: office.state || '',
+        zip: '',
+        phone: office.phone || '',
+      })),
+    )
+  }
+
+  // A firm that never split into offices still has one address on the firm
+  // record itself, which is the office its clients visit.
+  if (!lawFirm.address && !lawFirm.city) return null
+  return JSON.stringify([
+    {
+      name: lawFirm.name || '',
+      address: lawFirm.address || '',
+      city: lawFirm.city || '',
+      state: lawFirm.state || '',
+      zip: lawFirm.zip || '',
+      phone: lawFirm.phone || '',
+    },
+  ])
+}
+
+/**
+ * The case-type slugs the profile editor offers. `Attorney.specialties` is what
+ * routing matches a case against, so only these may be written to it.
+ */
+const ATTORNEY_SPECIALTY_SLUGS = new Set([
+  'vehicle',
+  'auto',
+  'slip_fall',
+  'slip_and_fall',
+  'workplace',
+  'medmal',
+  'dog_bite',
+  'product',
+  'assault',
+  'toxic',
+  'nursing_home_abuse',
+  'wrongful_death',
+  'high_severity_surgery',
+  'premises_liability',
+  'other',
+  'other_pi',
+])
+
+/**
+ * The specialties to mirror onto the attorney record, or undefined to leave it
+ * alone.
+ *
+ * The client falls back to the display label "Personal Injury" when an attorney
+ * has no practice areas set, and writing that into the column routing matches
+ * on would stop the attorney matching anything. So unrecognised values are
+ * dropped, and a payload with nothing recognisable leaves the stored value
+ * untouched rather than clearing it.
+ */
+function mirroredSpecialties(specialties: unknown): string | undefined {
+  if (!Array.isArray(specialties)) return undefined
+  const slugs = specialties
+    .map((value) => String(value || '').trim().toLowerCase().replace(/[\s-]+/g, '_'))
+    .filter((value) => ATTORNEY_SPECIALTY_SLUGS.has(value))
+  if (slugs.length === 0) return undefined
+  return JSON.stringify([...new Set(slugs)])
+}
+
 function buildProfileFallback(attorney: any) {
   return {
     id: `fallback-${attorney.id}`,
@@ -446,7 +538,12 @@ router.get('/profile', authMiddleware, async (req: any, res) => {
             attorney: true
           }
         })
-        return res.json({ ...newProfile, verifiedVerdicts: [], emailVerified })
+        return res.json({
+          ...newProfile,
+          firmLocations: (await firmOwnedLocations(attorney.lawFirm)) ?? newProfile.firmLocations,
+          verifiedVerdicts: [],
+          emailVerified,
+        })
       } catch (createError: any) {
         logger.warn('Profile create failed; returning attorney fallback profile', {
           attorneyId,
@@ -458,7 +555,13 @@ router.get('/profile', authMiddleware, async (req: any, res) => {
     }
 
     // Case results come from their own table now; the key stays for clients.
-    res.json({ ...profile, verifiedVerdicts: await listCaseResults(attorneyId), emailVerified })
+    const firmLocations = (await firmOwnedLocations(attorney.lawFirm)) ?? profile.firmLocations
+    res.json({
+      ...profile,
+      firmLocations,
+      verifiedVerdicts: await listCaseResults(attorneyId),
+      emailVerified,
+    })
   } catch (error: any) {
     logger.error('Failed to get attorney profile', { 
       error: error?.message || String(error), 
@@ -697,6 +800,11 @@ router.put('/profile', authMiddleware, async (req: any, res) => {
         responseTimeHours: typeof responseTimeHours === 'number' ? responseTimeHours : undefined,
         // Allow editing the display name; ignore blank submissions.
         name: trimmedName ? trimmedName : undefined,
+        // Practice areas live in two places: the profile column the editor reads
+        // back, and `Attorney.specialties`, which routing matches on and the
+        // plaintiff dashboard renders. Saving only the profile left plaintiffs
+        // looking at whatever was chosen at registration.
+        specialties: mirroredSpecialties(specialties),
       }
     })
 
