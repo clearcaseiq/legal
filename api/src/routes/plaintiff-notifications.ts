@@ -110,7 +110,11 @@ async function assessmentIdsWithObsoleteBatchApproval(
 async function loadPlaintiffFeed(userId: string, limit: number) {
   const rows = await prisma.notification.findMany({
     where: plaintiffNotificationWhere(userId),
-    orderBy: { createdAt: 'desc' },
+    // Id breaks the tie. Several notifications for one event are written in the
+    // same transaction and land on the same millisecond, and Postgres returns
+    // tied rows in whatever order it likes — so the feed reshuffled between
+    // refreshes. cuid is time-prefixed, so descending id keeps insertion order.
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     take: Math.min(limit * 2, 100), // fetch extra in case we filter some out
     select: {
       id: true,

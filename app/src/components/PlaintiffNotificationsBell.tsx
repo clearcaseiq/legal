@@ -43,6 +43,23 @@ interface PlaintiffNotification {
   href: string
   /** Server-backed rows track read state in the database, not localStorage. */
   serverUnread?: boolean
+  /**
+   * When the thing happened, as epoch ms, purely for ordering.
+   *
+   * `timeAgo` is already formatted for display and cannot be sorted, so
+   * without this the list was server rows first and every derived item after,
+   * grouped by case — a three-week-old acceptance sitting below this
+   * morning's document request. Items whose source carries no timestamp sort
+   * to the bottom rather than jumping to the top.
+   */
+  sortAt: number
+}
+
+/** Epoch ms for ordering, or 0 when the source carries no usable timestamp. */
+function timestampOf(value?: string | null): number {
+  if (!value) return 0
+  const parsed = new Date(value).getTime()
+  return Number.isNaN(parsed) ? 0 : parsed
 }
 
 /** Maps a `plaintiff.*` notification type onto the icon vocabulary above. */
@@ -129,6 +146,7 @@ export default function PlaintiffNotificationsBell() {
             timeAgo: formatDate(n.createdAt),
             href: n.link || '/dashboard',
             serverUnread: !n.read,
+            sortAt: timestampOf(n.createdAt),
           })),
         )
         return
@@ -171,6 +189,7 @@ export default function PlaintiffNotificationsBell() {
           timeAgo: formatDate(n.createdAt),
           href: n.link || '/dashboard',
           serverUnread: !n.read,
+          sortAt: timestampOf(n.createdAt),
         }))
 
       const next: PlaintiffNotification[] = [...serverItems]
@@ -194,6 +213,7 @@ export default function PlaintiffNotificationsBell() {
             detail: detail || undefined,
             timeAgo: formatDate(matched.acceptedAt || undefined),
             href: '/dashboard',
+            sortAt: timestampOf(matched.acceptedAt),
           })
         }
 
@@ -205,11 +225,12 @@ export default function PlaintiffNotificationsBell() {
             title: 'Consultation scheduled',
             detail: `${appt.attorney?.name ? `${appt.attorney.name} · ` : ''}${formatDate(appt.scheduledAt)}`,
             href: '/dashboard',
+            sortAt: timestampOf(appt.scheduledAt),
           })
         }
 
         if (Array.isArray(routing?.attorneyActivity)) {
-          routing.attorneyActivity.forEach((activity: { type?: string; message: string; timeAgo?: string }) => {
+          routing.attorneyActivity.forEach((activity: { type?: string; message: string; timeAgo?: string; at?: string }) => {
             if (!activity?.message) return
             next.push({
               key: `activity:${caseId}:${activity.message}`,
@@ -217,6 +238,7 @@ export default function PlaintiffNotificationsBell() {
               title: activity.message,
               timeAgo: activity.timeAgo,
               href: '/dashboard',
+              sortAt: timestampOf(activity.at),
             })
           })
         }
@@ -233,10 +255,15 @@ export default function PlaintiffNotificationsBell() {
               title: `${attorneyName} requested ${count} document${count === 1 ? '' : 's'}`,
               detail: req.remainingDocs?.slice(0, 3).join(', '),
               href: '/dashboard?tab=tasks',
+              sortAt: timestampOf(req.lastNudgeAt || req.createdAt),
             })
           })
       }
 
+      // Newest first across both sources. Derived items used to be appended
+      // after every server row, so a three-week-old acceptance sat below this
+      // morning's document request.
+      next.sort((a, b) => b.sortAt - a.sortAt)
       setNotifications(next)
     } catch {
       setNotifications([])

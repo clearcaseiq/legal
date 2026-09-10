@@ -507,14 +507,17 @@ router.get('/assessment/:id/status', authMiddleware, async (req: AuthRequest, re
     const attorneyActivity = recentEvents.map((e: any) => {
       const mins = Math.floor((Date.now() - new Date(e.createdAt).getTime()) / 60000)
       const timeAgo = mins < 60 ? `${mins} min ago` : mins < 1440 ? `${Math.floor(mins / 60)} hours ago` : `${Math.floor(mins / 1440)} days ago`
-      if (e.eventType === 'viewed') return { type: 'viewed', message: `Attorney viewed your case ${timeAgo}`, timeAgo }
-      if (e.eventType === 'routed') return { type: 'routed', message: `Case sent to attorney`, timeAgo }
-      if (e.eventType === 'accepted') return { type: 'accepted', message: `Attorney interested in your case`, timeAgo }
-      if (e.eventType === 'declined') return { type: 'declined', message: `Attorney passed`, timeAgo }
-      if (e.eventType === 'requested_info') return { type: 'requested_info', message: `Attorney requested more information`, timeAgo }
-      if (e.eventType === 'manual_review_needed') return { type: 'manual_review_needed', message: `Case moved to manual review`, timeAgo }
-      if (e.eventType === 'plaintiff_rank_advanced') return { type: 'plaintiff_rank_advanced', message: `We moved your case to the next ranked attorney`, timeAgo }
-      if (e.eventType === 'plaintiff_rank_batch_generated') return { type: 'plaintiff_rank_batch_generated', message: `We expanded the search to additional matching attorneys`, timeAgo }
+      // timeAgo is display-only. The plaintiff notification bell merges these
+      // with other sources, so it needs a sortable instant to interleave them.
+      const at = new Date(e.createdAt).toISOString()
+      if (e.eventType === 'viewed') return { type: 'viewed', message: `Attorney viewed your case ${timeAgo}`, timeAgo, at }
+      if (e.eventType === 'routed') return { type: 'routed', message: `Case sent to attorney`, timeAgo, at }
+      if (e.eventType === 'accepted') return { type: 'accepted', message: `Attorney interested in your case`, timeAgo, at }
+      if (e.eventType === 'declined') return { type: 'declined', message: `Attorney passed`, timeAgo, at }
+      if (e.eventType === 'requested_info') return { type: 'requested_info', message: `Attorney requested more information`, timeAgo, at }
+      if (e.eventType === 'manual_review_needed') return { type: 'manual_review_needed', message: `Case moved to manual review`, timeAgo, at }
+      if (e.eventType === 'plaintiff_rank_advanced') return { type: 'plaintiff_rank_advanced', message: `We moved your case to the next ranked attorney`, timeAgo, at }
+      if (e.eventType === 'plaintiff_rank_batch_generated') return { type: 'plaintiff_rank_batch_generated', message: `We expanded the search to additional matching attorneys`, timeAgo, at }
       return null
     }).filter(Boolean)
 
