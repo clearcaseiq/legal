@@ -9,6 +9,7 @@ import {
   ChevronRight,
   Calendar,
   Target,
+  FilePlus,
   Upload,
   ClipboardList,
   FileText,
@@ -315,6 +316,10 @@ const ATTORNEY_DASHBOARD_NAV = [
   { id: 'activeCases', name: 'Active Cases', description: 'Case management', icon: FileText },
   { id: 'consultations', name: 'Consultations', description: 'Upcoming meetings', icon: Calendar },
   { id: 'aiInsights', name: 'AI Case Intelligence', description: 'Valuation / chronology / demand packages', icon: Target },
+  // The tab and its whole UI already existed but were absent from this list,
+  // so the only way to reach case creation and CSV import was to type
+  // `?tab=intake` into the address bar.
+  { id: 'intake', name: 'Add Cases', description: 'Create a case or import your caseload', icon: FilePlus },
   { id: 'analytics', name: 'Analytics', description: 'Performance', icon: TrendingUp },
 ] as const
 

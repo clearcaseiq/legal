@@ -9,6 +9,7 @@ import type { NormalizedCase } from './case-normalization'
 import { normalizeClaimTypeForSOL } from './solRules'
 import { evaluateCaseFraud, type FraudSignal } from './fraud-gate'
 import { assertShareAuthorization } from './share-authorization'
+import { isAttorneyOwnedCase } from './attorney-case-origin'
 
 type GateHoldAction = 'manual_review' | 'needs_more_info' | 'not_routable_yet'
 
@@ -119,9 +120,33 @@ export async function runPreRoutingGate(
       id: true,
       userId: true,
       createdAt: true,
-      manualReviewStatus: true
+      manualReviewStatus: true,
+      facts: true
     }
   })
+
+  // A case the attorney brought with them is never offered to anyone.
+  //
+  // `routingLocked: true` from birth is the primary guard and this is defence
+  // in depth, deliberately: the cost of the guard failing is offering a firm's
+  // own client to a competitor, which is unrecoverable. Checked before every
+  // score and jurisdiction rule below, because none of them are relevant to a
+  // case that must not be routed on any score.
+  if (assessment?.facts) {
+    let ownedByAttorney = false
+    try {
+      ownedByAttorney = isAttorneyOwnedCase(JSON.parse(assessment.facts))
+    } catch {
+      ownedByAttorney = false
+    }
+    if (ownedByAttorney) {
+      return {
+        pass: false,
+        reason: 'Case was created or imported by the attorney who owns it, so it is not routable',
+        status: 'not_routable_yet'
+      }
+    }
+  }
 
   if (assessment?.manualReviewStatus === 'pending') {
     return {

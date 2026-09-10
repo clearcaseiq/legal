@@ -6,6 +6,7 @@
 import { prisma } from './prisma'
 import type { Prisma } from '@prisma/client'
 import { analyzeClinicalCodes } from './clinical-codes'
+import { isAttorneyOwnedCase } from './attorney-case-origin'
 import {
   deriveTreatmentPosture,
   isPlausibleTreatmentDate,
@@ -776,7 +777,14 @@ export async function computeCasePreparation(assessmentId: string): Promise<Case
       priority: 'medium',
     })
   }
-  const hasHipaa = facts?.consents?.hipaa === true
+  // A case the attorney brought with them already has a signed authorization —
+  // the firm's own, from an engagement that predates us. Our HIPAA consent
+  // exists so that *we* may disclose medical detail to attorneys the claimant
+  // has never met, and that cannot happen here: these cases are routing-locked
+  // from birth and are never offered to anyone. Demanding it put a permanent
+  // high-priority defect on every imported case, and withheld ten readiness
+  // points that no action could ever earn back.
+  const hasHipaa = facts?.consents?.hipaa === true || isAttorneyOwnedCase(facts)
   if (!hasHipaa) {
     missingDocs.push({ key: 'hipaa', label: 'HIPAA authorization', priority: 'high' })
   }

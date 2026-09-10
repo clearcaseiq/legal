@@ -2049,6 +2049,18 @@ const intakeManualSchema = z.object({
   sendInvite: z.boolean().optional()
 })
 
+/**
+ * A template picks the claim type and nothing else, so the two facts it cannot
+ * guess are still required. Separate from `intakeManualSchema` because the
+ * claim type comes from the template here rather than from the caller.
+ */
+const intakeTemplateSchema = z.object({
+  template: z.string().min(1, 'A template is required'),
+  venueState: z.string().trim().length(2, 'A two-letter state code is required'),
+  venueCounty: z.string().trim().optional(),
+  incidentDate: z.string().min(1, 'The incident date is required'),
+})
+
 const intakeFromLeadSchema = z.object({
   leadId: z.string()
 })
@@ -2085,57 +2097,6 @@ function getTemplateClaimType(template?: string) {
     default:
       return 'auto'
   }
-}
-
-async function createDraftAssessment(payload: {
-  claimType?: string
-  venueState?: string
-  venueCounty?: string | null
-  plaintiffFirstName?: string
-  plaintiffLastName?: string
-  plaintiffEmail?: string
-  plaintiffPhone?: string
-  incidentDate?: string
-  narrative?: string
-  source?: string
-  externalId?: string | null
-  rawImport?: Record<string, unknown>
-}) {
-  const claimType = payload.claimType || 'auto'
-  const venueState = payload.venueState || 'CA'
-  const facts = {
-    incident: {
-      date: payload.incidentDate || new Date().toISOString().split('T')[0],
-      narrative: payload.narrative || ''
-    },
-    injuries: [],
-    treatment: [],
-    damages: {},
-    plaintiffContext: {
-      firstName: payload.plaintiffFirstName || '',
-      lastName: payload.plaintiffLastName || '',
-      email: payload.plaintiffEmail || '',
-      phone: payload.plaintiffPhone || ''
-    },
-    importSource: payload.source
-      ? {
-          source: payload.source,
-          externalId: payload.externalId || null,
-          raw: payload.rawImport || null
-        }
-      : undefined,
-    consents: { tos: false, privacy: false, ml_use: false, hipaa: false }
-  }
-  return prisma.assessment.create({
-    data: {
-      claimType,
-      venueState,
-      venueCounty: payload.venueCounty || null,
-      status: 'DRAFT',
-      facts: serializeCaseFacts(facts),
-      lastWriteSource: 'cms_inbound'
-    }
-  })
 }
 
 type IntakeImportSource = z.infer<typeof intakeImportSchema>['source']
@@ -7771,32 +7732,48 @@ router.post('/intake/from-lead', authMiddleware, async (req: any, res) => {
 
 router.post('/intake/clone-template', authMiddleware, async (req: any, res) => {
   try {
-    const payload = intakeManualSchema.parse(req.body || {})
+    const payload = intakeTemplateSchema.parse(req.body || {})
     const auth = await getAttorneyFromReq(req)
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
-    const claimType = getTemplateClaimType(payload.template)
-    const assessment = await createDraftAssessment({ claimType, venueState: payload.venueState })
+    // The template only picks the claim type. Venue and incident date still
+    // have to come from the attorney: this endpoint used to accept neither and
+    // produced a case with a guessed claim type, California as the venue and
+    // today as the incident date, none of which anyone had said.
+    const created = await createAttorneyOwnedCase(
+      {
+        claimType: getTemplateClaimType(payload.template),
+        venueState: payload.venueState.toUpperCase(),
+        venueCounty: payload.venueCounty || null,
+        incidentDate: payload.incidentDate,
+      },
+      { attorneyId: auth.attorney.id, lawFirmId: auth.attorney.lawFirmId ?? null, createdByUserId: req.user?.id ?? null },
+      'manual',
+    )
     await prisma.caseIntakeRequest.create({
       data: {
         attorneyId: auth.attorney.id,
-        assessmentId: assessment.id,
+        assessmentId: created.assessmentId,
         kind: 'clone_template',
         payload: JSON.stringify({
-          template: payload.template || null,
-          claimType: assessment.claimType,
-          venueState: assessment.venueState
+          template: payload.template,
+          claimType: getTemplateClaimType(payload.template),
+          venueState: payload.venueState.toUpperCase()
         })
       }
     })
     res.json({
-      assessmentId: assessment.id,
-      template: payload.template || null
+      assessmentId: created.assessmentId,
+      referenceCode: created.referenceCode,
+      template: payload.template
     })
   } catch (error: any) {
-    logger.error('Failed to clone intake template', { error: error.message })
-    res.status(400).json({ error: 'Failed to clone intake template' })
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Invalid case details', details: error.flatten() })
+    }
+    logger.error('Failed to clone intake template', { error: error.message, stack: error.stack })
+    res.status(500).json({ error: 'Failed to create the case' })
   }
 })
 
@@ -7845,24 +7822,46 @@ router.post('/intake/import', authMiddleware, intakeImportUpload.array('files', 
       .filter((file) => file.unsupportedReason)
       .map((file) => ({ name: file.fileName, reason: file.unsupportedReason }))
     const createdAssessments: Array<{ id: string; fileName?: string; externalId: string | null }> = []
+    /**
+     * Rows we would have had to invent a fact to create.
+     *
+     * Reported back rather than skipped silently, and skipped rather than
+     * filled in: an imported case with a made-up incident date carries a
+     * statute-of-limitations deadline nobody has, which is worse than a case
+     * that failed to import and said so.
+     */
+    const skippedRows: Array<{ fileName: string; externalId: string | null; reason: string }> = []
 
     if (fileRows.length > 0) {
       for (const item of fileRows) {
         const importedCase = normalizeImportedCase(payload.source, item.row, payload.mapping)
-        const assessment = await createDraftAssessment({
-          claimType: importedCase.claimType,
-          venueState: importedCase.venueState,
-          venueCounty: importedCase.venueCounty,
-          plaintiffFirstName: importedCase.plaintiffFirstName,
-          plaintiffLastName: importedCase.plaintiffLastName,
-          plaintiffEmail: importedCase.plaintiffEmail,
-          plaintiffPhone: importedCase.plaintiffPhone,
-          incidentDate: importedCase.incidentDate,
-          narrative: importedCase.narrative,
-          source: payload.source,
-          externalId: importedCase.externalId,
-          rawImport: importedCase.raw,
-        })
+        if (!importedCase.incidentDate) {
+          skippedRows.push({
+            fileName: item.fileName,
+            externalId: importedCase.externalId,
+            reason: 'No incident date. Map a date column, or add one to the row.',
+          })
+          continue
+        }
+        const created = await createAttorneyOwnedCase(
+          {
+            claimType: importedCase.claimType,
+            venueState: importedCase.venueState,
+            venueCounty: importedCase.venueCounty,
+            plaintiffFirstName: importedCase.plaintiffFirstName,
+            plaintiffLastName: importedCase.plaintiffLastName,
+            plaintiffEmail: importedCase.plaintiffEmail,
+            plaintiffPhone: importedCase.plaintiffPhone,
+            incidentDate: importedCase.incidentDate,
+            narrative: importedCase.narrative,
+            importSource: payload.source,
+            externalId: importedCase.externalId,
+            rawImport: importedCase.raw,
+          },
+          { attorneyId: auth.attorney.id, lawFirmId: auth.attorney.lawFirmId ?? null, createdByUserId: req.user?.id ?? null },
+          'import',
+        )
+        const assessment = { id: created.assessmentId }
         await prisma.caseIntakeRequest.create({
           data: {
             attorneyId: auth.attorney.id,
@@ -7912,28 +7911,25 @@ router.post('/intake/import', authMiddleware, intakeImportUpload.array('files', 
         })
         createdAssessments.push({ id: assessment.id, fileName: item.fileName, externalId: importedCase.externalId })
       }
-    } else {
-      const assessment = await createDraftAssessment({ claimType: 'auto', venueState: 'CA', source: payload.source })
-      await prisma.caseIntakeRequest.create({
-        data: {
-          attorneyId: auth.attorney.id,
-          assessmentId: assessment.id,
-          kind: 'import',
-          source: payload.source,
-          payload: JSON.stringify({
-            importId,
-            source: payload.source,
-            includeDocuments: payload.includeDocuments ?? true,
-            includeHistory: payload.includeHistory ?? true,
-            includeTasks: payload.includeTasks ?? true,
-            includeMedical: payload.includeMedical ?? true,
-            notes: payload.notes || null,
-            files: fileSummaries,
-            unsupportedFiles,
-          })
-        }
+    }
+
+    // A parse that produced no rows used to create one placeholder case
+    // anyway — a junk record with a guessed claim type and venue, attributed
+    // to an import that imported nothing. Every XLSX upload took that branch,
+    // because XLSX is accepted and never parsed. Refuse instead, and say which
+    // files could not be read.
+    if (createdAssessments.length === 0) {
+      return res.status(422).json({
+        error:
+          unsupportedFiles.length > 0
+            ? 'None of those files could be read.'
+            : 'No rows could be imported from those files.',
+        importId,
+        createdCount: 0,
+        files: fileSummaries,
+        unsupportedFiles,
+        skippedRows,
       })
-      createdAssessments.push({ id: assessment.id, externalId: null })
     }
 
     res.json({
@@ -7948,10 +7944,14 @@ router.post('/intake/import', authMiddleware, intakeImportUpload.array('files', 
       includeMedical: payload.includeMedical ?? true,
       files: fileSummaries,
       unsupportedFiles,
+      skippedRows,
     })
   } catch (error: any) {
-    logger.error('Failed to import case', { error: error.message })
-    res.status(400).json({ error: error.message || 'Failed to import case' })
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Invalid import request', details: error.flatten() })
+    }
+    logger.error('Failed to import cases', { error: error.message, stack: error.stack })
+    res.status(500).json({ error: 'Failed to import those cases' })
   }
 })
 

@@ -22,6 +22,7 @@ vi.mock('./prediction-materializer', () => ({
 
 import { prisma } from './prisma'
 import { resetUniversalPrismaMock } from '../test/universalPrismaMock'
+import { ENGAGED_LEAD_STATUSES } from './lead-status'
 import {
   ATTORNEY_SELF_SOURCE,
   createAttorneyOwnedCase,
@@ -90,6 +91,23 @@ describe('createAttorneyOwnedCase', () => {
       status: 'accepted',
       lifecycleState: 'attorney_engaged',
     })
+  })
+
+  /**
+   * The link that unlocks the workspace, and the reason no separate
+   * "self-managed render mode" is needed.
+   *
+   * A lead the attorney has merely been offered is anonymised and inert — no
+   * scheduling, messaging or document work, and the client's name masked back
+   * at them. That rule is keyed on the status being one of ENGAGED_LEAD_STATUSES.
+   * A case the attorney already owns has to start life inside that set, or the
+   * product would de-identify a firm's own client to the firm and refuse to let
+   * them work the case.
+   */
+  it('starts in an engaged status, so the workspace is usable and the client is not masked', async () => {
+    await createAttorneyOwnedCase(INPUT, OWNER, 'manual')
+
+    expect(ENGAGED_LEAD_STATUSES).toContain(leadCreateArg().data.status)
   })
 
   it('completes the assessment rather than leaving it DRAFT', async () => {
