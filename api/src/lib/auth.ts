@@ -22,10 +22,21 @@ const prismaAny = prisma as any
 // parse ADMIN_EMAILS identically — the old inline split() neither trimmed nor
 // lowercased its entries, so "a@x.com, b@x.com" silently failed to match
 // " b@x.com" here while admin-access matched it.
+// The roles this honors have to include every role the app authorizes on.
+// `specialist` was missing, so a Case Specialist reached every authenticated
+// route as `user`: the login endpoints read `User.role` from the database and
+// signed them in correctly, then `/auth/specialist-access` and every
+// `/case-assistance` route saw `user`, failed `canWorkCaseAssistance`, and 403'd.
+// The queue shell reads that as a dead session, clears it and returns to the
+// sign-in page - so signing in appeared to do nothing but reload the form.
+// Admins were unaffected, which is why it survived: they match either the email
+// allowlist or the `admin` role below.
+const AUTHORIZED_ROLES = ['admin', 'attorney', 'staff', 'specialist']
+
 function resolveUserRole(user: { email: string; role?: string | null }): string {
   if (isAdminEmail(user.email)) return 'admin'
   const stored = (user.role || '').toLowerCase()
-  if (stored === 'admin' || stored === 'attorney' || stored === 'staff') return stored
+  if (AUTHORIZED_ROLES.includes(stored)) return stored
   return 'user'
 }
 
