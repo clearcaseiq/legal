@@ -2947,6 +2947,7 @@
       "wd_product": "非正常死亡–产品"
     },
     "snapshotGrades": {
+      "veryStrong": "很强",
       "strong": "强",
       "moderatelyStrong": "较强",
       "moderate": "中等",
@@ -4956,8 +4957,10 @@
         "moderate": "中等",
         "building": "构建中",
         "notAssessed": "未评估",
+        "veryStrong": "很强",
         "strong": "强",
         "weak": "弱",
+        "needsProof": "需要证据",
         "missing": "缺失",
         "improving": "改善中",
         "documented": "已记录",

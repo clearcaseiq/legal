@@ -1846,6 +1846,7 @@
       "wd_product": "wrongful death – product"
     },
     "snapshotGrades": {
+      "veryStrong": "Very Strong",
       "strong": "Strong",
       "moderatelyStrong": "Moderately Strong",
       "moderate": "Moderate",
@@ -3744,8 +3745,10 @@
         "moderate": "Moderate",
         "building": "Building",
         "notAssessed": "Not assessed",
+        "veryStrong": "Very Strong",
         "strong": "Strong",
         "weak": "Weak",
+        "needsProof": "Needs Proof",
         "missing": "Missing",
         "improving": "Improving",
         "documented": "Documented",

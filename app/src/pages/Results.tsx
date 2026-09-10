@@ -33,6 +33,7 @@ import BrandLogo from '../components/BrandLogo'
 import { formatPercentage, formatCurrency } from '../lib/formatters'
 import { useHeuristics } from '../contexts/HeuristicsContext'
 import { UNDOCUMENTED_READINESS_CEILING, type HeuristicsConfig } from '../lib/heuristics'
+import { liabilityTier, liabilityConfidenceLevel, LIABILITY_TIER_COPY_KEY } from '../lib/liabilityGrade'
 import { formatAttorneyLicensure } from '../lib/attorneyLicensure'
 import { ResultsPanelSkeleton } from '../components/PageSkeletons'
 import PlaintiffCaseCommandCenter from '../components/PlaintiffCaseCommandCenter'
@@ -2113,9 +2114,16 @@ export default function Results() {
   // thresholds, never for display.
   const hasLiabilityScore = typeof viability?.liability === 'number'
   const liabilityScore: number = hasLiabilityScore ? viability.liability : 0
+  // Tiered by the same module the underwriting engine grades with, so this page
+  // and the attorney's file can no longer put one score in two different tiers.
+  const liabilityTierValue = liabilityTier(liabilityScore * 100)
+  // Three-way collapse for the branching below, which only asks whether fault
+  // looks clear, arguable, or unsupported.
   const liabilityOutlook = !hasLiabilityScore
     ? 'unknown'
-    : liabilityScore >= 0.7 ? 'strong' : liabilityScore >= 0.4 ? 'moderate' : 'weak'
+    : liabilityTierValue === 'very_strong' || liabilityTierValue === 'strong'
+      ? 'strong'
+      : liabilityTierValue
   const liabilityDetails = prediction?.liability
   const rawLiabilityFactors = Array.isArray(liabilityDetails?.factors)
     ? liabilityDetails.factors.slice(0, 3)
@@ -2278,11 +2286,7 @@ export default function Results() {
   })
   const liabilityPercent = clampPercent(liabilityScore * 100)
   const liabilitySnapshotLabel = hasLiabilityScore
-    ? scoreLabel(liabilityPercent, {
-        high: t('results.snapshotGrades.moderateStrong'),
-        medium: t('results.snapshotGrades.mixed'),
-        low: t('results.snapshotGrades.needsProof'),
-      })
+    ? t(LIABILITY_TIER_COPY_KEY[liabilityTierValue])
     : t('results.notScoredYet')
   // Severity has three real sources before we fall back to the damages sub-score;
   // when none of them exist the case simply has no severity figure.
@@ -2401,8 +2405,7 @@ export default function Results() {
     treatmentCount: treatment.length,
     chronologyCount: medicalChronology.length,
   })
-  const liabilityStrengthLevel: ConsumerConfidenceLevel =
-    liabilityOutlook === 'strong' ? 'High' : liabilityOutlook === 'moderate' ? 'Medium' : 'Low'
+  const liabilityStrengthLevel: ConsumerConfidenceLevel = liabilityConfidenceLevel(liabilityTierValue)
   const deadlineRiskLabel =
     sol?.status === 'critical' || sol?.status === 'expired'
       ? t('results.calc.riskUrgent')
@@ -2918,10 +2921,7 @@ Checklist:
     : medicalReviewPending
       ? 'We will ask you to confirm or skip the medical story before attorneys receive the case.'
     : 'Cases with similar characteristics are commonly reviewed by personal injury attorneys.'
-  const liabilityClarityLabel = liabilityOutlook === 'strong' ? 'Strong' : liabilityOutlook === 'moderate' ? 'Mixed' : 'Unclear'
-  // Translated display of the same value; the English `liabilityClarityLabel`
-  // above is kept as a stable enum for the branching logic further below.
-  const liabilityClarityDisplay = liabilityOutlook === 'strong' ? t('results.snapshotGrades.strong') : liabilityOutlook === 'moderate' ? t('results.snapshotGrades.mixed') : t('results.snapshotGrades.unclear')
+  const liabilityClarityDisplay = t(LIABILITY_TIER_COPY_KEY[liabilityTierValue])
   const liabilityModifierExplanation = getLiabilityModifierExplanation(t, {
     liabilityScore,
     comparativeFaultPercent,
@@ -5986,8 +5986,8 @@ Checklist:
                 </div>
                 <div className="flex h-full flex-col rounded-xl border border-slate-100 bg-slate-50/70 px-4 py-3 text-center">
                   <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">{t('results.headings.liabilityStrength')}</p>
-                  <p className="mt-1 text-lg font-bold text-amber-500">{liabilityClarityLabel === 'Strong' ? t('results.next.strong') : liabilityClarityLabel === 'Mixed' ? t('results.next.moderate') : t('results.next.developing')}</p>
-                  <p className="text-[11px] text-slate-400">{liabilityClarityLabel === 'Strong' ? t('results.next.wellSupported') : t('results.next.roomToImprove')}</p>
+                  <p className="mt-1 text-lg font-bold text-amber-500">{liabilityOutlook === 'strong' ? t('results.next.strong') : liabilityOutlook === 'moderate' ? t('results.next.moderate') : t('results.next.developing')}</p>
+                  <p className="text-[11px] text-slate-400">{liabilityOutlook === 'strong' ? t('results.next.wellSupported') : t('results.next.roomToImprove')}</p>
                   <div className="mt-auto flex h-8 items-center justify-center pt-2">
                     <span className="flex h-7 w-7 items-center justify-center rounded-full bg-amber-50 text-amber-500"><Scale className="h-4 w-4" aria-hidden /></span>
                   </div>

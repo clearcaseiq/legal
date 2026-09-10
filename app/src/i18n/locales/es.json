@@ -2947,6 +2947,7 @@
       "wd_product": "muerte injusta – producto"
     },
     "snapshotGrades": {
+      "veryStrong": "Muy fuerte",
       "strong": "Fuerte",
       "moderatelyStrong": "Moderadamente fuerte",
       "moderate": "Moderado",
@@ -4956,8 +4957,10 @@
         "moderate": "Moderada",
         "building": "En desarrollo",
         "notAssessed": "Sin evaluar",
+        "veryStrong": "Muy fuerte",
         "strong": "Fuerte",
         "weak": "Débil",
+        "needsProof": "Necesita pruebas",
         "missing": "Faltante",
         "improving": "Mejorando",
         "documented": "Documentado",

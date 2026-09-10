@@ -2,8 +2,9 @@ import { applyCoverageCeiling, resolveCoverageCeiling, type CoverageCeiling } fr
 import { analyzeClinicalCodes, INJURY_TYPE_RANK, type ClinicalCodeAnalysis } from './clinical-codes'
 import { analyzeTreatmentChronology, type ChronologyAnalysis } from './treatment-chronology'
 import { getValuationCalibration, isIdentity, type ValuationCalibration } from './valuation-config'
+import { liabilityGrade, type LiabilityGrade } from './liability-grade'
 
-export type LiabilityGrade = 'Weak' | 'Moderate' | 'Strong' | 'Very Strong'
+export type { LiabilityGrade } from './liability-grade'
 export type InjuryType =
   | 'SOFT_TISSUE'
   | 'DISC_BULGE'
@@ -283,13 +284,6 @@ function getPrimaryInjury(facts: Record<string, any>, blob: string): InjuryType 
   return 'SOFT_TISSUE'
 }
 
-function gradeLiabilityScore(score: number): LiabilityGrade {
-  if (score >= 85) return 'Very Strong'
-  if (score >= 70) return 'Strong'
-  if (score >= 45) return 'Moderate'
-  return 'Weak'
-}
-
 export function calculateLiability(input: UnderwritingInput): LiabilityResult {
   const facts = input.facts
   // Prefer the attorney Liability-tab record when present so Overview / underwriting
@@ -303,7 +297,7 @@ export function calculateLiability(input: UnderwritingInput): LiabilityResult {
       : []
     return {
       score,
-      grade: gradeLiabilityScore(score),
+      grade: liabilityGrade(score),
       positives: basis,
       negatives: basis.length ? [] : ['Liability facts need more support'],
     }
@@ -412,7 +406,7 @@ export function calculateLiability(input: UnderwritingInput): LiabilityResult {
   }
 
   const normalized = clamp(score)
-  const grade = gradeLiabilityScore(normalized)
+  const grade = liabilityGrade(normalized)
   if (positives.length === 0) negatives.push('Liability facts need more support')
 
   return { score: normalized, grade, positives, negatives }

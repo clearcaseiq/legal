@@ -2,6 +2,7 @@ import { ChevronRight } from 'lucide-react'
 import { formatCurrency } from '../lib/formatters'
 import { useHeuristics } from '../contexts/HeuristicsContext'
 import { evidenceCompletenessLabel, opportunityLabel as computeOpportunityLabel } from '../lib/heuristics'
+import { liabilityTier } from '../lib/liabilityGrade'
 import type {
   AttorneyDashboardLead,
   AttorneyDashboardLeadAnalysis,
@@ -168,7 +169,9 @@ export default function AttorneyDashboardWorkstreamOverview({
   const venueState = selectedLead?.assessment?.venueState || 'California'
   const timelineEstimate = treatments.length >= 2 ? '8–14 months' : treatments.length === 1 ? '6–12 months' : '8–14 months'
   const checklistItems = [
-    { label: 'Liability plausible', status: (selectedLead?.liabilityScore || 0) >= 0.5 },
+    // Plausible means the shared grader puts it above the weak tier, so this tick
+    // cannot contradict the grade shown elsewhere on the same case.
+    { label: 'Liability plausible', status: liabilityTier((selectedLead?.liabilityScore || 0) * 100) !== 'weak' },
     { label: 'Injury documented', status: injuries.length > 0 },
     { label: 'Treatment continuous', status: !hasGaps },
     { label: 'Police report', status: hasPolice },

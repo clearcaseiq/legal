@@ -4,6 +4,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { listAssessments, getAssessment, getEvidenceFiles, associateAssessments, getRoutingStatus, createAppointment, getAttorneyAvailability, updateAppointment, cancelAppointment, joinAppointmentWaitlist, updateAppointmentPreparation, getPlaintiffConsentCompliance, getPlaintiffDocumentRequests, getPlaintiffSignedDocuments, getPlaintiffCaseTasks, createAttorneyReview, getMedicalChronology, updateAssessment, getCasePreparation, type PlaintiffDocumentRequest, type PlaintiffSignedDocument, type PlaintiffCaseTask } from '../lib/api'
 import { useHeuristics } from '../contexts/HeuristicsContext'
 import { UNDOCUMENTED_READINESS_CEILING } from '../lib/heuristics'
+import { liabilityTier, LIABILITY_TIER_ENUM } from '../lib/liabilityGrade'
 import { formatCurrency } from '../lib/formatters'
 import { formatClaimTypeShort } from '../lib/constants'
 import { START_ASSESSMENT_HREF } from '../data/appRoutes'
@@ -910,9 +911,11 @@ export default function Dashboard() {
   const settlementHigh = valueBands?.p75 ?? 75000
   const settlementMedian = valueBands?.median ?? Math.round((settlementLow + settlementHigh) / 2)
 
-  const liabilityLabel = liabilityViability == null
-    ? 'Not assessed'
-    : liabilityViability >= 0.7 ? 'Strong' : liabilityViability >= 0.4 ? 'Moderate' : 'Weak'
+  // Same tiers as the Results page and the underwriting engine, so a claimant
+  // cannot read one grade here and a different one on their estimate.
+  const liabilityTierValue = liabilityViability == null ? null : liabilityTier(liabilityViability * 100)
+  const liabilityLabel = liabilityTierValue == null ? 'Not assessed' : LIABILITY_TIER_ENUM[liabilityTierValue]
+  const liabilityIsStrong = liabilityTierValue === 'very_strong' || liabilityTierValue === 'strong'
   const injuryLabel = injuries.length > 0 ? 'Strong' : 'Missing'
   const docLabel = evidenceCount > 0 ? 'Improving' : 'Missing'
   const damagesLabel = damages.med_charges || damages.med_paid || damages.wage_loss ? 'Documented' : 'Not documented'
@@ -924,8 +927,10 @@ export default function Dashboard() {
     'Moderate': 'plaintiffDashboard.dynamic.band.moderate',
     'Building': 'plaintiffDashboard.dynamic.band.building',
     'Not assessed': 'plaintiffDashboard.dynamic.band.notAssessed',
+    'Very Strong': 'plaintiffDashboard.dynamic.band.veryStrong',
     'Strong': 'plaintiffDashboard.dynamic.band.strong',
     'Weak': 'plaintiffDashboard.dynamic.band.weak',
+    'Needs Proof': 'plaintiffDashboard.dynamic.band.needsProof',
     'Missing': 'plaintiffDashboard.dynamic.band.missing',
     'Improving': 'plaintiffDashboard.dynamic.band.improving',
     'Documented': 'plaintiffDashboard.dynamic.band.documented',
@@ -1168,7 +1173,7 @@ export default function Dashboard() {
       }
 
   const scoreFactors = [
-    { label: t('plaintiffDashboard.dynamic.factor.liabilityLabel'), value: liabilityLabel, explanation: liabilityLabel === 'Strong' ? t('plaintiffDashboard.dynamic.factor.expLiabStrong') : liabilityLabel === 'Moderate' ? t('plaintiffDashboard.dynamic.factor.expLiabModerate') : t('plaintiffDashboard.dynamic.factor.expLiabWeak'), improve: liabilityLabel !== 'Strong' ? t('plaintiffDashboard.dynamic.factor.impLiab') : null },
+    { label: t('plaintiffDashboard.dynamic.factor.liabilityLabel'), value: liabilityLabel, explanation: liabilityIsStrong ? t('plaintiffDashboard.dynamic.factor.expLiabStrong') : liabilityTierValue === 'moderate' ? t('plaintiffDashboard.dynamic.factor.expLiabModerate') : t('plaintiffDashboard.dynamic.factor.expLiabWeak'), improve: liabilityIsStrong ? null : t('plaintiffDashboard.dynamic.factor.impLiab') },
     { label: t('plaintiffDashboard.dynamic.factor.injuryLabel'), value: injuryLabel, explanation: injuryLabel === 'Strong' ? t('plaintiffDashboard.dynamic.factor.expInjStrong') : t('plaintiffDashboard.dynamic.factor.expInjWeak'), improve: injuryLabel !== 'Strong' ? t('plaintiffDashboard.dynamic.factor.impInj') : null },
     { label: t('plaintiffDashboard.dynamic.factor.docLabel'), value: docLabel, explanation: docLabel === 'Improving' ? t('plaintiffDashboard.dynamic.factor.expDocImproving') : t('plaintiffDashboard.dynamic.factor.expDocMissing'), improve: docLabel === 'Missing' ? t('plaintiffDashboard.dynamic.factor.impDocMissing') : docLabel === 'Improving' ? t('plaintiffDashboard.dynamic.factor.impDocImproving') : null },
     { label: t('plaintiffDashboard.dynamic.factor.damagesLabel'), value: damagesLabel, explanation: damagesLabel === 'Documented' ? t('plaintiffDashboard.dynamic.factor.expDamDocumented') : t('plaintiffDashboard.dynamic.factor.expDamNot'), improve: damagesLabel !== 'Documented' ? t('plaintiffDashboard.dynamic.factor.impDam') : null }

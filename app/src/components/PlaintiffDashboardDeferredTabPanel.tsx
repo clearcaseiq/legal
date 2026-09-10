@@ -729,7 +729,7 @@ export default function PlaintiffDashboardDeferredTabPanel({
               <p className="text-xs font-medium text-gray-500">{t('plaintiffDashboard.deferred.insights.liability')}</p>
               <p
                 className={`font-semibold ${
-                  liabilityLabel === 'Strong'
+                  liabilityLabel === 'Very Strong' || liabilityLabel === 'Strong'
                     ? 'text-green-600'
                     : liabilityLabel === 'Moderate'
                       ? 'text-amber-600'

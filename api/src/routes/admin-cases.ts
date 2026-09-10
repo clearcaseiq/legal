@@ -1,6 +1,7 @@
 import { Router, type Router as ExpressRouter } from 'express'
 import { prisma } from '../lib/prisma'
 import { logger } from '../lib/logger'
+import { liabilityGrade } from '../lib/liability-grade'
 import { authMiddleware, AuthRequest } from '../lib/auth'
 import { adminMiddleware, requireAdminCapability } from '../lib/admin-access'
 import { writeAdminAudit } from '../lib/admin-audit'
@@ -1270,7 +1271,9 @@ router.post('/cases/route', authMiddleware, adminMiddleware, requireAdminCapabil
           estimatedValueHigh: bands.p75 ?? 0,
           evidenceSummary: 'See case file',
           liabilityConfidence:
-            (viability.liability ?? 0.5) >= 0.7 ? 'Strong' : (viability.liability ?? 0.5) >= 0.4 ? 'Moderate' : 'Weak',
+            typeof viability.liability === 'number'
+              ? liabilityGrade(viability.liability * 100)
+              : 'Not scored',
           introductionId: intro.id,
           assessmentId: caseId,
         }).catch((err) => {

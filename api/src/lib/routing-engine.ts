@@ -7,6 +7,7 @@
 
 import { prisma } from './prisma'
 import { logger } from './logger'
+import { liabilityGrade } from './liability-grade'
 import { normalizeCaseForRouting, type NormalizedCase } from './case-normalization'
 import { runPreRoutingGate, type RoutingGateResult } from './pre-routing-gate'
 import {
@@ -650,7 +651,11 @@ export async function runRoutingEngine(
     const jurisdiction = [assessment.venueState, assessment.venueCounty].filter(Boolean).join(', ')
     const bands = caseData.prediction?.bands || {}
     const viability = caseData.prediction?.viability || {}
-    const liabilityLabel = (viability.liability ?? 0.5) >= 0.7 ? 'Strong' : (viability.liability ?? 0.5) >= 0.4 ? 'Moderate' : 'Weak'
+    // The grade the attorney will read on the case file itself. An unscored case
+    // says so rather than borrowing 0.5 and offering itself as "Moderate".
+    const liabilityLabel = typeof viability.liability === 'number'
+      ? liabilityGrade(viability.liability * 100)
+      : 'Not scored'
     const existingIntroductions = await prisma.introduction.findMany({
       where: {
         assessmentId,
