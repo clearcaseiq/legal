@@ -29,6 +29,27 @@ export function nameInitials(name: string): string {
 }
 
 /**
+ * An attorney's name with the honorific on it exactly once.
+ *
+ * Registration stores the name already suffixed — `attorney-register.ts` builds
+ * `${first} ${last}, Esq.` — but imported and seeded attorneys arrive with bare
+ * names, so callers cannot assume either way. Appending unconditionally is what
+ * produced "Kia Marteen, Esq., Esq." on the plaintiff dashboard.
+ *
+ * Only "Esq" is treated as already-present. "Jr." and "III" are parts of a
+ * person's name rather than the professional honorific, so "Alan Reyes III"
+ * still becomes "Alan Reyes III, Esq."
+ */
+export function attorneyDisplayName(name?: string | null): string {
+  const trimmed = (name || '').trim().replace(/[,\s]+$/, '')
+  if (!trimmed) return ''
+  const lastWord = trimmed.split(/[\s,]+/).pop() || ''
+  const bare = lastWord.toLowerCase().replace(/[^a-z]/g, '')
+  if (bare === 'esq' || bare === 'esquire') return trimmed
+  return `${trimmed}, Esq.`
+}
+
+/**
  * Placeholder avatar showing the attorney's real initials ("Jane Smith" -> "JS").
  * Passing the literal word "Attorney" made ui-avatars render the first two
  * letters of that single word, which is where the stray "AT" came from.

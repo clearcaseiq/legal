@@ -6,7 +6,7 @@
  * These cases pin the letters that actually reach the circle.
  */
 import { it, expect } from 'vitest'
-import { nameInitials, fallbackAvatar } from './avatar'
+import { nameInitials, fallbackAvatar, attorneyDisplayName } from './avatar'
 
 it('uses first and last name initials', () => {
   expect(nameInitials('Jane Smith')).toBe('JS')
@@ -56,4 +56,26 @@ it('sends finished initials to ui-avatars, never a full name', () => {
 it('uses a neutral letter when there is no name at all', () => {
   expect(fallbackAvatar(null)).toContain('name=A')
   expect(fallbackAvatar('')).toContain('name=A')
+})
+
+/**
+ * Registration stores the honorific in the name, so the dashboard appending its
+ * own produced "Kia Marteen, Esq., Esq." Imported and seeded attorneys have
+ * bare names, so the suffix still has to be added when it is missing.
+ */
+it('adds the honorific only when it is not already there', () => {
+  expect(attorneyDisplayName('Kia Marteen, Esq.')).toBe('Kia Marteen, Esq.')
+  expect(attorneyDisplayName('William M. Roth Esq')).toBe('William M. Roth Esq')
+  expect(attorneyDisplayName('Jane Smith')).toBe('Jane Smith, Esq.')
+  expect(attorneyDisplayName('  Jane Smith  ')).toBe('Jane Smith, Esq.')
+})
+
+it('treats generational suffixes as part of the name, not the honorific', () => {
+  expect(attorneyDisplayName('Alan Reyes III')).toBe('Alan Reyes III, Esq.')
+  expect(attorneyDisplayName('Robert Downey Jr.')).toBe('Robert Downey Jr., Esq.')
+})
+
+it('returns nothing rather than a bare honorific for a missing name', () => {
+  expect(attorneyDisplayName(null)).toBe('')
+  expect(attorneyDisplayName('   ')).toBe('')
 })

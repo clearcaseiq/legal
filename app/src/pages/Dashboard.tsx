@@ -6,6 +6,7 @@ import { useHeuristics } from '../contexts/HeuristicsContext'
 import { UNDOCUMENTED_READINESS_CEILING } from '../lib/heuristics'
 import { liabilityTier, LIABILITY_TIER_ENUM } from '../lib/liabilityGrade'
 import { formatCurrency } from '../lib/formatters'
+import { attorneyDisplayName } from '../lib/avatar'
 import { formatClaimTypeShort } from '../lib/constants'
 import { START_ASSESSMENT_HREF } from '../data/appRoutes'
 import { canonicalClaimType } from '../lib/claimTypes'
@@ -2192,7 +2193,7 @@ export default function Dashboard() {
                         <CheckCircle className="h-6 w-6 text-emerald-600" />
                           {t('plaintiffDashboard.attorneyMatch.title')}
                       </h3>
-                          <p className="text-xl font-bold text-gray-900">{routingStatus?.attorneyMatched?.name}, Esq.</p>
+                          <p className="text-xl font-bold text-gray-900">{attorneyDisplayName(routingStatus?.attorneyMatched?.name)}</p>
                         <div className="mt-3 flex flex-wrap gap-2">
                           {routingStatus?.attorneyMatched?.phone && (
                             <a
@@ -2313,12 +2314,10 @@ export default function Dashboard() {
                             {t('plaintiffDashboard.consultation.scheduled')}
                           </h3>
                           <p className="text-xl font-bold text-gray-900">
-                            {routingStatus.upcomingAppointment.attorney?.name
-                              || routingStatus?.attorneyMatched?.name}
-                            {(routingStatus.upcomingAppointment.attorney?.name
-                              || routingStatus?.attorneyMatched?.name)
-                              ? ', Esq.'
-                              : ''}
+                            {attorneyDisplayName(
+                              routingStatus.upcomingAppointment.attorney?.name
+                                || routingStatus?.attorneyMatched?.name,
+                            )}
                           </p>
                           <p className="mt-2 text-base font-medium text-gray-800">
                             {new Date(routingStatus?.upcomingAppointment?.scheduledAt || '').toLocaleString(locale, {

@@ -11,6 +11,7 @@ import { createNotificationEvent } from './platform-notifications'
 import { ATTORNEY_EVENTS, PLAINTIFF_EVENTS } from './notification-events'
 import { offerReplyInstruction } from './offer-reference'
 import { getCurrentAttorneyResponseDeadlineMinutes } from './matching-rules-config'
+import { formatCaseTypeWithSubtype, formatClaimType } from './claim-types'
 
 export interface CaseSummaryForNotification {
   claimType: string
@@ -24,12 +25,29 @@ export interface CaseSummaryForNotification {
 }
 
 /**
- * Format claim type for display
+ * The full case type, including the intake subtype when there is one.
+ *
+ * This used to be a local title-caser, so an email said "Auto" where every
+ * screen said "Motor vehicle (Rear-end collision)". `formatCaseTypeWithSubtype`
+ * is the canonical formatter the rest of the product already reads.
  */
-function formatClaimType(claimType: string): string {
-  return claimType
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, c => c.toUpperCase())
+function caseTypeLabelFor(assessment: {
+  claimType?: string | null
+  facts?: string | null
+}): string {
+  return formatCaseTypeWithSubtype(assessment.claimType, caseSubtypeOf(assessment.facts))
+}
+
+/** `facts.caseSubtype`, tolerating an unparseable blob. */
+function caseSubtypeOf(facts: string | null | undefined): string | null {
+  if (!facts) return null
+  try {
+    const parsed = JSON.parse(facts)
+    const subtype = parsed?.caseSubtype ?? parsed?.incident?.caseSubtype
+    return typeof subtype === 'string' ? subtype : null
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -391,7 +409,7 @@ export async function sendPlaintiffAttorneyAccepted(
   // Which case, and when — the notification named neither, so a plaintiff with
   // more than one claim could not tell what had just been accepted (CP-437).
   const acceptedAt = new Date()
-  const caseTypeLabel = assessment.claimType ? formatClaimType(assessment.claimType) : 'Personal injury'
+  const caseTypeLabel = assessment.claimType ? caseTypeLabelFor(assessment) : 'Personal injury'
   const acceptedDate = acceptedAt.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
   const acceptedTime = acceptedAt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' })
   const message = [
@@ -841,7 +859,7 @@ export async function sendPlaintiffCaseClosed(
   const attorneyName = attorney?.name || 'Your attorney'
   const firmName = attorney?.lawFirm?.name || ''
   const attorneyLine = attorney?.name ? `${attorneyName}${firmName ? `, ${firmName}` : ''}` : ''
-  const caseTypeLabel = assessment.claimType ? formatClaimType(assessment.claimType) : 'your'
+  const caseTypeLabel = assessment.claimType ? caseTypeLabelFor(assessment) : 'your'
   const subject = 'Your case has been closed'
   const message = [
     `Hello${greetingName},`,
