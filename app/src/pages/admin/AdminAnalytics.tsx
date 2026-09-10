@@ -15,6 +15,7 @@ import EmptyState from '../../components/EmptyState'
 import { PageHeader } from '../../features/shared/ui'
 import { BarChart, SimpleLineChart } from './charts'
 import { TrafficPanel } from './TrafficPanel'
+import { IntakeFunnelPanel } from './IntakeFunnelPanel'
 import { AdsConversionsPanel } from './AdsConversionsPanel'
 
 export default function AdminAnalytics() {
@@ -156,6 +157,10 @@ export default function AdminAnalytics() {
       {/* Traffic sits above intake because it is the stage before it: visits
           arrive here, and everything below is what became of them. */}
       <TrafficPanel days={days} />
+
+      {/* Then the funnel those visits enter, which is the one surface GA4
+          cannot see: the wizard carries no tag, so this is first-party. */}
+      <IntakeFunnelPanel days={days} />
 
       {/* Intake analytics */}
       <div className="surface-panel p-6">

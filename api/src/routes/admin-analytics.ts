@@ -8,6 +8,7 @@ import { writeAdminAudit } from '../lib/admin-audit'
 import { CLICK_WINDOW_DAYS, MAX_ATTEMPTS } from '../lib/ads-conversion-sweep'
 import { buildChannelReport } from '../lib/attribution-channel'
 import { fetchTrafficReport } from '../lib/ga4-analytics'
+import { buildIntakeFunnelReport } from '../lib/intake-funnel'
 import { isGoogleAdsConfigured } from '../lib/google-ads-conversions'
 import { safeJsonParse } from './admin-shared'
 
@@ -484,6 +485,29 @@ router.get('/analytics', authMiddleware, adminMiddleware, async (req: AuthReques
   }
 })
 
+
+/**
+ * Intake funnel: which steps claimants reach, where they stop, how long each
+ * step holds them.
+ *
+ * Ours, not Google's. The intake wizard is on the analytics deny list, so GA4
+ * has never seen a step of it — this reads `IntakeLead.stepHistory`, which the
+ * wizard has been filling all along.
+ */
+router.get('/intake-funnel', authMiddleware, adminMiddleware, async (req: AuthRequest, res) => {
+  // Same clamp as /analytics and /traffic, so one window selector drives all three.
+  const days = Math.min(90, Math.max(7, parseInt(req.query.days as string) || 30))
+
+  try {
+    res.json(await buildIntakeFunnelReport(days))
+  } catch (error: any) {
+    logger.error('Failed to build the intake funnel report', { error: error?.message, stack: error?.stack })
+    res.status(500).json({
+      error: 'Could not build the intake funnel',
+      detail: process.env.NODE_ENV === 'development' ? error?.message : undefined,
+    })
+  }
+})
 
 /**
  * Site traffic, from the GA4 property rather than from our own tables.

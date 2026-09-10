@@ -345,6 +345,24 @@ describe('HTTP hardening regressions', () => {
     expect(prisma.prediction.findMany).not.toHaveBeenCalled()
   })
 
+  /**
+   * The intake funnel reports every claimant's path through the wizard in
+   * aggregate. Nothing in it is per-person, but it is still commercial and
+   * operational detail that belongs to staff, and it sits on a router where
+   * every other route is admin-only — a new one that quietly was not would be
+   * hard to notice by reading.
+   */
+  it('GET /v1/admin/intake-funnel is admin-only', async () => {
+    await request(app).get('/v1/admin/intake-funnel').expect(401)
+
+    await request(app)
+      .get('/v1/admin/intake-funnel')
+      .set('Authorization', 'Bearer plaintiff')
+      .expect(403)
+
+    expect(prisma.intakeLead.findMany).not.toHaveBeenCalled()
+  })
+
   it('POST /v1/chatgpt/analyze serializes evidence using hardened fields', async () => {
     vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
       id: 'asm-1',

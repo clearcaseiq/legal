@@ -4178,6 +4178,37 @@ export async function getAdminTraffic(days = 30): Promise<AdminTraffic> {
   return data
 }
 
+/**
+ * Intake funnel, from our own `IntakeLead.stepHistory` rather than from GA4.
+ *
+ * No `configured` flag, unlike traffic: this needs no third-party credentials
+ * because the wizard has been recording its own steps all along.
+ */
+export interface AdminIntakeFunnelStep {
+  step: string
+  reached: number
+  droppedHere: number
+  dropRate: number | null
+  /** Null when too few credible samples to report a timing. */
+  medianSeconds: number | null
+  p90Seconds: number | null
+  timedSamples: number
+}
+
+export interface AdminIntakeFunnel {
+  periodDays: number
+  totalLeads: number
+  completedLeads: number
+  completionRate: number | null
+  steps: AdminIntakeFunnelStep[]
+  worstDropOff: Array<{ step: string; droppedHere: number; dropRate: number }>
+}
+
+export async function getAdminIntakeFunnel(days = 30): Promise<AdminIntakeFunnel> {
+  const { data } = await api.get<AdminIntakeFunnel>('/v1/admin/intake-funnel', { params: { days } })
+  return data
+}
+
 export interface AdminAdsConversionRow {
   assessmentId: string
   claimType: string | null
