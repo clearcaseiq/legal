@@ -120,6 +120,29 @@ export interface SignalContext {
 
 const SETTLED_STATUSES = new Set(['settled', 'closed', 'resolved', 'won'])
 
+/** `MedicalCaseRecord.treatmentStatus` values that mean care is over. */
+const CARE_FINISHED_STATUSES = new Set(['completed', 'mmi', 'discharged'])
+
+/**
+ * Does the file record that care has finished?
+ *
+ * Three ways to say the same thing, because the medical panel writes all of
+ * them: an explicit terminal `treatmentStatus`, the `mmi` flag, or clearing
+ * `stillTreating`. Any one is enough.
+ *
+ * Absent record → false, not unknown-so-assume-done. `stillTreating` defaults
+ * to true precisely so that a case nobody has assessed reads as ongoing, which
+ * matches the `unknown` posture in `demand-readiness`.
+ */
+export function careFinishedOnRecord(
+  record: { treatmentStatus?: string | null; mmi?: boolean | null; stillTreating?: boolean | null } | null,
+): boolean {
+  if (!record) return false
+  if (record.mmi === true) return true
+  if (CARE_FINISHED_STATUSES.has(String(record.treatmentStatus || '').toLowerCase())) return true
+  return record.stillTreating === false
+}
+
 /**
  * Load the derivation context for a case in a handful of cheap queries. Returns
  * all-false when the assessment can't be resolved.
@@ -188,6 +211,7 @@ export async function loadSignalContext(assessmentId: string): Promise<SignalCon
     demandEvents,
     offerEvents,
     acceptedEvents,
+    medicalRecord,
   ] = await Promise.all([
     leadId
       ? (prisma as any).documentRequest.count({ where: { leadId, status: { not: 'completed' } } })
@@ -210,6 +234,14 @@ export async function loadSignalContext(assessmentId: string): Promise<SignalCon
     (prisma as any).negotiationEvent.count({ where: { assessmentId, eventType: 'demand' } }),
     (prisma as any).negotiationEvent.count({ where: { assessmentId, eventType: 'offer' } }),
     (prisma as any).negotiationEvent.count({ where: { assessmentId, status: 'accepted' } }),
+    // The recorded clinical position, for cases that never grew a treatment
+    // task. See the `treatmentComplete` note below.
+    (prisma as any).medicalCaseRecord
+      .findUnique({
+        where: { assessmentId },
+        select: { treatmentStatus: true, mmi: true, stillTreating: true },
+      })
+      .catch(() => null),
   ])
 
   const status = String((assessment as any).status || '').toLowerCase()
@@ -231,10 +263,27 @@ export async function loadSignalContext(assessmentId: string): Promise<SignalCon
     // when the firm never opened document requests for the case.
     documentsComplete:
       (totalDocs > 0 && pendingDocs === 0) || (totalDocs === 0 && evidenceCount > 0),
-    // Complete only when treatment tasks exist, none remain open, and the attorney
-    // isn't currently requesting more treatment/medical records. A new medical doc
-    // request flips this false → the stage engine pulls the case back to Treatment.
-    treatmentComplete: treatmentTasksTotal > 0 && treatmentTasksOpen === 0 && !pendingMedicalDocRequest,
+    // Complete only when the attorney isn't currently requesting more
+    // treatment/medical records — a new medical doc request flips this false and
+    // the stage engine pulls the case back to Treatment — and then either the
+    // firm-side treatment tasks are all done, or, where no such task was ever
+    // raised, the clinical position on the file says care has finished.
+    //
+    // That second arm is not a nicety. Requiring a task made "no treatment task
+    // exists" mean "treatment can never be complete", which froze the
+    // plaintiff's pipeline on Treatment for the life of the case. Worse, it was
+    // self-inflicted by doing the right thing: the one rule that raises the
+    // "confirm treatment status" task fires only while medical records are
+    // missing, so a claimant who uploaded everything removed the sole trigger
+    // for the task whose completion was the only way out. `documentsComplete`
+    // directly above has always had an equivalent fallback for the case where a
+    // firm never opened document requests; this one was simply missed.
+    //
+    // A case with no task and no clinical record stays incomplete, which is
+    // right: nobody has said care is over, and silence is not a discharge.
+    treatmentComplete:
+      !pendingMedicalDocRequest &&
+      (treatmentTasksTotal > 0 ? treatmentTasksOpen === 0 : careFinishedOnRecord(medicalRecord)),
     demandDrafted: demandDrafts > 0,
     demandSent: demandLetters > 0 || demandEvents > 0,
     offerReceived: offerEvents > 0,

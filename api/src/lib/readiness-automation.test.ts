@@ -135,6 +135,61 @@ describe('buildReadinessAutomationPlan', () => {
     expect(plan.reminders.map((item) => item.category)).toEqual(['missing_docs', 'treatment_gap'])
   })
 
+  /**
+   * The task this raises is the only thing that can turn `treatmentComplete`
+   * true on a case whose stage engine is otherwise stuck, and it used to be
+   * suppressed as soon as medical records arrived — so the best-documented
+   * cases were the ones that froze on Treatment.
+   */
+  it('asks for treatment status even when the records are already on file', () => {
+    const plan = buildReadinessAutomationPlan(
+      buildSummary({
+        missingItems: [],
+        treatmentMonitor: {
+          chronologyCount: 0,
+          providerCount: 0,
+          providers: [],
+          latestTreatmentDate: null,
+          largestGapDays: 0,
+          status: 'No treatment recorded',
+          recommendedAction: 'Confirm status.',
+          posture: 'unknown',
+          postureDetail: 'Nothing on file says whether care has finished.',
+        },
+      }),
+    )
+
+    const task = plan.tasks.find((item) => item.title === 'Confirm current treatment status with client')
+    expect(task).toBeDefined()
+    expect(task?.checkpointType).toBe('treatment_status')
+    // The note should not claim records are missing when they are not.
+    expect(task?.notes).toContain('Records are on file')
+  })
+
+  it('still says records are missing in the note when they are', () => {
+    const plan = buildReadinessAutomationPlan(
+      buildSummary({
+        missingItems: [
+          { key: 'medical_records', label: 'Medical records', priority: 'high', plaintiffReason: 'Needed.' },
+        ],
+        treatmentMonitor: {
+          chronologyCount: 0,
+          providerCount: 0,
+          providers: [],
+          latestTreatmentDate: null,
+          largestGapDays: 0,
+          status: 'No treatment recorded',
+          recommendedAction: 'Confirm status.',
+          posture: 'unknown',
+          postureDetail: 'Nothing on file says whether care has finished.',
+        },
+      }),
+    )
+
+    const task = plan.tasks.find((item) => item.title === 'Confirm current treatment status with client')
+    expect(task?.notes).toContain('medical records are not on file')
+  })
+
   it('creates negotiation and demand tasks when the file is ready enough', () => {
     const plan = buildReadinessAutomationPlan(buildSummary({
       readiness: {

@@ -79,14 +79,25 @@ export function buildReadinessAutomationPlan(
       message: `[Readiness][treatment_gap] ${summary.treatmentMonitor.status}. ${summary.treatmentMonitor.recommendedAction}`,
       dueInDays: 0,
     })
-  } else if (
-    (treatmentPosture === 'unknown' || chronologyCount < 2) &&
-    summary.missingItems.some((item) => item.key === 'medical_records')
-  ) {
+    // Raise this whenever the clinical position is unclear, whether or not
+    // records are outstanding.
+    //
+    // It used to also require `medical_records` to be in `missingItems`, which
+    // inverted the incentive: that item clears as soon as a file is categorised
+    // as medical records, so a claimant who uploaded everything suppressed the
+    // task. Since completing a treatment task is what lets `treatmentComplete`
+    // turn true, and no task means it can never turn true, the best-documented
+    // cases were the ones whose stage froze on Treatment. Whether care has
+    // finished is a clinical question; how many files are attached does not
+    // answer it either way.
+  } else if (treatmentPosture === 'unknown' || chronologyCount < 2) {
+    const recordsOutstanding = summary.missingItems.some((item) => item.key === 'medical_records')
     tasks.push({
       title: 'Confirm current treatment status with client',
       priority: 'high',
-      notes: 'Treatment status is not confirmed yet and medical records are not on file. Confirm whether the client is still treating before treating a gap as fact.',
+      notes: recordsOutstanding
+        ? 'Treatment status is not confirmed yet and medical records are not on file. Confirm whether the client is still treating before treating a gap as fact.'
+        : 'Records are on file but nothing records whether the client has finished treating. Confirm status, or mark maximum medical improvement, so the case can move on to records and demand.',
       taskType: 'checkpoint',
       checkpointType: 'treatment_status',
       escalationLevel: 'warning',
