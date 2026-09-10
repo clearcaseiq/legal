@@ -23,6 +23,7 @@ import type { Prisma } from '@prisma/client'
 import { prisma } from './prisma'
 import { logger } from './logger'
 import { serializeCaseFacts } from './case-facts'
+import { applyFactPath } from './case-fact-paths'
 import { assignReferenceCode } from './case-reference'
 import { ensureAssessmentPrediction } from './prediction-materializer'
 import { ATTORNEY_SELF_SOURCE, type AttorneyCaseOrigin } from './attorney-case-origin'
@@ -45,6 +46,17 @@ export type AttorneyCaseInput = {
   importSource?: string
   externalId?: string | null
   rawImport?: Record<string, unknown>
+  /**
+   * Mapped columns keyed by canonical facts path, e.g.
+   * `insurance.defendant_carrier`.
+   *
+   * Applied through `applyFactPath` rather than written directly, because
+   * several of these keys exist twice under different names and different
+   * readers look at different ones. Writing only the canonical key leaves the
+   * document internally inconsistent — the carrier shows on one screen and
+   * blank on the next.
+   */
+  factPaths?: Record<string, string>
 }
 
 export type AttorneyCaseOwner = {
@@ -134,7 +146,7 @@ export async function findExistingImportedCase(
  * a number on a screen that nobody said.
  */
 function buildFacts(input: AttorneyCaseInput, origin: AttorneyCaseOrigin, owner: AttorneyCaseOwner) {
-  return {
+  const base = {
     incident: {
       date: input.incidentDate,
       narrative: input.narrative || '',
@@ -167,6 +179,15 @@ function buildFacts(input: AttorneyCaseInput, origin: AttorneyCaseOrigin, owner:
      */
     consents: { tos: false, privacy: false, ml_use: false, hipaa: false },
   }
+
+  // Mapped columns land last so they can fill keys the base shape does not
+  // cover, and they go through applyFactPath so every alias of each key is
+  // written. An unknown path is ignored rather than stored loose, which keeps
+  // a mis-mapped column from inventing a facts key nothing reads.
+  return Object.entries(input.factPaths || {}).reduce<Record<string, unknown>>(
+    (facts, [path, value]) => (value ? (applyFactPath(facts as never, path, value) as never) : facts),
+    base as Record<string, unknown>,
+  )
 }
 
 /**

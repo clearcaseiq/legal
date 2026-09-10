@@ -2121,6 +2121,8 @@ type NormalizedImportedCase = {
   narrative: string
   taskTitle?: string
   taskDueDate?: Date | null
+  /** Mapped columns keyed by canonical facts path; see normalizeImportedCase. */
+  factPaths: Record<string, string>
   raw: Record<string, string>
 }
 
@@ -2353,8 +2355,35 @@ function normalizeImportedCase(
     narrative: getImportField(row, [...mapped('description'), 'narrative', 'description', 'facts', 'summary', ...candidates.narrative]),
     taskTitle: getImportField(row, ['next task', 'task title', 'deadline name']),
     taskDueDate: normalizeTaskDueDate(getImportField(row, ['task due date', 'deadline', 'due date'])),
+    // Keyed by canonical facts path. These were not captured at all before, so
+    // an imported case arrived with no carrier, no claim number and no policy
+    // limit however fully the export had been filled in — which is most of why
+    // imported cases could not be valued. The factory writes them through
+    // `applyFactPath`, which also fills each key's aliases.
+    factPaths: pruneEmpty({
+      'insurance.defendant_carrier': getImportField(row, [
+        ...mapped('carrier'), 'carrier', 'insurance carrier', 'defendant carrier', 'adverse carrier', 'insurer',
+      ]),
+      'insurance.claim_number': getImportField(row, [
+        ...mapped('claimNumber'), 'claim number', 'claim no', 'claim #', 'claimnumber',
+      ]),
+      'insurance.defendant_coverage_limits': getImportField(row, [
+        ...mapped('policyLimit'), 'policy limit', 'policy limits', 'coverage limit', 'bi limit',
+      ]),
+      'caseAcceleration.wageLoss.employerName': getImportField(row, [
+        ...mapped('employer'), 'employer', 'employer name', 'place of employment',
+      ]),
+      'defendant.name': getImportField(row, [
+        ...mapped('defendant'), 'defendant', 'defendant name', 'at-fault party', 'adverse party',
+      ]),
+    }),
     raw: row,
   }
+}
+
+/** Drop unmapped columns so a blank cell never overwrites anything. */
+function pruneEmpty(values: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(Object.entries(values).filter(([, value]) => Boolean(value)))
 }
 
 function normalizeTaskDueDate(value: string) {
@@ -7931,6 +7960,7 @@ router.post('/intake/import', authMiddleware, intakeImportUpload.array('files', 
             importSource: payload.source,
             externalId: importedCase.externalId,
             rawImport: importedCase.raw,
+            factPaths: importedCase.factPaths,
           },
           owner,
           'import',

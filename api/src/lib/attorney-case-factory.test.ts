@@ -278,6 +278,60 @@ describe('import identity', () => {
   })
 })
 
+describe('mapped facts', () => {
+  /**
+   * The reason these go through applyFactPath rather than being written
+   * directly: several facts keys exist twice under different names, and
+   * different screens read different ones. A case with only the canonical key
+   * shows the carrier on one screen and blank on the next.
+   */
+  it('writes every alias of a mapped key, not just the canonical one', async () => {
+    await createAttorneyOwnedCase(
+      { ...INPUT, factPaths: { 'insurance.defendant_carrier': 'Acme Mutual' } },
+      OWNER,
+      'import',
+    )
+
+    const facts = assessmentCreateArg().data.facts
+    expect(facts).toContain('defendant_carrier')
+    expect(facts).toContain('"carrier"')
+    expect(facts).toContain('Acme Mutual')
+  })
+
+  it('mirrors the employer across the paths the wage-loss gap reads', async () => {
+    await createAttorneyOwnedCase(
+      { ...INPUT, factPaths: { 'caseAcceleration.wageLoss.employerName': 'Globex' } },
+      OWNER,
+      'import',
+    )
+
+    const facts = JSON.parse(assessmentCreateArg().data.facts)
+    expect(facts.employment.employer).toBe('Globex')
+    expect(facts.damages.employer).toBe('Globex')
+  })
+
+  it('ignores a path nothing reads rather than storing it loose', async () => {
+    // A mis-mapped column must not be able to invent a facts key.
+    await createAttorneyOwnedCase(
+      { ...INPUT, factPaths: { 'not.a.real.path': 'whatever' } },
+      OWNER,
+      'import',
+    )
+
+    expect(assessmentCreateArg().data.facts).not.toContain('whatever')
+  })
+
+  it('leaves a key untouched when the column was blank', async () => {
+    await createAttorneyOwnedCase(
+      { ...INPUT, factPaths: { 'insurance.claim_number': '' } },
+      OWNER,
+      'import',
+    )
+
+    expect(assessmentCreateArg().data.facts).not.toContain('claim_number')
+  })
+})
+
 describe('isAttorneyOwnedCase', () => {
   it('recognises a case the attorney brought with them', () => {
     expect(isAttorneyOwnedCase({ origin: { kind: ATTORNEY_SELF_SOURCE } })).toBe(true)
