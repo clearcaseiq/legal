@@ -38,6 +38,8 @@ import {
   type AssistanceStatus,
 } from '../lib/case-assistance'
 import { reassignCaseAssistance } from '../lib/case-assistance-assignment'
+import { startAssessmentRouting } from '../lib/assessment-routing'
+import { isEngagedLeadStatus } from '../lib/lead-status'
 import { parsePagination, paginated } from '../lib/pagination'
 import { plaintiffNameOf, resolveCaseName } from '../lib/case-name'
 import { buildCaseIntelligence, type CaseGap } from '../lib/case-intelligence'
@@ -667,6 +669,119 @@ const UpdateSchema = z.object({
   assignedSpecialistId: z.string().nullable().optional(),
 })
 
+/**
+ * Start routing a case the specialist has just marked Ready for Attorney.
+ *
+ * Marking the status used to only recolour a badge and drop the case out of the
+ * queue, so a finished file waited for an admin to notice and route it by hand.
+ * This is the handover the status name has always claimed to be.
+ *
+ * Fire-and-forget: the specialist's save must not wait on the routing engine,
+ * and must not fail because routing did. Everything that decides *whether* the
+ * case may go out — routing switched off, the plaintiff's disclosure
+ * authorization, the fraud gate, attorney-owned cases that are never offered to
+ * anyone — already lives inside startAssessmentRouting, so this adds no policy
+ * of its own beyond not re-routing a case an attorney is already working.
+ */
+async function handoverToAttorneys(assistance: {
+  id: string
+  assessmentId: string
+  assessment?: { leadSubmission?: { status?: string | null; lifecycleState?: string | null } | null } | null
+}): Promise<void> {
+  const lead = assistance.assessment?.leadSubmission
+
+  // An attorney already has this one. Routing again would offer a case that is
+  // being worked to a second firm.
+  if (isEngagedLeadStatus(lead?.status)) {
+    logger.info('Skipping handover; an attorney is already engaged', {
+      assessmentId: assistance.assessmentId,
+      leadStatus: lead?.status,
+    })
+    return
+  }
+
+  const result = await startAssessmentRouting(assistance.assessmentId, {
+    preferTierRouting: true,
+    fallbackToClassic: true,
+  })
+
+  if (result.success && result.routedTo?.length) {
+    logger.info('Case routed on handover from the specialist queue', {
+      assessmentId: assistance.assessmentId,
+      strategy: result.strategy,
+      attorneyIds: result.routedTo,
+    })
+    return
+  }
+
+  // Not an error: a case can be legitimately held at the gate or find no
+  // match, and startAssessmentRouting parks those for review itself.
+  logger.info('Handover did not place the case', {
+    assessmentId: assistance.assessmentId,
+    gatePassed: result.gatePassed,
+    gateReason: result.gateReason,
+    reason: result.errors?.[0] || result.holdReason || null,
+  })
+}
+
+/**
+ * The side effects of moving a case between statuses.
+ *
+ * Shared because a specialist can move a case two ways — the workspace status
+ * control and the "log a call and move it" shortcut — and only the first ran
+ * any of this. Logging a missed call, which is the likelier route into
+ * `call_not_accepted` of the two, therefore never sent the claimant the
+ * follow-up that status exists to trigger.
+ *
+ * Each effect fires on the transition alone, so re-saving a case that is
+ * already in the status does not repeat it.
+ */
+async function applyAssistanceStatusChange(
+  assistance: {
+    id: string
+    assessmentId: string
+    status: string
+    assessment?: any
+  },
+  nextStatus: AssistanceStatus,
+  user: any,
+): Promise<void> {
+  if (nextStatus === assistance.status) return
+
+  if (nextStatus === 'ready_for_attorney_review') {
+    void handoverToAttorneys(assistance).catch((error) =>
+      logger.error('Handover to attorneys failed', {
+        assistanceId: assistance.id,
+        assessmentId: assistance.assessmentId,
+        error,
+      }),
+    )
+  }
+
+  if (nextStatus === 'call_not_accepted') {
+    void sendMissedCallFollowUp({
+      assistanceId: assistance.id,
+      assessmentId: assistance.assessmentId,
+      contact: contactOf(assistance.assessment),
+      specialist: {
+        id: user?.id || null,
+        name: specialistNameOf(user),
+        email: user?.email || null,
+      },
+    })
+  }
+}
+
+/**
+ * There are two ways out of this queue and both finish the case: handover to
+ * attorneys, and the plaintiff declining to go on. Moving a case back into the
+ * working set clears the stamp, so one reopened after a denial does not keep
+ * reporting a closing date it no longer has.
+ */
+function closedAtFor(status: AssistanceStatus): Date | null {
+  return ACTIVE_ASSISTANCE_STATUSES.includes(status) ? null : new Date()
+}
+
 router.patch('/:id', async (req: AuthRequest, res) => {
   try {
     const parsed = UpdateSchema.safeParse(req.body)
@@ -703,13 +818,7 @@ router.patch('/:id', async (req: AuthRequest, res) => {
     if (status !== undefined) data.status = status
     if (priority !== undefined) data.priority = priority
     if (nextAction !== undefined) data.nextAction = nextAction || null
-    // There are two ways out of this queue and both finish the case: handover to
-    // attorneys, and the plaintiff declining to go on. Moving a case back into
-    // the working set clears the stamp, so one reopened after a denial does not
-    // keep reporting a closing date it no longer has.
-    if (status !== undefined) {
-      data.closedAt = ACTIVE_ASSISTANCE_STATUSES.includes(status) ? null : new Date()
-    }
+    if (status !== undefined) data.closedAt = closedAtFor(status)
 
     const updated = Object.keys(data).length
       ? await prisma.caseAssistance.update({
@@ -722,22 +831,8 @@ router.patch('/:id', async (req: AuthRequest, res) => {
         })
       : await loadAssistance(req, req.params.id)
 
-    // A missed call is the one status change the claimant needs to hear about,
-    // because it describes something that failed on our side. Fired only on the
-    // transition into it, so re-saving other fields on a case already marked
-    // this way does not write to them again.
-    if (status === 'call_not_accepted' && assistance.status !== 'call_not_accepted') {
-      const contact = contactOf(assistance.assessment)
-      void sendMissedCallFollowUp({
-        assistanceId: assistance.id,
-        assessmentId: assistance.assessmentId,
-        contact,
-        specialist: {
-          id: req.user?.id || null,
-          name: specialistNameOf(req.user),
-          email: req.user?.email || null,
-        },
-      })
+    if (status !== undefined) {
+      await applyAssistanceStatusChange(assistance, status, req.user)
     }
 
     res.json({ success: true, assistance: updated ? serializeQueueRow(updated) : null })
@@ -867,11 +962,13 @@ router.post('/:id/interactions', async (req: AuthRequest, res) => {
       await prisma.caseAssistance.update({
         where: { id: assistance.id },
         data: {
-          ...(status ? { status } : {}),
+          ...(status ? { status, closedAt: closedAtFor(status) } : {}),
           ...(nextAction !== undefined ? { nextAction: nextAction || null } : {}),
         },
       })
     }
+
+    if (status) await applyAssistanceStatusChange(assistance, status, req.user)
 
     logger.info('Case interaction logged', {
       assistanceId: assistance.id,
