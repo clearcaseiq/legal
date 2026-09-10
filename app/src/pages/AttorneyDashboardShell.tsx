@@ -36,6 +36,7 @@ import { invalidateAttorneyDashboardSummary } from '../hooks/useAttorneyDashboar
 import { invalidateFirmDashboardSummary, loadFirmDashboardSummary } from '../hooks/useFirmDashboardSummary'
 import { useLanguage } from '../contexts/LanguageContext'
 import { useToast } from '../contexts/ToastContext'
+import { useHeuristics } from '../contexts/HeuristicsContext'
 
 const loadAttorneyDashboardAnalyticsTab = () => import('../components/AttorneyDashboardAnalyticsTab')
 const loadAttorneyDashboardDeferredInlineWorkstream = () => import('../components/AttorneyDashboardDeferredInlineWorkstream')
@@ -354,6 +355,7 @@ export interface AttorneyDashboardProps {
 export default function AttorneyDashboardShell({ chromeless = false, initialView }: AttorneyDashboardProps = {}) {
   const { t } = useLanguage()
   const { showToast } = useToast()
+  const heuristics = useHeuristics()
   const navigate = useNavigate()
   const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -2858,8 +2860,9 @@ export default function AttorneyDashboardShell({ chromeless = false, initialView
       ),
   ).length
   const retainedAwaitingIntakeCount = allLeads.filter((lead) => lead.status === 'retained' && Number(lead.demandReadiness?.score || 0) < 100).length
-  const demandReadyCasesCount = allLeads.filter((lead) => Number(lead.demandReadiness?.score || 0) >= 85).length
-  const settlementOpportunitiesCount = allLeads.filter((lead) => ['consulted', 'retained'].includes(lead.status || '') || Number(lead.demandReadiness?.score || 0) >= 85).length
+  const demandReadyMin = heuristics.readinessLabels.demandReadyMin
+  const demandReadyCasesCount = allLeads.filter((lead) => Number(lead.demandReadiness?.score || 0) >= demandReadyMin).length
+  const settlementOpportunitiesCount = allLeads.filter((lead) => ['consulted', 'retained'].includes(lead.status || '') || Number(lead.demandReadiness?.score || 0) >= demandReadyMin).length
   const openAnalyticsTab = () => {
     setOverviewFocus('dashboard')
     setActiveTab('analytics')
@@ -2950,7 +2953,7 @@ export default function AttorneyDashboardShell({ chromeless = false, initialView
         onClick: () => handleQuickActionForLead(lead, 'documentRequest'),
       }
     })
-  const aiOpportunityItems = buildAttorneyAiOpportunities(dashboardData).slice(0, 3)
+  const aiOpportunityItems = buildAttorneyAiOpportunities(dashboardData, demandReadyMin).slice(0, 3)
 
   return (
     <div className="space-y-8">
@@ -4155,9 +4158,9 @@ type AttorneyAiOpportunity = {
   tab: (typeof ATTORNEY_DASHBOARD_TABS)[number]
 }
 
-function buildAttorneyAiOpportunities(data: DashboardData): AttorneyAiOpportunity[] {
+function buildAttorneyAiOpportunities(data: DashboardData, demandReadyMin: number): AttorneyAiOpportunity[] {
   const leads = data.recentLeads || []
-  const demandReadyLead = leads.find((lead) => Number(lead.demandReadiness?.score || 0) >= 85)
+  const demandReadyLead = leads.find((lead) => Number(lead.demandReadiness?.score || 0) >= demandReadyMin)
   const missingDocsLead = leads.find((lead) => dashboardLeadDocumentCount(lead) === 0)
   const urgentAutomation = (data.automationFeed || []).find((item) => item.severity === 'high')
   const topMatch = data.topCaseToday || data.newCaseMatches?.[0] || leads.find((lead) => !lead.status || lead.status === 'submitted')

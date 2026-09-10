@@ -17,7 +17,7 @@ adjusted for liability and venue. Where we anchor differs and should — Colossu
 is tuned to produce the carrier's opening authority, ours is meant to describe
 fair value.
 
-Below that, four things were wrong or missing. All four are now closed.
+Below that, five things were wrong or missing. All five are now closed.
 
 | Area | Status |
 | --- | --- |
@@ -25,8 +25,9 @@ Below that, four things were wrong or missing. All four are now closed.
 | ICD/CPT codes never reached the number | Fixed — codes now set severity |
 | Treatment gaps and imaging never reached the number | Fixed — real chronology replaces the keyword scan |
 | Calibration graded an engine nobody reads | Fixed — the loop now grades underwriting |
+| The claimant was shown a discounted number | Fixed — doubt now sits in the band width |
 
-## The root cause the last three shared
+## The root cause three of them shared
 
 There were two valuation engines, and the sophisticated one was discarded.
 
@@ -40,9 +41,9 @@ heuristic bands with the underwriting bands. Underwriting wins. So every signal
 that only `prediction.ts` knew how to read was computed, logged, and thrown away
 before anyone saw a number.
 
-Three of the four gaps were therefore one gap: the analysis existed, it just ran
-in the engine that lost. The fix was to route those signals into the engine that
-wins, rather than to rewrite the analysis.
+Three of them were therefore one gap: the analysis existed, it just ran in the
+engine that lost. The fix was to route those signals into the engine that wins,
+rather than to rewrite the analysis.
 
 Both engines still exist and underwriting still overwrites the heuristic. That
 duplication is worth removing eventually, but it is now a tidiness problem
@@ -159,6 +160,43 @@ it scored — a run that is mostly heuristic is still tuning the wrong thing.
 This is the fix that compounds: the others are static, but an uncalibrated
 engine drifts and nothing detects it.
 
+### Uncertainty is carried by the band, not by a discount
+
+The four fixes above all improved the number the engine produces. None of them
+reached the claimant, because `Results.tsx` took the finished band and shaved it
+— 0.7x off the low end, 0.9x off the high, floor-rounded — before displaying it.
+
+The intent was defensible: an unevidenced estimate should only ever be revised
+upward, so start it low. The implementation was not. The discount lived on one
+page, so the same case showed one range on the Results page and a different one
+on the plaintiff Dashboard, the Case Tracker and both PDF exports. It also
+contradicted the undiscounted range printed further down that same page. And it
+fired on `liabilityOutlook !== 'strong'`, which is true of every case that has
+not been scored yet, so in practice most claimants saw the haircut.
+
+Worse, it did the thing this document says we do not do. A 30% cut off the low
+end produces a carrier-shaped opening number. The reason differed — hedging
+rather than negotiating — but the claimant could not tell the difference.
+
+An unevidenced case is not a cheaper case, it is a less certain one, so the
+doubt now sits where uncertainty belongs. `calculateSettlement` takes the
+documentation score and drops the bottom of the band as confidence falls: a
+fully documented file keeps the original ±30%, and a file with nothing on it
+reaches roughly -55%. Three details make it safe:
+
+- **Downward only.** Widening upward as well would have an unevidenced case
+  advertise a higher ceiling than the same case once proven, so uploading
+  records would appear to cost the claimant money.
+- **Coverage still wins.** The widening is applied before the coverage ceiling,
+  so a thin file against a small policy is still capped at what the policy pays.
+- **Calibration still governs it.** The widening multiplies through
+  `bandWidthScale`, so the feedback loop tunes the spread as it always did, and
+  a documented file is unchanged — identity calibration still reproduces the
+  original band exactly.
+
+Every plaintiff surface now renders the same modelled band with no arithmetic of
+its own.
+
 ## Where we differ from the carrier on purpose
 
 Not every difference is a gap. Two are deliberate and should stay.
@@ -166,13 +204,22 @@ Not every difference is a gap. Two are deliberate and should stay.
 **We value on billed charges, not paid.** `calculateSettlement` prefers
 `med_charges` over `med_paid`. Carriers argue paid amounts, and in some states
 that argument has real support. Valuing on billed reflects the claim's gross
-value and gives the claimant the stronger anchor going in. It does mean the
-figure is not what nets out after liens and reductions, which is a disclosure
-question rather than a modelling one.
+value and gives the claimant the stronger anchor going in — which was true of
+the engine but not of the claimant's screen until the display discount came out.
+It does mean the figure is not what nets out after liens and reductions, which
+is a disclosure question rather than a modelling one.
+
+The same stance shows up in how the file is scored rather than valued: readiness
+credits the treatment and charges a claimant reported, and tags those points as
+client-reported rather than documented. Use their account for the number, and be
+explicit about what is proven.
 
 **We are not tuned to produce a lowball.** Colossus exists to generate the
 carrier's authority range, which is the opening position in a negotiation, not
 an estimate of fair value. Matching its output would mean adopting its purpose.
+This is the easier of the two claims to assert and quietly break: the engine was
+never tuned to lowball, and the page in front of the claimant discounted its
+output anyway. See the section on band width above.
 
 ## What is still worth doing
 
@@ -197,3 +244,4 @@ Nothing here is a correctness gap, but three things would make the model better:
 - `api/src/lib/treatment-chronology.ts` — gap and onset analysis
 - `api/src/lib/valuation-calibration.ts` — outcome feedback loop
 - `api/src/routes/predict.ts` — where underwriting overwrites the heuristic
+- `app/src/pages/Results.tsx` — claimant-facing presentation of the band

@@ -2,9 +2,12 @@ import { describe, expect, it } from 'vitest'
 import {
   calculateAttorneyConsensus,
   calculateLiability,
+  calculateSettlement,
   calculateSeverity,
+  calculateTreatmentQuality,
   reconcileViabilityWithUnderwriting,
   underwriteCase,
+  type DocumentationResult,
 } from './underwriting-engine'
 
 describe('calculateLiability', () => {
@@ -448,5 +451,78 @@ describe('reconcileViabilityWithUnderwriting', () => {
 
     expect(fromRecalculation.liability).toBe(fromPredict.liability)
     expect(fromMaterializer.liability).toBe(fromPredict.liability)
+  })
+})
+
+describe('evidence confidence widens the band rather than discounting it', () => {
+  // Documentation is the only thing that moves between these calls, so the
+  // valuation itself is held constant and any change in the band is the
+  // confidence factor.
+  const input = {
+    claimType: 'auto',
+    venueState: 'CA',
+    venueCounty: 'Los Angeles',
+    facts: {
+      claimType: 'auto',
+      liability: { crashType: 'rear_end', comparativeNegligence: 0 },
+      incident: { date: '2026-01-01', narrative: 'Rear-ended at a red light. MRI shows a herniation and an epidural injection was performed.' },
+      injuries: [{ diagnoses: ['herniation'], lifestyleImpact: ['daily_pain'] }],
+      treatment: [{ type: 'physical_therapy' }, { type: 'injection' }, { type: 'orthopedist' }],
+      damages: { med_charges: 60000 },
+    },
+    evidenceFiles: [{ category: 'medical_records' }, { category: 'bills' }],
+  }
+  const liability = calculateLiability(input)
+  const severity = calculateSeverity(input)
+  const treatment = calculateTreatmentQuality(input)
+  const documentation = (score: number): DocumentationResult => ({
+    score,
+    grade: score >= 70 ? 'Strong' : 'Sparse',
+    positives: [],
+    missing: [],
+  })
+
+  it('leaves a fully documented file on the original band', () => {
+    const result = calculateSettlement(input, liability, severity, treatment, documentation(100))
+    expect(result.low / result.expected).toBeCloseTo(0.7, 2)
+    expect(result.high / result.expected).toBeCloseTo(1.3, 2)
+  })
+
+  it('drops the low end of an undocumented file', () => {
+    const result = calculateSettlement(input, liability, severity, treatment, documentation(0))
+    expect(result.low / result.expected).toBeCloseTo(0.45, 2)
+  })
+
+  it('never raises the top of the band for a thin file', () => {
+    // Widening upward would have an unevidenced case advertise a higher ceiling
+    // than the same case once proven, so uploading records would appear to cost
+    // the claimant money.
+    const thin = calculateSettlement(input, liability, severity, treatment, documentation(0))
+    const evidenced = calculateSettlement(input, liability, severity, treatment, documentation(100))
+
+    expect(thin.high).toBe(evidenced.high)
+    expect(thin.expected).toBe(evidenced.expected)
+    expect(thin.low).toBeLessThan(evidenced.low)
+  })
+
+  it('leaves the band alone when no documentation result is supplied', () => {
+    // The parameter is optional, and an absent one must not be read as an
+    // undocumented file, or every caller that omits it silently widens.
+    const omitted = calculateSettlement(input, liability, severity, treatment)
+    const evidenced = calculateSettlement(input, liability, severity, treatment, documentation(100))
+    expect(omitted.low).toBe(evidenced.low)
+  })
+
+  it('keeps coverage authoritative over a widened band', () => {
+    const capped = calculateSettlement(
+      { ...input, facts: { ...input.facts, insurance: { policy_limit: 25000 } } },
+      liability,
+      severity,
+      treatment,
+      documentation(0),
+    )
+    expect(capped.high).toBe(25000)
+    expect(capped.policyLimitConstrained).toBe(true)
+    expect(capped.low).toBeLessThanOrEqual(25000)
   })
 })

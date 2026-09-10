@@ -41,6 +41,8 @@ export interface HeuristicsConfig {
   }
   readinessLabels: {
     demandReadyMin: number
+    demandPrepMin: number
+    demandGateMin: number
     reviewReadyMin: number
     strengtheningMin: number
   }
@@ -105,6 +107,8 @@ export const DEFAULT_HEURISTICS: HeuristicsConfig = {
   },
   readinessLabels: {
     demandReadyMin: 85,
+    demandPrepMin: 75,
+    demandGateMin: 70,
     reviewReadyMin: 65,
     strengtheningMin: 40,
   },
@@ -179,6 +183,13 @@ export function opportunityLabel(config: HeuristicsConfig, score: number): 'Stro
   if (score >= config.opportunity.moderateMin) return 'Moderate'
   return 'Weak'
 }
+
+/**
+ * Mirror of `UNDOCUMENTED_READINESS_CEILING` in `api/src/lib/case-insights.ts`.
+ * Only used where a surface has to show something before the served readiness
+ * score arrives, so the placeholder cannot read higher than the real score can.
+ */
+export const UNDOCUMENTED_READINESS_CEILING = 55
 
 /** File-readiness label from the configured bands. */
 export function readinessLabel(config: HeuristicsConfig, score: number): string {

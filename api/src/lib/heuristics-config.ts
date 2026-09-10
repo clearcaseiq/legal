@@ -68,9 +68,21 @@ export interface ConflictCheckHeuristics {
   lookbackCases: number
 }
 
+/**
+ * Bands over the single readiness score from `case-insights.ts`.
+ *
+ * There are three separate "demand" thresholds because the product grew three,
+ * at 70, 75 and 85, hardcoded in different files. They are named here rather
+ * than merged so the values stay as they are today and the divergence is at
+ * least visible in one place — collapsing them is a product decision.
+ */
 export interface ReadinessLabelHeuristics {
   /** Readiness score (0-100) at/above which the file is "Demand-ready". */
   demandReadyMin: number
+  /** At/above which the readiness automation will open demand work. */
+  demandPrepMin: number
+  /** At/above which the UI offers demand actions on the file. */
+  demandGateMin: number
   /** At/above which the file is "Attorney-review ready". */
   reviewReadyMin: number
   /** At/above which the file is "Needs file strengthening" (else "Early file"). */
@@ -163,6 +175,8 @@ export const DEFAULT_HEURISTICS: HeuristicsConfig = {
   },
   readinessLabels: {
     demandReadyMin: 85,
+    demandPrepMin: 75,
+    demandGateMin: 70,
     reviewReadyMin: 65,
     strengtheningMin: 40,
   },

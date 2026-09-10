@@ -709,7 +709,7 @@ export default function AttorneyDashboardLeadDetail({
                   evidenceCount={filesCount + leadEvidenceFiles.length}
                   treatment={treatment}
                   timelineEstimate={timelineEstimate}
-                  liabilityPercent={Math.round((selectedLead?.liabilityScore || 0) * 100)}
+                  liabilityPercent={Math.round(liabilityForDisplay * 100)}
                   caseStatus={caseStatusLabel(getAttorneyCaseStatusKey(selectedLead, { consultScheduledAt: contactHistory.find((c: any) => c.contactType === 'consult' && c.scheduledAt)?.scheduledAt }))}
                   plaintiffName={plaintiffName}
                   phone={phone}

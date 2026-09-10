@@ -154,6 +154,7 @@ function buildStage(params: {
   treatmentGapCount: number
   hasNegotiation: boolean
   hasUpcomingConsult: boolean
+  reviewReadyMin: number
 }) {
   if (params.hasNegotiation) {
     return {
@@ -188,7 +189,7 @@ function buildStage(params: {
     }
   }
 
-  if (params.missingCount > 0 || params.treatmentGapCount > 0 || params.readinessScore < 65) {
+  if (params.missingCount > 0 || params.treatmentGapCount > 0 || params.readinessScore < params.reviewReadyMin) {
     return {
       key: 'file_strengthening',
       title: 'File strengthening',
@@ -644,6 +645,7 @@ export async function buildCaseCommandCenter(params: {
       ? recordStrength / 100
       : liveLiabilityScore ?? viability.liability ?? assessment.leadSubmission?.liabilityScore ?? 0.5
   const readinessScore = casePreparation.readinessScore || 0
+  const readinessBands = heuristics.readinessLabels
   const nextUpcomingConsult = appointments.find((item) => item.status === 'SCHEDULED' && new Date(item.scheduledAt) > new Date())
   const latestDemand = negotiationEvents.find((item) => item.eventType === 'demand')?.amount ?? null
   const hasNegotiation = negotiationEvents.length > 0
@@ -659,6 +661,7 @@ export async function buildCaseCommandCenter(params: {
     treatmentGapCount: casePreparation.treatmentGaps.length,
     hasNegotiation,
     hasUpcomingConsult: !!nextUpcomingConsult,
+    reviewReadyMin: readinessBands.reviewReadyMin,
   })
   const liabilityStory = buildLiabilityStory(liabilityScore, facts)
   const coverageStory = buildCoverageStory(policyLimit, insuranceDetails.length > 0, latestDemand)
@@ -802,13 +805,13 @@ export async function buildCaseCommandCenter(params: {
       title: 'Get the consult on the calendar',
       detail: 'The file is organized enough for the next attorney conversation, and scheduling that touchpoint should keep momentum up.',
     }
-  } else if (readinessScore >= 75 && negotiationEvents.length === 0 && demandGate.ready) {
+  } else if (readinessScore >= readinessBands.demandPrepMin && negotiationEvents.length === 0 && demandGate.ready) {
     nextBestAction = {
       actionType: 'prepare_demand',
       title: 'Move the file toward demand preparation',
       detail: 'The case looks organized enough and treatment is complete, so the next leverage move is to tighten the damages narrative and prepare the demand package.',
     }
-  } else if (readinessScore >= 75 && negotiationEvents.length === 0 && treatmentPosture.posture !== 'complete') {
+  } else if (readinessScore >= readinessBands.demandPrepMin && negotiationEvents.length === 0 && treatmentPosture.posture !== 'complete') {
     // Organized enough that demand prep would otherwise be next, but the course
     // of care is not documented as finished. Point at the blocker, not the demand.
     nextBestAction = {
@@ -878,7 +881,7 @@ export async function buildCaseCommandCenter(params: {
     readiness: {
       score: readinessScore,
       label: buildReadinessLabel(readinessScore, heuristics),
-      detail: readinessScore >= 75
+      detail: readinessScore >= readinessBands.demandPrepMin
         ? 'The file is organized enough for deeper attorney work and fewer basic blockers remain.'
         : 'The file still needs a few substantive items before it will present cleanly for demand or negotiation work.',
       factors: casePreparation.readinessFactors || [],

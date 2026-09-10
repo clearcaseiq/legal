@@ -1,0 +1,95 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+vi.mock('./prisma', () => import('../test/universalPrismaMock'))
+
+import { prisma } from './prisma'
+import { resetUniversalPrismaMock } from '../test/universalPrismaMock'
+import { computeCasePreparation, UNDOCUMENTED_READINESS_CEILING } from './case-insights'
+
+const daysAgo = (days: number) => {
+  const date = new Date()
+  date.setDate(date.getDate() - days)
+  return date.toISOString().slice(0, 10)
+}
+
+const COMPLETED_INTAKE = {
+  incident: { date: daysAgo(40), narrative: 'Stopped at a light and rear-ended. Police attended.' },
+  injuries: [{ description: 'Neck and lower back pain since the collision' }],
+  treatment: [
+    { date: daysAgo(38), type: 'urgent_care' },
+    { date: daysAgo(20), type: 'physical_therapy' },
+    { date: daysAgo(8), type: 'physical_therapy' },
+  ],
+  damages: { med_charges: 20000, wage_loss: 3200 },
+  consents: { hipaa: true },
+}
+
+const givenAssessment = (facts: Record<string, any>, evidenceCategories: string[] = []) => {
+  vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
+    claimType: 'auto',
+    facts: JSON.stringify(facts),
+    evidenceFiles: evidenceCategories.map((category) => ({ category })),
+    predictions: [],
+  } as any)
+}
+
+const factor = (result: Awaited<ReturnType<typeof computeCasePreparation>>, key: string) =>
+  result.readinessFactors.find((item) => item.key === key)
+
+describe('readiness credits what the claimant reported', () => {
+  beforeEach(() => {
+    resetUniversalPrismaMock()
+    vi.clearAllMocks()
+    givenAssessment(COMPLETED_INTAKE)
+  })
+
+  it('scores a completed intake with nothing uploaded', async () => {
+    // Answering the intake is the information the valuation runs on, so the file
+    // is not empty. It used to score 0 here, because liability and treatment
+    // were hard-zeroed whenever no file had been uploaded.
+    const result = await computeCasePreparation('asm-1')
+
+    expect(factor(result, 'medical_records')?.points).toBe(10)
+    expect(factor(result, 'bills')?.points).toBe(8)
+    expect(factor(result, 'hipaa')?.points).toBe(10)
+    expect(factor(result, 'liability')?.points).toBe(10)
+    expect(factor(result, 'treatment')?.points).toBe(8)
+    // Documents only — the claimant cannot answer their way to a complete checklist.
+    expect(factor(result, 'checklist')?.points).toBe(0)
+    expect(result.readinessScore).toBe(46)
+  })
+
+  it('marks every earned factor as self-reported rather than documented', async () => {
+    // 46% carried entirely by the claimant's account has to read differently to
+    // 46% backed by records, or the attorney cannot tell what they are looking at.
+    const result = await computeCasePreparation('asm-1')
+    const earned = result.readinessFactors.filter((item) => item.points > 0 && item.key !== 'hipaa')
+
+    expect(earned.length).toBeGreaterThan(0)
+    expect(earned.every((item) => item.basis === 'self_reported')).toBe(true)
+  })
+
+  it('keeps an undocumented file below the attorney-review band', async () => {
+    const result = await computeCasePreparation('asm-1')
+    expect(result.readinessScore).toBeLessThanOrEqual(UNDOCUMENTED_READINESS_CEILING)
+    expect(result.readinessScore).toBeLessThan(65)
+  })
+
+  it('scores an empty file at zero', async () => {
+    givenAssessment({})
+    const result = await computeCasePreparation('asm-1')
+
+    expect(result.readinessScore).toBe(0)
+    expect(result.readinessFactors.every((item) => item.basis === 'missing')).toBe(true)
+  })
+
+  it('promotes the reported factors to documented once the records arrive', async () => {
+    givenAssessment(COMPLETED_INTAKE, ['medical_records', 'bills'])
+    const result = await computeCasePreparation('asm-1')
+
+    expect(factor(result, 'medical_records')).toMatchObject({ points: 28, basis: 'documented' })
+    expect(factor(result, 'bills')).toMatchObject({ points: 22, basis: 'documented' })
+    expect(factor(result, 'treatment')).toMatchObject({ points: 12, basis: 'documented' })
+    expect(result.readinessScore).toBeGreaterThan(UNDOCUMENTED_READINESS_CEILING)
+  })
+})

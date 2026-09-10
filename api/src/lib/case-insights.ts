@@ -52,9 +52,36 @@ export interface ReadinessFactor {
   label: string
   points: number
   max: number
+  /**
+   * Whether the points came from an uploaded document or from what the claimant
+   * told us. A file can score respectably on self-reported answers alone, so
+   * the reader needs to know which they are looking at.
+   */
+  basis: 'documented' | 'self_reported' | 'missing'
   /** Short guidance shown when the factor isn't fully earned. */
   hint?: string
 }
+
+/**
+ * Partial credit for a factor the claimant has described but not yet proven.
+ *
+ * Answering the intake is real work and real information — the valuation runs
+ * on those figures — so a completed intake should not read as an empty file.
+ * It is deliberately well short of the documented value, because a carrier
+ * pays on records rather than on an account of them.
+ */
+const SELF_REPORTED_RECORDS = 10
+const SELF_REPORTED_BILLS = 8
+const SELF_REPORTED_LIABILITY = 10
+const SELF_REPORTED_TREATMENT = 8
+
+/**
+ * Ceiling on readiness while nothing has been uploaded. Set below the
+ * review-ready band so a file carried entirely by self-reported answers can
+ * never present as ready for attorney work, however complete those answers are.
+ * Mirrored in `app/src/lib/heuristics.ts` for the pre-fetch fallback.
+ */
+export const UNDOCUMENTED_READINESS_CEILING = 55
 
 export interface CasePreparationResult {
   missingDocs: { key: string; label: string; priority: 'high' | 'medium' | 'low' }[]
@@ -847,46 +874,79 @@ export async function computeCasePreparation(assessmentId: string): Promise<Case
   )
   const hasMedicalRecords = evidenceCategories.has('medical_records')
   const hasBills = evidenceCategories.has('bills') || evidenceCategories.has('medical_bills')
+  const reportedTreatment = Array.isArray(facts?.treatment) ? facts.treatment : []
+  const reportedInjuries = Array.isArray(facts?.injuries) ? facts.injuries : []
+  const reportedDamages = facts?.damages || {}
+  const reportedCharges =
+    Number(reportedDamages.med_charges || reportedDamages.med_paid || reportedDamages.estimated_med_charges || 0) || 0
+  const hasReportedCare =
+    reportedTreatment.length > 0 || reportedInjuries.some((injury: any) => !!injury?.description)
+  const hasNarrative = !!facts?.incident?.narrative
+
+  // Treatment continuity reads reported visit dates as well as uploaded records.
+  // A claimant who listed their appointments has told us the shape of their
+  // care, and the gap analysis runs on those dates either way.
   const treatmentPoints =
-    evidenceCount === 0 || treatmentPosture.entryCount === 0
+    treatmentPosture.entryCount === 0
       ? 0
       : treatmentPosture.posture === 'gap' || largestGapDays >= 90
         ? 0
         : largestGapDays >= OPEN_TREATMENT_GAP_DAYS
           ? 4
-          : 12
+          : evidenceCount === 0
+            ? SELF_REPORTED_TREATMENT
+            : 12
+  // Liability is argued from the account of the incident, so a narrative earns
+  // credit on its own. Bounded while undocumented, since fault told to us is
+  // not fault a carrier has conceded.
+  const scoredLiability =
+    liabilityConfidence01 != null
+      ? Math.max(0, Math.min(16, Math.round(liabilityConfidence01 * 16)))
+      : hasNarrative
+        ? SELF_REPORTED_LIABILITY
+        : 0
   const liabilityPoints =
-    liabilityConfidence01 == null
-      ? 0
-      : Math.max(0, Math.min(16, Math.round(liabilityConfidence01 * 16)))
+    evidenceCount === 0 ? Math.min(scoredLiability, SELF_REPORTED_LIABILITY) : scoredLiability
 
   const readinessFactors: ReadinessFactor[] = [
     {
       key: 'medical_records',
       label: 'Medical records on file',
-      points: hasMedicalRecords ? 28 : 0,
+      points: hasMedicalRecords ? 28 : hasReportedCare ? SELF_REPORTED_RECORDS : 0,
       max: 28,
-      hint: hasMedicalRecords ? undefined : 'Upload medical records to Evidence',
+      basis: hasMedicalRecords ? 'documented' : hasReportedCare ? 'self_reported' : 'missing',
+      hint: hasMedicalRecords
+        ? undefined
+        : hasReportedCare
+          ? 'Upload the records behind the treatment you described'
+          : 'Upload medical records to Evidence',
     },
     {
       key: 'bills',
       label: 'Medical bills on file',
-      points: hasBills ? 22 : 0,
+      points: hasBills ? 22 : reportedCharges > 0 ? SELF_REPORTED_BILLS : 0,
       max: 22,
-      hint: hasBills ? undefined : 'Add itemized medical bills',
+      basis: hasBills ? 'documented' : reportedCharges > 0 ? 'self_reported' : 'missing',
+      hint: hasBills
+        ? undefined
+        : reportedCharges > 0
+          ? 'Upload the itemized bills for the charges you reported'
+          : 'Add itemized medical bills',
     },
     {
       key: 'hipaa',
       label: 'HIPAA authorization',
       points: hasHipaa ? 10 : 0,
       max: 10,
+      basis: hasHipaa ? 'documented' : 'missing',
       hint: hasHipaa ? undefined : 'Get the signed HIPAA authorization',
     },
     {
       key: 'liability',
       label: 'Liability strength',
-      points: evidenceCount === 0 ? 0 : liabilityPoints,
+      points: liabilityPoints,
       max: 16,
+      basis: liabilityPoints === 0 ? 'missing' : evidenceCount === 0 ? 'self_reported' : 'documented',
       hint: liabilityPoints >= 16 ? undefined : 'Strengthen fault evidence (statements, reports)',
     },
     {
@@ -894,11 +954,12 @@ export async function computeCasePreparation(assessmentId: string): Promise<Case
       label: 'Treatment continuity',
       points: treatmentPoints,
       max: 12,
+      basis: treatmentPoints === 0 ? 'missing' : evidenceCount === 0 ? 'self_reported' : 'documented',
       hint:
         treatmentPoints >= 12
           ? undefined
-          : evidenceCount === 0 || treatmentPosture.entryCount === 0
-            ? 'Confirm treatment status once records are on file'
+          : treatmentPosture.entryCount === 0
+            ? 'Add the treatment you have had so far'
             : largestGapDays >= OPEN_TREATMENT_GAP_DAYS
               ? `${largestGapDays}-day treatment gap weakens causation`
               : 'Document ongoing care',
@@ -908,14 +969,17 @@ export async function computeCasePreparation(assessmentId: string): Promise<Case
       label: 'Document checklist complete',
       points: missingDocs.length === 0 && evidenceCount > 0 ? 12 : 0,
       max: 12,
+      basis: missingDocs.length === 0 && evidenceCount > 0 ? 'documented' : 'missing',
       hint: missingDocs.length === 0 ? undefined : `${missingDocs.length} item(s) still missing`,
     },
   ]
 
-  // Hard ceiling: with nothing uploaded, never look "review ready".
+  // Backstop: a file carried entirely by self-reported answers stays below the
+  // review-ready band. The partial credits already land well under it, so this
+  // only bites if those weights are raised later.
   let readinessScore = Math.min(100, readinessFactors.reduce((sum, f) => sum + f.points, 0))
   if (evidenceCount === 0) {
-    readinessScore = Math.min(readinessScore, 18)
+    readinessScore = Math.min(readinessScore, UNDOCUMENTED_READINESS_CEILING)
   }
 
   return {

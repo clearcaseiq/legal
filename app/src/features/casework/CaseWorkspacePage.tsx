@@ -85,6 +85,7 @@ import {
   type MedicalChronologySummary,
 } from '../../lib/api'
 import { getApiOrigin } from '../../lib/runtimeEnv'
+import { useHeuristics } from '../../contexts/HeuristicsContext'
 import { checkEvidenceCollect, checkPoliceReportCollect, confirmRetainerSigned } from '../../lib/api-esign'
 import SignatureRequestPanel from '../../components/SignatureRequestPanel'
 import ChatDrawer from '../../components/ChatDrawer'
@@ -846,6 +847,7 @@ function WorkstreamPanel({
 }) {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
+  const heuristics = useHeuristics()
   const fromSuffix = searchParams.get('from') ? `?from=${searchParams.get('from')}` : ''
   const [actionBusy, setActionBusy] = useState<string | null>(null)
   const [actionMsg, setActionMsg] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null)
@@ -1104,7 +1106,7 @@ function WorkstreamPanel({
     const anchor = Math.max(high, median * 1.4)
     const roundTo = anchor >= 100_000 ? 25_000 : anchor >= 25_000 ? 5_000 : 1_000
     const suggestedDemand = anchor > 0 ? Math.ceil(anchor / roundTo) * roundTo : 0
-    const demandReady = readinessScore >= 70
+    const demandReady = readinessScore >= heuristics.readinessLabels.demandGateMin
 
     const rangeMax = Math.max(high, policy, median, latestDemand) || 1
     const rPct = (x: number) => Math.max(0, Math.min(100, (x / rangeMax) * 100))

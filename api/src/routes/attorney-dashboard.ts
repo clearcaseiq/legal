@@ -137,10 +137,9 @@ import {
   getMatchingRules,
 } from '../lib/matching-rules-config'
 import { triggerOfferExpirySweepSoon } from '../lib/offer-expiry-sweep'
+import { buildRevenueProjection } from '../lib/revenue-projection'
 
 const router = Router()
-const PROJECTED_CONTINGENCY_RATE = 0.33
-const PROJECTED_PLATFORM_FEE_RATE = 0.1
 
 async function fetchAttorneyForDashboard(attorneyId: string) {
   try {
@@ -159,35 +158,6 @@ async function fetchAttorneyForDashboard(attorneyId: string) {
     return prisma.attorney.findUnique({
       where: { id: attorneyId },
     })
-  }
-}
-
-async function buildRevenueProjection(assessmentId: string) {
-  const assessment = await prisma.assessment.findUnique({
-    where: { id: assessmentId },
-    select: {
-      predictions: {
-        orderBy: { createdAt: 'desc' },
-        take: 1,
-        select: { bands: true }
-      }
-    }
-  })
-
-  const bandsRaw = assessment?.predictions?.[0]?.bands
-  if (!bandsRaw) return null
-
-  try {
-    const bands = JSON.parse(bandsRaw) as { median?: number }
-    const caseMedianValue = Number(bands.median || 0)
-    if (!caseMedianValue) return null
-
-    return {
-      caseMedianValue,
-      projectedFeeRevenue: Math.round(caseMedianValue * PROJECTED_CONTINGENCY_RATE * PROJECTED_PLATFORM_FEE_RATE)
-    }
-  } catch {
-    return null
   }
 }
 
@@ -754,8 +724,13 @@ async function computeCaseHealth(leadId: string, assessmentId: string, attorneyI
     leadSubmission?.causationScore,
     leadSubmission?.damagesScore
   ].filter((value) => typeof value === 'number') as number[]
+  // These four columns are stored 0-1, so the mean has to be scaled before it
+  // can sit beside `evidenceCompleteness` and the other 0-100 components.
+  // Rounding the raw mean produced 0 or 1 for every scored case, which both
+  // rendered as "Liability strength: 1" and dragged the composite health score
+  // down by roughly 16 points — so the check below always fired.
   const liabilityStrength = liabilityScores.length
-    ? Math.round(liabilityScores.reduce((sum, value) => sum + value, 0) / liabilityScores.length)
+    ? Math.round((liabilityScores.reduce((sum, value) => sum + value, 0) / liabilityScores.length) * 100)
     : 50
   if (liabilityStrength < 60) {
     factors.push({ key: 'liability_strength', detail: 'Liability strength is below target' })
@@ -1885,11 +1860,15 @@ function buildRiskProfile(params: {
   injuryCount: number
   treatmentCount: number
   insuranceLimit: number | null
+  /** `viability.overall`, on the stored 0-1 scale. Null when the case is unscored. */
   viabilityScore: number | null
 }) {
   let riskScore = 50
   if (params.viabilityScore !== null) {
-    riskScore -= (params.viabilityScore - 50) * 0.4
+    // Scaled to 0-100 before the comparison. Measuring a 0-1 score against the
+    // 50 midpoint put every scored case at roughly -(-49.5 * 0.4), a flat +20
+    // risk penalty that no amount of case quality could move.
+    riskScore -= (params.viabilityScore * 100 - 50) * 0.4
   }
   if (params.evidenceCount < 3) riskScore += 12
   if (params.injuryCount === 0) riskScore += 8

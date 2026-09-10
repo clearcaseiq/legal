@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { buildReadinessAutomationPlan } from './readiness-automation'
 import type { CaseCommandCenter } from './case-command-center'
 import { evaluateDemandGate, type TreatmentPostureResult } from './demand-readiness'
+import { DEFAULT_HEURISTICS } from './heuristics-config'
 
 const COMPLETE_TREATMENT: TreatmentPostureResult = {
   posture: 'complete',
@@ -204,5 +205,32 @@ describe('buildReadinessAutomationPlan', () => {
     }))
 
     expect(plan.tasks.map((item) => item.title)).not.toContain('Move file into demand drafting')
+  })
+})
+
+describe('the demand-ready gate comes from the shared readiness bands', () => {
+  // The 85 used to be a literal here and a different literal in three other
+  // files, so tuning the gate in Configuration silently moved only some of them.
+  const readySummary = () =>
+    buildSummary({
+      readiness: { score: 78, label: 'Attorney-review ready', detail: 'Organized.' },
+      nextBestAction: {
+        actionType: 'client_follow_up',
+        title: 'Send an update',
+        detail: 'Keep the file moving.',
+      },
+    })
+
+  it('leaves demand drafting alone at the configured default', () => {
+    const plan = buildReadinessAutomationPlan(readySummary())
+    expect(plan.tasks.map((item) => item.title)).not.toContain('Move file into demand drafting')
+  })
+
+  it('opens demand drafting once the configured gate drops below the score', () => {
+    const plan = buildReadinessAutomationPlan(readySummary(), {
+      ...DEFAULT_HEURISTICS,
+      readinessLabels: { ...DEFAULT_HEURISTICS.readinessLabels, demandReadyMin: 70 },
+    })
+    expect(plan.tasks.map((item) => item.title)).toContain('Move file into demand drafting')
   })
 })

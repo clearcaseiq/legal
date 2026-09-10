@@ -31,6 +31,8 @@ import {
 import ChatGPTAnalysis from '../components/ChatGPTAnalysis'
 import BrandLogo from '../components/BrandLogo'
 import { formatPercentage, formatCurrency } from '../lib/formatters'
+import { useHeuristics } from '../contexts/HeuristicsContext'
+import { UNDOCUMENTED_READINESS_CEILING, type HeuristicsConfig } from '../lib/heuristics'
 import { formatAttorneyLicensure } from '../lib/attorneyLicensure'
 import { ResultsPanelSkeleton } from '../components/PageSkeletons'
 import PlaintiffCaseCommandCenter from '../components/PlaintiffCaseCommandCenter'
@@ -715,27 +717,6 @@ function buildEstimateConfidenceScore(params: {
   return Math.min(100, Math.max(8, score))
 }
 
-function buildLitigationReadinessScore(params: {
-  hasMedicalRecords: boolean
-  hasMedicalBills: boolean
-  hasPoliceReport: boolean
-  hasTreatment: boolean
-  hasNarrative: boolean
-  hasInjuryPhotos: boolean
-  hasWageLossProof: boolean
-}): number {
-  const items = [
-    params.hasMedicalRecords,
-    params.hasMedicalBills,
-    params.hasPoliceReport,
-    params.hasTreatment,
-    params.hasNarrative,
-    params.hasInjuryPhotos,
-    params.hasWageLossProof,
-  ]
-  return Math.round((items.filter(Boolean).length / items.length) * 100)
-}
-
 function buildAttorneyInterestLevel(params: {
   /** Null when the case has not been scored; contributes no points rather than a made-up midpoint. */
   viability: number | null
@@ -761,9 +742,9 @@ function buildAttorneyInterestLevel(params: {
   return 'Low'
 }
 
-function getReadinessStatusLabel(t: TFn, score: number): string {
-  if (score >= 70) return t('results.calc.readinessWellPositioned')
-  if (score >= 45) return t('results.calc.readinessNeedsStrengthening')
+function getReadinessStatusLabel(t: TFn, score: number, bands: HeuristicsConfig['readinessLabels']): string {
+  if (score >= bands.demandGateMin) return t('results.calc.readinessWellPositioned')
+  if (score >= bands.strengtheningMin) return t('results.calc.readinessNeedsStrengthening')
   return t('results.calc.readinessEarlyStage')
 }
 
@@ -858,6 +839,7 @@ export default function Results() {
   const [coachQuestion, setCoachQuestion] = useState('')
   const [coachAnswer, setCoachAnswer] = useState<string | null>(null)
   const [medicalChronology, setMedicalChronology] = useState<any[]>([])
+  const heuristics = useHeuristics()
   const [casePreparation, setCasePreparation] = useState<any>(null)
   const [settlementBenchmarks, setSettlementBenchmarks] = useState<any>(null)
   const [plaintiffMedicalReview, setPlaintiffMedicalReview] = useState<PlaintiffMedicalReviewPayload | null>(null)
@@ -1925,7 +1907,27 @@ export default function Results() {
   const valueBands = prediction?.value_bands
   const underwriting = prediction?.underwriting
   const explainability = normalizeExplainability(prediction?.explainability)
+  // Readiness comes from the server so the claimant, the attorney and the case
+  // specialist quote one number. This page used to score how completely the
+  // *intake form* had been filled in, while every other surface scored how well
+  // the *file* was documented — so a claimant who answered every question and
+  // uploaded one photo read 100% here and 18% to their own attorney.
   const readinessDetails = (() => {
+    const factors = Array.isArray(casePreparation?.readinessFactors) ? casePreparation.readinessFactors : []
+    if (factors.length > 0) {
+      const satisfied = (factor: any) => Number(factor?.points ?? 0) >= Number(factor?.max ?? 0)
+      return {
+        percent: Math.max(0, Math.min(100, Math.round(Number(casePreparation?.readinessScore ?? 0)) || 0)),
+        missing: factors.filter((factor: any) => !satisfied(factor)).map((factor: any) => String(factor?.label ?? '')),
+        complete: factors.filter(satisfied).length,
+        total: factors.length,
+      }
+    }
+
+    // Nothing served yet, which is the case for a guest whose assessment has not
+    // been created. Fall back to intake completeness rather than showing zero,
+    // and keep it under the server's own no-evidence ceiling so the number can
+    // only move up once the real score arrives.
     const facts = parsedFacts
     const injuries = Array.isArray(facts.injuries) ? facts.injuries : []
     const treatment = Array.isArray(facts.treatment) ? facts.treatment : []
@@ -1945,7 +1947,7 @@ export default function Results() {
       hasDamages,
       hasEvidence
     ].filter(Boolean).length
-    const percent = Math.round((points / 6) * 100)
+    const percent = Math.min(UNDOCUMENTED_READINESS_CEILING, Math.round((points / 6) * 100))
     const missing: string[] = []
     if (!hasNarrative) missing.push('Incident narrative')
     if (!hasLocation) missing.push('Incident location')
@@ -1966,10 +1968,13 @@ export default function Results() {
   const caseReadinessPercent = readinessDetails.percent
   const caseReadinessComplete = readinessDetails.complete
   const caseReadinessTotal = readinessDetails.total
+  // Thresholds come from the shared readiness bands so the plaintiff's wording
+  // flips at the same score the attorney's does. The strings stay translated
+  // rather than reusing the server's English label.
   const caseReadinessLabel =
-    caseReadinessPercent >= 80
+    caseReadinessPercent >= heuristics.readinessLabels.demandReadyMin
       ? t('results.readiness.high')
-      : caseReadinessPercent >= 50
+      : caseReadinessPercent >= heuristics.readinessLabels.reviewReadyMin
         ? t('results.readiness.moderate')
         : t('results.readiness.building')
 
@@ -2176,56 +2181,35 @@ export default function Results() {
   // Step with the magnitude. A flat step reads as noise on a large figure and swallows
   // real movement on a small one: at $1,000 steps a $1,800 estimate displayed as $1,000,
   // a further 44% haircut on top of the early-stage discount below.
-  const roundEstimateForDisplay = (value: number) => {
-    const step = value < 10000 ? 500 : value < 50000 ? 1000 : 5000
-    return Math.max(step, Math.floor(value / step) * step)
-  }
   const isEarlyStageEstimate =
     evidenceLevelConfidence.confidence === 'Low' ||
     effectiveEvidenceCount === 0 ||
     readinessDetails.percent <= 50 ||
     liabilityOutlook !== 'strong'
-  // Before the case is evidenced, show a range that sits just under the modelled one, so it
-  // can only be revised upward as proof arrives. The discount used to be far steeper
-  // (0.4x/0.5x, further clamped against the opposite end of the band) because a $5,000
-  // display minimum propped small cases back up; with that minimum gone the steep version
-  // showed a $4,000 case as $1,000 and the clamps pinned it there regardless of the
-  // multipliers, so both go together.
-  const displaySettlementLow = isEarlyStageEstimate
-    ? roundEstimateForDisplay(settlementLow * 0.7)
-    : settlementLow
-  const displaySettlementHigh = isEarlyStageEstimate
-    ? roundEstimateForDisplay(settlementHigh * 0.9)
-    : settlementHigh
-  // Keep the band visibly wide without adding a flat sum, which on a small case was itself
-  // a large overstatement — but only ever fill space *below* the modelled high. Widening
-  // past it invents money the engine did not find, and does so worst exactly where it
-  // matters most: when coverage caps a case, low and high are both the policy limit, so
-  // widening pushed the figure a claimant reads above what the policy can actually pay.
-  const displaySettlementHighValue = Math.min(
-    settlementHigh,
-    Math.max(displaySettlementHigh, Math.round(displaySettlementLow * 1.4)),
-  )
+  // The band arrives already widened for a thin file: `calculateSettlement` drops
+  // its low end as documentation confidence falls, so an unevidenced case reads as
+  // less certain rather than as worth less, and it can still only be revised
+  // upward as proof arrives. This page used to take 0.7x/0.9x off the endpoints
+  // itself, which showed the claimant a different figure from the Dashboard, the
+  // Case Tracker and both PDFs for one case — and contradicted the undiscounted
+  // range this same page prints further down. `isEarlyStageEstimate` survives
+  // because the caveat copy below still needs to say the file is early.
+  const displaySettlementLow = settlementLow
+  const displaySettlementHigh = settlementHigh
+  const displaySettlementHighValue = settlementHigh
   // A band that coverage has flattened onto a single number is a cap, not a range, and
   // reads as nonsense written out as "$50,000 - $50,000".
   const displaySettlementRangeText =
     displaySettlementLow >= displaySettlementHighValue
       ? formatCurrency(displaySettlementHighValue)
       : `${formatCurrency(displaySettlementLow)} - ${formatCurrency(displaySettlementHighValue)}`
-  // Keep the "most likely" point inside the displayed range. When the range is
-  // scaled down for early-stage estimates, map the raw expected's relative
-  // position into the displayed range so it never falls outside the bounds.
-  const rawSettlementSpan = Math.max(1, settlementHigh - settlementLow)
-  const settlementExpectedFraction = Math.min(1, Math.max(0, (settlementExpected - settlementLow) / rawSettlementSpan))
-  const displaySettlementExpected = isEarlyStageEstimate
-    ? Math.min(
-        displaySettlementHighValue,
-        Math.max(
-          displaySettlementLow,
-          Math.round((displaySettlementLow + settlementExpectedFraction * (displaySettlementHighValue - displaySettlementLow)) / 1000) * 1000,
-        ),
-      )
-    : Math.min(displaySettlementHighValue, Math.max(displaySettlementLow, settlementExpected))
+  // Keep the "most likely" point inside the range. The clamp is retained because
+  // coverage caps the band's top without moving the expected value, so a capped
+  // case can still hand us a median above its own high.
+  const displaySettlementExpected = Math.min(
+    displaySettlementHighValue,
+    Math.max(displaySettlementLow, settlementExpected),
+  )
   // The trial band hangs off the settlement figure on the same card, so the two can never
   // tell different stories. It used to be anchored to the raw settlement while the number
   // beside it was discounted for early-stage cases, so evidence visibly moved the trial
@@ -2259,7 +2243,12 @@ export default function Results() {
   const hasMriReportedFlag = hasMriReported(treatment, structuredValuationDrivers)
   const isRearEndCase = isRearEndCollision(parsedFacts, liabilityFactors)
   const statuteSafe = sol?.status !== 'critical' && sol?.status !== 'expired' && sol?.status !== 'warning'
-  const estimateConfidenceScore = buildEstimateConfidenceScore({
+  // The engine's documentation score is what actually widens the settlement
+  // band, so the confidence shown beside the range now comes from the same
+  // number. The local ladder below it is the pre-score fallback only.
+  const servedDocumentationScore =
+    typeof underwriting?.scores?.documentation === 'number' ? underwriting.scores.documentation : null
+  const estimateConfidenceScore = servedDocumentationScore ?? buildEstimateConfidenceScore({
     hasMedicalRecords,
     hasMedicalBills,
     hasPoliceReport,
@@ -2273,16 +2262,11 @@ export default function Results() {
     readinessPercent: readinessDetails.percent,
   })
   const estimateConfidenceLevel = getConsumerConfidenceLevel(estimateConfidenceScore)
-  const litigationReadinessScore = buildLitigationReadinessScore({
-    hasMedicalRecords,
-    hasMedicalBills,
-    hasPoliceReport,
-    hasTreatment: treatment.length > 0,
-    hasNarrative: !!parsedFacts?.incident?.narrative,
-    hasInjuryPhotos,
-    hasWageLossProof,
-  })
-  const litigationReadinessStatus = getReadinessStatusLabel(t, litigationReadinessScore)
+  // "Litigation readiness" is the same question as "case readiness" asked with
+  // different words, so it reads the one served score rather than counting a
+  // different set of booleans and disagreeing with the dial above it.
+  const litigationReadinessScore = readinessDetails.percent
+  const litigationReadinessStatus = getReadinessStatusLabel(t, litigationReadinessScore, heuristics.readinessLabels)
   const attorneyInterestLevel = buildAttorneyInterestLevel({
     viability: overallViability,
     liabilityOutlook,
@@ -6035,7 +6019,7 @@ Checklist:
                       </svg>
                       <div className="relative text-center">
                         <p className="text-2xl font-bold text-slate-900 tabular-nums">{readinessDetails?.percent ?? 0}%</p>
-                        <p className="text-[10px] font-medium text-emerald-600">{(readinessDetails?.percent ?? 0) >= 75 ? t('results.next.strong') : (readinessDetails?.percent ?? 0) >= 50 ? t('results.next.good') : t('results.next.building')}<br />{t('results.next.submission')}</p>
+                        <p className="text-[10px] font-medium text-emerald-600">{caseReadinessPercent >= heuristics.readinessLabels.demandReadyMin ? t('results.next.strong') : caseReadinessPercent >= heuristics.readinessLabels.reviewReadyMin ? t('results.next.good') : t('results.next.building')}<br />{t('results.next.submission')}</p>
                       </div>
                     </div>
                   </div>

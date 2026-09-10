@@ -5,6 +5,7 @@ import type {
   AttorneyDashboardLeadFacts,
 } from './attorneyDashboardShared'
 import { formatCurrency } from '../lib/formatters'
+import { useHeuristics } from '../contexts/HeuristicsContext'
 import { getLeadTreatmentSummary } from '../lib/api'
 import DemandLetterWorkspace from '../features/casework/DemandLetterWorkspace'
 
@@ -27,10 +28,18 @@ export default function AttorneyDashboardWorkstreamDemand({
   const injuries = Array.isArray(facts?.injuries) ? facts.injuries : []
   const treatments = Array.isArray(facts?.treatment) ? facts.treatment : []
   const filesCount = Array.isArray(selectedLead?.assessment?.files) ? selectedLead.assessment.files.length : 0
+  const heuristics = useHeuristics()
   const demandReady = leadCommandCenter
-    ? leadCommandCenter.readiness.score >= 70 && leadCommandCenter.missingItems.length <= 1
+    ? leadCommandCenter.readiness.score >= heuristics.readinessLabels.demandGateMin
+      && leadCommandCenter.missingItems.length <= 1
     : filesCount >= 2 || (treatments.length > 0 && injuries.length > 0)
   const assessmentId = selectedLead.assessment?.id
+  // `viabilityScore` is stored 0-1 but a few legacy rows hold 0-100, so the
+  // other four sites that render it guard on that. This one multiplied
+  // unconditionally and turned a stored 95 into "9500%".
+  const rawViability = Number(selectedLead?.viabilityScore ?? 0) || 0
+  const strengthScorePercent =
+    rawViability <= 1 ? Math.round(rawViability * 100) : Math.min(100, Math.round(rawViability))
 
   // Live medical specials from the logged treatment ledger (preferred over the
   // self-reported facts figure when records exist).
@@ -67,7 +76,7 @@ export default function AttorneyDashboardWorkstreamDemand({
           </div>
           <div>
             <div className="text-gray-500">Estimated Strength Score</div>
-            <div className="text-gray-900">{selectedLead ? `${Math.round((selectedLead.viabilityScore ?? 0) * 100)}%` : 'N/A'}</div>
+            <div className="text-gray-900">{selectedLead ? `${strengthScorePercent}%` : 'N/A'}</div>
           </div>
         </div>
 

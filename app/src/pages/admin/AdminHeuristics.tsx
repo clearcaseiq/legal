@@ -86,9 +86,11 @@ const SECTIONS: SectionDef[] = [
   {
     id: 'readinessLabels',
     title: 'File readiness labels',
-    description: 'Readiness score (0–100) cutoffs for the Demand-ready / Attorney-review ready / Needs strengthening / Early file labels.',
+    description: 'Readiness score (0–100) cutoffs for the Demand-ready / Attorney-review ready / Needs strengthening / Early file labels, plus the two points at which demand work opens up.',
     fields: [
       { path: ['readinessLabels', 'demandReadyMin'], label: '“Demand-ready” minimum', step: 1, min: 0, max: 100 },
+      { path: ['readinessLabels', 'demandPrepMin'], label: 'Readiness automation opens demand prep', step: 1, min: 0, max: 100 },
+      { path: ['readinessLabels', 'demandGateMin'], label: 'Demand actions appear on the file', step: 1, min: 0, max: 100 },
       { path: ['readinessLabels', 'reviewReadyMin'], label: '“Attorney-review ready” minimum', step: 1, min: 0, max: 100 },
       { path: ['readinessLabels', 'strengtheningMin'], label: '“Needs strengthening” minimum', step: 1, min: 0, max: 100 },
     ],
@@ -204,7 +206,12 @@ export default function AdminHeuristics() {
       return 'Score tones: amber minimum cannot be higher than green minimum.'
     }
     const r = config.readinessLabels
-    if (r.strengtheningMin > r.reviewReadyMin || r.reviewReadyMin > r.demandReadyMin) {
+    if (
+      r.strengtheningMin > r.reviewReadyMin
+      || r.reviewReadyMin > r.demandGateMin
+      || r.demandGateMin > r.demandPrepMin
+      || r.demandPrepMin > r.demandReadyMin
+    ) {
       return 'Readiness labels: each tier minimum must be ≤ the next higher tier.'
     }
     const m = config.marketplaceRank

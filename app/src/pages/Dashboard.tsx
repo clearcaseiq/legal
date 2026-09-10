@@ -1,7 +1,9 @@
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { listAssessments, getAssessment, getEvidenceFiles, associateAssessments, getRoutingStatus, createAppointment, getAttorneyAvailability, updateAppointment, cancelAppointment, joinAppointmentWaitlist, updateAppointmentPreparation, getPlaintiffConsentCompliance, getPlaintiffDocumentRequests, getPlaintiffSignedDocuments, getPlaintiffCaseTasks, createAttorneyReview, getMedicalChronology, updateAssessment, type PlaintiffDocumentRequest, type PlaintiffSignedDocument, type PlaintiffCaseTask } from '../lib/api'
+import { listAssessments, getAssessment, getEvidenceFiles, associateAssessments, getRoutingStatus, createAppointment, getAttorneyAvailability, updateAppointment, cancelAppointment, joinAppointmentWaitlist, updateAppointmentPreparation, getPlaintiffConsentCompliance, getPlaintiffDocumentRequests, getPlaintiffSignedDocuments, getPlaintiffCaseTasks, createAttorneyReview, getMedicalChronology, updateAssessment, getCasePreparation, type PlaintiffDocumentRequest, type PlaintiffSignedDocument, type PlaintiffCaseTask } from '../lib/api'
+import { useHeuristics } from '../contexts/HeuristicsContext'
+import { UNDOCUMENTED_READINESS_CEILING } from '../lib/heuristics'
 import { formatCurrency } from '../lib/formatters'
 import { formatClaimTypeShort } from '../lib/constants'
 import { START_ASSESSMENT_HREF } from '../data/appRoutes'
@@ -199,7 +201,9 @@ export default function Dashboard() {
     const translated = t(`plaintiffDashboard.claimTypes.${key}`)
     return translated.startsWith('plaintiffDashboard.claimTypes.') ? formatClaimTypeShort(value) : translated
   }
+  const heuristics = useHeuristics()
   const [user, setUser] = useState<User | null>(null)
+  const [casePreparation, setCasePreparation] = useState<any>(null)
   const [assessments, setAssessments] = useState<Assessment[]>([])
   const [activeAssessment, setActiveAssessment] = useState<ActiveAssessment | null>(null)
   const [caseIdCopied, setCaseIdCopied] = useState(false)
@@ -555,6 +559,27 @@ export default function Dashboard() {
     }
   }, [activeAssessment?.id])
 
+  // The readiness score behind the "Case readiness" tile. Served rather than
+  // derived so the claimant and their attorney are quoting the same figure.
+  useEffect(() => {
+    if (!activeAssessment?.id) {
+      setCasePreparation(null)
+      return
+    }
+
+    let cancelled = false
+    getCasePreparation(activeAssessment.id)
+      .then((preparation) => {
+        if (!cancelled) setCasePreparation(preparation)
+      })
+      .catch(() => {
+        if (!cancelled) setCasePreparation(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [activeAssessment?.id])
+
   const refreshCaseDocuments = async (assessmentId: string) => {
     try {
       const [files, requestData] = await Promise.all([
@@ -861,12 +886,26 @@ export default function Dashboard() {
   const overallViability = typeof viability?.overall === 'number' ? viability.overall : null
   const liabilityViability = typeof viability?.liability === 'number' ? viability.liability : null
   // A consumer reading "82" reads it as an 82% chance of winning, whatever heading sits
-  // above it. Readiness reports how complete the case file is instead — the checklist
-  // above accounts for all of it — and is shown as a band so there is no number to
-  // mistake for a probability.
-  const caseReadinessComplete = checklist.filter((c) => c.done).length
-  const caseReadinessTotal = checklist.length
-  const caseReadinessLabel = docPercent >= 80 ? 'High' : docPercent >= 50 ? 'Moderate' : 'Building'
+  // above it. Readiness reports how complete the case file is instead, and is shown as a
+  // band so there is no number to mistake for a probability. The score itself is the
+  // served one, so this tile agrees with the Results page, the attorney's workstream and
+  // the case specialist's queue rather than counting a checklist only this page knows.
+  const readinessFactors = Array.isArray(casePreparation?.readinessFactors) ? casePreparation.readinessFactors : []
+  const factorSatisfied = (factor: any) => Number(factor?.points ?? 0) >= Number(factor?.max ?? 0)
+  const caseReadinessScored = readinessFactors.length > 0
+  const caseReadinessPercent = caseReadinessScored
+    ? Math.max(0, Math.min(100, Math.round(Number(casePreparation?.readinessScore ?? 0)) || 0))
+    : Math.min(UNDOCUMENTED_READINESS_CEILING, docPercent)
+  const caseReadinessComplete = caseReadinessScored
+    ? readinessFactors.filter(factorSatisfied).length
+    : checklist.filter((c) => c.done).length
+  const caseReadinessTotal = caseReadinessScored ? readinessFactors.length : checklist.length
+  const caseReadinessLabel =
+    caseReadinessPercent >= heuristics.readinessLabels.demandReadyMin
+      ? 'High'
+      : caseReadinessPercent >= heuristics.readinessLabels.reviewReadyMin
+        ? 'Moderate'
+        : 'Building'
   const settlementLow = valueBands?.p25 ?? 15000
   const settlementHigh = valueBands?.p75 ?? 75000
   const settlementMedian = valueBands?.median ?? Math.round((settlementLow + settlementHigh) / 2)
@@ -2385,7 +2424,7 @@ export default function Dashboard() {
                       <div className="rounded-xl border border-gray-200 bg-white p-4">
                         <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-gray-500">{t('plaintiffDashboard.metrics.caseReadiness')}</p>
                         <p className="mt-1 text-3xl font-bold text-emerald-600">{bandLabel(caseReadinessLabel)}</p>
-                        <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-gray-200"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${docPercent}%` }} /></div>
+                        <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-gray-200"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${caseReadinessPercent}%` }} /></div>
                         <p className="mt-1.5 text-xs font-medium text-gray-500">{t('plaintiffDashboard.metrics.caseDetailsComplete', { complete: caseReadinessComplete, total: caseReadinessTotal })}</p>
                       </div>
                       <div className="rounded-xl border border-gray-200 bg-white p-4">

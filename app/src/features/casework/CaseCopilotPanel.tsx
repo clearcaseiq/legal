@@ -92,7 +92,17 @@ export default function CaseCopilotPanel({ leadId, cc, onGoSection }: Props) {
                 key={f.key}
                 className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-left"
               >
-                <p className="text-xs font-medium text-slate-800">{f.label}</p>
+                <p className="text-xs font-medium text-slate-800">
+                  {f.label}
+                  {/* Points a claimant earned by describing something carry a
+                      different weight in a negotiation to points backed by a
+                      record, so the two are never shown as the same thing. */}
+                  {f.basis === 'self_reported' ? (
+                    <span className="ml-1.5 rounded bg-amber-50 px-1 py-0.5 text-[10px] font-normal text-amber-700">
+                      Client-reported
+                    </span>
+                  ) : null}
+                </p>
                 <p className="mt-0.5 text-[11px] text-slate-500">
                   {f.points}/{f.max}
                   {f.hint ? ` · ${f.hint}` : ''}

@@ -655,11 +655,26 @@ function severityLevel(tier: string): number {
   return { 'Soft Tissue': 0, Developing: 1, Moderate: 2, 'Moderate-Severe': 3, Severe: 4 }[tier] ?? 2
 }
 
+/**
+ * How much further the bottom of the band falls when nothing is documented.
+ *
+ * Applied downward only. Doubt about a thin file is one-sided in practice: the
+ * missing records are what would establish the damages already counted in the
+ * number, so their absence can only cost the case. Widening upward as well
+ * would have an unevidenced case advertise a higher ceiling than the same case
+ * once proven — wrong, and exactly backwards as an incentive to upload.
+ */
+const UNEVIDENCED_DOWNSIDE = 0.25
+
+/** Floor under the band, so a wide calibration cannot drive the low to nothing. */
+const MAX_LOW_HALF_WIDTH = 0.6
+
 export function calculateSettlement(
   input: UnderwritingInput,
   liability: LiabilityResult,
   severity: SeverityResult,
   treatment: TreatmentResult,
+  documentation?: DocumentationResult,
   calibrationOverride?: ValuationCalibration,
 ): SettlementResult {
   const calibration = calibrationOverride ?? getValuationCalibration()
@@ -707,12 +722,24 @@ export function calculateSettlement(
   // Band half-width scales with the calibrated spread (1 = the original ±30%).
   const halfWidth = 0.3 * calibration.bandWidthScale
 
+  // An unevidenced case is not a cheaper case, it is a less certain one, so the
+  // doubt is carried by the width of the band. The claimant-facing page used to
+  // express it by taking 30% off the low end after the fact, which reads as
+  // "your case is worth less" and left Results disagreeing with the Dashboard,
+  // the Case Tracker and both PDFs about the same case. A fully documented file
+  // is unchanged, so identity calibration still reproduces the original band.
+  const documentationConfidence = documentation ? clamp(documentation.score) / 100 : 1
+  const lowHalfWidth = Math.min(
+    MAX_LOW_HALF_WIDTH,
+    halfWidth + (1 - documentationConfidence) * UNEVIDENCED_DOWNSIDE * calibration.bandWidthScale,
+  )
+
   // Coverage is applied last and to the finished band, because it is not part
   // of what the case is worth — it is what can be collected on it. A $200k case
   // against a $50k policy is still a $200k case; it is a $50k recovery.
   const coverage = resolveCoverageCeiling(facts, input.insuranceDetails)
   const capped = applyCoverageCeiling(
-    money(expected * (1 - halfWidth)),
+    money(expected * (1 - lowHalfWidth)),
     money(expected),
     money(expected * (1 + halfWidth)),
     coverage.ceiling,
@@ -881,7 +908,7 @@ export function underwriteCase(input: UnderwritingInput, calibrationOverride?: V
   const severity = calculateSeverity(input)
   const treatment = calculateTreatmentQuality(input)
   const documentation = calculateDocumentation(input)
-  const settlement = calculateSettlement(input, liability, severity, treatment, calibration)
+  const settlement = calculateSettlement(input, liability, severity, treatment, documentation, calibration)
   const attorneyAcceptance = calculateAttorneyAcceptance(input, settlement, liability, severity, documentation)
   const caseStrength = clamp(
     liability.score * 0.25 +

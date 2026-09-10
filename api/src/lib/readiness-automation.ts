@@ -1,4 +1,5 @@
 import type { CaseCommandCenter } from './case-command-center'
+import { DEFAULT_HEURISTICS, type HeuristicsConfig } from './heuristics-config'
 
 export type ReadinessAutomationTaskSuggestion = {
   title: string
@@ -28,9 +29,13 @@ function getTaskTiming(priority: 'high' | 'medium' | 'low') {
   return { dueInDays: 7, remindInDays: 3, escalationLevel: 'none' as const }
 }
 
-export function buildReadinessAutomationPlan(summary: CaseCommandCenter): ReadinessAutomationPlan {
+export function buildReadinessAutomationPlan(
+  summary: CaseCommandCenter,
+  config: HeuristicsConfig = DEFAULT_HEURISTICS,
+): ReadinessAutomationPlan {
   const tasks: ReadinessAutomationTaskSuggestion[] = []
   const reminders: ReadinessAutomationReminderSuggestion[] = []
+  const demandReadyMin = config.readinessLabels.demandReadyMin
 
   for (const item of summary.missingItems.slice(0, 3)) {
     const timing = getTaskTiming(item.priority)
@@ -114,7 +119,7 @@ export function buildReadinessAutomationPlan(summary: CaseCommandCenter): Readin
   // before maximum medical improvement anchors the negotiation at a number that
   // excludes care the client has not received yet. That cannot be undone.
   const demandGate = summary.demandGate
-  if (demandGate?.ready && (summary.readiness.score >= 85 || summary.nextBestAction.actionType === 'prepare_demand')) {
+  if (demandGate?.ready && (summary.readiness.score >= demandReadyMin || summary.nextBestAction.actionType === 'prepare_demand')) {
     tasks.push({
       title: 'Move file into demand drafting',
       priority: 'medium',
@@ -130,7 +135,7 @@ export function buildReadinessAutomationPlan(summary: CaseCommandCenter): Readin
       message: `[Readiness][demand_ready] ${summary.readiness.label}: ${summary.nextBestAction.detail}`,
       dueInDays: 0,
     })
-  } else if (demandGate && !demandGate.ready && summary.readiness.score >= 85) {
+  } else if (demandGate && !demandGate.ready && summary.readiness.score >= demandReadyMin) {
     // The file reads as demand-ready on organization alone, so name the one
     // thing actually holding it back rather than staying silent.
     const blocker = demandGate.blockers[0]
