@@ -117,6 +117,17 @@ interface Assessment {
   facts: any
   created_at: string
   submittedForReview?: boolean
+  /** Every attorney the case was offered to, oldest first, with their answer. */
+  introductions?: Array<{
+    id: string
+    status: string
+    waveNumber?: number
+    requestedAt?: string
+    respondedAt?: string | null
+    attorney?: { id: string; name?: string | null; firmName?: string | null; photoUrl?: string | null }
+  }>
+  /** Populated once an introduction is ACCEPTED. No contact details here. */
+  attorneyMatched?: { id: string; name?: string | null; firmName?: string | null } | null
   latest_prediction?: any
 }
 
@@ -1128,6 +1139,25 @@ export default function Results() {
   const rankedAttorneyCards = rankedAttorneyIds
     .map((attorneyId) => matchedAttorneys.find((attorney) => (attorney.id || attorney.attorney_id) === attorneyId))
     .filter(Boolean)
+
+  /**
+   * The offers that actually went out, for the post-submission review list.
+   *
+   * That list used to render `rankedAttorneyCards` — the claimant's saved
+   * picks crossed with a live directory search — which is who they asked for,
+   * not who holds the case. So the screen named firms that were never
+   * approached, and the attorney who accepted could not appear at all unless
+   * they happened to be a saved pick still turning up in today's search.
+   */
+  const attorneyMatched = assessment?.attorneyMatched ?? null
+  const attorneyReviewRows = (Array.isArray(assessment?.introductions) ? assessment.introductions : []).map(
+    (intro: any) => ({
+      id: intro.id,
+      status: intro.status,
+      name: intro.attorney?.name ?? null,
+      firmName: intro.attorney?.firmName ?? null,
+    })
+  )
 
   const moveRankedAttorney = (attorneyId: string, direction: -1 | 1) => {
     if (isSharedReadOnly) return // view-only shared report cannot reorder attorneys (#12)
@@ -3486,8 +3516,8 @@ Checklist:
   if (caseSubmittedForReview && !forceReportView) {
     const submissionTimeline = [
       { label: t('results.calc.subCaseSubmitted'), done: true },
-      { label: t('results.calc.subAttorneysReviewing'), done: false },
-      { label: t('results.calc.subAttorneyResponses'), done: false },
+      { label: t('results.calc.subAttorneysReviewing'), done: attorneyReviewRows.length > 0 },
+      { label: t('results.calc.subAttorneyResponses'), done: !!attorneyMatched },
       { label: t('results.calc.subChooseAttorney'), done: false }
     ]
   return (
@@ -3501,6 +3531,8 @@ Checklist:
           improveCaseValueItems={improveCaseValueItems}
           isLoggedIn={isLoggedIn}
           rankedAttorneys={rankedAttorneyCards}
+          attorneyReview={attorneyReviewRows}
+          attorneyMatched={attorneyMatched}
           shareCopied={shareCopied}
           showSavePrompt={showSavePrompt}
           submissionTimeline={submissionTimeline}

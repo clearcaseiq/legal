@@ -135,6 +135,20 @@ function getAttorneyRecommendationReasons(
   return reasons.length > 0 ? reasons.slice(0, 3) : [getAttorneyWhyMatched(attorney, context)]
 }
 
+/**
+ * One attorney the case was actually offered to, with what they said.
+ *
+ * `status` is the `Introduction` status straight from the server — PENDING,
+ * ACCEPTED, DECLINED, EXPIRED or REQUESTED_INFO — because the row's standing
+ * is a fact about the offer, not about where it happens to sit in a list.
+ */
+export type AttorneyReviewRow = {
+  id: string
+  status: string
+  name?: string | null
+  firmName?: string | null
+}
+
 type ResultsSubmittedViewProps = {
   assessmentId?: string
   assessmentClaimType?: string
@@ -144,6 +158,14 @@ type ResultsSubmittedViewProps = {
   improveCaseValueItems: ImproveCaseValueItem[]
   isLoggedIn: boolean | null
   rankedAttorneys: RankedAttorneyCard[]
+  /**
+   * The offers that actually went out. Empty in the window between submitting
+   * and the routing engine creating introductions, where `rankedAttorneys`
+   * (the claimant's own picks) is the only thing there is to show.
+   */
+  attorneyReview?: AttorneyReviewRow[]
+  /** Set once an attorney has accepted, whether or not they were a pick. */
+  attorneyMatched?: { id: string; name?: string | null; firmName?: string | null } | null
   shareCopied: boolean
   showSavePrompt: boolean
   submissionTimeline: Array<{ label: string; done: boolean }>
@@ -160,6 +182,8 @@ export function ResultsSubmittedView({
   handleCopyShareLink,
   isLoggedIn,
   rankedAttorneys,
+  attorneyReview,
+  attorneyMatched,
   shareCopied,
   contactPrefill,
 }: ResultsSubmittedViewProps) {
@@ -190,6 +214,18 @@ export function ResultsSubmittedView({
     } catch { /* clipboard unavailable — the code is still shown */ }
   }
   const attorneyCards = Array.isArray(rankedAttorneys) ? rankedAttorneys : []
+  // Prefer the real offers; fall back to the claimant's picks only while no
+  // introduction exists yet, so the list is never empty right after submitting.
+  const reviewRows: AttorneyReviewRow[] =
+    attorneyReview && attorneyReview.length > 0
+      ? attorneyReview
+      : attorneyCards.map((attorney: any) => ({
+          id: attorney.id || attorney.attorney_id || attorney.name,
+          status: 'PENDING',
+          name: attorney.name,
+          firmName: attorney.law_firm?.name ?? null,
+        }))
+  const caseAccepted = Boolean(attorneyMatched)
   const ordinal = (n: number) => {
     const suffixes = ['th', 'st', 'nd', 'rd']
     const v = n % 100
@@ -263,26 +299,51 @@ export function ResultsSubmittedView({
             <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-600">{t('results.submitted.stepComplete')}</p>
           </div>
           <ChevronRight className="mt-2 h-4 w-4 shrink-0 text-slate-300" aria-hidden />
+          {/* Both remaining steps were hardcoded, so this read "attorney review
+              — now" for the life of the case, including after an attorney had
+              accepted and the claimant's own turn had arrived. */}
           <div className="flex flex-1 flex-col items-center gap-1.5 text-center">
-            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-brand-600 text-white">
-              <Users className="h-5 w-5" aria-hidden />
+            <span
+              className={`flex h-9 w-9 items-center justify-center rounded-full ${
+                caseAccepted ? 'bg-emerald-100 text-emerald-600' : 'bg-brand-600 text-white'
+              }`}
+            >
+              {caseAccepted ? <CheckCircle className="h-5 w-5" aria-hidden /> : <Users className="h-5 w-5" aria-hidden />}
             </span>
             <p className="text-xs font-semibold text-slate-900">{t('results.submitted.stepAttorneyReview')}</p>
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-brand-600">{t('results.submitted.stepNow')}</p>
+            <p
+              className={`text-[10px] font-semibold uppercase tracking-wide ${
+                caseAccepted ? 'text-emerald-600' : 'text-brand-600'
+              }`}
+            >
+              {caseAccepted ? t('results.submitted.stepComplete') : t('results.submitted.stepNow')}
+            </p>
           </div>
           <ChevronRight className="mt-2 h-4 w-4 shrink-0 text-slate-300" aria-hidden />
           <div className="flex flex-1 flex-col items-center gap-1.5 text-center">
-            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-400">
+            <span
+              className={`flex h-9 w-9 items-center justify-center rounded-full ${
+                caseAccepted ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-400'
+              }`}
+            >
               <User className="h-5 w-5" aria-hidden />
             </span>
-            <p className="text-xs font-semibold text-slate-500">{t('results.submitted.stepYouDecide')}</p>
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{t('results.submitted.stepComingNext')}</p>
+            <p className={`text-xs font-semibold ${caseAccepted ? 'text-slate-900' : 'text-slate-500'}`}>
+              {t('results.submitted.stepYouDecide')}
+            </p>
+            <p
+              className={`text-[10px] font-semibold uppercase tracking-wide ${
+                caseAccepted ? 'text-brand-600' : 'text-slate-400'
+              }`}
+            >
+              {caseAccepted ? t('results.submitted.stepNow') : t('results.submitted.stepComingNext')}
+            </p>
           </div>
         </div>
       </div>
 
       {/* Your attorney review */}
-      {attorneyCards.length > 0 && (
+      {reviewRows.length > 0 && (
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-card">
           <div className="flex items-center justify-between gap-2">
             <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">{t('results.submitted.attorneyReviewTitle')}</h3>
@@ -304,22 +365,45 @@ export function ResultsSubmittedView({
           </div>
 
           <ol className="mt-3 divide-y divide-slate-100">
-            {attorneyCards.map((attorney, index) => {
-              const reviewing = index === 0
+            {reviewRows.map((row, index) => {
+              const status = String(row.status || '').toUpperCase()
+              const accepted = status === 'ACCEPTED'
+              const closed = status === 'DECLINED' || status === 'EXPIRED'
+              // Once someone has accepted, everyone still pending has been
+              // stood down rather than left reviewing — the engine retires the
+              // competing offers, and saying "waiting for response" about them
+              // would promise a reply that is never coming.
+              const reviewing = !accepted && !closed && !caseAccepted
               return (
-                <li key={attorney.id || attorney.attorney_id || attorney.name} className="flex items-start gap-3 py-3">
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-100 text-sm font-bold text-brand-700">
-                    {initials(attorney.name)}
+                <li key={row.id} className="flex items-start gap-3 py-3">
+                  <span
+                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-bold ${
+                      accepted ? 'bg-emerald-100 text-emerald-700' : 'bg-brand-100 text-brand-700'
+                    }`}
+                  >
+                    {initials(row.name ?? undefined)}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold text-slate-900">{attorney?.name ?? t('results.submitted.attorney')}</p>
-                    <p className="truncate text-xs text-slate-500">{attorney?.law_firm?.name ?? t('results.submitted.lawFirm')}</p>
+                    <p className="truncate text-sm font-semibold text-slate-900">{row.name ?? t('results.submitted.attorney')}</p>
+                    <p className="truncate text-xs text-slate-500">{row.firmName ?? t('results.submitted.lawFirm')}</p>
                     <p className="mt-0.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
                       {ordinal(index + 1)} {t('results.submitted.choiceWord')}
                     </p>
                   </div>
                   <div className="w-32 shrink-0 text-right">
-                    {reviewing ? (
+                    {accepted ? (
+                      <>
+                        <p className="inline-flex items-center justify-end gap-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-600">
+                          <CheckCircle className="h-3 w-3" aria-hidden />
+                          {t('results.submitted.statusAccepted')}
+                        </p>
+                        <p className="text-[11px] text-slate-500">{t('results.submitted.acceptedSubtitle')}</p>
+                      </>
+                    ) : closed ? (
+                      <p className="inline-flex items-center justify-end gap-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                        {t('results.submitted.statusPassed')}
+                      </p>
+                    ) : reviewing ? (
                       <>
                         <p className="inline-flex items-center justify-end gap-1 text-[10px] font-semibold uppercase tracking-wide text-brand-600">
                           <Clock className="h-3 w-3" aria-hidden />
@@ -329,13 +413,9 @@ export function ResultsSubmittedView({
                         <p className="mt-0.5 text-[11px] leading-snug text-brand-600">{t('results.submitted.notifyWhenHear')}</p>
                       </>
                     ) : (
-                      <>
-                        <p className="inline-flex items-center justify-end gap-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                          <Clock className="h-3 w-3" aria-hidden />
-                          {t('results.submitted.statusNextIfNeeded')}
-                        </p>
-                        <p className="text-[11px] text-slate-500">{t('results.submitted.contactedIfNoResponse')}</p>
-                      </>
+                      <p className="inline-flex items-center justify-end gap-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                        {t('results.submitted.statusNoLongerNeeded')}
+                      </p>
                     )}
                   </div>
                 </li>
@@ -343,10 +423,12 @@ export function ResultsSubmittedView({
             })}
           </ol>
 
-          <p className="mt-2 flex items-start gap-1.5 rounded-lg bg-slate-50 px-3 py-2 text-[11px] leading-snug text-slate-500">
-            <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
-            {t('results.submitted.autoAdvanceNote')}
-          </p>
+          {!caseAccepted && (
+            <p className="mt-2 flex items-start gap-1.5 rounded-lg bg-slate-50 px-3 py-2 text-[11px] leading-snug text-slate-500">
+              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
+              {t('results.submitted.autoAdvanceNote')}
+            </p>
+          )}
         </div>
       )}
 
