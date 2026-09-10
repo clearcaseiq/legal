@@ -14,12 +14,14 @@ import { dateLocale } from '../i18n'
 import { localizeDocumentRequestLabel } from '../lib/documentRequestI18n'
 import { CheckCircle, Upload, FileText, FileClock, TrendingUp, MessageCircle, BarChart3, FileStack, Activity, LayoutDashboard, ChevronRight, Bell, HelpCircle, Clock, Users, Calendar, Phone, Star, Sparkles, ArrowRight, ShieldCheck, Scale, Lock, ExternalLink, Copy, Check } from 'lucide-react'
 import CaseProgressPipeline from '../components/CaseProgressPipeline'
+import { saveTreatmentStatus } from '../lib/api-plaintiff'
 import {
   getPlaintiffCaseStatusKey,
   caseStatusLabelKey,
   caseStatusColor,
   isPlaintiffRetained,
   litigationStatusLabelKey,
+  plaintiffCaseStageBucket,
 } from '../lib/caseStatus'
 import OpposingDocSuggestionCard from '../components/OpposingDocSuggestionCard'
 import PlaintiffSatisfactionCard from '../components/PlaintiffSatisfactionCard'
@@ -81,6 +83,86 @@ interface ActiveAssessment {
     bands: { p25: number; median: number; p75: number }
     createdAt: string
   }>
+}
+
+/**
+ * Asks the claimant whether they have finished treating.
+ *
+ * The Treatment milestone completes on the clinical position recorded for the
+ * case, not on how many documents are attached. Until this existed only the
+ * firm could record that position, so on a case where nobody did, the step
+ * stayed amber indefinitely — and a claimant who had uploaded everything read
+ * that as an accusation that something was missing. Hence the explanatory line:
+ * the prompt has to say what the step is waiting for, not just collect an
+ * answer.
+ */
+function TreatmentStatusPrompt({
+  assessmentId,
+  onSaved,
+}: {
+  assessmentId: string
+  onSaved: () => void
+}) {
+  const { t } = useLanguage()
+  const [saving, setSaving] = useState<'treating' | 'finished' | null>(null)
+  const [failed, setFailed] = useState(false)
+
+  const answer = async (stillTreating: boolean) => {
+    setSaving(stillTreating ? 'treating' : 'finished')
+    setFailed(false)
+    try {
+      await saveTreatmentStatus(assessmentId, stillTreating)
+      onSaved()
+    } catch (err) {
+      console.error('Could not save treatment status', err)
+      setFailed(true)
+    } finally {
+      setSaving(null)
+    }
+  }
+
+  return (
+    <section className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+      <div className="flex items-start gap-3">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700">
+          <Activity className="h-5 w-5" aria-hidden />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h3 className="text-sm font-semibold text-amber-950">{t('plaintiffDashboard.pipeline.treatmentAskTitle')}</h3>
+          <p className="mt-1 text-xs leading-relaxed text-amber-900/90">
+            {t('plaintiffDashboard.pipeline.treatmentAskBody')}
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => void answer(false)}
+              disabled={saving !== null}
+              className="rounded-lg bg-amber-600 px-3 py-2 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-60"
+            >
+              {saving === 'finished'
+                ? t('plaintiffDashboard.pipeline.treatmentAskSaving')
+                : t('plaintiffDashboard.pipeline.treatmentAskFinished')}
+            </button>
+            <button
+              type="button"
+              onClick={() => void answer(true)}
+              disabled={saving !== null}
+              className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-60"
+            >
+              {saving === 'treating'
+                ? t('plaintiffDashboard.pipeline.treatmentAskSaving')
+                : t('plaintiffDashboard.pipeline.treatmentAskStillTreating')}
+            </button>
+          </div>
+          {failed && (
+            <p className="mt-2 text-xs font-medium text-rose-700">
+              {t('plaintiffDashboard.pipeline.treatmentAskFailed')}
+            </p>
+          )}
+        </div>
+      </div>
+    </section>
+  )
 }
 
 function LinkCaseForm({ onLinked }: { onLinked: () => void }) {
@@ -274,6 +356,12 @@ export default function Dashboard() {
     caseChatRoomId?: string | null
     // True when the plaintiff already had a consult on this case (API: case-routing status).
     hadPriorConsultation?: boolean
+    /**
+     * Whether care is recorded as finished. Null when nobody has said either
+     * way, which is when the dashboard asks — completing the Treatment
+     * milestone depends on this answer, not on documents.
+     */
+    treatmentFinished?: boolean | null
   } | null>(null)
   const responseDeadlineLabel = routingStatus?.responseDeadlineLabel || '24 hours'
   const [scheduleModalOpen, setScheduleModalOpen] = useState(false)
@@ -966,6 +1054,21 @@ export default function Dashboard() {
     submittedForReview,
   })
   const litigationLabelKey = litigationStatusLabelKey(routingStatus?.litigationStatus)
+
+  /**
+   * Should we ask the claimant whether they have finished treating?
+   *
+   * Only while the case is actually in the treatment phase, and only while
+   * nobody has recorded an answer — `treatmentFinished` is null in that case,
+   * and a boolean once the firm's medical panel or the claimant themselves has
+   * said. Their answer is what completes the milestone: before this existed the
+   * step could sit amber for the life of the case, which read as though their
+   * uploads were incomplete.
+   */
+  const askTreatmentFinished =
+    caseRetained &&
+    plaintiffCaseStageBucket(routingStatus?.caseStage) === 'treatment' &&
+    routingStatus?.treatmentFinished == null
   // `submittedForReview` is persisted at submission and never cleared once an
   // attorney accepts, so on its own it kept the "N attorneys reviewing your case"
   // banner up — and suppressed the matched banner — even after acceptance
@@ -1993,6 +2096,12 @@ export default function Dashboard() {
                     showCheck: plaintiffCaseStatusKey === 'completed' || plaintiffCaseStatusKey === 'closed',
                   }}
                 />
+                {askTreatmentFinished && (
+                  <TreatmentStatusPrompt
+                    assessmentId={activeAssessment.id}
+                    onSaved={() => void getRoutingStatus(activeAssessment.id).then(setRoutingStatus)}
+                  />
+                )}
                 {showReviewBanner && (
                   <section className="rounded-2xl border border-brand-200 bg-gradient-to-br from-brand-600 to-brand-700 p-6 text-white shadow-sm">
                     <div className="flex flex-wrap items-start justify-between gap-4">

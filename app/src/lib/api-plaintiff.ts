@@ -175,6 +175,18 @@ export async function saveDamageEstimates(id: string, payload: {
   return data
 }
 
+/**
+ * The claimant reports whether they are still receiving care.
+ *
+ * Answering no is what completes the Treatment milestone on their case status;
+ * before this existed only the firm could record it, and on a case where nobody
+ * did the milestone never completed.
+ */
+export async function saveTreatmentStatus(id: string, stillTreating: boolean) {
+  const { data } = await api.post(`/v1/assessments/${id}/treatment-status`, { stillTreating })
+  return data as { ok: boolean; stillTreating: boolean; caseStage: string | null }
+}
+
 export async function getAssessment(id: string, options?: { skipAuth?: boolean }) {
   const { data } = await api.get(`/v1/assessments/${id}`, {
     params: freshParams(),
