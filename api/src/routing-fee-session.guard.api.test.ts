@@ -163,6 +163,28 @@ describe('routing-fee checkout guard', () => {
     expect(reachedPaymentStage()).toBe(true)
   })
 
+  /**
+   * The fee buys sourcing, and none happened here — the attorney created or
+   * imported this case themselves, and the client was already theirs. It is
+   * only fee-eligible at all because giving those cases a LeadSubmission row
+   * is what makes them visible in the attorney's own dashboard, so the
+   * exemption has to be explicit rather than an absent row.
+   */
+  it('never charges for a case the attorney brought themselves', async () => {
+    vi.mocked((prisma as any).leadSubmission.findUnique).mockResolvedValue({
+      ...LEAD,
+      sourceType: 'attorney_self',
+      routingLocked: true,
+    } as any)
+    givenIntroduction(null)
+
+    const res = await startCheckout()
+
+    expect(res.status).toBe(200)
+    expect(res.body).toMatchObject({ status: 'not_required', amount: 0, reason: 'attorney_originated' })
+    expect(reachedPaymentStage()).toBe(false)
+  })
+
   it('still opens checkout for a shared lead with no introduction row', async () => {
     // Shared/pool leads reach the attorney without an Introduction; the decision
     // endpoint backfills one on accept, so payment must not be blocked here.

@@ -15,6 +15,8 @@ import { webUrl } from '../lib/app-url'
 import { taskCreatorName } from '../lib/ai-author'
 import { MAX_CASE_NAME_LENGTH, normalizeCaseName, plaintiffNameOf, resolveCaseName } from '../lib/case-name'
 import { ensureReferenceCode } from '../lib/case-reference'
+import { CLAIM_TYPES } from '../lib/validators'
+import { createAttorneyOwnedCase } from '../lib/attorney-case-factory'
 import { ENGAGED_LEAD_STATUSES, isEngagedLeadStatus } from '../lib/lead-status'
 import { parseTaskDueDate } from '../lib/task-due-date'
 import { isAcceptedUpload } from '../lib/upload-filter'
@@ -2021,10 +2023,24 @@ async function createNotification(
   }
 }
 
+/**
+ * Every field here was optional, and `claimType` was a bare string.
+ *
+ * That let the endpoint accept an empty body and mint a case with a guessed
+ * claim type, today's date as the incident date and California as the venue —
+ * three fabricated values on a legal record, two of which drive the statute of
+ * limitations clock. A case is not worth creating until the attorney has said
+ * what kind it is, where it happened and when.
+ */
 const intakeManualSchema = z.object({
   template: z.string().optional(),
-  claimType: z.string().optional(),
-  venueState: z.string().optional(),
+  claimType: z.enum(CLAIM_TYPES),
+  venueState: z.string().trim().length(2, 'A two-letter state code is required'),
+  venueCounty: z.string().trim().optional(),
+  // The SOL clock runs from here. Defaulting it to today silently gives every
+  // imported case a fresh deadline it has not got.
+  incidentDate: z.string().min(1, 'The incident date is required'),
+  narrative: z.string().optional(),
   notes: z.string().optional(),
   plaintiffFirstName: z.string().optional(),
   plaintiffLastName: z.string().optional(),
@@ -7648,15 +7664,29 @@ router.post('/intake/manual', authMiddleware, async (req: any, res) => {
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
-    const claimType = payload.claimType || getTemplateClaimType(payload.template)
-    const assessment = await createDraftAssessment({
-      claimType,
-      venueState: payload.venueState,
-      plaintiffFirstName: payload.plaintiffFirstName,
-      plaintiffLastName: payload.plaintiffLastName,
-      plaintiffEmail: payload.plaintiffEmail,
-      plaintiffPhone: payload.plaintiffPhone
-    })
+    // A fully-formed case, owned by this attorney from birth. The old helper
+    // wrote a bare DRAFT Assessment with no LeadSubmission, which meant the
+    // attorney could not see the case they had just created.
+    const created = await createAttorneyOwnedCase(
+      {
+        claimType: payload.claimType,
+        venueState: payload.venueState.toUpperCase(),
+        venueCounty: payload.venueCounty || null,
+        incidentDate: payload.incidentDate,
+        narrative: payload.narrative,
+        plaintiffFirstName: payload.plaintiffFirstName,
+        plaintiffLastName: payload.plaintiffLastName,
+        plaintiffEmail: payload.plaintiffEmail,
+        plaintiffPhone: payload.plaintiffPhone,
+      },
+      { attorneyId: auth.attorney.id, lawFirmId: auth.attorney.lawFirmId ?? null, createdByUserId: req.user?.id ?? null },
+      'manual',
+    )
+    const assessment = {
+      id: created.assessmentId,
+      claimType: payload.claimType,
+      venueState: payload.venueState.toUpperCase(),
+    }
     const inviteLink = webUrl(`/evidence-upload/${assessment.id}`)
     const inviteRequested = Boolean(payload.sendInvite && payload.plaintiffEmail)
     if (inviteRequested) {
@@ -7693,6 +7723,7 @@ router.post('/intake/manual', authMiddleware, async (req: any, res) => {
     })
     res.json({
       assessmentId: assessment.id,
+      referenceCode: created.referenceCode,
       claimType: assessment.claimType,
       venueState: assessment.venueState,
       notes: payload.notes || null,
@@ -7701,8 +7732,14 @@ router.post('/intake/manual', authMiddleware, async (req: any, res) => {
       inviteLink
     })
   } catch (error: any) {
-    logger.error('Failed to create manual intake', { error: error.message })
-    res.status(400).json({ error: 'Failed to create manual intake' })
+    // A validation failure names the field; anything else is ours. Returning
+    // 400 for both told an attorney their input was wrong when the database
+    // had rejected the write.
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Invalid case details', details: error.flatten() })
+    }
+    logger.error('Failed to create manual intake', { error: error.message, stack: error.stack })
+    res.status(500).json({ error: 'Failed to create the case' })
   }
 })
 

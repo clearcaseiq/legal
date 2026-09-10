@@ -77,6 +77,12 @@ export type TrafficReport = {
   byDevice: TrafficBreakdown[]
   byRegion: TrafficBreakdown[]
   byPage: TrafficPage[]
+  /**
+   * Ad spend keyed the same way `channelLabel` names a channel, so the two can
+   * be joined. Empty when Google Ads is not linked to the GA4 property, which
+   * is not an error — it just means nothing here can be priced.
+   */
+  adCostBySourceMedium: Array<{ label: string; cost: number; sessions: number }>
 }
 
 /**
@@ -237,6 +243,21 @@ function reportDefinitions(days: number): ReportRequest[] {
       orderBys: [{ metric: { metricName: 'screenPageViews' }, desc: true }],
       limit: TOP_ROWS,
     },
+    // 9 — ad cost by source/medium, the join key for cost per retained case.
+    // Deliberately source/medium rather than the channel group: it is the same
+    // shape `channelLabel` builds from our own utm columns ("google / cpc"), so
+    // the two sides line up without a translation table in between.
+    //
+    // `advertiserAdCost` is only populated when Google Ads is linked to the GA4
+    // property. Without that link GA4 returns zeros rather than an error, so
+    // this degrades to an unpriced report instead of breaking the panel.
+    {
+      dateRanges,
+      dimensions: [{ name: 'sessionSource' }, { name: 'sessionMedium' }],
+      metrics: [{ name: 'advertiserAdCost' }, { name: 'sessions' }],
+      orderBys: [{ metric: { metricName: 'advertiserAdCost' }, desc: true }],
+      limit: TOP_ROWS,
+    },
   ]
 }
 
@@ -356,6 +377,15 @@ export async function fetchTrafficReport(days: number): Promise<TrafficResult> {
         averageEngagementSeconds: activeUsers > 0 ? Math.round(metric(row, 2) / activeUsers) : 0,
       }
     }),
+    adCostBySourceMedium: (reports[9]?.rows || [])
+      .map((row) => ({
+        label: `${dimension(row, 0)} / ${dimension(row, 1)}`,
+        cost: metric(row, 0),
+        sessions: metric(row, 1),
+      }))
+      // Unlinked properties report every row at zero cost, which would fill the
+      // table with organic and direct traffic priced at nothing.
+      .filter((entry) => entry.cost > 0),
   }
 
   cached = { key: days, at: Date.now(), value }

@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { prisma } from '../lib/prisma'
 import { authMiddleware, type AuthRequest } from '../lib/auth'
 import { logger } from '../lib/logger'
+import { ATTORNEY_SELF_SOURCE } from '../lib/attorney-case-factory'
 import { ENV } from '../env'
 import {
   getAttorneyResponseDeadlineMinutes,
@@ -462,6 +463,22 @@ router.post('/platform/routing-fee-session', authMiddleware, async (req: AuthReq
       })
     }
     const { attorney, lead } = auth
+
+    // A case the attorney brought with them is not a routed lead.
+    //
+    // The fee buys sourcing: we found the claimant, qualified them and offered
+    // them to this attorney. None of that happened for a case they created by
+    // hand or imported from their own CMS — the client was already theirs. It
+    // is only fee-eligible at all because giving those cases a LeadSubmission
+    // row is what makes them visible in the attorney's own dashboard, so the
+    // exemption has to be explicit rather than an accidentally-absent row.
+    if (lead.sourceType === ATTORNEY_SELF_SOURCE) {
+      logger.info('Routing fee not applicable: attorney-originated case', {
+        attorneyId: attorney.id,
+        leadId: lead.id,
+      })
+      return res.json({ status: 'not_required', amount: 0, reason: 'attorney_originated' })
+    }
 
     const matchingRules = await getMatchingRules()
     const caseFee = getCaseRoutingFee(matchingRules)
