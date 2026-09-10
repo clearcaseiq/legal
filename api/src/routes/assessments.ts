@@ -403,7 +403,35 @@ router.get('/:id', optionalAuthMiddleware, async (req: AuthRequest, res) => {
           orderBy: { createdAt: 'desc' },
           take: 25
         },
-        leadSubmission: { select: { id: true, submittedAt: true, status: true } }
+        leadSubmission: {
+          select: { id: true, submittedAt: true, status: true, lifecycleState: true, routingLocked: true },
+        },
+        // Who was actually approached, and what each of them said. The results
+        // page used to draw its "attorney review" list from the claimant's
+        // saved preferences crossed with a live directory search, so it showed
+        // the firms they picked at intake rather than the firms that hold an
+        // offer — and the attorney who accepted, who need not be either, could
+        // not appear at all.
+        introductions: {
+          orderBy: { requestedAt: 'asc' },
+          select: {
+            id: true,
+            status: true,
+            waveNumber: true,
+            requestedAt: true,
+            respondedAt: true,
+            attorney: {
+              select: {
+                id: true,
+                name: true,
+                specialties: true,
+                responseTimeHours: true,
+                lawFirm: { select: { name: true } },
+                attorneyProfile: { select: { photoUrl: true, yearsExperience: true } },
+              },
+            },
+          },
+        },
       }
     })
     
@@ -432,6 +460,28 @@ router.get('/:id', optionalAuthMiddleware, async (req: AuthRequest, res) => {
     const caseValueHistory = buildCaseValueHistory(assessment.predictions)
     const latestExplain = latest ? parsePredictionExplain(latest.explain) : null
 
+    // Contact details are deliberately absent: this route answers to anyone
+    // holding the assessment id (anonymous intake has no account to check), so
+    // it carries only what the directory already publishes. The dashboard's
+    // authenticated `attorneyMatched` keeps the email and phone.
+    const introductions = assessment.introductions.map((intro) => ({
+      id: intro.id,
+      status: intro.status,
+      waveNumber: intro.waveNumber,
+      requestedAt: intro.requestedAt,
+      respondedAt: intro.respondedAt,
+      attorney: {
+        id: intro.attorney.id,
+        name: intro.attorney.name,
+        firmName: intro.attorney.lawFirm?.name ?? null,
+        photoUrl: intro.attorney.attorneyProfile?.photoUrl ?? null,
+        specialties: intro.attorney.specialties,
+        yearsExperience: intro.attorney.attorneyProfile?.yearsExperience ?? null,
+        responseTimeHours: intro.attorney.responseTimeHours ?? 24,
+      },
+    }))
+    const accepted = introductions.find((intro) => intro.status === 'ACCEPTED') ?? null
+
     res.json({
       id: assessment.id,
       reference_code: referenceCode,
@@ -444,6 +494,16 @@ router.get('/:id', optionalAuthMiddleware, async (req: AuthRequest, res) => {
       facts: JSON.parse(assessment.facts),
       created_at: assessment.createdAt,
       submittedForReview: !!assessment.leadSubmission,
+      // `submittedForReview` is true from the moment a lead exists and never
+      // moves again, so it cannot tell a case still out for review from one an
+      // attorney has taken. These do.
+      leadStatus: assessment.leadSubmission?.status ?? null,
+      lifecycleState: assessment.leadSubmission?.lifecycleState ?? null,
+      routingLocked: assessment.leadSubmission?.routingLocked ?? false,
+      introductions,
+      attorneyMatched: accepted
+        ? { ...accepted.attorney, acceptedAt: accepted.respondedAt ?? null }
+        : null,
       latest_prediction: latest ? {
         id: latest.id,
         model_version: latest.modelVersion,
