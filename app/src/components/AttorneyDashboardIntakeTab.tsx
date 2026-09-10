@@ -16,6 +16,7 @@ import {
   Wand2,
 } from 'lucide-react'
 import { cloneCaseTemplate, createManualIntake, importCase, saveSmartIntakeConfig, type ImportPreview } from '../lib/api'
+import AttorneyDashboardCaseloadSync from './AttorneyDashboardCaseloadSync'
 
 type AttorneyDashboardIntakeTabProps = {
   onGoToLeads: () => void
@@ -823,6 +824,11 @@ export default function AttorneyDashboardIntakeTab({ onGoToLeads }: AttorneyDash
 
         {importMessage && <Banner message={importMessage} />}
       </div>
+
+      {/* Reads the firm's own CMS rather than a file they exported from it.
+          Renders nothing unless they have a connection that can be read from,
+          so a firm with no integration sees the spreadsheet path alone. */}
+      <AttorneyDashboardCaseloadSync />
 
       {/* Smart intake */}
       <div className={cardCls}>

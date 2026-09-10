@@ -26,6 +26,7 @@ import {
   EthicalWallBlockedError,
   getConnection,
   getConnector,
+  inboundSyncEnabled,
   InboundSyncDisabledError,
   InboundSyncUnsupportedError,
   listConnections,
@@ -102,9 +103,24 @@ router.get('/connections', authMiddleware, async (req: AuthRequest, res) => {
       lastSyncedAt: c.lastSyncedAt,
       lastError: c.lastError,
       createdAt: c.createdAt,
+      // Two different questions, and the UI needs both: whether this provider
+      // can be read from at all, and whether this firm has turned it on. The
+      // opt-in lives inside the config blob, which the client never sees.
+      supportsInbound: supportsInboundSync(getConnector(c.provider)),
+      inboundSyncEnabled: inboundSyncEnabled(safeConfig(c.config)),
     })),
   })
 })
+
+function safeConfig(text: string | null | undefined): Record<string, unknown> | null {
+  if (!text) return null
+  try {
+    const parsed = JSON.parse(text)
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null
+  } catch {
+    return null
+  }
+}
 
 // --- Begin connect ----------------------------------------------------------
 const ConnectSchema = z.object({
