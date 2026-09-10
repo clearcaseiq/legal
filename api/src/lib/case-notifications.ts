@@ -425,7 +425,12 @@ export async function sendPlaintiffAttorneyAccepted(
       templateKey: 'plaintiff_attorney_match_found_email',
       subject: 'An attorney is interested in your case',
       body: message,
-      cta: { label: 'View your case', url: webUrl(`/results/${assessmentId}`) },
+      // The dashboard, not the results page. Results renders the attorney list
+      // from the claimant's saved preferences and never reads acceptance, so
+      // this mail announced an attorney by name and then linked to the one
+      // screen that cannot show them. The dashboard reads routing status and
+      // renders the matched attorney with their contact actions.
+      cta: { label: 'View your case', url: webUrl('/dashboard') },
       recipient: assessment.user.email,
       payload: {
         assessmentId,
