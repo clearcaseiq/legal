@@ -14,8 +14,11 @@ import {
 import { getAttorneyResponseDeadlineMinutes, getConfiguredWaveSize, getConfiguredWaveWaitHours, getMatchingRules } from './matching-rules-config'
 import { assertShareAuthorization, recordShareAuthorization } from './share-authorization'
 
-const PROJECTED_CONTINGENCY_RATE = 0.33
-const PROJECTED_PLATFORM_FEE_RATE = 0.1
+import {
+  buildRevenueProjection,
+  PROJECTED_CONTINGENCY_RATE,
+  PROJECTED_PLATFORM_FEE_RATE,
+} from './revenue-projection'
 
 type LeadLifecycleState =
   | 'routing_active'
@@ -671,27 +674,14 @@ async function recordProjectedRevenue(
   attorneyId: string
 ): Promise<void> {
   try {
-    const assessment = await prisma.assessment.findUnique({
-      where: { id: assessmentId },
-      include: {
-        predictions: {
-          orderBy: { createdAt: 'desc' },
-          take: 1,
-          select: { bands: true }
-        }
-      }
-    })
-    const bandsRaw = assessment?.predictions?.[0]?.bands
-    const bands = bandsRaw ? JSON.parse(bandsRaw) as { median?: number } : {}
-    const caseMedianValue = Number(bands.median || 0)
-    if (!caseMedianValue) return
+    const projection = await buildRevenueProjection(assessmentId)
+    if (!projection) return
 
-    const projectedFeeRevenue = Math.round(caseMedianValue * PROJECTED_CONTINGENCY_RATE * PROJECTED_PLATFORM_FEE_RATE)
     await recordRoutingEvent(assessmentId, introductionId, attorneyId, 'revenue_projected', {
-      caseMedianValue,
+      caseMedianValue: projection.caseMedianValue,
       contingencyRate: PROJECTED_CONTINGENCY_RATE,
       platformFeeRate: PROJECTED_PLATFORM_FEE_RATE,
-      projectedFeeRevenue
+      projectedFeeRevenue: projection.projectedFeeRevenue
     })
   } catch (err: unknown) {
     logger.warn('Failed to record projected revenue', {
