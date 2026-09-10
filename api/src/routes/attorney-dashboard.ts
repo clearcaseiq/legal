@@ -16,7 +16,7 @@ import { taskCreatorName } from '../lib/ai-author'
 import { MAX_CASE_NAME_LENGTH, normalizeCaseName, plaintiffNameOf, resolveCaseName } from '../lib/case-name'
 import { ensureReferenceCode } from '../lib/case-reference'
 import { CLAIM_TYPES } from '../lib/validators'
-import { createAttorneyOwnedCase } from '../lib/attorney-case-factory'
+import { createAttorneyOwnedCase, findExistingImportedCase } from '../lib/attorney-case-factory'
 import { ENGAGED_LEAD_STATUSES, isEngagedLeadStatus } from '../lib/lead-status'
 import { parseTaskDueDate } from '../lib/task-due-date'
 import { isAcceptedUpload } from '../lib/upload-filter'
@@ -30,6 +30,7 @@ import { createAndNotifyPlaintiffDocumentRequest } from '../lib/document-request
 import { analyzeCaseWithChatGPT, CaseAnalysisRequest } from '../services/chatgpt'
 import { z } from 'zod'
 import { Document, Packer, Paragraph, TextRun } from 'docx'
+import * as XLSX from 'xlsx'
 import PDFDocument from 'pdfkit'
 import crypto from 'crypto'
 import { calculateSOL, getSOLStatus, deriveSOLStatusFromFacts } from '../lib/solRules'
@@ -2183,14 +2184,47 @@ function parseJsonRows(content: string) {
   return [parsed]
 }
 
-function parseImportFile(file: Express.Multer.File): ParsedImportFile {
-  const extension = path.extname(file.originalname).toLowerCase()
-  if (['.xlsx', '.xls'].includes(extension)) {
+/**
+ * Rows from the first sheet of a workbook.
+ *
+ * Spreadsheets are what attorneys actually have, and this used to store the
+ * file and return nothing — which, combined with the old create-one-anyway
+ * fallback, meant every XLSX upload silently produced a single junk case.
+ *
+ * Only the first sheet is read. A workbook whose second tab is a lookup table
+ * or a pivot would otherwise import its rows as cases.
+ */
+function parseWorkbookRows(file: Express.Multer.File): ParsedImportFile {
+  try {
+    const workbook = XLSX.read(file.buffer, { type: 'buffer', cellDates: true })
+    const sheetName = workbook.SheetNames[0]
+    if (!sheetName) {
+      return { fileName: file.originalname, rows: [], unsupportedReason: 'The workbook has no sheets.' }
+    }
+    const sheet = workbook.Sheets[sheetName]
+    // `raw: false` renders dates and numbers the way the author formatted
+    // them, which is what the header-matching and date parsing below expect.
+    const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '', raw: false })
+    return {
+      fileName: file.originalname,
+      rows: rows.map((row) => flattenImportRow(row)),
+    }
+  } catch (error) {
     return {
       fileName: file.originalname,
       rows: [],
-      unsupportedReason: 'XLS/XLSX files are stored with the import request. Export as CSV to auto-create cases.',
+      unsupportedReason:
+        error instanceof Error
+          ? `The workbook could not be read: ${error.message}`
+          : 'The workbook could not be read.',
     }
+  }
+}
+
+function parseImportFile(file: Express.Multer.File): ParsedImportFile {
+  const extension = path.extname(file.originalname).toLowerCase()
+  if (['.xlsx', '.xls'].includes(extension)) {
+    return parseWorkbookRows(file)
   }
 
   const content = file.buffer.toString('utf8')
@@ -7831,6 +7865,21 @@ router.post('/intake/import', authMiddleware, intakeImportUpload.array('files', 
      * that failed to import and said so.
      */
     const skippedRows: Array<{ fileName: string; externalId: string | null; reason: string }> = []
+    /** Rows that matched a case this firm has already imported. */
+    const duplicateRows: Array<{ fileName: string; externalId: string | null; assessmentId: string }> = []
+    const owner = {
+      attorneyId: auth.attorney.id,
+      lawFirmId: auth.attorney.lawFirmId ?? null,
+      createdByUserId: req.user?.id ?? null,
+    }
+    /**
+     * External ids already seen in this upload.
+     *
+     * The unique index catches a re-upload, but not the same id appearing
+     * twice inside one file — a common shape when an export is joined against
+     * another table and fans out a row per document.
+     */
+    const seenExternalIds = new Set<string>()
 
     if (fileRows.length > 0) {
       for (const item of fileRows) {
@@ -7842,6 +7891,31 @@ router.post('/intake/import', authMiddleware, intakeImportUpload.array('files', 
             reason: 'No incident date. Map a date column, or add one to the row.',
           })
           continue
+        }
+        if (importedCase.externalId) {
+          if (seenExternalIds.has(importedCase.externalId)) {
+            skippedRows.push({
+              fileName: item.fileName,
+              externalId: importedCase.externalId,
+              reason: 'This external ID appears more than once in the upload.',
+            })
+            continue
+          }
+          seenExternalIds.add(importedCase.externalId)
+          // Re-uploading the same export used to duplicate the whole caseload,
+          // because the external id lived in a JSON blob nothing could key on.
+          const already = await findExistingImportedCase(
+            { importSource: payload.source, externalId: importedCase.externalId },
+            owner,
+          )
+          if (already) {
+            duplicateRows.push({
+              fileName: item.fileName,
+              externalId: importedCase.externalId,
+              assessmentId: already.id,
+            })
+            continue
+          }
         }
         const created = await createAttorneyOwnedCase(
           {
@@ -7858,7 +7932,7 @@ router.post('/intake/import', authMiddleware, intakeImportUpload.array('files', 
             externalId: importedCase.externalId,
             rawImport: importedCase.raw,
           },
-          { attorneyId: auth.attorney.id, lawFirmId: auth.attorney.lawFirmId ?? null, createdByUserId: req.user?.id ?? null },
+          owner,
           'import',
         )
         const assessment = { id: created.assessmentId }
@@ -7919,6 +7993,21 @@ router.post('/intake/import', authMiddleware, intakeImportUpload.array('files', 
     // because XLSX is accepted and never parsed. Refuse instead, and say which
     // files could not be read.
     if (createdAssessments.length === 0) {
+      // Everything already on file is a success, not a failure: it is what a
+      // second upload of the same export should do.
+      if (duplicateRows.length > 0 && skippedRows.length === 0 && unsupportedFiles.length === 0) {
+        return res.json({
+          importId,
+          assessmentIds: [],
+          createdCount: 0,
+          duplicateCount: duplicateRows.length,
+          duplicateRows,
+          skippedRows,
+          source: payload.source,
+          files: fileSummaries,
+          unsupportedFiles,
+        })
+      }
       return res.status(422).json({
         error:
           unsupportedFiles.length > 0
@@ -7926,6 +8015,8 @@ router.post('/intake/import', authMiddleware, intakeImportUpload.array('files', 
             : 'No rows could be imported from those files.',
         importId,
         createdCount: 0,
+        duplicateCount: duplicateRows.length,
+        duplicateRows,
         files: fileSummaries,
         unsupportedFiles,
         skippedRows,
@@ -7945,6 +8036,8 @@ router.post('/intake/import', authMiddleware, intakeImportUpload.array('files', 
       files: fileSummaries,
       unsupportedFiles,
       skippedRows,
+      duplicateCount: duplicateRows.length,
+      duplicateRows,
     })
   } catch (error: any) {
     if (error instanceof z.ZodError) {

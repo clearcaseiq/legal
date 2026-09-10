@@ -26,6 +26,8 @@ import { ENGAGED_LEAD_STATUSES } from './lead-status'
 import {
   ATTORNEY_SELF_SOURCE,
   createAttorneyOwnedCase,
+  findExistingImportedCase,
+  importOwnerKeyFor,
   isAttorneyOwnedCase,
 } from './attorney-case-factory'
 
@@ -203,6 +205,76 @@ describe('createAttorneyOwnedCase', () => {
     expect(result.assessmentId).toBe('asm-tx')
     expect(prisma.$transaction).not.toHaveBeenCalled()
     expect(tx.leadSubmission.create).toHaveBeenCalledOnce()
+  })
+})
+
+describe('import identity', () => {
+  it('scopes the dedupe key to the firm', () => {
+    // Two firms exporting from their own Clio instances will collide on matter
+    // numbers as low as "1", so the same external id from different firms has
+    // to be two different cases.
+    expect(importOwnerKeyFor({ attorneyId: 'att-1', lawFirmId: 'firm-1' })).toBe('firm-1')
+    expect(importOwnerKeyFor({ attorneyId: 'att-2', lawFirmId: 'firm-1' })).toBe('firm-1')
+  })
+
+  it('falls back to the attorney for a solo with no firm', () => {
+    // Postgres treats NULLs as distinct in a unique index, so leaving this
+    // null would quietly disable dedupe and let a solo attorney duplicate
+    // their whole caseload on every re-upload.
+    expect(importOwnerKeyFor({ attorneyId: 'att-9', lawFirmId: null })).toBe('attorney:att-9')
+  })
+
+  it('writes the import columns so the unique index can see them', async () => {
+    await createAttorneyOwnedCase(
+      { ...INPUT, importSource: 'clio', externalId: 'MATTER-42' },
+      OWNER,
+      'import',
+    )
+
+    expect(assessmentCreateArg().data).toMatchObject({
+      importSource: 'clio',
+      importExternalId: 'MATTER-42',
+      importOwnerKey: 'firm-1',
+    })
+  })
+
+  it('leaves the import columns null for a hand-created case', async () => {
+    await createAttorneyOwnedCase(INPUT, OWNER, 'manual')
+
+    const data = assessmentCreateArg().data
+    // The unique index does not constrain NULLs, so ordinary cases must not
+    // carry a partial key that would collide with each other.
+    expect(data.importSource).toBeUndefined()
+    expect(data.importOwnerKey).toBeUndefined()
+  })
+
+  it('does not write a partial key when the row has no external id', async () => {
+    await createAttorneyOwnedCase({ ...INPUT, importSource: 'spreadsheet' }, OWNER, 'import')
+
+    // A half-written key would make the row look importable but unmatchable,
+    // and it would duplicate on the next upload.
+    expect(assessmentCreateArg().data.importSource).toBeUndefined()
+  })
+
+  it('treats a row with no external id as always new', async () => {
+    expect(await findExistingImportedCase({ importSource: 'clio' }, OWNER)).toBeNull()
+    // Guessing at identity from names and dates would silently merge two
+    // different clients, which is worse than importing a duplicate.
+    expect(prisma.assessment.findFirst).not.toHaveBeenCalled()
+  })
+
+  it('matches an external id this firm has already imported', async () => {
+    vi.mocked(prisma.assessment.findFirst).mockResolvedValue({ id: 'asm-existing' } as any)
+
+    const found = await findExistingImportedCase(
+      { importSource: 'clio', externalId: 'MATTER-42' },
+      OWNER,
+    )
+
+    expect(found).toEqual({ id: 'asm-existing' })
+    expect(vi.mocked(prisma.assessment.findFirst).mock.calls[0]?.[0]).toMatchObject({
+      where: { importOwnerKey: 'firm-1', importSource: 'clio', importExternalId: 'MATTER-42' },
+    })
   })
 })
 

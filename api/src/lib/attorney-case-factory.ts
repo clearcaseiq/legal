@@ -94,6 +94,39 @@ function shadowOwnerEmail(assessmentId: string): string {
 }
 
 /**
+ * Who an imported case belongs to, for the purpose of deduplicating it.
+ *
+ * The firm when there is one, so two attorneys at the same firm importing the
+ * same export converge on one case rather than two. The attorney otherwise,
+ * because a solo has no firm row and a null here would disable the unique
+ * index entirely.
+ */
+export function importOwnerKeyFor(owner: AttorneyCaseOwner): string {
+  return owner.lawFirmId || `attorney:${owner.attorneyId}`
+}
+
+/**
+ * The case this row already created, if the same export has been uploaded
+ * before. Null when it is new, or when the row carries no external id to
+ * match on — an unkeyed row is always treated as new, because guessing at
+ * identity from names and dates would silently merge two different clients.
+ */
+export async function findExistingImportedCase(
+  input: Pick<AttorneyCaseInput, 'importSource' | 'externalId'>,
+  owner: AttorneyCaseOwner,
+): Promise<{ id: string } | null> {
+  if (!input.importSource || !input.externalId) return null
+  return prisma.assessment.findFirst({
+    where: {
+      importOwnerKey: importOwnerKeyFor(owner),
+      importSource: input.importSource,
+      importExternalId: input.externalId,
+    },
+    select: { id: true },
+  })
+}
+
+/**
  * Facts for a case whose claimant never filled anything in.
  *
  * Sparse on purpose. Every absent field here is a real gap the attorney has to
@@ -164,6 +197,16 @@ export async function createAttorneyOwnedCase(
         claimType: input.claimType,
         venueState: input.venueState,
         venueCounty: input.venueCounty || null,
+        // Promoted out of the facts blob so the unique index can see them.
+        // All three travel together or not at all: a partial key would make
+        // the row look importable-but-unmatched and duplicate on re-upload.
+        ...(input.importSource && input.externalId
+          ? {
+              importSource: input.importSource,
+              importExternalId: input.externalId,
+              importOwnerKey: importOwnerKeyFor(owner),
+            }
+          : {}),
         // COMPLETED, not DRAFT. The admin routing queue, the ops inbox and
         // every analytics aggregate filter on this, so a DRAFT case is invisible
         // to operations as well as to the attorney.

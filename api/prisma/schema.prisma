@@ -207,6 +207,23 @@ model Assessment {
   // label (plaintiff name, then claim type) — see lib/case-name.ts.
   caseName    String?
 
+  // --- Import provenance (attorney-imported caseloads) ----------------------
+  // The identity of this case in the system it came from, so re-uploading the
+  // same CSV updates rather than duplicates. Previously the external id lived
+  // only inside the `facts` JSON blob, where nothing could key on it: every
+  // re-upload of the same export created a fresh set of cases.
+  //
+  // Scoped rather than globally unique. Two firms exporting from their own Clio
+  // instances will collide on matter numbers as low as "1", so the same id from
+  // two different firms must be two different cases.
+  importSource     String? // clio | filevine | needles | litify | spreadsheet
+  importExternalId String?
+  // The firm, or the importing attorney when they have no firm. Denormalized
+  // and non-null-when-imported on purpose: Postgres treats NULLs as distinct in
+  // a unique index, so keying on the nullable `lawFirmId` would silently let a
+  // solo attorney duplicate their whole caseload on every re-upload.
+  importOwnerKey   String?
+
   // --- Data authority (system of record) -----------------------------------
   // Monotonic revision bumped on every material change via recordCaseChange().
   // Enables optimistic concurrency ("ours wins") and lets external systems that
@@ -342,6 +359,10 @@ model Assessment {
   // "My cases, newest first" is the first query of every plaintiff session and
   // ran without an index on the owning user.
   @@index([userId, createdAt])
+  // One case per external record per firm. All three columns are null for
+  // cases that did not come from an import, and Postgres does not enforce
+  // uniqueness across NULLs, so ordinary cases are unaffected by this.
+  @@unique([importOwnerKey, importSource, importExternalId])
   @@map("assessments")
 }
 
