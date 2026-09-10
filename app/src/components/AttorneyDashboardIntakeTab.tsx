@@ -153,11 +153,18 @@ const IMPORT_SOURCES = [
   { value: 'spreadsheet', label: 'Spreadsheet / CSV', hint: 'Upload a file' },
 ]
 
-const INCLUDE_OPTIONS: Array<{ key: 'includeDocuments' | 'includeHistory' | 'includeTasks' | 'includeMedical'; label: string; desc: string }> = [
-  { key: 'includeDocuments', label: 'Documents', desc: 'PDFs, Word, images, emails' },
-  { key: 'includeHistory', label: 'Negotiation history', desc: 'Historical offers & demands' },
-  { key: 'includeTasks', label: 'Tasks & deadlines', desc: 'Deadlines, tasks, and notes' },
-  { key: 'includeMedical', label: 'Medical & liens', desc: 'Medical bills & lien extraction' },
+/**
+ * Only what a spreadsheet can actually carry.
+ *
+ * "Documents" used to sit here promising PDFs, Word files and emails, none of
+ * which exist in a CSV of case rows — the box did nothing whichever way it was
+ * set. Bringing files across needs a live connection to the CMS, so the note
+ * under these says so rather than leaving a control that silently no-ops.
+ */
+const INCLUDE_OPTIONS: Array<{ key: 'includeHistory' | 'includeTasks' | 'includeMedical'; label: string; desc: string }> = [
+  { key: 'includeHistory', label: 'Negotiation history', desc: 'Prior offer and demand columns' },
+  { key: 'includeTasks', label: 'Tasks & deadlines', desc: 'Next task and due date columns' },
+  { key: 'includeMedical', label: 'Medical specials', desc: 'Billed, paid and future medical columns' },
 ]
 
 const SMART_OPTIONS: Array<{ key: 'dynamicQuestionnaires' | 'conditionalLogic' | 'missingInfoDetection' | 'autoFollowUps'; label: string; desc: string }> = [
@@ -215,7 +222,6 @@ export default function AttorneyDashboardIntakeTab({ onGoToLeads }: AttorneyDash
   const [mapping, setMapping] = useState<Record<string, string>>({})
   const [importForm, setImportForm] = useState({
     source: 'clio',
-    includeDocuments: true,
     includeHistory: true,
     includeTasks: true,
     includeMedical: true,
@@ -351,7 +357,6 @@ export default function AttorneyDashboardIntakeTab({ onGoToLeads }: AttorneyDash
     const cleanMapping = Object.fromEntries(Object.entries(mapping).filter(([, v]) => v))
     return {
       source: importForm.source,
-      includeDocuments: importForm.includeDocuments,
       includeHistory: importForm.includeHistory,
       includeTasks: importForm.includeTasks,
       includeMedical: importForm.includeMedical,
@@ -714,6 +719,11 @@ export default function AttorneyDashboardIntakeTab({ onGoToLeads }: AttorneyDash
             )
           })}
         </div>
+
+        <p className="mt-2 text-xs text-slate-500">
+          A spreadsheet carries case data, not files. Documents come across when you connect Clio or
+          Filevine directly.
+        </p>
 
               <input
           value={importForm.notes}

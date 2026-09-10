@@ -3842,7 +3842,6 @@ export interface ImportPreview {
 
 export async function importCase(payload: {
   source: string
-  includeDocuments?: boolean
   includeHistory?: boolean
   includeTasks?: boolean
   includeMedical?: boolean
@@ -3860,7 +3859,6 @@ export async function importCase(payload: {
   if (hasBrowserFiles) {
     const formData = new FormData()
     formData.append('source', payload.source)
-    formData.append('includeDocuments', String(payload.includeDocuments ?? true))
     formData.append('includeHistory', String(payload.includeHistory ?? true))
     formData.append('includeTasks', String(payload.includeTasks ?? true))
     formData.append('includeMedical', String(payload.includeMedical ?? true))

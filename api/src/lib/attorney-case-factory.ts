@@ -23,7 +23,7 @@ import type { Prisma } from '@prisma/client'
 import { prisma } from './prisma'
 import { logger } from './logger'
 import { serializeCaseFacts } from './case-facts'
-import { applyFactPath } from './case-fact-paths'
+import { applyFactPath, parseFactValue } from './case-fact-paths'
 import { assignReferenceCode } from './case-reference'
 import { ensureAssessmentPrediction } from './prediction-materializer'
 import { ATTORNEY_SELF_SOURCE, type AttorneyCaseOrigin } from './attorney-case-origin'
@@ -38,6 +38,8 @@ export type AttorneyCaseInput = {
   /** ISO date. Required — the SOL clock is meaningless without it. */
   incidentDate: string
   narrative?: string
+  /** Diagnoses as free text, one per entry. Drives the injury severity tier. */
+  injuryDiagnoses?: string[]
   plaintiffFirstName?: string
   plaintiffLastName?: string
   plaintiffEmail?: string
@@ -151,7 +153,12 @@ function buildFacts(input: AttorneyCaseInput, origin: AttorneyCaseOrigin, owner:
       date: input.incidentDate,
       narrative: input.narrative || '',
     },
-    injuries: [],
+    // The valuation classifies the primary injury from these diagnoses, and an
+    // empty list pins the case to the lowest severity tier however large the
+    // medical specials are. Imports that carry an injury column fill it.
+    injuries: (input.injuryDiagnoses || []).length
+      ? [{ diagnoses: input.injuryDiagnoses }]
+      : [],
     treatment: [],
     damages: {},
     plaintiffContext: {
@@ -184,10 +191,19 @@ function buildFacts(input: AttorneyCaseInput, origin: AttorneyCaseOrigin, owner:
   // cover, and they go through applyFactPath so every alias of each key is
   // written. An unknown path is ignored rather than stored loose, which keeps
   // a mis-mapped column from inventing a facts key nothing reads.
-  return Object.entries(input.factPaths || {}).reduce<Record<string, unknown>>(
-    (facts, [path, value]) => (value ? (applyFactPath(facts as never, path, value) as never) : facts),
-    base as Record<string, unknown>,
-  )
+  //
+  // parseFactValue first, exactly as the proposal path does. A spreadsheet
+  // cell is always a string, and writing "$48,250.00" straight into
+  // `damages.med_charges` left every downstream `Number(...)` reading NaN —
+  // so a fully-filled export valued the same as an empty one. It also rejects
+  // a cell that is not the type the key expects, which is what keeps a
+  // mis-mapped column from poisoning the valuation.
+  return Object.entries(input.factPaths || {}).reduce<Record<string, unknown>>((facts, [path, value]) => {
+    if (!value) return facts
+    const parsed = parseFactValue(path, value)
+    if (!parsed.ok) return facts
+    return applyFactPath(facts as never, path, parsed.value) as never
+  }, base as Record<string, unknown>)
 }
 
 /**

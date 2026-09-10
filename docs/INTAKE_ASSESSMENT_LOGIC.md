@@ -145,11 +145,16 @@ Per-attorney smart intake settings.
 
 **Schema:** `intakeManualSchema`  
 - `template?`: mva, premises, medmal, pi  
-- `claimType?`, `venueState?`, `notes?`
+- `claimType` (from `CLAIM_TYPES`), `venueState` (2-letter), `incidentDate` — all required.
+  These used to be optional and defaulted to `auto`/`CA`/none, which produced cases
+  carrying a fabricated venue and no SOL clock.
 
 **Logic:**
 1. Resolve `claimType` from payload or template (mva→auto, premises→slip_and_fall, etc.)
-2. Call `createDraftAssessment({ claimType, venueState })`
+2. Call `createAttorneyOwnedCase(...)`, which writes the Assessment, a shadow owner
+   User and the LeadSubmission in one transaction — see `lib/attorney-case-factory.ts`.
+   The case is marked `sourceType: 'attorney_self'` and `routingLocked`, so it is
+   exempt from marketplace routing, the routing fee and the consumer consent gates.
 3. Create `CaseIntakeRequest` with `kind: 'manual'`
 4. Return `assessmentId`, `claimType`, `venueState`, `notes`
 
@@ -170,12 +175,40 @@ Per-attorney smart intake settings.
 #### Import (`/intake/import`)
 
 **Schema:** `intakeImportSchema`  
-- `source`, `includeDocuments?`, `includeHistory?`, `includeTasks?`, `includeMedical?`, `notes?`, `files?`
+- `source`, `includeHistory?`, `includeTasks?`, `includeMedical?`, `notes?`, `files?`, `mapping?`, `dryRun?`
+
+There is no `includeDocuments`: a spreadsheet of case rows contains no files, so the
+flag governed nothing. Bringing documents across needs a live CMS connection —
+see the inbound sync below.
 
 **Logic:**
-1. Create draft with `claimType: 'auto'`, `venueState: 'CA'`
-2. Create `CaseIntakeRequest` with `kind: 'import'`, `source`
-3. Return `importId`, `assessmentId`, options
+1. Parse each CSV/XLSX row through `lib/import-mapping.ts`, which maps the header
+   spellings Clio, Filevine, Needles and Litify actually export onto canonical
+   facts paths, diagnoses and prior offers/demands. A column it cannot read leaves
+   the field absent rather than defaulted.
+2. Skip a row with no parseable incident date, and skip one whose external id was
+   already imported by this firm (`importOwnerKey`/`importSource`/`importExternalId`
+   unique index).
+3. With `dryRun`, return the plan — what would be created, duplicates and skips —
+   without writing.
+4. Otherwise create every row through `createAttorneyOwnedCase` inside one
+   transaction, then `finalizeAttorneyCases` after the commit for reference codes
+   and valuations.
+5. Return `importId`, `assessmentIds`, per-row `skippedRows` and `duplicateRows`.
+
+**Flags:** `includeMedical` governs the three medical damages paths
+(`damages.med_charges`, `med_paid`, `future_medical`); wage loss and property damage
+are always imported. `includeHistory` writes prior offer/demand columns as
+`NegotiationEvent` rows. `includeTasks` writes the next-task column as a `CaseTask`.
+
+#### Inbound CMS sync (`POST /v1/integrations/import-sync`)
+
+Pulls a firm's caseload straight out of Clio or Filevine rather than from a file, via
+`lib/cms/inbound-sync.ts`. Off per connection until `config.inboundSyncEnabled` is set
+(`POST /v1/integrations/connections/:id/inbound-sync`) on top of having provider
+credentials. Dedupes on the same import identity as the file importer, and skips any
+matter without a real date of loss rather than deriving one from the matter's open
+date — Clio has no incident-date field.
 
 #### Smart Config (`/intake/smart-config`)
 

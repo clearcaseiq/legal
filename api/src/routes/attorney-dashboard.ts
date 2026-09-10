@@ -17,6 +17,14 @@ import { MAX_CASE_NAME_LENGTH, normalizeCaseName, plaintiffNameOf, resolveCaseNa
 import { ensureReferenceCode } from '../lib/case-reference'
 import { CLAIM_TYPES } from '../lib/validators'
 import { createAttorneyOwnedCase, finalizeAttorneyCases, findExistingImportedCase } from '../lib/attorney-case-factory'
+import {
+  importableFactPaths,
+  INTAKE_IMPORT_SOURCES,
+  normalizeImportedCase,
+  type ImportedNegotiationEvent,
+  type IntakeImportSource,
+  type NormalizedImportedCase,
+} from '../lib/import-mapping'
 import { ENGAGED_LEAD_STATUSES, isEngagedLeadStatus } from '../lib/lead-status'
 import { parseTaskDueDate } from '../lib/task-due-date'
 import { isAcceptedUpload } from '../lib/upload-filter'
@@ -2067,8 +2075,9 @@ const intakeFromLeadSchema = z.object({
 })
 
 const intakeImportSchema = z.object({
-  source: z.enum(['clio', 'filevine', 'needles', 'litify', 'spreadsheet']),
-  includeDocuments: z.coerce.boolean().optional(),
+  source: z.enum(INTAKE_IMPORT_SOURCES),
+  // No includeDocuments: a spreadsheet of case rows contains no files, so the
+  // flag governed nothing. Document migration needs a live CMS connection.
   includeHistory: z.coerce.boolean().optional(),
   includeTasks: z.coerce.boolean().optional(),
   includeMedical: z.coerce.boolean().optional(),
@@ -2105,7 +2114,6 @@ function getTemplateClaimType(template?: string) {
   }
 }
 
-type IntakeImportSource = z.infer<typeof intakeImportSchema>['source']
 
 type ParsedImportFile = {
   fileName: string
@@ -2113,23 +2121,6 @@ type ParsedImportFile = {
   unsupportedReason?: string
 }
 
-type NormalizedImportedCase = {
-  externalId: string | null
-  claimType: string
-  venueState: string
-  venueCounty: string | null
-  plaintiffFirstName: string
-  plaintiffLastName: string
-  plaintiffEmail: string
-  plaintiffPhone: string
-  incidentDate?: string
-  narrative: string
-  taskTitle?: string
-  taskDueDate?: Date | null
-  /** Mapped columns keyed by canonical facts path; see normalizeImportedCase. */
-  factPaths: Record<string, string>
-  raw: Record<string, string>
-}
 
 function parseBoolean(value: unknown, fallback = true) {
   if (typeof value === 'boolean') return value
@@ -2264,138 +2255,6 @@ function flattenImportRow(value: unknown, prefix = ''): Record<string, string> {
   }, {})
 }
 
-function getImportField(row: Record<string, string>, candidates: string[]) {
-  const entries = Object.entries(row)
-  for (const candidate of candidates) {
-    const normalizedCandidate = candidate.toLowerCase().replace(/[^a-z0-9]/g, '')
-    const match = entries.find(([key]) => key.toLowerCase().replace(/[^a-z0-9]/g, '') === normalizedCandidate)
-    if (match?.[1]) return match[1].trim()
-  }
-  return ''
-}
-
-function splitClientName(name: string) {
-  const parts = name.trim().split(/\s+/).filter(Boolean)
-  if (parts.length === 0) return { firstName: '', lastName: '' }
-  if (parts.length === 1) return { firstName: parts[0], lastName: '' }
-  return { firstName: parts.slice(0, -1).join(' '), lastName: parts[parts.length - 1] }
-}
-
-function normalizeClaimType(value: string) {
-  const text = value.toLowerCase()
-  if (text.includes('premise') || text.includes('slip') || text.includes('fall')) return 'slip_and_fall'
-  if (text.includes('medical') || text.includes('malpractice') || text.includes('med mal')) return 'medmal'
-  if (text.includes('dog')) return 'dog_bite'
-  if (text.includes('auto') || text.includes('motor') || text.includes('vehicle') || text.includes('mva')) return 'auto'
-  return value ? value.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') : 'auto'
-}
-
-function normalizeIncidentDate(value: string) {
-  if (!value) return undefined
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return undefined
-  return date.toISOString().split('T')[0]
-}
-
-function normalizeImportedCase(
-  source: IntakeImportSource,
-  row: Record<string, string>,
-  mapping?: Record<string, string>,
-): NormalizedImportedCase {
-  // A user-supplied mapping (canonical field -> source header) takes priority
-  // over the source's auto-detect candidates.
-  const mapped = (field: string): string[] => {
-    const header = mapping?.[field]
-    return header ? [header] : []
-  }
-  const sourceSpecific: Record<IntakeImportSource, Record<string, string[]>> = {
-    clio: {
-      externalId: ['matter id', 'matter number', 'id', 'display number'],
-      clientName: ['client name', 'client', 'primary client'],
-      claimType: ['practice area', 'matter type', 'case type'],
-      narrative: ['description', 'matter description', 'notes'],
-    },
-    filevine: {
-      externalId: ['project id', 'projectId', 'project number', 'filevine id'],
-      clientName: ['client name', 'clientName', 'contact name', 'project name'],
-      claimType: ['project type', 'case type', 'phase name'],
-      narrative: ['project description', 'summary', 'facts', 'notes'],
-    },
-    needles: {
-      externalId: ['case number', 'case_num', 'file number', 'matter number'],
-      clientName: ['client', 'client name', 'party name'],
-      claimType: ['case type', 'matter type', 'classification'],
-      narrative: ['case facts', 'description', 'notes', 'memo'],
-    },
-    litify: {
-      externalId: ['matter id', 'litify id', 'matter name', 'case id'],
-      clientName: ['client name', 'client', 'account name', 'matter name'],
-      claimType: ['matter type', 'case type', 'practice area'],
-      narrative: ['description', 'case summary', 'facts', 'notes'],
-    },
-    spreadsheet: {
-      externalId: ['external id', 'case id', 'matter id', 'file number'],
-      clientName: ['client name', 'plaintiff name', 'name'],
-      claimType: ['claim type', 'case type', 'matter type'],
-      narrative: ['narrative', 'description', 'facts', 'notes'],
-    },
-  }
-  const candidates = sourceSpecific[source]
-  const clientName = getImportField(row, candidates.clientName)
-  const splitName = splitClientName(clientName)
-  const firstName = getImportField(row, [...mapped('firstName'), 'plaintiff first name', 'first name', 'client first name', 'firstName']) || splitName.firstName
-  const lastName = getImportField(row, [...mapped('lastName'), 'plaintiff last name', 'last name', 'client last name', 'lastName']) || splitName.lastName
-  const claimType = getImportField(row, [...mapped('caseType'), 'claim type', 'case type', 'matter type', ...candidates.claimType])
-
-  return {
-    externalId: getImportField(row, [...mapped('externalId'), 'external id', 'case id', 'matter id', ...candidates.externalId]) || null,
-    claimType: normalizeClaimType(claimType),
-    venueState: (getImportField(row, [...mapped('state'), 'venue state', 'state', 'jurisdiction state']) || 'CA').toUpperCase(),
-    venueCounty: getImportField(row, [...mapped('county'), 'venue county', 'county', 'jurisdiction county']) || null,
-    plaintiffFirstName: firstName,
-    plaintiffLastName: lastName,
-    plaintiffEmail: getImportField(row, [...mapped('email'), 'plaintiff email', 'client email', 'email']),
-    plaintiffPhone: getImportField(row, [...mapped('phone'), 'plaintiff phone', 'client phone', 'phone', 'mobile']),
-    incidentDate: normalizeIncidentDate(getImportField(row, [...mapped('incidentDate'), 'incident date', 'date of loss', 'dol', 'doi', 'accident date'])),
-    narrative: getImportField(row, [...mapped('description'), 'narrative', 'description', 'facts', 'summary', ...candidates.narrative]),
-    taskTitle: getImportField(row, ['next task', 'task title', 'deadline name']),
-    taskDueDate: normalizeTaskDueDate(getImportField(row, ['task due date', 'deadline', 'due date'])),
-    // Keyed by canonical facts path. These were not captured at all before, so
-    // an imported case arrived with no carrier, no claim number and no policy
-    // limit however fully the export had been filled in — which is most of why
-    // imported cases could not be valued. The factory writes them through
-    // `applyFactPath`, which also fills each key's aliases.
-    factPaths: pruneEmpty({
-      'insurance.defendant_carrier': getImportField(row, [
-        ...mapped('carrier'), 'carrier', 'insurance carrier', 'defendant carrier', 'adverse carrier', 'insurer',
-      ]),
-      'insurance.claim_number': getImportField(row, [
-        ...mapped('claimNumber'), 'claim number', 'claim no', 'claim #', 'claimnumber',
-      ]),
-      'insurance.defendant_coverage_limits': getImportField(row, [
-        ...mapped('policyLimit'), 'policy limit', 'policy limits', 'coverage limit', 'bi limit',
-      ]),
-      'caseAcceleration.wageLoss.employerName': getImportField(row, [
-        ...mapped('employer'), 'employer', 'employer name', 'place of employment',
-      ]),
-      'defendant.name': getImportField(row, [
-        ...mapped('defendant'), 'defendant', 'defendant name', 'at-fault party', 'adverse party',
-      ]),
-    }),
-    raw: row,
-  }
-}
-
-/** Drop unmapped columns so a blank cell never overwrites anything. */
-function pruneEmpty(values: Record<string, string>): Record<string, string> {
-  return Object.fromEntries(Object.entries(values).filter(([, value]) => Boolean(value)))
-}
-
-function normalizeTaskDueDate(value: string) {
-  if (!value) return null
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? null : date
-}
 
 async function applyTaskSlaTemplates(attorneyId: string, assessmentId: string, triggerStatus: string) {
   const templates = await prisma.taskSlaTemplate.findMany({
@@ -7865,7 +7724,6 @@ router.post('/intake/import', authMiddleware, intakeImportUpload.array('files', 
     }
     const payload = intakeImportSchema.parse({
       ...(req.body || {}),
-      includeDocuments: parseBoolean(req.body?.includeDocuments, true),
       includeHistory: parseBoolean(req.body?.includeHistory, true),
       includeTasks: parseBoolean(req.body?.includeTasks, true),
       includeMedical: parseBoolean(req.body?.includeMedical, true),
@@ -7988,7 +7846,13 @@ router.post('/intake/import', authMiddleware, intakeImportUpload.array('files', 
           plaintiffName: [importedCase.plaintiffFirstName, importedCase.plaintiffLastName]
             .filter(Boolean)
             .join(' '),
-          mappedFields: Object.keys(importedCase.factPaths),
+          // After the Medical checkbox, so the preview lists what will be
+          // written rather than what was found in the file.
+          mappedFields: Object.keys(
+            importableFactPaths(importedCase.factPaths, payload.includeMedical ?? true),
+          ),
+          injuryCount: importedCase.injuryDiagnoses.length,
+          negotiationCount: (payload.includeHistory ?? true) ? importedCase.negotiation.length : 0,
         })),
         duplicateRows,
         skippedRows,
@@ -8017,10 +7881,11 @@ router.post('/intake/import', authMiddleware, intakeImportUpload.array('files', 
                 plaintiffPhone: importedCase.plaintiffPhone,
                 incidentDate: importedCase.incidentDate,
                 narrative: importedCase.narrative,
+                injuryDiagnoses: importedCase.injuryDiagnoses,
                 importSource: payload.source,
                 externalId: importedCase.externalId,
                 rawImport: importedCase.raw,
-                factPaths: importedCase.factPaths,
+                factPaths: importableFactPaths(importedCase.factPaths, payload.includeMedical ?? true),
               },
               owner,
               'import',
@@ -8038,7 +7903,6 @@ router.post('/intake/import', authMiddleware, intakeImportUpload.array('files', 
                   source: payload.source,
                   externalId: importedCase.externalId,
                   fileName,
-                  includeDocuments: payload.includeDocuments ?? true,
                   includeHistory: payload.includeHistory ?? true,
                   includeTasks: payload.includeTasks ?? true,
                   includeMedical: payload.includeMedical ?? true,
@@ -8048,6 +7912,25 @@ router.post('/intake/import', authMiddleware, intakeImportUpload.array('files', 
                 })
               }
             })
+            // Prior offers and demands, so the negotiation tab does not open
+            // empty on a case the firm has already been working for months.
+            if ((payload.includeHistory ?? true) && importedCase.negotiation.length > 0) {
+              await tx.negotiationEvent.createMany({
+                data: importedCase.negotiation.map((event) => ({
+                  assessmentId: created.assessmentId,
+                  eventType: event.eventType,
+                  amount: event.amount,
+                  // Falls back to the incident date rather than now(): dating
+                  // a two-year-old offer to today would make every imported
+                  // case look like it moved this morning.
+                  eventDate: event.eventDate ?? new Date(importedCase.incidentDate),
+                  status: 'open',
+                  counterpartyType: event.eventType === 'offer' ? 'insurer' : 'claimant',
+                  insurerName: importedCase.factPaths['insurance.defendant_carrier'] || null,
+                  notes: `Imported from ${payload.source}.`,
+                })),
+              })
+            }
             if (payload.includeTasks && importedCase.taskTitle) {
               await tx.caseTask.create({
                 data: {
@@ -8133,7 +8016,6 @@ router.post('/intake/import', authMiddleware, intakeImportUpload.array('files', 
       assessmentIds: createdAssessments.map((assessment) => assessment.id),
       createdCount: createdAssessments.length,
       source: payload.source,
-      includeDocuments: payload.includeDocuments ?? true,
       includeHistory: payload.includeHistory ?? true,
       includeTasks: payload.includeTasks ?? true,
       includeMedical: payload.includeMedical ?? true,

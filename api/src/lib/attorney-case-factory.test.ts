@@ -364,6 +364,79 @@ describe('mapped facts', () => {
 
     expect(assessmentCreateArg().data.facts).not.toContain('claim_number')
   })
+
+  /**
+   * The medical figures are what the valuation multiplies, and the mirror
+   * matters as much as the key: `case-recalculation` reads `intake_med_charges`
+   * and would overwrite a value written only to `med_charges`.
+   */
+  it('mirrors medical specials into the key the recalculation reads', async () => {
+    await createAttorneyOwnedCase(
+      { ...INPUT, factPaths: { 'damages.med_charges': '48250', 'damages.wage_loss': '9500' } },
+      OWNER,
+      'import',
+    )
+
+    const facts = JSON.parse(assessmentCreateArg().data.facts)
+    expect(facts.damages.med_charges).toBe(48250)
+    expect(facts.damages.intake_med_charges).toBe(48250)
+    expect(facts.damages.wage_loss).toBe(9500)
+    expect(facts.damages.intake_wage_loss).toBe(9500)
+  })
+
+  /**
+   * Every downstream reader does `Number(damages.med_charges)`. Stored as the
+   * string a spreadsheet actually contains, that is NaN, and a fully-filled
+   * export valued the same as an empty one.
+   */
+  it('parses a currency-formatted cell into a number', async () => {
+    await createAttorneyOwnedCase(
+      { ...INPUT, factPaths: { 'damages.med_charges': '$48,250.00' } },
+      OWNER,
+      'import',
+    )
+
+    expect(JSON.parse(assessmentCreateArg().data.facts).damages.med_charges).toBe(48250)
+  })
+
+  it('drops a cell that is not the type the key expects', async () => {
+    // "pending" in a specials column must leave the key absent, not store a
+    // string the valuation will read as NaN.
+    await createAttorneyOwnedCase(
+      { ...INPUT, factPaths: { 'damages.med_charges': 'pending' } },
+      OWNER,
+      'import',
+    )
+
+    expect(JSON.parse(assessmentCreateArg().data.facts).damages.med_charges).toBeUndefined()
+  })
+})
+
+describe('injuries', () => {
+  /**
+   * The underwriting engine classifies the primary injury from
+   * `facts.injuries[].diagnoses`. An empty list pins the case to the lowest
+   * severity tier however large the medical specials are, which is most of
+   * why imported cases all valued the same.
+   */
+  it('records diagnoses where the valuation looks for them', async () => {
+    await createAttorneyOwnedCase(
+      { ...INPUT, injuryDiagnoses: ['L4-L5 herniation', 'concussion'] },
+      OWNER,
+      'import',
+    )
+
+    const facts = JSON.parse(assessmentCreateArg().data.facts)
+    expect(facts.injuries).toEqual([{ diagnoses: ['L4-L5 herniation', 'concussion'] }])
+  })
+
+  it('leaves the list empty when the import carried no injury column', async () => {
+    // Empty, not a placeholder entry: an unnamed injury would earn
+    // documentation credit the case has not got.
+    await createAttorneyOwnedCase(INPUT, OWNER, 'manual')
+
+    expect(JSON.parse(assessmentCreateArg().data.facts).injuries).toEqual([])
+  })
 })
 
 describe('isAttorneyOwnedCase', () => {
