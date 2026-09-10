@@ -82,7 +82,13 @@ export type TrafficReport = {
    * be joined. Empty when Google Ads is not linked to the GA4 property, which
    * is not an error — it just means nothing here can be priced.
    */
-  adCostBySourceMedium: Array<{ label: string; cost: number; sessions: number }>
+  adCostBySourceMedium: Array<{
+    label: string
+    /** Null for spend GA4 could not attribute to a named campaign. */
+    campaign: string | null
+    cost: number
+    sessions: number
+  }>
 }
 
 /**
@@ -143,6 +149,11 @@ function metric(row: Ga4Row, index: number): number {
 
 function dimension(row: Ga4Row, index: number): string {
   return row.dimensionValues?.[index]?.value || '(not set)'
+}
+
+/** GA4's placeholder for an absent dimension, which is not a value. */
+function notSetToNull(value: string): string | null {
+  return !value || value === '(not set)' ? null : value
 }
 
 function breakdown(report: Ga4Report | undefined, withNewUsers = false): TrafficBreakdown[] {
@@ -243,17 +254,21 @@ function reportDefinitions(days: number): ReportRequest[] {
       orderBys: [{ metric: { metricName: 'screenPageViews' }, desc: true }],
       limit: TOP_ROWS,
     },
-    // 9 — ad cost by source/medium, the join key for cost per retained case.
+    // 9 — ad cost, the join key for cost per retained case.
+    //
     // Deliberately source/medium rather than the channel group: it is the same
     // shape `channelLabel` builds from our own utm columns ("google / cpc"), so
-    // the two sides line up without a translation table in between.
+    // the two sides line up without a translation table in between. Campaign is
+    // carried alongside because the channel report splits by campaign too, and
+    // dividing one channel's spend across its campaigns would invent a number
+    // per campaign that nobody measured.
     //
     // `advertiserAdCost` is only populated when Google Ads is linked to the GA4
     // property. Without that link GA4 returns zeros rather than an error, so
     // this degrades to an unpriced report instead of breaking the panel.
     {
       dateRanges,
-      dimensions: [{ name: 'sessionSource' }, { name: 'sessionMedium' }],
+      dimensions: [{ name: 'sessionSource' }, { name: 'sessionMedium' }, { name: 'sessionCampaignName' }],
       metrics: [{ name: 'advertiserAdCost' }, { name: 'sessions' }],
       orderBys: [{ metric: { metricName: 'advertiserAdCost' }, desc: true }],
       limit: TOP_ROWS,
@@ -380,6 +395,9 @@ export async function fetchTrafficReport(days: number): Promise<TrafficResult> {
     adCostBySourceMedium: (reports[9]?.rows || [])
       .map((row) => ({
         label: `${dimension(row, 0)} / ${dimension(row, 1)}`,
+        // GA4 writes "(not set)" for a session with no campaign, which is not a
+        // campaign name and must not be matched against one.
+        campaign: notSetToNull(dimension(row, 2)),
         cost: metric(row, 0),
         sessions: metric(row, 1),
       }))

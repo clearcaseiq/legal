@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { getAdminAnalytics } from '../../lib/api'
+import { getAdminAnalytics, getAdminTraffic, type AdminAdCost } from '../../lib/api'
 import { formatCurrency } from '../../lib/formatters'
 import {
   BarChart3,
@@ -23,6 +23,7 @@ export default function AdminAnalytics() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [days, setDays] = useState(30)
+  const [adCost, setAdCost] = useState<AdminAdCost[]>([])
 
   const load = useCallback(async () => {
     try {
@@ -41,6 +42,24 @@ export default function AdminAnalytics() {
   useEffect(() => {
     load()
   }, [load])
+
+  // Fetched separately from the panel that renders the rest of the traffic
+  // report, because the channel table is the only thing on this screen that can
+  // divide spend by an outcome. The report is cached server-side, so asking for
+  // it twice costs one GA4 call. A failure is silent by design: the channel
+  // table is useful unpriced, and the traffic panel above already reports what
+  // is wrong with the GA4 connection.
+  useEffect(() => {
+    let live = true
+    void getAdminTraffic(days)
+      .then((traffic) => {
+        if (live && traffic.configured) setAdCost(traffic.adCostBySourceMedium || [])
+      })
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [days])
 
   if (loading && !data) {
     return (
@@ -210,7 +229,7 @@ export default function AdminAnalytics() {
         </div>
       </div>
 
-      <ChannelTable rows={channels} />
+      <ChannelTable rows={channels} adCost={adCost} />
 
       {/* Directly below the channel table on purpose: that one says which
           campaigns produced retained cases, this one says whether Ads was
@@ -380,6 +399,14 @@ type ChannelRow = {
   retained: number
 }
 
+/** `${channel}\u0000${campaign ?? ''}`, matching how a channel row is keyed. */
+function costKey(channel: string, campaign: string | null): string {
+  return `${channel}\u0000${campaign ?? ''}`
+}
+
+const money = (value: number) =>
+  value.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
+
 /**
  * Channel through to retained case.
  *
@@ -388,8 +415,19 @@ type ChannelRow = {
  * produced cases, because it is built from attribution stored on our own
  * records rather than from a tag that never runs on the pages where people
  * convert.
+ *
+ * Spend is joined on exactly, channel and campaign together, and left blank
+ * where GA4 has no matching row. Spreading a channel's spend across its
+ * campaigns would put a cost-per-case figure against each one that nobody
+ * measured, and this is a number people make budget decisions on.
  */
-function ChannelTable({ rows }: { rows: ChannelRow[] }) {
+function ChannelTable({ rows, adCost }: { rows: ChannelRow[]; adCost: AdminAdCost[] }) {
+  // Whole columns rather than blank cells: with Google Ads unlinked there is no
+  // spend for any row, and two empty columns would read as zero spend rather
+  // than as an integration nobody has connected.
+  const priced = adCost.length > 0
+  const costByRow = new Map(adCost.map((entry) => [costKey(entry.label, entry.campaign), entry.cost]))
+
   return (
     <div className="surface-panel p-6">
       <h2 className="mb-1 flex items-center gap-2 text-lg font-semibold text-slate-900 dark:text-slate-100">
@@ -418,11 +456,15 @@ function ChannelTable({ rows }: { rows: ChannelRow[] }) {
                 <th className="py-2 pr-4 text-right font-medium">Completed</th>
                 <th className="py-2 pr-4 text-right font-medium">Routed</th>
                 <th className="py-2 pr-4 text-right font-medium">Retained</th>
-                <th className="py-2 text-right font-medium">Lead to retained</th>
+                <th className="py-2 pr-4 text-right font-medium">Lead to retained</th>
+                {priced && <th className="py-2 pr-4 text-right font-medium">Ad spend</th>}
+                {priced && <th className="py-2 text-right font-medium">Cost per retained</th>}
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => (
+              {rows.map((row) => {
+                const cost = costByRow.get(costKey(row.channel, row.campaign))
+                return (
                 <tr
                   key={`${row.channel}-${row.campaign ?? ''}`}
                   className="border-b border-slate-100 last:border-0 dark:border-slate-800"
@@ -437,11 +479,29 @@ function ChannelTable({ rows }: { rows: ChannelRow[] }) {
                   <td className="py-2 pr-4 text-right font-medium text-slate-900 dark:text-slate-100">
                     {row.retained}
                   </td>
-                  <td className="py-2 text-right text-slate-700 dark:text-slate-300">
+                  <td className="py-2 pr-4 text-right text-slate-700 dark:text-slate-300">
                     {row.leads > 0 ? `${Math.round((row.retained / row.leads) * 100)}%` : '—'}
                   </td>
+                  {priced && (
+                    <td className="py-2 pr-4 text-right text-slate-700 dark:text-slate-300">
+                      {cost == null ? '—' : money(cost)}
+                    </td>
+                  )}
+                  {priced && (
+                    // Spend with nothing retained yet is the one case worth
+                    // naming rather than dashing out: it is a real answer, and
+                    // the one an unprofitable campaign gives.
+                    <td className="py-2 text-right font-medium text-slate-900 dark:text-slate-100">
+                      {cost == null
+                        ? '—'
+                        : row.retained > 0
+                          ? money(cost / row.retained)
+                          : 'No cases yet'}
+                    </td>
+                  )}
                 </tr>
-              ))}
+                )
+              })}
             </tbody>
           </table>
         </div>

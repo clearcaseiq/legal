@@ -4221,7 +4221,22 @@ export type AdminTraffic =
          */
         averageEngagementSeconds: number
       }[]
+      /**
+       * Google Ads spend, keyed the way our own attribution names a channel
+       * ("google / cpc") so the two join without a translation table. Empty
+       * unless Google Ads is linked to the GA4 property — an ordinary state,
+       * not an error, and one that leaves the channel table simply unpriced.
+       */
+      adCostBySourceMedium: AdminAdCost[]
     }
+
+export interface AdminAdCost {
+  label: string
+  /** Null for spend GA4 could not attribute to a named campaign. */
+  campaign: string | null
+  cost: number
+  sessions: number
+}
 
 export async function getAdminTraffic(days = 30): Promise<AdminTraffic> {
   const { data } = await api.get<AdminTraffic>('/v1/admin/traffic', { params: { days } })

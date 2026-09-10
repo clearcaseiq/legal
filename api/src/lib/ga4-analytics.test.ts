@@ -55,6 +55,17 @@ function respondWithReports() {
               row(['/thanks'], [8, 0, 0]),
             ],
           },
+          // sessionSource, sessionMedium, sessionCampaignName / cost, sessions.
+          {
+            rows: [
+              row(['google', 'cpc', 'spring-injury'], [4_200, 300]),
+              // Paid traffic GA4 could not tie to a named campaign.
+              row(['google', 'cpc', '(not set)'], [800, 60]),
+              // Organic, which an unlinked-Ads property reports at zero cost
+              // for every row. Must not reach the table priced at nothing.
+              row(['google', 'organic', '(not set)'], [0, 700]),
+            ],
+          },
         ],
       },
     })
@@ -203,6 +214,51 @@ describe('fetchTrafficReport', () => {
     if (!result.configured) throw new Error('expected a configured report')
 
     expect(result.bySourceMedium).toEqual([{ label: 'google / organic', sessions: 700 }])
+  })
+
+  /**
+   * Ad spend is the join key for cost per retained case, so it has to be keyed
+   * the way our own attribution names a channel — `channelLabel` builds
+   * "google / cpc" from the utm columns, and the two must line up without a
+   * translation table.
+   */
+  it('keys ad spend the way our own attribution names a channel', async () => {
+    respondWithReports()
+
+    const result = await fetchTrafficReport(30)
+    if (!result.configured) throw new Error('expected a configured report')
+
+    expect(result.adCostBySourceMedium[0]).toEqual({
+      label: 'google / cpc',
+      campaign: 'spring-injury',
+      cost: 4_200,
+      sessions: 300,
+    })
+  })
+
+  /** GA4's placeholder for an absent campaign is not a campaign name. */
+  it('reports spend with no named campaign as unattributed rather than as "(not set)"', async () => {
+    respondWithReports()
+
+    const result = await fetchTrafficReport(30)
+    if (!result.configured) throw new Error('expected a configured report')
+
+    expect(result.adCostBySourceMedium[1]).toMatchObject({ campaign: null, cost: 800 })
+  })
+
+  /**
+   * A property with Google Ads unlinked returns every row at zero cost rather
+   * than an error. Keeping those would price organic and direct traffic at
+   * nothing, which reads as free rather than as unmeasured.
+   */
+  it('drops rows with no spend on them', async () => {
+    respondWithReports()
+
+    const result = await fetchTrafficReport(30)
+    if (!result.configured) throw new Error('expected a configured report')
+
+    expect(result.adCostBySourceMedium).toHaveLength(2)
+    expect(result.adCostBySourceMedium.every((entry) => entry.cost > 0)).toBe(true)
   })
 
   /**
