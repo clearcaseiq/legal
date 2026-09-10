@@ -26,9 +26,13 @@ import {
   EthicalWallBlockedError,
   getConnection,
   getConnector,
+  InboundSyncDisabledError,
+  InboundSyncUnsupportedError,
   listConnections,
   listProviderMeta,
   signCmsState,
+  supportsInboundSync,
+  syncConnectionInbound,
   upsertOAuthConnection,
   verifyCmsState,
 } from '../lib/cms'
@@ -282,6 +286,80 @@ router.post('/export', authMiddleware, async (req: AuthRequest, res) => {
     }
   }
   res.json({ results })
+})
+
+// --- Inbound pull sync (we read FROM the firm's CMS) ------------------------
+// Off per connection until someone turns it on, because it creates a case for
+// every matter in the firm's caseload. See lib/cms/inbound-sync.ts.
+const ImportSyncSchema = z.object({
+  connectionId: z.string().min(1),
+  /** Preview only. Nothing is written and no watermark moves. */
+  dryRun: z.boolean().optional(),
+  /** Continue a run that stopped on the page cap. */
+  cursor: z.string().min(1).optional(),
+  /** Ignore the watermark and re-read the whole caseload; dedupe makes it safe. */
+  full: z.boolean().optional(),
+})
+
+router.post('/import-sync', authMiddleware, async (req: AuthRequest, res) => {
+  const parsed = ImportSyncSchema.safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid payload' })
+  const { lawFirmId } = await getActorContext(req)
+  if (!lawFirmId) return res.status(403).json({ error: 'No firm associated with this account' })
+
+  const connection = await getConnection(parsed.data.connectionId)
+  if (!connection || connection.lawFirmId !== lawFirmId) {
+    return res.status(404).json({ error: 'Connection not found' })
+  }
+
+  try {
+    const result = await syncConnectionInbound({
+      connectionId: connection.id,
+      dryRun: parsed.data.dryRun ?? false,
+      cursor: parsed.data.cursor ?? null,
+      ...(parsed.data.full ? { since: null } : {}),
+    })
+    res.json(result)
+  } catch (error) {
+    if (error instanceof InboundSyncDisabledError) {
+      return res.status(409).json({ error: error.message, code: 'inbound_sync_disabled' })
+    }
+    if (error instanceof InboundSyncUnsupportedError) {
+      return res.status(400).json({ error: error.message, code: 'inbound_sync_unsupported' })
+    }
+    logger.error('Inbound CMS sync failed', { error, connectionId: connection.id })
+    res.status(502).json({ error: error instanceof Error ? error.message : 'sync_failed' })
+  }
+})
+
+/** Turn pull sync on or off for one connection. */
+router.post('/connections/:id/inbound-sync', authMiddleware, async (req: AuthRequest, res) => {
+  const enabled = req.body?.enabled === true
+  const { lawFirmId } = await getActorContext(req)
+  const connection = await getConnection(req.params.id)
+  if (!connection || connection.lawFirmId !== lawFirmId) {
+    return res.status(404).json({ error: 'Connection not found' })
+  }
+  const connector = getConnector(connection.provider)
+  if (!supportsInboundSync(connector)) {
+    return res.status(400).json({ error: `${connection.provider} cannot be read from`, code: 'inbound_sync_unsupported' })
+  }
+
+  // Merged rather than replaced: config also carries the provider's region
+  // base url and webhook target, which this must not drop.
+  let config: Record<string, unknown> = {}
+  try {
+    config = connection.config ? { ...(JSON.parse(connection.config) as Record<string, unknown>) } : {}
+  } catch {
+    config = {}
+  }
+  config.inboundSyncEnabled = enabled
+
+  await prisma.cmsConnection.update({
+    where: { id: connection.id },
+    data: { config: JSON.stringify(config) },
+  })
+  res.json({ ok: true, inboundSyncEnabled: enabled })
 })
 
 // --- Sync API keys (external systems that read FROM us) ---------------------

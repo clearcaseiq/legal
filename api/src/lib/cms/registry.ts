@@ -2,7 +2,7 @@
  * Provider registry — maps a provider id to its connector implementation and
  * exposes metadata for the connect UI.
  */
-import type { CmsConnector, CmsProviderId, CmsProviderMeta } from './types'
+import { supportsInboundSync, type CmsConnector, type CmsProviderId, type CmsProviderMeta } from './types'
 import { clioConnector } from './providers/clio'
 import { filevineConnector } from './providers/filevine'
 import { smartadvocateConnector } from './providers/smartadvocate'
@@ -22,7 +22,9 @@ export function getConnector(provider: string): CmsConnector | null {
 }
 
 export function listProviderMeta(): CmsProviderMeta[] {
-  return Object.values(CONNECTORS).map((c) => c.meta())
+  // Derived here rather than restated in each connector's meta(), so a
+  // provider that gains listMatters cannot forget to advertise it.
+  return Object.values(CONNECTORS).map((c) => ({ ...c.meta(), supportsInbound: supportsInboundSync(c) }))
 }
 
 export const SUPPORTED_PROVIDERS: CmsProviderId[] = Object.keys(CONNECTORS) as CmsProviderId[]

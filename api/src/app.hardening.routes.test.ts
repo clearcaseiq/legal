@@ -363,6 +363,29 @@ describe('HTTP hardening regressions', () => {
     expect(prisma.intakeLead.findMany).not.toHaveBeenCalled()
   })
 
+  /**
+   * Inbound CMS sync reads a firm's entire caseload and creates a case per
+   * matter. Unauthenticated it would be a way to make an arbitrary firm's
+   * connection pull, so the gate is asserted rather than assumed.
+   */
+  it('POST /v1/integrations/import-sync requires a session', async () => {
+    await request(app)
+      .post('/v1/integrations/import-sync')
+      .send({ connectionId: 'conn-1' })
+      .expect(401)
+
+    expect(prisma.cmsConnection.findUnique).not.toHaveBeenCalled()
+  })
+
+  it('POST /v1/integrations/connections/:id/inbound-sync requires a session', async () => {
+    await request(app)
+      .post('/v1/integrations/connections/conn-1/inbound-sync')
+      .send({ enabled: true })
+      .expect(401)
+
+    expect(prisma.cmsConnection.update).not.toHaveBeenCalled()
+  })
+
   it('POST /v1/chatgpt/analyze serializes evidence using hardened fields', async () => {
     vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
       id: 'asm-1',

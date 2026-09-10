@@ -21,7 +21,10 @@ import {
   type CmsContactResult,
   type CmsDocumentInput,
   type CmsDocumentResult,
+  type CmsInboundMatter,
+  type CmsListMattersOptions,
   type CmsMatterInput,
+  type CmsMatterPage,
   type CmsMatterResult,
   type CmsProviderMeta,
   type CmsTokenSet,
@@ -203,6 +206,94 @@ export const clioConnector: CmsConnector = {
 
     return { externalId: String(created.data.id) }
   },
+
+  /**
+   * Page through Clio matters.
+   *
+   * Clio v4 returns `meta.paging.next`, an absolute URL carrying its own
+   * offset token, so the cursor here is that URL rather than a page number —
+   * Clio's docs are explicit that clients should follow the link instead of
+   * constructing offsets themselves.
+   *
+   * `fields` is spelled out because Clio omits nested resources unless asked,
+   * and a matter without `client` has no name on it at all.
+   */
+  async listMatters(auth: CmsAuthContext, options: CmsListMattersOptions): Promise<CmsMatterPage> {
+    const fields = [
+      'id',
+      'display_number',
+      'description',
+      'status',
+      'open_date',
+      'practice_area{id,name}',
+      'client{id,name,first_name,last_name,primary_email_address,primary_phone_number}',
+    ].join(',')
+
+    let path: string
+    if (options.cursor) {
+      // Follow Clio's own link, minus the origin, which apiBase supplies.
+      path = options.cursor.startsWith('http') ? new URL(options.cursor).pathname + new URL(options.cursor).search : options.cursor
+    } else {
+      const params = new URLSearchParams({
+        fields,
+        limit: String(Math.min(options.limit ?? 100, 200)),
+        order: 'id(asc)',
+      })
+      if (options.since) params.set('updated_since', options.since.toISOString())
+      path = `/api/v4/matters.json?${params.toString()}`
+    }
+
+    const res = await clioJson<{
+      data: ClioMatter[]
+      meta?: { paging?: { next?: string | null } }
+    }>(auth, 'GET', path)
+
+    return {
+      matters: (res.data || []).map(mapClioMatter),
+      nextCursor: res.meta?.paging?.next ?? null,
+    }
+  },
+}
+
+interface ClioMatter {
+  id: number
+  display_number?: string | null
+  description?: string | null
+  status?: string | null
+  open_date?: string | null
+  practice_area?: { name?: string | null } | null
+  client?: {
+    name?: string | null
+    first_name?: string | null
+    last_name?: string | null
+    primary_email_address?: string | null
+    primary_phone_number?: string | null
+  } | null
+}
+
+function mapClioMatter(matter: ClioMatter): CmsInboundMatter {
+  const client = matter.client || {}
+  // Clio stores companies as a single `name` with no first/last, and people
+  // populate both. Splitting the fallback keeps a company from landing
+  // entirely in the first-name field.
+  const [fallbackFirst, ...fallbackRest] = String(client.name || '').trim().split(/\s+/)
+
+  return {
+    externalId: String(matter.id),
+    clientFirstName: client.first_name || fallbackFirst || null,
+    clientLastName: client.last_name || (fallbackRest.length ? fallbackRest.join(' ') : null),
+    clientEmail: client.primary_email_address || null,
+    clientPhone: client.primary_phone_number || null,
+    description: matter.description || null,
+    practiceArea: matter.practice_area?.name || null,
+    // Clio has no incident-date field of its own — `open_date` is when the
+    // matter was opened, which is not the date of loss and must not be
+    // presented as one. Left null so the sync reports the case as needing a
+    // date rather than inventing a limitations deadline from it.
+    incidentDate: null,
+    status: matter.status || null,
+    raw: { ...matter, display_number: matter.display_number ?? null },
+  }
 }
 
 async function clioOauthToken(params: Record<string, string>): Promise<CmsTokenSet> {

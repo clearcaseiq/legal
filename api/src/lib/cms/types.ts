@@ -26,6 +26,8 @@ export interface CmsProviderMeta {
   /** Short note shown in the connect UI (e.g. partner-program requirements). */
   notes?: string
   docsUrl?: string
+  /** Whether the firm's existing caseload can be pulled in from this provider. */
+  supportsInbound?: boolean
 }
 
 /** Neutral contact (the plaintiff/client) pushed to the CMS. */
@@ -93,6 +95,52 @@ export interface CmsTokenSet {
   externalUserId?: string | null
 }
 
+/* --- Inbound (pull sync) ------------------------------------------------- */
+
+/**
+ * A matter as it exists in the firm's CMS, flattened to the fields we can act
+ * on. Everything but the id is optional, because every provider lets a firm
+ * leave almost any field blank and a sparse matter is still worth importing.
+ *
+ * `raw` is kept so a field we do not yet map is recoverable from the imported
+ * case without a re-sync.
+ */
+export interface CmsInboundMatter {
+  /** Stable id in the source system. The dedupe key; a matter without one is skipped. */
+  externalId: string
+  clientFirstName?: string | null
+  clientLastName?: string | null
+  clientEmail?: string | null
+  clientPhone?: string | null
+  description?: string | null
+  /** Provider's own vocabulary, e.g. Clio's practice area. Mapped to claimType. */
+  practiceArea?: string | null
+  /** ISO date. Without one the case cannot be imported; see inbound-sync. */
+  incidentDate?: string | null
+  venueState?: string | null
+  venueCounty?: string | null
+  status?: string | null
+  raw?: Record<string, unknown>
+}
+
+export interface CmsMatterPage {
+  matters: CmsInboundMatter[]
+  /**
+   * Opaque, provider-specific. Null or absent means the last page.
+   * Deliberately not a page number: Clio pages by an offset token and Filevine
+   * by offset, and a caller should not have to know which.
+   */
+  nextCursor?: string | null
+}
+
+export interface CmsListMattersOptions {
+  /** Only matters changed since this instant, for incremental syncs. */
+  since?: Date | null
+  cursor?: string | null
+  /** Provider page size. Connectors clamp this to whatever the API allows. */
+  limit?: number
+}
+
 export interface CmsConnector {
   readonly id: CmsProviderId
   readonly authType: CmsAuthType
@@ -119,6 +167,21 @@ export interface CmsConnector {
     matterExternalId: string,
     input: CmsDocumentInput
   ): Promise<CmsDocumentResult>
+
+  /**
+   * Read matters out of the CMS, one page at a time.
+   *
+   * Optional because the direction is not symmetric: a firm can push to a
+   * Zapier webhook that has nothing to read back, and SmartAdvocate and
+   * CasePeer have no usable list endpoint. `supportsInboundSync` is how a
+   * caller asks rather than probing for the method.
+   */
+  listMatters?(auth: CmsAuthContext, options: CmsListMattersOptions): Promise<CmsMatterPage>
+}
+
+/** Whether this connector can pull, as opposed to only push. */
+export function supportsInboundSync(connector: CmsConnector | null | undefined): boolean {
+  return typeof connector?.listMatters === 'function'
 }
 
 export class CmsNotConfiguredError extends Error {

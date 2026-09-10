@@ -161,7 +161,14 @@ export const ENV = {
   // ---- CMS integrations (Phase 0+) ----
   /** Key used to encrypt CMS tokens at rest; falls back to JWT_SECRET if unset. */
   CMS_TOKEN_ENCRYPTION_KEY: process.env.CMS_TOKEN_ENCRYPTION_KEY,
-  /** Clio Manage API (OAuth 2.0 Authorization Code). Self-serve developer app. */
+  /**
+   * Clio Manage API (OAuth 2.0 Authorization Code). Self-serve developer app.
+   *
+   * Pull sync additionally needs the developer app to hold read permission on
+   * Matters and Contacts. Clio grants scopes from the app's configuration
+   * rather than the authorize request, so an app set up for export only will
+   * connect fine and then 403 the first time it tries to read a caseload back.
+   */
   CLIO_CLIENT_ID: process.env.CLIO_CLIENT_ID,
   CLIO_CLIENT_SECRET: process.env.CLIO_CLIENT_SECRET,
   CLIO_REDIRECT_URI: process.env.CLIO_REDIRECT_URI,

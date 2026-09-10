@@ -24,7 +24,10 @@ import {
   type CmsContactResult,
   type CmsDocumentInput,
   type CmsDocumentResult,
+  type CmsInboundMatter,
+  type CmsListMattersOptions,
   type CmsMatterInput,
+  type CmsMatterPage,
   type CmsMatterResult,
   type CmsProviderMeta,
   type CmsTokenSet,
@@ -192,6 +195,68 @@ export const filevineConnector: CmsConnector = {
     )
     return { externalId: extractFilevineId(res.documentId) }
   },
+
+  /**
+   * Page through Filevine projects.
+   *
+   * Filevine pages by offset/limit and reports `hasMore`, so the cursor here
+   * is the next offset as a string. It returns project summaries; the client's
+   * contact details are not on them, which is why `clientEmail` and
+   * `clientPhone` come back null rather than being fetched per project — that
+   * would be one extra round trip per case on a first sync of a whole caseload.
+   */
+  async listMatters(auth: CmsAuthContext, options: CmsListMattersOptions): Promise<CmsMatterPage> {
+    const limit = Math.min(options.limit ?? 50, 100)
+    const offset = Number(options.cursor || 0) || 0
+    const params = new URLSearchParams({ offset: String(offset), limit: String(limit) })
+    if (options.since) params.set('since', options.since.toISOString())
+
+    const res = await fvJson<{
+      items?: FilevineProject[]
+      count?: number
+      hasMore?: boolean
+    }>(auth, 'GET', `/fv-app/v2/core/projects?${params.toString()}`)
+
+    const items = res.items || []
+    // Trust `hasMore` when the gateway sends it; otherwise infer from a full
+    // page, which is the conventional signal and avoids stopping one page early.
+    const more = res.hasMore ?? items.length === limit
+    return {
+      matters: items.map(mapFilevineProject),
+      nextCursor: more && items.length > 0 ? String(offset + items.length) : null,
+    }
+  },
+}
+
+interface FilevineProject {
+  projectId?: { native?: number | string } | number | string
+  projectName?: string | null
+  projectTypeCode?: string | null
+  projectOrClientName?: string | null
+  clientName?: string | null
+  phaseName?: string | null
+  incidentDate?: string | null
+  number?: string | null
+}
+
+function mapFilevineProject(project: FilevineProject): CmsInboundMatter {
+  const clientName = String(project.clientName || project.projectOrClientName || '').trim()
+  const [first, ...rest] = clientName.split(/\s+/)
+
+  return {
+    externalId: extractFilevineId(project.projectId),
+    clientFirstName: first || null,
+    clientLastName: rest.length ? rest.join(' ') : null,
+    clientEmail: null,
+    clientPhone: null,
+    description: project.projectName || null,
+    practiceArea: project.projectTypeCode || null,
+    // Unlike Clio, Filevine projects commonly do carry a date of loss. Only
+    // taken when the gateway actually sends one.
+    incidentDate: project.incidentDate || null,
+    status: project.phaseName || null,
+    raw: { ...project },
+  }
 }
 
 function extractFilevineId(
