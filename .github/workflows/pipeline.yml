@@ -28,6 +28,10 @@ on:
 # deployable - that happened, and produced a web image with no matching API. Two
 # builds running at once is merely wasteful. So builds are left to overlap, and
 # only the deploy jobs serialise, on their own groups below.
+#
+# The production gate is the one place that coalesces rather than serialises: a
+# run of pushes should end in one rollout of the newest commit, not a queue of
+# rollouts through every state on the way there. See approve-production.
 
 permissions:
   id-token: write
@@ -188,12 +192,34 @@ jobs:
   # reproduced between two runs rather than across the whole pipeline.
   #
   # So the gate carries the environment, and therefore the required reviewer,
-  # but no group - waiting here blocks nothing.
+  # while the rollout below carries the group that must not overlap. Waiting
+  # here blocks no rollout. The group the gate does carry cancels rather than
+  # queues, which is what makes it safe - see below.
   approve-production:
     name: Approve production
     needs: deploy-qa
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    # Only the newest commit waits for a reviewer.
+    #
+    # Every push queued its own gate, so a morning of eight commits left six
+    # runs parked for approval and six sequential rollouts of intermediate
+    # states behind them. Production wants the state of main, not a replay of
+    # each step that produced it.
+    #
+    # `cancel-in-progress: true` is safe here in a way it is not on the rollout
+    # below, because this job only ever waits: cancelling it discards an
+    # approval nobody has given yet, and the commit it was holding is an
+    # ancestor of the one that superseded it. Nothing is skipped, only
+    # coalesced.
+    #
+    # It is also the opposite of the deadlock described above. That came from
+    # `false` - a newer run pending behind an older one's unanswered approval,
+    # with nothing to approve on the newer one. Cancelling inverts it: the
+    # newest run always reaches the gate, and the stale one steps aside.
+    concurrency:
+      group: approve-production
+      cancel-in-progress: true
     environment:
       name: production
       url: https://www.clearcaseiq.com
