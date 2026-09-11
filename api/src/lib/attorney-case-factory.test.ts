@@ -100,9 +100,24 @@ describe('createAttorneyOwnedCase', () => {
       assignmentType: 'exclusive',
       isExclusive: true,
       routingLocked: true,
-      status: 'accepted',
-      lifecycleState: 'attorney_engaged',
+      status: 'contacted',
+      lifecycleState: 'attorney_matched',
     })
+  })
+
+  /**
+   * Being in ENGAGED_LEAD_STATUSES is necessary but not sufficient: 'accepted'
+   * is in that set too, and setting it hid every imported case from Active
+   * Cases, which filters on the three statuses the marketplace actually
+   * produces. Pinned to the pair every other writer uses so an imported case is
+   * indistinguishable from a won one on every surface, not just the ones that
+   * happen to ask isEngagedLead.
+   */
+  it('uses the same status pair the marketplace writes, not a synonym of its own', async () => {
+    await createAttorneyOwnedCase(INPUT, OWNER, 'manual')
+
+    expect(leadCreateArg().data.status).toBe('contacted')
+    expect(leadCreateArg().data.lifecycleState).toBe('attorney_matched')
   })
 
   /**

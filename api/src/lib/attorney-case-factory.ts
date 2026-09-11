@@ -303,8 +303,18 @@ export async function createAttorneyOwnedCase(
           ...(input.importSource ? { importSource: input.importSource } : {}),
         }),
         // Already with its attorney. It was never routed and never will be.
-        status: 'accepted',
-        lifecycleState: 'attorney_engaged',
+        //
+        // The same pair every other writer uses, rather than the more literal
+        // 'accepted'/'attorney_engaged' this used to set. Nothing reads those:
+        // claimCaseForAttorney, the introduction accept and the lead-decision
+        // route all write 'contacted'/'attorney_matched', and the client derives
+        // its user-facing "Accepted" from exactly that pair (see
+        // app/src/lib/caseStatus.ts). A status no surface recognises fell
+        // through every one of them - imported cases were missing from Active
+        // Cases entirely, because it filters on the three statuses the rest of
+        // the product actually produces.
+        status: 'contacted',
+        lifecycleState: 'attorney_matched',
         submittedAt: new Date(),
       },
     })
