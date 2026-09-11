@@ -153,20 +153,25 @@ export default function Login() {
     }
   }
 
+  // The sign-up prompt reads the same either way now. It used to fork on
+  // whether a case was in hand — "Start my free case assessment" against
+  // "Create my account" — but `registerHref` already carries that difference,
+  // and the assessment wording named this page's own next step rather than the
+  // thing on offer, which is an account.
   return (
     <LoginLayout
       title={t('auth.loginTitle')}
       subtitle={t('auth.loginSubtitle')}
       showLogo={false}
       error={error}
-      footerDividerText={hasCaseInHand ? t('auth.noAccountYet') : t('auth.newToApp')}
+      footerDividerText={t('auth.noAccountYet')}
       footerContent={
         <>
           <Link
             to={registerHref}
             className="font-semibold text-blue-600 hover:text-blue-700 transition-colors block"
           >
-            {hasCaseInHand ? t('auth.createMyAccount') : t('auth.startFreeAssessment')}
+            {t('auth.createNow')}
           </Link>
         </>
       }

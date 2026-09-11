@@ -218,10 +218,8 @@
   "auth": {
     "loginTitle": "Bienvenido de nuevo",
     "loginSubtitle": "Continúe con su caso de lesiones",
-    "newToApp": "¿Nuevo en ClearCaseIQ?",
-    "startFreeAssessment": "Comenzar mi evaluación gratuita →",
-    "noAccountYet": "¿Todavía no tiene una cuenta?",
-    "createMyAccount": "Crear mi cuenta →",
+    "noAccountYet": "¿No tiene una cuenta?",
+    "createNow": "Crear ahora",
     "alreadyAttorney": "¿Ya es abogado?",
     "attorneyLogin": "Acceso para abogados →",
     "benefitFree": "Gratis.",

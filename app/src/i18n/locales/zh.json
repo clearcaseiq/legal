@@ -218,10 +218,8 @@
   "auth": {
     "loginTitle": "欢迎回来",
     "loginSubtitle": "继续您的伤害案件",
-    "newToApp": "第一次使用 ClearCaseIQ？",
-    "startFreeAssessment": "开始我的免费案件评估 →",
     "noAccountYet": "还没有账户？",
-    "createMyAccount": "创建我的账户 →",
+    "createNow": "立即创建",
     "alreadyAttorney": "已是律师？",
     "attorneyLogin": "律师登录 →",
     "benefitFree": "免费使用。",

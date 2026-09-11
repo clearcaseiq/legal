@@ -221,10 +221,8 @@
   "auth": {
     "loginTitle": "Welcome Back",
     "loginSubtitle": "Continue your injury case",
-    "newToApp": "New to ClearCaseIQ?",
-    "startFreeAssessment": "Start my free case assessment →",
-    "noAccountYet": "Don't have an account yet?",
-    "createMyAccount": "Create my account →",
+    "noAccountYet": "Don't have an account?",
+    "createNow": "Create Now",
     "alreadyAttorney": "Already an attorney?",
     "attorneyLogin": "Attorney Login →",
     "benefitFree": "Free to use.",
