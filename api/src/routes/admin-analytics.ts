@@ -14,6 +14,14 @@ import { safeJsonParse } from './admin-shared'
 
 const router: ExpressRouter = Router()
 
+/** The Meta click id out of the attribution JSON, or null if it is not in there. */
+function readFbclid(attributionExtra: string | null): string | null {
+  if (!attributionExtra) return null
+  const parsed = safeJsonParse(attributionExtra) as Record<string, unknown> | null
+  const value = parsed?.fbclid
+  return typeof value === 'string' && value ? value : null
+}
+
 function buildDecisionMemoryWhere(filters?: Record<string, unknown>) {
   const where: Record<string, unknown> = {}
   if (!filters) return where
@@ -405,8 +413,17 @@ router.get('/analytics', authMiddleware, adminMiddleware, async (req: AuthReques
         utmCampaign: true,
         gclid: true,
         referrer: true,
+        attributionExtra: true,
       },
     })
+
+    // fbclid has no column of its own - it was filed with the other rarely-read
+    // click ids - so it is lifted out here rather than in channelLabel, which
+    // stays a pure function of the fields it is given.
+    const withClickIds = attributedLeads.map((lead) => ({
+      ...lead,
+      fbclid: readFbclid(lead.attributionExtra),
+    }))
 
     const leadAssessmentIds = attributedLeads
       .map((lead) => lead.assessmentId)
@@ -420,7 +437,7 @@ router.get('/analytics', authMiddleware, adminMiddleware, async (req: AuthReques
       : []
 
     const channels = buildChannelReport(
-      attributedLeads,
+      withClickIds,
       new Set(submissions.map((s) => s.assessmentId)),
       new Set(
         submissions

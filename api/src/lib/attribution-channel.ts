@@ -19,6 +19,8 @@ export type AttributedLead = {
   utmMedium: string | null
   utmCampaign: string | null
   gclid: string | null
+  /** Meta click id, from `attributionExtra` rather than a column of its own. */
+  fbclid: string | null
   referrer: string | null
 }
 
@@ -40,6 +42,15 @@ export type ChannelRow = {
  * tagging adds the click id without touching utm parameters. A referrer is a
  * guess at best, so it is reported as a hostname rather than dressed up as a
  * channel name. Everything else is genuinely direct.
+ *
+ * `fbclid` sits below the referrer rather than beside `gclid`, and is not
+ * called paid, because it is a weaker signal than it looks. Meta appends it to
+ * every outbound link, organic posts included, so it says where a visit came
+ * from and nothing about whether it was bought. Where a referrer survived, that
+ * hostname is the better answer anyway — it distinguishes Instagram from
+ * Facebook, which the click id does not. What this branch is for is the case
+ * where no referrer survived, which is most of them: Meta's in-app browsers
+ * routinely drop it, and those visits were being counted as direct.
  */
 export function channelLabel(lead: AttributedLead): string {
   if (lead.utmSource) {
@@ -47,6 +58,7 @@ export function channelLabel(lead: AttributedLead): string {
   }
   if (lead.gclid) return 'google / cpc'
   if (lead.referrer) return `referral / ${hostOf(lead.referrer)}`
+  if (lead.fbclid) return 'meta'
   return 'direct'
 }
 

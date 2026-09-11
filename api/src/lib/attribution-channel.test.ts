@@ -9,6 +9,7 @@ function lead(overrides: Partial<AttributedLead> = {}): AttributedLead {
     utmMedium: null,
     utmCampaign: null,
     gclid: null,
+    fbclid: null,
     referrer: null,
     ...overrides,
   }
@@ -45,6 +46,37 @@ describe('channelLabel', () => {
 
   it('calls an untagged arrival direct', () => {
     expect(channelLabel(lead())).toBe('direct')
+  })
+
+  /**
+   * Meta's in-app browsers usually drop the referrer, so before this these
+   * visits were indistinguishable from someone typing the address in - paid
+   * social was quietly inflating direct.
+   */
+  it('recognises a Meta click that arrived with no referrer', () => {
+    expect(channelLabel(lead({ fbclid: 'IwAR0' }))).toBe('meta')
+  })
+
+  /**
+   * fbclid is appended to organic Facebook and Instagram links too, so it is
+   * not evidence of an ad the way a gclid is. Calling it cpc would book organic
+   * social as spend-driven.
+   */
+  it('does not claim a Meta click was paid', () => {
+    expect(channelLabel(lead({ fbclid: 'IwAR0' }))).not.toContain('cpc')
+  })
+
+  /** A surviving referrer tells Instagram from Facebook; the click id cannot. */
+  it('prefers the referrer over the click id when both are present', () => {
+    expect(channelLabel(lead({ fbclid: 'IwAR0', referrer: 'https://www.instagram.com/' }))).toBe(
+      'referral / instagram.com',
+    )
+  })
+
+  it('still prefers utm tagging over a Meta click id', () => {
+    expect(channelLabel(lead({ fbclid: 'IwAR0', utmSource: 'facebook', utmMedium: 'cpc' }))).toBe(
+      'facebook / cpc',
+    )
   })
 })
 
