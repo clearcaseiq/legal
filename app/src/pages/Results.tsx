@@ -26,7 +26,6 @@ import {
   type PendingAttorneyBatch,
   type PlaintiffMedicalReviewEdit,
   type PlaintiffMedicalReviewPayload,
-  type PlaintiffMedicalReviewStatus,
 } from '../lib/api-plaintiff'
 import ChatGPTAnalysis from '../components/ChatGPTAnalysis'
 import BrandLogo from '../components/BrandLogo'
@@ -1080,22 +1079,18 @@ export default function Results() {
     }
   }
 
-  const openSendModal = async (medicalReviewStatusOverride?: PlaintiffMedicalReviewStatus) => {
-    const currentMedicalReviewStatus = medicalReviewStatusOverride ?? plaintiffMedicalReview?.review.status ?? 'pending'
-    // Only force the medical-timeline review when there is actually a timeline to
-    // review. medicalReviewPending defaults to 'pending' whenever the review
-    // payload hasn't loaded (or the case has no medical story), which left
-    // "Continue to Attorney Review" silently redirecting to an empty medical
-    // section instead of opening the send popup the user expects (#225).
-    const hasMedicalStoryToReview = Array.isArray(medicalChronology) && medicalChronology.length > 0
-    if (currentMedicalReviewStatus === 'pending' && hasMedicalStoryToReview) {
-      // Guide to the review card — don't paint a red "error" under it. The card
-      // already has Confirm / Upload more / I'll do this later.
-      setMedicalReviewError(null)
-      openAnchoredResultsSection('#medical-story-review')
-      return
-    }
-
+  // Deliberately not gated on the medical-timeline review, which used to send a
+  // pending case to the review card instead of opening this. It interrupted at
+  // the point of highest intent, and "Skip for now" sat on that card — so it
+  // collected confirmations from people who would have given them anyway, and
+  // cost the ones who abandoned instead of clicking through.
+  //
+  // Nothing downstream needs it: the pre-routing gate does not read the review
+  // status, and the chronology marks every event documented, estimated or
+  // needs_review, so an unconfirmed timeline reaches the attorney visibly
+  // unconfirmed rather than silently wrong. The review is still offered on the
+  // Medical tab; it is no longer in the way.
+  const openSendModal = async () => {
     // Guests can submit as a "limited" lead using the contact info collected in the
     // send modal; account creation is offered as a value-add on the confirmation
     // screen (showSavePrompt) rather than gating the send. We still stash the
@@ -1343,7 +1338,7 @@ export default function Results() {
         window.setTimeout(() => {
           document.getElementById('attorney-handoff')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
           if (reviewRequested) {
-              void openSendModal(nextStatus)
+              void openSendModal()
           }
         }, 100)
         }
@@ -1785,19 +1780,24 @@ export default function Results() {
     loadMatchedAttorneys()
   }, [assessment?.id, venueState, assessment?.claimType])
 
+  // `?review=1` is the claimant asking to send the case for attorney review, so
+  // open the send modal on arrival. It no longer detours to the medical review
+  // first, for the reasons on openSendModal.
+  //
+  // Fires once. It used to mark itself handled only when the review was already
+  // confirmed, so on a pending case it stayed armed for the life of the page and
+  // re-entered on any later change to the review status — normally the
+  // claimant's own confirm, which handleMedicalReviewSave is already responding
+  // to, and which deliberately keeps an already-sent case on the Medical tab
+  // rather than reopening the send popup over it.
   useEffect(() => {
-    if (!reviewRequested || autoReviewHandled || loading || !assessment || !plaintiffMedicalReview) return
-    window.setTimeout(() => {
-      if ((plaintiffMedicalReview.review.status ?? 'pending') === 'pending') {
-        // Scroll to the review card only — no red alert for a pending action.
-        setMedicalReviewError(null)
-        medicalReviewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-        return
-      }
+    if (!reviewRequested || autoReviewHandled || loading || !assessment) return
+    const timer = window.setTimeout(() => {
       setAutoReviewHandled(true)
-      openSendModal(plaintiffMedicalReview.review.status)
+      void openSendModal()
     }, 100)
-  }, [reviewRequested, autoReviewHandled, loading, assessment?.id, plaintiffMedicalReview?.review.status])
+    return () => window.clearTimeout(timer)
+  }, [reviewRequested, autoReviewHandled, loading, assessment?.id])
 
   useEffect(() => {
     if (matchedAttorneys.length === 0) {
@@ -2947,10 +2947,11 @@ Checklist:
       ? { label: 'Review medical story', to: '#medical-story-review' }
       : null
   const primaryReviewActionLabel = 'See if an attorney wants your case'
+  // No medical-review branch here any more. It promised "we will ask you to
+  // confirm or skip the medical story before attorneys receive the case", which
+  // stopped being true when that stopped gating the send.
   const primaryReviewActionHelper = isLoggedIn === false
     ? 'Create a secure account first so attorneys have a real contact, saved case, and consent trail.'
-    : medicalReviewPending
-      ? 'We will ask you to confirm or skip the medical story before attorneys receive the case.'
     : 'Cases with similar characteristics are commonly reviewed by personal injury attorneys.'
   const liabilityClarityDisplay = t(LIABILITY_TIER_COPY_KEY[liabilityTierValue])
   const liabilityModifierExplanation = getLiabilityModifierExplanation(t, {
@@ -3021,7 +3022,10 @@ Checklist:
     { id: 'medical', label: t('results.tabs.medical'), badge: medicalReviewPending ? t('results.tabs.reviewNeeded') : undefined, badgeNeedsAction: medicalReviewPending },
     { id: 'value', label: t('results.tabs.value') },
     { id: 'documents', label: t('results.tabs.documents'), badge: missingDocItems.length > 0 ? `${missingDocItems.length} ${t('results.tabs.missingSuffix')}` : t('results.tabs.ready'), badgeNeedsAction: missingDocItems.length > 0 },
-    { id: 'attorney', label: t('results.tabs.attorney'), badge: medicalReviewPending ? t('results.tabs.actionNeeded') : undefined, badgeNeedsAction: medicalReviewPending },
+    // No badge for a pending medical review. It marked this tab "Action needed"
+    // for something that is neither on it nor required, and is now not blocking
+    // either; the Medical tab carries its own badge for that.
+    { id: 'attorney', label: t('results.tabs.attorney') },
   ]
   const openAnchoredResultsSection = (target: string) => {
     const tab: ResultsTab = target === '#attorney-handoff' ? 'attorney' : target === '#medical-story-review' ? 'medical' : activeResultsTab
