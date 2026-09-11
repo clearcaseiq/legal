@@ -4,9 +4,10 @@ import {
   getAssistanceAi,
   getAssistanceCase,
   getAssistanceSpecialists,
+  releaseCaseForRouting,
   updateAssistanceCase,
 } from '../../lib/api'
-import type { AssistanceGap } from '../../lib/api'
+import type { AssistanceGap, ReleaseForRoutingOutcome } from '../../lib/api'
 import { Loader2 } from 'lucide-react'
 import { BackButton, EmptyState, SectionCard } from '../../features/shared/ui'
 import { useAssistanceBasePath } from './useAssistanceBasePath'
@@ -26,6 +27,27 @@ import { WorkbenchTabNav, isWorkbenchTab, type WorkbenchTab } from './workbench/
 
 type CaseData = Awaited<ReturnType<typeof getAssistanceCase>>
 type AiData = Awaited<ReturnType<typeof getAssistanceAi>>
+
+/**
+ * What to tell the specialist when a release did not reach an attorney.
+ *
+ * Each one names the remedy, because that is the only part they can act on.
+ * "Could not route this case" sent them to look for a bug in three of these
+ * four cases, when the case was in fact sitting exactly where it should be.
+ */
+const RELEASE_FAILURE_MESSAGES: Record<
+  Exclude<ReleaseForRoutingOutcome, 'routed'>,
+  (reason: string | null) => string
+> = {
+  already_engaged: () =>
+    'An attorney is already working this case, so it was not offered again. Nothing to do.',
+  routing_disabled: () =>
+    'Routing is switched off platform-wide, so nothing was sent. An admin can re-enable it under Matching Rules.',
+  held_for_review: (reason) =>
+    `This case was held for manual review before it reached any attorney${reason ? `: ${reason}` : '.'} It is now in the admin Manual Review queue.`,
+  no_match: (reason) =>
+    `No attorney matched this case${reason ? ` (${reason})` : ''}, so it has been parked in Manual Review for an admin to place by hand.`,
+}
 
 /**
  * The case specialist workbench.
@@ -64,6 +86,7 @@ export default function CaseAssistanceWorkspace() {
   const [saveError, setSaveError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [releasing, setReleasing] = useState(false)
   const [specialists, setSpecialists] = useState<{ id: string; name: string; role?: string }[]>([])
   const [openAction, setOpenAction] = useState<ContactAction | null>(null)
   const [focusGapKey, setFocusGapKey] = useState<string | null>(null)
@@ -145,6 +168,36 @@ export default function CaseAssistanceWorkspace() {
       setSaveError(err.response?.data?.error || 'Could not save that change')
     } finally {
       setSaving(false)
+    }
+  }
+
+  /**
+   * Hand this case to the routing engine and say what became of it.
+   *
+   * Reloads afterwards because a release changes the lead's state — routed, or
+   * parked in manual review — and the header and snapshot read that.
+   */
+  const release = async () => {
+    try {
+      setReleasing(true)
+      setNotice(null)
+      setSaveError(null)
+      const result = await releaseCaseForRouting(id)
+      if (result.outcome === 'routed') {
+        setNotice(
+          `Released for routing. Offered to ${result.routedCount} attorney${result.routedCount === 1 ? '' : 's'}.`,
+        )
+      } else {
+        // Not thrown as an error: every one of these is a legitimate verdict
+        // from the engine, and the case has been parked accordingly rather
+        // than lost. What the specialist needs is which verdict it was.
+        setSaveError(RELEASE_FAILURE_MESSAGES[result.outcome](result.reason))
+      }
+      await load({ silent: true })
+    } catch (err: any) {
+      setSaveError(err.response?.data?.error || 'Could not release this case for routing')
+    } finally {
+      setReleasing(false)
     }
   }
 
@@ -312,7 +365,9 @@ export default function CaseAssistanceWorkspace() {
               assistance={assistance}
               specialists={specialists}
               saving={saving}
+              releasing={releasing}
               onPatch={patch}
+              onRelease={release}
             />
           </div>
         </div>

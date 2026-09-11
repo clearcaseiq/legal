@@ -21,15 +21,21 @@ import {
  * request, and the "Saving…" label says what is happening without seizing
  * anything from the person mid-click.
  */
+/** The one status from which a case may be handed to the routing engine. */
+const RELEASABLE_STATUS: AssistanceStatus = 'ready_for_attorney_review'
+
 export function WorkflowCard({
   assistance,
   specialists,
   saving,
+  releasing,
   onPatch,
+  onRelease,
 }: {
   assistance: AssistanceQueueRow
   specialists: { id: string; name: string; role?: string }[]
   saving: boolean
+  releasing: boolean
   onPatch: (
     input: {
       status?: AssistanceStatus
@@ -39,7 +45,9 @@ export function WorkflowCard({
     },
     message?: string,
   ) => void
+  onRelease: () => void
 }) {
+  const releasable = assistance.status === RELEASABLE_STATUS
   return (
     <SectionCard
       title={
@@ -106,6 +114,29 @@ export function WorkflowCard({
         <p className="text-xs text-slate-500 dark:text-slate-400">
           First review due {dueLabel(assistance.reviewDueAt)}.
         </p>
+
+        {/* Sits under the workflow fields because it acts on the status above
+            it, and is shown disabled rather than hidden so it is discoverable
+            as the thing that happens next. */}
+        <div className="border-t border-slate-200 pt-3 dark:border-slate-700">
+          <button
+            type="button"
+            onClick={onRelease}
+            disabled={!releasable || releasing}
+            className="btn-primary w-full text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {releasing ? 'Releasing…' : 'Release for Routing'}
+          </button>
+          <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">
+            {!releasable
+              ? `Available once the status is ${ASSISTANCE_STATUS_LABELS[RELEASABLE_STATUS]}.`
+              : // Says it is a re-send because choosing the status already
+                // started one, silently. Without this the button reads as the
+                // only handover, and a specialist who never pressed it would
+                // assume nothing had gone out.
+                'Offers this case to matching attorneys and reports the result. Choosing the status above already started this once; releasing again is safe.'}
+          </p>
+        </div>
       </div>
     </SectionCard>
   )

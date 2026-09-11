@@ -3850,7 +3850,7 @@ export interface ImportPreview {
   noEmailCount: number
   /**
    * Rows for a client the firm already has, but a different date of loss.
-   * Imported as separate matters ΓÇö a returning client is not a duplicate ΓÇö and
+   * Imported as separate matters — a returning client is not a duplicate — and
    * listed so the attorney can say otherwise before committing.
    */
   secondMatterCount: number
@@ -3922,7 +3922,7 @@ export interface ImportFilePreview {
  *
  * The browser used to parse the file itself. That second parser refused Excel,
  * decided the format from the file extension and choked on a byte order mark,
- * so the mapping screen could reject a file the import would have accepted ΓÇö
+ * so the mapping screen could reject a file the import would have accepted —
  * or map it differently. One parser, on the server, asked the same question.
  */
 export async function parseImportFilePreview(file: File) {
@@ -5218,6 +5218,38 @@ export async function updateAssistanceCase(
 ) {
   const { data } = await api.patch(`/v1/case-assistance/${id}`, input)
   return data as { assistance: AssistanceQueueRow | null }
+}
+
+/**
+ * Why a released case did or did not reach an attorney.
+ *
+ * Five outcomes rather than a boolean because the remedy differs: the
+ * kill-switch needs an admin, a gate hold needs the case looked at, and no
+ * match may simply be a venue no firm covers yet.
+ */
+export type ReleaseForRoutingOutcome =
+  | 'routed'
+  | 'already_engaged'
+  | 'routing_disabled'
+  | 'held_for_review'
+  | 'no_match'
+
+export interface ReleaseForRoutingResult {
+  outcome: ReleaseForRoutingOutcome
+  routedCount: number
+  reason: string | null
+}
+
+/**
+ * Hand one case to the routing engine now and wait for the verdict.
+ *
+ * Marking a case Ready for Attorney already starts this, but does so
+ * fire-and-forget so the status save cannot be held up or failed by routing —
+ * which also makes it silent. This is the same handover, reported.
+ */
+export async function releaseCaseForRouting(id: string) {
+  const { data } = await api.post(`/v1/case-assistance/${id}/release-for-routing`)
+  return data as ReleaseForRoutingResult
 }
 
 export async function logAssistanceInteraction(

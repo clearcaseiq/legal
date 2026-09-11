@@ -670,6 +670,31 @@ const UpdateSchema = z.object({
 })
 
 /**
+ * What became of a handover attempt, in the terms the specialist needs.
+ *
+ * The engine's own result is a wide object with several different ways of
+ * saying "not placed", and the difference is the only useful part: the
+ * kill-switch needs an admin, a gate hold needs someone to look at the case,
+ * and no match may just be a venue no firm covers. Collapsed to five outcomes
+ * so the automatic handover and the Release for Routing button report the same
+ * vocabulary.
+ */
+export type HandoverOutcome =
+  | 'routed'
+  | 'already_engaged'
+  | 'routing_disabled'
+  | 'held_for_review'
+  | 'no_match'
+
+export interface HandoverResult {
+  outcome: HandoverOutcome
+  /** Attorneys the case was offered to. Zero for every outcome but `routed`. */
+  routedCount: number
+  /** The engine's own explanation, when it gave one. */
+  reason: string | null
+}
+
+/**
  * Start routing a case the specialist has just marked Ready for Attorney.
  *
  * Marking the status used to only recolour a badge and drop the case out of the
@@ -687,7 +712,7 @@ async function handoverToAttorneys(assistance: {
   id: string
   assessmentId: string
   assessment?: { leadSubmission?: { status?: string | null; lifecycleState?: string | null } | null } | null
-}): Promise<void> {
+}): Promise<HandoverResult> {
   const lead = assistance.assessment?.leadSubmission
 
   // An attorney already has this one. Routing again would offer a case that is
@@ -697,7 +722,7 @@ async function handoverToAttorneys(assistance: {
       assessmentId: assistance.assessmentId,
       leadStatus: lead?.status,
     })
-    return
+    return { outcome: 'already_engaged', routedCount: 0, reason: null }
   }
 
   const result = await startAssessmentRouting(assistance.assessmentId, {
@@ -711,7 +736,7 @@ async function handoverToAttorneys(assistance: {
       strategy: result.strategy,
       attorneyIds: result.routedTo,
     })
-    return
+    return { outcome: 'routed', routedCount: result.routedTo.length, reason: null }
   }
 
   // Not an error: a case can be legitimately held at the gate or find no
@@ -722,6 +747,25 @@ async function handoverToAttorneys(assistance: {
     gateReason: result.gateReason,
     reason: result.errors?.[0] || result.holdReason || null,
   })
+
+  // Told apart because the remedy differs: the kill-switch needs an admin, a
+  // gate hold needs the case looked at, and no match may simply be a venue
+  // nobody covers yet. Reported as a bare "not routed" they all read as a bug.
+  if (result.disabledByAdmin) {
+    return { outcome: 'routing_disabled', routedCount: 0, reason: result.gateReason || null }
+  }
+  if (result.gatePassed === false) {
+    return {
+      outcome: 'held_for_review',
+      routedCount: 0,
+      reason: result.gateReason || result.holdReason || null,
+    }
+  }
+  return {
+    outcome: 'no_match',
+    routedCount: 0,
+    reason: result.errors?.[0] || result.holdReason || null,
+  }
 }
 
 /**
@@ -838,6 +882,56 @@ router.patch('/:id', async (req: AuthRequest, res) => {
     res.json({ success: true, assistance: updated ? serializeQueueRow(updated) : null })
   } catch (error) {
     logger.error('Failed to update case assistance', { error, id: req.params.id })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/**
+ * Release this one case into routing now, and say what happened to it.
+ *
+ * The same handover the `ready_for_attorney_review` transition already fires,
+ * but awaited instead of fire-and-forget. That transition stays as it is, for
+ * the reason on `handoverToAttorneys`: the specialist's save must not wait on
+ * the routing engine or fail because it failed. The cost of that is silence — a
+ * case held at the fraud gate, refused by the kill-switch, or matching no
+ * attorney looked exactly like one offered to three firms, and the specialist
+ * had no way to tell which had happened or to try again.
+ *
+ * Safe to press twice. The engaged-lead guard inside the handover refuses to
+ * offer a case an attorney is already working, so pressing it after a
+ * successful release reports `already_engaged` rather than double-booking the
+ * claimant with a second firm.
+ *
+ * No interaction row is written: `recordInteraction` moves `firstContactAt` and
+ * `lastContactAt`, which exist to measure contact with the *claimant*, and
+ * routing a case is not that.
+ */
+router.post('/:id/release-for-routing', async (req: AuthRequest, res) => {
+  try {
+    const assistance = await loadAssistance(req, req.params.id)
+    if (!assistance) return res.status(404).json({ error: 'Case not found' })
+
+    // The UI disables the button, but the rule has to live here: releasing a
+    // case still in intake would offer attorneys a file nobody has finished.
+    if (assistance.status !== 'ready_for_attorney_review') {
+      return res.status(409).json({
+        error: 'Mark this case Ready for Attorney before releasing it for routing.',
+      })
+    }
+
+    const result = await handoverToAttorneys(assistance)
+
+    logger.info('Case released for routing by a specialist', {
+      assistanceId: assistance.id,
+      assessmentId: assistance.assessmentId,
+      outcome: result.outcome,
+      routedCount: result.routedCount,
+      specialistId: req.user?.id || null,
+    })
+
+    res.json(result)
+  } catch (error) {
+    logger.error('Failed to release case for routing', { error, id: req.params.id })
     res.status(500).json({ error: 'Internal server error' })
   }
 })
