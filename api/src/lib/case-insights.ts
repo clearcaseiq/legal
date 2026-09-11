@@ -748,6 +748,17 @@ export interface CasePreparationInput {
   evidenceCategories: Array<string | null | undefined>
   /** `Prediction.viability`, from the most recent prediction. */
   viability?: unknown
+  /**
+   * Whether the case has been scored at all, which is a different question from
+   * whether that scoring produced a viability value.
+   *
+   * Strengths and weaknesses are only reported for a scored case, and the test
+   * for that used to be "a prediction row exists". A prediction can exist with
+   * no viability on it, so inferring one from the other empties both lists for
+   * every such case. Left optional: a caller that has only the viability still
+   * gets the old inference.
+   */
+  hasPrediction?: boolean
 }
 
 /** The columns scoreCasePreparation needs, for a caller batching its own read. */
@@ -784,6 +795,7 @@ export async function computeCasePreparation(assessmentId: string): Promise<Case
     claimType: assessment.claimType,
     evidenceCategories: (assessment.evidenceFiles || []).map((f) => f.category),
     viability: assessment.predictions?.[0]?.viability,
+    hasPrediction: (assessment.predictions?.length ?? 0) > 0,
   })
 }
 
@@ -893,7 +905,7 @@ export function scoreCasePreparation(input: CasePreparationInput): CasePreparati
 
   // Strengths/weaknesses — liability wording must agree with prediction/underwriting,
   // not a missing facts.liability.confidence field that contradicts "Very Strong".
-  const pred = input.viability ? { viability: input.viability } : null
+  const isScored = input.hasPrediction ?? input.viability != null
   const viability = (() => {
     const raw = input.viability
     if (!raw) return {} as Record<string, number>
@@ -910,7 +922,7 @@ export function scoreCasePreparation(input: CasePreparationInput): CasePreparati
     return null
   })()
 
-  if (pred) {
+  if (isScored) {
     if (liabilityConfidence01 != null && liabilityConfidence01 >= 0.7) {
       strengths.push('Strong liability evidence')
     }

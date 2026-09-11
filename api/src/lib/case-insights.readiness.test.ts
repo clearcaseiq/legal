@@ -124,3 +124,51 @@ describe('evidence categories fold onto their canonical bucket', () => {
     expect(result.missingDocs.map((item) => item.key)).toContain('photos')
   })
 })
+
+/**
+ * Strengths and weaknesses are only reported once a case has been scored, and
+ * the test for that is whether a prediction exists — not whether that
+ * prediction filled in a viability figure. Reading it off the value instead
+ * emptied both lists for every case whose prediction had not, which is a whole
+ * panel quietly going blank rather than an obviously wrong number.
+ */
+describe('a scored case reports its strengths and weaknesses', () => {
+  beforeEach(() => {
+    resetUniversalPrismaMock()
+    vi.clearAllMocks()
+  })
+
+  const withPrediction = (prediction: Record<string, any>) => {
+    vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
+      claimType: 'auto',
+      facts: JSON.stringify(COMPLETED_INTAKE),
+      evidenceFiles: [],
+      predictions: [prediction],
+    } as any)
+  }
+
+  it('reports them for a prediction carrying no viability', async () => {
+    withPrediction({ id: 'pred-1' })
+    const result = await computeCasePreparation('asm-1')
+
+    expect(result.strengths).toContain('Documented medical expenses')
+    expect(result.strengths).toContain('Injuries documented')
+    expect(result.weaknesses.join(' ')).toMatch(/missing document/)
+  })
+
+  it('reports them for a prediction that does carry one', async () => {
+    withPrediction({ id: 'pred-1', viability: JSON.stringify({ liability: 0.9 }) })
+    const result = await computeCasePreparation('asm-1')
+
+    expect(result.strengths).toContain('Strong liability evidence')
+  })
+
+  /** Nothing has assessed the case yet, so there is no judgement to report. */
+  it('withholds them until the case has been scored', async () => {
+    givenAssessment(COMPLETED_INTAKE)
+    const result = await computeCasePreparation('asm-1')
+
+    expect(result.strengths).toEqual([])
+    expect(result.weaknesses).toEqual([])
+  })
+})

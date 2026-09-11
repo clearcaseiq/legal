@@ -444,6 +444,7 @@ export async function buildAttorneyWorkQueue(params: {
       claimType,
       evidenceCategories: ((lead?.assessment?.evidenceFiles as any[]) || []).map((file) => file?.category),
       viability: viabilityByAssessmentId[lead.assessmentId],
+      hasPrediction: lead.assessmentId in viabilityByAssessmentId,
     })
 
     const label = getReadinessLabel(heuristics, score)
