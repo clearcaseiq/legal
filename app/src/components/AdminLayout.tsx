@@ -227,10 +227,16 @@ export default function AdminLayout({ children }: { children?: ReactNode }) {
 
       <div className="flex">
         {/* Sidebar */}
+        {/* `lg:sticky` with an explicit viewport height, rather than the
+            `lg:static` this used to be. Static gave the column no height of its
+            own, so as a flex child it stretched to match the page — which meant
+            the nav's `overflow-y-auto` never had anything to scroll and the
+            links simply rode up out of view on a long page like Analytics.
+            Pinned below the 3.5rem header, the nav now scrolls on its own. */}
         <aside
           className={`${
             sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-          } lg:translate-x-0 fixed lg:static inset-y-0 left-0 z-30 w-64 border-r border-slate-200/80 bg-white/88 pt-14 backdrop-blur-xl dark:border-slate-800 dark:bg-slate-900/90 lg:pt-0 transition-transform duration-200`}
+          } lg:translate-x-0 fixed lg:sticky inset-y-0 lg:inset-y-auto lg:top-14 left-0 z-30 lg:h-[calc(100vh-3.5rem)] w-64 shrink-0 self-start border-r border-slate-200/80 bg-white/88 pt-14 backdrop-blur-xl dark:border-slate-800 dark:bg-slate-900/90 lg:pt-0 transition-transform duration-200`}
         >
           <nav className="h-full space-y-5 overflow-y-auto p-4 pb-8">
             {visibleNavGroups.map((group) => (
