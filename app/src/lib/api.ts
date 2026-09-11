@@ -3834,6 +3834,8 @@ export interface ImportInviteResult {
   noEmail: number
   alreadyInvited: number
   alreadyClaimed: number
+  /** Addresses that already have a login, so there is no password to set. */
+  accountExists: number
 }
 
 export interface ImportPreview {

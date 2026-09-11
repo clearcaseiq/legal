@@ -141,6 +141,41 @@ describe('inviteClaimantToCase', () => {
 
     expect(sentArg().message).not.toContain('/register?claim=')
   })
+
+  describe('an address that already has a login', () => {
+    const withAccount = () =>
+      vi.mocked(prisma.user.findUnique).mockResolvedValue({ id: 'user-7' } as any)
+
+    it('sends nothing, because there is no password to set', async () => {
+      withAccount()
+
+      const result = await inviteClaimantToCase(INVITE)
+
+      expect(result).toEqual({ sent: false, skipped: 'account_exists' })
+      expect(deliverDirectNotification).not.toHaveBeenCalled()
+    })
+
+    it('matches the address regardless of how the attorney typed it', async () => {
+      withAccount()
+
+      await inviteClaimantToCase({ ...INVITE, email: '  Dana@Example.com ' })
+
+      expect(prisma.user.findUnique).toHaveBeenCalledWith({
+        where: { email: 'dana@example.com' },
+        select: { id: true },
+      })
+    })
+
+    // The lookup is a guard, not the job. Losing the database mid-import must
+    // not turn a committed import into one whose clients were never told.
+    it('still invites when the account lookup itself fails', async () => {
+      vi.mocked(prisma.user.findUnique).mockRejectedValue(new Error('db down'))
+
+      const result = await inviteClaimantToCase(INVITE)
+
+      expect(result).toEqual({ sent: true, skipped: null })
+    })
+  })
 })
 
 describe('inviteClaimants', () => {
@@ -161,7 +196,13 @@ describe('inviteClaimants', () => {
       { assessmentId: 'asm-3', email: null },
     ])
 
-    expect(result).toEqual({ sent: 1, noEmail: 1, alreadyInvited: 0, alreadyClaimed: 1 })
+    expect(result).toEqual({
+      sent: 1,
+      noEmail: 1,
+      alreadyInvited: 0,
+      alreadyClaimed: 1,
+      accountExists: 0,
+    })
   })
 
   it('keeps going after one claimant cannot be mailed', async () => {

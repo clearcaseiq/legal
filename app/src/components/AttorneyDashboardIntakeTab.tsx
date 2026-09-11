@@ -438,6 +438,11 @@ export default function AttorneyDashboardIntakeTab({ onGoToLeads }: AttorneyDash
           invites ? `Invited ${invites.sent} client${invites.sent === 1 ? '' : 's'} to their portal.` : '',
           invites && invites.noEmail > 0 ? `${invites.noEmail} had no email address on file.` : '',
           invites && invites.alreadyInvited > 0 ? `${invites.alreadyInvited} already invited earlier.` : '',
+          // Not a failure to report as one: these clients can already sign in,
+          // and their case attaches when they do.
+          invites && invites.accountExists > 0
+            ? `${invites.accountExists} email${invites.accountExists === 1 ? '' : 's'} already exist${invites.accountExists === 1 ? 's' : ''} on the platform; those clients can sign in instead.`
+            : '',
         ]
           .filter(Boolean)
           .join(' '),

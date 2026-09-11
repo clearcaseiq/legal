@@ -62,7 +62,11 @@ export interface ClaimantInvite {
  * and callers surface the counts so an attorney can tell how many of their
  * clients were actually reached.
  */
-export type ClaimantInviteSkipReason = 'no_email' | 'already_invited' | 'already_claimed'
+export type ClaimantInviteSkipReason =
+  | 'no_email'
+  | 'already_invited'
+  | 'already_claimed'
+  | 'account_exists'
 
 export interface ClaimantInviteResult {
   sent: boolean
@@ -74,7 +78,11 @@ export interface ClaimantInviteBatchResult {
   noEmail: number
   alreadyInvited: number
   alreadyClaimed: number
+  accountExists: number
 }
+
+/** What the attorney is told when an address already has a login. */
+export const ACCOUNT_EXISTS_MESSAGE = 'Email already exists.'
 
 /** Whether this case has been invited before, at any time, by any path. */
 async function alreadyInvited(assessmentId: string): Promise<boolean> {
@@ -145,6 +153,17 @@ export async function inviteClaimantToCase(invite: ClaimantInvite): Promise<Clai
       return { sent: false, skipped: 'already_invited' }
     }
 
+    // An address that already has a login gets no invite. The mail's whole offer
+    // is "set a password and your case is waiting", which is the wrong
+    // instruction for someone who already has one — they sign in, and adoption
+    // attaches the case on the way through.
+    const existingAccount = await prisma.user
+      .findUnique({ where: { email }, select: { id: true } })
+      .catch(() => null)
+    if (existingAccount) {
+      return { sent: false, skipped: 'account_exists' }
+    }
+
     const url = claimantInviteUrl(invite.assessmentId)
     await deliverDirectNotification({
       type: 'email',
@@ -192,6 +211,7 @@ export async function inviteClaimants(
     noEmail: 0,
     alreadyInvited: 0,
     alreadyClaimed: 0,
+    accountExists: 0,
   }
 
   for (const invite of invites) {
@@ -200,6 +220,7 @@ export async function inviteClaimants(
     else if (one.skipped === 'no_email') result.noEmail += 1
     else if (one.skipped === 'already_invited') result.alreadyInvited += 1
     else if (one.skipped === 'already_claimed') result.alreadyClaimed += 1
+    else if (one.skipped === 'account_exists') result.accountExists += 1
   }
 
   return result
