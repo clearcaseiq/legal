@@ -12,6 +12,8 @@
  * not.
  */
 
+import { parseIncidentDate } from './imported-date'
+
 export const INTAKE_IMPORT_SOURCES = ['clio', 'filevine', 'needles', 'litify', 'spreadsheet'] as const
 
 export type IntakeImportSource = (typeof INTAKE_IMPORT_SOURCES)[number]
@@ -32,6 +34,23 @@ export type NormalizedImportedCase = {
   plaintiffEmail: string
   plaintiffPhone: string
   incidentDate?: string
+  /**
+   * Why there is no `incidentDate`, in words for the attorney.
+   *
+   * Always set when `incidentDate` is absent, and null when it is present. The
+   * row is still skipped either way — we do not invent a date of loss — but a
+   * skipped row that says "45000 is a number, not a date. If that column holds
+   * Excel dates, format it as a date before exporting" is one the attorney can
+   * fix, where "no incident date" on a row with a number in the date column is
+   * one they report as a bug.
+   */
+  incidentDateIssue: string | null
+  /**
+   * The date was read month-first but could have been day-first, e.g.
+   * `03/04/2026`. Imported either way; surfaced so the attorney can check,
+   * because they know their export's locale and we do not.
+   */
+  incidentDateAmbiguous: boolean
   narrative: string
   taskTitle?: string
   taskDueDate?: Date | null
@@ -74,17 +93,45 @@ export function importableFactPaths(
   )
 }
 
+/** Case, spaces and punctuation all ignored, so "Date of Loss", "date_of_loss" and "DateOfLoss" are one name. */
+function normalizeHeader(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, '')
+}
+
 /**
- * The first candidate header present in the row, compared ignoring case,
- * spaces and punctuation, so "Date of Loss", "date_of_loss" and "DateOfLoss"
- * all hit the same rule.
+ * The last segment of a dotted path: `case.incident_date` -> `incident_date`.
+ *
+ * A JSON export nests, and `flattenRow` records that nesting in the key. So a
+ * perfectly ordinary Clio case file arrived with columns named
+ * `case.incident_date` and `client.first_name`, which match none of the rules
+ * below — the incident date went unread and every row was skipped for not
+ * having one. Matching the leaf as well is what makes a nested export legible.
+ */
+export function headerLeaf(header: string): string {
+  const index = header.lastIndexOf('.')
+  return index === -1 ? header : header.slice(index + 1)
+}
+
+/**
+ * The first candidate header present in the row.
+ *
+ * Each candidate is tried against the full column name first and then against
+ * the leaf of a dotted one, rather than trying every column name and only then
+ * every leaf. Candidate lists here are written most-specific-first, and that
+ * order is the more meaningful of the two: for a Clio file the narrative rules
+ * are `['narrative', 'description', ..., 'notes']`, and a pass-major order
+ * would match the top-level `notes` array before the `incident.description`
+ * the attorney actually wants.
  */
 export function getImportField(row: Record<string, string>, candidates: string[]) {
   const entries = Object.entries(row)
   for (const candidate of candidates) {
-    const normalizedCandidate = candidate.toLowerCase().replace(/[^a-z0-9]/g, '')
-    const match = entries.find(([key]) => key.toLowerCase().replace(/[^a-z0-9]/g, '') === normalizedCandidate)
-    if (match?.[1]) return match[1].trim()
+    const wanted = normalizeHeader(candidate)
+    if (!wanted) continue
+    const exact = entries.find(([key]) => normalizeHeader(key) === wanted)
+    if (exact?.[1]) return exact[1].trim()
+    const leaf = entries.find(([key]) => normalizeHeader(headerLeaf(key)) === wanted)
+    if (leaf?.[1]) return leaf[1].trim()
   }
   return ''
 }
@@ -105,13 +152,25 @@ export function normalizeClaimType(value: string) {
   return value ? value.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') : 'auto'
 }
 
+/**
+ * The incident date, or `undefined` with nothing said about why.
+ *
+ * Kept for callers that only want the date. Anything reporting back to the
+ * attorney should use `parseIncidentDate` directly and show its reason —
+ * telling someone their row has "no incident date" when the cell plainly
+ * contains `45000` sends them looking in the wrong place.
+ */
 export function normalizeIncidentDate(value: string) {
-  if (!value) return undefined
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return undefined
-  return date.toISOString().split('T')[0]
+  const parsed = parseIncidentDate(value)
+  return parsed.ok ? parsed.date : undefined
 }
 
+/**
+ * A task deadline, which unlike an incident date may legitimately be ahead of
+ * us — so this keeps its own lenient parse rather than borrowing the strict
+ * one. A deadline we misread is a wrong reminder; a date of loss we misread is
+ * a wrong statute of limitations.
+ */
 export function normalizeTaskDueDate(value: string) {
   if (!value) return null
   const date = new Date(value)
@@ -222,6 +281,9 @@ export function normalizeImportedCase(
   const firstName = getImportField(row, [...mapped('firstName'), 'plaintiff first name', 'first name', 'client first name', 'firstName']) || splitName.firstName
   const lastName = getImportField(row, [...mapped('lastName'), 'plaintiff last name', 'last name', 'client last name', 'lastName']) || splitName.lastName
   const claimType = getImportField(row, [...mapped('caseType'), 'claim type', 'case type', 'matter type', ...candidates.claimType])
+  const incident = parseIncidentDate(
+    getImportField(row, [...mapped('incidentDate'), 'incident date', 'date of loss', 'dol', 'doi', 'accident date']),
+  )
 
   return {
     externalId: getImportField(row, [...mapped('externalId'), 'external id', 'case id', 'matter id', ...candidates.externalId]) || null,
@@ -232,7 +294,9 @@ export function normalizeImportedCase(
     plaintiffLastName: lastName,
     plaintiffEmail: getImportField(row, [...mapped('email'), 'plaintiff email', 'client email', 'email']),
     plaintiffPhone: getImportField(row, [...mapped('phone'), 'plaintiff phone', 'client phone', 'phone', 'mobile']),
-    incidentDate: normalizeIncidentDate(getImportField(row, [...mapped('incidentDate'), 'incident date', 'date of loss', 'dol', 'doi', 'accident date'])),
+    incidentDate: incident.ok ? incident.date : undefined,
+    incidentDateIssue: incident.ok ? null : incident.reason,
+    incidentDateAmbiguous: incident.ok && incident.ambiguous,
     narrative: getImportField(row, [...mapped('description'), 'narrative', 'description', 'facts', 'summary', ...candidates.narrative]),
     taskTitle: getImportField(row, ['next task', 'task title', 'deadline name']),
     taskDueDate: normalizeTaskDueDate(getImportField(row, ['task due date', 'deadline', 'due date'])),
@@ -244,6 +308,10 @@ export function normalizeImportedCase(
     factPaths: pruneEmpty({
       'insurance.defendant_carrier': getImportField(row, [
         ...mapped('carrier'), 'carrier', 'insurance carrier', 'defendant carrier', 'adverse carrier', 'insurer',
+        // Matches `insurance.company` on a nested export by its full path.
+        // Its leaf, a bare `company`, is deliberately not a rule here: on a
+        // flat spreadsheet that column is as likely to be the employer.
+        'insurance company', 'insurance.company',
       ]),
       'insurance.claim_number': getImportField(row, [
         ...mapped('claimNumber'), 'claim number', 'claim no', 'claim #', 'claimnumber',
@@ -282,7 +350,7 @@ export function normalizeImportedCase(
     injuryDiagnoses: splitDiagnoses(
       getImportField(row, [
         ...mapped('injuries'), 'injury', 'injuries', 'diagnosis', 'diagnoses', 'body parts',
-        'injury description', 'injured body parts',
+        'injury description', 'injured body parts', 'injuries reported', 'reported injuries',
       ]),
     ),
     negotiation: [

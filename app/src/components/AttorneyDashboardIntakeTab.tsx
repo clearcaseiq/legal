@@ -19,9 +19,11 @@ import {
   cloneCaseTemplate,
   createManualIntake,
   importCase,
+  parseImportFilePreview,
   saveSmartIntakeConfig,
   type ImportInviteResult,
   type ImportPreview,
+  type ImportResult,
 } from '../lib/api'
 import AttorneyDashboardCaseloadSync from './AttorneyDashboardCaseloadSync'
 
@@ -65,86 +67,26 @@ const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '')
 
 type ParsedPreview = { fileName: string; headers: string[]; rows: Record<string, string>[]; unsupported?: string }
 
-function splitDelimited(line: string, delimiter: string): string[] {
-  const cells: string[] = []
-  let current = ''
-  let inQuotes = false
-  for (let i = 0; i < line.length; i += 1) {
-    const c = line[i]
-    if (c === '"' && inQuotes && line[i + 1] === '"') {
-      current += '"'
-      i += 1
-    } else if (c === '"') {
-      inQuotes = !inQuotes
-    } else if (c === delimiter && !inQuotes) {
-      cells.push(current.trim())
-      current = ''
-    } else {
-      current += c
-    }
-  }
-  cells.push(current.trim())
-  return cells
-}
+/** The last segment of a dotted path: `case.incident_date` -> `incident_date`. */
+const headerLeaf = (header: string) => header.slice(header.lastIndexOf('.') + 1)
 
-function parseDelimited(content: string, delimiter: string): { headers: string[]; rows: Record<string, string>[] } {
-  const lines = content.replace(/^\uFEFF/, '').split(/\r?\n/).filter((l) => l.trim().length > 0)
-  if (lines.length === 0) return { headers: [], rows: [] }
-  const headers = splitDelimited(lines[0], delimiter).map((h) => h.trim())
-  const rows = lines.slice(1).map((line) => {
-    const values = splitDelimited(line, delimiter)
-    return headers.reduce<Record<string, string>>((row, header, i) => {
-      row[header] = values[i] || ''
-      return row
-    }, {})
-  })
-  return { headers, rows }
-}
-
-function flattenObj(value: any, prefix = ''): Record<string, string> {
-  if (!value || typeof value !== 'object') return {}
-  return Object.entries(value).reduce<Record<string, string>>((row, [key, nested]) => {
-    const nextKey = prefix ? `${prefix}.${key}` : key
-    if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
-      Object.assign(row, flattenObj(nested, nextKey))
-    } else if (Array.isArray(nested)) {
-      row[nextKey] = nested.map((it) => (typeof it === 'object' ? JSON.stringify(it) : String(it))).join('; ')
-    } else {
-      row[nextKey] = nested == null ? '' : String(nested)
-    }
-    return row
-  }, {})
-}
-
-async function parsePreviewFile(file: File): Promise<ParsedPreview> {
-  const name = file.name
-  const ext = name.slice(name.lastIndexOf('.')).toLowerCase()
-  if (['.xlsx', '.xls'].includes(ext)) {
-    return { fileName: name, headers: [], rows: [], unsupported: 'Excel files can’t be previewed in the browser. Export as CSV to preview and map columns.' }
-  }
-  const content = await file.text()
-  if (ext === '.json') {
-    try {
-      const parsed = JSON.parse(content)
-      const arr = Array.isArray(parsed) ? parsed : parsed.cases || parsed.matters || parsed.projects || [parsed]
-      const rows: Record<string, string>[] = (arr as unknown[]).map((r) => flattenObj(r))
-      const headers: string[] = Array.from(new Set(rows.flatMap((r) => Object.keys(r))))
-      return { fileName: name, headers, rows }
-    } catch {
-      return { fileName: name, headers: [], rows: [], unsupported: 'Could not parse this JSON file.' }
-    }
-  }
-  const delimiter = ext === '.tsv' ? '\t' : ','
-  const { headers, rows } = parseDelimited(content, delimiter)
-  if (headers.length === 0) return { fileName: name, headers: [], rows: [], unsupported: 'No columns detected in this file.' }
-  return { fileName: name, headers, rows }
-}
-
+/**
+ * Pre-fill the column mapping from the header names.
+ *
+ * Each field is matched against the whole column name first and then against
+ * the leaf of a dotted one, which is what a nested JSON export produces: a
+ * Clio case file arrives with `case.incident_date` and `client.first_name`,
+ * and matching only the full name left the mapping screen almost entirely
+ * blank on a file that was perfectly readable.
+ */
 function guessMapping(headers: string[]): Record<string, string> {
   const out: Record<string, string> = {}
   const used = new Set<string>()
   for (const field of MAP_FIELDS) {
-    const match = headers.find((h) => !used.has(h) && field.synonyms.some((syn) => norm(syn) === norm(h)))
+    const wanted = field.synonyms.map(norm)
+    const match =
+      headers.find((h) => !used.has(h) && wanted.includes(norm(h))) ??
+      headers.find((h) => !used.has(h) && wanted.includes(norm(headerLeaf(h))))
     if (match) {
       out[field.key] = match
       used.add(match)
@@ -208,6 +150,41 @@ function Banner({ message }: { message: string }) {
   )
 }
 
+/**
+ * A named list of what happened to individual rows.
+ *
+ * Counts on their own are the wrong unit here. "3 already on file" leaves the
+ * attorney to work out which three and whether we matched the right person,
+ * and "12 skipped" gives them nothing to go and fix. Capped at ten with the
+ * remainder counted, so one badly-formatted column cannot turn the
+ * confirmation screen into several hundred lines.
+ */
+function RowNotices({
+  heading,
+  notices,
+  tone,
+}: {
+  heading: string
+  notices: Array<{ key: string; text: string }>
+  tone: 'amber' | 'slate'
+}) {
+  if (notices.length === 0) return null
+  const shown = notices.slice(0, 10)
+  const rest = notices.length - shown.length
+  const text = tone === 'amber' ? 'text-amber-700' : 'text-slate-600'
+  return (
+    <div className="mt-3">
+      <p className={`text-[11px] font-semibold uppercase tracking-wide ${text}`}>{heading}</p>
+      <ul className={`mt-1 space-y-1 text-xs ${text}`}>
+        {shown.map((notice, index) => (
+          <li key={`${notice.key}-${index}`}>{notice.text}</li>
+        ))}
+        {rest > 0 && <li className="text-slate-400">and {rest} more.</li>}
+      </ul>
+    </div>
+  )
+}
+
 const cardCls = 'rounded-xl border border-slate-200 bg-white p-5'
 const inputCls =
   'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm transition focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/30'
@@ -224,9 +201,15 @@ export default function AttorneyDashboardIntakeTab({ onGoToLeads }: AttorneyDash
   const [cloneBusy, setCloneBusy] = useState(false)
   const [importMessage, setImportMessage] = useState<string | null>(null)
   const [importPreview, setImportPreview] = useState<ImportPreview | null>(null)
+  // Kept after the commit clears the preview, so the detail behind "3 already
+  // on file" is still on screen when the attorney goes looking for it.
+  const [importResult, setImportResult] = useState<ImportResult | null>(null)
   const [importing, setImporting] = useState(false)
   const [dragOver, setDragOver] = useState(false)
   const [preview, setPreview] = useState<ParsedPreview | null>(null)
+  // Reading the file is now a round trip, so the mapping screen has a moment
+  // where it has a file but no columns for it yet.
+  const [previewLoading, setPreviewLoading] = useState(false)
   const [mapping, setMapping] = useState<Record<string, string>>({})
   const [importForm, setImportForm] = useState({
     source: 'clio',
@@ -248,21 +231,38 @@ export default function AttorneyDashboardIntakeTab({ onGoToLeads }: AttorneyDash
   const [smartIntakeMessage, setSmartIntakeMessage] = useState<string | null>(null)
   const [smartSaving, setSmartSaving] = useState(false)
 
-  // Parse the first uploaded file client-side so the attorney can preview the
-  // rows and correct the column mapping before anything is created.
+  /**
+   * Read the first uploaded file so the attorney can check the rows and fix
+   * the column mapping before anything is created.
+   *
+   * The server does the reading. This used to parse the file in the browser
+   * with a second, weaker parser, which meant the mapping screen could
+   * disagree with the import that followed it — it refused Excel outright,
+   * decided the format from the file extension, and did not strip the byte
+   * order mark a Windows editor adds. Asking the API means the preview sees
+   * exactly what the import will see.
+   */
   const refreshPreview = async (firstFile: File | undefined) => {
     if (!firstFile) {
       setPreview(null)
       setMapping({})
       return
     }
+    setPreviewLoading(true)
     try {
-      const parsed = await parsePreviewFile(firstFile)
+      const parsed = await parseImportFilePreview(firstFile)
       setPreview(parsed)
       setMapping(parsed.headers.length ? guessMapping(parsed.headers) : {})
-    } catch {
-      setPreview({ fileName: firstFile.name, headers: [], rows: [], unsupported: 'Could not read this file.' })
+    } catch (err: any) {
+      setPreview({
+        fileName: firstFile.name,
+        headers: [],
+        rows: [],
+        unsupported: err.response?.data?.error || 'Could not read this file.',
+      })
       setMapping({})
+    } finally {
+      setPreviewLoading(false)
     }
   }
 
@@ -394,6 +394,7 @@ export default function AttorneyDashboardIntakeTab({ onGoToLeads }: AttorneyDash
       setImporting(true)
       setImportMessage(null)
       setImportPreview(null)
+      setImportResult(null)
       const data = await importCase({ ...importPayload(), dryRun: true })
       setImportPreview(data)
     } catch (err: any) {
@@ -412,14 +413,24 @@ export default function AttorneyDashboardIntakeTab({ onGoToLeads }: AttorneyDash
       const createdCount = data.createdCount ?? data.assessmentIds?.length ?? 0
       const duplicateCount = data.duplicateCount ?? 0
       const skippedCount = data.skippedRows?.length ?? 0
+      const secondMatterCount = data.secondMatterCount ?? 0
       const invites: ImportInviteResult | null = data.invites ?? null
       setImportPreview(null)
+      setImportResult(data)
       setImportMessage(
         [
           createdCount > 0
-            ? `Imported ${createdCount} case${createdCount === 1 ? '' : 's'} from ${importForm.source}.`
+            ? // Says "successfully" because the counts alone read the same
+              // whether the import worked or half of it was rejected, and this
+              // line is the only confirmation the attorney gets.
+              `Imported ${createdCount} case${createdCount === 1 ? '' : 's'} successfully from ${importForm.source}.`
             : 'No new cases to import.',
-          duplicateCount > 0 ? `${duplicateCount} already on file.` : '',
+          duplicateCount > 0
+            ? `${duplicateCount} already had an active case on file and ${duplicateCount === 1 ? 'was' : 'were'} not imported again.`
+            : '',
+          secondMatterCount > 0
+            ? `${secondMatterCount} ${secondMatterCount === 1 ? 'is' : 'are'} a returning client with a new date of loss, imported as separate matters.`
+            : '',
           skippedCount > 0 ? `${skippedCount} skipped.` : '',
           // Reported separately from the case counts: the import can succeed
           // completely while reaching none of the clients, and an attorney who
@@ -634,6 +645,13 @@ export default function AttorneyDashboardIntakeTab({ onGoToLeads }: AttorneyDash
           )}
         </div>
 
+        {previewLoading && !preview && (
+          <div className="mt-4 flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/60 p-4 text-sm text-slate-500">
+            <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+            Reading your file…
+          </div>
+        )}
+
         {/* Preview & column mapping */}
         {preview && (
           <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/60 p-4">
@@ -771,6 +789,12 @@ export default function AttorneyDashboardIntakeTab({ onGoToLeads }: AttorneyDash
               {importPreview.skippedCount > 0 && (
                 <span className="text-amber-700">{importPreview.skippedCount} cannot be imported</span>
               )}
+              {importPreview.secondMatterCount > 0 && (
+                <span className="text-slate-500">
+                  {importPreview.secondMatterCount} returning client
+                  {importPreview.secondMatterCount === 1 ? '' : 's'}
+                </span>
+              )}
             </div>
 
             {importPreview.preview.length > 0 && (
@@ -808,14 +832,52 @@ export default function AttorneyDashboardIntakeTab({ onGoToLeads }: AttorneyDash
             {/* Named individually: "12 skipped" tells an attorney nothing about
                 which rows to go and fix. */}
             {importPreview.skippedRows.length > 0 && (
-              <ul className="mt-3 space-y-1 text-xs text-amber-700">
-                {importPreview.skippedRows.slice(0, 10).map((row, index) => (
-                  <li key={`${row.externalId ?? 'skip'}-${index}`}>
-                    {row.externalId ? `${row.externalId}: ` : `${row.fileName}: `}
-                    {row.reason}
-                  </li>
-                ))}
-              </ul>
+              <RowNotices
+                tone="amber"
+                heading={`${importPreview.skippedCount} row${importPreview.skippedCount === 1 ? '' : 's'} cannot be imported`}
+                notices={importPreview.skippedRows.map((row) => ({
+                  key: row.externalId ?? row.fileName,
+                  text: row.reason,
+                }))}
+              />
+            )}
+
+            {/* Named, not counted. "3 already on file" leaves the attorney to
+                work out which three, and whether the match was right. */}
+            {importPreview.duplicateRows.length > 0 && (
+              <RowNotices
+                tone="slate"
+                heading={`${importPreview.duplicateCount} already on file`}
+                notices={importPreview.duplicateRows.map((row) => ({
+                  key: row.assessmentId,
+                  text: row.reason,
+                }))}
+              />
+            )}
+
+            {importPreview.secondMatterRows.length > 0 && (
+              <RowNotices
+                tone="slate"
+                heading="Clients you already have, with a new date of loss"
+                notices={importPreview.secondMatterRows.map((row) => ({
+                  key: row.assessmentId,
+                  text: row.notice,
+                }))}
+              />
+            )}
+
+            {/* Only the attorney knows whether their CMS writes day-first, and
+                after the commit this guess is what every SOL deadline on those
+                cases is measured from. */}
+            {importPreview.ambiguousDateCount > 0 && (
+              <RowNotices
+                tone="amber"
+                heading={`${importPreview.ambiguousDateCount} date${importPreview.ambiguousDateCount === 1 ? '' : 's'} could be read either way round`}
+                notices={importPreview.ambiguousDateRows.map((row, index) => ({
+                  key: `${row.externalId ?? row.fileName}-${index}`,
+                  text: `${row.externalId ? `${row.externalId}: ` : ''}read as ${row.incidentDate}. If your export writes the day first, map the date column explicitly or fix the row.`,
+                }))}
+              />
             )}
 
             {/* The invite offer sits after the plan, not beside the file
@@ -880,6 +942,37 @@ export default function AttorneyDashboardIntakeTab({ onGoToLeads }: AttorneyDash
         )}
 
         {importMessage && <Banner message={importMessage} />}
+
+        {/* The detail behind the counts in the banner above, which the commit
+            clears the preview to show. */}
+        {importResult && !importPreview && (
+          <>
+            <RowNotices
+              tone="slate"
+              heading={`${importResult.duplicateCount} already had an active case`}
+              notices={importResult.duplicateRows.map((row) => ({
+                key: row.assessmentId,
+                text: row.reason,
+              }))}
+            />
+            <RowNotices
+              tone="slate"
+              heading="Imported as a new matter for a client you already have"
+              notices={importResult.secondMatterRows.map((row) => ({
+                key: row.assessmentId,
+                text: row.notice,
+              }))}
+            />
+            <RowNotices
+              tone="amber"
+              heading="Rows that could not be imported"
+              notices={importResult.skippedRows.map((row, index) => ({
+                key: `${row.externalId ?? row.fileName}-${index}`,
+                text: row.reason,
+              }))}
+            />
+          </>
+        )}
       </div>
 
       {/* Reads the firm's own CMS rather than a file they exported from it.

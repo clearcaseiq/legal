@@ -3848,10 +3848,96 @@ export interface ImportPreview {
    * that links a case to its owner.
    */
   noEmailCount: number
+  /**
+   * Rows for a client the firm already has, but a different date of loss.
+   * Imported as separate matters ΓÇö a returning client is not a duplicate ΓÇö and
+   * listed so the attorney can say otherwise before committing.
+   */
+  secondMatterCount: number
+  secondMatterRows: ImportSecondMatterRow[]
+  /**
+   * Rows whose date could have been read either way round, e.g. `03/04/2026`.
+   * Read as month-first. Worth checking before the commit, because afterwards
+   * every SOL deadline on those cases is measured from the guess.
+   */
+  ambiguousDateCount: number
+  ambiguousDateRows: ImportAmbiguousDateRow[]
   preview: ImportPreviewRow[]
-  duplicateRows: Array<{ fileName: string; externalId: string | null; assessmentId: string }>
+  duplicateRows: ImportDuplicateRow[]
   skippedRows: Array<{ fileName: string; externalId: string | null; reason: string }>
   unsupportedFiles: Array<{ name: string; reason?: string }>
+}
+
+/** A row the firm already has, with why we think so. */
+export interface ImportDuplicateRow {
+  fileName: string
+  externalId: string | null
+  assessmentId: string
+  reason: string
+}
+
+export interface ImportSecondMatterRow {
+  fileName: string
+  externalId: string | null
+  assessmentId: string
+  notice: string
+}
+
+export interface ImportAmbiguousDateRow {
+  fileName: string
+  externalId: string | null
+  incidentDate: string
+}
+
+/** What the commit did. Previously untyped, so the UI guessed at these names. */
+export interface ImportResult {
+  importId: string
+  assessmentId?: string
+  assessmentIds: string[]
+  createdCount: number
+  /** Null when invites were not requested, as against requested and none sent. */
+  invites: ImportInviteResult | null
+  duplicateCount: number
+  duplicateRows: ImportDuplicateRow[]
+  secondMatterCount: number
+  secondMatterRows: ImportSecondMatterRow[]
+  ambiguousDateCount: number
+  ambiguousDateRows: ImportAmbiguousDateRow[]
+  skippedRows: Array<{ fileName: string; externalId: string | null; reason: string }>
+  unsupportedFiles: Array<{ name: string; reason?: string }>
+}
+
+/** Columns and a few rows, as the server reads the file. */
+export interface ImportFilePreview {
+  fileName: string
+  headers: string[]
+  rows: Record<string, string>[]
+  rowCount: number
+  /** Why the file could not be read, in words worth showing as-is. */
+  unsupportedReason: string | null
+}
+
+/**
+ * Ask the API to read an upload so the mapping screen has columns to offer.
+ *
+ * The browser used to parse the file itself. That second parser refused Excel,
+ * decided the format from the file extension and choked on a byte order mark,
+ * so the mapping screen could reject a file the import would have accepted ΓÇö
+ * or map it differently. One parser, on the server, asked the same question.
+ */
+export async function parseImportFilePreview(file: File) {
+  const formData = new FormData()
+  formData.append('files', file)
+  const { data } = await api.post('/v1/attorney-dashboard/intake/parse-preview', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+  const parsed = (data.files as ImportFilePreview[])[0]
+  return {
+    fileName: parsed?.fileName ?? file.name,
+    headers: parsed?.headers ?? [],
+    rows: parsed?.rows ?? [],
+    unsupported: parsed?.unsupportedReason ?? undefined,
+  }
 }
 
 export async function importCase(payload: {

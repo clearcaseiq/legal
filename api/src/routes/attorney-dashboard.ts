@@ -18,6 +18,13 @@ import { ensureReferenceCode } from '../lib/case-reference'
 import { CLAIM_TYPES } from '../lib/validators'
 import { createAttorneyOwnedCase, finalizeAttorneyCases, findExistingImportedCase } from '../lib/attorney-case-factory'
 import {
+  duplicateReason,
+  indexActiveCasesByEmail,
+  matchExistingClaimant,
+  normalizeClaimantEmail,
+  secondMatterNotice,
+} from '../lib/import-claimant-match'
+import {
   claimantInviteUrl,
   inviteClaimants,
   inviteClaimantToCase,
@@ -45,6 +52,7 @@ import { analyzeCaseWithChatGPT, CaseAnalysisRequest } from '../services/chatgpt
 import { z } from 'zod'
 import { Document, Packer, Paragraph, TextRun } from 'docx'
 import * as XLSX from 'xlsx'
+import { TabularParseError, flattenRow, parseTabularText } from '../lib/tabular-import'
 import PDFDocument from 'pdfkit'
 import crypto from 'crypto'
 import { calculateSOL, getSOLStatus, deriveSOLStatusFromFacts } from '../lib/solRules'
@@ -2131,6 +2139,8 @@ function getTemplateClaimType(template?: string) {
 type ParsedImportFile = {
   fileName: string
   rows: Record<string, string>[]
+  /** Column names in file order, for the mapping screen. */
+  headers: string[]
   unsupportedReason?: string
 }
 
@@ -2145,56 +2155,6 @@ function parseBoolean(value: unknown, fallback = true) {
   return fallback
 }
 
-function splitDelimitedLine(line: string, delimiter: ',' | '\t') {
-  const cells: string[] = []
-  let current = ''
-  let inQuotes = false
-
-  for (let index = 0; index < line.length; index += 1) {
-    const char = line[index]
-    const next = line[index + 1]
-    if (char === '"' && inQuotes && next === '"') {
-      current += '"'
-      index += 1
-    } else if (char === '"') {
-      inQuotes = !inQuotes
-    } else if (char === delimiter && !inQuotes) {
-      cells.push(current.trim())
-      current = ''
-    } else {
-      current += char
-    }
-  }
-
-  cells.push(current.trim())
-  return cells
-}
-
-function parseDelimitedRows(content: string, delimiter: ',' | '\t') {
-  const lines = content
-    .replace(/^\uFEFF/, '')
-    .split(/\r?\n/)
-    .filter((line) => line.trim().length > 0)
-  if (lines.length === 0) return []
-  const headers = splitDelimitedLine(lines[0], delimiter).map((header) => header.trim())
-  return lines.slice(1).map((line) => {
-    const values = splitDelimitedLine(line, delimiter)
-    return headers.reduce<Record<string, string>>((row, header, index) => {
-      row[header] = values[index] || ''
-      return row
-    }, {})
-  })
-}
-
-function parseJsonRows(content: string) {
-  const parsed = JSON.parse(content)
-  if (Array.isArray(parsed)) return parsed
-  if (Array.isArray(parsed.cases)) return parsed.cases
-  if (Array.isArray(parsed.matters)) return parsed.matters
-  if (Array.isArray(parsed.projects)) return parsed.projects
-  return [parsed]
-}
-
 /**
  * Rows from the first sheet of a workbook.
  *
@@ -2204,68 +2164,68 @@ function parseJsonRows(content: string) {
  *
  * Only the first sheet is read. A workbook whose second tab is a lookup table
  * or a pivot would otherwise import its rows as cases.
+ *
+ * The one format `tabular-import` cannot take, since it is binary and this is
+ * the layer that has `xlsx`.
  */
 function parseWorkbookRows(file: Express.Multer.File): ParsedImportFile {
+  const workbook = XLSX.read(file.buffer, { type: 'buffer', cellDates: true })
+  const sheetName = workbook.SheetNames[0]
+  if (!sheetName) {
+    return { fileName: file.originalname, rows: [], headers: [], unsupportedReason: 'The workbook has no sheets.' }
+  }
+  const sheet = workbook.Sheets[sheetName]
+  // `raw: false` renders dates and numbers the way the author formatted them,
+  // which is what the header matching and date parsing expect. A cell left as
+  // a raw serial still imports: `parseIncidentDate` converts it.
+  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '', raw: false })
+  const flattened = rows.map((row) => flattenRow(row))
+  const headers: string[] = []
+  const seen = new Set<string>()
+  for (const row of flattened) {
+    for (const key of Object.keys(row)) {
+      if (!seen.has(key)) {
+        seen.add(key)
+        headers.push(key)
+      }
+    }
+  }
+  return { fileName: file.originalname, rows: flattened, headers }
+}
+
+/**
+ * One uploaded file as rows, or a sentence explaining why not.
+ *
+ * Workbooks by their extension because that is a binary format; everything
+ * else by its *content*, which is the fix for an entire class of failed
+ * import. The extension used to decide, so a Clio export saved as `.txt` was
+ * read as a one-column CSV, and a `.json` whose only defect was a byte order
+ * mark threw out of here and 500'd the request — `parseJsonRows` was the one
+ * branch with no error handling around it.
+ *
+ * Never throws. An unreadable upload is an ordinary mistake and belongs in
+ * `unsupportedReason`, where the attorney sees it, not in a stack trace.
+ */
+function parseImportFile(file: Express.Multer.File): ParsedImportFile {
   try {
-    const workbook = XLSX.read(file.buffer, { type: 'buffer', cellDates: true })
-    const sheetName = workbook.SheetNames[0]
-    if (!sheetName) {
-      return { fileName: file.originalname, rows: [], unsupportedReason: 'The workbook has no sheets.' }
-    }
-    const sheet = workbook.Sheets[sheetName]
-    // `raw: false` renders dates and numbers the way the author formatted
-    // them, which is what the header-matching and date parsing below expect.
-    const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '', raw: false })
-    return {
-      fileName: file.originalname,
-      rows: rows.map((row) => flattenImportRow(row)),
-    }
+    const extension = path.extname(file.originalname).toLowerCase()
+    if (['.xlsx', '.xls'].includes(extension)) return parseWorkbookRows(file)
+
+    const table = parseTabularText(file.buffer.toString('utf8'))
+    return { fileName: file.originalname, rows: table.rows, headers: table.headers }
   } catch (error) {
     return {
       fileName: file.originalname,
       rows: [],
+      headers: [],
       unsupportedReason:
-        error instanceof Error
-          ? `The workbook could not be read: ${error.message}`
-          : 'The workbook could not be read.',
+        error instanceof TabularParseError
+          ? error.message
+          : error instanceof Error
+            ? `This file could not be read: ${error.message}`
+            : 'This file could not be read.',
     }
   }
-}
-
-function parseImportFile(file: Express.Multer.File): ParsedImportFile {
-  const extension = path.extname(file.originalname).toLowerCase()
-  if (['.xlsx', '.xls'].includes(extension)) {
-    return parseWorkbookRows(file)
-  }
-
-  const content = file.buffer.toString('utf8')
-  if (extension === '.json' || file.mimetype === 'application/json') {
-    return {
-      fileName: file.originalname,
-      rows: parseJsonRows(content).map((row: unknown) => flattenImportRow(row)),
-    }
-  }
-
-  const delimiter = extension === '.tsv' || file.mimetype === 'text/tab-separated-values' ? '\t' : ','
-  return {
-    fileName: file.originalname,
-    rows: parseDelimitedRows(content, delimiter),
-  }
-}
-
-function flattenImportRow(value: unknown, prefix = ''): Record<string, string> {
-  if (!value || typeof value !== 'object') return {}
-  return Object.entries(value as Record<string, unknown>).reduce<Record<string, string>>((row, [key, nested]) => {
-    const nextKey = prefix ? `${prefix}.${key}` : key
-    if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
-      Object.assign(row, flattenImportRow(nested, nextKey))
-    } else if (Array.isArray(nested)) {
-      row[nextKey] = nested.map((item) => typeof item === 'object' ? JSON.stringify(item) : String(item)).join('; ')
-    } else {
-      row[nextKey] = nested == null ? '' : String(nested)
-    }
-    return row
-  }, {})
 }
 
 
@@ -7739,6 +7699,49 @@ router.post('/intake/clone-template', authMiddleware, async (req: any, res) => {
   }
 })
 
+/**
+ * Column names and a few rows, so the mapping screen has something to show.
+ *
+ * This exists because the browser used to parse the file itself, with a second
+ * hand-written parser that was weaker than this one in every direction: it
+ * refused Excel outright, decided the format from the file extension, did not
+ * strip a byte order mark, and cut the file into lines before honouring
+ * quotes. So the screen an attorney maps their columns on could disagree with
+ * the import that followed it — or refuse a file the import would have taken.
+ *
+ * One parser, on this side, asked the same question. The mapping screen now
+ * sees exactly what the import will see, including workbooks.
+ */
+router.post('/intake/parse-preview', authMiddleware, intakeImportUpload.array('files', 10), async (req: any, res) => {
+  try {
+    const auth = await getAttorneyFromReq(req)
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+
+    const uploadedFiles = (req.files || []) as Express.Multer.File[]
+    if (uploadedFiles.length === 0) {
+      return res.status(400).json({ error: 'No file was uploaded.' })
+    }
+
+    const files = uploadedFiles.map((file) => {
+      const parsed = parseImportFile(file)
+      return {
+        fileName: parsed.fileName,
+        headers: parsed.headers,
+        // Enough to check a mapping against, not the whole caseload: this
+        // response only draws a table of examples.
+        rows: parsed.rows.slice(0, 25),
+        rowCount: parsed.rows.length,
+        unsupportedReason: parsed.unsupportedReason ?? null,
+      }
+    })
+
+    res.json({ files })
+  } catch (error: any) {
+    logger.error('Failed to parse an import file for preview', { error: error.message })
+    res.status(500).json({ error: 'Could not read that file' })
+  }
+})
+
 router.post('/intake/import', authMiddleware, intakeImportUpload.array('files', 10), async (req: any, res) => {
   try {
     const uploadedFiles = (req.files || []) as Express.Multer.File[]
@@ -7801,8 +7804,40 @@ router.post('/intake/import', authMiddleware, intakeImportUpload.array('files', 
      * that failed to import and said so.
      */
     const skippedRows: Array<{ fileName: string; externalId: string | null; reason: string }> = []
-    /** Rows that matched a case this firm has already imported. */
-    const duplicateRows: Array<{ fileName: string; externalId: string | null; assessmentId: string }> = []
+    /**
+     * Rows the firm already has, matched either on the export's own matter id
+     * or on the claimant's email and date of loss. Carries the reason, because
+     * the two are different mistakes: a re-uploaded export against a client
+     * entered twice.
+     */
+    const duplicateRows: Array<{
+      fileName: string
+      externalId: string | null
+      assessmentId: string
+      reason: string
+    }> = []
+    /**
+     * Rows for a client the firm already has, but a different incident. These
+     * are imported — a returning client is a second matter — and reported so
+     * the attorney can say otherwise.
+     */
+    const secondMatterRows: Array<{
+      fileName: string
+      externalId: string | null
+      assessmentId: string
+      notice: string
+    }> = []
+    /**
+     * Rows whose date could have been read the other way round, e.g.
+     * `03/04/2026`. Imported as month-first, which is the right guess for a US
+     * firm and the wrong one for an export from anywhere else — and only the
+     * attorney knows which their CMS produced.
+     */
+    const ambiguousDateRows: Array<{
+      fileName: string
+      externalId: string | null
+      incidentDate: string
+    }> = []
     const owner = {
       attorneyId: auth.attorney.id,
       lawFirmId: auth.attorney.lawFirmId ?? null,
@@ -7829,15 +7864,34 @@ router.post('/intake/import', authMiddleware, intakeImportUpload.array('files', 
       fileName: string
       importedCase: NormalizedImportedCase & { incidentDate: string }
     }> = []
+    // One query, not one per row: the claimant's email is not a column
+    // anywhere, so matching on it means reading this firm's active caseload and
+    // indexing it here. See `import-claimant-match.ts`.
+    const existingByEmail = await indexActiveCasesByEmail(owner)
+    /** Emails claimed earlier in this same upload, keyed with the date of loss. */
+    const seenEmailKeys = new Set<string>()
+
     for (const item of fileRows) {
       const importedCase = normalizeImportedCase(payload.source, item.row, payload.mapping)
       if (!importedCase.incidentDate) {
         skippedRows.push({
           fileName: item.fileName,
           externalId: importedCase.externalId,
-          reason: 'No incident date. Map a date column, or add one to the row.',
+          // The parser's own words. "No incident date" on a row whose date
+          // column holds `45000` or `13/45/2026` told the attorney nothing
+          // they could act on.
+          reason:
+            importedCase.incidentDateIssue ??
+            'No incident date. Map a date column, or add one to the row.',
         })
         continue
+      }
+      if (importedCase.incidentDateAmbiguous) {
+        ambiguousDateRows.push({
+          fileName: item.fileName,
+          externalId: importedCase.externalId,
+          incidentDate: importedCase.incidentDate,
+        })
       }
       if (importedCase.externalId) {
         if (seenExternalIds.has(importedCase.externalId)) {
@@ -7860,10 +7914,50 @@ router.post('/intake/import', authMiddleware, intakeImportUpload.array('files', 
             fileName: item.fileName,
             externalId: importedCase.externalId,
             assessmentId: already.id,
+            reason: 'This case has already been imported from the same export.',
           })
           continue
         }
       }
+
+      // The email check, for the rows the external id could not speak for —
+      // which is most of them, since a hand-built spreadsheet rarely carries a
+      // matter id. Matched on email *and* date of loss: a returning client with
+      // a new accident is a second matter, not a duplicate, and refusing it
+      // would be its own bug.
+      const emailKey = normalizeClaimantEmail(importedCase.plaintiffEmail)
+      if (emailKey) {
+        const withinUpload = `${emailKey}|${importedCase.incidentDate}`
+        if (seenEmailKeys.has(withinUpload)) {
+          skippedRows.push({
+            fileName: item.fileName,
+            externalId: importedCase.externalId,
+            reason: `${importedCase.plaintiffEmail} appears more than once in this upload with the same date of loss.`,
+          })
+          continue
+        }
+        seenEmailKeys.add(withinUpload)
+
+        const match = matchExistingClaimant(existingByEmail, emailKey, importedCase.incidentDate)
+        if (match.kind === 'duplicate') {
+          duplicateRows.push({
+            fileName: item.fileName,
+            externalId: importedCase.externalId,
+            assessmentId: match.existing.assessmentId,
+            reason: duplicateReason(match.existing, importedCase.incidentDate),
+          })
+          continue
+        }
+        if (match.kind === 'second_matter') {
+          secondMatterRows.push({
+            fileName: item.fileName,
+            externalId: importedCase.externalId,
+            assessmentId: match.existing.assessmentId,
+            notice: secondMatterNotice(match.existing, importedCase.incidentDate),
+          })
+        }
+      }
+
       plan.push({
         fileName: item.fileName,
         importedCase: { ...importedCase, incidentDate: importedCase.incidentDate },
@@ -7884,6 +7978,16 @@ router.post('/intake/import', authMiddleware, intakeImportUpload.array('files', 
         // invite or by any other route. It is a fixable column-mapping mistake
         // right up until the import is written.
         noEmailCount: plan.filter(({ importedCase }) => !importedCase.plaintiffEmail).length,
+        // Clients the firm already has, being imported again for a different
+        // incident. Not an error, but the one case where "import succeeded" on
+        // its own would be misleading.
+        secondMatterCount: secondMatterRows.length,
+        secondMatterRows,
+        // Dates read month-first that could have been day-first. Worth seeing
+        // before the commit, because afterwards every SOL deadline on those
+        // cases is computed from the guess.
+        ambiguousDateCount: ambiguousDateRows.length,
+        ambiguousDateRows,
         // A sample rather than the whole file: enough for the attorney to see
         // how their columns were read, without returning 500 clients' details
         // to render a confirmation screen.
@@ -8060,6 +8164,10 @@ router.post('/intake/import', authMiddleware, intakeImportUpload.array('files', 
           duplicateCount: duplicateRows.length,
           duplicateRows,
           skippedRows,
+          secondMatterCount: 0,
+          secondMatterRows: [],
+          ambiguousDateCount: ambiguousDateRows.length,
+          ambiguousDateRows,
           source: payload.source,
           files: fileSummaries,
           unsupportedFiles,
@@ -8097,6 +8205,10 @@ router.post('/intake/import', authMiddleware, intakeImportUpload.array('files', 
       skippedRows,
       duplicateCount: duplicateRows.length,
       duplicateRows,
+      secondMatterCount: secondMatterRows.length,
+      secondMatterRows,
+      ambiguousDateCount: ambiguousDateRows.length,
+      ambiguousDateRows,
     })
   } catch (error: any) {
     if (error instanceof z.ZodError) {
