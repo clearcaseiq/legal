@@ -15,9 +15,14 @@
 -- the unique index does not constrain rows with NULLs, so existing cases and
 -- every ordinary intake are unaffected.
 
-ALTER TABLE "assessments" ADD COLUMN "importSource" TEXT;
-ALTER TABLE "assessments" ADD COLUMN "importExternalId" TEXT;
-ALTER TABLE "assessments" ADD COLUMN "importOwnerKey" TEXT;
+-- IF NOT EXISTS throughout because deploy/README.md tells the next person these
+-- files are safe to apply by hand, and one of the four statements failing half
+-- way through would otherwise leave the file unable to finish its own job.
+-- There are two databases to run it against, so a second attempt is the normal
+-- case rather than the exceptional one.
+ALTER TABLE "assessments" ADD COLUMN IF NOT EXISTS "importSource" TEXT;
+ALTER TABLE "assessments" ADD COLUMN IF NOT EXISTS "importExternalId" TEXT;
+ALTER TABLE "assessments" ADD COLUMN IF NOT EXISTS "importOwnerKey" TEXT;
 
-CREATE UNIQUE INDEX "assessments_importOwnerKey_importSource_importExternalId_key"
+CREATE UNIQUE INDEX IF NOT EXISTS "assessments_importOwnerKey_importSource_importExternalId_key"
   ON "assessments" ("importOwnerKey", "importSource", "importExternalId");
