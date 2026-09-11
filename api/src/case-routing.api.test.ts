@@ -562,6 +562,127 @@ describe('GET /v1/case-routing/assessment/:id/status (plaintiff)', () => {
     })
   })
 
+  // A case an attorney already holds — every imported and hand-created one —
+  // never went out to the marketplace, so there is no Introduction to accept.
+  // Reading the match from introductions alone told the claimant nobody had
+  // taken a case their own attorney had been working for weeks.
+  describe('a case the attorney already holds', () => {
+    const assignedAttorney = {
+      id: 'a9',
+      name: 'Owning Counsel',
+      email: 'owner@firm.test',
+      phone: '555-0100',
+      specialties: '[]',
+      responseTimeHours: 8,
+      lawFirmId: 'firm-1',
+      lawFirm: { name: 'Owning LLP' },
+    }
+
+    const imported = (leadStatus: string) => ({
+      id: 'asm-1',
+      userId: plaintiffUser.id,
+      facts: '{}',
+      introductions: [],
+      leadSubmission: {
+        id: 'lead-1',
+        lifecycleState: 'attorney_matched',
+        status: leadStatus,
+        assignedAttorney,
+      },
+      user: { email: plaintiffUser.email },
+    })
+
+    const status = () =>
+      request(app).get('/v1/case-routing/assessment/asm-1/status').set(authHeader(plaintiffUser.id))
+
+    beforeEach(() => {
+      vi.mocked(prisma.routingAnalytics.findMany).mockResolvedValue([] as any)
+      vi.mocked(prisma.attorneyProfile.findUnique).mockResolvedValue({ yearsExperience: 20 } as any)
+      vi.mocked(prisma.chatRoom.findFirst).mockResolvedValue(null as any)
+      vi.mocked(prisma.notification.findMany).mockResolvedValue([] as any)
+      vi.mocked(prisma.appointment.findFirst).mockResolvedValue(null as any)
+    })
+
+    it('reports the attorney who holds it as the match', async () => {
+      vi.mocked(prisma.assessment.findUnique).mockResolvedValue(imported('contacted') as any)
+
+      const res = await status()
+
+      expect(res.status).toBe(200)
+      expect(res.body.attorneyMatched).toMatchObject({
+        id: 'a9',
+        name: 'Owning Counsel',
+        firmName: 'Owning LLP',
+      })
+    })
+
+    // The claimant's pipeline reads this to light "Matched" and make the
+    // consultation the live step, which is the whole point of the fallback.
+    it('says the case is matched rather than still out for review', async () => {
+      vi.mocked(prisma.assessment.findUnique).mockResolvedValue(imported('contacted') as any)
+
+      const res = await status()
+
+      expect(res.body.lifecycleState).toBe('attorney_matched')
+      expect(res.body.attorneysReviewing).toBe(0)
+    })
+
+    it('does not claim an acceptance that never happened', async () => {
+      vi.mocked(prisma.assessment.findUnique).mockResolvedValue(imported('contacted') as any)
+
+      const res = await status()
+
+      expect(res.body.attorneyMatched.origin).toBe('assigned')
+      expect(res.body.attorneyMatched.acceptedAt).toBeNull()
+      expect(res.body.statusMessage).not.toMatch(/interested in your case/i)
+    })
+
+    it('names the attorney in the status message', async () => {
+      vi.mocked(prisma.assessment.findUnique).mockResolvedValue(imported('contacted') as any)
+
+      const res = await status()
+
+      expect(res.body.statusMessage).toContain('Owning Counsel')
+    })
+
+    // Assignment is not acceptance. A lead merely offered to an attorney is
+    // still anonymised, and telling the claimant it was taken would be wrong.
+    it('ignores an attorney assigned a lead they have not taken', async () => {
+      vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
+        ...imported('submitted'),
+        leadSubmission: {
+          id: 'lead-1',
+          lifecycleState: 'routing_active',
+          status: 'submitted',
+          assignedAttorney,
+        },
+      } as any)
+
+      const res = await status()
+
+      expect(res.body.attorneyMatched).toBeNull()
+    })
+
+    it('still prefers an accepted introduction when there is one', async () => {
+      vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
+        ...imported('contacted'),
+        introductions: [
+          {
+            status: 'ACCEPTED',
+            respondedAt: new Date('2026-04-06T11:00:00.000Z'),
+            attorney: { ...assignedAttorney, id: 'a1', name: 'Accepting Counsel' },
+          },
+        ],
+      } as any)
+
+      const res = await status()
+
+      expect(res.body.attorneyMatched.id).toBe('a1')
+      expect(res.body.attorneyMatched.origin).toBe('introduction')
+      expect(res.body.attorneyMatched.acceptedAt).toBe('2026-04-06T11:00:00.000Z')
+    })
+  })
+
   it('falls back to compact notification messages when no chat room exists', async () => {
     vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
       id: 'asm-1',

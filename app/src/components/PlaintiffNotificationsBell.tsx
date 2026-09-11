@@ -195,8 +195,15 @@ export default function PlaintiffNotificationsBell() {
       const next: PlaintiffNotification[] = [...serverItems]
 
       for (const { id: caseId, routing, docs } of cases) {
-        if (routing?.attorneyMatched) {
-          const matched = routing.attorneyMatched as typeof routing.attorneyMatched & {
+        const matchedForBell = routing?.attorneyMatched as
+          | (NonNullable<typeof routing.attorneyMatched> & { origin?: string | null })
+          | null
+          | undefined
+        // A case the firm already held was never accepted — nobody weighed it up
+        // and said yes — so announcing one would be telling the claimant
+        // something that did not happen. They get the invite email instead.
+        if (matchedForBell && matchedForBell.origin !== 'assigned') {
+          const matched = matchedForBell as typeof matchedForBell & {
             claimType?: string | null
             acceptedAt?: string | null
           }

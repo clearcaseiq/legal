@@ -16,6 +16,7 @@ import {
 import { formatAttorneyResponseDeadline, getAttorneyResponseDeadlineMinutes, getMatchingRules } from '../lib/matching-rules-config'
 import { getAppointmentPreparation, seedAppointmentPrepItems } from '../lib/appointment-engagement'
 import { careFinishedOnRecord } from '../lib/workflow-signals'
+import { isEngagedLeadStatus } from '../lib/lead-status'
 const router = Router()
 
 async function getAttorneyFromRequest(req: AuthRequest): Promise<{ id: string } | null> {
@@ -162,6 +163,22 @@ router.post('/introductions/:id/decline', authMiddleware, async (req: AuthReques
 // from the client happens after acceptance via the DocumentRequest flow.
 
 /**
+ * The attorney a claimant sees as theirs, however the case reached them: by
+ * accepting a routed introduction, or by already owning it. Both are selected
+ * through this so the dashboard renders one shape.
+ */
+const caseAttorneySelect = {
+  id: true,
+  name: true,
+  email: true,
+  phone: true,
+  specialties: true,
+  responseTimeHours: true,
+  lawFirmId: true,
+  lawFirm: { select: { name: true } },
+} satisfies Prisma.AttorneySelect
+
+/**
  * Step 18: Plaintiff dashboard - routing status
  * GET /v1/case-routing/assessment/:id/status
  */
@@ -189,6 +206,10 @@ router.get('/assessment/:id/status', authMiddleware, async (req: AuthRequest, re
             id: true,
             lifecycleState: true,
             status: true,
+            // A case that arrived already claimed — every imported and
+            // hand-created one — was never routed and has no Introduction to
+            // accept, so this is the only record of whose case it is.
+            assignedAttorney: { select: caseAttorneySelect },
           }
         },
         introductions: {
@@ -196,18 +217,7 @@ router.get('/assessment/:id/status', authMiddleware, async (req: AuthRequest, re
             status: true,
             respondedAt: true,
             updatedAt: true,
-            attorney: {
-              select: {
-                id: true,
-                name: true,
-                email: true,
-                phone: true,
-                specialties: true,
-                responseTimeHours: true,
-                lawFirmId: true,
-                lawFirm: { select: { name: true } }
-              }
-            }
+            attorney: { select: caseAttorneySelect }
           }
         }
       }
@@ -252,7 +262,12 @@ router.get('/assessment/:id/status', authMiddleware, async (req: AuthRequest, re
           lead = await prisma.leadSubmission
             .findUnique({
               where: { id: leadId },
-              select: { id: true, lifecycleState: true, status: true },
+              select: {
+                id: true,
+                lifecycleState: true,
+                status: true,
+                assignedAttorney: { select: caseAttorneySelect },
+              },
             })
             .catch(() => lead)
         } catch (err) {
@@ -264,6 +279,21 @@ router.get('/assessment/:id/status', authMiddleware, async (req: AuthRequest, re
         }
       }
     }
+
+    // Who holds this case, by whichever of the two routes it took.
+    //
+    // This used to be the accepted introduction alone, which reads the
+    // marketplace as if it were the only way a case arrives. An imported or
+    // hand-created case is with its attorney from birth: it is never routed, so
+    // no Introduction exists to accept, and the claimant's dashboard concluded
+    // nobody had taken their case. The pipeline left "Matched" grey and the
+    // consultation step unreachable while the status badge beside it — which
+    // does read the lead — said Accepted.
+    //
+    // `isEngagedLeadStatus` is what keeps a lead merely *offered* to an
+    // attorney out of this: assignment alone is not a match.
+    const matchedAttorney =
+      accepted?.attorney ?? (isEngagedLeadStatus(lead?.status) ? lead?.assignedAttorney ?? null : null)
 
     // Consultation for this assessment (plaintiff dashboard). Prefer the next
     // future booking; if lifecycle already says consultation_scheduled but the
@@ -373,9 +403,9 @@ router.get('/assessment/:id/status', authMiddleware, async (req: AuthRequest, re
     }
     const [appointmentRecord, yearsExperienceRecord, recentEvents] = await Promise.all([
       loadAppointment(),
-      accepted
+      matchedAttorney
         ? prisma.attorneyProfile.findUnique({
-            where: { attorneyId: accepted.attorney.id },
+            where: { attorneyId: matchedAttorney.id },
             select: { yearsExperience: true }
           }).catch(() => null)
         : Promise.resolve(null),
@@ -398,11 +428,11 @@ router.get('/assessment/:id/status', authMiddleware, async (req: AuthRequest, re
     const appointmentPrep = appointmentRecord && assessment.userId && req.user?.id === assessment.userId
       ? await getAppointmentPreparation(appointmentRecord.id, req.user.id).catch(() => null)
       : null
-    const reviewEligible = accepted && assessment.userId && req.user?.id === assessment.userId
+    const reviewEligible = matchedAttorney && assessment.userId && req.user?.id === assessment.userId
       ? Boolean(await prisma.appointment.findFirst({
           where: {
             userId: req.user.id,
-            attorneyId: accepted.attorney.id,
+            attorneyId: matchedAttorney.id,
             assessmentId,
             status: { in: ['CONFIRMED', 'COMPLETED'] }
           },
@@ -414,9 +444,9 @@ router.get('/assessment/:id/status', authMiddleware, async (req: AuthRequest, re
     // finally had something to review (CP-308/321/326). Surface it on its own.
     // Scoped to this case: a review the plaintiff left for the same attorney on a
     // different matter must not pre-fill or suppress the prompt here (CP-480).
-    const existingReview = reviewEligible && accepted && req.user?.id
+    const existingReview = reviewEligible && matchedAttorney && req.user?.id
       ? await prisma.attorneyReview.findFirst({
-          where: { attorneyId: accepted.attorney.id, userId: req.user.id, assessmentId },
+          where: { attorneyId: matchedAttorney.id, userId: req.user.id, assessmentId },
           select: { rating: true, title: true, review: true, createdAt: true }
         }).catch(() => null)
       : null
@@ -426,7 +456,7 @@ router.get('/assessment/:id/status', authMiddleware, async (req: AuthRequest, re
           scheduledAt: appointmentRecord.scheduledAt.toISOString(),
           type: appointmentRecord.type,
           attorney: {
-            id: accepted?.attorney.id,
+            id: matchedAttorney?.id,
             name: appointmentRecord.attorney.name
           },
           preparation: appointmentPrep
@@ -489,6 +519,11 @@ router.get('/assessment/:id/status', authMiddleware, async (req: AuthRequest, re
     } else if (accepted) {
       stage = 'attorney_matched'
       statusMessage = 'Attorney interested in your case'
+    } else if (matchedAttorney) {
+      // Already acting for the claimant rather than weighing up a routed lead,
+      // so this does not borrow the marketplace's "interested in your case".
+      stage = 'attorney_matched'
+      statusMessage = `${matchedAttorney.name || 'Your attorney'} is handling your case.`
     } else if (reviewingCount > 0) {
       stage = 'attorney_review'
       statusMessage = searchExpanded
@@ -534,11 +569,11 @@ router.get('/assessment/:id/status', authMiddleware, async (req: AuthRequest, re
 
     // In-app chat messages (when attorney matched and plaintiff has userId)
     let caseChatRoomId: string | null = null
-    if (accepted && assessment.userId && req.user?.id === assessment.userId) {
+    if (matchedAttorney && assessment.userId && req.user?.id === assessment.userId) {
       const chatRoom = await prisma.chatRoom.findFirst({
         where: {
           userId: assessment.userId,
-          attorneyId: accepted.attorney.id,
+          attorneyId: matchedAttorney.id,
           assessmentId
         },
         select: { id: true }
@@ -604,20 +639,26 @@ router.get('/assessment/:id/status', authMiddleware, async (req: AuthRequest, re
       responseDeadlineMinutes,
       responseDeadlineHours,
       responseDeadlineLabel,
-      attorneyMatched: accepted
+      attorneyMatched: matchedAttorney
         ? {
-            id: accepted.attorney.id,
-            name: accepted.attorney.name,
-            email: accepted.attorney.email,
-            phone: accepted.attorney.phone,
-            firmName: accepted.attorney.lawFirm?.name,
-            specialties: accepted.attorney.specialties,
+            id: matchedAttorney.id,
+            name: matchedAttorney.name,
+            email: matchedAttorney.email,
+            phone: matchedAttorney.phone,
+            firmName: matchedAttorney.lawFirm?.name,
+            specialties: matchedAttorney.specialties,
             yearsExperience,
-            responseTimeHours: accepted.attorney.responseTimeHours ?? 24,
+            responseTimeHours: matchedAttorney.responseTimeHours ?? 24,
             // The notification bell renders the acceptance from this object, so
             // it needs to know which case was accepted and when (CP-437).
             claimType: assessment.claimType ?? null,
-            acceptedAt: (accepted.respondedAt ?? accepted.updatedAt ?? null)?.toISOString?.() ?? null
+            // Only an introduction is ever *accepted*. A case the attorney
+            // already held has no such moment, and the bell must not announce
+            // one: `origin` is what lets it tell them apart.
+            origin: accepted ? ('introduction' as const) : ('assigned' as const),
+            acceptedAt: accepted
+              ? (accepted.respondedAt ?? accepted.updatedAt ?? null)?.toISOString?.() ?? null
+              : null
           }
         : null,
       attorneyActivity,
