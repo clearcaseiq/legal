@@ -50,7 +50,14 @@ export default function AttorneyDashboardWorkstreamOverview({
   const chrono = buildMedicalChronology(facts)
   const location = [selectedLead?.assessment?.venueCounty, selectedLead?.assessment?.venueState].filter(Boolean).join(', ') || '—'
   const incidentDate = formatRelativeDate(facts?.incident?.date)
-  const injury = injuries.length > 0 ? injuries[0]?.type || injuries[0]?.description || 'Not documented' : 'Not documented'
+  // `diagnoses` is how an imported case records its injuries, and reading only
+  // the intake wizard's fields showed the attorney "Not documented" for a case
+  // whose diagnoses they had supplied in the import themselves.
+  const injury =
+    injuries[0]?.type ||
+    injuries[0]?.description ||
+    (Array.isArray(injuries[0]?.diagnoses) ? injuries[0].diagnoses.filter(Boolean).join(', ') : '') ||
+    'Not documented'
   const evidenceCount = (Array.isArray(selectedLead?.assessment?.files) ? selectedLead.assessment.files.length : 0) + leadEvidenceFiles.length
   // Uploads are stored with categories like "police_report", "medical_records",
   // "wage_loss", "employment", etc. — exact-match checks (=== 'police') missed

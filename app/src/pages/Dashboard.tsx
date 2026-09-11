@@ -925,10 +925,18 @@ export default function Dashboard() {
         const name = typeof bp === 'string' ? bp : bp?.part
         if (name) tokens.push(humanizeInjury(String(name)))
       }
+      // An imported case records its injuries as `{ diagnoses: string[] }` —
+      // the shape the valuation reads them in — and carries none of the fields
+      // the intake wizard writes. Without this, a case imported with a full
+      // list of diagnoses still told the claimant "Not documented".
+      const diagnoses = Array.isArray((inj as any).diagnoses) ? (inj as any).diagnoses : []
+      for (const dx of diagnoses) {
+        if (dx) tokens.push(humanizeInjury(String(dx)))
+      }
       if ((inj as any).otherDescription) tokens.push(String((inj as any).otherDescription))
-      if (tokens.length === 0 || bodyParts.length === 0) {
+      if (tokens.length === 0 || (bodyParts.length === 0 && diagnoses.length === 0)) {
         const fallback = (inj as any).description || (inj as any).name || (inj as any).type
-        if (fallback && !bodyParts.length) tokens.push(humanizeInjury(String(fallback)))
+        if (fallback && !bodyParts.length && !diagnoses.length) tokens.push(humanizeInjury(String(fallback)))
       }
     }
     return tokens.filter(Boolean)
@@ -1225,7 +1233,13 @@ export default function Dashboard() {
     const d = new Date(raw)
     return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString(locale, { month: 'long', day: 'numeric', year: 'numeric' })
   })()
-  const treatmentStatusLabel = treatment.length > 0 ? 'Ongoing' : injuries.length > 0 ? 'Documented' : 'Not documented'
+  // Care actually on file: what the claimant entered in their medical step, or
+  // what we parsed out of records they uploaded. An injury is not a treatment
+  // history, and inferring one from the other told a claimant with diagnoses
+  // and no visits that their treatment was "Documented" — which is also every
+  // imported case, since an import carries medical *figures* and no course of
+  // care at all.
+  const treatmentStatusLabel = dashboardTreatment.length > 0 ? 'Ongoing' : 'Not documented'
   const caseValueIncreaseItems = [
     { label: 'Medical Records', sub: 'Treatment history & visits', impact: 'High', metric: 'Interest', potential: `${formatCurrency(potentialSettlementLow)} - ${formatCurrency(potentialSettlementHigh)}`, done: hasMedicalRecords },
     { label: 'Police Report', sub: 'Liability & incident details', impact: 'High', metric: 'Interest', potential: `${formatCurrency(settlementHigh)} - ${formatCurrency(potentialSettlementLow)}`, done: hasPoliceReport },
