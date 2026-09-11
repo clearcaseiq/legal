@@ -18,6 +18,12 @@ import { ensureReferenceCode } from '../lib/case-reference'
 import { CLAIM_TYPES } from '../lib/validators'
 import { createAttorneyOwnedCase, finalizeAttorneyCases, findExistingImportedCase } from '../lib/attorney-case-factory'
 import {
+  claimantInviteUrl,
+  inviteClaimants,
+  inviteClaimantToCase,
+  type ClaimantInviteBatchResult,
+} from '../lib/claimant-invite'
+import {
   importableFactPaths,
   INTAKE_IMPORT_SOURCES,
   normalizeImportedCase,
@@ -2091,6 +2097,13 @@ const intakeImportSchema = z.object({
   // an attorney saw how their columns had been interpreted was after several
   // hundred cases already existed.
   dryRun: z.coerce.boolean().optional(),
+  // Email every imported claimant a claim link, which is what turns a one-sided
+  // imported case into a shared one (see `claimant-invite`).
+  //
+  // Opt-in, and deliberately not defaulted on: this is unsolicited mail to a
+  // firm's own clients, sent in a batch as large as the file. An attorney has to
+  // choose to send it, having seen the preview.
+  sendInvites: z.coerce.boolean().optional(),
 })
 
 const smartIntakeSchema = z.object({
@@ -7545,6 +7558,21 @@ router.get('/leads/:leadId/settlement-benchmarks', authMiddleware, async (req: a
 })
 
 // Case intake & import endpoints
+
+/**
+ * The firm's name, for the claimant invite's "X at Y is using ClearCaseIQ" line.
+ *
+ * Best-effort and nullable: a solo has no firm row, and the invite reads fine
+ * naming only the attorney. Never worth failing a case create over.
+ */
+async function firmNameFor(lawFirmId: string | null | undefined): Promise<string | null> {
+  if (!lawFirmId) return null
+  const firm = await prisma.lawFirm
+    .findUnique({ where: { id: lawFirmId }, select: { name: true } })
+    .catch(() => null)
+  return firm?.name || null
+}
+
 router.post('/intake/manual', authMiddleware, async (req: any, res) => {
   try {
     const payload = intakeManualSchema.parse(req.body || {})
@@ -7575,21 +7603,25 @@ router.post('/intake/manual', authMiddleware, async (req: any, res) => {
       claimType: payload.claimType,
       venueState: payload.venueState.toUpperCase(),
     }
-    const inviteLink = webUrl(`/evidence-upload/${assessment.id}`)
-    const inviteRequested = Boolean(payload.sendInvite && payload.plaintiffEmail)
-    if (inviteRequested) {
-      const plaintiffName = [payload.plaintiffFirstName, payload.plaintiffLastName].filter(Boolean).join(' ') || 'there'
-      await createNotification(
-        payload.plaintiffEmail!,
-        'Your attorney invited you to complete your case intake',
-        `Hi ${plaintiffName},\n\n${auth.attorney.name || 'Your attorney'} created a draft case for you in ClearCaseIQ. Please use this secure link to upload documents and help complete your intake:\n\n${inviteLink}\n\nBest regards,\nClearCaseIQ`,
-        {
+    // A claim link, not the anonymous `/evidence-upload/:id` page this used to
+    // send. That page let the claimant drop files on the case but created no
+    // account, so the case stayed on the synthetic shadow owner and every other
+    // claimant-facing surface — dashboard, messaging, document requests, fact
+    // confirmations — still had nobody to talk to. Registering through the claim
+    // link moves the case onto their real account and opens all of it, uploads
+    // included.
+    const inviteLink = claimantInviteUrl(assessment.id)
+    const invite = payload.sendInvite
+      ? await inviteClaimantToCase({
           assessmentId: assessment.id,
-          attorneyId: auth.attorney.id,
-          kind: 'manual_case_invite'
-        }
-      )
-    }
+          email: payload.plaintiffEmail,
+          firstName: payload.plaintiffFirstName,
+          attorneyName: auth.attorney.name,
+          attorneyEmail: auth.attorney.email,
+          firmName: await firmNameFor(auth.attorney.lawFirmId),
+        })
+      : null
+    const inviteRequested = Boolean(invite?.sent)
     await prisma.caseIntakeRequest.create({
       data: {
         attorneyId: auth.attorney.id,
@@ -7617,6 +7649,9 @@ router.post('/intake/manual', authMiddleware, async (req: any, res) => {
       notes: payload.notes || null,
       plaintiffEmail: payload.plaintiffEmail || null,
       inviteSent: inviteRequested,
+      // Named rather than left as a bare `inviteSent: false`, which reads as a
+      // failure when the usual cause is that the attorney recorded no email.
+      inviteSkipped: invite?.skipped ?? null,
       inviteLink
     })
   } catch (error: any) {
@@ -7747,7 +7782,16 @@ router.post('/intake/import', authMiddleware, intakeImportUpload.array('files', 
     const unsupportedFiles = parsedFiles
       .filter((file) => file.unsupportedReason)
       .map((file) => ({ name: file.fileName, reason: file.unsupportedReason }))
-    const createdAssessments: Array<{ id: string; fileName?: string; externalId: string | null }> = []
+    // Carries the claimant's contact details, so the post-commit invite does not
+    // have to read back every case it just wrote.
+    const createdAssessments: Array<{
+      id: string
+      fileName?: string
+      externalId: string | null
+      plaintiffEmail: string | null
+      plaintiffFirstName: string | null
+    }> = []
+    let inviteResult: ClaimantInviteBatchResult | null = null
     /**
      * Rows we would have had to invent a fact to create.
      *
@@ -7834,6 +7878,12 @@ router.post('/intake/import', authMiddleware, intakeImportUpload.array('files', 
         willCreateCount: plan.length,
         duplicateCount: duplicateRows.length,
         skippedCount: skippedRows.length,
+        // Worth saying before the attorney commits, whether or not they intend
+        // to send invites: the claimant's email is the only join key we have, so
+        // a row imported without one can never be claimed by its owner, by the
+        // invite or by any other route. It is a fixable column-mapping mistake
+        // right up until the import is written.
+        noEmailCount: plan.filter(({ importedCase }) => !importedCase.plaintiffEmail).length,
         // A sample rather than the whole file: enough for the attorney to see
         // how their columns were read, without returning 500 clients' details
         // to render a confirmation screen.
@@ -7960,6 +8010,8 @@ router.post('/intake/import', authMiddleware, intakeImportUpload.array('files', 
               id: created.assessmentId,
               fileName,
               externalId: importedCase.externalId,
+              plaintiffEmail: importedCase.plaintiffEmail || null,
+              plaintiffFirstName: importedCase.plaintiffFirstName || null,
             })
           }
         },
@@ -7972,6 +8024,24 @@ router.post('/intake/import', authMiddleware, intakeImportUpload.array('files', 
       // self-healing on read, so they must not extend the transaction or
       // strand a code on a case that rolled away.
       await finalizeAttorneyCases(createdAssessments.map((entry) => entry.id))
+
+      // Also after the commit, and for the same reason: mail must not be sent
+      // for cases a rollback would have taken away. Every outcome is a count
+      // rather than an error — the common one is a row whose export carried no
+      // email address.
+      if (payload.sendInvites) {
+        const firmName = await firmNameFor(auth.attorney.lawFirmId)
+        inviteResult = await inviteClaimants(
+          createdAssessments.map((entry) => ({
+            assessmentId: entry.id,
+            email: entry.plaintiffEmail,
+            firstName: entry.plaintiffFirstName,
+            attorneyName: auth.attorney.name,
+            attorneyEmail: auth.attorney.email,
+            firmName,
+          })),
+        )
+      }
     }
 
     // A parse that produced no rows used to create one placeholder case
@@ -8015,6 +8085,9 @@ router.post('/intake/import', authMiddleware, intakeImportUpload.array('files', 
       assessmentId: createdAssessments[0]?.id,
       assessmentIds: createdAssessments.map((assessment) => assessment.id),
       createdCount: createdAssessments.length,
+      // Null when invites were not requested, so the UI can tell "none sent"
+      // apart from "not asked for".
+      invites: inviteResult,
       source: payload.source,
       includeHistory: payload.includeHistory ?? true,
       includeTasks: payload.includeTasks ?? true,

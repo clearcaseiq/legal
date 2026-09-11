@@ -15,7 +15,14 @@ import {
   ArrowRight,
   Wand2,
 } from 'lucide-react'
-import { cloneCaseTemplate, createManualIntake, importCase, saveSmartIntakeConfig, type ImportPreview } from '../lib/api'
+import {
+  cloneCaseTemplate,
+  createManualIntake,
+  importCase,
+  saveSmartIntakeConfig,
+  type ImportInviteResult,
+  type ImportPreview,
+} from '../lib/api'
 import AttorneyDashboardCaseloadSync from './AttorneyDashboardCaseloadSync'
 
 type AttorneyDashboardIntakeTabProps = {
@@ -228,6 +235,9 @@ export default function AttorneyDashboardIntakeTab({ onGoToLeads }: AttorneyDash
     includeMedical: true,
     notes: '',
     files: [] as File[],
+    // Off until asked for, and only offered after the preview: this mails a
+    // firm's own clients, in a batch as large as the file.
+    sendInvites: false,
   })
   const [smartIntakeConfig, setSmartIntakeConfig] = useState({
     dynamicQuestionnaires: true,
@@ -364,6 +374,7 @@ export default function AttorneyDashboardIntakeTab({ onGoToLeads }: AttorneyDash
       notes: importForm.notes,
       mapping: Object.keys(cleanMapping).length ? cleanMapping : undefined,
       files: importForm.files,
+      sendInvites: importForm.sendInvites,
     }
   }
 
@@ -401,6 +412,7 @@ export default function AttorneyDashboardIntakeTab({ onGoToLeads }: AttorneyDash
       const createdCount = data.createdCount ?? data.assessmentIds?.length ?? 0
       const duplicateCount = data.duplicateCount ?? 0
       const skippedCount = data.skippedRows?.length ?? 0
+      const invites: ImportInviteResult | null = data.invites ?? null
       setImportPreview(null)
       setImportMessage(
         [
@@ -409,6 +421,12 @@ export default function AttorneyDashboardIntakeTab({ onGoToLeads }: AttorneyDash
             : 'No new cases to import.',
           duplicateCount > 0 ? `${duplicateCount} already on file.` : '',
           skippedCount > 0 ? `${skippedCount} skipped.` : '',
+          // Reported separately from the case counts: the import can succeed
+          // completely while reaching none of the clients, and an attorney who
+          // asked for invites needs to know which of the two happened.
+          invites ? `Invited ${invites.sent} client${invites.sent === 1 ? '' : 's'} to their portal.` : '',
+          invites && invites.noEmail > 0 ? `${invites.noEmail} had no email address on file.` : '',
+          invites && invites.alreadyInvited > 0 ? `${invites.alreadyInvited} already invited earlier.` : '',
         ]
           .filter(Boolean)
           .join(' '),
@@ -798,6 +816,45 @@ export default function AttorneyDashboardIntakeTab({ onGoToLeads }: AttorneyDash
                   </li>
                 ))}
               </ul>
+            )}
+
+            {/* The invite offer sits after the plan, not beside the file
+                picker, so the attorney decides having seen how many clients it
+                would reach. */}
+            {importPreview.willCreateCount > 0 && (
+              <div className="mt-4 rounded-lg border border-slate-200 bg-white p-3">
+                <label className="flex cursor-pointer items-start gap-2.5">
+                  <input
+                    type="checkbox"
+                    checked={importForm.sendInvites}
+                    onChange={(e) => setImportForm((f) => ({ ...f, sendInvites: e.target.checked }))}
+                    className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-600"
+                  />
+                  <span className="text-sm">
+                    <span className="font-medium text-slate-900">Invite these clients to their case portal</span>
+                    <span className="mt-0.5 block text-xs text-slate-500">
+                      Emails each client a link to set a password, which connects them to the case you
+                      already hold. Until they do, the case is yours to work but they cannot see it,
+                      upload anything or message you. Nobody is emailed twice, whatever you import later.
+                    </span>
+                  </span>
+                </label>
+                {/* Said whether or not invites were asked for: the address is
+                    the only thing tying a case to the client it belongs to, so
+                    these rows are unreachable by any route, not just this one.
+                    It is a fixable mapping mistake until the import is written. */}
+                {importPreview.noEmailCount > 0 && (
+                  <p className="mt-2.5 flex items-start gap-1.5 border-t border-slate-100 pt-2.5 text-xs text-amber-700">
+                    <AlertCircle className="mt-px h-3.5 w-3.5 shrink-0" />
+                    <span>
+                      {importPreview.noEmailCount} of these rows{' '}
+                      {importPreview.noEmailCount === 1 ? 'has' : 'have'} no email address, so{' '}
+                      {importPreview.noEmailCount === 1 ? 'that client' : 'those clients'} cannot be
+                      invited or connected later. Check your email column mapping if that looks wrong.
+                    </span>
+                  </p>
+                )}
+              </div>
             )}
 
             <div className="mt-4 flex items-center gap-3">

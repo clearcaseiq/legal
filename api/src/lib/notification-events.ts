@@ -11,6 +11,13 @@ export const PLAINTIFF_EVENTS = {
   assessment_abandoned: 'plaintiff.assessment_abandoned',
   assessment_completed: 'plaintiff.assessment_completed',
   case_submitted: 'plaintiff.case_submitted',
+  /**
+   * "Your attorney set up a portal for you" — the one invite an attorney-created
+   * or imported case sends. Doubles as the record that it was sent: the invite
+   * is unsolicited mail to a firm's own client, so `claimant-invite` looks for
+   * this event before ever sending a second one.
+   */
+  case_invite: 'plaintiff.case_invite',
   doc_requested: 'plaintiff.doc_requested',
   doc_uploaded: 'plaintiff.doc_uploaded',
   case_score_updated: 'plaintiff.case_score_updated',

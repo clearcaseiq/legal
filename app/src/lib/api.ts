@@ -3828,12 +3828,26 @@ export interface ImportPreviewRow {
   mappedFields: string[]
 }
 
+/** What became of the claim-link invites an import was asked to send. */
+export interface ImportInviteResult {
+  sent: number
+  noEmail: number
+  alreadyInvited: number
+  alreadyClaimed: number
+}
+
 export interface ImportPreview {
   importId: string
   dryRun: true
   willCreateCount: number
   duplicateCount: number
   skippedCount: number
+  /**
+   * Rows carrying no email address. Those cases can never be claimed by the
+   * client they belong to, invites aside, because the address is the only thing
+   * that links a case to its owner.
+   */
+  noEmailCount: number
   preview: ImportPreviewRow[]
   duplicateRows: Array<{ fileName: string; externalId: string | null; assessmentId: string }>
   skippedRows: Array<{ fileName: string; externalId: string | null; reason: string }>
@@ -3850,6 +3864,8 @@ export async function importCase(payload: {
   files?: File[] | { name: string; size?: number }[]
   /** Report what would happen without writing. See ImportPreview. */
   dryRun?: boolean
+  /** Email each imported client a link that activates their case portal. */
+  sendInvites?: boolean
 }) {
   const hasMapping = payload.mapping && Object.keys(payload.mapping).length > 0
   const hasBrowserFiles =
@@ -3865,6 +3881,7 @@ export async function importCase(payload: {
     if (payload.notes) formData.append('notes', payload.notes)
     if (hasMapping) formData.append('mapping', JSON.stringify(payload.mapping))
     if (payload.dryRun) formData.append('dryRun', 'true')
+    if (payload.sendInvites) formData.append('sendInvites', 'true')
     ;(payload.files as File[]).forEach((file) => formData.append('files', file))
     const { data } = await api.post('/v1/attorney-dashboard/intake/import', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },

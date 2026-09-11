@@ -281,6 +281,14 @@ export async function syncConnectionInbound(options: InboundSyncOptions): Promis
       // once for the whole batch after the reads are done.
       await finalizeAttorneyCases(result.assessmentIds)
 
+      // No claimant invites here, unlike the spreadsheet import. This runs
+      // unattended on a six-hour sweep, and the first pass over a connected
+      // Clio or Filevine account is the firm's entire caseload — so the invite
+      // would be a mail-out of unknown size that nobody chose to send and no
+      // preview preceded. `claimant-invite` will not mail the same case twice,
+      // so these can be invited later from the Intake tab without risk of a
+      // duplicate.
+
       await prisma.cmsConnection.update({
         where: { id: connectionId },
         data: {
