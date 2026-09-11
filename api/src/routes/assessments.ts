@@ -1654,6 +1654,85 @@ router.post('/associate', authMiddleware, async (req: AuthRequest, res) => {
 })
 
 /**
+ * The claimant's name and address out of the case facts.
+ *
+ * Where an imported case keeps them: the `User` row on one of these is a
+ * `guest+…@caseiq.local` shadow, so the facts blob is the only place the real
+ * address exists. Anything unreadable comes back null rather than throwing —
+ * a prefill is a convenience, and failing to manage one must not stop someone
+ * signing up.
+ */
+function claimantContactFromFacts(raw: string | null | undefined): {
+  email: string | null
+  firstName: string | null
+} {
+  if (!raw) return { email: null, firstName: null }
+  try {
+    const facts = JSON.parse(raw) as {
+      plaintiffContext?: { email?: unknown; firstName?: unknown }
+    }
+    const email = facts?.plaintiffContext?.email
+    const firstName = facts?.plaintiffContext?.firstName
+    return {
+      email: typeof email === 'string' && email.trim() ? email.trim() : null,
+      firstName: typeof firstName === 'string' && firstName.trim() ? firstName.trim() : null,
+    }
+  } catch {
+    return { email: null, firstName: null }
+  }
+}
+
+/**
+ * Who an emailed claim link was addressed to, so the sign-up form can say so.
+ *
+ * Deliberately unauthenticated: the person this exists for has no account yet.
+ * That is safe because the token is an unguessable signed JWT naming one case,
+ * and it was delivered to the very address this returns — a holder of the link
+ * is already in the inbox the address belongs to, and can already take
+ * ownership of the case by registering. This discloses nothing they do not
+ * have, and only the two fields the form needs.
+ *
+ * Without it, an invited claimant had to retype the address their attorney had
+ * already entered, and typing a different one produced an account that could
+ * still claim the case but matched nothing else about them.
+ */
+router.post('/claim/lookup', async (req, res) => {
+  try {
+    const token = typeof req.body?.token === 'string' ? req.body.token : ''
+    if (!token) return res.status(400).json({ error: 'A claim token is required' })
+
+    const assessmentId = verifyClaimToken(token)
+    if (!assessmentId) {
+      return res.status(400).json({ error: 'This claim link is invalid or has expired.' })
+    }
+
+    const assessment = await prisma.assessment.findUnique({
+      where: { id: assessmentId },
+      select: {
+        id: true,
+        userId: true,
+        facts: true,
+        user: { select: { email: true, passwordHash: true, provider: true } },
+      },
+    })
+    if (!assessment) return res.status(404).json({ error: 'Case not found' })
+
+    // A case a real account already holds will not transfer, so prefilling a
+    // sign-up form for it would walk the person into a 409. Say so instead and
+    // let the page send them to sign in.
+    if (!isTransferableCaseOwner(assessment.userId ? assessment.user : null)) {
+      return res.json({ alreadyClaimed: true, email: null, firstName: null })
+    }
+
+    const contact = claimantContactFromFacts(assessment.facts)
+    res.json({ alreadyClaimed: false, ...contact })
+  } catch (error) {
+    logger.error('Failed to look up a claim link', { error })
+    res.status(500).json({ error: 'Failed to read that claim link' })
+  }
+})
+
+/**
  * Claim a case from an emailed "claim your case" link.
  *
  * The signed token names one assessment, and it was delivered to the address the

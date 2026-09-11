@@ -283,6 +283,18 @@ export async function associateAssessments(assessmentIds: string[]) {
  * the exact assessment; the server transfers it to the now-authenticated user
  * under the same rules as associate. Returns the claimed assessment id.
  */
+/**
+ * Who an emailed claim link was addressed to, for prefilling the sign-up form.
+ *
+ * Unauthenticated, because the person it exists for has no account yet. Returns
+ * `alreadyClaimed` when a real account already holds the case, which is the one
+ * outcome where offering to register would be a dead end.
+ */
+export async function lookupClaimInvite(token: string) {
+  const { data } = await api.post('/v1/assessments/claim/lookup', { token })
+  return data as { alreadyClaimed: boolean; email: string | null; firstName: string | null }
+}
+
 export async function claimAssessmentByToken(token: string) {
   const { data } = await api.post('/v1/assessments/claim', { token })
   return data as { claimed: boolean; assessmentId: string; reference_code?: string | null }

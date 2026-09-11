@@ -3,7 +3,12 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { ArrowRight, Bell, CheckCircle, FileText, Headset, Lock, MessageSquare, ShieldCheck, UploadCloud } from 'lucide-react'
 import { register } from '../lib/api-auth'
 import { createConsent } from '../lib/api-consent'
-import { associateAssessments, claimAssessmentByToken, listAssessments } from '../lib/api-plaintiff'
+import {
+  associateAssessments,
+  claimAssessmentByToken,
+  listAssessments,
+  lookupClaimInvite,
+} from '../lib/api-plaintiff'
 import OAuthButtons from '../components/OAuthButtons'
 import ConsentWorkflow from '../components/ConsentWorkflow'
 import { PasswordInputWithReveal } from '../components/PasswordInputWithReveal'
@@ -140,6 +145,44 @@ export default function Register() {
     // email (the account identifier). Phone-only intakes still need an email.
     setStreamlined(Boolean(pending.email))
   }, [])
+
+  /**
+   * Prefill from the claim link itself.
+   *
+   * The effect above reads `localStorage`, which only exists for someone who
+   * filled in intake in this browser. An invited claimant arrives from an
+   * email their attorney sent, usually on another device, so there was nothing
+   * to prefill from and they had to retype an address we already knew — and
+   * typing a different one produced an account matching nothing else on their
+   * case.
+   *
+   * Runs after it and only fills blanks, so a half-finished intake in this
+   * browser still wins: those details are the person's own typing.
+   */
+  useEffect(() => {
+    if (!claimToken) return
+    let cancelled = false
+    lookupClaimInvite(claimToken)
+      .then((invite) => {
+        if (cancelled || invite.alreadyClaimed) return
+        if (!invite.email && !invite.firstName) return
+        setForm((current) => ({
+          ...current,
+          firstName: current.firstName || invite.firstName || '',
+          email: current.email || invite.email || '',
+        }))
+        if (invite.email) setStreamlined(true)
+      })
+      .catch(() => {
+        // A prefill is a convenience. An expired or unreadable link is
+        // reported by the claim attempt after registration, which is the point
+        // at which it actually matters; blocking the form here would leave
+        // someone who could still sign up unable to.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [claimToken])
 
   const onSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
