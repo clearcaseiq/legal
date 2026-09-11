@@ -868,8 +868,22 @@ router.post('/verify-email', async (req, res) => {
     // on that device, so the browser has no role to infer one from.
     const verified = await prisma.user.findUnique({
       where: { id: record.userId },
-      select: { role: true },
+      select: { role: true, email: true },
     })
+
+    // A claimant invited to an imported case who signs up here directly, rather
+    // than through the emailed claim link, reaches none of the paths that
+    // attach a pre-account case: no `pending_assessment_id` in this browser, no
+    // claim token, and registration signs them straight in, so the adoption on
+    // login never runs either. They landed on an empty dashboard while their
+    // case sat on the guest shadow owner.
+    //
+    // Here rather than at registration because this is the moment control of
+    // the inbox is proven, which is the authority the claim link runs on. An
+    // unverified signup naming a stranger's address must not inherit their case.
+    if (verified?.role === 'client') {
+      await adoptGuestCasesByEmail(record.userId, verified.email)
+    }
 
     logger.info('Email verified', { userId: record.userId })
     return res.json({
