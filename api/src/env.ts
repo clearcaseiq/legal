@@ -110,14 +110,8 @@ export const ENV = {
    * in production).
    */
   DROPBOX_SIGN_TEST_MODE: process.env.DROPBOX_SIGN_TEST_MODE,
-  /**
-   * Display name and mailbox Dropbox Sign puts on signature-request emails
-   * (inbox From, subject "requested by …", and the "X has requested a
-   * signature" line). Defaults: ClearCaseIQ / noreply@clearcaseiq.com.
-   * Blank DROPBOX_SIGN_REQUESTER_EMAIL to send the name only.
-   */
-  DROPBOX_SIGN_REQUESTER_NAME: process.env.DROPBOX_SIGN_REQUESTER_NAME,
-  DROPBOX_SIGN_REQUESTER_EMAIL: process.env.DROPBOX_SIGN_REQUESTER_EMAIL,
+  // Nothing here sets the name or mailbox on signature-request emails. That is
+  // a property of the account the API key belongs to; see lib/esign/dropbox-sign.ts.
   /** Self-hosted Documenso v2 API base, e.g. https://sign.yourfirm.com/api/v2. */
   DOCUMENSO_API_URL: process.env.DOCUMENSO_API_URL,
   DOCUMENSO_API_KEY: process.env.DOCUMENSO_API_KEY,
