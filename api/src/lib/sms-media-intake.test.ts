@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('./prisma', () => import('../test/universalPrismaMock'))
 vi.mock('./case-owner', () => ({ ensureCaseOwnerUserId: vi.fn().mockResolvedValue('user-1') }))
@@ -46,14 +46,31 @@ function createdFile() {
   return vi.mocked(prisma.evidenceFile.create).mock.calls[0]?.[0].data as any
 }
 
+/**
+ * `fs` is a Node built-in, so a spy on it lives on an object every other test
+ * file shares. Per-file isolation replaces the module registry, not the
+ * built-ins, and this suite runs single-forked — so these have to be handed
+ * back, or every file that runs after this one inherits an `existsSync` that
+ * always says yes and a `writeFile` that silently drops its bytes.
+ */
+const fsSpies: { mockRestore: () => void }[] = []
+
 beforeEach(() => {
   resetUniversalPrismaMock()
   vi.clearAllMocks()
   vi.unstubAllGlobals()
   process.env.TWILIO_ACCOUNT_SID = 'AC1'
   process.env.TWILIO_AUTH_TOKEN = 'token'
-  vi.spyOn(fs.promises, 'writeFile').mockResolvedValue(undefined as any)
-  vi.spyOn(fs, 'existsSync').mockReturnValue(true)
+  fsSpies.push(vi.spyOn(fs.promises, 'writeFile').mockResolvedValue(undefined as any))
+  fsSpies.push(vi.spyOn(fs, 'existsSync').mockReturnValue(true))
+})
+
+afterEach(() => {
+  // Restoring these by hand rather than with `vi.restoreAllMocks()`, which also
+  // strips the implementations off the `vi.fn()`s in the module mocks above and
+  // leaves the rest of this file asserting against undefined.
+  while (fsSpies.length) fsSpies.pop()!.mockRestore()
+  vi.unstubAllGlobals()
 })
 
 describe('a number nobody invited', () => {
