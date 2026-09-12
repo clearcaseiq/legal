@@ -8,9 +8,11 @@ try:
 except Exception:
     pass
 
+# DIRECTORY_PIPELINE_DATABASE_URL wins so a global DATABASE_URL pointing at another
+# database cannot silently capture pipeline writes.
 DATABASE_URL = os.getenv(
     "DIRECTORY_PIPELINE_DATABASE_URL",
-    os.getenv("DATABASE_URL", "sqlite"),
+    os.getenv("DATABASE_URL", ""),
 )
 
 # Rate limiting - be conservative with CA Bar

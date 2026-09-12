@@ -6,16 +6,11 @@ Writes a JSON checkpoint when both the fetch queue for `ca_bar_licensing` is emp
 and there are no remaining `raw_records` with status `stored` for that source.
 
 Usage:
-  # PostgreSQL (recommended for production runs)
   set DIRECTORY_PIPELINE_DATABASE_URL=postgresql://user:pass@localhost:5432/directory_pipeline
   python scripts/init_postgres_schema.py
-  python scripts/run_ca_to_completion.py --seed --postgres-only
-
-  # SQLite (local smoke test)
-  python scripts/init_sqlite.py
   python scripts/run_ca_to_completion.py --seed
 
-Environment: DIRECTORY_PIPELINE_DATABASE_URL (preferred) or DATABASE_URL (or default SQLite file).
+Environment: DIRECTORY_PIPELINE_DATABASE_URL (preferred) or DATABASE_URL.
 """
 from __future__ import annotations
 
@@ -28,7 +23,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from config import DATABASE_URL
-from db import USE_SQLITE, _cursor, get_conn
+from db import _cursor, get_conn
 from services.fetcher import run_fetcher
 from services.parser_ca_bar import run_parser_ca_bar
 
@@ -118,7 +113,7 @@ def write_checkpoint(stats: dict, rounds: int) -> Path:
     payload = {
         "checkpoint_type": "ca_bar_quicksearch_scrape_drained",
         "finished_at_utc": datetime.now(timezone.utc).isoformat(),
-        "database": "sqlite" if USE_SQLITE else "postgresql",
+        "database": "postgresql",
         "database_url_hint": (DATABASE_URL or "")[:24] + "…" if len(DATABASE_URL or "") > 24 else (DATABASE_URL or ""),
         "rounds_executed": rounds,
         "coverage_note": (
@@ -137,29 +132,10 @@ def write_checkpoint(stats: dict, rounds: int) -> Path:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run CA bar fetch+parse until queue and backlog are drained.")
     parser.add_argument("--seed", action="store_true", help="Run scripts.seed_ca_jobs first (idempotent).")
-    parser.add_argument(
-        "--postgres-only",
-        action="store_true",
-        help="Exit unless DIRECTORY_PIPELINE_DATABASE_URL resolves to PostgreSQL (refuses SQLite).",
-    )
     parser.add_argument("--fetch-batch", type=int, default=25, metavar="N")
     parser.add_argument("--parse-batch", type=int, default=50, metavar="N")
     parser.add_argument("--max-rounds", type=int, default=2000, metavar="N")
     args = parser.parse_args()
-
-    require_pg = args.postgres_only or os.getenv("DIRECTORY_PIPELINE_REQUIRE_POSTGRES", "").strip() in (
-        "1",
-        "true",
-        "yes",
-    )
-    if require_pg and USE_SQLITE:
-        print(
-            "PostgreSQL required: set DIRECTORY_PIPELINE_DATABASE_URL=postgresql://user:pass@host:port/dbname\n"
-            "Your shell may set DATABASE_URL=sqlite; DIRECTORY_PIPELINE_DATABASE_URL takes precedence when set.\n"
-            "Example: apps/directory-pipeline/.env with DIRECTORY_PIPELINE_DATABASE_URL=...",
-            file=sys.stderr,
-        )
-        sys.exit(2)
 
     if args.seed:
         import runpy

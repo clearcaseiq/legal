@@ -18,7 +18,7 @@ Fetches sample pages and parses attorneys (~495 from "Smith" search). Output in 
 
 **Full pipeline (PostgreSQL required):**
 
-1. Set `DIRECTORY_PIPELINE_DATABASE_URL` in `apps/directory-pipeline/.env` (this overrides a global `DATABASE_URL=sqlite` from your IDE).
+1. Set `DIRECTORY_PIPELINE_DATABASE_URL` in `apps/directory-pipeline/.env` (this overrides any global `DATABASE_URL` from your IDE).
 2. Create the database and apply the schema in one step:
 
    ```bash
@@ -28,7 +28,7 @@ Fetches sample pages and parses attorneys (~495 from "Smith" search). Output in 
 
    Or manually: `createdb directory_pipeline` then `psql -d directory_pipeline -f schema.sql`.
 
-3. **California-only scrape to completion (PostgreSQL only):**
+3. **California-only scrape to completion:**
 
    ```powershell
    cd apps/directory-pipeline
@@ -40,11 +40,10 @@ Fetches sample pages and parses attorneys (~495 from "Smith" search). Output in 
    ```bash
    export DIRECTORY_PIPELINE_DATABASE_URL=postgresql://USER:PASSWORD@localhost:5432/directory_pipeline
    python scripts/init_postgres_schema.py
-   python scripts/run_ca_to_completion.py --seed --postgres-only
+   python scripts/run_ca_to_completion.py --seed
    ```
 
    Checkpoint JSON is written under `checkpoints/`.
-   Omit `--postgres-only` only if you intentionally use SQLite.
 
 4. Incremental runs: `python -m scripts.seed_ca_jobs` then `python -m scripts.run_pipeline 5 20`
 

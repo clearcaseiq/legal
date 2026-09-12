@@ -1,4 +1,4 @@
-# Run California directory pipeline against PostgreSQL only (no SQLite).
+# Run California directory pipeline against PostgreSQL.
 # Usage:
 #   .\run_ca_postgres.ps1
 #   .\run_ca_postgres.ps1 -DatabaseUrl "postgresql://user:pass@localhost:5432/directory_pipeline"
@@ -19,10 +19,9 @@ if (-not $DatabaseUrl -or -not $DatabaseUrl.ToLower().StartsWith("postgresql")) 
 }
 
 $env:DIRECTORY_PIPELINE_DATABASE_URL = $DatabaseUrl
-$env:DIRECTORY_PIPELINE_REQUIRE_POSTGRES = "1"
 
 python scripts/init_postgres_schema.py
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-python scripts/run_ca_to_completion.py --seed --postgres-only --fetch-batch $FetchBatch --parse-batch $ParseBatch
+python scripts/run_ca_to_completion.py --seed --fetch-batch $FetchBatch --parse-batch $ParseBatch
 exit $LASTEXITCODE
