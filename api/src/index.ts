@@ -21,6 +21,7 @@ import { runErrorRateSweep, isErrorRateMonitorEnabled } from './lib/error-rate-m
 import { runAdsConversionSweep } from './lib/ads-conversion-sweep'
 import { isGoogleAdsConfigured } from './lib/google-ads-conversions'
 import { runInboundSyncSweep, SYNC_INTERVAL_MS } from './lib/cms/inbound-sync-sweep'
+import { runEvidenceProcessingSweep } from './lib/evidence-processing-sweep'
 import { reconcileAllAttorneyRatingAggregates } from './lib/attorney-rating-aggregates'
 import { beginSweep, registerSweep } from './lib/ops-status'
 import { startSchedulerLeadership, stopSchedulerLeadership } from './lib/scheduler-leader'
@@ -43,6 +44,7 @@ let activityCanaryTimer: NodeJS.Timeout | null = null
 let errorRateTimer: NodeJS.Timeout | null = null
 let adsConversionTimer: NodeJS.Timeout | null = null
 let inboundSyncTimer: NodeJS.Timeout | null = null
+let evidenceProcessingTimer: NodeJS.Timeout | null = null
 
 async function runCalendarWebhookRenewalSweep(trigger: 'startup' | 'interval') {
   const sweep = beginSweep('calendar-webhook-renewal')
@@ -530,6 +532,36 @@ function startInboundSyncLoop() {
   }, intervalMs)
 }
 
+async function runEvidenceProcessingLoop(trigger: 'startup' | 'interval') {
+  const sweep = beginSweep('evidence-processing-retry')
+  try {
+    const result = await runEvidenceProcessingSweep()
+    sweep.succeed()
+    if (result.consideredCount > 0 || trigger === 'startup') {
+      logger.info('Evidence processing retry sweep completed', {
+        trigger,
+        ...result,
+      })
+    }
+  } catch (error) {
+    sweep.fail(error)
+    logger.error('Evidence processing retry sweep failed', { error, trigger })
+  }
+}
+
+function startEvidenceProcessingLoop() {
+  const intervalMs = 5 * 60 * 1000
+  registerSweep('evidence-processing-retry', {
+    label: 'Document extraction retry',
+    enabled: true,
+    intervalMs,
+  })
+  void runEvidenceProcessingLoop('startup')
+  evidenceProcessingTimer = setInterval(() => {
+    void runEvidenceProcessingLoop('interval')
+  }, intervalMs)
+}
+
 function startBackgroundLoops() {
   startCalendarWebhookRenewalLoop()
   startAppointmentEngagementLoop()
@@ -547,6 +579,7 @@ function startBackgroundLoops() {
   startErrorRateLoop()
   startAdsConversionLoop()
   startInboundSyncLoop()
+  startEvidenceProcessingLoop()
 }
 
 const leadershipHandlers = {
@@ -589,6 +622,7 @@ function stopBackgroundLoops() {
   if (errorRateTimer) clearInterval(errorRateTimer)
   if (adsConversionTimer) clearInterval(adsConversionTimer)
   if (inboundSyncTimer) clearInterval(inboundSyncTimer)
+  if (evidenceProcessingTimer) clearInterval(evidenceProcessingTimer)
   calendarWebhookRenewalTimer = null
   appointmentEngagementTimer = null
   notificationRetryTimer = null
@@ -605,6 +639,7 @@ function stopBackgroundLoops() {
   errorRateTimer = null
   adsConversionTimer = null
   inboundSyncTimer = null
+  evidenceProcessingTimer = null
 }
 
 function closeHttpServer() {

@@ -51,15 +51,26 @@ export default function DocumentPortal() {
     setToast(null)
     try {
       let lastStatus = request?.status
+      let duplicates = 0
       for (const file of Array.from(files)) {
         const res = await uploadDocumentPortalFile(token, file, {
           docType: selectedDocType || undefined,
           uploadedByName: uploaderName || undefined,
           note: note || undefined,
         })
-        lastStatus = res.status
+        if (res.duplicate) duplicates += 1
+        if (res.status) lastStatus = res.status
       }
-      setToast(`Uploaded ${files.length} file${files.length > 1 ? 's' : ''} successfully.`)
+      // People re-send the same photo when they are unsure the first one worked.
+      // Reporting that as a fresh upload would have them believe they sent two.
+      const added = files.length - duplicates
+      setToast(
+        added === 0
+          ? 'We already had those, so nothing was added twice. Your case team has them.'
+          : `Uploaded ${added} file${added > 1 ? 's' : ''} successfully.${
+              duplicates > 0 ? ` ${duplicates} we already had.` : ''
+            }`,
+      )
       setNote('')
       if (lastStatus) setRequest((prev) => (prev ? { ...prev, status: lastStatus! } : prev))
       await load()
@@ -95,21 +106,35 @@ export default function DocumentPortal() {
       ? `${request.attorneyName || ''}${request.firmName ? ` · ${request.firmName}` : ''}`.replace(/^ · /, '')
       : 'the requesting attorney'
 
+  // The claimant reached this from a text their own attorney sent, on a phone,
+  // probably standing in a parking lot. They are not an "external recipient"
+  // and there is nothing for them to identify themselves as.
+  const isClaimant = request.mode === 'claimant'
+
   return (
     <div className="mx-auto max-w-2xl px-4 py-10">
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-        <p className="text-xs font-semibold uppercase tracking-wide text-indigo-600">Secure document request</p>
-        <h1 className="mt-1 text-2xl font-bold text-slate-900 dark:text-white">
-          Documents requested by {fromLabel}
-        </h1>
-        <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
-          {request.recipientName ? `Hello ${request.recipientName}, ` : ''}
-          you've been asked to provide the documents listed below
-          {request.recipientRole && ROLE_LABELS[request.recipientRole]
-            ? ` as the ${ROLE_LABELS[request.recipientRole].toLowerCase()}`
-            : ''}
-          . Uploads are transmitted securely.
+        <p className="text-xs font-semibold uppercase tracking-wide text-indigo-600">
+          {isClaimant ? 'Your case documents' : 'Secure document request'}
         </p>
+        <h1 className="mt-1 text-2xl font-bold text-slate-900 dark:text-white">
+          {isClaimant ? `Send documents to ${fromLabel}` : `Documents requested by ${fromLabel}`}
+        </h1>
+        {isClaimant ? (
+          <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+            Your case team needs the documents below. Take a photo of each one or pick a file from your phone — you
+            don't need an account and nothing to sign in to.
+          </p>
+        ) : (
+          <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+            {request.recipientName ? `Hello ${request.recipientName}, ` : ''}
+            you've been asked to provide the documents listed below
+            {request.recipientRole && ROLE_LABELS[request.recipientRole]
+              ? ` as the ${ROLE_LABELS[request.recipientRole].toLowerCase()}`
+              : ''}
+            . Uploads are transmitted securely.
+          </p>
+        )}
 
         {request.customMessage && (
           <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
@@ -123,7 +148,10 @@ export default function DocumentPortal() {
             <h2 className="text-sm font-semibold text-slate-900 dark:text-white">Requested documents</h2>
             <ul className="mt-2 space-y-1">
               {request.requestedDocs.map((doc) => {
-                const fulfilled = request.uploads.some((u) => u.docType === doc.key)
+                // Claimant uploads are stored under evidence categories, which
+                // are a different vocabulary from request keys, so the server
+                // resolves this one.
+                const fulfilled = doc.fulfilled ?? request.uploads.some((u) => u.docType === doc.key)
                 return (
                   <li key={doc.key} className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
                     <span
@@ -142,18 +170,24 @@ export default function DocumentPortal() {
         )}
 
         <div className="mt-6 rounded-xl border border-slate-200 p-4 dark:border-slate-700">
-          <h2 className="text-sm font-semibold text-slate-900 dark:text-white">Upload documents</h2>
+          <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
+            {isClaimant ? 'Add your documents' : 'Upload documents'}
+          </h2>
 
-          <label className="mt-3 block text-xs font-medium text-slate-600 dark:text-slate-300">
-            Your name (optional)
-            <input
-              type="text"
-              value={uploaderName}
-              onChange={(e) => setUploaderName(e.target.value)}
-              placeholder="e.g., Jane Adjuster"
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-white"
-            />
-          </label>
+          {/* The case already knows who the claimant is, and the claimant path
+              does not store a name, so asking would be theatre. */}
+          {!isClaimant && (
+            <label className="mt-3 block text-xs font-medium text-slate-600 dark:text-slate-300">
+              Your name (optional)
+              <input
+                type="text"
+                value={uploaderName}
+                onChange={(e) => setUploaderName(e.target.value)}
+                placeholder="e.g., Jane Adjuster"
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-white"
+              />
+            </label>
+          )}
 
           {request.requestedDocs.length > 0 && (
             <label className="mt-3 block text-xs font-medium text-slate-600 dark:text-slate-300">
@@ -173,16 +207,21 @@ export default function DocumentPortal() {
             </label>
           )}
 
-          <label className="mt-3 block text-xs font-medium text-slate-600 dark:text-slate-300">
-            Note (optional)
-            <textarea
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              rows={2}
-              placeholder="Anything the attorney should know about these files"
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-white"
-            />
-          </label>
+          {/* Hidden rather than disabled in claimant mode: the claimant upload
+              path has nowhere to put a note, and a box that accepts a message
+              and drops it is worse than no box. */}
+          {!isClaimant && (
+            <label className="mt-3 block text-xs font-medium text-slate-600 dark:text-slate-300">
+              Note (optional)
+              <textarea
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                rows={2}
+                placeholder="Anything the attorney should know about these files"
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-white"
+              />
+            </label>
+          )}
 
           <input
             ref={fileInputRef}
@@ -223,7 +262,9 @@ export default function DocumentPortal() {
               </>
             ) : (
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Choose one or more files above, then send them to the attorney.
+                {isClaimant
+                  ? 'Choose one or more files above, then send them to your case team.'
+                  : 'Choose one or more files above, then send them to the attorney.'}
               </p>
             )}
             <button
@@ -253,7 +294,9 @@ export default function DocumentPortal() {
         {request.uploads.length > 0 && (
           <div className="mt-6">
             <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
-              Files you've uploaded ({request.uploads.length})
+              {isClaimant
+                ? `Documents you've sent (${request.uploads.length})`
+                : `Files you've uploaded (${request.uploads.length})`}
             </h2>
             <ul className="mt-2 space-y-1">
               {request.uploads.map((u) => (

@@ -15,7 +15,7 @@ import {
   FileText,
   X,
 } from 'lucide-react'
-import { getAttorneyDashboard, getMyAttorneyProfile, decideLead, updateLeadStatus, createDocumentRequest, scheduleConsultation, getCaseContacts, createLeadSolTask, getAttorneyRoiAnalytics, downloadLeadCaseFile, createCaseFromLead, saveLeadDecisionOverride, getAnalyticsIntelligence, transferLeadToFirmAttorney, getLeadCommandCenter, askLeadCommandCenterCopilot, syncLeadReadinessAutomation, updateLeadReminder, getAttorneyCalendarHealth, createRoutingFeePaymentSession, type AttorneyCalendarConnection, type CaseCommandCenter } from '../lib/api'
+import { getAttorneyDashboard, getMyAttorneyProfile, decideLead, updateLeadStatus, createDocumentRequest, textDocumentRequest, scheduleConsultation, getCaseContacts, createLeadSolTask, getAttorneyRoiAnalytics, downloadLeadCaseFile, createCaseFromLead, saveLeadDecisionOverride, getAnalyticsIntelligence, transferLeadToFirmAttorney, getLeadCommandCenter, askLeadCommandCenterCopilot, syncLeadReadinessAutomation, updateLeadReminder, getAttorneyCalendarHealth, createRoutingFeePaymentSession, type AttorneyCalendarConnection, type CaseCommandCenter } from '../lib/api'
 import Tooltip from '../components/Tooltip'
 import { formatClaimType as formatCanonicalClaimType } from '../lib/claimTypes'
 import ErrorBoundary from '../components/ErrorBoundary'
@@ -1481,6 +1481,33 @@ export default function AttorneyDashboardShell({ chromeless = false, initialView
       setTimeout(() => setBulkActionMessage(null), 5000)
     } finally {
       setBulkActionLoading(false)
+    }
+  }, [selectedLeadIds, loadDashboardData])
+
+  // Texting is per-case: a text channel belongs to one client, so this is only
+  // offered when exactly one lead is selected.
+  const handleDocumentRequestText = useCallback(async (payload: { requestedDocs: string[]; customMessage?: string }) => {
+    const ids = [...selectedLeadIds]
+    if (ids.length !== 1) return
+    setBulkActionLoading(true)
+    setBulkActionMessage(null)
+    try {
+      const result = await textDocumentRequest(ids[0], payload)
+      const where =
+        result.mode === 'photo_reply'
+          ? 'They can reply with photos, which land on the case Inbox tab.'
+          : 'They got a one-tap upload link that needs no login, and their files land on the case Evidence tab.'
+      setBulkActionMessage(result.warning || `Texted the client at •••${result.phoneLast4 || '••••'}. ${where}`)
+      clearSelectedLeads()
+      setDocumentRequestPrefill(null)
+      setDocumentRequestModalOpen(false)
+      invalidateAttorneyDashboardSummary()
+      loadDashboardData(0)
+    } catch (err: any) {
+      setBulkActionMessage(err?.response?.data?.error || err?.message || 'Failed to text the document request')
+    } finally {
+      setBulkActionLoading(false)
+      setTimeout(() => setBulkActionMessage(null), 6000)
     }
   }, [selectedLeadIds, loadDashboardData])
 
@@ -3969,6 +3996,7 @@ export default function AttorneyDashboardShell({ chromeless = false, initialView
             setDocumentRequestPrefill(null)
           }}
           onSubmit={handleDocumentRequestSubmit}
+          onSubmitText={selectedLeadIds.size === 1 ? handleDocumentRequestText : undefined}
           selectedCount={selectedLeadIds.size}
           loading={bulkActionLoading}
           initialRequestedDocs={documentRequestPrefill?.requestedDocs}

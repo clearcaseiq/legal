@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useState } from 'react'
-import { X } from 'lucide-react'
+import { MessageSquare, X } from 'lucide-react'
 
 export const DOC_TYPES = [
   { id: 'police_report', label: 'Police report' },
@@ -21,6 +21,11 @@ interface DocumentRequestModalProps {
   isOpen: boolean
   onClose: () => void
   onSubmit: (payload: { requestedDocs: DocTypeId[]; customMessage?: string; sendUploadLinkOnly?: boolean }) => Promise<void>
+  /**
+   * Send the same ask by text instead of email. Omitted by callers that request
+   * from several plaintiffs at once, since a text channel belongs to one case.
+   */
+  onSubmitText?: (payload: { requestedDocs: DocTypeId[]; customMessage?: string }) => Promise<void>
   selectedCount: number
   loading?: boolean
   initialRequestedDocs?: DocTypeId[]
@@ -32,6 +37,7 @@ export default function DocumentRequestModal({
   isOpen,
   onClose,
   onSubmit,
+  onSubmitText,
   selectedCount,
   loading = false,
   initialRequestedDocs = [],
@@ -70,6 +76,16 @@ export default function DocumentRequestModal({
     } else {
       await onSubmit({ requestedDocs: [...selected], customMessage: customMessage.trim() || undefined })
     }
+    reset()
+  }
+
+  const handleSubmitText = async () => {
+    if (!canSubmit || !onSubmitText) return
+    await onSubmitText({ requestedDocs: [...selected], customMessage: customMessage.trim() || undefined })
+    reset()
+  }
+
+  const reset = () => {
     setSelected(new Set())
     setCustomMessage('')
     setSendUploadLinkOnly(false)
@@ -136,10 +152,21 @@ export default function DocumentRequestModal({
             />
           </div>
         </div>
-        <div className="flex justify-end gap-2 p-4 border-t border-gray-200">
+        <div className="flex flex-wrap justify-end gap-2 p-4 border-t border-gray-200">
           <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200">
             Cancel
           </button>
+          {onSubmitText && (
+            <button
+              onClick={handleSubmitText}
+              disabled={!canSubmit || loading}
+              title="Text the client — they reply with photos, no login needed"
+              className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-brand-700 bg-white border border-brand-600 rounded-lg hover:bg-brand-50 disabled:opacity-50"
+            >
+              <MessageSquare className="h-4 w-4" />
+              {loading ? 'Sending…' : 'Text request to client'}
+            </button>
+          )}
           <button
             onClick={handleSubmit}
             disabled={!canSubmit || loading}

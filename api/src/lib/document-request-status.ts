@@ -137,6 +137,21 @@ export function acceptedCategoriesForRequestKey(key: string): string[] {
 }
 
 /**
+ * The category to file an upload under when the claimant said which requested
+ * item it answers.
+ *
+ * Request keys and evidence categories are not the same vocabulary — a client
+ * answering `injury_photos` produces a file the rest of the app expects to find
+ * under `photos`. Storing the request key verbatim would leave the upload in a
+ * category nothing reads, so the request it was sent to satisfy would stay
+ * pending forever. The first accepted category is the canonical one.
+ */
+export function evidenceCategoryForRequestKey(key: string): string {
+  const normalized = normalizeRequestedDocKey(key)
+  return DOCUMENT_REQUEST_CATEGORY_MAP[normalized]?.[0] || normalized || 'other'
+}
+
+/**
  * Whether a requested item is fulfilled by evidence. Only evidence uploaded
  * at/after the request counts — older files on the case must not instantly
  * complete a brand-new attorney ask.

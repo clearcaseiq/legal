@@ -69,6 +69,25 @@ export function isSmsConfigured(): boolean {
   return provider === 'sns'
 }
 
+/**
+ * Whether a photo texted to our number can actually reach us.
+ *
+ * Sending and receiving media are not the same capability. AWS End User
+ * Messaging sends MMS happily, but two-way MMS is unsupported: an inbound
+ * picture message generates no SNS notification at all, and the inbound payload
+ * has no media field to read even in principle.
+ *
+ * That makes this the difference between a feature and a lie. Asking a claimant
+ * to "text your medical records back to this number" over SNS delivers
+ * perfectly, drops every photo they send, and reports nothing to either side —
+ * so the client believes their attorney has their records and the attorney sees
+ * an empty file. Callers must branch on this rather than assume that because
+ * the invite sent, the reply can arrive.
+ */
+export function canReceiveInboundMedia(): boolean {
+  return resolveSmsProvider() === 'twilio'
+}
+
 /** Send a single SMS through Twilio. */
 async function sendViaTwilio(to: string, body: string): Promise<boolean> {
   const client = getTwilioClient()

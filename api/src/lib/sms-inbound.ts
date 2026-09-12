@@ -28,6 +28,7 @@ import {
   recordSmsOptOut,
   type SmsKeyword,
 } from './sms-opt-out'
+import { ingestSmsMedia, type SmsMediaRef } from './sms-media-intake'
 
 export interface InboundSmsResult {
   processingStatus: 'processed' | 'ignored' | 'failed'
@@ -49,6 +50,8 @@ export interface InboundSmsResult {
    * at-least-once redelivery does not text the same person twice.
    */
   duplicate?: boolean
+  /** Set when the message carried documents that were filed on a case. */
+  assessmentId?: string | null
 }
 
 function normalizePhone(phone: string): string {
@@ -94,6 +97,7 @@ async function updateReceipt(
     errorMessage?: string | null
     introductionId?: string | null
     leadSubmissionId?: string | null
+    assessmentId?: string | null
     processingStatus: 'processed' | 'ignored' | 'failed'
     responseCode?: number | null
     responseMessage?: string | null
@@ -157,6 +161,8 @@ export async function processInboundSmsDecision(input: {
   fromPhone: string
   body: string
   messageId?: string | null
+  /** MMS attachments, when the provider delivers them. */
+  media?: SmsMediaRef[]
 }): Promise<InboundSmsResult> {
   let receiptId: string | null = null
   try {
@@ -164,6 +170,7 @@ export async function processInboundSmsDecision(input: {
     const body = (input.body || '').trim()
     const messageSid = input.messageId?.trim() || null
     const normalizedFrom = from ? normalizePhone(from) : ''
+    const media = input.media || []
 
     if (messageSid) {
       try {
@@ -173,6 +180,7 @@ export async function processInboundSmsDecision(input: {
             fromPhone: from || null,
             normalizedFrom: normalizedFrom || null,
             messageBody: body || null,
+            numMedia: media.length,
           },
         })
         receiptId = receipt.id
@@ -192,7 +200,9 @@ export async function processInboundSmsDecision(input: {
       }
     }
 
-    if (!from || !body) {
+    // A texted photo usually arrives with no caption at all, so an empty body is
+    // only empty when nothing came with it either.
+    if (!from || (!body && media.length === 0)) {
       const result: InboundSmsResult = {
         processingStatus: 'ignored',
         responseCode: 400,
@@ -209,6 +219,24 @@ export async function processInboundSmsDecision(input: {
     const keyword = parseSmsKeyword(body)
     if (keyword) {
       const result = await handleOptOutKeyword(keyword, from, body)
+      await updateReceipt(receiptId, result)
+      return result
+    }
+
+    // Documents, before the decision parse. A claimant is not in the `Attorney`
+    // table, so anything reaching the lookup below is answered with "Phone
+    // number not recognized" — which is the correct reply to a stranger and the
+    // wrong one to a client who just sent their medical bills. STOP still wins,
+    // deliberately: someone who opted out has asked us to stop, and filing their
+    // attachments anyway would be the same failure in a new place.
+    if (media.length > 0) {
+      const intake = await ingestSmsMedia({ fromPhone: from, media, messageSid })
+      const result: InboundSmsResult = {
+        processingStatus: intake.outcome === 'filed' ? 'processed' : 'ignored',
+        responseCode: 200,
+        responseMessage: intake.replyMessage,
+        assessmentId: intake.assessmentId,
+      }
       await updateReceipt(receiptId, result)
       return result
     }

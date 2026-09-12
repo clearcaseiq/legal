@@ -2181,6 +2181,73 @@ export async function createDocumentRequest(
   return data
 }
 
+/**
+ * What the client was actually asked to do. `photo_reply` means they answer the
+ * thread with photos; `upload_link` means the SMS provider cannot receive media,
+ * so they got a one-tap upload link instead.
+ */
+export type DocumentRequestTextMode = 'photo_reply' | 'upload_link'
+
+export interface DocumentRequestTextResult {
+  outcome: 'sent' | 'send_failed'
+  mode: DocumentRequestTextMode
+  phoneLast4: string | null
+  docs: string[]
+  documentRequestId: string | null
+  warning: string | null
+}
+
+// Ask the client for documents by text. They reply with photos to the same
+// thread, which is the whole point: no login, no upload form.
+export async function textDocumentRequest(
+  leadId: string,
+  payload: { requestedDocs: string[]; customMessage?: string }
+): Promise<DocumentRequestTextResult> {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/document-request-text`, payload)
+  return data
+}
+
+export interface DocumentInboxExtract {
+  totalAmount: number | null
+  confidence: number
+  dates: string[]
+  entities: string[]
+  icdCodes: string[]
+  cptCodes: string[]
+}
+
+export interface DocumentInboxItem {
+  id: string
+  originalName: string
+  category: string
+  categoryLabel: string
+  mimetype: string
+  fileUrl: string
+  createdAt: string
+  processingStatus: string
+  aiSummary: string | null
+  needsReview: boolean
+  extracted: DocumentInboxExtract | null
+}
+
+export interface DocumentInbox {
+  received: number
+  processed: number
+  needsReview: number
+  /** False when the SMS provider cannot receive media, so nothing can ever land here. */
+  mediaCapable: boolean
+  channelOpen: boolean
+  phoneLast4: string | null
+  lastInboundAt: string | null
+  categories: Array<{ category: string; label: string; count: number; totalAmount: number }>
+  documents: DocumentInboxItem[]
+}
+
+export async function getDocumentInbox(leadId: string): Promise<DocumentInbox> {
+  const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/document-inbox`)
+  return data
+}
+
 export type OpposingDocRole = 'defendant' | 'opposing_counsel' | 'insurer'
 
 // Attorney serves a document request on the defendant / opposing party / insurer.
@@ -2322,13 +2389,20 @@ export async function getOpposingDocSuggestions(assessmentId: string): Promise<O
 
 // Public tokenized portal used by an external recipient (defendant/insurer) — no auth.
 export type DocumentPortalRequest = {
+  /**
+   * Who the link was sent to. `claimant` is the client's own no-login upload
+   * page, reached from the text their attorney sent; `opposing` is the external
+   * recipient portal. Absent on responses from an older API.
+   */
+  mode?: 'claimant' | 'opposing'
   recipientName?: string | null
   recipientRole?: OpposingDocRole | null
   attorneyName?: string | null
   firmName?: string | null
   customMessage?: string | null
   status: string
-  requestedDocs: Array<{ key: string; label: string }>
+  /** `fulfilled` is resolved server-side; request keys and evidence categories differ. */
+  requestedDocs: Array<{ key: string; label: string; fulfilled?: boolean }>
   uploads: Array<{ id: string; originalName: string; docType?: string | null; createdAt: string }>
 }
 
@@ -2348,7 +2422,14 @@ export async function uploadDocumentPortalFile(
   if (meta.uploadedByName) form.append('uploadedByName', meta.uploadedByName)
   if (meta.note) form.append('note', meta.note)
   const { data } = await api.post(`/v1/public/document-requests/${token}/upload`, form)
-  return data as { id: string; originalName: string; docType?: string | null; status: string }
+  return data as {
+    id: string | null
+    originalName: string
+    docType?: string | null
+    /** Claimant mode only: the same file was already on the case, so nothing was added. */
+    duplicate?: boolean
+    status?: string
+  }
 }
 
 export async function getLeadCommandCenter(leadId: string) {

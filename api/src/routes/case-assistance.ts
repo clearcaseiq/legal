@@ -52,6 +52,7 @@ import { deliverDirectNotification } from '../lib/platform-notifications'
 import { sendMissedCallFollowUp } from '../lib/missed-call-followup'
 import { PLAINTIFF_EVENTS } from '../lib/notification-events'
 import { webUrl } from '../lib/app-url'
+import { claimantInviteUrl } from '../lib/claimant-invite'
 import { PROPOSABLE_FACT_PATHS, isProposableFactPath, readFactPath } from '../lib/case-fact-paths'
 import { createSpecialistFactProposal, factPathOf, proposalFieldLabel } from '../lib/case-reconciliation'
 import { checkUplBoundary, describeUplViolations } from '../lib/upl-guard'
@@ -124,6 +125,15 @@ function contactOf(assessment: { user?: any; facts?: unknown }) {
   const isShadow = /^guest\+.*@caseiq\.local$/i.test(accountEmail)
 
   return {
+    /**
+     * Whether there is a login behind this address.
+     *
+     * A shadow row is an ownership placeholder, not an account anybody can sign
+     * in to, so it counts as no account — which is why the real address below
+     * comes from intake instead. Anything mailing this claimant a link that
+     * needs a session has to branch on this or it sends them to a locked door.
+     */
+    hasAccount: Boolean(accountEmail) && !isShadow,
     email: (isShadow ? '' : accountEmail) || context.email || null,
     phone: assessment.user?.phone || context.phone || null,
     city: context.city || facts.incident?.city || null,
@@ -1278,8 +1288,13 @@ const DocumentRequestSchema = z.object({
  * across fourteen files join document requests through `leadId`, so making it
  * nullable is a phase-2 refactor, not a detour.
  *
- * What the plaintiff gets instead is their own authenticated upload page, which
- * is the same destination and needs no token because they are signed in.
+ * So the link is chosen per claimant. Someone with a login gets their own
+ * authenticated upload page, which is the richer destination anyway. Someone
+ * without one gets the claim link, because this queue is mostly people who have
+ * not registered — a case here can be owned by a guest shadow row, or by nobody
+ * at all, with the address coming from intake instead. Mailing those claimants
+ * a page that demands a session sent the very people this feature exists for to
+ * a login screen they had no account for.
  */
 router.post('/:id/document-request', async (req: AuthRequest, res) => {
   try {
@@ -1299,7 +1314,9 @@ router.post('/:id/document-request', async (req: AuthRequest, res) => {
       })
     }
 
-    const uploadLink = webUrl(`/evidence-upload/${assistance.assessmentId}`)
+    const uploadLink = contact.hasAccount
+      ? webUrl(`/evidence-upload/${assistance.assessmentId}`)
+      : claimantInviteUrl(assistance.assessmentId)
     // Canonical keys, so the names the claimant reads are the same ones their
     // upload page and the attorney's note use, rather than a de-slugged key.
     const docs = normalizeRequestedDocKeys(parsed.data.docs)
@@ -1323,9 +1340,17 @@ router.post('/:id/document-request', async (req: AuthRequest, res) => {
         docNames.length === 1 ? 'What we need:' : `What we need (${docNames.length} items):`,
         ...docNames.map((name) => `• ${name}`),
         '',
-        'You can upload them from your case documents page.',
+        // Says which of the two links they are about to tap. Telling someone
+        // with no account to "upload from your case documents page" describes a
+        // page they cannot reach.
+        contact.hasAccount
+          ? 'You can upload them from your case documents page.'
+          : 'Use the button below to set up your case login, then upload them there.',
       ].join('\n'),
-      cta: { label: 'Upload documents', url: uploadLink },
+      cta: {
+        label: contact.hasAccount ? 'Upload documents' : 'Set up your login and upload',
+        url: uploadLink,
+      },
       userId: assistance.assessment.user?.id || null,
       assessmentId: assistance.assessmentId,
       role: 'plaintiff',

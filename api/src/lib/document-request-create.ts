@@ -31,6 +31,8 @@ export type CreatePlaintiffDocumentRequestResult = {
     requestedDocs: string
     customMessage: string | null
     uploadLink: string
+    /** Bearer for the no-login upload portal, for callers that link to it directly. */
+    secureToken: string
     status: string
     createdAt: Date
   }

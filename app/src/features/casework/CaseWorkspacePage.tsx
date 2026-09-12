@@ -102,6 +102,7 @@ import CaseTimePanel from './CaseTimePanel'
 import CaseBillingPanel from './CaseBillingPanel'
 import CaseReferralsPanel from './CaseReferralsPanel'
 import CaseIntelligencePanel from './CaseIntelligencePanel'
+import DocumentInboxPanel from './DocumentInboxPanel'
 import CaseCopilotPanel from './CaseCopilotPanel'
 import CaseRosePanel from './CaseRosePanel'
 import ConsultSchedulerModal from './ConsultSchedulerModal'
@@ -147,7 +148,7 @@ const ROW_TONE: Record<Tone, string> = {
   danger: 'text-rose-700',
 }
 
-const TABS = ['Overview', 'AI Copilot', 'Rose', 'Workflow', 'Tasks', 'Evidence', 'Signatures', 'Medical', 'Liability', 'Insurance', 'Damages', 'Negotiation', 'Demand', 'Timeline', 'Deadlines', 'Settlement', 'Time', 'Billing', 'Referrals'] as const
+const TABS = ['Overview', 'AI Copilot', 'Rose', 'Workflow', 'Tasks', 'Evidence', 'Inbox', 'Signatures', 'Medical', 'Liability', 'Insurance', 'Damages', 'Negotiation', 'Demand', 'Timeline', 'Deadlines', 'Settlement', 'Time', 'Billing', 'Referrals'] as const
 type Tab = (typeof TABS)[number]
 
 const SECTION_TO_TAB: Record<string, Tab> = {
@@ -162,6 +163,11 @@ const SECTION_TO_TAB: Record<string, Tab> = {
   'ai-case-manager': 'Rose',
   workflow: 'Workflow',
   evidence: 'Evidence',
+  inbox: 'Inbox',
+  // `documents` was already spoken for by e-sign deep-links before the inbox
+  // existed, so texted documents use their own slug rather than stealing it.
+  'document-inbox': 'Inbox',
+  texted: 'Inbox',
   signatures: 'Signatures',
   esign: 'Signatures',
   // "Send retainer" and other e-sign deep-links land on the Signatures tab.
@@ -197,6 +203,7 @@ const TAB_TO_SECTION: Record<Tab, string> = {
   Rose: 'rose',
   Workflow: 'workflow',
   Evidence: 'evidence',
+  Inbox: 'inbox',
   Signatures: 'signatures',
   Medical: 'medical',
   Insurance: 'insurance',
@@ -228,6 +235,7 @@ const TAB_META: Record<Tab, TabMeta> = {
   Workflow: { icon: Workflow, blurb: 'Your firm’s standard pipeline for this case — check off steps, assign owners, and track progress stage by stage.' },
   Tasks: { icon: ListChecks, blurb: 'Primary work queue for this case — recommended next steps, assignments, and open items.' },
   Evidence: { icon: FolderOpen, blurb: 'Upload documents, request records, and track the case file.' },
+  Inbox: { icon: MessageSquare, blurb: 'Documents the client texted in, read and filed automatically.' },
   Signatures: { icon: PenLine, blurb: 'Send retainers and authorizations for e-signature.' },
   Medical: { icon: Stethoscope, blurb: 'Providers, treatment chronology, and cost benchmarks.' },
   Insurance: { icon: Shield, blurb: 'Insurance carriers, policy limits, adjusters, and claims.' },
@@ -913,6 +921,10 @@ function WorkstreamPanel({
         initialFiles={detail.evidenceFiles}
       />
     )
+  }
+
+  if (tab === 'Inbox') {
+    return <DocumentInboxPanel leadId={lead.id} />
   }
 
   if (tab === 'Signatures') {

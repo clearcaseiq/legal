@@ -383,6 +383,42 @@ function classifyEvidence(filename: string, category: string, ocrText: string) {
   return category || 'other'
 }
 
+/** Categories a classification is allowed to file a document under. */
+const PROMOTABLE_CATEGORIES = new Set(['medical_records', 'bills', 'police_report', 'photos', 'correspondence'])
+
+/**
+ * Choose a category for a document whose sender never picked one.
+ *
+ * Everything that makes a document count runs off `category`: whether its
+ * dollars reach medical specials, whether it satisfies an attorney's document
+ * request, which readiness factor it credits, and whether it is flagged HIPAA.
+ * A texted photo arrives with none of that decided, so leaving it in `other`
+ * would file the document and then ignore it.
+ *
+ * Only ever promotes away from `other`, so a category a person chose is never
+ * overwritten by a keyword match — the classifier is a fallback for the case
+ * where nobody was asked, not a second opinion.
+ */
+const UNPROMPTED_UPLOAD_METHODS = new Set([
+  'sms',
+  // The tokenised link an attorney texts. Its uploader offers the requested
+  // documents but does not require picking one, so a claimant who just sends a
+  // photo lands here with no category for the same reason a texter does.
+  'upload_link',
+])
+
+export function promotedCategory(
+  current: string,
+  uploadMethod: string | null | undefined,
+  aiClassification: string,
+): string | null {
+  if (!UNPROMPTED_UPLOAD_METHODS.has((uploadMethod || '').trim())) return null
+  if ((current || '').trim() !== 'other') return null
+  const next = (aiClassification || '').trim()
+  if (!next || next === 'other') return null
+  return PROMOTABLE_CATEGORIES.has(next) ? next : null
+}
+
 export function buildStructuredMedicalEvents(params: {
   category: string
   originalName: string
@@ -836,6 +872,7 @@ export async function processEvidenceFileForExtraction(fileId: string) {
     }
     const visionFlag = visionResult ? shouldFlagForReview(visionResult) : false
     const manualReview = !ocrText || extractedData.confidence < 0.5 || visionFlag
+    const nextCategory = promotedCategory(evidenceFile.category, evidenceFile.uploadMethod, aiClassification)
 
     await prisma.$transaction([
       prisma.evidenceFile.update({
@@ -849,6 +886,7 @@ export async function processEvidenceFileForExtraction(fileId: string) {
           ...(visionResult
             ? { visionLabels: JSON.stringify(visionResult), relevanceScore: visionResult.score }
             : {}),
+          ...(nextCategory ? { category: nextCategory, isHIPAA: nextCategory === 'medical_records' } : {}),
         },
       }),
       prisma.extractedData.deleteMany({ where: { evidenceFileId: fileId } }),

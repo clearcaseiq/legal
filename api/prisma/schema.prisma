@@ -285,6 +285,7 @@ model Assessment {
   appointments  Appointment[]
   chatRooms     ChatRoom[]
   evidenceFiles EvidenceFile[]
+  phoneBindings CasePhoneBinding[]
   ethicalWalls  EthicalWall[]
   consents      Consent[]
 
@@ -1469,6 +1470,11 @@ model SmsWebhookReceipt {
   processingStatus String    @default("received") // received, processed, ignored, duplicate, failed
   introductionId   String?
   leadSubmissionId String?
+  /// Set when the message carried documents for a case, so the audit log says
+  /// which file the attachments landed on and not just that a text arrived.
+  assessmentId     String?
+  /// Twilio `NumMedia`. Zero for a plain text reply.
+  numMedia         Int       @default(0)
   errorMessage     String?   @db.Text
   processedAt      DateTime?
   createdAt        DateTime  @default(now())
@@ -1480,6 +1486,7 @@ model SmsWebhookReceipt {
   @@index([processingStatus, createdAt])
   @@index([introductionId])
   @@index([leadSubmissionId])
+  @@index([assessmentId, createdAt])
   @@map("sms_webhook_receipts")
 }
 
@@ -4201,9 +4208,13 @@ model EvidenceFile {
   relevanceScore Float   @default(0)
 
   // Upload Metadata
-  uploadMethod String    @default("drag_drop") // 'drag_drop', 'camera', 'file_picker'
+  uploadMethod String    @default("drag_drop") // 'drag_drop', 'camera', 'file_picker', 'sms'
   captureDate  DateTime? // For camera uploads
   location     String? // GPS coordinates for photos
+  /// SHA-256 of the file bytes. A claimant who texts the same photo twice —
+  /// which they do, because a text has no "already sent" state — would otherwise
+  /// have the bill counted twice in `facts.damages`.
+  contentHash  String?
 
   // EXIF Data (JSON)
   exifData String? // Camera settings, GPS, timestamp
@@ -4244,6 +4255,7 @@ model EvidenceFile {
   // sequential scan that grew with total platform uploads.
   @@index([assessmentId, createdAt])
   @@index([userId, createdAt])
+  @@index([assessmentId, contentHash])
   @@map("evidence_files")
 }
 
@@ -4680,6 +4692,41 @@ model SmsOptOut {
 
   @@index([optedInAt])
   @@map("sms_opt_outs")
+}
+
+/// Which case a phone number is allowed to text documents to.
+///
+/// Inbound SMS carries no identity beyond the sending number, and the claimant's
+/// number lives in `Assessment.facts.plaintiffContext.phone` — unindexed JSON
+/// with no reverse lookup. This table is the lookup, and it is also the consent
+/// record: a binding only exists because an attorney on the case sent the
+/// invite, so an unrecognized number is refused rather than guessed at.
+///
+/// `phoneE164` is the output of `optOutKey()` in `lib/sms-opt-out.ts` for the
+/// same reason `SmsOptOut.phone` is — the two are compared on every inbound
+/// message and a mismatched normalizer would leak documents past a STOP.
+///
+/// Numbers get reassigned between people, so bindings are revoked rather than
+/// deleted and only one may be `active` for a number at a time.
+model CasePhoneBinding {
+  id           String     @id @default(cuid())
+  assessmentId String
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  /// E.164, via optOutKey().
+  phoneE164    String
+  status       String     @default("active") // active, revoked
+  /// The attorney or staff user who sent the invite that created this binding.
+  boundByUserId String?
+  boundAt       DateTime  @default(now())
+  /// Last time documents actually arrived on this binding, for the audit trail.
+  lastInboundAt DateTime?
+  revokedAt     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([phoneE164, status])
+  @@index([assessmentId, status])
+  @@map("case_phone_bindings")
 }
 
 /// Per-field authorship for `Assessment.facts`.

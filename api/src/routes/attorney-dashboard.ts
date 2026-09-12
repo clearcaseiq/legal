@@ -46,8 +46,10 @@ import { runAnalysisForAssessment } from './evidence'
 import { generateSceneImageForAssessment } from '../services/incident-scene'
 import { processEvidenceFileForExtraction, shouldAutoProcessEvidence } from '../lib/evidence-processing'
 import { runCaseRecalculation } from '../lib/case-recalculation'
-import { syncPlaintiffDocumentRequestStatuses, computeRequestStatus, parseRequestedDocs, normalizeRequestedDocKeys } from '../lib/document-request-status'
+import { syncPlaintiffDocumentRequestStatuses, computeRequestStatus, parseRequestedDocs, normalizeRequestedDocKeys, DOCUMENT_REQUEST_LABELS } from '../lib/document-request-status'
 import { createAndNotifyPlaintiffDocumentRequest } from '../lib/document-request-create'
+import { sendDocumentRequestText } from '../lib/document-request-text'
+import { canReceiveInboundMedia } from '../lib/sms'
 import { analyzeCaseWithChatGPT, CaseAnalysisRequest } from '../services/chatgpt'
 import { z } from 'zod'
 import { Document, Packer, Paragraph, TextRun } from 'docx'
@@ -6175,6 +6177,166 @@ router.post('/leads/:leadId/document-request', authMiddleware, async (req: any, 
   } catch (error: any) {
     logger.error('Failed to create document request', { error: error.message })
     res.status(500).json({ error: 'Failed to create document request' })
+  }
+})
+
+const DOCUMENT_REQUEST_TEXT_ERRORS: Record<string, string> = {
+  no_phone: 'No mobile number on file for this client. Add one before texting a document request.',
+  opted_out: 'This client texted STOP, so we cannot text them. Use the email request instead.',
+  send_failed: 'The document request was created, but the text could not be delivered.',
+}
+
+// Ask the claimant for documents by text, and open the channel they reply on.
+// Same DocumentRequest rows as the email flow, so a texted photo settles the
+// request rather than arriving as an unattached file.
+router.post('/leads/:leadId/document-request-text', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId } = req.params
+    const { requestedDocs = [], customMessage } = req.body
+
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const { lead, attorney } = auth
+
+    const notAccepted = checkLeadIsAccepted(lead, 'requesting documents from the plaintiff')
+    if (notAccepted) return res.status(notAccepted.status).json({ error: notAccepted.message })
+
+    const result = await sendDocumentRequestText({
+      leadId,
+      assessmentId: lead.assessmentId,
+      attorney,
+      requestedDocs: Array.isArray(requestedDocs) ? requestedDocs : [],
+      customMessage: customMessage || null,
+      firmName: await firmNameFor(attorney?.lawFirmId),
+      boundByUserId: req.user?.id || null,
+    })
+
+    if (result.outcome === 'already_requested') {
+      return res.status(409).json({
+        error:
+          result.alreadyRequested.length === 1
+            ? `${result.alreadyRequested[0]} is already in an open request. Nudge the client instead of requesting it again.`
+            : 'Those documents are already in an open request. Nudge the client instead of requesting them again.',
+        alreadyRequested: result.alreadyRequested,
+      })
+    }
+    if (result.outcome === 'no_phone' || result.outcome === 'opted_out') {
+      return res.status(409).json({ error: DOCUMENT_REQUEST_TEXT_ERRORS[result.outcome] })
+    }
+
+    res.json({
+      outcome: result.outcome,
+      mode: result.mode,
+      phoneLast4: result.phoneLast4,
+      docs: result.docs,
+      documentRequestId: result.documentRequestId,
+      warning: result.outcome === 'send_failed' ? DOCUMENT_REQUEST_TEXT_ERRORS.send_failed : null,
+    })
+  } catch (error: any) {
+    logger.error('Failed to text document request', { error: error.message })
+    res.status(500).json({ error: 'Failed to text document request' })
+  }
+})
+
+const INBOX_CATEGORY_LABELS: Record<string, string> = {
+  medical_records: 'Medical records',
+  bills: 'Medical bills',
+  police_report: 'Police report',
+  photos: 'Accident evidence',
+  correspondence: 'Correspondence',
+  insurance_letters: 'Insurance',
+  wage_verification: 'Wage loss',
+  other: 'Needs review',
+}
+
+function parseJsonArray(value: string | null | undefined): string[] {
+  if (!value) return []
+  try {
+    const parsed = JSON.parse(value)
+    return Array.isArray(parsed) ? parsed.map((entry) => String(entry)).filter(Boolean) : []
+  } catch {
+    return []
+  }
+}
+
+// Everything the claimant texted in, with what we read off it. Separate from the
+// Evidence tab because the question here is "what arrived and does it need me?",
+// not "what is on the case file".
+router.get('/leads/:leadId/document-inbox', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId } = req.params
+    const auth = await getAuthorizedLead(req, leadId, { allowFirmMember: true })
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const { lead } = auth
+
+    const [files, binding] = await Promise.all([
+      prisma.evidenceFile.findMany({
+        where: { assessmentId: lead.assessmentId, uploadMethod: 'sms' },
+        orderBy: { createdAt: 'desc' },
+        include: { extractedData: { orderBy: { createdAt: 'desc' }, take: 1 } },
+      }),
+      prisma.casePhoneBinding.findFirst({
+        where: { assessmentId: lead.assessmentId, status: 'active' },
+        orderBy: { boundAt: 'desc' },
+        select: { phoneE164: true, lastInboundAt: true },
+      }),
+    ])
+
+    const documents = files.map((file) => {
+      const extracted = file.extractedData[0]
+      return {
+        id: file.id,
+        originalName: file.originalName,
+        category: file.category,
+        categoryLabel: INBOX_CATEGORY_LABELS[file.category] || file.category.replace(/_/g, ' '),
+        mimetype: file.mimetype,
+        fileUrl: file.fileUrl,
+        createdAt: file.createdAt,
+        processingStatus: file.processingStatus,
+        aiSummary: file.aiSummary,
+        needsReview: file.processingStatus !== 'completed' || Boolean(extracted?.isManualReview),
+        extracted: extracted
+          ? {
+              totalAmount: extracted.totalAmount,
+              confidence: extracted.confidence,
+              dates: parseJsonArray(extracted.dates).slice(0, 4),
+              entities: parseJsonArray(extracted.entities).slice(0, 4),
+              icdCodes: parseJsonArray(extracted.icdCodes).slice(0, 6),
+              cptCodes: parseJsonArray(extracted.cptCodes).slice(0, 6),
+            }
+          : null,
+      }
+    })
+
+    const byCategory = new Map<string, { category: string; label: string; count: number; totalAmount: number }>()
+    for (const doc of documents) {
+      const row = byCategory.get(doc.category) || {
+        category: doc.category,
+        label: doc.categoryLabel,
+        count: 0,
+        totalAmount: 0,
+      }
+      row.count += 1
+      row.totalAmount += doc.extracted?.totalAmount || 0
+      byCategory.set(doc.category, row)
+    }
+
+    res.json({
+      received: documents.length,
+      processed: documents.filter((doc) => doc.processingStatus === 'completed').length,
+      needsReview: documents.filter((doc) => doc.needsReview).length,
+      // Without this the tab is permanently empty on a provider that cannot
+      // receive media, and looks like a bug rather than a capability gap.
+      mediaCapable: canReceiveInboundMedia(),
+      channelOpen: Boolean(binding),
+      phoneLast4: binding?.phoneE164 ? binding.phoneE164.slice(-4) : null,
+      lastInboundAt: binding?.lastInboundAt || null,
+      categories: [...byCategory.values()].sort((a, b) => b.count - a.count),
+      documents,
+    })
+  } catch (error: any) {
+    logger.error('Failed to load document inbox', { error: error.message })
+    res.status(500).json({ error: 'Failed to load document inbox' })
   }
 })
 

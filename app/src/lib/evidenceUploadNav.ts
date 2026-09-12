@@ -36,6 +36,26 @@ export function plaintiffDashboardReturnTo(
   return q ? `/dashboard?${q}` : '/dashboard'
 }
 
+/** The no-login upload portal, which authenticates on the token in the path. */
+export function claimantPortalPath(token: string): string {
+  return `/respond/documents/${encodeURIComponent(token)}`
+}
+
+/**
+ * Where an `/evidence-upload/:id` link sends a visitor with no session.
+ *
+ * Returns null when there is nothing to go on and the caller should ask them to
+ * sign in. A document-request link is different: its `?token=` is the request's
+ * `secureToken`, which the portal accepts on its own, so the person can upload
+ * without an account. That matters because most people opening these have no
+ * account — an imported case's claimant has never registered — and the message
+ * that carried the link promised them somewhere to put their documents.
+ */
+export function unauthenticatedEvidenceUploadDestination(token: string | null | undefined): string | null {
+  const trimmed = (token || '').trim()
+  return trimmed ? claimantPortalPath(trimmed) : null
+}
+
 /** Only allow same-origin relative paths (block open redirects). */
 export function safeInternalReturnTo(raw: string | null | undefined, fallback: string): string {
   if (!raw) return fallback

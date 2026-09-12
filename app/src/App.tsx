@@ -12,6 +12,7 @@ import {
   plaintiffDashboardReturnTo,
   rememberEvidenceReturnTo,
   safeInternalReturnTo,
+  unauthenticatedEvidenceUploadDestination,
 } from './lib/evidenceUploadNav'
 // Definitions only: importing from `seoTopicHubs` here would pull the full text
 // of all 173 landing pages into the chunk that loads on every route.
@@ -146,11 +147,18 @@ function EvidenceUploadRedirect() {
   if (!assessmentId) return <Navigate to="/assess" replace />
 
   // This link is mailed to claimants, so it is usually opened from a mail client
-  // with no session. Both destinations below need one — /intake2 would otherwise
-  // render the wizard with no case attached, and /dashboard is plaintiff-gated —
-  // so sign in first and come back to this same URL. The query string rides
-  // along so an attorney request's ?token= survives the round trip.
+  // with no session.
   if (!hasValidAuthToken()) {
+    // An attorney's document request carries the portal's own token, so the
+    // visitor can upload without an account. Sending them to sign in instead
+    // was a wall in front of people who mostly have nothing to sign in with.
+    const portal = unauthenticatedEvidenceUploadDestination(token)
+    if (portal) return <Navigate to={portal} replace />
+
+    // Without a token nothing here can authenticate, and both destinations
+    // below need a session — /intake2 would render the wizard with no case
+    // attached, and /dashboard is plaintiff-gated. The query string rides along
+    // so the visitor lands back on this same URL afterwards.
     return <Navigate to={getLoginRedirect(`${location.pathname}${location.search}`)} replace />
   }
 

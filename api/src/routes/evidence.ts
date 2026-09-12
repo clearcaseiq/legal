@@ -21,6 +21,7 @@ import { syncCaseCoachTasks } from '../lib/case-coach-loop'
 import { analyzeImageRelevance, analyzePdfRelevance, analyzeVideoRelevance, type VisionRelevanceResult } from '../lib/evidence-vision'
 import { syncPlaintiffDocumentRequestStatuses } from '../lib/document-request-status'
 import { recordAssistanceDocumentSubmission } from '../lib/assistance-document-intake'
+import { ensureCaseOwnerUserId } from '../lib/case-owner'
 import { uploadLimiter } from '../lib/rate-limits'
 import { replicateUploads } from '../lib/object-storage'
 import { isAcceptedUpload } from '../lib/upload-filter'
@@ -46,32 +47,7 @@ function discardUploadedFile(file: { path?: string } | undefined): void {
 async function resolveUploadUserId(userId: string | null, assessmentId?: string) {
   if (userId) return userId
   if (!assessmentId) return null
-
-  const assessment = await prisma.assessment.findUnique({
-    where: { id: assessmentId },
-    select: { userId: true }
-  })
-  if (!assessment) return null
-  if (assessment.userId) return assessment.userId
-
-  const email = `guest+${assessmentId}@caseiq.local`
-  const existing = await prisma.user.findUnique({ where: { email } })
-  const guestUser = existing || await prisma.user.create({
-    data: {
-      email,
-      firstName: 'Guest',
-      lastName: 'User',
-      isActive: true,
-      emailVerified: false
-    }
-  })
-
-  await prisma.assessment.update({
-    where: { id: assessmentId },
-    data: { userId: guestUser.id }
-  })
-
-  return guestUser.id
+  return ensureCaseOwnerUserId(assessmentId)
 }
 
 export async function runAnalysisForAssessment(assessmentId: string) {
