@@ -2202,6 +2202,9 @@ function EvidencePanel({
   const [requestMessage, setRequestMessage] = useState('')
   const [requesting, setRequesting] = useState(false)
   const [texting, setTexting] = useState(false)
+  // Which channel the attorney picked on the way in. Both send buttons stay
+  // available in the form; this only decides which one reads as the primary.
+  const [requestChannel, setRequestChannel] = useState<'email' | 'text'>('email')
   const [openRequests, setOpenRequests] = useState<AttorneyDocumentRequest[]>([])
   const [banner, setBanner] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null)
   const [search, setSearch] = useState('')
@@ -2400,6 +2403,11 @@ function EvidencePanel({
     }
     return keys
   }, [openRequests])
+
+  const openRequestForm = (channel: 'email' | 'text') => {
+    setRequestChannel(channel)
+    setRequestOpen(true)
+  }
 
   const requestCategory = (reqLabel: string) => {
     if (pendingRequestedKeys.has(reqLabel)) {
@@ -3100,13 +3108,15 @@ function EvidencePanel({
         <div className="rounded-xl border border-slate-200 bg-white p-4">
           <div className="flex items-center justify-between">
             <p className="text-sm font-semibold text-slate-800">Request from client</p>
-            <button
-              type="button"
-              onClick={() => setRequestOpen((v) => !v)}
-              className="text-xs font-semibold text-brand-700 hover:text-brand-800"
-            >
-              {requestOpen ? 'Cancel' : 'New request'}
-            </button>
+            {requestOpen ? (
+              <button
+                type="button"
+                onClick={() => setRequestOpen(false)}
+                className="text-xs font-semibold text-brand-700 hover:text-brand-800"
+              >
+                Cancel
+              </button>
+            ) : null}
           </div>
           {requestOpen ? (
             <div className="mt-3 space-y-3">
@@ -3147,17 +3157,25 @@ function EvidencePanel({
                   type="button"
                   onClick={submitRequest}
                   disabled={requesting || texting}
-                  className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
+                  className={`inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-semibold disabled:opacity-50 ${
+                    requestChannel === 'email'
+                      ? 'order-1 bg-brand-600 text-white hover:bg-brand-700'
+                      : 'order-2 border border-brand-600 bg-white text-brand-700 hover:bg-brand-50'
+                  }`}
                 >
                   <Send className="h-4 w-4" />
-                  {requesting ? 'Sending…' : 'Send request'}
+                  {requesting ? 'Sending…' : 'Email request to client'}
                 </button>
                 <button
                   type="button"
                   onClick={submitRequestByText}
                   disabled={requesting || texting}
                   title="Text the client — they send photos back or tap a link, no login either way"
-                  className="inline-flex items-center gap-2 rounded-lg border border-brand-600 bg-white px-3.5 py-2 text-sm font-semibold text-brand-700 hover:bg-brand-50 disabled:opacity-50"
+                  className={`inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-semibold disabled:opacity-50 ${
+                    requestChannel === 'text'
+                      ? 'order-1 bg-brand-600 text-white hover:bg-brand-700'
+                      : 'order-2 border border-brand-600 bg-white text-brand-700 hover:bg-brand-50'
+                  }`}
                 >
                   <MessageSquare className="h-4 w-4" />
                   {texting ? 'Texting…' : 'Text request to client'}
@@ -3165,9 +3183,31 @@ function EvidencePanel({
               </div>
             </div>
           ) : (
-            <p className="mt-2 text-xs text-slate-400">
-              Send the client a secure upload link for records, bills, and photos.
-            </p>
+            <div className="mt-2">
+              <p className="text-xs text-slate-400">
+                Send the client a secure upload link for records, bills, and photos.
+              </p>
+              {/* Both channels are named up front. Hiding the text option behind
+                  the form made attorneys assume it did not exist. */}
+              <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => openRequestForm('email')}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:border-brand-300 hover:text-brand-700"
+                >
+                  <Send className="h-3.5 w-3.5" />
+                  Email request
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openRequestForm('text')}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:border-brand-300 hover:text-brand-700"
+                >
+                  <MessageSquare className="h-3.5 w-3.5" />
+                  Text request
+                </button>
+              </div>
+            </div>
           )}
 
           {openRequests.length > 0 ? (
