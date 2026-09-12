@@ -74,6 +74,7 @@ import {
   getLeadMedicalChronologySummary,
   getLeadTasks,
   nudgeDocumentRequest,
+  textDocumentRequest,
   updateLeadTask,
   approveLeadTask,
   unapproveLeadTask,
@@ -2200,6 +2201,7 @@ function EvidencePanel({
   const [requested, setRequested] = useState<string[]>([])
   const [requestMessage, setRequestMessage] = useState('')
   const [requesting, setRequesting] = useState(false)
+  const [texting, setTexting] = useState(false)
   const [openRequests, setOpenRequests] = useState<AttorneyDocumentRequest[]>([])
   const [banner, setBanner] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null)
   const [search, setSearch] = useState('')
@@ -2626,6 +2628,56 @@ function EvidencePanel({
       setBanner({ tone: 'err', text: err?.response?.data?.error || 'Could not send the request.' })
     } finally {
       setRequesting(false)
+    }
+  }
+
+  /**
+   * The same ask, sent by text instead of email.
+   *
+   * Worth its own button rather than a toggle on the one above: a claimant who
+   * will not open an email attachment will photograph a bill, and the attorney
+   * generally knows which of the two this client is.
+   */
+  const submitRequestByText = async () => {
+    const fresh = requested.filter((id) => !pendingRequestedKeys.has(id))
+    if (!requested.length) {
+      setBanner({ tone: 'err', text: 'Pick at least one document to request.' })
+      return
+    }
+    if (!fresh.length) {
+      setBanner({
+        tone: 'err',
+        text: 'Those documents are already in an open request. Use Nudge to remind the client.',
+      })
+      return
+    }
+    setTexting(true)
+    setBanner(null)
+    try {
+      const result = await textDocumentRequest(leadId, {
+        requestedDocs: fresh,
+        customMessage: requestMessage || undefined,
+      })
+      const where =
+        result.mode === 'photo_reply'
+          ? 'They can reply with photos, which land on the Inbox tab.'
+          : 'They got a one-tap upload link that needs no login, and their files land here.'
+      setBanner({
+        tone: result.warning ? 'err' : 'ok',
+        text: result.warning || `Texted ${clientName || 'the client'} at •••${result.phoneLast4 || '••••'}. ${where}`,
+      })
+      if (!result.warning) {
+        setRequested([])
+        setRequestMessage('')
+        setRequestOpen(false)
+      }
+      refreshRequests()
+    } catch (err: any) {
+      // The refusals here are ones the attorney can act on — no number on file,
+      // the client texted STOP — so the server's wording beats a generic one.
+      setBanner({ tone: 'err', text: err?.response?.data?.error || 'Could not text the request.' })
+    } finally {
+      setTexting(false)
     }
   }
 
@@ -3090,15 +3142,27 @@ function EvidencePanel({
                 placeholder={`Optional note to ${clientName || 'the client'}…`}
                 className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm text-slate-800 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
               />
-              <button
-                type="button"
-                onClick={submitRequest}
-                disabled={requesting}
-                className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
-              >
-                <Send className="h-4 w-4" />
-                {requesting ? 'Sending…' : 'Send request'}
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={submitRequest}
+                  disabled={requesting || texting}
+                  className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
+                >
+                  <Send className="h-4 w-4" />
+                  {requesting ? 'Sending…' : 'Send request'}
+                </button>
+                <button
+                  type="button"
+                  onClick={submitRequestByText}
+                  disabled={requesting || texting}
+                  title="Text the client — they send photos back or tap a link, no login either way"
+                  className="inline-flex items-center gap-2 rounded-lg border border-brand-600 bg-white px-3.5 py-2 text-sm font-semibold text-brand-700 hover:bg-brand-50 disabled:opacity-50"
+                >
+                  <MessageSquare className="h-4 w-4" />
+                  {texting ? 'Texting…' : 'Text request to client'}
+                </button>
+              </div>
             </div>
           ) : (
             <p className="mt-2 text-xs text-slate-400">
