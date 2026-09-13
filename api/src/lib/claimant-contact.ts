@@ -212,6 +212,61 @@ function isGuestEmail(email: string, assessmentId: string): boolean {
   return email === guestCaseUserEmail(assessmentId)
 }
 
+/** True for the synthetic owner row, whose address nobody can receive mail at. */
+export function isShadowEmail(email: string | null | undefined): boolean {
+  return /^guest\+.*@caseiq\.local$/i.test(email || '')
+}
+
+/**
+ * The one definition of "the claimant's contact details".
+ *
+ * The case copy wins over the account for name, email, and phone. That is not
+ * arbitrary: `lib/case-phone-binding.ts` resolves the texting number the same
+ * way, and staff edits land in the case copy, so any screen that ranked the two
+ * differently displayed a number we would never actually dial. Callers that
+ * need a different answer — `routes/case-assistance.ts` decides between a login
+ * link and an invite, so it must ask the account, not the case — should say so
+ * where they diverge rather than quietly reordering these.
+ */
+export function resolveClaimantContact(source: {
+  user?: {
+    email?: string | null
+    firstName?: string | null
+    lastName?: string | null
+    phone?: string | null
+    addressLine1?: string | null
+    addressLine2?: string | null
+    city?: string | null
+    state?: string | null
+    postalCode?: string | null
+  } | null
+  facts?: unknown
+}): ClaimantContact {
+  let context: Record<string, any> = {}
+  if (source.facts) {
+    try {
+      const facts = typeof source.facts === 'string' ? JSON.parse(source.facts) : (source.facts as any)
+      context = (facts?.plaintiffContext || {}) as Record<string, any>
+    } catch {
+      context = {}
+    }
+  }
+
+  const str = (value: unknown): string | null => (typeof value === 'string' && value.trim() ? value : null)
+  const user = source.user
+  return {
+    firstName: str(context.firstName) || user?.firstName || null,
+    lastName: str(context.lastName) || user?.lastName || null,
+    email: str(context.email) || (user && !isShadowEmail(user.email) ? user.email || null : null),
+    phone: str(context.phone) || user?.phone || null,
+    addressLine1: user?.addressLine1 || null,
+    addressLine2: user?.addressLine2 || null,
+    city: user?.city || null,
+    state: user?.state || null,
+    postalCode: user?.postalCode || null,
+  }
+}
+
 /**
  * The contact details as the rest of the platform will read them, in the same
  * priority order the SMS layer uses, so the screen cannot show one number while
@@ -239,27 +294,5 @@ export async function readClaimantContact(assessmentId: string): Promise<Claiman
   })
   if (!assessment) return null
 
-  let context: Record<string, any> = {}
-  if (assessment.facts) {
-    try {
-      const facts = typeof assessment.facts === 'string' ? JSON.parse(assessment.facts) : (assessment.facts as any)
-      context = (facts?.plaintiffContext || {}) as Record<string, any>
-    } catch {
-      context = {}
-    }
-  }
-
-  const user = assessment.user
-  const email = typeof context.email === 'string' ? context.email : null
-  return {
-    firstName: (typeof context.firstName === 'string' ? context.firstName : null) || user?.firstName || null,
-    lastName: (typeof context.lastName === 'string' ? context.lastName : null) || user?.lastName || null,
-    email: email || (user && !user.email.endsWith('@caseiq.local') ? user.email : null),
-    phone: (typeof context.phone === 'string' ? context.phone : null) || user?.phone || null,
-    addressLine1: user?.addressLine1 || null,
-    addressLine2: user?.addressLine2 || null,
-    city: user?.city || null,
-    state: user?.state || null,
-    postalCode: user?.postalCode || null,
-  }
+  return resolveClaimantContact(assessment)
 }

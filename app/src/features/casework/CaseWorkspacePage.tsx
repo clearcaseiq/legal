@@ -93,6 +93,7 @@ import { checkEvidenceCollect, checkPoliceReportCollect, confirmRetainerSigned }
 import SignatureRequestPanel from '../../components/SignatureRequestPanel'
 import ClientContactDialog from './ClientContactDialog'
 import type { ClaimantContact } from '../../lib/api'
+import { resolveClaimantContact } from '../../lib/claimantContact'
 import ChatDrawer from '../../components/ChatDrawer'
 import ConfirmDialog from '../../components/ConfirmDialog'
 import InsurancePanel from './InsurancePanel'
@@ -608,16 +609,14 @@ export default function CaseWorkspacePage() {
       assessmentId: lead.assessmentId || a.id || null,
       caseName: resolveCaseName(a, 'Client'),
       customCaseName: a.caseName ?? null,
-      // Read in the same order as the server (`lib/claimant-contact.ts`), which
-      // matches what the SMS layer texts. Reading the user row alone showed a
-      // number we would never actually dial.
-      client:
-        [contactOverride?.firstName ?? plaintiffContext.firstName ?? user.firstName,
-         contactOverride?.lastName ?? plaintiffContext.lastName ?? user.lastName]
-          .filter(Boolean)
-          .join(' ') || 'Client',
-      clientEmail: contactOverride?.email ?? plaintiffContext.email ?? user.email ?? '',
-      phone: contactOverride?.phone ?? plaintiffContext.phone ?? user.phone ?? '—',
+      // `contactOverride` is the server's own answer, fetched on load and
+      // refreshed after an edit; the resolver is the same rule applied to the
+      // lead payload for the moment before it arrives.
+      client: contactOverride?.firstName
+        ? [contactOverride.firstName, contactOverride.lastName].filter(Boolean).join(' ')
+        : resolveClaimantContact({ user, facts }).fullName || 'Client',
+      clientEmail: contactOverride?.email ?? resolveClaimantContact({ user, facts }).email ?? '',
+      phone: contactOverride?.phone ?? resolveClaimantContact({ user, facts }).phone ?? '—',
       mailingAddress: formatMailingAddress(contactOverride),
       type: claimLabel(claimType),
       claimType,

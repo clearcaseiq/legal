@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { ClipboardCheck, RefreshCw, Send } from 'lucide-react'
 import { bulkRouteCases, getAdminAttorneyDebug, getAdminAttorneyRecommendations, getAdminAttorneys, getAdminCaseDetail, getAdminCaseRoutingState, holdCaseForManualReview, manualReviewAction } from '../../../lib/api'
 import { formatCaseId } from '../../../lib/caseId'
+import { resolveClaimantContact } from '../../../lib/claimantContact'
 import { BackButton, Breadcrumbs, PageHeader } from '../../shared/ui'
 import CaseDocumentsPanel from './CaseDocumentsPanel'
 import CaseInterventionActions from './CaseInterventionActions'
@@ -111,11 +112,13 @@ export default function AdminCaseDetailPage() {
   if (error || !caseData) return <div className="space-y-4"><Breadcrumbs items={crumbs} /><BackButton onClick={() => navigate('/admin/cases')} label="Back to cases" /><div className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">{error || 'Case not found'}</div></div>
   const facts = caseData.facts || {}
   const plaintiffContext = facts.plaintiffContext || {}
-  const isGuest = (email?: string) => /^guest\+.+@caseiq\.local$/i.test(email || '')
-  const hasRealAccount = !!caseData.user && !isGuest(caseData.user.email)
-  const contactName = (hasRealAccount ? `${caseData.user.firstName || ''} ${caseData.user.lastName || ''}`.trim() : '') || plaintiffContext.firstName || ''
-  const contactEmail = (hasRealAccount ? caseData.user.email : '') || plaintiffContext.email || ''
-  const contactPhone = (hasRealAccount ? caseData.user.phone : '') || plaintiffContext.phone || ''
+  // Same resolution as the attorney screens and the server, so admin and the
+  // firm are never looking at different numbers for one claimant.
+  const resolved = resolveClaimantContact({ user: caseData.user, facts })
+  const hasRealAccount = resolved.hasAccount
+  const contactName = resolved.fullName || ''
+  const contactEmail = resolved.email || ''
+  const contactPhone = resolved.phone || ''
   const tab = (id: DetailSection, label: string) => <button key={id} type="button" onClick={() => setSection(id)} className={`rounded-lg px-4 py-2 text-sm font-medium ${section === id ? 'bg-brand-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>{label}</button>
   return <div className="space-y-6"><Breadcrumbs items={crumbs} /><PageHeader title="Case detail" actions={<div className="flex items-center gap-2"><BackButton onClick={() => navigate('/admin/cases')} label="Back to cases" />{caseData.manualReviewStatus === 'pending' ? <span className="flex items-center gap-2 rounded-lg bg-amber-100 px-4 py-2 text-amber-800"><ClipboardCheck className="h-4 w-4" />In manual review</span> : <button onClick={() => setShowHoldModal(true)} className="flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-slate-700 hover:bg-slate-50"><ClipboardCheck className="h-4 w-4" />Hold for review</button>}<button onClick={() => void checkRoutingState()} disabled={routingStateLoading} className="flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-slate-700 hover:bg-slate-50 disabled:opacity-60">{routingStateLoading ? 'Checking…' : 'Check routing state'}</button><button onClick={openRouteModal} className="flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-white hover:bg-brand-700"><Send className="h-4 w-4" />Route case</button><button onClick={() => void loadCase()} className="p-2 text-slate-600 hover:text-slate-900"><RefreshCw className="h-4 w-4" /></button></div>} /><nav className="flex flex-wrap gap-2 rounded-xl border border-slate-200 bg-white p-2">{tab('overview', 'Overview')}{tab('routing', 'Routing')}{tab('diagnostics', 'Diagnostics')}</nav>
     {section === 'overview' && <div className="space-y-6"><CaseSummaryHeader caseData={caseData} contactName={contactName} /><CasePlaintiffIntakePanel caseData={caseData} contactName={contactName} contactEmail={contactEmail} contactPhone={contactPhone} hasRealAccount={hasRealAccount} plaintiffContext={plaintiffContext} /><CaseMlOutputsPanel caseData={caseData} /><CaseDocumentsPanel files={caseData.files} /><CaseInterventionActions caseData={caseData} holding={holding} routingStateLoading={routingStateLoading} interventionStatus={interventionStatus} onHold={() => setShowHoldModal(true)} onManualReviewAction={handleManualReviewAction} onSimulate={() => { setSimulationRequest((current) => current + 1); setSection('routing') }} onRoute={openRouteModal} onDiagnose={() => void checkRoutingState()} onDocuments={() => navigate(`/admin/documents?case=${caseData.id}`)} /></div>}

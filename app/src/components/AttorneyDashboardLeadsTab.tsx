@@ -4,6 +4,11 @@ import { ArrowRight, Clock, Info, Lock, LockOpen, MessageSquare, Phone, Sparkles
 import { CLAIM_TYPE_OPTIONS, canonicalClaimType, formatClaimType } from '../lib/claimTypes'
 import { getAttorneyCaseStatusKey, caseStatusLabel, caseStatusColor } from '../lib/caseStatus'
 import { FilterStat, FilterBar, type FilterField } from '../features/shared/ui'
+import { resolveClaimantContact } from '../lib/claimantContact'
+
+/** Shared with the case workspace, so the list shows the number we would dial. */
+const leadContact = (lead: any) =>
+  resolveClaimantContact({ user: lead?.assessment?.user, facts: lead?.assessment?.facts })
 
 type CaseLeadsFilter = {
   caseType: string
@@ -1027,14 +1032,14 @@ export default function AttorneyDashboardLeadsTab({
                             <div className="flex items-center gap-1.5">
                               <LockOpen className="h-3.5 w-3.5 text-green-600 shrink-0" />
                               <span className="text-sm font-medium text-gray-900 leading-snug">
-                                {[lead.assessment?.user?.firstName, lead.assessment?.user?.lastName].filter(Boolean).join(' ') || '—'}
+                                {leadContact(lead).fullName || '—'}
                               </span>
                             </div>
-                            {(lead.assessment?.user?.phone || lead.assessment?.user?.email) && (
+                            {(leadContact(lead).phone || leadContact(lead).email) && (
                               <div className="text-xs text-gray-500 mt-0.5 break-all">
-                                {lead.assessment?.user?.phone
-                                  ? formatPhone(lead.assessment.user.phone)
-                                  : lead.assessment?.user?.email}
+                                {leadContact(lead).phone
+                                  ? formatPhone(leadContact(lead).phone as string)
+                                  : leadContact(lead).email}
                               </div>
                             )}
                           </>

@@ -117,6 +117,12 @@ function parseFacts(raw: unknown): Record<string, any> {
  * Guest intake creates a shadow user whose email is `guest+<id>@caseiq.local`,
  * which is not reachable — the real address is in `facts.plaintiffContext`, so
  * a specialist calling a guest case needs the fallback rather than a bounce.
+ *
+ * Deliberately ranks email the opposite way to `lib/claimant-contact.ts`, which
+ * every display surface now shares. What this function feeds is the choice
+ * between a link that needs a session and an invite to create one, and only the
+ * address attached to the login can answer that. Do not "unify" it without
+ * moving that decision somewhere else first.
  */
 function contactOf(assessment: { user?: any; facts?: unknown }) {
   const facts = parseFacts(assessment.facts)

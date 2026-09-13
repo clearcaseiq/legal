@@ -7,6 +7,7 @@ import { formatCurrency, formatPercentage } from '../lib/formatters'
 import { formatClaimType } from '../lib/claimTypes'
 import { getAttorneyCaseStatusKey, caseStatusLabel } from '../lib/caseStatus'
 import { formatLeadCaseId } from '../lib/caseId'
+import { resolveClaimantContact } from '../lib/claimantContact'
 import { useHeuristics } from '../contexts/HeuristicsContext'
 import { caseStrengthLabel } from '../lib/heuristics'
 import AttorneyCaseIntelligenceSuite from './AttorneyCaseIntelligenceSuite'
@@ -573,14 +574,14 @@ export default function AttorneyDashboardLeadDetail({
             const plaintiffName = `${firstName} ${lastName.charAt(0) || ''}.`.trim() || 'Not provided'
             const plaintiffFullName =
               [firstName, lastName].filter(Boolean).join(' ') ||
-              [facts?.plaintiffContext?.firstName, facts?.plaintiffContext?.lastName].filter(Boolean).join(' ') ||
-              facts?.plaintiffContext?.firstName ||
+              resolveClaimantContact({ user: selectedLead?.assessment?.user, facts }).fullName ||
               'Not provided'
-            const phone = selectedLead?.assessment?.user?.phone || ''
-            const email = selectedLead?.assessment?.user?.email || ''
-            const plaintiffPhone = phone || facts?.plaintiffContext?.phone || ''
-            const plaintiffEmail = email || facts?.plaintiffContext?.email || ''
-            const preferredContact = phone ? 'Phone' : email ? 'Email' : '—'
+            // Shared with the case workspace and the server so this panel shows
+            // the number the platform would actually text.
+            const resolved = resolveClaimantContact({ user: selectedLead?.assessment?.user, facts })
+            const plaintiffPhone = resolved.phone || ''
+            const plaintiffEmail = resolved.email || ''
+            const preferredContact = plaintiffPhone ? 'Phone' : plaintiffEmail ? 'Email' : '—'
             const nextActionsForWidget: string[] = []
             if (contactHistory.length === 0) nextActionsForWidget.push('Call plaintiff to confirm injuries')
             if (!hasPolice) nextActionsForWidget.push('Request police report')
@@ -712,8 +713,8 @@ export default function AttorneyDashboardLeadDetail({
                   liabilityPercent={Math.round(liabilityForDisplay * 100)}
                   caseStatus={caseStatusLabel(getAttorneyCaseStatusKey(selectedLead, { consultScheduledAt: contactHistory.find((c: any) => c.contactType === 'consult' && c.scheduledAt)?.scheduledAt }))}
                   plaintiffName={plaintiffName}
-                  phone={phone}
-                  email={email}
+                  phone={plaintiffPhone}
+                  email={plaintiffEmail}
                   preferredContact={preferredContact}
                   contactHistory={contactHistory}
                   leadId={selectedLead?.id}

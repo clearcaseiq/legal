@@ -10,6 +10,7 @@ import { getAdminCalendarHealth } from '../lib/calendar-sync'
 import { getSystemStatus } from '../lib/ops-status'
 import { normalizeReferenceCode } from '../lib/case-reference'
 import { isGuestCaseUserEmail } from '../lib/client-consent-guard'
+import { resolveClaimantContact } from '../lib/claimant-contact'
 
 const router: ExpressRouter = Router()
 
@@ -353,7 +354,7 @@ router.get('/case-lookup', authMiddleware, adminMiddleware, async (req: AuthRequ
         facts: true,
         createdAt: true,
         userId: true,
-        user: { select: { email: true, firstName: true, lastName: true } },
+        user: { select: { email: true, firstName: true, lastName: true, phone: true } },
         leadSubmission: { select: { status: true, submittedAt: true, assignedAttorneyId: true } },
       },
     })
@@ -380,9 +381,10 @@ router.get('/case-lookup', authMiddleware, adminMiddleware, async (req: AuthRequ
       status: assessment.status,
       createdAt: assessment.createdAt,
       contact: {
-        firstName: (plaintiffContext.firstName as string) || assessment.user?.firstName || null,
-        email: (plaintiffContext.email as string) || (hasRealAccount ? assessment.user?.email : null) || null,
-        phone: (plaintiffContext.phone as string) || null,
+        ...(({ firstName, email, phone }) => ({ firstName, email, phone }))(resolveClaimantContact(assessment)),
+        // Support reads this number to a caller. It previously came from the
+        // facts blob alone, so a case whose number only ever reached the account
+        // showed nothing at all.
         preferredContactMethod: (plaintiffContext.preferredContactMethod as string) || null,
       },
       hasRealAccount,
