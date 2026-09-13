@@ -212,6 +212,76 @@ function isGuestEmail(email: string, assessmentId: string): boolean {
   return email === guestCaseUserEmail(assessmentId)
 }
 
+/** The contact fields a claimant can correct about themselves. */
+const SELF_EDITABLE = ['firstName', 'lastName', 'email', 'phone'] as const
+
+/**
+ * Carry an account holder's own edit into the case copy of their details.
+ *
+ * The claimant's profile screen wrote only the user row. Every reader here
+ * prefers `plaintiffContext`, and the SMS layer resolves the texting number the
+ * same way, so someone who corrected their phone number was shown a success
+ * message while the firm went on calling and texting the old one. That is the
+ * staff-side bug of CP-848 from the other direction, so it gets the same
+ * treatment: one edit, both copies.
+ *
+ * Applies to every case the user owns, because the correction is about the
+ * person rather than any one matter. Returns how many were touched.
+ */
+export async function syncClaimantContactForUser(
+  userId: string,
+  patch: Partial<Record<(typeof SELF_EDITABLE)[number], string | null>>,
+): Promise<number> {
+  const fields = SELF_EDITABLE.filter((field) => patch[field] !== undefined)
+  if (fields.length === 0) return 0
+
+  const assessments = await prisma.assessment.findMany({
+    where: { userId },
+    select: { id: true, facts: true },
+  })
+
+  let updated = 0
+  for (const assessment of assessments) {
+    let facts: Record<string, any> = {}
+    if (assessment.facts) {
+      try {
+        facts = typeof assessment.facts === 'string' ? JSON.parse(assessment.facts) : (assessment.facts as any)
+      } catch {
+        // Leave a blob we cannot read alone rather than replacing it: unlike the
+        // staff path, nobody is waiting on this write, and the intake answers in
+        // there are worth more than one contact field.
+        continue
+      }
+    }
+
+    const context = { ...((facts.plaintiffContext || {}) as Record<string, any>) }
+    let changed = false
+    for (const field of fields) {
+      const value = patch[field]
+      if (value === null || value === '') {
+        // Dropping the key rather than storing a blank falls resolution through
+        // to the user row, which the same edit just cleared.
+        if (field in context) {
+          delete context[field]
+          changed = true
+        }
+      } else if (context[field] !== value) {
+        context[field] = value
+        changed = true
+      }
+    }
+    if (!changed) continue
+
+    await prisma.assessment.update({
+      where: { id: assessment.id },
+      data: { facts: JSON.stringify({ ...facts, plaintiffContext: context }) },
+    })
+    updated += 1
+  }
+
+  return updated
+}
+
 /** True for the synthetic owner row, whose address nobody can receive mail at. */
 export function isShadowEmail(email: string | null | undefined): boolean {
   return /^guest\+.*@caseiq\.local$/i.test(email || '')

@@ -16,7 +16,8 @@ import { adoptGuestCasesByEmail } from '../lib/guest-case-adoption'
 import { sendClaimEmail } from '../lib/claims'
 import { permissionsForRole } from '../lib/firm-roles'
 import { PASSWORD_RESET_TTL_MS, hashResetToken, passwordResetUrl } from '../lib/password-reset'
-import { issueEmailVerification } from '../lib/email-verification'
+import { issueEmailVerification, notifyEmailAddressChanged } from '../lib/email-verification'
+import { syncClaimantContactForUser } from '../lib/claimant-contact'
 
 // Look up a user's active firm membership (the record that makes a paralegal /
 // case manager / etc. a real firm staffer). Returns null for plaintiffs.
@@ -913,9 +914,29 @@ router.put('/me', authMiddleware, async (req: AuthRequest, res) => {
       })
     }
 
+    const { email: requestedEmail, ...rest } = parsed.data
+    const data: Record<string, unknown> = { ...rest }
+
+    // Moving the sign-in address: refuse a collision, then treat the new one as
+    // unconfirmed until its owner proves they can read it. Doing this before the
+    // write so a taken address changes nothing at all.
+    const current = await prisma.user.findUnique({
+      where: { id: req.user!.id },
+      select: { email: true, firstName: true },
+    })
+    const movingEmail = Boolean(requestedEmail && current && requestedEmail !== current.email)
+    if (movingEmail) {
+      const taken = await prisma.user.findUnique({ where: { email: requestedEmail! }, select: { id: true } })
+      if (taken && taken.id !== req.user!.id) {
+        return res.status(409).json({ error: 'Another account already uses that email address.' })
+      }
+      data.email = requestedEmail
+      data.emailVerified = false
+    }
+
     const user = await prisma.user.update({
       where: { id: req.user!.id },
-      data: parsed.data,
+      data,
       select: {
         id: true,
         email: true,
@@ -923,6 +944,7 @@ router.put('/me', authMiddleware, async (req: AuthRequest, res) => {
         lastName: true,
         phone: true,
         avatar: true,
+        emailVerified: true,
         preferredLanguage: true,
         addressLine1: true,
         addressLine2: true,
@@ -933,11 +955,33 @@ router.put('/me', authMiddleware, async (req: AuthRequest, res) => {
       }
     })
 
-    logger.info('User updated', { userId: user.id })
+    // The case copy of these details is what the firm reads and the SMS layer
+    // texts, and it wins over the account row. Without this the claimant is
+    // shown a saved correction that reaches nobody (CP-848).
+    await syncClaimantContactForUser(user.id, {
+      firstName: rest.firstName,
+      lastName: rest.lastName,
+      phone: rest.phone,
+      email: movingEmail ? user.email : undefined,
+    })
+
+    logger.info('User updated', { userId: user.id, emailMoved: movingEmail })
+
+    if (movingEmail && current) {
+      // Neither message is worth failing the save over, and the notice has to
+      // go to the address being left behind while we still know it.
+      void issueEmailVerification({ id: user.id, email: user.email, firstName: user.firstName })
+      void notifyEmailAddressChanged({
+        previousEmail: current.email,
+        newEmail: user.email,
+        firstName: user.firstName,
+      })
+    }
 
     res.json({
       ...user,
       preferredLanguage: user.preferredLanguage || 'en',
+      emailVerificationSent: movingEmail,
     })
   } catch (error) {
     logger.error('Update user failed', { error })

@@ -44,6 +44,7 @@ function formFrom(user: UserProfile) {
   return {
     firstName: user.firstName || '',
     lastName: user.lastName || '',
+    email: user.email || '',
     phone: user.phone || '',
     addressLine1: user.addressLine1 || '',
     addressLine2: user.addressLine2 || '',
@@ -78,6 +79,7 @@ export default function UserProfile() {
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
+    email: '',
     phone: '',
     addressLine1: '',
     addressLine2: '',
@@ -101,12 +103,12 @@ export default function UserProfile() {
     }
   }, [data?.user, sessionError, sessionLoading])
 
-  const applyUserUpdate = (updated: UserProfile, successMessage: string) => {
+  const applyUserUpdate = (updated: UserProfile, successMessage: string, holdMs = 3000) => {
     setProfile(updated)
     updateCachedPlaintiffUser(updated)
     syncStoredUserAvatar(updated.avatar)
     setSuccess(successMessage)
-    setTimeout(() => setSuccess(null), 3000)
+    setTimeout(() => setSuccess(null), holdMs)
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -124,13 +126,23 @@ export default function UserProfile() {
 
     try {
       const updated = await updateProfile(formData)
-      applyUserUpdate(updated, 'Profile updated successfully!')
+      // A moved sign-in address is worth spelling out, and worth leaving on
+      // screen longer than a routine save.
+      const movedEmail = (updated as { emailVerificationSent?: boolean }).emailVerificationSent
+      applyUserUpdate(
+        updated,
+        movedEmail
+          ? `Saved. You'll sign in with ${updated.email} from now on — check that inbox for a confirmation link.`
+          : 'Profile updated successfully!',
+        movedEmail ? 10000 : 3000,
+      )
       setEditing(false)
 
       const user = getStoredUser<Record<string, unknown>>('user')
       if (user) {
         user.firstName = updated.firstName
         user.lastName = updated.lastName
+        user.email = updated.email
         user.phone = updated.phone
         user.avatar = updated.avatar ?? user.avatar ?? null
         localStorage.setItem('user', JSON.stringify(user))
@@ -383,20 +395,43 @@ export default function UserProfile() {
                 )}
               </div>
 
-              {/* Email (Read-only) */}
+              {/* Email — also the sign-in address, so a change is re-verified */}
               <div>
                 <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
                   Email Address
                 </label>
-                <p className="text-gray-900 flex items-center">
-                  {profile.email}
-                  {profile.emailVerified && (
-                    <span className="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                      Verified
-                    </span>
-                  )}
-                </p>
-                <p className="mt-1 text-xs text-gray-500">Email cannot be changed</p>
+                {editing ? (
+                  <>
+                    <input
+                      type="email"
+                      id="email"
+                      value={formData.email}
+                      onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-brand-500 focus:border-brand-500"
+                      required
+                    />
+                    <p className="mt-1 text-xs text-gray-500">
+                      This is also how you sign in. Change it and we'll email a confirmation link to the new
+                      address, and let your old one know.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-gray-900 flex items-center">
+                      {profile.email}
+                      {profile.emailVerified ? (
+                        <span className="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                          Verified
+                        </span>
+                      ) : (
+                        <span className="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
+                          Unverified
+                        </span>
+                      )}
+                    </p>
+                    <p className="mt-1 text-xs text-gray-500">You sign in with this address.</p>
+                  </>
+                )}
               </div>
 
               {/* Phone */}

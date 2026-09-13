@@ -4,7 +4,7 @@ vi.mock('./prisma', () => import('../test/universalPrismaMock'))
 
 import { prisma } from './prisma'
 import { resetUniversalPrismaMock } from '../test/universalPrismaMock'
-import { readClaimantContact, updateClaimantContact } from './claimant-contact'
+import { readClaimantContact, syncClaimantContactForUser, updateClaimantContact } from './claimant-contact'
 
 type CaseUser = {
   id?: string
@@ -220,5 +220,86 @@ describe('reading the contact back', () => {
     } as any)
 
     expect((await readClaimantContact('asm-1'))?.email).toBeNull()
+  })
+})
+
+describe('a claimant correcting their own details', () => {
+  const ownedCases = (...cases: { id: string; facts: unknown }[]) =>
+    vi.mocked(prisma.assessment.findMany).mockResolvedValue(
+      cases.map((c) => ({ id: c.id, facts: JSON.stringify(c.facts) })) as any,
+    )
+
+  /** The facts written for a given case, parsed. */
+  const factsFor = (id: string) =>
+    JSON.parse(
+      (vi.mocked(prisma.assessment.update).mock.calls.find((c) => (c[0] as any).where.id === id)?.[0] as any).data
+        .facts,
+    )
+
+  it('reaches the case copy, which is the number the platform texts', async () => {
+    // Editing the profile wrote only the user row, so the claimant was shown a
+    // saved correction that no screen displayed and no text message used.
+    ownedCases({ id: 'asm-1', facts: { plaintiffContext: { phone: '+15551110000' } } })
+
+    const touched = await syncClaimantContactForUser('user-1', { phone: '+15550102456' })
+
+    expect(touched).toBe(1)
+    expect(factsFor('asm-1').plaintiffContext.phone).toBe('+15550102456')
+  })
+
+  it('corrects every case the person owns, not just one', async () => {
+    ownedCases(
+      { id: 'asm-1', facts: { plaintiffContext: { phone: '+15551110000' } } },
+      { id: 'asm-2', facts: { plaintiffContext: { phone: '+15551110000' } } },
+    )
+
+    expect(await syncClaimantContactForUser('user-1', { phone: '+15550102456' })).toBe(2)
+    expect(factsFor('asm-2').plaintiffContext.phone).toBe('+15550102456')
+  })
+
+  it('leaves the intake answers alone', async () => {
+    ownedCases({ id: 'asm-1', facts: { plaintiffContext: { phone: '+1555' }, incident: { type: 'mva' } } })
+
+    await syncClaimantContactForUser('user-1', { phone: '+15550102456' })
+
+    expect(factsFor('asm-1').incident).toEqual({ type: 'mva' })
+  })
+
+  it('drops the case copy when the field is cleared, rather than storing a blank', async () => {
+    // An empty string here would beat the user row in resolution and read as
+    // "no phone on file" for a claimant who still has one.
+    ownedCases({ id: 'asm-1', facts: { plaintiffContext: { phone: '+15551110000' } } })
+
+    await syncClaimantContactForUser('user-1', { phone: null })
+
+    expect(factsFor('asm-1').plaintiffContext.phone).toBeUndefined()
+  })
+
+  it('writes nothing when the edit touched no contact field', async () => {
+    ownedCases({ id: 'asm-1', facts: { plaintiffContext: { phone: '+15551110000' } } })
+
+    expect(await syncClaimantContactForUser('user-1', {})).toBe(0)
+    expect(prisma.assessment.update).not.toHaveBeenCalled()
+  })
+
+  it('writes nothing when the case already agrees', async () => {
+    ownedCases({ id: 'asm-1', facts: { plaintiffContext: { phone: '+15550102456' } } })
+
+    expect(await syncClaimantContactForUser('user-1', { phone: '+15550102456' })).toBe(0)
+  })
+
+  it('skips a case whose facts will not parse instead of replacing them', async () => {
+    // Nothing is waiting on this write, and the intake answers in there are
+    // worth more than one contact field.
+    vi.mocked(prisma.assessment.findMany).mockResolvedValue([{ id: 'asm-1', facts: '{not json' }] as any)
+
+    expect(await syncClaimantContactForUser('user-1', { phone: '+15550102456' })).toBe(0)
+    expect(prisma.assessment.update).not.toHaveBeenCalled()
+  })
+
+  it('has nothing to do for a user who owns no cases, such as an attorney', async () => {
+    ownedCases()
+
+    expect(await syncClaimantContactForUser('att-1', { phone: '+15550102456' })).toBe(0)
   })
 })

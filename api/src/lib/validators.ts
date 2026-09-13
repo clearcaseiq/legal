@@ -281,6 +281,11 @@ const addressLine = z
 export const UserUpdate = z.object({
   firstName: z.string().min(1).max(80).optional(),
   lastName: z.string().min(1).max(80).optional(),
+  // The sign-in address. `PUT /me` re-verifies it rather than taking it on
+  // trust, so this only has to establish that it is a well-formed address.
+  email: z
+    .preprocess((v) => (typeof v === 'string' ? v.trim().toLowerCase() : v), z.string().email().max(200))
+    .optional(),
   phone: optionalPhone,
   preferredLanguage: z.enum(['en', 'es', 'zh']).optional(),
   addressLine1: addressLine,

@@ -87,3 +87,40 @@ export async function issueEmailVerification(
     return false
   }
 }
+
+/**
+ * Tell the previous address that the account's email moved.
+ *
+ * The only warning available to someone whose account was taken over, or who
+ * mistyped the new address and can no longer reach the confirmation link: the
+ * new inbox is not one they can read, so a notice sent only there tells nobody.
+ * Best-effort, and never throws — the change itself has already been saved.
+ */
+export async function notifyEmailAddressChanged(params: {
+  previousEmail: string
+  newEmail: string
+  firstName?: string | null
+}): Promise<boolean> {
+  try {
+    const body = [
+      `Hi ${params.firstName || 'there'},`,
+      '',
+      `The email address on your ClearCaseIQ account was just changed to ${params.newEmail}. You'll sign in with the new address from now on.`,
+      '',
+      "If you didn't make this change, contact your case team right away — this message is going to your previous address, which we have kept on file for exactly this reason.",
+      '',
+      '— The ClearCaseIQ team',
+    ].join('\n')
+
+    const sent = await sendClaimEmail({
+      to: params.previousEmail,
+      subject: 'Your ClearCaseIQ email address was changed',
+      body,
+    })
+    logger.info('Email change notice sent to previous address', { emailSent: sent })
+    return sent
+  } catch (error) {
+    logger.error('Failed to notify previous email address of a change', { error })
+    return false
+  }
+}
