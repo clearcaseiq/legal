@@ -6208,19 +6208,19 @@ router.patch('/leads/:leadId/client-contact', authMiddleware, async (req: any, r
     })
     if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
 
-    const { firstName, lastName, email, phone } = req.body || {}
-    const result = await updateClaimantContact({
-      assessmentId: auth.lead.assessmentId,
-      patch: { firstName, lastName, email, phone },
-    })
+    // Picked out by name rather than forwarded wholesale, so a stray body key
+    // cannot reach the update. Keep in step with `ClaimantContactPatch`: a field
+    // missing here is dropped in silence, which is how the mailing address went
+    // unsaved from this screen while the admin one worked.
+    const { firstName, lastName, email, phone, addressLine1, addressLine2, city, state, postalCode } = req.body || {}
+    const patch = { firstName, lastName, email, phone, addressLine1, addressLine2, city, state, postalCode }
+    const result = await updateClaimantContact({ assessmentId: auth.lead.assessmentId, patch })
     if (!result.ok) return res.status(result.status).json({ error: result.message })
 
     logger.info('Client contact updated by firm', {
       leadId: req.params.leadId,
       actorUserId: req.user?.id,
-      fields: Object.keys({ firstName, lastName, email, phone }).filter(
-        (k) => (req.body || {})[k] !== undefined,
-      ),
+      fields: Object.keys(patch).filter((k) => (req.body || {})[k] !== undefined),
     })
 
     res.json({
