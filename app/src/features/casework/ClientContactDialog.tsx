@@ -22,6 +22,11 @@ export default function ClientContactDialog({ leadId, initial, onClose, onSaved 
     lastName: initial.lastName || '',
     email: initial.email || '',
     phone: initial.phone || '',
+    addressLine1: initial.addressLine1 || '',
+    addressLine2: initial.addressLine2 || '',
+    city: initial.city || '',
+    state: initial.state || '',
+    postalCode: initial.postalCode || '',
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -41,12 +46,7 @@ export default function ClientContactDialog({ leadId, initial, onClose, onSaved 
     setSaving(true)
     setError(null)
     try {
-      const result = await updateClaimantContact(leadId, {
-        firstName: form.firstName,
-        lastName: form.lastName,
-        email: form.email,
-        phone: form.phone,
-      })
+      const result = await updateClaimantContact(leadId, { ...form })
       onSaved(result.contact, result.loginEmailUnchanged)
       onClose()
     } catch (err: any) {
@@ -91,6 +91,20 @@ export default function ClientContactDialog({ leadId, initial, onClose, onSaved 
           </div>
           {field('Email', 'email', 'email')}
           {field('Mobile phone', 'phone', 'tel', '(555) 555-0100')}
+
+          <div className="border-t border-slate-100 pt-3">
+            <p className="text-xs font-semibold text-slate-700">Mailing address</p>
+            <p className="mt-0.5 text-xs text-slate-500">Where demand letters and settlement checks are sent.</p>
+            <div className="mt-2 space-y-3">
+              {field('Street address', 'addressLine1', 'text', '123 Sample Avenue')}
+              {field('Apt, suite, unit (optional)', 'addressLine2', 'text', 'Apt 4B')}
+              <div className="grid grid-cols-[2fr,1fr,1.2fr] gap-3">
+                {field('City', 'city')}
+                {field('State', 'state', 'text', 'CA')}
+                {field('ZIP', 'postalCode', 'text', '90012')}
+              </div>
+            </div>
+          </div>
         </div>
 
         {error ? (

@@ -8,6 +8,7 @@ import { writeAdminAudit } from '../lib/admin-audit'
 import { parsePagination, paginated } from '../lib/pagination'
 import { CaseForRouting, AttorneyForRouting, routeCaseToAttorneys, filterEligibleAttorneys } from '../lib/routing'
 import { startAssessmentRouting } from '../lib/assessment-routing'
+import { updateClaimantContact } from '../lib/claimant-contact'
 import { routeReleasedCaseRespectingConsumerSlate } from '../lib/routing-lifecycle'
 import { runRoutingEscalationSweep } from '../lib/routing-escalation-sweep'
 import { sendCaseOfferToAttorney } from '../lib/case-notifications'
@@ -774,6 +775,11 @@ router.get('/cases/:id', authMiddleware, adminMiddleware, async (req: AuthReques
             firstName: true,
             lastName: true,
             phone: true,
+            addressLine1: true,
+            addressLine2: true,
+            city: true,
+            state: true,
+            postalCode: true,
             createdAt: true,
           }
         },
@@ -1425,6 +1431,28 @@ router.post('/cases/escalate-due', authMiddleware, adminMiddleware, async (req: 
     })
   } catch (error: any) {
     logger.error('Escalation error', { error: error.message })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+// Correct the claimant's contact details from the admin case view.
+//
+// Shares `updateClaimantContact` with the attorney-side endpoint so both write
+// the same two copies; a second implementation would drift the same way the
+// stored contact details themselves did (CP-848).
+router.patch('/cases/:id/client-contact', authMiddleware, adminMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const { firstName, lastName, email, phone, addressLine1, addressLine2, city, state, postalCode } = req.body || {}
+    const result = await updateClaimantContact({
+      assessmentId: req.params.id,
+      patch: { firstName, lastName, email, phone, addressLine1, addressLine2, city, state, postalCode },
+    })
+    if (!result.ok) return res.status(result.status).json({ error: result.message })
+
+    logger.info('Client contact updated by admin', { assessmentId: req.params.id, actorUserId: req.user?.id })
+    res.json({ contact: result.contact, loginEmailUnchanged: result.loginEmailUnchanged })
+  } catch (error: any) {
+    logger.error('Failed to update client contact', { error: error.message })
     res.status(500).json({ error: 'Internal server error' })
   }
 })

@@ -771,6 +771,11 @@ router.get('/me', authMiddleware, async (req: AuthRequest, res) => {
         avatar: true,
         emailVerified: true,
         preferredLanguage: true,
+        addressLine1: true,
+        addressLine2: true,
+        city: true,
+        state: true,
+        postalCode: true,
         lastLoginAt: true,
         createdAt: true,
         updatedAt: true,
@@ -919,6 +924,11 @@ router.put('/me', authMiddleware, async (req: AuthRequest, res) => {
         phone: true,
         avatar: true,
         preferredLanguage: true,
+        addressLine1: true,
+        addressLine2: true,
+        city: true,
+        state: true,
+        postalCode: true,
         updatedAt: true
       }
     })

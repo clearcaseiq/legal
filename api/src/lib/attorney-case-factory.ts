@@ -44,6 +44,9 @@ export type AttorneyCaseInput = {
   plaintiffLastName?: string
   plaintiffEmail?: string
   plaintiffPhone?: string
+  plaintiffAddressLine1?: string
+  plaintiffCity?: string
+  plaintiffPostalCode?: string
   /** Import provenance. Absent for a hand-created case. */
   importSource?: string
   externalId?: string | null
@@ -261,6 +264,13 @@ export async function createAttorneyOwnedCase(
         email: shadowOwnerEmail(assessment.id),
         firstName: input.plaintiffFirstName || 'Client',
         lastName: input.plaintiffLastName || '',
+        phone: input.plaintiffPhone || null,
+        // Carried over from the export so a demand letter has somewhere to go.
+        // The user row is the only home for an address; see the User model.
+        addressLine1: input.plaintiffAddressLine1 || null,
+        city: input.plaintiffCity || null,
+        state: input.venueState || null,
+        postalCode: input.plaintiffPostalCode || null,
         role: 'client',
         // No password and no provider: this is a placeholder, not an account.
         // `isTransferableCaseOwner` treats it as claimable, so if the claimant

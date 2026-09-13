@@ -138,6 +138,66 @@ describe('the sign-in address', () => {
   })
 })
 
+describe('the mailing address', () => {
+  it('is stored only on the user row, with no copy in the facts blob', async () => {
+    // The second copy is what caused the phone number to go stale. One home.
+    caseWith({ plaintiffContext: {} })
+
+    await updateClaimantContact({
+      assessmentId: 'asm-1',
+      patch: { addressLine1: '123 Sample Avenue', city: 'Los Angeles', state: 'CA', postalCode: '90012' },
+    })
+
+    expect(savedUserData()).toMatchObject({
+      addressLine1: '123 Sample Avenue',
+      city: 'Los Angeles',
+      state: 'CA',
+      postalCode: '90012',
+    })
+    expect(savedFacts().plaintiffContext.addressLine1).toBeUndefined()
+  })
+
+  it('clears a line when it is sent empty, for a claimant who moves out of a unit', async () => {
+    caseWith({ plaintiffContext: {} }, { id: 'user-1', email: 'c@example.com', passwordHash: 'x' })
+
+    await updateClaimantContact({ assessmentId: 'asm-1', patch: { addressLine2: '   ' } })
+
+    expect(savedUserData().addressLine2).toBeNull()
+  })
+
+  it('mints the case owner when a guest case gets an address', async () => {
+    // The address has nowhere else to live, so the guest owner has to exist.
+    caseWith({ plaintiffContext: {} }, null)
+    vi.mocked(prisma.user.create).mockResolvedValue({ id: 'guest-1' } as any)
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({
+      id: 'guest-1',
+      email: 'guest+asm-1@caseiq.local',
+      firstName: 'Guest',
+      lastName: 'User',
+      phone: null,
+      passwordHash: null,
+      addressLine1: null,
+      addressLine2: null,
+      city: null,
+      state: null,
+      postalCode: null,
+    } as any)
+
+    const result = await updateClaimantContact({ assessmentId: 'asm-1', patch: { addressLine1: '1 Main St' } })
+
+    expect(result.ok).toBe(true)
+    expect(savedUserData().addressLine1).toBe('1 Main St')
+  })
+
+  it('does not mint an owner for an edit that is not an address', async () => {
+    caseWith({ plaintiffContext: {} }, null)
+
+    await updateClaimantContact({ assessmentId: 'asm-1', patch: { phone: '5550102456' } })
+
+    expect(prisma.user.create).not.toHaveBeenCalled()
+  })
+})
+
 describe('reading the contact back', () => {
   it('reports the case copy, matching what we would text', async () => {
     vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
@@ -145,7 +205,7 @@ describe('reading the contact back', () => {
       user: { email: 'login@example.com', firstName: 'Jo', lastName: 'Smith', phone: '+15559999999' },
     } as any)
 
-    expect(await readClaimantContact('asm-1')).toEqual({
+    expect(await readClaimantContact('asm-1')).toMatchObject({
       firstName: 'Jo',
       lastName: 'Smith',
       email: 'case@example.com',

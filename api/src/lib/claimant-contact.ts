@@ -11,22 +11,26 @@
  * `canRepointLoginEmail` for why.
  */
 import { prisma } from './prisma'
-import { guestCaseUserEmail } from './case-owner'
+import { ensureCaseOwnerUserId, guestCaseUserEmail } from './case-owner'
 import { normalizePhone, PHONE_ERROR_MESSAGE } from './phone'
 
-export interface ClaimantContactPatch {
+/** The mailing address fields, which live only on the user row. */
+export const ADDRESS_FIELDS = ['addressLine1', 'addressLine2', 'city', 'state', 'postalCode'] as const
+export type AddressField = (typeof ADDRESS_FIELDS)[number]
+
+export type ClaimantContactPatch = {
   firstName?: string
   lastName?: string
   email?: string
   phone?: string
-}
+} & Partial<Record<AddressField, string>>
 
-export interface ClaimantContact {
+export type ClaimantContact = {
   firstName: string | null
   lastName: string | null
   email: string | null
   phone: string | null
-}
+} & Record<AddressField, string | null>
 
 export type UpdateClaimantContactResult =
   | {
@@ -79,13 +83,38 @@ export async function updateClaimantContact(params: {
     return { ok: false, status: 400, message: 'Enter a valid email address' }
   }
 
+  // Address fields take an empty string to mean "clear this", which the trimming
+  // helper above cannot express — a claimant who moves out of an apartment needs
+  // to be able to drop the unit number.
+  const addressPatch: Record<string, string | null> = {}
+  for (const field of ADDRESS_FIELDS) {
+    const value = patch[field]
+    if (typeof value !== 'string') continue
+    addressPatch[field] = value.trim() || null
+  }
+  const hasAddressEdit = Object.keys(addressPatch).length > 0
+
   const assessment = await prisma.assessment.findUnique({
     where: { id: assessmentId },
     select: {
       id: true,
       facts: true,
       userId: true,
-      user: { select: { id: true, email: true, firstName: true, lastName: true, phone: true, passwordHash: true } },
+      user: {
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          phone: true,
+          passwordHash: true,
+          addressLine1: true,
+          addressLine2: true,
+          city: true,
+          state: true,
+          postalCode: true,
+        },
+      },
     },
   })
   if (!assessment) return { ok: false, status: 404, message: 'Case not found' }
@@ -107,9 +136,34 @@ export async function updateClaimantContact(params: {
   if (email !== undefined) context.email = email
   if (phone !== undefined) context.phone = phone
 
-  const user = assessment.user
+  let user = assessment.user
+  // The address has nowhere to live but the user row, so a case still on a guest
+  // has to get its owner minted first. Only for an actual address edit: nothing
+  // else here is worth creating a row for.
+  if (!user && hasAddressEdit) {
+    const ownerId = await ensureCaseOwnerUserId(assessmentId)
+    if (ownerId) {
+      user = await prisma.user.findUnique({
+        where: { id: ownerId },
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          phone: true,
+          passwordHash: true,
+          addressLine1: true,
+          addressLine2: true,
+          city: true,
+          state: true,
+          postalCode: true,
+        },
+      })
+    }
+  }
+
   let loginEmailUnchanged = false
-  const userData: Record<string, string> = {}
+  const userData: Record<string, string | null> = { ...addressPatch }
   if (user) {
     if (firstName !== undefined) userData.firstName = firstName
     if (lastName !== undefined) userData.lastName = lastName
@@ -145,6 +199,11 @@ export async function updateClaimantContact(params: {
       lastName: context.lastName ?? user?.lastName ?? null,
       email: context.email ?? (user && !isGuestEmail(user.email, assessmentId) ? user.email : null) ?? null,
       phone: context.phone ?? user?.phone ?? null,
+      addressLine1: addressPatch.addressLine1 ?? user?.addressLine1 ?? null,
+      addressLine2: addressPatch.addressLine2 ?? user?.addressLine2 ?? null,
+      city: addressPatch.city ?? user?.city ?? null,
+      state: addressPatch.state ?? user?.state ?? null,
+      postalCode: addressPatch.postalCode ?? user?.postalCode ?? null,
     },
   }
 }
@@ -163,7 +222,19 @@ export async function readClaimantContact(assessmentId: string): Promise<Claiman
     where: { id: assessmentId },
     select: {
       facts: true,
-      user: { select: { email: true, firstName: true, lastName: true, phone: true } },
+      user: {
+        select: {
+          email: true,
+          firstName: true,
+          lastName: true,
+          phone: true,
+          addressLine1: true,
+          addressLine2: true,
+          city: true,
+          state: true,
+          postalCode: true,
+        },
+      },
     },
   })
   if (!assessment) return null
@@ -185,5 +256,10 @@ export async function readClaimantContact(assessmentId: string): Promise<Claiman
     lastName: (typeof context.lastName === 'string' ? context.lastName : null) || user?.lastName || null,
     email: email || (user && !user.email.endsWith('@caseiq.local') ? user.email : null),
     phone: (typeof context.phone === 'string' ? context.phone : null) || user?.phone || null,
+    addressLine1: user?.addressLine1 || null,
+    addressLine2: user?.addressLine2 || null,
+    city: user?.city || null,
+    state: user?.state || null,
+    postalCode: user?.postalCode || null,
   }
 }

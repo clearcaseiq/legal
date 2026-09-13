@@ -33,6 +33,10 @@ export type NormalizedImportedCase = {
   plaintiffLastName: string
   plaintiffEmail: string
   plaintiffPhone: string
+  /** Mailing address, when the export carried one. Blank string when it did not. */
+  plaintiffAddressLine1: string
+  plaintiffCity: string
+  plaintiffPostalCode: string
   incidentDate?: string
   /**
    * Why there is no `incidentDate`, in words for the attorney.
@@ -294,6 +298,16 @@ export function normalizeImportedCase(
     plaintiffLastName: lastName,
     plaintiffEmail: getImportField(row, [...mapped('email'), 'plaintiff email', 'client email', 'email']),
     plaintiffPhone: getImportField(row, [...mapped('phone'), 'plaintiff phone', 'client phone', 'phone', 'mobile']),
+    // The nested paths match a Clio-style JSON export, where the address sits
+    // under `client.address`; the bare names cover a flat spreadsheet.
+    plaintiffAddressLine1: getImportField(row, [
+      'client.address.street', 'address.street', 'client address', 'mailing address',
+      'street address', 'address line 1', 'address1', 'street', 'address',
+    ]),
+    plaintiffCity: getImportField(row, ['client.address.city', 'address.city', 'client city', 'city']),
+    plaintiffPostalCode: getImportField(row, [
+      'client.address.zip_code', 'address.zip_code', 'client zip', 'zip code', 'zip', 'postal code', 'postcode',
+    ]),
     incidentDate: incident.ok ? incident.date : undefined,
     incidentDateIssue: incident.ok ? null : incident.reason,
     incidentDateAmbiguous: incident.ok && incident.ambiguous,

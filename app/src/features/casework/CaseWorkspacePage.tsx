@@ -67,6 +67,8 @@ import {
   getAttorneyDashboard,
   getAttorneyDocumentRequests,
   getFirmColleagues,
+  formatMailingAddress,
+  getClaimantContact,
   getLead,
   getLeadCommandCenter,
   getLeadEvidenceFiles,
@@ -395,6 +397,8 @@ interface CaseDetailVM {
   client: string
   clientEmail: string
   phone: string
+  /** One-line mailing address, or null when none is on file. */
+  mailingAddress: string | null
   type: string
   claimType: string
   venue: string
@@ -518,6 +522,16 @@ export default function CaseWorkspacePage() {
           return
         }
         setTasks((Array.isArray(leadTasks) ? leadTasks : []) as TaskRow[])
+        // Best-effort: the header falls back to the lead payload without it, but
+        // this is the copy the platform texts and mails, so prefer it when we
+        // can get it.
+        getClaimantContact(leadId)
+          .then((c) => {
+            if (!cancelled) setContactOverride(c)
+          })
+          .catch(() => {
+            /* header degrades to the lead payload */
+          })
         // Command center is best-effort — the header/tabs degrade gracefully without it.
         try {
           const center = await getLeadCommandCenter(leadId)
@@ -604,6 +618,7 @@ export default function CaseWorkspacePage() {
           .join(' ') || 'Client',
       clientEmail: contactOverride?.email ?? plaintiffContext.email ?? user.email ?? '',
       phone: contactOverride?.phone ?? plaintiffContext.phone ?? user.phone ?? '—',
+      mailingAddress: formatMailingAddress(contactOverride),
       type: claimLabel(claimType),
       claimType,
       venue: [a.venueCounty, a.venueState].filter(Boolean).join(', ') || '—',
@@ -754,6 +769,12 @@ export default function CaseWorkspacePage() {
                 </button>
               </span>
               <span>
+                Mailing address:{' '}
+                <span className={detail.mailingAddress ? 'text-slate-700' : 'text-amber-600'}>
+                  {detail.mailingAddress || 'Not on file'}
+                </span>
+              </span>
+              <span>
                 Defendant: <span className="text-slate-700">{detail.defendant}</span>
               </span>
               <span>
@@ -776,12 +797,19 @@ export default function CaseWorkspacePage() {
           {contactOpen ? (
             <ClientContactDialog
                 leadId={leadId}
-                initial={{
-                  firstName: contactOverride?.firstName ?? detail.client.split(' ')[0] ?? '',
-                  lastName: contactOverride?.lastName ?? detail.client.split(' ').slice(1).join(' '),
-                  email: contactOverride?.email ?? detail.clientEmail,
-                  phone: contactOverride?.phone ?? (detail.phone === '—' ? '' : detail.phone),
-                }}
+                initial={
+                  contactOverride ?? {
+                    firstName: detail.client.split(' ')[0] ?? '',
+                    lastName: detail.client.split(' ').slice(1).join(' '),
+                    email: detail.clientEmail,
+                    phone: detail.phone === '—' ? '' : detail.phone,
+                    addressLine1: null,
+                    addressLine2: null,
+                    city: null,
+                    state: null,
+                    postalCode: null,
+                  }
+                }
                 onClose={() => setContactOpen(false)}
                 onSaved={(contact, loginEmailUnchanged) => {
                   setContactOverride(contact)

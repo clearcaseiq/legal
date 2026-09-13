@@ -15,6 +15,16 @@ model User {
   firstName     String
   lastName      String
   phone         String?
+  /// Mailing address, for demand letters and settlement checks.
+  ///
+  /// Deliberately kept only here, with no copy in `Assessment.facts`: the phone
+  /// number is stored in both and the two drifted, so a claimant who corrected
+  /// their number still had documents texted to the old one (CP-848).
+  addressLine1  String?
+  addressLine2  String?
+  city          String?
+  state         String?
+  postalCode    String?
   isActive      Boolean   @default(true)
   emailVerified Boolean   @default(false)
   // client, attorney, staff, admin, specialist.

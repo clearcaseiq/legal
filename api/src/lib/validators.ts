@@ -269,11 +269,25 @@ export const PasswordReset = z.object({
   password: z.string().min(8).max(200),
 })
 
+// An empty string clears a mailing-address line, which `.min(1)` would reject.
+// Stored as null so an absent address reads the same everywhere.
+const addressLine = z
+  .string()
+  .max(120)
+  .transform((v) => v.trim() || null)
+  .nullable()
+  .optional()
+
 export const UserUpdate = z.object({
   firstName: z.string().min(1).max(80).optional(),
   lastName: z.string().min(1).max(80).optional(),
   phone: optionalPhone,
   preferredLanguage: z.enum(['en', 'es', 'zh']).optional(),
+  addressLine1: addressLine,
+  addressLine2: addressLine,
+  city: addressLine,
+  state: addressLine,
+  postalCode: addressLine,
 })
 
 export const FavoriteAttorneyRequest = z.object({

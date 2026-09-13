@@ -2212,6 +2212,22 @@ export interface ClaimantContact {
   lastName: string | null
   email: string | null
   phone: string | null
+  addressLine1: string | null
+  addressLine2: string | null
+  city: string | null
+  state: string | null
+  postalCode: string | null
+}
+
+/** The mailing address as one block, or null when nothing is on file. */
+export function formatMailingAddress(contact: Partial<ClaimantContact> | null | undefined): string | null {
+  if (!contact) return null
+  const street = [contact.addressLine1, contact.addressLine2].filter(Boolean).join(', ')
+  const region = [contact.city, [contact.state, contact.postalCode].filter(Boolean).join(' ')]
+    .filter(Boolean)
+    .join(', ')
+  const full = [street, region].filter(Boolean).join(', ')
+  return full || null
 }
 
 export interface UpdateClaimantContactResult {
@@ -2220,11 +2236,25 @@ export interface UpdateClaimantContactResult {
   loginEmailUnchanged: boolean
 }
 
+// Same edit from the admin case view, which is keyed by assessment rather than lead.
+export async function updateAdminClaimantContact(
+  assessmentId: string,
+  patch: Partial<ClaimantContact> & Record<string, string | null | undefined>
+): Promise<UpdateClaimantContactResult> {
+  const { data } = await api.patch(`/v1/admin/cases/${assessmentId}/client-contact`, patch)
+  return data
+}
+
+export async function getClaimantContact(leadId: string): Promise<ClaimantContact> {
+  const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/client-contact`)
+  return data
+}
+
 // Correcting the client's details from the case file. This writes the copy the
 // SMS layer reads as well as the account, so a new number takes effect for texts.
 export async function updateClaimantContact(
   leadId: string,
-  patch: { firstName?: string; lastName?: string; email?: string; phone?: string }
+  patch: Partial<Omit<ClaimantContact, never>> & Record<string, string | null | undefined>
 ): Promise<UpdateClaimantContactResult> {
   const { data } = await api.patch(`/v1/attorney-dashboard/leads/${leadId}/client-contact`, patch)
   return data

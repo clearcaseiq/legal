@@ -15,6 +15,11 @@ interface UserProfile {
   firstName: string
   lastName: string
   phone?: string
+  addressLine1?: string | null
+  addressLine2?: string | null
+  city?: string | null
+  state?: string | null
+  postalCode?: string | null
   avatar?: string | null
   emailVerified: boolean
   createdAt: string
@@ -27,6 +32,25 @@ function resolveAvatarUrl(avatar?: string | null): string | null {
   const origin = getApiOrigin()
   if (!origin) return avatar
   return `${origin}${avatar.startsWith('/') ? '' : '/'}${avatar}`
+}
+
+function formatProfileAddress(user: UserProfile): string | null {
+  const street = [user.addressLine1, user.addressLine2].filter(Boolean).join(', ')
+  const region = [user.city, [user.state, user.postalCode].filter(Boolean).join(' ')].filter(Boolean).join(', ')
+  return [street, region].filter(Boolean).join(', ') || null
+}
+
+function formFrom(user: UserProfile) {
+  return {
+    firstName: user.firstName || '',
+    lastName: user.lastName || '',
+    phone: user.phone || '',
+    addressLine1: user.addressLine1 || '',
+    addressLine2: user.addressLine2 || '',
+    city: user.city || '',
+    state: user.state || '',
+    postalCode: user.postalCode || ''
+  }
 }
 
 function syncStoredUserAvatar(avatar: string | null | undefined) {
@@ -54,18 +78,19 @@ export default function UserProfile() {
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
-    phone: ''
+    phone: '',
+    addressLine1: '',
+    addressLine2: '',
+    city: '',
+    state: '',
+    postalCode: ''
   })
 
   useEffect(() => {
     if (data?.user) {
       const userData = data.user
       setProfile(userData)
-      setFormData({
-        firstName: userData.firstName || '',
-        lastName: userData.lastName || '',
-        phone: userData.phone || ''
-      })
+      setFormData(formFrom(userData))
       setLoading(false)
     }
     if (!data?.user && !sessionLoading) {
@@ -121,11 +146,7 @@ export default function UserProfile() {
 
   const handleCancel = () => {
     if (profile) {
-      setFormData({
-        firstName: profile.firstName || '',
-        lastName: profile.lastName || '',
-        phone: profile.phone || ''
-      })
+      setFormData(formFrom(profile))
     }
     setEditing(false)
     setError(null)
@@ -396,6 +417,86 @@ export default function UserProfile() {
                   <p className="text-gray-900">{profile.phone || 'Not provided'}</p>
                 )}
               </div>
+            </div>
+
+            {/* Mailing address — where the firm sends letters and settlement checks */}
+            <div className="border-t border-gray-200 pt-6">
+              <h3 className="text-lg font-medium text-gray-900">Mailing Address</h3>
+              <p className="mt-1 mb-4 text-sm text-gray-500">
+                Your attorney uses this for letters and settlement checks.
+              </p>
+              {editing ? (
+                <div className="space-y-4">
+                  <div>
+                    <label htmlFor="addressLine1" className="block text-sm font-medium text-gray-700 mb-2">
+                      Street Address
+                    </label>
+                    <input
+                      type="text"
+                      id="addressLine1"
+                      value={formData.addressLine1}
+                      onChange={(e) => setFormData({ ...formData, addressLine1: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-brand-500 focus:border-brand-500"
+                      placeholder="123 Sample Avenue"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="addressLine2" className="block text-sm font-medium text-gray-700 mb-2">
+                      Apt, Suite, Unit (optional)
+                    </label>
+                    <input
+                      type="text"
+                      id="addressLine2"
+                      value={formData.addressLine2}
+                      onChange={(e) => setFormData({ ...formData, addressLine2: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-brand-500 focus:border-brand-500"
+                      placeholder="Apt 4B"
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                    <div>
+                      <label htmlFor="city" className="block text-sm font-medium text-gray-700 mb-2">
+                        City
+                      </label>
+                      <input
+                        type="text"
+                        id="city"
+                        value={formData.city}
+                        onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-brand-500 focus:border-brand-500"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="state" className="block text-sm font-medium text-gray-700 mb-2">
+                        State
+                      </label>
+                      <input
+                        type="text"
+                        id="state"
+                        value={formData.state}
+                        onChange={(e) => setFormData({ ...formData, state: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-brand-500 focus:border-brand-500"
+                        placeholder="CA"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="postalCode" className="block text-sm font-medium text-gray-700 mb-2">
+                        ZIP Code
+                      </label>
+                      <input
+                        type="text"
+                        id="postalCode"
+                        value={formData.postalCode}
+                        onChange={(e) => setFormData({ ...formData, postalCode: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-brand-500 focus:border-brand-500"
+                        placeholder="90012"
+                      />
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-gray-900">{formatProfileAddress(profile) || 'Not provided'}</p>
+              )}
             </div>
 
             {/* Account Information */}
