@@ -45,14 +45,17 @@ export default function DocumentPortal() {
     void load()
   }, [load])
 
-  const handleFiles = async (files: FileList | null) => {
-    if (!files || files.length === 0) return
+  // Takes a plain array rather than a FileList: the caller had been rebuilding
+  // one through `new DataTransfer()`, which is a constructor an old phone
+  // browser may not have, to hand back a shape nothing here needs.
+  const handleFiles = async (files: File[]) => {
+    if (files.length === 0) return
     setUploading(true)
     setToast(null)
     try {
       let lastStatus = request?.status
       let duplicates = 0
-      for (const file of Array.from(files)) {
+      for (const file of files) {
         const res = await uploadDocumentPortalFile(token, file, {
           docType: selectedDocType || undefined,
           uploadedByName: uploaderName || undefined,
@@ -228,8 +231,15 @@ export default function DocumentPortal() {
             type="file"
             multiple
             onChange={(e) => {
-              if (e.target.files) setStagedFiles((prev) => [...prev, ...Array.from(e.target.files!)])
-              if (fileInputRef.current) fileInputRef.current.value = ''
+              // Copy the files out before clearing the input. `e.target.files`
+              // is a live list on the element, so resetting `value` empties it,
+              // and React runs a state updater after the handler returns —
+              // which left this staging an empty selection every time. The
+              // reset itself has to stay, or re-picking the same photo fires
+              // no change event at all.
+              const picked = Array.from(e.target.files ?? [])
+              e.target.value = ''
+              if (picked.length) setStagedFiles((prev) => [...prev, ...picked])
             }}
             disabled={uploading}
             className="mt-3 block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-indigo-600 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-indigo-700 disabled:opacity-50 dark:text-slate-300"
@@ -270,12 +280,10 @@ export default function DocumentPortal() {
             <button
               type="button"
               onClick={() => {
-                const fileList = stagedFiles
-                if (fileList.length === 0) return
+                const picked = stagedFiles
+                if (picked.length === 0) return
                 setStagedFiles([])
-                const dt = new DataTransfer()
-                fileList.forEach((f) => dt.items.add(f))
-                handleFiles(dt.files)
+                void handleFiles(picked)
               }}
               disabled={uploading || stagedFiles.length === 0}
               className="mt-2 w-full rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
