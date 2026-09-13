@@ -1,4 +1,15 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+
+// These cases assert the rule-based path: the phrasing they check for comes
+// from `heuristicExtraction` and `buildRuleBasedQuestion`, not from a model.
+// Without this the engine reaches for OpenAI whenever OPENAI_API_KEY happens to
+// be set, which made the suite pass in CI (no key) and fail on a developer
+// machine, differently each run.
+vi.mock('./llm-client', () => ({
+  getLlmChatClient: () => null,
+  LLM_CHAT_MODEL: 'test-model',
+}))
+
 import {
   buildConversationReview,
   buildRuleBasedQuestion,
