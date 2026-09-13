@@ -2207,6 +2207,29 @@ export async function textDocumentRequest(
   return data
 }
 
+export interface ClaimantContact {
+  firstName: string | null
+  lastName: string | null
+  email: string | null
+  phone: string | null
+}
+
+export interface UpdateClaimantContactResult {
+  contact: ClaimantContact
+  /** The account's sign-in address was kept; only the case contact moved. */
+  loginEmailUnchanged: boolean
+}
+
+// Correcting the client's details from the case file. This writes the copy the
+// SMS layer reads as well as the account, so a new number takes effect for texts.
+export async function updateClaimantContact(
+  leadId: string,
+  patch: { firstName?: string; lastName?: string; email?: string; phone?: string }
+): Promise<UpdateClaimantContactResult> {
+  const { data } = await api.patch(`/v1/attorney-dashboard/leads/${leadId}/client-contact`, patch)
+  return data
+}
+
 export interface DocumentInboxExtract {
   totalAmount: number | null
   confidence: number

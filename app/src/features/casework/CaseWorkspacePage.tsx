@@ -89,6 +89,8 @@ import { getApiOrigin } from '../../lib/runtimeEnv'
 import { useHeuristics } from '../../contexts/HeuristicsContext'
 import { checkEvidenceCollect, checkPoliceReportCollect, confirmRetainerSigned } from '../../lib/api-esign'
 import SignatureRequestPanel from '../../components/SignatureRequestPanel'
+import ClientContactDialog from './ClientContactDialog'
+import type { ClaimantContact } from '../../lib/api'
 import ChatDrawer from '../../components/ChatDrawer'
 import ConfirmDialog from '../../components/ConfirmDialog'
 import InsurancePanel from './InsurancePanel'
@@ -434,6 +436,11 @@ export default function CaseWorkspacePage() {
 
   const [lead, setLead] = useState<any | null>(null)
   const [cc, setCc] = useState<CaseCommandCenter | null>(null)
+  // Applied over the fetched case so a contact edit shows immediately, rather
+  // than waiting on a refetch of the whole workspace.
+  const [contactOverride, setContactOverride] = useState<ClaimantContact | null>(null)
+  const [contactOpen, setContactOpen] = useState(false)
+  const [contactNote, setContactNote] = useState<string | null>(null)
   const [tasks, setTasks] = useState<TaskRow[]>([])
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
@@ -548,9 +555,11 @@ export default function CaseWorkspacePage() {
     const highBand = Number(bands.high ?? bands.p75 ?? bands.median ?? 0) || 0
     const caseValue = cc?.valueStory?.median || cc?.valueStory?.high || highBand
     const claimType = a.claimType || ''
+    let plaintiffContext: Record<string, any> = {}
     let facts: Record<string, any> = {}
     try {
       facts = typeof a.facts === 'string' ? JSON.parse(a.facts || '{}') : (a.facts || {})
+      plaintiffContext = (facts?.plaintiffContext || {}) as Record<string, any>
     } catch {
       facts = {}
     }
@@ -585,9 +594,16 @@ export default function CaseWorkspacePage() {
       assessmentId: lead.assessmentId || a.id || null,
       caseName: resolveCaseName(a, 'Client'),
       customCaseName: a.caseName ?? null,
-      client: [user.firstName, user.lastName].filter(Boolean).join(' ') || 'Client',
-      clientEmail: user.email || '',
-      phone: user.phone || '—',
+      // Read in the same order as the server (`lib/claimant-contact.ts`), which
+      // matches what the SMS layer texts. Reading the user row alone showed a
+      // number we would never actually dial.
+      client:
+        [contactOverride?.firstName ?? plaintiffContext.firstName ?? user.firstName,
+         contactOverride?.lastName ?? plaintiffContext.lastName ?? user.lastName]
+          .filter(Boolean)
+          .join(' ') || 'Client',
+      clientEmail: contactOverride?.email ?? plaintiffContext.email ?? user.email ?? '',
+      phone: contactOverride?.phone ?? plaintiffContext.phone ?? user.phone ?? '—',
       type: claimLabel(claimType),
       claimType,
       venue: [a.venueCounty, a.venueState].filter(Boolean).join(', ') || '—',
@@ -605,7 +621,7 @@ export default function CaseWorkspacePage() {
       modeledValueHigh: null,
       painJournal: Array.isArray(facts?.painJournal) ? facts.painJournal : [],
     }
-  }, [lead, cc])
+  }, [lead, cc, contactOverride])
 
   // Remember this case as "recently opened" once it resolves, so the Case
   // Workspace launcher can offer quick re-entry (Continue working / Recent).
@@ -728,6 +744,14 @@ export default function CaseWorkspacePage() {
             <div className="mt-4 flex flex-wrap gap-x-6 gap-y-1 border-t border-slate-100 pt-3 text-sm text-slate-500">
               <span>
                 Client: <span className="text-slate-700">{detail.client}</span> · {detail.phone}
+                <button
+                  type="button"
+                  onClick={() => setContactOpen(true)}
+                  title="Correct the client's name, email, or phone"
+                  className="ml-2 font-semibold text-brand-700 hover:text-brand-800"
+                >
+                  Edit
+                </button>
               </span>
               <span>
                 Defendant: <span className="text-slate-700">{detail.defendant}</span>
@@ -742,7 +766,34 @@ export default function CaseWorkspacePage() {
                 Adjuster: <span className="text-slate-700">{detail.adjuster}</span>
               </span>
             </div>
+            {contactNote ? (
+              <p className="mt-3 rounded-md border border-brand-200 bg-brand-50 px-3 py-2 text-xs text-brand-800">
+                {contactNote}
+              </p>
+            ) : null}
           </section>
+
+          {contactOpen ? (
+            <ClientContactDialog
+                leadId={leadId}
+                initial={{
+                  firstName: contactOverride?.firstName ?? detail.client.split(' ')[0] ?? '',
+                  lastName: contactOverride?.lastName ?? detail.client.split(' ').slice(1).join(' '),
+                  email: contactOverride?.email ?? detail.clientEmail,
+                  phone: contactOverride?.phone ?? (detail.phone === '—' ? '' : detail.phone),
+                }}
+                onClose={() => setContactOpen(false)}
+                onSaved={(contact, loginEmailUnchanged) => {
+                  setContactOverride(contact)
+                  setContactNote(
+                    loginEmailUnchanged
+                      ? 'Contact details saved. The client still signs in with their original email, so only the case contact address changed.'
+                      : 'Contact details saved. Document request texts will go to this number.',
+                  )
+                  setTimeout(() => setContactNote(null), 8000)
+              }}
+            />
+          ) : null}
 
           {/* Tab strip — wraps onto multiple rows so every tab (icon + full label) stays fully visible */}
           <div className="flex flex-wrap items-center gap-1.5 rounded-2xl border border-slate-200 bg-slate-50 p-1.5 shadow-sm">

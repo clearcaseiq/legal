@@ -49,6 +49,7 @@ import { runCaseRecalculation } from '../lib/case-recalculation'
 import { syncPlaintiffDocumentRequestStatuses, computeRequestStatus, parseRequestedDocs, normalizeRequestedDocKeys, DOCUMENT_REQUEST_LABELS } from '../lib/document-request-status'
 import { createAndNotifyPlaintiffDocumentRequest } from '../lib/document-request-create'
 import { sendDocumentRequestText } from '../lib/document-request-text'
+import { readClaimantContact, updateClaimantContact } from '../lib/claimant-contact'
 import { canReceiveInboundMedia } from '../lib/sms'
 import { analyzeCaseWithChatGPT, CaseAnalysisRequest } from '../services/chatgpt'
 import { z } from 'zod'
@@ -6177,6 +6178,58 @@ router.post('/leads/:leadId/document-request', authMiddleware, async (req: any, 
   } catch (error: any) {
     logger.error('Failed to create document request', { error: error.message })
     res.status(500).json({ error: 'Failed to create document request' })
+  }
+})
+
+// Correct the claimant's contact details from the case file.
+//
+// Until this existed the firm had nowhere to act on "my number changed": the
+// claimant could edit their own user row, but the SMS layer reads the intake
+// copy in `Assessment.facts`, which froze at submission. Both copies move here.
+router.get('/leads/:leadId/client-contact', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true })
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+
+    const contact = await readClaimantContact(auth.lead.assessmentId)
+    if (!contact) return res.status(404).json({ error: 'Case not found' })
+    res.json(contact)
+  } catch (error: any) {
+    logger.error('Failed to read client contact', { error: error.message })
+    res.status(500).json({ error: 'Failed to read client contact' })
+  }
+})
+
+router.patch('/leads/:leadId/client-contact', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAuthorizedLead(req, req.params.leadId, {
+      allowFirmMember: true,
+      firmMemberWrite: true,
+    })
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+
+    const { firstName, lastName, email, phone } = req.body || {}
+    const result = await updateClaimantContact({
+      assessmentId: auth.lead.assessmentId,
+      patch: { firstName, lastName, email, phone },
+    })
+    if (!result.ok) return res.status(result.status).json({ error: result.message })
+
+    logger.info('Client contact updated by firm', {
+      leadId: req.params.leadId,
+      actorUserId: req.user?.id,
+      fields: Object.keys({ firstName, lastName, email, phone }).filter(
+        (k) => (req.body || {})[k] !== undefined,
+      ),
+    })
+
+    res.json({
+      contact: result.contact,
+      loginEmailUnchanged: result.loginEmailUnchanged,
+    })
+  } catch (error: any) {
+    logger.error('Failed to update client contact', { error: error.message })
+    res.status(500).json({ error: 'Failed to update client contact' })
   }
 })
 
