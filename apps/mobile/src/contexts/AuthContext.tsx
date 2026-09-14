@@ -1,15 +1,18 @@
-import React, { createContext, useContext, useEffect, useState } from 'react'
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react'
+import { AppState, type AppStateStatus } from 'react-native'
 import * as LocalAuthentication from 'expo-local-authentication'
 import * as SecureStore from 'expo-secure-store'
 import {
   api,
   getApiErrorMessage,
+  getSessionIssuedAt,
   loginPlaintiff,
   loginUser,
   logout as apiLogout,
   setUnauthorizedHandler,
   updateProfile,
 } from '../lib/api'
+import { isSessionExpired, shouldLockOnResume } from '../lib/sessionLock'
 import { normalizeMobileLanguage, type MobileLanguage } from '../i18n/messages'
 import { clearPushTokenOnLogout, syncPushTokenAfterLogin } from '../lib/push-sync'
 import { IS_PLAINTIFF_APP } from '../lib/appVariant'
@@ -45,6 +48,9 @@ type AuthContextType = {
   authenticateWithBiometrics: () => Promise<BiometricAuthResult>
   hasBiometrics: boolean
   updateUser: (patch: Partial<User>) => void
+  /** Signed in, but the app has been away long enough to ask again. */
+  isLocked: boolean
+  unlock: () => Promise<boolean>
 }
 
 const AuthContext = createContext<AuthContextType | null>(null)
@@ -55,11 +61,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [hasBiometrics, setHasBiometrics] = useState(false)
   const [startupError, setStartupError] = useState<string | null>(null)
   const [preferredLanguage, setPreferredLanguageState] = useState<MobileLanguage>('en')
+  const [isLocked, setIsLocked] = useState(false)
+  const backgroundedAt = useRef<number | null>(null)
 
   useEffect(() => {
     setUnauthorizedHandler(() => {
       setUser(null)
       setIsLoading(false)
+      setIsLocked(false)
       setStartupError('Your session expired. Please sign in again.')
     })
     void SecureStore.getItemAsync('preferred_language').then((stored) => {
@@ -71,6 +80,49 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })
     return () => setUnauthorizedHandler(null)
   }, [])
+
+  // Ask again when the app comes back after sitting idle. Without this the
+  // prompt at sign-in protected nothing: passing it only re-read a token that
+  // then stayed usable for days, for whoever was holding the phone.
+  useEffect(() => {
+    const onChange = async (next: AppStateStatus) => {
+      if (next === 'background' || next === 'inactive') {
+        // First move away wins. iOS reports inactive on the way back in as well,
+        // and overwriting here would reset the clock to now and never lock.
+        if (backgroundedAt.current === null) backgroundedAt.current = Date.now()
+        return
+      }
+      if (next !== 'active') return
+
+      const awaySince = backgroundedAt.current
+      backgroundedAt.current = null
+      if (!user) return
+
+      // A session the server would already refuse cannot be unlocked by any
+      // prompt, so send them to sign-in rather than to a dead end.
+      if (isSessionExpired(await getSessionIssuedAt(), Date.now())) {
+        await logout()
+        setStartupError('Your session expired. Please sign in again.')
+        return
+      }
+
+      if (
+        shouldLockOnResume({
+          backgroundedAt: awaySince,
+          now: Date.now(),
+          isAuthenticated: true,
+          canPrompt: hasBiometrics,
+        })
+      ) {
+        setIsLocked(true)
+      }
+    }
+
+    const subscription = AppState.addEventListener('change', (next) => {
+      void onChange(next)
+    })
+    return () => subscription.remove()
+  }, [user, hasBiometrics])
 
   async function restoreSessionFromStoredToken(): Promise<'authenticated' | 'missing_session' | 'restore_failed'> {
     const token = await SecureStore.getItemAsync('auth_token')
@@ -119,6 +171,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   async function login(email: string, password: string) {
     setStartupError(null)
+    setIsLocked(false)
     const { user: u, role } = IS_PLAINTIFF_APP
       ? await loginPlaintiff(email, password)
       : await loginUser(email, password)
@@ -150,7 +203,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await SecureStore.deleteItemAsync('preferred_language').catch(() => undefined)
     setPreferredLanguageState('en')
     setUser(null)
+    setIsLocked(false)
     setStartupError(null)
+  }
+
+  /** Satisfy the resume prompt. False when the attorney dismissed it. */
+  async function unlock(): Promise<boolean> {
+    const result = await LocalAuthentication.authenticateAsync({
+      promptMessage: 'Unlock ClearCaseIQ',
+      fallbackLabel: 'Use password',
+    })
+    if (!result.success) return false
+    setIsLocked(false)
+    return true
   }
 
   async function authenticateWithBiometrics(): Promise<BiometricAuthResult> {
@@ -190,6 +255,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         authenticateWithBiometrics,
         hasBiometrics,
         updateUser,
+        isLocked,
+        unlock,
       }}
     >
       {children}

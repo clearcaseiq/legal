@@ -5,6 +5,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { AuthProvider } from '../src/contexts/AuthContext'
 import { NotificationProvider } from '../src/contexts/NotificationContext'
 import { ThemeProvider } from '../src/contexts/ThemeContext'
+import { SessionLockScreen } from '../src/components/SessionLockScreen'
 import { colors } from '../src/theme/tokens'
 
 // Cap Dynamic Type scaling so large accessibility text sizes don't overflow the
@@ -33,6 +34,9 @@ export default function RootLayout() {
               <Stack.Screen name="(auth)" options={{ headerShown: false }} />
               <Stack.Screen name="(app)" options={{ headerShown: false }} />
             </Stack>
+            {/* Sits above the stack so a resumed app is covered wherever the
+                attorney left off, rather than only on the way in. */}
+            <SessionLockScreen />
             {/* Nav chrome is deep navy in both themes, so light status bar content is always correct. */}
             <StatusBar style="light" />
           </NotificationProvider>

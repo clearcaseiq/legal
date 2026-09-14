@@ -43,12 +43,16 @@ const VARIANTS = {
 
 const variant = VARIANTS[APP_VARIANT]
 
-// Plaintiff build prefers its own branding in assets/plaintiff/, but falls back
-// to the shared assets until those PNGs are added (so builds never break).
+// Plaintiff build prefers its own branding in assets/plaintiff/, falling back to
+// the shared attorney assets so day-to-day dev builds never break. A release
+// build refuses the fallback — see the guards below.
+const brandingFallbacks = []
+
 function variantAsset(file) {
   if (APP_VARIANT === 'plaintiff') {
     const plaintiffPath = path.join(__dirname, 'assets', 'plaintiff', file)
     if (existsSync(plaintiffPath)) return `./assets/plaintiff/${file}`
+    brandingFallbacks.push(file)
   }
   return `./assets/${file}`
 }
@@ -56,6 +60,42 @@ function variantAsset(file) {
 const iconPath = variantAsset('icon.png')
 const splashPath = variantAsset('splash-icon.png')
 const adaptiveIconPath = variantAsset('adaptive-icon.png')
+
+/**
+ * Release-only readiness checks.
+ *
+ * Both of the things guarded here used to degrade in silence: a missing Firebase
+ * file produced an Android build whose push notifications simply never arrived,
+ * and a plaintiff build with no branding shipped under the attorney's icon. Each
+ * looks like a successful build, so nobody finds out until the app is in front
+ * of a user. EAS sets these two variables only during a cloud build, which is
+ * what keeps `expo start` and local runs unaffected.
+ */
+const BUILD_PROFILE = process.env.EAS_BUILD_PROFILE || ''
+const BUILD_PLATFORM = process.env.EAS_BUILD_PLATFORM || ''
+const IS_RELEASE_BUILD = BUILD_PROFILE.startsWith('production')
+
+function refuseRelease(problem, fix) {
+  throw new Error(
+    `Refusing to build ${variant.name} on profile "${BUILD_PROFILE}".\n` +
+      `  Problem: ${problem}\n` +
+      `  Fix:     ${fix}`
+  )
+}
+
+if (IS_RELEASE_BUILD && BUILD_PLATFORM === 'android' && !hasGoogleServices) {
+  refuseRelease(
+    'google-services.json is missing, so the build has no FCM configuration and push notifications would never be delivered.',
+    'Download the file from the Firebase console for this package name and place it at apps/mobile/google-services.json (see PUSH_NOTIFICATIONS_SETUP.md).'
+  )
+}
+
+if (IS_RELEASE_BUILD && APP_VARIANT === 'plaintiff' && brandingFallbacks.length > 0) {
+  refuseRelease(
+    `the claimant app has no branding of its own (${brandingFallbacks.join(', ')}), so it would ship under the attorney app's icon and splash.`,
+    'Add the claimant artwork to apps/mobile/assets/plaintiff/, or build a non-production profile while the variant is still in progress.'
+  )
+}
 
 // projectId resolution order: env -> app.json (attorney only) -> per-variant fallback.
 function resolveProjectId() {

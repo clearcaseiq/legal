@@ -84,6 +84,16 @@ jobs:
           JWT_SECRET: ci-only-not-a-real-secret
         run: pnpm --filter caseiq-api test
 
+      # The mobile app is not covered by `pnpm build`, which skips it for having
+      # no build script, so nothing else in this pipeline would notice it break.
+      # It is the one client we cannot fix with a deploy - a broken build sits in
+      # TestFlight until someone reports it - and both steps together cost well
+      # under a minute.
+      - name: Typecheck and test (mobile)
+        run: |
+          pnpm --filter caseiq-mobile typecheck
+          pnpm --filter caseiq-mobile test
+
   build:
     name: Build images
     needs: test

@@ -12,7 +12,7 @@
     "build": "turbo run build",
     "clean": "turbo run clean",
     "mobile": "pnpm --filter caseiq-mobile start",
-    "test": "pnpm --filter caseiq-api test && pnpm --filter caseiq-web test && pnpm run test:python",
+    "test": "pnpm --filter caseiq-api test && pnpm --filter caseiq-web test && pnpm --filter caseiq-mobile test && pnpm run test:python",
     "test:python": "node scripts/run-pytest.js",
     "test:integration": "pnpm --filter caseiq-api exec vitest run src/consent.integration.test.ts src/app.integration.test.ts",
     "test:system": "pnpm --filter caseiq-api exec vitest run src/plaintiff-consent-flow.system.test.ts",

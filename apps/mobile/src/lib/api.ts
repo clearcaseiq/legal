@@ -72,22 +72,10 @@ export const api = axios.create({
 })
 
 /** User-facing message for failed API calls (timeouts, DNS, wrong host, etc.). */
-/**
- * True when an error looks like a connectivity failure (no server response),
- * as opposed to a 4xx/5xx the server actually returned. Used by the offline queue.
- */
-export function isOfflineError(err: unknown): boolean {
-  if (!isAxiosError(err)) return false
-  const e = err as AxiosError
-  if (e.response) return false
-  const msg = (e.message || '').toLowerCase()
-  return (
-    e.code === 'ERR_NETWORK' ||
-    e.code === 'ECONNABORTED' ||
-    msg.includes('network error') ||
-    msg.includes('timeout')
-  )
-}
+// Defined in ./networkErrors so they can be unit-tested without loading this
+// module, which needs the React Native runtime. Re-exported so the many callers
+// importing them from here keep working.
+export { isOfflineError, isUnsentRequestError } from './networkErrors'
 
 export function getApiErrorMessage(err: unknown): string {
   if (isAxiosError(err)) {
@@ -162,6 +150,7 @@ api.interceptors.response.use(
       await SecureStore.deleteItemAsync('auth_token')
       await SecureStore.deleteItemAsync('user')
       await SecureStore.deleteItemAsync('session_role')
+      await SecureStore.deleteItemAsync('auth_token_issued_at')
       unauthorizedHandler?.()
     }
     return Promise.reject(error)
@@ -173,6 +162,26 @@ export function normalizeAuthEmail(email: string) {
   return email.trim().toLowerCase()
 }
 
+const TOKEN_ISSUED_AT_KEY = 'auth_token_issued_at'
+
+/**
+ * Store the token and note when it was issued, so the app can tell a session
+ * that has merely been idle from one the server will already refuse.
+ */
+async function storeSession(token: string, user: unknown, role: MobileSessionRole) {
+  await SecureStore.setItemAsync('auth_token', token)
+  await SecureStore.setItemAsync('user', JSON.stringify(user))
+  await SecureStore.setItemAsync('session_role', role)
+  await SecureStore.setItemAsync(TOKEN_ISSUED_AT_KEY, String(Date.now()))
+}
+
+/** When the current token was issued, or null for one stored before we recorded it. */
+export async function getSessionIssuedAt(): Promise<number | null> {
+  const raw = await SecureStore.getItemAsync(TOKEN_ISSUED_AT_KEY)
+  const parsed = raw ? Number(raw) : NaN
+  return Number.isFinite(parsed) ? parsed : null
+}
+
 // Auth — attorney app uses the same endpoint as web /login/attorney
 export async function loginUser(email: string, password: string) {
   const normalizedEmail = normalizeAuthEmail(email)
@@ -182,9 +191,7 @@ export async function loginUser(email: string, password: string) {
   })
   const data = response.data
 
-  await SecureStore.setItemAsync('auth_token', data.token)
-  await SecureStore.setItemAsync('user', JSON.stringify(data.user))
-  await SecureStore.setItemAsync('session_role', 'attorney')
+  await storeSession(data.token, data.user, 'attorney')
   return {
     ...data,
     role: 'attorney' as MobileSessionRole,
@@ -201,9 +208,7 @@ export async function loginPlaintiff(email: string, password: string) {
   })
   const data = response.data
 
-  await SecureStore.setItemAsync('auth_token', data.token)
-  await SecureStore.setItemAsync('user', JSON.stringify(data.user))
-  await SecureStore.setItemAsync('session_role', 'plaintiff')
+  await storeSession(data.token, data.user, 'plaintiff')
   return {
     ...data,
     role: 'plaintiff' as MobileSessionRole,
@@ -247,6 +252,7 @@ export async function logout() {
   await SecureStore.deleteItemAsync('auth_token')
   await SecureStore.deleteItemAsync('user')
   await SecureStore.deleteItemAsync('session_role')
+  await SecureStore.deleteItemAsync(TOKEN_ISSUED_AT_KEY)
 }
 
 export async function isAuthenticated(): Promise<boolean> {
