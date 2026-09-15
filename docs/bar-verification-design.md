@@ -230,6 +230,24 @@ the name-match verdict, and the uploaded document — before the toggle means
 anything. Until then, "Mark verified" is a blind action, and it writes
 `licenseVerificationMethod: 'admin_review'` as though it were not.
 
+**Resolved differently, and better.** Rather than build the queue, the upload now
+OCRs the document, reads the bar number off it and runs the same automatic
+lookup and name comparison as typed entry (`license-document.ts`, writing
+`licenseVerificationMethod: 'document_bar_lookup'`). A valid California bar card
+therefore verifies on upload with nobody in the loop, and the false promise is
+replaced by the actual outcome.
+
+Extraction is deliberately strict: only a number explicitly labelled as a bar
+number counts, and a document carrying two different ones yields nothing. The
+failure that matters is not missing a number — that leaves the attorney where
+they were — but reading the *wrong* one, which resolves to a real licence
+belonging to someone else and reports as a name mismatch, sending an attorney
+hunting for a typo they never made.
+
+This leaves a genuine remainder for a human queue: unreadable documents, the 49
+non-California states, and name mismatches. Those are now told plainly that they
+are not verified and what to do, instead of being promised a review.
+
 ## Not in scope
 
 Re-verification and licence expiry; states beyond California; treating discipline

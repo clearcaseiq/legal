@@ -3,6 +3,7 @@ import { AlertTriangle, CheckCircle, Eye, Shield, ShieldAlert, Upload } from 'lu
 import { US_STATES } from '../../../lib/constants'
 import { getApiOrigin } from '../../../lib/runtimeEnv'
 import type { useAttorneyLicense } from '../useAttorneyLicense'
+import LicenseUploadResult from './LicenseUploadResult'
 
 type LicenseState = ReturnType<typeof useAttorneyLicense>
 
@@ -22,6 +23,7 @@ export default function AttorneyLicenseCard({
   licenseState,
   licenseStatus,
   licenseSuccess,
+  licenseDocumentCheck,
   selectLicenseFile,
   selectedLicenseFile,
   setLicenseError,
@@ -198,16 +200,20 @@ export default function AttorneyLicenseCard({
       ) : null}
 
       {licenseSuccess ? (
-        <div className="mb-6 rounded-md border border-green-200 bg-green-50 p-4">
-          <div className="flex items-center">
-            <CheckCircle className="mr-2 h-5 w-5 text-green-500" />
-            <p className="text-sm font-medium text-green-700">
-              {licenseMethod === 'state_bar_lookup'
-                ? 'License verified successfully via state bar lookup!'
-                : 'License file uploaded successfully! It will be reviewed by our team.'}
-            </p>
+        licenseMethod === 'state_bar_lookup' ? (
+          <div className="mb-6 rounded-md border border-green-200 bg-green-50 p-4">
+            <div className="flex items-center">
+              <CheckCircle className="mr-2 h-5 w-5 text-green-500" />
+              <p className="text-sm font-medium text-green-700">
+                License verified successfully via state bar lookup!
+              </p>
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="mb-6">
+            <LicenseUploadResult documentCheck={licenseDocumentCheck} />
+          </div>
+        )
       ) : null}
 
       {licenseError ? (

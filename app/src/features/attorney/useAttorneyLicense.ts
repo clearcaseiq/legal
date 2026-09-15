@@ -9,6 +9,22 @@ const ALLOWED_LICENSE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'applicat
 const MAX_LICENSE_BYTES = 10 * 1024 * 1024
 
 /**
+ * What the server made of an uploaded licence document.
+ *
+ * `null` from the server means no bar number could be read off it, which is a
+ * different outcome from a number that was read and did not verify — the first
+ * needs the attorney to type the number, the second needs them to correct it.
+ */
+export interface LicenseDocumentCheck {
+  licenseNumber: string
+  state: string
+  verified: boolean
+  status: string | null
+  recordName: string | null
+  nameMatch: 'match' | 'mismatch' | 'unknown'
+}
+
+/**
  * Bar-license verification, separate from the profile itself.
  *
  * Verification writes to the attorney record, not through `PUT /profile`, so it
@@ -25,6 +41,7 @@ export function useAttorneyLicense(onVerified?: () => void | Promise<void>) {
   const [licenseLoading, setLicenseLoading] = useState(false)
   const [licenseError, setLicenseError] = useState<string | null>(null)
   const [licenseSuccess, setLicenseSuccess] = useState(false)
+  const [licenseDocumentCheck, setLicenseDocumentCheck] = useState<LicenseDocumentCheck | null>(null)
 
   const loadLicenseStatus = useCallback(async () => {
     try {
@@ -98,6 +115,9 @@ export function useAttorneyLicense(onVerified?: () => void | Promise<void>) {
         setLicenseSuccess(true)
         setLicenseStatus(response.profile)
         setSelectedLicenseFile(null)
+        // What the server made of the document, so the confirmation can report
+        // the real outcome rather than promising a review.
+        setLicenseDocumentCheck(response.documentCheck ?? null)
 
         // A bar number typed alongside the document is still checkable, and
         // checking it is the only thing here that can verify anything: nothing
@@ -169,6 +189,7 @@ export function useAttorneyLicense(onVerified?: () => void | Promise<void>) {
     licenseState,
     licenseStatus,
     licenseSuccess,
+    licenseDocumentCheck,
     selectLicenseFile,
     selectedLicenseFile,
     setLicenseError,

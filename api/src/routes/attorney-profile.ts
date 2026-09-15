@@ -9,9 +9,11 @@ import path from 'path'
 import fs from 'fs'
 import { v4 as uuidv4 } from 'uuid'
 import { ENV } from '../env'
-import { compareBarRecordName, earnsVerifiedBadge } from '../lib/bar-license-identity'
+import { compareBarRecordName, earnsVerifiedBadge, type BarNameMatch } from '../lib/bar-license-identity'
 import { barLookupLimiter } from '../lib/rate-limits'
 import { isTestBarNumber, mockBarRecord } from '../lib/state-bar-mock'
+import { readLicenseDocument } from '../lib/license-document'
+import { extractTextFromBuffer } from '../lib/evidence-processing'
 
 const router = Router()
 const CA_BAR_SEARCH_URL = 'https://apps.calbar.ca.gov/attorney/LicenseeSearch/QuickSearch'
@@ -358,6 +360,68 @@ async function lookupStateBarLicenseRecord(
   }
 
   return lookupCaliforniaStateBarLicense(licenseNumber.trim(), attorneyName)
+}
+
+/**
+ * OCR an uploaded licence, then check whatever bar number it carries.
+ *
+ * Returns null when the document yields nothing usable, which is the common
+ * case for a photo of a business card or a scan too poor to read — and must be
+ * distinguishable from "checked and failed", because the second clears a stale
+ * verdict and the first must leave it alone.
+ *
+ * Never throws. This runs inside a file upload that has already succeeded, and
+ * a Textract outage or an unreachable calbar is not a reason to fail the upload
+ * and send the attorney back to choose the file again.
+ */
+async function verifyFromLicenseDocument(input: {
+  filePath: string
+  mimetype: string
+  originalName: string
+  typedState: string | null
+  attorneyName: string
+}): Promise<{
+  licenseNumber: string
+  state: string
+  verified: boolean
+  status: string | null
+  recordName: string | null
+  nameMatch: BarNameMatch
+} | null> {
+  try {
+    const text = await extractTextFromBuffer(
+      fs.readFileSync(input.filePath),
+      input.mimetype,
+      input.originalName,
+    )
+    const reading = readLicenseDocument(text)
+    if (!reading.barNumber) {
+      logger.info('Licence document carried no usable bar number', { reason: reading.reason })
+      return null
+    }
+
+    // The typed state wins: the attorney saying "CA" is a stronger signal than
+    // the word "California" appearing somewhere in a scan.
+    const state = input.typedState || reading.state
+    if (!state) return null
+
+    const result = await lookupStateBarLicenseRecord(reading.barNumber, state, input.attorneyName)
+    const comparison = compareBarRecordName(result.found ? result.name : null, input.attorneyName)
+
+    return {
+      licenseNumber: reading.barNumber,
+      state: result.state,
+      verified: earnsVerifiedBadge(result.found, comparison.match),
+      status: result.status ?? null,
+      recordName: comparison.recordName,
+      nameMatch: comparison.match,
+    }
+  } catch (error: any) {
+    logger.warn('Could not check the bar number on an uploaded licence', {
+      error: error?.message || String(error),
+    })
+    return null
+  }
 }
 
 // Configure multer for license file uploads
@@ -1491,19 +1555,47 @@ router.post('/license/upload', authMiddleware, licenseUpload.single('licenseFile
       })
     }
 
+    // Read the document and check whatever bar number is on it.
+    //
+    // The upload on its own still verifies nothing — a document is not evidence
+    // and nothing else reads it. What makes it useful is that the number
+    // printed on it can be checked against the State Bar automatically, which
+    // is the only path here that can verify anybody. Without this an attorney
+    // who uploaded a valid bar card waited indefinitely on a review that does
+    // not exist.
+    const documentCheck = await verifyFromLicenseDocument({
+      filePath: req.file.path,
+      mimetype: req.file.mimetype,
+      originalName: req.file.originalname,
+      typedState: typeof licenseState === 'string' ? licenseState : null,
+      attorneyName: attorney.name,
+    })
+
     // Update profile with license information
     const updatedProfile = await prisma.attorneyProfile.update({
       where: { attorneyId },
       data: {
-        licenseNumber: licenseNumber || null,
-        licenseState: licenseState || null,
+        // The number read off the document is only used when the attorney did
+        // not type one; an explicit claim outranks an OCR guess.
+        licenseNumber: licenseNumber || documentCheck?.licenseNumber || null,
+        licenseState: licenseState || documentCheck?.state || null,
         licenseFileUrl: `/uploads/licenses/${req.file.filename}`,
         licenseFileName: req.file.originalname,
-        // A file upload is never proof of verification: verification only happens
-        // through the server-side state-bar lookup endpoint. Record the document
-        // as a manual upload and leave licenseVerified/At untouched so a client
-        // can neither self-verify nor un-verify a genuine prior lookup.
-        licenseVerificationMethod: 'manual_upload',
+        // Still never self-verified by the upload itself. `licenseVerified` is
+        // written only when the bar confirmed an active licence *and* the
+        // record plausibly names this attorney; anything else leaves a prior
+        // genuine lookup untouched.
+        licenseVerificationMethod: documentCheck?.verified ? 'document_bar_lookup' : 'manual_upload',
+        ...(documentCheck?.verified
+          ? { licenseVerified: true, licenseVerifiedAt: new Date() }
+          : {}),
+        ...(documentCheck
+          ? {
+              licenseStatus: documentCheck.status,
+              licenseRecordName: documentCheck.recordName,
+              licenseNameMatch: documentCheck.nameMatch,
+            }
+          : {}),
       }
     })
 
@@ -1512,12 +1604,27 @@ router.post('/license/upload', authMiddleware, licenseUpload.single('licenseFile
       licenseNumber,
       licenseState,
       verificationMethod,
-      fileName: req.file.originalname
+      fileName: req.file.originalname,
+      documentBarNumberFound: Boolean(documentCheck),
+      documentVerified: documentCheck?.verified ?? false,
     })
 
     res.json({
       success: true,
       profile: updatedProfile,
+      // The outcome of reading the document, so the client can say what
+      // actually happened instead of promising a review. null means no bar
+      // number could be read, which is not the same as one that failed.
+      documentCheck: documentCheck
+        ? {
+            licenseNumber: documentCheck.licenseNumber,
+            state: documentCheck.state,
+            verified: documentCheck.verified,
+            status: documentCheck.status,
+            recordName: documentCheck.recordName,
+            nameMatch: documentCheck.nameMatch,
+          }
+        : null,
       message: 'License file uploaded successfully'
     })
   } catch (error: any) {

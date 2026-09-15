@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { uploadAttorneyLicense, lookupStateBarLicense, getAttorneyLicenseStatus } from '../lib/api'
 import { US_STATES } from '../lib/constants'
+import LicenseUploadResult from '../features/attorney/sections/LicenseUploadResult'
+import type { LicenseDocumentCheck } from '../features/attorney/useAttorneyLicense'
 
 type VerificationMethod = 'state_bar_lookup' | 'manual_upload'
 
@@ -14,6 +16,7 @@ export default function AttorneyLicenseUpload() {
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
   const [licenseStatus, setLicenseStatus] = useState<any>(null)
+  const [documentCheck, setDocumentCheck] = useState<LicenseDocumentCheck | null>(null)
   const [draggingFile, setDraggingFile] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const navigate = useNavigate()
@@ -93,11 +96,17 @@ export default function AttorneyLicenseUpload() {
       const response = await uploadAttorneyLicense(formData)
       setSuccess(true)
       setLicenseStatus(response.profile)
-      
-      // Redirect to dashboard after a short delay
-      setTimeout(() => {
-        navigate('/attorney-dashboard')
-      }, 2000)
+      setDocumentCheck(response.documentCheck ?? null)
+
+      // Only leave the page when there is nothing left to do. If the bar number
+      // on the document did not verify, the attorney needs to read why and
+      // correct it, and being bounced to the dashboard after two seconds means
+      // never seeing it.
+      if (response.profile?.licenseVerified) {
+        setTimeout(() => {
+          navigate('/attorney-dashboard')
+        }, 2000)
+      }
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to upload license file')
     } finally {
@@ -125,28 +134,57 @@ export default function AttorneyLicenseUpload() {
     selectFile(e.target.files?.[0])
   }
 
-  if (success && licenseStatus?.licenseVerified) {
+  if (success) {
+    const verified = Boolean(licenseStatus?.licenseVerified)
     return (
       <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
         <div className="max-w-2xl mx-auto">
-          <div className="bg-white shadow rounded-lg p-8 text-center">
-            <div className="mb-4">
-              <svg className="mx-auto h-16 w-16 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </div>
-            <h2 className="text-2xl font-bold text-gray-900 mb-2">License Upload Successful!</h2>
-            <p className="text-gray-600 mb-4">
-              {licenseStatus.licenseVerificationMethod === 'state_bar_lookup' 
-                ? 'Your license has been verified via state bar lookup.'
-                : 'Your license file has been uploaded successfully. It will be reviewed by our team.'}
-            </p>
-            {licenseStatus.licenseNumber && (
-              <p className="text-sm text-gray-500 mb-4">
+          <div className="bg-white shadow rounded-lg p-8">
+            {verified ? (
+              <div className="mb-4 text-center">
+                <svg className="mx-auto h-16 w-16 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+            ) : null}
+            <h2 className="mb-4 text-center text-2xl font-bold text-gray-900">
+              {verified ? 'License Verified' : 'License Document Saved'}
+            </h2>
+
+            {licenseStatus?.licenseVerificationMethod === 'state_bar_lookup' ? (
+              <p className="mb-4 text-center text-gray-600">
+                Your license has been verified via state bar lookup.
+              </p>
+            ) : (
+              <LicenseUploadResult documentCheck={documentCheck} />
+            )}
+
+            {licenseStatus?.licenseNumber && (
+              <p className="mt-4 text-center text-sm text-gray-500">
                 License Number: {licenseStatus.licenseNumber} ({licenseStatus.licenseState})
               </p>
             )}
-            <p className="text-sm text-gray-500">Redirecting to dashboard...</p>
+
+            {verified ? (
+              <p className="mt-4 text-center text-sm text-gray-500">Redirecting to dashboard...</p>
+            ) : (
+              <div className="mt-6 flex justify-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setSuccess(false)}
+                  className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                >
+                  Try a different number or file
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigate('/attorney-dashboard')}
+                  className="rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700"
+                >
+                  Continue to dashboard
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>

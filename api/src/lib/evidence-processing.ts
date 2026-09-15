@@ -730,47 +730,58 @@ function buildHighlights(extractedData: any, ocrText: string) {
  * Used to surface document-derived figures (e.g. medical bills, wage loss) before the
  * assessment is created. Mirrors the OCR branch of processEvidenceFileForExtraction.
  */
-export async function extractDataFromBuffer(
+/**
+ * Raw text out of an in-memory file, with no interpretation applied.
+ *
+ * The format dispatch below — embedded PDF text before rasterising, Textract for
+ * images, mammoth for DOCX — is the part worth sharing. Callers that want
+ * something other than medical figures (a bar number off a licence card, say)
+ * need the text and none of `processExtractedData`, and duplicating the dispatch
+ * to get it would mean a new document format only half working.
+ */
+export async function extractTextFromBuffer(
   buffer: Buffer,
   mimetype: string,
-  category: string,
   originalName: string,
-): Promise<{ dollarAmounts: string[]; totalAmount?: number; wage?: WageFigures; patientName?: string }> {
+): Promise<string> {
   const rasterOcrAllowed = process.env.ENABLE_OCR !== 'false'
   const safeName = (originalName || 'document').replace(/[^\w.\-]/g, '_')
   const tmpPath = path.join(os.tmpdir(), `extract_${Date.now()}_${Math.random().toString(36).slice(2)}_${safeName}`)
   writeFileSync(tmpPath, buffer)
   try {
-    let ocrText = ''
     const mime = mimetype || ''
     const isPdf =
       mime === 'application/pdf' ||
       /\.pdf$/i.test(originalName || '') ||
       (buffer.length > 4 && buffer.subarray(0, 5).toString('latin1') === '%PDF-')
 
-    if (isPdf) {
-      ocrText = await extractPdfCombined(tmpPath, rasterOcrAllowed)
-    } else if (mime.startsWith('image/') && rasterOcrAllowed) {
-      ocrText = await performConfiguredOCR(tmpPath)
-    } else if (mime === DOCX_MIME) {
-      ocrText = await extractDocxPlainText(tmpPath)
-    } else if (mime === 'text/plain') {
-      ocrText = extractPlaintextFile(tmpPath)
-    }
-
-    const extracted = await processExtractedData(ocrText, category || 'bills', originalName || 'document')
-    return {
-      dollarAmounts: (extracted?.dollarAmounts as string[]) || [],
-      totalAmount: extracted?.totalAmount,
-      wage: extracted?.wage as WageFigures | undefined,
-      patientName: (extracted?.patientName as string | undefined) || undefined,
-    }
+    if (isPdf) return await extractPdfCombined(tmpPath, rasterOcrAllowed)
+    if (mime.startsWith('image/') && rasterOcrAllowed) return await performConfiguredOCR(tmpPath)
+    if (mime === DOCX_MIME) return await extractDocxPlainText(tmpPath)
+    if (mime === 'text/plain') return extractPlaintextFile(tmpPath)
+    return ''
   } finally {
     try {
       unlinkSync(tmpPath)
     } catch {
       /* best-effort temp cleanup */
     }
+  }
+}
+
+export async function extractDataFromBuffer(
+  buffer: Buffer,
+  mimetype: string,
+  category: string,
+  originalName: string,
+): Promise<{ dollarAmounts: string[]; totalAmount?: number; wage?: WageFigures; patientName?: string }> {
+  const ocrText = await extractTextFromBuffer(buffer, mimetype, originalName)
+  const extracted = await processExtractedData(ocrText, category || 'bills', originalName || 'document')
+  return {
+    dollarAmounts: (extracted?.dollarAmounts as string[]) || [],
+    totalAmount: extracted?.totalAmount,
+    wage: extracted?.wage as WageFigures | undefined,
+    patientName: (extracted?.patientName as string | undefined) || undefined,
   }
 }
 
