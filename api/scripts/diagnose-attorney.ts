@@ -1,6 +1,12 @@
 /**
  * Ground-truth what exists for an attorney (by name or email) — used to debug
- * why a seeded book isn't showing in New Matches.
+ * why a seeded book isn't showing in New Matches, or why an attorney who plainly
+ * exists never appears for a plaintiff.
+ *
+ * It used to select only `isActive`, which made it report a healthy attorney
+ * while they were invisible to every plaintiff: the gate is `isVerified`, which
+ * defaults to false and which no registration path ever sets. Anything that can
+ * hide an attorney is now printed, with the blockers named at the end.
  *
  * Usage (inside the api container):
  *   docker cp api/scripts/diagnose-attorney.ts clearcaseiq-api:/app/diagnose-attorney.ts
@@ -8,6 +14,7 @@
  *     -e ATTORNEY_NAME=Tucker api node ../node_modules/tsx/dist/cli.mjs diagnose-attorney.ts
  *
  * Or by email:  -e ATTORNEY_EMAIL=someone@example.com
+ * Add -e VENUE=CA to check the geography gates against a specific state.
  */
 import { PrismaClient } from '@prisma/client'
 
@@ -15,6 +22,94 @@ const prisma = new PrismaClient()
 
 const NAME = (process.env.ATTORNEY_NAME || '').trim()
 const EMAIL = (process.env.ATTORNEY_EMAIL || '').trim()
+/** Optional: the plaintiff's venue state, e.g. VENUE=CA, to check the geography gates. */
+const VENUE = (process.env.VENUE || '').trim().toUpperCase()
+
+function parseArray(raw: string | null | undefined): any[] {
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+/** The states an attorney's profile claims, as the routing engine reads them. */
+function jurisdictionStates(raw: string | null | undefined): string[] {
+  return parseArray(raw)
+    .map((entry) => String(entry?.state || '').toUpperCase())
+    .filter(Boolean)
+}
+
+/**
+ * Everything that can hide this attorney, and from which surface.
+ *
+ * The two surfaces disagree on where geography lives, which is worth seeing
+ * side by side: `/v1/attorneys/search` reads `Attorney.venues` (or the firm's
+ * state), while the routing engine reads `AttorneyProfile.jurisdictions` and
+ * treats a missing profile as an outright disqualification.
+ */
+function reportVisibility(a: any) {
+  const venues = parseArray(a.venues).map((v) => String(v).toUpperCase())
+  const specialties = parseArray(a.specialties)
+  const profile = a.attorneyProfile
+  const states = jurisdictionStates(profile?.jurisdictions)
+
+  console.log(`Attorney: ${a.name} <${a.email || 'no-email'}> (${a.id})`)
+  console.log(`  isActive=${a.isActive}  isVerified=${a.isVerified}  firm=${a.lawFirmId || 'none'}${a.lawFirm?.state ? ` (${a.lawFirm.state})` : ''}`)
+  console.log(`  venues (search geography): ${venues.length ? venues.join(', ') : '(empty)'}`)
+  console.log(`  specialties: ${specialties.length ? specialties.join(', ') : '(empty)'}`)
+  console.log(`  profile.jurisdictions (routing geography): ${profile ? (states.length ? states.join(', ') : '(empty)') : 'NO PROFILE ROW'}`)
+
+  const blockers: string[] = []
+  if (!a.isActive) blockers.push('isActive=false — hidden from search and routing.')
+  if (!a.isVerified) {
+    blockers.push(
+      'isVerified=false — hidden from every plaintiff surface. This is the default, and no ' +
+        'registration path sets it; an admin must PATCH /v1/admin/attorneys/:id/verification.',
+    )
+  }
+  if (venues.length === 0 && !a.lawFirm?.state) {
+    blockers.push('venues is empty and the firm has no state — matches no venue in /v1/attorneys/search.')
+  }
+  if (specialties.length === 0) blockers.push('specialties is empty — matches no claim type.')
+  if (!profile) {
+    blockers.push('No AttorneyProfile row — the routing engine rejects with "No jurisdictions configured".')
+  } else if (states.length === 0) {
+    blockers.push('profile.jurisdictions is empty — the routing engine rejects on state match.')
+  }
+  if (VENUE) {
+    if (venues.length > 0 && !venues.includes(VENUE) && a.lawFirm?.state !== VENUE) {
+      blockers.push(`venues does not include ${VENUE} — invisible to ${VENUE} plaintiffs in search.`)
+    }
+    if (states.length > 0 && !states.includes(VENUE)) {
+      blockers.push(`profile.jurisdictions does not include ${VENUE} — no ${VENUE} case can be routed to them.`)
+    }
+  }
+
+  // Narrowing filters are not blockers on their own, but they exclude cases
+  // silently and are the usual answer once verification is ruled out.
+  const narrowing: string[] = []
+  const excluded = parseArray(profile?.excludedCaseTypes)
+  if (excluded.length) narrowing.push(`excludedCaseTypes: ${excluded.join(', ')}`)
+  if (profile?.minInjurySeverity != null) narrowing.push(`minInjurySeverity: ${profile.minInjurySeverity}`)
+  if (profile?.minDamagesRange != null) narrowing.push(`minDamagesRange: ${profile.minDamagesRange}`)
+  if (profile?.maxDamagesRange != null) narrowing.push(`maxDamagesRange: ${profile.maxDamagesRange}`)
+  if (profile?.maxCasesPerWeek != null) narrowing.push(`maxCasesPerWeek: ${profile.maxCasesPerWeek}`)
+  if (profile?.maxCasesPerMonth != null) narrowing.push(`maxCasesPerMonth: ${profile.maxCasesPerMonth}`)
+  if (narrowing.length) console.log(`  narrowing filters: ${narrowing.join(' | ')}`)
+
+  if (blockers.length === 0) {
+    console.log('  VISIBLE: nothing on the attorney record hides them.')
+    console.log('           If a plaintiff still cannot see them, check the claim type against')
+    console.log('           specialties, and the case-side gates in pre-routing-gate.ts.')
+  } else {
+    console.log(`  INVISIBLE — ${blockers.length} blocker${blockers.length === 1 ? '' : 's'}:`)
+    blockers.forEach((reason) => console.log(`     ✗ ${reason}`))
+  }
+  console.log('')
+}
 
 async function main() {
   console.log(`\n=== diagnose-attorney (name="${NAME || '—'}" email="${EMAIL || '—'}") ===\n`)
@@ -27,7 +122,28 @@ async function main() {
 
   const attorneys = await prisma.attorney.findMany({
     where,
-    select: { id: true, name: true, email: true, isActive: true, lawFirmId: true },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      isActive: true,
+      isVerified: true,
+      specialties: true,
+      venues: true,
+      lawFirmId: true,
+      lawFirm: { select: { state: true } },
+      attorneyProfile: {
+        select: {
+          jurisdictions: true,
+          excludedCaseTypes: true,
+          minInjurySeverity: true,
+          minDamagesRange: true,
+          maxDamagesRange: true,
+          maxCasesPerWeek: true,
+          maxCasesPerMonth: true,
+        },
+      },
+    },
     orderBy: { createdAt: 'asc' },
   })
 
@@ -39,7 +155,7 @@ async function main() {
   }
 
   for (const a of attorneys) {
-    console.log(`Attorney: ${a.name} <${a.email || 'no-email'}> (${a.id}) active=${a.isActive} firm=${a.lawFirmId || 'none'}`)
+    reportVisibility(a)
 
     const leadsByStatus = await prisma.leadSubmission.groupBy({
       by: ['status'],
