@@ -43,6 +43,61 @@ function jurisdictionStates(raw: string | null | undefined): string[] {
 }
 
 /**
+ * What, if anything, ever checked this attorney's licence.
+ *
+ * `licenseVerificationMethod` is the only field that records which path ran, and
+ * a null means none of them did — a bar number typed at registration is stored
+ * verbatim and checked against nothing. Registration also writes only
+ * `AttorneyProfile.licenseNumber`, never `Attorney.barNumber`, so the column
+ * carrying the `@unique` constraint is usually empty.
+ */
+function reportLicence(a: any) {
+  const p = a.attorneyProfile
+  const method = p?.licenseVerificationMethod || null
+
+  console.log(
+    `  licence: profile.number=${p?.licenseNumber || '(none)'} state=${p?.licenseState || '(none)'} ` +
+      `verified=${p?.licenseVerified ?? false}${p?.licenseVerifiedAt ? ` at ${new Date(p.licenseVerifiedAt).toISOString()}` : ''}`,
+  )
+  console.log(`           attorney.barNumber=${a.barNumber || '(none)'} ${a.barState || ''}`.trimEnd())
+  console.log(`           method=${method || 'NONE — nothing ever checked it'}  document=${p?.licenseFileUrl ? 'uploaded' : 'none'}`)
+
+  if (!p) {
+    console.log('           No AttorneyProfile row at all, so no licence was ever recorded.')
+    return
+  }
+
+  switch (method) {
+    case 'state_bar_lookup':
+      console.log(
+        p.licenseVerified
+          ? '           Checked against the live CA State Bar and found active. Note the lookup does\n' +
+              '           not compare the record\'s name to this attorney, so it proves the number is\n' +
+              '           active, not that it belongs to them.'
+          : '           A State Bar lookup ran and did NOT verify. Either the number has no record,\n' +
+              '           the status is not Active, or the response could not be parsed.',
+      )
+      break
+    case 'manual_upload':
+      console.log(
+        '           A document was uploaded. Nothing reads it: there is no OCR, no review queue\n' +
+          '           and no admin route that can open it. It cannot verify anything on its own.',
+      )
+      break
+    case 'admin_review':
+      console.log('           An admin toggled verification by hand. No bar data was checked by the system.')
+      break
+    default:
+      console.log(
+        p.licenseNumber
+          ? '           A bar number was typed in and stored verbatim. Registration applies no format\n' +
+              '           rule and performs no lookup, so this number has never been checked.'
+          : '           No bar number was ever supplied.',
+      )
+  }
+}
+
+/**
  * Everything that can hide this attorney, and from which surface.
  *
  * The two surfaces disagree on where geography lives, which is worth seeing
@@ -61,6 +116,8 @@ function reportVisibility(a: any) {
   console.log(`  venues (search geography): ${venues.length ? venues.join(', ') : '(empty)'}`)
   console.log(`  specialties: ${specialties.length ? specialties.join(', ') : '(empty)'}`)
   console.log(`  profile.jurisdictions (routing geography): ${profile ? (states.length ? states.join(', ') : '(empty)') : 'NO PROFILE ROW'}`)
+
+  reportLicence(a)
 
   const blockers: string[] = []
   if (!a.isActive) blockers.push('isActive=false — hidden from search and routing.')
@@ -128,12 +185,20 @@ async function main() {
       email: true,
       isActive: true,
       isVerified: true,
+      barNumber: true,
+      barState: true,
       specialties: true,
       venues: true,
       lawFirmId: true,
       lawFirm: { select: { state: true } },
       attorneyProfile: {
         select: {
+          licenseNumber: true,
+          licenseState: true,
+          licenseVerified: true,
+          licenseVerifiedAt: true,
+          licenseVerificationMethod: true,
+          licenseFileUrl: true,
           jurisdictions: true,
           excludedCaseTypes: true,
           minInjurySeverity: true,
