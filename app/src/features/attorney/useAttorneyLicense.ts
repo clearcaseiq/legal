@@ -109,8 +109,14 @@ export function useAttorneyLicense(onVerified?: () => void | Promise<void>) {
     [licenseNumber, licenseState, loadLicenseStatus, onVerified, selectedLicenseFile],
   )
 
-  const handleLicenseFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
+  /**
+   * Accept a file from wherever it came from.
+   *
+   * Split out from the change handler so a dropped file goes through the same
+   * type and size checks as a picked one, rather than the drop path growing its
+   * own copy of them.
+   */
+  const selectLicenseFile = useCallback((file: File | null | undefined) => {
     if (!file) return
     if (!ALLOWED_LICENSE_TYPES.includes(file.type)) {
       setLicenseError('Please upload a PDF or image file (JPEG, PNG, GIF)')
@@ -124,6 +130,13 @@ export function useAttorneyLicense(onVerified?: () => void | Promise<void>) {
     setLicenseError(null)
   }, [])
 
+  const handleLicenseFileChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      selectLicenseFile(e.target.files?.[0])
+    },
+    [selectLicenseFile],
+  )
+
   return {
     handleLicenseFileChange,
     handleLicenseFileUpload,
@@ -135,6 +148,7 @@ export function useAttorneyLicense(onVerified?: () => void | Promise<void>) {
     licenseState,
     licenseStatus,
     licenseSuccess,
+    selectLicenseFile,
     selectedLicenseFile,
     setLicenseError,
     setLicenseMethod,

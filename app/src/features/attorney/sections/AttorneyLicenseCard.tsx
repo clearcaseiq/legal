@@ -1,3 +1,4 @@
+import { useRef, useState } from 'react'
 import { AlertTriangle, CheckCircle, Eye, Shield, ShieldAlert, Upload } from 'lucide-react'
 import { US_STATES } from '../../../lib/constants'
 import { getApiOrigin } from '../../../lib/runtimeEnv'
@@ -21,12 +22,15 @@ export default function AttorneyLicenseCard({
   licenseState,
   licenseStatus,
   licenseSuccess,
+  selectLicenseFile,
   selectedLicenseFile,
   setLicenseError,
   setLicenseMethod,
   setLicenseNumber,
   setLicenseState,
 }: LicenseState) {
+  const licenseFileInputRef = useRef<HTMLInputElement>(null)
+  const [draggingFile, setDraggingFile] = useState(false)
   // The stored file is behind auth, so it is fetched with the bearer token and
   // handed to the browser as a blob rather than linked directly.
   const openLicenseFile = async () => {
@@ -280,24 +284,49 @@ export default function AttorneyLicenseCard({
         <form onSubmit={handleLicenseFileUpload} className="space-y-4">
           <div>
             <label className="mb-1 block text-sm font-medium text-gray-700">License File *</label>
-            <div className="mt-1 flex justify-center rounded-md border-2 border-dashed border-gray-300 px-6 pb-6 pt-5 transition-colors hover:border-gray-400">
+            {/* Dropping a file used to do nothing here — the box said "or drag
+                and drop" with no drop handler on it, so the browser took the
+                drop instead and navigated away from the page to the file. */}
+            <div
+              onDragOver={(e) => {
+                // Both are required, and without them the browser keeps the drop.
+                e.preventDefault()
+                setDraggingFile(true)
+              }}
+              onDragLeave={() => setDraggingFile(false)}
+              onDrop={(e) => {
+                e.preventDefault()
+                setDraggingFile(false)
+                selectLicenseFile(e.dataTransfer.files?.[0])
+              }}
+              className={`mt-1 flex justify-center rounded-md border-2 border-dashed px-6 pb-6 pt-5 transition-colors ${
+                draggingFile ? 'border-brand-500 bg-brand-50' : 'border-gray-300 hover:border-gray-400'
+              }`}
+            >
               <div className="space-y-1 text-center">
                 <Upload className="mx-auto h-12 w-12 text-gray-400" />
                 <div className="flex justify-center text-sm text-gray-600">
-                  <label
-                    htmlFor="license-file-upload"
-                    className="relative cursor-pointer rounded-md bg-white font-medium text-brand-600 hover:text-brand-500 focus-within:outline-none"
+                  {/* Opened through a ref rather than a label. The label used to
+                      wrap the very input its htmlFor pointed at, so a click was
+                      forwarded to the input and then bubbled back out to the
+                      label, which forwarded it again; the browser breaks that
+                      cycle by dropping the dialog, and the control did nothing. */}
+                  <button
+                    type="button"
+                    onClick={() => licenseFileInputRef.current?.click()}
+                    className="rounded-md bg-white font-medium text-brand-600 hover:text-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2"
                   >
-                    <span>Upload a file</span>
-                    <input
-                      id="license-file-upload"
-                      name="license-file-upload"
-                      type="file"
-                      className="sr-only"
-                      accept=".pdf,.jpg,.jpeg,.png,.gif"
-                      onChange={handleLicenseFileChange}
-                    />
-                  </label>
+                    Upload a file
+                  </button>
+                  <input
+                    ref={licenseFileInputRef}
+                    id="license-file-upload"
+                    name="license-file-upload"
+                    type="file"
+                    className="sr-only"
+                    accept=".pdf,.jpg,.jpeg,.png,.gif"
+                    onChange={handleLicenseFileChange}
+                  />
                   <p className="pl-1">or drag and drop</p>
                 </div>
                 <p className="text-xs text-gray-500">PDF, PNG, JPG, GIF up to 10MB</p>

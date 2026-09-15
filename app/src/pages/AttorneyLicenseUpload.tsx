@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { uploadAttorneyLicense, lookupStateBarLicense, getAttorneyLicenseStatus } from '../lib/api'
 import { US_STATES } from '../lib/constants'
@@ -14,6 +14,8 @@ export default function AttorneyLicenseUpload() {
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
   const [licenseStatus, setLicenseStatus] = useState<any>(null)
+  const [draggingFile, setDraggingFile] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -103,23 +105,24 @@ export default function AttorneyLicenseUpload() {
     }
   }
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file) {
-      // Validate file type
-      const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'application/pdf']
-      if (!allowedTypes.includes(file.type)) {
-        setError('Please upload a PDF or image file (JPEG, PNG, GIF)')
-        return
-      }
-      // Validate file size (10MB)
-      if (file.size > 10 * 1024 * 1024) {
-        setError('File size must be less than 10MB')
-        return
-      }
-      setSelectedFile(file)
-      setError(null)
+  // Shared by the picker and the drop zone so both apply the same limits.
+  const selectFile = (file: File | null | undefined) => {
+    if (!file) return
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'application/pdf']
+    if (!allowedTypes.includes(file.type)) {
+      setError('Please upload a PDF or image file (JPEG, PNG, GIF)')
+      return
     }
+    if (file.size > 10 * 1024 * 1024) {
+      setError('File size must be less than 10MB')
+      return
+    }
+    setSelectedFile(file)
+    setError(null)
+  }
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    selectFile(e.target.files?.[0])
   }
 
   if (success && licenseStatus?.licenseVerified) {
@@ -260,7 +263,23 @@ export default function AttorneyLicenseUpload() {
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   License File *
                 </label>
-                <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md hover:border-gray-400 transition-colors">
+                {/* The box advertised drag and drop with no drop handler, so the
+                    browser took the drop and navigated away to the file. */}
+                <div
+                  onDragOver={(e) => {
+                    e.preventDefault()
+                    setDraggingFile(true)
+                  }}
+                  onDragLeave={() => setDraggingFile(false)}
+                  onDrop={(e) => {
+                    e.preventDefault()
+                    setDraggingFile(false)
+                    selectFile(e.dataTransfer.files?.[0])
+                  }}
+                  className={`mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-dashed rounded-md transition-colors ${
+                    draggingFile ? 'border-brand-500 bg-brand-50' : 'border-gray-300 hover:border-gray-400'
+                  }`}
+                >
                   <div className="space-y-1 text-center">
                     <svg
                       className="mx-auto h-12 w-12 text-gray-400"
@@ -276,20 +295,25 @@ export default function AttorneyLicenseUpload() {
                       />
                     </svg>
                     <div className="flex text-sm text-gray-600">
-                      <label
-                        htmlFor="file-upload"
-                        className="relative cursor-pointer bg-white rounded-md font-medium text-brand-600 hover:text-brand-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-brand-500"
+                      {/* Opened through a ref: the label used to wrap the input
+                          its htmlFor named, so the forwarded click bubbled back
+                          to the label and the browser suppressed the dialog. */}
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="bg-white rounded-md font-medium text-brand-600 hover:text-brand-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-500"
                       >
-                        <span>Upload a file</span>
-                        <input
-                          id="file-upload"
-                          name="file-upload"
-                          type="file"
-                          className="sr-only"
-                          accept=".pdf,.jpg,.jpeg,.png,.gif"
-                          onChange={handleFileChange}
-                        />
-                      </label>
+                        Upload a file
+                      </button>
+                      <input
+                        ref={fileInputRef}
+                        id="file-upload"
+                        name="file-upload"
+                        type="file"
+                        className="sr-only"
+                        accept=".pdf,.jpg,.jpeg,.png,.gif"
+                        onChange={handleFileChange}
+                      />
                       <p className="pl-1">or drag and drop</p>
                     </div>
                     <p className="text-xs text-gray-500">PDF, PNG, JPG, GIF up to 10MB</p>
