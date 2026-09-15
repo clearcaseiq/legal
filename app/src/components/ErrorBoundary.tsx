@@ -1,4 +1,5 @@
 import { Component, type ReactNode } from 'react'
+import { isChunkLoadError, shouldReloadForChunkError } from '../lib/chunkReload'
 
 interface ErrorBoundaryProps {
   children: ReactNode
@@ -13,18 +14,20 @@ interface ErrorBoundaryProps {
 interface ErrorBoundaryState {
   hasError: boolean
   message?: string
+  /** A route whose code no longer exists on the server, not a component bug. */
+  isStaleBuild?: boolean
 }
 
 export default class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   state: ErrorBoundaryState = { hasError: false }
 
   static getDerivedStateFromError(error: Error) {
-    return { hasError: true, message: error.message }
+    return { hasError: true, message: error.message, isStaleBuild: isChunkLoadError(error) }
   }
 
   componentDidUpdate(prevProps: ErrorBoundaryProps) {
     if (this.state.hasError && prevProps.resetKey !== this.props.resetKey) {
-      this.setState({ hasError: false, message: undefined })
+      this.setState({ hasError: false, message: undefined, isStaleBuild: undefined })
     }
   }
 
@@ -35,10 +38,44 @@ export default class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBo
       componentStack: errorInfo.componentStack,
       context: this.props.context,
     })
+
+    // A deploy deleted the chunk this tab asked for. Reloading is the only fix,
+    // and doing it here spares the user a dead end whose message names a
+    // webpack chunk id. Bounded to one attempt — see ../lib/chunkReload.
+    if (shouldReloadForChunkError(error, Date.now(), window.sessionStorage)) {
+      window.location.reload()
+    }
   }
 
   render() {
     if (this.state.hasError) {
+      // Takes precedence over a caller's fallback: this is not the failure any
+      // of them were written for, and none of them offer the one action that
+      // works. Reaching here at all means the automatic reload was declined as
+      // a loop risk, so the only honest thing left is to ask.
+      if (this.state.isStaleBuild) {
+        return (
+          <div className="max-w-3xl mx-auto p-6">
+            <div className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+              <div className="mb-1 font-semibold text-amber-900">This page is out of date</div>
+              <div>
+                ClearCaseIQ was updated while this tab was open, so part of the page could no longer
+                be loaded. Reloading will pick up the new version.
+              </div>
+              <div className="mt-3">
+                <button
+                  type="button"
+                  onClick={() => window.location.reload()}
+                  className="rounded-md border border-amber-300 bg-white px-3 py-1.5 text-sm font-medium text-amber-800 hover:bg-amber-50"
+                >
+                  Reload page
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      }
+
       if (this.props.fallback) {
         return this.props.fallback
       }
@@ -51,7 +88,7 @@ export default class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBo
             <div className="mt-3 flex gap-3">
               <button
                 type="button"
-                onClick={() => this.setState({ hasError: false, message: undefined })}
+                onClick={() => this.setState({ hasError: false, message: undefined, isStaleBuild: undefined })}
                 className="rounded-md border border-red-300 bg-white px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50"
               >
                 Try again
