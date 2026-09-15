@@ -81,15 +81,60 @@ function formatPdfNumber(value: number) {
   return Number(value.toFixed(2)).toString()
 }
 
-/** PDF uses WinAnsi-ish Helvetica; Unicode dashes/quotes corrupt as mojibake (e.g. â€"). */
+/**
+ * Force a string to ASCII before it reaches the PDF.
+ *
+ * The content stream is written with `TextEncoder`, which is UTF-8, while the
+ * fonts are WinAnsi Helvetica. So every codepoint above 0x7E is emitted as two
+ * or three bytes and rendered as mojibake — a bullet becomes "â€¢". That
+ * applies even to characters WinAnsi can represent, like "·" and "§", because
+ * nothing converts them to single-byte WinAnsi on the way out.
+ *
+ * This used to list the characters that had been noticed, which meant the next
+ * unlisted one shipped corrupted: a bullet separator reached production reading
+ * "3 injured areas â€¢ MRI / imaging". A denylist cannot hold when any copy
+ * change or claimant name can introduce a new character, so the guarantee is
+ * now the other way round — named characters get a sensible ASCII spelling and
+ * anything still non-ASCII is replaced rather than passed through.
+ */
 function toPdfAscii(value: string): string {
-  return value
+  const spelled = value
     .replace(/[\u2013\u2014\u2012\u2212\uFE58\uFE63]/g, '-') // en/em dash -> ASCII hyphen
-    .replace(/[\u2018\u2019\u201A]/g, "'")
-    .replace(/[\u201C\u201D\u201E]/g, '"')
+    .replace(/[\u2018\u2019\u201A\u2032]/g, "'")
+    .replace(/[\u201C\u201D\u201E\u2033]/g, '"')
     .replace(/\u2026/g, '...')
-    .replace(/\u00A0/g, ' ')
+    .replace(/[\u00A0\u2007\u202F\u2009\u200A]/g, ' ')
+    .replace(/[\u200B\u200C\u200D\uFEFF]/g, '') // zero-width, carries no meaning in print
+    .replace(/[\u2022\u2023\u25E6\u00B7\u2219]/g, '-') // bullets and middot, used as separators
+    .replace(/[\u2013]/g, '-')
+    .replace(/\u2192/g, '->')
+    .replace(/\u2190/g, '<-')
+    .replace(/[\u2713\u2714]/g, 'Y')
+    .replace(/[\u2715\u2716\u2717\u2718\u00D7]/g, 'x')
+    .replace(/[\u25CB\u25CF\u25A0\u25A1]/g, 'o')
+    .replace(/\u00A7/g, 'Sec. ')
+    .replace(/\u00B0/g, ' deg')
+    .replace(/\u00B1/g, '+/-')
+    .replace(/\u2264/g, '<=')
+    .replace(/\u2265/g, '>=')
+    .replace(/\u2122/g, '(TM)')
+    .replace(/\u00AE/g, '(R)')
+    .replace(/\u00A9/g, '(C)')
+
+  // Accented letters are stripped to their base rather than replaced, so a
+  // claimant or attorney named Núñez prints as "Nunez" and not "N??ez".
+  const unaccented = spelled.normalize('NFD').replace(/[\u0300-\u036F]/g, '')
+
+  // Whatever is left cannot be rendered by these fonts. A visible '?' beats
+  // silent deletion, which would turn a figure like "¥500" into "500".
+  return unaccented.replace(/[^\x20-\x7E\n]/g, '?')
 }
+
+/**
+ * The ASCII guarantee is the whole correctness story for text in these files,
+ * and it is worth asserting directly rather than through a generated document.
+ */
+export const __testing = { toPdfAscii }
 
 function escapePdfText(value: string) {
   const ascii = toPdfAscii(value)

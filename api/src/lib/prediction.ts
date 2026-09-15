@@ -1034,8 +1034,15 @@ export function predictViabilityHeuristic(features: any, calibrationOverride?: V
     // Add top liability factors
     if (liabilityScore.factors.length > 0) {
       const topFactor = liabilityScore.factors[0]
+      // Not truncated. Every other entry in `explainability` is a short machine
+      // key, but this one is a written sentence that Results.tsx renders to the
+      // claimant verbatim and the PDF export prints. Cutting it at 40 characters
+      // mangled 37 of the 70 factor strings, and the longest are the ones that
+      // actually explain anything: "Wet floor/spill - property owner may be
+      // liable for maintenance" reached production as "...property owner may
+      // be", which drops the word the sentence exists to deliver.
       explainability.push({ 
-        feature: `liability_factor: ${topFactor.substring(0, 40)}`, 
+        feature: `liability_factor: ${topFactor}`, 
         direction: liabilityScore.score > 0.5 ? '+' : '-', 
         impact: 0.05 
       })

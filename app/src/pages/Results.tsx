@@ -34,6 +34,7 @@ import { useHeuristics } from '../contexts/HeuristicsContext'
 import { UNDOCUMENTED_READINESS_CEILING, type HeuristicsConfig } from '../lib/heuristics'
 import { liabilityTier, liabilityConfidenceLevel, LIABILITY_TIER_COPY_KEY } from '../lib/liabilityGrade'
 import { formatAttorneyLicensure } from '../lib/attorneyLicensure'
+import { isDanglingFragment, isLegacyTruncated } from '../lib/liabilityFactors'
 import { AttorneyContactOrder } from '../components/AttorneyContactOrder'
 import {
   getResponseSignal,
@@ -2039,16 +2040,13 @@ export default function Results() {
         .filter((item: any) => typeof item?.feature === 'string' && item.feature.startsWith('liability_factor: '))
         .map((item: any) => String(item.feature).replace('liability_factor: ', ''))
         .slice(0, 3)
-  // Some model factors arrive cut off mid-sentence (e.g. "strict liability may");
-  // drop fragments that end on a dangling connective so we never show broken text.
-  const isTruncatedFragment = (text: string) =>
-    /\b(may|and|or|but|the|a|an|to|of|with|is|are|can|could|will|would|should|that|which|when|while|because)$/i.test(
-      text.trim().replace(/[.…]+$/, '').trim()
-    )
+  // Predictions stored before the 40-character cap was removed still serve
+  // sentences cut mid-clause, so the raw strings are screened before display.
   const liabilityFactors = rawLiabilityFactors
+    .filter((factor: any) => typeof factor === 'string' && !isLegacyTruncated(factor))
     .map((factor: string) => normalizeReportText(factor))
     .filter(Boolean)
-    .filter((factor: string) => !isTruncatedFragment(factor))
+    .filter((factor: string) => !isDanglingFragment(factor))
   const comparativeFaultPercent = Math.round((liabilityDetails?.comparativeNegligence || 0) * 100)
   const liabilitySummary = normalizeReportText(liabilityFactors[0])
     || (liabilityOutlook === 'strong'
