@@ -1680,7 +1680,8 @@ router.get('/license/status', authMiddleware, async (req: any, res) => {
         licenseState: null,
         licenseVerified: false,
         licenseFileUrl: null,
-        licenseVerificationMethod: null
+        licenseVerificationMethod: null,
+        networkVerified: attorney.isVerified
       })
     }
 
@@ -1691,7 +1692,8 @@ router.get('/license/status', authMiddleware, async (req: any, res) => {
         licenseState: null,
         licenseVerified: false,
         licenseFileUrl: null,
-        licenseVerificationMethod: null
+        licenseVerificationMethod: null,
+        networkVerified: attorney.isVerified
       })
     }
 
@@ -1703,7 +1705,13 @@ router.get('/license/status', authMiddleware, async (req: any, res) => {
       licenseFileUrl: profile.licenseFileUrl ? `/v1/attorney-profile/license/file` : null,
       licenseFileName: profile.licenseFileName,
       licenseVerificationMethod: profile.licenseVerificationMethod,
-      licenseVerifiedAt: profile.licenseVerifiedAt
+      licenseVerifiedAt: profile.licenseVerifiedAt,
+      // Whether the attorney is actually live to claimants. A passed bar lookup
+      // sets licenseVerified and nothing else — `Attorney.isVerified` is a
+      // separate vetting decision only an admin can make — so without this the
+      // profile showed a green "License Verified" badge to someone no claimant
+      // could see, and gave them no way to find that out.
+      networkVerified: attorney.isVerified
     })
   } catch (error: any) {
     logger.error('Failed to get license status', { 

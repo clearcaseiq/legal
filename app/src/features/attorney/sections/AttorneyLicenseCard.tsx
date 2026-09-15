@@ -91,6 +91,31 @@ export default function AttorneyLicenseCard({
         ) : null}
       </div>
 
+      {/* A verified licence is not the same as being live. Going live is a separate
+          vetting decision an admin makes, and a passed bar lookup does not trigger
+          it — so the green badge above was the last thing an attorney saw before
+          waiting indefinitely, with nothing telling them there was anything left
+          to wait for. */}
+      {licenseStatus?.licenseVerified ? (
+        licenseStatus?.networkVerified ? (
+          <div className="mb-6 flex items-start gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2">
+            <Shield className="mt-0.5 h-4 w-4 shrink-0 text-green-600" />
+            <p className="text-sm text-green-800">
+              Your profile is live. Claimants in your practice areas can see you and send you cases.
+            </p>
+          </div>
+        ) : (
+          <div className="mb-6 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+            <p className="text-sm text-amber-800">
+              <span className="font-medium">Pending network review.</span> Your license checks out, but
+              claimants cannot see you or send you cases until our team approves your profile. Nothing
+              further is needed from you.
+            </p>
+          </div>
+        )
+      ) : null}
+
       {licenseStatus?.hasLicense ? (
         <div className="mb-6 rounded-lg border border-gray-200 bg-gray-50 p-4">
           <div className="flex items-start justify-between gap-4">
