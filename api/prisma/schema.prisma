@@ -4236,6 +4236,11 @@ model EvidenceFile {
   aiClassification String?
   aiHighlights     String? // JSON array of highlight snippets
   visionLabels     String? // JSON: AWS Rekognition relevance verdict + detected labels
+  /// JSON: whether the person named on this document is the claimant whose case
+  /// it was filed on. Null when no comparison was possible — the category names
+  /// several people, OCR read no name, or the case has none recorded. A mismatch
+  /// never blocks the upload; it flags the file for review.
+  identityCheck    String?
 
   // HIPAA Compliance
   isHIPAA          Boolean   @default(false)

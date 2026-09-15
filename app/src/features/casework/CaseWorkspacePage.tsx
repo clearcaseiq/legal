@@ -2890,6 +2890,14 @@ function EvidencePanel({
               {doc.size ? <span>· {formatSize(doc.size)}</span> : null}
               {doc.createdAt ? <span>· {formatDate(doc.createdAt)}</span> : null}
               <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${STATUS_BADGE[source.tone]}`}>{source.label}</span>
+              {doc.identityCheck?.verdict === 'mismatch' ? (
+                <span
+                  className="inline-flex items-center gap-0.5 rounded bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700"
+                  title={`Names ${doc.identityCheck.documentName}, not ${doc.identityCheck.claimantName}`}
+                >
+                  <AlertTriangle className="h-3 w-3" /> Different name
+                </span>
+              ) : null}
               {hasAi ? (
                 <span className="inline-flex items-center gap-0.5 rounded bg-violet-50 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700">
                   <Sparkles className="h-3 w-3" /> AI
@@ -3659,6 +3667,16 @@ function EvidencePreviewDrawer({
                 <span className="rounded bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold text-rose-600">HIPAA</span>
               ) : null}
             </p>
+            {doc.identityCheck?.verdict === 'mismatch' ? (
+              <p className="mt-2 flex items-start gap-1.5 rounded-lg bg-rose-50 px-2.5 py-2 text-xs text-rose-800">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>
+                  Names <span className="font-semibold">{doc.identityCheck.documentName}</span>, not{' '}
+                  <span className="font-semibold">{doc.identityCheck.claimantName}</span>. Confirm it belongs on this
+                  case — anything read off it already counts toward the case value.
+                </span>
+              </p>
+            ) : null}
           </div>
           <div className="flex shrink-0 items-center gap-1">
             <button

@@ -2269,6 +2269,17 @@ export interface DocumentInboxExtract {
   cptCodes: string[]
 }
 
+/**
+ * Whether the person named on a document is the claimant whose case it is on.
+ * Null when no comparison was possible, which is not the same as passing one.
+ */
+export interface DocumentIdentityCheck {
+  verdict: 'match' | 'mismatch'
+  documentName: string
+  claimantName: string
+  checkedAt: string
+}
+
 export interface DocumentInboxItem {
   id: string
   originalName: string
@@ -2280,6 +2291,7 @@ export interface DocumentInboxItem {
   processingStatus: string
   aiSummary: string | null
   needsReview: boolean
+  identityCheck: DocumentIdentityCheck | null
   extracted: DocumentInboxExtract | null
 }
 
@@ -2287,6 +2299,8 @@ export interface DocumentInbox {
   received: number
   processed: number
   needsReview: number
+  /** Documents naming someone other than the claimant. A subset of `needsReview`. */
+  identityFlags: number
   /** False when the SMS provider cannot receive media, so nothing can ever land here. */
   mediaCapable: boolean
   channelOpen: boolean

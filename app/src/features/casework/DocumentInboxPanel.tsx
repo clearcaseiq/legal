@@ -127,6 +127,14 @@ function Counts({ inbox }: { inbox: DocumentInbox }) {
           <span className="text-amber-700">{inbox.needsReview} need review</span>
         </>
       )}
+      {inbox.identityFlags > 0 && (
+        <>
+          <span className="text-slate-400"> · </span>
+          <span className="text-rose-700">
+            {inbox.identityFlags} {inbox.identityFlags === 1 ? 'names' : 'name'} someone else
+          </span>
+        </>
+      )}
     </p>
   )
 }
@@ -158,7 +166,9 @@ function DocumentRow({ doc }: { doc: DocumentInboxItem }) {
         className="flex w-full items-center gap-3 px-4 py-3 text-left"
         aria-expanded={open}
       >
-        {doc.needsReview ? (
+        {doc.identityCheck?.verdict === 'mismatch' ? (
+          <AlertTriangle className="h-4 w-4 shrink-0 text-rose-600" />
+        ) : doc.needsReview ? (
           <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600" />
         ) : (
           <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
@@ -271,11 +281,20 @@ function ExtractedFields({ doc }: { doc: DocumentInboxItem }) {
         </dl>
       )}
 
-      {doc.needsReview && doc.processingStatus === 'completed' && (
+      {/* The identity conflict replaces the generic notice rather than stacking
+          with it: a document about someone else is the reason to look, and
+          "flagged for review" underneath only dilutes it. */}
+      {doc.identityCheck?.verdict === 'mismatch' ? (
+        <p className="rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-800">
+          This document names <span className="font-semibold">{doc.identityCheck.documentName}</span>, not{' '}
+          <span className="font-semibold">{doc.identityCheck.claimantName}</span>. Confirm it belongs on this case —
+          anything read off it already counts toward the case value.
+        </p>
+      ) : doc.needsReview && doc.processingStatus === 'completed' ? (
         <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
           Flagged for review — check the original before relying on these figures.
         </p>
-      )}
+      ) : null}
     </div>
   )
 }

@@ -9,6 +9,7 @@ import { prisma } from './prisma'
 import { logger } from './logger'
 import { runCaseRecalculation } from './case-recalculation'
 import { analyzeImageRelevance, shouldFlagForReview, type VisionRelevanceResult } from './evidence-vision'
+import { checkDocumentIdentity } from './claimant-identity-check'
 
 type StructuredMedicalEvent = {
   date: string | null
@@ -871,8 +872,23 @@ export async function processEvidenceFileForExtraction(fileId: string) {
       })
     }
     const visionFlag = visionResult ? shouldFlagForReview(visionResult) : false
-    const manualReview = !ocrText || extractedData.confidence < 0.5 || visionFlag
     const nextCategory = promotedCategory(evidenceFile.category, evidenceFile.uploadMethod, aiClassification)
+
+    // Does this document name the claimant whose case it was filed on? Checked
+    // against the category the file ends up in, not the one it arrived with, so
+    // a texted record promoted out of `other` is still compared — that path is
+    // the one where nobody chose a category and nobody verified a sender.
+    const identityCheck = await checkDocumentIdentity({
+      assessmentId: evidenceFile.assessmentId,
+      category: nextCategory || evidenceFile.category,
+      documentName: extractedData.patientName,
+    })
+
+    const manualReview =
+      !ocrText ||
+      extractedData.confidence < 0.5 ||
+      visionFlag ||
+      identityCheck?.verdict === 'mismatch'
 
     await prisma.$transaction([
       prisma.evidenceFile.update({
@@ -886,6 +902,9 @@ export async function processEvidenceFileForExtraction(fileId: string) {
           ...(visionResult
             ? { visionLabels: JSON.stringify(visionResult), relevanceScore: visionResult.score }
             : {}),
+          // Always written, so re-processing a file clears a verdict that no
+          // longer holds rather than leaving the old one next to new extraction.
+          identityCheck: identityCheck ? JSON.stringify(identityCheck) : null,
           ...(nextCategory ? { category: nextCategory, isHIPAA: nextCategory === 'medical_records' } : {}),
         },
       }),

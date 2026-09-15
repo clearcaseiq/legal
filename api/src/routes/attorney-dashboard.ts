@@ -45,6 +45,7 @@ import { buildMergedSurvivor, reminderMessagesFor, validateMerge } from '../lib/
 import { runAnalysisForAssessment } from './evidence'
 import { generateSceneImageForAssessment } from '../services/incident-scene'
 import { processEvidenceFileForExtraction, shouldAutoProcessEvidence } from '../lib/evidence-processing'
+import { parseIdentityCheck } from '../lib/claimant-identity-check'
 import { runCaseRecalculation } from '../lib/case-recalculation'
 import { syncPlaintiffDocumentRequestStatuses, computeRequestStatus, parseRequestedDocs, normalizeRequestedDocKeys, DOCUMENT_REQUEST_LABELS } from '../lib/document-request-status'
 import { createAndNotifyPlaintiffDocumentRequest } from '../lib/document-request-create'
@@ -6348,6 +6349,7 @@ router.get('/leads/:leadId/document-inbox', authMiddleware, async (req: any, res
         processingStatus: file.processingStatus,
         aiSummary: file.aiSummary,
         needsReview: file.processingStatus !== 'completed' || Boolean(extracted?.isManualReview),
+        identityCheck: parseIdentityCheck(file.identityCheck),
         extracted: extracted
           ? {
               totalAmount: extracted.totalAmount,
@@ -6378,6 +6380,10 @@ router.get('/leads/:leadId/document-inbox', authMiddleware, async (req: any, res
       received: documents.length,
       processed: documents.filter((doc) => doc.processingStatus === 'completed').length,
       needsReview: documents.filter((doc) => doc.needsReview).length,
+      // Counted separately from `needsReview`, which it also contributes to: a
+      // document about someone else is a different problem from one we read
+      // badly, and it is the one worth interrupting an attorney for.
+      identityFlags: documents.filter((doc) => doc.identityCheck?.verdict === 'mismatch').length,
       // Without this the tab is permanently empty on a provider that cannot
       // receive media, and looks like a bug rather than a capability gap.
       mediaCapable: canReceiveInboundMedia(),
@@ -7390,6 +7396,7 @@ router.get('/leads/:leadId/evidence', authMiddleware, async (req: any, res) => {
         aiSummary: true,
         aiHighlights: true,
         isHIPAA: true,
+        identityCheck: true,
         provenanceSource: true,
         provenanceActor: true,
         extractedData: {
@@ -7411,10 +7418,17 @@ router.get('/leads/:leadId/evidence', authMiddleware, async (req: any, res) => {
     // sharing status alongside lets it say "waiting on the authorization" instead.
     // `medicalFileCount` is computed before the filter, so it still reports how
     // many are being held back.
+    const visible = medicalSharing.canShareMedicalData
+      ? evidenceFiles
+      : evidenceFiles.filter((file) => !isMedicalEvidenceFile(file))
+
     res.json({
-      files: medicalSharing.canShareMedicalData
-        ? evidenceFiles
-        : evidenceFiles.filter((file) => !isMedicalEvidenceFile(file)),
+      // The verdict is parsed here rather than in the browser: the column holds
+      // JSON as an implementation detail, and every consumer wants the verdict.
+      files: visible.map(({ identityCheck, ...file }) => ({
+        ...file,
+        identityCheck: parseIdentityCheck(identityCheck),
+      })),
       medicalSharing,
     })
   } catch (error: any) {
