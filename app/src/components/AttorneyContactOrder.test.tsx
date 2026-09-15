@@ -49,6 +49,8 @@ function attorney(id: string, name: string): ContactOrderAttorney {
     yearsExperience: 0,
     languages: [],
     reasons: ['handles auto', 'serves CA'],
+    credential: 'CA Bar #123456',
+    firmLocation: 'Los Angeles, CA',
     bookingSlug: null,
   }
 }
@@ -162,6 +164,54 @@ describe('once a first choice is made', () => {
     const spies = await mount({ firstChoiceChosen: true })
     await click(buttonsLabelled('results.calc.remove')[1])
     expect(spies.onRemove).toHaveBeenCalledWith('a2')
+  })
+})
+
+describe('seeing who an attorney is', () => {
+  it('opens in place, because there is no profile page to send anyone to', async () => {
+    await mount()
+    // No navigation offered: /book/:slug is a scheduling page, not a profile.
+    expect(container.querySelectorAll('a')).toHaveLength(0)
+
+    const panels = container.querySelectorAll('details')
+    expect(panels).toHaveLength(3)
+    expect(panels[0].textContent).toContain('results.contactOrder.aboutAttorney')
+  })
+
+  it('stays available after the order is set, not just while choosing', async () => {
+    await mount({ firstChoiceChosen: true })
+    expect(container.querySelectorAll('details')).toHaveLength(3)
+  })
+
+  it('names the licensee and what they do', async () => {
+    await mount()
+    const panel = container.querySelector('details')?.textContent ?? ''
+    expect(panel).toContain('CA Bar #123456')
+    expect(panel).toContain('Los Angeles, CA')
+    expect(panel).toContain('results.contactOrder.whyMatch')
+    expect(panel).toContain('handles auto')
+  })
+
+  it('omits a row rather than showing an empty one', async () => {
+    const bare = { ...attorney('a1', 'Bobby Smith'), credential: null, firmLocation: null }
+    await mount({ attorneys: [bare, ATTORNEYS[1]] })
+    const panel = container.querySelector('details')?.textContent ?? ''
+    expect(panel).not.toContain('results.contactOrder.detailLicensed')
+    expect(panel).not.toContain('results.contactOrder.detailFirm')
+    expect(panel).toContain('results.contactOrder.detailServes')
+  })
+
+  it('says so plainly when nothing is on record', async () => {
+    const empty = {
+      ...attorney('a1', 'Bobby Smith'),
+      credential: null,
+      firmLocation: null,
+      practice: null,
+      servedVenue: null,
+      reasons: [],
+    }
+    await mount({ attorneys: [empty, ATTORNEYS[1]] })
+    expect(container.querySelector('details')?.textContent).toContain('results.contactOrder.detailsUnavailable')
   })
 })
 

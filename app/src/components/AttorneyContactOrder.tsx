@@ -86,6 +86,77 @@ function RatingLine({ attorney, t }: { attorney: ContactOrderAttorney; t: TFn })
   )
 }
 
+/**
+ * Everything the claimant can see about one attorney, inline.
+ *
+ * There is no public per-attorney profile page to send them to, and the only
+ * per-attorney URL that exists — `/book/:slug` — is a scheduling page that would
+ * invite someone to book a meeting with an attorney who has not agreed to take
+ * the case. So the detail opens in place, and the decision is never interrupted.
+ *
+ * Rows are omitted rather than defaulted: an attorney with no bar number on
+ * record shows no licence line, instead of a plausible-looking blank.
+ */
+function AttorneyDetails({ attorney, t }: { attorney: ContactOrderAttorney; t: TFn }) {
+  const rows: { label: string; value: string }[] = [
+    attorney.credential ? { label: t('results.contactOrder.detailLicensed'), value: attorney.credential } : null,
+    attorney.practice ? { label: t('results.contactOrder.detailPractice'), value: attorney.practice } : null,
+    attorney.servedVenue ? { label: t('results.contactOrder.detailServes'), value: attorney.servedVenue } : null,
+    attorney.yearsExperience > 0
+      ? { label: t('results.contactOrder.detailExperience'), value: t('results.calc.yearsExperience', { years: attorney.yearsExperience }) }
+      : null,
+    attorney.languages.length > 0
+      ? { label: t('results.contactOrder.detailLanguages'), value: attorney.languages.join(', ') }
+      : null,
+    attorney.responseSignal ? { label: t('results.contactOrder.detailResponse'), value: attorney.responseSignal } : null,
+    attorney.rating !== null
+      ? {
+          label: t('results.contactOrder.detailReviews'),
+          value: `${attorney.rating.toFixed(1)} ${t('results.calc.verifiedReviewCount', { count: attorney.verifiedReviewCount })}`,
+        }
+      : null,
+    attorney.firmLocation ? { label: t('results.contactOrder.detailFirm'), value: attorney.firmLocation } : null,
+  ].filter(Boolean) as { label: string; value: string }[]
+
+  return (
+    <details className="group mt-2">
+      <summary className="inline-flex cursor-pointer list-none items-center gap-1 text-sm font-semibold text-brand-700 hover:text-brand-800">
+        {t('results.contactOrder.aboutAttorney')}
+        <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" aria-hidden />
+      </summary>
+
+      {attorney.reasons.length > 0 && (
+        <>
+          <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            {t('results.contactOrder.whyMatch')}
+          </p>
+          <ul className="mt-1 grid gap-1.5">
+            {attorney.reasons.map((reason) => (
+              <li key={reason} className="flex items-start gap-1.5 text-sm text-slate-700">
+                <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" aria-hidden />
+                <span>{reason}</span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+
+      {rows.length > 0 ? (
+        <dl className="mt-3 grid gap-x-4 gap-y-1 sm:grid-cols-[10rem_1fr]">
+          {rows.map((row) => (
+            <div key={row.label} className="contents">
+              <dt className="text-sm text-slate-500">{row.label}</dt>
+              <dd className="text-sm text-slate-800">{row.value}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : (
+        <p className="mt-3 text-sm text-slate-500">{t('results.contactOrder.detailsUnavailable')}</p>
+      )}
+    </details>
+  )
+}
+
 /** The handful of facts that actually differ between one attorney and the next. */
 function Differentiators({ attorney, t }: { attorney: ContactOrderAttorney; t: TFn }) {
   const facts = [
@@ -183,22 +254,7 @@ export function AttorneyContactOrder({
                 <RatingLine attorney={attorney} t={t} />
                 <Differentiators attorney={attorney} t={t} />
               </div>
-              {attorney.reasons.length > 0 && (
-                <details className="group mt-2">
-                  <summary className="inline-flex cursor-pointer list-none items-center gap-1 text-sm font-semibold text-brand-700 hover:text-brand-800">
-                    {t('results.contactOrder.whyMatch')}
-                    <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" aria-hidden />
-                  </summary>
-                  <ul className="mt-2 grid gap-1.5">
-                    {attorney.reasons.map((reason) => (
-                      <li key={reason} className="flex items-start gap-1.5 text-sm text-slate-700">
-                        <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" aria-hidden />
-                        <span>{reason}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </details>
-              )}
+              <AttorneyDetails attorney={attorney} t={t} />
               <div className="mt-3 flex flex-col gap-2 border-t border-slate-200 pt-3 sm:flex-row sm:items-center">
                 <button
                   type="button"
@@ -207,16 +263,6 @@ export function AttorneyContactOrder({
                 >
                   {t('results.contactOrder.selectFirst')}
                 </button>
-                {attorney.bookingSlug && (
-                  <a
-                    href={`/book/${attorney.bookingSlug}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-center text-sm font-semibold text-brand-700 hover:bg-brand-50"
-                  >
-                    {t('results.sendReview.viewProfile')}
-                  </a>
-                )}
                 <button
                   type="button"
                   onClick={() => onRemove(attorney.id)}
@@ -327,6 +373,7 @@ export function AttorneyContactOrder({
                 </button>
               )}
             </p>
+            <AttorneyDetails attorney={attorney} t={t} />
           </li>
         ))}
       </ul>

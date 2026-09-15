@@ -131,6 +131,7 @@ describe('a new attorney', () => {
       t,
     )
 
+    expect(card.credential).toBeNull()
     expect(card.responseSignal).toBeNull()
     expect(card.rating).toBeNull()
     expect(card.languages).toEqual([])
@@ -139,6 +140,29 @@ describe('a new attorney', () => {
       'results.calc.handlesCases:{"specialty":"auto_accident"}',
       'results.calc.servesVenue:{"venue":"CA"}',
     ])
+  })
+})
+
+describe('licensure', () => {
+  const licensed = {
+    id: 'a1',
+    name: 'Bobby Smith',
+    bar_number: '123456',
+    bar_state: 'CA',
+    specialties: ['auto_accident'],
+    venues: ['CA'],
+    law_firm: { name: 'Bobby Law Firm', city: 'Los Angeles', state: 'CA' },
+  }
+
+  it('names the licensee and the state that licensed them', () => {
+    const card = toContactOrderAttorney(licensed, ctx, t)
+    expect(card.credential).toBe('CA Bar #123456')
+    expect(card.firmLocation).toBe('Los Angeles, CA')
+  })
+
+  it('shows no credential rather than a placeholder when there is no bar number', () => {
+    const card = toContactOrderAttorney({ ...licensed, bar_number: null }, ctx, t)
+    expect(card.credential).toBeNull()
   })
 })
 

@@ -6,6 +6,8 @@
  * those rules are easier to defend when they can be tested on their own.
  */
 
+import { getAttorneyLicensure } from './attorneyLicensure'
+
 export type TFn = (key: string, params?: Record<string, string | number>) => string
 
 /**
@@ -44,6 +46,10 @@ export interface ContactOrderAttorney {
   yearsExperience: number
   languages: string[]
   reasons: string[]
+  /** e.g. "CA Bar #123456". Null when the record carries no bar number. */
+  credential: string | null
+  /** The firm's own city and state, e.g. "Los Angeles, CA". */
+  firmLocation: string | null
   bookingSlug: string | null
 }
 
@@ -143,6 +149,8 @@ export function buildMatchReasons(attorney: any, ctx: CardContext, t: TFn): stri
 
 export function toContactOrderAttorney(attorney: any, ctx: CardContext, t: TFn): ContactOrderAttorney {
   const name = String(attorney?.name || '').trim() || t('results.calc.attorneyFallback')
+  // Never invents a bar number; see lib/attorneyLicensure.
+  const licensure = getAttorneyLicensure(attorney)
   const initials = name
     .split(/\s+/)
     .map((word: string) => word[0])
@@ -168,6 +176,8 @@ export function toContactOrderAttorney(attorney: any, ctx: CardContext, t: TFn):
     yearsExperience: Number(attorney?.yearsExperience) || 0,
     languages: getDistinguishingLanguages(attorney),
     reasons: buildMatchReasons(attorney, ctx, t),
+    credential: licensure?.credential ?? null,
+    firmLocation: licensure?.location ?? null,
     bookingSlug: attorney?.bookingSlug || attorney?.booking_slug || null,
   }
 }
