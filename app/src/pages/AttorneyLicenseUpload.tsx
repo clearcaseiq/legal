@@ -276,13 +276,21 @@ export default function AttorneyLicenseUpload() {
                     setDraggingFile(false)
                     selectFile(e.dataTransfer.files?.[0])
                   }}
-                  className={`mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-dashed rounded-md transition-colors ${
+                  className={`mt-1 border-2 border-dashed rounded-md transition-colors ${
                     draggingFile ? 'border-brand-500 bg-brand-50' : 'border-gray-300 hover:border-gray-400'
                   }`}
                 >
-                  <div className="space-y-1 text-center">
+                  {/* Fills the box so the whole dashed area is clickable, and
+                      opens the picker by ref — a label whose htmlFor named the
+                      input it wrapped had its forwarded click bubble back out
+                      and get forwarded again, which suppresses the dialog. */}
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex w-full flex-col items-center gap-1 px-6 pt-5 pb-6 text-center focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                  >
                     <svg
-                      className="mx-auto h-12 w-12 text-gray-400"
+                      className="h-12 w-12 text-gray-400"
                       stroke="currentColor"
                       fill="none"
                       viewBox="0 0 48 48"
@@ -294,35 +302,23 @@ export default function AttorneyLicenseUpload() {
                         strokeLinejoin="round"
                       />
                     </svg>
-                    <div className="flex text-sm text-gray-600">
-                      {/* Opened through a ref: the label used to wrap the input
-                          its htmlFor named, so the forwarded click bubbled back
-                          to the label and the browser suppressed the dialog. */}
-                      <button
-                        type="button"
-                        onClick={() => fileInputRef.current?.click()}
-                        className="bg-white rounded-md font-medium text-brand-600 hover:text-brand-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-500"
-                      >
-                        Upload a file
-                      </button>
-                      <input
-                        ref={fileInputRef}
-                        id="file-upload"
-                        name="file-upload"
-                        type="file"
-                        className="sr-only"
-                        accept=".pdf,.jpg,.jpeg,.png,.gif"
-                        onChange={handleFileChange}
-                      />
-                      <p className="pl-1">or drag and drop</p>
-                    </div>
-                    <p className="text-xs text-gray-500">PDF, PNG, JPG, GIF up to 10MB</p>
+                    <span className="text-sm text-gray-600">
+                      <span className="font-medium text-brand-600">Upload a file</span> or drag and drop
+                    </span>
+                    <span className="text-xs text-gray-500">PDF, PNG, JPG, GIF up to 10MB</span>
                     {selectedFile && (
-                      <p className="text-sm text-gray-700 mt-2">
-                        Selected: {selectedFile.name}
-                      </p>
+                      <span className="mt-1 text-sm text-gray-700">Selected: {selectedFile.name}</span>
                     )}
-                  </div>
+                  </button>
+                  <input
+                    ref={fileInputRef}
+                    id="file-upload"
+                    name="file-upload"
+                    type="file"
+                    className="sr-only"
+                    accept=".pdf,.jpg,.jpeg,.png,.gif"
+                    onChange={handleFileChange}
+                  />
                 </div>
               </div>
 

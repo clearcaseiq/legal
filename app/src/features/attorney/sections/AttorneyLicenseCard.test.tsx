@@ -59,8 +59,8 @@ function renderCard(overrides: Record<string, unknown> = {}) {
 }
 
 function uploadButton() {
-  return Array.from(container.querySelectorAll('button')).find(
-    (b) => b.textContent?.trim() === 'Upload a file',
+  return Array.from(container.querySelectorAll('button')).find((b) =>
+    b.textContent?.includes('Upload a file'),
   )
 }
 
@@ -88,6 +88,34 @@ describe('AttorneyLicenseCard upload control', () => {
     })
 
     expect(clicked).toHaveBeenCalledTimes(1)
+  })
+
+  it('opens the picker from anywhere in the box, not just the words', () => {
+    renderCard()
+    const input = fileInput()!
+    const clicked = vi.spyOn(input, 'click')
+    // The format hint sits well away from the link text; a click on it has to
+    // reach the same handler.
+    const hint = Array.from(container.querySelectorAll('span')).find((s) =>
+      s.textContent?.startsWith('PDF, PNG'),
+    )!
+
+    act(() => {
+      hint.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(clicked).toHaveBeenCalledTimes(1)
+  })
+
+  it('fills the dashed box with the click target', () => {
+    renderCard()
+    expect(dropZone()!.contains(uploadButton()!)).toBe(true)
+    expect(uploadButton()!.className).toContain('w-full')
+  })
+
+  it('keeps the file input outside the button, which cannot contain a control', () => {
+    renderCard()
+    expect(uploadButton()!.contains(fileInput()!)).toBe(false)
   })
 
   it('does not wrap the file input in a label pointing at it, which suppressed the dialog', () => {

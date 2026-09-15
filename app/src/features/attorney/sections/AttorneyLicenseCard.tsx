@@ -299,41 +299,42 @@ export default function AttorneyLicenseCard({
                 setDraggingFile(false)
                 selectLicenseFile(e.dataTransfer.files?.[0])
               }}
-              className={`mt-1 flex justify-center rounded-md border-2 border-dashed px-6 pb-6 pt-5 transition-colors ${
+              className={`mt-1 rounded-md border-2 border-dashed transition-colors ${
                 draggingFile ? 'border-brand-500 bg-brand-50' : 'border-gray-300 hover:border-gray-400'
               }`}
             >
-              <div className="space-y-1 text-center">
-                <Upload className="mx-auto h-12 w-12 text-gray-400" />
-                <div className="flex justify-center text-sm text-gray-600">
-                  {/* Opened through a ref rather than a label. The label used to
-                      wrap the very input its htmlFor pointed at, so a click was
-                      forwarded to the input and then bubbled back out to the
-                      label, which forwarded it again; the browser breaks that
-                      cycle by dropping the dialog, and the control did nothing. */}
-                  <button
-                    type="button"
-                    onClick={() => licenseFileInputRef.current?.click()}
-                    className="rounded-md bg-white font-medium text-brand-600 hover:text-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2"
-                  >
-                    Upload a file
-                  </button>
-                  <input
-                    ref={licenseFileInputRef}
-                    id="license-file-upload"
-                    name="license-file-upload"
-                    type="file"
-                    className="sr-only"
-                    accept=".pdf,.jpg,.jpeg,.png,.gif"
-                    onChange={handleLicenseFileChange}
-                  />
-                  <p className="pl-1">or drag and drop</p>
-                </div>
-                <p className="text-xs text-gray-500">PDF, PNG, JPG, GIF up to 10MB</p>
+              {/* The button fills the box, so the whole dashed area is the click
+                  target rather than just the words. It is also what opens the
+                  picker: a label whose htmlFor named the input it wrapped had
+                  its forwarded click bubble back out and get forwarded again,
+                  and the browser breaks that cycle by dropping the dialog.
+
+                  Children are spans, not paragraphs — a button takes phrasing
+                  content only, and the input has to sit outside it entirely
+                  because a button cannot contain a form control. */}
+              <button
+                type="button"
+                onClick={() => licenseFileInputRef.current?.click()}
+                className="flex w-full flex-col items-center gap-1 px-6 pb-6 pt-5 text-center focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+              >
+                <Upload className="h-12 w-12 text-gray-400" />
+                <span className="text-sm text-gray-600">
+                  <span className="font-medium text-brand-600">Upload a file</span> or drag and drop
+                </span>
+                <span className="text-xs text-gray-500">PDF, PNG, JPG, GIF up to 10MB</span>
                 {selectedLicenseFile ? (
-                  <p className="mt-2 text-sm text-gray-700">Selected: {selectedLicenseFile.name}</p>
+                  <span className="mt-1 text-sm text-gray-700">Selected: {selectedLicenseFile.name}</span>
                 ) : null}
-              </div>
+              </button>
+              <input
+                ref={licenseFileInputRef}
+                id="license-file-upload"
+                name="license-file-upload"
+                type="file"
+                className="sr-only"
+                accept=".pdf,.jpg,.jpeg,.png,.gif"
+                onChange={handleLicenseFileChange}
+              />
             </div>
           </div>
           <div>
@@ -346,6 +347,12 @@ export default function AttorneyLicenseCard({
               placeholder="Enter your license number if known"
               maxLength={40}
             />
+            {/* Says what filling these in buys, now that it is checked rather
+                than just filed alongside the document. */}
+            <p className="mt-1 text-xs text-gray-500">
+              Add your number and state and we will check them against the State Bar as soon as you
+              upload, so you do not have to wait on a review.
+            </p>
           </div>
           <div>
             <label className="mb-1 block text-sm font-medium text-gray-700">State (Optional)</label>

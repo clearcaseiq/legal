@@ -98,6 +98,27 @@ export function useAttorneyLicense(onVerified?: () => void | Promise<void>) {
         setLicenseSuccess(true)
         setLicenseStatus(response.profile)
         setSelectedLicenseFile(null)
+
+        // A bar number typed alongside the document is still checkable, and
+        // checking it is the only thing here that can verify anything: nothing
+        // reads the uploaded file. Leaving it unchecked meant an attorney who
+        // chose Manual Upload and supplied a valid number stayed unverified
+        // waiting on a review of a document no process looks at.
+        //
+        // Runs after the upload, not before: the upload writes
+        // `licenseVerificationMethod: 'manual_upload'`, so the reverse order
+        // would attribute a licence the lookup verified to the document.
+        if (licenseNumber && licenseState) {
+          try {
+            await lookupStateBarLicense(licenseNumber, licenseState)
+          } catch (err: any) {
+            // The file did upload, so this is not an upload failure. Surfacing
+            // the lookup's own message alongside the success notice says what
+            // actually happened: document stored, number not verified.
+            setLicenseError(err.response?.data?.error || null)
+          }
+        }
+
         await loadLicenseStatus()
         await onVerified?.()
       } catch (err: any) {
