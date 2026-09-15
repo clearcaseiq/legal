@@ -1,6 +1,13 @@
 import { useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { registerAttorney, lookupStateBarLicense, uploadAttorneyLicense, checkAttorneyEmailAvailable } from '../lib/api-auth'
+import {
+  registerAttorney,
+  lookupStateBarLicense,
+  previewStateBarLicense,
+  uploadAttorneyLicense,
+  checkAttorneyEmailAvailable,
+  type StateBarPreview,
+} from '../lib/api-auth'
 import { US_STATES, ATTORNEY_CASE_TYPES } from '../lib/constants'
 import { getCountiesForState } from '../lib/usLocationData'
 import { useLanguage } from '../contexts/LanguageContext'
@@ -16,6 +23,7 @@ import AttorneyRegisterProgress from '../components/AttorneyRegisterProgress'
 import AttorneyRegisterBenefits from '../components/AttorneyRegisterBenefits'
 import BrandLogo from '../components/BrandLogo'
 import { PasswordInputWithReveal } from '../components/PasswordInputWithReveal'
+import StateBarPreviewResult from '../components/StateBarPreviewResult'
 import { formatPhoneInput } from '../lib/phone'
 import { CheckCircle, FileText, Globe, CreditCard, Info } from 'lucide-react'
 
@@ -37,8 +45,13 @@ export default function AttorneyRegister() {
   const [currentStep, setCurrentStep] = useState(1)
   const [stateSearchQuery, setStateSearchQuery] = useState('')
   const [verificationMethod, setVerificationMethod] = useState<'state_bar_lookup' | 'manual_upload'>('state_bar_lookup')
-  const [licenseNumber, setLicenseNumber] = useState('')
-  const [licenseState, setLicenseState] = useState('')
+  // The bar number and its state live only in `form`. They used to be mirrored
+  // into separate state as well, and because nothing ever wrote the mirrored
+  // state, the post-signup lookup below was gated on a value that was always
+  // empty — no registration in production ever checked a bar number.
+  const [barPreview, setBarPreview] = useState<StateBarPreview | null>(null)
+  const [barPreviewLoading, setBarPreviewLoading] = useState(false)
+  const [barPreviewError, setBarPreviewError] = useState<string | null>(null)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [govIdFile, setGovIdFile] = useState<File | null>(null)
   const [showFirmWebsite, setShowFirmWebsite] = useState(false)
@@ -77,6 +90,40 @@ export default function AttorneyRegister() {
   ) => {
     setForm((prev) => ({ ...prev, [field]: value }))
     setFieldErrors((prev) => ({ ...prev, [field]: undefined }))
+  }
+
+  /**
+   * Check the bar number against the State Bar while the attorney is still
+   * looking at the field.
+   *
+   * Advisory only: it writes nothing and never blocks signup. The point is that
+   * a mistyped digit is cheap to fix here and expensive to fix later, once it
+   * has become a support ticket about a missing verified badge.
+   */
+  const validateBarNumber = async () => {
+    setBarPreview(null)
+    setBarPreviewError(null)
+
+    if (!form.stateBarNumber.trim() || !form.stateBarState) {
+      setBarPreviewError(t('attorneyReg.barValidateMissing'))
+      return
+    }
+
+    setBarPreviewLoading(true)
+    try {
+      const result = await previewStateBarLicense(
+        form.stateBarNumber,
+        form.stateBarState,
+        `${form.firstName} ${form.lastName}`.trim(),
+      )
+      setBarPreview(result)
+    } catch (err: any) {
+      setBarPreviewError(
+        err?.response?.data?.error || t('attorneyReg.barValidateUnavailable'),
+      )
+    } finally {
+      setBarPreviewLoading(false)
+    }
   }
 
   const toggleArray = (field: 'specialties' | 'secondaryCaseTypes' | 'venues' | 'excludedCaseTypes' | 'preferredCounties', value: string) => {
@@ -207,23 +254,34 @@ export default function AttorneyRegister() {
 
       // License verification is optional at signup. Best-effort upload/lookup if
       // the attorney provided something; never block access to the dashboard.
-      if (verificationMethod === 'state_bar_lookup' && licenseNumber && licenseState) {
-        try {
-          await lookupStateBarLicense(licenseNumber, licenseState)
-        } catch {
-          // Verify later from profile settings.
-        }
-      } else if (verificationMethod === 'manual_upload' && (selectedFile || govIdFile)) {
+      //
+      // Both can now run, where they used to be exclusive, so the order matters:
+      // the upload rewrites `licenseVerificationMethod` to 'manual_upload', and
+      // running it second would leave a licence that a lookup actually verified
+      // attributed to an unread document.
+      if (verificationMethod === 'manual_upload' && (selectedFile || govIdFile)) {
         try {
           const formData = new FormData()
           // Prefer the bar card; fall back to the government ID so a selected
           // document is never silently dropped.
           formData.append('licenseFile', (selectedFile || govIdFile) as File)
-          if (licenseNumber) formData.append('licenseNumber', licenseNumber)
-          if (licenseState) formData.append('licenseState', licenseState)
+          if (form.stateBarNumber) formData.append('licenseNumber', form.stateBarNumber)
+          if (form.stateBarState) formData.append('licenseState', form.stateBarState)
           await uploadAttorneyLicense(formData)
         } catch {
           // Verify later from profile settings.
+        }
+      }
+
+      // Runs on whatever number is on the form, whichever method was chosen: the
+      // preview above only reads, so this is the call that records a result
+      // against the new account.
+      if (form.stateBarNumber && form.stateBarState) {
+        try {
+          await lookupStateBarLicense(form.stateBarNumber, form.stateBarState)
+        } catch {
+          // A missing or mismatched licence is recorded server-side and shown on
+          // the profile; it must not strand the attorney at signup.
         }
       }
 
@@ -459,32 +517,54 @@ export default function AttorneyRegister() {
                     />
                   </div>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">{t('attorneyReg.stateBarLabel')}</label>
-                  <input
-                    type="text"
-                    maxLength={40}
-                    value={form.stateBarNumber}
-                    onChange={(e) => {
-                      updateField('stateBarNumber', e.target.value)
-                      setLicenseNumber(e.target.value)
-                    }}
-                    className="input"
-                    placeholder="e.g., 123456"
-                  />
-                  <p className="mt-1 text-xs text-gray-500">{t('attorneyReg.stateBarHelp')}</p>
+                {/* The licensing state was previously hidden, which left the bar
+                    number unusable: a number alone identifies nobody, and the
+                    lookup has to know which bar to ask. */}
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">{t('attorneyReg.stateBarLabel')}</label>
+                    <input
+                      type="text"
+                      maxLength={40}
+                      value={form.stateBarNumber}
+                      onChange={(e) => {
+                        updateField('stateBarNumber', e.target.value)
+                        setBarPreview(null)
+                        setBarPreviewError(null)
+                      }}
+                      className="input"
+                      placeholder="e.g., 123456"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">{t('attorneyReg.stateBarStateLabel')}</label>
+                    <select
+                      value={form.stateBarState}
+                      onChange={(e) => {
+                        updateField('stateBarState', e.target.value)
+                        setBarPreview(null)
+                        setBarPreviewError(null)
+                      }}
+                      className="input"
+                    >
+                      <option value="">{t('attorneyReg.stateBarStatePlaceholder')}</option>
+                      {US_STATES.map((s) => (
+                        <option key={s.code} value={s.code}>{s.name}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
-                <div hidden aria-hidden="true">
-                  <select
-                    value={form.stateBarState}
-                    onChange={(e) => updateField('stateBarState', e.target.value)}
-                    className="input"
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => { void validateBarNumber() }}
+                    disabled={barPreviewLoading}
+                    className="btn-secondary disabled:opacity-60 disabled:cursor-not-allowed"
                   >
-                    <option value="">Select</option>
-                    {US_STATES.map((s) => (
-                      <option key={s.code} value={s.code}>{s.name}</option>
-                    ))}
-                  </select>
+                    {barPreviewLoading ? t('attorneyReg.barValidating') : t('attorneyReg.barValidate')}
+                  </button>
+                  <p className="mt-1 text-xs text-gray-500">{t('attorneyReg.stateBarHelp')}</p>
+                  <StateBarPreviewResult preview={barPreview} error={barPreviewError} />
                 </div>
                 <div hidden aria-hidden="true">
                   <div>

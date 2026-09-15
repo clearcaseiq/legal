@@ -3281,6 +3281,12 @@ model AttorneyProfile {
   licenseVerified           Boolean   @default(false) // Whether license has been verified
   licenseVerifiedAt         DateTime? // When license was verified
   licenseVerificationMethod String? // 'state_bar_lookup', 'manual_upload', 'admin_review'
+  // What the State Bar actually returned. `licenseVerified` alone cannot say
+  // whether a lookup found a suspended licence, found nobody, or found an active
+  // licence under a different name — three outcomes needing different responses.
+  licenseStatus             String? // Status verbatim from the bar, e.g. 'Active', 'Inactive', 'Suspended'
+  licenseRecordName         String? // Name the bar publishes for this number
+  licenseNameMatch          String? // 'match', 'mismatch', 'unknown' vs. the registered name
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

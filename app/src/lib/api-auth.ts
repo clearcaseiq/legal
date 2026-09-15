@@ -88,3 +88,40 @@ export async function lookupStateBarLicense(licenseNumber: string, state: string
   })
   return response
 }
+
+export interface StateBarPreview {
+  found: boolean
+  status: string | null
+  /** The name the State Bar publishes for this number, when it found one. */
+  recordName: string | null
+  nameMatch: 'match' | 'mismatch' | 'unknown'
+  city: string | null
+  admissionDate: string | null
+  profileUrl: string | null
+  licenseNumber: string
+  state: string
+  /** Whether this number would earn the verified badge once the account exists. */
+  wouldVerify: boolean
+  message: string
+}
+
+/**
+ * Check a bar number during registration, before an account exists.
+ *
+ * Read-only and unauthenticated by necessity — there is no account yet to
+ * authenticate against. It reports what the State Bar says so the attorney can
+ * catch a mistyped digit while the field is still in front of them; the write
+ * happens after signup, through `lookupStateBarLicense`.
+ */
+export async function previewStateBarLicense(
+  licenseNumber: string,
+  state: string,
+  name: string,
+): Promise<StateBarPreview> {
+  const { data: response } = await api.post('/v1/attorney-profile/license/state-bar-preview', {
+    licenseNumber,
+    state,
+    name,
+  })
+  return response
+}

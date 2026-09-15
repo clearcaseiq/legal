@@ -72,3 +72,17 @@ export const uploadLimiter = build(
   60,
   'Too many uploads. Please wait a few minutes and try again.',
 )
+
+/**
+ * The pre-registration State Bar preview.
+ *
+ * Tighter than the rest because each call makes us issue an outbound request to
+ * calbar.ca.gov under our own User-Agent, so an unauthenticated caller can aim
+ * our traffic at a government site and get us blocked. A real attorney checks
+ * their own number once, maybe a few times after a typo.
+ */
+export const barLookupLimiter = build(
+  'bar_lookup',
+  15,
+  'Too many license lookups. Please wait a few minutes and try again.',
+)

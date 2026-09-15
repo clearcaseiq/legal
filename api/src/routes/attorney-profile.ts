@@ -9,6 +9,8 @@ import path from 'path'
 import fs from 'fs'
 import { v4 as uuidv4 } from 'uuid'
 import { ENV } from '../env'
+import { compareBarRecordName, earnsVerifiedBadge } from '../lib/bar-license-identity'
+import { barLookupLimiter } from '../lib/rate-limits'
 
 const router = Router()
 const CA_BAR_SEARCH_URL = 'https://apps.calbar.ca.gov/attorney/LicenseeSearch/QuickSearch'
@@ -1473,6 +1475,68 @@ router.post('/license/upload', authMiddleware, licenseUpload.single('licenseFile
   }
 })
 
+/**
+ * Check a bar number before an account exists.
+ *
+ * Deliberately unauthenticated, because registration needs to show the attorney
+ * what the State Bar says about the number they just typed — and at that point
+ * there is no account to authenticate against. The endpoint is safe to expose
+ * only because it is inert: it reads a public government record and writes
+ * nothing, so it cannot verify anybody, grant a badge, or mutate a profile.
+ * `/license/state-bar-lookup` remains the only route that can.
+ *
+ * It leaks nothing that is not already public either — calbar's search is open
+ * to the world, and the caller has to supply the bar number to learn anything.
+ *
+ * Always answers 200 with a verdict, including for "no record" and "not
+ * active". A preview reporting what the Bar said is a successful preview; an
+ * error status would send the client into a failure branch and lose the
+ * `status` and `recordName` the form needs to explain the outcome.
+ */
+router.post('/license/state-bar-preview', barLookupLimiter, async (req: any, res) => {
+  try {
+    const { licenseNumber, state, name } = req.body || {}
+
+    if (!licenseNumber || !state) {
+      return res.status(400).json({ error: 'License number and state are required' })
+    }
+
+    const result = await lookupStateBarLicenseRecord(
+      String(licenseNumber),
+      String(state),
+      String(name || ''),
+    )
+    // The not-found branch echoes the caller's own name back as `name`, which
+    // would compare against itself and always match. Only a name that came off
+    // the record is evidence.
+    const comparison = compareBarRecordName(result.found ? result.name : null, name)
+
+    res.json({
+      found: result.found,
+      status: result.status ?? null,
+      recordName: comparison.recordName,
+      nameMatch: comparison.match,
+      city: result.city ?? null,
+      admissionDate: result.admissionDate ?? null,
+      profileUrl: result.profileUrl ?? null,
+      licenseNumber: result.licenseNumber,
+      state: result.state,
+      wouldVerify: earnsVerifiedBadge(result.found, comparison.match),
+      message: result.message,
+    })
+  } catch (error: any) {
+    // A calbar outage must not read as "this licence is fake", so the failure is
+    // reported as a failure to check rather than a failed check.
+    logger.warn('State bar preview could not reach the source', {
+      error: error?.message || String(error),
+    })
+    res.status(503).json({
+      error: 'Could not reach the State Bar right now. You can finish signing up and verify later.',
+      code: 'state_bar_unreachable',
+    })
+  }
+})
+
 // State bar lookup through official public state bar sources where supported.
 router.post('/license/state-bar-lookup', authMiddleware, async (req: any, res) => {
   try {
@@ -1505,6 +1569,15 @@ router.post('/license/state-bar-lookup', authMiddleware, async (req: any, res) =
     const attorneyId = attorney.id
 
     const verificationResult = await lookupStateBarLicenseRecord(String(licenseNumber), String(state), attorney.name)
+    // An active licence is necessary but not sufficient: every California bar
+    // number is published, so without this the badge certifies only that the
+    // attorney can copy one. As above, the record's name is only evidence when
+    // the record was actually found.
+    const comparison = compareBarRecordName(
+      verificationResult.found ? verificationResult.name : null,
+      attorney.name,
+    )
+    const verified = earnsVerifiedBadge(verificationResult.found, comparison.match)
 
     // Get or create profile
     let profile = await prisma.attorneyProfile.findUnique({
@@ -1536,9 +1609,12 @@ router.post('/license/state-bar-lookup', authMiddleware, async (req: any, res) =
       data: {
         licenseNumber: verificationResult.licenseNumber,
         licenseState: verificationResult.state,
-        licenseVerified: verificationResult.found,
-        licenseVerifiedAt: verificationResult.found ? new Date() : null,
-        licenseVerificationMethod: 'state_bar_lookup'
+        licenseVerified: verified,
+        licenseVerifiedAt: verified ? new Date() : null,
+        licenseVerificationMethod: 'state_bar_lookup',
+        licenseStatus: verificationResult.status ?? null,
+        licenseRecordName: comparison.recordName,
+        licenseNameMatch: comparison.match,
       }
     })
 
@@ -1547,16 +1623,27 @@ router.post('/license/state-bar-lookup', authMiddleware, async (req: any, res) =
       licenseNumber: verificationResult.licenseNumber,
       state: verificationResult.state,
       status: verificationResult.status,
-      verified: verificationResult.found,
+      licenceActive: verificationResult.found,
+      nameMatch: comparison.match,
+      verified,
       source: verificationResult.source
     })
 
-    if (!verificationResult.found) {
+    if (!verified) {
+      // An active licence under a different name is a distinct outcome from a
+      // number that resolves to nothing, and the attorney can act on it — it is
+      // usually a typo or a name we hold out of date. Say whose licence it is
+      // rather than reporting a generic failure.
+      const error = verificationResult.found
+        ? `The State Bar lists license ${verificationResult.licenseNumber} under ${comparison.recordName || 'a different name'}, which does not match the name on your account. We have sent this to our team to review — you do not need to do anything else.`
+        : verificationResult.message
+
       return res.status(422).json({
         success: false,
         verification: verificationResult,
+        nameMatch: comparison.match,
         profile: updatedProfile,
-        error: verificationResult.message,
+        error,
       })
     }
 
@@ -1681,6 +1768,9 @@ router.get('/license/status', authMiddleware, async (req: any, res) => {
         licenseVerified: false,
         licenseFileUrl: null,
         licenseVerificationMethod: null,
+        licenseStatus: null,
+        licenseRecordName: null,
+        licenseNameMatch: null,
         networkVerified: attorney.isVerified
       })
     }
@@ -1693,6 +1783,9 @@ router.get('/license/status', authMiddleware, async (req: any, res) => {
         licenseVerified: false,
         licenseFileUrl: null,
         licenseVerificationMethod: null,
+        licenseStatus: null,
+        licenseRecordName: null,
+        licenseNameMatch: null,
         networkVerified: attorney.isVerified
       })
     }
@@ -1706,6 +1799,11 @@ router.get('/license/status', authMiddleware, async (req: any, res) => {
       licenseFileName: profile.licenseFileName,
       licenseVerificationMethod: profile.licenseVerificationMethod,
       licenseVerifiedAt: profile.licenseVerifiedAt,
+      // What the bar returned, so the card can distinguish "no such licence"
+      // from "suspended" from "active, but under someone else's name".
+      licenseStatus: profile.licenseStatus,
+      licenseRecordName: profile.licenseRecordName,
+      licenseNameMatch: profile.licenseNameMatch,
       // Whether the attorney is actually live to claimants. A passed bar lookup
       // sets licenseVerified and nothing else — `Attorney.isVerified` is a
       // separate vetting decision only an admin can make — so without this the
