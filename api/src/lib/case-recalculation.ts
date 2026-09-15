@@ -537,7 +537,7 @@ export async function runCaseRecalculation(
     }
 
     const newBands = underwriting
-      ? reconcileValueBandsWithUnderwriting(result.value_bands, underwriting.settlement)
+      ? reconcileValueBandsWithUnderwriting(result.value_bands, underwriting.settlement, underwriting.liability)
       : result.value_bands
     // Viability has to be restated too, not just the bands. Persisting the raw
     // heuristic here while /predict persisted the underwriting scores meant the

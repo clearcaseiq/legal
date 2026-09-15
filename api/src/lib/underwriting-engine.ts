@@ -817,6 +817,51 @@ export function calculateAttorneyConsensus(reviews: AttorneyCaseReviewValue[]): 
   }
 }
 
+/** Upside if the plaintiff wins the verdict. Not reduced by liability risk. */
+const TRIAL_CEILING_MULTIPLE = 3.25
+
+/** Trial floor when liability is as strong as the engine can score it. */
+const TRIAL_FLOOR_MULTIPLE_AT_FULL_LIABILITY = 1.35
+
+/**
+ * The trial band, with a floor that answers to liability.
+ *
+ * The floor used to be a flat 1.35x the settlement *high*, which asserted that
+ * the worst realistic verdict beats the best realistic settlement by 35% — that
+ * going to trial dominates settling, in every case, always. A claimant reading
+ * $139k-$335k against a $45k-$103k settlement has been handed a numeric argument
+ * to refuse every offer, and the "trials add risk" disclaimer underneath cannot
+ * outrank the numbers directly above it.
+ *
+ * A verdict is closer to binary than the band admitted: win liability and
+ * collect, lose it and collect nothing. That risk is precisely what the flat
+ * multiple could not express, and it bites hardest on the cases that most need
+ * the warning — a wet-floor premises claim with no police report, no photos and
+ * no witnesses turns on whether the owner had notice of the hazard, and a jury
+ * that finds no notice returns zero.
+ *
+ * So the floor scales with the liability score while the ceiling does not. The
+ * ceiling is the value of winning, and winning is worth what it is worth
+ * regardless of how likely it was; the floor is where a contested case can
+ * land, and on weak facts that is near nothing. On strong liability the band is
+ * unchanged, so this only ever moves cases that deserved a lower floor.
+ */
+function trialBand(settlementHigh: number, liability: LiabilityResult) {
+  const confidence = clamp(liability.score) / 100
+
+  // Squared, not linear. Liability risk compounds at trial: a jury has to find
+  // duty, breach, causation and notice, so a case scoring 50 is well below half
+  // as safe as one scoring 100. Linear scaling left middling cases with a floor
+  // that still read as a promise.
+  const floorMultiple = TRIAL_FLOOR_MULTIPLE_AT_FULL_LIABILITY * confidence * confidence
+
+  return {
+    low: money(settlementHigh * floorMultiple),
+    high: money(settlementHigh * TRIAL_CEILING_MULTIPLE),
+    floorMultiple,
+  }
+}
+
 /**
  * Build a `value_bands` object whose settlement AND trial both derive from the
  * authoritative underwriting settlement, so the two can never disagree. The trial band is a
@@ -826,10 +871,13 @@ export function calculateAttorneyConsensus(reviews: AttorneyCaseReviewValue[]): 
  * where the displayed settlement came from underwriting while the trial band kept a
  * divergent heuristic value anchored to the pre-underwriting settlement.
  */
-export function reconcileValueBandsWithUnderwriting(legacyValueBands: any, settlement: SettlementResult) {
+export function reconcileValueBandsWithUnderwriting(
+  legacyValueBands: any,
+  settlement: SettlementResult,
+  liability: LiabilityResult,
+) {
   const legacy = legacyValueBands || {}
-  const trialLow = money(settlement.high * 1.35)
-  const trialHigh = money(settlement.high * 3.25)
+  const { low: trialLow, high: trialHigh, floorMultiple } = trialBand(settlement.high, liability)
   return {
     ...legacy,
     p25: settlement.low,
@@ -850,7 +898,8 @@ export function reconcileValueBandsWithUnderwriting(legacyValueBands: any, settl
       p25: trialLow,
       median: money((trialLow + trialHigh) / 2),
       p75: trialHigh,
-      formula: 'settlement_high * trial_risk_premium (1.35x low, 3.25x high); most cases settle',
+      formula: `settlement_high * trial_risk_premium (${floorMultiple.toFixed(2)}x low, scaled by liability ${liability.score}/100; ${TRIAL_CEILING_MULTIPLE}x high); most cases settle`,
+      liabilityScore: liability.score,
       // Reported, not applied. A verdict is not capped by the policy — an
       // excess judgment is the predicate for a bad-faith claim against the
       // carrier, so capping the trial band would erase the one signal that

@@ -72,7 +72,7 @@ export function buildPredictionRecord(assessment: AssessmentForValuation): {
     evidenceFiles: assessment.evidenceFiles ?? [],
   })
 
-  const bands = reconcileValueBandsWithUnderwriting(null, underwriting.settlement)
+  const bands = reconcileValueBandsWithUnderwriting(null, underwriting.settlement, underwriting.liability)
   // A zero band is not a valuation, it is a failure to value. Writing one would
   // mark the case as "already valued" and permanently suppress a later retry.
   if (!bands || !Number(bands.median)) return null

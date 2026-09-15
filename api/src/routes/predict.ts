@@ -100,7 +100,7 @@ router.post('/', optionalAuthMiddleware, async (req: AuthRequest, res) => {
     } else {
     // Settlement is authoritative from the underwriting engine; the trial band is derived
     // from it here so the two never diverge (previously trial kept a heuristic value).
-    const underwritingValueBands = reconcileValueBandsWithUnderwriting(result.value_bands, underwriting.settlement)
+    const underwritingValueBands = reconcileValueBandsWithUnderwriting(result.value_bands, underwriting.settlement, underwriting.liability)
     underwritingResult = {
       ...result,
       viability: reconcileViabilityWithUnderwriting(result.viability, underwriting),

@@ -2304,7 +2304,12 @@ export default function Results() {
     hasMedicalRecords && 'Treatment records available',
   ].filter(Boolean).slice(0, 4) as string[]
   const rankedSnapshotAttorneys = rankedAttorneyCards.slice(0, 3)
-  const documentationScore = evidenceCompletionPercent
+  // The same score that widened the settlement band, so the row explaining the
+  // band and the band itself cannot disagree. `evidenceCompletionPercent` is a
+  // local five-item checklist that reads close enough to be believed and is not
+  // what the engine used: a case showing "60% of key documents added" had its
+  // low end widened on a documentation score nearer 47.
+  const documentationScore = servedDocumentationScore ?? evidenceCompletionPercent
   const treatmentStrengthLevel = getTreatmentStrengthLabel({
     hasErTreatment,
     hasMri: hasMriReportedFlag,
