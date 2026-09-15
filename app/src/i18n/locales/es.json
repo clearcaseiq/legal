@@ -3327,6 +3327,24 @@
       "usefulDesc": "Contexto de apoyo útil.",
       "noGapsFromFile": "No se detectaron carencias importantes de documentos en el expediente actual. Parece estar cerca de estar listo para la revisión de un abogado."
     },
+    "contactOrder": {
+      "title": "Elige a quién contactamos primero",
+      "intro": "Contactaremos primero a tu primera opción. Si no está disponible o no puede aceptar tu caso, pasaremos a tus opciones de respaldo.",
+      "orderingNote": "Ordenados por tipo de caso, ubicación y disponibilidad del abogado. Puedes cambiar el orden cuando quieras.",
+      "selectFirst": "Elegir como primera opción",
+      "whyMatch": "Por qué coinciden con tu caso",
+      "yourOrder": "Tu orden de contacto",
+      "changeFirstChoice": "Cambiar",
+      "dragBackups": "Arrastra para cambiar el orden de respaldo, o usa los botones de subir y bajar.",
+      "dragHandleLabel": "Reordenar a {name}",
+      "orderUpdated": "Orden de contacto actualizado",
+      "summaryLead": "Los contactaremos en este orden:",
+      "rankFirst": "Contactar primero",
+      "rankSecond": "Contactar segundo",
+      "rankThird": "Contactar tercero",
+      "rankFourth": "Contactar cuarto",
+      "rankOther": "Contactar n.º {n}"
+    },
     "sendReview": {
       "stepAssessment": "Evaluación del caso",
       "stepSelection": "Selección de abogado",
@@ -3501,6 +3519,7 @@
       "servesVenue": "Atiende {venue}",
       "yearsOfExperience": "{years}+ años de experiencia",
       "averageRating": "{rating} de calificación promedio",
+      "speaksLanguages": "Habla {languages}",
       "verifiedReviewCount": "({count} verificadas)",
       "ratingNew": "Nuevo",
       "ratingNewHint": "Aún sin calificar",

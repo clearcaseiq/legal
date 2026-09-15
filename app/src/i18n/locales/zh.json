@@ -3327,6 +3327,24 @@
       "usefulDesc": "有用的支持性背景。",
       "noGapsFromFile": "在当前材料中未检测到重大的文件缺口。您似乎已接近可供律师审核的状态。"
     },
+    "contactOrder": {
+      "title": "选择我们首先联系谁",
+      "intro": "我们会先联系您的首选律师。如果对方无法接手您的案件，我们会依次联系您的备选律师。",
+      "orderingNote": "按案件类型、所在地区和律师可接案情况排序。您可以随时调整顺序。",
+      "selectFirst": "设为首选",
+      "whyMatch": "为什么他们适合您的案件",
+      "yourOrder": "您的联系顺序",
+      "changeFirstChoice": "更改",
+      "dragBackups": "拖动可调整备选顺序，也可使用上下按钮。",
+      "dragHandleLabel": "调整{name}的顺序",
+      "orderUpdated": "联系顺序已更新",
+      "summaryLead": "我们将按此顺序联系：",
+      "rankFirst": "首先联系",
+      "rankSecond": "其次联系",
+      "rankThird": "第三联系",
+      "rankFourth": "第四联系",
+      "rankOther": "第 {n} 位联系"
+    },
     "sendReview": {
       "stepAssessment": "案件评估",
       "stepSelection": "律师选择",
@@ -3501,6 +3519,7 @@
       "servesVenue": "服务{venue}",
       "yearsOfExperience": "{years}+ 年经验",
       "averageRating": "{rating} 平均评分",
+      "speaksLanguages": "会说{languages}",
       "verifiedReviewCount": "（{count} 条已验证）",
       "ratingNew": "新",
       "ratingNewHint": "尚无评分",

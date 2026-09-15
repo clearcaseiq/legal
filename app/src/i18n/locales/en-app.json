@@ -2228,6 +2228,24 @@
       "usefulDesc": "Useful supporting context.",
       "noGapsFromFile": "No major missing-document gaps were detected from the current file. You look close to attorney-review ready."
     },
+    "contactOrder": {
+      "title": "Choose who we contact first",
+      "intro": "We'll contact your first choice first. If they're unavailable or can't take your case, we'll try your backup choices.",
+      "orderingNote": "Ordered by case type, location and attorney availability. You can change the order at any time.",
+      "selectFirst": "Select as first choice",
+      "whyMatch": "Why they match your case",
+      "yourOrder": "Your contact order",
+      "changeFirstChoice": "Change",
+      "dragBackups": "Drag to change the backup order, or use the up and down buttons.",
+      "dragHandleLabel": "Reorder {name}",
+      "orderUpdated": "Contact order updated",
+      "summaryLead": "We'll contact them in this order:",
+      "rankFirst": "Contact first",
+      "rankSecond": "Contact second",
+      "rankThird": "Contact third",
+      "rankFourth": "Contact fourth",
+      "rankOther": "Contact #{n}"
+    },
     "sendReview": {
       "stepAssessment": "Case Assessment",
       "stepSelection": "Attorney Selection",
@@ -2402,6 +2420,7 @@
       "servesVenue": "Serves {venue}",
       "yearsOfExperience": "{years}+ years of experience",
       "averageRating": "{rating} average rating",
+      "speaksLanguages": "Speaks {languages}",
       "verifiedReviewCount": "({count} verified)",
       "ratingNew": "New",
       "ratingNewHint": "Not yet rated",
