@@ -6,6 +6,7 @@ import { useHeuristics } from '../contexts/HeuristicsContext'
 import { UNDOCUMENTED_READINESS_CEILING } from '../lib/heuristics'
 import { liabilityTier, LIABILITY_TIER_ENUM } from '../lib/liabilityGrade'
 import { formatCurrency } from '../lib/formatters'
+import { parseDocumentationUpside, documentationWeight, impactLabel } from '../lib/documentationUpside'
 import { attorneyDisplayName } from '../lib/avatar'
 import { formatClaimTypeShort } from '../lib/constants'
 import { START_ASSESSMENT_HREF } from '../data/appRoutes'
@@ -70,6 +71,10 @@ interface ActiveAssessment {
   latest_prediction?: {
     viability: { overall: number; liability: number; causation: number; damages: number }
     value_bands: { p25: number; median: number; p75: number }
+    // Only the part of the underwriting payload this page reads. Validated by
+    // parseDocumentationUpside rather than trusted, since it is stored JSON and
+    // predictions written before the field existed will not carry it.
+    underwriting?: { documentationUpside?: unknown } | null
   }
   caseValueUpdated?: {
     previousValue: { p25: number; median: number; p75: number }
@@ -1212,8 +1217,14 @@ export default function Dashboard() {
     !hasPoliceReport && { label: t('plaintiffDashboard.dynamic.opportunity.policeReport'), impact: t('plaintiffDashboard.dynamic.impact.medium') },
     !hasWageLoss && { label: t('plaintiffDashboard.dynamic.opportunity.wageLoss'), impact: t('plaintiffDashboard.dynamic.impact.helpful') },
   ].filter(Boolean) as Array<{ label: string; impact: string }>
-  const potentialSettlementLow = Math.max(settlementHigh, Math.round(settlementHigh * 1.25 / 1000) * 1000)
-  const potentialSettlementHigh = Math.max(potentialSettlementLow + 5000, Math.round(settlementHigh * 1.8 / 1000) * 1000)
+  // What a document is worth comes from the engine, which applies documentation
+  // downward only: it raises the floor of the band and never the ceiling. This
+  // used to be settlementHigh * 1.25 to * 1.8, computed here, which advertised a
+  // ceiling up to 80% higher than the model can reach — so a claimant could
+  // upload everything asked of them and watch their top number stay put.
+  const documentationUpside = parseDocumentationUpside(
+    activeAssessment?.latest_prediction?.underwriting?.documentationUpside,
+  )
 
   // Use the canonical formatter so the incident type reads identically on web and
   // mobile ("Motor vehicle", not "Auto Accident") — CP-406. Localized for UI language.
@@ -1240,12 +1251,30 @@ export default function Dashboard() {
   // imported case, since an import carries medical *figures* and no course of
   // care at all.
   const treatmentStatusLabel = dashboardTreatment.length > 0 ? 'Ongoing' : 'Not documented'
-  const caseValueIncreaseItems = [
-    { label: 'Medical Records', sub: 'Treatment history & visits', impact: 'High', metric: 'Interest', potential: `${formatCurrency(potentialSettlementLow)} - ${formatCurrency(potentialSettlementHigh)}`, done: hasMedicalRecords },
-    { label: 'Police Report', sub: 'Liability & incident details', impact: 'High', metric: 'Interest', potential: `${formatCurrency(settlementHigh)} - ${formatCurrency(potentialSettlementLow)}`, done: hasPoliceReport },
-    { label: 'Medical Bills', sub: 'Economic damages', impact: 'Medium', metric: 'Confidence', potential: `${formatCurrency(settlementLow)} - ${formatCurrency(settlementHigh)}`, done: hasHospitalBill },
-    { label: 'Proof of Lost Wages', sub: 'Income & loss documentation', impact: 'Low', metric: 'Value', potential: `${formatCurrency(settlementLow)} - ${formatCurrency(settlementHigh)}`, done: hasWageLossEvidence },
-  ]
+  // The badge now carries the engine's own weighting instead of a High/Medium/Low
+  // assigned by hand here, which had wage proof as "Low" and the police report as
+  // "High" on every case regardless of what the model made of either.
+  //
+  // A row is dropped when the case is missing that document and the engine
+  // records no gap for it, because that means the model does not score it for
+  // this claim type: a med-mal claimant was being asked for a police report that
+  // could not have moved their valuation however promptly they produced one.
+  const caseValueIncreaseItems = (
+    [
+      { label: 'Medical Records', sub: 'Treatment history & visits', key: 'medicalRecords', done: hasMedicalRecords },
+      { label: 'Police Report', sub: 'Liability & incident details', key: 'policeReport', done: hasPoliceReport },
+      { label: 'Medical Bills', sub: 'Economic damages', key: 'medicalBills', done: hasHospitalBill },
+      { label: 'Proof of Lost Wages', sub: 'Income & loss documentation', key: 'wageProof', done: hasWageLossEvidence },
+    ] as const
+  )
+    .map((row) => ({ ...row, weight: row.done ? null : documentationWeight(documentationUpside, row.key) }))
+    .filter((row) => row.done || row.weight !== null)
+    .map((row) => ({
+      label: row.label,
+      sub: row.sub,
+      done: row.done,
+      impact: row.weight == null ? null : impactLabel(row.weight),
+    }))
   // Hide the bulk "Add documents" CTA once core checklist items are covered (CP-603).
   const needsMoreDocs =
     strengthOpportunities.length > 0 || caseValueIncreaseItems.some((item) => !item.done)
@@ -2625,7 +2654,9 @@ export default function Dashboard() {
                                 <p className="truncate text-xs font-semibold text-gray-800">{item.label}</p>
                                 <p className="truncate text-[11px] text-gray-400">{item.sub}</p>
                               </div>
-                              <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${item.impact === 'High' ? 'bg-emerald-50 text-emerald-700' : item.impact === 'Medium' ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-500'}`}>{item.impact}</span>
+                              {item.impact && (
+                                <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${item.impact === 'High' ? 'bg-emerald-50 text-emerald-700' : item.impact === 'Medium' ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-500'}`}>{item.impact}</span>
+                              )}
                               {item.done ? (
                               <span className="shrink-0 text-[11px] font-semibold text-emerald-600">{t('plaintiffDashboard.strengthen.added')}</span>
                               ) : (

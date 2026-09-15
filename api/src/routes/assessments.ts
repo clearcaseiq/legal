@@ -40,6 +40,7 @@ import {
 import { getConfiguredWaveSize, getMatchingRules } from '../lib/matching-rules-config'
 import { validateCaseTypeFromFacts } from '../lib/case-type-validation'
 import { buildMedicalProfile } from '../lib/medical-profile'
+import { underwriteCase, reconcileValueBandsWithUnderwriting } from '../lib/underwriting-engine'
 import { upsertMedicalStatus } from '../lib/medical-record'
 import { syncCaseStage } from '../lib/case-stage'
 import { runCaseRecalculation } from '../lib/case-recalculation'
@@ -74,6 +75,79 @@ function parsePredictionExplain(value: string) {
     underwriting: parsed?.underwriting ?? null
   }
 }
+
+/**
+ * Value a case that has not been created yet, and store nothing.
+ *
+ * The intake wizard shows a settlement range on its final step, before the
+ * assessment exists. With nothing to ask, it computed its own in the browser:
+ * the medical-bill bracket midpoint times 0.8 and 2.4. That formula knows
+ * nothing about liability, venue, severity, treatment, documentation or
+ * coverage, so it disagreed with the modelled band the claimant saw seconds
+ * later — $24,000-$72,000 at intake against $22,000-$50,000 on the snapshot for
+ * one delayed-diagnosis case.
+ *
+ * The direction is the damaging one. A 2.4x ceiling on raw bills overstates
+ * exactly the cases where liability or causation is contested, so the real
+ * number almost always lands lower and the product appears to take money away
+ * from a claimant who did nothing wrong. It also inverts the rule the rest of
+ * the valuation is built on: an unevidenced estimate should only ever be
+ * revised upward.
+ *
+ * This deliberately sits alongside the create route and shares its schema and
+ * its fact enrichment. Accepting the same body the wizard is about to submit is
+ * the point: a preview built from a second mapping would drift from the stored
+ * valuation just as surely as a second formula did, only less visibly.
+ */
+router.post('/preview', optionalAuthMiddleware, async (req: AuthRequest, res) => {
+  try {
+    // The create route's schema, less the consent gate. The preview renders on
+    // the consent step itself, so demanding accepted terms before showing an
+    // estimate would invert the flow. Consents are not a valuation input, so
+    // dropping them changes the fact mapping in no way that reaches a number.
+    const parsed = AssessmentWrite.omit({ consents: true }).safeParse(req.body)
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() })
+    }
+
+    const enrichedFacts = {
+      ...parsed.data,
+      caseTypeValidation: validateCaseTypeFromFacts(parsed.data.claimType, parsed.data as Record<string, unknown>),
+      medicalProfile: buildMedicalProfile(parsed.data as Record<string, unknown>),
+    }
+
+    const underwriting = underwriteCase({
+      claimType: parsed.data.claimType,
+      venueState: parsed.data.venue.state,
+      venueCounty: parsed.data.venue.county ?? null,
+      facts: enrichedFacts,
+      // Nothing is uploaded yet. Passing no files is honest rather than
+      // pessimistic: the documentation score stays low and the band stays wide,
+      // which is the correct shape for a case with nothing on file.
+      evidenceFiles: [],
+    } as any)
+
+    const bands = reconcileValueBandsWithUnderwriting(null, underwriting.settlement, underwriting.liability)
+
+    res.json({
+      settlement: {
+        low: underwriting.settlement.low,
+        expected: underwriting.settlement.expected,
+        high: underwriting.settlement.high,
+      },
+      trial: { low: bands.trial.p25, expected: bands.trial.median, high: bands.trial.p75 },
+      liabilityGrade: underwriting.liability.grade,
+      documentationScore: underwriting.documentation.score,
+      modelVersion: underwriting.modelVersion,
+      preliminary: true,
+    })
+  } catch (error: any) {
+    // A preview is never worth failing intake over. The client shows no figure
+    // rather than falling back to a formula of its own.
+    logger.warn('Valuation preview failed', { error: error?.message || String(error) })
+    res.status(503).json({ error: 'Preview unavailable', code: 'preview_unavailable' })
+  }
+})
 
 // Create new assessment
 router.post('/', optionalAuthMiddleware, async (req: AuthRequest, res) => {

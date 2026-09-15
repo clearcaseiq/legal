@@ -42,11 +42,28 @@ export interface TreatmentResult {
   negatives: string[]
 }
 
+/** A document the case does not have, and what it is worth to the score. */
+export interface DocumentationGap {
+  label: string
+  points: number
+}
+
 export interface DocumentationResult {
   score: number
   grade: 'Sparse' | 'Developing' | 'Good' | 'Strong'
   positives: string[]
   missing: string[]
+  /**
+   * `missing`, carrying each item's weight.
+   *
+   * The weights travel with the gap because the plaintiff dashboard needs to
+   * say what a document is actually worth. It used to answer that question with
+   * a number of its own — 1.25x to 1.8x the top of the band — which promised an
+   * uplift this engine cannot produce, since documentation moves the floor and
+   * never the ceiling. A second copy of this table on the client is how the two
+   * drift apart again, so the points are published rather than duplicated.
+   */
+  gaps: DocumentationGap[]
 }
 
 export interface EconomicDamagesResult {
@@ -111,6 +128,13 @@ export interface UnderwritingResult {
   treatment: TreatmentResult
   documentation: DocumentationResult
   settlement: SettlementResult
+  /**
+   * What each missing document is worth, in dollars, to this case.
+   *
+   * Computed here rather than by whoever asks, because the surfaces that need
+   * it were previously deriving it themselves and getting it wrong.
+   */
+  documentationUpside: DocumentationUpside
   attorneyAcceptance: AttorneyAcceptanceResult
   attorneyMatching: {
     practiceArea: string
@@ -575,7 +599,19 @@ export function calculateDocumentation(input: UnderwritingInput): DocumentationR
   const damages = facts?.damages || {}
   const positives: string[] = []
   const missing: string[] = []
+  const gaps: DocumentationGap[] = []
   let score = 0
+
+  /** Credit an item, or record what closing that gap would be worth. */
+  const grade_ = (present: boolean, points: number, credited: string, gap = credited) => {
+    if (present) {
+      score += points
+      positives.push(credited)
+      return
+    }
+    missing.push(gap)
+    gaps.push({ label: gap, points })
+  }
 
   // Prefer the verified-content evidence set from case-recalculation so unreadable/blank uploads
   // do not earn documentation credit. Fall back to label-based presence only when no verified
@@ -605,21 +641,21 @@ export function calculateDocumentation(input: UnderwritingInput): DocumentationR
     evidenceSet.has('product') ||
     evidenceSet.has('product_evidence')
 
-  if (medicalRecords) { score += 25; positives.push('Medical records') } else missing.push('Medical records')
-  if (medicalBills) { score += 20; positives.push('Medical bills') } else missing.push('Medical bills')
+  grade_(medicalRecords, 25, 'Medical records')
+  grade_(medicalBills, 20, 'Medical bills')
   // Claim-type evidence: MVA/premises need an incident report; product cases need
   // the product itself preserved — never the car-accident playbook.
   if (isProduct) {
-    if (productPreserved) { score += 20; positives.push('Product preserved') } else missing.push('Product preservation')
+    grade_(productPreserved, 20, 'Product preserved', 'Product preservation')
   } else if (isPoliceRelevant || !claimType) {
-    if (policeReport) { score += 20; positives.push('Police or incident report') } else missing.push('Police or incident report')
+    grade_(policeReport, 20, 'Police or incident report')
   } else if (policeReport) {
     score += 10
     positives.push('Incident report')
   }
-  if (photos) { score += 10; positives.push('Photos') } else missing.push('Photos')
-  if (wageProof) { score += 10; positives.push('Wage proof') } else missing.push('Wage proof')
-  if (dailyImpact) { score += 15; positives.push('Daily impact statement') } else missing.push('Daily impact statement')
+  grade_(photos, 10, 'Photos')
+  grade_(wageProof, 10, 'Wage proof')
+  grade_(dailyImpact, 15, 'Daily impact statement')
 
   // Surface uploads we received but could not read, so the plaintiff knows a clearer copy helps.
   if (Number(damages.evidence_unverified_count || 0) > 0) {
@@ -628,7 +664,7 @@ export function calculateDocumentation(input: UnderwritingInput): DocumentationR
 
   const normalized = clamp(score)
   const grade = normalized >= 80 ? 'Strong' : normalized >= 55 ? 'Good' : normalized >= 30 ? 'Developing' : 'Sparse'
-  return { score: normalized, grade, positives, missing }
+  return { score: normalized, grade, positives, missing, gaps }
 }
 
 function getVenueModifier(county?: string | null) {
@@ -752,6 +788,82 @@ export function calculateSettlement(
     policyLimitConstrained: capped.constrained,
     coverage,
     uncappedExpected: money(expected),
+  }
+}
+
+export interface DocumentationUpsideItem extends DocumentationGap {
+  /** The bottom of the band once this document is on file. */
+  projectedLow: number
+}
+
+export interface DocumentationUpside {
+  /** The floor as the case stands today. */
+  currentLow: number
+  /** The top of the band, which documentation does not move. */
+  ceiling: number
+  /**
+   * The floor once every gap this case actually has is closed.
+   *
+   * Not the floor at a perfect score. Some categories are unreachable depending
+   * on the claim — a med-mal case is never getting a police report — so scoring
+   * 100 and quoting the floor there would advertise a number the claimant
+   * cannot arrive at however much they upload.
+   */
+  fullyDocumentedLow: number
+  items: DocumentationUpsideItem[]
+}
+
+/**
+ * What uploading a document is actually worth, in dollars.
+ *
+ * The plaintiff dashboard has to answer this to justify asking, and it used to
+ * answer it by inventing a range: 1.25x to 1.8x the top of the band. Nothing in
+ * this engine can produce that. Documentation is applied downward only, so a
+ * document raises the floor toward a ceiling that never moves — see
+ * UNEVIDENCED_DOWNSIDE. Promising a higher ceiling was not merely unsupported,
+ * it was the precise inversion the band was designed to avoid, and it could
+ * only ever end in a claimant uploading records and watching their top number
+ * stay put.
+ *
+ * So the engine answers instead, by rerunning its own band arithmetic at the
+ * score each gap would produce. Coverage is reapplied each time, because a case
+ * already pinned to a policy limit has no upside left to offer and should not be
+ * shown any.
+ */
+export function documentationUpside(
+  settlement: SettlementResult,
+  documentation: DocumentationResult,
+  calibrationOverride?: ValuationCalibration,
+): DocumentationUpside {
+  const calibration = calibrationOverride ?? getValuationCalibration()
+  const halfWidth = 0.3 * calibration.bandWidthScale
+  const expected = settlement.uncappedExpected
+  const ceiling = settlement.coverage.ceiling
+
+  const lowAtScore = (score: number) => {
+    const confidence = clamp(score) / 100
+    const lowHalfWidth = Math.min(
+      MAX_LOW_HALF_WIDTH,
+      halfWidth + (1 - confidence) * UNEVIDENCED_DOWNSIDE * calibration.bandWidthScale,
+    )
+    return applyCoverageCeiling(
+      money(expected * (1 - lowHalfWidth)),
+      money(expected),
+      money(expected * (1 + halfWidth)),
+      ceiling,
+    ).low
+  }
+
+  const closeable = documentation.gaps.reduce((sum, gap) => sum + gap.points, 0)
+
+  return {
+    currentLow: settlement.low,
+    ceiling: settlement.high,
+    fullyDocumentedLow: lowAtScore(documentation.score + closeable),
+    items: documentation.gaps.map((gap) => ({
+      ...gap,
+      projectedLow: lowAtScore(documentation.score + gap.points),
+    })),
   }
 }
 
@@ -972,6 +1084,7 @@ export function underwriteCase(input: UnderwritingInput, calibrationOverride?: V
     liability,
     severity,
     treatment,
+    documentationUpside: documentationUpside(settlement, documentation, calibration),
     documentation,
     settlement,
     attorneyAcceptance,
