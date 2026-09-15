@@ -11,6 +11,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { ENV } from '../env'
 import { compareBarRecordName, earnsVerifiedBadge } from '../lib/bar-license-identity'
 import { barLookupLimiter } from '../lib/rate-limits'
+import { isTestBarNumber, mockBarRecord } from '../lib/state-bar-mock'
 
 const router = Router()
 const CA_BAR_SEARCH_URL = 'https://apps.calbar.ca.gov/attorney/LicenseeSearch/QuickSearch'
@@ -283,11 +284,67 @@ async function lookupCaliforniaStateBarLicense(
   }
 }
 
+/**
+ * Answer a test bar number from the fixture table.
+ *
+ * Has to run before anything touches the digits: the live lookup begins with
+ * `replace(/\D/g, '')`, which would reduce `TEST-CA-000001` to `000001` and
+ * send it to calbar as a genuine query — which is precisely what happened
+ * before this existed, and why the number came back "no matching record".
+ */
+function lookupMockStateBarLicense(
+  licenseNumber: string,
+  state: string,
+): StateBarVerificationResult {
+  const raw = licenseNumber.trim()
+  const record = mockBarRecord(raw)
+
+  if (record.throws) {
+    throw new Error(`Simulated State Bar failure for ${raw}`)
+  }
+
+  const isActive = (record.status || '').toLowerCase() === 'active'
+  return {
+    found: isActive,
+    licenseNumber: raw,
+    state: state.trim().toUpperCase(),
+    status: record.status,
+    name: record.name,
+    city: record.city,
+    admissionDate: record.admissionDate,
+    verifiedAt: new Date().toISOString(),
+    source: 'mock',
+    message: record.name
+      ? isActive
+        ? `Verified active California State Bar license for ${record.name}. (mock)`
+        : `California State Bar record found for ${record.name}, but status is ${record.status || 'not active'}. (mock)`
+      : 'No matching California State Bar record was found for that bar number. (mock)',
+  }
+}
+
 async function lookupStateBarLicenseRecord(
   licenseNumber: string,
   state: string,
   attorneyName: string
 ): Promise<StateBarVerificationResult> {
+  if (isTestBarNumber(licenseNumber)) {
+    if (ENV.STATE_BAR_LOOKUP_MODE === 'mock') {
+      return lookupMockStateBarLicense(licenseNumber, state)
+    }
+    // Live mode would strip this to its digits and ask calbar about `000001`,
+    // then report "no matching record" — true, but it reads as a broken lookup
+    // rather than as the test namespace being switched off.
+    return {
+      found: false,
+      licenseNumber: licenseNumber.trim(),
+      state: state.trim().toUpperCase(),
+      verifiedAt: new Date().toISOString(),
+      source: 'test_namespace_disabled',
+      message:
+        'TEST-CA- numbers are test fixtures and are only recognised when STATE_BAR_LOOKUP_MODE=mock, which is never enabled in production. Use a real California bar number here.',
+    }
+  }
+
   const normalizedState = state.trim().toUpperCase()
   if (normalizedState !== 'CA') {
     return {

@@ -4,6 +4,15 @@ How ClearCaseIQ decides that a person registering as an attorney is one, what
 that decision is allowed to claim, and how any of it can be tested without
 querying the California State Bar about people who do not exist.
 
+> **Status.** Parts of this are now built. Implemented: name matching and the
+> badge rule (`lib/bar-license-identity.ts`), the `licenseStatus` /
+> `licenseRecordName` / `licenseNameMatch` columns, the pre-registration preview
+> endpoint, the registration validate button, and the `STATE_BAR_LOOKUP_MODE`
+> test mode with its fixture table (`lib/state-bar-mock.ts`). Still proposed:
+> registration format validation via `normalizeBarNumber`, `licenseReviewState`
+> and the admin review screen, the discipline field, and parser unit tests
+> against a captured calbar fixture.
+
 ## The short version
 
 A real lookup already exists. `POST /v1/attorney-profile/license/state-bar-lookup`

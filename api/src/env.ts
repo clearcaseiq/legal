@@ -219,4 +219,32 @@ export const ENV = {
   CALL_TRANSCRIBE_LANGUAGE: process.env.CALL_TRANSCRIBE_LANGUAGE ?? 'en-US',
   /** Master switch to enable the recorded-calls feature in the UI/API. */
   CALLS_ENABLED: process.env.CALLS_ENABLED !== 'false',
+  /**
+   * Where bar-licence lookups get their answers: 'live' (the California State
+   * Bar) or 'mock' (the fixture table in lib/state-bar-mock.ts).
+   *
+   * Explicit rather than derived from NODE_ENV, following DROPBOX_SIGN_TEST_MODE,
+   * so serving fabricated licence records is always a deliberate act. See the
+   * boot guard below for why it cannot be one in production.
+   */
+  STATE_BAR_LOOKUP_MODE: (process.env.STATE_BAR_LOOKUP_MODE ?? 'live').trim().toLowerCase(),
+}
+
+if (ENV.STATE_BAR_LOOKUP_MODE !== 'live' && ENV.STATE_BAR_LOOKUP_MODE !== 'mock') {
+  throw new Error(
+    `STATE_BAR_LOOKUP_MODE must be 'live' or 'mock', got '${ENV.STATE_BAR_LOOKUP_MODE}'. ` +
+      'Refusing to guess, because the wrong guess either fabricates licence records or ' +
+      'quietly stops mocking a test environment.',
+  )
+}
+
+// A production API serving mock licence records would hand a "California Bar
+// Verified" badge to anyone who typed a TEST-CA- number. Failing at boot is the
+// only way this cannot be true without anyone noticing.
+if (ENV.STATE_BAR_LOOKUP_MODE === 'mock' && ENV.NODE_ENV === 'production') {
+  throw new Error(
+    'STATE_BAR_LOOKUP_MODE=mock is refused when NODE_ENV=production. Mock lookups ' +
+      'fabricate State Bar records, so a production deployment would verify attorney ' +
+      'licences that do not exist.',
+  )
 }
