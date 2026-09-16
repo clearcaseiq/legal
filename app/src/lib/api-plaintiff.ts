@@ -128,6 +128,29 @@ export async function getIntakeLead(id: string): Promise<IntakeLeadResume> {
   return data
 }
 
+export interface AssessmentValuationPreview {
+  settlement: { low: number; expected: number; high: number }
+  trial: { low: number; expected: number; high: number }
+  liabilityGrade: string
+  documentationScore: number
+  modelVersion: string
+  preliminary: true
+}
+
+/**
+ * What the case is worth, before it has been created.
+ *
+ * Takes the same payload as createAssessment on purpose. The final intake step
+ * needs a figure and used to compute one itself, which disagreed with the band
+ * the claimant saw on their snapshot moments later. Sending the submit payload
+ * means both the preview and the stored valuation are the same engine reading
+ * the same facts. Nothing is written server-side.
+ */
+export async function previewAssessmentValuation(payload: any): Promise<AssessmentValuationPreview> {
+  const { data } = await api.post('/v1/assessments/preview', payload)
+  return data
+}
+
 export async function createAssessment(payload: any) {
   apiDebug.log('createAssessment called with payload:', payload)
   try {

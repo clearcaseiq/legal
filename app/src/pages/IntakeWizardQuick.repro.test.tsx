@@ -24,6 +24,12 @@ const INITIAL_CARE_ANSWERS = [en.intake.treatment_er, en.intake.careTiming_sameD
 
 vi.mock('../lib/api-plaintiff', () => ({
   createAssessment: vi.fn(async () => ({ id: 'a1' })),
+  // Requested when the claimant reaches the consent step. Rejecting is the
+  // realistic offline case, and the wizard must show no figure rather than
+  // computing one, so this also covers that path if a test walks that far.
+  previewAssessmentValuation: vi.fn(async () => {
+    throw new Error('offline')
+  }),
   predict: vi.fn(async () => ({})),
   uploadEvidenceFile: vi.fn(async () => ({})),
   processEvidenceFile: vi.fn(async () => ({})),

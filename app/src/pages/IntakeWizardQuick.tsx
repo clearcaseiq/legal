@@ -4,7 +4,7 @@
 import { Fragment, useState, useEffect, useLayoutEffect, useRef, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
-import { createAssessment, predict, uploadEvidenceFile, processEvidenceFile, extractEvidenceData, analyzeCaseWithChatGPT, calculateSOL, createIntakeLead, updateIntakeLead, getIntakeLead, getEvidenceFiles, type IntakeLeadPayload } from '../lib/api-plaintiff'
+import { createAssessment, previewAssessmentValuation, predict, uploadEvidenceFile, processEvidenceFile, extractEvidenceData, analyzeCaseWithChatGPT, calculateSOL, createIntakeLead, updateIntakeLead, getIntakeLead, getEvidenceFiles, type IntakeLeadPayload, type AssessmentValuationPreview } from '../lib/api-plaintiff'
 import { deleteEvidenceFile, extractIncidentDetails, type IncidentExtraction } from '../lib/api'
 import { ChevronRight, ChevronLeft, ChevronDown, Car, Footprints, HardHat, Stethoscope, HelpCircle, Check, X, MapPin, Building2, Camera, Video, FileText, Shield, Mail, Phone, DollarSign, Dog, Package, AlertTriangle, Droplets, CalendarDays, Hospital, Scissors, Ambulance, PersonStanding, Scan, Syringe, Pill, Lock, MessageSquare, Info, CheckCircle2, Save, ShieldCheck, Users, HeartPulse, Activity, Bone, CalendarClock, Ban, BedDouble, Moon, Dumbbell, Bike, Truck, User, Briefcase, Landmark, CornerUpLeft, Receipt, Wine, RotateCw, XCircle, Clock, UserX, Lightbulb, ClipboardCheck, Umbrella, Pencil, FolderOpen, Scale, Star, Sparkles, TrendingUp, Brain, Upload, CalendarCheck, History, Hand, CircleDot, type LucideIcon } from 'lucide-react'
 import InlineEvidenceUpload from '../components/InlineEvidenceUpload'
@@ -997,6 +997,11 @@ export default function IntakeWizardQuick() {
   // Document-derived financial figures extracted from uploaded bills / wage docs during intake.
   // `weeklyIncome` is only populated for wage-verification docs (documented pay rate).
   const [docFinancials, setDocFinancials] = useState<Record<string, { total: number; amounts: string[]; weeklyIncome?: number }>>({})
+  // The settlement band shown on the final step, straight from the valuation
+  // engine. Null until it arrives, and left null if the request fails: showing
+  // nothing is right, whereas the figure this replaced was a local formula that
+  // contradicted the band on the very next screen.
+  const [valuationPreview, setValuationPreview] = useState<AssessmentValuationPreview | null>(null)
   // Tracks which uploaded files have already been sent for extraction so we don't re-OCR them.
   const extractedFileSigRef = useRef<Map<string, { total: number; amounts: string[]; weeklyIncome?: number }>>(new Map())
   // Name-only identity consistency: the patient/person name extracted from each
@@ -2397,6 +2402,289 @@ export default function IntakeWizardQuick() {
   }
   validateAndNextRef.current = validateAndNext
 
+  /**
+   * Everything intake tells the server about the case, assembled in one place.
+   *
+   * This lived inline in handleSubmit, which left the final step with no way to
+   * ask what the case was worth, so it computed its own answer: the medical-bill
+   * bracket midpoint times 0.8 and 2.4. That range disagreed with the modelled
+   * band the claimant saw seconds later, and only ever in the one direction,
+   * because a 2.4x ceiling on raw bills overstates exactly the cases where
+   * liability or causation is contested.
+   *
+   * The valuation preview now sends what submit sends. Assembling that request a
+   * second way would have drifted from the stored valuation just as surely as a
+   * second formula did, and rather less visibly.
+   */
+  const buildAssessmentPayload = (consents: { tos: boolean; privacy: boolean; ml_use: boolean }) => {
+    const claimType = injuryTypeToClaimType(formData.injuryType)
+    const caseTaxonomy = buildCaseTaxonomy({
+      injuryType: formData.injuryType,
+      claimType,
+      incidentSubtype: formData.incidentSubtype,
+      branch: formData.branch,
+      insuranceCoverage: formData.insuranceCoverage,
+      injuryDetails: formData.injuryDetails,
+      casePosture: formData.casePosture,
+    })
+    const medicalSignalDefaults = {
+      imaging: formData.injuryDetails.imaging.length > 0 ? 'answered' : 'unknown',
+      procedures: formData.injuryDetails.procedures.length > 0 ? 'answered' : 'unknown',
+      futureTreatment: formData.injuryDetails.futureTreatment.length > 0 ? 'answered' : 'unknown',
+      surgeryStatus: formData.injuryDetails.surgeryStatus || 'unknown',
+    }
+    const medicalBillRangeEstimate = MEDICAL_BILL_RANGE_OPTIONS.find(option => option.value === formData.insuranceCoverage.medicalBillRange)?.estimate || 0
+    // For the open-ended "$50k+" bucket, prefer an exact figure if the user supplied one
+    // so large cases are not anchored at the $50k floor.
+    const medicalBillExactValue = Number(String(formData.insuranceCoverage.medicalBillExact || '').replace(/[$,\s]/g, '')) || 0
+    const medicalBillEstimate = medicalBillExactValue > 0 ? medicalBillExactValue : medicalBillRangeEstimate
+    // Bills uploaded during intake are OCR'd to an actual documented total. Send
+    // the greater of the self-reported estimate and the documented total so the
+    // stored valuation reflects real bills immediately (the backend recalculation
+    // later reconciles this once files are persisted and re-OCR'd server-side).
+    const billsDocTotalForSubmit = docFinancials['bills']?.total || 0
+    const medicalChargesForSubmit = Math.max(medicalBillEstimate, billsDocTotalForSubmit)
+    const futureMedicalEstimate = FUTURE_MEDICAL_RANGE_OPTIONS.find(option => option.value === formData.insuranceCoverage.futureMedicalRange)?.estimate || 0
+    // Wage loss: send the greater of the self-reported estimate and the documented figure
+    // (uploaded pay stub's weekly income × missed-work duration). Mirrors med_charges.
+    const selfReportedWageLoss = Number(String(formData.casePosture.lostWagesEstimate || '').replace(/[$,]/g, '')) || 0
+    const wageWeeklyIncomeForSubmit = docFinancials['wage_verification']?.weeklyIncome || 0
+    const documentedWageLossForSubmit = Math.round(wageWeeklyIncomeForSubmit * (MISSED_WORK_WEEKS[formData.casePosture.missedWork as string] || 0))
+    const wageLossForSubmit = Math.max(selfReportedWageLoss, documentedWageLossForSubmit)
+    const payload = {
+      claimType: claimType as any,
+      caseSubtype: caseTaxonomy.caseSubtype,
+      incidentTags: caseTaxonomy.incidentTags,
+      taxonomyPath: caseTaxonomy.taxonomyPath,
+      caseTaxonomy,
+      venue: { state: formData.venue.state, county: formData.venue.county.trim() },
+      incident: {
+        date: getIncidentDate(),
+        location: formatVenueLocation(formData.venue),
+        narrative: buildNarrative(),
+        caseSubtype: caseTaxonomy.caseSubtype,
+        incidentTags: caseTaxonomy.incidentTags,
+        taxonomyPath: caseTaxonomy.taxonomyPath,
+      },
+      injuries: [
+        {
+          description: formData.injurySeverity,
+          bodyParts: formData.injuryDetails.bodyParts.map(bodyPart => ({
+            part: bodyPart,
+            severity: formData.injuryDetails.bodyPartSeverity[bodyPart] || 'unspecified',
+          })),
+          otherDescription: formData.injuryDetails.bodyPartsOther.trim() || undefined,
+          priorInjury: formData.injuryDetails.priorInjury,
+          concussionSymptoms: formData.injuryDetails.concussionSymptoms,
+          lifestyleImpact: formData.injuryDetails.lifestyleImpact,
+          shoulderFindings: formData.injuryDetails.shoulderFindings,
+          backFindings: formData.injuryDetails.backFindings,
+          diagnoses: formData.injuryDetails.diagnoses,
+          fracture: formData.injuryDetails.diagnoses.includes('fracture'),
+          tbi: formData.injuryDetails.diagnoses.includes('tbi'),
+        }
+      ],
+      treatment: [
+        // 'none' is the "I haven't had treatment" answer. Recording it as a
+        // treatment entry made downstream code that tests `treatment.length`
+        // read an untreated plaintiff as treated (CP-415).
+        ...formData.medicalTreatment.filter(t => t !== 'none').map(t => ({ type: t, notes: '' })),
+        // Per-region clinical treatments (PT, MRI, injection, surgery, ...) now
+        // captured in the dynamic injury cards. Fold them into the treatment
+        // array so the backend/valuation see them like any other treatment.
+        ...Object.entries(formData.injuryDetails.regionDetail || {}).flatMap(([region, d]: [string, any]) =>
+          (Array.isArray(d?.treatments) ? (d.treatments as string[]) : []).map(code => ({
+            type: code,
+            region,
+            notes:
+              code === 'other_tx'
+                ? String(d?.treatmentsOtherText || '').trim()
+                : '',
+          }))
+        ),
+        ...formData.injuryDetails.imaging.map(imaging => ({ type: 'imaging', imaging })),
+        ...(formData.injuryDetails.surgeryStatus ? [{ type: 'surgery_status', status: formData.injuryDetails.surgeryStatus }] : []),
+        ...formData.injuryDetails.procedures.map(procedure => ({ type: 'procedure', procedure })),
+        ...formData.injuryDetails.futureTreatment.map(futureTreatment => ({ type: 'future_treatment', recommendation: futureTreatment })),
+        ...formData.injuryDetails.shoulderFindings.map(finding => ({ type: 'shoulder_finding', finding })),
+        ...formData.injuryDetails.backFindings.map(finding => ({ type: 'back_finding', finding })),
+      ],
+      liability: {
+        ...formData.branch,
+        faultBelief: formData.casePosture.faultBelief,
+        comparativeFault: formData.casePosture.comparativeFault || (
+          formData.casePosture.faultBelief === 'mostly_me'
+            ? 'yes'
+            : formData.casePosture.faultBelief === 'shared_fault' || formData.casePosture.faultBelief === 'not_sure'
+              ? 'possibly'
+              : 'no'
+        ),
+        comparativeNegligence:
+          formData.casePosture.faultBelief === 'mostly_me' || formData.casePosture.comparativeFault === 'yes'
+            ? 0.35
+            : formData.casePosture.faultBelief === 'shared_fault' ||
+                formData.casePosture.faultBelief === 'not_sure' ||
+                formData.casePosture.comparativeFault === 'possibly' ||
+                formData.casePosture.comparativeFault === 'not_sure'
+              ? 0.15
+              : 0,
+      },
+      damages: {
+        med_charges: medicalChargesForSubmit,
+        intake_med_charges: medicalBillEstimate,
+        // When bills were uploaded and OCR'd at intake we already have a documented
+        // total, so flag it as partially_documented; otherwise it's a self-reported
+        // range/estimate. Once files persist server-side, runCaseRecalculation
+        // reconciles this to documented/partially_documented. The valuation weights
+        // confidence by this so early estimates aren't treated as verified.
+        med_charges_source: billsDocTotalForSubmit > 0 ? 'partially_documented' as const : 'self_reported' as const,
+        bills_complete: formData.insuranceCoverage.billsComplete === 'yes',
+        future_medical: futureMedicalEstimate,
+        medical_bill_range: formData.insuranceCoverage.medicalBillRange,
+        future_medical_range: formData.insuranceCoverage.futureMedicalRange,
+        estimated_wage_loss: wageLossForSubmit,
+        wage_loss: wageLossForSubmit,
+        // Property/rental damage for vehicle cases. Previously this only fed the
+        // client-side preview and never reached the backend valuation.
+        estimated_property_damage: formData.injuryType === 'vehicle' ? computePropertyDamage(formData.branch) : 0,
+      },
+      insurance: {
+        health_coverage: formData.insuranceCoverage.healthCoverage,
+        other_party_insured: formData.insuranceCoverage.otherPartyInsured,
+        coverage_types:
+          formData.insuranceCoverage.healthCoverage === 'yes'
+            ? [...formData.insuranceCoverage.coverageTypes]
+            : [],
+        medicare_plan_type:
+          formData.insuranceCoverage.healthCoverage === 'yes' &&
+          formData.insuranceCoverage.coverageTypes.includes('medicare')
+            ? formData.insuranceCoverage.medicarePlanType || 'unsure'
+            : undefined,
+        health_insurance_paid: formData.insuranceCoverage.healthInsurancePaid,
+        out_of_pocket_range: formData.insuranceCoverage.outOfPocketRange,
+        bill_payment_sources: formData.insuranceCoverage.billPaymentSources,
+        accident_expenses_paid: formData.insuranceCoverage.accidentExpenses,
+        medical_bill_range: formData.insuranceCoverage.medicalBillRange,
+        future_medical_range: formData.insuranceCoverage.futureMedicalRange,
+        um_uim: formData.insuranceCoverage.umUimCoverage,
+        has_um_uim_coverage: formData.insuranceCoverage.umUimCoverage === 'yes',
+        pip_coverage: formData.insuranceCoverage.pipCoverage,
+        has_pip_coverage: formData.insuranceCoverage.pipCoverage === 'yes',
+        med_pay_coverage: formData.insuranceCoverage.medPayCoverage,
+        has_med_pay_coverage: formData.insuranceCoverage.medPayCoverage === 'yes',
+        plaintiff_auto_carrier: formData.insuranceCoverage.plaintiffAutoCarrier?.trim() || undefined,
+        defendant_coverage_limits: formData.insuranceCoverage.defendantCoverageLimits,
+        policy_limit:
+          formData.insuranceCoverage.defendantCoverageLimits === '50000'
+            ? 50000
+            : formData.insuranceCoverage.defendantCoverageLimits === '100000'
+              ? 100000
+              : formData.insuranceCoverage.defendantCoverageLimits === 'state_minimum'
+                ? 25000
+                : undefined
+      },
+      caseAcceleration: {
+        wageLoss: {
+          missedWork: formData.casePosture.missedWork,
+          estimatedAmount: formData.casePosture.lostWagesEstimate,
+          estimatedRange: formData.casePosture.lostWagesRange,
+          documentedWeeklyIncome: wageWeeklyIncomeForSubmit || undefined,
+          documentedAmount: documentedWageLossForSubmit || undefined,
+        }
+      },
+      plaintiffContext: {
+        representationStage:
+          formData.casePosture.attorneyStatus === 'hired'
+            ? 'lawyer_retained'
+            : formData.casePosture.attorneyStatus === 'looking'
+              ? 'no_lawyer'
+              : undefined,
+        settlementOfferStatus: formData.casePosture.settlementOfferStatus,
+        settlementOffer: formData.casePosture.settlementOffer,
+        acceptedSettlement: formData.casePosture.acceptedSettlement,
+        acceptedSettlementAmount: formData.casePosture.acceptedSettlementAmount,
+        insuranceContact: formData.casePosture.insuranceContact,
+        financialHardship: formData.casePosture.financialHardship,
+        attorneyStatus: formData.casePosture.attorneyStatus,
+        secondOpinionInterest: formData.casePosture.secondOpinionInterest,
+        deadlineWarning: formData.casePosture.deadlineWarning,
+        painLifestyleImpact: formData.injuryDetails.lifestyleImpact,
+      },
+      consents: {
+        tos: consents.tos,
+        privacy: consents.privacy,
+        ml_use: consents.ml_use,
+        ...(hipaaAuthorized ? { hipaa: true } : {})
+      },
+    }
+    ;(payload as any).intakeData = {
+      injuredParty: formData.injuredParty,
+      injuryType: formData.injuryType,
+      // Kept alongside injuryType rather than only folded into caseSubtype, so
+      // the claimant's own answer stays legible next to the broad category.
+      incidentSubtype: formData.incidentSubtype,
+      otherInjuryDescription: formData.otherInjuryDescription.trim() || undefined,
+      caseTaxonomy,
+      // Initial-care signal: first facility, whether EMS responded, and how
+      // soon after the incident. Feeds causation / treatment-gap analysis.
+      initialCare: {
+        facility: formData.medicalTreatment[0] || null,
+        emsResponded: formData.emsResponded || null,
+        timing: formData.initialCareTiming || null,
+      },
+      narrative: formData.narrative,
+      branch: formData.branch,
+      injuryDetails: formData.injuryDetails,
+      medicalSignalDefaults,
+      casePosture: formData.casePosture,
+      insuranceCoverage: formData.insuranceCoverage,
+      contact: {
+        email: formData.contact.email.trim(),
+        phone: formData.contact.phone.trim(),
+      },
+      incidentDatePreset: formData.incidentDatePreset,
+      incidentDateApproximate: incidentDateIsApproximate
+    }
+
+    return payload
+  }
+
+  // Ask the engine what the case is worth as the claimant reaches the last step,
+  // sending the payload submit would send. Refires if they go back and edit, so
+  // the figure tracks their answers.
+  useEffect(() => {
+    if (currentStep !== 'consent') return
+
+    let cancelled = false
+
+    // Assembling the payload reads fields the earlier steps validate, but a
+    // preview must not be the thing that breaks intake if one is somehow
+    // missing, so a throw here is treated like a failed request.
+    let payload: ReturnType<typeof buildAssessmentPayload> | null = null
+    try {
+      payload = buildAssessmentPayload(formData.consents || { tos: false, privacy: false, ml_use: false })
+    } catch {
+      setValuationPreview(null)
+      return
+    }
+
+    previewAssessmentValuation(payload)
+      .then((preview) => {
+        if (!cancelled) setValuationPreview(preview)
+      })
+      .catch(() => {
+        // Deliberately silent and deliberately empty. A preview is not worth
+        // interrupting intake over, and the one thing it must not do is fall
+        // back to a figure of its own.
+        if (!cancelled) setValuationPreview(null)
+      })
+
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentStep])
+
   const handleSubmit = async () => {
     // The assessment was already created but some documents failed: retry uploads instead of re-submitting.
     if (assessmentId) {
@@ -2422,234 +2710,7 @@ export default function IntakeWizardQuick() {
       if (remaining > 0) await new Promise(resolve => setTimeout(resolve, remaining))
     }
     try {
-      const claimType = injuryTypeToClaimType(formData.injuryType)
-      const caseTaxonomy = buildCaseTaxonomy({
-        injuryType: formData.injuryType,
-        claimType,
-        incidentSubtype: formData.incidentSubtype,
-        branch: formData.branch,
-        insuranceCoverage: formData.insuranceCoverage,
-        injuryDetails: formData.injuryDetails,
-        casePosture: formData.casePosture,
-      })
-      const medicalSignalDefaults = {
-        imaging: formData.injuryDetails.imaging.length > 0 ? 'answered' : 'unknown',
-        procedures: formData.injuryDetails.procedures.length > 0 ? 'answered' : 'unknown',
-        futureTreatment: formData.injuryDetails.futureTreatment.length > 0 ? 'answered' : 'unknown',
-        surgeryStatus: formData.injuryDetails.surgeryStatus || 'unknown',
-      }
-      const medicalBillRangeEstimate = MEDICAL_BILL_RANGE_OPTIONS.find(option => option.value === formData.insuranceCoverage.medicalBillRange)?.estimate || 0
-      // For the open-ended "$50k+" bucket, prefer an exact figure if the user supplied one
-      // so large cases are not anchored at the $50k floor.
-      const medicalBillExactValue = Number(String(formData.insuranceCoverage.medicalBillExact || '').replace(/[$,\s]/g, '')) || 0
-      const medicalBillEstimate = medicalBillExactValue > 0 ? medicalBillExactValue : medicalBillRangeEstimate
-      // Bills uploaded during intake are OCR'd to an actual documented total. Send
-      // the greater of the self-reported estimate and the documented total so the
-      // stored valuation reflects real bills immediately (the backend recalculation
-      // later reconciles this once files are persisted and re-OCR'd server-side).
-      const billsDocTotalForSubmit = docFinancials['bills']?.total || 0
-      const medicalChargesForSubmit = Math.max(medicalBillEstimate, billsDocTotalForSubmit)
-      const futureMedicalEstimate = FUTURE_MEDICAL_RANGE_OPTIONS.find(option => option.value === formData.insuranceCoverage.futureMedicalRange)?.estimate || 0
-      // Wage loss: send the greater of the self-reported estimate and the documented figure
-      // (uploaded pay stub's weekly income × missed-work duration). Mirrors med_charges.
-      const selfReportedWageLoss = Number(String(formData.casePosture.lostWagesEstimate || '').replace(/[$,]/g, '')) || 0
-      const wageWeeklyIncomeForSubmit = docFinancials['wage_verification']?.weeklyIncome || 0
-      const documentedWageLossForSubmit = Math.round(wageWeeklyIncomeForSubmit * (MISSED_WORK_WEEKS[formData.casePosture.missedWork as string] || 0))
-      const wageLossForSubmit = Math.max(selfReportedWageLoss, documentedWageLossForSubmit)
-      const payload = {
-        claimType: claimType as any,
-        caseSubtype: caseTaxonomy.caseSubtype,
-        incidentTags: caseTaxonomy.incidentTags,
-        taxonomyPath: caseTaxonomy.taxonomyPath,
-        caseTaxonomy,
-        venue: { state: formData.venue.state, county: formData.venue.county.trim() },
-        incident: {
-          date: getIncidentDate(),
-          location: formatVenueLocation(formData.venue),
-          narrative: buildNarrative(),
-          caseSubtype: caseTaxonomy.caseSubtype,
-          incidentTags: caseTaxonomy.incidentTags,
-          taxonomyPath: caseTaxonomy.taxonomyPath,
-        },
-        injuries: [
-          {
-            description: formData.injurySeverity,
-            bodyParts: formData.injuryDetails.bodyParts.map(bodyPart => ({
-              part: bodyPart,
-              severity: formData.injuryDetails.bodyPartSeverity[bodyPart] || 'unspecified',
-            })),
-            otherDescription: formData.injuryDetails.bodyPartsOther.trim() || undefined,
-            priorInjury: formData.injuryDetails.priorInjury,
-            concussionSymptoms: formData.injuryDetails.concussionSymptoms,
-            lifestyleImpact: formData.injuryDetails.lifestyleImpact,
-            shoulderFindings: formData.injuryDetails.shoulderFindings,
-            backFindings: formData.injuryDetails.backFindings,
-            diagnoses: formData.injuryDetails.diagnoses,
-            fracture: formData.injuryDetails.diagnoses.includes('fracture'),
-            tbi: formData.injuryDetails.diagnoses.includes('tbi'),
-          }
-        ],
-        treatment: [
-          // 'none' is the "I haven't had treatment" answer. Recording it as a
-          // treatment entry made downstream code that tests `treatment.length`
-          // read an untreated plaintiff as treated (CP-415).
-          ...formData.medicalTreatment.filter(t => t !== 'none').map(t => ({ type: t, notes: '' })),
-          // Per-region clinical treatments (PT, MRI, injection, surgery, ...) now
-          // captured in the dynamic injury cards. Fold them into the treatment
-          // array so the backend/valuation see them like any other treatment.
-          ...Object.entries(formData.injuryDetails.regionDetail || {}).flatMap(([region, d]: [string, any]) =>
-            (Array.isArray(d?.treatments) ? (d.treatments as string[]) : []).map(code => ({
-              type: code,
-              region,
-              notes:
-                code === 'other_tx'
-                  ? String(d?.treatmentsOtherText || '').trim()
-                  : '',
-            }))
-          ),
-          ...formData.injuryDetails.imaging.map(imaging => ({ type: 'imaging', imaging })),
-          ...(formData.injuryDetails.surgeryStatus ? [{ type: 'surgery_status', status: formData.injuryDetails.surgeryStatus }] : []),
-          ...formData.injuryDetails.procedures.map(procedure => ({ type: 'procedure', procedure })),
-          ...formData.injuryDetails.futureTreatment.map(futureTreatment => ({ type: 'future_treatment', recommendation: futureTreatment })),
-          ...formData.injuryDetails.shoulderFindings.map(finding => ({ type: 'shoulder_finding', finding })),
-          ...formData.injuryDetails.backFindings.map(finding => ({ type: 'back_finding', finding })),
-        ],
-        liability: {
-          ...formData.branch,
-          faultBelief: formData.casePosture.faultBelief,
-          comparativeFault: formData.casePosture.comparativeFault || (
-            formData.casePosture.faultBelief === 'mostly_me'
-              ? 'yes'
-              : formData.casePosture.faultBelief === 'shared_fault' || formData.casePosture.faultBelief === 'not_sure'
-                ? 'possibly'
-                : 'no'
-          ),
-          comparativeNegligence:
-            formData.casePosture.faultBelief === 'mostly_me' || formData.casePosture.comparativeFault === 'yes'
-              ? 0.35
-              : formData.casePosture.faultBelief === 'shared_fault' ||
-                  formData.casePosture.faultBelief === 'not_sure' ||
-                  formData.casePosture.comparativeFault === 'possibly' ||
-                  formData.casePosture.comparativeFault === 'not_sure'
-                ? 0.15
-                : 0,
-        },
-        damages: {
-          med_charges: medicalChargesForSubmit,
-          intake_med_charges: medicalBillEstimate,
-          // When bills were uploaded and OCR'd at intake we already have a documented
-          // total, so flag it as partially_documented; otherwise it's a self-reported
-          // range/estimate. Once files persist server-side, runCaseRecalculation
-          // reconciles this to documented/partially_documented. The valuation weights
-          // confidence by this so early estimates aren't treated as verified.
-          med_charges_source: billsDocTotalForSubmit > 0 ? 'partially_documented' as const : 'self_reported' as const,
-          bills_complete: formData.insuranceCoverage.billsComplete === 'yes',
-          future_medical: futureMedicalEstimate,
-          medical_bill_range: formData.insuranceCoverage.medicalBillRange,
-          future_medical_range: formData.insuranceCoverage.futureMedicalRange,
-          estimated_wage_loss: wageLossForSubmit,
-          wage_loss: wageLossForSubmit,
-          // Property/rental damage for vehicle cases. Previously this only fed the
-          // client-side preview and never reached the backend valuation.
-          estimated_property_damage: formData.injuryType === 'vehicle' ? computePropertyDamage(formData.branch) : 0,
-        },
-        insurance: {
-          health_coverage: formData.insuranceCoverage.healthCoverage,
-          other_party_insured: formData.insuranceCoverage.otherPartyInsured,
-          coverage_types:
-            formData.insuranceCoverage.healthCoverage === 'yes'
-              ? [...formData.insuranceCoverage.coverageTypes]
-              : [],
-          medicare_plan_type:
-            formData.insuranceCoverage.healthCoverage === 'yes' &&
-            formData.insuranceCoverage.coverageTypes.includes('medicare')
-              ? formData.insuranceCoverage.medicarePlanType || 'unsure'
-              : undefined,
-          health_insurance_paid: formData.insuranceCoverage.healthInsurancePaid,
-          out_of_pocket_range: formData.insuranceCoverage.outOfPocketRange,
-          bill_payment_sources: formData.insuranceCoverage.billPaymentSources,
-          accident_expenses_paid: formData.insuranceCoverage.accidentExpenses,
-          medical_bill_range: formData.insuranceCoverage.medicalBillRange,
-          future_medical_range: formData.insuranceCoverage.futureMedicalRange,
-          um_uim: formData.insuranceCoverage.umUimCoverage,
-          has_um_uim_coverage: formData.insuranceCoverage.umUimCoverage === 'yes',
-          pip_coverage: formData.insuranceCoverage.pipCoverage,
-          has_pip_coverage: formData.insuranceCoverage.pipCoverage === 'yes',
-          med_pay_coverage: formData.insuranceCoverage.medPayCoverage,
-          has_med_pay_coverage: formData.insuranceCoverage.medPayCoverage === 'yes',
-          plaintiff_auto_carrier: formData.insuranceCoverage.plaintiffAutoCarrier?.trim() || undefined,
-          defendant_coverage_limits: formData.insuranceCoverage.defendantCoverageLimits,
-          policy_limit:
-            formData.insuranceCoverage.defendantCoverageLimits === '50000'
-              ? 50000
-              : formData.insuranceCoverage.defendantCoverageLimits === '100000'
-                ? 100000
-                : formData.insuranceCoverage.defendantCoverageLimits === 'state_minimum'
-                  ? 25000
-                  : undefined
-        },
-        caseAcceleration: {
-          wageLoss: {
-            missedWork: formData.casePosture.missedWork,
-            estimatedAmount: formData.casePosture.lostWagesEstimate,
-            estimatedRange: formData.casePosture.lostWagesRange,
-            documentedWeeklyIncome: wageWeeklyIncomeForSubmit || undefined,
-            documentedAmount: documentedWageLossForSubmit || undefined,
-          }
-        },
-        plaintiffContext: {
-          representationStage:
-            formData.casePosture.attorneyStatus === 'hired'
-              ? 'lawyer_retained'
-              : formData.casePosture.attorneyStatus === 'looking'
-                ? 'no_lawyer'
-                : undefined,
-          settlementOfferStatus: formData.casePosture.settlementOfferStatus,
-          settlementOffer: formData.casePosture.settlementOffer,
-          acceptedSettlement: formData.casePosture.acceptedSettlement,
-          acceptedSettlementAmount: formData.casePosture.acceptedSettlementAmount,
-          insuranceContact: formData.casePosture.insuranceContact,
-          financialHardship: formData.casePosture.financialHardship,
-          attorneyStatus: formData.casePosture.attorneyStatus,
-          secondOpinionInterest: formData.casePosture.secondOpinionInterest,
-          deadlineWarning: formData.casePosture.deadlineWarning,
-          painLifestyleImpact: formData.injuryDetails.lifestyleImpact,
-        },
-        consents: {
-          tos: consents.tos,
-          privacy: consents.privacy,
-          ml_use: consents.ml_use,
-          ...(hipaaAuthorized ? { hipaa: true } : {})
-        },
-      }
-      ;(payload as any).intakeData = {
-        injuredParty: formData.injuredParty,
-        injuryType: formData.injuryType,
-        // Kept alongside injuryType rather than only folded into caseSubtype, so
-        // the claimant's own answer stays legible next to the broad category.
-        incidentSubtype: formData.incidentSubtype,
-        otherInjuryDescription: formData.otherInjuryDescription.trim() || undefined,
-        caseTaxonomy,
-        // Initial-care signal: first facility, whether EMS responded, and how
-        // soon after the incident. Feeds causation / treatment-gap analysis.
-        initialCare: {
-          facility: formData.medicalTreatment[0] || null,
-          emsResponded: formData.emsResponded || null,
-          timing: formData.initialCareTiming || null,
-        },
-        narrative: formData.narrative,
-        branch: formData.branch,
-        injuryDetails: formData.injuryDetails,
-        medicalSignalDefaults,
-        casePosture: formData.casePosture,
-        insuranceCoverage: formData.insuranceCoverage,
-        contact: {
-          email: formData.contact.email.trim(),
-          phone: formData.contact.phone.trim(),
-        },
-        incidentDatePreset: formData.incidentDatePreset,
-        incidentDateApproximate: incidentDateIsApproximate
-      }
+      const payload = buildAssessmentPayload(consents)
 
       const id = await createAssessment(payload)
       if (!id || id === 'undefined' || id === 'null') {
@@ -6619,10 +6680,17 @@ export default function IntakeWizardQuick() {
           const previewMedicalBillEstimate = MEDICAL_BILL_RANGE_OPTIONS.find(option => option.value === formData.insuranceCoverage.medicalBillRange)?.estimate || 0
           const previewFutureMedicalEstimate = FUTURE_MEDICAL_RANGE_OPTIONS.find(option => option.value === formData.insuranceCoverage.futureMedicalRange)?.estimate || 0
           const previewWageLossEstimate = Number(String(formData.casePosture.lostWagesEstimate || '').replace(/[$,]/g, '')) || 0
-          const previewKnownValue = previewMedicalBillEstimate + previewFutureMedicalEstimate + previewWageLossEstimate
-          const previewLow = previewKnownValue > 0 ? Math.max(5000, Math.round(previewKnownValue * 0.8)) : 0
-          const previewHigh = previewKnownValue > 0 ? Math.max(15000, Math.round(previewKnownValue * 2.4)) : 0
-          const previewSettlementRange = previewKnownValue > 0 ? `$${previewLow.toLocaleString()} - $${previewHigh.toLocaleString()}` : tx('preliminaryEstimate')
+          // The band comes from the engine, so this is the same figure the
+          // claimant will read on their snapshot a moment later. It used to be
+          // the three estimates above times 0.8 and 2.4, computed here, which
+          // ignored liability, venue, severity, treatment, documentation and
+          // coverage and so disagreed with the model on nearly every case —
+          // overstating hardest on the ones where fault is contested. While the
+          // request is in flight, or if it fails, the step says it is preparing
+          // an estimate rather than falling back to a second formula.
+          const previewSettlementRange = valuationPreview
+            ? `$${valuationPreview.settlement.low.toLocaleString()} - $${valuationPreview.settlement.high.toLocaleString()}`
+            : tx('preliminaryEstimate')
           const previewConfidence = getEstimateConfidence()
 
           const evCount = (cat: string) => (pendingEvidenceFiles[cat]?.length || 0)

@@ -41,6 +41,7 @@ import { getConfiguredWaveSize, getMatchingRules } from '../lib/matching-rules-c
 import { validateCaseTypeFromFacts } from '../lib/case-type-validation'
 import { buildMedicalProfile } from '../lib/medical-profile'
 import { underwriteCase, reconcileValueBandsWithUnderwriting } from '../lib/underwriting-engine'
+import { intakeLimiter } from '../lib/rate-limits'
 import { upsertMedicalStatus } from '../lib/medical-record'
 import { syncCaseStage } from '../lib/case-stage'
 import { runCaseRecalculation } from '../lib/case-recalculation'
@@ -99,7 +100,7 @@ function parsePredictionExplain(value: string) {
  * the point: a preview built from a second mapping would drift from the stored
  * valuation just as surely as a second formula did, only less visibly.
  */
-router.post('/preview', optionalAuthMiddleware, async (req: AuthRequest, res) => {
+router.post('/preview', intakeLimiter, optionalAuthMiddleware, async (req: AuthRequest, res) => {
   try {
     // The create route's schema, less the consent gate. The preview renders on
     // the consent step itself, so demanding accepted terms before showing an
