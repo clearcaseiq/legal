@@ -1871,7 +1871,9 @@
     },
     "liabilityChecklist": {
       "policeReport": "Police report",
+      "incidentReport": "Incident or police report",
       "photosOfDamage": "Photos of damage",
+      "photosOfScene": "Photos of the scene or injury",
       "witnessStatements": "Witness statements",
       "faultAppearsClear": "Fault appears clear"
     },
@@ -2870,6 +2872,7 @@
       "liabilityDefault": "Based on the facts provided, fault may rest with the other party. More evidence will strengthen liability.",
       "yes": "Yes",
       "notAdded": "Not added",
+      "notEstablished": "Not yet established",
       "attorneyInterest": "Attorney Interest",
       "attractiveHigh": "Your case looks attractive to attorneys based on the current facts.",
       "potentialLow": "Your case has potential, but additional records will help attract more attorney interest.",

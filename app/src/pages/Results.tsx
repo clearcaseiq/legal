@@ -33,6 +33,7 @@ import { formatPercentage, formatCurrency } from '../lib/formatters'
 import { useHeuristics } from '../contexts/HeuristicsContext'
 import { UNDOCUMENTED_READINESS_CEILING, type HeuristicsConfig } from '../lib/heuristics'
 import { liabilityTier, liabilityConfidenceLevel, LIABILITY_TIER_COPY_KEY } from '../lib/liabilityGrade'
+import { buildLiabilityChecklist, hasUploadableGap } from '../lib/liabilityChecklist'
 import { formatAttorneyLicensure } from '../lib/attorneyLicensure'
 import { isDanglingFragment, isLegacyTruncated } from '../lib/liabilityFactors'
 import { AttorneyContactOrder } from '../components/AttorneyContactOrder'
@@ -2978,12 +2979,21 @@ Checklist:
   const attorneyInterestPct =
     attorneyInterestLevel === 'High' ? 85 : attorneyInterestLevel === 'Medium' ? 55 : 28
   const hasWitnessStatements = /witness/i.test(String(parsedFacts?.incident?.narrative || ''))
-  const liabilityChecklist = [
-    { label: t('results.liabilityChecklist.policeReport'), ok: hasPoliceReport },
-    { label: t('results.liabilityChecklist.photosOfDamage'), ok: hasInjuryPhotos },
-    { label: t('results.liabilityChecklist.witnessStatements'), ok: hasWitnessStatements },
-    { label: t('results.liabilityChecklist.faultAppearsClear'), ok: liabilityOutlook === 'strong' },
-  ]
+  const liabilityChecklist = buildLiabilityChecklist({
+    claimType: assessment?.claimType,
+    hasReport: hasPoliceReport,
+    hasPhotos: hasInjuryPhotos,
+    hasWitnesses: hasWitnessStatements,
+    faultClear: liabilityOutlook === 'strong',
+    labels: {
+      policeReport: t('results.liabilityChecklist.policeReport'),
+      incidentReport: t('results.liabilityChecklist.incidentReport'),
+      photosOfDamage: t('results.liabilityChecklist.photosOfDamage'),
+      photosOfScene: t('results.liabilityChecklist.photosOfScene'),
+      witnessStatements: t('results.liabilityChecklist.witnessStatements'),
+      faultAppearsClear: t('results.liabilityChecklist.faultAppearsClear'),
+    },
+  })
   const impactWord = (level: ConsumerConfidenceLevel) =>
     level === 'High' ? 'High impact' : level === 'Medium' ? 'Medium impact' : 'Low impact'
   const severityImpactLevel: ConsumerConfidenceLevel =
@@ -4036,7 +4046,17 @@ Checklist:
                       {row.ok ? <CheckCircle className="h-4 w-4 text-emerald-600" /> : <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-300 text-[10px] text-slate-400">○</span>}
                       {row.label}
                     </span>
-                    <span className={row.ok ? 'text-xs font-semibold text-emerald-600' : 'text-xs text-slate-400'}>{row.ok ? t('results.chrome.yes') : t('results.chrome.notAdded')}</span>
+                    {/* "Not added" only makes sense for something the claimant
+                        can add. Fault being clear is a reading of the facts, and
+                        labelling it "Not added" invited them to go looking for a
+                        document that does not exist. */}
+                    <span className={row.ok ? 'text-xs font-semibold text-emerald-600' : 'text-xs text-slate-400'}>
+                      {row.ok
+                        ? t('results.chrome.yes')
+                        : row.uploadable
+                          ? t('results.chrome.notAdded')
+                          : t('results.chrome.notEstablished')}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -4052,7 +4072,7 @@ Checklist:
                 moreLabel={t('results.chrome.moreInfo')}
                 compact
               />
-              {evidenceUploadPath && liabilityChecklist.some((row) => !row.ok) && (
+              {evidenceUploadPath && hasUploadableGap(liabilityChecklist) && (
                 <div className="mt-auto pt-4">
                   <Link
                     to={evidenceUploadPath}
