@@ -20,6 +20,7 @@ import {
 } from './StartupIcons'
 import { useTheme } from '../contexts/ThemeContext'
 import { useLanguage } from '../contexts/LanguageContext'
+import NewVersionPrompt from './NewVersionPrompt'
 import { useBrowserStateReady } from '../contexts/ServerRenderContext'
 import { clearStoredAuth, getStoredRole, getStoredUser, hasValidAuthToken } from '../lib/auth'
 import { LANGUAGES } from '../i18n'
@@ -1060,6 +1061,8 @@ export default function Layout({ children }: LayoutProps) {
           <SupportChatWidget raiseOnMobile={raiseChatLauncher} />
         </Suspense>
       )}
+
+      <NewVersionPrompt />
     </div>
   )
 }

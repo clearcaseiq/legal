@@ -213,7 +213,13 @@
     "free": "Gratis",
     "noObligation": "Sin obligación",
     "private": "Su información es privada",
-    "heroFooter": "Evaluación gratuita • Sin obligación • Su información es privada"
+    "heroFooter": "Evaluación gratuita • Sin obligación • Su información es privada",
+    "newVersion": {
+      "title": "Hay una nueva versión disponible",
+      "body": "Esta pestaña ha estado abierta desde una versión anterior, por lo que algunas cifras pueden estar desactualizadas.",
+      "reload": "Recargar",
+      "dismiss": "Descartar"
+    }
   },
   "auth": {
     "loginTitle": "Bienvenido de nuevo",
@@ -2984,7 +2990,9 @@
     },
     "liabilityChecklist": {
       "policeReport": "Informe policial",
+      "incidentReport": "Informe del incidente o policial",
       "photosOfDamage": "Fotos de los daños",
+      "photosOfScene": "Fotos del lugar o de la lesión",
       "witnessStatements": "Declaraciones de testigos",
       "faultAppearsClear": "La culpa parece clara"
     },
@@ -3981,6 +3989,7 @@
       "liabilityDefault": "Según los hechos proporcionados, la culpa puede recaer en la otra parte. Más evidencia fortalecerá la responsabilidad.",
       "yes": "Sí",
       "notAdded": "No agregado",
+      "notEstablished": "Aún no establecido",
       "attorneyInterest": "Interés del abogado",
       "attractiveHigh": "Su caso parece atractivo para los abogados según los hechos actuales.",
       "potentialLow": "Su caso tiene potencial, pero registros adicionales ayudarán a atraer más interés de los abogados.",
@@ -4680,7 +4689,7 @@
       "treatmentAskBody": "Este paso sigue activo mientras recibes atención médica, no porque falte algo en tu expediente. Tu caso pasa al paquete de reclamación cuando termina tu tratamiento.",
       "treatmentAskStillTreating": "Sigo en tratamiento",
       "treatmentAskFinished": "He terminado mi tratamiento",
-      "treatmentAskSaving": "Guardando\u2026",
+      "treatmentAskSaving": "Guardando…",
       "treatmentAskThanks": "Gracias: se lo hemos comunicado a tu abogado.",
       "treatmentAskFailed": "No se pudo guardar. Inténtalo de nuevo.",
       "demand": "Demanda",

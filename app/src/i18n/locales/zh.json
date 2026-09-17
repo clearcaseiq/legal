@@ -213,7 +213,13 @@
     "free": "免费",
     "noObligation": "无义务",
     "private": "您的信息保密",
-    "heroFooter": "免费评估 • 无义务 • 您的信息保密"
+    "heroFooter": "免费评估 • 无义务 • 您的信息保密",
+    "newVersion": {
+      "title": "有新版本可用",
+      "body": "此标签页自较早版本起一直打开，部分数据可能已过时。",
+      "reload": "重新加载",
+      "dismiss": "关闭"
+    }
   },
   "auth": {
     "loginTitle": "欢迎回来",
@@ -2984,7 +2990,9 @@
     },
     "liabilityChecklist": {
       "policeReport": "警方报告",
+      "incidentReport": "事故或警方报告",
       "photosOfDamage": "损坏照片",
+      "photosOfScene": "现场或伤情照片",
       "witnessStatements": "证人陈述",
       "faultAppearsClear": "责任明确"
     },
@@ -3981,6 +3989,7 @@
       "liabilityDefault": "根据所提供的事实，过错可能在于对方。更多证据将增强责任认定。",
       "yes": "是",
       "notAdded": "未添加",
+      "notEstablished": "尚未确定",
       "attorneyInterest": "律师兴趣",
       "attractiveHigh": "根据当前事实，您的案件对律师具有吸引力。",
       "potentialLow": "您的案件有潜力，但额外的记录将有助于吸引更多律师的兴趣。",
@@ -4680,7 +4689,7 @@
       "treatmentAskBody": "只要您仍在接受治疗，此步骤就会保持进行中，这并不表示您的材料有任何缺失。治疗结束后，案件将进入索赔函阶段。",
       "treatmentAskStillTreating": "我仍在治疗",
       "treatmentAskFinished": "我已结束治疗",
-      "treatmentAskSaving": "正在保存\u2026",
+      "treatmentAskSaving": "正在保存…",
       "treatmentAskThanks": "谢谢，我们已通知您的律师。",
       "treatmentAskFailed": "保存失败，请重试。",
       "demand": "索赔函",

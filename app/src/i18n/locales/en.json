@@ -216,7 +216,13 @@
     "free": "Free",
     "noObligation": "No obligation",
     "private": "Your information is private",
-    "heroFooter": "Free assessment • No obligation • Your information is private"
+    "heroFooter": "Free assessment • No obligation • Your information is private",
+    "newVersion": {
+      "title": "A new version is available",
+      "body": "This tab has been open since an earlier release, so some figures may be out of date.",
+      "reload": "Reload",
+      "dismiss": "Dismiss"
+    }
   },
   "auth": {
     "loginTitle": "Welcome Back",
