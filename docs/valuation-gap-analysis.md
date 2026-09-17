@@ -197,6 +197,35 @@ reaches roughly -55%. Three details make it safe:
 Every plaintiff surface now renders the same modelled band with no arithmetic of
 its own.
 
+That claim was written about the case report, and was not true of the product.
+Two other plaintiff surfaces were still doing their own sums, and were found
+only when a delayed-diagnosis case showed $24,000-$72,000 on the last intake
+step and $22,000-$50,000 on the snapshot moments later:
+
+- **The intake wizard** computed the medical-bill bracket midpoint times 0.8 and
+  2.4, in the browser, because no endpoint existed to ask before an assessment
+  was created. Knowing nothing of liability, venue, severity, treatment,
+  documentation or coverage, it disagreed with the model on nearly every case,
+  and always by overstating — a 2.4x ceiling on raw bills runs furthest ahead
+  exactly where fault or causation is contested. It also inverted the rule
+  above: the figure started high and the model revised it *down*, so the product
+  appeared to take money away from a claimant who had done nothing wrong. It now
+  posts the submit payload to `POST /v1/assessments/preview`, which shares the
+  create route's schema and fact enrichment so the request cannot drift either.
+- **The plaintiff dashboard** ranked missing documents by a hand-written
+  High/Medium/Low that disagreed with the engine's weights, and asked every
+  claimant for a police report including those whose claim type the engine does
+  not score one for. Beside it sat `settlementHigh * 1.25` to `* 1.8`, offered
+  as the value documenting the case could reach. Nothing rendered that figure,
+  but nothing could have rendered it honestly: it promised precisely the higher
+  ceiling the first bullet above rules out. Both are now the engine's own
+  numbers, and it publishes the per-gap weights so no surface needs a copy.
+
+The lesson is narrower than "keep the surfaces in sync". Each of these existed
+because a screen needed a number the server would not give it. A surface with no
+endpoint to ask will invent one, so the fix is to make the engine reachable from
+wherever the question is asked.
+
 ## Where we differ from the carrier on purpose
 
 Not every difference is a gap. Two are deliberate and should stay.
