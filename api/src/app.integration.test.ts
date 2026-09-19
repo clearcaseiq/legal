@@ -190,6 +190,60 @@ describe('HTTP API (integration)', () => {
     expect(updateArg.data.status).toBe('submitted')
   })
 
+  it('POST /v1/assessments/:id/submit-for-review keeps the attorney order when the case is already held', async () => {
+    // The reported failure. A case held for manual review already has a lead
+    // row, and unlike the test above, the production query returns it on the
+    // assessment — the two read the same row. The route used to answer
+    // `{ ok: true }` on sight of it and write nothing, so a claimant who then
+    // ranked their attorneys had that order thrown away behind a success
+    // screen, and the admin release later found no slate to honour.
+    vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
+      ...assessmentRow,
+      facts: JSON.stringify({ consents: { tos: true, privacy: true, ml_use: true, hipaa: false } }),
+      leadSubmission: { id: 'lead-1', sourceType: 'routing_engine', status: 'submitted' },
+      predictions: [{ viability: JSON.stringify({ overall: 0.61, liability: 0.58, causation: 0.57, damages: 0.72 }) }],
+    } as any)
+    vi.mocked(prisma.assessment.update).mockResolvedValue({} as any)
+    vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValue({
+      status: 'submitted',
+      routingLocked: false,
+      assignedAttorneyId: null,
+      sourceType: 'routing_engine',
+    } as any)
+    vi.mocked(prisma.leadSubmission.update).mockResolvedValue({ id: 'lead-1' } as any)
+    vi.mocked(prisma.attorney.findMany).mockResolvedValue([
+      { id: 'attorney-a' },
+      { id: 'attorney-b' },
+    ] as any)
+
+    const res = await request(app)
+      .post('/v1/assessments/assess-int-test-1/submit-for-review')
+      .send({
+        firstName: 'Jose',
+        email: 'jose@example.com',
+        phone: '(555) 333-4444',
+        rankedAttorneyIds: ['attorney-a', 'attorney-b'],
+        attorneyShareAuthorized: true,
+      })
+      .expect(200)
+
+    expect(res.body.submitted).toBe(true)
+
+    // Routing reads the lead copy, so the order has to land there in sequence.
+    const updateArg = vi.mocked(prisma.leadSubmission.update).mock.calls[0]?.[0] as any
+    expect(updateArg.data.sourceDetails).toContain('"rankedAttorneyIds":["attorney-a","attorney-b"]')
+    expect(updateArg.data.lifecycleState).toBe('routing_active')
+
+    // And on the facts, which is what the case report and admin screens read.
+    expect(prisma.assessment.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          facts: expect.stringContaining('"rankedAttorneyIds":["attorney-a","attorney-b"]'),
+        }),
+      })
+    )
+  })
+
   it('POST /v1/assessments/:id/submit-for-review refuses to resend a case already with an attorney', async () => {
     vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
       ...assessmentRow,

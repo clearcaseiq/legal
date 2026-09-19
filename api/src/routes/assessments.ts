@@ -1213,9 +1213,17 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
     if (!assessment) {
       return res.status(404).json({ error: 'Assessment not found' })
     }
-    if (assessment.leadSubmission) {
-      return res.json({ ok: true, submitted: true, message: 'Case already submitted for review' })
-    }
+    // A case with a lead row is not a case anyone has necessarily seen. Manual
+    // review upserts one, an admin release upserts one, and a first attempt is
+    // routinely held at the pre-routing gate before any attorney is offered it.
+    //
+    // This used to return `{ ok: true }` right here and write nothing, which
+    // silently discarded the claimant's attorney order, their removals, the
+    // share authorization, the HIPAA answer and the contact details, and skipped
+    // routing — while the client, reading `ok`, showed the success screen. It
+    // also made the resubmission handling further down unreachable. The rules
+    // for an existing lead belong there: a case genuinely with an attorney is
+    // rejected with a 409, and anything else has its lead row rewritten.
 
     const facts = typeof assessment.facts === 'string' ? JSON.parse(assessment.facts) : (assessment.facts || {})
     const plaintiffContext = (facts.plaintiffContext || {}) as Record<string, unknown>
@@ -1369,8 +1377,15 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
     // nobody had been shown, with no route forward from the UI.
     const existingLead = await prisma.leadSubmission.findUnique({
       where: { assessmentId: id },
-      select: { status: true, routingLocked: true, assignedAttorneyId: true }
+      select: { status: true, routingLocked: true, assignedAttorneyId: true, sourceType: true }
     })
+
+    // Whether the claimant has been through this endpoint before, which decides
+    // the one-time side effects below. `sourceType` records which code path
+    // created the row, so a lead left by manual review ('routing_engine') or by
+    // an admin release ('admin') means they have not — and still need their
+    // receipt and their place in the change feed.
+    const claimantSubmittedBefore = existingLead?.sourceType === 'plaintiff'
 
     // Once a case is genuinely with an attorney, a resend is a mistake rather
     // than a retry: rewriting the row would restart the response clock and drop
@@ -1404,15 +1419,19 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
     void cancelReportReadyForAssessment(id)
 
     // Canonical lifecycle event → the change feed external systems sync from.
-    void recordCaseChange({
-      assessmentId: id,
-      source: 'web',
-      action: 'submitted',
-      entityType: 'assessment',
-      entityId: id,
-      summary: 'Case submitted to the attorney network',
-      actor: { type: 'user', id: req.user?.id ?? null, label: (email as string | undefined) ?? null },
-    })
+    // Once per claimant submission: a retry of a case that never reached anyone
+    // is the same submission, and should not read as a second one downstream.
+    if (!claimantSubmittedBefore) {
+      void recordCaseChange({
+        assessmentId: id,
+        source: 'web',
+        action: 'submitted',
+        entityType: 'assessment',
+        entityId: id,
+        summary: 'Case submitted to the attorney network',
+        actor: { type: 'user', id: req.user?.id ?? null, label: (email as string | undefined) ?? null },
+      })
+    }
 
     // Every case carries a short reference the plaintiff can quote to support.
     // Minted at creation, but ensured here for legacy/edge cases.
@@ -1422,7 +1441,10 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
     // account — knows the case went through. Best-effort and non-blocking so a
     // mail failure never breaks submission/routing (CP-361).
     const confirmationEmail = (email || (plaintiffContext.email as string | undefined) || '').trim()
-    if (confirmationEmail) {
+    // Not on a retry they have already been thanked for. Resending "we received
+    // your case" for a case they submitted once and are now re-sending because
+    // the first attempt stalled reads as a duplicate rather than progress.
+    if (confirmationEmail && !claimantSubmittedBefore) {
       const submitterName =
         (firstName && firstName.trim()) || (plaintiffContext.firstName as string | undefined) || 'there'
       const referenceLine = referenceCode
