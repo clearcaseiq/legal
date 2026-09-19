@@ -221,7 +221,8 @@
       "title": "A new version is available",
       "body": "This tab has been open since an earlier release, so some figures may be out of date.",
       "reload": "Reload",
-      "dismiss": "Dismiss"
+      "dismiss": "Dismiss",
+      "titleDated": "A new version is available, released {released}"
     }
   },
   "auth": {

@@ -218,7 +218,8 @@
       "title": "Hay una nueva versión disponible",
       "body": "Esta pestaña ha estado abierta desde una versión anterior, por lo que algunas cifras pueden estar desactualizadas.",
       "reload": "Recargar",
-      "dismiss": "Descartar"
+      "dismiss": "Descartar",
+      "titleDated": "Hay una nueva versión disponible, publicada el {released}"
     }
   },
   "auth": {

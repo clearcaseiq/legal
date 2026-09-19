@@ -8,8 +8,14 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createRoot, type Root } from 'react-dom/client'
 import { act } from 'react'
 
+// Assert on keys so a copy change cannot quietly turn a test green, but keep
+// the interpolated values visible so the date can be checked.
 vi.mock('../contexts/LanguageContext', () => ({
-  useLanguage: () => ({ t: (key: string) => key }),
+  useLanguage: () => ({
+    t: (key: string, params?: Record<string, string | number>) =>
+      params ? `${key}:${JSON.stringify(params)}` : key,
+    language: 'en-US',
+  }),
 }))
 
 import NewVersionPrompt from './NewVersionPrompt'
@@ -19,8 +25,9 @@ import NewVersionPrompt from './NewVersionPrompt'
 let container: HTMLDivElement
 let root: Root | null = null
 
-function html(buildId: string) {
-  return `<script id="__NEXT_DATA__">{"buildId":"${buildId}"}</script>`
+function html(buildId: string, buildTime?: string) {
+  const props = buildTime ? `"props":{"pageProps":{"buildTime":"${buildTime}"}},` : ''
+  return `<script id="__NEXT_DATA__">{${props}"buildId":"${buildId}"}</script>`
 }
 
 /** Renders, then lets the visibility-triggered poll settle. */
@@ -61,6 +68,32 @@ describe('NewVersionPrompt', () => {
     await renderAndPoll()
 
     expect(container.textContent).toContain('newVersion.title')
+  })
+
+  it('says when the new version was released', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, text: async () => html('build-two', '2026-09-18T20:15:03Z') })),
+    )
+
+    await renderAndPoll()
+
+    expect(container.textContent).toContain('newVersion.titleDated')
+    expect(container.textContent).toContain('2026')
+  })
+
+  it('still prompts, undated, when the new build carries no stamp', async () => {
+    // Every image built before the stamp reached the page props. Withholding
+    // the prompt over a missing date would be worse than the missing date.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, text: async () => html('build-two') })),
+    )
+
+    await renderAndPoll()
+
+    expect(container.textContent).toContain('newVersion.title')
+    expect(container.textContent).not.toContain('newVersion.titleDated')
   })
 
   it('stays silent while the tab is current', async () => {

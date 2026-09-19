@@ -103,6 +103,17 @@ type PageProps = {
   messages?: Record<string, unknown> | null
   /** Chrome-less partner view, which also gets no loading shell. */
   embed?: boolean
+  /**
+   * When the running image was built, as an ISO-8601 UTC stamp.
+   *
+   * Served from the runtime environment rather than inlined at build time,
+   * because the Dockerfile sets BUILD_TIME in the runner stage — after
+   * `pnpm build` — so a `NEXT_PUBLIC_` variable would be empty. Carried in the
+   * page props so it reaches `__NEXT_DATA__`, which is where the stale-tab
+   * check already reads the build id from. Null in local development, where
+   * nothing stamps the build.
+   */
+  buildTime?: string | null
 }
 
 export default function CatchAllPage({ seo, ssrLocation, publicPage, language, messages, embed }: PageProps) {
@@ -381,10 +392,18 @@ const resolvePage: GetServerSideProps<PageProps> = async ({ params, query, res }
 export const getServerSideProps: GetServerSideProps<PageProps> = async (context) => {
   const result = await resolvePage(context)
 
-  if (!('props' in result) || indexingEnabled()) return result
+  // Redirects and 404s carry no props to stamp.
+  if (!('props' in result)) return result
 
   const props = await result.props
+  // Stamped on every page, whatever the indexing posture, so a tab that has
+  // been open across a deploy can say *when* the version it is missing shipped
+  // rather than only that one exists.
+  const stamped = { ...props, buildTime: process.env.BUILD_TIME || null }
+
+  if (indexingEnabled()) return { ...result, props: stamped }
+
   return {
-    props: { ...props, publicPage: false, seo: { ...props.seo, noindex: true } },
+    props: { ...stamped, publicPage: false, seo: { ...props.seo, noindex: true } },
   }
 }

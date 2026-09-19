@@ -1,5 +1,11 @@
 import { describe, it, expect, afterEach } from 'vitest'
-import { currentBuildId, parseBuildId, isNewBuild } from './buildVersion'
+import {
+  currentBuildId,
+  parseBuildId,
+  parseBuildTime,
+  formatBuildTime,
+  isNewBuild,
+} from './buildVersion'
 
 afterEach(() => {
   delete (globalThis as any).__NEXT_DATA__
@@ -32,6 +38,41 @@ describe('parseBuildId', () => {
     expect(parseBuildId('')).toBe('')
     expect(parseBuildId(null)).toBe('')
     expect(parseBuildId('<html>an error page</html>')).toBe('')
+  })
+})
+
+describe('parseBuildTime', () => {
+  it('pulls the build stamp the server put in the page props', () => {
+    const html = '<script>{"props":{"pageProps":{"buildTime":"2026-09-18T20:15:03Z"}},"buildId":"x"}</script>'
+
+    expect(parseBuildTime(html)).toBe('2026-09-18T20:15:03Z')
+  })
+
+  it('returns empty when the build predates the stamp', () => {
+    // Images built before BUILD_TIME reached the page props carry no stamp, and
+    // the prompt still has to appear for them.
+    expect(parseBuildTime('<script>{"buildId":"x"}</script>')).toBe('')
+    expect(parseBuildTime(null)).toBe('')
+  })
+})
+
+describe('formatBuildTime', () => {
+  it('renders a stamp as a date and time', () => {
+    const formatted = formatBuildTime('2026-09-18T20:15:03Z', 'en-US')
+
+    expect(formatted).toContain('2026')
+    expect(formatted).toMatch(/Sep/)
+  })
+
+  it('returns null rather than "Invalid Date" for junk', () => {
+    expect(formatBuildTime('not-a-date')).toBeNull()
+    expect(formatBuildTime('')).toBeNull()
+    expect(formatBuildTime(null)).toBeNull()
+    expect(formatBuildTime(undefined)).toBeNull()
+  })
+
+  it('still gives a date when the locale tag is unsupported', () => {
+    expect(formatBuildTime('2026-09-18T20:15:03Z', 'not-a-locale')).toContain('2026')
   })
 })
 

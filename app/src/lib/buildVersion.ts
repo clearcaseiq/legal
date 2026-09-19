@@ -17,6 +17,7 @@
  */
 
 const BUILD_ID_PATTERN = /"buildId":"([^"]+)"/
+const BUILD_TIME_PATTERN = /"buildTime":"([^"]+)"/
 
 /** The build this tab started with, or '' when it cannot be determined. */
 export function currentBuildId(): string {
@@ -28,6 +29,53 @@ export function currentBuildId(): string {
 export function parseBuildId(html: string | null | undefined): string {
   const match = BUILD_ID_PATTERN.exec(String(html ?? ''))
   return match ? match[1] : ''
+}
+
+/**
+ * When the build described by freshly fetched HTML was made, or '' if absent.
+ *
+ * Stamped into the page props by the server from the runtime `BUILD_TIME`, so
+ * it is missing in local development and on any image built before that was
+ * added. Callers must treat '' as "unknown" and still report the new version.
+ */
+export function parseBuildTime(html: string | null | undefined): string {
+  const match = BUILD_TIME_PATTERN.exec(String(html ?? ''))
+  return match ? match[1] : ''
+}
+
+/**
+ * An ISO build stamp as a date and time the reader can place, in their own
+ * locale and zone. Returns null for anything unparseable, so a malformed stamp
+ * degrades to a prompt with no date rather than one reading "Invalid Date".
+ */
+export function formatBuildTime(
+  iso: string | null | undefined,
+  locale?: string,
+): string | null {
+  const raw = String(iso ?? '').trim()
+  if (!raw) return null
+
+  const at = new Date(raw)
+  if (Number.isNaN(at.getTime())) return null
+
+  try {
+    return at.toLocaleString(locale, {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    })
+  } catch {
+    // An unsupported locale tag must not cost the reader the date.
+    return at.toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    })
+  }
 }
 
 /**

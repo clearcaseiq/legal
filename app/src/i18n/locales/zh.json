@@ -218,7 +218,8 @@
       "title": "有新版本可用",
       "body": "此标签页自较早版本起一直打开，部分数据可能已过时。",
       "reload": "重新加载",
-      "dismiss": "关闭"
+      "dismiss": "关闭",
+      "titleDated": "有新版本可用，发布于 {released}"
     }
   },
   "auth": {

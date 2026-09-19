@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import { RotateCw, X } from 'lucide-react'
 import { useLanguage } from '../contexts/LanguageContext'
-import { currentBuildId, parseBuildId, isNewBuild } from '../lib/buildVersion'
+import {
+  currentBuildId,
+  parseBuildId,
+  parseBuildTime,
+  formatBuildTime,
+  isNewBuild,
+} from '../lib/buildVersion'
 
 /** Long enough to be invisible, short enough that a long session catches up. */
 const POLL_INTERVAL_MS = 10 * 60 * 1000
@@ -19,9 +25,12 @@ const POLL_INTERVAL_MS = 10 * 60 * 1000
  * through intake would lose what they had typed, so the choice stays theirs.
  */
 export default function NewVersionPrompt() {
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
   const [stale, setStale] = useState(false)
   const [dismissed, setDismissed] = useState(false)
+  // When the version this tab is missing was released. Read from the fetched
+  // page rather than from this tab, which by definition knows only its own.
+  const [releasedAt, setReleasedAt] = useState<string | null>(null)
 
   const check = useCallback(async () => {
     const current = currentBuildId()
@@ -33,7 +42,11 @@ export default function NewVersionPrompt() {
         headers: { accept: 'text/html' },
       })
       if (!res.ok) return
-      if (isNewBuild(current, parseBuildId(await res.text()))) setStale(true)
+      const html = await res.text()
+      if (isNewBuild(current, parseBuildId(html))) {
+        setReleasedAt(parseBuildTime(html) || null)
+        setStale(true)
+      }
     } catch {
       // Offline or blocked. Staying quiet is right: the tab is no more stale
       // than it was a moment ago, and a failed check is not evidence of a
@@ -59,6 +72,10 @@ export default function NewVersionPrompt() {
 
   if (!stale || dismissed) return null
 
+  // No date is a real possibility — an image built before the stamp existed, or
+  // a malformed value — and is worth saying less rather than saying it wrongly.
+  const released = formatBuildTime(releasedAt, language)
+
   return (
     <div
       role="status"
@@ -67,7 +84,7 @@ export default function NewVersionPrompt() {
       <div className="flex w-full max-w-md items-center gap-3 rounded-xl border border-brand-200 bg-white px-4 py-3 shadow-lg dark:border-brand-500/40 dark:bg-slate-900">
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-gray-900 dark:text-slate-100">
-            {t('newVersion.title')}
+            {released ? t('newVersion.titleDated', { released }) : t('newVersion.title')}
           </p>
           <p className="mt-0.5 text-xs leading-snug text-gray-500 dark:text-slate-400">
             {t('newVersion.body')}
