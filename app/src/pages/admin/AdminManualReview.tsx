@@ -64,6 +64,8 @@ export default function AdminManualReview() {
   const [actingId, setActingId] = useState<string | null>(null)
   const [actionNote, setActionNote] = useState<string | null>(null)
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  // A release the routing pause stopped, which an admin may retry past.
+  const [blockedRelease, setBlockedRelease] = useState<{ caseId: string; reason: string } | null>(null)
 
   const loadQueue = useCallback(async () => {
     try {
@@ -84,17 +86,23 @@ export default function AdminManualReview() {
 
   const handleAction = async (
     caseId: string,
-    action: 'release' | 'reject' | 'request_info' | 'compliance'
+    action: 'release' | 'reject' | 'request_info' | 'compliance',
+    options: { override?: boolean } = {}
   ) => {
     setActingId(caseId)
     setError(null)
+    setBlockedRelease(null)
     try {
-      await manualReviewAction(caseId, action, actionNote || undefined)
+      await manualReviewAction(caseId, action, actionNote || undefined, options)
       setCases((prev) => prev.filter((c) => c.id !== caseId))
       setActionNote(null)
       setExpandedId(null)
     } catch (err: any) {
-      setError(err?.response?.data?.error || 'Action failed')
+      const body = err?.response?.data
+      setError(body?.error || 'Action failed')
+      // A release that placed nobody leaves the case in the queue, so the row
+      // stays and the remedy — when there is one — belongs next to the error.
+      if (body?.canOverride) setBlockedRelease({ caseId, reason: body.error || '' })
     } finally {
       setActingId(null)
     }
@@ -126,7 +134,23 @@ export default function AdminManualReview() {
 
       {error && (
         <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
-          {error}
+          <p>{error}</p>
+          {blockedRelease && (
+            <>
+              <p className="mt-1 text-ui-sm">
+                The case is still in this queue, so nothing was lost. Releasing it anyway sends this
+                one case and leaves routing off for every other.
+              </p>
+              <button
+                type="button"
+                onClick={() => handleAction(blockedRelease.caseId, 'release', { override: true })}
+                disabled={actingId === blockedRelease.caseId}
+                className="mt-2 rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm font-medium text-amber-900 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {actingId === blockedRelease.caseId ? 'Releasing…' : 'Release this case anyway'}
+              </button>
+            </>
+          )}
         </div>
       )}
 

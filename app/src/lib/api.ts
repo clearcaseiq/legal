@@ -4775,8 +4775,22 @@ export async function getAdminManualReviewQueue() {
   return data
 }
 
-export async function manualReviewAction(caseId: string, action: 'release' | 'reject' | 'request_info' | 'compliance', note?: string) {
-  const { data } = await api.post(`/v1/admin/manual-review/${caseId}/action`, { action, note })
+/**
+ * `override` releases a case while routing is paused platform-wide. Without it
+ * a release that cannot route answers 409 and leaves the case in the queue,
+ * so the button stays usable rather than spending the case's one pending state.
+ */
+export async function manualReviewAction(
+  caseId: string,
+  action: 'release' | 'reject' | 'request_info' | 'compliance',
+  note?: string,
+  options: { override?: boolean } = {},
+) {
+  const { data } = await api.post(`/v1/admin/manual-review/${caseId}/action`, {
+    action,
+    note,
+    override: options.override === true,
+  })
   return data
 }
 

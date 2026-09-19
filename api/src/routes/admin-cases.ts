@@ -9,7 +9,7 @@ import { parsePagination, paginated } from '../lib/pagination'
 import { CaseForRouting, AttorneyForRouting, routeCaseToAttorneys, filterEligibleAttorneys } from '../lib/routing'
 import { startAssessmentRouting } from '../lib/assessment-routing'
 import { updateClaimantContact } from '../lib/claimant-contact'
-import { routeReleasedCaseRespectingConsumerSlate } from '../lib/routing-lifecycle'
+import { routeReleasedCaseRespectingConsumerSlate, recordRoutingEvent } from '../lib/routing-lifecycle'
 import { runRoutingEscalationSweep } from '../lib/routing-escalation-sweep'
 import { sendCaseOfferToAttorney } from '../lib/case-notifications'
 import { getMatchingRules, getAttorneyResponseDeadlineMinutes } from '../lib/matching-rules-config'
@@ -204,7 +204,7 @@ router.get('/manual-review', authMiddleware, adminMiddleware, async (_req: AuthR
 router.post('/manual-review/:caseId/action', authMiddleware, adminMiddleware, requireAdminCapability('ops'), async (req: AuthRequest, res) => {
   try {
     const { caseId } = req.params
-    const { action, note } = req.body as { action: string; note?: string }
+    const { action, note, override } = req.body as { action: string; note?: string; override?: boolean }
     const validActions = ['release', 'reject', 'request_info', 'compliance']
     if (!validActions.includes(action)) {
       return res.status(400).json({ error: 'Invalid action. Use: release, reject, request_info, compliance' })
@@ -221,91 +221,151 @@ router.post('/manual-review/:caseId/action', authMiddleware, adminMiddleware, re
       return res.status(400).json({ error: 'Case is not in manual review queue' })
     }
 
-    const updateData: any = {
-      manualReviewStatus: action === 'release' ? 'released' : action === 'reject' ? 'rejected' : action === 'request_info' ? 'request_info' : 'compliance',
-      manualReviewNote: note || assessment.manualReviewNote,
-      reviewedBy: req.user?.id || null,
-      reviewedAt: new Date()
+    const nextStatus =
+      action === 'release' ? 'released' : action === 'reject' ? 'rejected' : action === 'request_info' ? 'request_info' : 'compliance'
+
+    /** Record the decision and clear the case out of the queue. */
+    const commitDecision = async () => {
+      await prisma.assessment.update({
+        where: { id: caseId },
+        data: {
+          manualReviewStatus: nextStatus,
+          manualReviewNote: note || assessment.manualReviewNote,
+          reviewedBy: req.user?.id || null,
+          reviewedAt: new Date()
+        }
+      })
+      await writeAdminAudit(req, {
+        action: `case_manual_review_${action}`,
+        entityType: 'assessment',
+        entityId: caseId,
+        metadata: {
+          note: note || null,
+          previousStatus: assessment.manualReviewStatus,
+          nextStatus,
+        },
+      })
     }
 
-    await prisma.assessment.update({
-      where: { id: caseId },
-      data: updateData
-    })
+    // Reject, request-info and compliance are decisions in themselves; nothing
+    // can fail after them. Release is the one that has work to do afterwards,
+    // so its decision is committed further down, once that work has a result.
+    if (action !== 'release') {
+      await commitDecision()
+      return res.json({ ok: true, action })
+    }
 
-    await writeAdminAudit(req, {
-      action: `case_manual_review_${action}`,
-      entityType: 'assessment',
-      entityId: caseId,
-      metadata: {
-        note: note || null,
-        previousStatus: assessment.manualReviewStatus,
-        nextStatus: updateData.manualReviewStatus,
+    // Ensure case can enter routing - clear routing lock if any, create lead submission if needed
+    await prisma.leadSubmission.upsert({
+      where: { assessmentId: caseId },
+      create: {
+        assessmentId: caseId,
+        viabilityScore: 0.5,
+        liabilityScore: 0.5,
+        causationScore: 0.5,
+        damagesScore: 0.5,
+        evidenceChecklist: '{}',
+        isExclusive: false,
+        sourceType: 'admin',
+        lifecycleState: 'routing_active',
+        routingLocked: false
       },
+      update: { lifecycleState: 'routing_active', routingLocked: false }
     })
 
-    if (action === 'release') {
-      // Ensure case can enter routing - clear routing lock if any, create lead submission if needed
-      await prisma.leadSubmission.upsert({
-        where: { assessmentId: caseId },
-        create: {
-          assessmentId: caseId,
-          viabilityScore: 0.5,
-          liabilityScore: 0.5,
-          causationScore: 0.5,
-          damagesScore: 0.5,
-          evidenceChecklist: '{}',
-          isExclusive: false,
-          sourceType: 'admin',
-          lifecycleState: 'routing_active',
-          routingLocked: false
-        },
-        update: { lifecycleState: 'routing_active', routingLocked: false }
+    // Re-trigger routing now that a human has cleared the case. We skip the
+    // pre-routing (fraud) gate here — otherwise the same signals that flagged
+    // it would immediately re-hold it, creating a loop. The admin decision IS
+    // the override of the FRAUD signal.
+    //
+    // It is NOT an override of the consumer's contact decision (SB 37 /
+    // § 6155). If the consumer curated their slate — ranked some attorneys or
+    // explicitly removed some — releasing must not route to firms they never
+    // approved. Instead we advance their approved queue, or propose a fresh
+    // batch (excluding everyone they removed) and hold for their approval.
+    // Only cases with no consumer selection route straight through.
+    // Written before the attempt so the record of someone electing to bypass
+    // the platform-wide pause survives a release that then places nobody.
+    if (override === true) {
+      await recordRoutingEvent(caseId, null, null, 'routing_pause_overridden', {
+        source: 'admin_manual_review_release',
+        actorId: req.user?.id || null,
+        actorEmail: req.user?.email || null,
       })
+    }
 
-      // Re-trigger routing now that a human has cleared the case. We skip the
-      // pre-routing (fraud) gate here — otherwise the same signals that flagged
-      // it would immediately re-hold it, creating a loop. The admin decision IS
-      // the override of the FRAUD signal.
-      //
-      // It is NOT an override of the consumer's contact decision (SB 37 /
-      // § 6155). If the consumer curated their slate — ranked some attorneys or
-      // explicitly removed some — releasing must not route to firms they never
-      // approved. Instead we advance their approved queue, or propose a fresh
-      // batch (excluding everyone they removed) and hold for their approval.
-      // Only cases with no consumer selection route straight through.
-      let releaseRouting: { mode: string; error?: string } = { mode: 'no_consumer_slate' }
+    let releaseRouting: { mode: string; error?: string } = { mode: 'no_consumer_slate' }
+    try {
+      releaseRouting = await routeReleasedCaseRespectingConsumerSlate(caseId, {
+        overrideRoutingDisabled: override === true,
+      })
+    } catch (err: any) {
+      logger.error('Consumer-slate release routing failed', { caseId, error: err?.message })
+      releaseRouting = { mode: 'held', error: err?.message }
+    }
+
+    // Awaited rather than fire-and-forget, because whether the release sticks
+    // now depends on whether this placed the case.
+    if (releaseRouting.mode === 'no_consumer_slate') {
       try {
-        releaseRouting = await routeReleasedCaseRespectingConsumerSlate(caseId)
-      } catch (err: any) {
-        logger.error('Consumer-slate release routing failed', { caseId, error: err?.message })
-      }
-
-      if (releaseRouting.mode === 'no_consumer_slate') {
-        // Fire-and-forget so the response is fast for the operational-only case.
-        void startAssessmentRouting(caseId, {
+        const classic = await startAssessmentRouting(caseId, {
           skipPreRoutingGate: true,
           preferTierRouting: true,
           fallbackToClassic: true,
-        }).catch((err: any) =>
-          logger.error('Failed to re-route case after manual review release', {
-            caseId,
-            error: err?.message,
-          }),
-        )
+          overrideRoutingDisabled: override === true,
+        })
+        if (!classic.success) {
+          releaseRouting = {
+            mode: 'held',
+            error: classic.gateReason || classic.errors?.[0] || 'Routing placed nobody',
+          }
+        }
+      } catch (err: any) {
+        logger.error('Failed to re-route case after manual review release', {
+          caseId,
+          error: err?.message,
+        })
+        releaseRouting = { mode: 'held', error: err?.message }
       }
-
-      await writeAdminAudit(req, {
-        action: 'case_release_routing_mode',
-        entityType: 'assessment',
-        entityId: caseId,
-        metadata: { mode: releaseRouting.mode, error: releaseRouting.error ?? null },
-      })
-
-      return res.json({ ok: true, action, routing: releaseRouting.mode })
     }
 
-    res.json({ ok: true, action })
+    // `held` is the only outcome where nothing is in flight and nobody is
+    // waiting on anything. The status used to be written before any of this
+    // ran and was never put back, so a release that could not route — the
+    // routing pause being the common one — took the case out of this queue,
+    // placed it with nobody, and answered 400 on the retry because it was no
+    // longer pending. Leaving it pending keeps the button usable.
+    if (releaseRouting.mode === 'held') {
+      const pausedByAdmin = /disabled by admin/i.test(releaseRouting.error || '')
+      logger.warn('Manual review release placed nobody; leaving the case in the queue', {
+        caseId,
+        error: releaseRouting.error,
+        pausedByAdmin,
+      })
+      return res.status(409).json({
+        ok: false,
+        action,
+        routing: releaseRouting.mode,
+        error: releaseRouting.error || 'Routing placed nobody, so the case is still in manual review.',
+        pausedByAdmin,
+        canOverride: pausedByAdmin && override !== true,
+      })
+    }
+
+    await commitDecision()
+
+    await writeAdminAudit(req, {
+      action: 'case_release_routing_mode',
+      entityType: 'assessment',
+      entityId: caseId,
+      metadata: {
+        mode: releaseRouting.mode,
+        error: releaseRouting.error ?? null,
+        overrodeRoutingPause: override === true,
+      },
+    })
+
+    return res.json({ ok: true, action, routing: releaseRouting.mode })
   } catch (error) {
     logger.error('Failed to process manual review action', { error })
     res.status(500).json({ error: 'Internal server error' })

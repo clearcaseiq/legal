@@ -157,9 +157,17 @@ function addDismissedAttorneyIdsToSourceDetails(params: {
  * exhausted routing halts here and waits for an explicit approval rather than
  * silently promoting a system-picked batch into the queue.
  */
+/**
+ * Carried down every ranked-routing call so a deliberate release can reach the
+ * engine while an admin has routing paused platform-wide. Nothing else in this
+ * file sets it: an escalation wave firing on a timer must still obey the pause.
+ */
+type RankedRoutingOptions = { overrideRoutingDisabled?: boolean }
+
 async function proposeNextRankedBatch(
   assessmentId: string,
-  lead: { sourceDetails?: string | null }
+  lead: { sourceDetails?: string | null },
+  options: RankedRoutingOptions = {}
 ): Promise<{ proposed: boolean; attorneyIds?: string[]; error?: string }> {
   const existingPending = getPendingBatchFromLead(lead)
   if (existingPending) {
@@ -182,7 +190,8 @@ async function proposeNextRankedBatch(
     maxAttorneysPerWave: getConfiguredWaveSize(matchingRules, 1),
     skipPreRoutingGate: true,
     dryRun: true,
-    excludeAttorneyIds
+    excludeAttorneyIds,
+    overrideRoutingDisabled: options.overrideRoutingDisabled
   })
 
   if (!dryRunResult.success || !dryRunResult.routedTo?.length) {
@@ -241,7 +250,8 @@ function getPlaintiffPreferenceBatchNumber(lead: { sourceDetails?: string | null
 async function advanceRankedRouting(
   assessmentId: string,
   lead: { sourceDetails?: string | null },
-  reason: 'declined' | 'timeout'
+  reason: 'declined' | 'timeout',
+  options: RankedRoutingOptions = {}
 ): Promise<{
   routed: boolean
   exhausted: boolean
@@ -251,12 +261,12 @@ async function advanceRankedRouting(
   proposedAttorneyIds?: string[]
   error?: string
 }> {
-  const initialAttempt = await routeNextRankedAttorney(assessmentId, lead, reason)
+  const initialAttempt = await routeNextRankedAttorney(assessmentId, lead, reason, options)
   if (initialAttempt.routed || !initialAttempt.exhausted) {
     return { ...initialAttempt, awaitingApproval: false }
   }
 
-  const proposal = await proposeNextRankedBatch(assessmentId, lead)
+  const proposal = await proposeNextRankedBatch(assessmentId, lead, options)
   if (!proposal.proposed) {
     return {
       routed: false,
@@ -485,7 +495,8 @@ export async function proposeInitialBatchForApproval(
  * `no_consumer_slate`, and the caller should route them normally.
  */
 export async function routeReleasedCaseRespectingConsumerSlate(
-  assessmentId: string
+  assessmentId: string,
+  options: RankedRoutingOptions = {}
 ): Promise<{
   mode: 'no_consumer_slate' | 'ranked_routed' | 'awaiting_approval' | 'held'
   attorneyId?: string
@@ -506,7 +517,7 @@ export async function routeReleasedCaseRespectingConsumerSlate(
 
   // Try the consumer-approved queue first when one exists.
   if (ranked.length > 0) {
-    const advanced = await advanceRankedRouting(assessmentId, lead ?? {}, 'timeout')
+    const advanced = await advanceRankedRouting(assessmentId, lead ?? {}, 'timeout', options)
     if (advanced.routed) {
       return { mode: 'ranked_routed', attorneyId: advanced.attorneyId }
     }
@@ -517,7 +528,7 @@ export async function routeReleasedCaseRespectingConsumerSlate(
 
   // Empty or exhausted consumer queue (e.g. they removed everyone): propose a
   // fresh batch that excludes the dismissed attorneys and hold for approval.
-  const proposal = await proposeNextRankedBatch(assessmentId, lead ?? {})
+  const proposal = await proposeNextRankedBatch(assessmentId, lead ?? {}, options)
   if (proposal.proposed) {
     return { mode: 'awaiting_approval', proposedAttorneyIds: proposal.attorneyIds }
   }
@@ -527,7 +538,8 @@ export async function routeReleasedCaseRespectingConsumerSlate(
 async function routeNextRankedAttorney(
   assessmentId: string,
   lead: { sourceDetails?: string | null },
-  reason: 'declined' | 'timeout'
+  reason: 'declined' | 'timeout',
+  options: RankedRoutingOptions = {}
 ): Promise<{ routed: boolean; exhausted: boolean; waveNumber?: number; attorneyId?: string; error?: string }> {
   const rankedAttorneyIds = getRankedAttorneyIdsFromLead(lead)
   if (rankedAttorneyIds.length === 0) {
@@ -580,7 +592,8 @@ async function routeNextRankedAttorney(
       skipPreRoutingGate: true,
       dryRun: false,
       preferredAttorneyIds: [attorneyId],
-      waveNumber
+      waveNumber,
+      overrideRoutingDisabled: options.overrideRoutingDisabled
     })
 
     if (result.success && result.routedTo?.length) {
