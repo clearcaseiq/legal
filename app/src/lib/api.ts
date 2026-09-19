@@ -5388,6 +5388,11 @@ export interface ReleaseForRoutingResult {
   outcome: ReleaseForRoutingOutcome
   routedCount: number
   reason: string | null
+  /**
+   * Whether this caller may retry past the platform-wide routing pause.
+   * Decided by the API, which knows their role; the workbench does not.
+   */
+  canOverride?: boolean
 }
 
 /**
@@ -5396,9 +5401,16 @@ export interface ReleaseForRoutingResult {
  * Marking a case Ready for Attorney already starts this, but does so
  * fire-and-forget so the status save cannot be held up or failed by routing —
  * which also makes it silent. This is the same handover, reported.
+ *
+ * `override` releases this one case even while routing is paused platform-wide.
+ * Admins only, enforced by the API. It lifts the pause and nothing else — the
+ * plaintiff's disclosure authorization and chosen attorney order still decide
+ * where the case may go.
  */
-export async function releaseCaseForRouting(id: string) {
-  const { data } = await api.post(`/v1/case-assistance/${id}/release-for-routing`)
+export async function releaseCaseForRouting(id: string, options: { override?: boolean } = {}) {
+  const { data } = await api.post(`/v1/case-assistance/${id}/release-for-routing`, {
+    override: options.override === true,
+  })
   return data as ReleaseForRoutingResult
 }
 

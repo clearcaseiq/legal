@@ -267,6 +267,16 @@ export interface RoutingEngineOptions {
   excludeAttorneyIds?: string[] // For escalation: don't re-route to attorneys already in wave 1
   waveNumber?: number // For escalation: wave 2 or 3
   preferredAttorneyIds?: string[] // Plaintiff-ranked attorney ids, in priority order
+  /**
+   * Route this one case even though an admin has routing switched off.
+   *
+   * Deliberately narrow. It lifts the global pause for a single deliberate
+   * call and nothing else: the disclosure authorization, the fraud gate and
+   * the plaintiff's chosen order are all decided further down and are
+   * untouched by it. Callers must have established that a human with the
+   * authority to lift the pause asked for this, and must audit it.
+   */
+  overrideRoutingDisabled?: boolean
 }
 
 /**
@@ -353,7 +363,7 @@ export async function runRoutingEngine(
       weights,
     }
 
-    if (matchingRules.routingEnabled === false) {
+    if (matchingRules.routingEnabled === false && !options?.overrideRoutingDisabled) {
       return {
         success: false,
         gatePassed: false,

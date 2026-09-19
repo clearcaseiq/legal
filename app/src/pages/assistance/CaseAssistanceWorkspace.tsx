@@ -42,7 +42,7 @@ const RELEASE_FAILURE_MESSAGES: Record<
   already_engaged: () =>
     'An attorney is already working this case, so it was not offered again. Nothing to do.',
   routing_disabled: () =>
-    'Routing is switched off platform-wide, so nothing was sent. An admin can re-enable it under Matching Rules.',
+    'Routing is switched off platform-wide, so nothing was sent. An admin can re-enable it under Matching Rules, or release this one case anyway.',
   held_for_review: (reason) =>
     `This case was held for manual review before it reached any attorney${reason ? `: ${reason}` : '.'} It is now in the admin Manual Review queue.`,
   no_match: (reason) =>
@@ -91,7 +91,12 @@ export default function CaseAssistanceWorkspace() {
   // The Release button is the second card down the side column, so a verdict
   // posted up there lands off-screen for the person who just pressed it — the
   // release ran and reported itself, and still looked like nothing happened.
-  const [releaseResult, setReleaseResult] = useState<{ ok: boolean; message: string } | null>(null)
+  const [releaseResult, setReleaseResult] = useState<{
+    ok: boolean
+    message: string
+    /** Set when the pause was what stopped it and this user may lift it. */
+    canOverride?: boolean
+  } | null>(null)
   const [specialists, setSpecialists] = useState<{ id: string; name: string; role?: string }[]>([])
   const [openAction, setOpenAction] = useState<ContactAction | null>(null)
   const [focusGapKey, setFocusGapKey] = useState<string | null>(null)
@@ -184,24 +189,34 @@ export default function CaseAssistanceWorkspace() {
    *
    * The verdict goes to `releaseResult` so it renders against the button rather
    * than in the page-level banner slot, which is above the fold from there.
+   *
+   * `override` retries past a platform-wide routing pause, for the admins the
+   * API says may do it. It changes only that: a case the fraud gate held, or
+   * that the plaintiff authorized nobody to see, is refused either way.
    */
-  const release = async () => {
+  const release = async ({ override = false }: { override?: boolean } = {}) => {
     try {
       setReleasing(true)
       setNotice(null)
       setSaveError(null)
       setReleaseResult(null)
-      const result = await releaseCaseForRouting(id)
+      const result = await releaseCaseForRouting(id, { override })
       if (result.outcome === 'routed') {
         setReleaseResult({
           ok: true,
-          message: `Released for routing. Offered to ${result.routedCount} attorney${result.routedCount === 1 ? '' : 's'}.`,
+          message: override
+            ? `Released past the routing pause. Offered to ${result.routedCount} attorney${result.routedCount === 1 ? '' : 's'}. Routing is still off for every other case.`
+            : `Released for routing. Offered to ${result.routedCount} attorney${result.routedCount === 1 ? '' : 's'}.`,
         })
       } else {
         // Not an error: every one of these is a legitimate verdict from the
         // engine, and the case has been parked accordingly rather than lost.
         // What the specialist needs is which verdict it was.
-        setReleaseResult({ ok: false, message: RELEASE_FAILURE_MESSAGES[result.outcome](result.reason) })
+        setReleaseResult({
+          ok: false,
+          message: RELEASE_FAILURE_MESSAGES[result.outcome](result.reason),
+          canOverride: result.canOverride === true,
+        })
       }
       await load({ silent: true })
     } catch (err: any) {
@@ -381,7 +396,8 @@ export default function CaseAssistanceWorkspace() {
               releasing={releasing}
               releaseResult={releaseResult}
               onPatch={patch}
-              onRelease={release}
+              onRelease={() => release()}
+              onReleaseAnyway={() => release({ override: true })}
             />
           </div>
         </div>

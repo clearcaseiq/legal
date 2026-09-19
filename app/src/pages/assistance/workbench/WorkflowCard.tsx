@@ -32,13 +32,14 @@ export function WorkflowCard({
   releaseResult,
   onPatch,
   onRelease,
+  onReleaseAnyway,
 }: {
   assistance: AssistanceQueueRow
   specialists: { id: string; name: string; role?: string }[]
   saving: boolean
   releasing: boolean
   /** The verdict from the last release, shown here rather than page-level. */
-  releaseResult: { ok: boolean; message: string } | null
+  releaseResult: { ok: boolean; message: string; canOverride?: boolean } | null
   onPatch: (
     input: {
       status?: AssistanceStatus
@@ -49,6 +50,8 @@ export function WorkflowCard({
     message?: string,
   ) => void
   onRelease: () => void
+  /** Retry past a platform-wide routing pause. Offered only when the API says so. */
+  onReleaseAnyway: () => void
 }) {
   const releasable = assistance.status === RELEASABLE_STATUS
   return (
@@ -141,6 +144,20 @@ export function WorkflowCard({
             >
               {releaseResult.message}
             </p>
+          )}
+          {/* Offered only where it is the actual remedy, and only to the people
+              the API says may use it. Deliberately quieter than the primary
+              button: the pause was set on purpose, and this leaves it set for
+              every other case. */}
+          {releaseResult?.canOverride && (
+            <button
+              type="button"
+              onClick={onReleaseAnyway}
+              disabled={releasing}
+              className="mt-2 w-full rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm font-medium text-amber-900 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-amber-800 dark:bg-transparent dark:text-amber-300 dark:hover:bg-amber-950/40"
+            >
+              {releasing ? 'Releasing…' : 'Release this case anyway'}
+            </button>
           )}
           <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">
             {!releasable

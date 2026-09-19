@@ -404,3 +404,116 @@ describe('startAssessmentRouting', () => {
     )
   })
 })
+
+/**
+ * Releasing one finished case while routing is paused fleet-wide.
+ *
+ * The pause is a single global switch, so a case a specialist had finished and
+ * a plaintiff had already chosen firms for could not be sent at all — there was
+ * no per-case way past it, and the only workaround was the admin force-route
+ * endpoint, which names one attorney and checks no disclosure authorization.
+ *
+ * The override therefore has to lift exactly one thing. These tests pin both
+ * halves of that: it clears the pause, and it clears nothing else.
+ */
+describe('overriding the routing pause for one case', () => {
+  beforeEach(() => {
+    resetUniversalPrismaMock()
+    vi.clearAllMocks()
+    authorizeShare()
+    vi.mocked(prisma.routingConfig.findUnique).mockResolvedValue({
+      key: 'matching_rules',
+      value: JSON.stringify({ routingEnabled: false }),
+    } as any)
+  })
+
+  it('routes the case even though routing is switched off', async () => {
+    vi.mocked(prisma.assessment.findUnique).mockResolvedValue(
+      routableAssessment('asm-ov', { caseTier: null }) as any
+    )
+    vi.mocked(assignCaseTier).mockResolvedValue({ tierNumber: null } as any)
+    vi.mocked(runRoutingEngine).mockResolvedValue({ success: true, routedTo: ['att-1'] } as any)
+
+    const result = await startAssessmentRouting('asm-ov', { overrideRoutingDisabled: true })
+
+    expect(result).toMatchObject({ success: true, routedTo: ['att-1'] })
+    expect(result.disabledByAdmin).toBeUndefined()
+    expect(runRoutingEngine).toHaveBeenCalled()
+  })
+
+  it('carries the override into the classic engine, which checks the switch too', async () => {
+    // Both layers read the switch independently, so lifting it in only one of
+    // them leaves the case stopped one call further down with the same message.
+    vi.mocked(prisma.assessment.findUnique).mockResolvedValue(
+      routableAssessment('asm-ov2', { caseTier: null }) as any
+    )
+    vi.mocked(assignCaseTier).mockResolvedValue({ tierNumber: null } as any)
+    vi.mocked(runRoutingEngine).mockResolvedValue({ success: true, routedTo: ['att-1'] } as any)
+
+    await startAssessmentRouting('asm-ov2', { overrideRoutingDisabled: true })
+
+    expect(runRoutingEngine).toHaveBeenCalledWith(
+      'asm-ov2',
+      expect.objectContaining({ overrideRoutingDisabled: true })
+    )
+  })
+
+  it('still refuses a case the plaintiff authorized nobody to see', async () => {
+    // The pause is an operational control; the authorization is the plaintiff's
+    // decision. Lifting the first must never lift the second.
+    vi.mocked(assertShareAuthorization).mockResolvedValue({
+      ok: false,
+      reason: 'The plaintiff withdrew authorization to share this case with law firms',
+      authorization: {
+        authorized: false,
+        reason: 'The plaintiff withdrew authorization to share this case with law firms',
+        basis: 'consent_record',
+        authorizedAttorneyIds: [],
+        authorizedAt: null,
+        withdrawnAt: new Date(),
+      },
+    })
+
+    const result = await startAssessmentRouting('asm-ov-withdrawn', {
+      overrideRoutingDisabled: true,
+    })
+
+    expect(result.success).toBe(false)
+    expect(result.gateReason).toMatch(/withdrew authorization/i)
+    expect(runRoutingEngine).not.toHaveBeenCalled()
+    expect(routeTier1Case).not.toHaveBeenCalled()
+  })
+
+  it('still confines the case to the firms the plaintiff chose', async () => {
+    vi.mocked(assertShareAuthorization).mockResolvedValue({
+      ok: true,
+      authorization: {
+        authorized: true,
+        reason: 'authorized',
+        basis: 'consent_record',
+        authorizedAttorneyIds: ['att-1', 'att-2'],
+        authorizedAt: new Date(),
+        withdrawnAt: null,
+      },
+    })
+    vi.mocked(runRoutingEngine).mockResolvedValue({ success: true, routedTo: ['att-1'] } as any)
+
+    await startAssessmentRouting('asm-ov-ranked', {
+      overrideRoutingDisabled: true,
+      preferTierRouting: true,
+    })
+
+    expect(routeTier1Case).not.toHaveBeenCalled()
+    expect(runRoutingEngine).toHaveBeenCalledWith(
+      'asm-ov-ranked',
+      expect.objectContaining({ preferredAttorneyIds: ['att-1', 'att-2'] })
+    )
+  })
+
+  it('leaves the pause in force for every case that did not ask', async () => {
+    const result = await startAssessmentRouting('asm-other')
+
+    expect(result).toMatchObject({ success: false, disabledByAdmin: true })
+    expect(runRoutingEngine).not.toHaveBeenCalled()
+  })
+})

@@ -301,7 +301,11 @@ export async function startAssessmentRouting(
     }
   }
 
-  const routingEnabled = await isRoutingEnabled()
+  // The override lifts the pause for this call only. Everything below still
+  // runs, including the disclosure authorization that confines the case to the
+  // firms the plaintiff chose — the pause is an operational control, not a
+  // substitute for consent, and lifting one must not lift the other.
+  const routingEnabled = (await isRoutingEnabled()) || options?.overrideRoutingDisabled === true
   if (!routingEnabled) {
     await recordRoutingEvent(assessmentId, null, null, 'routing_disabled', {
       source: 'assessment_routing',

@@ -39,6 +39,7 @@ import {
 } from '../lib/case-assistance'
 import { reassignCaseAssistance } from '../lib/case-assistance-assignment'
 import { startAssessmentRouting } from '../lib/assessment-routing'
+import { recordRoutingEvent } from '../lib/routing-lifecycle'
 import { isEngagedLeadStatus } from '../lib/lead-status'
 import { parsePagination, paginated } from '../lib/pagination'
 import { plaintiffNameOf, resolveCaseName } from '../lib/case-name'
@@ -723,12 +724,20 @@ export interface HandoverResult {
  * authorization, the fraud gate, attorney-owned cases that are never offered to
  * anyone — already lives inside startAssessmentRouting, so this adds no policy
  * of its own beyond not re-routing a case an attorney is already working.
+ *
+ * `overrideRoutingDisabled` lifts the global routing pause for this one case.
+ * It lifts nothing else: the authorization, the gate and the plaintiff's order
+ * are all still enforced inside startAssessmentRouting. The caller is
+ * responsible for establishing that whoever asked may lift the pause.
  */
-async function handoverToAttorneys(assistance: {
-  id: string
-  assessmentId: string
-  assessment?: { leadSubmission?: { status?: string | null; lifecycleState?: string | null } | null } | null
-}): Promise<HandoverResult> {
+async function handoverToAttorneys(
+  assistance: {
+    id: string
+    assessmentId: string
+    assessment?: { leadSubmission?: { status?: string | null; lifecycleState?: string | null } | null } | null
+  },
+  options: { overrideRoutingDisabled?: boolean } = {}
+): Promise<HandoverResult> {
   const lead = assistance.assessment?.leadSubmission
 
   // An attorney already has this one. Routing again would offer a case that is
@@ -744,6 +753,7 @@ async function handoverToAttorneys(assistance: {
   const result = await startAssessmentRouting(assistance.assessmentId, {
     preferTierRouting: true,
     fallbackToClassic: true,
+    overrideRoutingDisabled: options.overrideRoutingDisabled,
   })
 
   if (result.success && result.routedTo?.length) {
@@ -924,6 +934,18 @@ router.patch('/:id', async (req: AuthRequest, res) => {
  */
 router.post('/:id/release-for-routing', async (req: AuthRequest, res) => {
   try {
+    const override = req.body?.override === true
+
+    // Lifting the pause is an admin act. The pause is set in admin settings and
+    // applies to the whole fleet, so a specialist who could wave one case past
+    // it could wave every case past it, and the control would mean nothing.
+    if (override && !isCaseAssistanceManager(req.user)) {
+      return res.status(403).json({
+        error: 'Only an admin can release a case while routing is turned off.',
+        code: 'OVERRIDE_REQUIRES_ADMIN',
+      })
+    }
+
     const assistance = await loadAssistance(req, req.params.id)
     if (!assistance) return res.status(404).json({ error: 'Case not found' })
 
@@ -935,7 +957,17 @@ router.post('/:id/release-for-routing', async (req: AuthRequest, res) => {
       })
     }
 
-    const result = await handoverToAttorneys(assistance)
+    // Written before the attempt, not after, so the record of someone electing
+    // to bypass the pause survives a handover that then throws.
+    if (override) {
+      await recordRoutingEvent(assistance.assessmentId, null, null, 'routing_pause_overridden', {
+        source: 'case_assistance_release',
+        actorId: req.user?.id || null,
+        actorEmail: req.user?.email || null,
+      })
+    }
+
+    const result = await handoverToAttorneys(assistance, { overrideRoutingDisabled: override })
 
     logger.info('Case released for routing by a specialist', {
       assistanceId: assistance.id,
@@ -943,9 +975,18 @@ router.post('/:id/release-for-routing', async (req: AuthRequest, res) => {
       outcome: result.outcome,
       routedCount: result.routedCount,
       specialistId: req.user?.id || null,
+      overrodeRoutingPause: override,
     })
 
-    res.json(result)
+    res.json({
+      ...result,
+      // Whether to offer "release anyway", answered by the side that knows who
+      // is asking. The workbench has no notion of the caller's role, and a
+      // button it shows on a guess is one that 403s for half the people who
+      // press it. Only ever true for the one outcome an override can change.
+      canOverride:
+        result.outcome === 'routing_disabled' && !override && isCaseAssistanceManager(req.user),
+    })
   } catch (error) {
     logger.error('Failed to release case for routing', { error, id: req.params.id })
     res.status(500).json({ error: 'Internal server error' })

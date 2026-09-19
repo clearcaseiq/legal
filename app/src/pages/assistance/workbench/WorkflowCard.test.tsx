@@ -39,6 +39,7 @@ function render(props: Partial<Parameters<typeof WorkflowCard>[0]> = {}) {
         releaseResult={null}
         onPatch={() => {}}
         onRelease={() => {}}
+        onReleaseAnyway={() => {}}
         {...props}
       />,
     )
@@ -48,6 +49,12 @@ function render(props: Partial<Parameters<typeof WorkflowCard>[0]> = {}) {
 function releaseButton() {
   return [...container.querySelectorAll('button')].find((b) =>
     /Release for Routing|Releasing/.test(b.textContent || ''),
+  )
+}
+
+function releaseAnywayButton() {
+  return [...container.querySelectorAll('button')].find((b) =>
+    /anyway/i.test(b.textContent || ''),
   )
 }
 
@@ -114,5 +121,57 @@ describe('WorkflowCard release', () => {
     await render({ assistance: { ...assistance, status: 'intake_in_progress' }, onRelease })
 
     expect(releaseButton()!.disabled).toBe(true)
+  })
+})
+
+describe('WorkflowCard routing-pause override', () => {
+  it('offers the override when the pause is what stopped the case', async () => {
+    await render({
+      releaseResult: {
+        ok: false,
+        message: 'Routing is switched off platform-wide, so nothing was sent.',
+        canOverride: true,
+      },
+    })
+
+    expect(releaseAnywayButton()).toBeDefined()
+  })
+
+  it('releases past the pause when pressed', async () => {
+    const onReleaseAnyway = vi.fn()
+    await render({
+      releaseResult: { ok: false, message: 'Routing is switched off.', canOverride: true },
+      onReleaseAnyway,
+    })
+
+    await act(async () => {
+      releaseAnywayButton()!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(onReleaseAnyway).toHaveBeenCalledOnce()
+  })
+
+  it('stays hidden for a caller the API did not clear to use it', async () => {
+    // A specialist gets the same verdict but no button: the API refuses the
+    // override for them, and a button that 403s is worse than no button.
+    await render({
+      releaseResult: {
+        ok: false,
+        message: 'Routing is switched off platform-wide, so nothing was sent.',
+        canOverride: false,
+      },
+    })
+
+    expect(releaseAnywayButton()).toBeUndefined()
+  })
+
+  it('stays hidden for verdicts an override cannot fix', async () => {
+    // The fraud gate and an empty match set are not the pause, and pressing
+    // past them is not something this button should imply is possible.
+    await render({
+      releaseResult: { ok: false, message: 'This case was held for manual review.' },
+    })
+
+    expect(releaseAnywayButton()).toBeUndefined()
   })
 })
