@@ -21,7 +21,6 @@ const log = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), de
 
 vi.mock('./prisma', () => import('../test/universalPrismaMock'))
 vi.mock('./logger', () => ({ logger: log }))
-vi.mock('./offer-reference', () => ({ offerReplyInstruction: () => 'Reply ACCEPT' }))
 vi.mock('./matching-rules-config', () => ({
   getCurrentAttorneyResponseDeadlineMinutes: vi.fn().mockResolvedValue(60),
 }))

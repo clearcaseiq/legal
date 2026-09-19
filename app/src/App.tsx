@@ -97,6 +97,7 @@ const SmartRecommendations = lazy(() => import('./pages/SmartRecommendations'))
 // Two-domain attorney workspace (Lead Generation vs Case Management)
 const AttorneyWorkspaceLayout = lazy(() => import('./features/shared/AttorneyWorkspaceLayout'))
 const NewMatchesPage = lazy(() => import('./features/leadgen/NewMatchesPage'))
+const OfferShortLink = lazy(() => import('./pages/OfferShortLink'))
 const AttorneyAnalyticsPage = lazy(() => import('./features/leadgen/AttorneyAnalyticsPage'))
 const AttorneyOverviewPage = lazy(() => import('./features/leadgen/AttorneyOverviewPage'))
 const IntakePage = lazy(() => import('./features/leadgen/IntakePage'))
@@ -1408,6 +1409,9 @@ function App() {
               {/* Default landing → new two-domain workspace; legacy ?tab= deep
                   links redirect to their first-class route (see AttorneyDashboardEntry). */}
               <Route path="/attorney-dashboard" element={<AttorneyDashboardEntry />} />
+              {/* Short link from the routed-case text; trades the reply code
+                  back for the case it refers to. */}
+              <Route path="/o/:code" element={<OfferShortLink />} />
               <Route path="/attorney-dashboard/contacts" element={<Navigate to="/attorney-dashboard/cases/contacts" replace />} />
               <Route path="/attorney-dashboard/documents/:leadId" element={<AttorneyCaseDocumentsRedirect />} />
               <Route path="/attorney-dashboard/add-contact/:leadId" element={<AddContactPage />} />

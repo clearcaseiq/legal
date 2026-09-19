@@ -5,12 +5,7 @@
  * their behalf without either side noticing.
  */
 import { describe, expect, it } from 'vitest'
-import {
-  formatResponseWindow,
-  offerReferenceCode,
-  offerReplyInstruction,
-  selectOfferForReply,
-} from './offer-reference'
+import { formatResponseWindow, offerReferenceCode, selectOfferForReply } from './offer-reference'
 
 describe('offerReferenceCode', () => {
   it('is stable for an id', () => {
@@ -27,20 +22,6 @@ describe('offerReferenceCode', () => {
 
   it('survives ids with punctuation, so hyphenated uuids still produce a typable code', () => {
     expect(offerReferenceCode('a1b2-c3d4-e5f6')).toMatch(/^[A-Z0-9]{6}$/)
-  })
-})
-
-describe('offerReplyInstruction', () => {
-  it('tells the attorney which code to quote', () => {
-    const instruction = offerReplyInstruction('intro-abc123', 120)
-    expect(instruction).toContain(offerReferenceCode('intro-abc123'))
-    expect(instruction).toMatch(/ACCEPT/)
-    expect(instruction).toMatch(/DECLINE/)
-  })
-
-  it('states the window in the message', () => {
-    expect(offerReplyInstruction('intro-abc123', 45)).toContain('45 min')
-    expect(offerReplyInstruction('intro-abc123', 120)).toContain('2 hours')
   })
 })
 

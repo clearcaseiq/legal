@@ -37,12 +37,6 @@ export function formatResponseWindow(minutes: number): string {
   return `${Math.round(hours / 24)} days`
 }
 
-/** The line asking the attorney to quote the code back. */
-export function offerReplyInstruction(introductionId: string, timeoutMinutes: number): string {
-  const code = offerReferenceCode(introductionId)
-  return `Reply ACCEPT ${code} to accept or DECLINE ${code} to decline. (${formatResponseWindow(timeoutMinutes)})`
-}
-
 export type OfferSelection =
   | { ok: true; introductionId: string }
   | { ok: false; reason: 'none' | 'unknown_code' | 'ambiguous' }

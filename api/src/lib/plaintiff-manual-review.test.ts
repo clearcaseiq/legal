@@ -36,7 +36,6 @@ vi.mock('./platform-notifications', () => ({
 
 vi.mock('./app-url', () => ({ webUrl: (p: string) => `https://app.clearcaseiq.test${p}` }))
 vi.mock('./attorney-push', () => ({ notifyAttorneyByUserEmail: vi.fn() }))
-vi.mock('./offer-reference', () => ({ offerReplyInstruction: () => '' }))
 vi.mock('./matching-rules-config', () => ({
   getCurrentAttorneyResponseDeadlineMinutes: async () => 15,
 }))

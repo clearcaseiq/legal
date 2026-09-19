@@ -9,7 +9,7 @@ import { webUrl } from './app-url'
 import { notifyAttorneyByUserEmail } from './attorney-push'
 import { createNotificationEvent } from './platform-notifications'
 import { ATTORNEY_EVENTS, PLAINTIFF_EVENTS } from './notification-events'
-import { offerReplyInstruction } from './offer-reference'
+import { buildOfferSms } from './offer-sms'
 import { getCurrentAttorneyResponseDeadlineMinutes } from './matching-rules-config'
 import { formatCaseTypeWithSubtype, formatClaimType } from './claim-types'
 
@@ -284,11 +284,18 @@ export async function sendCaseOfferToAttorney(
       eventType: ATTORNEY_EVENTS.case_routed,
       templateKey: 'attorney_case_routed_sms',
       subject: 'New Case Match',
-      body: [
-        'CaseIQ: New case routed to you.',
-        caseSummary,
-        offerReplyInstruction(introductionId, responseWindowMinutes)
-      ].join('\n'),
+      // The email gets the labelled block above; a text gets something a
+      // person can act on from the lock screen. See `offer-sms.ts`.
+      body: buildOfferSms({
+        claimTypeLabel: formatClaimType(summary.claimType),
+        jurisdiction: summary.jurisdiction,
+        estimatedValueLow: summary.estimatedValueLow,
+        estimatedValueHigh: summary.estimatedValueHigh,
+        evidenceSummary: summary.evidenceSummary,
+        liabilityConfidence: summary.liabilityConfidence,
+        introductionId,
+        responseWindowMinutes,
+      }),
       recipient: attorney.phone
     })
     smsSent = true

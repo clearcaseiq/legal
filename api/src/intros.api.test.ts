@@ -286,3 +286,117 @@ describe('GET /v1/intros', () => {
     expect(prisma.introduction.findMany).not.toHaveBeenCalled()
   })
 })
+
+/**
+ * The short link in a routed-case text. It exists because the real destination
+ * is around eighty characters, which would cost the message a segment on its
+ * own; the six-character code is already there for the ACCEPT reply.
+ */
+describe('GET /v1/intros/by-code/:code', () => {
+  const app = buildApp()
+
+  // `offerReferenceCode` is the first six characters of the id, uppercased.
+  const INTRO_ID = 'cmu7y2gp90002iq5z3byptk4e'
+  const CODE = 'CMU7Y2'
+
+  const offer = (overrides: Record<string, unknown> = {}) => ({
+    id: INTRO_ID,
+    assessmentId: 'asm-1',
+    status: 'PENDING',
+    assessment: { userId: 'user-1' },
+    attorney: { email: 'attorney@example.com' },
+    ...overrides,
+  })
+
+  beforeEach(() => {
+    resetUniversalPrismaMock()
+  })
+
+  it('401 without auth, so a code alone never confirms a case exists', async () => {
+    const res = await request(app).get(`/v1/intros/by-code/${CODE}`)
+
+    expect(res.status).toBe(401)
+    expect(prisma.introduction.findMany).not.toHaveBeenCalled()
+  })
+
+  it('resolves the code to the case the text was about', async () => {
+    vi.mocked(prisma.introduction.findMany).mockResolvedValue([offer()] as any)
+    vi.mocked(prisma.leadSubmission.findFirst).mockResolvedValue({ id: 'lead-9' } as any)
+
+    const res = await request(app)
+      .get(`/v1/intros/by-code/${CODE}`)
+      .set('Authorization', 'Bearer attorney')
+
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual({
+      introId: INTRO_ID,
+      status: 'PENDING',
+      path: '/attorney-dashboard/lead/lead-9/overview',
+    })
+  })
+
+  it('accepts the code in the case the attorney typed it', async () => {
+    vi.mocked(prisma.introduction.findMany).mockResolvedValue([offer()] as any)
+    vi.mocked(prisma.leadSubmission.findFirst).mockResolvedValue({ id: 'lead-9' } as any)
+
+    const res = await request(app)
+      .get(`/v1/intros/by-code/${CODE.toLowerCase()}`)
+      .set('Authorization', 'Bearer attorney')
+
+    expect(res.status).toBe(200)
+  })
+
+  it('404s a code belonging to a different attorney', async () => {
+    vi.mocked(prisma.introduction.findMany).mockResolvedValue([
+      offer({ assessment: { userId: 'user-2' }, attorney: { email: 'someone-else@example.com' } }),
+    ] as any)
+
+    const res = await request(app)
+      .get(`/v1/intros/by-code/${CODE}`)
+      .set('Authorization', 'Bearer attorney')
+
+    expect(res.status).toBe(404)
+  })
+
+  it('picks the reader\'s offer when two share a six-character prefix', async () => {
+    // Six characters is short, so a collision is possible. Who is asking
+    // settles it rather than the code.
+    vi.mocked(prisma.introduction.findMany).mockResolvedValue([
+      offer({
+        id: 'cmu7y2zzzzzzzzzzzzzzzzzzz',
+        assessment: { userId: 'user-2' },
+        attorney: { email: 'someone-else@example.com' },
+      }),
+      offer(),
+    ] as any)
+    vi.mocked(prisma.leadSubmission.findFirst).mockResolvedValue({ id: 'lead-9' } as any)
+
+    const res = await request(app)
+      .get(`/v1/intros/by-code/${CODE}`)
+      .set('Authorization', 'Bearer attorney')
+
+    expect(res.status).toBe(200)
+    expect(res.body.introId).toBe(INTRO_ID)
+  })
+
+  it('falls back to the dashboard when the offer has no lead to open', async () => {
+    vi.mocked(prisma.introduction.findMany).mockResolvedValue([offer()] as any)
+    vi.mocked(prisma.leadSubmission.findFirst).mockResolvedValue(null as any)
+
+    const res = await request(app)
+      .get(`/v1/intros/by-code/${CODE}`)
+      .set('Authorization', 'Bearer attorney')
+
+    expect(res.status).toBe(200)
+    expect(res.body.path).toBe('/attorney-dashboard')
+  })
+
+  it('400s a malformed code without touching the database', async () => {
+    const res = await request(app)
+      .get('/v1/intros/by-code/nope')
+      .set('Authorization', 'Bearer attorney')
+
+    expect(res.status).toBe(400)
+    expect(prisma.introduction.findMany).not.toHaveBeenCalled()
+  })
+})

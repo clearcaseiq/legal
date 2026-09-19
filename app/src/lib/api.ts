@@ -424,6 +424,21 @@ export async function markPlaintiffNotificationRead(id: string): Promise<{ updat
   return data
 }
 
+/**
+ * Where the six-character code in an offer text points.
+ *
+ * The text carries the code rather than the lead URL because the real one is
+ * around eighty characters and would cost the message a segment on its own.
+ */
+export async function resolveOfferCode(code: string): Promise<{
+  introId: string
+  status: string
+  path: string
+}> {
+  const { data } = await api.get(`/v1/intros/by-code/${encodeURIComponent(code)}`)
+  return data
+}
+
 export type PlaintiffCaseTask = {
   id: string
   title: string

@@ -47,6 +47,10 @@ export const KNOWN_ROUTE_PREFIXES = [
   '/evidence-dashboard',
   '/evidence-upload',
   '/firms',
+  // The short link in a routed-case text. `:code` is any six characters, so the
+  // whole prefix has to be valid at this level; the page 404s unknown codes
+  // itself, once it knows who is asking.
+  '/o',
   '/payment',
   '/respond',
   '/results',

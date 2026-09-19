@@ -12,7 +12,8 @@
  */
 import { prisma } from './prisma'
 import { logger } from './logger'
-import { offerReplyInstruction } from './offer-reference'
+import { buildTierOfferSms } from './offer-sms'
+import { isGsm7, smsCost, toGsm7 } from './sms-text'
 import { getCurrentAttorneyResponseDeadlineMinutes } from './matching-rules-config'
 import { isSmsSuppressed } from './sms-opt-out'
 
@@ -165,10 +166,27 @@ export type SendSmsOptions = {
  * suppression check anywhere else would leave the claimant-facing texts — the
  * ones a STOP is actually about — uncovered.
  */
-export async function sendSms(to: string, body: string, options: SendSmsOptions = {}): Promise<boolean> {
+export async function sendSms(to: string, rawBody: string, options: SendSmsOptions = {}): Promise<boolean> {
+  // Here rather than in the templates: this is the one place every outbound
+  // message passes through, so a template cannot reintroduce the punctuation
+  // that doubles the segment count. See `sms-text.ts`.
+  const body = toGsm7(rawBody)
+
   if (!options.ignoreOptOut && (await isSmsSuppressed(to))) {
     logger.info('SMS suppressed: recipient opted out', { to: to.slice(-4), bodyLength: body.length })
     return false
+  }
+
+  const cost = smsCost(body)
+  // Logged on every send because a template that grows a segment is otherwise
+  // invisible until the bill arrives.
+  logger.info('Sending SMS', { to: to.slice(-4), ...cost })
+  if (cost.encoding === 'UCS-2') {
+    logger.warn('SMS is UCS-2, so segments hold 67 characters instead of 153', {
+      to: to.slice(-4),
+      segments: cost.segments,
+      offending: [...new Set([...body].filter((c) => !isGsm7(c)))].join(''),
+    })
   }
 
   const provider = resolveSmsProvider()
@@ -224,12 +242,7 @@ export async function sendCaseOfferSms(
   // Callers that enforce their own window (the tier routers) pass it; everyone
   // else gets the deadline the expiry sweep will actually apply.
   const timeout = timeoutMinutes ?? (await getCurrentAttorneyResponseDeadlineMinutes())
-  const body = [
-    `CaseIQ: New case routed to you.`,
-    caseSummary,
-    offerReplyInstruction(introductionId, timeout)
-  ].join('\n')
-  return sendSms(phone, body)
+  return sendSms(phone, buildTierOfferSms(introductionId, caseSummary, timeout))
 }
 
 function normalizePhone(phone: string): string {

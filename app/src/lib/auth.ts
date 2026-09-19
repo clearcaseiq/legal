@@ -125,10 +125,16 @@ export function getLoginRedirect(pathname: string, role?: WebAppRole | WebAppRol
   // Attorney workspace comes first: an attorney-only path should send an
   // unauthenticated user to the attorney login even though staff can also reach
   // the shared /firm-dashboard.
+  // `/o/` is the short link in a routed-case text. It is only ever sent to an
+  // attorney, and it does not begin with `/attorney-`, so without naming it
+  // here the one link most likely to be opened signed-out falls through to the
+  // generic login.
   if (
     roles.includes('attorney') &&
     !roles.includes('staff') &&
-    (pathname.startsWith('/attorney-dashboard') || pathname.startsWith('/attorney-'))
+    (pathname.startsWith('/attorney-dashboard') ||
+      pathname.startsWith('/attorney-') ||
+      pathname.startsWith('/o/'))
   ) {
     return `/login/attorney?redirect=${encodeURIComponent(pathname)}`
   }
