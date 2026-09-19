@@ -29,6 +29,7 @@ export function WorkflowCard({
   specialists,
   saving,
   releasing,
+  releaseResult,
   onPatch,
   onRelease,
 }: {
@@ -36,6 +37,8 @@ export function WorkflowCard({
   specialists: { id: string; name: string; role?: string }[]
   saving: boolean
   releasing: boolean
+  /** The verdict from the last release, shown here rather than page-level. */
+  releaseResult: { ok: boolean; message: string } | null
   onPatch: (
     input: {
       status?: AssistanceStatus
@@ -127,6 +130,18 @@ export function WorkflowCard({
           >
             {releasing ? 'Releasing…' : 'Release for Routing'}
           </button>
+          {releaseResult && (
+            <p
+              role="status"
+              className={`mt-2 rounded-lg border p-2 text-xs ${
+                releaseResult.ok
+                  ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300'
+                  : 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300'
+              }`}
+            >
+              {releaseResult.message}
+            </p>
+          )}
           <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">
             {!releasable
               ? `Available once the status is ${ASSISTANCE_STATUS_LABELS[RELEASABLE_STATUS]}.`

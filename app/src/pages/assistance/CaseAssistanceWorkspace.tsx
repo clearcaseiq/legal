@@ -87,6 +87,11 @@ export default function CaseAssistanceWorkspace() {
   const [notice, setNotice] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [releasing, setReleasing] = useState(false)
+  // Kept apart from `notice`/`saveError`, which render under the page header.
+  // The Release button is the second card down the side column, so a verdict
+  // posted up there lands off-screen for the person who just pressed it — the
+  // release ran and reported itself, and still looked like nothing happened.
+  const [releaseResult, setReleaseResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [specialists, setSpecialists] = useState<{ id: string; name: string; role?: string }[]>([])
   const [openAction, setOpenAction] = useState<ContactAction | null>(null)
   const [focusGapKey, setFocusGapKey] = useState<string | null>(null)
@@ -176,26 +181,34 @@ export default function CaseAssistanceWorkspace() {
    *
    * Reloads afterwards because a release changes the lead's state — routed, or
    * parked in manual review — and the header and snapshot read that.
+   *
+   * The verdict goes to `releaseResult` so it renders against the button rather
+   * than in the page-level banner slot, which is above the fold from there.
    */
   const release = async () => {
     try {
       setReleasing(true)
       setNotice(null)
       setSaveError(null)
+      setReleaseResult(null)
       const result = await releaseCaseForRouting(id)
       if (result.outcome === 'routed') {
-        setNotice(
-          `Released for routing. Offered to ${result.routedCount} attorney${result.routedCount === 1 ? '' : 's'}.`,
-        )
+        setReleaseResult({
+          ok: true,
+          message: `Released for routing. Offered to ${result.routedCount} attorney${result.routedCount === 1 ? '' : 's'}.`,
+        })
       } else {
-        // Not thrown as an error: every one of these is a legitimate verdict
-        // from the engine, and the case has been parked accordingly rather
-        // than lost. What the specialist needs is which verdict it was.
-        setSaveError(RELEASE_FAILURE_MESSAGES[result.outcome](result.reason))
+        // Not an error: every one of these is a legitimate verdict from the
+        // engine, and the case has been parked accordingly rather than lost.
+        // What the specialist needs is which verdict it was.
+        setReleaseResult({ ok: false, message: RELEASE_FAILURE_MESSAGES[result.outcome](result.reason) })
       }
       await load({ silent: true })
     } catch (err: any) {
-      setSaveError(err.response?.data?.error || 'Could not release this case for routing')
+      setReleaseResult({
+        ok: false,
+        message: err.response?.data?.error || 'Could not release this case for routing',
+      })
     } finally {
       setReleasing(false)
     }
@@ -366,6 +379,7 @@ export default function CaseAssistanceWorkspace() {
               specialists={specialists}
               saving={saving}
               releasing={releasing}
+              releaseResult={releaseResult}
               onPatch={patch}
               onRelease={release}
             />
