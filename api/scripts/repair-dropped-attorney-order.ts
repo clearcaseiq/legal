@@ -22,6 +22,9 @@
  *     api node ../node_modules/tsx/dist/cli.mjs repair-dropped-attorney-order.ts
  *
  * Add -e APPLY=1 to write. Add -e ROUTE=1 to also start routing once written.
+ * Add -e OVERRIDE_PAUSE=1 with ROUTE=1 to route while routing is switched off
+ * platform-wide, which is otherwise a hard stop and reports only
+ * "Routing disabled by admin".
  */
 import { PrismaClient } from '@prisma/client'
 
@@ -34,6 +37,7 @@ const ATTORNEY_IDS = (process.env.ATTORNEY_IDS || '')
   .filter(Boolean)
 const APPLY = process.env.APPLY === '1'
 const ROUTE = process.env.ROUTE === '1'
+const OVERRIDE_PAUSE = process.env.OVERRIDE_PAUSE === '1'
 
 function parseJson(raw: unknown): any {
   if (!raw) return null
@@ -168,12 +172,18 @@ async function main() {
     preferTierRouting: false,
     fallbackToClassic: true,
     preferredAttorneyIds: ATTORNEY_IDS,
+    overrideRoutingDisabled: OVERRIDE_PAUSE,
   })
   console.log('\nRouting result:')
   console.log(`  success:    ${result.success}`)
   console.log(`  gatePassed: ${(result as any).gatePassed}  ${(result as any).gateReason || ''}`)
   console.log(`  routedTo:   ${(result.routedTo || []).join(', ') || '(nobody)'}`)
   if (result.errors?.length) console.log(`  errors:     ${result.errors.join(' | ')}`)
+  if ((result as any).disabledByAdmin) {
+    console.log('\n  Routing is switched off platform-wide. The order above is written and')
+    console.log('  safe; re-run with -e ROUTE=1 -e OVERRIDE_PAUSE=1 to send this one case,')
+    console.log('  or release it from the Case Assistance workbench.')
+  }
 }
 
 main()
