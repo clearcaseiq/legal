@@ -2228,7 +2228,9 @@
       "highImpactDesc": "High impact on value and attorney review speed.",
       "helpfulDesc": "Helpful for strengthening the file.",
       "usefulDesc": "Useful supporting context.",
-      "noGapsFromFile": "No major missing-document gaps were detected from the current file. You look close to attorney-review ready."
+      "noGapsFromFile": "No major missing-document gaps were detected from the current file. You look close to attorney-review ready.",
+      "coverageUnknown": "This range is not limited by insurance coverage. Most auto claims recover no more than the at-fault driver's policy, so the actual recovery may be lower once we know the limit.",
+      "coverageCapped": "Capped at the {{limit}} policy limit. The claim is modeled at {{modelled}}, but that is the most this coverage can pay."
     },
     "contactOrder": {
       "title": "Choose who we contact first",

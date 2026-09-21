@@ -3348,7 +3348,9 @@
       "highImpactDesc": "Alto impacto en el valor y la velocidad de revisión del abogado.",
       "helpfulDesc": "Útil para fortalecer el expediente.",
       "usefulDesc": "Contexto de apoyo útil.",
-      "noGapsFromFile": "No se detectaron carencias importantes de documentos en el expediente actual. Parece estar cerca de estar listo para la revisión de un abogado."
+      "noGapsFromFile": "No se detectaron carencias importantes de documentos en el expediente actual. Parece estar cerca de estar listo para la revisión de un abogado.",
+      "coverageUnknown": "Este rango no está limitado por la cobertura del seguro. La mayoría de las reclamaciones de auto no recuperan más que la póliza del conductor culpable, por lo que la recuperación real puede ser menor una vez que conozcamos el límite.",
+      "coverageCapped": "Limitado al límite de póliza de {{limit}}. La reclamación se modela en {{modelled}}, pero eso es lo máximo que esta cobertura puede pagar."
     },
     "contactOrder": {
       "title": "Elige a quién contactamos primero",

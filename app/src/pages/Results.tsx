@@ -34,6 +34,7 @@ import { useHeuristics } from '../contexts/HeuristicsContext'
 import { UNDOCUMENTED_READINESS_CEILING, type HeuristicsConfig } from '../lib/heuristics'
 import { liabilityTier, liabilityConfidenceLevel, LIABILITY_TIER_COPY_KEY } from '../lib/liabilityGrade'
 import { buildLiabilityChecklist, hasUploadableGap } from '../lib/liabilityChecklist'
+import { coverageNoteKind } from '../lib/coverageNote'
 import { formatAttorneyLicensure } from '../lib/attorneyLicensure'
 import { isDanglingFragment, isLegacyTruncated } from '../lib/liabilityFactors'
 import { AttorneyContactOrder } from '../components/AttorneyContactOrder'
@@ -2443,6 +2444,33 @@ export default function Results() {
       parsedFacts?.insurance?.um_uim ||
       parsedFacts?.insurance?.has_um_uim_coverage
     )
+  // Coverage is the one missing input that can invalidate the headline number
+  // rather than refine it: a $177,000 claim against a 15/30 policy recovers
+  // $15,000. It was a single bullet in the five-item list below, ranked
+  // alongside property damage, and the range itself said nothing at all — so
+  // the figure a claimant reads first looked unconditional when the largest
+  // condition on it was simply unknown. See `coverageNote.ts` for why this is
+  // three states rather than two.
+  const coveragePolicyLimit =
+    underwriting?.settlement?.coverage?.defendantLimit ?? settlementRange?.policyLimit ?? null
+  const coverageNoteType = coverageNoteKind({
+    policyLimitConstrained,
+    policyLimit: coveragePolicyLimit,
+  })
+  const coverageNote =
+    coverageNoteType === 'capped'
+      ? t('results.value.coverageCapped', {
+          limit: formatCurrency(coveragePolicyLimit),
+          modelled: formatCurrency(
+            underwriting?.settlement?.uncappedExpected ??
+              settlementRange?.uncappedExpected ??
+              settlementExpected,
+          ),
+        })
+      : coverageNoteType === 'unknown'
+        ? t('results.value.coverageUnknown')
+        : null
+
   const reportedPropertyDamage = Number(
     damagesObj.estimated_property_damage || damagesObj.property_damage || 0
   )
@@ -3989,6 +4017,11 @@ Checklist:
                   the page: the figure a claimant reads first should not look
                   authoritative on its own (C3). */}
               <p className="mt-1 text-xs text-slate-500">{t('results.chrome.basedOnYourInfo')}</p>
+              {coverageNote && (
+                <p className="mt-2 rounded-lg bg-amber-50 p-2 text-xs leading-relaxed text-amber-900">
+                  {coverageNote}
+                </p>
+              )}
               <InfoDisclosure
                 caption={t('results.chrome.notAGuarantee')}
                 detail={t('results.chrome.notAGuaranteeInfo')}
@@ -5387,6 +5420,11 @@ Checklist:
           <p className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight mb-1">
             {displaySettlementRangeText}
           </p>
+          {coverageNote && (
+            <p className="mb-3 rounded-lg bg-amber-50 p-3 text-sm leading-relaxed text-amber-900">
+              {coverageNote}
+            </p>
+          )}
           <div className="mb-4">
             <p className="text-sm text-gray-700">
               <span className="font-semibold">{consumerEstimateLabel}</span>

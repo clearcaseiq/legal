@@ -1004,6 +1004,11 @@ export function reconcileValueBandsWithUnderwriting(
       policyLimitConstrained: settlement.policyLimitConstrained,
       coverageBasis: settlement.coverage.basis,
       policyLimit: settlement.coverage.defendantLimit,
+      // Carried so a capped case can say what it is worth as well as what it
+      // can collect. Hiding the modelled figure leaves the claimant reading a
+      // small number for a case that is actually an underinsured large one —
+      // which is also the fact a bad-faith argument rests on.
+      uncappedExpected: settlement.uncappedExpected,
     },
     trial: {
       ...(legacy.trial || {}),
