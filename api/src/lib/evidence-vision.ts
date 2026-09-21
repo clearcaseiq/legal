@@ -103,9 +103,11 @@ const CATEGORY_STRONG_GROUPS: Record<string, LabelGroup[]> = {
   photos: ['vehicle', 'injury', 'scene'],
   video: ['vehicle', 'injury', 'scene'],
   police_report: ['document'],
+  witness_statements: ['document'],
   medical_records: ['document', 'injury'],
   bills: ['document'],
   insurance_letters: ['document'],
+  dec_page: ['document'],
   wage_verification: ['document'],
   correspondence: ['document'],
 }
@@ -116,9 +118,11 @@ const CATEGORY_WEAK_GROUPS: Record<string, LabelGroup[]> = {
   photos: ['person', 'body'],
   video: ['person', 'body'],
   police_report: ['vehicle', 'scene'],
+  witness_statements: [],
   medical_records: ['body', 'person'],
   bills: [],
   insurance_letters: [],
+  dec_page: [],
   wage_verification: [],
   correspondence: [],
 }
@@ -127,9 +131,11 @@ const CATEGORY_EXPECTATION: Record<string, string> = {
   photos: 'photos of vehicle damage, injuries, or the accident scene',
   video: 'footage of the vehicle, injuries, or the accident scene',
   police_report: 'a police or incident report',
+  witness_statements: 'a witness statement',
   medical_records: 'medical records, an X-ray, or a treatment document',
   bills: 'a medical bill or invoice',
   insurance_letters: 'an insurance letter or document',
+  dec_page: 'an insurance declarations (Dec) page',
   wage_verification: 'a pay stub or income document',
   correspondence: 'a letter, email, or document',
 }
@@ -137,7 +143,19 @@ const CATEGORY_EXPECTATION: Record<string, string> = {
 // Document categories where DetectLabels only says "it's a page of text" -- to tell
 // a police report apart from a bill or an unrelated document, we read the actual text
 // with Textract and match category-specific keywords.
-const DOCUMENT_CATEGORY_TERMS: Record<string, { label: string; terms: string[] }> = {
+//
+// Every category the upload UI offers must appear here, not just the ones that are
+// easy to keyword-match. Membership is what `isDocumentCategory` tests, and a document
+// category missing from this map is treated as a photo slot -- so a PDF filed under it
+// is rejected as the wrong kind of file. `dec_page` sat outside the map for exactly
+// that reason and told every claimant their declarations page might be the wrong
+// upload, which is the one document that establishes the policy limit.
+//
+// `broad` marks a catch-all whose vocabulary is ordinary letter-writing rather than
+// anything specific. Such a category can still verify its own uploads, but is excluded
+// from the competitor comparison below: "dear" and "sincerely" appear in a genuine
+// insurance letter too, and that is no reason to accuse one of being the other.
+const DOCUMENT_CATEGORY_TERMS: Record<string, { label: string; terms: string[]; broad?: boolean }> = {
   police_report: {
     label: 'police report',
     terms: [
@@ -145,6 +163,17 @@ const DOCUMENT_CATEGORY_TERMS: Record<string, { label: string; terms: string[] }
       'accident report', 'case number', 'report number', 'badge', 'dispatch', 'citation',
       'violation', 'highway patrol', 'state patrol', 'narrative', 'complainant', 'driver 1',
       'vehicle 1', 'unit 1', 'traffic', 'investigating', 'law enforcement', 'crash',
+    ],
+  },
+  // Deliberately narrow: a bare "statement" or "signature" appears on bills and
+  // policies too, so only first-person and attestation language counts.
+  witness_statements: {
+    label: 'witness statement',
+    terms: [
+      'witness', 'witnessed', 'eyewitness', 'bystander', 'i saw', 'i observed', 'i heard',
+      'i was standing', 'in my own words', 'personally observed', 'under penalty of perjury',
+      'sworn', 'affidavit', 'affiant', 'deponent', 'declarant', 'notary', 'notarized',
+      'true and correct', 'to the best of my knowledge', 'statement of',
     ],
   },
   medical_records: {
@@ -172,6 +201,22 @@ const DOCUMENT_CATEGORY_TERMS: Record<string, { label: string; terms: string[] }
       'settlement', 'demand', 'subrogation', 'underwriter', 'reservation of rights',
     ],
   },
+  // A Dec page shares most of its vocabulary with an insurance letter, so the terms
+  // that carry weight are the ones unique to a schedule of coverage: limits, premium,
+  // policy period. Two of these land on any genuine declarations page, which settles
+  // it as relevant before the insurance_letters overlap is ever compared.
+  dec_page: {
+    label: 'insurance declarations page',
+    terms: [
+      'declarations', 'dec page', 'policy period', 'named insured', 'policy number',
+      'coverage limits', 'limits of liability', 'limit of liability', 'schedule of coverage',
+      'each person', 'each accident', 'each occurrence', 'per occurrence', 'per person',
+      'bodily injury liability', 'property damage liability', 'uninsured motorist',
+      'underinsured motorist', 'medical payments', 'med pay', 'collision coverage',
+      'comprehensive', 'deductible', 'premium', 'effective date', 'expiration date',
+      'endorsement', 'policyholder', 'insured vehicle', 'vin',
+    ],
+  },
   wage_verification: {
     label: 'pay stub or income document',
     terms: [
@@ -180,9 +225,19 @@ const DOCUMENT_CATEGORY_TERMS: Record<string, { label: string; terms: string[] }
       'w-2', 'paystub', 'pay stub', 'income', 'hours worked', 'deductions', 'taxable',
     ],
   },
+  correspondence: {
+    label: 'letter or email',
+    broad: true,
+    terms: [
+      'dear', 'sincerely', 'regards', 'yours truly', 'to whom it may concern', 'respectfully',
+      'subject:', 're:', 'from:', 'sent:', 'cc:', 'wrote:', 'forwarded message', 'reply',
+      'email', 'letter', 'correspondence', 'enclosed', 'enclosure', 'please find', 'attached',
+    ],
+  },
 }
 
-function isDocumentCategory(category: string): boolean {
+/** True for categories whose evidence arrives as a page of text rather than a picture. */
+export function isDocumentCategory(category: string): boolean {
   return Object.prototype.hasOwnProperty.call(DOCUMENT_CATEGORY_TERMS, category)
 }
 
@@ -297,7 +352,7 @@ function assessDocumentText(
   // Find the best-matching competing document category.
   let competitor: { key: string; label: string; hits: number } | null = null
   for (const [key, def] of Object.entries(DOCUMENT_CATEGORY_TERMS)) {
-    if (key === category) continue
+    if (key === category || def.broad) continue
     const hits = countTermHits(normalized, def.terms)
     if (!competitor || hits > competitor.hits) competitor = { key, label: def.label, hits }
   }
