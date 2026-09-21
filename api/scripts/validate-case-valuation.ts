@@ -122,10 +122,19 @@ async function report(assessmentId: string) {
   }
 
   const facts = parseJson<Record<string, any>>(assessment.facts, {})
-  const name = [assessment.user?.firstName, assessment.user?.lastName].filter(Boolean).join(' ')
+  // Guest intakes carry a placeholder account ("Guest User"), so the account
+  // name alone can report the wrong person on the very cases most likely to be
+  // looked up by name. The claimant's own answers win.
+  const { resolveClaimantContact } = await import('../src/lib/claimant-contact')
+  const contact = resolveClaimantContact(assessment as any)
+  const accountName = [assessment.user?.firstName, assessment.user?.lastName].filter(Boolean).join(' ')
+  const name =
+    [contact?.firstName, contact?.lastName].filter(Boolean).join(' ').trim() ||
+    accountName ||
+    '(no name on file)'
 
   console.log('='.repeat(78))
-  console.log(`${name || '(no account name)'}   ${assessment.referenceCode || assessment.id}`)
+  console.log(`${name}   ${assessment.referenceCode || assessment.id}`)
   console.log('='.repeat(78))
   console.log(`  id:         ${assessment.id}`)
   console.log(`  claim:      ${assessment.claimType}`)
@@ -155,11 +164,15 @@ async function report(assessmentId: string) {
       console.log(`  capped at policy limit ${usd(storedSettlement.policyLimit)}`)
     }
     // A snapshot older than the facts is the ordinary cause of a mismatch, and
-    // is not itself a bug — it means nobody has re-predicted since.
-    if (prediction.createdAt < assessment.updatedAt) {
-      const days = (assessment.updatedAt.getTime() - prediction.createdAt.getTime()) / 86_400_000
+    // is not itself a bug — it means nobody has re-predicted since. The row is
+    // always touched a moment after the prediction is written, though, so a
+    // few minutes of lag is the write order rather than staleness, and saying
+    // otherwise on every healthy case would train the reader to ignore it.
+    const lagMs = assessment.updatedAt.getTime() - prediction.createdAt.getTime()
+    if (lagMs > 15 * 60_000) {
       console.log(
-        `  NOTE: the case was edited ${days.toFixed(1)} day(s) after this was written, so it is stale.`
+        `  NOTE: the case was edited ${(lagMs / 86_400_000).toFixed(1)} day(s) after this was` +
+          ' written. Compare against the live figure below.'
       )
     }
   }
