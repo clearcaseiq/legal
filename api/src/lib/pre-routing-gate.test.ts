@@ -240,9 +240,20 @@ describe('runPreRoutingGate', () => {
     }
   })
 
+  // This previously asserted the hold using `aiClassification: 'suspicious_tampered'`.
+  // Nothing writes that value — `classifyEvidence` returns a document type — so the
+  // fixture kept a signal green that could not fire against real data. The trigger
+  // here is a stored identity verdict, which the evidence pipeline does produce.
   it('holds immediately on a high-severity fraud signal', async () => {
     vi.mocked(prisma.evidenceFile.findMany).mockResolvedValue([
-      { processingStatus: 'completed', category: 'medical_records', isVerified: true, isHIPAA: true, aiClassification: 'suspicious_tampered', ocrText: 'ok' }
+      {
+        processingStatus: 'completed', category: 'medical_records', isVerified: true,
+        isHIPAA: true, aiClassification: 'medical_records', ocrText: 'ok',
+        identityCheck: JSON.stringify({
+          verdict: 'mismatch', documentName: 'Jamie Lee', claimantName: 'Apple Jones',
+          checkedAt: '2026-06-20T00:00:00.000Z',
+        }),
+      }
     ] as any)
 
     const r = await runPreRoutingGate(baseCase())

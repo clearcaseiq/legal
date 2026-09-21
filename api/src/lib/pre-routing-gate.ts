@@ -267,6 +267,7 @@ export async function runPreRoutingGate(
     where: { assessmentId: normalizedCase.case_id },
     select: {
       category: true,
+      originalName: true,
       mimetype: true,
       processingStatus: true,
       isVerified: true,
@@ -275,6 +276,7 @@ export async function runPreRoutingGate(
       ocrText: true,
       exifData: true,
       location: true,
+      identityCheck: true,
     }
   })
   const complianceSetting = await prisma.complianceSetting.findUnique({

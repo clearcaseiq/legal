@@ -13,6 +13,8 @@
 
 import { prisma } from './prisma'
 import type { NormalizedCase } from './case-normalization'
+import { parseIdentityCheck, type IdentityCheck } from './claimant-identity-check'
+import { isImageFile, photoForensics } from './evidence-forensics'
 
 export type FraudSeverity = 'low' | 'medium' | 'high'
 
@@ -37,6 +39,7 @@ export interface FraudEvaluation {
 /** Minimal evidence shape the evaluator needs (subset of EvidenceFile). */
 export interface FraudEvidenceInput {
   category: string
+  originalName?: string | null
   mimetype?: string | null
   processingStatus?: string | null
   isVerified?: boolean | null
@@ -45,6 +48,8 @@ export interface FraudEvidenceInput {
   ocrText?: string | null
   exifData?: string | null
   location?: string | null
+  /** `checkDocumentIdentity`'s verdict, as stored JSON. */
+  identityCheck?: string | null
 }
 
 export interface FraudGateInput {
@@ -67,7 +72,13 @@ const CORE_EVIDENCE = ['medical_records', 'police_report', 'bills']
 function pickReviewReason(signals: FraudSignal[]): string {
   const codes = new Set(signals.map((s) => s.code))
   if (codes.has('identity_verification')) return 'identity_mismatch'
-  if (codes.has('suspicious_documents') || codes.has('images_lack_metadata')) return 'document_tampering'
+  if (
+    codes.has('photo_predates_incident') ||
+    codes.has('image_editor_metadata') ||
+    codes.has('images_lack_metadata')
+  ) {
+    return 'document_tampering'
+  }
   if (codes.has('duplicate_recent_submissions') || codes.has('duplicate_profile')) return 'duplicate'
   if (codes.has('evidence_processing_failed') || codes.has('ocr_empty_document')) return 'ocr_failure'
   if (codes.has('hipaa_misaligned')) return 'suspicious_documents'
@@ -86,30 +97,77 @@ export async function evaluateCaseFraud(input: FraudGateInput): Promise<FraudEva
 
   const rawFacts = normalizedCase.rawFacts || {}
   const verification = (rawFacts.verification as Record<string, unknown>) || {}
-  const verificationStatus = String(verification.status || '').toLowerCase()
 
-  // 1. Identity verification failed / flagged.
-  if (['manual_review', 'failed', 'rejected'].includes(verificationStatus)) {
+  // 1. A document on this case names someone other than the claimant.
+  //
+  //    `checkDocumentIdentity` already runs on every processed upload and
+  //    stores its verdict on the file; until now nothing read it back here, and
+  //    this signal instead consulted `facts.verification.status` — a field no
+  //    code in this repo writes, which left the whole check inert.
+  //
+  //    The comparison is deliberately lax (any shared name token passes, so
+  //    maiden names and nicknames do not flag), which means a `mismatch` is a
+  //    document with no name in common with the claimant at all. That is a
+  //    strong verdict, not a marginal one.
+  //
+  //    At upload it stays a flag, because refusing a claimant their own badly
+  //    scanned record is worse than filing it with a warning. Holding for admin
+  //    review is the proportionate response to the same verdict: nothing is
+  //    rejected, an attorney simply does not see the case until a person has
+  //    looked. That matters because extraction is not inert — bills and
+  //    treatment dates off a stranger's record move this case's valuation.
+  const identityMismatches = evidenceFiles
+    .map((f) => parseIdentityCheck(f.identityCheck))
+    .filter((check): check is IdentityCheck => check?.verdict === 'mismatch')
+
+  // Where an external identity-verification provider would report. Nothing
+  // writes it today; it stays as the integration hook.
+  const verificationStatus = String(verification.status || '').toLowerCase()
+  const verificationFlagged = ['manual_review', 'failed', 'rejected'].includes(verificationStatus)
+
+  if (identityMismatches.length > 0 || verificationFlagged) {
+    const first = identityMismatches[0]
+    const others = identityMismatches.length - 1
     add({
       code: 'identity_verification',
-      label: 'Identity verification flagged',
-      detail: `Identity verification status is "${verificationStatus}".`,
+      label: 'Document names a different person',
+      detail: first
+        ? `A document names "${first.documentName}" on a case filed for "${first.claimantName}"` +
+          `${others > 0 ? `, and ${others} other document(s) also mismatch` : ''}.`
+        : `Identity verification status is "${verificationStatus}".`,
       points: 40,
       severity: 'high',
     })
   }
 
-  // 2. AI classified one or more documents as suspicious/tampered/altered/fraud.
-  const suspiciousFiles = evidenceFiles.filter((f) =>
-    /suspicious|tamper|altered|fraud|forg/i.test(String(f.aiClassification || '')),
-  )
-  if (suspiciousFiles.length > 0) {
+  // 2. What the photographs' own metadata says. Replaces a string match against
+  //    `aiClassification` that could never fire — see `evidence-forensics` for
+  //    why, and for the tolerances these two checks run under.
+  const forensics = photoForensics(evidenceFiles, normalizedCase.incident_date)
+
+  if (forensics.predatesIncident.length > 0) {
+    const worst = [...forensics.predatesIncident].sort((a, b) => b.daysBefore - a.daysBefore)[0]
     add({
-      code: 'suspicious_documents',
-      label: 'Documents appear altered',
-      detail: `${suspiciousFiles.length} uploaded document(s) were AI-classified as suspicious or tampered.`,
-      points: 45,
+      code: 'photo_predates_incident',
+      label: 'Photo taken before the incident',
+      detail:
+        `${forensics.predatesIncident.length} photo(s) were captured before the reported incident date — ` +
+        `"${worst.name}" by ${worst.daysBefore} days.`,
+      points: 35,
       severity: 'high',
+    })
+  }
+
+  if (forensics.editedInSoftware.length > 0) {
+    const first = forensics.editedInSoftware[0]
+    add({
+      code: 'image_editor_metadata',
+      label: 'Photo saved out of an image editor',
+      detail:
+        `${forensics.editedInSoftware.length} photo(s) name an image editor in their metadata — ` +
+        `"${first.name}" was written by ${first.software}.`,
+      points: 20,
+      severity: 'medium',
     })
   }
 
@@ -183,9 +241,7 @@ export async function evaluateCaseFraud(input: FraudGateInput): Promise<FraudEva
 
   // 8. Photo evidence stripped of all metadata (EXIF + GPS) — common with
   //    screenshots or edited/downloaded images rather than originals.
-  const imageFiles = evidenceFiles.filter(
-    (f) => f.category === 'photos' || /^image\//i.test(String(f.mimetype || '')),
-  )
+  const imageFiles = evidenceFiles.filter(isImageFile)
   if (
     imageFiles.length > 0 &&
     imageFiles.every((f) => !String(f.exifData || '').trim() && !String(f.location || '').trim())
