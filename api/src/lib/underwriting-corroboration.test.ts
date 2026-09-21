@@ -11,6 +11,7 @@ function caseWith(overrides: {
   narrative: string
   icdCodes?: string[]
   cptCodes?: string[]
+  treatment?: unknown[]
 }): UnderwritingInput {
   return {
     id: 'case-1',
@@ -25,6 +26,7 @@ function caseWith(overrides: {
         location: 'Orange County, CA',
       },
       damages: { med_charges: 50000 },
+      treatment: overrides.treatment ?? [],
       clinical: {
         icdCodes: overrides.icdCodes ?? [],
         cptCodes: overrides.cptCodes ?? [],
@@ -99,6 +101,105 @@ describe('what corroborates a diagnosis', () => {
     expect(severity.primaryInjury).toBe('DISC_HERNIATION')
     expect(severity.injuryCorroboration).toBe('none')
     expect(severity.valuationInjury).toBe('SOFT_TISSUE')
+  })
+})
+
+describe('the procedure premium', () => {
+  const CODED = ['M51.26']
+  const surgery = (status: string) => [{ type: 'surgery_status', status }]
+
+  it('pays for a surgery the claimant says they had', () => {
+    const severity = calculateSeverity(
+      caseWith({ narrative: HERNIATION, icdCodes: CODED, treatment: surgery('completed') }),
+    )
+    expect(severity.proceduresPerformed.surgery).toBe(true)
+  })
+
+  it('pays for one that is scheduled, since they will still undergo it', () => {
+    const severity = calculateSeverity(
+      caseWith({ narrative: HERNIATION, icdCodes: CODED, treatment: surgery('scheduled') }),
+    )
+    expect(severity.proceduresPerformed.surgery).toBe(true)
+  })
+
+  it('does not pay for a surgery that was only recommended', () => {
+    // A recommendation is not a procedure. This raised severity and the
+    // multiple identically to a completed surgery, because the premium was
+    // applied by substring-matching the factors list for "surgery".
+    const recommended = caseWith({
+      narrative: HERNIATION, icdCodes: CODED, treatment: surgery('recommended'),
+    })
+    const completed = caseWith({
+      narrative: HERNIATION, icdCodes: CODED, treatment: surgery('completed'),
+    })
+    const none = caseWith({ narrative: HERNIATION, icdCodes: CODED })
+
+    expect(calculateSeverity(recommended).proceduresPerformed.surgery).toBe(false)
+    expect(calculateSeverity(completed).proceduresPerformed.surgery).toBe(true)
+
+    // A recommendation still says the injury is worse than one nobody proposed
+    // operating on, so severity and the value rise. What it no longer does is
+    // reach the value of having undergone the operation.
+    expect(calculateSeverity(recommended).score).toBeGreaterThan(calculateSeverity(none).score)
+    expect(underwriteCase(recommended).settlement.expected).toBeLessThan(
+      underwriteCase(completed).settlement.expected,
+    )
+  })
+
+  it('does not pay for a surgery only a regex found in the prose', () => {
+    const narrated = caseWith({
+      narrative: `${HERNIATION} I had surgery in March.`,
+      icdCodes: CODED,
+    })
+    expect(calculateSeverity(narrated).proceduresPerformed.surgery).toBe(false)
+  })
+
+  it('pays when the bills carry a surgical procedure code', () => {
+    // 22558 — anterior lumbar interbody fusion.
+    const severity = calculateSeverity(
+      caseWith({ narrative: HERNIATION, icdCodes: CODED, cptCodes: ['22558'] }),
+    )
+    expect(severity.proceduresPerformed.surgery).toBe(true)
+  })
+
+  it('counts injections from the treatment record, not from keywords in prose', () => {
+    // Two mentions of a procedure the claimant is declining previously scored
+    // as two injections and took the premium with them.
+    const scared = caseWith({
+      narrative: `${HERNIATION} I am scared of getting an injection and my doctor keeps pushing an injection.`,
+      icdCodes: CODED,
+    })
+    const recorded = caseWith({
+      narrative: HERNIATION,
+      icdCodes: CODED,
+      treatment: [{ type: 'injection', notes: 'epidural steroid injection' }],
+    })
+
+    // No premium on the multiple for a procedure the prose only discusses.
+    expect(calculateSeverity(scared).proceduresPerformed.injections).toBe(0)
+    expect(calculateSeverity(recorded).proceduresPerformed.injections).toBe(1)
+    expect(underwriteCase(scared).settlement.expected).toBeLessThan(
+      underwriteCase(recorded).settlement.expected,
+    )
+  })
+
+  it('pays for injections that are on the treatment record', () => {
+    const severity = calculateSeverity(
+      caseWith({
+        narrative: HERNIATION,
+        icdCodes: CODED,
+        treatment: [{ type: 'injection', notes: 'epidural steroid injection' }],
+      }),
+    )
+    expect(severity.proceduresPerformed.injections).toBe(1)
+  })
+
+  it('caps what the narrative alone can add to severity at a single injection', () => {
+    const scared = caseWith({
+      narrative: `${HERNIATION} I am scared of getting an injection and my doctor keeps pushing an injection.`,
+      icdCodes: CODED,
+    })
+    expect(calculateSeverity(scared).factors.join(' ')).not.toContain('two injections')
   })
 })
 

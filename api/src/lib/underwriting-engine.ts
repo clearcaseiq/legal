@@ -38,6 +38,12 @@ export interface SeverityResult {
   valuationInjury: InjuryType
   /** What objectively supports the injury: codes, an imaging bill, or nothing. */
   injuryCorroboration: 'coded' | 'imaging' | 'none'
+  /**
+   * Procedures the claimant actually underwent, which is what earns the
+   * non-economic premium. A surgery that was only recommended raises severity
+   * without raising the multiple, because a recommendation is not a procedure.
+   */
+  proceduresPerformed: { surgery: boolean; injections: number }
   clinicalCodes: ClinicalCodeAnalysis
   factors: string[]
 }
@@ -301,20 +307,42 @@ function hasDerivedEvidenceSet(facts: Record<string, any> | null | undefined): b
   return Array.isArray(facts?.evidence)
 }
 
-function countInjections(facts: Record<string, any>) {
+/** Injections recorded as treatment, which is the only place a count is meaningful. */
+function recordedInjections(facts: Record<string, any>) {
   const treatment = Array.isArray(facts?.treatment) ? facts.treatment : []
-  const procedureCount = treatment.filter((item: any) =>
+  return treatment.filter((item: any) =>
     /injection|epidural|nerve|radiofrequency/i.test(`${item?.type || ''} ${item?.procedure || ''} ${item?.notes || ''}`)
   ).length
-  const narrativeCount = (String(facts?.incident?.narrative || '').match(/injection|epidural/gi) || []).length
-  return Math.max(procedureCount, narrativeCount)
+}
+
+/**
+ * Injections as the narrative suggests them, capped at one.
+ *
+ * This used to count how many times the words "injection" or "epidural"
+ * appeared in the prose, which counts mentions rather than procedures. A
+ * claimant writing "I am scared of getting an injection and my doctor keeps
+ * pushing an injection" scored as two injections — read literally, the two
+ * mentions of a procedure they were declining.
+ *
+ * Prose can suggest that injections are part of the case. It cannot say how
+ * many there were, and it routinely discusses ones that never happened, so it
+ * is capped here and kept out of the settlement multiple entirely.
+ */
+function narrativeInjections(facts: Record<string, any>) {
+  return /injection|epidural/i.test(String(facts?.incident?.narrative || '')) ? 1 : 0
+}
+
+/** The surgery status the claimant was asked for and answered. */
+function reportedSurgeryStatus(facts: Record<string, any>) {
+  const treatment = Array.isArray(facts?.treatment) ? facts.treatment : []
+  const explicit = treatment.find((item: any) => item?.type === 'surgery_status')?.status
+  return explicit ? String(explicit) : ''
 }
 
 function getSurgeryStatus(facts: Record<string, any>) {
-  const treatment = Array.isArray(facts?.treatment) ? facts.treatment : []
-  const explicit = treatment.find((item: any) => item?.type === 'surgery_status')?.status
+  const explicit = reportedSurgeryStatus(facts)
   const narrative = String(facts?.incident?.narrative || '').toLowerCase()
-  if (explicit) return String(explicit)
+  if (explicit) return explicit
   if (/surgery performed|surgery completed|had surgery|underwent surgery/.test(narrative)) return 'completed'
   if (/surgery scheduled|surgery next week|need (to |ti )?get surgery|getting surgery/.test(narrative)) {
     return 'scheduled'
@@ -490,7 +518,32 @@ export function calculateSeverity(input: UnderwritingInput): SeverityResult {
   // Procedure codes are proof of the procedure. Fall back to them when the
   // narrative never mentioned the surgery or injections the bills show.
   const surgeryStatus = getSurgeryStatus(facts) || (clinicalCodes.hasSurgery ? 'completed' : '')
-  const injectionCount = Math.max(countInjections(facts), clinicalCodes.hasInjection ? 1 : 0)
+  const injectionCount = Math.max(
+    recordedInjections(facts),
+    narrativeInjections(facts),
+    clinicalCodes.hasInjection ? 1 : 0,
+  )
+
+  // The premium on the general-damages multiple is paid for an invasive course
+  // of treatment, so it is owed to procedures that happened.
+  //
+  // Two things previously earned it that should not have. It was applied by
+  // substring-matching the factors list for "surgery", which "surgery
+  // recommended" satisfies, so a procedure the claimant had merely been advised
+  // to consider was paid the same premium as one they underwent — around
+  // $29,000 on a case with $50,000 of specials. And the injection count came
+  // partly from counting keyword occurrences in the narrative.
+  //
+  // What the claimant was asked and answered (`surgery_status`) is trusted
+  // fully: they know whether they had surgery. What a regex inferred from their
+  // prose is not, because prose discusses procedures that were declined,
+  // scheduled and cancelled, or merely feared. Billed procedure codes settle it
+  // either way.
+  const reportedStatus = reportedSurgeryStatus(facts) || (clinicalCodes.hasSurgery ? 'completed' : '')
+  const proceduresPerformed = {
+    surgery: reportedStatus === 'completed' || reportedStatus === 'scheduled',
+    injections: Math.max(recordedInjections(facts), clinicalCodes.hasInjection ? 1 : 0),
+  }
 
   // What objectively supports the injury, for the diagnoses that need support.
   // Narrative text cannot corroborate narrative text, which is why the loose
@@ -571,6 +624,7 @@ export function calculateSeverity(input: UnderwritingInput): SeverityResult {
     injurySource: codesOutrankNarrative ? 'clinical_codes' : 'narrative',
     valuationInjury,
     injuryCorroboration,
+    proceduresPerformed,
     clinicalCodes,
     factors,
   }
@@ -803,8 +857,8 @@ export function calculateSettlement(
   // with little/no billed treatment is not under-valued either.
   const medicalSpecials = economicDamages.medicalBills + economicDamages.futureMedicalAdjusted
   let generalDamagesMultiplier = GENERAL_DAMAGES_MULTIPLIERS[severity.valuationInjury]
-  if (severity.factors.some((factor) => factor.includes('surgery'))) generalDamagesMultiplier += 1
-  else if (severity.factors.some((factor) => factor.includes('injection'))) generalDamagesMultiplier += 0.5
+  if (severity.proceduresPerformed.surgery) generalDamagesMultiplier += 1
+  else if (severity.proceduresPerformed.injections > 0) generalDamagesMultiplier += 0.5
   // Intelligent Question damages signals (household / scarring) lift non-economic value.
   if (damages.household_impact || damages.loss_of_enjoyment) generalDamagesMultiplier += 0.25
   if (damages.scarring || damages.disfigurement) generalDamagesMultiplier += 0.5
