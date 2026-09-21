@@ -30,6 +30,14 @@ export interface SeverityResult {
   primaryInjury: InjuryType
   /** Whether documented codes, rather than narrative text, set the injury. */
   injurySource: 'narrative' | 'clinical_codes'
+  /**
+   * The injury the settlement is priced at. Equal to `primaryInjury` except
+   * where an imaging-dependent diagnosis rests on narrative text alone, which
+   * prices at soft tissue until something objective says otherwise.
+   */
+  valuationInjury: InjuryType
+  /** What objectively supports the injury: codes, an imaging bill, or nothing. */
+  injuryCorroboration: 'coded' | 'imaging' | 'none'
   clinicalCodes: ClinicalCodeAnalysis
   factors: string[]
 }
@@ -210,6 +218,34 @@ const GENERAL_DAMAGES_MULTIPLIERS: Record<InjuryType, number> = {
   SPINAL_CORD: 5,
   WRONGFUL_DEATH: 0,
 }
+
+/**
+ * Diagnoses a claimant cannot make about themselves.
+ *
+ * A herniated disc is a reading of an MRI. Radiculopathy is a reading of an MRI
+ * or an EMG. A brain injury is a clinical workup. Nobody knows they have any of
+ * them because of how the injury felt, so when one of these appears only in
+ * narrative text it is a claim about a diagnosis rather than the diagnosis.
+ *
+ * What that claim is worth here is not small. `getPrimaryInjury` matches
+ * /herniation/ against the narrative; the word alone lifts the general-damages
+ * multiple from 1.5x to 2.5x and the floor from $7,500 to $30,000. On a case
+ * with $50,000 of billed treatment that is roughly $50,000 of estimate resting
+ * on a word nobody checked.
+ *
+ * Fractures and deaths are deliberately absent. A broken bone is not in doubt
+ * to the person who broke it, and a death is not in doubt at all, so gating
+ * either would penalise claimants for describing something obvious.
+ */
+const IMAGING_DEPENDENT_INJURIES = new Set<InjuryType>([
+  'DISC_BULGE',
+  'DISC_HERNIATION',
+  'RADICULOPATHY',
+  'SPINAL_CORD',
+  'TBI_MILD',
+  'TBI_MODERATE',
+  'TBI_SEVERE',
+])
 
 const VENUE_MODIFIERS: Record<string, number> = {
   'los angeles': 1.15,
@@ -456,9 +492,35 @@ export function calculateSeverity(input: UnderwritingInput): SeverityResult {
   const surgeryStatus = getSurgeryStatus(facts) || (clinicalCodes.hasSurgery ? 'completed' : '')
   const injectionCount = Math.max(countInjections(facts), clinicalCodes.hasInjection ? 1 : 0)
 
+  // What objectively supports the injury, for the diagnoses that need support.
+  // Narrative text cannot corroborate narrative text, which is why the loose
+  // /\bmri\b/ keyword `calculateTreatment` reads off the same blob is not
+  // accepted here: the claimant who names the diagnosis also names the scan.
+  // Only a diagnosis code off the records, or an advanced-imaging procedure
+  // code off the bills, counts.
+  const injuryCorroboration: SeverityResult['injuryCorroboration'] =
+    codedInjury !== null && INJURY_TYPE_RANK[codedInjury] >= INJURY_TYPE_RANK[primaryInjury]
+      ? 'coded'
+      : clinicalCodes.hasAdvancedImaging
+        ? 'imaging'
+        : 'none'
+
+  // The claim stays on the case — an attorney should see what was reported, and
+  // the severity score still reflects it — but the money is priced at what is
+  // shown rather than what is said. Upload an MRI report or a coded bill and
+  // the estimate moves to the real tier.
+  const uncorroborated =
+    IMAGING_DEPENDENT_INJURIES.has(primaryInjury) && injuryCorroboration === 'none'
+  const valuationInjury: InjuryType = uncorroborated ? 'SOFT_TISSUE' : primaryInjury
+
   const factors: string[] = [primaryInjury.replace(/_/g, ' ').toLowerCase()]
   if (codesOutrankNarrative) {
     factors.push(`injury upgraded from ${narrativeInjury.replace(/_/g, ' ').toLowerCase()} by documented codes`)
+  }
+  if (uncorroborated) {
+    factors.push(
+      `${primaryInjury.replace(/_/g, ' ').toLowerCase()} reported but not confirmed by imaging or diagnosis codes; valued at soft tissue`,
+    )
   }
   let score = ({
     SOFT_TISSUE: 20,
@@ -507,6 +569,8 @@ export function calculateSeverity(input: UnderwritingInput): SeverityResult {
     tier,
     primaryInjury,
     injurySource: codesOutrankNarrative ? 'clinical_codes' : 'narrative',
+    valuationInjury,
+    injuryCorroboration,
     clinicalCodes,
     factors,
   }
@@ -728,7 +792,7 @@ export function calculateSettlement(
   // The per-injury floor is the engine's hand-set anchor, so it is what the
   // calibration loop's per-severity coefficient adjusts.
   const baseInjuryValue =
-    BASE_INJURY_VALUES[severity.primaryInjury] * (calibration.severityAnchorScale[severityLevel(severity.tier)] ?? 1)
+    BASE_INJURY_VALUES[severity.valuationInjury] * (calibration.severityAnchorScale[severityLevel(severity.tier)] ?? 1)
   const venueModifier = getVenueModifier(input.venueCounty)
   const liabilityModifier = Math.max(0.25, liability.score / 100)
   const treatmentModifier = 0.75 + (treatment.score / 100) * 0.5
@@ -738,7 +802,7 @@ export function calculateSettlement(
   // invasive course of treatment. The flat per-injury base value acts as a floor so a case
   // with little/no billed treatment is not under-valued either.
   const medicalSpecials = economicDamages.medicalBills + economicDamages.futureMedicalAdjusted
-  let generalDamagesMultiplier = GENERAL_DAMAGES_MULTIPLIERS[severity.primaryInjury]
+  let generalDamagesMultiplier = GENERAL_DAMAGES_MULTIPLIERS[severity.valuationInjury]
   if (severity.factors.some((factor) => factor.includes('surgery'))) generalDamagesMultiplier += 1
   else if (severity.factors.some((factor) => factor.includes('injection'))) generalDamagesMultiplier += 0.5
   // Intelligent Question damages signals (household / scarring) lift non-economic value.
