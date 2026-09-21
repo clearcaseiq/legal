@@ -166,6 +166,56 @@ describe('photo metadata signals', () => {
   })
 })
 
+describe('claimed damages against the documented bills', () => {
+  const discrepancy = (intake: number, extracted: number) => ({
+    rawFacts: {
+      damages: {
+        med_discrepancy: {
+          intake,
+          extracted,
+          ratio: Math.abs(intake - extracted) / extracted,
+          direction: intake > extracted ? 'self_reported_higher' : 'documented_higher',
+          severity: 'medium',
+        },
+      },
+    },
+  })
+
+  it('records the gap and names both figures', async () => {
+    const result = await evaluate([], discrepancy(50000, 30935))
+    const signal = result.signals.find((s) => s.code === 'damages_exceed_documents')
+
+    expect(signal?.detail).toContain('$50,000')
+    expect(signal?.detail).toContain('$30,935')
+  })
+
+  it('does not hold on the gap alone, since a partial upload looks the same', async () => {
+    const result = await evaluate([], discrepancy(50000, 30935))
+    expect(result.hold).toBe(false)
+  })
+
+  it('scores a claim at three times the paperwork higher than one at half again', async () => {
+    const modest = await evaluate([], discrepancy(50000, 30935))
+    const extreme = await evaluate([], discrepancy(50000, 10000))
+
+    expect(extreme.score).toBeGreaterThan(modest.score)
+  })
+
+  it('holds once the gap has a second signal beside it', async () => {
+    const result = await evaluate(
+      [{ category: 'medical_records', isVerified: true, processingStatus: 'failed' }],
+      discrepancy(50000, 10000),
+    )
+    expect(result.hold).toBe(true)
+  })
+
+  it('says nothing when the documents show more than the claimant reported', async () => {
+    // Understating your own specials is not a suspicion.
+    const result = await evaluate([], discrepancy(10000, 50000))
+    expect(codes(result.signals)).not.toContain('damages_exceed_documents')
+  })
+})
+
 describe('scoring', () => {
   it('reports the heaviest signal as the hold reason', async () => {
     const result = await evaluate([

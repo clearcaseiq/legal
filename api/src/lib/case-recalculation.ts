@@ -240,10 +240,21 @@ export function mergeEvidenceIntoFacts(
 
   // --- Discrepancy flag for attorney review ---
   // Only meaningful when both a self-reported number and a documented number exist.
+  //
+  // The gap is measured against the documented total, because that is the only
+  // quantity here anyone has checked. Dividing by the larger of the two — the
+  // previous rule — let the claim dilute the very gap it was being judged by,
+  // and the bigger the overstatement the weaker its own ratio became. A case
+  // reporting $50,000 against $30,935 of uploaded bills scored 0.38 and fell
+  // under the 0.4 threshold unflagged, when the claim is 62% above the paper.
+  //
+  // Nothing changes when the documents show more than the claimant reported:
+  // the denominator is the same figure it always was, and a claimant who
+  // understates their own specials is not a suspicion.
   let medDiscrepancy: Record<string, unknown> | null = null
   if (hasExtracted && intakeMedCharges > 0) {
     const diff = Math.abs(extractedMedCharges - intakeMedCharges)
-    const ratio = diff / Math.max(extractedMedCharges, intakeMedCharges)
+    const ratio = diff / extractedMedCharges
     if (diff >= 5000 && ratio >= 0.4) {
       medDiscrepancy = {
         intake: Math.round(intakeMedCharges),

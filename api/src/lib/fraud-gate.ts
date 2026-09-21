@@ -272,7 +272,43 @@ export async function evaluateCaseFraud(input: FraudGateInput): Promise<FraudEva
     })
   }
 
-  // 10 & 11. Duplicate submission patterns from the same plaintiff.
+  // 10. The medical charges claimed run well past the bills actually uploaded.
+  //
+  //     `case-recalculation` writes this comparison already; nothing read it
+  //     back. It matters more than an ordinary documentation gap because the
+  //     self-reported figure is not just a line of economic damages, it is the
+  //     multiplicand: general damages are a multiple of the medical specials,
+  //     so every unverified dollar arrives two or three times over.
+  //
+  //     Scored medium whatever the size of the gap. A claimant treated by five
+  //     providers who has uploaded one bill produces exactly this shape and has
+  //     done nothing wrong, so this needs a second signal beside it before it
+  //     holds a case. What it must not do is stay silent, which is what it did
+  //     for a case reporting $50,000 against $30,935 of bills.
+  const damagesFacts = (rawFacts.damages as Record<string, unknown>) || {}
+  const discrepancy = damagesFacts.med_discrepancy as {
+    direction?: string
+    ratio?: number
+    intake?: number
+    extracted?: number
+  } | null
+  if (discrepancy && discrepancy.direction === 'self_reported_higher') {
+    const claimed = Math.round(Number(discrepancy.intake) || 0)
+    const documented = Math.round(Number(discrepancy.extracted) || 0)
+    const ratio = Number(discrepancy.ratio) || 0
+    add({
+      code: 'damages_exceed_documents',
+      label: 'Claim runs past the documented bills',
+      detail:
+        `Claimant reports $${claimed.toLocaleString('en-US')} in medical charges against ` +
+        `$${documented.toLocaleString('en-US')} of uploaded bills.`,
+      // Three times the paperwork is a different conversation from half again.
+      points: ratio >= 2 ? 30 : 20,
+      severity: 'medium',
+    })
+  }
+
+  // 11 & 12. Duplicate submission patterns from the same plaintiff.
   if (assessment.userId) {
     const since7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
     const since30d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
