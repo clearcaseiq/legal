@@ -230,6 +230,93 @@ async function report(assessmentId: string) {
     console.log(`  uncapped expected: ${usd(s.uncappedExpected)}`)
   }
 
+  // A number can be arithmetically perfect and still rest on nothing. The
+  // engine multiplies the medical specials by 2-5x depending on the injury, so
+  // those two inputs carry almost the whole figure between them — and both can
+  // come from what the claimant typed at intake rather than from a record.
+  console.log('\n-- WHAT THE NUMBER RESTS ON -------------------------------------------------')
+  const damages = facts.damages || {}
+  const billSource = damages.med_charges
+    ? 'facts.damages.med_charges'
+    : damages.med_paid
+      ? 'facts.damages.med_paid'
+      : damages.estimated_med_charges
+        ? 'facts.damages.estimated_med_charges (an intake estimate, not a bill)'
+        : '(nothing on file)'
+  console.log(`  bills came from:   ${billSource}`)
+
+  const icd: string[] = facts.clinical?.icdCodes || []
+  const cpt: string[] = facts.clinical?.cptCodes || []
+  console.log(`  injury source:     ${live.severity.injurySource}`)
+  console.log(`  ICD codes:         ${icd.length ? icd.join(', ') : '(none)'}`)
+  console.log(`  CPT codes:         ${cpt.length ? cpt.join(', ') : '(none)'}`)
+  if (live.severity.injurySource === 'narrative' && icd.length > 0) {
+    // Codes upgrade severity and never downgrade it, by design. So a narrative
+    // injury that outranks every coded one is carrying the valuation on the
+    // strength of wording alone, which is worth saying out loud.
+    console.log(
+      `  NOTE: ${live.severity.primaryInjury} outranks every coded diagnosis, so it rests on`
+    )
+    console.log('        narrative wording. Codes only upgrade severity, never downgrade it.')
+  }
+  console.log(`  evidence on file:  ${assessment.evidenceFiles.map((f) => f.category).join(', ') || '(none)'}`)
+
+  // Back out general damages from the returned figure rather than recomputing
+  // it, so this cannot drift from what the engine actually did.
+  const modifiers = s.venueModifier * s.liabilityModifier * s.treatmentModifier
+  const generalDamages = s.uncappedExpected / modifiers - e.total
+  console.log(
+    `  general damages:   ${usd(generalDamages)}  (${(generalDamages / (e.medicalBills + e.futureMedicalAdjusted || 1)).toFixed(
+      2
+    )}x the medical specials)`
+  )
+  console.log(
+    `  modifiers:         venue ${s.venueModifier} x liability ${s.liabilityModifier.toFixed(
+      2
+    )} x treatment ${s.treatmentModifier.toFixed(2)} = ${modifiers.toFixed(3)}`
+  )
+  console.log(
+    `  so the estimate is ${(s.uncappedExpected / (e.medicalBills || 1)).toFixed(2)}x the medical bills.`
+  )
+
+  // Re-run the engine against the inputs most likely to be wrong. This is the
+  // difference between "the formula is right" and "the number is right".
+  console.log('\n-- SENSITIVITY --------------------------------------------------------------')
+  const rerun = (label: string, mutate: (f: Record<string, any>) => Record<string, any>) => {
+    try {
+      const alt = underwriteCase({
+        id: assessment.id,
+        claimType: assessment.claimType,
+        venueState: assessment.venueState,
+        venueCounty: assessment.venueCounty,
+        facts: mutate(JSON.parse(JSON.stringify(facts))),
+        evidenceFiles: assessment.evidenceFiles,
+      })
+      console.log(`  ${label.padEnd(46)} ${usd(alt.settlement.low)} - ${usd(alt.settlement.high)}`)
+    } catch {
+      console.log(`  ${label.padEnd(46)} (engine refused these inputs)`)
+    }
+  }
+
+  if (e.medicalBills > 0) {
+    rerun('if the bills are half what was reported', (f) => {
+      f.damages = { ...(f.damages || {}) }
+      for (const key of ['med_charges', 'med_paid', 'estimated_med_charges']) {
+        if (f.damages[key]) f.damages[key] = Number(f.damages[key]) / 2
+      }
+      return f
+    })
+  }
+  // California's minimum bodily-injury limit, and the next band up. Most auto
+  // claims meet one of them, and neither is on file here.
+  for (const limit of [15_000, 25_000, 50_000, 100_000]) {
+    if (s.coverage.defendantLimit) break
+    rerun(`if the defendant carries a ${usd(limit)} policy`, (f) => {
+      f.insurance = { ...(f.insurance || {}), policy_limit: limit }
+      return f
+    })
+  }
+
   if (live.severity.factors?.length) {
     console.log('\n  severity factors:  ' + live.severity.factors.join('; '))
   }
