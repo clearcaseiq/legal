@@ -72,7 +72,7 @@ async function findAssessments() {
         OR: [
           { firstName: { contains: part, mode: 'insensitive' as const } },
           { lastName: { contains: part, mode: 'insensitive' as const } },
-          { name: { contains: part, mode: 'insensitive' as const } },
+          { email: { contains: part, mode: 'insensitive' as const } },
         ],
       })),
     },
