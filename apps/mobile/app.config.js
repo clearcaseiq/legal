@@ -18,7 +18,7 @@ const VARIANTS = {
     name: 'ClearCaseIQ Attorney',
     slug: 'caseiq-attorney',
     scheme: 'caseiq',
-    version: '1.0.3',
+    version: '1.0.4',
     bundleIdentifier: 'com.caseiq.attorney',
     androidPackage: 'com.caseiq.attorney',
     buildNumber: '25',
