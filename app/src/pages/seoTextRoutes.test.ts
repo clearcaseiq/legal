@@ -89,11 +89,42 @@ describe('llms.txt', () => {
 })
 
 describe('robots.txt', () => {
-  it('keeps the admin disallows and the sitemap', () => {
+  it('points crawlers at the sitemap', () => {
     const { body } = render(robotsTxt)
-    expect(body).toContain('Disallow: /admin')
-    expect(body).toContain('Disallow: /attorney-dashboard')
     expect(body).toMatch(/^Sitemap: https?:\/\/\S+\/sitemap\.xml$/m)
+  })
+
+  /**
+   * /api returns JSON and images, so there is no document to hang a `noindex`
+   * on and a Disallow is the only instrument available. Everything else on the
+   * site serves the tag, which makes a Disallow actively harmful — hence one
+   * rule rather than eleven.
+   */
+  it('disallows only what cannot carry a noindex tag', () => {
+    const { body } = render(robotsTxt)
+    const disallows = body.split('\n').filter((l) => l.startsWith('Disallow:'))
+    expect(disallows).toEqual(['Disallow: /api'])
+  })
+
+  /**
+   * These were blocked while also serving `noindex, follow`, which is the one
+   * combination that cannot work: a crawler forbidden to fetch the page never
+   * reads the tag telling it to drop the page, so the bare URL can sit in the
+   * index indefinitely.
+   */
+  it.each([
+    '/admin',
+    '/dashboard',
+    '/attorney-dashboard',
+    '/firm-dashboard',
+    '/evidence-upload',
+    '/evidence-dashboard',
+    '/results',
+    '/edit-assessment',
+    '/auth',
+  ])('leaves %s crawlable so its noindex can be read', (path) => {
+    const { body } = render(robotsTxt)
+    expect(body).not.toMatch(new RegExp(`^Disallow: ${path}\\s*$`, 'm'))
   })
 
   it('keeps the one Allow that does something and drops the ones that did not', () => {

@@ -33,31 +33,31 @@ export const getServerSideProps: GetServerSideProps = async ({ res }) => {
   const robots = [
     'User-agent: *',
     '',
-    // No trailing slashes: "Disallow: /dashboard/" matches /dashboard/x but
-    // leaves /dashboard itself crawlable, which is where these routes live.
-    '# Admin Areas',
-    'Disallow: /admin',
-    'Disallow: /private',
-    'Disallow: /api',
-    'Disallow: /dashboard',
-    'Disallow: /auth',
-    'Disallow: /attorney-dashboard',
-    'Disallow: /firm-dashboard',
-    'Disallow: /evidence-upload',
-    'Disallow: /evidence-dashboard',
-    'Disallow: /results',
-    'Disallow: /edit-assessment',
-    '',
-    // Deliberately not disallowed: /assess, /login, /register, /intake, /profile
-    // and the other app routes. They serve `noindex` instead, and a crawler has
-    // to be able to fetch a page to read that — blocking them here would leave
-    // the bare URLs in the index with no way to remove them.
+    // Only /api is disallowed, and only because it is the one thing here that
+    // cannot carry a `noindex`: its routes return JSON and images, not HTML
+    // with a meta tag a crawler could read.
+    //
+    // Every app route serves `noindex, follow` and is therefore deliberately
+    // left crawlable. A crawler has to fetch a page to read that tag, so a
+    // Disallow does the opposite of what it looks like: it strands the bare
+    // URL in the index with no snippet and no way to remove it.
+    //
+    // Ten routes used to be listed here — /admin, /dashboard, /attorney-dashboard,
+    // /firm-dashboard, /evidence-upload, /evidence-dashboard, /results,
+    // /edit-assessment, /auth and /private — while /assess and the rest of the
+    // app relied on noindex, with a comment explaining why that was correct.
+    // Both cannot be right. All ten were confirmed to serve `noindex, follow`,
+    // so the block was the only thing keeping Google from acting on it. (/private
+    // and /auth 404 outright, and had never matched a page at all.)
     //
     // A site audit asked for `Disallow: /assess` to keep the funnel out of
-    // search. It is already out: /assess and /assess?fresh=1 both return
-    // `noindex, follow`, which removes them properly. Adding the rule would
-    // stop Google fetching the page and therefore stop it ever seeing the
-    // noindex, which is the failure this comment exists to prevent.
+    // search. It is already out, by the same mechanism: /assess and
+    // /assess?fresh=1 both return `noindex, follow`, which removes them
+    // properly. Adding the rule would stop Google fetching the page and
+    // therefore stop it ever seeing the noindex.
+    '# API routes, which return JSON and cannot carry a noindex tag',
+    'Disallow: /api',
+    '',
     '# Social share cards, exempt from the /api rule above so link previews render',
     'Allow: /api/og',
     '',
