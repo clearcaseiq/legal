@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import LocaleLink from '../components/LocaleLink'
 import { Mail, Send, CheckCircle2, AlertCircle, Loader2, LifeBuoy, Scale } from 'lucide-react'
 import { submitContactInquiry, type ContactTopic } from '../lib/api'
@@ -23,11 +23,49 @@ export default function Contact() {
   const [status, setStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
   const [error, setError] = useState<string | null>(null)
 
-  const canSubmit = name.trim().length > 0 && /.+@.+\..+/.test(email) && message.trim().length >= 10
+  type FieldName = 'name' | 'email' | 'message'
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<FieldName, string>>>({})
+
+  const nameRef = useRef<HTMLInputElement>(null)
+  const emailRef = useRef<HTMLInputElement>(null)
+  const messageRef = useRef<HTMLTextAreaElement>(null)
+
+  const focusField: Record<FieldName, () => void> = {
+    name: () => nameRef.current?.focus(),
+    email: () => emailRef.current?.focus(),
+    message: () => messageRef.current?.focus(),
+  }
+
+  const MIN_MESSAGE = 10
+
+  /**
+   * The submit button used to be disabled until all three fields passed, which
+   * left no way to find out what was wrong: the message minimum was never
+   * stated, so anyone who wrote a short note got a greyed-out button and no
+   * reason for it. Validation now runs on submit and says which field to fix.
+   */
+  function validate(): Partial<Record<FieldName, string>> {
+    const errors: Partial<Record<FieldName, string>> = {}
+    if (!name.trim()) errors.name = t('contactPage.errNameRequired')
+    if (!/.+@.+\..+/.test(email.trim())) errors.email = t('contactPage.errEmailInvalid')
+    if (message.trim().length < MIN_MESSAGE) errors.message = t('contactPage.errMessageTooShort')
+    return errors
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!canSubmit || status === 'sending') return
+    if (status === 'sending') return
+
+    const errors = validate()
+    setFieldErrors(errors)
+    const firstInvalid = (['name', 'email', 'message'] as const).find((field) => errors[field])
+    if (firstInvalid) {
+      setError(null)
+      setStatus('idle')
+      focusField[firstInvalid]()
+      return
+    }
+
     setStatus('sending')
     setError(null)
     try {
@@ -37,6 +75,11 @@ export default function Contact() {
       setStatus('error')
       setError(t('contactPage.errSend'))
     }
+  }
+
+  /** Clear a field's error as soon as the person starts correcting it. */
+  function clearFieldError(field: FieldName) {
+    setFieldErrors((current) => (current[field] ? { ...current, [field]: undefined } : current))
   }
 
   if (status === 'sent') {
@@ -95,25 +138,51 @@ export default function Contact() {
               <label htmlFor="contact-name" className="mb-1 block text-sm font-medium text-slate-700">{t('contactPage.nameLabel')}</label>
               <input
                 id="contact-name"
+                ref={nameRef}
                 type="text"
                 required
                 value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="w-full rounded-xl border border-slate-300 px-3 py-2.5 focus:border-brand-500 focus:ring-2 focus:ring-brand-500"
+                onChange={(e) => {
+                  setName(e.target.value)
+                  clearFieldError('name')
+                }}
+                aria-invalid={Boolean(fieldErrors.name)}
+                aria-describedby={fieldErrors.name ? 'contact-name-error' : undefined}
+                className={`w-full rounded-xl border px-3 py-2.5 focus:ring-2 ${
+                  fieldErrors.name
+                    ? 'border-red-400 focus:border-red-500 focus:ring-red-500'
+                    : 'border-slate-300 focus:border-brand-500 focus:ring-brand-500'
+                }`}
                 placeholder={t('contactPage.namePlaceholder')}
               />
+              {fieldErrors.name && (
+                <p id="contact-name-error" className="mt-1 text-xs text-red-600">{fieldErrors.name}</p>
+              )}
             </div>
             <div>
               <label htmlFor="contact-email" className="mb-1 block text-sm font-medium text-slate-700">{t('auth.emailShortLabel')}</label>
               <input
                 id="contact-email"
+                ref={emailRef}
                 type="email"
                 required
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full rounded-xl border border-slate-300 px-3 py-2.5 focus:border-brand-500 focus:ring-2 focus:ring-brand-500"
+                onChange={(e) => {
+                  setEmail(e.target.value)
+                  clearFieldError('email')
+                }}
+                aria-invalid={Boolean(fieldErrors.email)}
+                aria-describedby={fieldErrors.email ? 'contact-email-error' : undefined}
+                className={`w-full rounded-xl border px-3 py-2.5 focus:ring-2 ${
+                  fieldErrors.email
+                    ? 'border-red-400 focus:border-red-500 focus:ring-red-500'
+                    : 'border-slate-300 focus:border-brand-500 focus:ring-brand-500'
+                }`}
                 placeholder="you@example.com"
               />
+              {fieldErrors.email && (
+                <p id="contact-email-error" className="mt-1 text-xs text-red-600">{fieldErrors.email}</p>
+              )}
             </div>
           </div>
 
@@ -135,14 +204,31 @@ export default function Contact() {
             <label htmlFor="contact-message" className="mb-1 block text-sm font-medium text-slate-700">{t('contactPage.messageLabel')}</label>
             <textarea
               id="contact-message"
+              ref={messageRef}
               required
               rows={6}
               value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              className="w-full rounded-xl border border-slate-300 px-3 py-2.5 focus:border-brand-500 focus:ring-2 focus:ring-brand-500"
+              onChange={(e) => {
+                setMessage(e.target.value)
+                clearFieldError('message')
+              }}
+              aria-invalid={Boolean(fieldErrors.message)}
+              aria-describedby={fieldErrors.message ? 'contact-message-error' : 'contact-message-hint'}
+              className={`w-full rounded-xl border px-3 py-2.5 focus:ring-2 ${
+                fieldErrors.message
+                  ? 'border-red-400 focus:border-red-500 focus:ring-red-500'
+                  : 'border-slate-300 focus:border-brand-500 focus:ring-brand-500'
+              }`}
               placeholder={t('contactPage.messagePlaceholder')}
             />
-            <p className="mt-1 text-xs text-slate-400">{message.trim().length}/4000</p>
+            <div className="mt-1 flex items-center justify-between gap-3">
+              {fieldErrors.message ? (
+                <p id="contact-message-error" className="text-xs text-red-600">{fieldErrors.message}</p>
+              ) : (
+                <p id="contact-message-hint" className="text-xs text-slate-400">{t('contactPage.messageHint')}</p>
+              )}
+              <p className="shrink-0 text-xs text-slate-400">{message.trim().length}/4000</p>
+            </div>
           </div>
 
           {status === 'error' && error && (
@@ -152,9 +238,11 @@ export default function Contact() {
             </div>
           )}
 
+          {/* Only disabled while a send is in flight. Gating it on validity gave
+              no way to discover which field was holding it back. */}
           <button
             type="submit"
-            disabled={!canSubmit || status === 'sending'}
+            disabled={status === 'sending'}
             className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-brand-700 px-6 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-800 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
           >
             {status === 'sending' ? (

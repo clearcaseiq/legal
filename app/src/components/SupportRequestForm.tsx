@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { Send, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react'
 import { submitSupportRequest, type SupportCategory, type SupportPriority } from '../lib/api'
 import { useLanguage } from '../contexts/LanguageContext'
@@ -55,15 +55,52 @@ export default function SupportRequestForm({
   const [status, setStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
   const [ticketId, setTicketId] = useState<string | null>(null)
 
-  const canSubmit =
-    name.trim().length > 0 &&
-    /.+@.+\..+/.test(email) &&
-    subject.trim().length >= 3 &&
-    description.trim().length >= 10
+  type FieldName = 'name' | 'email' | 'subject' | 'description'
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<FieldName, string>>>({})
+
+  const nameRef = useRef<HTMLInputElement>(null)
+  const emailRef = useRef<HTMLInputElement>(null)
+  const subjectRef = useRef<HTMLInputElement>(null)
+  const descriptionRef = useRef<HTMLTextAreaElement>(null)
+
+  const focusField: Record<FieldName, () => void> = {
+    name: () => nameRef.current?.focus(),
+    email: () => emailRef.current?.focus(),
+    subject: () => subjectRef.current?.focus(),
+    description: () => descriptionRef.current?.focus(),
+  }
+
+  /**
+   * Same reasoning as the Contact form: a submit button disabled on validity
+   * gives no way to learn which field is holding it back, and neither the
+   * subject nor the description minimum was ever stated on screen.
+   */
+  function validate(): Partial<Record<FieldName, string>> {
+    const errors: Partial<Record<FieldName, string>> = {}
+    if (!name.trim()) errors.name = t('contactPage.errNameRequired')
+    if (!/.+@.+\..+/.test(email.trim())) errors.email = t('contactPage.errEmailInvalid')
+    if (subject.trim().length < 3) errors.subject = t('supportForm.errSubjectTooShort')
+    if (description.trim().length < 10) errors.description = t('contactPage.errMessageTooShort')
+    return errors
+  }
+
+  function clearFieldError(field: FieldName) {
+    setFieldErrors((current) => (current[field] ? { ...current, [field]: undefined } : current))
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!canSubmit || status === 'sending') return
+    if (status === 'sending') return
+
+    const errors = validate()
+    setFieldErrors(errors)
+    const firstInvalid = (['name', 'email', 'subject', 'description'] as const).find((field) => errors[field])
+    if (firstInvalid) {
+      setStatus('idle')
+      focusField[firstInvalid]()
+      return
+    }
+
     setStatus('sending')
     try {
       const res = await submitSupportRequest({
@@ -130,25 +167,51 @@ export default function SupportRequestForm({
           <label htmlFor="support-name" className="mb-1 block text-sm font-medium text-slate-700">{t('contactPage.nameLabel')}</label>
           <input
             id="support-name"
+            ref={nameRef}
             type="text"
             required
             value={name}
-            onChange={(e) => setName(e.target.value)}
-            className="w-full rounded-xl border border-slate-300 px-3 py-2.5 focus:border-brand-500 focus:ring-2 focus:ring-brand-500"
+            onChange={(e) => {
+              setName(e.target.value)
+              clearFieldError('name')
+            }}
+            aria-invalid={Boolean(fieldErrors.name)}
+            aria-describedby={fieldErrors.name ? 'support-name-error' : undefined}
+            className={`w-full rounded-xl border px-3 py-2.5 focus:ring-2 ${
+              fieldErrors.name
+                ? 'border-red-400 focus:border-red-500 focus:ring-red-500'
+                : 'border-slate-300 focus:border-brand-500 focus:ring-brand-500'
+            }`}
             placeholder={t('contactPage.namePlaceholder')}
           />
+          {fieldErrors.name && (
+            <p id="support-name-error" className="mt-1 text-xs text-red-600">{fieldErrors.name}</p>
+          )}
         </div>
         <div>
           <label htmlFor="support-email" className="mb-1 block text-sm font-medium text-slate-700">{t('auth.emailShortLabel')}</label>
           <input
             id="support-email"
+            ref={emailRef}
             type="email"
             required
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="w-full rounded-xl border border-slate-300 px-3 py-2.5 focus:border-brand-500 focus:ring-2 focus:ring-brand-500"
+            onChange={(e) => {
+              setEmail(e.target.value)
+              clearFieldError('email')
+            }}
+            aria-invalid={Boolean(fieldErrors.email)}
+            aria-describedby={fieldErrors.email ? 'support-email-error' : undefined}
+            className={`w-full rounded-xl border px-3 py-2.5 focus:ring-2 ${
+              fieldErrors.email
+                ? 'border-red-400 focus:border-red-500 focus:ring-red-500'
+                : 'border-slate-300 focus:border-brand-500 focus:ring-brand-500'
+            }`}
             placeholder="you@example.com"
           />
+          {fieldErrors.email && (
+            <p id="support-email-error" className="mt-1 text-xs text-red-600">{fieldErrors.email}</p>
+          )}
         </div>
       </div>
 
@@ -185,27 +248,57 @@ export default function SupportRequestForm({
         <label htmlFor="support-subject" className="mb-1 block text-sm font-medium text-slate-700">{t('supportForm.subjectLabel')}</label>
         <input
           id="support-subject"
+          ref={subjectRef}
           type="text"
           required
           value={subject}
-          onChange={(e) => setSubject(e.target.value)}
-          className="w-full rounded-xl border border-slate-300 px-3 py-2.5 focus:border-brand-500 focus:ring-2 focus:ring-brand-500"
+          onChange={(e) => {
+            setSubject(e.target.value)
+            clearFieldError('subject')
+          }}
+          aria-invalid={Boolean(fieldErrors.subject)}
+          aria-describedby={fieldErrors.subject ? 'support-subject-error' : undefined}
+          className={`w-full rounded-xl border px-3 py-2.5 focus:ring-2 ${
+            fieldErrors.subject
+              ? 'border-red-400 focus:border-red-500 focus:ring-red-500'
+              : 'border-slate-300 focus:border-brand-500 focus:ring-brand-500'
+          }`}
           placeholder={t('supportForm.subjectPlaceholder')}
         />
+        {fieldErrors.subject && (
+          <p id="support-subject-error" className="mt-1 text-xs text-red-600">{fieldErrors.subject}</p>
+        )}
       </div>
 
       <div className="mt-4">
         <label htmlFor="support-description" className="mb-1 block text-sm font-medium text-slate-700">{t('supportForm.detailsLabel')}</label>
         <textarea
           id="support-description"
+          ref={descriptionRef}
           required
           rows={6}
           value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          className="w-full rounded-xl border border-slate-300 px-3 py-2.5 focus:border-brand-500 focus:ring-2 focus:ring-brand-500"
+          onChange={(e) => {
+            setDescription(e.target.value)
+            clearFieldError('description')
+          }}
+          aria-invalid={Boolean(fieldErrors.description)}
+          aria-describedby={fieldErrors.description ? 'support-description-error' : 'support-description-hint'}
+          className={`w-full rounded-xl border px-3 py-2.5 focus:ring-2 ${
+            fieldErrors.description
+              ? 'border-red-400 focus:border-red-500 focus:ring-red-500'
+              : 'border-slate-300 focus:border-brand-500 focus:ring-brand-500'
+          }`}
           placeholder={t('supportForm.detailsPlaceholder')}
         />
-        <p className="mt-1 text-xs text-slate-400">{description.trim().length}/4000</p>
+        <div className="mt-1 flex items-center justify-between gap-3">
+          {fieldErrors.description ? (
+            <p id="support-description-error" className="text-xs text-red-600">{fieldErrors.description}</p>
+          ) : (
+            <p id="support-description-hint" className="text-xs text-slate-400">{t('contactPage.messageHint')}</p>
+          )}
+          <p className="shrink-0 text-xs text-slate-400">{description.trim().length}/4000</p>
+        </div>
       </div>
 
       {status === 'error' && (
@@ -218,9 +311,10 @@ export default function SupportRequestForm({
         </div>
       )}
 
+      {/* Only disabled while a submit is in flight — see validate(). */}
       <button
         type="submit"
-        disabled={!canSubmit || status === 'sending'}
+        disabled={status === 'sending'}
         className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-brand-700 px-6 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-800 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
       >
         {status === 'sending' ? (
