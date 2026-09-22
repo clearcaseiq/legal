@@ -34,8 +34,20 @@ const InquirySchema = z.object({
   email: z.string().trim().email().max(200),
   topic: z.enum(TOPICS).default('general'),
   message: z.string().trim().min(10).max(4000),
-  // Honeypot: real users never fill this hidden field; bots often do.
-  company: z.string().max(0).optional().or(z.literal('')),
+  /**
+   * Honeypot. Bounded, but deliberately not required to be empty.
+   *
+   * Admitting only '' makes a filled field fail validation, and the 400 that
+   * comes back names the offending field. That is backwards twice over: it hands
+   * a bot the one input it needs to leave alone, and it silently unreachable-ifies
+   * the branch below that exists to swallow spam quietly. It also rejects the
+   * real person whose password manager decided a hidden "Company" input wanted
+   * filling — they get the form's generic "couldn't send" and no way to fix it.
+   *
+   * Whether a value here means spam is a judgment for the handler, not the
+   * schema. The cap is only there to bound what we accept.
+   */
+  company: z.string().max(200).optional(),
 })
 
 function inboxForTopic(topic: (typeof TOPICS)[number]): string {
@@ -45,6 +57,28 @@ function inboxForTopic(topic: (typeof TOPICS)[number]): string {
   return process.env.CONTACT_INBOX_EMAIL || 'support@clearcaseiq.com'
 }
 
+type Requester = { userId?: string; attorneyId?: string; role: string }
+
+/**
+ * Attach an inbound message to an existing account by email, so the team sees
+ * who is asking. A sender with no match is a guest, which is the normal case on
+ * a public form and not a failure. A lookup that throws is also not a failure:
+ * knowing who sent it is worth less than keeping the message.
+ */
+async function identifyRequester(email: string): Promise<Requester> {
+  try {
+    const [user, attorney] = await Promise.all([
+      prisma.user.findUnique({ where: { email }, select: { id: true } }),
+      prisma.attorney.findUnique({ where: { email }, select: { id: true } }),
+    ])
+    if (attorney) return { attorneyId: attorney.id, role: 'attorney' }
+    if (user) return { userId: user.id, role: 'plaintiff' }
+  } catch {
+    // Fall through to a guest record.
+  }
+  return { role: 'guest' }
+}
+
 router.post('/', async (req, res) => {
   const parsed = InquirySchema.safeParse(req.body)
   if (!parsed.success) {
@@ -52,8 +86,9 @@ router.post('/', async (req, res) => {
   }
   const { name, email, topic, message, company } = parsed.data
 
-  // Honeypot tripped -> silently accept without emailing so bots get no signal.
-  if (company) {
+  // Honeypot tripped -> answer exactly as we would on success, so a bot learns
+  // nothing from the difference.
+  if (company && company.trim()) {
     logger.info('Contact inquiry ignored (honeypot)', { email: email.slice(0, 3) })
     return res.status(200).json({ ok: true })
   }
@@ -71,21 +106,70 @@ router.post('/', async (req, res) => {
     message,
   ].join('\n')
 
+  // Write the inquiry down before trying to send it anywhere.
+  //
+  // This endpoint answers 200 whatever happens to the email, which is the right
+  // call — the sender can do nothing about our mail provider. But an inquiry
+  // that exists *only* as a message to a shared mailbox is one SES hiccup or
+  // spam rule away from being lost while the sender is told it arrived. A row
+  // also puts it in the admin triage queue, which someone watches, rather than
+  // depending on someone watching an inbox.
+  //
+  // The support-request handler below has always done this. The two forms are
+  // the same promise to the person filling them in, so they should keep the
+  // same one.
+  const requester = await identifyRequester(email)
+  let ticketId: string | null = null
   try {
-    const sent = await sendTransactionalEmail({
+    const ticket = await prisma.supportTicket.create({
+      data: {
+        userId: requester.userId,
+        attorneyId: requester.attorneyId,
+        role: requester.role,
+        category: topic,
+        subject: `[Contact] ${topicLabel} — ${name}`,
+        description: [`Requester: ${name} <${email}>`, ``, message].join('\n'),
+        priority: 'medium',
+      },
+      select: { id: true },
+    })
+    ticketId = ticket.id
+  } catch (err) {
+    logger.error('Contact inquiry could not be persisted', {
+      error: err instanceof Error ? err.message : String(err),
+    })
+  }
+
+  let emailSent = false
+  try {
+    emailSent = await sendTransactionalEmail({
       to,
       subject: `[Contact: ${topicLabel}] ${name}`,
-      body,
+      body: ticketId ? `${body}\n\nTicket: ${ticketId}` : body,
       replyTo: email,
       fromName: 'ClearCaseIQ Contact Form',
     })
-    // Always log so an inquiry is never lost even if email is unconfigured.
-    logger.info('Contact inquiry received', { topic, to, emailSent: sent, from: email.slice(0, 3) })
   } catch (err) {
     logger.warn('Contact inquiry email failed', { error: err instanceof Error ? err.message : String(err) })
   }
 
-  // Best-effort: we accepted the inquiry regardless of email delivery outcome.
+  // Logged either way, so the message survives in a third place even when both
+  // the database write and the send have gone wrong.
+  logger.info('Contact inquiry received', {
+    topic,
+    to,
+    ticketId,
+    emailSent,
+    from: email.slice(0, 3),
+  })
+
+  // Only claim success when the inquiry is somewhere we can find it again.
+  // Failing both is rare, but telling someone their message was delivered when
+  // it went nowhere is worse than asking them to use the address on the page.
+  if (!ticketId && !emailSent) {
+    return res.status(500).json({ error: 'Could not submit your message' })
+  }
+
   return res.status(200).json({ ok: true })
 })
 
@@ -125,8 +209,8 @@ const SupportRequestSchema = z.object({
   description: z.string().trim().min(10).max(4000),
   // Optional context captured client-side to speed up triage.
   pageUrl: z.string().trim().max(500).optional(),
-  // Honeypot: real users never fill this hidden field; bots often do.
-  company: z.string().max(0).optional().or(z.literal('')),
+  /** Honeypot — see the note on InquirySchema for why this is not `max(0)`. */
+  company: z.string().max(200).optional(),
 })
 
 router.post('/support-request', async (req, res) => {
@@ -137,31 +221,14 @@ router.post('/support-request', async (req, res) => {
   const { name, email, category, priority, subject, description, pageUrl, company } = parsed.data
 
   // Honeypot tripped -> silently accept without creating a ticket.
-  if (company) {
+  if (company && company.trim()) {
     logger.info('Support request ignored (honeypot)', { email: email.slice(0, 3) })
     return res.status(200).json({ ok: true })
   }
 
   // Link to an existing account by email so the team sees who's asking. Guests
   // (no match) still get a ticket; role is recorded as "guest".
-  let userId: string | undefined
-  let attorneyId: string | undefined
-  let role = 'guest'
-  try {
-    const [user, attorney] = await Promise.all([
-      prisma.user.findUnique({ where: { email }, select: { id: true } }),
-      prisma.attorney.findUnique({ where: { email }, select: { id: true } }),
-    ])
-    if (attorney) {
-      attorneyId = attorney.id
-      role = 'attorney'
-    } else if (user) {
-      userId = user.id
-      role = 'plaintiff'
-    }
-  } catch {
-    // Non-fatal: fall back to a guest ticket if the lookup fails.
-  }
+  const { userId, attorneyId, role } = await identifyRequester(email)
 
   const categoryLabel = SUPPORT_CATEGORY_LABELS[category]
   // Requester contact + context live in the description since the ticket model
