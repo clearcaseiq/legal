@@ -22,42 +22,43 @@ import { colors, radii, shadows, space } from '../../src/theme/tokens'
 import { IS_PLAINTIFF_APP } from '../../src/lib/appVariant'
 import { LEGAL_LINKS, NOT_A_LAW_FIRM, NOT_A_LAW_FIRM_PLAINTIFF } from '../../src/lib/legalLinks'
 
+/**
+ * Sign-in.
+ *
+ * Everyone who reaches this screen already has an account, which is the fact the
+ * previous layout argued with. Above the email field sat a badge, a wordmark, a
+ * tagline, three value propositions and a card of invented figures — "$285K",
+ * "94%", "High" liability — selling the product to someone who had already
+ * bought it. On a smaller phone the password field was below the fold, so the
+ * one thing the screen exists to do was the one thing you had to scroll for.
+ *
+ * The fabricated numbers were the worse half. They carried a "sample figures"
+ * disclaimer, which is the tell: an element that has to disclaim itself is
+ * usually an element that should not be there, and a made-up settlement value on
+ * the sign-in screen of a product whose whole claim is careful valuation costs
+ * more credibility than it buys.
+ *
+ * What is left is the task, in the order it is performed: who you are, then Face
+ * ID if it is set up, then the two fields, then the button. The security claims
+ * that survive are the two that say something checkable, stated once rather than
+ * in a badge at the top and again in chips at the bottom.
+ *
+ * The legal block stays regardless of layout. This is the only screen reachable
+ * without signing in, so it is the only place the platform statement and the
+ * policy links can live.
+ */
+
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-
-const VALUE_PROPS = IS_PLAINTIFF_APP
-  ? (['Track your case status in real time', 'Estimate your potential case value', 'Message your legal team securely'] as const)
-  : (['AI medical chronologies', 'Settlement valuations', 'Demand letters & case intelligence'] as const)
-
-// Ambient, illustrative preview of what the app delivers (not live data).
-const PREVIEW_STATS: { label: string; value: string; tone: 'accent' | 'success' | 'warning' }[] = IS_PLAINTIFF_APP
-  ? [
-      { label: 'Case status', value: 'Active', tone: 'success' },
-      { label: 'Settlement est.', value: '$285K', tone: 'success' },
-      { label: 'Documents', value: '2 due', tone: 'warning' },
-      { label: 'Next update', value: 'Soon', tone: 'accent' },
-    ]
-  : [
-      { label: 'Case score', value: '94%', tone: 'accent' },
-      { label: 'Settlement est.', value: '$285K', tone: 'success' },
-      { label: 'Medical chronology', value: 'Ready', tone: 'success' },
-      { label: 'Liability', value: 'High', tone: 'warning' },
-    ]
-
-const LOGIN_STAGES = IS_PLAINTIFF_APP
-  ? (['Verifying credentials', 'Loading your case', 'Opening your dashboard'] as const)
-  : (['Verifying credentials', "Scanning today's cases", 'Opening dashboard'] as const)
 
 const SUBTITLE = IS_PLAINTIFF_APP
   ? 'Your personal injury case, clear and always up to date.'
   : 'The AI operating system for personal injury law.'
 
-const PREVIEW_LABEL = IS_PLAINTIFF_APP ? 'Example case at a glance' : 'Case intelligence preview'
-
-// The preview carries a dollar figure before anyone has signed in, so it says
-// plainly that the numbers are a sample and that estimates promise nothing (C4).
-const PREVIEW_NOTE = IS_PLAINTIFF_APP
-  ? 'Sample figures. Estimates are informational only, not legal advice, and not a guarantee of outcome.'
-  : 'Sample figures shown for illustration.'
+/**
+ * Both claims the old trust chips made that mean anything. "Secure
+ * authentication" was the third, and it only restates that this is a login.
+ */
+const SECURITY_NOTE = 'HIPAA compliant · 256-bit encryption'
 
 /**
  * Sign-in failures need a plain message. API-host troubleshooting only helps
@@ -81,12 +82,13 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('')
   const [passwordVisible, setPasswordVisible] = useState(false)
   const [loading, setLoading] = useState(false)
-  const [loadingStage, setLoadingStage] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [savedName, setSavedName] = useState<string | null>(null)
   const { login, hasBiometrics, authenticateWithBiometrics } = useAuth()
 
-  const stageTimer = useRef<ReturnType<typeof setInterval> | null>(null)
+  // "Next" on the email keyboard used to do nothing: the prop was set but there
+  // was no ref to hand the focus to.
+  const passwordRef = useRef<TextInput>(null)
 
   useEffect(() => {
     SecureStore.getItemAsync('last_login_name')
@@ -94,23 +96,7 @@ export default function LoginScreen() {
         if (name && name.trim()) setSavedName(name.trim())
       })
       .catch(() => {})
-    return () => stopStageCycle()
   }, [])
-
-  function startStageCycle() {
-    setLoadingStage(0)
-    stopStageCycle()
-    stageTimer.current = setInterval(() => {
-      setLoadingStage((stage) => Math.min(stage + 1, LOGIN_STAGES.length - 1))
-    }, 850)
-  }
-
-  function stopStageCycle() {
-    if (stageTimer.current) {
-      clearInterval(stageTimer.current)
-      stageTimer.current = null
-    }
-  }
 
   async function handleLogin() {
     const trimmedEmail = email.trim()
@@ -124,14 +110,12 @@ export default function LoginScreen() {
     }
     setLoading(true)
     setError(null)
-    startStageCycle()
     try {
       await login(normalizeAuthEmail(email), password)
       router.replace('/(app)/(tabs)')
     } catch (err: unknown) {
       setError(signInErrorMessage(err))
     } finally {
-      stopStageCycle()
       setLoading(false)
     }
   }
@@ -140,7 +124,6 @@ export default function LoginScreen() {
     if (!hasBiometrics || loading) return
     setLoading(true)
     setError(null)
-    startStageCycle()
     try {
       const result = await authenticateWithBiometrics()
       if (result === 'authenticated') {
@@ -153,7 +136,6 @@ export default function LoginScreen() {
         setError('We could not restore your saved session. Sign in with email and password and try Face ID again.')
       }
     } finally {
-      stopStageCycle()
       setLoading(false)
     }
   }
@@ -177,39 +159,8 @@ export default function LoginScreen() {
       >
         <View style={styles.content}>
           <View style={styles.wordmarkBlock}>
-            <View style={styles.heroBadge}>
-              <Ionicons name="shield-checkmark" size={13} color={colors.brandAccent} />
-              <Text style={styles.heroBadgeText}>HIPAA Secure</Text>
-            </View>
             <BrandWordmark variant="hero" />
             <Text style={styles.subtitle}>{SUBTITLE}</Text>
-
-            <View style={styles.valueProps}>
-              {VALUE_PROPS.map((item) => (
-                <View key={item} style={styles.valueRow}>
-                  <View style={styles.valueTick}>
-                    <Ionicons name="checkmark" size={12} color={colors.brandAccent} />
-                  </View>
-                  <Text style={styles.valueText}>{item}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
-
-          <View style={styles.previewCard}>
-            <View style={styles.previewHeader}>
-              <View style={styles.previewPulse} />
-              <Text style={styles.previewLabel}>{PREVIEW_LABEL}</Text>
-            </View>
-            <View style={styles.previewGrid}>
-              {PREVIEW_STATS.map((stat) => (
-                <View key={stat.label} style={styles.previewStat}>
-                  <Text style={styles.previewStatLabel}>{stat.label}</Text>
-                  <Text style={[styles.previewStatValue, styles[`tone_${stat.tone}`]]}>{stat.value}</Text>
-                </View>
-              ))}
-            </View>
-            <Text style={styles.previewNote}>{PREVIEW_NOTE}</Text>
           </View>
 
           <View style={styles.formPanel}>
@@ -230,13 +181,17 @@ export default function LoginScreen() {
             </View>
 
             {error ? (
-              <InlineErrorBanner
-                message={error}
-                actionLabel="Dismiss"
-                onAction={() => setError(null)}
-              />
+              <View accessibilityLiveRegion="assertive" accessibilityRole="alert">
+                <InlineErrorBanner
+                  message={error}
+                  actionLabel="Dismiss"
+                  onAction={() => setError(null)}
+                />
+              </View>
             ) : null}
 
+            {/* For anyone who has signed in before, this is the whole
+                interaction, so it comes before the fields rather than after. */}
             {hasBiometrics && (
               <>
                 <TouchableOpacity
@@ -244,6 +199,9 @@ export default function LoginScreen() {
                   onPress={handleBiometricLogin}
                   activeOpacity={0.9}
                   disabled={loading}
+                  accessibilityRole="button"
+                  accessibilityLabel="Continue with Face ID"
+                  accessibilityState={{ disabled: loading }}
                 >
                   <Ionicons name="scan-outline" size={20} color={colors.loginBg} />
                   <Text style={styles.faceIdText}>Continue with Face ID</Text>
@@ -272,6 +230,9 @@ export default function LoginScreen() {
                   autoComplete="email"
                   textContentType="username"
                   returnKeyType="next"
+                  onSubmitEditing={() => passwordRef.current?.focus()}
+                  submitBehavior="submit"
+                  accessibilityLabel={IS_PLAINTIFF_APP ? 'Email' : 'Work email'}
                 />
               </View>
             </View>
@@ -282,6 +243,8 @@ export default function LoginScreen() {
                 <TouchableOpacity
                   onPress={() => Linking.openURL(LEGAL_LINKS.forgotPassword)}
                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  accessibilityRole="link"
+                  accessibilityLabel="Forgot password"
                 >
                   <Text style={styles.forgotText}>Forgot password?</Text>
                 </TouchableOpacity>
@@ -289,6 +252,7 @@ export default function LoginScreen() {
               <View style={styles.inputShell}>
                 <Ionicons name="lock-closed-outline" size={18} color={colors.muted} />
                 <TextInput
+                  ref={passwordRef}
                   style={styles.input}
                   placeholder="Enter your password"
                   placeholderTextColor={colors.muted}
@@ -299,10 +263,13 @@ export default function LoginScreen() {
                   textContentType="password"
                   returnKeyType="go"
                   onSubmitEditing={handleLogin}
+                  accessibilityLabel="Password"
                 />
                 <TouchableOpacity
                   onPress={() => setPasswordVisible((value) => !value)}
                   hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  accessibilityRole="button"
+                  accessibilityLabel={passwordVisible ? 'Hide password' : 'Show password'}
                 >
                   <Ionicons
                     name={passwordVisible ? 'eye-off-outline' : 'eye-outline'}
@@ -318,29 +285,28 @@ export default function LoginScreen() {
               onPress={handleLogin}
               disabled={loading}
               activeOpacity={0.88}
+              accessibilityRole="button"
+              accessibilityLabel="Sign in"
+              accessibilityState={{ disabled: loading, busy: loading }}
             >
+              {/* One honest label. The old three-stage ticker claimed to be
+                  "scanning today's cases" during what is a single request. */}
               {loading ? (
                 <View style={styles.buttonContent}>
                   <ActivityIndicator color="#fff" />
-                  <Text style={styles.buttonText}>{LOGIN_STAGES[loadingStage]}…</Text>
+                  <Text style={styles.buttonText}>Signing in…</Text>
                 </View>
               ) : (
                 <View style={styles.buttonContent}>
-                  <Text style={styles.buttonText}>Continue securely</Text>
+                  <Text style={styles.buttonText}>Sign in</Text>
                   <Ionicons name="arrow-forward" size={18} color="#fff" />
                 </View>
               )}
             </TouchableOpacity>
 
-            <View style={styles.trustRow}>
-              {['HIPAA compliant', '256-bit encryption', 'Secure authentication'].map((label, index) => (
-                <View key={label} style={styles.trustChip}>
-                  {index === 0 && <Ionicons name="shield-checkmark-outline" size={12} color={colors.brandAccent} />}
-                  {index === 1 && <Ionicons name="lock-closed-outline" size={12} color={colors.brandAccent} />}
-                  {index === 2 && <Ionicons name="finger-print-outline" size={12} color={colors.brandAccent} />}
-                  <Text style={styles.trustChipText}>{label}</Text>
-                </View>
-              ))}
+            <View style={styles.securityRow}>
+              <Ionicons name="shield-checkmark-outline" size={13} color={colors.brandAccent} />
+              <Text style={styles.securityText}>{SECURITY_NOTE}</Text>
             </View>
           </View>
 
@@ -349,15 +315,30 @@ export default function LoginScreen() {
           <View style={styles.legalBlock}>
             <Text style={styles.legalText}>{IS_PLAINTIFF_APP ? NOT_A_LAW_FIRM_PLAINTIFF : NOT_A_LAW_FIRM}</Text>
             <View style={styles.legalLinks}>
-              <TouchableOpacity onPress={() => Linking.openURL(LEGAL_LINKS.terms)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <TouchableOpacity
+                onPress={() => Linking.openURL(LEGAL_LINKS.terms)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityRole="link"
+                accessibilityLabel="Terms"
+              >
                 <Text style={styles.legalLink}>Terms</Text>
               </TouchableOpacity>
               <Text style={styles.legalDot}>·</Text>
-              <TouchableOpacity onPress={() => Linking.openURL(LEGAL_LINKS.privacy)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <TouchableOpacity
+                onPress={() => Linking.openURL(LEGAL_LINKS.privacy)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityRole="link"
+                accessibilityLabel="Privacy policy"
+              >
                 <Text style={styles.legalLink}>Privacy</Text>
               </TouchableOpacity>
               <Text style={styles.legalDot}>·</Text>
-              <TouchableOpacity onPress={() => Linking.openURL(LEGAL_LINKS.disclosures)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <TouchableOpacity
+                onPress={() => Linking.openURL(LEGAL_LINKS.disclosures)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityRole="link"
+                accessibilityLabel="Disclosures"
+              >
                 <Text style={styles.legalLink}>Disclosures</Text>
               </TouchableOpacity>
             </View>
@@ -418,144 +399,15 @@ const styles = StyleSheet.create({
     marginBottom: space.xl,
     alignItems: 'center',
   },
-  heroBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: space.md,
-    paddingVertical: 7,
-    borderRadius: 999,
-    backgroundColor: 'rgba(15,23,42,0.42)',
-    borderWidth: 1,
-    borderColor: 'rgba(34,211,238,0.32)',
-    marginBottom: space.lg,
-  },
-  heroBadgeText: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: colors.brandAccent,
-    letterSpacing: 0.6,
-  },
   subtitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
-    color: 'rgba(226,232,240,0.86)',
+    color: 'rgba(226,232,240,0.82)',
     textAlign: 'center',
-    marginTop: space.md,
-    lineHeight: 23,
+    marginTop: space.sm,
+    lineHeight: 21,
     maxWidth: 300,
   },
-  valueProps: {
-    marginTop: space.lg,
-    gap: space.sm,
-    alignSelf: 'stretch',
-    alignItems: 'center',
-  },
-  valueRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.sm,
-  },
-  valueTick: {
-    width: 20,
-    height: 20,
-    borderRadius: 999,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(34,211,238,0.14)',
-    borderWidth: 1,
-    borderColor: 'rgba(34,211,238,0.3)',
-  },
-  valueText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#e2e8f0',
-    letterSpacing: 0.2,
-  },
-  previewCard: {
-    backgroundColor: 'rgba(15,23,42,0.45)',
-    borderRadius: radii.xl,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.10)',
-    padding: space.lg,
-    marginBottom: space.lg,
-  },
-  previewHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.sm,
-    marginBottom: space.md,
-  },
-  previewPulse: {
-    width: 8,
-    height: 8,
-    borderRadius: 999,
-    backgroundColor: colors.brandAccent,
-  },
-  previewLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
-    color: 'rgba(148,163,184,0.95)',
-  },
-  previewGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: space.sm,
-  },
-  previewStat: {
-    flexGrow: 1,
-    flexBasis: '46%',
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.07)',
-    paddingHorizontal: space.md,
-    paddingVertical: space.sm,
-  },
-  previewStatLabel: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: 'rgba(148,163,184,0.9)',
-    marginBottom: 2,
-  },
-  previewStatValue: {
-    fontSize: 18,
-    fontWeight: '800',
-    letterSpacing: -0.3,
-  },
-  previewNote: {
-    fontSize: 11,
-    lineHeight: 15,
-    color: 'rgba(148,163,184,0.9)',
-    marginTop: space.md,
-  },
-  legalBlock: {
-    marginTop: space.lg,
-    alignItems: 'center',
-  },
-  legalText: {
-    fontSize: 11,
-    lineHeight: 16,
-    color: 'rgba(148,163,184,0.85)',
-    textAlign: 'center',
-  },
-  legalLinks: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.sm,
-    marginTop: space.sm,
-  },
-  legalLink: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: 'rgba(203,213,225,0.9)',
-  },
-  legalDot: { fontSize: 12, color: 'rgba(148,163,184,0.6)' },
-  tone_accent: { color: colors.brandAccent },
-  tone_success: { color: '#4ade80' },
-  tone_warning: { color: '#fbbf24' },
   formPanel: {
     backgroundColor: 'rgba(15,23,42,0.82)',
     borderRadius: radii['2xl'],
@@ -689,27 +541,39 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 0.3,
   },
-  trustRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    gap: space.sm,
-    marginTop: space.xl,
-  },
-  trustChip: {
+  securityRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: space.sm,
-    paddingVertical: 5,
-    borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: space.lg,
   },
-  trustChipText: {
+  securityText: {
     fontSize: 11,
     fontWeight: '600',
+    color: 'rgba(203,213,225,0.85)',
+    letterSpacing: 0.2,
+  },
+  legalBlock: {
+    marginTop: space.lg,
+    alignItems: 'center',
+  },
+  legalText: {
+    fontSize: 11,
+    lineHeight: 16,
+    color: 'rgba(148,163,184,0.85)',
+    textAlign: 'center',
+  },
+  legalLinks: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    marginTop: space.sm,
+  },
+  legalLink: {
+    fontSize: 12,
+    fontWeight: '700',
     color: 'rgba(203,213,225,0.9)',
   },
+  legalDot: { fontSize: 12, color: 'rgba(148,163,184,0.6)' },
 })
