@@ -6,6 +6,7 @@ import ErrorBoundary from './components/ErrorBoundary'
 import { GuestRoute, ProtectedRoute } from './components/AuthRoute'
 import { getStoredRole, getPostLoginRoute, getLoginRedirect, hasValidAuthToken } from './lib/auth'
 import { applyAnalyticsBoundary } from './lib/analyticsBoundary'
+import { pushScreenView } from './lib/screenView'
 import { captureAttribution } from './lib/attribution'
 import {
   clearEvidenceReturnTo,
@@ -412,12 +413,13 @@ function ResultsRouteBoundary() {
 }
 
 /**
- * Turns Google Analytics off while the app is on a screen that carries health
- * information, and back on when it leaves.
+ * Reports the current screen, and turns Google Analytics off while the app is
+ * on one that carries health information.
  *
- * The tag is only ever loaded by a public page, but client-side navigation
- * keeps it resident, so this runs on every route rather than at mount. See
- * lib/analyticsBoundary.
+ * Both have to run per route rather than at mount. Client-side navigation moves
+ * between screens without a document load, so the tag stays resident across the
+ * boundary and the tag manager would otherwise never hear about any screen
+ * after the first. See lib/analyticsBoundary and lib/screenView.
  */
 function AnalyticsBoundary() {
   const location = useLocation()
@@ -430,7 +432,11 @@ function AnalyticsBoundary() {
   }, [])
 
   useEffect(() => {
+    // Order matters. The boundary sets whether tags are permitted on this
+    // route, and the screen view is what triggers them; announcing the screen
+    // first would fire a tag against the previous route's permission.
     applyAnalyticsBoundary(location.pathname)
+    pushScreenView(location.pathname)
   }, [location.pathname])
   return null
 }

@@ -4,7 +4,6 @@ import Head from 'next/head'
 import SsrRoot from '../src/ssr-root'
 import AppRouteShell from '../src/components/AppRouteShell'
 import SiteAnalytics from '../src/components/SiteAnalytics'
-import SiteTagManager from '../src/components/SiteTagManager'
 import { isKnownAppRoute, topicHubForClusterPrefix } from '../src/data/appRoutes'
 import { indexingEnabled } from '../src/lib/siteConfig'
 import { DEFAULT_LANGUAGE, type LanguageCode } from '../src/i18n'
@@ -151,12 +150,11 @@ export default function CatchAllPage({ seo, ssrLocation, publicPage, language, m
           <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: seo.schema }} />
         ) : null}
       </Head>
-      {publicPage ? (
-        <>
-          <SiteAnalytics />
-          <SiteTagManager />
-        </>
-      ) : null}
+      {/* GA4 stays behind the public-page gate. The tag manager does not: it is
+          loaded for every route from _document, so rendering it here as well
+          would put two copies of the container in the same document and
+          double-count every marketing session. */}
+      {publicPage ? <SiteAnalytics /> : null}
       {ssrLocation ? (
         <SsrRoot location={ssrLocation} language={language} messages={messages ?? undefined} />
       ) : embed ? (

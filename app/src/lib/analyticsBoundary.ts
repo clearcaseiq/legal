@@ -1,11 +1,13 @@
 /**
- * Keeps Google Analytics and Tag Manager off the screens that carry health
- * information.
+ * Keeps Google Analytics off the screens that carry health information, and
+ * tells the tag manager when it is on one.
  *
- * The server already decides this for the page a visitor lands on: only
- * marketing and SEO landing pages render <SiteAnalytics> and <SiteTagManager>,
- * so entering directly on /assess loads no tag at all. This closes the gap that
- * leaves.
+ * The two tags are no longer held to the same rule. GA4 still renders only on
+ * marketing and SEO landing pages, so entering directly on /assess loads no GA
+ * snippet; this closes the gap that leaves for a visitor who navigates in from
+ * a public page. The tag manager, by contrast, is now loaded on every route
+ * from _document so the claimant funnel can be measured — see tagManager.ts —
+ * which makes `analytics_blocked` below the only control the app has over it.
  *
  * The site is a single-page app behind a catch-all route. Someone who arrives
  * on a city landing page and then clicks through to the assessment keeps the
@@ -107,10 +109,12 @@ export function isSensitivePath(pathname: string): boolean {
  * a dataLayer variable the container can be told to respect. `analytics_blocked`
  * is that variable, and it is inert until someone adds a blocking trigger on it
  * in the GTM console — an exception that fires on `analytics_blocked equals
- * true` and is attached to every tag in the container. Until that exists, the
- * server-side `publicPage` gate is the whole of the GTM boundary: tags will not
- * load on a private landing, but they will keep running for a visitor who
- * navigates from a public page into one.
+ * true` and attached to the tags that must not run on claimant screens.
+ *
+ * There is no longer a second line of defence behind it. The container loads on
+ * every route now, so until that exception exists every tag in it runs on the
+ * intake wizard and the case dashboard. The value is published either way, so
+ * the switch is available the moment someone wires it up.
  *
  * No-ops for whichever tag is not configured, which for both is every
  * non-production build.
