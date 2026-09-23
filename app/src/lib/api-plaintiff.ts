@@ -128,6 +128,24 @@ export async function getIntakeLead(id: string): Promise<IntakeLeadResume> {
   return data
 }
 
+export interface ZipCountyLookup {
+  zip: string
+  state: string
+  /** Largest share of the ZIP's land area first. */
+  counties: { state: string; county: string }[]
+}
+
+/** Resolves to null for an unknown ZIP. */
+export async function lookupZipCounties(zip: string): Promise<ZipCountyLookup | null> {
+  try {
+    const { data } = await api.get(`/v1/geo/zip/${encodeURIComponent(zip)}`)
+    return data
+  } catch (error: any) {
+    if (error?.response?.status === 404) return null
+    throw error
+  }
+}
+
 export interface AssessmentValuationPreview {
   settlement: { low: number; expected: number; high: number }
   trial: { low: number; expected: number; high: number }

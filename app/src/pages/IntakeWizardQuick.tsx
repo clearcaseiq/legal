@@ -4,7 +4,7 @@
 import { Fragment, useState, useEffect, useLayoutEffect, useRef, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
-import { createAssessment, previewAssessmentValuation, predict, uploadEvidenceFile, processEvidenceFile, extractEvidenceData, analyzeCaseWithChatGPT, calculateSOL, createIntakeLead, updateIntakeLead, getIntakeLead, getEvidenceFiles, type IntakeLeadPayload, type AssessmentValuationPreview } from '../lib/api-plaintiff'
+import { createAssessment, previewAssessmentValuation, predict, uploadEvidenceFile, processEvidenceFile, extractEvidenceData, analyzeCaseWithChatGPT, calculateSOL, createIntakeLead, updateIntakeLead, getIntakeLead, getEvidenceFiles, lookupZipCounties, type IntakeLeadPayload, type AssessmentValuationPreview } from '../lib/api-plaintiff'
 import { deleteEvidenceFile, extractIncidentDetails, type IncidentExtraction } from '../lib/api'
 import { ChevronRight, ChevronLeft, ChevronDown, Car, Footprints, HardHat, Stethoscope, HelpCircle, Check, X, MapPin, Building2, Camera, Video, FileText, Shield, Mail, Phone, DollarSign, Dog, Package, AlertTriangle, Droplets, CalendarDays, Hospital, Scissors, Ambulance, PersonStanding, Scan, Syringe, Pill, Lock, MessageSquare, Info, CheckCircle2, Save, ShieldCheck, Users, HeartPulse, Activity, Bone, CalendarClock, Ban, BedDouble, Moon, Dumbbell, Bike, Truck, User, Briefcase, Landmark, CornerUpLeft, Receipt, Wine, RotateCw, XCircle, Clock, UserX, Lightbulb, ClipboardCheck, Umbrella, Pencil, FolderOpen, Scale, Star, Sparkles, TrendingUp, Brain, Upload, CalendarCheck, History, Hand, CircleDot, type LucideIcon } from 'lucide-react'
 import InlineEvidenceUpload from '../components/InlineEvidenceUpload'
@@ -493,6 +493,13 @@ const FUTURE_MEDICAL_RANGE_OPTION_DEFS = [
   { value: 'not_sure', labelKey: 'optionNotSure', estimate: 0 },
 ]
 
+const OUT_OF_POCKET_RANGE_OPTION_DEFS = [
+  { value: 'none', labelKey: 'oop_none', estimate: 0 },
+  { value: 'under_500', labelKey: 'oop_under500', estimate: 250 },
+  { value: '500_2500', labelKey: 'oop_500_2500', estimate: 1500 },
+  { value: 'over_2500', labelKey: 'oop_over2500', estimate: 2500 },
+]
+
 const UM_UIM_OPTION_DEFS = [
   { value: 'yes', labelKey: 'umuim_yes' },
   { value: 'no', labelKey: 'optionNo' },
@@ -712,6 +719,14 @@ const FAULT_PARTY_OPTIONS = [
   { value: 'not_sure', labelKey: 'optionNotSure' }
 ]
 
+// The step-4 fault question writes casePosture.faultBelief; branch.faultParty is
+// the same answer in the AI-fill vocabulary, and both reach the liability payload.
+const FAULT_BELIEF_TO_PARTY: Record<string, string> = {
+  other_party: 'other_driver',
+  shared_fault: 'shared',
+  not_sure: 'not_sure',
+}
+
 // Workplace branch
 const WORKPLACE_CAUSE_OPTIONS = [
   { value: 'fall', labelKey: 'wp_fall' },
@@ -919,6 +934,7 @@ export default function IntakeWizardQuick() {
   const DEFENDANT_COVERAGE_OPTIONS = localizeOptions(DEFENDANT_COVERAGE_OPTION_DEFS)
   const MEDICAL_BILL_RANGE_OPTIONS = localizeOptions(MEDICAL_BILL_RANGE_OPTION_DEFS)
   const FUTURE_MEDICAL_RANGE_OPTIONS = localizeOptions(FUTURE_MEDICAL_RANGE_OPTION_DEFS)
+  const OUT_OF_POCKET_RANGE_OPTIONS = localizeOptions(OUT_OF_POCKET_RANGE_OPTION_DEFS)
   const UM_UIM_OPTIONS = localizeOptions(UM_UIM_OPTION_DEFS)
   const PIP_OPTIONS = localizeOptions(PIP_OPTION_DEFS)
   const FAULT_BELIEF_OPTIONS = localizeOptions(FAULT_BELIEF_OPTION_DEFS)
@@ -1074,7 +1090,7 @@ export default function IntakeWizardQuick() {
     claimType: '' as string,
     incidentDate: '',
     incidentDatePreset: '' as string,
-    venue: { state: '', county: '', city: '' },
+    venue: { state: '', county: '', city: '', zip: '' },
     narrative: '' as string,
     injurySeverity: '' as string,
     // Initial-care screen: where the plaintiff FIRST received care (facility),
@@ -1182,8 +1198,7 @@ export default function IntakeWizardQuick() {
         return formData.injurySeverity ? 1 : 0
       case 'financial_impact': {
         const ic = formData.insuranceCoverage
-        // No fields block advancing here, so credit the answers people usually give.
-        const checks = [!!ic.medicalBillRange, !!ic.healthCoverage, (ic.accidentExpenses?.length || 0) > 0]
+        const checks = [!!ic.medicalBillRange, !!ic.futureMedicalRange, !!formData.casePosture.attorneyStatus]
         return checks.filter(Boolean).length / checks.length
       }
       case 'consent': {
@@ -1851,6 +1866,48 @@ export default function IntakeWizardQuick() {
     clearAutoFillMarks(['venue'])
   }
 
+  // ZIP is the primary way to give a location; it resolves to the state and
+  // county routing needs. A ZIP crossing a county line offers those counties.
+  const [zipLookup, setZipLookup] = useState<{ status: 'idle' | 'loading' | 'found' | 'unknown'; counties: string[] }>({ status: 'idle', counties: [] })
+  const [manualLocation, setManualLocation] = useState(false)
+  const latestZipRef = useRef('')
+  const changeZip = async (raw: string) => {
+    const zip = raw.replace(/\D/g, '').slice(0, 5)
+    latestZipRef.current = zip
+    updateVenue({ zip })
+    if (zip.length < 5) {
+      setZipLookup({ status: 'idle', counties: [] })
+      return
+    }
+    setZipLookup({ status: 'loading', counties: [] })
+    let result: Awaited<ReturnType<typeof lookupZipCounties>> = null
+    try {
+      result = await lookupZipCounties(zip)
+    } catch {
+      result = null
+    }
+    if (latestZipRef.current !== zip) return
+    if (!result) {
+      setZipLookup({ status: 'unknown', counties: [] })
+      setManualLocation(true)
+      return
+    }
+    const counties = Array.from(new Set(
+      result.counties
+        .filter((c) => c.state === result!.state)
+        .map((c) => sanitizeDetectedCounty(result!.state, c.county))
+        .filter(Boolean)
+    ))
+    const stateChanged = formData.venue.state !== result.state
+    updateVenue({
+      state: result.state,
+      county: counties.length === 1 ? counties[0] : '',
+      ...(stateChanged ? { city: '' } : {}),
+    })
+    setZipLookup({ status: 'found', counties })
+    if (counties.length === 0) setManualLocation(true)
+  }
+
   const setBranch = (key: string, value: any) => {
     setFormData(prev => {
       // Re-selecting the same single-select value clears it (toggle off). Checkboxes/selects/
@@ -2372,7 +2429,8 @@ export default function IntakeWizardQuick() {
       if (!formData.venue.county?.trim()) err.county = t('intake.enterCounty')
       // Narrative text is optional but recommended; contact fields live on this combined screen too.
       const email = formData.contact.email.trim()
-      if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) err.contactEmail = tx('contact_emailError')
+      if (!email && !formData.contact.phone.trim()) err.contact = tx('contact_required')
+      else if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) err.contactEmail = tx('contact_emailError')
       else if (email && emailDeliverable === 'bad') err.contactEmail = tx('contact_emailUndeliverable')
       const phoneError = validatePhoneField(formData.contact.phone)
       if (phoneError) err.contactPhone = tx('contact_phoneError')
@@ -2380,6 +2438,10 @@ export default function IntakeWizardQuick() {
       if (formData.medicalTreatment.length === 0) err.medicalTreatment = tx('treatment_required')
     }
     if (currentStep === 'injury_severity' && !formData.injurySeverity) err.injurySeverity = t('intake.selectSeverity')
+    if (currentStep === 'financial_impact' && !formData.casePosture?.attorneyStatus) {
+      err.attorneyStatus = tx('legal_attorneyRequired')
+      document.getElementById('intake-attorney-status')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
     if (currentStep === 'consent') {
       const c = formData.consents || {}
       if (!c.tos) err.tos = t('intake.acceptTos')
@@ -2540,6 +2602,8 @@ export default function IntakeWizardQuick() {
         med_charges_source: billsDocTotalForSubmit > 0 ? 'partially_documented' as const : 'self_reported' as const,
         bills_complete: formData.insuranceCoverage.billsComplete === 'yes',
         future_medical: futureMedicalEstimate,
+        estimated_out_of_pocket:
+          OUT_OF_POCKET_RANGE_OPTIONS.find(option => option.value === formData.insuranceCoverage.outOfPocketRange)?.estimate || 0,
         medical_bill_range: formData.insuranceCoverage.medicalBillRange,
         future_medical_range: formData.insuranceCoverage.futureMedicalRange,
         estimated_wage_loss: wageLossForSubmit,
@@ -2618,6 +2682,7 @@ export default function IntakeWizardQuick() {
       },
     }
     ;(payload as any).intakeData = {
+      incidentZip: formData.venue.zip || undefined,
       injuredParty: formData.injuredParty,
       injuryType: formData.injuryType,
       // Kept alongside injuryType rather than only folded into caseSubtype, so
@@ -2689,6 +2754,18 @@ export default function IntakeWizardQuick() {
     // The assessment was already created but some documents failed: retry uploads instead of re-submitting.
     if (assessmentId) {
       await retryFailedUploads()
+      return
+    }
+    if (!formData.contact.email.trim() && !formData.contact.phone.trim()) {
+      setErrors({ contact: tx('contact_required') })
+      setReturnToReviewFromStep('when')
+      setCurrentStep('when')
+      return
+    }
+    if (!formData.casePosture?.attorneyStatus) {
+      setErrors({ attorneyStatus: tx('legal_attorneyRequired') })
+      setReturnToReviewFromStep('financial_impact')
+      setCurrentStep('financial_impact')
       return
     }
     const consents = formData.consents || { tos: false, privacy: false, ml_use: false }
@@ -3236,8 +3313,9 @@ export default function IntakeWizardQuick() {
           !!formData.insuranceCoverage.medicalBillRange ||
           !!formData.insuranceCoverage.futureMedicalRange ||
           !!formData.casePosture.missedWork ||
-          !!formData.insuranceCoverage.healthCoverage ||
-          !!formData.casePosture.financialHardship
+          !!formData.insuranceCoverage.outOfPocketRange ||
+          !!formData.casePosture.faultBelief ||
+          !!formData.casePosture.attorneyStatus
         )
       case 'legal_status':
         return (
@@ -3303,7 +3381,7 @@ export default function IntakeWizardQuick() {
               onChange={e => updateForm({ contact: { ...formData.contact, email: e.target.value } })}
               placeholder="name@email.com"
               maxLength={254}
-              aria-invalid={!!errors.contactEmail}
+              aria-invalid={!!errors.contactEmail || !!errors.contact}
               className="!min-h-0 min-w-0 flex-1 !border-0 !bg-transparent !p-0 !text-sm text-gray-900 placeholder:text-gray-400 focus:!ring-0 dark:text-slate-100"
             />
           </div>
@@ -3330,11 +3408,14 @@ export default function IntakeWizardQuick() {
               onChange={e => updateForm({ contact: { ...formData.contact, phone: formatPhoneInput(e.target.value) } })}
               placeholder="(555) 123-4567"
               maxLength={20}
-              aria-invalid={!!errors.contactPhone}
+              aria-invalid={!!errors.contactPhone || !!errors.contact}
               className="!min-h-0 min-w-0 flex-1 !border-0 !bg-transparent !p-0 !text-sm text-gray-900 placeholder:text-gray-400 focus:!ring-0 dark:text-slate-100"
             />
           </div>
           </div>
+          {errors.contact && (
+            <p className="text-xs text-red-600">{errors.contact}</p>
+          )}
           {errors.contactEmail && (
             <p className="text-xs text-red-600">{errors.contactEmail}</p>
           )}
@@ -3382,33 +3463,15 @@ export default function IntakeWizardQuick() {
         const cpLegal = formData.casePosture || {}
         const setInsuranceField = (field: string, value: string) =>
           updateForm({ insuranceCoverage: { ...icLegal, [field]: (icLegal as any)[field] === value ? '' : value } })
-        const hasAnyInsuranceSignal = Boolean(
-          icLegal.otherPartyInsured ||
-          icLegal.healthCoverage ||
-          icLegal.defendantCoverageLimits ||
-          icLegal.umUimCoverage ||
-          icLegal.pipCoverage ||
-          (icLegal.plaintiffAutoCarrier && icLegal.plaintiffAutoCarrier.trim())
-        )
-        const insurerContactValue =
-          cpLegal.settlementOfferStatus === 'yes'
-            ? 'offer'
-            : cpLegal.insuranceContact === 'yes'
-              ? 'contact_only'
-              : cpLegal.insuranceContact === 'no'
-                ? 'no'
-                : ''
-        const setInsurerContact = (value: string) => {
-          const isToggleOff = insurerContactValue === value
-          setFormData(prev => ({
-            ...prev,
-            casePosture: {
-              ...prev.casePosture,
-              insuranceContact: isToggleOff ? '' : value === 'no' ? 'no' : 'yes',
-              settlementOfferStatus: isToggleOff ? '' : value === 'offer' ? 'yes' : 'no',
-              ...(isToggleOff || value !== 'offer' ? { settlementOffer: '' } : {})
+        const setFaultBelief = (value: string) => {
+          setFormData(prev => {
+            const next = prev.casePosture.faultBelief === value ? '' : value
+            return {
+              ...prev,
+              casePosture: { ...prev.casePosture, faultBelief: next },
+              branch: { ...prev.branch, faultParty: FAULT_BELIEF_TO_PARTY[next] || '' },
             }
-          }))
+          })
         }
         const liabilityOptionsForClaim = FAULT_BELIEF_OPTIONS.map((option) => {
           if (option.value !== 'other_party') return option
@@ -3515,9 +3578,9 @@ export default function IntakeWizardQuick() {
                   </div>
                 </div>
 
-                <div className="mt-4 grid min-w-0 gap-6 lg:grid-cols-2">
+                <div className="mt-4 min-w-0">
                   {/* Other party insurance */}
-                  <div className="min-w-0">
+                  <div className="min-w-0 lg:max-w-xl">
                     <div className="flex items-start gap-2">
                       <Shield className="mt-0.5 h-5 w-5 shrink-0 text-slate-400" aria-hidden />
                       <div className="min-w-0">
@@ -3529,22 +3592,6 @@ export default function IntakeWizardQuick() {
                       {renderChoice(icLegal.otherPartyInsured === 'yes', () => setInsuranceField('otherPartyInsured', 'yes'), ShieldCheck, tx('optionYes'), { tone: 'emerald', stack: true })}
                       {renderChoice(icLegal.otherPartyInsured === 'no', () => setInsuranceField('otherPartyInsured', 'no'), XCircle, tx('optionNo'), { tone: 'red', stack: true })}
                       {renderChoice(icLegal.otherPartyInsured === 'unsure', () => setInsuranceField('otherPartyInsured', 'unsure'), HelpCircle, tx('optionNotSure'), { stack: true })}
-                    </div>
-                  </div>
-
-                  {/* Health insurance */}
-                  <div className="min-w-0">
-                    <div className="flex items-start gap-2">
-                      <HeartPulse className="mt-0.5 h-5 w-5 shrink-0 text-slate-400" aria-hidden />
-                      <div className="min-w-0">
-                        <p className="font-display text-sm font-semibold text-slate-950 dark:text-slate-100">{tx('legal_healthInsuranceQuestion')}</p>
-                        <p className="mt-0.5 text-xs text-slate-500">{tx('insurance_healthHelper')}</p>
-                      </div>
-                    </div>
-                    <div className="mt-3 grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-3">
-                      {renderChoice(icLegal.healthCoverage === 'yes', () => setInsuranceField('healthCoverage', 'yes'), CheckCircle2, tx('optionYes'), { tone: 'emerald', stack: true })}
-                      {renderChoice(icLegal.healthCoverage === 'no', () => setInsuranceField('healthCoverage', 'no'), XCircle, tx('optionNo'), { tone: 'red', stack: true })}
-                      {renderChoice(icLegal.healthCoverage === 'unsure', () => setInsuranceField('healthCoverage', 'unsure'), HelpCircle, tx('optionNotSure'), { stack: true })}
                     </div>
                   </div>
                 </div>
@@ -3564,44 +3611,28 @@ export default function IntakeWizardQuick() {
                 </div>
 
                 <div className="mt-4 grid gap-6 lg:grid-cols-3">
-                  {/* Insurance contact */}
+                  {/* Fault */}
                   <div>
                     <div className="flex items-start gap-2">
-                      <Phone className="mt-0.5 h-5 w-5 shrink-0 text-slate-400" aria-hidden />
-                      <p className="font-display text-sm font-semibold text-slate-950 dark:text-slate-100">{tx('legal_insurerContactQuestion')}</p>
+                      <Scale className="mt-0.5 h-5 w-5 shrink-0 text-slate-400" aria-hidden />
+                      <p className="font-display text-sm font-semibold text-slate-950 dark:text-slate-100">{tx('legal_faultQuestion')}</p>
                     </div>
                     <div className="mt-3 grid gap-2">
-                      {renderChoice(insurerContactValue === 'no', () => setInsurerContact('no'), Phone, tx('optionNo'))}
-                      {renderChoice(insurerContactValue === 'contact_only', () => setInsurerContact('contact_only'), Clock, tx('legal_contactNoOffer'))}
-                      {renderChoice(insurerContactValue === 'offer', () => setInsurerContact('offer'), ClipboardCheck, tx('legal_contactWithOffer'))}
+                      {liabilityOptionsForClaim.map(({ value, label }) =>
+                        renderChoice(cpLegal.faultBelief === value, () => setFaultBelief(value), faultIconFor(value), label, { key: value })
+                      )}
                     </div>
-                    {insurerContactValue === 'offer' && (
-                      <div className="mt-3 rounded-xl border border-brand-100 bg-brand-50/50 p-2">
-                        <p className="font-display text-xs font-semibold text-slate-950">{tx('legal_offerAmountQuestion')}</p>
-                        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                          {SETTLEMENT_OFFER_OPTIONS.filter((option) => option.value !== 'no').map(({ value, label }) => (
-                            <button
-                              key={value}
-                              type="button"
-                              aria-pressed={cpLegal.settlementOffer === value}
-                              onClick={() => setCasePostureField('settlementOffer', value)}
-                              className={`flex items-center gap-2 rounded-lg border-[1.5px] px-2 py-2 text-xs font-semibold shadow-sm transition-all active:scale-[0.99] ${cpLegal.settlementOffer === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}
-                            >
-                              <span aria-hidden="true" className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[10px] ${cpLegal.settlementOffer === value ? 'border-brand-600 bg-brand-600 text-white' : 'border-gray-300 text-transparent'}`}>✓</span>
-                              <span className="min-w-0 break-words">{label}</span>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
                   </div>
 
                   {/* Attorney */}
-                  <div>
+                  <div id="intake-attorney-status">
                     <div className="flex items-start gap-2">
                       <User className="mt-0.5 h-5 w-5 shrink-0 text-slate-400" aria-hidden />
                       <p className="font-display text-sm font-semibold text-slate-950 dark:text-slate-100">{tx('legal_attorneyQuestion')}</p>
                     </div>
+                    {errors.attorneyStatus && (
+                      <p role="alert" className="mt-1 text-xs font-medium text-red-600">{errors.attorneyStatus}</p>
+                    )}
                     <div className="mt-3 grid gap-2">
                       {ATTORNEY_STATUS_OPTIONS.map(({ value, label }) =>
                         renderChoice(
@@ -3615,6 +3646,7 @@ export default function IntakeWizardQuick() {
                                 ...(value !== 'hired' ? { attorneyName: '', secondOpinionInterest: '' } : {})
                               }
                             }))
+                            setErrors({})
                           },
                           value === 'hired' ? User : UserX,
                           label,
@@ -3676,8 +3708,7 @@ export default function IntakeWizardQuick() {
                 </div>
               </div>
 
-              <div className="mt-4 grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
-                {/* Left: accordion sections */}
+              <div className="mt-4 min-w-0">
                 <div className="min-w-0 space-y-3">
                   {/* 1. Other Driver's Insurance */}
                   <details className="group min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm open:border-brand-200 dark:border-slate-700" open>
@@ -3739,129 +3770,6 @@ export default function IntakeWizardQuick() {
                     </div>
                   </details>
                   )}
-
-                  {/* 3. PIP Coverage */}
-                  {isVehicle && (
-                  <details className="group min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm open:border-brand-200 dark:border-slate-700">
-                    <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-3 sm:gap-3 sm:px-4 [&::-webkit-details-marker]:hidden">
-                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-500"><HeartPulse className="h-4 w-4" aria-hidden /></span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-sm font-semibold leading-snug text-slate-900 dark:text-slate-100">3. {tx('icov_pipTitle')}</span>
-                        <span className="block text-[11px] leading-snug text-slate-500">{tx('icov_pipSub')}</span>
-                      </span>
-                      {icLegal.pipCoverage && <span className="hidden shrink-0 items-center gap-1 text-[11px] font-semibold text-emerald-600 sm:flex"><CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden />{tx('icov_completed')}</span>}
-                      <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-open:rotate-180" aria-hidden />
-                    </summary>
-                    <div className="min-w-0 border-t border-slate-100 px-3 py-3 sm:px-4 dark:border-slate-700">
-                      <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-3">
-                        {PIP_OPTIONS.map(({ value, label }) => {
-                          const sel = icLegal.pipCoverage === value
-                          return renderChoice(sel, () => updateForm({ insuranceCoverage: { ...icLegal, pipCoverage: sel ? '' : value } }),
-                            value === 'yes' ? ShieldCheck : value === 'no' ? XCircle : HelpCircle, label,
-                            { tone: value === 'yes' ? 'emerald' : value === 'no' ? 'red' : undefined, stack: true, key: value })
-                        })}
-                      </div>
-                      <div className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 dark:bg-emerald-950/20">
-                        <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">{tx('icov_whatPip')}</p>
-                        <p className="mt-1 text-[11px] leading-relaxed text-emerald-700/80 dark:text-emerald-400/80">{tx('legal_whatPip')}</p>
-                      </div>
-                    </div>
-                  </details>
-                  )}
-
-                  {/* 4. MedPay Coverage */}
-                  {isVehicle && (
-                  <details className="group min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm open:border-brand-200 dark:border-slate-700">
-                    <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-3 sm:gap-3 sm:px-4 [&::-webkit-details-marker]:hidden">
-                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-teal-50 text-teal-500"><HeartPulse className="h-4 w-4" aria-hidden /></span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-sm font-semibold leading-snug text-slate-900 dark:text-slate-100">4. {tx('icov_medPayTitle')}</span>
-                        <span className="block text-[11px] leading-snug text-slate-500">{tx('icov_medPaySub')}</span>
-                      </span>
-                      {icLegal.medPayCoverage && <span className="hidden shrink-0 items-center gap-1 text-[11px] font-semibold text-emerald-600 sm:flex"><CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden />{tx('icov_completed')}</span>}
-                      <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-open:rotate-180" aria-hidden />
-                    </summary>
-                    <div className="min-w-0 border-t border-slate-100 px-3 py-3 sm:px-4 dark:border-slate-700">
-                      <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-3">
-                        {PIP_OPTIONS.map(({ value, label }) => {
-                          const sel = icLegal.medPayCoverage === value
-                          return renderChoice(sel, () => updateForm({ insuranceCoverage: { ...icLegal, medPayCoverage: sel ? '' : value } }),
-                            value === 'yes' ? ShieldCheck : value === 'no' ? XCircle : HelpCircle, label,
-                            { tone: value === 'yes' ? 'emerald' : value === 'no' ? 'red' : undefined, stack: true, key: value })
-                        })}
-                      </div>
-                      <div className="mt-3 rounded-lg bg-teal-50 px-3 py-2 dark:bg-teal-950/20">
-                        <p className="text-xs font-semibold text-teal-700 dark:text-teal-300">{tx('icov_whatMedPay')}</p>
-                        <p className="mt-1 text-[11px] leading-relaxed text-teal-700/80 dark:text-teal-400/80">{tx('legal_whatMedPay')}</p>
-                      </div>
-                    </div>
-                  </details>
-                  )}
-
-                  {/* 5. Your Auto Insurance Company */}
-                  {isVehicle && (
-                  <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-slate-700">
-                    <div className="flex items-center gap-3">
-                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-500"><Umbrella className="h-4 w-4" aria-hidden /></span>
-                      <div>
-                        <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">5. {tx('icov_autoCarrierTitle')}</p>
-                        <p className="text-[11px] text-slate-500">{tx('icov_autoCarrierSub')}</p>
-                      </div>
-                    </div>
-                    <input
-                      type="text"
-                      maxLength={120}
-                      value={icLegal.plaintiffAutoCarrier}
-                      onChange={(event) => updateForm({ insuranceCoverage: { ...icLegal, plaintiffAutoCarrier: event.target.value } })}
-                      placeholder={tx('legal_plaintiffCarrierPlaceholder')}
-                      className="mt-3 w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-                    />
-                    <p className="mt-1.5 text-[11px] text-slate-400">{tx('icov_autoCarrierExamples')}</p>
-                  </div>
-                  )}
-                </div>
-
-                {/* Right sidebar: progress + why we ask + upload */}
-                <div className="hidden space-y-4 lg:block">
-                  {/* Progress */}
-                  {isVehicle && (() => {
-                    const steps = [
-                      { label: tx('icov_otherDriverTitle'), done: !!icLegal.defendantCoverageLimits },
-                      { label: tx('icov_umUimTitle'), done: !!icLegal.umUimCoverage },
-                      { label: tx('icov_pipTitle'), done: !!icLegal.pipCoverage },
-                      { label: tx('icov_medPayTitle'), done: !!icLegal.medPayCoverage },
-                      { label: tx('icov_autoCarrierTitle'), done: !!(icLegal.plaintiffAutoCarrier && icLegal.plaintiffAutoCarrier.trim()) },
-                    ]
-                    const doneCount = steps.filter(s => s.done).length
-                    return (
-                      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
-                        <p className="text-xs font-bold text-slate-700 dark:text-slate-300">{tx('icov_yourProgress')}</p>
-                        <div className="mt-3 flex items-center justify-center">
-                          <div className="relative flex h-24 w-24 items-center justify-center">
-                            <svg className="h-full w-full -rotate-90" viewBox="0 0 36 36">
-                              <circle cx="18" cy="18" r="15.5" fill="none" stroke="currentColor" strokeWidth="3" className="text-slate-100 dark:text-slate-800" />
-                              <circle cx="18" cy="18" r="15.5" fill="none" stroke="currentColor" strokeWidth="3" strokeDasharray={`${(doneCount / steps.length) * 97.4} 97.4`} strokeLinecap="round" className="text-brand-600" />
-                            </svg>
-                            <span className="absolute text-center">
-                              <span className="block text-lg font-bold text-slate-900 dark:text-slate-100">{doneCount}/{steps.length}</span>
-                              <span className="block text-[10px] text-slate-500">{tx('icov_completed')}</span>
-                            </span>
-                          </div>
-                        </div>
-                        <ul className="mt-4 space-y-2">
-                          {steps.map((s, i) => (
-                            <li key={i} className="flex items-center gap-2 text-xs">
-                              {s.done
-                                ? <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" aria-hidden />
-                                : <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-slate-300 text-[9px] font-bold text-slate-400">{i + 1}</span>
-                              }
-                              <span className={s.done ? 'text-slate-700 dark:text-slate-300' : 'text-slate-400'}>{s.label}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )
-                  })()}
 
                 </div>
               </div>
@@ -4106,6 +4014,9 @@ export default function IntakeWizardQuick() {
       case 'when': {
         const detectedDisplay = detectedLocation ? [detectedLocation.city, detectedLocation.county, detectedLocation.state].filter(Boolean).join(', ') : ''
         const countyOptions = formData.venue.state ? getCountiesForState(formData.venue.state) : []
+        // A location that arrived without a ZIP (detected, restored, or filled from
+        // the narrative) is shown in the full fields so it can be checked.
+        const showManualLocation = manualLocation || (!formData.venue.zip && !!formData.venue.state)
         // For a wrongful-death claim the medical question is reframed to ask, in past
         // tense, about the care the decedent received before passing.
         const isDeceased = formData.injuredParty === 'deceased'
@@ -4333,7 +4244,7 @@ export default function IntakeWizardQuick() {
                           type="button"
                           onClick={() => {
                             const county = sanitizeDetectedCounty(detectedLocation.state, detectedLocation.county)
-                            updateForm({ venue: { state: detectedLocation.state, county, city: detectedLocation.city } })
+                            updateForm({ venue: { ...formData.venue, state: detectedLocation.state, county, city: detectedLocation.city } })
                             setLocationAccepted(true)
                             setDetectedLocation(null)
                             if (!county) {
@@ -4348,10 +4259,66 @@ export default function IntakeWizardQuick() {
                       </div>
                     )}
                     {(!detectedLocation || locationAccepted || formData.venue.state) && (
+                      <>
+                      <div className="flex flex-wrap items-end gap-x-3 gap-y-1.5">
+                        <div className="w-36">
+                          <label htmlFor="intake-zip" className="mb-1 flex items-center gap-1.5 whitespace-nowrap text-sm font-medium text-gray-700 md:text-xs"><MapPin className="h-3.5 w-3.5 shrink-0 text-brand-600" /> {tx('where_zipLabel')}</label>
+                          <input
+                            id="intake-zip"
+                            type="text"
+                            inputMode="numeric"
+                            autoComplete="postal-code"
+                            maxLength={5}
+                            value={formData.venue.zip || ''}
+                            onChange={(e) => void changeZip(e.target.value)}
+                            placeholder={tx('where_zipPlaceholder')}
+                            aria-invalid={!showManualLocation && !!(errors.state || errors.county)}
+                            className={`input w-full border-gray-300 text-base tracking-wider focus-visible:ring-inset focus-visible:ring-offset-0 md:text-sm ${!showManualLocation && (errors.state || errors.county) ? 'border-red-500' : ''}`}
+                          />
+                        </div>
+                        {zipLookup.status === 'loading' && (
+                          <p className="pb-2.5 text-xs text-gray-500">{tx('where_zipLookingUp')}</p>
+                        )}
+                        {!showManualLocation && formData.venue.state && formData.venue.county && (
+                          <p className="flex items-center gap-1.5 pb-2 text-sm font-medium text-gray-800 dark:text-slate-200">
+                            <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
+                            {formData.venue.county}, {formData.venue.state}
+                            <button type="button" onClick={() => setManualLocation(true)} className="!min-h-0 text-xs font-semibold text-brand-700 underline underline-offset-2 hover:opacity-80">{t('intake.change')}</button>
+                          </p>
+                        )}
+                        {!showManualLocation && !formData.venue.zip && (
+                          <button type="button" onClick={() => setManualLocation(true)} className="!min-h-0 pb-2.5 text-xs font-semibold text-brand-700 underline underline-offset-2 hover:opacity-80">{tx('where_manualLink')}</button>
+                        )}
+                      </div>
+                      {zipLookup.status === 'unknown' && (
+                        <p className="mt-1.5 text-xs text-amber-700">{tx('where_zipUnknown')}</p>
+                      )}
+                      {!showManualLocation && zipLookup.status === 'found' && zipLookup.counties.length > 1 && (
+                        <div className="mt-2">
+                          <p className="text-xs font-semibold text-gray-700 dark:text-slate-300">{tx('where_zipWhichCounty')}</p>
+                          <div className="mt-1.5 flex flex-wrap gap-2">
+                            {zipLookup.counties.map((county) => {
+                              const selected = formData.venue.county === county
+                              return (
+                                <button
+                                  key={county}
+                                  type="button"
+                                  aria-pressed={selected}
+                                  onClick={() => updateVenue({ county })}
+                                  className={`rounded-lg border-[1.5px] px-3 py-1.5 text-xs font-semibold transition-colors ${selected ? 'border-brand-600 bg-brand-50 text-brand-900' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-400'}`}
+                                >
+                                  {county}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )}
+                      {showManualLocation && (
                       // Keep State/County/City stacked through tablet widths so the
                       // native dropdowns stay readable (CP-544). Side-by-side from md+.
                       // text-base on mobile avoids iOS focus-zoom; md:text-sm restores denser desktop.
-                      <div className="grid grid-cols-1 gap-2.5 md:grid-cols-[minmax(0,1.3fr)_minmax(0,1.3fr)_minmax(0,1.2fr)]">
+                      <div className="mt-3 grid grid-cols-1 gap-2.5 md:grid-cols-[minmax(0,1.3fr)_minmax(0,1.3fr)_minmax(0,1.2fr)]">
                         <div className="min-w-0">
                           <label className="mb-1 flex items-center gap-1.5 whitespace-nowrap text-sm font-medium text-gray-700 md:text-xs"><MapPin className="h-3.5 w-3.5 shrink-0 text-brand-600" /> {t('intake.state')}<span className="ml-0.5 font-semibold text-red-500" aria-hidden>*</span></label>
                           <select
@@ -4390,6 +4357,8 @@ export default function IntakeWizardQuick() {
                           <input type="text" maxLength={80} value={formData.venue.city} onChange={e => updateVenue({ city: e.target.value })} className="input w-full border-gray-300 text-base focus-visible:ring-inset focus-visible:ring-offset-0 md:text-sm" placeholder={tx('where_cityPlaceholder')} />
                         </div>
                       </div>
+                      )}
+                      </>
                     )}
                     <p className="mt-2 flex items-start gap-1.5 text-[10px] leading-tight text-gray-400">
                       <Lock className="mt-0.5 h-3 w-3 shrink-0" aria-hidden /> <span className="min-w-0">{tx('where_reassure')}</span>
@@ -5080,7 +5049,6 @@ export default function IntakeWizardQuick() {
                 <RecoveryImpactSection
                   value={{
                     recoveryStatus: formData.injuryDetails.recoveryStatus,
-                    recoveryPercent: formData.injuryDetails.recoveryPercent,
                     treatmentStatus: formData.injuryDetails.treatmentStatus,
                     lifestyleImpact: formData.injuryDetails.lifestyleImpact,
                     lifestyleOther: formData.injuryDetails.lifestyleOther,
@@ -5129,31 +5097,10 @@ export default function IntakeWizardQuick() {
               </summary>
 
               <div className="mt-4 space-y-5">
-                {/* Prior injuries */}
-                <section className="border-t border-slate-200 pt-4 dark:border-slate-700">
-                  <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">6. {tx('injuryDetails_priorBodyAreas')}</p>
-                  <p className="mt-0.5 text-xs text-gray-500">{tx('injuryDetails_priorHelper')}</p>
-                  <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                    {[
-                      { value: 'none', label: tx('optionNo') },
-                      { value: 'similar', label: tx('optionYes') },
-                      { value: 'not_sure', label: tx('optionNotSure') },
-                    ].map(({ value, label }) => {
-                      const selected = formData.injuryDetails.priorInjury === value
-                      return (
-                        <button key={value} type="button" aria-pressed={selected} onClick={() => updateForm({ injuryDetails: { ...formData.injuryDetails, priorInjury: selected ? '' : value } })} className={radioCardClass(selected)}>
-                          {radioDot(selected)}
-                          <span className="[overflow-wrap:anywhere] text-center text-[13px] font-semibold text-gray-800 dark:text-slate-200">{label}</span>
-                        </button>
-                      )
-                    })}
-                  </div>
-                </section>
-
                 {/* Future treatment — a deceased claimant will have no future treatment. */}
                 {!isDeceased && (
                 <section className="border-t border-slate-200 pt-4 dark:border-slate-700">
-                  <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">7. {tx('injuryDetails_futureTreatmentQuestion')}</p>
+                  <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">6. {tx('injuryDetails_futureTreatmentQuestion')}</p>
                   <p className="mt-0.5 text-xs text-gray-500">{tx('injuryDetails_selectAllApply')}</p>
                   <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
                     {FUTURE_TREATMENT_OPTIONS.map(({ value, label }) => {
@@ -6652,6 +6599,49 @@ export default function IntakeWizardQuick() {
               </div>
             </div>
 
+            <div className="mt-4 grid gap-4 border-t border-slate-200 pt-4 dark:border-slate-700 lg:grid-cols-2">
+              <div>
+                <SectionHeader icon={CalendarClock} accent="emerald" title={tx('financial_futureCareQuestion')} helper={tx('financial_futureCareHelper')} />
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  {FUTURE_MEDICAL_RANGE_OPTIONS.map(({ value, label }) => {
+                    const selected = icFinancial.futureMedicalRange === value
+                    return (
+                      <button
+                        key={value}
+                        type="button"
+                        aria-pressed={selected}
+                        onClick={() => updateForm({ insuranceCoverage: { ...icFinancial, futureMedicalRange: selected ? '' : value } })}
+                        className={`relative rounded-xl border-[1.5px] px-3 py-2.5 text-center text-xs font-semibold shadow-sm transition-all active:scale-[0.99] ${selected ? 'border-brand-600 bg-brand-50 text-brand-900 shadow' : 'border-gray-200 bg-white text-gray-800 hover:border-brand-400 hover:bg-brand-50/50'}`}
+                      >
+                        {selected && <Check className="absolute top-1.5 right-1.5 h-3.5 w-3.5 text-brand-600" aria-hidden />}
+                        <span className="whitespace-nowrap !text-[13px] leading-tight">{label}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+              <div className="border-t border-slate-200 pt-4 dark:border-slate-700 lg:border-l lg:border-t-0 lg:pl-4 lg:pt-0">
+                <SectionHeader icon={Receipt} accent="brand" title={tx('financial_outOfPocket')} helper={tx('financial_outOfPocketHelper')} />
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  {OUT_OF_POCKET_RANGE_OPTIONS.map(({ value, label }) => {
+                    const selected = icFinancial.outOfPocketRange === value
+                    return (
+                      <button
+                        key={value}
+                        type="button"
+                        aria-pressed={selected}
+                        onClick={() => updateForm({ insuranceCoverage: { ...icFinancial, outOfPocketRange: selected ? '' : value } })}
+                        className={`relative rounded-xl border-[1.5px] px-3 py-2.5 text-center text-xs font-semibold shadow-sm transition-all active:scale-[0.99] ${selected ? 'border-brand-600 bg-brand-50 text-brand-900 shadow' : 'border-gray-200 bg-white text-gray-800 hover:border-brand-400 hover:bg-brand-50/50'}`}
+                      >
+                        {selected && <Check className="absolute top-1.5 right-1.5 h-3.5 w-3.5 text-brand-600" aria-hidden />}
+                        <span className="whitespace-nowrap !text-[13px] leading-tight">{label}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+
             <details className="group mt-4">
               <summary className="flex cursor-pointer list-none items-center gap-2 rounded-xl bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-100 [&::-webkit-details-marker]:hidden dark:bg-slate-800/50 dark:text-slate-300 dark:hover:bg-slate-800">
                 <Sparkles className="h-4 w-4 text-brand-500" aria-hidden />
@@ -6779,8 +6769,6 @@ export default function IntakeWizardQuick() {
             { k: usesPoliceReportLabel(formData.injuryType) ? tx('evidence_policeReport') : tx('evidence_incidentReport'), n: evCount('police_report') },
           ]
           const legalLines = [
-            { k: tx('card_settlementOffer'), v: formData.casePosture.settlementOfferStatus ? (formData.casePosture.settlementOfferStatus === 'yes' ? tx('optionYes') : formData.casePosture.settlementOfferStatus === 'no' ? tx('optionNo') : tx('optionNotSure')) : tx('notAnsweredYet') },
-            { k: tx('card_reportedInsurance'), v: formData.casePosture.insuranceContact ? labelForValue(INSURANCE_CONTACT_OPTIONS, formData.casePosture.insuranceContact) : tx('notAnsweredYet') },
             { k: tx('card_lawyerRetained'), v: formData.casePosture.attorneyStatus ? labelForValue(ATTORNEY_STATUS_OPTIONS, formData.casePosture.attorneyStatus) : tx('notAnsweredYet') },
             { k: tx('card_fault'), v: formData.casePosture.faultBelief ? labelForValue(FAULT_BELIEF_OPTIONS, formData.casePosture.faultBelief) : tx('notAnsweredYet') },
           ]

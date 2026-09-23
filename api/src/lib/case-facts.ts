@@ -136,9 +136,10 @@ export type UpdateCaseFactsInput = {
   /**
    * Other `Assessment` columns to set in the same statement. Two call sites flip
    * `status` to IN_PROGRESS alongside the facts write and must not need a second
-   * round trip to do it.
+   * round trip to do it. Routing reads the venue from its columns, not from
+   * `facts.venue`, so an edit to the venue has to move both.
    */
-  columns?: { status?: string }
+  columns?: { status?: string; venueState?: string; venueCounty?: string | null }
   /**
    * Set false when the caller records its own change event for this mutation, to
    * keep one user action from producing two rows on the feed.
@@ -212,6 +213,8 @@ export async function updateCaseFacts(input: UpdateCaseFactsInput): Promise<Upda
           revision: { increment: 1 },
           lastWriteSource: input.source,
           ...(columns?.status ? { status: columns.status } : {}),
+          ...(columns?.venueState ? { venueState: columns.venueState } : {}),
+          ...(columns && 'venueCounty' in columns ? { venueCounty: columns.venueCounty ?? null } : {}),
         },
       })
       if (result.count === 0) return false

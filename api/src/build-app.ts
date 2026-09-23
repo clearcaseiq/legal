@@ -41,6 +41,7 @@ import snsWebhook from './routes/sns-webhook'
 import caseInsights from './routes/case-insights'
 import caseAssistance from './routes/case-assistance'
 import caseRouting from './routes/case-routing'
+import geo from './routes/geo'
 import adminCommunications from './routes/admin-communications'
 import supportTickets from './routes/support-tickets'
 import contact from './routes/contact'
@@ -97,6 +98,7 @@ export function buildApp(): Express {
   app.use('/v1/auth', authLimiter, oauth)
   app.use('/v1/assessments', assessments)
   app.use('/v1/intake-leads', intakeLimiter, intakeLeads)
+  app.use('/v1/geo', geo)
   app.use('/v1/case-insights', caseInsights)
   app.use('/v1/case-assistance', caseAssistance)
   app.use('/v1/case-routing', caseRouting)

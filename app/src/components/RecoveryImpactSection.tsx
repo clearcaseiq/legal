@@ -5,7 +5,6 @@
  * Replaces the old 4-option recovery radio and flat daily-life grid with:
  *  - a 6-level recovery status (kept compatible: still emits `getting_worse` /
  *    `fully_recovered`, which the severity scorer reads),
- *  - an optional self-rated recovery slider (0-100),
  *  - a "still treating?" status,
  *  - universal daily-life impact areas, each with a lightweight branching
  *    follow-up (e.g. Work -> reduced hours / light duty / unable to work).
@@ -17,7 +16,6 @@ import { Check } from 'lucide-react'
 
 type Value = {
   recoveryStatus: string
-  recoveryPercent: number | null
   treatmentStatus: string
   lifestyleImpact: string[]
   lifestyleOther: string
@@ -150,33 +148,6 @@ export default function RecoveryImpactSection({ value, onPatch }: Props) {
           ))}
         </div>
       </div>
-
-      {/* Recovery percent slider (optional) */}
-      {value.recoveryStatus && value.recoveryStatus !== 'fully_recovered' && (
-        <div>
-          <div className="flex items-center justify-between">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-              About how recovered do you feel? (optional)
-            </p>
-            <span className="text-sm font-bold text-brand-600">
-              {typeof value.recoveryPercent === 'number' ? `${value.recoveryPercent}%` : '—'}
-            </span>
-          </div>
-          <input
-            type="range"
-            min={0}
-            max={100}
-            step={5}
-            value={typeof value.recoveryPercent === 'number' ? value.recoveryPercent : 50}
-            onChange={(e) => onPatch({ recoveryPercent: Number(e.target.value) })}
-            className="mt-2 w-full accent-brand-600"
-          />
-          <div className="mt-0.5 flex justify-between text-[10px] text-gray-400">
-            <span>0%</span>
-            <span>100%</span>
-          </div>
-        </div>
-      )}
 
       {/* Still treating */}
       <div>

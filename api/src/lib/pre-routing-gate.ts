@@ -10,6 +10,11 @@ import { normalizeClaimTypeForSOL } from './solRules'
 import { evaluateCaseFraud, type FraudSignal } from './fraud-gate'
 import { assertShareAuthorization } from './share-authorization'
 import { isAttorneyOwnedCase } from './attorney-case-origin'
+import {
+  CLAIMANT_REPRESENTED_NOTE,
+  CLAIMANT_REPRESENTED_REASON,
+  claimantReportsRetainedLawyer,
+} from './claimant-representation'
 
 type GateHoldAction = 'manual_review' | 'needs_more_info' | 'not_routable_yet'
 
@@ -153,6 +158,17 @@ export async function runPreRoutingGate(
       pass: false,
       reason: 'Case already queued for manual review',
       status: 'manual_review'
+    }
+  }
+
+  // Once an admin has released the hold, they have confirmed the claimant wants
+  // to be introduced, so later routing runs must not re-hold on the same answer.
+  if (assessment?.manualReviewStatus !== 'released' && claimantReportsRetainedLawyer(assessment?.facts)) {
+    return {
+      pass: false,
+      reason: CLAIMANT_REPRESENTED_NOTE,
+      status: 'manual_review',
+      reviewReason: CLAIMANT_REPRESENTED_REASON,
     }
   }
 

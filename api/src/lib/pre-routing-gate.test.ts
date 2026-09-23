@@ -189,6 +189,49 @@ describe('runPreRoutingGate', () => {
     if (!r.pass) expect(r.status).toBe('manual_review')
   })
 
+  describe('claimant who says they already have a lawyer', () => {
+    const represented = (manualReviewStatus: string | null) =>
+      vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
+        id: 'case-1',
+        userId: 'user-1',
+        manualReviewStatus,
+        facts: JSON.stringify({ intakeData: { casePosture: { attorneyStatus: 'hired' } } }),
+      } as any)
+
+    it('is held for review instead of being offered to other attorneys', async () => {
+      represented(null)
+
+      const r = await runPreRoutingGate(baseCase())
+
+      expect(r.pass).toBe(false)
+      if (!r.pass) {
+        expect(r.status).toBe('manual_review')
+        expect(r.reviewReason).toBe('claimant_represented')
+      }
+    })
+
+    it('routes once an admin has released the hold', async () => {
+      represented('released')
+
+      const r = await runPreRoutingGate(baseCase())
+
+      expect(r.pass).toBe(true)
+    })
+
+    it('routes a claimant who answered no', async () => {
+      vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
+        id: 'case-1',
+        userId: 'user-1',
+        manualReviewStatus: null,
+        facts: JSON.stringify({ intakeData: { casePosture: { attorneyStatus: 'no' } } }),
+      } as any)
+
+      const r = await runPreRoutingGate(baseCase())
+
+      expect(r.pass).toBe(true)
+    })
+  })
+
   it('fails when high-value case has thin evidence', async () => {
     const r = await runPreRoutingGate(baseCase({
       estimated_case_value_high: 250000,

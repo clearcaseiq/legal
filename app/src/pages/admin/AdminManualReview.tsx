@@ -32,6 +32,7 @@ const REASON_LABELS: Record<string, string> = {
   fraud_suspected: 'Fraud suspected',
   identity_mismatch: 'Identity mismatch',
   document_tampering: 'Document tampering',
+  claimant_represented: 'Claimant already has a lawyer',
 }
 
 interface FraudSignal {

@@ -37,6 +37,11 @@ import {
   proposeInitialBatchForApproval,
   runEscalationWave
 } from '../lib/routing-lifecycle'
+import {
+  CLAIMANT_REPRESENTED_NOTE,
+  CLAIMANT_REPRESENTED_REASON,
+  claimantReportsRetainedLawyer,
+} from '../lib/claimant-representation'
 import { getConfiguredWaveSize, getMatchingRules } from '../lib/matching-rules-config'
 import { validateCaseTypeFromFacts } from '../lib/case-type-validation'
 import { buildMedicalProfile } from '../lib/medical-profile'
@@ -447,7 +452,12 @@ router.patch(
       entityType: 'assessment',
       summary: `Claimant edited ${Object.keys(parsed.data).join(', ')}`,
       actor: { type: 'user', id: req.user.id },
-      columns: { status: 'IN_PROGRESS' },
+      columns: {
+        status: 'IN_PROGRESS',
+        ...(parsed.data.venue
+          ? { venueState: parsed.data.venue.state, venueCounty: parsed.data.venue.county ?? null }
+          : {}),
+      },
       mutate: (facts) => {
         // Shallow, top-level merge: a key present in the body replaces its whole
         // subtree rather than being deep-merged into it.
@@ -1499,6 +1509,15 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
     // No plaintiff selection means nobody has been identified to this consumer, so
     // routing waits for approval instead of falling through to tier routing, where
     // offer priority is influenced by attorney subscriptions (SB 37, § 6155(g)).
+    // Proposing a batch skips the pre-routing gate, so the represented-claimant
+    // hold it would apply is repeated here.
+    if (rankedAttorneyIds.length === 0 && claimantReportsRetainedLawyer(facts)) {
+      void placeAssessmentInManualReview(id, CLAIMANT_REPRESENTED_REASON, CLAIMANT_REPRESENTED_NOTE).catch((err) =>
+        logger.error('Failed to hold represented claimant on submit', { assessmentId: id, error: err.message })
+      )
+      return res.json({ ok: true, submitted: true, reference_code: referenceCode })
+    }
+
     if (rankedAttorneyIds.length === 0) {
       void proposeInitialBatchForApproval(id)
         .then(async (proposal) => {

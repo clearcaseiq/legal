@@ -33,6 +33,7 @@ import { loadPlaintiffSessionSummary, updateCachedPlaintiffAssessments } from '.
 import { useLanguage } from '../contexts/LanguageContext'
 import { evidenceUploadHref, plaintiffDashboardReturnTo, rememberEvidenceReturnTo } from '../lib/evidenceUploadNav'
 import DraggableFab from '../components/DraggableFab'
+import CaseDetailsQuickEdit, { type CaseDetailsQuickEditMode } from '../components/CaseDetailsQuickEdit'
 import { evidenceTargetForRequestKey } from '../lib/documentRequestUpload'
 
 type TabId = 'dashboard' | 'tasks' | 'documents' | 'attorney' | 'value' | 'journal'
@@ -315,6 +316,7 @@ export default function Dashboard() {
   const [journalSaved, setJournalSaved] = useState(false)
   const [journalEntries, setJournalEntries] = useState<{ date: string; level: number; note: string; days?: number; dailyWage?: number }[]>([])
   const [journalError, setJournalError] = useState<string | null>(null)
+  const [quickEditMode, setQuickEditMode] = useState<CaseDetailsQuickEditMode | null>(null)
   const [editingEntryIndex, setEditingEntryIndex] = useState<number | null>(null)
   const [wageDays, setWageDays] = useState('')
   const [wageDaily, setWageDaily] = useState('')
@@ -1189,9 +1191,9 @@ export default function Dashboard() {
     : notRoutableYet
     ? { action: t('plaintiffDashboard.dynamic.action.strengthenDetails'), detail: t('plaintiffDashboard.dynamic.action.strengthenDetailsDetail'), cta: t('plaintiffDashboard.dynamic.action.improveCaseCta'), href: activeAssessment ? evidenceUploadHref(activeAssessment.id, { from: 'dashboard' }) : START_ASSESSMENT_HREF, isSchedule: false }
     : !hasNarrative
-    ? { action: t('plaintiffDashboard.dynamic.action.completeDescription'), detail: t('plaintiffDashboard.dynamic.action.completeDescriptionDetail'), cta: t('plaintiffDashboard.dynamic.action.editCaseCta'), href: `/edit-assessment/${activeAssessment?.id}`, isSchedule: false }
+    ? { action: t('plaintiffDashboard.dynamic.action.completeDescription'), detail: t('plaintiffDashboard.dynamic.action.completeDescriptionDetail'), cta: t('plaintiffDashboard.dynamic.action.editCaseCta'), href: '#', isSchedule: false, quickEdit: 'narrative' as CaseDetailsQuickEditMode }
     : !hasLocation
-    ? { action: t('plaintiffDashboard.dynamic.action.addLocation'), detail: t('plaintiffDashboard.dynamic.action.addLocationDetail'), cta: t('plaintiffDashboard.dynamic.action.editCaseCta'), href: `/edit-assessment/${activeAssessment?.id}`, isSchedule: false }
+    ? { action: t('plaintiffDashboard.dynamic.action.addLocation'), detail: t('plaintiffDashboard.dynamic.action.addLocationDetail'), cta: t('plaintiffDashboard.dynamic.action.editCaseCta'), href: '#', isSchedule: false, quickEdit: 'location' as CaseDetailsQuickEditMode }
     : evidenceCount === 0
     ? { action: t('plaintiffDashboard.dynamic.action.uploadBill'), detail: t('plaintiffDashboard.dynamic.action.uploadBillDetail'), cta: t('plaintiffDashboard.dynamic.action.uploadDocumentCta'), href: activeAssessment?.id ? evidenceUploadHref(activeAssessment.id, { from: 'dashboard' }) : START_ASSESSMENT_HREF, isSchedule: false }
     : !hasWageLoss
@@ -2521,9 +2523,19 @@ export default function Dashboard() {
                         {/* The button follows the step rather than always reading
                             "upload evidence", which contradicted steps like
                             editing the case description. */}
-                        <Link to={dailyAction.href} className="mt-auto inline-flex w-fit items-center gap-2 rounded-lg bg-white px-5 py-2.5 text-sm font-semibold text-brand-600 hover:bg-brand-50">
-                          {dailyAction.cta}
+                        {dailyAction.quickEdit ? (
+                          <button
+                            type="button"
+                            onClick={() => setQuickEditMode(dailyAction.quickEdit ?? null)}
+                            className="mt-auto inline-flex w-fit items-center gap-2 rounded-lg bg-white px-5 py-2.5 text-sm font-semibold text-brand-600 hover:bg-brand-50"
+                          >
+                            {dailyAction.cta}
+                          </button>
+                        ) : (
+                          <Link to={dailyAction.href} className="mt-auto inline-flex w-fit items-center gap-2 rounded-lg bg-white px-5 py-2.5 text-sm font-semibold text-brand-600 hover:bg-brand-50">
+                            {dailyAction.cta}
                           </Link>
+                        )}
                       </div>
                     )}
 
@@ -2927,6 +2939,32 @@ export default function Dashboard() {
           </DraggableFab>,
           document.body,
         )}
+
+      {quickEditMode && activeAssessment?.id && (
+        <CaseDetailsQuickEdit
+          mode={quickEditMode}
+          assessmentId={activeAssessment.id}
+          facts={parsedFacts}
+          onClose={() => setQuickEditMode(null)}
+          onSaved={(patch) => {
+            setActiveAssessment((prev) => {
+              if (!prev) return prev
+              let facts: Record<string, unknown> = {}
+              try {
+                facts = typeof prev.facts === 'string' ? JSON.parse(prev.facts || '{}') : (prev.facts || {})
+              } catch {
+                facts = {}
+              }
+              const merged = { ...facts, ...patch }
+              return {
+                ...prev,
+                ...(patch.venue ? { venueState: patch.venue.state, venueCounty: patch.venue.county } : {}),
+                facts: typeof prev.facts === 'string' ? JSON.stringify(merged) : merged,
+              }
+            })
+          }}
+        />
+      )}
     </div>
   )
 }

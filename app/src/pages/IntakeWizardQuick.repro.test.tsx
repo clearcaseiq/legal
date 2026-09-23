@@ -45,6 +45,11 @@ vi.mock('../lib/api-plaintiff', () => ({
   updateIntakeLead: vi.fn(async () => ({})),
   getIntakeLead: vi.fn(async () => ({})),
   getEvidenceFiles: vi.fn(async () => []),
+  lookupZipCounties: vi.fn(async (zip: string) => ({
+    zip,
+    state: 'CA',
+    counties: [{ state: 'CA', county: 'Contra Costa' }],
+  })),
 }))
 vi.mock('../lib/api', () => ({
   deleteEvidenceFile: vi.fn(async () => ({})),
@@ -181,28 +186,21 @@ it('full flow: dog bite -> step 2 -> validation error -> initial care -> step 3 
   }
   expect(document.body.textContent).toContain('When did the incident happen?')
 
-  // Step 2: current date, CA + Contra Costa, narrative.
+  // Step 2: current date, a Contra Costa ZIP, narrative.
   const dateInput = document.getElementById('incident-exact-date') as HTMLInputElement
   expect(dateInput).toBeTruthy()
   await change(dateInput, localIsoToday())
 
-  const selects = Array.from(document.querySelectorAll('select'))
-  const stateSelect = selects.find((s) => Array.from(s.options).some((o) => o.value === 'CA'))
-  expect(stateSelect, 'state select not found').toBeTruthy()
-  await change(stateSelect!, 'CA')
+  await change(document.getElementById('intake-zip') as HTMLInputElement, '94520')
   await flush(50)
-
-  const countySelect = Array.from(document.querySelectorAll('select')).find((s) =>
-    Array.from(s.options).some((o) => /contra costa/i.test(o.textContent || ''))
-  )
-  expect(countySelect, 'county select not found').toBeTruthy()
-  const countyValue = Array.from(countySelect!.options).find((o) => /contra costa/i.test(o.textContent || ''))!.value
-  await change(countySelect!, countyValue)
-  await flush(50)
+  expect(document.body.textContent).toContain('Contra Costa, CA')
 
   const narrative = Array.from(document.querySelectorAll('textarea'))[0]
   expect(narrative, 'narrative textarea not found').toBeTruthy()
   await change(narrative, 'Random description text for the dog attack repro.')
+  await flush(50)
+
+  await change(document.getElementById('contact-email') as HTMLInputElement, 'repro@example.com')
   await flush(50)
 
   // Next without treatment: must show the validation error, stay on step 2.
@@ -232,4 +230,4 @@ it('full flow: dog bite -> step 2 -> validation error -> initial care -> step 3 
     (b) => !chrome.includes((b.textContent || '').trim()),
   )
   expect(options.length).toBeGreaterThan(0)
-})
+}, 20000)

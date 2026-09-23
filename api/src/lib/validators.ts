@@ -29,6 +29,7 @@ export const Damages = z.object({
   wage_loss: z.number().optional(),
   services: z.number().optional(),
   future_medical: z.number().optional(),
+  estimated_out_of_pocket: z.number().optional(),
   // Vehicle property + rental damage. Feeds economic damages in the valuation;
   // previously omitted from the create payload so it was treated as 0.
   estimated_property_damage: z.number().optional(),

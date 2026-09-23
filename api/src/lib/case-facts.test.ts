@@ -196,6 +196,35 @@ describe('updateCaseFacts', () => {
     expect(writeCall().data).toMatchObject({ status: 'IN_PROGRESS' })
   })
 
+  it('moves the venue columns with the facts so routing sees an edited location', async () => {
+    existing('{}')
+
+    await updateCaseFacts({
+      assessmentId: 'a-1',
+      source: 'web',
+      action: 'facts_edited',
+      columns: { status: 'IN_PROGRESS', venueState: 'CA', venueCounty: 'Contra Costa' },
+      mutate: (facts) => ({ ...facts, venue: { state: 'CA', county: 'Contra Costa' } }),
+    })
+
+    expect(writeCall().data).toMatchObject({ venueState: 'CA', venueCounty: 'Contra Costa' })
+  })
+
+  it('leaves the venue columns alone when the edit does not touch the venue', async () => {
+    existing('{}')
+
+    await updateCaseFacts({
+      assessmentId: 'a-1',
+      source: 'web',
+      action: 'facts_edited',
+      columns: { status: 'IN_PROGRESS' },
+      mutate: (facts) => ({ ...facts, edited: true }),
+    })
+
+    expect(writeCall().data).not.toHaveProperty('venueState')
+    expect(writeCall().data).not.toHaveProperty('venueCounty')
+  })
+
   it('skips the change event when the caller records its own', async () => {
     existing('{}')
 
