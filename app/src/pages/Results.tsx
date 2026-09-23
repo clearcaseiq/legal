@@ -2468,7 +2468,7 @@ export default function Results() {
           ),
         })
       : coverageNoteType === 'unknown'
-        ? t('results.value.coverageUnknown')
+        ? t(assessment?.claimType === 'auto' ? 'results.value.coverageUnknown' : 'results.value.coverageUnknownGeneric')
         : null
 
   const reportedPropertyDamage = Number(
