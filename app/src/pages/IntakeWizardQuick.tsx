@@ -4025,7 +4025,19 @@ export default function IntakeWizardQuick() {
                           preset room in every language. */}
                       <div className="flex w-full flex-col gap-2">
                       {/* Exact date drives the filing deadline, so lead with it. */}
-                      <div className={`group relative w-full rounded-xl border bg-white py-1 pl-3.5 pr-2.5 shadow-sm transition-all focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-500/25 dark:bg-slate-900/40 ${errors.incidentDate ? 'border-red-400 ring-1 ring-red-400' : 'border-slate-300 hover:border-slate-400 dark:border-slate-600 dark:hover:border-slate-500'}`}>
+                      {/* Any click in the box opens the picker. showPicker() needs a user
+                          gesture, which this click is; iOS ignores it and opens the picker
+                          from the focused input / bound label instead. */}
+                      <div
+                        onClick={() => {
+                          const el = document.getElementById('incident-exact-date') as (HTMLInputElement & { showPicker?: () => void }) | null
+                          if (!el) return
+                          el.focus({ preventScroll: true })
+                          try {
+                            if (typeof el.showPicker === 'function') el.showPicker()
+                          } catch { /* already open, or not allowed in this browser */ }
+                        }}
+                        className={`group relative w-full cursor-pointer rounded-xl border bg-white py-1 pl-3.5 pr-2.5 shadow-sm transition-all focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-500/25 dark:bg-slate-900/40 ${errors.incidentDate ? 'border-red-400 ring-1 ring-red-400' : 'border-slate-300 hover:border-slate-400 dark:border-slate-600 dark:hover:border-slate-500'}`}>
                         <div className="flex items-center gap-3">
                           <div className="min-w-0 flex-1">
                             <label htmlFor="incident-exact-date" className="block text-center !text-[13px] font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">{tx('when_selectDate')}</label>
@@ -4074,19 +4086,11 @@ export default function IntakeWizardQuick() {
                           {/* A <label> bound to the input is the only reliable way to open
                               the native date picker on iOS Safari, where showPicker() is
                               gated behind user activation and a synthetic click is ignored,
-                              so tapping the button did nothing (CP-521). Keep showPicker()
-                              as a desktop enhancement — the label activation opens the
-                              picker on touch devices. */}
+                              so tapping the button did nothing (CP-521). The box's click
+                              handler calls showPicker() for desktop. */}
                           <label
                             htmlFor="incident-exact-date"
                             aria-label={tx('when_selectDate')}
-                            onClick={() => {
-                              const el = document.getElementById('incident-exact-date') as (HTMLInputElement & { showPicker?: () => void }) | null
-                              if (!el) return
-                              try {
-                                if (typeof el.showPicker === 'function') el.showPicker()
-                              } catch { /* showPicker can throw when not user-activated; label handles it */ }
-                            }}
                             className="flex h-8 w-14 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-brand-50 text-brand-600 transition-colors hover:bg-brand-100 dark:bg-brand-500/15 dark:text-brand-300 dark:hover:bg-brand-500/25"
                           >
                             <CalendarDays className="h-5 w-5" aria-hidden />
