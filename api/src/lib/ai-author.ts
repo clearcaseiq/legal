@@ -2,9 +2,6 @@
  * Identity for work the AI produced on its own, so an attorney can tell at a
  * glance which tasks came from Rose and which came from a teammate.
  *
- * Rose is the same assistant claimants meet at intake (see rose-engine.ts); she
- * carries through to case management rather than being a second persona.
- *
  * Worth being precise about what this marks: Rose *raises* these tasks, she does
  * not carry them out. Every one is assigned to a real paralegal or attorney. The
  * badge answers "who put this on my board", not "who is doing it".

@@ -189,10 +189,8 @@ English is bundled; ES/ZH are lazy-loaded. Missing keys fall back to English, th
 (The `STEPS` titles and a few control labels are hardcoded English.)
 
 #### 2.1.13 Alternative intakes
-- **Rose** (`RoseIntake.tsx`): a separate conversational/voice intake (phases: story capture →
-  targeted follow-up → recap confirmation → completed) using the Web Speech API and server turns;
-  on completion it creates an assessment and navigates to results. Conversation state is held
-  **in-memory** server-side (not durable across restarts).
+- **Rose** (retired): the conversational/voice intake was removed; `/rose` now redirects to
+  `/intake`. The attorney-side AI case manager keeps the Rose name.
 - **Legacy** (`IntakeWizard.tsx`): the original 5-step schema-driven wizard (basic → incident →
   injuries → damages → review), superseded by the Quick wizard.
 

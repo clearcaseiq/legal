@@ -193,66 +193,6 @@ export async function createAssessment(payload: any) {
   }
 }
 
-/** Rose Virtual AI intake - maps spoken answers to ClearCaseIQ assessment (legacy form) */
-export async function submitRoseIntake(payload: {
-  intakeVersion?: string
-  source: 'rose_virtual_ai_widget'
-  submittedAtClient?: string
-  caseType: string
-  incidentDate: string
-  incidentLocation: string
-  incidentSummary: string
-  injuries: string
-  treatment: string
-  evidence?: Array<{ id: string; name: string; size: number; type: string }>
-  contact: { fullName: string; phone: string; email?: string; city: string; state: string }
-}) {
-  const { data } = await api.post('/v1/rose/intake', payload)
-  return { assessment_id: data.assessment_id as string, status: data.status, created_at: data.created_at }
-}
-
-/** Rose conversational engine - start new intake session */
-export type RoseConversationPhase =
-  | 'story_capture'
-  | 'targeted_followup'
-  | 'recap_confirmation'
-  | 'completed'
-
-export type RoseConversationReview = {
-  plaintiff_summary: string
-  attorney_summary: string
-  missing_required_fields: string[]
-  disposition: string
-  confirmation_prompt: string
-}
-
-export async function startRoseConversation() {
-  const { data } = await api.post('/v1/rose/conversation/start')
-  return {
-    conversation_id: data.conversation_id as string,
-    message: data.message as string,
-    completion_score: data.completion_score as number,
-    ready_for_submission: data.ready_for_submission as boolean,
-    phase: data.phase as RoseConversationPhase,
-  }
-}
-
-/** Rose conversational engine - send user message, get next question or assessment */
-export async function sendRoseTurn(conversationId: string, message: string) {
-  const { data } = await api.post(`/v1/rose/conversation/${conversationId}/turn`, { message })
-  return {
-    message: data.message as string,
-    ready_for_submission: data.ready_for_submission as boolean,
-    completion_score: data.completion_score as number,
-    phase: data.phase as RoseConversationPhase,
-    assessment_id: data.assessment_id as string | undefined,
-    plaintiff_summary: data.plaintiff_summary as string | undefined,
-    attorney_summary: data.attorney_summary as string | undefined,
-    disposition: data.disposition as string | undefined,
-    review: data.review as RoseConversationReview | undefined,
-  }
-}
-
 export async function updateAssessment(id: string, patch: any) {
   apiDebug.log('updateAssessment called with:', { id, patch })
   try {

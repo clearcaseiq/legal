@@ -117,96 +117,6 @@
 }
 
 @layer utilities {
-  @keyframes roseAvatarFloat {
-    0%, 100% {
-      transform: translateY(0) scale(1);
-    }
-    50% {
-      transform: translateY(-1px) scale(1.01);
-    }
-  }
-
-  @keyframes rosePortraitTalk {
-    0%, 100% {
-      transform: translateY(0) scale(1);
-    }
-    35% {
-      transform: translateY(-0.5px) scale(1.008);
-    }
-    70% {
-      transform: translateY(0.5px) scale(0.996);
-    }
-  }
-
-  @keyframes roseSpeechBar {
-    0%, 100% {
-      transform: scaleY(0.65);
-      opacity: 0.7;
-    }
-    50% {
-      transform: scaleY(1.2);
-      opacity: 1;
-    }
-  }
-
-  @keyframes roseSpeechDot {
-    0%, 100% {
-      transform: scale(0.9);
-      opacity: 0.55;
-    }
-    50% {
-      transform: scale(1.25);
-      opacity: 1;
-    }
-  }
-
-  @keyframes roseSpeechCaption {
-    0%, 100% {
-      transform: translateY(0);
-      opacity: 0.92;
-    }
-    50% {
-      transform: translateY(0);
-      opacity: 0.96;
-    }
-  }
-
-  @keyframes roseTypingCursor {
-    0%, 49% {
-      opacity: 1;
-    }
-    50%, 100% {
-      opacity: 0.2;
-    }
-  }
-
-  .rose-avatar-speaking {
-    animation: roseAvatarFloat 1.8s ease-in-out infinite;
-    transform-origin: center bottom;
-  }
-
-  .rose-avatar-portrait-speaking {
-    animation: rosePortraitTalk 1.1s ease-in-out infinite;
-    transform-origin: center bottom;
-  }
-
-  .rose-speaking-bars span {
-    animation: roseSpeechBar 0.95s ease-in-out infinite;
-    transform-origin: bottom center;
-  }
-
-  .rose-speaking-dot {
-    animation: roseSpeechDot 1s ease-in-out infinite;
-  }
-
-  .rose-speaking-caption {
-    animation: roseSpeechCaption 1.6s ease-in-out infinite;
-  }
-
-  .rose-typing-cursor {
-    animation: roseTypingCursor 0.9s steps(1, end) infinite;
-  }
-
   /* Intake follow-up question: the panel drops in, then its options rise into
      place one after another, so the eye is led downward into the new question
      instead of having to find it. */
@@ -277,15 +187,6 @@
   @media (prefers-reduced-motion: reduce) {
     .motion-reduce\:transition-none {
       transition: none !important;
-    }
-
-    .rose-avatar-speaking,
-    .rose-avatar-portrait-speaking,
-    .rose-speaking-bars span,
-    .rose-speaking-dot,
-    .rose-speaking-caption,
-    .rose-typing-cursor {
-      animation: none !important;
     }
 
     /* Reveal rather than suppress: these carry the content into view, so

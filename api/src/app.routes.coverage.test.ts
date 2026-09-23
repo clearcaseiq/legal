@@ -250,12 +250,6 @@ describe('HTTP API route coverage (mocked prisma)', () => {
     expect(res.status).toBe(400)
   })
 
-  it('POST /v1/rose/intake invalid → 400', async () => {
-    const res = await request(app).post('/v1/rose/intake').send({})
-    expectHandledStatus(res.status)
-    expect(res.status).toBe(400)
-  })
-
   it('POST /v1/predict invalid body → 400', async () => {
     const res = await request(app).post('/v1/predict').send({})
     expectHandledStatus(res.status)

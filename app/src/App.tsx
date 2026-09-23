@@ -270,7 +270,6 @@ const Help = dynamic(() => import('./pages/Help'), { ssr: true })
 const Contact = dynamic(() => import('./pages/Contact'), { ssr: true })
 const HowItWorks = dynamic(() => import('./pages/HowItWorks'), { ssr: true })
 const AiMlConsent = lazy(() => import('./pages/AiMlConsent'))
-const RoseIntake = lazy(() => import('./pages/RoseIntake'))
 const HipaaAuthorization = lazy(() => import('./pages/HipaaAuthorization'))
 const PaymentSuccess = lazy(() => import('./pages/PaymentSuccess'))
 const PaymentCancel = lazy(() => import('./pages/PaymentCancel'))
@@ -1452,7 +1451,7 @@ function App() {
             <Route path="/intake" element={<IntakeWizardQuick />} />
             <Route path="/assess" element={<IntakeWizardQuick />} />
             <Route path="/intake2" element={<IntakeWizardQuick />} />
-            <Route path="/rose" element={<RoseIntake />} />
+            <Route path="/rose" element={<Navigate to="/intake" replace />} />
             <Route path="/edit-assessment/:assessmentId" element={<IntakeWizard />} />
             <Route path="/results/:assessmentId" element={<ResultsRouteBoundary />} />
             <Route path="/attorneys" element={<Attorneys />} />

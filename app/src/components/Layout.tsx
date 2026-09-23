@@ -183,7 +183,7 @@ export default function Layout({ children }: LayoutProps) {
   const isAdmin = isAuthenticated && storedRole === 'admin'
   const isAdminArea = location.pathname.startsWith('/admin')
   const isDashboard = location.pathname.startsWith('/dashboard')
-  const isFocusRoute = ['/assess', '/intake', '/intake2', '/rose'].includes(location.pathname)
+  const isFocusRoute = ['/assess', '/intake', '/intake2'].includes(location.pathname)
   // Dense, grid/table/dashboard workspace screens render edge-to-edge instead of
   // the centered reading-width column used by the rest of the app. The calendar
   // additionally uses a tighter vertical rhythm (it manages its own height).
@@ -721,7 +721,7 @@ export default function Layout({ children }: LayoutProps) {
                   </div>
 
                   {/* Primary CTA - hidden during assessment/results/attorney registration */}
-                  {!['/assess', '/intake', '/intake2', '/rose', '/assessment/start'].includes(location.pathname) &&
+                  {!['/assess', '/intake', '/intake2', '/assessment/start'].includes(location.pathname) &&
                     !location.pathname.startsWith('/results') &&
                     !location.pathname.startsWith('/attorney-register') &&
                     !location.pathname.startsWith('/attorney-license-upload') && (
@@ -848,7 +848,7 @@ export default function Layout({ children }: LayoutProps) {
                     <Link to={navLinks.attorneyLogin} onClick={() => setMobileMenuOpen(false)} className="block rounded-xl px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">{t('common.attorneyLogin')}</Link>
                     <Link to={navLinks.staffLogin} onClick={() => setMobileMenuOpen(false)} className="block rounded-xl px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">{t('common.staffLogin')}</Link>
                   </div>
-                  {!['/assess', '/intake', '/intake2', '/rose', '/assessment/start'].includes(location.pathname) &&
+                  {!['/assess', '/intake', '/intake2', '/assessment/start'].includes(location.pathname) &&
                     !location.pathname.startsWith('/results') &&
                     !location.pathname.startsWith('/attorney-register') &&
                     !location.pathname.startsWith('/attorney-license-upload') && (
@@ -903,7 +903,7 @@ export default function Layout({ children }: LayoutProps) {
       </main>
 
       {/* Footer - hidden during assessment flow to reduce distractions */}
-      {!['/assess', '/intake', '/intake2', '/rose'].includes(location.pathname) && (
+      {!['/assess', '/intake', '/intake2'].includes(location.pathname) && (
       isDashboard ? (
       <footer className="mt-auto border-t border-slate-200 bg-white">
         <div className="mx-auto w-full max-w-[1600px] px-4 py-4 sm:px-6">
@@ -1056,7 +1056,7 @@ export default function Layout({ children }: LayoutProps) {
 
       {/* AI help assistant — available across the site, but hidden during the
           intake/assessment funnel to avoid distracting from completion. */}
-      {!['/assess', '/intake', '/intake2', '/rose'].includes(location.pathname) && (
+      {!['/assess', '/intake', '/intake2'].includes(location.pathname) && (
         <Suspense fallback={null}>
           <SupportChatWidget raiseOnMobile={raiseChatLauncher} />
         </Suspense>
