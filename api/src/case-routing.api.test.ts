@@ -683,65 +683,147 @@ describe('GET /v1/case-routing/assessment/:id/status (plaintiff)', () => {
     })
   })
 
-  it('falls back to compact notification messages when no chat room exists', async () => {
-    vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
-      id: 'asm-1',
-      userId: plaintiffUser.id,
-      facts: '{}',
-      introductions: [
-        {
-          status: 'ACCEPTED',
-          attorney: {
-            id: 'a1',
-            name: 'Lawyer',
-            email: 'l@test.com',
-            phone: '555',
-            specialties: '[]',
-            responseTimeHours: 12,
-            lawFirmId: null,
-            lawFirm: { name: 'Firm' },
+  /**
+   * With no chat room the panel falls back to email, and it used to take every
+   * message sent to the claimant about this case and label it as coming from
+   * the attorney. The fallback only runs when no chat room was found, which is
+   * what a matched attorney gets, so the label was wrong every time it showed.
+   * What it rendered was our own transactional mail read back to the claimant
+   * as though a lawyer had written it — including the case-received email,
+   * which tells a signed-in claimant to create an account and puts the claim
+   * token that does so on the page as a live link.
+   */
+  describe('email fallback when no chat room exists', () => {
+    const noChatRoom = () => {
+      vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
+        id: 'asm-1',
+        userId: plaintiffUser.id,
+        facts: '{}',
+        introductions: [
+          {
+            status: 'ACCEPTED',
+            attorney: {
+              id: 'a1',
+              name: 'Lawyer',
+              email: 'l@test.com',
+              phone: '555',
+              specialties: '[]',
+              responseTimeHours: 12,
+              lawFirmId: null,
+              lawFirm: { name: 'Firm' },
+            },
           },
+        ],
+        leadSubmission: { lifecycleState: 'attorney_matched' },
+        user: { email: plaintiffUser.email },
+      } as any)
+      vi.mocked(prisma.attorneyProfile.findUnique).mockResolvedValue({ yearsExperience: 15 } as any)
+      vi.mocked(prisma.routingAnalytics.findMany).mockResolvedValue([] as any)
+      vi.mocked(prisma.chatRoom.findFirst).mockResolvedValue(null as any)
+    }
+
+    const status = () =>
+      request(app)
+        .get('/v1/case-routing/assessment/asm-1/status')
+        .set(authHeader(plaintiffUser.id))
+
+    /** A notification the attorney wrote, recognised by the id on the row. */
+    const attorneyEvent = {
+      subject: 'Your attorney requested additional documents',
+      body: 'Please upload your recent treatment records.',
+      createdAt: new Date('2026-04-06T11:10:00.000Z'),
+      payloadJson: JSON.stringify({ assessmentId: 'asm-1' }),
+      attorney: { name: 'Ari Attorney' },
+    }
+
+    /** The same, from before authorship was recorded on the row. */
+    const legacyAttorneyEvent = {
+      subject: 'Message from Ari Attorney',
+      body: 'Checking in on your case.',
+      createdAt: new Date('2026-04-05T09:00:00.000Z'),
+      payloadJson: JSON.stringify({ fromName: 'Ari Attorney', replyTo: 'ari@firm.test' }),
+      attorney: null,
+    }
+
+    /** The case-received confirmation, signed by us and nobody else. */
+    const platformEvent = {
+      subject: 'We received your case — ClearCaseIQ',
+      body: 'Hi Piers Morgan,\n\nThanks for submitting your case.\n\nhttps://www.clearcaseiq.com/register?claim=eyJhbGciOi\n\nBest regards,\nClearCaseIQ',
+      createdAt: new Date('2026-04-04T08:00:00.000Z'),
+      payloadJson: JSON.stringify({ assessmentId: 'asm-1' }),
+      attorney: null,
+    }
+
+    beforeEach(noChatRoom)
+
+    it('shows correspondence an attorney wrote, named for its author', async () => {
+      vi.mocked(prisma.platformNotificationEvent.findMany).mockResolvedValue([attorneyEvent] as any)
+
+      const res = await status()
+
+      expect(res.status).toBe(200)
+      expect(res.body.caseChatRoomId).toBeNull()
+      expect(res.body.caseMessages).toEqual([
+        expect.objectContaining({
+          subject: 'Your attorney requested additional documents',
+          message: 'Please upload your recent treatment records.',
+          from: 'attorney',
+          authorName: 'Ari Attorney',
+        }),
+      ])
+    })
+
+    it('still recognises attorney mail sent before authorship was recorded', async () => {
+      vi.mocked(prisma.platformNotificationEvent.findMany).mockResolvedValue([legacyAttorneyEvent] as any)
+
+      const res = await status()
+
+      expect(res.body.caseMessages).toEqual([
+        expect.objectContaining({ message: 'Checking in on your case.', authorName: 'Ari Attorney' }),
+      ])
+    })
+
+    it('does not replay our own mail to the claimant as a message from a lawyer', async () => {
+      vi.mocked(prisma.platformNotificationEvent.findMany).mockResolvedValue([platformEvent] as any)
+
+      const res = await status()
+
+      expect(res.body.caseMessages).toEqual([])
+    })
+
+    it('keeps the claim token off the dashboard', async () => {
+      vi.mocked(prisma.platformNotificationEvent.findMany).mockResolvedValue([
+        platformEvent,
+        attorneyEvent,
+      ] as any)
+
+      const res = await status()
+
+      expect(res.body.caseMessages).toHaveLength(1)
+      expect(JSON.stringify(res.body.caseMessages)).not.toContain('claim=')
+    })
+
+    /**
+     * Every attorney-authored email has an in-app twin created for the
+     * notification bell. Counting both would show each message twice.
+     */
+    it('reads the case by id and takes only the email channel', async () => {
+      vi.mocked(prisma.platformNotificationEvent.findMany).mockResolvedValue([] as any)
+
+      await status()
+
+      expect(prisma.platformNotificationEvent.findMany).toHaveBeenCalledWith({
+        where: { assessmentId: 'asm-1', role: 'plaintiff', channel: 'email' },
+        orderBy: { createdAt: 'desc' },
+        take: 20,
+        select: {
+          subject: true,
+          body: true,
+          createdAt: true,
+          payloadJson: true,
+          attorney: { select: { name: true } },
         },
-      ],
-      leadSubmission: { lifecycleState: 'attorney_matched' },
-      user: { email: plaintiffUser.email },
-    } as any)
-    vi.mocked(prisma.attorneyProfile.findUnique).mockResolvedValue({ yearsExperience: 15 } as any)
-    vi.mocked(prisma.routingAnalytics.findMany).mockResolvedValue([] as any)
-    vi.mocked(prisma.chatRoom.findFirst).mockResolvedValue(null as any)
-    vi.mocked(prisma.notification.findMany).mockResolvedValue([
-      {
-        subject: 'Case update',
-        message: 'Attorney requested more info',
-        createdAt: new Date('2026-04-06T11:10:00.000Z'),
-      },
-    ] as any)
-
-    const res = await request(app)
-      .get('/v1/case-routing/assessment/asm-1/status')
-      .set(authHeader(plaintiffUser.id))
-
-    expect(res.status).toBe(200)
-    expect(res.body.caseChatRoomId).toBeNull()
-    expect(res.body.caseMessages).toEqual([
-      expect.objectContaining({
-        subject: 'Case update',
-        message: 'Attorney requested more info',
-        from: 'attorney',
-      }),
-    ])
-    expect(prisma.notification.findMany).toHaveBeenCalledWith({
-      where: {
-        recipient: plaintiffUser.email,
-        metadata: { contains: 'asm-1' },
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 20,
-      select: {
-        subject: true,
-        message: true,
-        createdAt: true,
-      },
+      })
     })
   })
 })

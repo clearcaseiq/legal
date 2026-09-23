@@ -2023,6 +2023,11 @@ async function createNotification(
     // Sender identity so attorney-originated mail is branded to the attorney.
     replyTo?: string | null
     fromName?: string | null
+    // Who wrote it. Distinct from `role`, which says who is being written to.
+    // The plaintiff's Messages panel shows attorney correspondence and hides
+    // the platform's own mail, and this is what tells the two apart; without
+    // it the only evidence of authorship is a name buried in the payload.
+    attorneyId?: string | null
     // When known, links an in-app notification to the plaintiff user.
     userId?: string | null
     assessmentId?: string | null
@@ -2041,6 +2046,7 @@ async function createNotification(
       metadata,
       replyTo: opts?.replyTo ?? null,
       fromName: opts?.fromName ?? null,
+      attorneyId: opts?.attorneyId ?? null,
       userId: opts?.userId ?? null,
       assessmentId: opts?.assessmentId ?? (typeof metadata?.assessmentId === 'string' ? metadata.assessmentId : null),
       role: opts?.role,
@@ -4097,6 +4103,7 @@ async function cancelAttorneyAppointment(params: {
       {
         replyTo: attorney.email || null,
         fromName: attorney.name || null,
+        attorneyId: attorney.id,
         // Without the userId the row is orphaned and never reaches the
         // plaintiff's in-app notification list.
         userId: existing.user.id || null,
@@ -6113,6 +6120,7 @@ router.post('/leads/:leadId/contact', authMiddleware, async (req: any, res) => {
         }, {
           replyTo: attorney.email || null,
           fromName: attorney.name || null,
+          attorneyId,
           userId: plaintiffUserId || null,
           assessmentId: leadAssessmentId,
           role: 'plaintiff',
@@ -6925,6 +6933,7 @@ router.post('/leads/:leadId/schedule-consult', authMiddleware, async (req: any, 
       }, {
         replyTo: attorney.email || null,
         fromName: attorney.name || null,
+        attorneyId: attorney.id,
         userId: userId || null,
         assessmentId: lead.assessmentId,
         role: 'plaintiff',
@@ -12079,6 +12088,7 @@ async function notifyPlaintiffOfAssignedTask(params: {
         role: 'plaintiff',
         replyTo: attorney.email || null,
         fromName: attorney.name || null,
+        attorneyId: attorney.id,
         metadata: { eventType: 'client_task_assigned', leadId, assessmentId, taskId: task.id },
       })
     }

@@ -342,7 +342,7 @@ export default function Dashboard() {
       acceptedAt?: string | null
     }
     attorneyActivity?: { type: string; message: string; timeAgo?: string }[]
-    caseMessages?: { subject: string; message: string; createdAt: string; from?: 'attorney' | 'plaintiff' }[]
+    caseMessages?: { subject: string; message: string; createdAt: string; from?: 'attorney' | 'plaintiff'; authorName?: string }[]
     upcomingAppointment?: {
       id: string
       scheduledAt: string

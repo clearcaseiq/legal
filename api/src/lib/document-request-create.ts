@@ -261,6 +261,7 @@ async function notifyPlaintiffAboutDocumentRequest(params: {
       role: 'plaintiff',
       replyTo: attorney.email || null,
       fromName: attorney.name || null,
+      attorneyId: attorney.id,
       metadata: {
         eventType: 'document_request',
         leadId,

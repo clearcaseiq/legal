@@ -92,6 +92,13 @@ type CaseMessageItem = {
   message: string
   createdAt: string
   from?: 'attorney' | 'plaintiff'
+  /**
+   * Who wrote it, when the server knows. Chat messages come from the matched
+   * attorney and need no name of their own; correspondence that arrived by
+   * email can predate the match, so it carries the sender it was actually
+   * signed by rather than borrowing whoever holds the case now.
+   */
+  authorName?: string
 }
 
 type Props = {
@@ -592,7 +599,7 @@ export default function PlaintiffDashboardDeferredTabPanel({
                 const isYou = message.from === 'plaintiff'
                 return (
                   <div key={`${message.createdAt}-${index}`} className={`rounded-xl border p-4 ${isYou ? 'border-brand-100 bg-brand-50/50' : 'border-slate-200 bg-slate-50'}`}>
-                    <p className="mb-1 text-xs font-semibold text-slate-500">{isYou ? t('plaintiffDashboard.deferred.attorney.you') : attorneyName || t('plaintiffDashboard.deferred.attorney.attorney')}</p>
+                    <p className="mb-1 text-xs font-semibold text-slate-500">{isYou ? t('plaintiffDashboard.deferred.attorney.you') : message.authorName || attorneyName || t('plaintiffDashboard.deferred.attorney.attorney')}</p>
                     {message.subject && <p className="text-sm font-semibold text-slate-900">{message.subject}</p>}
                     <p className="mt-1 whitespace-pre-line text-sm text-slate-700">{linkify(message.message)}</p>
                   </div>

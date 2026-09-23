@@ -557,16 +557,7 @@ router.get('/assessment/:id/status', authMiddleware, async (req: AuthRequest, re
     }).filter(Boolean)
 
     // Case messages: in-app chat messages (primary) + notifications (fallback)
-    let caseMessages: Array<{ subject: string; message: string; createdAt: string; from: 'attorney' | 'plaintiff'; chatRoomId?: string }> = []
-    const plaintiffEmail = assessment.user?.email ?? (() => {
-      try {
-        const facts = typeof assessment.facts === 'string' ? JSON.parse(assessment.facts) : assessment.facts || {}
-        return (facts.plaintiffContext as any)?.email || req.user?.email
-      } catch {
-        return req.user?.email
-      }
-    })()
-
+    let caseMessages: Array<{ subject: string; message: string; createdAt: string; from: 'attorney' | 'plaintiff'; authorName?: string; chatRoomId?: string }> = []
     // In-app chat messages (when attorney matched and plaintiff has userId)
     let caseChatRoomId: string | null = null
     if (matchedAttorney && assessment.userId && req.user?.id === assessment.userId) {
@@ -599,27 +590,67 @@ router.get('/assessment/:id/status', authMiddleware, async (req: AuthRequest, re
         }))
       }
     }
-    // Fallback: notifications (when no chat room or for backwards compat)
-    if (caseMessages.length === 0 && plaintiffEmail) {
-      const notifications = await prisma.notification.findMany({
-        where: {
-          recipient: plaintiffEmail,
-          metadata: { contains: assessmentId }
-        },
+    // Fallback for cases with no chat room: correspondence an attorney wrote,
+    // which reached the plaintiff only by email.
+    //
+    // This used to read every `Notification` row addressed to the plaintiff for
+    // this case and stamp `from: 'attorney'` on all of them. The branch only
+    // runs when no chat room was found, and a chat room is what a matched
+    // attorney gets — so the label was wrong every single time it rendered.
+    // What it actually showed was the platform's own transactional mail played
+    // back verbatim, sign-offs and all, presented to the claimant as though a
+    // lawyer had written to them. The case-received confirmation was the worst
+    // of it: it told a signed-in claimant to go and create an account, and it
+    // put the claim token that does so on screen as a live link.
+    //
+    // Reading the event table instead of the notification table is what makes
+    // filtering possible: `attorneyId` and `assessmentId` are columns there
+    // rather than substrings of a JSON blob, and `assessmentId` is indexed, so
+    // this also stops matching the id anywhere it happens to appear in a
+    // payload. Only the email channel is considered — the in-app twin of the
+    // same event exists for the notification bell, and counting both would
+    // show every attorney message twice.
+    if (caseMessages.length === 0) {
+      const events = await prisma.platformNotificationEvent.findMany({
+        where: { assessmentId, role: 'plaintiff', channel: 'email' },
         orderBy: { createdAt: 'desc' },
         take: 20,
         select: {
           subject: true,
-          message: true,
-          createdAt: true
+          body: true,
+          createdAt: true,
+          payloadJson: true,
+          attorney: { select: { name: true } }
         }
       }).catch(() => [])
-      caseMessages = notifications.map((n: any) => ({
-        subject: n.subject || '',
-        message: n.message || '',
-        createdAt: n.createdAt?.toISOString?.() || new Date(n.createdAt).toISOString(),
-        from: 'attorney' as const
-      }))
+
+      caseMessages = events.flatMap((e: any) => {
+        // Two marks of attorney authorship. `attorneyId` is the explicit one and
+        // is what new rows carry. Rows written before it was set are recognised
+        // by the sender identity on the payload, which exists precisely so
+        // attorney mail goes out under the attorney's name and returns to their
+        // inbox — the platform's own mail never sets it. Anything with neither
+        // mark was written by us, and belongs in the activity timeline rather
+        // than in a thread that claims a person is speaking.
+        let fromName: string | null = null
+        let replyTo: string | null = null
+        try {
+          const payload = e.payloadJson ? JSON.parse(e.payloadJson) : null
+          if (typeof payload?.fromName === 'string') fromName = payload.fromName
+          if (typeof payload?.replyTo === 'string') replyTo = payload.replyTo
+        } catch {}
+
+        const authorName = e.attorney?.name || fromName
+        if (!authorName && !replyTo) return []
+
+        return [{
+          subject: e.subject || '',
+          message: e.body || '',
+          createdAt: e.createdAt?.toISOString?.() || new Date(e.createdAt).toISOString(),
+          from: 'attorney' as const,
+          ...(authorName ? { authorName } : {})
+        }]
+      })
     }
 
     res.json({
