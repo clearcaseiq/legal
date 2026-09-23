@@ -88,11 +88,12 @@ export interface CreateNotificationEventInput {
   subject?: string
   body?: string
   /**
-   * Primary action for an email event, rendered as a button. Ignored on other
-   * channels. The body should not repeat the destination — the mailer prints it
-   * under the button and appends it to the plain-text alternative.
+   * Action(s) for an email event, rendered as buttons, the first being the
+   * primary. Ignored on other channels. The body should not repeat the
+   * destination — the mailer prints it under the button and appends it to the
+   * plain-text alternative.
    */
-  cta?: EmailCta
+  cta?: EmailCta | EmailCta[]
   payload?: Record<string, unknown>
   recipient?: string
 }

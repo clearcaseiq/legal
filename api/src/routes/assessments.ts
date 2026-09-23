@@ -1452,7 +1452,7 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
         : ''
       // Submitting cancels the separate report email, so this is the claimant's
       // link back to the report they just finished.
-      const reportCta = { label: 'View your case report', url: caseReportUrl(id) }
+      const ctas = [{ label: 'View your case report', url: caseReportUrl(id) }]
       // Guests have no way back to their case once they close the tab (the URL
       // is their only key). Give them a one-click path to register — or to sign
       // in, since plenty of submitters already have an account — and have this
@@ -1461,7 +1461,11 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
       if (!req.user) {
         try {
           const claimUrl = webUrl(`/register?claim=${encodeURIComponent(createClaimToken(id))}`)
-          claimLine = `\n\nWant to track your case and add documents anytime? Create your free account — or sign in, if you already have one — here. Your case is already linked:\n${claimUrl}`
+          // A button, not a pasted URL. The claim token is a JWT, so spelled out
+          // in the body it ran to four wrapped lines of blue text in the middle
+          // of the mail, which reads as broken rather than as an invitation.
+          claimLine = `\n\nWant to track your case and add documents anytime? Create your free account below — or sign in, if you already have one. Your case is already linked.`
+          ctas.push({ label: 'Create your free account', url: claimUrl })
         } catch (linkErr) {
           logger.warn('Could not build claim link for confirmation email', {
             assessmentId: id,
@@ -1478,7 +1482,7 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
         // promising an attorney reply "within about 24 hours" even when nobody
         // eligible existed, and the follow-up then had to contradict it.
         message: `Hi ${submitterName},\n\nThanks for submitting your case to ClearCaseIQ. Our team is reviewing it now and looking for attorneys who handle this type of claim in your area. We'll email you as soon as there is an update.${referenceLine}\n\nWhat happens next:\n• We review your case summary and match it against attorneys in your area\n• We email you as soon as an attorney responds\n• You can add documents anytime to strengthen your case${claimLine}\n\nBest regards,\nClearCaseIQ`,
-        cta: reportCta,
+        cta: ctas,
         userId: req.user?.id || null,
         assessmentId: id,
         role: 'plaintiff',

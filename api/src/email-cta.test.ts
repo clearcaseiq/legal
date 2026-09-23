@@ -88,6 +88,77 @@ describe('transactional email call-to-action', () => {
     )
   })
 
+  /**
+   * The case-received mail offers two next steps. The second used to be a bare
+   * JWT claim URL printed in the body, which wrapped across four lines of blue
+   * text mid-paragraph and read as a broken email rather than an invitation.
+   */
+  describe('two actions', () => {
+    const TWO = [
+      { label: 'View your case report', url: 'https://app.clearcaseiq.test/results/asm-1' },
+      { label: 'Create your free account', url: 'https://app.clearcaseiq.test/register?claim=eyJhbGciOi.J9.x' },
+    ]
+
+    it('renders both as buttons', async () => {
+      await sendClaimEmail({ to: 'c@example.com', subject: 'We received your case', body: 'Hi Dana,', cta: TWO })
+
+      const html = captured.html || ''
+      expect(html).toContain('View your case report')
+      expect(html).toContain('Create your free account')
+      expect((html.match(/<table role="presentation"[^>]*style="margin:4px 0 8px;"/g) || []).length).toBe(2)
+    })
+
+    it('styles the first as primary and the second as an outlined secondary', async () => {
+      await sendClaimEmail({ to: 'c@example.com', subject: 'We received your case', body: 'Hi Dana,', cta: TWO })
+
+      const html = captured.html || ''
+      expect(html).toMatch(/<td[^>]*bgcolor="#2563eb"[^>]*>\s*<a[^>]*>View your case report/)
+      expect(html).toMatch(/<td[^>]*bgcolor="#ffffff"[^>]*border:1px solid #2563eb[^>]*>\s*<a[^>]*>Create your free account/)
+    })
+
+    /** Two unlabelled URLs would leave the reader unable to tell which opens what. */
+    it('labels each destination in the paste-it fallback', async () => {
+      await sendClaimEmail({ to: 'c@example.com', subject: 'We received your case', body: 'Hi Dana,', cta: TWO })
+
+      const html = captured.html || ''
+      expect(html).toContain('Or paste these into your browser:')
+      expect(html).toContain('Create your free account:')
+    })
+
+    it('carries both into the plain-text alternative', async () => {
+      await sendClaimEmail({ to: 'c@example.com', subject: 'We received your case', body: 'Hi Dana,', cta: TWO })
+
+      expect(captured.text).toContain('View your case report: https://app.clearcaseiq.test/results/asm-1')
+      expect(captured.text).toContain(
+        'Create your free account: https://app.clearcaseiq.test/register?claim=eyJhbGciOi.J9.x',
+      )
+    })
+
+    it('drops only the unusable one and still sends the rest', async () => {
+      await sendClaimEmail({
+        to: 'c@example.com',
+        subject: 'We received your case',
+        body: 'Hi Dana,',
+        cta: [TWO[0], { label: 'Bad', url: 'javascript:alert(1)' }],
+      })
+
+      expect(captured.html).toContain('View your case report')
+      expect(captured.html).not.toContain('javascript:alert(1)')
+      expect(captured.html).toContain('Or paste this into your browser:')
+      expect(logger.error).toHaveBeenCalledWith(
+        'Email CTA dropped: not an http(s) URL',
+        expect.objectContaining({ label: 'Bad' }),
+      )
+    })
+
+    it('treats a single action in an array exactly like a bare one', async () => {
+      await sendClaimEmail({ to: 'c@example.com', subject: 'Report ready', body: 'Body.', cta: [TWO[0]] })
+
+      expect(captured.html).toContain('Or paste this into your browser:')
+      expect(captured.html).not.toContain('Or paste these into your browser:')
+    })
+  })
+
   it('leaves an email without a CTA exactly as before', async () => {
     await sendClaimEmail({
       to: 'claimant@example.com',

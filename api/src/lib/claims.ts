@@ -70,7 +70,12 @@ type EmailParams = {
   to: string
   subject: string
   body: string
-  cta?: EmailCta | null
+  /**
+   * One action, or several. The first is styled as the primary button and the
+   * rest as outlined secondaries, so a mail offering two next steps still says
+   * which one it expects.
+   */
+  cta?: EmailCta | EmailCta[] | null
   // Optional sender identity overrides so attorney-originated mail appears to
   // come from the attorney (display name) and replies route back to them, while
   // still being physically sent through the platform provider for deliverability.
@@ -176,44 +181,82 @@ function safeHttpUrl(url: string | null | undefined): string | null {
   }
 }
 
+/** One action or several, reduced to those with a destination worth rendering. */
+function ctaList(cta?: EmailCta | EmailCta[] | null): EmailCta[] {
+  if (!cta) return []
+  return (Array.isArray(cta) ? cta : [cta]).filter((entry) => entry && safeHttpUrl(entry.url))
+}
+
+const CTA_FONT = `-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif`
+
 /**
- * Render the call to action as a real button.
+ * Render an action as a real button.
  *
  * The padding and background sit on the `<td>`, not the `<a>`: Outlook on
  * Windows renders through Word, which drops both from an inline element, so a
- * CSS-styled link collapses into bare underlined text.
- *
- * The destination is repeated underneath because a button is not always what
- * arrives — corporate filters strip markup, and people move a link to another
- * device by hand.
+ * CSS-styled link collapses into bare underlined text. The border on a
+ * secondary goes on the same `<td>` for the same reason.
  */
-function ctaToHtml(cta: EmailCta): string {
+function ctaButtonHtml(cta: EmailCta, primary: boolean): string {
   const url = safeHttpUrl(cta.url)
   if (!url) return ''
   const href = escapeAttr(url)
   const label = escapeHtml(cta.label || 'Open')
-  const font = `-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif`
+  const cell = primary
+    ? `bgcolor="#2563eb" style="border-radius:8px;padding:13px 26px;"`
+    : `bgcolor="#ffffff" style="border-radius:8px;padding:12px 25px;border:1px solid #2563eb;"`
+  const color = primary ? '#ffffff' : '#2563eb'
   return (
-    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:4px 0 12px;">` +
-    `<tr><td align="center" bgcolor="#2563eb" style="border-radius:8px;padding:13px 26px;">` +
-    `<a href="${href}" style="display:inline-block;font-family:${font};font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;">${label}</a>` +
-    `</td></tr></table>` +
-    `<p style="margin:0;font-size:12px;line-height:1.5;color:#94a3b8;">Or paste this into your browser:<br />` +
-    `<a href="${href}" style="color:#94a3b8;text-decoration:underline;word-break:break-all;">${escapeHtml(url)}</a></p>`
+    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:4px 0 8px;">` +
+    `<tr><td align="center" ${cell}>` +
+    `<a href="${href}" style="display:inline-block;font-family:${CTA_FONT};font-size:15px;font-weight:600;color:${color};text-decoration:none;">${label}</a>` +
+    `</td></tr></table>`
   )
 }
 
 /**
- * The plain-text alternative has to carry the action too: some clients show
- * only that part, and link scanners generally read nothing else.
+ * The destinations, spelled out under the buttons.
+ *
+ * A button is not always what arrives — corporate filters strip markup, and
+ * people move a link to another device by hand. With more than one action the
+ * URLs have to be labelled, or the reader is given two addresses and no way to
+ * tell which opens what.
  */
-function bodyToText(body: string, cta?: EmailCta | null): string {
-  const url = cta ? safeHttpUrl(cta.url) : null
-  if (!cta || !url) return body
-  return `${body}\n\n${cta.label}: ${url}`
+function ctaFallbackHtml(ctas: EmailCta[]): string {
+  const link = (url: string) =>
+    `<a href="${escapeAttr(url)}" style="color:#94a3b8;text-decoration:underline;word-break:break-all;">${escapeHtml(url)}</a>`
+  const style = `margin:4px 0 0;font-size:12px;line-height:1.5;color:#94a3b8;`
+
+  if (ctas.length === 1) {
+    const url = safeHttpUrl(ctas[0].url) as string
+    return `<p style="${style}">Or paste this into your browser:<br />${link(url)}</p>`
+  }
+
+  const lines = ctas
+    .map((cta) => `${escapeHtml(cta.label || 'Open')}:<br />${link(safeHttpUrl(cta.url) as string)}`)
+    .join('<br /><br />')
+  return `<p style="${style}">Or paste these into your browser:<br />${lines}</p>`
 }
 
-function bodyToHtml(body: string, cta?: EmailCta | null): string {
+function ctasToHtml(ctas: EmailCta[]): string {
+  if (!ctas.length) return ''
+  return (
+    ctas.map((cta, index) => ctaButtonHtml(cta, index === 0)).join('') + ctaFallbackHtml(ctas)
+  )
+}
+
+/**
+ * The plain-text alternative has to carry the actions too: some clients show
+ * only that part, and link scanners generally read nothing else.
+ */
+function bodyToText(body: string, cta?: EmailCta | null | EmailCta[]): string {
+  const ctas = ctaList(cta)
+  if (!ctas.length) return body
+  const lines = ctas.map((entry) => `${entry.label}: ${safeHttpUrl(entry.url)}`).join('\n\n')
+  return `${body}\n\n${lines}`
+}
+
+function bodyToHtml(body: string, cta?: EmailCta | null | EmailCta[]): string {
   // Turn bare http(s) URLs into clickable links. We escape first, then match on
   // the escaped text (query separators become `&amp;`, which is still valid
   // inside an href), so reset/verification links are actually clickable in mail
@@ -232,7 +275,7 @@ function bodyToHtml(body: string, cta?: EmailCta | null): string {
       return `<p style="margin:0 0 12px;font-size:15px;line-height:1.6;color:#1f2937">${linked}</p>`
     })
     .join('')
-  return wrapBrandedEmail(paragraphs + (cta ? ctaToHtml(cta) : ''))
+  return wrapBrandedEmail(paragraphs + ctasToHtml(ctaList(cta)))
 }
 
 /**
@@ -439,11 +482,13 @@ export async function sendClaimEmail(params: EmailParams): Promise<boolean> {
   // A rejected CTA is not cosmetic. Bodies that carry a button no longer spell
   // the destination out in the text, so dropping it silently sends a mail with
   // nothing to act on — and the recipient is the only one who would notice.
-  if (params.cta && !safeHttpUrl(params.cta.url)) {
-    logger.error('Email CTA dropped: not an http(s) URL', {
-      subject: params.subject,
-      label: params.cta.label,
-    })
+  for (const cta of params.cta ? (Array.isArray(params.cta) ? params.cta : [params.cta]) : []) {
+    if (cta && !safeHttpUrl(cta.url)) {
+      logger.error('Email CTA dropped: not an http(s) URL', {
+        subject: params.subject,
+        label: cta.label,
+      })
+    }
   }
   const provider = resolveEmailProvider()
   if (provider === 'ses') return sendViaSes(params)

@@ -22,7 +22,7 @@ async function sendNotificationEmail(params: {
   replyTo?: string | null
   fromName?: string | null
   fromEmail?: string | null
-  cta?: EmailCta | null
+  cta?: EmailCta | EmailCta[] | null
 }): Promise<boolean> {
   if (!params.to) return false
   return sendTransactionalEmail({
@@ -152,14 +152,21 @@ export async function attemptDelivery(notificationId: string): Promise<boolean> 
   let senderReplyTo: string | undefined
   let senderFromName: string | undefined
   let senderFromEmail: string | undefined
-  let cta: EmailCta | undefined
+  let cta: EmailCta | EmailCta[] | undefined
   if (event.payloadJson) {
     try {
       const payload = JSON.parse(event.payloadJson)
       if (typeof payload?.replyTo === 'string') senderReplyTo = payload.replyTo
       if (typeof payload?.fromName === 'string') senderFromName = payload.fromName
       if (typeof payload?.fromEmail === 'string') senderFromEmail = payload.fromEmail
-      if (typeof payload?.cta?.label === 'string' && typeof payload?.cta?.url === 'string') {
+      // Stored as given, so a row written with two actions renders both on a
+      // retry. Rows written before multiple actions existed hold a bare object.
+      const isCta = (v: any): v is EmailCta =>
+        typeof v?.label === 'string' && typeof v?.url === 'string'
+      if (Array.isArray(payload?.cta)) {
+        const list = payload.cta.filter(isCta)
+        if (list.length) cta = list
+      } else if (isCta(payload?.cta)) {
         cta = { label: payload.cta.label, url: payload.cta.url }
       }
     } catch {}
@@ -335,8 +342,11 @@ export async function deliverDirectNotification(input: {
   attorneyId?: string | null
   assessmentId?: string | null
   role?: 'plaintiff' | 'attorney' | 'admin'
-  /** Primary action for an email, rendered as a button. Ignored on other channels. */
-  cta?: EmailCta | null
+  /**
+   * Action(s) for an email, rendered as buttons; the first is the primary.
+   * Ignored on other channels.
+   */
+  cta?: EmailCta | EmailCta[] | null
   // When set, email is sent through the platform provider but shows this display
   // name and routes replies to this address (attorney-originated mail).
   replyTo?: string | null
