@@ -1145,6 +1145,7 @@ export default function IntakeWizardQuick() {
   // picking a type that has subtypes, and by re-picking one to change the answer.
   const [subtypePanelOpen, setSubtypePanelOpen] = useState(false)
   const isPhone = useIsPhone()
+  const [dateInputFocused, setDateInputFocused] = useState(false)
   // The option just picked, held for the moment between the click and the panel
   // collapsing so the choice can be confirmed on screen.
   const [subtypeConfirming, setSubtypeConfirming] = useState<string | null>(null)
@@ -4034,8 +4035,10 @@ export default function IntakeWizardQuick() {
                               type="date"
                               min={MIN_INCIDENT_DATE}
                               max={isoToday()}
-                              data-empty={exactDateValue ? undefined : 'true'}
+                              data-empty={exactDateValue || dateInputFocused ? undefined : 'true'}
                               value={exactDateValue}
+                              onFocus={() => setDateInputFocused(true)}
+                              onBlur={() => setDateInputFocused(false)}
                               onChange={e => {
                                 const val = e.target.value
                                 // An incident can't happen in the future. `max` disables
@@ -4056,7 +4059,9 @@ export default function IntakeWizardQuick() {
                               }}
                               className="date-input-clean !min-h-0 w-full min-w-0 max-w-full !border-0 !bg-transparent !p-0 text-center !text-[17px] font-medium text-gray-900 focus:!ring-0 dark:text-slate-100"
                             />
-                            {!exactDateValue && (
+                            {/* While focused the browser's own mm/dd/yyyy segments show instead:
+                                its highlighted segment bleeds through this overlay otherwise. */}
+                            {!exactDateValue && !dateInputFocused && (
                               <span
                                 aria-hidden
                                 className="pointer-events-none absolute inset-0 flex items-center justify-center text-[17px] font-medium tracking-wide text-slate-400 dark:text-slate-500"
