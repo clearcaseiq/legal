@@ -34,6 +34,13 @@ export interface LiabilityScore {
 /**
  * Calculate multi-level injury severity based on available data
  */
+const SELF_REPORTED_SEVERITY_FLOOR: Record<string, number> = {
+  minor: 0.5,
+  moderate: 2.0,
+  serious: 2.5,
+  surgery: 2.5,
+}
+
 export function calculateInjurySeverity(facts: any): SeverityScore {
   const injuries = facts?.injuries || []
   const medPaid = facts?.damages?.med_paid || 0
@@ -222,6 +229,16 @@ export function calculateInjurySeverity(facts: any): SeverityScore {
     score += 0.2
   }
   
+  // The claimant's own severity answer sets a floor so a doctor or hospital
+  // visit is not scored as a bruise when bills and records are not in yet.
+  // "Serious" stops at moderate: reaching severe still needs the corroborating
+  // signals above (bills, imaging, procedures, documented codes).
+  const selfReportedFloor = SELF_REPORTED_SEVERITY_FLOOR[String(structuredInjury.description || '')]
+  if (selfReportedFloor && score < selfReportedFloor) {
+    score = selfReportedFloor
+    factors.push(`Claimant-reported severity: ${structuredInjury.description}`)
+  }
+
   // Determine final severity level based on aggregated score
   let level: SeverityLevel
   let label: string
@@ -561,6 +578,23 @@ export function calculateLiabilityScore(facts: any, venue: string): LiabilitySco
     factors.push('Police report mentioned in narrative')
   }
   
+  // ===== CLAIMANT'S OWN FAULT ANSWER =====
+  // Self-reported, so it nudges rather than decides: narrative facts and
+  // evidence above still carry most of the weight.
+  const faultBelief = String(liability.faultBelief || '')
+  if (faultBelief === 'other_party') {
+    score += 0.08
+    factors.push('Claimant reports the other party was at fault')
+  } else if (faultBelief === 'shared_fault') {
+    score -= 0.05
+    comparativeNegligence += 0.20
+    factors.push('Claimant reports shared fault - recovery may be reduced')
+  } else if (faultBelief === 'mostly_me' || liability.comparativeFault === 'yes') {
+    score -= 0.10
+    comparativeNegligence += 0.35
+    factors.push('Claimant reports being mostly at fault - recovery likely reduced')
+  }
+
   // ===== VENUE/STATE SPECIFIC CONSIDERATIONS =====
   
   // Comparative negligence states (reduces recovery if plaintiff at fault)
@@ -857,22 +891,22 @@ export function predictViabilityHeuristic(features: any, calibrationOverride?: V
   const propertyDamage = Number(features.propertyDamage || 0)
   const futureDamages = Number(features.futureMedCharges || 0)
   const policyLimit = Number(features.policyLimit || 0)
-  // Conservative imputation for skipped intake economics. Stressed claimants
-  // frequently leave every dollar field blank. When NO economic figure is
-  // entered but there is a genuine injury/treatment signal, estimate the medical
-  // specials from injury severity instead of treating them as $0 — otherwise the
-  // case collapses to the bare severity floor and is under-valued. Imputed
-  // dollars feed value but deliberately do NOT raise evidence confidence (see
-  // getEvidenceConfidenceModifier, which keys off the raw medCharges), so the
-  // band stays wide and the number behaves as a preliminary floor that real
-  // bills will refine.
-  const economicsEntered =
-    medCharges > 0 || medPaid > 0 || wageLoss > 0 || outOfPocket > 0 || propertyDamage > 0
+  // Conservative imputation for unknown medical specials. Claimants often answer
+  // "not sure" to the bills question or skip it. When no medical figure is known
+  // but there is a genuine injury/treatment signal, estimate the specials from
+  // injury severity instead of treating them as $0 — otherwise the case collapses
+  // to the bare severity floor and is under-valued. Wages, out-of-pocket and
+  // property damage are separate heads of damage, so entering them must not
+  // switch this off. Imputed dollars feed value but deliberately do NOT raise
+  // evidence confidence (see getEvidenceConfidenceModifier, which keys off the
+  // raw medCharges), so the band stays wide and the number behaves as a
+  // preliminary floor that real bills will refine.
+  const medicalEntered = medCharges > 0 || medPaid > 0
   const injurySignal =
     (severityLevel as number) >= 1 || features.hasTreatment || (features.bodyParts?.length || 0) > 0
   const medicalImputationPriors: Record<number, number> = { 1: 3500, 2: 12000, 3: 35000, 4: 90000 }
   const imputedMedical =
-    !economicsEntered && injurySignal ? medicalImputationPriors[severityLevel as number] || 0 : 0
+    !medicalEntered && injurySignal ? medicalImputationPriors[severityLevel as number] || 0 : 0
   const economicsImputed = imputedMedical > 0
   const economicDamages =
     Math.max(medCharges, medPaid, imputedMedical) +
@@ -971,8 +1005,8 @@ export function predictViabilityHeuristic(features: any, calibrationOverride?: V
       economicDamages: roundToNearest(economicDamages),
       futureDamages: roundToNearest(futureDamages),
       injurySupportedValue: roundToNearest(injurySupportedValue),
-      // True when medical specials were estimated from severity because the
-      // claimant entered no economic figures at intake. The UI uses this to
+      // True when medical specials were estimated from severity because no
+      // medical bill amount is known yet. The UI uses this to
       // label the estimate as preliminary and prompt for real bills.
       medicalSpecialsImputed: economicsImputed,
     },

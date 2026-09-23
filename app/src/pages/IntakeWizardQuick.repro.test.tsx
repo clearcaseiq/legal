@@ -224,18 +224,24 @@ it('three screens: what happened -> injuries & costs -> review', async () => {
   await flush(500)
   expectNoCrash()
 
-  // Screen 2: severity, treatment and lawyer are required; the rest is collapsed.
+  // Screen 2: severity, treatment, medical bills, fault and lawyer are required; the rest is collapsed.
   expect(document.body.textContent).toContain(en.intake.stepHeading_injuriesCosts)
   expect(document.body.textContent).toContain(en.intake.optional_estimate_title)
+  expect(document.getElementById('intake-medical-bills')).toBeTruthy()
   expect(document.body.textContent).not.toContain(en.intake.financial_outOfPocket)
 
   await click(buttonWithText(en.intake.cta_continueReview))
   await flush(100)
   expect(document.body.textContent).toContain(en.intake.treatment_required)
+  expect(document.body.textContent).toContain(en.intake.financial_billsRequired)
+  expect(document.body.textContent).toContain(en.intake.legal_faultRequired)
   expect(document.body.textContent).toContain(en.intake.legal_attorneyRequired)
 
   await click(within('intake-severity').querySelector('button')!)
   await click(buttonIn('intake-treatment', TREATMENT_ANSWER))
+  // "Not sure" is a valid answer; the server estimates bills from severity.
+  await click(buttonIn('intake-medical-bills', en.intake.optionNotSure))
+  await click(buttonIn('intake-fault', en.intake.optionNotSure))
   await click(buttonIn('intake-attorney-status', en.intake.optionNo))
   await flush(20)
 

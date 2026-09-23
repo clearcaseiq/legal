@@ -62,6 +62,24 @@ describe('calculateInjurySeverity', () => {
     expect(r.level).toBeGreaterThanOrEqual(2)
   })
 
+  it("floors severity at the claimant's own answer when nothing else corroborates it", () => {
+    const hospital = { injuries: [{ description: 'serious' }], treatment: [{ type: 'emergency_room' }] }
+    expect(calculateInjurySeverity(hospital).level).toBe(2)
+    expect(calculateInjurySeverity({ injuries: [{ description: 'moderate' }] }).level).toBe(2)
+    expect(calculateInjurySeverity({ injuries: [{ description: 'minor' }] }).level).toBe(1)
+    expect(calculateInjurySeverity({ injuries: [{ description: 'unsure' }] }).level).toBe(1)
+  })
+
+  it('still needs corroboration to reach severe from a "serious" answer', () => {
+    const uncorroborated = calculateInjurySeverity({ injuries: [{ description: 'serious' }] })
+    expect(uncorroborated.level).toBe(2)
+    const corroborated = calculateInjurySeverity({
+      injuries: [{ description: 'serious', bodyParts: ['neck', 'lower_back'] }],
+      damages: { med_charges: 50000 },
+    })
+    expect(corroborated.level).toBe(3)
+  })
+
   it('uses mild keywords in narrative', () => {
     const r = calculateInjurySeverity({
       injuries: [{ description: 'soft tissue' }],
@@ -127,6 +145,31 @@ describe('computeFeatures', () => {
   })
 })
 
+describe("calculateLiabilityScore - claimant's fault answer", () => {
+  const base = { claimType: 'auto', incident: { narrative: 'car accident' } }
+
+  it('raises liability when the claimant says the other party was at fault', () => {
+    const neutral = calculateLiabilityScore(base, 'CA')
+    const other = calculateLiabilityScore({ ...base, liability: { faultBelief: 'other_party' } }, 'CA')
+    expect(other.score).toBeGreaterThan(neutral.score)
+    expect(other.comparativeNegligence).toBe(neutral.comparativeNegligence)
+  })
+
+  it('adds comparative negligence for shared or mostly-own fault', () => {
+    const shared = calculateLiabilityScore({ ...base, liability: { faultBelief: 'shared_fault' } }, 'CA')
+    const mostly = calculateLiabilityScore({ ...base, liability: { comparativeFault: 'yes' } }, 'CA')
+    expect(shared.comparativeNegligence).toBeCloseTo(0.2)
+    expect(mostly.comparativeNegligence).toBeCloseTo(0.35)
+  })
+
+  it('leaves "not sure" neutral', () => {
+    const neutral = calculateLiabilityScore(base, 'CA')
+    const unsure = calculateLiabilityScore({ ...base, liability: { faultBelief: 'not_sure', comparativeFault: 'possibly' } }, 'CA')
+    expect(unsure.score).toBe(neutral.score)
+    expect(unsure.comparativeNegligence).toBe(neutral.comparativeNegligence)
+  })
+})
+
 describe('predictViability', () => {
   beforeEach(() => {
     vi.spyOn(Math, 'random').mockReturnValue(0.5)
@@ -162,6 +205,30 @@ describe('predictViability', () => {
     expect(r.value_bands.trial.p75).toBeGreaterThan(r.value_bands.settlement.p75)
     expect(Array.isArray(r.explainability)).toBe(true)
     expect(r.caveats.length).toBeGreaterThan(0)
+  })
+
+  it('estimates medical specials from severity when bills are unknown, even with lost wages entered', async () => {
+    const base = {
+      venue: 'CA',
+      claimType: 'auto',
+      severity: 2 as const,
+      severityScore: calculateInjurySeverity({ injuries: [{ description: 'neck' }] }),
+      liabilityScore: calculateLiabilityScore(
+        { claimType: 'auto', incident: { narrative: 'rear-ended' } },
+        'CA'
+      ),
+      medPaid: 0,
+      medCharges: 0,
+      hasTreatment: true,
+      narrativeLength: 5,
+    }
+    const withWages = await predictViability({ ...base, wageLoss: 4000 })
+    expect(withWages.value_bands.economics.medicalSpecialsImputed).toBe(true)
+    expect(withWages.value_bands.economics.medicalBills).toBe(12000)
+
+    const withBills = await predictViability({ ...base, medCharges: 5000, wageLoss: 4000 })
+    expect(withBills.value_bands.economics.medicalSpecialsImputed).toBe(false)
+    expect(withBills.value_bands.economics.medicalBills).toBe(5000)
   })
 
   it('keeps rear-end MRI and injection cases in a compressed settlement range', async () => {

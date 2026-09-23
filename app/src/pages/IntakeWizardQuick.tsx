@@ -824,6 +824,9 @@ const LEGACY_STEP_MAP: Record<string, Step> = {
 }
 
 /** Resolves a saved or linked step name to one of the current screens. */
+const INJURY_ANCHOR_ID = 'intake-optional-injury'
+const COSTS_ANCHOR_ID = 'intake-medical-bills'
+
 function resolveStepKey(raw: string): Step | '' {
   if (!raw) return ''
   const legacy = LEGACY_STEP_MAP[raw] ?? (raw as Step)
@@ -1267,7 +1270,7 @@ export default function IntakeWizardQuick() {
         return checks.filter(Boolean).length / checks.length
       }
       case 'injury_severity': {
-        const checks = [!!formData.injurySeverity, formData.medicalTreatment.length > 0, !!formData.casePosture.attorneyStatus]
+        const checks = [!!formData.injurySeverity, formData.medicalTreatment.length > 0, !!formData.insuranceCoverage.medicalBillRange, !!formData.casePosture.faultBelief, !!formData.casePosture.attorneyStatus]
         return checks.filter(Boolean).length / checks.length
       }
       case 'consent': {
@@ -1680,10 +1683,17 @@ export default function IntakeWizardQuick() {
     return () => window.clearTimeout(timer)
   }, [currentStep])
 
-  const editReviewStep = (step: Step) => {
+  // Review cards can ask for a section inside a collapsed optional group; the
+  // ref feeds the step-change scroll, the state opens the group.
+  const reviewJumpRef = useRef<string | null>(null)
+  const [reviewJump, setReviewJump] = useState<string | null>(null)
+
+  const editReviewStep = (step: Step, anchorId?: string) => {
     // Several review categories are folded into a host screen; jump to the host
     // so currentStepIndex stays valid and "return to review" still works.
     const target = V2_MERGED_INTO[step] ?? step
+    reviewJumpRef.current = anchorId ?? null
+    setReviewJump(anchorId ?? null)
     setReturnToReviewFromStep(target)
     setCurrentStep(target)
   }
@@ -1700,7 +1710,15 @@ export default function IntakeWizardQuick() {
     // and the new step reads as a blank white screen until the user scrolls.
     const active = document.activeElement
     if (active instanceof HTMLElement && active !== document.body) active.blur()
+    const jumpTo = reviewJumpRef.current
+    reviewJumpRef.current = null
+    if (!jumpTo) setReviewJump(null)
     const scrollTop = () => {
+      const jumpEl = jumpTo ? document.getElementById(jumpTo) : null
+      if (jumpEl) {
+        jumpEl.scrollIntoView({ block: 'start' })
+        return
+      }
       // Plain assignment rather than scrollTo({behavior:'instant'}): an unknown
       // enum value throws a TypeError, which would abort this function before
       // the containers below were reset.
@@ -2508,6 +2526,9 @@ export default function IntakeWizardQuick() {
       if (!formData.injurySeverity) err.injurySeverity = t('intake.selectSeverity')
       // "No treatment yet" counts as an answer.
       if (formData.medicalTreatment.length === 0) err.medicalTreatment = tx('treatment_required')
+      // "Not sure" counts as an answer; the server estimates bills from severity.
+      if (!formData.insuranceCoverage.medicalBillRange) err.medicalBillRange = tx('financial_billsRequired')
+      if (!formData.casePosture?.faultBelief) err.faultBelief = tx('legal_faultRequired')
       if (!formData.casePosture?.attorneyStatus) err.attorneyStatus = tx('legal_attorneyRequired')
     }
     if (currentStep === 'consent') {
@@ -2792,6 +2813,18 @@ export default function IntakeWizardQuick() {
       setErrors({ contact: tx('contact_required') })
       setReturnToReviewFromStep('injury_type')
       setCurrentStep('injury_type')
+      return
+    }
+    if (!formData.insuranceCoverage.medicalBillRange) {
+      setErrors({ medicalBillRange: tx('financial_billsRequired') })
+      setReturnToReviewFromStep('injury_severity')
+      setCurrentStep('injury_severity')
+      return
+    }
+    if (!formData.casePosture?.faultBelief) {
+      setErrors({ faultBelief: tx('legal_faultRequired') })
+      setReturnToReviewFromStep('injury_severity')
+      setCurrentStep('injury_severity')
       return
     }
     if (!formData.casePosture?.attorneyStatus) {
@@ -3492,7 +3525,7 @@ export default function IntakeWizardQuick() {
 
   // Insurance & Representation (+ optional insurance details). Extracted so it can be
   // merged into the "Damages & Insurance" step. Renders standalone (no liability column).
-  const renderInsuranceStatus = (part?: 'attorney') => {
+  const renderInsuranceStatus = (part?: 'attorney' | 'fault') => {
         const icLegal = formData.insuranceCoverage
         const cpLegal = formData.casePosture || {}
         const setInsuranceField = (field: string, value: string) =>
@@ -3626,22 +3659,32 @@ export default function IntakeWizardQuick() {
                     </div>
                   </div>
     )
-    if (part === 'attorney') return attorneyQuestion
-    return (
-                <div className="grid gap-6 border-t border-slate-200 pt-4 dark:border-slate-700 lg:grid-cols-2">
-                  {/* Fault */}
-                  <div>
-                    <div className="flex items-start gap-2">
-                      <Scale className="mt-0.5 h-5 w-5 shrink-0 text-slate-400" aria-hidden />
-                      <p className="font-display text-sm font-semibold text-slate-950 dark:text-slate-100">{tx('legal_faultQuestion')}</p>
-                    </div>
-                    <div className="mt-3 grid gap-2">
+    const faultQuestion = (
+                  <div id="intake-fault" className="scroll-mt-24">
+                    <SectionHeader icon={Scale} title={<>{tx('legal_faultQuestion')}<RequiredTag label={tx('required_tag')} /></>} helper={tx('legal_faultHelper')} />
+                    <div className="mt-3 grid gap-2 sm:grid-cols-3">
                       {liabilityOptionsForClaim.map(({ value, label }) =>
-                        renderChoice(cpLegal.faultBelief === value, () => setFaultBelief(value), faultIconFor(value), label, { key: value })
+                        renderChoice(
+                          cpLegal.faultBelief === value,
+                          () => {
+                            setFaultBelief(value)
+                            setErrors(({ faultBelief: _cleared, ...rest }) => rest)
+                          },
+                          faultIconFor(value),
+                          label,
+                          { key: value }
+                        )
                       )}
                     </div>
+                    {errors.faultBelief && (
+                      <p className="mt-2 text-xs text-red-600">{errors.faultBelief}</p>
+                    )}
                   </div>
-
+    )
+    if (part === 'attorney') return attorneyQuestion
+    if (part === 'fault') return faultQuestion
+    return (
+                <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
                   {/* Settlement */}
                   <div>
                     <div className="flex items-start gap-2">
@@ -4557,7 +4600,6 @@ export default function IntakeWizardQuick() {
         // Severity + treatment are merged onto one screen: show both sub-sections.
         const mergeInjuries = step === 'injury_severity'
         const showSeverity = isSeverityStep || mergeInjuries
-        const showDetails = !isSeverityStep || mergeInjuries
         // When severity + treatment are merged onto one screen, the treatment/details
         // sub-sections continue the severity numbering (which uses 1-2) instead of
         // restarting at 1. On the standalone treatment step this offset is 0.
@@ -4638,27 +4680,6 @@ export default function IntakeWizardQuick() {
         const filledGroups = completenessGroups.filter(Boolean).length
         const valueConfidence = filledGroups === 0 ? 0 : Math.min(90, Math.round((filledGroups / completenessGroups.length) * 75) + 15)
         const docLevel = filledGroups <= 2 ? tx('injuryDetails_docEarly') : filledGroups <= 4 ? tx('injuryDetails_docBuilding') : tx('injuryDetails_docStrong')
-        const bodyNames = idd.bodyParts.map(v => bodyPartDisplay[v]?.label || REGION_LIBRARY[v]?.label || v)
-        const dxNames = DIAGNOSIS_OPTIONS.filter(o => idd.diagnoses.includes(o.value)).map(o => o.label)
-        const txNames = Array.from(new Set([
-          ...MEDICAL_TREATMENT_OPTIONS.filter(o => o.value !== 'none' && formData.medicalTreatment.includes(o.value)).map(o => o.label),
-          ...TREATMENT_RECEIVED_OPTIONS.filter(o => idd.imaging.includes(o.value)).map(o => o.label),
-        ]))
-        const recoveryLabel = isDeceased ? '' : (RECOVERY_STATUS_OPTIONS.find(o => o.value === idd.recoveryStatus)?.label || '')
-        const hasAnySelection = bodyCount > 0 || treatmentsSelected > 0 || diagnosesSelected > 0 || symptomsSelected > 0
-        // Approximate marker coordinates on the body diagram (viewBox 0 0 140 250).
-        // Symmetric body parts (shoulders, hands/wrists, knees) mark both sides of
-        // the diagram; midline parts (head, neck, back, hip) mark a single point.
-        const bodyMarkers: Record<string, { cx: number; cy: number }[]> = {
-          head_concussion: [{ cx: 70, cy: 26 }],
-          neck: [{ cx: 70, cy: 50 }],
-          shoulder: [{ cx: 46, cy: 64 }, { cx: 94, cy: 64 }],
-          hand_wrist: [{ cx: 30, cy: 128 }, { cx: 110, cy: 128 }],
-          lower_back: [{ cx: 70, cy: 112 }],
-          hip: [{ cx: 70, cy: 138 }],
-          knee: [{ cx: 58, cy: 192 }, { cx: 82, cy: 192 }],
-          other: [{ cx: 70, cy: 92 }],
-        }
         const snapshotCards: { key: string; icon: LucideIcon; label: string; value: string; sub: string; tone: string; tip: string }[] = [
           { key: 'severity', icon: Star, label: tx('injuryDetails_metricSeverity'), value: sevLevel, sub: '★★★★★'.slice(0, sevStars) + '☆☆☆☆☆'.slice(0, 5 - sevStars), tone: sevScore >= 67 ? 'text-rose-600' : sevScore >= 34 ? 'text-amber-600' : 'text-emerald-600', tip: tx('injuryDetails_tipSeverity') },
           { key: 'doc', icon: FileText, label: tx('injuryDetails_metricDocumentation'), value: docLevel, sub: tx('injuryDetails_metricKeepBuilding'), tone: 'text-brand-600', tip: tx('injuryDetails_tipDocumentation') },
@@ -5011,100 +5032,7 @@ export default function IntakeWizardQuick() {
                 )}
           </div>
         )
-        const sidebar = (
-              // Injury overview + insights
-              <aside className="hidden space-y-4 lg:block lg:sticky lg:top-4 lg:self-start">
-                {/* Injury overview + body diagram — hidden on mobile to reduce scroll */}
-                <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900/40">
-                  <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">{tx('injuryDetails_overviewTitle')}</p>
-                  <div className="mt-3 flex justify-center">
-                    <svg viewBox="0 0 140 250" className="h-44 w-auto" role="img" aria-label={tx('injuryDetails_overviewTitle')}>
-                      <g className="fill-slate-200 dark:fill-slate-700">
-                        <circle cx="70" cy="26" r="15" />
-                        <rect x="64" y="40" width="12" height="11" rx="3" />
-                        <rect x="48" y="50" width="44" height="70" rx="14" />
-                        <rect x="31" y="54" width="14" height="72" rx="7" />
-                        <rect x="95" y="54" width="14" height="72" rx="7" />
-                        <rect x="52" y="116" width="36" height="26" rx="10" />
-                        <rect x="54" y="138" width="14" height="98" rx="7" />
-                        <rect x="72" y="138" width="14" height="98" rx="7" />
-                      </g>
-                      {formData.injuryDetails.bodyParts.map(part => {
-                        const points = bodyMarkers[part]
-                        if (!points) return null
-                        return (
-                          <g key={part}>
-                            {points.map((m, i) => (
-                              <g key={i}>
-                                <circle cx={m.cx} cy={m.cy} r="8" className="fill-brand-500/30" />
-                                <circle cx={m.cx} cy={m.cy} r="4.5" className="fill-brand-600 stroke-white" strokeWidth="1.5" />
-                              </g>
-                            ))}
-                          </g>
-                        )
-                      })}
-                    </svg>
-                  </div>
-                  {bodyNames.length > 0 ? (
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      {bodyNames.map(n => (
-                        <span key={n} className="inline-flex items-center gap-1 rounded-full bg-brand-50 px-2 py-0.5 text-[11px] font-medium text-brand-700 dark:bg-brand-500/10 dark:text-brand-300">
-                          <span className="h-1.5 w-1.5 rounded-full bg-brand-500" />{n}
-                        </span>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="mt-2 text-center text-xs text-gray-400">{tx('injuryDetails_overviewEmpty')}</p>
-                  )}
-                </div>
-
-                {/* Quick stats — only once there's data to count; desktop-only to cut mobile scroll */}
-                {showDetails && hasAnySelection && (
-                <div className="hidden rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900/40 lg:block">
-                  <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">{tx('injuryDetails_quickStats')}</p>
-                  <div className="mt-3 space-y-2">
-                    {[
-                      { label: tx('injuryDetails_statTreatments'), value: treatmentsSelected },
-                      { label: tx('injuryDetails_statDiagnoses'), value: diagnosesSelected },
-                      { label: tx('injuryDetails_statSymptoms'), value: symptomsSelected },
-                      { label: tx('injuryDetails_statLifeAreas'), value: lifeAreasSelected },
-                    ].map(({ label, value }) => (
-                      <div key={label} className="flex items-center justify-between text-sm">
-                        <span className="text-gray-600 dark:text-slate-400">{label}</span>
-                        <span className="font-display font-semibold text-gray-900 dark:text-slate-100">{value}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                )}
-
-                {/* Why this matters + tips (combined; desktop-only). Severity already appears in the snapshot bar above, so it's not repeated here. */}
-                {showDetails && (
-                <div className="hidden rounded-2xl border border-brand-200 bg-brand-50/60 p-4 dark:border-brand-500/30 dark:bg-brand-500/10 lg:block">
-                  <div className="flex items-center gap-2">
-                    <Scale className="h-4 w-4 text-brand-600" aria-hidden />
-                    <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">{tx('injuryDetails_whyMattersSidebar')}</p>
-                  </div>
-                  <ul className="mt-2 space-y-1.5 text-xs text-gray-600 dark:text-slate-400">
-                    {[tx('injuryDetails_whyBullet1'), tx('injuryDetails_whyBullet2'), tx('injuryDetails_whyBullet3'), tx('injuryDetails_whyBullet4')].map((b, i) => (
-                      <li key={i} className="flex items-start gap-2"><CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand-500" aria-hidden /><span>{b}</span></li>
-                    ))}
-                  </ul>
-                  <div className="mt-3 flex items-center gap-2 border-t border-brand-200/70 pt-3 dark:border-brand-500/20">
-                    <Lightbulb className="h-4 w-4 text-amber-500" aria-hidden />
-                    <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">{tx('injuryDetails_tipsTitle')}</p>
-                  </div>
-                  <ul className="mt-2 space-y-1.5 text-xs text-amber-900/90 dark:text-amber-200/80">
-                    {[tx('injuryDetails_tip1'), tx('injuryDetails_tip2'), tx('injuryDetails_tip3')].map((b, i) => (
-                      <li key={i} className="flex items-start gap-2"><span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />{b}</li>
-                    ))}
-                  </ul>
-                </div>
-                )}
-              </aside>
-        )
         if (part === 'optional') return injuryOptional
-        if (part === 'sidebar') return sidebar
         if (part === 'snapshot') return snapshotBar
         return severityQuestion
       }
@@ -6308,14 +6236,10 @@ export default function IntakeWizardQuick() {
         const timelineMonths = hasSurgery ? '12 – 24' : economicTotal > 30000 ? '9 – 18' : '7 – 14'
         const dvHasValue = mostLikely > 0
 
-        return (
-          <div className="space-y-4 border-t border-slate-200 pt-4 dark:border-slate-700">
-            <div className="grid gap-4 lg:grid-cols-2">
-              <div className="order-1">
-                <SectionHeader icon={DollarSign} accent="emerald" title={tx('financial_medicalCosts')} helper={tx('financial_medicalCostsHelper')} />
-
-                <p className="mt-3 font-display text-sm font-semibold text-slate-950 dark:text-slate-100">{tx('financial_billsSoFar')}</p>
-                <div className="mt-2 grid grid-cols-2 gap-2">
+        const billsQuestion = (
+              <div id={COSTS_ANCHOR_ID} className="scroll-mt-24">
+                <SectionHeader icon={DollarSign} accent="emerald" title={<>{tx('financial_billsSoFar')}<RequiredTag label={tx('required_tag')} /></>} helper={tx('financial_billsRequiredHelper')} />
+                <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
                   {medicalBillCards.map(({ value, label }) => {
                     const selected = icFinancial.medicalBillRange === value
                     const billIcons: Record<string, LucideIcon> = { under_2500: DollarSign, '2500_10000': DollarSign, '10000_50000': Briefcase, over_50000: Landmark, not_sure: HelpCircle }
@@ -6325,7 +6249,10 @@ export default function IntakeWizardQuick() {
                       key={value}
                       type="button"
                       aria-pressed={selected}
-                      onClick={() => updateForm({ insuranceCoverage: { ...icFinancial, medicalBillRange: icFinancial.medicalBillRange === value ? '' : value } })}
+                      onClick={() => {
+                        updateForm({ insuranceCoverage: { ...icFinancial, medicalBillRange: icFinancial.medicalBillRange === value ? '' : value } })
+                        setErrors(({ medicalBillRange: _cleared, ...rest }) => rest)
+                      }}
                       className={`relative flex flex-col items-center gap-1.5 rounded-xl border-[1.5px] px-3 py-3 text-center text-xs font-semibold shadow-sm transition-all active:scale-[0.99] ${selected ? 'border-brand-600 bg-brand-50 text-brand-900 shadow' : 'border-gray-200 bg-white text-gray-800 hover:border-brand-400 hover:bg-brand-50/50'}`}
                     >
                       <BIcon className={`h-5 w-5 ${selected ? 'text-brand-600' : 'text-slate-400'}`} aria-hidden />
@@ -6363,10 +6290,17 @@ export default function IntakeWizardQuick() {
                 {showCaseValueIncrease && (
                   <p className="mt-2 rounded-lg border border-emerald-100 bg-emerald-50 px-2 py-1.5 text-xs font-semibold text-emerald-800">↑ {tx('financial_valueSignal')}</p>
                 )}
-
+                {errors.medicalBillRange && (
+                  <p className="mt-2 text-xs text-red-600">{errors.medicalBillRange}</p>
+                )}
               </div>
+        )
+        if (part === 'bills') return billsQuestion
 
-              <div className="order-2 border-t border-slate-200 pt-4 dark:border-slate-700 lg:border-l lg:border-t-0 lg:pl-4 lg:pt-0">
+        return (
+          <div className="space-y-4 border-t border-slate-200 pt-4 dark:border-slate-700">
+            <div className="grid gap-4 lg:grid-cols-2">
+              <div>
                 <SectionHeader icon={Briefcase} accent="brand" title={tx('financial_workImpact')} helper={tx('financial_workImpactHelper')} />
                 <div className="mt-3 grid grid-cols-2 gap-2">
                   {MISSED_WORK_OPTIONS.map(({ value, label }) => {
@@ -6428,10 +6362,7 @@ export default function IntakeWizardQuick() {
                 )}
 
               </div>
-            </div>
-
-            <div className="grid gap-4 border-t border-slate-200 pt-4 dark:border-slate-700 lg:grid-cols-2">
-              <div>
+              <div className="border-t border-slate-200 pt-4 dark:border-slate-700 lg:border-l lg:border-t-0 lg:pl-4 lg:pt-0">
                 <SectionHeader icon={Receipt} accent="brand" title={tx('financial_outOfPocket')} helper={tx('financial_outOfPocketHelper')} />
                 <div className="mt-3 grid grid-cols-2 gap-2">
                   {OUT_OF_POCKET_RANGE_OPTIONS.map(({ value, label }) => {
@@ -6605,8 +6536,8 @@ export default function IntakeWizardQuick() {
           const planPct = Math.round((planDone / planItems.length) * 100)
           const whatNextSteps = [tx('next_s1'), tx('next_s2'), tx('next_s3'), tx('next_s4'), tx('next_s5')]
 
-          const renderCard = (opts: { title: string; icon: LucideIcon; step: Step; count?: string; children: ReactNode }) => {
-            const { title, icon: Icon, step, count, children } = opts
+          const renderCard = (opts: { title: string; icon: LucideIcon; step: Step; anchorId?: string; count?: string; children: ReactNode }) => {
+            const { title, icon: Icon, step, anchorId, count, children } = opts
             return (
               <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
                 <div className="flex items-center justify-between gap-2">
@@ -6614,10 +6545,10 @@ export default function IntakeWizardQuick() {
                     <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-600 dark:bg-brand-900/40"><Icon className="h-4 w-4" aria-hidden /></span>
                     <span className="truncate">{title}</span>
                   </span>
-                  <button type="button" onClick={() => editReviewStep(step)} className="inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold text-brand-600 hover:text-brand-700"><Pencil className="h-3 w-3" aria-hidden />{tx('review_edit')}</button>
+                  <button type="button" onClick={() => editReviewStep(step, anchorId)} className="inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold text-brand-600 hover:text-brand-700"><Pencil className="h-3 w-3" aria-hidden />{tx('review_edit')}</button>
                 </div>
                 <div className="mt-2 space-y-1 text-[13px] leading-snug text-gray-600 dark:text-slate-300">{children}</div>
-                <button type="button" onClick={() => editReviewStep(step)} className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-700">{count || tx('card_viewDetails')} <ChevronRight className="h-3 w-3" aria-hidden /></button>
+                <button type="button" onClick={() => editReviewStep(step, anchorId)} className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-700">{count || tx('card_viewDetails')} <ChevronRight className="h-3 w-3" aria-hidden /></button>
               </div>
             )
           }
@@ -6637,10 +6568,10 @@ export default function IntakeWizardQuick() {
               {renderCard({ title: tx('card_incident'), icon: Car, step: 'when', children: (
                 <>{incidentLines.map((l, i) => <p key={i} className="truncate">{l}</p>)}</>
               ) })}
-              {renderCard({ title: tx('card_injury'), icon: HeartPulse, step: 'injury_severity', count: injuryCount > 0 ? `${tx('card_viewAllInjuries')} (${injuryCount})` : undefined, children: (
+              {renderCard({ title: tx('card_injury'), icon: HeartPulse, step: 'injury_severity', anchorId: injuryCount > 0 ? undefined : INJURY_ANCHOR_ID, count: injuryCount > 0 ? `${tx('card_viewAllInjuries')} (${injuryCount})` : undefined, children: (
                 <>{injuryLines.length ? injuryLines.map((l, i) => <p key={i} className="flex items-center gap-1.5"><CheckCircle2 className="h-3 w-3 shrink-0 text-brand-500" aria-hidden /><span className="truncate">{l}</span></p>) : <p>{tx('notAnsweredYet')}</p>}</>
               ) })}
-              {renderCard({ title: tx('card_financial'), icon: DollarSign, step: 'financial_impact', children: (
+              {renderCard({ title: tx('card_financial'), icon: DollarSign, step: 'financial_impact', anchorId: COSTS_ANCHOR_ID, children: (
                 hasAnyFinancial ? (
                 <>{financialLines.map((row) => (
                   <p key={row.k} className="flex items-center justify-between gap-2">
@@ -6659,7 +6590,7 @@ export default function IntakeWizardQuick() {
                     </p>
                     <button
                       type="button"
-                      onClick={() => editReviewStep('financial_impact')}
+                      onClick={() => editReviewStep('financial_impact', COSTS_ANCHOR_ID)}
                       className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-amber-600"
                     >
                       <DollarSign className="h-3.5 w-3.5" aria-hidden />
@@ -6774,30 +6705,31 @@ export default function IntakeWizardQuick() {
       const hasOptionalAnswers =
         idd.bodyParts.length > 0 || idd.diagnoses.length > 0 || idd.currentSymptoms.length > 0 ||
         !!idd.recoveryStatus || idd.futureTreatment.length > 0 || !!formData.emsResponded ||
-        !!ic.medicalBillRange || !!ic.outOfPocketRange || !!cp.missedWork || !!cp.faultBelief || !!cp.acceptedSettlement
+        !!ic.outOfPocketRange || !!cp.missedWork || !!cp.acceptedSettlement
       return (
         <div className="space-y-6">
-          <RequiredSummary text={tx('required_summary').replace('{count}', '3')} />
-          <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_19rem]">
-            <div className="min-w-0 space-y-6">
-              {renderStepContent('injury_severity')}
-              {renderStepContent('when', 'treatment')}
-              {renderInsuranceStatus('attorney')}
-              <OptionalSection
-                title={tx('optional_estimate_title')}
-                hint={tx('optional_estimate_hint')}
-                optionalLabel={tx('optional_tag')}
-                defaultOpen={hasOptionalAnswers}
-              >
-                <div className="space-y-4">
-                  {renderStepContent('when', 'careExtras')}
+          <RequiredSummary text={tx('required_summary').replace('{count}', '5')} />
+          <div className="min-w-0 space-y-6">
+            {renderStepContent('injury_severity')}
+            {renderStepContent('when', 'treatment')}
+            {renderStepContent('financial_impact', 'bills')}
+            {renderInsuranceStatus('fault')}
+            {renderInsuranceStatus('attorney')}
+            <OptionalSection
+              title={tx('optional_estimate_title')}
+              hint={tx('optional_estimate_hint')}
+              optionalLabel={tx('optional_tag')}
+              defaultOpen={hasOptionalAnswers || reviewJump === INJURY_ANCHOR_ID}
+            >
+              <div className="space-y-4">
+                {renderStepContent('when', 'careExtras')}
+                <div id={INJURY_ANCHOR_ID} className="scroll-mt-4">
                   {renderStepContent('injury_severity', 'optional')}
-                  {renderStepContent('financial_impact')}
-                  {renderInsuranceStatus()}
                 </div>
-              </OptionalSection>
-            </div>
-            {renderStepContent('injury_severity', 'sidebar')}
+                {renderStepContent('financial_impact')}
+                {renderInsuranceStatus()}
+              </div>
+            </OptionalSection>
           </div>
         </div>
       )
