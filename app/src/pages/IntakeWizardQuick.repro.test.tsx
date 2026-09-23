@@ -1,8 +1,8 @@
 /**
- * Repro for the reported mobile white screen: dog bite intake, Step 2 filled,
- * the initial-care block answered, then Next to Step 3 (injury_severity). A
- * white screen means a render-time crash, so these tests mount the wizard and
- * fail on any thrown error.
+ * Walks the three-screen intake end to end: a dog bite with its date, ZIP and
+ * contact on the first screen, then the injuries screen's required questions,
+ * then the review. The original repro was a mobile white screen on reaching the
+ * injuries screen, so every render also fails the test on a thrown error.
  */
 import { it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createRoot, type Root } from 'react-dom/client'
@@ -13,14 +13,10 @@ import en from '../i18n/locales/en-app.json'
 import IntakeWizardQuick from './IntakeWizardQuick'
 
 /**
- * The step 2 answers that satisfy its medical block, read from the dictionary
- * the wizard renders from rather than repeated as copy. This test spent a while
- * red for two reasons at once: the option it clicked was reworded from "ER
- * visit" to "Emergency room", and the block itself was redesigned from a
- * multi-select of treatment types into a where-and-when pair. Neither had
- * anything to do with the render crash the test exists to catch.
+ * Labels are read from the dictionary the wizard renders from rather than
+ * repeated as copy, so rewording an option does not fail a test about flow.
  */
-const INITIAL_CARE_ANSWERS = [en.intake.treatment_er, en.intake.careTiming_sameDay]
+const TREATMENT_ANSWER = en.intake.treatment_er
 
 vi.mock('../lib/api-plaintiff', () => ({
   createAssessment: vi.fn(async () => ({ id: 'a1' })),
@@ -170,64 +166,101 @@ function localIsoToday(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-it('full flow: dog bite -> step 2 -> validation error -> initial care -> step 3 renders', async () => {
+function within(id: string): HTMLElement {
+  const el = document.getElementById(id)
+  if (!el) throw new Error(`#${id} is not on screen`)
+  return el
+}
+
+function buttonIn(id: string, text: string): HTMLButtonElement {
+  const match = Array.from(within(id).querySelectorAll('button')).find((b) => (b.textContent || '').includes(text))
+  if (!match) throw new Error(`No button containing ${text} in #${id}`)
+  return match as HTMLButtonElement
+}
+
+function expectNoCrash() {
+  expect(uncaught, `render crashed: ${uncaught.map((e) => (e as Error)?.stack ?? String(e)).join('\n')}`).toEqual([])
+}
+
+it('three screens: what happened -> injuries & costs -> review', async () => {
   await mount()
   await flush(100)
 
-  // Step 1: pick "Animal bite / attack", then subtype "Dog bite".
+  // Screen 1 holds the incident type and the date, ZIP and contact together.
+  expect(document.body.textContent).toContain(en.intake.stepHeading_whatHappened)
+  expect(document.body.textContent).toContain(en.intake.required_summary.replace('{count}', '4'))
+  expect(document.getElementById('incident-exact-date')).toBeTruthy()
+  expect(document.getElementById('contact-email')).toBeTruthy()
+
   await click(buttonWithText('Animal bite / attack'))
   await flush(50)
   await click(buttonWithText('Dog bite'))
-  // Subtype confirm may auto-advance after a collapse delay.
-  await flush(1200)
-  if (!document.body.textContent?.includes('When did the incident happen?')) {
-    await click(buttonWithText('Next'))
-    await flush(400)
-  }
-  expect(document.body.textContent).toContain('When did the incident happen?')
+  // Choosing a subtype must not jump ahead now that the rest of the screen is required.
+  await flush(700)
+  expect(document.body.textContent).toContain(en.intake.stepHeading_whatHappened)
+  expect(document.body.textContent).not.toContain(en.intake.stepHeading_injuriesCosts)
 
-  // Step 2: current date, a Contra Costa ZIP, narrative.
-  const dateInput = document.getElementById('incident-exact-date') as HTMLInputElement
-  expect(dateInput).toBeTruthy()
-  await change(dateInput, localIsoToday())
+  // Next with only the type answered stays put and names what is missing.
+  await click(buttonWithText('Next'))
+  await flush(100)
+  expect(document.body.textContent).toContain(en.intake.error_enterDate)
+  expect(document.body.textContent).toContain(en.intake.contact_required)
 
+  await change(document.getElementById('incident-exact-date') as HTMLInputElement, localIsoToday())
   await change(document.getElementById('intake-zip') as HTMLInputElement, '94520')
   await flush(50)
   expect(document.body.textContent).toContain('Contra Costa, CA')
-
-  const narrative = Array.from(document.querySelectorAll('textarea'))[0]
-  expect(narrative, 'narrative textarea not found').toBeTruthy()
-  await change(narrative, 'Random description text for the dog attack repro.')
-  await flush(50)
-
   await change(document.getElementById('contact-email') as HTMLInputElement, 'repro@example.com')
   await flush(50)
 
-  // Next without treatment: must show the validation error, stay on step 2.
-  await click(buttonWithText('Next'))
-  await flush(100)
-  expect(document.body.textContent).toContain('Please select at least one option')
+  // The story is optional and collapsed until asked for.
+  expect(document.querySelector('textarea')).toBeNull()
+  await click(buttonWithText(en.intake.optional_story_title))
+  const narrative = document.querySelector('textarea') as HTMLTextAreaElement
+  expect(narrative, 'narrative textarea not found').toBeTruthy()
+  await change(narrative, 'Random description text for the dog attack repro.')
 
-  // Answer the initial-care block. It asks where care began and how soon it
-  // started; it used to be a multi-select list of treatment types, which is
-  // what this test was clicking through before.
-  for (const label of INITIAL_CARE_ANSWERS) {
-    await click(buttonWithText(label))
-    await flush(20)
-  }
-
-  // Next -> Step 3. This is where the white screen was reported.
   await click(buttonWithText('Next'))
   await flush(500)
+  expectNoCrash()
 
-  expect(uncaught, `render crashed: ${uncaught.map((e) => (e as Error)?.stack ?? String(e)).join('\n')}`).toEqual([])
-  expect(document.body.textContent).toContain('Your Injuries & Treatment')
-  // The step content should actually be visible, not an empty panel with only
-  // the wizard chrome. Counted rather than named, so rewording an option here
-  // does not fail a test about whether the step renders at all.
-  const chrome = ['Back', 'Next', 'Start over']
-  const options = Array.from(document.querySelectorAll('button')).filter(
-    (b) => !chrome.includes((b.textContent || '').trim()),
-  )
-  expect(options.length).toBeGreaterThan(0)
+  // Screen 2: severity, treatment and lawyer are required; the rest is collapsed.
+  expect(document.body.textContent).toContain(en.intake.stepHeading_injuriesCosts)
+  expect(document.body.textContent).toContain(en.intake.optional_estimate_title)
+  expect(document.body.textContent).not.toContain(en.intake.financial_outOfPocket)
+
+  await click(buttonWithText(en.intake.cta_continueReview))
+  await flush(100)
+  expect(document.body.textContent).toContain(en.intake.treatment_required)
+  expect(document.body.textContent).toContain(en.intake.legal_attorneyRequired)
+
+  await click(within('intake-severity').querySelector('button')!)
+  await click(buttonIn('intake-treatment', TREATMENT_ANSWER))
+  await click(buttonIn('intake-attorney-status', en.intake.optionNo))
+  await flush(20)
+
+  // Opening the optional group shows the money questions without making them required.
+  await click(buttonWithText(en.intake.optional_estimate_title))
+  expect(document.body.textContent).toContain(en.intake.financial_outOfPocket)
+
+  await click(buttonWithText(en.intake.cta_continueReview))
+  await flush(500)
+  expectNoCrash()
+
+  // Screen 3: the review, with the report button.
+  expect(document.body.textContent).toContain(en.intake.stepHeading_review)
+  expect(document.body.textContent).toContain(en.intake.cta_generateReport)
+  expect(document.body.textContent).toContain(en.intake.step + ' 3 ' + en.intake.of + ' 3')
+}, 20000)
+
+it('resumes an old draft saved on a retired step onto the screen that now asks it', async () => {
+  localStorage.setItem('intake_quick_draft_v2', JSON.stringify({
+    formData: { injuryType: 'vehicle' },
+    currentStep: 'financial_impact',
+    furthestReachedStepIndex: 3,
+  }))
+  await mount()
+  await flush(100)
+  expectNoCrash()
+  expect(document.body.textContent).toContain(en.intake.stepHeading_injuriesCosts)
 }, 20000)

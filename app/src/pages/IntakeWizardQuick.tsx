@@ -4,7 +4,7 @@
 import { Fragment, useState, useEffect, useLayoutEffect, useRef, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
-import { createAssessment, previewAssessmentValuation, predict, uploadEvidenceFile, processEvidenceFile, extractEvidenceData, analyzeCaseWithChatGPT, calculateSOL, createIntakeLead, updateIntakeLead, getIntakeLead, getEvidenceFiles, lookupZipCounties, type IntakeLeadPayload, type AssessmentValuationPreview } from '../lib/api-plaintiff'
+import { createAssessment, predict, uploadEvidenceFile, processEvidenceFile, extractEvidenceData, analyzeCaseWithChatGPT, calculateSOL, createIntakeLead, updateIntakeLead, getIntakeLead, getEvidenceFiles, lookupZipCounties, type IntakeLeadPayload } from '../lib/api-plaintiff'
 import { deleteEvidenceFile, extractIncidentDetails, type IncidentExtraction } from '../lib/api'
 import { ChevronRight, ChevronLeft, ChevronDown, Car, Footprints, HardHat, Stethoscope, HelpCircle, Check, X, MapPin, Building2, Camera, Video, FileText, Shield, Mail, Phone, DollarSign, Dog, Package, AlertTriangle, Droplets, CalendarDays, Hospital, Scissors, Ambulance, PersonStanding, Scan, Syringe, Pill, Lock, MessageSquare, Info, CheckCircle2, Save, ShieldCheck, Users, HeartPulse, Activity, Bone, CalendarClock, Ban, BedDouble, Moon, Dumbbell, Bike, Truck, User, Briefcase, Landmark, CornerUpLeft, Receipt, Wine, RotateCw, XCircle, Clock, UserX, Lightbulb, ClipboardCheck, Umbrella, Pencil, FolderOpen, Scale, Star, Sparkles, TrendingUp, Brain, Upload, CalendarCheck, History, Hand, CircleDot, type LucideIcon } from 'lucide-react'
 import InlineEvidenceUpload from '../components/InlineEvidenceUpload'
@@ -779,43 +779,55 @@ const WHO_CAUSED_OPTIONS = [
 ]
 
 /**
- * The intake2 funnel: 5 steps.
- * - Incident & Location absorbs the old "case details" screen + a compact fault question.
- * - "Your Injuries & Treatment" merges the severity + injury-details screens.
- * - Evidence upload and the full legal/insurance screen are deferred to post-report.
+ * The intake2 funnel: 3 screens.
+ * - "What happened" asks the incident type, date, ZIP and a way to reach the
+ *   claimant; the story and who was hurt are optional.
+ * - "Your injuries & costs" asks severity, treatment so far and whether a lawyer
+ *   is already involved; everything that only sharpens the estimate is optional.
+ * - "Review" confirms and collects consent.
+ * The other section keys still exist as render blocks composed onto these screens.
  */
 const STEPS_V2: { key: Step; title: string }[] = [
-  { key: 'injury_type', title: 'Injury Type' },
-  { key: 'when', title: 'Incident & Location' },
-  { key: 'injury_severity', title: 'Your Injuries & Treatment' },
-  { key: 'financial_impact', title: 'Damages & Insurance' },
-  { key: 'consent', title: 'Review & Consent' },
+  { key: 'injury_type', title: 'What happened' },
+  { key: 'injury_severity', title: 'Your injuries & costs' },
+  { key: 'consent', title: 'Review' },
 ]
 
 /**
- * These standalone steps are folded into a host step's screen. Used to remap
- * "Edit" jumps from the review card so navigation indexes stay valid.
+ * Section keys that render on a host screen rather than as their own step. Used
+ * to remap "Edit" jumps and saved steps so navigation indexes stay valid.
  */
 const V2_MERGED_INTO: Partial<Record<Step, Step>> = {
-  case_details: 'when',
-  legal_status: 'financial_impact',
-  evidence: 'when',
+  when: 'injury_type',
+  narrative: 'injury_type',
+  case_details: 'injury_type',
+  evidence: 'injury_type',
   injury_details: 'injury_severity',
+  financial_impact: 'injury_severity',
+  legal_status: 'injury_severity',
 }
 
 /** Steps that have no questions for a given injury type are skipped entirely. */
 const HIDDEN_STEPS_BY_INJURY: Record<string, Step[]> = {}
 
-/** Steps from older drafts that were merged into a single screen. */
+/** Steps from older drafts and links, mapped to the screen that now asks them. */
 const LEGACY_STEP_MAP: Record<string, Step> = {
-  where: 'when',
-  narrative: 'when',
-  contact: 'when',
-  medical_treatment: 'when',
-  branch_7: 'case_details',
-  branch_8: 'case_details',
-  branch_9: 'case_details',
-  branch_10: 'case_details',
+  where: 'injury_type',
+  narrative: 'injury_type',
+  contact: 'injury_type',
+  medical_treatment: 'injury_severity',
+  branch_7: 'injury_type',
+  branch_8: 'injury_type',
+  branch_9: 'injury_type',
+  branch_10: 'injury_type',
+  review: 'consent',
+}
+
+/** Resolves a saved or linked step name to one of the current screens. */
+function resolveStepKey(raw: string): Step | '' {
+  if (!raw) return ''
+  const legacy = LEGACY_STEP_MAP[raw] ?? (raw as Step)
+  return V2_MERGED_INTO[legacy] ?? legacy
 }
 
 // Shared section header: a colored rounded badge (icon or number) + title + optional helper.
@@ -843,6 +855,64 @@ function SectionHeader({ icon: Icon, number, title, helper, accent = 'brand' }: 
         {helper && <p className="mt-0.5 text-xs leading-5 text-gray-500 dark:text-slate-400">{helper}</p>}
       </div>
     </div>
+  )
+}
+
+/** Marks a question the claimant must answer to continue. */
+function RequiredTag({ label }: { label: string }) {
+  return (
+    <span className="ml-1 inline-flex items-center rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-bold uppercase leading-none tracking-wide text-red-700 ring-1 ring-inset ring-red-200 dark:bg-red-500/10 dark:text-red-300 dark:ring-red-500/30">
+      {label}
+    </span>
+  )
+}
+
+/**
+ * Collapsed group holding every question on a screen that only sharpens the
+ * estimate. Opens by itself when the claimant has already answered something in
+ * it, so a resumed draft never hides their answers.
+ */
+function OptionalSection({ title, hint, optionalLabel, defaultOpen = false, children }: {
+  title: string
+  hint: string
+  optionalLabel: string
+  defaultOpen?: boolean
+  children: ReactNode
+}) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <section className="rounded-2xl border border-dashed border-slate-300 bg-slate-50/60 dark:border-slate-600 dark:bg-slate-800/30">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen(value => !value)}
+        className="flex w-full items-center justify-between gap-3 rounded-2xl px-4 py-3 text-left transition-colors hover:bg-slate-100/70 dark:hover:bg-slate-800/60"
+      >
+        <span className="min-w-0">
+          <span className="flex flex-wrap items-center gap-2 font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100">
+            {title}
+            <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-bold uppercase leading-none tracking-wide text-slate-600 dark:bg-slate-700 dark:text-slate-300">{optionalLabel}</span>
+          </span>
+          <span className="mt-1 block text-xs leading-snug text-gray-500 dark:text-slate-400">{hint}</span>
+        </span>
+        <ChevronDown className={`h-5 w-5 shrink-0 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden />
+      </button>
+      {open && (
+        <div className="border-t border-dashed border-slate-300 px-4 pb-4 pt-4 dark:border-slate-600">
+          {children}
+        </div>
+      )}
+    </section>
+  )
+}
+
+/** One line at the top of a screen saying how much of it is actually required. */
+function RequiredSummary({ text }: { text: string }) {
+  return (
+    <p className="flex items-center justify-center gap-1.5 text-center text-xs font-medium text-slate-600 dark:text-slate-300">
+      <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-brand-600" aria-hidden />
+      {text}
+    </p>
   )
 }
 
@@ -980,8 +1050,10 @@ export default function IntakeWizardQuick() {
     try {
       const sp = new URLSearchParams(window.location.search)
       const urlStep = sp.get('step')
-      const validSteps: string[] = ['injury_type', 'when', 'narrative', 'injury_severity', 'injury_details', 'case_details', 'evidence', 'financial_impact', 'legal_status', 'review', 'consent']
-      if (urlStep && validSteps.includes(urlStep)) return urlStep as Step
+      // Documents mode keeps its own 'evidence' view, so leave that key alone.
+      if (urlStep === 'evidence') return 'evidence'
+      const resolved = resolveStepKey(urlStep || '')
+      if (resolved && STEPS_V2.some(s => s.key === resolved)) return resolved
     } catch { /* ignore */ }
     return 'injury_type'
   })
@@ -1017,7 +1089,6 @@ export default function IntakeWizardQuick() {
   // engine. Null until it arrives, and left null if the request fails: showing
   // nothing is right, whereas the figure this replaced was a local formula that
   // contradicted the band on the very next screen.
-  const [valuationPreview, setValuationPreview] = useState<AssessmentValuationPreview | null>(null)
   // Tracks which uploaded files have already been sent for extraction so we don't re-OCR them.
   const extractedFileSigRef = useRef<Map<string, { total: number; amounts: string[]; weeklyIncome?: number }>>(new Map())
   // Name-only identity consistency: the patient/person name extracted from each
@@ -1184,21 +1255,19 @@ export default function IntakeWizardQuick() {
               ? !!formData.otherInjuryDescription.trim()
               : !!formData.incidentSubtype)
           : true
-        const total = 1 + (needsSubtype ? 1 : 0)
-        const filled = (formData.injuryType ? 1 : 0) + (needsSubtype && subtypeOk ? 1 : 0)
-        return filled / total
-      }
-      case 'when': {
         const preset = formData.incidentDatePreset
         const dateOk = !!preset && (preset === 'custom' ? !!customDate : preset === 'month_year' ? !!formData.incidentDate : true)
-        const checks = [dateOk, !!formData.venue.state, !!formData.venue.county?.trim(), formData.medicalTreatment.length > 0]
+        const checks = [
+          !!formData.injuryType,
+          ...(needsSubtype ? [subtypeOk] : []),
+          dateOk,
+          !!formData.venue.state && !!formData.venue.county?.trim(),
+          !!formData.contact.email.trim() || !!formData.contact.phone.trim(),
+        ]
         return checks.filter(Boolean).length / checks.length
       }
-      case 'injury_severity':
-        return formData.injurySeverity ? 1 : 0
-      case 'financial_impact': {
-        const ic = formData.insuranceCoverage
-        const checks = [!!ic.medicalBillRange, !!ic.futureMedicalRange, !!formData.casePosture.attorneyStatus]
+      case 'injury_severity': {
+        const checks = [!!formData.injurySeverity, formData.medicalTreatment.length > 0, !!formData.casePosture.attorneyStatus]
         return checks.filter(Boolean).length / checks.length
       }
       case 'consent': {
@@ -1271,9 +1340,9 @@ export default function IntakeWizardQuick() {
           // A step in the URL (shared/copied assessment link) wins over the lead's
           // last saved step so reopening the same URL lands on that step (CP-518).
           const urlStepRaw = new URLSearchParams(window.location.search).get('step') || ''
-          const urlStep = urlStepRaw ? (LEGACY_STEP_MAP[urlStepRaw] ?? urlStepRaw) : ''
+          const urlStep = resolveStepKey(urlStepRaw)
           const leadStep = typeof lead.currentStep === 'string'
-            ? (LEGACY_STEP_MAP[lead.currentStep] ?? lead.currentStep)
+            ? resolveStepKey(lead.currentStep)
             : undefined
           const restoredStep = (urlStep && validKeys.includes(urlStep as Step)) ? urlStep : leadStep
           if (restoredStep && validKeys.includes(restoredStep as Step)) {
@@ -1297,7 +1366,7 @@ export default function IntakeWizardQuick() {
                 }))
                 if (typeof draft.customDate === 'string') setCustomDate(draft.customDate)
                 if (typeof draft.furthestReachedStepIndex === 'number') {
-                  setFurthestReachedStepIndex(draft.furthestReachedStepIndex)
+                  setFurthestReachedStepIndex(Math.min(draft.furthestReachedStepIndex, STEPS_V2.length - 1))
                 }
               }
             }
@@ -1357,16 +1426,16 @@ export default function IntakeWizardQuick() {
           // fresh tab resumes at the same step instead of the draft's last step
           // (CP-518). Fall back to the draft step when the URL has no ?step=.
           const urlStepRaw = new URLSearchParams(window.location.search).get('step') || ''
-          const urlStep = urlStepRaw ? (LEGACY_STEP_MAP[urlStepRaw] ?? urlStepRaw) : ''
+          const urlStep = resolveStepKey(urlStepRaw)
           const draftStep = typeof draft.currentStep === 'string'
-            ? (LEGACY_STEP_MAP[draft.currentStep] ?? draft.currentStep)
+            ? resolveStepKey(draft.currentStep)
             : undefined
           const restoredStep = (urlStep && validKeys.includes(urlStep as Step)) ? urlStep : draftStep
           if (restoredStep && validKeys.includes(restoredStep as Step)) {
             setCurrentStep(restoredStep as Step)
           }
           if (typeof draft.furthestReachedStepIndex === 'number') {
-            setFurthestReachedStepIndex(draft.furthestReachedStepIndex)
+            setFurthestReachedStepIndex(Math.min(draft.furthestReachedStepIndex, STEPS_V2.length - 1))
           }
           if (typeof draft.leadId === 'string' && draft.leadId) {
             leadIdRef.current = draft.leadId
@@ -2409,7 +2478,7 @@ export default function IntakeWizardQuick() {
         setSubtypePanelOpen(true)
       }
     }
-    if (currentStep === 'when') {
+    if (currentStep === 'injury_type') {
       const preset = formData.incidentDatePreset
       const today = isoToday()
       if (!preset) {
@@ -2434,13 +2503,12 @@ export default function IntakeWizardQuick() {
       else if (email && emailDeliverable === 'bad') err.contactEmail = tx('contact_emailUndeliverable')
       const phoneError = validatePhoneField(formData.contact.phone)
       if (phoneError) err.contactPhone = tx('contact_phoneError')
-      // intake2 requires a treatment answer ("No treatment yet" counts).
-      if (formData.medicalTreatment.length === 0) err.medicalTreatment = tx('treatment_required')
     }
-    if (currentStep === 'injury_severity' && !formData.injurySeverity) err.injurySeverity = t('intake.selectSeverity')
-    if (currentStep === 'financial_impact' && !formData.casePosture?.attorneyStatus) {
-      err.attorneyStatus = tx('legal_attorneyRequired')
-      document.getElementById('intake-attorney-status')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    if (currentStep === 'injury_severity') {
+      if (!formData.injurySeverity) err.injurySeverity = t('intake.selectSeverity')
+      // "No treatment yet" counts as an answer.
+      if (formData.medicalTreatment.length === 0) err.medicalTreatment = tx('treatment_required')
+      if (!formData.casePosture?.attorneyStatus) err.attorneyStatus = tx('legal_attorneyRequired')
     }
     if (currentStep === 'consent') {
       const c = formData.consents || {}
@@ -2450,7 +2518,7 @@ export default function IntakeWizardQuick() {
     }
     setErrors(err)
     if (Object.keys(err).length > 0) return
-    if (currentStep === 'when' && (formData.contact.email.trim() || formData.contact.phone.trim())) {
+    if (currentStep === 'injury_type' && (formData.contact.email.trim() || formData.contact.phone.trim())) {
       void syncLead()
     }
     if (returnToReviewFromStep === currentStep) {
@@ -2714,42 +2782,6 @@ export default function IntakeWizardQuick() {
     return payload
   }
 
-  // Ask the engine what the case is worth as the claimant reaches the last step,
-  // sending the payload submit would send. Refires if they go back and edit, so
-  // the figure tracks their answers.
-  useEffect(() => {
-    if (currentStep !== 'consent') return
-
-    let cancelled = false
-
-    // Assembling the payload reads fields the earlier steps validate, but a
-    // preview must not be the thing that breaks intake if one is somehow
-    // missing, so a throw here is treated like a failed request.
-    let payload: ReturnType<typeof buildAssessmentPayload> | null = null
-    try {
-      payload = buildAssessmentPayload(formData.consents || { tos: false, privacy: false, ml_use: false })
-    } catch {
-      setValuationPreview(null)
-      return
-    }
-
-    previewAssessmentValuation(payload)
-      .then((preview) => {
-        if (!cancelled) setValuationPreview(preview)
-      })
-      .catch(() => {
-        // Deliberately silent and deliberately empty. A preview is not worth
-        // interrupting intake over, and the one thing it must not do is fall
-        // back to a figure of its own.
-        if (!cancelled) setValuationPreview(null)
-      })
-
-    return () => {
-      cancelled = true
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentStep])
-
   const handleSubmit = async () => {
     // The assessment was already created but some documents failed: retry uploads instead of re-submitting.
     if (assessmentId) {
@@ -2758,14 +2790,14 @@ export default function IntakeWizardQuick() {
     }
     if (!formData.contact.email.trim() && !formData.contact.phone.trim()) {
       setErrors({ contact: tx('contact_required') })
-      setReturnToReviewFromStep('when')
-      setCurrentStep('when')
+      setReturnToReviewFromStep('injury_type')
+      setCurrentStep('injury_type')
       return
     }
     if (!formData.casePosture?.attorneyStatus) {
       setErrors({ attorneyStatus: tx('legal_attorneyRequired') })
-      setReturnToReviewFromStep('financial_impact')
-      setCurrentStep('financial_impact')
+      setReturnToReviewFromStep('injury_severity')
+      setCurrentStep('injury_severity')
       return
     }
     const consents = formData.consents || { tos: false, privacy: false, ml_use: false }
@@ -3236,10 +3268,12 @@ export default function IntakeWizardQuick() {
       case 'injury_type':
         return !!formData.injuryType
       case 'when':
-        return !!formData.incidentDatePreset || !!formData.incidentDate || !!formData.venue.state || !!formData.venue.county || !!formData.venue.city || formData.medicalTreatment.length > 0
+        return !!formData.incidentDatePreset || !!formData.incidentDate || !!formData.venue.state || !!formData.venue.county || !!formData.venue.city
       case 'injury_severity':
         return (
           !!formData.injurySeverity ||
+          formData.medicalTreatment.length > 0 ||
+          !!formData.casePosture.attorneyStatus ||
           formData.injuryDetails.bodyParts.length > 0
         )
       case 'injury_details':
@@ -3337,14 +3371,14 @@ export default function IntakeWizardQuick() {
   const renderSaveProgress = () => {
     const emailSuggestion = suggestEmail(formData.contact.email)
     return (
-    <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
+    <div id="intake-contact" className="scroll-mt-24">
       <div className="flex items-start gap-2.5">
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-          <Save className="h-4 w-4" aria-hidden />
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-600 dark:bg-brand-500/15 dark:text-brand-300">
+          <Mail className="h-4 w-4" aria-hidden />
         </span>
         <div className="min-w-0">
-          <p className="text-sm font-semibold text-gray-700 dark:text-slate-200">{tx('contact_saveTitle')}</p>
-          <p className="mt-0.5 text-xs leading-snug text-gray-500">{tx('contact_saveDesc')}</p>
+          <p className="flex flex-wrap items-center gap-1.5 font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100">{tx('contact_requiredTitle')}<RequiredTag label={tx('required_tag')} /></p>
+          <p className="mt-0.5 text-xs leading-snug text-gray-500">{tx('contact_requiredDesc')}</p>
         </div>
       </div>
       <div className="mt-2 space-y-2 sm:pl-[2.375rem]">
@@ -3458,7 +3492,7 @@ export default function IntakeWizardQuick() {
 
   // Insurance & Representation (+ optional insurance details). Extracted so it can be
   // merged into the "Damages & Insurance" step. Renders standalone (no liability column).
-  const renderInsuranceStatus = () => {
+  const renderInsuranceStatus = (part?: 'attorney') => {
         const icLegal = formData.insuranceCoverage
         const cpLegal = formData.casePosture || {}
         const setInsuranceField = (field: string, value: string) =>
@@ -3566,74 +3600,10 @@ export default function IntakeWizardQuick() {
           no: { Icon: XCircle, sub: tx('pip_no_sub'), wrap: 'bg-rose-100 text-rose-500' },
           not_sure: { Icon: HelpCircle, sub: tx('pip_notSure_sub'), wrap: 'bg-slate-100 text-slate-500' },
         }
-    return (
-      <div className="space-y-3">
-              {/* ===== Insurance Card ===== */}
-              <section className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
-                <div className="flex min-w-0 items-center gap-2.5">
-                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white"><ShieldCheck className="h-4 w-4" aria-hidden /></span>
-                  <div className="min-w-0">
-                    <h3 className="font-display text-base font-bold text-gray-900 dark:text-slate-100 sm:text-lg">{tx('card_insurance')}</h3>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">{tx('insurance_subtitle')}</p>
-                  </div>
-                </div>
-
-                <div className="mt-4 min-w-0">
-                  {/* Other party insurance */}
-                  <div className="min-w-0 lg:max-w-xl">
-                    <div className="flex items-start gap-2">
-                      <Shield className="mt-0.5 h-5 w-5 shrink-0 text-slate-400" aria-hidden />
-                      <div className="min-w-0">
-                        <p className="font-display text-sm font-semibold text-slate-950 dark:text-slate-100">{tx('legal_otherPartyInsuredQuestion')}</p>
-                        <p className="mt-0.5 text-xs text-slate-500">{tx('insurance_otherHelper')}</p>
-                      </div>
-                    </div>
-                    <div className="mt-3 grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-3">
-                      {renderChoice(icLegal.otherPartyInsured === 'yes', () => setInsuranceField('otherPartyInsured', 'yes'), ShieldCheck, tx('optionYes'), { tone: 'emerald', stack: true })}
-                      {renderChoice(icLegal.otherPartyInsured === 'no', () => setInsuranceField('otherPartyInsured', 'no'), XCircle, tx('optionNo'), { tone: 'red', stack: true })}
-                      {renderChoice(icLegal.otherPartyInsured === 'unsure', () => setInsuranceField('otherPartyInsured', 'unsure'), HelpCircle, tx('optionNotSure'), { stack: true })}
-                    </div>
-                  </div>
-                </div>
-
-              </section>
-
-              {/* ===== Legal Status Card ===== */}
-              <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2.5">
-                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white"><Scale className="h-4 w-4" aria-hidden /></span>
-                    <div>
-                      <h3 className="font-display text-base font-bold text-gray-900 dark:text-slate-100 sm:text-lg">{tx('card_legalStatus')}</h3>
-                      <p className="text-xs text-slate-500 dark:text-slate-400">{tx('legalStatus_subtitle')}</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-4 grid gap-6 lg:grid-cols-3">
-                  {/* Fault */}
-                  <div>
-                    <div className="flex items-start gap-2">
-                      <Scale className="mt-0.5 h-5 w-5 shrink-0 text-slate-400" aria-hidden />
-                      <p className="font-display text-sm font-semibold text-slate-950 dark:text-slate-100">{tx('legal_faultQuestion')}</p>
-                    </div>
-                    <div className="mt-3 grid gap-2">
-                      {liabilityOptionsForClaim.map(({ value, label }) =>
-                        renderChoice(cpLegal.faultBelief === value, () => setFaultBelief(value), faultIconFor(value), label, { key: value })
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Attorney */}
-                  <div id="intake-attorney-status">
-                    <div className="flex items-start gap-2">
-                      <User className="mt-0.5 h-5 w-5 shrink-0 text-slate-400" aria-hidden />
-                      <p className="font-display text-sm font-semibold text-slate-950 dark:text-slate-100">{tx('legal_attorneyQuestion')}</p>
-                    </div>
-                    {errors.attorneyStatus && (
-                      <p role="alert" className="mt-1 text-xs font-medium text-red-600">{errors.attorneyStatus}</p>
-                    )}
-                    <div className="mt-3 grid gap-2">
+    const attorneyQuestion = (
+                  <div id="intake-attorney-status" className="scroll-mt-24">
+                    <SectionHeader icon={User} title={<>{tx('legal_attorneyQuestion')}<RequiredTag label={tx('required_tag')} /></>} helper={tx('legal_attorneyHelper')} />
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                       {ATTORNEY_STATUS_OPTIONS.map(({ value, label }) =>
                         renderChoice(
                           cpLegal.attorneyStatus === value,
@@ -3646,12 +3616,28 @@ export default function IntakeWizardQuick() {
                                 ...(value !== 'hired' ? { attorneyName: '', secondOpinionInterest: '' } : {})
                               }
                             }))
-                            setErrors({})
+                            setErrors(({ attorneyStatus: _cleared, ...rest }) => rest)
                           },
                           value === 'hired' ? User : UserX,
                           label,
                           { key: value }
                         )
+                      )}
+                    </div>
+                  </div>
+    )
+    if (part === 'attorney') return attorneyQuestion
+    return (
+                <div className="grid gap-6 border-t border-slate-200 pt-4 dark:border-slate-700 lg:grid-cols-2">
+                  {/* Fault */}
+                  <div>
+                    <div className="flex items-start gap-2">
+                      <Scale className="mt-0.5 h-5 w-5 shrink-0 text-slate-400" aria-hidden />
+                      <p className="font-display text-sm font-semibold text-slate-950 dark:text-slate-100">{tx('legal_faultQuestion')}</p>
+                    </div>
+                    <div className="mt-3 grid gap-2">
+                      {liabilityOptionsForClaim.map(({ value, label }) =>
+                        renderChoice(cpLegal.faultBelief === value, () => setFaultBelief(value), faultIconFor(value), label, { key: value })
                       )}
                     </div>
                   </div>
@@ -3695,90 +3681,6 @@ export default function IntakeWizardQuick() {
                     )}
                   </div>
                 </div>
-              </section>
-            {/* ===== Insurance Coverage (Optional) ===== */}
-            {/* min-w-0 + overflow-hidden keeps the vehicle-insurance accordion from
-                pushing past the viewport on narrow phones (CP-545). */}
-            <section className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
-              <div className="flex min-w-0 items-center gap-2.5">
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white"><ShieldCheck className="h-4 w-4" aria-hidden /></span>
-                <div className="min-w-0">
-                  <h3 className="font-display text-base font-bold text-gray-900 dark:text-slate-100 sm:text-lg">{tx('icov_title')}</h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">{tx('icov_subtitle')}</p>
-                </div>
-              </div>
-
-              <div className="mt-4 min-w-0">
-                <div className="min-w-0 space-y-3">
-                  {/* 1. Other Driver's Insurance */}
-                  <details className="group min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm open:border-brand-200 dark:border-slate-700" open>
-                    <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-3 sm:gap-3 sm:px-4 [&::-webkit-details-marker]:hidden">
-                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500 dark:bg-slate-800"><Shield className="h-4 w-4" aria-hidden /></span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-sm font-semibold leading-snug text-slate-900 dark:text-slate-100">1. {tx('icov_otherDriverTitle')}</span>
-                        <span className="block text-[11px] leading-snug text-slate-500">{tx('icov_otherDriverSub')}</span>
-                      </span>
-                      {icLegal.defendantCoverageLimits && <span className="hidden shrink-0 items-center gap-1 text-[11px] font-semibold text-emerald-600 sm:flex"><CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden />{tx('icov_completed')}</span>}
-                      <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-open:rotate-180" aria-hidden />
-                    </summary>
-                    <div className="min-w-0 border-t border-slate-100 px-3 py-3 sm:px-4 dark:border-slate-700">
-                      <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                        {DEFENDANT_COVERAGE_OPTIONS.map(({ value, label }) => {
-                          const meta = coverageMeta[value] || { Icon: HelpCircle, sub: '', wrap: 'bg-slate-100 text-slate-500' }
-                          const sel = icLegal.defendantCoverageLimits === value
-                          return (
-                            <button key={value} type="button" aria-pressed={sel}
-                              onClick={() => updateForm({ insuranceCoverage: { ...icLegal, defendantCoverageLimits: sel ? '' : value } })}
-                              className={`relative flex flex-col items-center gap-1.5 rounded-xl border-[1.5px] px-3 py-3 text-center text-xs font-semibold shadow-sm transition-all active:scale-[0.99] ${sel ? 'border-brand-600 bg-brand-50 text-brand-900 shadow' : 'border-gray-200 bg-white text-gray-800 hover:border-brand-400 hover:bg-brand-50/50'}`}>
-                              <meta.Icon className={`h-5 w-5 ${sel ? 'text-brand-600' : 'text-slate-400'}`} aria-hidden />
-                              {sel && <Check className="absolute top-2 right-2 h-3.5 w-3.5 text-brand-600" aria-hidden />}
-                              <span className="min-w-0 break-words leading-tight">{label}</span>
-                              {meta.sub && <span className="text-[10px] font-normal text-slate-500 leading-tight">{meta.sub}</span>}
-                            </button>
-                          )
-                        })}
-                      </div>
-                      <p className="mt-3 flex items-start gap-1.5 text-[11px] leading-snug text-slate-500"><Info className="mt-px h-3 w-3 shrink-0" aria-hidden />{tx('icov_limitsHint')}</p>
-                    </div>
-                  </details>
-
-                  {/* 2. UM/UIM Coverage */}
-                  {isVehicle && (
-                  <details className="group min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm open:border-brand-200 dark:border-slate-700">
-                    <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-3 sm:gap-3 sm:px-4 [&::-webkit-details-marker]:hidden">
-                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-500"><ShieldCheck className="h-4 w-4" aria-hidden /></span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-sm font-semibold leading-snug text-slate-900 dark:text-slate-100">2. {tx('icov_umUimTitle')}</span>
-                        <span className="block text-[11px] leading-snug text-slate-500">{tx('icov_umUimSub')}</span>
-                      </span>
-                      {icLegal.umUimCoverage && <span className="hidden shrink-0 items-center gap-1 text-[11px] font-semibold text-emerald-600 sm:flex"><CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden />{tx('icov_completed')}</span>}
-                      <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-open:rotate-180" aria-hidden />
-                    </summary>
-                    <div className="min-w-0 border-t border-slate-100 px-3 py-3 sm:px-4 dark:border-slate-700">
-                      <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-3">
-                        {UM_UIM_OPTIONS.map(({ value, label }) => {
-                          const sel = icLegal.umUimCoverage === value
-                          return renderChoice(sel, () => updateForm({ insuranceCoverage: { ...icLegal, umUimCoverage: sel ? '' : value } }),
-                            value === 'yes' ? ShieldCheck : value === 'no' ? XCircle : HelpCircle, label,
-                            { tone: value === 'yes' ? 'emerald' : value === 'no' ? 'red' : undefined, stack: true, key: value })
-                        })}
-                      </div>
-                      <div className="mt-3 rounded-lg bg-blue-50 px-3 py-2 dark:bg-blue-950/20">
-                        <p className="text-xs font-semibold text-blue-700 dark:text-blue-300">{tx('icov_whatUmUim')}</p>
-                        <p className="mt-1 text-[11px] leading-relaxed text-blue-700/80 dark:text-blue-400/80">{tx('legal_whatUmUim')}</p>
-                      </div>
-                    </div>
-                  </details>
-                  )}
-
-                </div>
-              </div>
-
-              <p className="mt-4 flex items-center justify-center gap-1.5 text-[11px] text-slate-400">
-                <Lock className="h-3 w-3 shrink-0" aria-hidden /> {tx('legal_secureNote')}
-              </p>
-            </section>
-      </div>
     )
   }
 
@@ -3799,7 +3701,9 @@ export default function IntakeWizardQuick() {
     collapseTimerRef.current = setTimeout(() => {
       setSubtypePanelOpen(false)
       setSubtypeConfirming(null)
-      validateAndNextRef.current()
+      // The date and ZIP sit on the same screen now, so carry the claimant down to
+      // them rather than advancing.
+      document.getElementById('intake-incident-basics')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     }, 400)
   }
 
@@ -3922,7 +3826,11 @@ export default function IntakeWizardQuick() {
     )
   }
 
-  const renderStepContent = (step: Step) => {
+  /**
+   * Renders one section. Sections that are split across the required and optional
+   * parts of a screen take `part` to pick which piece to return.
+   */
+  const renderStepContent = (step: Step, part?: string): ReactNode => {
     switch (step) {
       case 'injury_type': {
         const selectedIndex = INJURY_TYPES.findIndex((entry) => entry.value === formData.injuryType)
@@ -4082,15 +3990,8 @@ export default function IntakeWizardQuick() {
           { Icon: Users, title: tx('whyAsk_match_t'), desc: tx('whyAsk_match_d') },
           { Icon: Activity, title: tx('whyAsk_local_t'), desc: tx('whyAsk_local_d') },
         ]
-        return (
-          // v2 folds sections 5/6 (crash/fault) below at full card width, so the
-          // When/Where/Describe/Treatment block also spans full width to keep every
-          // section's left edge aligned. v1 keeps the centered reading column.
-          <div className="w-full">
-            <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_18rem] lg:gap-6">
-              {/* Main form */}
-              <div className="space-y-6">
-                {/* Mobile-only: collapsed "Why we ask this" so the rail does not add a long scroll under the form */}
+        // Mobile-only: collapsed "Why we ask this" so the rail does not add a long scroll under the form
+        const railMobile = (
                 <details className="group rounded-xl border border-slate-200 bg-slate-50/60 dark:border-slate-700 dark:bg-slate-800/40 lg:hidden">
                   <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2.5 text-sm font-semibold text-gray-900 [&::-webkit-details-marker]:hidden dark:text-slate-100">
                     <span className="flex items-center gap-1.5"><HelpCircle className="h-4 w-4 text-brand-600" aria-hidden /> {tx('whyAsk_title')}</span>
@@ -4108,15 +4009,12 @@ export default function IntakeWizardQuick() {
                     ))}
                   </div>
                 </details>
-                {/* ===== Band 1: Incident Basics (required) — When, Where, Who stacked ===== */}
-                <div className="flex items-center gap-2.5">
-                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white"><MapPin className="h-4 w-4" aria-hidden /></span>
-                  <h3 className="font-display text-base font-bold text-gray-900 dark:text-slate-100 sm:text-lg">{tx('band_basics')}</h3>
-                </div>
-                <div className="space-y-4">
+        )
+        const basics = (
+                <div id="intake-incident-basics" className="scroll-mt-24 space-y-5">
                 {/* When */}
                 <div>
-                  <p className="flex items-center gap-1.5 font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100"><CalendarDays className="h-4 w-4 shrink-0 text-brand-600" aria-hidden /> {tx('when_heading')}<span className="ml-0.5 font-semibold text-red-500" aria-hidden>*</span></p>
+                  <p className="flex flex-wrap items-center gap-1.5 font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100"><CalendarDays className="h-4 w-4 shrink-0 text-brand-600" aria-hidden /> {tx('when_heading')}<RequiredTag label={tx('required_tag')} /></p>
                   <p className="mt-0.5 text-xs leading-snug text-gray-500 sm:text-sm">{tx('when_helper')}</p>
                   {/* When + Where now share a row, so the "When" column is only half-width.
                       Stack the deadline card BELOW the date field/presets (rather than beside
@@ -4225,7 +4123,7 @@ export default function IntakeWizardQuick() {
 
                 {/* Where */}
                 <div>
-                  <p className="flex items-center gap-1.5 font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100"><MapPin className="h-4 w-4 shrink-0 text-brand-600" aria-hidden /> {t('intake.where')}</p>
+                  <p className="flex items-center gap-1.5 font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100"><MapPin className="h-4 w-4 shrink-0 text-brand-600" aria-hidden /> {t('intake.where')}<RequiredTag label={tx('required_tag')} /></p>
                   <p className="mt-0.5 text-xs leading-snug text-gray-500 sm:text-sm">{t('intake.whereHelp')}</p>
                   <div className="mt-2">
                     {detectedLocation && !locationAccepted && !formData.venue.state && (
@@ -4406,7 +4304,9 @@ export default function IntakeWizardQuick() {
                   </div>
                   )
                 })()}
-                {/* Who was injured */}
+                </div>
+        )
+        const whoInjured = (
                 <div>
                   <p className="flex items-center gap-1.5 font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100"><Users className="h-4 w-4 shrink-0 text-brand-600" aria-hidden /> {tx('injuredParty_heading')}</p>
                   <p className="mt-0.5 text-xs leading-snug text-gray-500 sm:text-sm">{tx('injuredParty_helper')}</p>
@@ -4424,14 +4324,8 @@ export default function IntakeWizardQuick() {
                     </select>
                   </div>
                 </div>
-                </div>
-
-                {/* ===== Band 2: Tell us what happened (recommended) ===== */}
-                <div className="flex items-center gap-2.5">
-                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white"><MessageSquare className="h-4 w-4" aria-hidden /></span>
-                  <h3 className="font-display text-base font-bold text-gray-900 dark:text-slate-100 sm:text-lg">{tx('band_story')}</h3>
-                </div>
-                {/* Narrative */}
+        )
+        const story = (
                 <div>
                   <p className="flex items-center gap-1.5 font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100"><MessageSquare className="h-4 w-4 shrink-0 text-brand-600" aria-hidden /> {tx('narrative_heading')}</p>
                   <p className="mt-0.5 text-xs leading-snug text-gray-500 sm:text-sm">{tx('narrative_helper')}</p>
@@ -4531,15 +4425,9 @@ export default function IntakeWizardQuick() {
                     )}
                   </div>
                 </div>
-
-                {/* ===== Band 3: Initial Care (required) ===== */}
-                <div className="flex items-center gap-2.5">
-                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white"><Stethoscope className="h-4 w-4" aria-hidden /></span>
-                  <h3 className="font-display text-base font-bold text-gray-900 dark:text-slate-100 sm:text-lg">{tx('band_initialCare')}</h3>
-                </div>
-
-                {/* EMS / ambulance — transport, not a facility, so captured as its own yes/no. */}
-                {!isDeceased && (
+        )
+        // EMS / ambulance — transport, not a facility, so captured as its own yes/no.
+        const emsQuestion = !isDeceased && (
                 <div>
                   <p className="flex items-center gap-1.5 font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100"><Ambulance className="h-4 w-4 shrink-0 text-brand-600" aria-hidden /> {tx('initialCare_emsQuestion')}</p>
                   <div className="mt-2 grid grid-cols-2 gap-2 sm:max-w-xs">
@@ -4563,11 +4451,11 @@ export default function IntakeWizardQuick() {
                     })}
                   </div>
                 </div>
-                )}
-
-                {/* Where care was FIRST received (single facility). */}
-                <div>
-                  <p className="flex items-center gap-1.5 font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100"><Stethoscope className="h-4 w-4 shrink-0 text-brand-600" aria-hidden /> {tx(isDeceased ? 'treatment_heading_deceased' : 'treatment_heading')}<span className="ml-0.5 font-semibold text-red-500" aria-hidden>*</span></p>
+        )
+        // Where care was FIRST received (single facility).
+        const treatment = (
+                <div id="intake-treatment">
+                  <p className="flex flex-wrap items-center gap-1.5 font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100"><Stethoscope className="h-4 w-4 shrink-0 text-brand-600" aria-hidden /> {tx(isDeceased ? 'treatment_heading_deceased' : 'treatment_heading')}<RequiredTag label={tx('required_tag')} /></p>
                   <p className="mt-0.5 text-xs leading-snug text-gray-500 sm:text-sm">{tx(isDeceased ? 'treatment_helper_deceased' : 'treatment_helper')}</p>
                   <div className="mt-2">
                     <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-2.5">
@@ -4605,9 +4493,9 @@ export default function IntakeWizardQuick() {
                     <p className="mt-2 text-[11px] leading-snug text-gray-500">{tx('treatment_tip')}</p>
                   </div>
                 </div>
-
-                {/* How soon after the incident — only relevant once some care was received. */}
-                {formData.medicalTreatment.length > 0 && !formData.medicalTreatment.includes('none') && (
+        )
+        // How soon after the incident — only relevant once some care was received.
+        const careTiming = formData.medicalTreatment.length > 0 && !formData.medicalTreatment.includes('none') && (
                 <div>
                   <p className="flex items-center gap-1.5 font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100"><CalendarClock className="h-4 w-4 shrink-0 text-brand-600" aria-hidden /> {tx('careTiming_question')}</p>
                   <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
@@ -4628,11 +4516,9 @@ export default function IntakeWizardQuick() {
                     })}
                   </div>
                 </div>
-                )}
-
-              </div>
-
-              {/* Right: Why we ask this (desktop only; mobile uses the collapsible above) */}
+        )
+        // Right: Why we ask this (desktop only; mobile uses the collapsible above)
+        const rail = (
               <aside className="hidden space-y-3 lg:block lg:sticky lg:top-2 lg:self-start">
                 <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4 dark:border-slate-700 dark:bg-slate-800/40">
                   <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">{tx('whyAsk_title')}</p>
@@ -4653,9 +4539,16 @@ export default function IntakeWizardQuick() {
                   <p className="mt-1 text-[11px] leading-snug text-slate-600 dark:text-slate-300">{tx('whyAsk_secure_d')}</p>
                 </div>
               </aside>
-            </div>
-          </div>
         )
+        switch (part) {
+          case 'railMobile': return railMobile
+          case 'rail': return rail
+          case 'whoInjured': return whoInjured
+          case 'story': return story
+          case 'treatment': return treatment
+          case 'careExtras': return (emsQuestion || careTiming) ? <div className="space-y-5">{emsQuestion}{careTiming}</div> : null
+          default: return basics
+        }
       }
 
       case 'injury_severity':
@@ -4787,20 +4680,8 @@ export default function IntakeWizardQuick() {
         if (liabilityCard) {
           snapshotCards.unshift({ key: 'liability', icon: ShieldCheck, label: tx('injuryDetails_metricLiability'), tip: tx('injuryDetails_tipLiability'), ...liabilityCard })
         }
-        return (
-          <div className="space-y-4">
-            {/* Header */}
-            <div className="flex items-start gap-3">
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-600 text-white">
-                <HeartPulse className="h-5 w-5" aria-hidden />
-              </span>
-              <div className="min-w-0">
-                <p className="font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100 sm:text-[17px]">{mergeInjuries ? 'Your Injuries & Treatment' : isSeverityStep ? tx('injuryDetails_heading') : tx('injuryTreatment_heading')}</p>
-                <p className="mt-0.5 text-xs leading-snug text-gray-500 sm:text-sm">{mergeInjuries ? tx('injuryDetails_helper') : isSeverityStep ? tx('injuryDetails_helper') : tx('injuryTreatment_helper')}</p>
-              </div>
-            </div>
-
-            {/* Case Snapshot metric bar */}
+        const snapshotBar = (
+            // Case Snapshot metric bar
             <div className={`grid grid-cols-2 gap-1.5 sm:gap-2 ${snapshotCards.length >= 4 ? 'lg:grid-cols-4' : 'lg:grid-cols-3'}`}>
               {snapshotCards.map(({ key, icon: Icon, label, value, sub, tone, tip }, i) => (
                 <div key={key} className="group relative min-w-0 cursor-help overflow-hidden rounded-lg border border-slate-200 bg-white px-2 py-1 sm:px-2.5 dark:border-slate-700 dark:bg-slate-900/40" tabIndex={0}>
@@ -4843,23 +4724,10 @@ export default function IntakeWizardQuick() {
                 </div>
               ))}
             </div>
-
-            {/* Two-column body: form + sidebar */}
-            <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_19rem]">
-              {/* ---------- Main column ---------- */}
-              <div className="space-y-4">
-
-            {showSeverity && (
-            <>
-            {/* ===== Card 1: Your Injury ===== */}
-            <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
-              <div className="flex items-center gap-2.5">
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white"><HeartPulse className="h-4 w-4" aria-hidden /></span>
-                <h3 className="font-display text-base font-bold text-gray-900 dark:text-slate-100 sm:text-lg">{tx('card_yourInjury')}</h3>
-              </div>
-            {/* Severity */}
-            <div>
-              <SectionHeader icon={HeartPulse} title={<>{t('intake.injurySeverity')}<span className="ml-0.5 font-semibold text-red-500" aria-hidden>*</span></>} helper={tx('injurySeverity_helper')} />
+        )
+        const severityQuestion = (
+            <div id="intake-severity">
+              <SectionHeader icon={HeartPulse} title={<>{t('intake.injurySeverity')}<RequiredTag label={tx('required_tag')} /></>} helper={tx('injurySeverity_helper')} />
               <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-2.5">
                 {INJURY_SEVERITY_OPTIONS.map(({ value, labelKey }) => {
                   const { main, desc } = splitLabel(t(`intake.${labelKey}`))
@@ -4894,11 +4762,13 @@ export default function IntakeWizardQuick() {
               {/* Reported by the step's error summary banner, same as every other
                   field. Repeating it here showed the message twice. */}
             </div>
-
+        )
+        const injuryOptional = (
+          <div className="space-y-4">
             {/* Case-type module that leads (toxic / med-mal / wrongful death):
                 symptom/harm/decedent questions come before the body map. */}
             {caseTypeModule?.leadWith && (
-              <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
+              <div>
                 <CaseTypeIntakePanel
                   module={caseTypeModule}
                   value={formData.injuryDetails.caseTypeDetail}
@@ -4962,24 +4832,12 @@ export default function IntakeWizardQuick() {
                 </div>
               )}
             </div>
-            </div>{/* end Card 1 */}
 
-            </>
-            )}
-            {showDetails && (
-            <>
-            {/* ===== Medical Care =====
-                Clinical treatment (PT, MRI, injections, surgery, ...) is captured
-                per body region in the dynamic injury cards above, and care setting
-                on the previous step, so this generic diagnoses list only appears
-                when the claimant skipped the body map. Surgery status and future
-                care remain in the details section below. */}
+            {/* Clinical treatment (PT, MRI, injections, surgery, ...) is captured
+                per body region in the dynamic injury cards above, so this generic
+                diagnoses list only appears when the claimant skipped the body map. */}
             {!hasDynamicRegions && (
-            <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
-              <div className="flex items-center gap-2.5">
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white"><Stethoscope className="h-4 w-4" aria-hidden /></span>
-                <h3 className="font-display text-base font-bold text-gray-900 dark:text-slate-100 sm:text-lg">{tx('card_medicalCare')}</h3>
-              </div>
+            <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
               <div>
                 <SectionHeader icon={ClipboardCheck} title={tx('injuryDetails_diagnosesQuestion')} helper={tx('injuryDetails_diagnosesHelper')} />
                 <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-2.5">
@@ -5000,19 +4858,15 @@ export default function IntakeWizardQuick() {
             </div>
             )}
 
-            {/* ===== Card 3: How You're Feeling — symptoms, recovery, and daily-life impact
-                 are all present/future-tense questions about a living person, so this card is
-                 hidden for wrongful-death (deceased) claims. ===== */}
+            {/* Symptoms, recovery, and daily-life impact are all present/future-tense
+                 questions about a living person, so they are hidden for wrongful-death
+                 (deceased) claims. */}
             {!isDeceased && (
-            <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
-              <div className="flex items-center gap-2.5">
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white"><Activity className="h-4 w-4" aria-hidden /></span>
-                <h3 className="font-display text-base font-bold text-gray-900 dark:text-slate-100 sm:text-lg">{tx('card_howFeeling')}</h3>
-              </div>
+            <div className="space-y-4">
             {/* Symptoms — captured per body area in the dynamic region cards, so
                 this generic list only appears when no body part was selected. */}
             {!hasDynamicRegions && (
-            <div>
+            <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
               <SectionHeader icon={HeartPulse} title={tx('injuryDetails_currentSymptomsQuestion')} helper={tx('injuryDetails_selectAllApply')} />
               <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
                 {CURRENT_SYMPTOM_OPTIONS.map(({ value, label }) => {
@@ -5059,55 +4913,31 @@ export default function IntakeWizardQuick() {
               </div>
             </div>
             </div>
-            )}{/* end Card 3 */}
+            )}
 
-            {/* ===== Card 4: AI summary ===== */}
-            <div className="rounded-2xl border border-brand-200 bg-brand-50/60 p-4 dark:border-brand-500/30 dark:bg-brand-500/10">
-              <div className="flex items-center gap-2">
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white"><Sparkles className="h-4 w-4" aria-hidden /></span>
-                <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">{tx('injuryDetails_aiSummaryTitle')}</p>
-              </div>
-              <p className="mt-2 text-sm leading-relaxed text-gray-700 dark:text-slate-300">
-                {hasAnySelection ? (
-                  <>
-                    {bodyNames.length > 0 && <>{tx('injuryDetails_aiInjuriesTo')} <strong>{bodyNames.join(', ')}</strong>. </>}
-                    {txNames.length > 0 && <>{tx('injuryDetails_aiTreatment')} <strong>{txNames.join(', ')}</strong>. </>}
-                    {dxNames.length > 0 && <>{tx('injuryDetails_aiDiagnoses')} <strong>{dxNames.join(', ')}</strong>. </>}
-                    {recoveryLabel && <>{tx('injuryDetails_aiRecovery')} <strong>{recoveryLabel.toLowerCase()}</strong>.</>}
-                  </>
-                ) : (
-                  <span className="text-gray-500">{tx('injuryDetails_aiEmpty')}</span>
-                )}
-              </p>
-            </div>
-
-            {/* Additional information (optional) */}
-            <details className="group border-t border-slate-200 pt-4 dark:border-slate-700">
-              <summary className="flex cursor-pointer list-none items-start justify-between gap-3 [&::-webkit-details-marker]:hidden">
-                <span className="flex items-start gap-3">
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-500/10">
-                    <ClipboardCheck className="h-5 w-5" aria-hidden />
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100">{tx('injuryDetails_additionalInfo')}</span>
-                    <span className="mt-0.5 block text-xs leading-snug text-gray-500">{tx('injuryDetails_additionalInfoHelper')}</span>
-                  </span>
-                </span>
-                <ChevronDown className="mt-1 h-4 w-4 shrink-0 text-gray-400 transition-transform group-open:rotate-180" aria-hidden />
-              </summary>
-
-              <div className="mt-4 space-y-5">
-                {/* Future treatment — a deceased claimant will have no future treatment. */}
+                {/* Future treatment is asked once: what was recommended, then roughly
+                    what it will cost once something has been. A deceased claimant
+                    will have no future treatment. */}
                 {!isDeceased && (
                 <section className="border-t border-slate-200 pt-4 dark:border-slate-700">
-                  <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">6. {tx('injuryDetails_futureTreatmentQuestion')}</p>
-                  <p className="mt-0.5 text-xs text-gray-500">{tx('injuryDetails_selectAllApply')}</p>
+                  <SectionHeader icon={CalendarClock} title={tx('injuryDetails_futureTreatmentQuestion')} helper={tx('injuryDetails_selectAllApply')} />
                   <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
                     {FUTURE_TREATMENT_OPTIONS.map(({ value, label }) => {
                       const selected = formData.injuryDetails.futureTreatment.includes(value)
                       const Icon = futureTreatmentIcons[value] || Stethoscope
                       return (
-                        <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('futureTreatment', value, value === 'none')} className={tileClass(selected)}>
+                        <button
+                          key={value}
+                          type="button"
+                          aria-pressed={selected}
+                          onClick={() => {
+                            toggleInjuryDetail('futureTreatment', value, value === 'none')
+                            if (value === 'none' && !selected) {
+                              setFormData(prev => ({ ...prev, insuranceCoverage: { ...prev.insuranceCoverage, futureMedicalRange: 'none' } }))
+                            }
+                          }}
+                          className={tileClass(selected)}
+                        >
                           {renderCheck(selected)}
                           <span className={tileIconClass}><Icon className="h-4 w-4" aria-hidden /></span>
                           <span className={tileLabelClass}>{label}</span>
@@ -5115,6 +4945,28 @@ export default function IntakeWizardQuick() {
                       )
                     })}
                   </div>
+                  {formData.injuryDetails.futureTreatment.some(v => v !== 'none' && v !== 'not_sure') && (
+                    <div className="mt-4">
+                      <p className="font-display text-sm font-semibold text-slate-950 dark:text-slate-100">{tx('financial_futureCareQuestion')}</p>
+                      <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                        {FUTURE_MEDICAL_RANGE_OPTIONS.filter(o => o.value !== 'none').map(({ value, label }) => {
+                          const selected = formData.insuranceCoverage.futureMedicalRange === value
+                          return (
+                            <button
+                              key={value}
+                              type="button"
+                              aria-pressed={selected}
+                              onClick={() => updateForm({ insuranceCoverage: { ...formData.insuranceCoverage, futureMedicalRange: selected ? '' : value } })}
+                              className={`relative rounded-xl border-[1.5px] px-3 py-2.5 text-center text-xs font-semibold shadow-sm transition-all active:scale-[0.99] ${selected ? 'border-brand-600 bg-brand-50 text-brand-900 shadow' : 'border-gray-200 bg-white text-gray-800 hover:border-brand-400 hover:bg-brand-50/50'}`}
+                            >
+                              {selected && <Check className="absolute top-1.5 right-1.5 h-3.5 w-3.5 text-brand-600" aria-hidden />}
+                              <span className="whitespace-nowrap !text-[13px] leading-tight">{label}</span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </section>
                 )}
 
@@ -5157,23 +5009,11 @@ export default function IntakeWizardQuick() {
                     </div>
                   </section>
                 )}
-
-                {/* Why this matters */}
-                <div className="flex items-start gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 dark:border-emerald-500/30 dark:bg-emerald-500/10">
-                  <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
-                  <div className="min-w-0 flex-1">
-                    <p className="break-words text-sm font-semibold text-emerald-900 dark:text-emerald-200">{tx('injuryDetails_whyMatters')}</p>
-                    <p className="mt-0.5 break-words text-xs leading-snug text-emerald-800/90 dark:text-emerald-200/80">{tx('injuryDetails_whyMattersBody')}</p>
-                  </div>
-                </div>
-              </div>
-            </details>
-            </>
-            )}
-              </div>{/* end main column */}
-
-              {/* ---------- Sidebar (injury overview + insights) ---------- */}
-              <aside className="hidden space-y-4 sm:block lg:sticky lg:top-4 lg:self-start">
+          </div>
+        )
+        const sidebar = (
+              // Injury overview + insights
+              <aside className="hidden space-y-4 lg:block lg:sticky lg:top-4 lg:self-start">
                 {/* Injury overview + body diagram — hidden on mobile to reduce scroll */}
                 <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900/40">
                   <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">{tx('injuryDetails_overviewTitle')}</p>
@@ -5262,9 +5102,11 @@ export default function IntakeWizardQuick() {
                 </div>
                 )}
               </aside>
-            </div>{/* end two-column grid */}
-          </div>
         )
+        if (part === 'optional') return injuryOptional
+        if (part === 'sidebar') return sidebar
+        if (part === 'snapshot') return snapshotBar
+        return severityQuestion
       }
 
       case 'case_details': {
@@ -6467,19 +6309,8 @@ export default function IntakeWizardQuick() {
         const dvHasValue = mostLikely > 0
 
         return (
-          <div className="space-y-4">
-            <div className="text-center">
-              <h2 className="font-display text-lg font-bold text-slate-900 dark:text-slate-100 sm:text-xl">{tx('dv_titleSimple')}</h2>
-            </div>
-
-            {/* ===== Card: Financial Impact ===== */}
-            <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
-              <div className="flex items-center gap-2.5">
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white"><DollarSign className="h-4 w-4" aria-hidden /></span>
-                <h3 className="font-display text-base font-bold text-gray-900 dark:text-slate-100 sm:text-lg">{tx('card_financialImpact')}</h3>
-              </div>
-
-            <div className="mt-4 grid gap-4 lg:grid-cols-2">
+          <div className="space-y-4 border-t border-slate-200 pt-4 dark:border-slate-700">
+            <div className="grid gap-4 lg:grid-cols-2">
               <div className="order-1">
                 <SectionHeader icon={DollarSign} accent="emerald" title={tx('financial_medicalCosts')} helper={tx('financial_medicalCostsHelper')} />
 
@@ -6599,28 +6430,8 @@ export default function IntakeWizardQuick() {
               </div>
             </div>
 
-            <div className="mt-4 grid gap-4 border-t border-slate-200 pt-4 dark:border-slate-700 lg:grid-cols-2">
+            <div className="grid gap-4 border-t border-slate-200 pt-4 dark:border-slate-700 lg:grid-cols-2">
               <div>
-                <SectionHeader icon={CalendarClock} accent="emerald" title={tx('financial_futureCareQuestion')} helper={tx('financial_futureCareHelper')} />
-                <div className="mt-3 grid grid-cols-2 gap-2">
-                  {FUTURE_MEDICAL_RANGE_OPTIONS.map(({ value, label }) => {
-                    const selected = icFinancial.futureMedicalRange === value
-                    return (
-                      <button
-                        key={value}
-                        type="button"
-                        aria-pressed={selected}
-                        onClick={() => updateForm({ insuranceCoverage: { ...icFinancial, futureMedicalRange: selected ? '' : value } })}
-                        className={`relative rounded-xl border-[1.5px] px-3 py-2.5 text-center text-xs font-semibold shadow-sm transition-all active:scale-[0.99] ${selected ? 'border-brand-600 bg-brand-50 text-brand-900 shadow' : 'border-gray-200 bg-white text-gray-800 hover:border-brand-400 hover:bg-brand-50/50'}`}
-                      >
-                        {selected && <Check className="absolute top-1.5 right-1.5 h-3.5 w-3.5 text-brand-600" aria-hidden />}
-                        <span className="whitespace-nowrap !text-[13px] leading-tight">{label}</span>
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-              <div className="border-t border-slate-200 pt-4 dark:border-slate-700 lg:border-l lg:border-t-0 lg:pl-4 lg:pt-0">
                 <SectionHeader icon={Receipt} accent="brand" title={tx('financial_outOfPocket')} helper={tx('financial_outOfPocketHelper')} />
                 <div className="mt-3 grid grid-cols-2 gap-2">
                   {OUT_OF_POCKET_RANGE_OPTIONS.map(({ value, label }) => {
@@ -6641,21 +6452,6 @@ export default function IntakeWizardQuick() {
                 </div>
               </div>
             </div>
-
-            <details className="group mt-4">
-              <summary className="flex cursor-pointer list-none items-center gap-2 rounded-xl bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-100 [&::-webkit-details-marker]:hidden dark:bg-slate-800/50 dark:text-slate-300 dark:hover:bg-slate-800">
-                <Sparkles className="h-4 w-4 text-brand-500" aria-hidden />
-                <span className="flex-1">{tx('financial_whyAskTitle')}</span>
-                <CheckCircle2 className="h-4 w-4 text-slate-400 transition-transform group-open:rotate-180" aria-hidden />
-              </summary>
-              <p className="mt-2 px-4 text-xs leading-relaxed text-slate-500 dark:text-slate-400">{tx('financial_whyAskBody')}</p>
-            </details>
-
-            </section>
-            {/* Insurance & Representation merged into the Damages step. */}
-            <div>
-              {renderInsuranceStatus()}
-            </div>
           </div>
         )
       }
@@ -6670,17 +6466,6 @@ export default function IntakeWizardQuick() {
           const previewMedicalBillEstimate = MEDICAL_BILL_RANGE_OPTIONS.find(option => option.value === formData.insuranceCoverage.medicalBillRange)?.estimate || 0
           const previewFutureMedicalEstimate = FUTURE_MEDICAL_RANGE_OPTIONS.find(option => option.value === formData.insuranceCoverage.futureMedicalRange)?.estimate || 0
           const previewWageLossEstimate = Number(String(formData.casePosture.lostWagesEstimate || '').replace(/[$,]/g, '')) || 0
-          // The band comes from the engine, so this is the same figure the
-          // claimant will read on their snapshot a moment later. It used to be
-          // the three estimates above times 0.8 and 2.4, computed here, which
-          // ignored liability, venue, severity, treatment, documentation and
-          // coverage and so disagreed with the model on nearly every case —
-          // overstating hardest on the ones where fault is contested. While the
-          // request is in flight, or if it fails, the step says it is preparing
-          // an estimate rather than falling back to a second formula.
-          const previewSettlementRange = valuationPreview
-            ? `$${valuationPreview.settlement.low.toLocaleString()} - $${valuationPreview.settlement.high.toLocaleString()}`
-            : tx('preliminaryEstimate')
           const previewConfidence = getEstimateConfidence()
 
           const evCount = (cat: string) => (pendingEvidenceFiles[cat]?.length || 0)
@@ -6848,116 +6633,6 @@ export default function IntakeWizardQuick() {
               </div>
             </div>
 
-            {/* ===== HERO: settlement estimate + case strength ===== */}
-            <section className="overflow-hidden rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white shadow-sm dark:border-emerald-500/30 dark:from-emerald-500/10 dark:to-slate-900/40">
-              <div className="grid gap-4 p-4 sm:p-5 lg:grid-cols-[1.5fr_1fr]">
-                {/* Estimated settlement */}
-                <div className="lg:border-r lg:border-emerald-100 lg:pr-5 dark:lg:border-emerald-500/20">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">{tx('hero_estSettlement')}</p>
-                  <p className="mt-1 font-display text-3xl font-extrabold leading-none text-emerald-700 dark:text-emerald-300 sm:text-4xl">{previewSettlementRange}</p>
-                  <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-                    <span className="flex items-center gap-0.5">
-                      {Array.from({ length: 5 }).map((_, i) => (
-                        <Star key={i} className={`h-4 w-4 ${i < caseStrengthStars ? 'fill-amber-400 text-amber-400' : 'text-slate-300 dark:text-slate-600'}`} aria-hidden />
-                      ))}
-                    </span>
-                    <span className="text-xs font-medium text-slate-600 dark:text-slate-300">{tx('hero_confidence')}: <span className="font-semibold">{confidenceText}</span></span>
-                  </div>
-                  <div className="group relative mt-2 max-w-xs cursor-help">
-                    <div className="h-2 overflow-hidden rounded-full bg-emerald-100 dark:bg-emerald-500/20"><div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${confidencePct}%` }} /></div>
-                    <span role="tooltip" className="pointer-events-none absolute bottom-full left-0 z-50 mb-2 w-60 max-w-[80vw] rounded-lg bg-slate-900 px-3 py-2 text-[11px] font-medium leading-snug text-white opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100 dark:bg-slate-700">{tx('hero_confTip')}</span>
-                  </div>
-                  <p className="mt-2 text-xs leading-snug text-slate-500 dark:text-slate-400">{tx('hero_rangeNote')}</p>
-                  {settlementBreakdown.length > 0 && (
-                    <details className="group mt-3">
-                      <summary className="flex w-fit cursor-pointer list-none items-center gap-1 text-xs font-semibold text-emerald-700 hover:text-emerald-800 dark:text-emerald-300 [&::-webkit-details-marker]:hidden">
-                        <ChevronDown className="h-3.5 w-3.5 transition-transform group-open:rotate-180" aria-hidden />{tx('hero_why')}
-                      </summary>
-                      <div className="mt-2 space-y-1 rounded-xl border border-emerald-100 bg-white/70 p-2.5 dark:border-emerald-500/20 dark:bg-slate-900/40">
-                        {settlementBreakdown.map(row => (
-                          <p key={row.k} className="flex items-center justify-between gap-2 text-xs"><span className="text-slate-500 dark:text-slate-400">{row.k}</span><span className="font-semibold text-slate-800 dark:text-slate-200">{row.v}</span></p>
-                        ))}
-                        <p className="flex items-center gap-1.5 pt-1 text-[11px] text-slate-400"><Info className="h-3 w-3 shrink-0" aria-hidden />{tx('br_painSuffering')} · {tx('br_liabilityVenue')}</p>
-                      </div>
-                    </details>
-                  )}
-                </div>
-                {/* Case strength + readiness */}
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
-                  <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900/40">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{tx('cs_title')}</p>
-                    <p className="mt-0.5 font-display text-2xl font-bold text-slate-900 dark:text-slate-100">{caseStrengthLabel}</p>
-                    <div className="mt-0.5 flex items-center gap-1.5">
-                      <span className="flex items-center gap-0.5">{Array.from({ length: 5 }).map((_, i) => <Star key={i} className={`h-3 w-3 ${i < caseStrengthStars ? 'fill-amber-400 text-amber-400' : 'text-slate-300 dark:text-slate-600'}`} aria-hidden />)}</span>
-                    </div>
-                    <p className="mt-1 text-[11px] leading-snug text-slate-500 dark:text-slate-400">{tx('cs_strongReview')}</p>
-                  </div>
-                  <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900/40">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{tx('readiness_title')}</p>
-                    <p className="mt-0.5 font-display text-2xl font-bold text-violet-700 dark:text-violet-300">
-                      {strengthFactorDefs.length - missingFactors.length}/{strengthFactorDefs.length}
-                    </p>
-                    <p className="mt-1 text-[11px] leading-snug text-slate-500 dark:text-slate-400">{tx('readiness_pctDesc')}</p>
-                  </div>
-                </div>
-              </div>
-            </section>
-
-            <div className="hidden" aria-hidden>
-              <div className="group relative cursor-help rounded-2xl border border-slate-200 bg-white p-3 text-center shadow-sm dark:border-slate-700 dark:bg-slate-900/40" tabIndex={0}>
-                <Info className="absolute right-2 top-2 h-3.5 w-3.5 text-slate-300 dark:text-slate-500" aria-hidden />
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{tx('profile_complete')}</p>
-                <div className="mt-2 flex items-center justify-center gap-3">
-                  <span className="font-display text-2xl font-bold text-emerald-600">{profilePercent}%</span>
-                  <div className="relative h-12 w-12">
-                    <svg className="h-12 w-12 -rotate-90" viewBox="0 0 36 36">
-                      <circle cx="18" cy="18" r="15.5" fill="none" className="stroke-slate-200 dark:stroke-slate-700" strokeWidth="3" />
-                      <circle cx="18" cy="18" r="15.5" fill="none" className="stroke-emerald-500" strokeWidth="3" strokeLinecap="round" strokeDasharray={ringCirc} strokeDashoffset={ringCirc * (1 - profilePercent / 100)} />
-                    </svg>
-                  </div>
-                </div>
-                <p className="mt-1 text-xs text-gray-500">{tx('profile_almostDone')}</p>
-                <p className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-emerald-700"><CheckCircle2 className="h-3.5 w-3.5" aria-hidden />{tx('profile_readyReview')}</p>
-                <span role="tooltip" className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-60 max-w-[80vw] -translate-x-1/2 rounded-lg bg-slate-900 px-3 py-2 text-left text-[11px] font-medium leading-snug text-white opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100 group-focus:opacity-100 dark:bg-slate-700">{tx('profile_completeTip')}</span>
-              </div>
-
-              <div className="group relative cursor-help rounded-2xl border border-slate-200 bg-white p-3 text-center shadow-sm dark:border-slate-700 dark:bg-slate-900/40" tabIndex={0}>
-                <Info className="absolute right-2 top-2 h-3.5 w-3.5 text-slate-300 dark:text-slate-500" aria-hidden />
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{tx('est_settlementRange')}</p>
-                <p className="mt-2 font-display text-xl font-bold text-emerald-700">{previewSettlementRange}</p>
-                <p className="mt-1 inline-flex items-center gap-1 text-xs text-gray-500"><Info className="h-3.5 w-3.5" aria-hidden />{tx('preliminaryEstimate')}</p>
-                <p className="mt-1 text-xs text-gray-400">{tx('est_moreAccurate')}</p>
-                <span role="tooltip" className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-60 max-w-[80vw] -translate-x-1/2 rounded-lg bg-slate-900 px-3 py-2 text-left text-[11px] font-medium leading-snug text-white opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100 group-focus:opacity-100 dark:bg-slate-700">{tx('est_rangeTip')}</span>
-              </div>
-
-              <div className="group relative cursor-help rounded-2xl border border-slate-200 bg-white p-3 text-center shadow-sm dark:border-slate-700 dark:bg-slate-900/40" tabIndex={0}>
-                <Info className="absolute right-2 top-2 h-3.5 w-3.5 text-slate-300 dark:text-slate-500" aria-hidden />
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{tx('readiness_title')}</p>
-                <div className="mt-2 flex items-center justify-center gap-2">
-                  <span className="flex h-8 w-8 items-center justify-center rounded-full bg-violet-100 text-violet-600 dark:bg-violet-500/20"><Star className="h-4 w-4" aria-hidden /></span>
-                  <span className="font-display text-xl font-bold text-violet-700 dark:text-violet-300">{readinessLabel}</span>
-                </div>
-                <p className="mt-1 text-xs text-gray-500">{tx('readiness_desc')}</p>
-                <span role="tooltip" className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-60 max-w-[80vw] -translate-x-1/2 rounded-lg bg-slate-900 px-3 py-2 text-left text-[11px] font-medium leading-snug text-white opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100 group-focus:opacity-100 dark:bg-slate-700">{tx('readiness_tip')}</span>
-              </div>
-
-              <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-3 shadow-sm dark:border-amber-500/30 dark:bg-amber-500/5">
-                <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">{tx('strengthen_title')}</p>
-                {strengthenItems.length > 0 && (
-                  <p className="mt-1 text-[11px] leading-snug text-amber-700/80 dark:text-amber-300/80">{tx('strengthen_afterSubmit')}</p>
-                )}
-                <ul className="mt-2 space-y-1">
-                  {strengthenItems.length ? strengthenItems.map((it) => (
-                    <li key={it.label} className="flex w-full items-center gap-1.5 text-left text-xs font-medium text-amber-900 dark:text-amber-200">
-                      <HelpCircle className="h-3.5 w-3.5 shrink-0 text-amber-500" aria-hidden />{it.label}
-                    </li>
-                  )) : (
-                    <li className="flex items-center gap-1.5 text-xs font-medium text-emerald-700"><CheckCircle2 className="h-3.5 w-3.5" aria-hidden />{tx('strengthen_allGood')}</li>
-                  )}
-                </ul>
-              </div>
-            </div>
-
             <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
               {renderCard({ title: tx('card_incident'), icon: Car, step: 'when', children: (
                 <>{incidentLines.map((l, i) => <p key={i} className="truncate">{l}</p>)}</>
@@ -6994,33 +6669,6 @@ export default function IntakeWizardQuick() {
                 )
               ) })}
             </div>
-
-            {/* AI Case Insights */}
-            {aiInsights.length > 0 && (
-              <div className="rounded-2xl border border-brand-200 bg-brand-50/60 p-4 dark:border-brand-500/30 dark:bg-brand-500/10">
-                <div className="flex items-center gap-2">
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white"><Sparkles className="h-4 w-4" aria-hidden /></span>
-                  <div>
-                    <p className="font-display text-sm font-bold text-gray-900 dark:text-slate-100">{tx('aiins_title')}</p>
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400">{tx('aiins_intro')}</p>
-                  </div>
-                </div>
-                <ul className="mt-2.5 space-y-1.5">
-                  {aiInsights.map((ins) => (
-                    <li key={ins} className="flex items-start gap-2 text-[13px] leading-snug text-gray-700 dark:text-slate-300"><span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brand-500" aria-hidden />{ins}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            <section className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-3 dark:border-emerald-500/30 dark:bg-emerald-500/5">
-              <p className="flex items-center gap-2 text-sm font-semibold text-emerald-800 dark:text-emerald-300"><ShieldCheck className="h-4 w-4" aria-hidden />{tx('report_includeTitle')}</p>
-              <ul className="mt-2 grid gap-1.5 text-xs text-emerald-900/90 dark:text-emerald-200 sm:grid-cols-2 lg:grid-cols-3">
-                {[tx('report_inc1'), tx('report_inc2'), tx('report_inc3'), tx('report_inc4'), tx('report_inc5'), tx('report_inc6')].map((it) => (
-                  <li key={it} className="flex items-center gap-1.5"><CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-600" aria-hidden />{it}</li>
-                ))}
-              </ul>
-            </section>
 
             <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
               <p className="mb-2 font-display text-sm font-bold text-slate-900 dark:text-slate-100">{tx('consent_beforeTitle')}</p>
@@ -7089,15 +6737,68 @@ export default function IntakeWizardQuick() {
     }
   }
 
-  // v2 composes merged screens. The injuries merge is handled inside renderStepContent
-  // (showSeverity/showDetails); the incident screen stitches "when" + the primary
-  // case-detail descriptor (crash type + fault party, via section1 only).
+  // Each screen shows its required questions first, marked, then one collapsed
+  // group for everything that only improves the estimate.
   const renderStep = () => {
-    if (currentStep === 'when') {
+    if (currentStep === 'injury_type') {
       return (
         <div className="space-y-6">
-          {renderStepContent('when')}
-          {renderSaveProgress()}
+          <RequiredSummary text={tx('required_summary').replace('{count}', '4')} />
+          {renderStepContent('injury_type')}
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_18rem] lg:gap-6">
+            <div className="min-w-0 space-y-6">
+              {renderStepContent('when', 'railMobile')}
+              {renderStepContent('when', 'basics')}
+              {renderSaveProgress()}
+              <OptionalSection
+                title={tx('optional_story_title')}
+                hint={tx('optional_story_hint')}
+                optionalLabel={tx('optional_tag')}
+                defaultOpen={!!formData.narrative.trim() || formData.injuredParty !== 'self'}
+              >
+                <div className="space-y-5">
+                  {renderStepContent('when', 'whoInjured')}
+                  {renderStepContent('when', 'story')}
+                </div>
+              </OptionalSection>
+            </div>
+            {renderStepContent('when', 'rail')}
+          </div>
+        </div>
+      )
+    }
+    if (currentStep === 'injury_severity') {
+      const idd = formData.injuryDetails
+      const ic = formData.insuranceCoverage
+      const cp = formData.casePosture
+      const hasOptionalAnswers =
+        idd.bodyParts.length > 0 || idd.diagnoses.length > 0 || idd.currentSymptoms.length > 0 ||
+        !!idd.recoveryStatus || idd.futureTreatment.length > 0 || !!formData.emsResponded ||
+        !!ic.medicalBillRange || !!ic.outOfPocketRange || !!cp.missedWork || !!cp.faultBelief || !!cp.acceptedSettlement
+      return (
+        <div className="space-y-6">
+          <RequiredSummary text={tx('required_summary').replace('{count}', '3')} />
+          <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_19rem]">
+            <div className="min-w-0 space-y-6">
+              {renderStepContent('injury_severity')}
+              {renderStepContent('when', 'treatment')}
+              {renderInsuranceStatus('attorney')}
+              <OptionalSection
+                title={tx('optional_estimate_title')}
+                hint={tx('optional_estimate_hint')}
+                optionalLabel={tx('optional_tag')}
+                defaultOpen={hasOptionalAnswers}
+              >
+                <div className="space-y-4">
+                  {renderStepContent('when', 'careExtras')}
+                  {renderStepContent('injury_severity', 'optional')}
+                  {renderStepContent('financial_impact')}
+                  {renderInsuranceStatus()}
+                </div>
+              </OptionalSection>
+            </div>
+            {renderStepContent('injury_severity', 'sidebar')}
+          </div>
         </div>
       )
     }
@@ -7116,10 +6817,9 @@ export default function IntakeWizardQuick() {
     legal_status: tx('stepTitles_legal_status'),
     consent: t('intake.stepTitles_consent')
   }
-  stepTitles.when = tx('stepHeading_incidentLocation')
-  stepTitles.injury_severity = tx('stepHeading_injuriesTreatment')
-  stepTitles.financial_impact = tx('stepHeading_damagesInsurance')
-  stepTitles.consent = tx('stepHeading_reviewConsent')
+  stepTitles.injury_type = tx('stepHeading_whatHappened')
+  stepTitles.injury_severity = tx('stepHeading_injuriesCosts')
+  stepTitles.consent = tx('stepHeading_review')
 
   const isFirstStep = currentStep === 'injury_type'
   const isRevisitingAnsweredStep =
@@ -7173,7 +6873,7 @@ export default function IntakeWizardQuick() {
     (formData.incidentDatePreset === 'month_year' && !!formData.incidentDate)
   const promptForExactDate = () => {
     updateForm({ incidentDatePreset: 'custom' })
-    setCurrentStep('when')
+    setCurrentStep('injury_type')
   }
   // A file the vision precheck flagged as the wrong type (status 'mismatch' or
   // 'review') must NOT count toward readiness until the user confirms it (dismisses
@@ -7495,23 +7195,6 @@ export default function IntakeWizardQuick() {
         </div>
       )}
 
-      {injuryDetailsFit && (
-        <div className="mx-4 mb-1 shrink-0 rounded-xl border border-brand-100 bg-brand-50 px-3 py-2 text-brand-950 sm:mx-0">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-xs font-semibold leading-tight sm:text-sm">{tx('injuryStrength_title')}</p>
-            <p className="text-[10px] font-bold uppercase tracking-wide text-brand-700">{tx('consent_confidence')} {injuryConfidencePercent}%</p>
-          </div>
-          <div className="mt-1.5 grid gap-1 text-[11px] sm:grid-cols-3">
-            <span className="rounded-lg bg-white/80 px-2 py-1 font-medium text-slate-700">{tx('signal_liability')}: <strong>{tx(`signal_${liabilitySignalLabel}`)}</strong></span>
-            <span className="rounded-lg bg-white/80 px-2 py-1 font-medium text-slate-700">{tx('signal_severity')}: <strong>{tx(`signal_${injurySeveritySignalLabel}`)}</strong></span>
-            <span className="rounded-lg bg-white/80 px-2 py-1 font-medium text-slate-700">{tx('signal_documentation')}: <strong>{tx(`signal_${documentationSignalLabel}`)}</strong></span>
-          </div>
-          <div className="cc-progress mt-1.5 bg-white">
-            <div className="cc-progress-bar" style={{ width: `${injuryConfidencePercent}%` }} />
-          </div>
-        </div>
-      )}
-
       {Object.keys(errors).length > 0 && (
         <div
           ref={errorSummaryRef}
@@ -7581,15 +7264,6 @@ export default function IntakeWizardQuick() {
           >
             {loading ? t('intake.submitting') : tx('cta_generateReport')}
           </button>
-        ) : currentStep === 'when' && (formData.incidentDatePreset === 'custom' || formData.incidentDatePreset === 'month_year') ? (
-          <button
-            type="button"
-            onClick={validateAndNext}
-            disabled={formData.incidentDatePreset === 'custom' ? !customDate : !formData.incidentDate}
-            className="inline-flex min-h-10 items-center justify-center rounded-lg bg-accent-600 px-6 py-2.5 text-sm font-bold text-white shadow-md transition-all hover:bg-accent-700 hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-11 sm:rounded-xl sm:px-6"
-          >
-            {t('common.next')} <ChevronRight className="h-4 w-4 ml-1" aria-hidden />
-          </button>
         ) : currentStep === 'evidence' || currentStep === 'case_details' ? (
           <div className="flex items-center justify-end gap-3">
             <button
@@ -7613,7 +7287,7 @@ export default function IntakeWizardQuick() {
             onClick={validateAndNext}
             className="inline-flex min-h-10 items-center justify-center rounded-lg bg-accent-600 px-6 py-2.5 text-sm font-bold text-white shadow-md transition-all hover:bg-accent-700 hover:shadow-lg sm:min-h-11 sm:rounded-xl sm:px-6"
           >
-            {currentStep === 'financial_impact' ? tx('cta_continueReview') : t('common.next')} <ChevronRight className="h-4 w-4 ml-1" aria-hidden />
+            {currentStep === 'injury_severity' ? tx('cta_continueReview') : t('common.next')} <ChevronRight className="h-4 w-4 ml-1" aria-hidden />
           </button>
         )}
       </div>
