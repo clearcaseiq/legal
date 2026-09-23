@@ -220,22 +220,6 @@ const CARE_TIMING_OPTION_DEFS = [
   { value: 'not_sure', labelKey: 'careTiming_notSure' },
 ]
 
-// Icon per option so the injuries/treatment step can render visual tiles.
-const SEVERITY_ICONS: Record<string, LucideIcon> = {
-  minor: Activity,
-  moderate: Stethoscope,
-  serious: Hospital,
-  surgery: Scissors,
-  unsure: HelpCircle,
-}
-const TREATMENT_ICONS: Record<string, LucideIcon> = {
-  er: Hospital,
-  urgent_care: Stethoscope,
-  primary_care: Stethoscope,
-  other: Pencil,
-  none: CalendarDays,
-}
-
 /** Splits a label like "Minor (soreness or bruises)" into main + description. */
 const splitLabel = (label: string): { main: string; desc?: string } => {
   const match = label.match(/^(.*?)\s*\(([^)]*)\)\s*$/)
@@ -833,15 +817,10 @@ function resolveStepKey(raw: string): Step | '' {
   return V2_MERGED_INTO[legacy] ?? legacy
 }
 
-// Shared section header: a colored rounded badge (icon or number) + title + optional helper.
-// Used across wizard steps so section headers look consistent.
-const SECTION_HEADER_ACCENTS: Record<string, string> = {
-  brand: 'bg-brand-50 text-brand-600 dark:bg-brand-500/10 dark:text-brand-300',
-  violet: 'bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300',
-  blue: 'bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300',
-  emerald: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300',
-}
-function SectionHeader({ icon: Icon, number, title, helper, accent = 'brand' }: {
+// Shared question header: title + optional helper, one style on every screen.
+// `icon`, `number` and `accent` are accepted for older call sites but no longer drawn:
+// colored badges on every question competed with the answers.
+function SectionHeader({ title, helper }: {
   icon?: LucideIcon
   number?: number
   title: ReactNode
@@ -849,24 +828,65 @@ function SectionHeader({ icon: Icon, number, title, helper, accent = 'brand' }: 
   accent?: 'brand' | 'violet' | 'blue' | 'emerald'
 }) {
   return (
-    <div className="flex items-start gap-3">
-      <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl font-display text-sm font-bold ${SECTION_HEADER_ACCENTS[accent]}`}>
-        {Icon ? <Icon className="h-5 w-5" aria-hidden /> : number}
-      </span>
-      <div className="min-w-0">
-        <h3 className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">{title}</h3>
-        {helper && <p className="mt-0.5 text-xs leading-5 text-gray-500 dark:text-slate-400">{helper}</p>}
-      </div>
+    <div className="min-w-0">
+      <h3 className="flex flex-wrap items-center gap-x-2 gap-y-1 font-display text-[15px] font-semibold leading-snug text-gray-900 dark:text-slate-100">{title}</h3>
+      {helper && <p className="mt-0.5 text-xs leading-5 text-gray-500 dark:text-slate-400">{helper}</p>}
     </div>
   )
+}
+
+const PHONE_QUERY = '(max-width: 639px)'
+
+/** True below Tailwind's `sm` breakpoint; tracks resizes and rotation. */
+function useIsPhone(): boolean {
+  const [isPhone, setIsPhone] = useState(() => typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia(PHONE_QUERY).matches)
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return
+    const query = window.matchMedia(PHONE_QUERY)
+    const update = () => setIsPhone(query.matches)
+    update()
+    query.addEventListener?.('change', update)
+    return () => query.removeEventListener?.('change', update)
+  }, [])
+  return isPhone
 }
 
 /** Marks a question the claimant must answer to continue. */
 function RequiredTag({ label }: { label: string }) {
   return (
-    <span className="ml-1 inline-flex items-center rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-bold uppercase leading-none tracking-wide text-red-700 ring-1 ring-inset ring-red-200 dark:bg-red-500/10 dark:text-red-300 dark:ring-red-500/30">
+    <span className="inline-flex items-center rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase leading-none tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
       {label}
     </span>
+  )
+}
+
+/**
+ * The one answer tile used by every single- or multi-choice question: a check
+ * circle, a bold label and an optional one-line subtitle.
+ */
+function ChoiceTile({ selected, onClick, label, sub, ariaLabel }: {
+  selected: boolean
+  onClick: () => void
+  label: ReactNode
+  sub?: ReactNode
+  ariaLabel?: string
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={selected}
+      aria-label={ariaLabel}
+      onClick={onClick}
+      className={`flex min-h-[2.75rem] w-full min-w-0 items-center gap-2.5 rounded-xl border-[1.5px] px-3 py-2 text-left transition-colors focus-visible:ring-inset focus-visible:ring-offset-0 ${selected ? 'border-brand-600 bg-brand-50 dark:border-brand-400 dark:bg-brand-500/15' : 'border-slate-200 bg-white hover:border-brand-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/40 dark:hover:border-brand-500/50'}`}
+    >
+      <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-[1.5px] ${selected ? 'border-brand-600 bg-brand-600 text-white dark:border-brand-400 dark:bg-brand-400' : 'border-slate-300 dark:border-slate-600'}`} aria-hidden>
+        {selected && <Check className="h-2.5 w-2.5" strokeWidth={3.5} />}
+      </span>
+      <span className="min-w-0">
+        <span className="block text-[13px] font-semibold leading-tight text-gray-900 [overflow-wrap:anywhere] dark:text-slate-100">{label}</span>
+        {sub && <span className="mt-0.5 block text-[11px] leading-tight text-gray-500 dark:text-slate-400">{sub}</span>}
+      </span>
+    </button>
   )
 }
 
@@ -1124,6 +1144,7 @@ export default function IntakeWizardQuick() {
   // Whether the "what kind of incident was it?" panel is showing. Opened by
   // picking a type that has subtypes, and by re-picking one to change the answer.
   const [subtypePanelOpen, setSubtypePanelOpen] = useState(false)
+  const isPhone = useIsPhone()
   // The option just picked, held for the moment between the click and the panel
   // collapsing so the choice can be confirmed on screen.
   const [subtypeConfirming, setSubtypeConfirming] = useState<string | null>(null)
@@ -3405,16 +3426,8 @@ export default function IntakeWizardQuick() {
     const emailSuggestion = suggestEmail(formData.contact.email)
     return (
     <div id="intake-contact" className="scroll-mt-24">
-      <div className="flex items-start gap-2.5">
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-600 dark:bg-brand-500/15 dark:text-brand-300">
-          <Mail className="h-4 w-4" aria-hidden />
-        </span>
-        <div className="min-w-0">
-          <p className="flex flex-wrap items-center gap-1.5 font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100">{tx('contact_requiredTitle')}<RequiredTag label={tx('required_tag')} /></p>
-          <p className="mt-0.5 text-xs leading-snug text-gray-500">{tx('contact_requiredDesc')}</p>
-        </div>
-      </div>
-      <div className="mt-2 space-y-2 sm:pl-[2.375rem]">
+      <SectionHeader title={<>{tx('contact_requiredTitle')}<RequiredTag label={tx('required_tag')} /></>} helper={tx('contact_requiredDesc')} />
+      <div className="mt-3 space-y-2">
           {/*
             Each row is a grid item, and grid items default to min-width:auto —
             the column can't shrink below the row's min-content. With the label
@@ -3426,7 +3439,7 @@ export default function IntakeWizardQuick() {
           */}
           <div className="grid gap-2 sm:max-w-2xl md:grid-cols-2 md:gap-5">
           {/* Email */}
-          <div className={`flex min-w-0 items-center gap-2 rounded-lg border px-2.5 py-1.5 transition-colors ${contactMethod === 'email' ? 'border-brand-300 bg-brand-50/40 dark:border-brand-500/40 dark:bg-brand-500/10' : 'border-slate-200 dark:border-slate-700'}`}>
+          <div className={`flex min-h-11 min-w-0 items-center gap-2 rounded-xl border-[1.5px] px-3 py-2 transition-colors ${contactMethod === 'email' ? 'border-brand-300 bg-brand-50/40 dark:border-brand-500/40 dark:bg-brand-500/10' : 'border-slate-200 dark:border-slate-700'}`}>
             <input
               type="radio"
               name="contact-method"
@@ -3449,11 +3462,11 @@ export default function IntakeWizardQuick() {
               placeholder="name@email.com"
               maxLength={254}
               aria-invalid={!!errors.contactEmail || !!errors.contact}
-              className="!min-h-0 min-w-0 flex-1 !border-0 !bg-transparent !p-0 !text-sm text-gray-900 placeholder:text-gray-400 focus:!ring-0 dark:text-slate-100"
+              className="!min-h-0 min-w-0 flex-1 !border-0 !bg-transparent !p-0 !text-base sm:!text-sm text-gray-900 placeholder:text-gray-400 focus:!ring-0 dark:text-slate-100"
             />
           </div>
           {/* Phone */}
-          <div className={`flex min-w-0 items-center gap-2 rounded-lg border px-2.5 py-1.5 transition-colors ${contactMethod === 'phone' ? 'border-brand-300 bg-brand-50/40 dark:border-brand-500/40 dark:bg-brand-500/10' : 'border-slate-200 dark:border-slate-700'}`}>
+          <div className={`flex min-h-11 min-w-0 items-center gap-2 rounded-xl border-[1.5px] px-3 py-2 transition-colors ${contactMethod === 'phone' ? 'border-brand-300 bg-brand-50/40 dark:border-brand-500/40 dark:bg-brand-500/10' : 'border-slate-200 dark:border-slate-700'}`}>
             <input
               type="radio"
               name="contact-method"
@@ -3476,7 +3489,7 @@ export default function IntakeWizardQuick() {
               placeholder="(555) 123-4567"
               maxLength={20}
               aria-invalid={!!errors.contactPhone || !!errors.contact}
-              className="!min-h-0 min-w-0 flex-1 !border-0 !bg-transparent !p-0 !text-sm text-gray-900 placeholder:text-gray-400 focus:!ring-0 dark:text-slate-100"
+              className="!min-h-0 min-w-0 flex-1 !border-0 !bg-transparent !p-0 !text-base sm:!text-sm text-gray-900 placeholder:text-gray-400 focus:!ring-0 dark:text-slate-100"
             />
           </div>
           </div>
@@ -3557,33 +3570,10 @@ export default function IntakeWizardQuick() {
         const renderChoice = (
           active: boolean,
           onClick: () => void,
-          Icon: LucideIcon,
+          _icon: LucideIcon,
           label: string,
           opts?: { tone?: 'emerald' | 'amber' | 'red'; stack?: boolean; key?: string }
-        ) => {
-          const iconColor = active
-            ? 'text-brand-700'
-            : opts?.tone === 'emerald'
-              ? 'text-emerald-600'
-              : opts?.tone === 'amber'
-                ? 'text-amber-500'
-                : opts?.tone === 'red'
-                  ? 'text-rose-500'
-                  : 'text-slate-400'
-          return (
-            <button
-              key={opts?.key}
-              type="button"
-              aria-pressed={active}
-              onClick={onClick}
-              className={`relative flex ${opts?.stack ? 'flex-col items-center gap-1.5 text-center' : 'items-center gap-2'} rounded-xl border-[1.5px] px-3 py-2.5 text-xs font-semibold leading-tight shadow-sm transition-all active:scale-[0.99] ${active && !opts?.stack ? 'pr-6' : ''} ${active ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}
-            >
-              {active && <Check className="absolute right-1.5 top-1.5 h-3.5 w-3.5 text-brand-600" aria-hidden />}
-              <Icon className={`h-4 w-4 shrink-0 ${iconColor}`} aria-hidden />
-              <span className="min-w-0 break-words">{label}</span>
-            </button>
-          )
-        }
+        ) => <ChoiceTile key={opts?.key} selected={active} onClick={onClick} label={label} />
         const detailCard = (
           active: boolean,
           onClick: () => void,
@@ -3635,8 +3625,8 @@ export default function IntakeWizardQuick() {
         }
     const attorneyQuestion = (
                   <div id="intake-attorney-status" className="scroll-mt-24">
-                    <SectionHeader icon={User} title={<>{tx('legal_attorneyQuestion')}<RequiredTag label={tx('required_tag')} /></>} helper={tx('legal_attorneyHelper')} />
-                    <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    <SectionHeader title={<>{tx('legal_attorneyQuestion')}<RequiredTag label={tx('required_tag')} /></>} helper={tx('legal_attorneyHelper')} />
+                    <div className="mt-3 grid grid-cols-2 gap-2 sm:max-w-md">
                       {ATTORNEY_STATUS_OPTIONS.map(({ value, label }) =>
                         renderChoice(
                           cpLegal.attorneyStatus === value,
@@ -3661,7 +3651,7 @@ export default function IntakeWizardQuick() {
     )
     const faultQuestion = (
                   <div id="intake-fault" className="scroll-mt-24">
-                    <SectionHeader icon={Scale} title={<>{tx('legal_faultQuestion')}<RequiredTag label={tx('required_tag')} /></>} helper={tx('legal_faultHelper')} />
+                    <SectionHeader title={<>{tx('legal_faultQuestion')}<RequiredTag label={tx('required_tag')} /></>} helper={tx('legal_faultHelper')} />
                     <div className="mt-3 grid gap-2 sm:grid-cols-3">
                       {liabilityOptionsForClaim.map(({ value, label }) =>
                         renderChoice(
@@ -3687,11 +3677,8 @@ export default function IntakeWizardQuick() {
                 <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
                   {/* Settlement */}
                   <div>
-                    <div className="flex items-start gap-2">
-                      <DollarSign className="mt-0.5 h-5 w-5 shrink-0 text-slate-400" aria-hidden />
-                      <p className="font-display text-sm font-semibold text-slate-950 dark:text-slate-100">{tx('legal_acceptedQuestion')}</p>
-                    </div>
-                    <div className="mt-3 grid gap-2">
+                    <SectionHeader title={tx('legal_acceptedQuestion')} />
+                    <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
                       {([
                         { value: 'no', label: tx('optionNo'), Icon: CheckCircle2, tone: 'emerald' as const },
                         { value: 'yes_received', label: tx('settlement_received'), Icon: Receipt, tone: 'amber' as const },
@@ -3877,7 +3864,7 @@ export default function IntakeWizardQuick() {
     switch (step) {
       case 'injury_type': {
         const selectedIndex = INJURY_TYPES.findIndex((entry) => entry.value === formData.injuryType)
-        const columns = 3
+        const columns = isPhone ? 2 : 3
         // The follow-up question opens under the row holding the chosen tile
         // rather than under the whole grid, so the answer and the question it
         // raised stay next to each other. A tile in the last, short row puts the
@@ -3890,9 +3877,8 @@ export default function IntakeWizardQuick() {
               : Math.min(Math.floor(selectedIndex / columns) * columns + columns - 1, INJURY_TYPES.length - 1)
         return (
           <div>
-            <p className="text-center font-display text-[16px] font-semibold text-gray-900 sm:text-[19px] dark:text-slate-100">{t('intake.injuryType')}</p>
-            <p className="mt-1.5 text-center text-[11px] leading-snug text-gray-500 sm:text-xs dark:text-slate-400">{t('intake.injuryTypeHelp')}</p>
-            <div className={`mt-6 grid gap-2 sm:gap-3 ${subtypePanelOpen && formData.injuryType ? 'grid-cols-1' : 'grid-cols-3'}`}>
+            <SectionHeader title={<>{t('intake.injuryType')}<RequiredTag label={tx('required_tag')} /></>} helper={t('intake.injuryTypeHelp')} />
+            <div className={`mt-3 grid gap-2 ${subtypePanelOpen && formData.injuryType ? 'grid-cols-1' : 'grid-cols-2 sm:grid-cols-3'}`}>
               {INJURY_TYPES.map(({ value, labelKey, icon: Icon }, index) => {
                 if (subtypePanelOpen && formData.injuryType && value !== formData.injuryType) return null
                 return (
@@ -3919,37 +3905,30 @@ export default function IntakeWizardQuick() {
                     })
                     setSubtypePanelOpen(hasIncidentSubtypes(value))
                   }}
-                  className={`relative flex min-h-[5rem] flex-col items-center justify-center gap-1.5 rounded-xl px-1.5 py-2.5 transition-all duration-150 focus-visible:ring-inset focus-visible:ring-offset-0 active:scale-[0.99] motion-reduce:transition-none sm:min-h-[6rem] sm:px-3 ${
+                  className={`relative flex min-h-[3.25rem] min-w-0 items-center gap-2.5 rounded-xl border-[1.5px] px-3 py-2 text-left transition-colors focus-visible:ring-inset focus-visible:ring-offset-0 motion-reduce:transition-none ${
                     formData.injuryType === value
-                      ? 'bg-brand-50 shadow-md ring-2 ring-brand-500 dark:bg-brand-950/40 dark:ring-brand-400'
-                      : 'bg-white ring-1 ring-slate-200 hover:bg-slate-50 hover:ring-brand-300 dark:bg-slate-900/50 dark:ring-slate-700 dark:hover:bg-slate-900'
+                      ? 'border-brand-600 bg-brand-50 dark:border-brand-400 dark:bg-brand-500/15'
+                      : 'border-slate-200 bg-white hover:border-brand-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/40 dark:hover:border-brand-500/50'
                   }`}
                 >
-                  {formData.injuryType === value && (
-                    <span className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full bg-brand-600 shadow-sm ring-2 ring-white dark:ring-slate-900" aria-hidden>
-                      <Check className="h-3.5 w-3.5 text-white" strokeWidth={3} />
+                  <Icon
+                    className={`h-5 w-5 shrink-0 ${formData.injuryType === value ? 'text-brand-600 dark:text-brand-300' : 'text-slate-400 dark:text-slate-500'}`}
+                    strokeWidth={formData.injuryType === value ? 2.2 : 1.9}
+                    aria-hidden
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[13px] font-semibold leading-tight text-gray-900 [overflow-wrap:anywhere] sm:text-sm dark:text-slate-100">
+                      {t(`intake.${labelKey}`)}
                     </span>
-                  )}
-                  <span
-                    className={`flex h-10 w-10 items-center justify-center rounded-full sm:h-11 sm:w-11 ${
-                      formData.injuryType === value ? 'bg-brand-100 dark:bg-brand-900/50' : 'bg-slate-100 dark:bg-slate-800'
-                    }`}
-                  >
-                    <Icon
-                      className={`h-5 w-5 sm:h-6 sm:w-6 ${formData.injuryType === value ? 'text-brand-600 dark:text-brand-300' : 'text-slate-500 dark:text-slate-400'}`}
-                      strokeWidth={formData.injuryType === value ? 2.2 : 1.9}
-                    />
+                    {formData.injuryType === value && selectedSubtypeLabel && (
+                      <span className="mt-0.5 block truncate text-[11px] font-medium leading-tight text-brand-700 dark:text-brand-300">
+                        {selectedSubtypeLabel}
+                      </span>
+                    )}
                   </span>
-                  <span
-                    className={`text-center text-[12px] font-semibold leading-tight sm:text-[15px] sm:leading-snug ${
-                      formData.injuryType === value ? 'text-brand-900 dark:text-brand-100' : 'text-slate-700 dark:text-slate-200'
-                    }`}
-                  >
-                    {t(`intake.${labelKey}`)}
-                  </span>
-                  {formData.injuryType === value && selectedSubtypeLabel && (
-                    <span className="max-w-full truncate text-center text-[10px] font-medium leading-tight text-brand-700 sm:text-xs dark:text-brand-300">
-                      {selectedSubtypeLabel}
+                  {formData.injuryType === value && (
+                    <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-brand-600 text-white dark:bg-brand-400" aria-hidden>
+                      <Check className="h-2.5 w-2.5" strokeWidth={3.5} />
                     </span>
                   )}
                 </button>
@@ -4028,37 +4007,11 @@ export default function IntakeWizardQuick() {
           updateForm({ incidentDatePreset: 'custom', incidentDate: iso })
         }
         const venueStateName = US_STATES.find(s => s.code === formData.venue.state)?.name
-        const whyAskItems = [
-          { Icon: CalendarClock, title: tx('whyAsk_deadline_t'), desc: tx('whyAsk_deadline_d') },
-          { Icon: Users, title: tx('whyAsk_match_t'), desc: tx('whyAsk_match_d') },
-          { Icon: Activity, title: tx('whyAsk_local_t'), desc: tx('whyAsk_local_d') },
-        ]
-        // Mobile-only: collapsed "Why we ask this" so the rail does not add a long scroll under the form
-        const railMobile = (
-                <details className="group rounded-xl border border-slate-200 bg-slate-50/60 dark:border-slate-700 dark:bg-slate-800/40 lg:hidden">
-                  <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2.5 text-sm font-semibold text-gray-900 [&::-webkit-details-marker]:hidden dark:text-slate-100">
-                    <span className="flex items-center gap-1.5"><HelpCircle className="h-4 w-4 text-brand-600" aria-hidden /> {tx('whyAsk_title')}</span>
-                    <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-open:rotate-180" aria-hidden />
-                  </summary>
-                  <div className="space-y-3 px-3 pb-3">
-                    {whyAskItems.map(({ Icon, title, desc }) => (
-                      <div key={title} className="flex items-start gap-2.5">
-                        <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-600 dark:bg-brand-500/15"><Icon className="h-4 w-4" aria-hidden /></span>
-                        <div className="min-w-0">
-                          <p className="text-xs font-semibold text-gray-800 dark:text-slate-200">{title}</p>
-                          <p className="mt-0.5 text-[11px] leading-snug text-gray-500">{desc}</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </details>
-        )
         const basics = (
                 <div id="intake-incident-basics" className="scroll-mt-24 space-y-5">
                 {/* When */}
                 <div>
-                  <p className="flex flex-wrap items-center gap-1.5 font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100"><CalendarDays className="h-4 w-4 shrink-0 text-brand-600" aria-hidden /> {tx('when_heading')}<RequiredTag label={tx('required_tag')} /></p>
-                  <p className="mt-0.5 text-xs leading-snug text-gray-500 sm:text-sm">{tx('when_helper')}</p>
+                  <SectionHeader title={<>{tx('when_heading')}<RequiredTag label={tx('required_tag')} /></>} helper={tx('when_helper')} />
                   {/* When + Where now share a row, so the "When" column is only half-width.
                       Stack the deadline card BELOW the date field/presets (rather than beside
                       them) so the date box and preset buttons keep their full width. */}
@@ -4146,9 +4099,9 @@ export default function IntakeWizardQuick() {
                               key={p.key}
                               type="button"
                               onClick={() => applyPresetDate(p.iso)}
-                              className={`flex !min-h-0 w-full min-w-0 items-center justify-center gap-1.5 rounded-lg border px-1.5 py-1.5 text-center text-xs font-semibold leading-tight transition-colors sm:text-[11px] ${active ? 'border-brand-600 bg-brand-600 text-white shadow-sm dark:border-brand-400 dark:bg-brand-500 dark:text-white' : 'border-brand-200 bg-brand-50/60 text-brand-700 hover:border-brand-300 hover:bg-brand-100 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-300 dark:hover:bg-brand-500/20'}`}
+                              className={`flex !min-h-0 w-full min-w-0 items-center justify-center gap-1.5 rounded-lg border px-1.5 py-1.5 text-center text-xs font-semibold leading-tight transition-colors sm:text-[11px] ${active ? 'border-brand-600 bg-brand-50 text-brand-800 dark:border-brand-400 dark:bg-brand-500/15 dark:text-brand-200' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-300 dark:hover:bg-slate-800'}`}
                             >
-                              <p.Icon className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                              {active && <Check className="h-3.5 w-3.5 shrink-0" aria-hidden />}
                               {p.label}
                             </button>
                           )
@@ -4166,8 +4119,7 @@ export default function IntakeWizardQuick() {
 
                 {/* Where */}
                 <div>
-                  <p className="flex items-center gap-1.5 font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100"><MapPin className="h-4 w-4 shrink-0 text-brand-600" aria-hidden /> {t('intake.where')}<RequiredTag label={tx('required_tag')} /></p>
-                  <p className="mt-0.5 text-xs leading-snug text-gray-500 sm:text-sm">{t('intake.whereHelp')}</p>
+                  <SectionHeader title={<>{t('intake.where')}<RequiredTag label={tx('required_tag')} /></>} helper={t('intake.whereHelp')} />
                   <div className="mt-2">
                     {detectedLocation && !locationAccepted && !formData.venue.state && (
                       <div className="mb-3 flex w-fit max-w-full flex-wrap items-center gap-2.5 rounded-xl border border-brand-200 bg-gradient-to-br from-brand-50 to-white px-3 py-2 shadow-sm dark:border-brand-500/30 dark:from-brand-500/10 dark:to-slate-900/20">
@@ -4351,7 +4303,7 @@ export default function IntakeWizardQuick() {
         )
         const whoInjured = (
                 <div>
-                  <p className="flex items-center gap-1.5 font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100"><Users className="h-4 w-4 shrink-0 text-brand-600" aria-hidden /> {tx('injuredParty_heading')}</p>
+                  <p className="flex items-center gap-1.5 font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100">{tx('injuredParty_heading')}</p>
                   <p className="mt-0.5 text-xs leading-snug text-gray-500 sm:text-sm">{tx('injuredParty_helper')}</p>
                   <div className="mt-2">
                     <select
@@ -4370,7 +4322,7 @@ export default function IntakeWizardQuick() {
         )
         const story = (
                 <div>
-                  <p className="flex items-center gap-1.5 font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100"><MessageSquare className="h-4 w-4 shrink-0 text-brand-600" aria-hidden /> {tx('narrative_heading')}</p>
+                  <p className="flex items-center gap-1.5 font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100">{tx('narrative_heading')}</p>
                   <p className="mt-0.5 text-xs leading-snug text-gray-500 sm:text-sm">{tx('narrative_helper')}</p>
                   <div className="mt-2">
                     <div className="relative">
@@ -4472,7 +4424,7 @@ export default function IntakeWizardQuick() {
         // EMS / ambulance — transport, not a facility, so captured as its own yes/no.
         const emsQuestion = !isDeceased && (
                 <div>
-                  <p className="flex items-center gap-1.5 font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100"><Ambulance className="h-4 w-4 shrink-0 text-brand-600" aria-hidden /> {tx('initialCare_emsQuestion')}</p>
+                  <p className="flex items-center gap-1.5 font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100">{tx('initialCare_emsQuestion')}</p>
                   <div className="mt-2 grid grid-cols-2 gap-2 sm:max-w-xs">
                     {[
                       { value: 'yes', label: tx('optionYes') },
@@ -4498,37 +4450,17 @@ export default function IntakeWizardQuick() {
         // Where care was FIRST received (single facility).
         const treatment = (
                 <div id="intake-treatment">
-                  <p className="flex flex-wrap items-center gap-1.5 font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100"><Stethoscope className="h-4 w-4 shrink-0 text-brand-600" aria-hidden /> {tx(isDeceased ? 'treatment_heading_deceased' : 'treatment_heading')}<RequiredTag label={tx('required_tag')} /></p>
-                  <p className="mt-0.5 text-xs leading-snug text-gray-500 sm:text-sm">{tx(isDeceased ? 'treatment_helper_deceased' : 'treatment_helper')}</p>
-                  <div className="mt-2">
-                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-2.5">
-                      {MEDICAL_TREATMENT_OPTIONS.map(({ value }) => {
-                        const Icon = TREATMENT_ICONS[value] ?? Check
-                        const selected = formData.medicalTreatment.includes(value)
-                        const fullWidth = value === 'none'
-                        return (
-                          <button
-                            key={value}
-                            type="button"
-                            aria-pressed={selected}
-                            onClick={() => toggleMedicalTreatment(value)}
-                            className={`relative flex items-center justify-center shadow-sm transition-all focus-visible:ring-inset focus-visible:ring-offset-0 active:scale-[0.99] ${
-                              fullWidth
-                                ? 'col-span-2 flex-row gap-2 rounded-2xl border-[1.5px] px-3 py-2.5'
-                                : 'flex-col gap-1.5 rounded-2xl border-[1.5px] px-2 py-2.5'
-                            } ${
-                              selected ? 'border-brand-600 bg-brand-50 shadow' : 'border-gray-200 bg-white hover:border-brand-400 hover:shadow-md'
-                            }`}
-                          >
-                            {selected && !fullWidth && <Check className="absolute right-1.5 top-1.5 h-4 w-4 text-brand-600" aria-hidden />}
-                            <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${selected ? 'bg-brand-100' : 'bg-brand-50'}`}>
-                              <Icon className={`h-5 w-5 ${selected ? 'text-brand-700' : 'text-brand-600'}`} aria-hidden />
-                            </span>
-                            <span className="text-sm font-semibold leading-tight text-gray-900">{value === 'none' && isDeceased ? tx('treatment_none_deceased') : getOptionLabel(MEDICAL_TREATMENT_OPTIONS, value)}</span>
-                            {selected && fullWidth && <Check className="h-4 w-4 text-brand-600" aria-hidden />}
-                          </button>
-                        )
-                      })}
+                  <SectionHeader title={<>{tx(isDeceased ? 'treatment_heading_deceased' : 'treatment_heading')}<RequiredTag label={tx('required_tag')} /></>} helper={tx(isDeceased ? 'treatment_helper_deceased' : 'treatment_helper')} />
+                  <div className="mt-3">
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+                      {MEDICAL_TREATMENT_OPTIONS.map(({ value }) => (
+                        <ChoiceTile
+                          key={value}
+                          selected={formData.medicalTreatment.includes(value)}
+                          onClick={() => toggleMedicalTreatment(value)}
+                          label={value === 'none' && isDeceased ? tx('treatment_none_deceased') : getOptionLabel(MEDICAL_TREATMENT_OPTIONS, value)}
+                        />
+                      ))}
                     </div>
                     {errors.medicalTreatment && (
                       <p className="mt-2 text-xs text-red-600">{errors.medicalTreatment}</p>
@@ -4540,7 +4472,7 @@ export default function IntakeWizardQuick() {
         // How soon after the incident — only relevant once some care was received.
         const careTiming = formData.medicalTreatment.length > 0 && !formData.medicalTreatment.includes('none') && (
                 <div>
-                  <p className="flex items-center gap-1.5 font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100"><CalendarClock className="h-4 w-4 shrink-0 text-brand-600" aria-hidden /> {tx('careTiming_question')}</p>
+                  <p className="flex items-center gap-1.5 font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100">{tx('careTiming_question')}</p>
                   <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
                     {CARE_TIMING_OPTIONS.map(({ value, label }) => {
                       const selected = formData.initialCareTiming === value
@@ -4560,32 +4492,7 @@ export default function IntakeWizardQuick() {
                   </div>
                 </div>
         )
-        // Right: Why we ask this (desktop only; mobile uses the collapsible above)
-        const rail = (
-              <aside className="hidden space-y-3 lg:block lg:sticky lg:top-2 lg:self-start">
-                <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4 dark:border-slate-700 dark:bg-slate-800/40">
-                  <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">{tx('whyAsk_title')}</p>
-                  <ul className="mt-3 space-y-3">
-                    {whyAskItems.map(({ Icon, title, desc }) => (
-                      <li key={title} className="flex items-start gap-2.5">
-                        <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-600 dark:bg-brand-500/15"><Icon className="h-4 w-4" aria-hidden /></span>
-                        <div className="min-w-0">
-                          <p className="text-xs font-semibold text-gray-800 dark:text-slate-200">{title}</p>
-                          <p className="mt-0.5 text-[11px] leading-snug text-gray-500">{desc}</p>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-                <div className="rounded-xl border border-brand-200 bg-brand-50/60 p-4 dark:border-brand-500/30 dark:bg-brand-500/10">
-                  <p className="flex items-center gap-1.5 text-sm font-semibold text-brand-700 dark:text-brand-300"><ShieldCheck className="h-4 w-4 shrink-0" aria-hidden /> {tx('whyAsk_secure_t')}</p>
-                  <p className="mt-1 text-[11px] leading-snug text-slate-600 dark:text-slate-300">{tx('whyAsk_secure_d')}</p>
-                </div>
-              </aside>
-        )
         switch (part) {
-          case 'railMobile': return railMobile
-          case 'rail': return rail
           case 'whoInjured': return whoInjured
           case 'story': return story
           case 'treatment': return treatment
@@ -4749,34 +4656,18 @@ export default function IntakeWizardQuick() {
         const severityQuestion = (
             <div id="intake-severity">
               <SectionHeader icon={HeartPulse} title={<>{t('intake.injurySeverity')}<RequiredTag label={tx('required_tag')} /></>} helper={tx('injurySeverity_helper')} />
-              <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-2.5">
+              <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
                 {INJURY_SEVERITY_OPTIONS.map(({ value, labelKey }) => {
                   const { main, desc } = splitLabel(t(`intake.${labelKey}`))
-                  const Icon = SEVERITY_ICONS[value] ?? HelpCircle
                   const selected = formData.injurySeverity === value
-                  const fullWidth = value === 'unsure'
                   return (
-                    <button
+                    <ChoiceTile
                       key={value}
-                      type="button"
-                      aria-pressed={selected}
+                      selected={selected}
                       onClick={() => updateForm({ injurySeverity: selected ? '' : value })}
-                      className={`relative flex shadow-sm transition-all focus-visible:ring-inset focus-visible:ring-offset-0 active:scale-[0.99] ${
-                        fullWidth
-                          ? 'col-span-2 flex-row items-center justify-center gap-2 rounded-2xl border-[1.5px] px-3 py-2.5 sm:col-span-4'
-                          : 'flex-col items-center justify-center gap-1.5 rounded-2xl border-[1.5px] px-2 py-2.5 text-center'
-                      } ${
-                        selected ? 'border-brand-600 bg-brand-50 shadow' : 'border-gray-200 bg-white hover:border-brand-400 hover:shadow-md'
-                      }`}
-                    >
-                      {selected && !fullWidth && <Check className="absolute right-1.5 top-1.5 h-4 w-4 text-brand-600" aria-hidden />}
-                      <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${selected ? 'bg-brand-100' : 'bg-brand-50'}`}>
-                        <Icon className={`h-5 w-5 ${selected ? 'text-brand-700' : 'text-brand-600'}`} aria-hidden />
-                      </span>
-                      <span className="text-[13px] font-semibold leading-tight text-gray-900">{main}</span>
-                      {desc && !fullWidth && <span className="text-[11px] leading-tight text-gray-500">{desc}</span>}
-                      {selected && fullWidth && <Check className="h-4 w-4 text-brand-600" aria-hidden />}
-                    </button>
+                      label={main}
+                      sub={desc ? desc.charAt(0).toUpperCase() + desc.slice(1) : undefined}
+                    />
                   )
                 })}
               </div>
@@ -6238,34 +6129,19 @@ export default function IntakeWizardQuick() {
 
         const billsQuestion = (
               <div id={COSTS_ANCHOR_ID} className="scroll-mt-24">
-                <SectionHeader icon={DollarSign} accent="emerald" title={<>{tx('financial_billsSoFar')}<RequiredTag label={tx('required_tag')} /></>} helper={tx('financial_billsRequiredHelper')} />
-                <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
-                  {medicalBillCards.map(({ value, label }) => {
-                    const selected = icFinancial.medicalBillRange === value
-                    const billIcons: Record<string, LucideIcon> = { under_2500: DollarSign, '2500_10000': DollarSign, '10000_50000': Briefcase, over_50000: Landmark, not_sure: HelpCircle }
-                    const BIcon = billIcons[value] || DollarSign
-                    return (
-                    <button
+                <SectionHeader title={<>{tx('financial_billsSoFar')}<RequiredTag label={tx('required_tag')} /></>} helper={tx('financial_billsRequiredHelper')} />
+                <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+                  {medicalBillCards.map(({ value, label }) => (
+                    <ChoiceTile
                       key={value}
-                      type="button"
-                      aria-pressed={selected}
+                      selected={icFinancial.medicalBillRange === value}
                       onClick={() => {
                         updateForm({ insuranceCoverage: { ...icFinancial, medicalBillRange: icFinancial.medicalBillRange === value ? '' : value } })
                         setErrors(({ medicalBillRange: _cleared, ...rest }) => rest)
                       }}
-                      className={`relative flex flex-col items-center gap-1.5 rounded-xl border-[1.5px] px-3 py-3 text-center text-xs font-semibold shadow-sm transition-all active:scale-[0.99] ${selected ? 'border-brand-600 bg-brand-50 text-brand-900 shadow' : 'border-gray-200 bg-white text-gray-800 hover:border-brand-400 hover:bg-brand-50/50'}`}
-                    >
-                      <BIcon className={`h-5 w-5 ${selected ? 'text-brand-600' : 'text-slate-400'}`} aria-hidden />
-                      {selected && <Check className="absolute top-2 right-2 h-4 w-4 text-brand-600" aria-hidden />}
-                      {/* A range like "$2,500 - $10,000" is one value, so it has to
-                          stay on one line. The step scales every button up to
-                          text-base, at which the longer ranges no longer fit two
-                          per row and broke at the dash, leaving some tiles one
-                          line tall and others two. */}
-                      <span className="whitespace-nowrap !text-[13px] leading-tight">{label}</span>
-                    </button>
-                    )
-                  })}
+                      label={<span className="whitespace-nowrap">{label}</span>}
+                    />
+                  ))}
                 </div>
 
                 {icFinancial.medicalBillRange === 'over_50000' && (
@@ -6465,6 +6341,9 @@ export default function IntakeWizardQuick() {
                     ? { k: tx('card_lostIncome'), v: labelForValue(WAGE_LOSS_RANGE_OPTIONS, formData.casePosture.lostWagesRange), doc: false }
                     : { k: tx('card_lostIncome'), v: tx('notAnsweredYet'), doc: false },
           ]
+          // Bills are required; future care and lost income are optional, so an
+          // unanswered row there is noise rather than a gap to flag.
+          const shownFinancialLines = financialLines.filter((row, i) => i === 0 || row.v !== tx('notAnsweredYet'))
           // Financial specials (bills / future care / lost income) are the biggest driver of
           // case value, so when the claimant skipped all of them the review card should invite
           // them to add it rather than just reporting three "Not answered yet" lines.
@@ -6557,7 +6436,7 @@ export default function IntakeWizardQuick() {
           <div className="space-y-3">
             {/* Completion delight */}
             <div className="flex items-center justify-center gap-2.5 rounded-2xl border border-emerald-200 bg-emerald-50/70 px-4 py-2.5 text-center dark:border-emerald-500/30 dark:bg-emerald-500/10">
-              <span className="text-xl" aria-hidden>🎉</span>
+              <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-300" aria-hidden />
               <div>
                 <p className="font-display text-sm font-bold text-emerald-800 dark:text-emerald-200">{tx('delight_title')}</p>
                 <p className="text-xs leading-snug text-emerald-700/80 dark:text-emerald-300/80">{tx('delight_body')}</p>
@@ -6573,7 +6452,7 @@ export default function IntakeWizardQuick() {
               ) })}
               {renderCard({ title: tx('card_financial'), icon: DollarSign, step: 'financial_impact', anchorId: COSTS_ANCHOR_ID, children: (
                 hasAnyFinancial ? (
-                <>{financialLines.map((row) => (
+                <>{shownFinancialLines.map((row) => (
                   <p key={row.k} className="flex items-center justify-between gap-2">
                     <span className="min-w-0 flex-1 truncate text-gray-500">{row.k}</span>
                     <span className="flex min-w-0 items-center gap-1 text-right font-medium text-gray-800 dark:text-slate-200">
@@ -6676,9 +6555,7 @@ export default function IntakeWizardQuick() {
         <div className="space-y-6">
           <RequiredSummary text={tx('required_summary').replace('{count}', '4')} />
           {renderStepContent('injury_type')}
-          <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_18rem] lg:gap-6">
-            <div className="min-w-0 space-y-6">
-              {renderStepContent('when', 'railMobile')}
+          <div className="min-w-0 space-y-6">
               {renderStepContent('when', 'basics')}
               {renderSaveProgress()}
               <OptionalSection
@@ -6692,8 +6569,6 @@ export default function IntakeWizardQuick() {
                   {renderStepContent('when', 'story')}
                 </div>
               </OptionalSection>
-            </div>
-            {renderStepContent('when', 'rail')}
           </div>
         </div>
       )
@@ -6989,10 +6864,10 @@ export default function IntakeWizardQuick() {
           Full-bleed + border/shadow so scrolled step content does not show
           through the sides of an inset rounded bar (CP-568). */}
       <div className="sticky top-0 z-30 mb-1 shrink-0 border-b border-slate-200/90 bg-white/95 px-4 pt-2 pb-1.5 shadow-[0_4px_12px_rgba(15,23,42,0.06)] backdrop-blur-md sm:px-0 dark:border-slate-800 dark:bg-slate-950/95" aria-busy={loading}>
-        <p className={`mb-0.5 text-center text-[11px] font-semibold uppercase tracking-[0.08em] text-brand-700 dark:text-brand-300 md:text-sm ${isFirstStep ? 'hidden sm:block' : ''}`}>
+        <p className={`mb-0.5 text-center text-[11px] font-semibold uppercase tracking-[0.08em] text-brand-700 dark:text-brand-300 md:text-sm ${isFirstStep ? 'hidden sm:block' : 'hidden'}`}>
           {t('intake.timePromise')}
         </p>
-        <h1 className={`text-center font-display font-bold leading-tight text-slate-900 dark:text-slate-50 md:text-2xl ${isFirstStep ? 'text-lg sm:text-xl' : 'text-lg sm:text-xl'}`}>
+        <h1 className={`text-center font-display font-bold leading-tight text-slate-900 dark:text-slate-50 ${isFirstStep ? 'text-lg sm:text-xl md:text-2xl' : 'text-base sm:text-lg'}`}>
           {isFirstStep ? t('intake.startHeadline') : stepTitles[currentStep] || visibleSteps[currentStepIndex]?.title}
         </h1>
         {isFirstStep && (
@@ -7030,7 +6905,7 @@ export default function IntakeWizardQuick() {
             <button
               type="button"
               onClick={() => setShowResetConfirm(true)}
-              className="inline-flex shrink-0 items-center gap-1 font-semibold text-blue-600 transition-colors hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+              className="inline-flex shrink-0 items-center gap-1 font-medium text-slate-500 transition-colors hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
             >
               {tx('draft_startOver')}
               <RotateCw className="h-3.5 w-3.5" aria-hidden />
@@ -7053,7 +6928,8 @@ export default function IntakeWizardQuick() {
           </div>
         </div>
         <p className="sr-only">{Math.round(progressPercent)} {tx('progress_percentComplete')}</p>
-        {hasFilingDeadline && (
+        {/* Step 1 shows the deadline in its own card; later steps repeat it only when it is close. */}
+        {hasFilingDeadline && !isFirstStep && (solPreview?.status === 'critical' || solPreview?.status === 'expired') && (
           <div className="mt-2 flex justify-center">
             <p className="flex flex-wrap items-center justify-center gap-x-1.5 gap-y-0.5 text-center text-xs leading-5">
               <span className={`h-2 w-2 shrink-0 rounded-full ${filingDeadlineDotTone}`} aria-hidden />
@@ -7145,7 +7021,7 @@ export default function IntakeWizardQuick() {
             ? "[&_button]:min-h-9 [&_button]:py-2 [&_button]:text-xs [&_button]:leading-tight md:[&_button]:min-h-10 md:[&_button]:text-sm [&_input:not([type='checkbox'])]:min-h-10 [&_input:not([type='checkbox'])]:text-sm [&_select]:min-h-10 [&_select]:text-sm [&_p.text-lg]:text-sm [&_p.text-sm]:text-xs [&_span.text-sm]:text-xs [&_textarea]:min-h-[3rem] [&_textarea]:py-2 [&_textarea]:text-sm"
             : casePostureFit
               ? "[&_button]:min-h-10 [&_button]:py-2 [&_button]:text-sm [&_button]:leading-snug md:[&_button]:min-h-11 [&_input:not([type='checkbox'])]:min-h-11 [&_input:not([type='checkbox'])]:text-base [&_label]:text-sm [&_p.text-sm]:text-[15px] [&_p.text-xs]:text-[13px] [&_select]:min-h-11 [&_select]:text-base [&_textarea]:min-h-[3.5rem] [&_textarea]:py-2 [&_textarea]:text-sm"
-              : "[&_button]:min-h-14 [&_button]:leading-snug [&_button]:text-base md:[&_button]:text-lg [&_input:not([type='checkbox'])]:min-h-12 [&_input:not([type='checkbox'])]:text-lg [&_label]:text-base [&_p.text-lg]:text-xl [&_p.text-sm]:text-base [&_p.text-xs]:text-sm [&_select]:min-h-12 [&_select]:text-lg [&_span.text-sm]:text-base [&_span.text-xs]:text-sm [&_textarea]:min-h-[4.75rem] [&_textarea]:py-2 [&_textarea]:text-base [&_textarea]:leading-snug"
+              : "[&_input:not([type='checkbox'])]:min-h-11 [&_input:not([type='checkbox'])]:text-base [&_select]:min-h-11 [&_select]:text-base [&_textarea]:min-h-[4.75rem] [&_textarea]:py-2 [&_textarea]:text-base [&_textarea]:leading-snug"
         } min-h-0`}
       >
         <div ref={stepScrollRef} className="px-4 pb-2 sm:px-2 sm:pb-0">
@@ -7153,7 +7029,7 @@ export default function IntakeWizardQuick() {
         </div>
       </div>
 
-      <p className={`mb-1 hidden shrink-0 text-center text-xs leading-relaxed text-slate-500 dark:text-slate-400 sm:block md:text-sm ${isFirstStep ? 'sm:hidden md:block' : ''}`}>
+      <p className={`mb-1 hidden shrink-0 text-center text-xs leading-relaxed text-slate-500 dark:text-slate-400 sm:block md:text-sm`}>
         {t('intake.privacyNote')}
       </p>
 
@@ -7162,7 +7038,7 @@ export default function IntakeWizardQuick() {
           last child collapsed to the end of the scrolled content and vanished.
           sm+: back to an in-flow card below the step. */}
       <div ref={navBarRef} className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200/90 bg-white/95 px-4 pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-[0_-4px_20px_rgba(15,23,42,0.10)] backdrop-blur transition-transform duration-150 ease-out dark:border-slate-700 dark:bg-slate-950/95 sm:static sm:inset-auto sm:z-20 sm:mx-0 sm:shrink-0 sm:transform-none sm:rounded-2xl sm:border sm:px-1.5 sm:py-1.5 sm:shadow-lg sm:shadow-slate-200/70 md:rounded-3xl">
-      <div className="flex flex-col items-stretch gap-1.5 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-row items-stretch gap-2 sm:items-center sm:justify-between">
         <button
           type="button"
           onClick={() => {
@@ -7183,7 +7059,7 @@ export default function IntakeWizardQuick() {
             }
             setCurrentStep(visibleSteps[currentStepIndex - 1].key)
           }}
-          className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-brand-200 bg-brand-50 px-4 py-2 text-sm font-semibold text-brand-800 shadow-sm transition-colors hover:border-brand-400 hover:bg-brand-100 hover:text-brand-900 disabled:cursor-not-allowed disabled:opacity-50 dark:border-brand-800 dark:bg-brand-950/50 dark:text-brand-200 dark:hover:bg-brand-900/50 dark:hover:text-white sm:min-h-11 sm:rounded-xl sm:px-5"
+          className={`${currentStepIndex === 0 && !subtypePanelOpen ? 'hidden' : 'inline-flex'} min-h-11 shrink-0 items-center justify-center gap-1.5 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:border-slate-400 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800 sm:px-5`}
         >
           <ChevronLeft className="h-4 w-4" aria-hidden /> {t('common.back')}
         </button>
@@ -7192,12 +7068,12 @@ export default function IntakeWizardQuick() {
             type="button"
             onClick={handleSubmit}
             disabled={loading}
-            className="min-h-10 rounded-lg bg-accent-600 px-5 py-2 text-sm font-semibold text-white shadow-md transition-all hover:bg-accent-700 hover:shadow-lg disabled:opacity-50 sm:min-h-11 sm:rounded-xl sm:px-6"
+            className="min-h-11 flex-1 rounded-xl bg-accent-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-accent-700 disabled:opacity-50 sm:ml-auto sm:flex-none sm:px-6"
           >
             {loading ? t('intake.submitting') : tx('cta_generateReport')}
           </button>
         ) : currentStep === 'evidence' || currentStep === 'case_details' ? (
-          <div className="flex items-center justify-end gap-3">
+          <div className="flex flex-1 items-center justify-end gap-3 sm:ml-auto sm:flex-none">
             <button
               type="button"
               onClick={validateAndNext}
@@ -7217,7 +7093,7 @@ export default function IntakeWizardQuick() {
           <button
             type="button"
             onClick={validateAndNext}
-            className="inline-flex min-h-10 items-center justify-center rounded-lg bg-accent-600 px-6 py-2.5 text-sm font-bold text-white shadow-md transition-all hover:bg-accent-700 hover:shadow-lg sm:min-h-11 sm:rounded-xl sm:px-6"
+            className="inline-flex min-h-11 flex-1 items-center justify-center rounded-xl bg-accent-600 px-6 py-2.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-accent-700 sm:ml-auto sm:flex-none"
           >
             {currentStep === 'injury_severity' ? tx('cta_continueReview') : t('common.next')} <ChevronRight className="h-4 w-4 ml-1" aria-hidden />
           </button>
