@@ -265,8 +265,14 @@ export default function InsurancePanel({ leadId }: { leadId: string; claimType?:
     setBusyId(r.id)
     setBanner(null)
     try {
-      await requestLeadDecPage(leadId, r.id)
-      setBanner({ tone: 'ok', text: `Requested the declarations page from ${r.carrierName}.` })
+      const res = await requestLeadDecPage(leadId, r.id)
+      setBanner({
+        tone: 'ok',
+        text:
+          res?.recipient === 'plaintiff'
+            ? `Asked your client to upload the ${r.carrierName} declarations page. It's on their Requested Documents list.`
+            : `Emailed ${r.adjusterEmail || r.carrierName} for the declarations page.`,
+      })
       await load()
     } catch (err: any) {
       setBanner({ tone: 'err', text: err?.response?.data?.error || 'Could not request the declarations page.' })
@@ -479,18 +485,33 @@ export default function InsurancePanel({ leadId }: { leadId: string; claimType?:
               title="The declarations (dec) page is the insurer summary of coverage limits, named insureds, and endorsements for this policy."
             >
               {r.decPageRequestId
-                ? 'Declarations page requested'
-                : 'Declarations page not requested'}
+                ? `Declarations page requested from ${r.insuredParty === 'client' ? 'your client' : 'the adjuster'}`
+                : r.insuredParty !== 'client' && !r.adjusterEmail
+                  ? "Add the adjuster's email to request the declarations page"
+                  : 'Declarations page not requested'}
             </span>
             <button
               type="button"
               onClick={() => requestDec(r)}
-              disabled={busyId === r.id || editingId !== null || Boolean(r.decPageRequestId)}
-              title="Ask the carrier for the policy declarations page (coverage limits and endorsements)."
+              disabled={
+                busyId === r.id ||
+                editingId !== null ||
+                Boolean(r.decPageRequestId) ||
+                (r.insuredParty !== 'client' && !r.adjusterEmail)
+              }
+              title={
+                r.insuredParty === 'client'
+                  ? 'Ask your client to upload the declarations page for their own policy. It appears on their Requested Documents list.'
+                  : 'Email the adjuster a secure link to upload the policy declarations page (coverage limits and endorsements).'
+              }
               className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-40"
             >
               <FileText className="h-3.5 w-3.5" />{' '}
-              {r.decPageRequestId ? 'Requested' : 'Request declarations page'}
+              {r.decPageRequestId
+                ? 'Requested'
+                : r.insuredParty === 'client'
+                  ? 'Request from client'
+                  : 'Request from adjuster'}
             </button>
           </div>
         </div>

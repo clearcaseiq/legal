@@ -5053,6 +5053,92 @@ describe('HTTP operations regressions', () => {
     })
   })
 
+  describe('POST /v1/attorney-dashboard/leads/:leadId/insurance/:id/request-dec-page', () => {
+    const decPolicy = (overrides: Record<string, unknown>) => ({
+      id: 'ins-1',
+      assessmentId: 'asm-1',
+      carrierName: 'Carrier',
+      policyNumber: 'PN-1',
+      adjusterEmail: null,
+      decPageRequestId: null,
+      ...overrides,
+    })
+
+    beforeEach(() => {
+      vi.mocked(prisma.attorney.findFirst).mockResolvedValue({
+        id: 'attorney-record-1',
+        email: 'attorney@example.com',
+        name: 'Ari Attorney',
+        lawFirmId: 'firm-1',
+        isVerified: true,
+      } as any)
+      vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValue({
+        id: 'lead-1',
+        assessmentId: 'asm-1',
+        assignmentType: 'shared',
+        assignedAttorneyId: null,
+        status: 'accepted',
+      } as any)
+      vi.mocked(prisma.documentRequest.create).mockResolvedValue({ id: 'docreq-1', requestedDocs: '["dec_page"]' } as any)
+      vi.mocked(prisma.insuranceDetail.update).mockResolvedValue({ id: 'ins-1', decPageRequestId: 'docreq-1' } as any)
+    })
+
+    it("asks the plaintiff for their own policy's dec page", async () => {
+      vi.mocked(prisma.insuranceDetail.findFirst).mockResolvedValue(decPolicy({ insuredParty: 'client' }) as any)
+      vi.mocked(prisma.assessment.findUnique).mockResolvedValue({ userId: null, facts: null, user: null } as any)
+
+      const res = await request(app)
+        .post('/v1/attorney-dashboard/leads/lead-1/insurance/ins-1/request-dec-page')
+        .set('Authorization', 'Bearer attorney')
+        .expect(200)
+
+      expect(res.body.recipient).toBe('plaintiff')
+      expect(prisma.documentRequest.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          targetType: 'plaintiff',
+          requestedDocs: '["dec_page"]',
+          customMessage: expect.stringContaining('Carrier policy (policy PN-1)'),
+        }),
+      })
+      expect(prisma.insuranceDetail.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { decPageRequestId: 'docreq-1' } }),
+      )
+    })
+
+    it("sends the defendant's policy request to the adjuster", async () => {
+      vi.mocked(prisma.insuranceDetail.findFirst).mockResolvedValue(
+        decPolicy({ insuredParty: 'defendant', adjusterEmail: 'adjuster@carrier.com' }) as any,
+      )
+
+      const res = await request(app)
+        .post('/v1/attorney-dashboard/leads/lead-1/insurance/ins-1/request-dec-page')
+        .set('Authorization', 'Bearer attorney')
+        .expect(200)
+
+      expect(res.body.recipient).toBe('adjuster')
+      expect(prisma.documentRequest.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          targetType: 'opposing_party',
+          recipientEmail: 'adjuster@carrier.com',
+          recipientRole: 'insurer',
+        }),
+      })
+    })
+
+    it('refuses an adjuster request with no email instead of marking it requested', async () => {
+      vi.mocked(prisma.insuranceDetail.findFirst).mockResolvedValue(decPolicy({ insuredParty: 'defendant' }) as any)
+
+      const res = await request(app)
+        .post('/v1/attorney-dashboard/leads/lead-1/insurance/ins-1/request-dec-page')
+        .set('Authorization', 'Bearer attorney')
+        .expect(400)
+
+      expect(res.body.error).toMatch(/adjuster's email/)
+      expect(prisma.documentRequest.create).not.toHaveBeenCalled()
+      expect(prisma.insuranceDetail.update).not.toHaveBeenCalled()
+    })
+  })
+
   it('GET /v1/attorney-dashboard/leads/:leadId/insurance returns compact insurance payload', async () => {
     vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValueOnce({
       id: 'lead-1',

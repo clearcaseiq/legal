@@ -9860,10 +9860,11 @@ router.delete('/leads/:leadId/insurance/:id', authMiddleware, async (req: any, r
   }
 })
 
-// Request the Dec Page (declarations page) from an insurer to confirm available
-// coverage. Reuses the opposing-party tokenized upload portal so the insurer,
-// who has no platform account, can upload securely, and links the resulting
-// DocumentRequest back to the insurance record.
+// Request the Dec Page (declarations page) to confirm available coverage, and
+// link the resulting DocumentRequest back to the insurance record. The client's
+// own policy is the client's to produce (usually a download from their insurer's
+// app), so it goes to the plaintiff's Requested Documents. Any other policy goes
+// to the adjuster through the opposing-party tokenized upload portal.
 router.post('/leads/:leadId/insurance/:id/request-dec-page', authMiddleware, async (req: any, res) => {
   try {
     const { leadId, id } = req.params
@@ -9881,11 +9882,44 @@ router.post('/leads/:leadId/insurance/:id/request-dec-page', authMiddleware, asy
       return res.status(404).json({ error: 'Insurance record not found' })
     }
 
+    const customMessage = req.body?.customMessage || null
+
+    if (insurance.insuredParty === 'client') {
+      const notAccepted = checkLeadIsAccepted(lead, 'requesting documents from the plaintiff')
+      if (notAccepted) return res.status(notAccepted.status).json({ error: notAccepted.message })
+
+      const policyRef = insurance.policyNumber ? ` (policy ${insurance.policyNumber})` : ''
+      const result = await createAndNotifyPlaintiffDocumentRequest({
+        leadId,
+        assessmentId: lead.assessmentId,
+        attorney,
+        requestedDocs: ['dec_page'],
+        customMessage:
+          customMessage ||
+          `Please upload the declarations page for your ${insurance.carrierName} policy${policyRef}. You can usually download it from your insurer's app or website, or ask your agent for a copy.`,
+      })
+      const updated = await prisma.insuranceDetail.update({
+        where: { id },
+        data: { decPageRequestId: result.docRequest.id },
+        select: insuranceDetailSelect,
+      })
+      return res.json({
+        insurance: updated,
+        recipient: 'plaintiff',
+        documentRequest: { ...result.docRequest, requestedDocs: result.docs },
+      })
+    }
+
     const recipientName = (req.body?.recipientName || insurance.carrierName || '').trim()
     const recipientEmail = (req.body?.recipientEmail || insurance.adjusterEmail || '').trim()
-    const customMessage = req.body?.customMessage || null
     if (!recipientName) {
       return res.status(400).json({ error: 'recipientName (or a carrier name) is required' })
+    }
+    // Without an email the request reached no one yet still marked the policy "Requested".
+    if (!recipientEmail) {
+      return res.status(400).json({
+        error: "Add the adjuster's email to this policy first — that's where the declarations page request is sent.",
+      })
     }
 
     const secureToken = crypto.randomUUID()
@@ -9902,7 +9936,7 @@ router.post('/leads/:leadId/insurance/:id/request-dec-page', authMiddleware, asy
         status: 'pending',
         targetType: 'opposing_party',
         recipientName,
-        recipientEmail: recipientEmail || null,
+        recipientEmail,
         recipientRole: 'insurer',
         origin: 'attorney',
       },
@@ -9914,20 +9948,18 @@ router.post('/leads/:leadId/insurance/:id/request-dec-page', authMiddleware, asy
       select: insuranceDetailSelect
     })
 
-    if (recipientEmail) {
-      const attorneyName = attorney.name || 'the attorney'
-      const subject = `Declarations page request — ${attorneyName}`
-      const message = `Hello ${recipientName},\n\n${attorneyName} requests the declarations (Dec) page confirming the available coverage limits for this claim.\n\n${customMessage ? `${customMessage}\n\n` : ''}Please upload it securely here:\n${uploadLink}\n\nThis is a secure, single-purpose link. If you believe you received this in error, please disregard it.\n\nRegards,\nClearCaseIQ on behalf of ${attorneyName}`
-      await createNotification(recipientEmail, subject, message, {
-        leadId,
-        assessmentId: lead.assessmentId,
-        documentRequestId: docRequest.id,
-        targetType: 'opposing_party',
-        uploadLink,
-      })
-    }
+    const attorneyName = attorney.name || 'the attorney'
+    const subject = `Declarations page request — ${attorneyName}`
+    const message = `Hello ${recipientName},\n\n${attorneyName} requests the declarations (Dec) page confirming the available coverage limits for this claim.\n\n${customMessage ? `${customMessage}\n\n` : ''}Please upload it securely here:\n${uploadLink}\n\nThis is a secure, single-purpose link. If you believe you received this in error, please disregard it.\n\nRegards,\nClearCaseIQ on behalf of ${attorneyName}`
+    await createNotification(recipientEmail, subject, message, {
+      leadId,
+      assessmentId: lead.assessmentId,
+      documentRequestId: docRequest.id,
+      targetType: 'opposing_party',
+      uploadLink,
+    })
 
-    res.json({ insurance: updated, documentRequest: { ...docRequest, requestedDocs: ['dec_page'] } })
+    res.json({ insurance: updated, recipient: 'adjuster', documentRequest: { ...docRequest, requestedDocs: ['dec_page'] } })
   } catch (error: any) {
     logger.error('Failed to request Dec Page', { error: error.message })
     res.status(500).json({ error: 'Failed to request Dec Page' })
