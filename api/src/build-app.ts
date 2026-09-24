@@ -16,6 +16,7 @@ import favorites from './routes/favorites'
 import appointments from './routes/appointments'
 import attorneyProfiles from './routes/attorney-profiles'
 import messaging from './routes/messaging'
+import presence from './routes/presence'
 import caseTracker from './routes/case-tracker'
 import financing from './routes/financing'
 import smartRecommendations from './routes/smart-recommendations'
@@ -76,6 +77,7 @@ export function buildApp(): Express {
   app.use('/v1/appointments', appointments)
   app.use('/v1/attorney-profiles', attorneyProfiles)
   app.use('/v1/messaging', messaging)
+  app.use('/v1/presence', presence)
   app.use('/v1/case-tracker', caseTracker)
   app.use('/v1/financing', financing)
   app.use('/v1/smart-recommendations', smartRecommendations)

@@ -5,6 +5,7 @@ import { getAttorneyUnreadSummary, getAttorneyDashboard } from '../../lib/api'
 import LeadPickerModal from '../../components/LeadPickerModal'
 import { Avatar, Badge, ClientLink, DataTable, PageHeader, SectionCard, type DataTableColumn } from '../shared/ui'
 import { formatClaimType } from '../../lib/claimTypes'
+import { CounterpartPresence } from '../../components/PresenceIndicator'
 
 // Cases the attorney can actually message — identity is revealed once the
 // plaintiff is contacted/consulted/retained.
@@ -13,7 +14,8 @@ const MESSAGEABLE_STATUSES = new Set(['contacted', 'consulted', 'retained'])
 interface Room {
   id: string
   leadId?: string | null
-  plaintiff?: { name?: string | null; email?: string | null } | null
+  assessmentId?: string | null
+  plaintiff?: { id?: string | null; name?: string | null; email?: string | null } | null
   assessment?: { claimType?: string | null } | null
   lastMessage?: { content?: string | null; senderType?: string | null; createdAt?: string | null } | null
   unreadCount?: number
@@ -72,10 +74,12 @@ const messageColumns: DataTableColumn<Room>[] = [
             {unread ? (
               <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-rose-500 ring-2 ring-white" />
             ) : null}
+            <CounterpartPresence variant="dot" userId={room.plaintiff?.id} assessmentId={room.assessmentId} className="absolute -bottom-0.5 -right-0.5" />
           </span>
           <div className="min-w-0">
             <ClientLink name={roomName(room)} leadId={room.leadId} section="communications" />
             {hasName && claim ? <p className="truncate text-xs text-slate-400">{claim}</p> : null}
+            <CounterpartPresence userId={room.plaintiff?.id} assessmentId={room.assessmentId} />
           </div>
         </div>
       )

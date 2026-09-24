@@ -718,6 +718,8 @@ export default function AttorneyDashboardLeadDetail({
                   preferredContact={preferredContact}
                   contactHistory={contactHistory}
                   leadId={selectedLead?.id}
+                  plaintiffUserId={selectedLead?.assessment?.userId ?? selectedLead?.assessment?.user?.id ?? null}
+                  assessmentId={selectedLead?.assessmentId ?? null}
                   onCall={handleQuickCall}
                   onMessage={handleQuickMessage}
                   onScheduleConsult={handleQuickConsult}

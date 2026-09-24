@@ -10,6 +10,7 @@ import { formatCurrency } from '../lib/formatters'
 import { CallPlaintiffModal, MessagePlaintiffModal, ScheduleConsultModal } from './CaseCommandModals'
 import { formatClaimType } from '../lib/claimTypes'
 import { scheduleConsultation } from '../lib/api'
+import { CounterpartPresence } from './PresenceIndicator'
 
 export interface PersistentCaseHeaderProps {
   claimType: string
@@ -35,6 +36,9 @@ export interface PersistentCaseHeaderProps {
   onOpenChat?: () => void
   onDownloadCaseFile: () => void
   leadId?: string
+  /** Plaintiff's user and case, for the online indicator. */
+  plaintiffUserId?: string | null
+  assessmentId?: string | null
   onCreateContact?: (payload: { contactType: string; contactMethod?: string; scheduledAt?: string; notes?: string }) => Promise<void>
   onRefresh?: () => void
   caseFileLoading?: boolean
@@ -67,6 +71,8 @@ export default function PersistentCaseHeader({
   onScheduleConsult,
   onDownloadCaseFile,
   leadId,
+  plaintiffUserId,
+  assessmentId,
   onCreateContact,
   onOpenChat,
   onRefresh,
@@ -173,6 +179,7 @@ export default function PersistentCaseHeader({
             <span className="font-semibold text-gray-900">
               {displayClaimType} — {location}
             </span>
+            <CounterpartPresence subject="Client" userId={plaintiffUserId} assessmentId={assessmentId} />
             <span className="text-gray-600">
               <strong>{caseStrength}</strong> ({caseScore}) · Est: <strong>{valueLow && valueHigh ? `${formatCurrency(valueLow)}–${formatCurrency(valueHigh)}` : '—'}</strong>
             </span>

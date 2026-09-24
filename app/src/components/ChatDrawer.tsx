@@ -18,6 +18,8 @@ import { linkify } from '../lib/linkify'
 import { CHAT_MESSAGE_MAX_LENGTH } from '../lib/messageLimits'
 import { CalendarClock } from 'lucide-react'
 import ChatAvatar from './ChatAvatar'
+import PresenceIndicator from './PresenceIndicator'
+import { useCounterpartPresence } from '../lib/presence'
 
 interface Message {
   id: string
@@ -66,6 +68,8 @@ export default function ChatDrawer({
   onMessageSent,
   initialDraft = '',
 }: ChatDrawerProps) {
+  const presence = useCounterpartPresence()
+  const clientPresence = (userId && presence.clients[userId]) || (assessmentId && presence.cases[assessmentId]) || null
   const [chatRoomId, setChatRoomId] = useState<string | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [participants, setParticipants] = useState<ChatParticipants | null>(null)
@@ -277,15 +281,21 @@ export default function ChatDrawer({
       >
         <div className="shrink-0 flex items-start justify-between gap-3 px-5 py-4 border-b border-slate-200 bg-slate-50">
           <div className="flex min-w-0 items-start gap-3">
-            <ChatAvatar
-              url={participants?.plaintiff?.avatar}
-              name={participants?.plaintiff?.name || plaintiffName}
-              size="lg"
-              fallbackClassName="bg-brand-50 text-brand-700 ring-1 ring-inset ring-brand-100"
-            />
+            <span className="relative shrink-0">
+              <ChatAvatar
+                url={participants?.plaintiff?.avatar}
+                name={participants?.plaintiff?.name || plaintiffName}
+                size="lg"
+                fallbackClassName="bg-brand-50 text-brand-700 ring-1 ring-inset ring-brand-100"
+              />
+              <PresenceIndicator variant="dot" presence={clientPresence} className="absolute -bottom-0.5 -right-0.5" />
+            </span>
             <div className="min-w-0">
               <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">Message Client</p>
-              <h3 className="font-semibold text-slate-900">{plaintiffName}</h3>
+              <div className="flex flex-wrap items-center gap-x-2">
+                <h3 className="font-semibold text-slate-900">{plaintiffName}</h3>
+                <PresenceIndicator presence={clientPresence} />
+              </div>
               <p className="mt-1 text-xs text-slate-600">
                 {[caseLabel, venue].filter(Boolean).join(' | ') || 'Case context pending'} | Last contact: {lastContactLabel || 'none'}
               </p>

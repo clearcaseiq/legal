@@ -24,6 +24,8 @@ import {
 } from 'lucide-react'
 import Tooltip from '../components/Tooltip'
 import ChatAvatar from '../components/ChatAvatar'
+import PresenceIndicator from '../components/PresenceIndicator'
+import { useCounterpartPresence } from '../lib/presence'
 import { formatClaimTypeShort } from '../lib/constants'
 import { sortRoomsByRecency } from '../lib/messaging'
 import { linkify } from '../lib/linkify'
@@ -89,6 +91,7 @@ export default function Messaging() {
   const attorneyAvatar =
     participants?.attorney?.photoUrl || selectedRoom?.attorney?.photoUrl || null
   const attorneyName = participants?.attorney?.name || selectedRoom?.attorney?.name || 'Attorney'
+  const presence = useCounterpartPresence()
 
   useEffect(() => {
     loadChatRooms()
@@ -427,12 +430,15 @@ export default function Messaging() {
                     }`}
                   >
                     <div className="flex items-start space-x-3">
-                      <ChatAvatar
-                        url={room.attorney.photoUrl}
-                        name={room.attorney.name}
-                        size="lg"
-                        fallbackClassName="bg-primary-100 text-primary-600"
-                      />
+                      <span className="relative shrink-0">
+                        <ChatAvatar
+                          url={room.attorney.photoUrl}
+                          name={room.attorney.name}
+                          size="lg"
+                          fallbackClassName="bg-primary-100 text-primary-600"
+                        />
+                        <PresenceIndicator variant="dot" presence={presence.attorneys[room.attorney.id]} className="absolute -bottom-0.5 -right-0.5" />
+                      </span>
                       
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between gap-2">
@@ -491,16 +497,22 @@ export default function Messaging() {
                     >
                       <ArrowLeft className="h-5 w-5" aria-hidden />
                     </button>
-                    <ChatAvatar
-                      url={attorneyAvatar}
-                      name={attorneyName}
-                      size="lg"
-                      fallbackClassName="bg-primary-100 text-primary-600"
-                    />
+                    <span className="relative shrink-0">
+                      <ChatAvatar
+                        url={attorneyAvatar}
+                        name={attorneyName}
+                        size="lg"
+                        fallbackClassName="bg-primary-100 text-primary-600"
+                      />
+                      <PresenceIndicator variant="dot" presence={presence.attorneys[selectedRoom.attorney.id]} className="absolute -bottom-0.5 -right-0.5" />
+                    </span>
                     <div className="min-w-0">
-                      <h2 className="truncate text-base font-semibold text-gray-900 sm:text-lg">
-                        {selectedRoom.attorney.name}
-                      </h2>
+                      <div className="flex min-w-0 flex-wrap items-center gap-x-2">
+                        <h2 className="truncate text-base font-semibold text-gray-900 sm:text-lg">
+                          {selectedRoom.attorney.name}
+                        </h2>
+                        <PresenceIndicator presence={presence.attorneys[selectedRoom.attorney.id]} />
+                      </div>
                       <p className="truncate text-sm text-gray-500">
                         {formatClaimTypeShort(selectedRoom.assessment?.claimType)} • {selectedRoom.assessment?.venueState}
                       </p>

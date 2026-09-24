@@ -15,6 +15,7 @@ import {
   type ChatParticipants,
 } from '../lib/api'
 import ChatAvatar from '../components/ChatAvatar'
+import { CounterpartPresence } from '../components/PresenceIndicator'
 
 import { formatClaimType as claimLabel } from '../lib/claimTypes'
 import { CHAT_MESSAGE_MAX_LENGTH } from '../lib/messageLimits'
@@ -169,15 +170,21 @@ export default function DraftMessagePage() {
 
         {/* Plaintiff header card */}
         <div className="flex items-center gap-3 rounded-t-2xl border border-slate-200 bg-white px-5 py-4">
-          <ChatAvatar
-            url={plaintiffAvatar}
-            name={plaintiffName}
-            size="lg"
-            className="!h-11 !w-11"
-            fallbackClassName="bg-brand-50 text-brand-700 ring-1 ring-inset ring-brand-100"
-          />
+          <span className="relative shrink-0">
+            <ChatAvatar
+              url={plaintiffAvatar}
+              name={plaintiffName}
+              size="lg"
+              className="!h-11 !w-11"
+              fallbackClassName="bg-brand-50 text-brand-700 ring-1 ring-inset ring-brand-100"
+            />
+            <CounterpartPresence variant="dot" userId={userId} assessmentId={assessmentId} className="absolute -bottom-0.5 -right-0.5" />
+          </span>
           <div className="min-w-0 flex-1">
-            <h1 className="truncate text-base font-semibold text-slate-900">{plaintiffName}</h1>
+            <div className="flex min-w-0 flex-wrap items-center gap-x-2">
+              <h1 className="truncate text-base font-semibold text-slate-900">{plaintiffName}</h1>
+              <CounterpartPresence userId={userId} assessmentId={assessmentId} />
+            </div>
             <p className="truncate text-sm text-slate-500">
               {caseType} · {venue}
             </p>

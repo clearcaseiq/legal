@@ -16,6 +16,7 @@ import { dateLocale } from '../i18n'
 import { localizeDocumentRequestLabel } from '../lib/documentRequestI18n'
 import { CheckCircle, Upload, FileText, FileClock, TrendingUp, MessageCircle, BarChart3, FileStack, Activity, LayoutDashboard, ChevronRight, Bell, HelpCircle, Clock, Users, Calendar, Phone, Star, Sparkles, ArrowRight, ShieldCheck, Scale, Lock, ExternalLink, Copy, Check } from 'lucide-react'
 import CaseProgressPipeline from '../components/CaseProgressPipeline'
+import { CounterpartPresence } from '../components/PresenceIndicator'
 import { saveTreatmentStatus } from '../lib/api-plaintiff'
 import {
   getPlaintiffCaseStatusKey,
@@ -2239,6 +2240,7 @@ export default function Dashboard() {
                           {t('plaintiffDashboard.attorneyMatch.title')}
                       </h3>
                           <p className="text-xl font-bold text-gray-900">{attorneyDisplayName(routingStatus?.attorneyMatched?.name)}</p>
+                          <CounterpartPresence attorneyId={routingStatus?.attorneyMatched?.id} className="mt-1" />
                         <div className="mt-3 flex flex-wrap gap-2">
                           {routingStatus?.attorneyMatched?.phone && (
                             <a

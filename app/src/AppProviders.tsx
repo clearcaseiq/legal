@@ -9,6 +9,12 @@ import { ThemeProvider } from './contexts/ThemeContext'
 import { ToastProvider } from './contexts/ToastContext'
 import { HeuristicsProvider } from './contexts/HeuristicsContext'
 import { ServerRenderedProvider } from './contexts/ServerRenderContext'
+import { usePresenceHeartbeat } from './lib/presence'
+
+function PresenceHeartbeat() {
+  usePresenceHeartbeat()
+  return null
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -50,6 +56,7 @@ export default function AppProviders({
   return (
     <ServerRenderedProvider value={serverRendered}>
       <QueryClientProvider client={queryClient}>
+        <PresenceHeartbeat />
         <LanguageProvider
           deferStoredLanguage={serverRendered}
           urlLanguage={language}
