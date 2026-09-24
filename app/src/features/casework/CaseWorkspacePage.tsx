@@ -92,6 +92,7 @@ import { useHeuristics } from '../../contexts/HeuristicsContext'
 import { checkEvidenceCollect, checkPoliceReportCollect, confirmRetainerSigned } from '../../lib/api-esign'
 import SignatureRequestPanel from '../../components/SignatureRequestPanel'
 import ClientContactDialog from './ClientContactDialog'
+import ClientInfoPanel from './ClientInfoPanel'
 import type { ClaimantContact } from '../../lib/api'
 import { resolveClaimantContact } from '../../lib/claimantContact'
 import ChatDrawer from '../../components/ChatDrawer'
@@ -154,12 +155,14 @@ const ROW_TONE: Record<Tone, string> = {
   danger: 'text-rose-700',
 }
 
-const TABS = ['Overview', 'AI Copilot', 'Rose', 'Workflow', 'Tasks', 'Evidence', 'Inbox', 'Signatures', 'Medical', 'Liability', 'Insurance', 'Damages', 'Negotiation', 'Demand', 'Timeline', 'Deadlines', 'Settlement', 'Time', 'Billing', 'Referrals'] as const
+const TABS = ['Overview', 'Client Info', 'AI Copilot', 'Rose', 'Workflow', 'Tasks', 'Evidence', 'Inbox', 'Signatures', 'Medical', 'Liability', 'Insurance', 'Damages', 'Negotiation', 'Demand', 'Timeline', 'Deadlines', 'Settlement', 'Time', 'Billing', 'Referrals'] as const
 type Tab = (typeof TABS)[number]
 
 const SECTION_TO_TAB: Record<string, Tab> = {
-  // Legacy /info deep-links land on Overview now that the Info tab is gone.
-  info: 'Overview',
+  info: 'Client Info',
+  'client-info': 'Client Info',
+  client: 'Client Info',
+  contact: 'Client Info',
   overview: 'Overview',
   copilot: 'AI Copilot',
   'ai-copilot': 'AI Copilot',
@@ -205,6 +208,7 @@ const SECTION_TO_TAB: Record<string, Tab> = {
 
 const TAB_TO_SECTION: Record<Tab, string> = {
   Overview: 'overview',
+  'Client Info': 'client-info',
   'AI Copilot': 'copilot',
   Rose: 'rose',
   Workflow: 'workflow',
@@ -230,6 +234,7 @@ type TabMeta = { icon: ComponentType<{ className?: string }>; blurb: string }
 
 const TAB_META: Record<Tab, TabMeta> = {
   Overview: { icon: LayoutDashboard, blurb: 'AI case summary, valuation, and readiness at a glance.' },
+  'Client Info': { icon: User, blurb: 'The client’s contact details and mailing address on file. Edit to correct them.' },
   'AI Copilot': {
     icon: Sparkles,
     blurb: 'Ask case-specific questions with cited answers, and see workup readiness for this matter.',
@@ -880,7 +885,7 @@ export default function CaseWorkspacePage() {
               </div>
             </header>
             <div className="p-5 sm:p-6">
-              <WorkstreamPanel tab={tab} section={section} lead={lead} detail={detail} cc={cc} tasks={tasks} reloadTasks={reloadTasks} reloadCc={reloadCc} onOpenChat={openChat} onAssessmentPatch={(patch) => setLead((prev: any) => (prev ? { ...prev, assessment: { ...(prev.assessment || {}), ...patch } } : prev))} />
+              <WorkstreamPanel tab={tab} section={section} lead={lead} detail={detail} cc={cc} tasks={tasks} reloadTasks={reloadTasks} reloadCc={reloadCc} onOpenChat={openChat} onContactSaved={(contact) => setContactOverride(contact)} onAssessmentPatch={(patch) => setLead((prev: any) => (prev ? { ...prev, assessment: { ...(prev.assessment || {}), ...patch } } : prev))} />
             </div>
           </section>
 
@@ -919,6 +924,7 @@ function WorkstreamPanel({
   reloadTasks,
   reloadCc,
   onOpenChat,
+  onContactSaved,
   onAssessmentPatch,
 }: {
   tab: Tab
@@ -930,6 +936,7 @@ function WorkstreamPanel({
   reloadTasks: () => Promise<void> | void
   reloadCc: () => Promise<void> | void
   onOpenChat: (draft?: string) => void
+  onContactSaved: (contact: ClaimantContact) => void
   onAssessmentPatch?: (patch: { caseStage?: string | null; litigationStatus?: string | null; closedAt?: string | null }) => void
 }) {
   const navigate = useNavigate()
@@ -991,6 +998,10 @@ function WorkstreamPanel({
         goToSection('overview')
     }
   }
+  if (tab === 'Client Info') {
+    return <ClientInfoPanel leadId={lead.id} tasks={tasks} reloadTasks={reloadTasks} onSaved={onContactSaved} />
+  }
+
   if (tab === 'Evidence') {
     return (
       <EvidencePanel

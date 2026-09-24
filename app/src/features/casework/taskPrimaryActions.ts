@@ -17,6 +17,7 @@ export type TaskPrimaryActionKind =
   | 'send_lor_providers'
   | 'send_welcome'
   | 'open_overview'
+  | 'open_client_info'
   | 'open_deadlines'
   | 'open_evidence'
   | 'open_medical'
@@ -140,6 +141,10 @@ function heuristicSectionAction(task: TaskLike): TaskPrimaryAction | null {
   const phase = `${task.workflowPhase || ''} ${task.workflowStage || ''}`.toLowerCase()
   const hay = `${title} ${type} ${phase}`
 
+  if (/verify client/i.test(title)) {
+    return openSection('open_client_info', 'Open', 'Open Client Info to confirm and correct the client’s details')
+  }
+
   if (type === 'question' || /questions? for the (plaintiff|client)/i.test(title)) {
     return {
       kind: 'open_task_detail',
@@ -178,7 +183,7 @@ function heuristicSectionAction(task: TaskLike): TaskPrimaryAction | null {
   }
 
   if (
-    /insurance|adjuster|coverage|carrier|claim\b|um\/uim|medpay|\bpip\b|policy|lien|subrogation/i.test(hay)
+    /insurance|adjuster|coverage|carrier|claim\b|um\/uim|medpay|\bpip\b|policy|\bliens?\b|subrogation/i.test(hay)
   ) {
     return openSection('open_insurance', 'Open', 'Open Insurance to update claims, coverage, or liens')
   }
@@ -225,7 +230,7 @@ function heuristicSectionAction(task: TaskLike): TaskPrimaryAction | null {
     return openSection('open_evidence', 'Open', 'Open Evidence to collect or review case documents')
   }
 
-  if (type === 'client' || /contact the client|client follow|verify client|scope of representation/i.test(hay)) {
+  if (type === 'client' || /contact the client|client follow|scope of representation/i.test(hay)) {
     return openSection('open_overview', 'Open', 'Open Overview to review client and case details')
   }
 
@@ -416,6 +421,8 @@ export function sectionForTaskAction(kind: TaskPrimaryActionKind): string | null
       return 'insurance'
     case 'open_overview':
       return 'overview'
+    case 'open_client_info':
+      return 'client-info'
     case 'open_deadlines':
       return 'deadlines'
     case 'open_medical':
