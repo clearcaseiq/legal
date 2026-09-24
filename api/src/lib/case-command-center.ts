@@ -15,6 +15,7 @@ import { ensureAssessmentPrediction } from './prediction-materializer'
 import { syncAllQuestionAnswersToCaseFacts } from './question-facts-sync'
 import { getLiabilityRecord } from './liability-record'
 import { underwriteCase } from './underwriting-engine'
+import { loadUnderwritingInput } from './underwriting-input'
 import { logger } from './logger'
 
 type Priority = 'high' | 'medium' | 'low'
@@ -509,6 +510,33 @@ export function buildCaseAwareMessageTemplates(summary: CaseCommandCenter): Case
 }
 
 /** Parse facts.insurance policy limit strings like "100/300" or "250000" into a number. */
+function sameBands(
+  a: { p25?: number; median?: number; p75?: number },
+  b: { p25?: number; median?: number; p75?: number },
+): boolean {
+  const close = (x?: number, y?: number) => Math.abs(Number(x || 0) - Number(y || 0)) < 1
+  return close(a.p25, b.p25) && close(a.median, b.median) && close(a.p75, b.p75)
+}
+
+const refreshingValuations = new Set<string>()
+
+/**
+ * The plaintiff dashboard reads the stored prediction, which only a
+ * recalculation rewrites. Attorney-side edits (Liability tab, insurance, question
+ * answers) change the live value without one, so when the two disagree the
+ * stored row is brought up to date in the background.
+ */
+function refreshStoredValuation(assessmentId: string): void {
+  if (refreshingValuations.has(assessmentId)) return
+  refreshingValuations.add(assessmentId)
+  void import('./case-recalculation')
+    .then(({ runCaseRecalculation }) => runCaseRecalculation(assessmentId, 'valuation_inputs_changed'))
+    .catch((error: any) =>
+      logger.warn('Background valuation refresh failed', { assessmentId, error: error?.message }),
+    )
+    .finally(() => refreshingValuations.delete(assessmentId))
+}
+
 function policyLimitFromFacts(facts: Record<string, any>): number | null {
   const raw = facts?.insurance?.policy_limit ?? facts?.insurance?.defendant_coverage_limits ?? facts?.insurance?.policyLimit
   if (raw == null || raw === '') return null
@@ -617,14 +645,8 @@ export async function buildCaseCommandCenter(params: {
   let bands = storedBands
   let liveLiabilityScore: number | null = null
   try {
-    const underwriting = underwriteCase({
-      id: assessment.id,
-      claimType: assessment.claimType,
-      venueState: assessment.venueState,
-      venueCounty: assessment.venueCounty,
-      facts,
-      evidenceFiles: (assessment as any).evidenceFiles?.length ? (assessment as any).evidenceFiles : evidenceFiles,
-    })
+    const input = await loadUnderwritingInput(assessment.id)
+    const underwriting = input ? underwriteCase(input) : null
     if (underwriting?.settlement?.expected || underwriting?.settlement?.high) {
       bands = {
         p25: underwriting.settlement.low,
@@ -632,6 +654,9 @@ export async function buildCaseCommandCenter(params: {
         p75: underwriting.settlement.high,
       }
       liveLiabilityScore = underwriting.scores.liability / 100
+      if (prediction && !sameBands(storedBands, bands)) {
+        refreshStoredValuation(assessment.id)
+      }
     }
   } catch (error: any) {
     logger.warn('Live underwriting failed in command center; using stored prediction bands', {

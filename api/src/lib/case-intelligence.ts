@@ -15,6 +15,7 @@
 import { prisma } from './prisma'
 import { logger } from './logger'
 import { underwriteCase } from './underwriting-engine'
+import { loadUnderwritingInput } from './underwriting-input'
 import { deriveSOLStatus, normalizeClaimTypeForSOL } from './solRules'
 import { summarizeDamages, type DamagesSummary } from './damages-ledger'
 import { getLiabilityRecord, type LiabilityView } from './liability-record'
@@ -697,47 +698,15 @@ export async function buildCaseIntelligence(assessmentId: string): Promise<CaseI
   // Fold all Intelligent Question answers (liability, medical, damages,
   // insurance, AI free-text) into facts before underwriting so Overview moves.
   await syncAllQuestionAnswersToCaseFacts(assessmentId).catch(() => undefined)
-  const [refreshed, liabilitySynced] = await Promise.all([
-    prisma.assessment.findUnique({ where: { id: assessmentId }, select: { facts: true } }).catch(() => null),
-    getLiabilityRecord(assessmentId).catch(() => null),
-  ])
-
-  const facts = parseFacts((refreshed as any)?.facts ?? (assessment as any).facts)
-  // Prefer a saved Liability-tab record (id present) over possibly-racy facts JSON
-  // write-through so Overview Liability matches the Liability strength meter.
-  // Default/empty views (no row yet) must not override underwriting heuristics.
-  if (liabilitySynced?.id) {
-    const compPct = Number(liabilitySynced.comparativeNegPct || 0)
-    facts.liabilityRecord = liabilitySynced
-    facts.liability = {
-      ...(facts.liability && typeof facts.liability === 'object' ? facts.liability : {}),
-      faultPosture: liabilitySynced.faultPosture,
-      defendantFaultPct: liabilitySynced.defendantFaultPct,
-      comparativeNegligence: compPct / 100,
-      comparativeFault: compPct >= 30 ? 'yes' : compPct > 0 ? 'possibly' : 'no',
-      citationIssuedTo: liabilitySynced.citationIssuedTo,
-      hasWitnesses: liabilitySynced.hasWitnesses,
-      hasPhotos: liabilitySynced.hasPhotos,
-      hasVideo: liabilitySynced.hasVideo,
-      policeReport: liabilitySynced.policeReportStatus === 'received',
-    }
-  }
+  const input = await loadUnderwritingInput(assessmentId)
+  if (!input) return null
+  const facts = input.facts
   const insuranceDetails = (assessment as any).insuranceDetails || []
-  const evidenceFiles = (assessment as any).evidenceFiles || []
+  const evidenceFiles = input.evidenceFiles || []
 
   let underwriting
   try {
-    underwriting = underwriteCase({
-      id: assessment.id,
-      claimType: assessment.claimType,
-      venueState: assessment.venueState,
-      venueCounty: assessment.venueCounty,
-      facts,
-      evidenceFiles,
-      // Confirmed declarations pages beat the claimant's recollection of their
-      // own limits, and are the only place a UM/UIM amount is ever recorded.
-      insuranceDetails,
-    })
+    underwriting = underwriteCase(input)
   } catch (error: any) {
     logger.warn('Underwriting failed while building case intelligence', { assessmentId, error: error?.message })
     return null

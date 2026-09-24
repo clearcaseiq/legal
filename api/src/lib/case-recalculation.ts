@@ -8,6 +8,7 @@ import { computeFeatures, predictViability } from './prediction'
 import { logger } from './logger'
 import { sendPlaintiffCaseValueUpdated, sendAttorneyCaseMaterialUpdate } from './case-notifications'
 import { underwriteCase, reconcileValueBandsWithUnderwriting, reconcileViabilityWithUnderwriting } from './underwriting-engine'
+import { loadUnderwritingInput } from './underwriting-input'
 import { refreshMedicalProfile } from './medical-profile'
 import { updateCaseFacts } from './case-facts'
 
@@ -532,14 +533,17 @@ export async function runCaseRecalculation(
     // recalculation, so fall back to the heuristic bands if it throws.
     let underwriting: ReturnType<typeof underwriteCase> | null = null
     try {
-      underwriting = underwriteCase({
-        id: assessmentUpdated.id,
-        claimType: assessmentUpdated.claimType,
-        venueState: assessmentUpdated.venueState,
-        venueCounty: assessmentUpdated.venueCounty,
-        facts: mergedFacts,
-        evidenceFiles,
-      })
+      const input = await loadUnderwritingInput(assessmentId)
+      underwriting = underwriteCase(
+        input ?? {
+          id: assessmentUpdated.id,
+          claimType: assessmentUpdated.claimType,
+          venueState: assessmentUpdated.venueState,
+          venueCounty: assessmentUpdated.venueCounty,
+          facts: mergedFacts,
+          evidenceFiles,
+        },
+      )
     } catch (underwritingError) {
       logger.error('Underwriting failed during recalculation; using heuristic bands', {
         underwritingError,

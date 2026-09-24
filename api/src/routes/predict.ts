@@ -5,6 +5,7 @@ import { PredictionRequest, SimulationRequest } from '../lib/validators'
 import { logger } from '../lib/logger'
 import { authMiddleware, optionalAuthMiddleware, type AuthRequest } from '../lib/auth'
 import { underwriteCase, reconcileValueBandsWithUnderwriting, reconcileViabilityWithUnderwriting } from '../lib/underwriting-engine'
+import { loadUnderwritingInput } from '../lib/underwriting-input'
 import { assignCaseAssistance } from '../lib/case-assistance-assignment'
 
 const router = Router()
@@ -75,14 +76,17 @@ router.post('/', optionalAuthMiddleware, async (req: AuthRequest, res) => {
     let underwriting: ReturnType<typeof underwriteCase> | null = null
     let underwritingResult: any
     try {
-      underwriting = underwriteCase({
-        id: assessment.id,
-        claimType: assessment.claimType,
-        venueState: assessment.venueState,
-        venueCounty: assessment.venueCounty,
-        facts,
-        evidenceFiles: assessment.evidenceFiles,
-      })
+      const input = await loadUnderwritingInput(assessment.id)
+      underwriting = underwriteCase(
+        input ?? {
+          id: assessment.id,
+          claimType: assessment.claimType,
+          venueState: assessment.venueState,
+          venueCounty: assessment.venueCounty,
+          facts,
+          evidenceFiles: assessment.evidenceFiles,
+        },
+      )
     } catch (underwritingError) {
       logger.error('Underwriting failed; returning preliminary heuristic estimate', {
         underwritingError,

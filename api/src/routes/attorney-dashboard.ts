@@ -9764,6 +9764,7 @@ router.post('/leads/:leadId/insurance', authMiddleware, async (req: any, res) =>
       })
     }
 
+    void runCaseRecalculation(lead.assessmentId, 'insurance_updated')
     res.json(record)
   } catch (error: any) {
     logger.error('Failed to create insurance detail', { error: error.message })
@@ -9835,6 +9836,7 @@ router.patch('/leads/:leadId/insurance/:id', authMiddleware, async (req: any, re
       },
       select: insuranceDetailSelect
     })
+    void runCaseRecalculation(auth.lead.assessmentId, 'insurance_updated')
     res.json(record)
   } catch (error: any) {
     logger.error('Failed to update insurance detail', { error: error.message })
@@ -9853,6 +9855,7 @@ router.delete('/leads/:leadId/insurance/:id', authMiddleware, async (req: any, r
       where: { id, assessmentId: auth.lead.assessmentId },
     })
     if (removed.count === 0) return res.status(404).json({ error: 'Insurance record not found' })
+    void runCaseRecalculation(auth.lead.assessmentId, 'insurance_updated')
     res.json({ ok: true })
   } catch (error: any) {
     logger.error('Failed to delete insurance detail', { error: error.message })
@@ -10515,6 +10518,7 @@ router.patch('/leads/:leadId/liability', authMiddleware, async (req: any, res) =
       actorId: req.user?.id ?? null,
       actorName,
     })
+    void runCaseRecalculation(auth.lead.assessmentId, 'liability_updated')
     res.json({ liability })
   } catch (error: any) {
     logger.error('Failed to update liability record', { error: error.message })

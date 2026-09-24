@@ -132,7 +132,14 @@ function fromRecord(r: InsuranceRecord): FormState {
   }
 }
 
-export default function InsurancePanel({ leadId }: { leadId: string; claimType?: string }) {
+export default function InsurancePanel({
+  leadId,
+  onChanged,
+}: {
+  leadId: string
+  claimType?: string
+  onChanged?: () => void
+}) {
   const [records, setRecords] = useState<InsuranceRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -228,6 +235,7 @@ export default function InsurancePanel({ leadId }: { leadId: string; claimType?:
       setEditingId(null)
       setForm(EMPTY_FORM)
       await load()
+      onChanged?.()
     } catch (err: any) {
       setBanner({ tone: 'err', text: err?.response?.data?.error || 'Could not save the policy.' })
     } finally {
@@ -253,6 +261,7 @@ export default function InsurancePanel({ leadId }: { leadId: string; claimType?:
       await deleteLeadInsurance(leadId, r.id)
       setBanner({ tone: 'ok', text: 'Policy deleted.' })
       await load()
+      onChanged?.()
     } catch (err: any) {
       setBanner({ tone: 'err', text: err?.response?.data?.error || 'Could not delete the policy.' })
     } finally {
@@ -274,6 +283,7 @@ export default function InsurancePanel({ leadId }: { leadId: string; claimType?:
             : `Emailed ${r.adjusterEmail || r.carrierName} for the declarations page.`,
       })
       await load()
+      onChanged?.()
     } catch (err: any) {
       setBanner({ tone: 'err', text: err?.response?.data?.error || 'Could not request the declarations page.' })
     } finally {

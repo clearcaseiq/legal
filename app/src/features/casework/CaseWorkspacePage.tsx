@@ -492,6 +492,28 @@ export default function CaseWorkspacePage() {
     }
   }, [leadId])
 
+  // The header metrics come from the command center; the plaintiff can change
+  // the inputs (insurance, damages, uploads) while this page is open.
+  useEffect(() => {
+    if (!leadId || loading) return
+    void reloadCc()
+  }, [tab]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!leadId) return
+    const refreshIfVisible = () => {
+      if (document.visibilityState === 'visible') void reloadCc()
+    }
+    const interval = window.setInterval(refreshIfVisible, 30_000)
+    window.addEventListener('focus', refreshIfVisible)
+    document.addEventListener('visibilitychange', refreshIfVisible)
+    return () => {
+      window.clearInterval(interval)
+      window.removeEventListener('focus', refreshIfVisible)
+      document.removeEventListener('visibilitychange', refreshIfVisible)
+    }
+  }, [leadId, reloadCc])
+
   useEffect(() => {
     if (!leadId) return
     let cancelled = false
@@ -1054,7 +1076,7 @@ function WorkstreamPanel({
   }
 
   if (tab === 'Insurance') {
-    return <InsurancePanel leadId={lead.id} claimType={detail.claimType} />
+    return <InsurancePanel leadId={lead.id} claimType={detail.claimType} onChanged={() => void reloadCc()} />
   }
 
   if (tab === 'Damages') {
@@ -1062,7 +1084,7 @@ function WorkstreamPanel({
   }
 
   if (tab === 'Liability') {
-    return <LiabilityPanel leadId={lead.id} />
+    return <LiabilityPanel leadId={lead.id} onChanged={() => void reloadCc()} />
   }
 
   if (tab === 'Negotiation') {

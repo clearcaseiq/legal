@@ -27,7 +27,13 @@
  */
 import { prisma } from './prisma'
 import { logger } from './logger'
-import { underwriteCase, reconcileValueBandsWithUnderwriting, reconcileViabilityWithUnderwriting } from './underwriting-engine'
+import {
+  underwriteCase,
+  reconcileValueBandsWithUnderwriting,
+  reconcileViabilityWithUnderwriting,
+  type UnderwritingInput,
+} from './underwriting-engine'
+import { loadUnderwritingInput } from './underwriting-input'
 
 /** Marks rows written here rather than by the intake prediction path. */
 export const MATERIALIZED_PREDICTION_SOURCE = 'materialized_underwriting'
@@ -38,7 +44,8 @@ type AssessmentForValuation = {
   venueState?: string | null
   venueCounty?: string | null
   facts?: unknown
-  evidenceFiles?: Array<{ category?: string | null; originalName?: string | null; aiClassification?: string | null }>
+  evidenceFiles?: Array<{ category?: string | null; originalName?: string | null; aiClassification?: string | null; aiSummary?: string | null }>
+  insuranceDetails?: UnderwritingInput['insuranceDetails']
 }
 
 function parseFacts(raw: unknown): Record<string, any> {
@@ -70,6 +77,7 @@ export function buildPredictionRecord(assessment: AssessmentForValuation): {
     venueCounty: assessment.venueCounty ?? null,
     facts: parseFacts(assessment.facts),
     evidenceFiles: assessment.evidenceFiles ?? [],
+    insuranceDetails: assessment.insuranceDetails,
   })
 
   const bands = reconcileValueBandsWithUnderwriting(null, underwriting.settlement, underwriting.liability)
@@ -100,20 +108,10 @@ export async function ensureAssessmentPrediction(assessmentId: string): Promise<
     const existing = await prisma.prediction.count({ where: { assessmentId } })
     if (existing > 0) return false
 
-    const assessment = await prisma.assessment.findUnique({
-      where: { id: assessmentId },
-      select: {
-        id: true,
-        claimType: true,
-        venueState: true,
-        venueCounty: true,
-        facts: true,
-        evidenceFiles: { select: { category: true, originalName: true, aiClassification: true } },
-      },
-    })
-    if (!assessment) return false
+    const input = await loadUnderwritingInput(assessmentId)
+    if (!input) return false
 
-    const record = buildPredictionRecord(assessment as AssessmentForValuation)
+    const record = buildPredictionRecord({ ...input, id: assessmentId })
     if (!record) {
       logger.warn('Valuation backfill produced no value', { assessmentId })
       return false

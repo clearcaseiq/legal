@@ -63,7 +63,7 @@ function strengthTone(score: number): { ring: string; text: string; label: strin
   return { ring: 'border-rose-200 bg-rose-50', text: 'text-rose-700', label: 'Weak' }
 }
 
-export default function LiabilityPanel({ leadId }: { leadId: string }) {
+export default function LiabilityPanel({ leadId, onChanged }: { leadId: string; onChanged?: () => void }) {
   const [data, setData] = useState<Liability | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -92,13 +92,14 @@ export default function LiabilityPanel({ leadId }: { leadId: string }) {
       try {
         const res = await updateLeadLiability(leadId, patch)
         setData(res.liability)
+        onChanged?.()
       } catch (err: any) {
         setError(err?.response?.data?.error || 'Could not save liability changes.')
       } finally {
         setSaving(false)
       }
     },
-    [leadId],
+    [leadId, onChanged],
   )
 
   // Optimistic local update for immediate feedback, then persist.
