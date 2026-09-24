@@ -2578,7 +2578,8 @@ router.get('/dashboard', authMiddleware, async (req: any, res) => {
     const dashboardLeadInclude = {
       assessment: {
         include: {
-          predictions: true,
+          // Newest first: server-side readers take predictions[0] as current.
+          predictions: { orderBy: { createdAt: 'desc' as const } },
           files: true,
           evidenceFiles: true,
           user: { select: { id: true, firstName: true, lastName: true, email: true, phone: true } },

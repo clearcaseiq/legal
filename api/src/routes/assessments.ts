@@ -475,6 +475,10 @@ router.patch(
 
     logger.info('Assessment updated', { assessmentId: id })
 
+    // The stored prediction is what both dashboards show; without this, a
+    // plaintiff's edit (e.g. insurance) left the value stale on every surface.
+    void runCaseRecalculation(id, 'plaintiff_case_edit')
+
     // Re-run LLM analysis after edits (non-blocking)
     void (async () => {
       try {
