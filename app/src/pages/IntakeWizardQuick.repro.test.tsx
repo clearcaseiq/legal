@@ -256,6 +256,15 @@ it('three screens: what happened -> injuries & costs -> review', async () => {
   // Opening the optional group shows the money questions without making them required.
   await click(buttonWithText(en.intake.optional_estimate_title))
   expect(document.body.textContent).toContain(en.intake.financial_outOfPocket)
+  // The group also carries questions for this case type (dog bite), not other types'.
+  expect(document.body.textContent).toContain(en.intake.incidentDetails_title)
+  expect(document.body.textContent).toContain(en.intake.dog_priorAggressionQuestion)
+  expect(document.body.textContent).not.toContain(en.intake.vehicle_crashQuestion)
+  const aggressionYes = Array.from(document.querySelectorAll('div'))
+    .find((d) => d.querySelector(':scope > div > h3')?.textContent === en.intake.dog_priorAggressionQuestion)!
+    .querySelector('button')!
+  await click(aggressionYes)
+  expect(aggressionYes.getAttribute('aria-pressed')).toBe('true')
 
   await click(buttonWithText(en.intake.cta_continueReview))
   await flush(500)

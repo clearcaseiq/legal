@@ -3558,6 +3558,149 @@ export default function IntakeWizardQuick() {
 
   // Insurance & Representation (+ optional insurance details). Extracted so it can be
   // merged into the "Damages & Insurance" step. Renders standalone (no liability column).
+  /**
+   * Case-type questions for step 2's optional group. Answers land in `branch`,
+   * which is sent as `facts.liability`: vehicle crash type moves the liability
+   * score and vehicle damage feeds `estimated_property_damage`; the rest is
+   * detail for the attorney. Toxic, med-mal, wrongful-death and dog-bite also
+   * have a case-type module in the injury block, so only what that module
+   * does not ask is repeated here. The sub-type chosen on step 1 already covers
+   * where a premises, assault or product incident happened.
+   */
+  const renderIncidentDetails = () => {
+    const b = formData.branch as Record<string, any>
+    const single = (key: string, defs: { value: string; labelKey: string }[], cols = 'grid-cols-2 sm:grid-cols-3') => (
+      <div className={`mt-3 grid gap-2 ${cols}`}>
+        {defs.map(({ value, labelKey }) => (
+          <ChoiceTile key={value} selected={b[key] === value} onClick={() => setBranch(key, value)} label={t(`intake.${labelKey}`)} />
+        ))}
+      </div>
+    )
+    const checks = (items: { key: string; label: string }[]) => (
+      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+        {items.map(({ key, label }) => (
+          <ChoiceTile key={key} selected={!!b[key]} onClick={() => setBranch(key, !b[key])} label={label} />
+        ))}
+      </div>
+    )
+    const question = (key: string, title: string, body: ReactNode, helper?: string) => (
+      <div key={key}>
+        <SectionHeader title={title} helper={helper} />
+        {body}
+      </div>
+    )
+
+    let questions: ReactNode[] = []
+    if (isVehicle) {
+      questions = [
+        question('crash', t('intake.vehicle_crashQuestion'), single('crashType', VEHICLE_CRASH_OPTIONS, 'grid-cols-2 sm:grid-cols-4'), tx('vehicle_crashHelper')),
+        question('damage', t('intake.vehicle_propertyDamage'), (
+          <>
+            {single('propertyDamage', PROPERTY_DAMAGE_OPTIONS, 'grid-cols-2 sm:grid-cols-4')}
+            {!!b.propertyDamage && (
+              <div className="mt-4 space-y-4">
+                <div>
+                  <p className="text-[13px] font-semibold text-gray-800 dark:text-slate-200">{tx('vehicle_repairCostQuestion')}</p>
+                  {single('propertyDamageCostRange', PROPERTY_DAMAGE_COST_OPTIONS)}
+                </div>
+                <div>
+                  <p className="text-[13px] font-semibold text-gray-800 dark:text-slate-200">{tx('vehicle_rentalCostQuestion')}</p>
+                  {single('rentalCostRange', RENTAL_COST_OPTIONS, 'grid-cols-2 sm:grid-cols-4')}
+                </div>
+              </div>
+            )}
+          </>
+        )),
+        question('evidence', t('intake.vehicle_liabilityEvidence'), checks([
+          { key: 'policeReport', label: t('intake.vehicle_policeReport') },
+          { key: 'ticketIssued', label: t('intake.vehicle_ticket') },
+          { key: 'witnesses', label: t('intake.vehicle_witnesses') },
+          { key: 'photosVideo', label: tx('vehicle_photos') },
+          { key: 'videoEvidence', label: tx('vehicle_video') },
+          { key: 'redLightViolation', label: tx('vehicle_redLight') },
+          { key: 'duiOtherDriver', label: tx('vehicle_dui') },
+        ]), tx('vehicle_evidenceHelper')),
+        question('defendant', t('intake.vehicle_defendantQuestion'), single('defendantType', VEHICLE_DEFENDANT_OPTIONS)),
+      ]
+    } else if (isWorkplace) {
+      questions = [
+        question('cause', tx('wp_causeQuestion'), single('workplaceCause', WORKPLACE_CAUSE_OPTIONS), tx('wp_causeHelper')),
+        question('reporting', tx('wp_reportingQuestion'), checks([
+          { key: 'reportedToEmployer', label: tx('wp_reportedToEmployer') },
+          { key: 'wcClaimFiled', label: tx('wp_claimFiled') },
+        ])),
+        question('thirdParty', tx('wp_thirdPartyQuestion'), single('thirdParty', WORKPLACE_THIRD_PARTY_OPTIONS, 'grid-cols-2 sm:grid-cols-4')),
+      ]
+    } else if (isSlipFall) {
+      questions = [
+        question('hazard', t('intake.slip_hazardQuestion'), single('hazardType', SLIP_HAZARD_OPTIONS), tx('slip_hazardHelper')),
+        question('awareness', t('intake.slip_hazardAwareness'), checks([
+          { key: 'employeesKnew', label: t('intake.slip_employeesKnew') },
+          { key: 'warningSigns', label: t('intake.slip_warningSigns') },
+          { key: 'hazardDuration', label: t('intake.slip_hazardDuration') },
+        ]), tx('slip_awarenessHelper')),
+        question('documentation', tx('slip_documentationQuestion'), checks([
+          { key: 'incidentReport', label: tx('slip_incidentReport') },
+          { key: 'slipPhotos', label: tx('slip_photosTaken') },
+        ])),
+      ]
+    } else if (isProduct) {
+      questions = [
+        question('failure', t('intake.product_failureQuestion'), checks([
+          { key: 'productMalfunction', label: t('intake.product_malfunction') },
+          { key: 'productRecalled', label: t('intake.product_recalled') },
+        ])),
+        question('evidence', t('intake.product_evidenceQuestion'), checks([
+          { key: 'hasProduct', label: t('intake.product_hasProduct') },
+          { key: 'hasPackaging', label: t('intake.product_hasPackaging') },
+          { key: 'hasReceipt', label: t('intake.product_hasReceipt') },
+          { key: 'productPhotos', label: tx('product_photosAvailable') },
+        ])),
+      ]
+    } else if (isAssault) {
+      questions = [
+        question('prior', tx('assault_priorIncidentsQuestion'), single('priorIncidents', YES_NO_NOT_SURE_OPTIONS), tx('assault_priorIncidentsHelper')),
+        question('security', t('intake.assault_securityQuestion'), checks([
+          { key: 'securityPresent', label: t('intake.assault_securityPresent') },
+          { key: 'securityCameras', label: tx('assault_securityCameras') },
+          { key: 'poorLighting', label: t('intake.assault_poorLighting') },
+        ])),
+        question('police', t('intake.assault_policeQuestion'), checks([
+          { key: 'policeCalled', label: t('intake.assault_policeCalled') },
+          { key: 'arrested', label: t('intake.assault_arrested') },
+        ])),
+      ]
+    } else if (isDogBite) {
+      questions = [
+        question('owner', t('intake.dog_ownershipQuestion'), single('dogOwned', DOG_OWNERSHIP_OPTIONS), tx('dog_ownershipHelper')),
+        question('aggression', t('intake.dog_priorAggressionQuestion'), single('priorAggression', PRIOR_AGGRESSION_OPTIONS)),
+      ]
+    } else if (isMedmal) {
+      questions = [
+        question('provider', t('intake.medmal_providerQuestion'), single('providerType', MEDMAL_PROVIDER_OPTIONS)),
+        question('secondOpinion', tx('medmal_anotherDoctorQuestion'), single('anotherDoctorConfirmed', YES_NO_NOT_SURE_OPTIONS)),
+      ]
+    } else if (it === 'nursing_home_abuse') {
+      questions = [
+        question('reported', tx('nh_reportedQuestion'), single('nhReported', YES_NO_NOT_SURE_OPTIONS)),
+        question('resident', tx('nh_stillResidentQuestion'), single('nhStillResident', YES_NO_NOT_SURE_OPTIONS)),
+        question('complaints', tx('nh_priorComplaintsQuestion'), single('nhPriorComplaints', YES_NO_NOT_SURE_OPTIONS)),
+      ]
+    } else if (isOther) {
+      questions = [
+        question('whoCaused', tx('who_causedQuestion'), single('whoCaused', WHO_CAUSED_OPTIONS)),
+        question('evidence', tx('other_evidenceQuestion'), checks([{ key: 'otherPhotos', label: tx('other_photos') }])),
+      ]
+    }
+    if (questions.length === 0) return null
+    return (
+      <section className="space-y-5">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{tx('incidentDetails_title')}</p>
+        {questions}
+      </section>
+    )
+  }
+
   const renderInsuranceStatus = (part?: 'attorney' | 'fault') => {
         const icLegal = formData.insuranceCoverage
         const cpLegal = formData.casePosture || {}
@@ -6609,7 +6752,9 @@ export default function IntakeWizardQuick() {
       const hasOptionalAnswers =
         idd.bodyParts.length > 0 || idd.diagnoses.length > 0 || idd.currentSymptoms.length > 0 ||
         !!idd.recoveryStatus || idd.futureTreatment.length > 0 || !!formData.emsResponded ||
-        !!ic.outOfPocketRange || !!cp.missedWork || !!cp.acceptedSettlement
+        !!ic.outOfPocketRange || !!cp.missedWork || !!cp.acceptedSettlement ||
+        // faultParty mirrors the required fault answer, so it says nothing about this group.
+        Object.entries(formData.branch).some(([key, value]) => key !== 'faultParty' && (Array.isArray(value) ? value.length > 0 : !!value))
       return (
         <div className="space-y-6">
           <RequiredSummary text={tx('required_summary').replace('{count}', '5')} />
@@ -6626,6 +6771,7 @@ export default function IntakeWizardQuick() {
               defaultOpen={hasOptionalAnswers || reviewJump === INJURY_ANCHOR_ID}
             >
               <div className="space-y-4">
+                {renderIncidentDetails()}
                 {renderStepContent('when', 'careExtras')}
                 <div id={INJURY_ANCHOR_ID} className="scroll-mt-4">
                   {renderStepContent('injury_severity', 'optional')}
