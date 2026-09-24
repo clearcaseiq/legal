@@ -224,6 +224,27 @@ describe('syncQuestionTasks', () => {
     expect(updatedData()).toMatchObject({ status: 'open', completedAt: null })
   })
 
+  it('keeps a group closed by hand closed when the checklist changes', async () => {
+    vi.mocked(prisma.caseTask.findMany).mockResolvedValue([
+      {
+        id: 'task-1',
+        sourceTemplateStepId: QUESTION_GROUP_KEY,
+        status: 'done',
+        subtasks: JSON.stringify([
+          { id: 'base:a', title: 'Question a?', done: true },
+          { id: 'base:b', title: 'Question b?', done: false },
+          { id: 'base:c', title: 'Question c?', done: false },
+        ]),
+      },
+    ] as any)
+
+    await syncQuestionTasks('asm-1', [question('a', { answer: 'Yes' }), question('b'), question('d')])
+
+    const data = updatedData()
+    expect(data.status).toBeUndefined()
+    expect(data.title).toBe('Questions for the plaintiff (1 of 3 answered)')
+  })
+
   it('deletes the old one-task-per-question rows', async () => {
     vi.mocked(prisma.caseTask.findMany).mockResolvedValue([
       { id: 'legacy-1', sourceTemplateStepId: 'base:a', status: 'open', subtasks: null },
@@ -326,6 +347,20 @@ describe('syncSingleQuestionTask', () => {
     await syncSingleQuestionTask('asm-1', 'base:a', false)
 
     expect(updatedData()).toMatchObject({ status: 'open', completedAt: null })
+  })
+
+  it('leaves a group closed by hand closed when an answer is cleared', async () => {
+    groupTask(
+      [
+        { id: 'base:a', title: 'Question a?', done: true },
+        { id: 'base:b', title: 'Question b?', done: false },
+      ],
+      'done',
+    )
+
+    await syncSingleQuestionTask('asm-1', 'base:a', false)
+
+    expect(updatedData().status).toBeUndefined()
   })
 
   it('does nothing when the item is already in the requested state', async () => {

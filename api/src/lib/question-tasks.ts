@@ -84,6 +84,15 @@ function parseSubtasks(value: unknown): QuestionSubtask[] {
 }
 
 /**
+ * A closed group can only have closed itself with every item ticked, so a closed
+ * group with open items was closed by a person on purpose. The sync re-runs on
+ * every upload, answer and case view; reopening such a task undid that decision.
+ */
+function closedByHand(prior: QuestionSubtask[]): boolean {
+  return prior.some((s) => !s.done)
+}
+
+/**
  * Retire the previous one-task-per-question rows now that the questions live on
  * a single grouped task. The rows carry nothing of their own — answers live in
  * CaseQuestionAnswer — but `caseTaskId` on time entries and comment threads is a
@@ -204,10 +213,12 @@ export async function syncQuestionTasks(
   if (group) {
     const isDone = group.status === 'done' || group.status === 'completed'
     const nextSubtasks = JSON.stringify(subtasks)
+    const priorIds = new Set(prior.map((s) => s.id))
+    const hasNewOpenQuestion = subtasks.some((s) => !s.done && !priorIds.has(s.id))
     const statusChange =
       allAnswered && !isDone
         ? { status: 'done', completedAt: new Date() }
-        : !allAnswered && isDone
+        : !allAnswered && isDone && !closedByHand(prior) && hasNewOpenQuestion
           ? { status: 'open', completedAt: null }
           : null
 
@@ -361,6 +372,7 @@ export async function syncSingleQuestionTask(
   const subtasks = parseSubtasks(task.subtasks)
   const item = subtasks.find((s) => s.id === questionKey)
   if (!item || item.done === answered) return
+  const wasClosedByHand = closedByHand(subtasks)
   item.done = answered
 
   const total = subtasks.length
@@ -375,7 +387,7 @@ export async function syncSingleQuestionTask(
         subtasks: JSON.stringify(subtasks),
         title: questionGroupTitle(doneCount, total),
         ...(allAnswered && !isDone ? { status: 'done', completedAt: new Date() } : {}),
-        ...(!allAnswered && isDone ? { status: 'open', completedAt: null } : {}),
+        ...(!allAnswered && isDone && !wasClosedByHand ? { status: 'open', completedAt: null } : {}),
       },
     })
     .catch((e: any) => logger.warn('Question subtask sync failed', { assessmentId, questionKey, error: e?.message }))
