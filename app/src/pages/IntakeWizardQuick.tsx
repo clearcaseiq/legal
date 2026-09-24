@@ -3453,6 +3453,14 @@ export default function IntakeWizardQuick() {
   // stays the last thing before the Next action.
   const renderSaveProgress = () => {
     const emailSuggestion = suggestEmail(formData.contact.email)
+    // These inputs sit outside any <form>, so a phone keyboard's Enter/Go key
+    // does nothing unless it is handled here.
+    const continueOnEnter = (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key !== 'Enter' || e.nativeEvent.isComposing) return
+      e.preventDefault()
+      e.currentTarget.blur()
+      validateAndNext()
+    }
     return (
     <div id="intake-contact" className="scroll-mt-24">
       <SectionHeader title={<>{tx('contact_requiredTitle')}<RequiredTag label={tx('required_tag')} missing={missingRequired.contact} /></>} helper={tx('contact_requiredDesc')} />
@@ -3484,6 +3492,8 @@ export default function IntakeWizardQuick() {
               type="email"
               inputMode="email"
               autoComplete="email"
+              enterKeyHint="next"
+              onKeyDown={continueOnEnter}
               value={formData.contact.email}
               onFocus={() => setContactMethod('email')}
               onBlur={saveContactProgress}
@@ -3511,6 +3521,8 @@ export default function IntakeWizardQuick() {
               type="tel"
               inputMode="tel"
               autoComplete="tel"
+              enterKeyHint="next"
+              onKeyDown={continueOnEnter}
               value={formData.contact.phone}
               onFocus={() => setContactMethod('phone')}
               onBlur={saveContactProgress}
