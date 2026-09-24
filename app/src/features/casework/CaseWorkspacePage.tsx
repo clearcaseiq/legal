@@ -98,6 +98,7 @@ import { resolveClaimantContact } from '../../lib/claimantContact'
 import ChatDrawer from '../../components/ChatDrawer'
 import ConfirmDialog from '../../components/ConfirmDialog'
 import InsurancePanel from './InsurancePanel'
+import ProviderLettersPanel from './ProviderLettersPanel'
 import SettlementPanel from './SettlementPanel'
 import CaseLifecycleControls from './CaseLifecycleControls'
 import DamagesPanel from './DamagesPanel'
@@ -970,7 +971,8 @@ function WorkstreamPanel({
   const [requestedDocKeys, setRequestedDocKeys] = useState<Set<string>>(new Set())
   const [timelineNewestFirst, setTimelineNewestFirst] = useState(true)
 
-  const goToSection = (s: string) => navigate(`/attorney-dashboard/cases/${lead.id}/${s}${fromSuffix}`)
+  const goToSection = (s: string) =>
+    navigate(`/attorney-dashboard/cases/${lead.id}/${s}${s.includes('?') ? fromSuffix.replace('?', '&') : fromSuffix}`)
 
   // Fire a plaintiff-facing document request for the given labels (best-effort,
   // with inline success/error feedback). `keys` marks which missing-item rows to
@@ -1065,6 +1067,11 @@ function WorkstreamPanel({
       <div className="space-y-6">
         <PlaintiffImpactJournalPanel entries={detail.painJournal || []} />
         <MedicalTimelinePanel leadId={lead.id} />
+        <ProviderLettersPanel
+          leadId={lead.id}
+          onOpenSection={goToSection}
+          openLetter={searchParams.get('letter') === '1'}
+        />
         <div className="border-t border-slate-100 pt-6">
           <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">
             Evidence-derived chronology
@@ -1076,7 +1083,14 @@ function WorkstreamPanel({
   }
 
   if (tab === 'Insurance') {
-    return <InsurancePanel leadId={lead.id} claimType={detail.claimType} onChanged={() => void reloadCc()} />
+    return (
+      <InsurancePanel
+        leadId={lead.id}
+        claimType={detail.claimType}
+        onChanged={() => void reloadCc()}
+        openLetter={searchParams.get('letter') === '1'}
+      />
+    )
   }
 
   if (tab === 'Damages') {

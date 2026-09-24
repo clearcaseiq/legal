@@ -47,6 +47,18 @@ import { generateSceneImageForAssessment } from '../services/incident-scene'
 import { processEvidenceFileForExtraction, shouldAutoProcessEvidence } from '../lib/evidence-processing'
 import { parseIdentityCheck } from '../lib/claimant-identity-check'
 import { runCaseRecalculation } from '../lib/case-recalculation'
+import {
+  carrierLetterBody,
+  countBlanks,
+  listCaseProviders,
+  loadLetterContext,
+  providerKey,
+  providerLetterBody,
+  readLetterPdf,
+  sendCarrierLetter,
+  sendProviderLetter,
+  signedHipaaEnvelope,
+} from '../lib/representation-letters'
 import { syncPlaintiffDocumentRequestStatuses, computeRequestStatus, parseRequestedDocs, normalizeRequestedDocKeys, DOCUMENT_REQUEST_LABELS } from '../lib/document-request-status'
 import { createAndNotifyPlaintiffDocumentRequest } from '../lib/document-request-create'
 import { sendDocumentRequestText } from '../lib/document-request-text'
@@ -9967,6 +9979,255 @@ router.post('/leads/:leadId/insurance/:id/request-dec-page', authMiddleware, asy
   } catch (error: any) {
     logger.error('Failed to request Dec Page', { error: error.message })
     res.status(500).json({ error: 'Failed to request Dec Page' })
+  }
+})
+
+// Letters of representation — to each insurance carrier (Insurance tab) and each
+// treating provider (Medical tab). See lib/representation-letters.
+const letterDeliverySchema = z.object({
+  body: z.string().trim().min(20).max(20000),
+  delivery: z.enum(['email', 'download']),
+  recipientEmail: z.string().trim().email().optional().or(z.literal('')),
+})
+
+function serializeLetter(l: any, requestStatus?: string | null) {
+  return {
+    id: l.id,
+    kind: l.kind,
+    insuranceDetailId: l.insuranceDetailId,
+    caseContactId: l.caseContactId,
+    providerName: l.providerName,
+    recipientName: l.recipientName,
+    recipientEmail: l.recipientEmail,
+    deliveredVia: l.deliveredVia,
+    includesLop: l.includesLop,
+    createdAt: l.createdAt,
+    recordsStatus: requestStatus ?? null,
+  }
+}
+
+async function listLeadLetters(leadId: string) {
+  const letters = await prisma.caseLetter.findMany({ where: { leadId }, orderBy: { createdAt: 'desc' } })
+  const requestIds = letters.map((l) => l.documentRequestId).filter((id): id is string => Boolean(id))
+  const requests = requestIds.length
+    ? await prisma.documentRequest.findMany({ where: { id: { in: requestIds } }, select: { id: true, status: true } })
+    : []
+  const statusById = new Map(requests.map((r) => [r.id, r.status]))
+  return letters.map((l) => serializeLetter(l, l.documentRequestId ? statusById.get(l.documentRequestId) : null))
+}
+
+router.get('/leads/:leadId/letters', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true })
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    res.json({ letters: await listLeadLetters(auth.lead.id) })
+  } catch (error: any) {
+    logger.error('Failed to list letters', { error: error.message })
+    res.status(500).json({ error: 'Failed to load letters' })
+  }
+})
+
+router.get('/leads/:leadId/letters/:letterId/pdf', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true })
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const letter = await prisma.caseLetter.findFirst({ where: { id: req.params.letterId, leadId: auth.lead.id } })
+    const pdf = letter ? await readLetterPdf(letter.filePath) : null
+    if (!letter || !pdf) return res.status(404).json({ error: 'Letter not found' })
+    res.setHeader('Content-Type', 'application/pdf')
+    res.setHeader('Content-Disposition', `attachment; filename="letter-of-representation-${letter.id}.pdf"`)
+    res.send(pdf)
+  } catch (error: any) {
+    logger.error('Failed to download letter', { error: error.message })
+    res.status(500).json({ error: 'Failed to download letter' })
+  }
+})
+
+router.get('/leads/:leadId/insurance/:id/lor-preview', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true })
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const insurance = await prisma.insuranceDetail.findFirst({
+      where: { id: req.params.id, assessmentId: auth.lead.assessmentId },
+    })
+    if (!insurance) return res.status(404).json({ error: 'Insurance record not found' })
+    const ctx = await loadLetterContext(auth.lead.id)
+    if (!ctx) return res.status(404).json({ error: 'Case not found' })
+    const body = carrierLetterBody(ctx, insurance)
+    res.json({ body, blanks: countBlanks(body), recipientName: insurance.carrierName, recipientEmail: insurance.adjusterEmail })
+  } catch (error: any) {
+    logger.error('Failed to build carrier letter preview', { error: error.message })
+    res.status(500).json({ error: 'Failed to build the letter' })
+  }
+})
+
+router.post('/leads/:leadId/insurance/:id/lor', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true, firmMemberWrite: true })
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const notAccepted = checkLeadIsAccepted(auth.lead, 'sending a letter of representation')
+    if (notAccepted) return res.status(notAccepted.status).json({ error: notAccepted.message })
+    const parsed = letterDeliverySchema.safeParse(req.body)
+    if (!parsed.success) return res.status(400).json({ error: 'The letter is empty or the email address is invalid.' })
+
+    const insurance = await prisma.insuranceDetail.findFirst({
+      where: { id: req.params.id, assessmentId: auth.lead.assessmentId },
+    })
+    if (!insurance) return res.status(404).json({ error: 'Insurance record not found' })
+    const recipientEmail = (parsed.data.recipientEmail || insurance.adjusterEmail || '').trim()
+    if (parsed.data.delivery === 'email' && !recipientEmail) {
+      return res.status(400).json({ error: "Add the adjuster's email, or download the letter to fax it." })
+    }
+    const ctx = await loadLetterContext(auth.lead.id)
+    if (!ctx) return res.status(404).json({ error: 'Case not found' })
+
+    const result = await sendCarrierLetter({
+      ctx,
+      insurance,
+      body: parsed.data.body,
+      delivery: parsed.data.delivery,
+      recipientEmail,
+      sentByEmail: req.user?.email || null,
+    })
+    res.json({ letter: serializeLetter(result.letter), emailed: result.emailed, tasksCompleted: result.tasksCompleted })
+  } catch (error: any) {
+    logger.error('Failed to send carrier letter', { error: error.message })
+    res.status(500).json({ error: error.message || 'Failed to send the letter' })
+  }
+})
+
+router.get('/leads/:leadId/providers', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true })
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const [providers, hipaa, letters] = await Promise.all([
+      listCaseProviders(auth.lead.id, auth.lead.assessmentId),
+      signedHipaaEnvelope(auth.lead.id),
+      listLeadLetters(auth.lead.id),
+    ])
+    const providerLetters = letters.filter((l) => l.kind === 'provider_lor')
+    res.json({
+      hipaa: { signed: Boolean(hipaa), signedAt: hipaa?.signedAt ?? null },
+      providers: providers.map((p) => ({
+        ...p,
+        letters: providerLetters.filter((l) => providerKey(l.providerName || '') === p.key),
+      })),
+    })
+  } catch (error: any) {
+    logger.error('Failed to list case providers', { error: error.message })
+    res.status(500).json({ error: 'Failed to load providers' })
+  }
+})
+
+const providerContactSchema = z.object({
+  name: z.string().trim().min(2).max(200),
+  email: z.string().trim().email().optional().or(z.literal('')),
+  specialty: z.string().trim().max(120).optional(),
+})
+
+router.put('/leads/:leadId/providers/contact', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true, firmMemberWrite: true })
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const parsed = providerContactSchema.safeParse(req.body)
+    if (!parsed.success) return res.status(400).json({ error: 'Enter the provider name and a valid email.' })
+    const attorneyId = auth.lead.assignedAttorneyId || auth.attorney?.id
+    if (!attorneyId) return res.status(409).json({ error: 'Assign an attorney to this case first.' })
+
+    const key = providerKey(parsed.data.name)
+    const contacts = await prisma.caseContact.findMany({
+      where: { leadId: auth.lead.id, contactType: 'medical_provider' },
+    })
+    const match = contacts.find(
+      (c) => providerKey(c.companyName || [c.firstName, c.lastName].filter(Boolean).join(' ')) === key,
+    )
+    const data = {
+      email: parsed.data.email || null,
+      ...(parsed.data.specialty ? { title: parsed.data.specialty } : {}),
+    }
+    const contact = match
+      ? await prisma.caseContact.update({ where: { id: match.id }, data })
+      : await prisma.caseContact.create({
+          data: {
+            leadId: auth.lead.id,
+            attorneyId,
+            firstName: parsed.data.name,
+            lastName: '',
+            companyName: parsed.data.name,
+            contactType: 'medical_provider',
+            ...data,
+          },
+        })
+    res.json({ contactId: contact.id, email: contact.email })
+  } catch (error: any) {
+    logger.error('Failed to save provider contact', { error: error.message })
+    res.status(500).json({ error: 'Failed to save the provider' })
+  }
+})
+
+router.get('/leads/:leadId/providers/lor-preview', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true })
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const name = String(req.query.name || '').trim()
+    if (!name) return res.status(400).json({ error: 'Provider name is required' })
+    const ctx = await loadLetterContext(auth.lead.id)
+    if (!ctx) return res.status(404).json({ error: 'Case not found' })
+    const body = providerLetterBody(ctx, { providerName: name, includeLop: req.query.includeLop === '1' })
+    res.json({ body, blanks: countBlanks(body) })
+  } catch (error: any) {
+    logger.error('Failed to build provider letter preview', { error: error.message })
+    res.status(500).json({ error: 'Failed to build the letter' })
+  }
+})
+
+router.post('/leads/:leadId/providers/lor', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true, firmMemberWrite: true })
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const notAccepted = checkLeadIsAccepted(auth.lead, 'sending a letter of representation')
+    if (notAccepted) return res.status(notAccepted.status).json({ error: notAccepted.message })
+    const parsed = letterDeliverySchema
+      .extend({ name: z.string().trim().min(2).max(200), includeLop: z.boolean().optional() })
+      .safeParse(req.body)
+    if (!parsed.success) return res.status(400).json({ error: 'The letter is empty or the email address is invalid.' })
+    const attorneyId = auth.lead.assignedAttorneyId || auth.attorney?.id
+    if (!attorneyId) return res.status(409).json({ error: 'Assign an attorney to this case first.' })
+
+    const hipaa = await signedHipaaEnvelope(auth.lead.id)
+    if (!hipaa) {
+      return res.status(409).json({
+        error: 'The client has to sign the HIPAA authorization before providers can release records. Send it from the Signatures tab.',
+        code: 'HIPAA_AUTHORIZATION_REQUIRED',
+      })
+    }
+
+    const providers = await listCaseProviders(auth.lead.id, auth.lead.assessmentId)
+    const provider = providers.find((p) => p.key === providerKey(parsed.data.name))
+    const recipientEmail = (parsed.data.recipientEmail || provider?.email || '').trim()
+    if (parsed.data.delivery === 'email' && !recipientEmail) {
+      return res.status(400).json({ error: "Add the provider's records email, or download the letter to fax it." })
+    }
+    const ctx = await loadLetterContext(auth.lead.id)
+    if (!ctx) return res.status(404).json({ error: 'Case not found' })
+
+    const result = await sendProviderLetter({
+      ctx,
+      attorneyId,
+      providerName: provider?.name || parsed.data.name,
+      caseContactId: provider?.contactId || null,
+      includeLop: Boolean(parsed.data.includeLop),
+      hipaa,
+      allProviderNames: providers.map((p) => p.name),
+      body: parsed.data.body,
+      delivery: parsed.data.delivery,
+      recipientEmail,
+      sentByEmail: req.user?.email || null,
+    })
+    res.json({ letter: serializeLetter(result.letter, 'pending'), emailed: result.emailed, tasksCompleted: result.tasksCompleted })
+  } catch (error: any) {
+    logger.error('Failed to send provider letter', { error: error.message })
+    res.status(500).json({ error: error.message || 'Failed to send the letter' })
   }
 })
 

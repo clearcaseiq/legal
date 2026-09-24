@@ -8,6 +8,7 @@ import { logger } from '../lib/logger'
 import { replicateUploads } from '../lib/object-storage'
 import { isAcceptedUpload, SPREADSHEET_EXTENSIONS, SPREADSHEET_MIMETYPES } from '../lib/upload-filter'
 import { ensureCaseOwnerUserId } from '../lib/case-owner'
+import { ensureSignedFile } from '../lib/esign/esign-service'
 import { fanOutCaseUpdates, fileClaimantEvidence, MAX_EVIDENCE_BYTES } from '../lib/evidence-intake'
 import {
   acceptedCategoriesForRequestKey,
@@ -22,6 +23,7 @@ const router = Router()
 // human-readable document names to the external recipient.
 const OPPOSING_DOC_LABELS: Record<string, string> = {
   medical_records: 'Medical records',
+  medical_bills: 'Itemized billing statement',
   insurance_policy: 'Insurance policy / declarations page',
   incident_report: 'Incident / accident report',
   surveillance: 'Surveillance or camera footage',
@@ -389,12 +391,13 @@ router.get('/:token/authorization', async (req, res) => {
   try {
     const docRequest = await loadOpposingRequest(req.params.token)
     const env = docRequest?.documentEnvelope
-    if (!env || env.status !== 'signed' || !env.signedFilePath || !fs.existsSync(env.signedFilePath)) {
+    const signedPath = env && env.status === 'signed' ? await ensureSignedFile(env.id) : null
+    if (!signedPath) {
       return res.status(404).json({ error: 'No signed authorization is available for this request.' })
     }
     res.setHeader('Content-Type', 'application/pdf')
     res.setHeader('Content-Disposition', 'inline; filename="hipaa-authorization.pdf"')
-    fs.createReadStream(env.signedFilePath).pipe(res)
+    fs.createReadStream(signedPath).pipe(res)
   } catch (error: any) {
     logger.error('Failed to serve authorization document', { error: error.message })
     res.status(500).json({ error: 'Internal server error' })

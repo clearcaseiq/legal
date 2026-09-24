@@ -86,6 +86,13 @@ type EmailParams = {
    * on the verified sending domain — see `resolveFromAddress`.
    */
   fromEmail?: string
+  attachments?: EmailAttachment[]
+}
+
+export type EmailAttachment = {
+  filename: string
+  content: Buffer
+  contentType: string
 }
 
 /** The bare address from a value that may already be in `Name <addr>` form. */
@@ -380,6 +387,17 @@ async function sendViaSes(params: EmailParams): Promise<boolean> {
               Text: { Data: bodyToText(params.body, params.cta), Charset: 'UTF-8' },
               Html: { Data: bodyToHtml(params.body, params.cta), Charset: 'UTF-8' },
             },
+            ...(params.attachments?.length
+              ? {
+                  Attachments: params.attachments.map((a) => ({
+                    FileName: a.filename,
+                    RawContent: new Uint8Array(a.content),
+                    ContentType: a.contentType,
+                    ContentDisposition: 'ATTACHMENT',
+                    ContentTransferEncoding: 'BASE64',
+                  })),
+                }
+              : {}),
           },
         },
         ...(process.env.SES_CONFIGURATION_SET
@@ -441,6 +459,15 @@ async function sendViaResend(params: EmailParams): Promise<boolean> {
         text: bodyToText(params.body, params.cta),
         html: bodyToHtml(params.body, params.cta),
         ...(params.replyTo ? { reply_to: params.replyTo } : {}),
+        ...(params.attachments?.length
+          ? {
+              attachments: params.attachments.map((a) => ({
+                filename: a.filename,
+                content: a.content.toString('base64'),
+                content_type: a.contentType,
+              })),
+            }
+          : {}),
       }),
     })
 

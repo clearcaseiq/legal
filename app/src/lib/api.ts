@@ -2988,6 +2988,81 @@ export async function requestLeadDecPage(leadId: string, insuranceId: string, pa
   return data
 }
 
+export type CaseLetter = {
+  id: string
+  kind: 'carrier_lor' | 'provider_lor'
+  insuranceDetailId: string | null
+  caseContactId: string | null
+  providerName: string | null
+  recipientName: string
+  recipientEmail: string | null
+  deliveredVia: 'email' | 'download'
+  includesLop: boolean
+  createdAt: string
+  recordsStatus: string | null
+}
+
+export type LetterPreview = { body: string; blanks: number; recipientName?: string; recipientEmail?: string | null }
+
+export type LetterDelivery = { body: string; delivery: 'email' | 'download'; recipientEmail?: string }
+
+export type CaseProviderRow = {
+  key: string
+  name: string
+  specialty: string | null
+  contactId: string | null
+  email: string | null
+  sources: Array<'timeline' | 'intake' | 'contact'>
+  letters: CaseLetter[]
+}
+
+export async function getLeadLetters(leadId: string) {
+  const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/letters`)
+  return data as { letters: CaseLetter[] }
+}
+
+export async function downloadLeadLetterPdf(leadId: string, letterId: string) {
+  const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/letters/${letterId}/pdf`, {
+    responseType: 'blob',
+  })
+  return data as Blob
+}
+
+export async function getCarrierLetterPreview(leadId: string, insuranceId: string) {
+  const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/insurance/${insuranceId}/lor-preview`)
+  return data as LetterPreview
+}
+
+export async function sendCarrierLetter(leadId: string, insuranceId: string, payload: LetterDelivery) {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/insurance/${insuranceId}/lor`, payload)
+  return data as { letter: CaseLetter; emailed: boolean; tasksCompleted: number }
+}
+
+export async function getLeadProviders(leadId: string) {
+  const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/providers`)
+  return data as { hipaa: { signed: boolean; signedAt: string | null }; providers: CaseProviderRow[] }
+}
+
+export async function saveLeadProviderContact(leadId: string, payload: { name: string; email?: string; specialty?: string }) {
+  const { data } = await api.put(`/v1/attorney-dashboard/leads/${leadId}/providers/contact`, payload)
+  return data as { contactId: string; email: string | null }
+}
+
+export async function getProviderLetterPreview(leadId: string, name: string, includeLop: boolean) {
+  const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/providers/lor-preview`, {
+    params: { name, includeLop: includeLop ? '1' : '0' },
+  })
+  return data as LetterPreview
+}
+
+export async function sendProviderLetter(
+  leadId: string,
+  payload: LetterDelivery & { name: string; includeLop: boolean },
+) {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/providers/lor`, payload)
+  return data as { letter: CaseLetter; emailed: boolean; tasksCompleted: number }
+}
+
 export async function getLeadInsuranceSuggestion(leadId: string) {
   const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/insurance/suggestion`)
   return data

@@ -16,6 +16,7 @@ import {
   X,
   Sparkles,
   AlertTriangle,
+  Send,
 } from 'lucide-react'
 import ConfirmDialog from '../../components/ConfirmDialog'
 import {
@@ -25,7 +26,12 @@ import {
   deleteLeadInsurance,
   requestLeadDecPage,
   getLeadInsuranceSuggestion,
+  getLeadLetters,
+  getCarrierLetterPreview,
+  sendCarrierLetter,
+  type CaseLetter,
 } from '../../lib/api'
+import LetterComposerModal, { saveLetterPdf } from './LetterComposerModal'
 
 type InsuredParty = 'defendant' | 'client'
 type CoverageType = 'liability' | 'um' | 'uim' | 'medpay' | 'other'
@@ -135,12 +141,18 @@ function fromRecord(r: InsuranceRecord): FormState {
 export default function InsurancePanel({
   leadId,
   onChanged,
+  openLetter = false,
 }: {
   leadId: string
   claimType?: string
   onChanged?: () => void
+  /** Open the letter of representation for the first policy that has none yet. */
+  openLetter?: boolean
 }) {
   const [records, setRecords] = useState<InsuranceRecord[]>([])
+  const [letters, setLetters] = useState<CaseLetter[]>([])
+  const [composing, setComposing] = useState<InsuranceRecord | null>(null)
+  const autoOpened = useRef(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [banner, setBanner] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null)
@@ -152,8 +164,12 @@ export default function InsurancePanel({
 
   const load = useCallback(async () => {
     try {
-      const data = await getLeadInsurance(leadId)
+      const [data, sent] = await Promise.all([
+        getLeadInsurance(leadId),
+        getLeadLetters(leadId).catch(() => ({ letters: [] as CaseLetter[] })),
+      ])
       setRecords(Array.isArray(data) ? data : [])
+      setLetters(sent.letters || [])
     } catch (err: any) {
       setError(err?.response?.data?.error || 'Could not load insurance details.')
     } finally {
@@ -169,6 +185,18 @@ export default function InsurancePanel({
   }, [leadId, load])
 
   const totalCoverage = records.reduce((sum, r) => sum + (r.policyLimit || 0), 0)
+
+  const lettersFor = (r: InsuranceRecord) => letters.filter((l) => l.insuranceDetailId === r.id)
+
+  useEffect(() => {
+    if (!openLetter || loading || autoOpened.current) return
+    autoOpened.current = true
+    const target =
+      records.find((r) => r.insuredParty !== 'client' && !lettersFor(r).length) ||
+      records.find((r) => !lettersFor(r).length)
+    if (target) setComposing(target)
+    else if (!records.length) setBanner({ tone: 'err', text: 'Add the carrier first, then send the letter of representation from its policy card.' })
+  }, [openLetter, loading, records, letters]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const startAdd = () => {
     setForm(EMPTY_FORM)
@@ -524,8 +552,70 @@ export default function InsurancePanel({
                   : 'Request from adjuster'}
             </button>
           </div>
+
+          {(() => {
+            const sent = lettersFor(r)
+            const last = sent[0]
+            return (
+              <div className="mt-3 flex items-center justify-between gap-3 border-t border-slate-100 pt-3">
+                <span className="text-xs text-slate-400">
+                  {last
+                    ? `Letter of representation ${last.deliveredVia === 'email' ? `emailed to ${last.recipientEmail}` : 'downloaded to fax or mail'} on ${new Date(last.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+                    : 'Letter of representation not sent'}
+                </span>
+                <div className="flex items-center gap-1.5">
+                  {last ? (
+                    <button
+                      type="button"
+                      onClick={() => void saveLetterPdf(leadId, last.id, `Letter-of-Representation-${r.carrierName.replace(/[^a-z0-9]+/gi, '-')}.pdf`)}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                    >
+                      <FileText className="h-3.5 w-3.5" /> View PDF
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => setComposing(r)}
+                    disabled={editingId !== null}
+                    className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold transition disabled:opacity-40 ${
+                      last
+                        ? 'border border-slate-200 text-slate-700 hover:bg-slate-50'
+                        : 'bg-brand-600 text-white shadow-sm hover:bg-brand-700'
+                    }`}
+                  >
+                    <Send className="h-3.5 w-3.5" /> {last ? 'Send again' : 'Send letter of representation'}
+                  </button>
+                </div>
+              </div>
+            )
+          })()}
         </div>
       ))}
+
+      {composing ? (
+        <LetterComposerModal
+          leadId={leadId}
+          title="Letter of representation"
+          recipientLabel={composing.adjusterName ? `${composing.adjusterName}, ${composing.carrierName}` : composing.carrierName}
+          defaultEmail={composing.adjusterEmail}
+          loadPreview={() => getCarrierLetterPreview(leadId, composing.id)}
+          onSend={(payload) => sendCarrierLetter(leadId, composing.id, payload)}
+          onSent={(_result, message) => {
+            setComposing(null)
+            setBanner({ tone: 'ok', text: message })
+            void load()
+            onChanged?.()
+          }}
+          onClose={() => setComposing(null)}
+          footnote={
+            !composing.claimNumber ? (
+              <p className="text-xs text-slate-500">
+                Tip: add the claim number to this policy first and it fills in automatically.
+              </p>
+            ) : null
+          }
+        />
+      ) : null}
 
       {!records.length && editingId === null ? (
         <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/50 px-4 py-10 text-center">

@@ -183,7 +183,7 @@ function heuristicSectionAction(task: TaskLike): TaskPrimaryAction | null {
   }
 
   if (
-    /insurance|adjuster|coverage|carrier|claim\b|um\/uim|medpay|\bpip\b|policy|\bliens?\b|subrogation/i.test(hay)
+    /insurance|adjuster|coverage|carrier|claim\b|um\/uim|medpay|\bpip\b|policy|\bliens?\b|subrogation|letter of representation|\blor\b/i.test(hay)
   ) {
     return openSection('open_insurance', 'Open', 'Open Insurance to update claims, coverage, or liens')
   }
@@ -214,7 +214,7 @@ function heuristicSectionAction(task: TaskLike): TaskPrimaryAction | null {
   }
 
   if (
-    /retainer|hipaa|authorization|letter of representation|\blor\b|welcome packet|e-?sign|signature/i.test(
+    /retainer|hipaa|authorization|welcome packet|e-?sign|signature/i.test(
       hay,
     )
   ) {
@@ -346,10 +346,10 @@ export function resolveTaskPrimaryAction(task: TaskLike): TaskPrimaryAction | nu
   ) {
     return {
       kind: 'send_lor_providers',
-      label: 'Open',
+      label: 'Send',
       doneLabel: 'View',
-      hint: 'Open Signatures (HIPAA first) to send provider letters of representation',
-      doneHint: 'Open Signatures for provider LOR / HIPAA',
+      hint: 'Open Medical to send each provider a letter of representation and records request',
+      doneHint: 'Open Medical to review provider letters and records',
     }
   }
 
@@ -358,8 +358,8 @@ export function resolveTaskPrimaryAction(task: TaskLike): TaskPrimaryAction | nu
       kind: 'send_lor',
       label: 'Send',
       doneLabel: 'View',
-      hint: 'Open Signatures to send a Letter of Representation from firm templates',
-      doneHint: 'Open Signatures to review LOR status',
+      hint: 'Open Insurance to preview and send the letter of representation to the carrier',
+      doneHint: 'Open Insurance to review letters sent',
     }
   }
 
@@ -404,11 +404,13 @@ export function sectionForTaskAction(kind: TaskPrimaryActionKind): string | null
       return 'documents'
     case 'check_retainer':
     case 'send_welcome':
-    case 'send_lor':
     case 'open_signatures':
       return 'signatures'
-    case 'send_hipaa':
+    case 'send_lor':
+      return 'insurance?letter=1'
     case 'send_lor_providers':
+      return 'medical?letter=1'
+    case 'send_hipaa':
       return 'signatures?doc=hipaa_authorization'
     case 'collect_police':
     case 'open_evidence':
