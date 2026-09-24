@@ -411,6 +411,64 @@ router.get('/counts', async (req: AuthRequest, res) => {
   }
 })
 
+/** How far back a stale `since` may reach, so a long-closed tab doesn't replay a backlog. */
+const NEW_ARRIVALS_MAX_LOOKBACK_MS = 24 * 60 * 60 * 1000
+
+/**
+ * Cases that reached the caller since `since`: new to the queue they can see, or
+ * newly assigned to them. Drives the new-case popup. Without `since` it only
+ * returns the server clock, which the client stores as its starting point so the
+ * existing backlog never pops up.
+ */
+router.get('/new-arrivals', async (req: AuthRequest, res) => {
+  try {
+    const now = new Date()
+    const requested = parseDateBound(req.query.since)
+    if (!requested) {
+      return res.json({ success: true, serverTime: now.toISOString(), total: 0, data: [] })
+    }
+    const since = new Date(Math.max(requested.getTime(), now.getTime() - NEW_ARRIVALS_MAX_LOOKBACK_MS))
+
+    const where = {
+      AND: [
+        visibilityWhere(req),
+        { status: { in: ACTIVE_ASSISTANCE_STATUSES } },
+        {
+          OR: [
+            { createdAt: { gt: since } },
+            { assignedSpecialistId: req.user?.id, assignedAt: { gt: since } },
+          ],
+        },
+      ],
+    }
+    const [rows, total] = await Promise.all([
+      prisma.caseAssistance.findMany({
+        where,
+        include: {
+          assignedSpecialist: { select: { id: true, firstName: true, lastName: true } },
+          assessment: { select: ASSESSMENT_SELECT },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+      }),
+      prisma.caseAssistance.count({ where }),
+    ])
+
+    res.json({
+      success: true,
+      serverTime: now.toISOString(),
+      total,
+      data: rows.map((row) => ({
+        ...serializeQueueRow(row),
+        assignedToMe: row.assignedSpecialistId === req.user?.id,
+      })),
+    })
+  } catch (error) {
+    logger.error('Failed to load new case assistance arrivals', { error })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
 /**
  * Manager view: totals across the whole queue plus a per-specialist breakdown.
  *

@@ -5227,6 +5227,15 @@ export async function getAssistanceQueue(
   }
 }
 
+export async function getAssistanceNewArrivals(since?: string | null) {
+  const { data } = await api.get('/v1/case-assistance/new-arrivals', { params: since ? { since } : {} })
+  return data as {
+    serverTime: string
+    total: number
+    data: Array<AssistanceQueueRow & { assignedToMe: boolean }>
+  }
+}
+
 export async function getAssistanceCounts(params: AssistanceScope = {}) {
   const { data } = await api.get('/v1/case-assistance/counts', { params })
   return data as {

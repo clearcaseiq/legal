@@ -41,6 +41,7 @@ import { useTheme } from '../contexts/ThemeContext'
 import { useLanguage } from '../contexts/LanguageContext'
 import LanguageSwitcher from './LanguageSwitcher'
 import AdminNotificationBell from './AdminNotificationBell'
+import AdminNewCasePopup from './AdminNewCasePopup'
 import { clearStoredAuth, getAdminLoginPath, getStoredUser } from '../lib/auth'
 import { verifyAdminAccess } from '../lib/api-auth'
 import {
@@ -159,6 +160,8 @@ export default function AdminLayout({ children }: { children?: ReactNode }) {
       }),
     }))
     .filter((group) => group.items.length > 0)
+  const caseAssistanceCapability = capabilityForAdminPath('/admin/case-assistance')
+  const canSeeCaseAssistance = !caseAssistanceCapability || capabilities.includes(caseAssistanceCapability)
 
   const handleSignOut = () => {
     clearStoredAuth()
@@ -287,6 +290,7 @@ export default function AdminLayout({ children }: { children?: ReactNode }) {
           {children ?? <Outlet />}
         </main>
       </div>
+      {canSeeCaseAssistance ? <AdminNewCasePopup email={adminEmail} /> : null}
     </div>
   )
 }
