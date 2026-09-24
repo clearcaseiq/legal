@@ -1923,7 +1923,7 @@ export default function Results() {
     0,
   )
   const hasInjuryPhotos = evidenceFiles.some(f => f.category === 'photos')
-  const hasExtractedMedicalChronology = medicalChronology.some((event: any) => event?.source === 'medical_record' || event?.source === 'treatment')
+  const hasExtractedMedicalChronology = medicalChronology.some((event: any) => event?.source === 'medical_record')
   const hasMedicalRecords = evidenceFiles.some(f => f.category === 'medical_records') || hasExtractedMedicalChronology
   const hasMedicalBills = evidenceFiles.some(f => f.category === 'bills' && !isLostWageEvidence(f)) || documentedMedicalCharges > 0
   const hasPoliceReport = evidenceFiles.some(f => f.category === 'police_report')
@@ -1938,6 +1938,11 @@ export default function Results() {
     Number(damagesObj.estimated_property_damage || 0) > 0 ||
     Number(damagesObj.estimated_future_med_charges || 0) > 0
   const hasSupportingDocuments = evidenceFiles.some(f => f.category === 'bills' || f.category === 'medical_records')
+  // The chronology also carries the incident and intake-reported treatment, and
+  // med charges include the self-reported range — none of that is anything to confirm.
+  const hasUploadedMedicalEvidence =
+    evidenceFiles.some(f => f.category === 'medical_records' || (f.category === 'bills' && !isLostWageEvidence(f))) ||
+    medicalChronology.some((event: any) => event?.source === 'medical_record')
   const medicalSpecialsVerified = damagesObj.med_charges_source === 'documented'
   const effectiveEvidenceCount = Math.max(
     evidenceCount,
@@ -2583,7 +2588,7 @@ export default function Results() {
       ? 'Add injury photos and wage-loss proof so attorneys see the full picture. Stronger files draw more attorney interest.'
       : 'Attorneys see a limited summary until you add medical records. Cases with records are valued materially higher.'
     const nextSteps = [
-      ...(medicalChronology.length > 0
+      ...(hasUploadedMedicalEvidence && medicalChronology.length > 0
         ? [{ title: 'Review your treatment timeline', desc: 'Confirm or adjust your medical story so attorneys see an accurate timeline.', done: !medicalReviewPending, optional: false }]
         : []),
       { title: 'Send your case for attorney review', desc: 'Attorneys who handle cases like yours review it. Free, with no obligation.', done: false, optional: false },
@@ -2844,7 +2849,7 @@ Checklist:
   // Only treat the medical-story review as "pending" when there's an actual
   // timeline to confirm; otherwise the attorney-review CTA stayed stuck
   // redirecting to an empty medical section instead of opening the popup (#225).
-  const medicalReviewPending = medicalChronology.length > 0 && (plaintiffMedicalReview?.review.status ?? 'pending') === 'pending'
+  const medicalReviewPending = hasUploadedMedicalEvidence && medicalChronology.length > 0 && (plaintiffMedicalReview?.review.status ?? 'pending') === 'pending'
   const topMissingDocLabels = missingDocItems
     .slice(0, 3)
     .map((item: any) => item?.label)
@@ -3117,7 +3122,7 @@ Checklist:
     // story to confirm. In the streamlined intake (no uploads yet) the timeline
     // is empty, so this step would otherwise render struck-through as if the user
     // already completed a review they never did.
-    const treatmentReviewStep = medicalChronology.length > 0
+    const treatmentReviewStep = hasUploadedMedicalEvidence && medicalChronology.length > 0
       ? [{
           title: t('results.calc.nsReviewTimeline'),
           desc: t('results.calc.nsReviewTimelineDesc'),
@@ -3428,7 +3433,7 @@ Checklist:
 
   // "What to do now" banner state for the Medical Story tab.
   const medReviewStatusValue = plaintiffMedicalReview?.review.status ?? 'pending'
-  const medHasAnyRecords = hasMedicalRecords || hasMedicalBills || medTimelineRows.length > 0
+  const medHasAnyRecords = hasUploadedMedicalEvidence
 
   // Post-submission layout — transition from assessment to case tracking.
   // Placed after all snapshot-derived values so handlers passed into the submitted
