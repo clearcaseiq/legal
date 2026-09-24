@@ -83,6 +83,37 @@ describe('buildCaseCommandCenter', () => {
     })
   })
 
+  it('reports the documented coverage from recorded policies over the intake limit', async () => {
+    vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
+      id: 'asm-4',
+      claimType: 'auto',
+      venueState: 'KY',
+      venueCounty: 'Henderson',
+      facts: JSON.stringify({ insurance: { policy_limit: 10000 } }),
+      createdAt: new Date(),
+      leadSubmission: { id: 'lead-4', status: 'retained', lifecycleState: 'retained' },
+      predictions: [],
+    } as any)
+    vi.mocked(computeCasePreparation).mockResolvedValue({
+      missingDocs: [],
+      treatmentGaps: [],
+      strengths: [],
+      weaknesses: [],
+      readinessScore: 50,
+      readinessFactors: [],
+    })
+    vi.mocked(buildMedicalChronology).mockResolvedValue([] as any)
+    vi.mocked(prisma.evidenceFile.findMany).mockResolvedValue([] as any)
+    vi.mocked(prisma.appointment.findMany).mockResolvedValue([] as any)
+    vi.mocked(prisma.insuranceDetail.findMany).mockResolvedValue([{ policyLimit: 50000 }, { policyLimit: 10000 }] as any)
+    vi.mocked(prisma.negotiationEvent.findMany).mockResolvedValue([] as any)
+    vi.mocked(prisma.leadContact.findFirst).mockResolvedValue(null as any)
+
+    const summary = await buildCaseCommandCenter({ assessmentId: 'asm-4', leadId: 'lead-4' })
+
+    expect(summary.coverageStory.policyLimit).toBe(60000)
+  })
+
   it('moves negotiation-active files into negotiation stage and answers copilot questions from summary', async () => {
     vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
       id: 'asm-2',

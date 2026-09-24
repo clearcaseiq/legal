@@ -674,11 +674,11 @@ export async function buildCaseCommandCenter(params: {
   const nextUpcomingConsult = appointments.find((item) => item.status === 'SCHEDULED' && new Date(item.scheduledAt) > new Date())
   const latestDemand = negotiationEvents.find((item) => item.eventType === 'demand')?.amount ?? null
   const hasNegotiation = negotiationEvents.length > 0
-  const dbPolicyLimit = insuranceDetails.reduce<number | null>((max, item) => {
-    const limit = item.policyLimit ?? 0
-    return limit > (max || 0) ? limit : max
-  }, null)
-  const policyLimit = policyLimitFromFacts(facts) ?? dbPolicyLimit
+  // Same figure as the Insurance tab's "Documented coverage". Recorded policies
+  // win over the intake answer: they are what the attorney edits, and an intake
+  // limit taking precedence meant Insurance-tab changes never reached the header.
+  const documentedCoverage = insuranceDetails.reduce((sum, item) => sum + (item.policyLimit ?? 0), 0)
+  const policyLimit = documentedCoverage > 0 ? documentedCoverage : policyLimitFromFacts(facts)
   const stage = buildStage({
     leadStatus: assessment.leadSubmission?.status,
     readinessScore,
