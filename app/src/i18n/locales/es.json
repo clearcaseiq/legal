@@ -213,14 +213,7 @@
     "free": "Gratis",
     "noObligation": "Sin obligación",
     "private": "Su información es privada",
-    "heroFooter": "Evaluación gratuita • Sin obligación • Su información es privada",
-    "newVersion": {
-      "title": "Hay una nueva versión disponible",
-      "body": "Esta pestaña ha estado abierta desde una versión anterior, por lo que algunas cifras pueden estar desactualizadas.",
-      "reload": "Recargar",
-      "dismiss": "Descartar",
-      "titleDated": "Hay una nueva versión disponible, publicada el {released}"
-    }
+    "heroFooter": "Evaluación gratuita • Sin obligación • Su información es privada"
   },
   "auth": {
     "loginTitle": "Bienvenido de nuevo",
@@ -1017,6 +1010,7 @@
     "privacyPolicy": "Política de privacidad",
     "hipaaAuthorization": "Autorización HIPAA",
     "copyright": "© 2026 ClearCaseIQ. Todos los derechos reservados.",
+    "version": "Versión {version}",
     "platformLabel": "Plataforma de Tecnología Legal",
     "disclaimer": "ClearCaseIQ no es un despacho de abogados y no brinda asesoramiento legal. El uso de esta plataforma no crea una relación abogado-cliente. La revisión por parte de un abogado es opcional y solo ocurre con el consentimiento del usuario.",
     "findAttorney": "Buscar un abogado",

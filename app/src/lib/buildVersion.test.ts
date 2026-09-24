@@ -1,95 +1,36 @@
-import { describe, it, expect, afterEach } from 'vitest'
-import {
-  currentBuildId,
-  parseBuildId,
-  parseBuildTime,
-  formatBuildTime,
-  isNewBuild,
-} from './buildVersion'
+import { afterEach, describe, expect, it } from 'vitest'
+import { currentBuildVersion, formatBuildDate } from './buildVersion'
+
+function setNextData(value: unknown) {
+  ;(globalThis as any).__NEXT_DATA__ = value
+}
 
 afterEach(() => {
   delete (globalThis as any).__NEXT_DATA__
 })
 
-describe('currentBuildId', () => {
-  it('reads the build this tab started with', () => {
-    ;(globalThis as any).__NEXT_DATA__ = { buildId: 'vWstW-JkUQLZ03MY_9IKP' }
-
-    expect(currentBuildId()).toBe('vWstW-JkUQLZ03MY_9IKP')
+describe('currentBuildVersion', () => {
+  it('shows the commit and build date', () => {
+    setNextData({ buildId: 'abc', props: { pageProps: { buildCommit: 'de4a5b8', buildTime: '2026-09-24T20:00:00Z' } } })
+    expect(currentBuildVersion('en-US')).toBe('de4a5b8 · Sep 24, 2026')
   })
 
-  it('returns empty rather than guessing when the marker is absent', () => {
-    expect(currentBuildId()).toBe('')
-    ;(globalThis as any).__NEXT_DATA__ = {}
-    expect(currentBuildId()).toBe('')
-    ;(globalThis as any).__NEXT_DATA__ = { buildId: 42 }
-    expect(currentBuildId()).toBe('')
-  })
-})
-
-describe('parseBuildId', () => {
-  it('pulls the build id out of freshly fetched HTML', () => {
-    const html = '<script>{"props":{},"buildId":"abc123XYZ","runtimeConfig":{}}</script>'
-
-    expect(parseBuildId(html)).toBe('abc123XYZ')
+  it('falls back to the Next build id without a commit', () => {
+    setNextData({ buildId: 'k2Jd9sLq0xYz', props: { pageProps: {} } })
+    expect(currentBuildVersion('en-US')).toBe('k2Jd9sLq')
   })
 
-  it('returns empty for anything it cannot read', () => {
-    expect(parseBuildId('')).toBe('')
-    expect(parseBuildId(null)).toBe('')
-    expect(parseBuildId('<html>an error page</html>')).toBe('')
+  it('shows nothing in development', () => {
+    setNextData({ buildId: 'development', props: { pageProps: {} } })
+    expect(currentBuildVersion()).toBeNull()
+    delete (globalThis as any).__NEXT_DATA__
+    expect(currentBuildVersion()).toBeNull()
   })
 })
 
-describe('parseBuildTime', () => {
-  it('pulls the build stamp the server put in the page props', () => {
-    const html = '<script>{"props":{"pageProps":{"buildTime":"2026-09-18T20:15:03Z"}},"buildId":"x"}</script>'
-
-    expect(parseBuildTime(html)).toBe('2026-09-18T20:15:03Z')
-  })
-
-  it('returns empty when the build predates the stamp', () => {
-    // Images built before BUILD_TIME reached the page props carry no stamp, and
-    // the prompt still has to appear for them.
-    expect(parseBuildTime('<script>{"buildId":"x"}</script>')).toBe('')
-    expect(parseBuildTime(null)).toBe('')
-  })
-})
-
-describe('formatBuildTime', () => {
-  it('renders a stamp as a date and time', () => {
-    const formatted = formatBuildTime('2026-09-18T20:15:03Z', 'en-US')
-
-    expect(formatted).toContain('2026')
-    expect(formatted).toMatch(/Sep/)
-  })
-
-  it('returns null rather than "Invalid Date" for junk', () => {
-    expect(formatBuildTime('not-a-date')).toBeNull()
-    expect(formatBuildTime('')).toBeNull()
-    expect(formatBuildTime(null)).toBeNull()
-    expect(formatBuildTime(undefined)).toBeNull()
-  })
-
-  it('still gives a date when the locale tag is unsupported', () => {
-    expect(formatBuildTime('2026-09-18T20:15:03Z', 'not-a-locale')).toContain('2026')
-  })
-})
-
-describe('isNewBuild', () => {
-  it('is true when the deployed build has moved on', () => {
-    expect(isNewBuild('old', 'new')).toBe(true)
-  })
-
-  it('is false while the tab is current', () => {
-    expect(isNewBuild('same', 'same')).toBe(false)
-  })
-
-  it('is false when either side is unknown', () => {
-    // A failed poll or an error page must not be read as a new deploy, or a
-    // flaky network would prompt a reload on every check.
-    expect(isNewBuild('', 'new')).toBe(false)
-    expect(isNewBuild('old', '')).toBe(false)
-    expect(isNewBuild('', '')).toBe(false)
+describe('formatBuildDate', () => {
+  it('rejects an unparseable stamp', () => {
+    expect(formatBuildDate('not a date')).toBeNull()
+    expect(formatBuildDate('')).toBeNull()
   })
 })

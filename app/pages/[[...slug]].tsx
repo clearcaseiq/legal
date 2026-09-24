@@ -113,6 +113,8 @@ type PageProps = {
    * nothing stamps the build.
    */
   buildTime?: string | null
+  /** Short git commit of the running image, for the footer version. */
+  buildCommit?: string | null
 }
 
 export default function CatchAllPage({ seo, ssrLocation, publicPage, language, messages, embed }: PageProps) {
@@ -397,7 +399,11 @@ export const getServerSideProps: GetServerSideProps<PageProps> = async (context)
   // Stamped on every page, whatever the indexing posture, so a tab that has
   // been open across a deploy can say *when* the version it is missing shipped
   // rather than only that one exists.
-  const stamped = { ...props, buildTime: process.env.BUILD_TIME || null }
+  const stamped = {
+    ...props,
+    buildTime: process.env.BUILD_TIME || null,
+    buildCommit: (process.env.GIT_COMMIT || '').slice(0, 7) || null,
+  }
 
   if (indexingEnabled()) return { ...result, props: stamped }
 

@@ -20,7 +20,7 @@ import {
 } from './StartupIcons'
 import { useTheme } from '../contexts/ThemeContext'
 import { useLanguage } from '../contexts/LanguageContext'
-import NewVersionPrompt from './NewVersionPrompt'
+import { currentBuildVersion } from '../lib/buildVersion'
 import { useBrowserStateReady } from '../contexts/ServerRenderContext'
 import { clearStoredAuth, getStoredRole, getStoredUser, hasValidAuthToken } from '../lib/auth'
 import { LANGUAGES } from '../i18n'
@@ -98,6 +98,12 @@ const organizationJsonLd = {
 
 export default function Layout({ children }: LayoutProps) {
   const { t, language } = useLanguage()
+  // Read after mount: the server has no __NEXT_DATA__, so reading it during
+  // render would make the first client render differ from the SSR markup.
+  const [buildVersion, setBuildVersion] = useState<string | null>(null)
+  useEffect(() => {
+    setBuildVersion(currentBuildVersion(language))
+  }, [language])
   const location = useLocation()
   const navigate = useNavigate()
   // Read from the location rather than useSearchParams so the server sees it too,
@@ -908,7 +914,12 @@ export default function Layout({ children }: LayoutProps) {
       <footer className="mt-auto border-t border-slate-200 bg-white">
         <div className="mx-auto w-full max-w-[1600px] px-4 py-4 sm:px-6">
           <div className="flex w-full flex-col gap-2 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between">
-            <span>{t('footer.copyright')}</span>
+            <span>
+              {t('footer.copyright')}
+              {buildVersion ? (
+                <span className="ml-2 text-slate-400">· {t('footer.version', { version: buildVersion })}</span>
+              ) : null}
+            </span>
             <div className="flex flex-wrap gap-3">
               <Link to={navLinks.help} className="hover:text-slate-900">{t('footer.helpCenter')}</Link>
               <Link to="/terms-of-service" className="hover:text-slate-900">{t('footer.termsOfService')}</Link>
@@ -1008,7 +1019,12 @@ export default function Layout({ children }: LayoutProps) {
           </div>
           <div className="mt-4 border-t border-slate-700/50 pt-3">
             <div className="flex flex-col gap-1.5 text-xs text-slate-400 md:flex-row md:items-center md:justify-between">
-              <span>{t('footer.copyright')}</span>
+              <span>
+                {t('footer.copyright')}
+                {buildVersion ? (
+                  <span className="ml-2 text-slate-500">· {t('footer.version', { version: buildVersion })}</span>
+                ) : null}
+              </span>
               {/* Real anchors, not the switcher button, because these are the only
                   crawlable routes into the translated editions. Each points at the
                   twin of the current page where one exists and at that language's
@@ -1062,7 +1078,6 @@ export default function Layout({ children }: LayoutProps) {
         </Suspense>
       )}
 
-      <NewVersionPrompt />
     </div>
   )
 }

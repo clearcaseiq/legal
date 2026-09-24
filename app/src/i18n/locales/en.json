@@ -216,14 +216,7 @@
     "free": "Free",
     "noObligation": "No obligation",
     "private": "Your information is private",
-    "heroFooter": "Free assessment • No obligation • Your information is private",
-    "newVersion": {
-      "title": "A new version is available",
-      "body": "This tab has been open since an earlier release, so some figures may be out of date.",
-      "reload": "Reload",
-      "dismiss": "Dismiss",
-      "titleDated": "A new version is available, released {released}"
-    }
+    "heroFooter": "Free assessment • No obligation • Your information is private"
   },
   "auth": {
     "loginTitle": "Welcome Back",
@@ -1039,6 +1032,7 @@
     "trustRow": "Private • Secure • No Obligation • Attorney Sharing Only With Consent",
     "trustRowShort": "Private • Secure • No Obligation",
     "copyright": "© 2026 ClearCaseIQ Corp. All rights reserved.",
+    "version": "Version {version}",
     "disclaimer": "ClearCaseIQ is not a law firm and does not provide legal advice. Use of this platform does not create an attorney-client relationship. Attorney review is optional and only occurs with user consent."
   },
   "aboutPage": {

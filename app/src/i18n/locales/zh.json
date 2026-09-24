@@ -213,14 +213,7 @@
     "free": "免费",
     "noObligation": "无义务",
     "private": "您的信息保密",
-    "heroFooter": "免费评估 • 无义务 • 您的信息保密",
-    "newVersion": {
-      "title": "有新版本可用",
-      "body": "此标签页自较早版本起一直打开，部分数据可能已过时。",
-      "reload": "重新加载",
-      "dismiss": "关闭",
-      "titleDated": "有新版本可用，发布于 {released}"
-    }
+    "heroFooter": "免费评估 • 无义务 • 您的信息保密"
   },
   "auth": {
     "loginTitle": "欢迎回来",
@@ -1017,6 +1010,7 @@
     "privacyPolicy": "隐私政策",
     "hipaaAuthorization": "HIPAA授权书",
     "copyright": "© 2026 ClearCaseIQ. 保留所有权利。",
+    "version": "版本 {version}",
     "platformLabel": "法律科技平台",
     "disclaimer": "ClearCaseIQ 不是律师事务所，不提供法律建议。使用本平台不构成律师与客户关系。律师审查为可选，且仅在用户同意后进行。",
     "findAttorney": "寻找律师",
