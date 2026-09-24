@@ -852,9 +852,9 @@ function useIsPhone(): boolean {
 }
 
 /** Marks a question the claimant must answer to continue. */
-function RequiredTag({ label }: { label: string }) {
+function RequiredTag({ label, missing = false }: { label: string; missing?: boolean }) {
   return (
-    <span className="inline-flex items-center rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase leading-none tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+    <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase leading-none tracking-wide ${missing ? 'bg-red-50 text-red-600 ring-1 ring-inset ring-red-200 dark:bg-red-500/10 dark:text-red-300 dark:ring-red-500/30' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'}`}>
       {label}
     </span>
   )
@@ -2502,6 +2502,25 @@ export default function IntakeWizardQuick() {
     }
   }
 
+  // Required questions flagged by the last Next/Submit that are still unanswered;
+  // their Required tag turns red. Answering one turns it back to gray even when
+  // the error itself is only cleared on the next Next.
+  const missingRequired = {
+    incidentType:
+      (!!errors.injuryType && !formData.injuryType) ||
+      (!!errors.incidentSubtype && !formData.incidentSubtype && !formData.otherInjuryDescription.trim()),
+    incidentDate: !!errors.incidentDate && !formData.incidentDate,
+    location: (!!errors.state && !formData.venue.state) || (!!errors.county && !formData.venue.county?.trim()),
+    contact:
+      (!!errors.contact && !formData.contact.email.trim() && !formData.contact.phone.trim()) ||
+      !!errors.contactEmail || !!errors.contactPhone,
+    severity: !!errors.injurySeverity && !formData.injurySeverity,
+    treatment: !!errors.medicalTreatment && formData.medicalTreatment.length === 0,
+    bills: !!errors.medicalBillRange && !formData.insuranceCoverage.medicalBillRange,
+    fault: !!errors.faultBelief && !formData.casePosture?.faultBelief,
+    attorney: !!errors.attorneyStatus && !formData.casePosture?.attorneyStatus,
+  }
+
   const validateAndNext = () => {
     const err: Record<string, string> = {}
     if (currentStep === 'injury_type' && !formData.injuryType) err.injuryType = tx('error_selectInjuryType')
@@ -3427,7 +3446,7 @@ export default function IntakeWizardQuick() {
     const emailSuggestion = suggestEmail(formData.contact.email)
     return (
     <div id="intake-contact" className="scroll-mt-24">
-      <SectionHeader title={<>{tx('contact_requiredTitle')}<RequiredTag label={tx('required_tag')} /></>} helper={tx('contact_requiredDesc')} />
+      <SectionHeader title={<>{tx('contact_requiredTitle')}<RequiredTag label={tx('required_tag')} missing={missingRequired.contact} /></>} helper={tx('contact_requiredDesc')} />
       <div className="mt-3 space-y-2">
           {/*
             Each row is a grid item, and grid items default to min-width:auto —
@@ -3626,7 +3645,7 @@ export default function IntakeWizardQuick() {
         }
     const attorneyQuestion = (
                   <div id="intake-attorney-status" className="scroll-mt-24">
-                    <SectionHeader title={<>{tx('legal_attorneyQuestion')}<RequiredTag label={tx('required_tag')} /></>} helper={tx('legal_attorneyHelper')} />
+                    <SectionHeader title={<>{tx('legal_attorneyQuestion')}<RequiredTag label={tx('required_tag')} missing={missingRequired.attorney} /></>} helper={tx('legal_attorneyHelper')} />
                     <div className="mt-3 grid grid-cols-2 gap-2 sm:max-w-md">
                       {ATTORNEY_STATUS_OPTIONS.map(({ value, label }) =>
                         renderChoice(
@@ -3652,7 +3671,7 @@ export default function IntakeWizardQuick() {
     )
     const faultQuestion = (
                   <div id="intake-fault" className="scroll-mt-24">
-                    <SectionHeader title={<>{tx('legal_faultQuestion')}<RequiredTag label={tx('required_tag')} /></>} helper={tx('legal_faultHelper')} />
+                    <SectionHeader title={<>{tx('legal_faultQuestion')}<RequiredTag label={tx('required_tag')} missing={missingRequired.fault} /></>} helper={tx('legal_faultHelper')} />
                     <div className="mt-3 grid gap-2 sm:grid-cols-3">
                       {liabilityOptionsForClaim.map(({ value, label }) =>
                         renderChoice(
@@ -3878,7 +3897,7 @@ export default function IntakeWizardQuick() {
               : Math.min(Math.floor(selectedIndex / columns) * columns + columns - 1, INJURY_TYPES.length - 1)
         return (
           <div>
-            <SectionHeader title={<>{t('intake.injuryType')}<RequiredTag label={tx('required_tag')} /></>} helper={t('intake.injuryTypeHelp')} />
+            <SectionHeader title={<>{t('intake.injuryType')}<RequiredTag label={tx('required_tag')} missing={missingRequired.incidentType} /></>} helper={t('intake.injuryTypeHelp')} />
             <div className={`mt-3 grid gap-2 ${subtypePanelOpen && formData.injuryType ? 'grid-cols-1' : 'grid-cols-2 sm:grid-cols-3'}`}>
               {INJURY_TYPES.map(({ value, labelKey, icon: Icon }, index) => {
                 if (subtypePanelOpen && formData.injuryType && value !== formData.injuryType) return null
@@ -4006,13 +4025,14 @@ export default function IntakeWizardQuick() {
         const applyPresetDate = (iso: string) => {
           setCustomDate(iso)
           updateForm({ incidentDatePreset: 'custom', incidentDate: iso })
+          setErrors(({ incidentDate: _cleared, ...rest }) => rest)
         }
         const venueStateName = US_STATES.find(s => s.code === formData.venue.state)?.name
         const basics = (
                 <div id="intake-incident-basics" className="scroll-mt-24 space-y-5">
                 {/* When */}
                 <div>
-                  <SectionHeader title={<>{tx('when_heading')}<RequiredTag label={tx('required_tag')} /></>} helper={tx('when_helper')} />
+                  <SectionHeader title={<>{tx('when_heading')}<RequiredTag label={tx('required_tag')} missing={missingRequired.incidentDate} /></>} helper={tx('when_helper')} />
                   {/* When + Where now share a row, so the "When" column is only half-width.
                       Stack the deadline card BELOW the date field/presets (rather than beside
                       them) so the date box and preset buttons keep their full width. */}
@@ -4128,7 +4148,7 @@ export default function IntakeWizardQuick() {
 
                 {/* Where */}
                 <div>
-                  <SectionHeader title={<>{t('intake.where')}<RequiredTag label={tx('required_tag')} /></>} helper={t('intake.whereHelp')} />
+                  <SectionHeader title={<>{t('intake.where')}<RequiredTag label={tx('required_tag')} missing={missingRequired.location} /></>} helper={t('intake.whereHelp')} />
                   <div className="mt-2">
                     {detectedLocation && !locationAccepted && !formData.venue.state && (
                       <div className="mb-3 flex w-fit max-w-full flex-wrap items-center gap-2.5 rounded-xl border border-brand-200 bg-gradient-to-br from-brand-50 to-white px-3 py-2 shadow-sm dark:border-brand-500/30 dark:from-brand-500/10 dark:to-slate-900/20">
@@ -4459,7 +4479,7 @@ export default function IntakeWizardQuick() {
         // Where care was FIRST received (single facility).
         const treatment = (
                 <div id="intake-treatment">
-                  <SectionHeader title={<>{tx(isDeceased ? 'treatment_heading_deceased' : 'treatment_heading')}<RequiredTag label={tx('required_tag')} /></>} helper={tx(isDeceased ? 'treatment_helper_deceased' : 'treatment_helper')} />
+                  <SectionHeader title={<>{tx(isDeceased ? 'treatment_heading_deceased' : 'treatment_heading')}<RequiredTag label={tx('required_tag')} missing={missingRequired.treatment} /></>} helper={tx(isDeceased ? 'treatment_helper_deceased' : 'treatment_helper')} />
                   <div className="mt-3">
                     <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
                       {MEDICAL_TREATMENT_OPTIONS.map(({ value }) => (
@@ -4664,7 +4684,7 @@ export default function IntakeWizardQuick() {
         )
         const severityQuestion = (
             <div id="intake-severity">
-              <SectionHeader icon={HeartPulse} title={<>{t('intake.injurySeverity')}<RequiredTag label={tx('required_tag')} /></>} helper={tx('injurySeverity_helper')} />
+              <SectionHeader icon={HeartPulse} title={<>{t('intake.injurySeverity')}<RequiredTag label={tx('required_tag')} missing={missingRequired.severity} /></>} helper={tx('injurySeverity_helper')} />
               <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
                 {INJURY_SEVERITY_OPTIONS.map(({ value, labelKey }) => {
                   const { main, desc } = splitLabel(t(`intake.${labelKey}`))
@@ -6138,7 +6158,7 @@ export default function IntakeWizardQuick() {
 
         const billsQuestion = (
               <div id={COSTS_ANCHOR_ID} className="scroll-mt-24">
-                <SectionHeader title={<>{tx('financial_billsSoFar')}<RequiredTag label={tx('required_tag')} /></>} helper={tx('financial_billsRequiredHelper')} />
+                <SectionHeader title={<>{tx('financial_billsSoFar')}<RequiredTag label={tx('required_tag')} missing={missingRequired.bills} /></>} helper={tx('financial_billsRequiredHelper')} />
                 <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
                   {medicalBillCards.map(({ value, label }) => (
                     <ChoiceTile
@@ -6492,7 +6512,7 @@ export default function IntakeWizardQuick() {
             <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
               <p className="mb-2 font-display text-sm font-bold text-slate-900 dark:text-slate-100">{tx('consent_beforeTitle')}</p>
               <div className="grid gap-2 sm:grid-cols-2">
-                <label className={`flex cursor-pointer items-start gap-2 rounded-xl border px-2.5 py-2 transition-all ${consents.tos && consents.privacy ? 'border-brand-300 bg-brand-50 dark:bg-brand-900/30' : 'border-slate-200 bg-slate-50 hover:border-brand-200 dark:border-slate-700 dark:bg-slate-800/40'}`}>
+                <label className={`flex cursor-pointer items-start gap-2 rounded-xl border px-2.5 py-2 transition-all ${consents.tos && consents.privacy ? 'border-brand-300 bg-brand-50 dark:bg-brand-900/30' : (errors.tos || errors.privacy) ? 'border-red-300 bg-red-50/60 dark:border-red-500/40 dark:bg-red-500/10' : 'border-slate-200 bg-slate-50 hover:border-brand-200 dark:border-slate-700 dark:bg-slate-800/40'}`}>
                   <input type="checkbox" checked={!!(consents.tos && consents.privacy)} onChange={e => { const checked = e.target.checked; updateForm({ consents: { ...consents, tos: checked, privacy: checked } }) }} className="mt-0.5 h-4 w-4 shrink-0 rounded border-gray-300 text-brand-600" />
                   <span className="text-xs leading-snug text-gray-700 dark:text-slate-300">
                     {tx('consent_agreeTermsPre')}
@@ -6504,7 +6524,7 @@ export default function IntakeWizardQuick() {
                     </span>
                   </span>
                 </label>
-                <label className={`flex cursor-pointer items-start gap-2 rounded-xl border px-2.5 py-2 transition-all ${consents.ml_use ? 'border-brand-300 bg-brand-50 dark:bg-brand-900/30' : 'border-slate-200 bg-slate-50 hover:border-brand-200 dark:border-slate-700 dark:bg-slate-800/40'}`}>
+                <label className={`flex cursor-pointer items-start gap-2 rounded-xl border px-2.5 py-2 transition-all ${consents.ml_use ? 'border-brand-300 bg-brand-50 dark:bg-brand-900/30' : errors.ml_use ? 'border-red-300 bg-red-50/60 dark:border-red-500/40 dark:bg-red-500/10' : 'border-slate-200 bg-slate-50 hover:border-brand-200 dark:border-slate-700 dark:bg-slate-800/40'}`}>
                   <input type="checkbox" checked={!!consents.ml_use} onChange={e => updateForm({ consents: { ...consents, ml_use: e.target.checked } })} className="mt-0.5 h-4 w-4 shrink-0 rounded border-gray-300 text-brand-600" />
                   <span className="text-xs leading-snug text-gray-700 dark:text-slate-300">
                     {tx('consent_agreeAiPre')}

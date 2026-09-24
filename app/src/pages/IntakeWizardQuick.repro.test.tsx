@@ -236,6 +236,12 @@ it('three screens: what happened -> injuries & costs -> review', async () => {
   expect(document.body.textContent).toContain(en.intake.financial_billsRequired)
   expect(document.body.textContent).toContain(en.intake.legal_faultRequired)
   expect(document.body.textContent).toContain(en.intake.legal_attorneyRequired)
+  // Every unanswered required question's tag turns red...
+  const requiredTag = (id: string) =>
+    Array.from(within(id).querySelectorAll('span')).find((s) => s.textContent === en.intake.required_tag)!
+  for (const id of ['intake-treatment', 'intake-medical-bills', 'intake-fault', 'intake-attorney-status']) {
+    expect(requiredTag(id).className).toContain('text-red-600')
+  }
 
   await click(within('intake-severity').querySelector('button')!)
   await click(buttonIn('intake-treatment', TREATMENT_ANSWER))
@@ -244,6 +250,8 @@ it('three screens: what happened -> injuries & costs -> review', async () => {
   await click(buttonIn('intake-fault', en.intake.optionNotSure))
   await click(buttonIn('intake-attorney-status', en.intake.optionNo))
   await flush(20)
+  // ...and goes back to gray once answered.
+  expect(requiredTag('intake-fault').className).not.toContain('text-red-600')
 
   // Opening the optional group shows the money questions without making them required.
   await click(buttonWithText(en.intake.optional_estimate_title))
