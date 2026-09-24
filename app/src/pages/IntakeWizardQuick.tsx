@@ -1980,10 +1980,18 @@ export default function IntakeWizardQuick() {
   const [zipLookup, setZipLookup] = useState<{ status: 'idle' | 'loading' | 'found' | 'unknown'; counties: string[] }>({ status: 'idle', counties: [] })
   const [manualLocation, setManualLocation] = useState(false)
   const latestZipRef = useRef('')
+  const zipFilledVenueRef = useRef(false)
   const changeZip = async (raw: string) => {
     const zip = raw.replace(/\D/g, '').slice(0, 5)
     latestZipRef.current = zip
-    updateVenue({ zip })
+    // State and county from an earlier ZIP no longer describe this one. Picks made
+    // by hand in the dropdowns are the claimant's own and stay.
+    if (zipFilledVenueRef.current) {
+      zipFilledVenueRef.current = false
+      updateVenue({ zip, state: '', county: '', city: '' })
+    } else {
+      updateVenue({ zip })
+    }
     if (zip.length < 5) {
       setZipLookup({ status: 'idle', counties: [] })
       return
@@ -2013,6 +2021,7 @@ export default function IntakeWizardQuick() {
       county: counties.length === 1 ? counties[0] : '',
       ...(stateChanged ? { city: '' } : {}),
     })
+    zipFilledVenueRef.current = true
     setZipLookup({ status: 'found', counties })
     if (counties.length === 0) setManualLocation(true)
   }
@@ -3894,9 +3903,22 @@ export default function IntakeWizardQuick() {
     collapseTimerRef.current = setTimeout(() => {
       setSubtypePanelOpen(false)
       setSubtypeConfirming(null)
-      // The date and ZIP sit on the same screen now, so carry the claimant down to
-      // them rather than advancing.
-      document.getElementById('intake-incident-basics')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      // The rest of step 1's required questions sit below, so carry the claimant to
+      // the first one still empty rather than advancing.
+      const fd = formDataRef.current
+      const targetId = !fd.incidentDate
+        ? 'intake-incident-basics'
+        : !(fd.venue.state && fd.venue.county?.trim())
+          ? 'intake-where'
+          : !fd.contact.email.trim() && !fd.contact.phone.trim()
+            ? 'intake-contact'
+            : null
+      if (!targetId) return
+      // Closing the panel brings the other case-type cards back above the target;
+      // scrolling before that layout lands far past it on phones.
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }))
     }, 400)
   }
 
@@ -4290,7 +4312,7 @@ export default function IntakeWizardQuick() {
                 </div>
 
                 {/* Where */}
-                <div>
+                <div id="intake-where" className="scroll-mt-24">
                   <SectionHeader title={<>{t('intake.where')}<RequiredTag label={tx('required_tag')} missing={missingRequired.location} /></>} helper={t('intake.whereHelp')} />
                   <div className="mt-2">
                     {detectedLocation && !locationAccepted && !formData.venue.state && (
