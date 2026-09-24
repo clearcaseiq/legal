@@ -252,8 +252,11 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
     }
   }, [leadId])
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  // `silent` refreshes in place after a save; the spinner would swap out the
+  // whole body and back, which reads as the modal flashing.
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = Boolean(opts?.silent)
+    if (!silent) setLoading(true)
     setError(null)
     try {
       const d = await getTaskDetail(leadId, taskId)
@@ -263,15 +266,12 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
       const est = d.estimateMinutes || 0
       setEstHours(est ? String(Math.floor(est / 60)) : '')
       setEstMins(est ? String(est % 60) : '')
-      if (d.taskType === 'question') {
-        void loadProposals(false)
-      } else {
-        setProposals([])
-      }
+      if (d.taskType !== 'question') setProposals([])
+      else if (!silent) void loadProposals(false)
     } catch (err: any) {
       setError(err?.response?.data?.error || 'Failed to load task.')
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }, [leadId, taskId, loadProposals])
 
@@ -355,6 +355,20 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
         source: s.source === 'ai' ? 'ai' : 'baseline',
         answer: draft,
       })
+      // Show the saved answer now; closing the editor before the refetch lands
+      // briefly put "Add response" back.
+      setTask((prev) =>
+        prev
+          ? {
+              ...prev,
+              subtasks: prev.subtasks.map((sub) =>
+                sub.id === s.id
+                  ? { ...sub, answer: draft || null, answeredAt: draft ? new Date().toISOString() : null }
+                  : sub,
+              ),
+            }
+          : prev,
+      )
       setAnswerEditing((e) => ({ ...e, [s.id]: false }))
       setAnswerDrafts((d) => ({ ...d, [s.id]: draft }))
       const nextProposals = Array.isArray(res.proposals) ? res.proposals : null
@@ -363,7 +377,7 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
           `${res.proposalsCreated} suggested task${res.proposalsCreated === 1 ? '' : 's'} from this answer — accept or decline below.`,
         )
       }
-      await load()
+      await load({ silent: true })
       if (nextProposals) setProposals(nextProposals)
       else void loadProposals(true)
       onChanged?.()
@@ -614,7 +628,13 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
         onCancel={() => setConfirmingDelete(false)}
       />
       <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative flex max-h-[calc(100vh-1.5rem)] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl sm:max-h-[calc(100vh-2rem)]">
+      <div
+        className={`relative flex max-h-[calc(100vh-1.5rem)] w-full flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl sm:max-h-[calc(100vh-2rem)] ${
+          task?.taskType === 'question'
+            ? 'h-[calc(100vh-1.5rem)] max-w-6xl sm:h-[calc(100vh-2rem)]'
+            : 'max-w-4xl'
+        }`}
+      >
         {/* Header */}
         <div className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-200 px-5 py-4">
           <div className="min-w-0 flex-1">
@@ -806,7 +826,7 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
                     {answerError ? (
                       <p className="mb-2 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700 ring-1 ring-rose-200">{answerError}</p>
                     ) : null}
-                    <ul className="max-h-[min(50vh,24rem)] space-y-2 overflow-y-auto rounded-lg border border-slate-100 bg-slate-50/40 p-2">
+                    <ul className="space-y-2 rounded-lg border border-slate-100 bg-slate-50/40 p-2">
                       {subtasks.map((s, idx) => {
                         const hasAnswer = Boolean(s.answer && s.answer.trim())
                         const editing = Boolean(answerEditing[s.id])
