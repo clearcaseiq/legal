@@ -4,7 +4,7 @@ import { logger } from '../lib/logger'
 import { z } from 'zod'
 import { authMiddleware, AuthRequest } from '../lib/auth'
 import { generateAvailableTimeSlots, getDayBounds, getDayBoundsInTimezone, hasAppointmentConflict } from '../lib/availability-slots'
-import { resolveSchedulingTimezone } from '../lib/scheduling-timezone'
+import { formatInSchedulingTimezone, resolveSchedulingTimezone } from '../lib/scheduling-timezone'
 import { recordRoutingEvent } from '../lib/routing-lifecycle'
 import { createExternalCalendarEvent, deleteExternalCalendarEvent } from '../lib/calendar-sync'
 import { createZoomMeeting } from '../lib/zoom'
@@ -582,6 +582,7 @@ router.put('/:id', authMiddleware, async (req: AuthRequest, res) => {
         })(),
       ])
     } else if (parsed.data.scheduledAt) {
+      const nextStart: Date = updateData.scheduledAt
       await Promise.allSettled([
         notifyAppointmentEvent({
           appointmentId: existing.id,
@@ -589,12 +590,58 @@ router.put('/:id', authMiddleware, async (req: AuthRequest, res) => {
           attorneyId: existing.attorneyId,
           assessmentId: existing.assessmentId,
           type: 'rescheduled',
-          scheduledAt: updateData.scheduledAt,
+          scheduledAt: nextStart,
         }),
         notifyWaitlistForFreedSlot({
           attorneyId: existing.attorneyId,
           slotStart: existing.scheduledAt,
           appointmentId: existing.id,
+        }),
+        (async () => {
+          const [attorney, lead] = await Promise.all([
+            prisma.attorney.findUnique({ where: { id: existing.attorneyId }, select: { schedulingTimezone: true } }),
+            existing.assessmentId
+              ? prisma.leadSubmission.findFirst({ where: { assessmentId: existing.assessmentId }, select: { id: true } })
+              : null,
+          ])
+          const tz = attorney?.schedulingTimezone
+          await notifyAttorneyInApp({
+            attorneyId: existing.attorneyId,
+            assessmentId: existing.assessmentId || null,
+            eventType: ATTORNEY_EVENTS.consult_scheduled,
+            subject: 'Consult rescheduled',
+            body: `The plaintiff moved the consultation from ${formatInSchedulingTimezone(existing.scheduledAt, tz)} to ${formatInSchedulingTimezone(nextStart, tz)}.`,
+            leadId: lead?.id || null,
+            link: lead?.id ? `/attorney-dashboard/cases/${lead.id}/overview` : undefined,
+            payload: { appointmentId: existing.id, previousScheduledAt: existing.scheduledAt.toISOString(), scheduledAt: nextStart.toISOString() },
+          })
+        })(),
+        // The attorney's synced calendar still holds the old time otherwise.
+        (async () => {
+          await deleteExternalCalendarEvent({
+            attorneyId: existing.attorneyId,
+            provider: existing.externalCalendarProvider,
+            eventId: existing.externalCalendarEventId,
+          }).catch(() => {})
+          const externalEvent = await createExternalCalendarEvent({
+            attorneyId: existing.attorneyId,
+            title: `ClearCaseIQ Consultation (${appointment.type.replace('_', ' ')})`,
+            start: nextStart,
+            end: new Date(nextStart.getTime() + appointment.duration * 60000),
+            description: 'Consultation rescheduled by the plaintiff in ClearCaseIQ.',
+            createVideoLink: appointment.type === 'video' && !appointment.meetingUrl,
+          })
+          await prisma.appointment.update({
+            where: { id: existing.id },
+            data: {
+              externalCalendarProvider: externalEvent?.provider ?? null,
+              externalCalendarEventId: externalEvent?.externalEventId ?? null,
+              externalCalendarSyncedAt: new Date(),
+              ...(externalEvent?.meetingUrl && !appointment.meetingUrl ? { meetingUrl: externalEvent.meetingUrl } : {}),
+            },
+          })
+        })().catch((calendarError) => {
+          logger.warn('Calendar recreate on reschedule failed', { calendarError, appointmentId: existing.id })
         }),
       ])
     }

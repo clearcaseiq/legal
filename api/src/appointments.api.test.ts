@@ -2,9 +2,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import request from 'supertest'
 
 vi.mock('./lib/prisma', () => import('./test/universalPrismaMock'))
+vi.mock('./lib/case-notifications', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./lib/case-notifications')>()),
+  notifyAttorneyInApp: vi.fn(async () => true),
+}))
 
 import { buildApp } from './build-app'
 import { prisma } from './lib/prisma'
+import { notifyAttorneyInApp } from './lib/case-notifications'
 import { resetUniversalPrismaMock } from './test/universalPrismaMock'
 import { generateToken } from './lib/auth'
 
@@ -204,6 +209,58 @@ describe('GET /v1/appointments/attorney/:attorneyId/availability', () => {
     expect(res.body.slots).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ start: '2026-04-20T09:30:00.000Z' })])
     )
+  })
+})
+
+describe('PUT /v1/appointments/:id', () => {
+  beforeEach(() => {
+    resetUniversalPrismaMock()
+    vi.mocked(notifyAttorneyInApp).mockClear()
+    vi.mocked(prisma.user.findUnique).mockImplementation(async (args: any) => {
+      if (args?.where?.id === plaintiffUser.id) return plaintiffUser as any
+      return null
+    })
+    vi.mocked(prisma.appointment.findFirst).mockResolvedValue({
+      id: 'apt-1',
+      userId: plaintiffUser.id,
+      attorneyId: 'att-1',
+      assessmentId: 'asm-1',
+      scheduledAt: new Date('2026-04-20T16:00:00.000Z'),
+      duration: 30,
+      externalCalendarProvider: null,
+      externalCalendarEventId: null,
+    } as any)
+    vi.mocked(prisma.appointment.findMany).mockResolvedValue([] as any)
+    vi.mocked(prisma.attorneyCalendarBusyBlock.findMany).mockResolvedValue([] as any)
+    vi.mocked(prisma.appointment.update).mockResolvedValue({
+      id: 'apt-1',
+      attorney: { id: 'att-1', name: 'Alex Attorney', email: 'alex@test.local', phone: null },
+      type: 'phone',
+      scheduledAt: new Date('2026-04-22T18:00:00.000Z'),
+      duration: 30,
+      status: 'SCHEDULED',
+      meetingUrl: null,
+    } as any)
+    vi.mocked(prisma.attorney.findUnique).mockResolvedValue({
+      name: 'Alex Attorney',
+      schedulingTimezone: 'America/New_York',
+    } as any)
+    vi.mocked(prisma.leadSubmission.findFirst).mockResolvedValue({ id: 'lead-1' } as any)
+  })
+
+  it('tells the attorney when the plaintiff reschedules', async () => {
+    const res = await request(app)
+      .put('/v1/appointments/apt-1')
+      .set(authHeader(plaintiffUser.id))
+      .send({ scheduledAt: '2026-04-22T18:00:00.000Z' })
+
+    expect(res.status).toBe(200)
+    expect(notifyAttorneyInApp).toHaveBeenCalledWith(expect.objectContaining({
+      attorneyId: 'att-1',
+      subject: 'Consult rescheduled',
+      leadId: 'lead-1',
+      body: expect.stringMatching(/from Apr 20, 2026, 12:00 PM EDT to Apr 22, 2026, 2:00 PM EDT/),
+    }))
   })
 })
 
