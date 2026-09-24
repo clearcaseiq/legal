@@ -5182,7 +5182,7 @@ Checklist:
                           <p className="text-sm font-bold text-emerald-600">{meta.conf} <span className="font-medium text-slate-500">{t('results.documents.confidence')}</span></p>
                           <p className="text-xs font-medium text-slate-600">{meta.value} <span className="text-slate-400">{t('results.documents.estValue')}</span></p>
                         </div>
-                        <Link to={action.to} className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg bg-amber-500 px-3 py-2 text-xs font-semibold text-white hover:bg-amber-600">
+                        <Link to={action.to} className="inline-flex w-full shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-amber-500 px-3 py-2 text-xs font-semibold text-white hover:bg-amber-600 sm:w-44">
                           <Upload className="h-3.5 w-3.5" aria-hidden />
                           {t('results.shared.upload')}
                           <span className="ml-1 text-[10px] font-normal text-amber-100">{files}</span>
