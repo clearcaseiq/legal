@@ -47,6 +47,79 @@ export const EMPTY_TREATMENT_LEDGER: TreatmentLedger = {
   providerCount: 0,
 }
 
+/** Where in the letter a supporting file is cited. */
+export type ExhibitSection = 'liability' | 'treatment' | 'bills' | 'wages' | 'damages' | 'injuries' | 'other'
+
+export interface DemandExhibit {
+  number: number
+  section: ExhibitSection
+  label: string
+}
+
+/**
+ * What the attorney entered on the case tabs. Every field is optional: the
+ * self-help builder has none of it, and each tab can still be empty.
+ */
+export interface DemandCaseRecord {
+  clientName?: string | null
+  attorney?: {
+    name: string
+    firmName?: string | null
+    phone?: string | null
+    email?: string | null
+    address?: string | null
+  } | null
+  claim?: {
+    carrierName: string
+    claimNumber?: string | null
+    policyNumber?: string | null
+    adjusterName?: string | null
+    adjusterEmail?: string | null
+  } | null
+  liability?: {
+    faultTheory?: string | null
+    faultPosture?: string | null
+    comparativeNegPct?: number | null
+    defendantName?: string | null
+    policeReportStatus?: string | null
+    policeReportNumber?: string | null
+    citationIssuedTo?: string | null
+    witnessCount?: number | null
+    hasWitnesses?: boolean | null
+    hasPhotos?: boolean | null
+    hasVideo?: boolean | null
+  } | null
+  medical?: {
+    entries: Array<{
+      provider: string
+      specialty?: string | null
+      visitType: string
+      startDate: string | null
+      endDate: string | null
+      status?: string | null
+      diagnosis?: string | null
+      billedAmount?: number | null
+      isFuture?: boolean
+    }>
+    status?: {
+      treatmentStatus?: string | null
+      mmi?: boolean
+      mmiDate?: string | null
+      symptoms?: string[]
+      futureTreatment?: string | null
+    } | null
+  } | null
+  damageItems?: Array<{
+    category: string
+    description: string
+    amount: number
+    provider?: string | null
+    incurredAt?: Date | string | null
+    billingStatus?: string | null
+  }>
+  exhibits?: DemandExhibit[]
+}
+
 /**
  * The letter broken into named parts.
  *
@@ -74,6 +147,16 @@ export interface DemandLetterSections {
   goodFaithParagraph: string
   closing: string
   disclaimer: string
+  /** Facts from the liability record (report, citation, witnesses). Never narrated. */
+  liabilityEvidence?: string
+  /** Future treatment plan and projected costs. Never narrated. */
+  futureMedicalCare?: string
+  /** Property damage, out-of-pocket, and other itemized losses. Never narrated. */
+  otherDamages?: string
+  /** "See Exhibits 1–3" lines, printed after the section they support. */
+  exhibitRefs?: Partial<Record<ExhibitSection, string>>
+  /** The numbered exhibit list printed after the signature. */
+  enclosures?: string[]
 }
 
 /** The sections a model may rewrite. Everything else is data. */
@@ -87,7 +170,7 @@ const longDate = (d: Date | string | null | undefined) => {
   const date = typeof d === 'string' ? new Date(d) : d
   return isNaN(date.getTime())
     ? null
-    : date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+    : date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' })
 }
 
 const labelizeVisitType = (value: string) => value.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())
@@ -179,6 +262,136 @@ export function buildTreatmentTimelineSection(ledger: TreatmentLedger, analysis:
   ].join('\n')
 }
 
+/** "1–3, 5" for a sorted list of exhibit numbers. */
+function formatExhibitNumbers(nums: number[]): string {
+  const sorted = [...nums].sort((a, b) => a - b)
+  const parts: string[] = []
+  let start = sorted[0]
+  let prev = sorted[0]
+  for (const n of sorted.slice(1).concat(Number.NaN)) {
+    if (n === prev + 1) {
+      prev = n
+      continue
+    }
+    parts.push(start === prev ? String(start) : `${start}\u2013${prev}`)
+    start = n
+    prev = n
+  }
+  return parts.join(', ')
+}
+
+export function exhibitReference(exhibits: DemandExhibit[], section: ExhibitSection): string | undefined {
+  const nums = exhibits.filter((e) => e.section === section).map((e) => e.number)
+  if (nums.length === 0) return undefined
+  return `${nums.length === 1 ? 'See Exhibit' : 'See Exhibits'} ${formatExhibitNumbers(nums)}.`
+}
+
+const itemDate = (d: Date | string | null | undefined) => {
+  if (!d) return null
+  const date = typeof d === 'string' ? new Date(d) : d
+  return isNaN(date.getTime())
+    ? null
+    : date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' })
+}
+
+type DamageItemInput = NonNullable<DemandCaseRecord['damageItems']>[number]
+
+function itemLine(item: DamageItemInput): string {
+  const who = item.provider && item.provider.trim() ? `${item.provider.trim()} \u2014 ` : ''
+  const when = itemDate(item.incurredAt)
+  return `- ${who}${item.description}${when ? ` (${when})` : ''}: ${money(Number(item.amount) || 0)}`
+}
+
+const sumItems = (items: DamageItemInput[]) => items.reduce((s, i) => s + (Number(i.amount) || 0), 0)
+
+/** Treatment timeline from the Medical tab's visits, with the current medical status. */
+function buildTimelineFromMedicalTab(
+  medical: NonNullable<DemandCaseRecord['medical']>,
+  clientSubject: string,
+): string | null {
+  const past = medical.entries
+    .filter((e) => !e.isFuture)
+    .sort((a, b) => {
+      const ta = a.startDate ? new Date(a.startDate).getTime() : Number.MAX_SAFE_INTEGER
+      const tb = b.startDate ? new Date(b.startDate).getTime() : Number.MAX_SAFE_INTEGER
+      return ta - tb
+    })
+  if (past.length === 0) return null
+
+  const dated = past.filter((e) => e.startDate)
+  const providers = new Set(past.map((e) => e.provider.toLowerCase()))
+  const first = dated.length ? longDate(dated[0].startDate) : null
+  const lastEntry = dated[dated.length - 1]
+  const last = lastEntry ? longDate(lastEntry.endDate || lastEntry.startDate) : null
+  const span =
+    first && last
+      ? `Treatment spanned ${first} through ${last} across ${providers.size} provider${providers.size === 1 ? '' : 's'}.`
+      : ''
+
+  const lines = past.map((e) => {
+    const start = longDate(e.startDate)
+    const end = e.endDate && e.endDate !== e.startDate ? longDate(e.endDate) : null
+    const when = start ? `${start}${end ? ` \u2013 ${end}` : ''} \u2014 ` : ''
+    const parts = [`- ${when}${e.provider}${e.specialty ? ` (${e.specialty})` : ''}: ${labelizeVisitType(e.visitType)}`]
+    if (e.diagnosis) parts.push(` \u2014 Dx: ${e.diagnosis}`)
+    if (e.billedAmount != null && Number(e.billedAmount) > 0) parts.push(` \u2014 ${money(Number(e.billedAmount))}`)
+    return parts.join('')
+  })
+
+  const status = medical.status
+  const statusLines: string[] = []
+  const subject = clientSubject.charAt(0).toUpperCase() + clientSubject.slice(1)
+  if (status?.mmi && status.mmiDate) {
+    statusLines.push(`${subject} reached maximum medical improvement on ${longDate(status.mmiDate)}.`)
+  } else if (status?.mmi || status?.treatmentStatus === 'mmi') {
+    statusLines.push(`${subject} has reached maximum medical improvement.`)
+  } else if (status?.treatmentStatus === 'completed' || status?.treatmentStatus === 'discharged') {
+    statusLines.push(`${subject} has completed the prescribed course of treatment.`)
+  } else if (status?.treatmentStatus === 'treating') {
+    statusLines.push(`${subject} continues to treat for these injuries.`)
+  }
+  const symptoms = (status?.symptoms || []).filter(Boolean)
+  if (symptoms.length) statusLines.push(`Ongoing complaints: ${symptoms.join(', ')}.`)
+
+  return ['MEDICAL TREATMENT TIMELINE AND RECORDS', span, '', ...lines, ...(statusLines.length ? ['', ...statusLines] : [])]
+    .filter((l) => l !== undefined)
+    .join('\n')
+}
+
+function buildLiabilityEvidence(
+  liability: NonNullable<DemandCaseRecord['liability']>,
+  defendant: string,
+  ourAccount: string,
+): string | undefined {
+  const lines: string[] = []
+  if (liability.faultPosture === 'admitted') lines.push(`${defendant} admitted fault.`)
+  if (liability.policeReportStatus === 'received') {
+    lines.push(
+      `The police report${liability.policeReportNumber ? ` (Report No. ${liability.policeReportNumber})` : ''} documents the incident.`,
+    )
+  }
+  if (liability.citationIssuedTo === 'defendant' || liability.citationIssuedTo === 'both') {
+    lines.push(`${defendant} was cited by the investigating officer.`)
+  }
+  const witnesses = Number(liability.witnessCount || 0)
+  if (witnesses > 0) {
+    lines.push(`${witnesses} independent witness${witnesses === 1 ? '' : 'es'} corroborate${witnesses === 1 ? 's' : ''} ${ourAccount}.`)
+  } else if (liability.hasWitnesses) {
+    lines.push(`Independent witnesses corroborate ${ourAccount}.`)
+  }
+  if (liability.hasPhotos) lines.push('Photographs document the scene and the resulting damage.')
+  if (liability.hasVideo) lines.push('Video footage captures the incident.')
+  if (lines.length === 0) return undefined
+  return ['Liability is further supported by the following:', ...lines.map((l) => `- ${l}`)].join('\n')
+}
+
+const OTHER_DAMAGE_LABELS: Record<string, string> = {
+  property_damage: 'Property damage',
+  out_of_pocket: 'Out-of-pocket expenses',
+  future_cost: 'Future non-medical costs',
+  other: 'Other economic losses',
+}
+
 export interface BuildDemandLetterInput {
   assessment: any
   facts: any
@@ -188,6 +401,8 @@ export interface BuildDemandLetterInput {
   mode?: DemandMode
   treatmentLedger?: TreatmentLedger
   analysis?: any
+  /** Everything entered on the case tabs, plus the files cited as exhibits. */
+  caseRecord?: DemandCaseRecord
 }
 
 export function buildDemandLetterSections({
@@ -199,8 +414,20 @@ export function buildDemandLetterSections({
   mode = 'represented',
   treatmentLedger,
   analysis,
+  caseRecord,
 }: BuildDemandLetterInput): DemandLetterSections {
   const ledger: TreatmentLedger = treatmentLedger ?? EMPTY_TREATMENT_LEDGER
+  const record: DemandCaseRecord = caseRecord ?? {}
+  const exhibits = record.exhibits ?? []
+  const items = record.damageItems ?? []
+  const itemsIn = (...cats: string[]) => items.filter((i) => cats.includes(i.category))
+  const medicalItems = itemsIn('medical')
+  const wageItems = itemsIn('lost_wages')
+  const capacityItems = itemsIn('lost_earning_capacity')
+  const futureMedicalItems = itemsIn('future_medical')
+  const otherItems = itemsIn('property_damage', 'out_of_pocket', 'future_cost', 'other').concat(
+    items.filter((i) => !['medical', 'lost_wages', 'lost_earning_capacity', 'future_medical', 'property_damage', 'out_of_pocket', 'future_cost', 'other'].includes(i.category)),
+  )
 
   const incidentDate = facts.incident?.date || 'the date of the incident'
   const narrative = facts.incident?.narrative || 'the incident described in our client\u2019s claim'
@@ -212,13 +439,21 @@ export function buildDemandLetterSections({
   // Medical specials: prefer the structured damages ledger (written into
   // facts.damages.medical/med_charges), then the referral ledger total, then
   // self-reported. Once the Phase-B ledger has items, it is authoritative.
+  // When the Damages tab has items they are the figures, item by item, so the
+  // itemized lines and the totals can never disagree.
+  const hasItems = items.length > 0
   const ledgerMedical = Number(d.medical ?? d.med_charges ?? 0)
-  const medicalTotal = ledgerMedical > 0 ? ledgerMedical : ledger.totalBilled > 0 ? ledger.totalBilled : Number(d.med_charges || 0)
-  const lostWages = Number(d.lostWages ?? d.wage_loss ?? d.estimated_wage_loss ?? 0)
-  const futureMedical = Number(d.futureMedical ?? d.future_medical ?? d.estimated_future_med_charges ?? 0)
+  const medicalTotal = hasItems
+    ? sumItems(medicalItems)
+    : ledgerMedical > 0 ? ledgerMedical : ledger.totalBilled > 0 ? ledger.totalBilled : Number(d.med_charges || 0)
+  const lostWages = hasItems ? sumItems(wageItems) : Number(d.lostWages ?? d.wage_loss ?? d.estimated_wage_loss ?? 0)
+  const futureMedical = hasItems
+    ? sumItems(futureMedicalItems)
+    : Number(d.futureMedical ?? d.future_medical ?? d.estimated_future_med_charges ?? 0)
   // Other economic damages the structured ledger tracks (property, out-of-pocket,
   // future non-medical costs, lost earning capacity), rolled into facts.damages.other.
-  const otherEconomic = Number(d.other ?? 0)
+  const earningCapacity = sumItems(capacityItems)
+  const otherEconomic = hasItems ? sumItems(otherItems) + earningCapacity : Number(d.other ?? 0)
 
   // General (pain & suffering) damages: derive from the demand less specials,
   // or fall back to the analysis's pain/suffering valuation split.
@@ -230,10 +465,15 @@ export function buildDemandLetterSections({
   // Liability narrative: prefer an explicit message, then the structured
   // liability record's fault theory (Phase B), then the saved analysis, then a
   // clear-liability default.
-  const liabilityRecord = facts.liabilityRecord && typeof facts.liabilityRecord === 'object' ? facts.liabilityRecord : null
-  const comparativePct = Math.round(Number(facts.liability?.comparativeNegligence || 0) * 100)
+  const liabilityRecord =
+    record.liability ?? (facts.liabilityRecord && typeof facts.liabilityRecord === 'object' ? facts.liabilityRecord : null)
+  const comparativePct =
+    record.liability?.comparativeNegPct != null
+      ? Math.round(Number(record.liability.comparativeNegPct))
+      : Math.round(Number(facts.liability?.comparativeNegligence || 0) * 100)
   const defendantName = liabilityRecord?.defendantName ? String(liabilityRecord.defendantName) : 'your insured'
   const baseLiabilityText =
+    (record.liability?.faultTheory && String(record.liability.faultTheory).trim()) ||
     (message && message.trim()) ||
     (liabilityRecord?.faultTheory && String(liabilityRecord.faultTheory).trim()) ||
     (analysis?.liabilityOutline && String(analysis.liabilityOutline).trim()) ||
@@ -250,10 +490,15 @@ export function buildDemandLetterSections({
   const injuryClause = injuries.length
     ? `As a result of this incident, our client sustained ${injuries.join(', ')}.`
     : `As a result of this incident, our client sustained painful injuries requiring medical care.`
+  const tabVisits = (record.medical?.entries ?? [])
+    .filter((e) => !e.isFuture && e.startDate)
+    .sort((a, b) => new Date(a.startDate as string).getTime() - new Date(b.startDate as string).getTime())
   const treatmentSpanClause =
-    ledger.firstVisit && ledger.lastVisit
-      ? ` Our client underwent ${ledger.entries.length} documented treatment encounter${ledger.entries.length === 1 ? '' : 's'} between ${longDate(ledger.firstVisit)} and ${longDate(ledger.lastVisit)}.`
-      : ''
+    tabVisits.length > 0
+      ? ` Our client underwent ${tabVisits.length} documented treatment encounter${tabVisits.length === 1 ? '' : 's'} between ${longDate(tabVisits[0].startDate)} and ${longDate(tabVisits[tabVisits.length - 1].endDate || tabVisits[tabVisits.length - 1].startDate)}.`
+      : ledger.firstVisit && ledger.lastVisit
+        ? ` Our client underwent ${ledger.entries.length} documented treatment encounter${ledger.entries.length === 1 ? '' : 's'} between ${longDate(ledger.firstVisit)} and ${longDate(ledger.lastVisit)}.`
+        : ''
   const painSufferingNarrative =
     (analysis?.demandPackage?.damageSummary && String(analysis.demandPackage.damageSummary).trim()) || ''
 
@@ -261,13 +506,27 @@ export function buildDemandLetterSections({
     ledger.totalBilled > 0
       ? `- Medical bills (itemized from ${ledger.entries.length} encounter${ledger.entries.length === 1 ? '' : 's'}): ${money(medicalTotal)}`
       : `- Medical expenses: ${medicalTotal > 0 ? money(medicalTotal) : 'To be documented'}`
-  const damagesLines = [
-    medicalLine,
-    `- Lost wages: ${lostWages > 0 ? money(lostWages) : 'To be documented'}`,
-    futureMedical > 0 ? `- Future medical expenses: ${money(futureMedical)}` : null,
-    otherEconomic > 0 ? `- Other economic damages (property, out-of-pocket, future costs): ${money(otherEconomic)}` : null,
-    `- Pain and suffering (general damages): ${generalDamages > 0 ? money(generalDamages) : 'See above'}`,
-  ].filter(Boolean) as string[]
+  const otherByCategory = (cat: string) => sumItems(otherItems.filter((i) => (OTHER_DAMAGE_LABELS[i.category] ? i.category : 'other') === cat))
+  const damagesLines = (hasItems
+    ? [
+        `- Medical bills${medicalItems.length ? ` (${medicalItems.length} itemized charge${medicalItems.length === 1 ? '' : 's'})` : ''}: ${medicalTotal > 0 ? money(medicalTotal) : 'To be documented'}`,
+        futureMedical > 0 ? `- Future medical expenses: ${money(futureMedical)}` : null,
+        `- Lost wages: ${lostWages > 0 ? money(lostWages) : 'To be documented'}`,
+        earningCapacity > 0 ? `- Loss of earning capacity: ${money(earningCapacity)}` : null,
+        ...Object.keys(OTHER_DAMAGE_LABELS).map((cat) => {
+          const total = otherByCategory(cat)
+          return total > 0 ? `- ${OTHER_DAMAGE_LABELS[cat]}: ${money(total)}` : null
+        }),
+        `- Pain and suffering (general damages): ${generalDamages > 0 ? money(generalDamages) : 'See above'}`,
+      ]
+    : [
+        medicalLine,
+        `- Lost wages: ${lostWages > 0 ? money(lostWages) : 'To be documented'}`,
+        futureMedical > 0 ? `- Future medical expenses: ${money(futureMedical)}` : null,
+        otherEconomic > 0 ? `- Other economic damages (property, out-of-pocket, future costs): ${money(otherEconomic)}` : null,
+        `- Pain and suffering (general damages): ${generalDamages > 0 ? money(generalDamages) : 'See above'}`,
+      ]
+  ).filter(Boolean) as string[]
 
   const isPro = mode === 'pro_se'
   const voice = {
@@ -276,29 +535,126 @@ export function buildDemandLetterSections({
     clientSubject: isPro ? 'I' : 'our client',
   }
 
+  const medicalTabTimeline = record.medical ? buildTimelineFromMedicalTab(record.medical, voice.clientSubject) : null
+  const defendantSubject = defendantName === 'your insured' ? 'Your insured' : defendantName
+  const liabilityEvidence = record.liability
+    ? buildLiabilityEvidence(record.liability, defendantSubject, isPro ? 'my account' : 'our client\u2019s account')
+    : undefined
+
+  const medicalBills = medicalItems.length
+    ? [
+        'TOTAL MEDICAL BILLS',
+        `${isPro ? 'I have' : 'Our client has'} incurred the following medical charges as a result of this incident:`,
+        ...medicalItems.map(itemLine),
+        `Total medical charges to date: ${money(medicalTotal)}. Itemized billing statements are enclosed.`,
+      ].join('\n')
+    : [
+        'TOTAL MEDICAL BILLS',
+        ledger.totalBilled > 0
+          ? `The itemized treatment records above reflect total medical charges of ${money(ledger.totalBilled)} to date. Complete billing statements and records are enclosed or available upon request.`
+          : `Total medical charges to date are ${medicalTotal > 0 ? money(medicalTotal) : 'being compiled'}. Itemized billing statements and records are available upon request.`,
+      ].join('\n')
+
+  const lostWagesSection = [
+    'LOST WAGES',
+    lostWages > 0
+      ? `${voice.clientSubject} incurred ${money(lostWages)} in lost earnings as a result of this incident and the resulting treatment and recovery. Wage-loss documentation (employer verification and/or pay records) is available upon request and incorporated herein by reference.`
+      : `${voice.clientSubject} experienced lost time from work as a result of this incident. Supporting wage-loss documentation will be provided.`,
+    ...(wageItems.length > 1 || (wageItems.length === 1 && wageItems[0].provider) ? wageItems.map(itemLine) : []),
+    ...(capacityItems.length
+      ? [`${isPro ? 'My' : 'Our client\u2019s'} future earning capacity has also been diminished by ${money(earningCapacity)}:`, ...capacityItems.map(itemLine)]
+      : []),
+  ].join('\n')
+
+  const futurePlan = record.medical?.status?.futureTreatment?.trim()
+  const futureVisits = (record.medical?.entries ?? []).filter((e) => e.isFuture)
+  const futureMedicalCare =
+    futurePlan || futureMedicalItems.length || futureVisits.length
+      ? [
+          'FUTURE MEDICAL CARE',
+          futurePlan ? `${isPro ? 'My' : 'Our client\u2019s'} treating providers recommend the following future care: ${futurePlan}` : null,
+          ...futureVisits.map(
+            (e) =>
+              `- ${e.provider}${e.specialty ? ` (${e.specialty})` : ''}: ${labelizeVisitType(e.visitType)}${e.diagnosis ? ` \u2014 ${e.diagnosis}` : ''}${e.billedAmount ? ` \u2014 ${money(Number(e.billedAmount))}` : ''}`,
+          ),
+          ...futureMedicalItems.map(itemLine),
+          futureMedical > 0 ? `Projected future medical expenses: ${money(futureMedical)}.` : null,
+        ]
+          .filter(Boolean)
+          .join('\n')
+      : undefined
+
+  const otherDamages = otherItems.length
+    ? [
+        'OTHER ECONOMIC DAMAGES',
+        ...Object.keys(OTHER_DAMAGE_LABELS).flatMap((cat) => {
+          const inCat = otherItems.filter((i) => (OTHER_DAMAGE_LABELS[i.category] ? i.category : 'other') === cat)
+          return inCat.length ? [`${OTHER_DAMAGE_LABELS[cat]}:`, ...inCat.map(itemLine)] : []
+        }),
+      ].join('\n')
+    : undefined
+
+  // Property-damage photos with no Other Economic Damages section to sit under
+  // still prove the impact, so they are cited with the liability evidence.
+  const citedExhibits = otherItems.length
+    ? exhibits
+    : exhibits.map((e) => (e.section === 'damages' ? { ...e, section: 'liability' as ExhibitSection } : e))
+  const exhibitRefs: Partial<Record<ExhibitSection, string>> = {}
+  for (const section of ['liability', 'treatment', 'bills', 'wages', 'damages', 'injuries'] as ExhibitSection[]) {
+    const ref = exhibitReference(citedExhibits, section)
+    if (ref) exhibitRefs[section] = ref
+  }
+  const enclosures = exhibits
+    .slice()
+    .sort((a, b) => a.number - b.number)
+    .map((e) => `Exhibit ${e.number} \u2014 ${e.label}`)
+
+  const reLine = (() => {
+    const defendantKnown = defendantName !== 'your insured'
+    if (!record.clientName && !record.claim && !defendantKnown) {
+      return `Re: Personal Injury Claim \u2014 Date of Incident ${incidentDate}`
+    }
+    return [
+      'Re: Personal Injury Claim',
+      record.clientName ? `${isPro ? 'Claimant' : 'Our Client'}: ${record.clientName}` : null,
+      defendantKnown ? `Your Insured: ${defendantName}` : null,
+      record.claim?.claimNumber ? `Claim No.: ${record.claim.claimNumber}` : null,
+      record.claim?.policyNumber ? `Policy No.: ${record.claim.policyNumber}` : null,
+      `Date of Loss: ${incidentDate}`,
+    ]
+      .filter(Boolean)
+      .join('\n')
+  })()
+
+  const attorney = record.attorney
+  const closing = isPro
+    ? `Sincerely,\n\n${record.clientName || '[Your Name]'}\n[Your Contact Information]`
+    : attorney?.name
+      ? [
+          'Very truly yours,',
+          '',
+          attorney.name,
+          attorney.firmName || null,
+          attorney.address || null,
+          [attorney.phone, attorney.email].filter(Boolean).join(' \u00b7 ') || null,
+        ]
+          .filter((l) => l !== null)
+          .join('\n')
+      : `Very truly yours,\n\n[Attorney Name]\n[Law Firm Name]\n[Contact Information]`
+
   return {
     header: isPro ? 'SETTLEMENT DEMAND' : 'DEMAND LETTER',
     recipientBlock: [`${recipient.name}`, `${recipient.address}`],
-    reLine: `Re: Personal Injury Claim — Date of Incident ${incidentDate}`,
+    reLine,
     salutation: `Dear ${recipient.name},`,
     intro: isPro
       ? `I am writing on my own behalf regarding my personal injury claim arising from an incident that occurred on or about ${incidentDate} in ${venue}.`
       : `We represent the above-referenced client in connection with a personal injury claim arising from an incident that occurred on or about ${incidentDate} in ${venue}. This letter constitutes our formal demand for settlement.`,
     accidentSummary: narrative,
     liability: liabilityText,
-    treatmentTimeline: buildTreatmentTimelineSection(ledger, analysis, facts),
-    medicalBills: [
-      'TOTAL MEDICAL BILLS',
-      ledger.totalBilled > 0
-        ? `The itemized treatment records above reflect total medical charges of ${money(ledger.totalBilled)} to date. Complete billing statements and records are enclosed or available upon request.`
-        : `Total medical charges to date are ${medicalTotal > 0 ? money(medicalTotal) : 'being compiled'}. Itemized billing statements and records are available upon request.`,
-    ].join('\n'),
-    lostWages: [
-      'LOST WAGES',
-      lostWages > 0
-        ? `${voice.clientSubject} incurred ${money(lostWages)} in lost earnings as a result of this incident and the resulting treatment and recovery. Wage-loss documentation (employer verification and/or pay records) is available upon request and incorporated herein by reference.`
-        : `${voice.clientSubject} experienced lost time from work as a result of this incident. Supporting wage-loss documentation will be provided.`,
-    ].join('\n'),
+    treatmentTimeline: medicalTabTimeline ?? buildTreatmentTimelineSection(ledger, analysis, facts),
+    medicalBills,
+    lostWages: lostWagesSection,
     painAndSuffering: [
       `${injuryClause}${treatmentSpanClause} These injuries caused our client substantial physical pain, emotional distress, and disruption to daily activities, work, and quality of life. The course of treatment, the nature of the injuries, and their ongoing effects fully justify a meaningful award for non-economic damages.`,
       painSufferingNarrative,
@@ -308,17 +664,27 @@ export function buildDemandLetterSections({
     damagesSummary: damagesLines,
     demandParagraph: `Based on the liability of your insured and the nature and extent of ${voice.ourMy} injuries and damages, ${voice.weI} demand the sum of ${money(targetAmount)} to resolve this matter in full.`,
     goodFaithParagraph: `This demand is made in good faith and represents a reasonable assessment of the damages. Please respond within thirty (30) days of receipt of this letter. If this matter cannot be resolved through negotiation, ${voice.weI} ${isPro ? 'reserve' : 'are prepared to pursue'} all available legal remedies.`,
-    closing: isPro
-      ? `Sincerely,\n\n[Your Name]\n[Your Contact Information]`
-      : `Very truly yours,\n\n[Attorney Name]\n[Law Firm Name]\n[Contact Information]`,
+    closing,
     disclaimer: isPro
       ? `This letter is for settlement purposes only. I understand I should consider attorney review before signing any release or resolving claims involving serious injury, minors, disputed liability, government entities, liens, permanent disability, or approaching legal deadlines.`
       : `This letter is for settlement purposes only and is not admissible in any subsequent litigation.`,
+    liabilityEvidence,
+    futureMedicalCare,
+    otherDamages,
+    exhibitRefs,
+    enclosures,
   }
 }
 
 /** Join the sections into the plain-text letter that gets stored and exported. */
 export function renderDemandLetter(s: DemandLetterSections): string {
+  const refs = s.exhibitRefs ?? {}
+  // Optional blocks are omitted entirely when empty, so a letter with no tab
+  // data renders exactly as it always has.
+  const block = (...lines: Array<string | undefined>) => {
+    const kept = lines.filter((l): l is string => typeof l === 'string' && l.length > 0)
+    return kept.length ? ['', ...kept] : []
+  }
   return [
     s.header,
     '',
@@ -335,15 +701,23 @@ export function renderDemandLetter(s: DemandLetterSections): string {
     '',
     'LIABILITY',
     s.liability,
+    ...block(s.liabilityEvidence),
+    ...block(refs.liability),
     '',
     s.treatmentTimeline,
+    ...block(refs.treatment),
     '',
     s.medicalBills,
+    ...block(refs.bills),
     '',
     s.lostWages,
+    ...block(refs.wages),
+    ...block(s.futureMedicalCare),
+    ...block(s.otherDamages, refs.damages),
     '',
     'PAIN AND SUFFERING',
     s.painAndSuffering,
+    ...block(refs.injuries),
     '',
     'SUMMARY OF DAMAGES',
     ...s.damagesSummary,
@@ -354,6 +728,7 @@ export function renderDemandLetter(s: DemandLetterSections): string {
     s.goodFaithParagraph,
     '',
     s.closing,
+    ...(s.enclosures && s.enclosures.length ? ['', 'ENCLOSURES', ...s.enclosures] : []),
     '',
     s.disclaimer,
   ]

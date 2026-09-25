@@ -18,7 +18,6 @@ export type TaskPrimaryActionKind =
   | 'send_welcome'
   | 'open_overview'
   | 'open_client_info'
-  | 'open_deadlines'
   | 'open_evidence'
   | 'open_medical'
   | 'open_liability'
@@ -47,15 +46,153 @@ type TaskLike = {
   deadlineType?: string | null
   workflowPhase?: string | null
   workflowStage?: string | null
+  notes?: string | null
 }
 
 /**
  * Longer “what does this task mean?” copy for hover tooltips on the task title.
- * Prefer this over stuffing the Action-button hint.
+ * Prefer this over stuffing the Action-button hint. Every titled task gets
+ * copy: specific explanations first, then the task's own notes, then what the
+ * section it belongs to is for.
  */
 export function resolveTaskHelpTooltip(task: TaskLike): string | null {
   const title = String(task.title || '')
   if (!title.trim()) return null
+  return (
+    specificTaskHelp(task, title) ||
+    notesHelp(task.notes) ||
+    SECTION_HELP[resolveTaskPrimaryAction(task)?.kind ?? 'open_task_detail'] ||
+    SECTION_HELP.open_task_detail ||
+    null
+  )
+}
+
+/** First sentence or two of the task's notes, when they read as an explanation. */
+function notesHelp(notes: string | null | undefined): string | null {
+  const text = String(notes || '').replace(/\s+/g, ' ').trim()
+  if (text.length < 20 || /^[[{]/.test(text)) return null
+  if (text.length <= 280) return text
+  const cut = text.slice(0, 280)
+  const lastStop = cut.lastIndexOf('. ')
+  return lastStop > 80 ? cut.slice(0, lastStop + 1) : `${cut.trimEnd()}…`
+}
+
+const SECTION_HELP: Partial<Record<TaskPrimaryActionKind, string>> = {
+  open_client_info: 'Keep the client’s contact and personal details accurate — everything sent to the client and carriers uses them.',
+  open_overview: 'Review the client and case at a glance and follow up with the client where needed.',
+  open_evidence: 'Collect or review a document the case needs. Upload it under Evidence, or use Request from client to ask for it.',
+  open_medical: 'Keep the treatment picture current — providers, visits, treatment status, MMI, and future care all feed the demand and case value.',
+  open_liability: 'Build the proof of fault — fault theory, police report, witnesses, photos, and video — on the Liability tab.',
+  open_damages: 'Keep the damages ledger itemized — medical bills, wage loss, and out-of-pocket costs drive the demand amount.',
+  open_insurance: 'Work the insurance side of the case — carriers, claim numbers, adjusters, coverage limits, and liens.',
+  open_demand: 'Move the demand package forward — draft, review, and send the demand letter to the carrier.',
+  open_negotiation: 'Track carrier offers against the case value and plan the next counter.',
+  open_settlement: 'Finish the settlement — release, liens, disbursement, and the client closing statement.',
+  open_signatures: 'Send or check documents that need the client’s signature (retainer, HIPAA, releases).',
+  open_workflow: 'A step in this case’s pipeline. Complete it to move the case to the next stage.',
+  open_task_detail: 'A task on this case. Open it to see the details, add notes or subtasks, and mark it done when finished.',
+}
+
+function specificTaskHelp(task: TaskLike, title: string): string | null {
+  if (/\bdec(larations?)? page\b/i.test(title)) {
+    return 'The declarations page shows the policy’s coverage limits — the ceiling on what the carrier can pay. Request it from the adjuster (or from the client for their own policy) on the Insurance tab.'
+  }
+
+  if (/confirm defendant insurance carrier|defendant.*claim number/i.test(title)) {
+    return 'Identify the at-fault party’s insurer and record the claim number on the Insurance tab. The letter of representation and the demand both go to this carrier.'
+  }
+
+  if (/^collect\s+/i.test(title) && !/collect medical|collect police|collect bills/i.test(title)) {
+    return `The case is missing ${title.replace(/^collect\s+/i, '').trim()}. Upload it under Evidence or request it from the client — it counts toward demand readiness.`
+  }
+
+  if (/treatment (continuity )?gap/i.test(title)) {
+    return 'There is a long break between treatment visits. Adjusters argue a gap means the injury resolved — find out why it happened and document the reason.'
+  }
+
+  if (/confirm (current )?treatment status|finished treating|treatment is complete|discharge \/ mmi|mmi reached|treatment complete/i.test(title)) {
+    return 'Find out whether the client is still treating or has reached MMI / been discharged. The demand should wait until treatment is complete so every bill is included.'
+  }
+
+  if (/monitor ongoing treatment/i.test(title)) {
+    return 'Check in on the client’s treatment regularly and log new visits and providers on the Medical tab.'
+  }
+
+  if (/future treatment|life-care/i.test(title)) {
+    return 'Record recommended future treatment and its estimated cost so future damages are included in the demand.'
+  }
+
+  if (/lien|subrogation/i.test(title)) {
+    return 'Identify health-insurer, Medicare/Medicaid, and provider liens. They are paid from the settlement, so they must be known and negotiated before disbursement.'
+  }
+
+  if (/gather photos|witness statements|scene evidence/i.test(title)) {
+    return 'Collect scene and damage photos, witness statements, and any video. These prove fault and are referenced in the demand’s liability section.'
+  }
+
+  if (/all medical records & bills received|highest-impact missing documents/i.test(title)) {
+    return 'The demand needs complete medical records and itemized bills from every provider. Check Evidence for anything still missing and request it.'
+  }
+
+  if (/special damages summary|compile.*damages/i.test(title)) {
+    return 'Total every economic loss — medical bills, wage loss, out-of-pocket costs — on the Damages ledger. These figures become the specials in the demand.'
+  }
+
+  if (/draft demand letter|move (the )?file (into|toward) demand|move toward the demand package/i.test(title)) {
+    return 'Prepare the demand letter from the case record — liability, treatment, bills, and damages — on the Demand tab.'
+  }
+
+  if (/approve demand/i.test(title)) {
+    return 'Attorney review of the drafted demand before it goes to the carrier. Check the figures, exhibits, and demand amount.'
+  }
+
+  if (/demand sent to carrier/i.test(title)) {
+    return 'Marks the demand as sent. The carrier’s response window starts from this date.'
+  }
+
+  if (/adjuster offer received/i.test(title)) {
+    return 'Record the carrier’s offer on the Negotiation tab so it can be compared with the case value.'
+  }
+
+  if (/evaluate offer|negotiation posture|counter & negotiate|negotiation strategy/i.test(title)) {
+    return 'Compare the latest offer with the case value and decide on the next counter-offer.'
+  }
+
+  if (/client approval of settlement/i.test(title)) {
+    return 'Get the client’s approval of the settlement amount and terms before accepting.'
+  }
+
+  if (/settlement reached/i.test(title)) {
+    return 'Marks the case as settled. Next come the release, lien resolution, and disbursement.'
+  }
+
+  if (/execute release/i.test(title)) {
+    return 'Have the client sign the release and settlement documents and return them to the carrier.'
+  }
+
+  if (/disburse|closing statement/i.test(title)) {
+    return 'Pay out the settlement — fees, costs, liens, and the client’s share — and send the client a closing statement.'
+  }
+
+  if (/^close matter$/i.test(title)) {
+    return 'Close the file once all funds are disbursed and nothing remains open.'
+  }
+
+  if (/filing deadline has passed/i.test(title)) {
+    return 'The calendared filing deadline appears to have passed. Confirm right away whether suit was filed or an exception applies.'
+  }
+
+  if (/consult/i.test(title)) {
+    return 'Schedule or prepare for the consultation with the client.'
+  }
+
+  if (/plaintiff update|client about/i.test(title)) {
+    return 'Send the client a short update about where the case stands and anything you need from them.'
+  }
+
+  if (task.taskType === 'question' || /questions? for the (plaintiff|client)/i.test(title)) {
+    return 'Questions for the client. Open the task to send them and review the client’s answers.'
+  }
 
   if (/confirm scope of representation/i.test(title)) {
     return (
@@ -85,7 +222,7 @@ export function resolveTaskHelpTooltip(task: TaskLike): string | null {
   }
 
   if (/^statute of limitations/i.test(title) || task.taskType === 'statute' || task.deadlineType === 'sol') {
-    return 'Filing deadline calendared from the incident date, venue, and claim type. Review it on Deadlines and keep monitoring until the case is filed or closed.'
+    return 'Filing deadline calendared from the incident date, venue, and claim type. Review it on the case Overview and keep monitoring until the case is filed or closed.'
   }
 
   if (/send letter of representation \(lor\)/i.test(title) || /^send letter of representation/i.test(title)) {
@@ -165,11 +302,11 @@ function heuristicSectionAction(task: TaskLike): TaskPrimaryAction | null {
     )
   ) {
     return {
-      kind: 'open_deadlines',
+      kind: 'open_overview',
       label: 'Review',
       doneLabel: 'View',
-      hint: 'Open Deadlines to review the statute of limitations / filing deadline',
-      doneHint: 'Open Deadlines to review this deadline',
+      hint: 'Open Overview to review the statute of limitations / filing deadline',
+      doneHint: 'Open Overview to review this deadline',
     }
   }
 
@@ -433,8 +570,6 @@ export function sectionForTaskAction(kind: TaskPrimaryActionKind): string | null
       return 'overview'
     case 'open_client_info':
       return 'client-info'
-    case 'open_deadlines':
-      return 'deadlines'
     case 'open_medical':
       return 'medical'
     case 'open_liability':

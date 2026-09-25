@@ -412,7 +412,10 @@ export function promotedCategory(
   current: string,
   uploadMethod: string | null | undefined,
   aiClassification: string,
+  subcategory?: string | null,
 ): string | null {
+  // Answers an attorney's custom request item, which is only matched under `other`.
+  if ((subcategory || '').toLowerCase().startsWith('custom:')) return null
   if (!UNPROMPTED_UPLOAD_METHODS.has((uploadMethod || '').trim())) return null
   if ((current || '').trim() !== 'other') return null
   const next = (aiClassification || '').trim()
@@ -883,7 +886,7 @@ export async function processEvidenceFileForExtraction(fileId: string) {
       })
     }
     const visionFlag = visionResult ? shouldFlagForReview(visionResult) : false
-    const nextCategory = promotedCategory(evidenceFile.category, evidenceFile.uploadMethod, aiClassification)
+    const nextCategory = promotedCategory(evidenceFile.category, evidenceFile.uploadMethod, aiClassification, evidenceFile.subcategory)
 
     // Does this document name the claimant whose case it was filed on? Checked
     // against the category the file ends up in, not the one it arrived with, so

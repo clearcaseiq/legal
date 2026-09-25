@@ -6,6 +6,7 @@ import {
   acceptedCategoriesForRequestKey,
   computeRequestStatus,
   evidenceCategoryForRequestKey,
+  isRequestedDocFulfilled,
   normalizeRequestedDocKeys,
   requestedDocLabel,
 } from './document-request-status'
@@ -43,5 +44,21 @@ describe('custom request items', () => {
     expect(computeRequestStatus(['custom:Gym log'], [{ category: 'other', createdAt: after }], requestedAt)).toBe(
       'completed',
     )
+  })
+
+  it('matches each of several custom items only to uploads tagged for it', () => {
+    const requestedAt = new Date('2026-09-01T00:00:00Z')
+    const after = new Date('2026-09-02T00:00:00Z')
+    const keys = ['custom:Gym log', 'custom:Rideshare receipt']
+
+    // An untagged `other` file cannot tell which item it answers.
+    expect(computeRequestStatus(keys, [{ category: 'other', createdAt: after }], requestedAt)).toBe('pending')
+
+    const oneTagged = [{ category: 'other', subcategory: 'custom:Gym log', createdAt: after }]
+    expect(computeRequestStatus(keys, oneTagged, requestedAt)).toBe('partial')
+    expect(isRequestedDocFulfilled({ key: 'custom:Rideshare receipt', evidenceFiles: oneTagged, requestCreatedAt: requestedAt, requestKeys: keys })).toBe(false)
+
+    const bothTagged = [...oneTagged, { category: 'other', subcategory: 'custom:rideshare receipt', createdAt: after }]
+    expect(computeRequestStatus(keys, bothTagged, requestedAt)).toBe('completed')
   })
 })

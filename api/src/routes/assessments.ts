@@ -763,6 +763,7 @@ router.get('/:id/document-requests', authMiddleware, async (req: AuthRequest, re
           select: {
             id: true,
             category: true,
+            subcategory: true,
             originalName: true,
             createdAt: true
           }
@@ -842,6 +843,7 @@ router.get('/:id/document-requests', authMiddleware, async (req: AuthRequest, re
               select: {
                 id: true,
                 category: true,
+                subcategory: true,
                 originalName: true,
                 createdAt: true,
               },
@@ -889,6 +891,7 @@ router.get('/:id/document-requests', authMiddleware, async (req: AuthRequest, re
           key,
           evidenceFiles,
           requestCreatedAt: request.createdAt,
+          requestKeys: requestedDocs,
         })
         return {
           key,

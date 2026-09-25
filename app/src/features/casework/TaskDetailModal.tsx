@@ -29,7 +29,6 @@ import {
   FolderOpen,
   Shield,
   Receipt,
-  CalendarClock,
   LayoutDashboard,
   PenLine,
   Info,
@@ -493,8 +492,6 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
       case 'collect_medical_records':
       case 'open_evidence':
         return FolderOpen
-      case 'open_deadlines':
-        return CalendarClock
       case 'open_overview':
       case 'open_task_detail':
         return LayoutDashboard

@@ -60,6 +60,7 @@ import {
   signedHipaaEnvelope,
 } from '../lib/representation-letters'
 import { syncPlaintiffDocumentRequestStatuses, computeRequestStatus, parseRequestedDocs, normalizeRequestedDocKeys, DOCUMENT_REQUEST_LABELS } from '../lib/document-request-status'
+import { CONTACT_REVEALED_STATUSES, deidentifyAssessmentForOffer } from '../lib/offer-deidentify'
 import { createAndNotifyPlaintiffDocumentRequest } from '../lib/document-request-create'
 import { sendDocumentRequestText } from '../lib/document-request-text'
 import { readClaimantContact, updateClaimantContact } from '../lib/claimant-contact'
@@ -1896,9 +1897,12 @@ function sanitizeAssessmentForAttorney(assessment: any) {
 }
 
 function sanitizeLeadForAttorney(lead: any) {
-  return lead?.assessment
-    ? { ...lead, assessment: sanitizeAssessmentForAttorney(lead.assessment) }
-    : lead
+  if (!lead?.assessment) return lead
+  const assessment = sanitizeAssessmentForAttorney(lead.assessment)
+  return {
+    ...lead,
+    assessment: CONTACT_REVEALED_STATUSES.has(lead.status) ? assessment : deidentifyAssessmentForOffer(assessment),
+  }
 }
 
 function pickLatestPrediction(predictions: any[] | undefined) {
@@ -5257,18 +5261,19 @@ router.get('/document-requests', authMiddleware, async (req: any, res) => {
     )
     const evidenceByAssessment = new Map<
       string,
-      Array<{ category: string | null; createdAt: Date }>
+      Array<{ category: string | null; subcategory: string | null; createdAt: Date }>
     >()
     if (plaintiffAssessmentIds.length > 0) {
       const files = await prisma.evidenceFile.findMany({
         where: { assessmentId: { in: plaintiffAssessmentIds } },
-        select: { assessmentId: true, category: true, createdAt: true },
+        select: { assessmentId: true, category: true, subcategory: true, createdAt: true },
       })
       for (const f of files) {
         if (!f.assessmentId) continue
         if (!evidenceByAssessment.has(f.assessmentId)) evidenceByAssessment.set(f.assessmentId, [])
         evidenceByAssessment.get(f.assessmentId)!.push({
           category: f.category,
+          subcategory: f.subcategory,
           createdAt: f.createdAt,
         })
       }
@@ -5857,7 +5862,11 @@ router.get('/leads/filtered', authMiddleware, async (req: any, res) => {
     }
 
     res.json({
-      leads: filteredLeads,
+      leads: filteredLeads.map((lead) =>
+        CONTACT_REVEALED_STATUSES.has(lead.status) || !lead.assessment
+          ? lead
+          : { ...lead, assessment: deidentifyAssessmentForOffer(lead.assessment) },
+      ),
       totalCount: filteredLeads.length,
       page: parseInt(page as string),
       limit: parseInt(limit as string)
@@ -15700,6 +15709,9 @@ router.get('/leads/:leadId', authMiddleware, async (req: any, res) => {
       ? await ensureReferenceCode(assessment.id, assessment.referenceCode)
       : null
 
+    const revealIdentity = CONTACT_REVEALED_STATUSES.has(lead.status)
+    const assessmentView = (view: Record<string, any>) => (revealIdentity ? view : deidentifyAssessmentForOffer(view))
+
     res.json({
       ...lead,
       routingPricing: caseFee
@@ -15710,7 +15722,7 @@ router.get('/leads/:leadId', authMiddleware, async (req: any, res) => {
           }
         : null,
       assessment: assessment
-        ? {
+        ? assessmentView({
             id: assessment.id,
             claimType: assessment.claimType,
             venueState: assessment.venueState,
@@ -15733,7 +15745,7 @@ router.get('/leads/:leadId', authMiddleware, async (req: any, res) => {
             evidenceCount: assessment.evidenceFiles?.length || 0,
             user: assessment.user,
             userId: assessment.userId
-          }
+          })
         : null
     })
   } catch (error: any) {

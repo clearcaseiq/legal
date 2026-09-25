@@ -21,6 +21,7 @@ import {
   moneyMentions,
   narrateDemandLetter,
   renderDemandLetter,
+  type DemandCaseRecord,
 } from './demand-letter'
 
 const assessment = { venueState: 'CA', venueCounty: 'Los Angeles', claimType: 'Motor Vehicle' }
@@ -72,6 +73,107 @@ describe('buildDemandLetterSections', () => {
     const sections = buildDemandLetterSections(baseInput)
     // 60000 - (12400 + 3200) = 44400
     expect(sections.damagesSummary.join('\n')).toContain('$44,400')
+  })
+
+  it('renders no case-tab blocks when there is no case record', () => {
+    const letter = generateDemandLetter(baseInput)
+    expect(letter).not.toContain('ENCLOSURES')
+    expect(letter).not.toContain('See Exhibit')
+    expect(letter).not.toContain('FUTURE MEDICAL CARE')
+    expect(letter).not.toContain('OTHER ECONOMIC DAMAGES')
+  })
+})
+
+describe('buildDemandLetterSections with the case tabs', () => {
+  const caseRecord: DemandCaseRecord = {
+    clientName: 'Jane Test',
+    attorney: { name: 'Mike Pence', firmName: 'Pence Law', phone: '555-0100', email: 'mike@pence.law' },
+    claim: { carrierName: 'State Farm', claimNumber: 'SF-123', policyNumber: 'POL-9', adjusterName: 'Ann Adjuster' },
+    liability: {
+      faultTheory: 'Defendant ran the red light and struck our client broadside.',
+      faultPosture: 'admitted',
+      comparativeNegPct: 0,
+      defendantName: 'Bob Driver',
+      policeReportStatus: 'received',
+      policeReportNumber: 'LA-778',
+      citationIssuedTo: 'defendant',
+      witnessCount: 2,
+      hasPhotos: true,
+      hasVideo: false,
+    },
+    medical: {
+      entries: [
+        { provider: 'City ER', visitType: 'er', startDate: '2026-03-03T00:00:00Z', endDate: null, diagnosis: 'Neck strain', billedAmount: 2100 },
+        { provider: 'Bay Ortho', specialty: 'Orthopedics', visitType: 'follow_up', startDate: '2026-03-20T00:00:00Z', endDate: '2026-05-01T00:00:00Z' },
+        { provider: 'Spine Center', visitType: 'surgery', startDate: null, endDate: null, isFuture: true, billedAmount: 45000 },
+      ],
+      status: { treatmentStatus: 'mmi', mmi: true, mmiDate: '2026-06-01T00:00:00Z', symptoms: ['neck pain'], futureTreatment: 'Cervical fusion recommended.' },
+    },
+    damageItems: [
+      { category: 'medical', description: 'ER visit', amount: 2100, provider: 'City ER', incurredAt: '2026-03-03T00:00:00Z' },
+      { category: 'medical', description: 'Orthopedic care', amount: 5400, provider: 'Bay Ortho' },
+      { category: 'lost_wages', description: 'Six weeks missed', amount: 4800, provider: 'Acme Co' },
+      { category: 'future_medical', description: 'Cervical fusion', amount: 45000 },
+      { category: 'property_damage', description: 'Vehicle repair', amount: 6200, provider: 'Joe Auto' },
+    ],
+    exhibits: [
+      { number: 1, section: 'liability', label: 'Police / incident report (report.pdf)' },
+      { number: 2, section: 'treatment', label: 'Medical records (er.pdf)' },
+      { number: 3, section: 'bills', label: 'Medical bill (er-bill.pdf)' },
+      { number: 4, section: 'bills', label: 'Medical bill (ortho-bill.pdf)' },
+    ],
+  }
+  const letter = generateDemandLetter({ ...baseInput, targetAmount: 150000, caseRecord })
+
+  it('puts the client, insured, and claim details in the Re line', () => {
+    expect(letter).toContain('Our Client: Jane Test')
+    expect(letter).toContain('Your Insured: Bob Driver')
+    expect(letter).toContain('Claim No.: SF-123')
+    expect(letter).toContain('Policy No.: POL-9')
+  })
+
+  it('uses the Liability tab theory and its evidence', () => {
+    expect(letter).toContain('Defendant ran the red light')
+    expect(letter).toContain('Bob Driver admitted fault.')
+    expect(letter).toContain('Report No. LA-778')
+    expect(letter).toContain('2 independent witnesses corroborate')
+  })
+
+  it('builds the timeline from the Medical tab with MMI and complaints', () => {
+    expect(letter).toContain('City ER: Er — Dx: Neck strain — $2,100')
+    expect(letter).toContain('Bay Ortho (Orthopedics)')
+    expect(letter).toContain('reached maximum medical improvement on June 1, 2026')
+    expect(letter).toContain('Ongoing complaints: neck pain.')
+  })
+
+  it('itemizes bills, wages, future care, and other damages from the Damages tab', () => {
+    expect(letter).toContain('- City ER — ER visit (Mar 3, 2026): $2,100')
+    expect(letter).toContain('Total medical charges to date: $7,500.')
+    expect(letter).toContain('- Acme Co — Six weeks missed: $4,800')
+    expect(letter).toContain('FUTURE MEDICAL CARE')
+    expect(letter).toContain('Cervical fusion recommended.')
+    expect(letter).toContain('OTHER ECONOMIC DAMAGES')
+    expect(letter).toContain('- Joe Auto — Vehicle repair: $6,200')
+    expect(letter).toContain('- Property damage: $6,200')
+  })
+
+  it('derives general damages from the itemized specials', () => {
+    // 150000 - (7500 + 4800 + 45000 + 6200) = 86500
+    expect(letter).toContain('- Pain and suffering (general damages): $86,500')
+  })
+
+  it('cites exhibits in their sections and lists them as enclosures', () => {
+    const liabilityAt = letter.indexOf('LIABILITY')
+    const billsAt = letter.indexOf('TOTAL MEDICAL BILLS')
+    expect(letter.indexOf('See Exhibit 1.')).toBeGreaterThan(liabilityAt)
+    expect(letter.indexOf('See Exhibits 3–4.')).toBeGreaterThan(billsAt)
+    expect(letter).toContain('ENCLOSURES')
+    expect(letter).toContain('Exhibit 4 — Medical bill (ortho-bill.pdf)')
+  })
+
+  it('signs with the assigned attorney', () => {
+    expect(letter).toContain('Mike Pence\nPence Law')
+    expect(letter).not.toContain('[Attorney Name]')
   })
 })
 

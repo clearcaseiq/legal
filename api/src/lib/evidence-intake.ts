@@ -48,6 +48,8 @@ export type FileEvidenceParams = {
    * choice and suppress that.
    */
   category?: string
+  /** A `custom:` request key when the upload answers an attorney's custom item. */
+  subcategory?: string
   uploadMethod: string
   provenanceSource: string
   provenanceActor: string
@@ -105,6 +107,7 @@ export async function fileClaimantEvidence(params: FileEvidenceParams): Promise<
       filePath,
       fileUrl: `/uploads/evidence/${filename}`,
       category: params.category || 'other',
+      subcategory: params.subcategory || null,
       dataType: 'unstructured',
       uploadMethod: params.uploadMethod,
       contentHash,

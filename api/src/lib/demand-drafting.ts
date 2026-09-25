@@ -15,10 +15,18 @@ import {
   describeInjuries,
   narrateDemandLetter,
   renderDemandLetter,
+  type DemandCaseRecord,
+  type DemandExhibit,
   type DemandMode,
+  type ExhibitSection,
   type TreatmentLedger,
   type TreatmentLedgerEntry,
 } from './demand-letter'
+import { getLiabilityRecord } from './liability-record'
+import { getMedicalTimeline } from './medical-record'
+import { parseIdentityCheck } from './claimant-identity-check'
+import { plaintiffNameOf } from './case-name'
+import { isCustomRequestKey, requestedDocLabel } from './document-request-status'
 
 export type { TreatmentLedger, TreatmentLedgerEntry }
 
@@ -101,6 +109,180 @@ export const DEFAULT_DEMAND_RECIPIENT = {
   email: '',
 }
 
+const EXHIBIT_CATEGORY_LABELS: Record<string, string> = {
+  police_report: 'Police / incident report',
+  witness_statements: 'Witness statement',
+  video: 'Video',
+  photos: 'Photograph',
+  medical_records: 'Medical records',
+  bills: 'Medical bill',
+  wage_verification: 'Wage-loss documentation',
+}
+
+/**
+ * Which letter section cites a file, or null when the file is not something
+ * that goes to an adjuster (insurance correspondence, the Dec page, anything
+ * uncategorised). Only files uploaded against an attorney's custom request are
+ * taken from `other`, because that bucket also holds whatever nobody sorted.
+ */
+export function exhibitSectionForFile(file: { category?: string | null; subcategory?: string | null }): ExhibitSection | null {
+  const category = String(file.category || '').trim()
+  const sub = String(file.subcategory || '').toLowerCase()
+  switch (category) {
+    case 'police_report':
+    case 'witness_statements':
+    case 'video':
+      return 'liability'
+    case 'photos':
+      if (/injur/.test(sub)) return 'injuries'
+      if (/property|vehicle|damage/.test(sub)) return 'damages'
+      return 'liability'
+    case 'medical_records':
+      return 'treatment'
+    case 'bills':
+      return 'bills'
+    case 'wage_verification':
+      return 'wages'
+    case 'other':
+      return isCustomRequestKey(sub) ? 'other' : null
+    default:
+      return null
+  }
+}
+
+const SECTION_ORDER: ExhibitSection[] = ['liability', 'treatment', 'bills', 'wages', 'damages', 'injuries', 'other']
+
+/** Number the case's files in the order their sections appear in the letter. */
+export function buildDemandExhibits(
+  files: Array<{
+    category?: string | null
+    subcategory?: string | null
+    originalName: string
+    createdAt?: Date | string | null
+    identityCheck?: string | null
+  }>,
+): DemandExhibit[] {
+  const eligible = files
+    .map((file) => ({ file, section: exhibitSectionForFile(file) }))
+    // A document naming someone other than the client must not go to an adjuster.
+    .filter((row): row is { file: (typeof files)[number]; section: ExhibitSection } =>
+      row.section !== null && parseIdentityCheck(row.file.identityCheck ?? null)?.verdict !== 'mismatch',
+    )
+    .sort((a, b) => {
+      const bySection = SECTION_ORDER.indexOf(a.section) - SECTION_ORDER.indexOf(b.section)
+      if (bySection !== 0) return bySection
+      return new Date(a.file.createdAt || 0).getTime() - new Date(b.file.createdAt || 0).getTime()
+    })
+  return eligible.map(({ file, section }, index) => {
+    const kind = isCustomRequestKey(String(file.subcategory || ''))
+      ? requestedDocLabel(String(file.subcategory))
+      : EXHIBIT_CATEGORY_LABELS[String(file.category)] || 'Document'
+    return { number: index + 1, section, label: `${kind} (${file.originalName})` }
+  })
+}
+
+/** The at-fault carrier's claim, which is who a demand is addressed to. */
+function pickDemandClaim(policies: any[]): any | null {
+  if (!policies.length) return null
+  return (
+    policies.find((p) => p.insuredParty === 'defendant' && (p.coverageType || 'liability') === 'liability') ||
+    policies.find((p) => p.insuredParty === 'defendant') ||
+    policies.find((p) => p.coverageType === 'liability' && p.insuredParty !== 'client') ||
+    policies.find((p) => p.insuredParty !== 'client') ||
+    null
+  )
+}
+
+/**
+ * Everything the attorney entered on the case tabs, gathered for the letter:
+ * client and attorney, the carrier claim, liability, the medical timeline, the
+ * itemized damages, and the case files numbered as exhibits.
+ */
+export async function loadDemandCaseRecord(assessment: any): Promise<DemandCaseRecord> {
+  const assessmentId = String(assessment.id)
+  const [liability, medical, damageItems, policies, lead] = await Promise.all([
+    getLiabilityRecord(assessmentId).catch(() => null),
+    getMedicalTimeline(assessmentId).catch(() => null),
+    (prisma as any).damageItem
+      .findMany({ where: { assessmentId }, orderBy: [{ incurredAt: 'asc' }, { createdAt: 'asc' }] })
+      .catch(() => [] as any[]),
+    prisma.insuranceDetail.findMany({ where: { assessmentId }, orderBy: { createdAt: 'asc' } }).catch(() => [] as any[]),
+    prisma.leadSubmission
+      .findUnique({
+        where: { assessmentId },
+        select: {
+          assignedAttorney: {
+            select: {
+              name: true,
+              email: true,
+              phone: true,
+              lawFirm: { select: { name: true, address: true, city: true, state: true, zip: true, phone: true } },
+            },
+          },
+        },
+      })
+      .catch(() => null),
+  ])
+
+  const claim = pickDemandClaim(policies as any[])
+  const attorney = lead?.assignedAttorney
+  const firm = attorney?.lawFirm
+  const firmAddress = firm
+    ? [firm.address, [firm.city, [firm.state, firm.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ')]
+        .filter(Boolean)
+        .join(', ') || null
+    : null
+
+  return {
+    clientName: plaintiffNameOf({ user: assessment.user }),
+    attorney: attorney
+      ? {
+          name: attorney.name,
+          firmName: firm?.name ?? null,
+          phone: attorney.phone || firm?.phone || null,
+          email: attorney.email ?? null,
+          address: firmAddress,
+        }
+      : null,
+    claim: claim
+      ? {
+          carrierName: claim.carrierName,
+          claimNumber: claim.claimNumber,
+          policyNumber: claim.policyNumber,
+          adjusterName: claim.adjusterName,
+          adjusterEmail: claim.adjusterEmail,
+        }
+      : null,
+    liability: liability?.id ? liability : null,
+    medical: medical && (medical.entries.length > 0 || medical.status.id) ? medical : null,
+    damageItems: (damageItems as any[]).map((i) => ({
+      category: i.category,
+      description: i.description,
+      amount: Number(i.amount) || 0,
+      provider: i.provider,
+      incurredAt: i.incurredAt,
+      billingStatus: i.billingStatus,
+    })),
+    exhibits: buildDemandExhibits(assessment.evidenceFiles || []),
+  }
+}
+
+/** Address a letter to the claim's adjuster unless the caller chose someone. */
+export function demandRecipientFor(
+  requested: { name: string; address: string; email?: string } | undefined,
+  claim: { carrierName: string; adjusterName?: string | null; adjusterEmail?: string | null } | null | undefined,
+): { name: string; address: string; email?: string } {
+  const isDefault =
+    !requested ||
+    (requested.name === DEFAULT_DEMAND_RECIPIENT.name && requested.address === DEFAULT_DEMAND_RECIPIENT.address)
+  if (!isDefault || !claim?.carrierName) return requested ?? DEFAULT_DEMAND_RECIPIENT
+  return {
+    name: claim.adjusterName?.trim() || `${claim.carrierName} Claims Department`,
+    address: claim.carrierName,
+    email: claim.adjusterEmail || requested?.email || '',
+  }
+}
+
 export interface DraftedDemand {
   content: string
   targetAmount: number
@@ -126,17 +308,20 @@ export async function draftDemandForAssessment(options: {
 }): Promise<DraftedDemand | null> {
   const assessment = await prisma.assessment.findUnique({
     where: { id: options.assessmentId },
-    include: { evidenceFiles: true },
+    include: { evidenceFiles: true, user: { select: { firstName: true, lastName: true } } },
   })
   if (!assessment) return null
 
   const analysis = extractAnalysisPayload(assessment)
   const facts = parseAssessmentFacts(assessment.facts)
-  const treatmentLedger = await loadTreatmentLedger(options.assessmentId)
+  const [treatmentLedger, caseRecord] = await Promise.all([
+    loadTreatmentLedger(options.assessmentId),
+    loadDemandCaseRecord(assessment),
+  ])
 
   const targetAmount =
     options.targetAmount ?? analysis?.expectedSettlementRange?.mid ?? analysis?.estimatedValue?.medium ?? 0
-  const recipient = options.recipient ?? DEFAULT_DEMAND_RECIPIENT
+  const recipient = demandRecipientFor(options.recipient, caseRecord.claim)
 
   const sections = buildDemandLetterSections({
     assessment,
@@ -147,6 +332,7 @@ export async function draftDemandForAssessment(options: {
     mode: options.mode ?? 'represented',
     treatmentLedger,
     analysis,
+    caseRecord,
   })
 
   if (!options.useAi) {

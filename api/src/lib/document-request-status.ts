@@ -184,17 +184,39 @@ export function evidenceCategoryForRequestKey(key: string): string {
  * at/after the request counts — older files on the case must not instantly
  * complete a brand-new attorney ask.
  */
+export type RequestEvidenceFile = {
+  category: string | null | undefined
+  subcategory?: string | null
+  createdAt: Date | string
+}
+
+/**
+ * Custom items share the `other` category, so an upload names the item it
+ * answers in `subcategory` (the full `custom:` key). An untagged `other` file
+ * can only stand in for a custom item when the request has exactly one.
+ */
+function customItemMatches(key: string, file: RequestEvidenceFile, requestKeys: string[] | undefined): boolean {
+  const tag = (file.subcategory || '').trim()
+  if (isCustomRequestKey(tag)) return tag.toLowerCase() === key.toLowerCase()
+  const customCount = (requestKeys || [key]).filter(isCustomRequestKey).length
+  return customCount <= 1
+}
+
 export function isRequestedDocFulfilled(params: {
   key: string
-  evidenceFiles: Array<{ category: string | null | undefined; createdAt: Date | string }>
+  evidenceFiles: RequestEvidenceFile[]
   requestCreatedAt: Date | string
+  /** Every key on the same request; needed to attribute untagged custom uploads. */
+  requestKeys?: string[]
 }): boolean {
   const accepted = new Set(acceptedCategoriesForRequestKey(params.key))
+  const custom = isCustomRequestKey(params.key)
   const requestAt = new Date(params.requestCreatedAt).getTime()
   if (!Number.isFinite(requestAt)) return false
   return params.evidenceFiles.some((file) => {
     const category = (file.category || '').trim()
     if (!category || !accepted.has(category)) return false
+    if (custom && !customItemMatches(params.key, file, params.requestKeys)) return false
     const uploadedAt = new Date(file.createdAt).getTime()
     return Number.isFinite(uploadedAt) && uploadedAt >= requestAt
   })
@@ -203,12 +225,12 @@ export function isRequestedDocFulfilled(params: {
 /** Compute a request's status from evidence uploaded for that request. */
 export function computeRequestStatus(
   requestedDocs: string[],
-  evidenceFiles: Array<{ category: string | null | undefined; createdAt: Date | string }>,
+  evidenceFiles: RequestEvidenceFile[],
   requestCreatedAt: Date | string,
 ): string | null {
   if (requestedDocs.length === 0) return null // link-only / free-form request: can't auto-complete
   const fulfilledCount = requestedDocs.filter((key) =>
-    isRequestedDocFulfilled({ key, evidenceFiles, requestCreatedAt }),
+    isRequestedDocFulfilled({ key, evidenceFiles, requestCreatedAt, requestKeys: requestedDocs }),
   ).length
   if (fulfilledCount === 0) return 'pending'
   return fulfilledCount === requestedDocs.length ? 'completed' : 'partial'
@@ -227,7 +249,7 @@ export async function syncPlaintiffDocumentRequestStatuses(assessmentId: string)
     const assessment = await prisma.assessment.findUnique({
       where: { id: assessmentId },
       select: {
-        evidenceFiles: { select: { category: true, createdAt: true } },
+        evidenceFiles: { select: { category: true, subcategory: true, createdAt: true } },
         leadSubmission: {
           select: {
             documentRequests: {

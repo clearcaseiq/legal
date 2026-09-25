@@ -165,7 +165,7 @@ const ROW_TONE: Record<Tone, string> = {
   danger: 'text-rose-700',
 }
 
-const TABS = ['Overview', 'Client Info', 'AI Copilot', 'Rose', 'Workflow', 'Tasks', 'Evidence', 'Inbox', 'Signatures', 'Medical', 'Liability', 'Insurance', 'Damages', 'Negotiation', 'Demand', 'Timeline', 'Deadlines', 'Settlement', 'Time', 'Billing', 'Referrals'] as const
+const TABS = ['Overview', 'Client Info', 'AI Copilot', 'Rose', 'Workflow', 'Tasks', 'Evidence', 'Inbox', 'Signatures', 'Medical', 'Liability', 'Insurance', 'Damages', 'Negotiation', 'Demand', 'Timeline', 'Settlement', 'Time', 'Billing', 'Referrals'] as const
 type Tab = (typeof TABS)[number]
 
 const SECTION_TO_TAB: Record<string, Tab> = {
@@ -201,7 +201,7 @@ const SECTION_TO_TAB: Record<string, Tab> = {
   demand: 'Demand',
   timeline: 'Timeline',
   chronology: 'Timeline',
-  deadlines: 'Deadlines',
+  deadlines: 'Overview',
   settlement: 'Settlement',
   billing: 'Billing',
   invoices: 'Billing',
@@ -232,7 +232,6 @@ const TAB_TO_SECTION: Record<Tab, string> = {
   Negotiation: 'negotiation',
   Demand: 'demand',
   Timeline: 'timeline',
-  Deadlines: 'deadlines',
   Settlement: 'settlement',
   Tasks: 'tasks',
   Time: 'time',
@@ -265,7 +264,6 @@ const TAB_META: Record<Tab, TabMeta> = {
   Negotiation: { icon: Handshake, blurb: 'Demands, offers, and settlement posture.' },
   Demand: { icon: Gavel, blurb: 'Demand package, case value, and policy limits.' },
   Timeline: { icon: Clock, blurb: 'A chronological record of everything on this matter.' },
-  Deadlines: { icon: CalendarClock, blurb: 'Statute of limitations and key case milestones.' },
   Settlement: { icon: Scale, blurb: 'Net-to-client waterfall: fees, case costs, and lien reductions.' },
   Time: { icon: Clock, blurb: 'Log team hours on this case for profitability and fee petitions.' },
   Billing: { icon: Receipt, blurb: 'Client invoices, payments received, and recurring billing for this case.' },
@@ -314,20 +312,6 @@ type TimelineEvent = {
   detail?: string
   by: string
   category: 'intake' | 'retainer' | 'contact' | 'treatment' | 'evidence' | 'negotiation' | 'demand'
-}
-
-// Informational statute-of-limitations guidance by claim type. Intentionally a
-// period description (not a computed date) — we don't have a verified incident
-// date, and showing a wrong filing deadline in a legal product is dangerous.
-const SOL_GUIDANCE: Record<string, string> = {
-  _default: 'Typically 2 years from the date of injury for most California personal-injury claims (CCP §335.1).',
-  auto: '2 years from the date of injury (CA CCP §335.1).',
-  slip_and_fall: '2 years from the date of injury (CA CCP §335.1).',
-  dog_bite: '2 years from the date of injury (CA CCP §335.1).',
-  product: '2 years from the date of injury (CA CCP §335.1).',
-  medmal: '1 year from discovery or 3 years from injury, whichever is first (CA CCP §340.5, MICRA).',
-  nursing_home_abuse: '2 years for elder abuse / personal injury (CA CCP §335.1); a shorter claim window may apply against public entities.',
-  wrongful_death: '2 years from the date of death (CA CCP §335.1).',
 }
 
 type TimelineCat = {
@@ -1562,113 +1546,6 @@ function WorkstreamPanel({
 
   if (tab === 'Referrals') {
     return <CaseReferralsPanel leadId={lead.id} />
-  }
-
-  if (tab === 'Deadlines') {
-    const startToday = new Date()
-    startToday.setHours(0, 0, 0, 0)
-    const dayMs = 86_400_000
-    const diffDays = (ts: number) => Math.round((new Date(ts).setHours(0, 0, 0, 0) - startToday.getTime()) / dayMs)
-
-    const openTasks = tasks.filter((t) => String(t.status || '').toLowerCase() !== 'done')
-    const dated = openTasks
-      .filter((t) => t.dueDate)
-      .map((t) => ({ t, ts: Date.parse(t.dueDate as string) }))
-      .filter((x) => !Number.isNaN(x.ts))
-      .sort((a, b) => a.ts - b.ts)
-    const undated = openTasks.filter((t) => !t.dueDate)
-    const overdue = dated.filter((x) => diffDays(x.ts) < 0)
-    const soon = dated.filter((x) => diffDays(x.ts) >= 0 && diffDays(x.ts) <= 7)
-    const later = dated.filter((x) => diffDays(x.ts) > 7)
-    const solText = SOL_GUIDANCE[detail.claimType] || SOL_GUIDANCE._default
-
-    const countdown = (ts: number) => {
-      const d = diffDays(ts)
-      if (d < 0) return { label: `${Math.abs(d)}d overdue`, cls: 'bg-rose-50 text-rose-700 ring-rose-200' }
-      if (d === 0) return { label: 'Due today', cls: 'bg-amber-50 text-amber-700 ring-amber-200' }
-      if (d <= 7) return { label: `in ${d}d`, cls: 'bg-amber-50 text-amber-700 ring-amber-200' }
-      return { label: `in ${d}d`, cls: 'bg-slate-100 text-slate-600 ring-slate-200' }
-    }
-
-    const renderItem = (x: { t: TaskRow; ts: number }) => {
-      const c = countdown(x.ts)
-      return (
-        <li key={x.t.id} className="flex items-center gap-3 px-4 py-3">
-          <span className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${c.cls}`}>{c.label}</span>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium text-slate-800">{x.t.title}</p>
-            <p className="text-xs text-slate-400">
-              {formatDate(x.t.dueDate)} · {x.t.status || 'Open'}
-            </p>
-          </div>
-          {x.t.priority ? <PriorityBadge priority={String(x.t.priority).toLowerCase()} /> : null}
-        </li>
-      )
-    }
-
-    const group = (title: string, items: Array<{ t: TaskRow; ts: number }>, accent: string) =>
-      items.length ? (
-        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-          <div className="flex items-center justify-between border-b border-slate-100 px-4 py-2.5">
-            <h4 className={`text-xs font-semibold uppercase tracking-wide ${accent}`}>{title}</h4>
-            <span className="text-xs text-slate-400">{items.length}</span>
-          </div>
-          <ul className="divide-y divide-slate-100">{items.map(renderItem)}</ul>
-        </div>
-      ) : null
-
-    return (
-      <div className="space-y-4">
-        <div className="grid grid-cols-3 gap-3">
-          <Metric label="Overdue" value={overdue.length} />
-          <Metric label="Due this week" value={soon.length} />
-          <Metric label="Scheduled" value={dated.length} />
-        </div>
-
-        <div className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-50 text-brand-600">
-            <Gavel className="h-5 w-5" />
-          </div>
-          <div className="min-w-0">
-            <p className="text-sm font-semibold text-slate-900">Statute of limitations — {detail.type}</p>
-            <p className="mt-0.5 text-sm text-slate-600">{solText}</p>
-            <p className="mt-1 text-xs text-slate-400">Estimate only: confirm the exact filing deadline against the incident date and venue ({detail.venue}).</p>
-          </div>
-        </div>
-
-        {group('Overdue', overdue, 'text-rose-700')}
-        {group('Due this week', soon, 'text-amber-700')}
-        {group('Upcoming', later, 'text-slate-500')}
-
-        {!dated.length ? <Note>No scheduled task deadlines yet. The statute guidance above still applies. Add case tasks with due dates and they’ll appear here, sorted by urgency.</Note> : null}
-
-        {cc?.nextBestAction ? (
-          <div className="flex items-start gap-2.5 rounded-xl border border-brand-100 bg-brand-50/60 px-4 py-3 text-sm text-slate-700">
-            <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-brand-500" />
-            <div>
-              <span className="font-semibold text-slate-900">Recommended next step · </span>
-              {cc.nextBestAction.title}
-              {cc.nextBestAction.detail ? ` — ${cc.nextBestAction.detail}` : ''}
-            </div>
-          </div>
-        ) : null}
-
-        {undated.length ? (
-          <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 p-4">
-            <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-400">Unscheduled tasks</h4>
-            <ul className="mt-2 space-y-1.5">
-              {undated.map((t) => (
-                <li key={t.id} className="flex items-center gap-2 text-sm text-slate-600">
-                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-slate-300" />
-                  <span className="flex-1 truncate">{t.title}</span>
-                  {t.priority ? <PriorityBadge priority={String(t.priority).toLowerCase()} /> : null}
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-      </div>
-    )
   }
 
   if (tab === 'Settlement') {
@@ -4532,8 +4409,6 @@ function TasksPanel({
       case 'collect_medical_records':
       case 'open_evidence':
         return FolderOpen
-      case 'open_deadlines':
-        return CalendarClock
       case 'open_overview':
       case 'open_task_detail':
         return LayoutDashboard

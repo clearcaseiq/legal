@@ -148,7 +148,7 @@ export default function DeadlinesPage() {
     {
       key: 'case',
       header: 'Case',
-      cell: (r) => <ClientLink name={r.clientName} leadId={r.leadId} section="deadlines" />,
+      cell: (r) => <ClientLink name={r.clientName} leadId={r.leadId} section="overview" />,
     },
     { key: 'claim', header: 'Type', cell: (r) => <span className="text-slate-500">{claimLabel(r.claimType)}</span> },
     { key: 'due', header: 'Due date', cell: (r) => <span className="tabular-nums text-slate-600">{formatDate(r.dueDate)}</span> },

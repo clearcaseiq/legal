@@ -14,6 +14,7 @@ import {
   acceptedCategoriesForRequestKey,
   requestedDocLabel,
   evidenceCategoryForRequestKey,
+  isCustomRequestKey,
   parseRequestedDocs,
 } from '../lib/document-request-status'
 
@@ -356,6 +357,7 @@ async function handleClaimantUpload(req: any, res: any) {
     originalName: req.file.originalname,
     // No doc type means nobody chose a category, so OCR classifies it later.
     category: docType ? evidenceCategoryForRequestKey(docType) : undefined,
+    subcategory: docType && isCustomRequestKey(docType) ? docType : undefined,
     uploadMethod: 'upload_link',
     provenanceSource: portalProvenance(docRequest.id),
     provenanceActor: 'claimant',
