@@ -13,9 +13,9 @@ import { webUrl } from './app-url'
 import { notifyPlaintiffInApp } from './case-notifications'
 import { deliverDirectNotification } from './platform-notifications'
 import {
-  DOCUMENT_REQUEST_LABELS,
   normalizeRequestedDocKeys,
   parseRequestedDocs,
+  requestedDocLabel,
 } from './document-request-status'
 
 export type DocumentRequestAttorney = {
@@ -189,7 +189,7 @@ async function notifyPlaintiffAboutDocumentRequest(params: {
     : 'there'
   const docList =
     docs.length > 0
-      ? docs.map((d) => `• ${DOCUMENT_REQUEST_LABELS[d] || d.replace(/_/g, ' ')}`).join('\n')
+      ? docs.map((d) => `• ${requestedDocLabel(d)}`).join('\n')
       : '• Any documents you have'
   const inAppMsg = `${attorneyName} has requested the following documents:\n\n${docList}${
     customMessage ? `\n\nMessage from your attorney: ${customMessage}` : ''

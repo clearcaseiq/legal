@@ -12,7 +12,10 @@ import {
   ChevronDown,
   ChevronRight,
   Circle,
+  ClipboardList,
   Clock,
+  CloudUpload,
+  Database,
   Download,
   ExternalLink,
   Eye,
@@ -20,11 +23,16 @@ import {
   FolderOpen,
   Gavel,
   Handshake,
+  History,
   Image as ImageIcon,
   Info,
   LayoutDashboard,
+  LayoutGrid,
+  Link2,
   ListChecks,
   Loader2,
+  Mail,
+  MailCheck,
   MapPin,
   MessageSquare,
   PartyPopper,
@@ -41,6 +49,7 @@ import {
   Send,
   Shield,
   ShieldAlert,
+  ShieldCheck,
   Sparkles,
   Stethoscope,
   Merge,
@@ -1882,9 +1891,21 @@ const BLOCKER_SECTIONS: Record<string, { section: string; tab: string }> = {
   medical_specials_missing: { section: 'damages', tab: 'Damages' },
 }
 
+// Keys other surfaces put on a request (Dec Page flow, AI suggestions) that the
+// picker above does not offer.
+const OTHER_REQUEST_LABELS: Record<string, string> = {
+  dec_page: 'Insurance declarations (Dec) page',
+  hipaa: 'HIPAA authorization',
+  product_preservation: 'Product preservation confirmation',
+  other: 'Other documents',
+}
+
+const CUSTOM_REQUEST_PREFIX = 'custom:'
+
 function labelRequestedDoc(idOrLabel: string): string {
+  if (idOrLabel.toLowerCase().startsWith(CUSTOM_REQUEST_PREFIX)) return idOrLabel.slice(CUSTOM_REQUEST_PREFIX.length)
   const hit = REQUESTABLE_DOCS.find((d) => d.id === idOrLabel || d.label === idOrLabel)
-  return hit?.label || idOrLabel
+  return hit?.label || OTHER_REQUEST_LABELS[idOrLabel] || idOrLabel.replace(/_/g, ' ')
 }
 
 function formatRequestedDocs(docs: string[] | null | undefined): string {
@@ -2773,6 +2794,21 @@ function EvidencePanel({
     setRequested((prev) => (prev.includes(docId) ? prev.filter((x) => x !== docId) : [...prev, docId]))
   }
 
+  const [customDocOpen, setCustomDocOpen] = useState(false)
+  const [customDocText, setCustomDocText] = useState('')
+  const addCustomDoc = () => {
+    const text = customDocText.replace(/\s+/g, ' ').trim().slice(0, 120)
+    if (!text) return
+    const key = `${CUSTOM_REQUEST_PREFIX}${text}`
+    if (pendingRequestedKeys.has(key)) {
+      setBanner({ tone: 'err', text: `"${text}" is already in an open request. Use Nudge instead.` })
+      return
+    }
+    setRequested((prev) => (prev.includes(key) ? prev : [...prev, key]))
+    setCustomDocText('')
+    setCustomDocOpen(false)
+  }
+
   const submitRequest = async () => {
     const fresh = requested.filter((id) => !pendingRequestedKeys.has(id))
     if (!requested.length) {
@@ -2937,7 +2973,7 @@ function EvidencePanel({
     return (
       <li
         key={doc.id}
-        className={`flex items-center justify-between gap-3 px-3 py-2.5 transition ${
+        className={`flex items-center justify-between gap-3 px-3 py-3 transition ${
           isSelected ? 'bg-brand-50/60' : 'hover:bg-slate-50/70'
         }`}
       >
@@ -2952,10 +2988,10 @@ function EvidencePanel({
           <button
             type="button"
             onClick={() => setPreviewDoc(doc)}
-            className="relative grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-md border border-slate-200 bg-slate-50"
+            className="relative grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-lg bg-brand-50"
             title="Preview"
           >
-            {isImage ? <ImageIcon className="h-4 w-4 text-brand-500" /> : <FileText className="h-4 w-4 text-slate-400" />}
+            {isImage ? <ImageIcon className="h-5 w-5 text-brand-500" /> : <FileText className="h-5 w-5 text-brand-500" />}
             {isImage && href ? (
               <img
                 src={href}
@@ -2972,31 +3008,30 @@ function EvidencePanel({
             <button
               type="button"
               onClick={() => setPreviewDoc(doc)}
-              className="block max-w-full truncate text-left text-sm font-medium text-slate-800 hover:text-brand-700"
+              className="block max-w-full truncate text-left text-sm font-semibold text-slate-800 hover:text-brand-700"
             >
               {doc.originalName || doc.filename || 'Document'}
             </button>
-            <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-slate-400">
+            <p className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
               <span className="capitalize">{evidenceCategoryLabel(doc.category)}</span>
               {doc.size ? <span>· {formatSize(doc.size)}</span> : null}
               {doc.createdAt ? <span>· {formatDate(doc.createdAt)}</span> : null}
-              <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${STATUS_BADGE[source.tone]}`}>{source.label}</span>
+              <span className={`ml-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${STATUS_BADGE[source.tone]}`}>{source.label}</span>
               {doc.identityCheck?.verdict === 'mismatch' ? (
                 <span
-                  className="inline-flex items-center gap-0.5 rounded bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700"
+                  className="inline-flex items-center gap-0.5 rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-700"
                   title={`Names ${doc.identityCheck.documentName}, not ${doc.identityCheck.claimantName}`}
                 >
                   <AlertTriangle className="h-3 w-3" /> Different name
                 </span>
               ) : null}
               {hasAi ? (
-                <span className="inline-flex items-center gap-0.5 rounded bg-violet-50 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700">
+                <span className="inline-flex items-center gap-0.5 rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-700">
                   <Sparkles className="h-3 w-3" /> AI
                 </span>
               ) : null}
               {evidenceExtractedTotal(doc) != null ? (
-                <span className="inline-flex items-center gap-0.5 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
-                  <Receipt className="h-3 w-3" />
+                <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
                   {moneyShort(evidenceExtractedTotal(doc)!)}
                 </span>
               ) : null}
@@ -3006,8 +3041,11 @@ function EvidencePanel({
         <div className="flex shrink-0 items-center gap-1">
           {/* Fixed status width so Verified / Processing lines up across rows. */}
           <span
-            className={`mr-1 inline-flex min-w-[4.75rem] justify-center rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_BADGE[tone]}`}
+            className={`mr-2 inline-flex min-w-[5.5rem] items-center justify-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold ${STATUS_BADGE[tone]} ${
+              tone === 'success' ? 'border-emerald-200' : 'border-transparent'
+            }`}
           >
+            {tone === 'success' ? <CheckCircle2 className="h-3.5 w-3.5 fill-emerald-500 text-white" /> : null}
             {evidenceStatusLabel(doc.processingStatus)}
           </span>
           {/* Always reserve the damages-action slot so optional $ doesn't shift peers. */}
@@ -3083,30 +3121,36 @@ function EvidencePanel({
         </div>
       ) : null}
 
-      {/* Evidence coverage + at-a-glance stats */}
-      <div className="rounded-xl border border-slate-200 bg-white p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <ListChecks className="h-4 w-4 text-brand-600" />
-            <p className="text-sm font-semibold text-slate-800">Evidence coverage</p>
-            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600">
-              {coverageMet}/{COVERAGE_CHECKLIST.length} core docs
-            </span>
+      <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex items-center gap-3">
+          <span className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-brand-50">
+            <FileText className="h-6 w-6 text-brand-600" />
+          </span>
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900">Evidence</h2>
+            <p className="text-sm text-slate-500">Upload documents, request records, and track the case file.</p>
           </div>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
-            <span>
-              <span className="font-semibold text-slate-800">{docs.length}</span> documents
-            </span>
-            {totalSize ? (
-              <span>
-                <span className="font-semibold text-slate-800">{formatSize(totalSize)}</span> total
-              </span>
-            ) : null}
-            <span>
-              <span className="font-semibold text-slate-800">{presentCats.size}</span> categories
-            </span>
-            {lastUpload ? <span>Updated {formatDate(new Date(lastUpload).toISOString())}</span> : null}
-          </div>
+        </div>
+        <div className="flex flex-wrap items-stretch divide-x divide-slate-200 rounded-xl bg-slate-50 px-1 py-2">
+          <EvidenceStat icon={FileText} value={docs.length} label="Documents" />
+          <EvidenceStat icon={Database} value={totalSize ? formatSize(totalSize) : '—'} label="Total size" />
+          <EvidenceStat icon={LayoutGrid} value={presentCats.size} label="Categories" />
+          <EvidenceStat
+            icon={History}
+            value={lastUpload ? formatDate(new Date(lastUpload).toISOString()) : '—'}
+            label="Updated"
+            labelFirst
+          />
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex flex-wrap items-center gap-2">
+          <ClipboardList className="h-5 w-5 text-brand-600" />
+          <p className="text-base font-semibold text-slate-900">Evidence coverage</p>
+          <span className="rounded-full bg-brand-50 px-2.5 py-0.5 text-xs font-semibold text-brand-700">
+            {coverageMet}/{COVERAGE_CHECKLIST.length} case docs
+          </span>
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
           {COVERAGE_CHECKLIST.map((c) => {
@@ -3123,17 +3167,17 @@ function EvidencePanel({
             return have ? (
               <span
                 key={c.id}
-                className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700"
+                className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-800"
               >
-                <Check className="h-3.5 w-3.5" />
+                <CheckCircle2 className="h-4 w-4 fill-emerald-500 text-white" />
                 {c.label}
-                <span className="text-emerald-500">· {catCounts[c.id] || 0}</span>
+                <span className="text-emerald-600">· {catCounts[c.id] || 0}</span>
               </span>
             ) : withheld ? (
               <span
                 key={c.id}
                 title={medicalSharing?.message || undefined}
-                className="inline-flex items-center gap-1.5 rounded-full border border-brand-200 bg-brand-50 px-2.5 py-1 text-xs font-medium text-brand-700"
+                className="inline-flex items-center gap-1.5 rounded-full border border-brand-200 bg-brand-50 px-3 py-1.5 text-sm font-medium text-brand-700"
               >
                 <Shield className="h-3.5 w-3.5" />
                 {c.label}
@@ -3143,7 +3187,7 @@ function EvidencePanel({
               <span
                 key={c.id}
                 title={`${c.label} is already requested — nudge the client from Request from client`}
-                className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700"
+                className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-700"
               >
                 <Send className="h-3.5 w-3.5" />
                 {c.label}
@@ -3155,11 +3199,11 @@ function EvidencePanel({
                 type="button"
                 onClick={() => requestCategory(c.req)}
                 title={`Request ${c.label} from ${clientName || 'the client'}`}
-                className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-500 transition hover:border-brand-300 hover:text-brand-700"
+                className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm transition hover:border-brand-300 hover:text-brand-700"
               >
-                <Plus className="h-3.5 w-3.5" />
+                <Plus className="h-4 w-4 text-slate-500" />
                 {c.label}
-                <span className="text-slate-400">· request</span>
+                <span className="text-[11px] font-normal text-slate-400">Required</span>
               </button>
             )
           })}
@@ -3181,37 +3225,52 @@ function EvidencePanel({
         const ready = docs.filter((d) => damagesPayloadForEvidence(d) && !addedDamageIds.has(d.id))
         if (!ready.length) return null
         return (
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-4">
-            <div className="flex flex-wrap items-start justify-between gap-2">
+          <div className="relative overflow-hidden rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-4 shadow-sm">
+            <Receipt
+              className="pointer-events-none absolute -right-2 -top-3 hidden h-24 w-24 rotate-12 text-emerald-200/70 sm:block"
+              aria-hidden
+            />
+            <div className="relative flex items-start gap-3">
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-emerald-600 shadow-sm">
+                <ShieldCheck className="h-5 w-5 text-white" />
+              </span>
               <div>
-                <p className="text-sm font-semibold text-emerald-900">Amounts ready for the damages ledger</p>
-                <p className="mt-0.5 text-xs text-emerald-800/80">
+                <p className="text-base font-semibold text-slate-900">Amounts ready for the damages ledger</p>
+                <p className="mt-0.5 text-sm text-slate-500">
                   OCR pulled totals from medical bills / wage docs. Add them as line items on Damages.
                 </p>
               </div>
             </div>
-            <ul className="mt-3 space-y-2">
+            <ul className="relative mt-4 space-y-2">
               {ready.slice(0, 6).map((d) => {
                 const p = damagesPayloadForEvidence(d)!
                 const label =
                   p.category === 'lost_wages' ? 'Wage loss' : p.category === 'medical' ? 'Medical' : 'Other'
                 return (
-                  <li key={d.id} className="flex items-center justify-between gap-3 rounded-lg bg-white/80 px-3 py-2">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium text-slate-800">
-                        {d.originalName || d.filename || 'Document'}
-                      </p>
-                      <p className="text-xs text-slate-500">
-                        {label} · {moneyShort(p.amount)}
-                      </p>
+                  <li
+                    key={d.id}
+                    className="flex items-center justify-between gap-3 rounded-xl border border-emerald-100 bg-white px-3 py-2.5 shadow-sm"
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-emerald-50">
+                        <FileText className="h-4 w-4 text-emerald-600" />
+                      </span>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-slate-800">
+                          {d.originalName || d.filename || 'Document'}
+                        </p>
+                        <p className="text-xs text-slate-500">
+                          {label} · {moneyShort(p.amount)}
+                        </p>
+                      </div>
                     </div>
                     <button
                       type="button"
                       onClick={() => void handleAddToDamages(d)}
                       disabled={addingDamageId === d.id}
-                      className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                      className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50"
                     >
-                      {addingDamageId === d.id ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
+                      {addingDamageId === d.id ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
                       Add
                     </button>
                   </li>
@@ -3231,16 +3290,24 @@ function EvidencePanel({
           }}
           onDragLeave={() => setDragOver(false)}
           onDrop={handleDrop}
-          className={`rounded-xl border p-4 transition ${dragOver ? 'border-brand-400 bg-brand-50/60' : 'border-slate-200 bg-white'}`}
+          className={`rounded-2xl border p-4 shadow-sm transition ${dragOver ? 'border-brand-400 bg-brand-50/60' : 'border-slate-200 bg-white'}`}
         >
-          <p className="text-sm font-semibold text-slate-800">Add a document</p>
-          <div className="mt-3 flex flex-wrap gap-3">
-            <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+          <div className="flex items-start gap-3">
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-brand-600 shadow-sm">
+              <CloudUpload className="h-5 w-5 text-white" />
+            </span>
+            <div>
+              <p className="text-base font-semibold text-slate-900">Add a document</p>
+              <p className="text-sm text-slate-500">Upload files or drag and drop. Supports PDF, DOC, DOCX, images.</p>
+            </div>
+          </div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <label className="flex flex-col gap-1 text-xs font-medium text-slate-600">
               Category
               <select
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
-                className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm text-slate-800 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
+                className="rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-sm text-slate-800 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
               >
                 {UPLOAD_CATEGORIES.map((c) => (
                   <option key={c.id} value={c.id}>
@@ -3249,14 +3316,14 @@ function EvidencePanel({
                 ))}
               </select>
             </label>
-            <label className="flex min-w-[10rem] flex-1 flex-col gap-1 text-xs font-medium text-slate-500">
+            <label className="flex flex-col gap-1 text-xs font-medium text-slate-600">
               Description (optional)
               <input
                 type="text"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                placeholder="Brief description"
-                className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm text-slate-800 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
+                placeholder="Brief description…"
+                className="rounded-lg border border-slate-200 px-2.5 py-2 text-sm text-slate-800 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
               />
             </label>
           </div>
@@ -3272,19 +3339,27 @@ function EvidencePanel({
             type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={uploading}
-            className="mt-3 flex w-full flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-slate-200 px-4 py-6 text-center transition hover:border-brand-300 hover:bg-slate-50 disabled:opacity-50"
+            className="mt-3 flex w-full flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/50 px-4 py-7 text-center transition hover:border-brand-300 hover:bg-brand-50/40 disabled:opacity-50"
           >
-            <Upload className={`h-5 w-5 ${dragOver ? 'text-brand-500' : 'text-slate-400'}`} />
-            <span className="text-sm font-medium text-slate-600">
+            <CloudUpload className="h-7 w-7 text-brand-500" />
+            <span className="text-sm font-semibold text-slate-700">
               {uploading ? 'Uploading…' : dragOver ? 'Drop to upload' : 'Drag & drop or click to upload'}
             </span>
             <span className="text-xs text-slate-400">PDF, DOC, or images · up to 10 files · max {MAX_UPLOAD_MB} MB each · category “{UPLOAD_CATEGORIES.find((c) => c.id === category)?.label || category}”</span>
           </button>
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-white p-4">
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-semibold text-slate-800">Request from client</p>
+        <div className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-brand-600 shadow-sm">
+                <Send className="h-5 w-5 text-white" />
+              </span>
+              <div>
+                <p className="text-base font-semibold text-slate-900">Request from client</p>
+                <p className="text-sm text-slate-500">Send the client a secure upload link for records, bills, and photos.</p>
+              </div>
+            </div>
             {requestOpen ? (
               <button
                 type="button"
@@ -3321,7 +3396,70 @@ function EvidencePanel({
                     </button>
                   )
                 })}
+                {requested
+                  .filter((id) => id.startsWith(CUSTOM_REQUEST_PREFIX))
+                  .map((id) => (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => toggleReq(id)}
+                      title="Remove"
+                      className="inline-flex items-center gap-1 rounded-full border border-brand-400 bg-brand-50 px-2.5 py-1 text-xs font-medium text-brand-700"
+                    >
+                      {labelRequestedDoc(id)}
+                      <X className="h-3 w-3" aria-hidden />
+                    </button>
+                  ))}
+                {customDocOpen ? null : (
+                  <button
+                    type="button"
+                    onClick={() => setCustomDocOpen(true)}
+                    className="inline-flex items-center gap-1 rounded-full border border-dashed border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 hover:border-brand-300 hover:text-brand-700"
+                  >
+                    <Plus className="h-3 w-3" aria-hidden />
+                    Other…
+                  </button>
+                )}
               </div>
+              {customDocOpen ? (
+                <div className="flex items-center gap-2">
+                  <input
+                    autoFocus
+                    value={customDocText}
+                    onChange={(e) => setCustomDocText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        addCustomDoc()
+                      } else if (e.key === 'Escape') {
+                        setCustomDocOpen(false)
+                        setCustomDocText('')
+                      }
+                    }}
+                    maxLength={120}
+                    placeholder="Describe the document, e.g. Rideshare trip receipt"
+                    className="min-w-0 flex-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm text-slate-800 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
+                  />
+                  <button
+                    type="button"
+                    onClick={addCustomDoc}
+                    disabled={!customDocText.trim()}
+                    className="rounded-lg border border-brand-600 px-3 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-50 disabled:opacity-50"
+                  >
+                    Add
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCustomDocOpen(false)
+                      setCustomDocText('')
+                    }}
+                    className="text-xs font-semibold text-slate-500 hover:text-slate-700"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : null}
               <textarea
                 value={requestMessage}
                 onChange={(e) => setRequestMessage(e.target.value)}
@@ -3360,30 +3498,34 @@ function EvidencePanel({
               </div>
             </div>
           ) : (
-            <div className="mt-2">
-              <p className="text-xs text-slate-400">
-                Send the client a secure upload link for records, bills, and photos.
-              </p>
+            <div className="mt-4">
               {/* Both channels are named up front. Hiding the text option behind
                   the form made attorneys assume it did not exist. */}
-              <div className="mt-2.5 flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   onClick={() => openRequestForm('email')}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:border-brand-300 hover:text-brand-700"
+                  className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:border-brand-300 hover:text-brand-700"
                 >
-                  <Send className="h-3.5 w-3.5" />
+                  <Mail className="h-4 w-4 text-brand-600" />
                   Email request
                 </button>
                 <button
                   type="button"
                   onClick={() => openRequestForm('text')}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:border-brand-300 hover:text-brand-700"
+                  className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:border-brand-300 hover:text-brand-700"
                 >
-                  <MessageSquare className="h-3.5 w-3.5" />
+                  <Link2 className="h-4 w-4 text-brand-600" />
                   Text request
                 </button>
               </div>
+              {openRequests.length === 0 ? (
+                <div className="pointer-events-none mt-2 hidden justify-end sm:flex" aria-hidden>
+                  <span className="grid h-24 w-24 place-items-center rounded-full bg-brand-50/70 ring-8 ring-brand-50/40">
+                    <MailCheck className="h-11 w-11 text-brand-400" />
+                  </span>
+                </div>
+              ) : null}
             </div>
           )}
 
@@ -3433,15 +3575,20 @@ function EvidencePanel({
       <input ref={replaceInputRef} type="file" onChange={handleReplaceFile} className="hidden" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif,.webp,.txt" />
 
       {/* Document list + toolbar */}
-      <div>
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="mb-3 flex flex-wrap items-center gap-2">
-          <p className="mr-auto text-sm font-semibold text-slate-800">
-            Documents{' '}
-            <span className="text-slate-400">
-              ({visibleDocs.length}
-              {visibleDocs.length !== docs.length ? ` of ${docs.length}` : ''})
+          <div className="mr-auto flex items-center gap-2.5">
+            <span className="grid h-8 w-8 place-items-center rounded-lg bg-brand-50">
+              <FileText className="h-4 w-4 text-brand-600" />
             </span>
-          </p>
+            <p className="text-base font-semibold text-slate-900">
+              Documents{' '}
+              <span className="font-normal text-slate-400">
+                ({visibleDocs.length}
+                {visibleDocs.length !== docs.length ? ` of ${docs.length}` : ''})
+              </span>
+            </p>
+          </div>
           <div className="relative">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
             <input
@@ -3449,7 +3596,7 @@ function EvidencePanel({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search files"
-              className="w-40 rounded-lg border border-slate-200 py-1.5 pl-8 pr-2.5 text-sm text-slate-800 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
+              className="w-48 rounded-lg border border-slate-200 py-1.5 pl-8 pr-2.5 text-sm text-slate-800 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
             />
           </div>
           <select
@@ -3497,7 +3644,7 @@ function EvidencePanel({
 
         {/* Bulk selection bar */}
         {visibleDocs.length > 0 ? (
-          <div className="mb-2 flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 text-sm">
+          <div className="flex flex-wrap items-center gap-3 border-b border-slate-100 px-3 py-2.5 text-sm">
             <label className="inline-flex items-center gap-2 font-medium text-slate-600">
               <input
                 type="checkbox"
@@ -3545,7 +3692,7 @@ function EvidencePanel({
         ) : visibleDocs.length === 0 ? (
           <EmptyState message="No documents match your search or filter." />
         ) : groupByCategory ? (
-          <div className="space-y-3">
+          <div className="mt-3 space-y-3">
             {groupedDocs.map((group) => {
               const isCollapsed = collapsed.has(group.cat)
               return (
@@ -3571,9 +3718,7 @@ function EvidencePanel({
             })}
           </div>
         ) : (
-          <ul className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-white">
-            {visibleDocs.map((doc) => renderRow(doc))}
-          </ul>
+          <ul className="divide-y divide-slate-100">{visibleDocs.map((doc) => renderRow(doc))}</ul>
         )}
       </div>
 
@@ -3670,6 +3815,28 @@ function EvidencePanel({
         }}
         onCancel={() => setPendingDelete(null)}
       />
+    </div>
+  )
+}
+
+function EvidenceStat({
+  icon: Icon,
+  value,
+  label,
+  labelFirst = false,
+}: {
+  icon: ComponentType<{ className?: string }>
+  value: ReactNode
+  label: string
+  labelFirst?: boolean
+}) {
+  return (
+    <div className="flex items-center gap-2.5 px-4">
+      <Icon className="h-5 w-5 shrink-0 text-slate-500" />
+      <div className={`flex ${labelFirst ? 'flex-col-reverse' : 'flex-col'}`}>
+        <span className="text-sm font-semibold leading-tight text-slate-900">{value}</span>
+        <span className="text-[11px] leading-tight text-slate-500">{label}</span>
+      </div>
     </div>
   )
 }

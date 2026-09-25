@@ -94,10 +94,36 @@ const REQUEST_KEY_ALIASES: Record<string, string> = {
   'other documents': 'other',
 }
 
+/**
+ * Attorney-written request items ("custom:Rideshare trip receipt") for documents
+ * the preset list does not cover. The text after the prefix is shown to the
+ * client verbatim, and an upload filed as `other` after the request satisfies it.
+ */
+export const CUSTOM_REQUEST_PREFIX = 'custom:'
+const CUSTOM_REQUEST_MAX_LENGTH = 120
+
+export function isCustomRequestKey(key: string): boolean {
+  return (key || '').toLowerCase().startsWith(CUSTOM_REQUEST_PREFIX)
+}
+
+/** Client-facing name for a requested-doc key, including custom items. */
+export function requestedDocLabel(key: string): string {
+  if (isCustomRequestKey(key)) return key.slice(CUSTOM_REQUEST_PREFIX.length)
+  return DOCUMENT_REQUEST_LABELS[key] || key.replace(/[_-]+/g, ' ')
+}
+
 /** Resolve a requested-doc entry to its canonical key, tolerating labels. */
 export function normalizeRequestedDocKey(value: string): string {
   const raw = (value || '').trim()
   if (!raw) return raw
+  if (isCustomRequestKey(raw)) {
+    const text = raw
+      .slice(CUSTOM_REQUEST_PREFIX.length)
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, CUSTOM_REQUEST_MAX_LENGTH)
+    return text ? `${CUSTOM_REQUEST_PREFIX}${text}` : ''
+  }
   if (DOCUMENT_REQUEST_CATEGORY_MAP[raw] || DOCUMENT_REQUEST_LABELS[raw]) return raw
   const collapsed = raw.toLowerCase().replace(/\s+/g, ' ')
   const aliased = REQUEST_KEY_ALIASES[collapsed]
@@ -113,7 +139,7 @@ export function normalizeRequestedDocKeys(values: unknown): string[] {
   for (const value of values) {
     if (typeof value !== 'string' || !value.trim()) continue
     const key = normalizeRequestedDocKey(value)
-    if (seen.has(key)) continue
+    if (!key || seen.has(key)) continue
     seen.add(key)
     out.push(key)
   }
@@ -132,6 +158,7 @@ export function parseRequestedDocs(value: string | null | undefined): string[] {
 
 /** Categories that satisfy a requested-doc key (includes the key itself). */
 export function acceptedCategoriesForRequestKey(key: string): string[] {
+  if (isCustomRequestKey(key)) return ['other']
   const accepted = DOCUMENT_REQUEST_CATEGORY_MAP[key] || []
   return accepted.length ? Array.from(new Set([key, ...accepted])) : [key]
 }
@@ -148,6 +175,7 @@ export function acceptedCategoriesForRequestKey(key: string): string[] {
  */
 export function evidenceCategoryForRequestKey(key: string): string {
   const normalized = normalizeRequestedDocKey(key)
+  if (isCustomRequestKey(normalized)) return 'other'
   return DOCUMENT_REQUEST_CATEGORY_MAP[normalized]?.[0] || normalized || 'other'
 }
 

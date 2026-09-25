@@ -52,7 +52,7 @@ import { syncCaseStage } from '../lib/case-stage'
 import { runCaseRecalculation } from '../lib/case-recalculation'
 import { buildCaseValueHistory } from '../lib/case-value-history'
 import {
-  DOCUMENT_REQUEST_LABELS,
+  requestedDocLabel,
   isRequestedDocFulfilled,
   parseRequestedDocs,
 } from '../lib/document-request-status'
@@ -892,7 +892,7 @@ router.get('/:id/document-requests', authMiddleware, async (req: AuthRequest, re
         })
         return {
           key,
-          label: DOCUMENT_REQUEST_LABELS[key] || key.replace(/_/g, ' '),
+          label: requestedDocLabel(key),
           fulfilled,
         }
       })

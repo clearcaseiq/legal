@@ -12,7 +12,7 @@ import { ensureSignedFile } from '../lib/esign/esign-service'
 import { fanOutCaseUpdates, fileClaimantEvidence, MAX_EVIDENCE_BYTES } from '../lib/evidence-intake'
 import {
   acceptedCategoriesForRequestKey,
-  DOCUMENT_REQUEST_LABELS,
+  requestedDocLabel,
   evidenceCategoryForRequestKey,
   parseRequestedDocs,
 } from '../lib/document-request-status'
@@ -183,7 +183,7 @@ async function claimantPortalPayload(docRequest: Awaited<ReturnType<typeof loadR
     status: docRequest.status,
     requestedDocs: parseRequestedDocs(docRequest.requestedDocs).map((key) => ({
       key,
-      label: DOCUMENT_REQUEST_LABELS[key] || key,
+      label: requestedDocLabel(key),
       fulfilled: acceptedCategoriesForRequestKey(key).some((category) => uploadedCategories.has(category)),
     })),
     uploads: uploads.map((file) => ({

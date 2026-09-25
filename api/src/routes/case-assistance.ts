@@ -60,6 +60,7 @@ import { checkUplBoundary, describeUplViolations } from '../lib/upl-guard'
 import { parseCaseFacts } from '../lib/case-facts'
 import {
   DOCUMENT_REQUEST_LABELS,
+  requestedDocLabel,
   normalizeRequestedDocKey,
   normalizeRequestedDocKeys,
 } from '../lib/document-request-status'
@@ -1426,7 +1427,7 @@ router.post('/:id/document-request', async (req: AuthRequest, res) => {
     // upload page and the attorney's note use, rather than a de-slugged key.
     const docs = normalizeRequestedDocKeys(parsed.data.docs)
     const message = parsed.data.message
-    const docNames = docs.map((doc) => DOCUMENT_REQUEST_LABELS[doc] || doc.replace(/[_-]+/g, ' '))
+    const docNames = docs.map(requestedDocLabel)
     const labels = docNames.join(', ')
     const specialist = specialistNameOf(req.user) || 'Your ClearCaseIQ case specialist'
 

@@ -1,0 +1,47 @@
+import { describe, expect, it, vi } from 'vitest'
+
+vi.mock('./prisma', () => ({ prisma: {} }))
+
+import {
+  acceptedCategoriesForRequestKey,
+  computeRequestStatus,
+  evidenceCategoryForRequestKey,
+  normalizeRequestedDocKeys,
+  requestedDocLabel,
+} from './document-request-status'
+
+describe('custom request items', () => {
+  it('keeps the attorney wording, collapsing whitespace', () => {
+    expect(normalizeRequestedDocKeys(['custom:  Rideshare   trip receipt '])).toEqual(['custom:Rideshare trip receipt'])
+  })
+
+  it('drops an empty custom item and dedupes repeats', () => {
+    expect(normalizeRequestedDocKeys(['custom:   ', 'custom:Gym log', 'custom:Gym log', 'bills'])).toEqual([
+      'custom:Gym log',
+      'bills',
+    ])
+  })
+
+  it('caps the text length', () => {
+    const [key] = normalizeRequestedDocKeys([`custom:${'x'.repeat(300)}`])
+    expect(key).toHaveLength('custom:'.length + 120)
+  })
+
+  it('labels a custom item with its own text', () => {
+    expect(requestedDocLabel('custom:Rideshare trip receipt')).toBe('Rideshare trip receipt')
+    expect(requestedDocLabel('dec_page')).toBe('Insurance declarations (Dec) page')
+    expect(requestedDocLabel('some_unknown_key')).toBe('some unknown key')
+  })
+
+  it('files and fulfils a custom item under the other category', () => {
+    expect(evidenceCategoryForRequestKey('custom:Gym log')).toBe('other')
+    expect(acceptedCategoriesForRequestKey('custom:Gym log')).toEqual(['other'])
+
+    const requestedAt = new Date('2026-09-01T00:00:00Z')
+    const after = new Date('2026-09-02T00:00:00Z')
+    expect(computeRequestStatus(['custom:Gym log'], [], requestedAt)).toBe('pending')
+    expect(computeRequestStatus(['custom:Gym log'], [{ category: 'other', createdAt: after }], requestedAt)).toBe(
+      'completed',
+    )
+  })
+})

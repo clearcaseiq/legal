@@ -15,7 +15,7 @@ import { isSmsSuppressed } from './sms-opt-out'
 import { bindCasePhone, claimantPhoneForAssessment } from './case-phone-binding'
 import { createAndNotifyPlaintiffDocumentRequest, DocumentRequestAttorney } from './document-request-create'
 import { webUrl } from './app-url'
-import { DOCUMENT_REQUEST_LABELS, normalizeRequestedDocKeys } from './document-request-status'
+import { normalizeRequestedDocKeys, requestedDocLabel } from './document-request-status'
 
 export type DocumentRequestTextOutcome =
   | 'sent'
@@ -73,7 +73,7 @@ export function documentRequestSmsBody(params: {
   const first = (params.firstName || '').trim()
   const greeting = first ? `Hi ${first}, ` : ''
 
-  const labels = params.docs.map((key) => DOCUMENT_REQUEST_LABELS[key] || key.replace(/_/g, ' '))
+  const labels = params.docs.map(requestedDocLabel)
   const listed = labels.slice(0, MAX_LISTED_DOCS)
   const remainder = labels.length - listed.length
   const list = listed.length
