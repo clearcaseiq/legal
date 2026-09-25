@@ -228,6 +228,11 @@ export type PlaintiffDocumentRequest = {
     key: string
     label: string
     fulfilled: boolean
+    uploadedCount?: number
+    /** Category an upload answering this item should be filed under. */
+    uploadCategory?: string
+    /** Tag naming the item, for custom items that share the `other` category. */
+    uploadSubcategory?: string | null
   }>
   fulfilledDocs: string[]
   remainingDocs: string[]
@@ -1819,6 +1824,44 @@ export async function getFirmNewLeads(): Promise<{ active: FirmNewLead[]; expire
   return data
 }
 
+export type FirmNewLeadDetail = {
+  assessmentId: string
+  referenceCode: string | null
+  claimType: string
+  venueState: string
+  venueCounty: string | null
+  caseName: string | null
+  createdAt: string | null
+  incident: { date: string | null; narrative: string | null }
+  summary: {
+    severity: { label: string; score: number }
+    estimatedValue: { low: number; expected: number; high: number }
+    liability: { grade: string; score: number }
+    caseStrength: number
+    sol: { daysRemaining: number | null; expiresAt: string | null; status: string }
+    documentation: { score: number; grade: string }
+  } | null
+  known: Array<{ key: string; label: string; value: string; detail?: string }>
+  gaps: Array<{ key: string; label: string; severity: number }>
+  evidenceCounts: Record<string, number>
+  prediction: { viability: any; bands: any } | null
+  offers: Array<{
+    id: string
+    status: string
+    attorney: { id: string; name: string } | null
+    waveNumber: number
+    routedAt: string | null
+    respondedAt: string | null
+    requestedInfoNotes: string | null
+  }>
+}
+
+// De-identified detail of one routed lead, for intake staff review.
+export async function getFirmNewLeadDetail(assessmentId: string): Promise<FirmNewLeadDetail> {
+  const { data } = await api.get(`/v1/firm-dashboard/new-leads/${encodeURIComponent(assessmentId)}`)
+  return data
+}
+
 // Per-team caseload aggregation (+ office capacity utilization). Firm-admin scoped.
 export async function getFirmTeamCaseload() {
   const { data } = await api.get(`/v1/firm-dashboard/teams/caseload`)
@@ -3230,6 +3273,28 @@ export async function updateLeadTask(leadId: string, taskId: string, payload: an
 
 export async function deleteLeadTask(leadId: string, taskId: string) {
   const { data } = await api.delete(`/v1/attorney-dashboard/leads/${leadId}/tasks/${taskId}`)
+  return data
+}
+
+export type DeletedLeadTask = {
+  id: string
+  title: string
+  priority?: string | null
+  dueDate?: string | null
+  assignedTo?: string | null
+  deletedAt?: string | null
+  deletedByName?: string | null
+}
+
+/** Soft-deleted tasks for a case, newest first. */
+export async function getDeletedLeadTasks(leadId: string): Promise<DeletedLeadTask[]> {
+  const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/tasks/deleted`)
+  return Array.isArray(data?.tasks) ? data.tasks : []
+}
+
+/** Put a deleted task back in the Tasks list with its previous status. */
+export async function restoreLeadTask(leadId: string, taskId: string) {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/tasks/${taskId}/restore`)
   return data
 }
 

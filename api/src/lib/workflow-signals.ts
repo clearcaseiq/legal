@@ -220,7 +220,7 @@ export async function loadSignalContext(assessmentId: string): Promise<SignalCon
     // Evidence uploaded directly (no formal document request) still counts toward
     // the "documents complete" Auto milestone (CP-581).
     (prisma as any).evidenceFile.count({ where: { assessmentId } }).catch(() => 0),
-    (prisma as any).caseTask.count({ where: treatmentTaskFilter }).catch(() => 0),
+    (prisma as any).caseTask.count({ where: { ...treatmentTaskFilter, status: { not: 'deleted' } } }).catch(() => 0),
     (prisma as any).caseTask
       .count({ where: { ...treatmentTaskFilter, status: { in: ['open', 'in_progress'] } } })
       .catch(() => 0),

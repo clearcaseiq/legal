@@ -5,7 +5,10 @@ vi.mock('./prisma', () => ({ prisma: {} }))
 import {
   acceptedCategoriesForRequestKey,
   computeRequestStatus,
+  countRequestUploads,
+  countUploadsForRequest,
   evidenceCategoryForRequestKey,
+  requestUploadSubcategory,
   isRequestedDocFulfilled,
   normalizeRequestedDocKeys,
   requestedDocLabel,
@@ -60,5 +63,50 @@ describe('custom request items', () => {
 
     const bothTagged = [...oneTagged, { category: 'other', subcategory: 'custom:rideshare receipt', createdAt: after }]
     expect(computeRequestStatus(keys, bothTagged, requestedAt)).toBe('completed')
+  })
+})
+
+describe('witness statement requests', () => {
+  const requestedAt = new Date('2026-09-01T00:00:00Z')
+  const after = new Date('2026-09-02T00:00:00Z')
+  const witnessUpload = { category: 'witness_statements', subcategory: 'statements', createdAt: after }
+
+  it('normalizes the label, singular or plural, to the preset key', () => {
+    expect(normalizeRequestedDocKeys(['Witness statement', 'witness_statement'])).toEqual(['witness_statements'])
+    expect(evidenceCategoryForRequestKey('witness_statements')).toBe('witness_statements')
+  })
+
+  it('is fulfilled by an upload into the Witness Statements slot', () => {
+    expect(computeRequestStatus(['witness_statements'], [witnessUpload], requestedAt)).toBe('completed')
+  })
+
+  it('lets a custom item worded as a preset accept that preset slot', () => {
+    expect(computeRequestStatus(['custom:Witness statement'], [witnessUpload], requestedAt)).toBe('completed')
+    const taggedElsewhere = { ...witnessUpload, subcategory: 'custom:Gym log' }
+    expect(computeRequestStatus(['custom:Witness statement'], [taggedElsewhere], requestedAt)).toBe('pending')
+  })
+
+  it('counts the uploads answering a request', () => {
+    const files = [witnessUpload, { ...witnessUpload }, { category: 'bills', createdAt: after }]
+    expect(countUploadsForRequest(['witness_statements'], files, requestedAt)).toBe(2)
+    expect(countUploadsForRequest(['witness_statements', 'bills'], files, requestedAt)).toBe(3)
+  })
+})
+
+describe('free-text request items', () => {
+  const requestedAt = new Date('2026-09-01T00:00:00Z')
+  const after = new Date('2026-09-02T00:00:00Z')
+
+  it('files under other, tagged with the item text', () => {
+    expect(evidenceCategoryForRequestKey('Rental car receipt')).toBe('other')
+    expect(requestUploadSubcategory('Rental car receipt')).toBe('custom:Rental car receipt')
+    expect(requestUploadSubcategory('custom:Gym log')).toBe('custom:Gym log')
+    expect(requestUploadSubcategory('bills')).toBeNull()
+  })
+
+  it('is fulfilled by an other upload tagged for it', () => {
+    const tagged = [{ category: 'other', subcategory: 'custom:Rental car receipt', createdAt: after }]
+    expect(computeRequestStatus(['Rental car receipt'], tagged, requestedAt)).toBe('completed')
+    expect(countRequestUploads({ key: 'Rental car receipt', evidenceFiles: tagged, requestCreatedAt: requestedAt })).toBe(1)
   })
 })

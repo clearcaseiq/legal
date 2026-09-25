@@ -59,7 +59,7 @@ import {
   sendProviderLetter,
   signedHipaaEnvelope,
 } from '../lib/representation-letters'
-import { syncPlaintiffDocumentRequestStatuses, computeRequestStatus, parseRequestedDocs, normalizeRequestedDocKeys, DOCUMENT_REQUEST_LABELS } from '../lib/document-request-status'
+import { syncPlaintiffDocumentRequestStatuses, computeRequestStatus, countUploadsForRequest, parseRequestedDocs, normalizeRequestedDocKeys, DOCUMENT_REQUEST_LABELS } from '../lib/document-request-status'
 import { CONTACT_REVEALED_STATUSES, deidentifyAssessmentForOffer } from '../lib/offer-deidentify'
 import { createAndNotifyPlaintiffDocumentRequest } from '../lib/document-request-create'
 import { sendDocumentRequestText } from '../lib/document-request-text'
@@ -1549,6 +1549,18 @@ function getAutomationAuditLabel(action: string) {
       return 'Task queued'
     default:
       return 'Updated'
+  }
+}
+
+/** Status of a soft-deleted task: hidden from every list, restorable from Deleted tasks. */
+const TASK_DELETED_STATUS = 'deleted'
+
+function parseAuditMetadata(raw: string | null | undefined): Record<string, unknown> | null {
+  if (!raw) return null
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return null
   }
 }
 
@@ -4528,7 +4540,7 @@ router.get('/tasks/summary', authMiddleware, async (req: any, res) => {
         // Absorbed tasks are closed, so this queue already excludes them; the
         // filter is explicit so it survives any change to the status clause.
         mergedIntoId: null,
-        NOT: { status: { in: ['completed', 'done'] } },
+        NOT: { status: { in: ['completed', 'done', 'deleted'] } },
       },
       orderBy: [{ dueDate: 'asc' }, { createdAt: 'desc' }],
       take: 300,
@@ -4687,7 +4699,7 @@ router.get('/ai-case-manager/overview', authMiddleware, async (req: any, res) =>
 
     const [tasks, demand] = await Promise.all([
       prisma.caseTask.findMany({
-        where: { assessmentId: { in: assessmentIds }, taskType: { not: 'time_entry' } },
+        where: { assessmentId: { in: assessmentIds }, taskType: { not: 'time_entry' }, status: { not: 'deleted' } },
         select: { assessmentId: true, taskType: true, status: true, reviewStatus: true, priority: true, title: true, createdAt: true },
       }),
       prisma.auditLog.findMany({
@@ -4806,7 +4818,7 @@ router.post('/ai-case-manager/approve-all', authMiddleware, async (req: any, res
     if (assessmentIds.length === 0) return res.json({ ok: true, approved: 0 })
 
     const pending = await prisma.caseTask.findMany({
-      where: { assessmentId: { in: assessmentIds }, reviewStatus: 'pending' },
+      where: { assessmentId: { in: assessmentIds }, reviewStatus: 'pending', status: { not: 'deleted' } },
       select: { id: true, assessmentId: true, assignedRole: true, createdById: true, createdByName: true },
     })
     let approved = 0
@@ -4886,7 +4898,7 @@ router.get('/deadlines', authMiddleware, async (req: any, res) => {
         assessmentId: { in: assessmentIds },
         dueDate: { not: null },
         taskType: { notIn: ['time_entry', 'statute'] },
-        NOT: { status: { in: ['completed', 'done'] } },
+        NOT: { status: { in: ['completed', 'done', 'deleted'] } },
       },
       orderBy: { dueDate: 'asc' },
       take: 500,
@@ -5293,14 +5305,13 @@ router.get('/document-requests', authMiddleware, async (req: any, res) => {
       // For plaintiff requests, surface the greater of persisted vs freshly-computed
       // status so a client's upload is reflected immediately (never regress).
       let status = r.status
+      let uploadedCount = r._count?.externalUploads || 0
       if (r.targetType !== 'opposing_party' && r.lead?.assessmentId) {
         const files = evidenceByAssessment.get(r.lead.assessmentId) || []
-        const live = computeRequestStatus(
-          parseRequestedDocs(r.requestedDocs),
-          files,
-          r.createdAt,
-        )
+        const docs = parseRequestedDocs(r.requestedDocs)
+        const live = computeRequestStatus(docs, files, r.createdAt)
         if (live && (statusRank[live] ?? 0) > (statusRank[r.status] ?? 0)) status = live
+        uploadedCount = Math.max(uploadedCount, countUploadsForRequest(docs, files, r.createdAt))
       }
 
       return {
@@ -5314,7 +5325,7 @@ router.get('/document-requests', authMiddleware, async (req: any, res) => {
         recipientName: r.recipientName,
         recipientRole: r.recipientRole,
         origin: r.origin,
-        uploadedCount: r._count?.externalUploads || 0,
+        uploadedCount,
         attorneyViewedAt: r.attorneyViewedAt,
         lastNudgeAt: r.lastNudgeAt,
         createdAt: r.createdAt,
@@ -9731,7 +9742,8 @@ router.post('/leads/:leadId/insurance', authMiddleware, async (req: any, res) =>
       claimNumber,
       claimStatus,
       coverageConfirmed,
-      createWorkflowTasks
+      createWorkflowTasks,
+      sourceEvidenceFileId
     } = req.body
 
     if (!carrierName) {
@@ -9739,10 +9751,18 @@ router.post('/leads/:leadId/insurance', authMiddleware, async (req: any, res) =>
     }
 
     const normalizedClaimStatus = normalizeEnum(claimStatus, CLAIM_STATUSES) ?? 'not_opened'
+    const sourceFile =
+      typeof sourceEvidenceFileId === 'string' && sourceEvidenceFileId
+        ? await prisma.evidenceFile.findFirst({
+            where: { id: sourceEvidenceFileId, assessmentId: lead.assessmentId },
+            select: { id: true },
+          })
+        : null
 
     const record = await prisma.insuranceDetail.create({
       data: {
         assessmentId: lead.assessmentId,
+        sourceEvidenceFileId: sourceFile?.id ?? null,
         carrierName,
         policyNumber: policyNumber || null,
         policyLimit: policyLimit ? Number(policyLimit) : null,
@@ -10922,7 +10942,7 @@ router.get('/leads/:leadId/tasks', authMiddleware, async (req: any, res) => {
     const records = await prisma.caseTask.findMany({
       // Absorbed tasks are kept as closed rows so the AI loops do not recreate
       // them, but they are not work anyone did, so they stay out of the list.
-      where: { assessmentId: lead.assessmentId, mergedIntoId: null },
+      where: { assessmentId: lead.assessmentId, mergedIntoId: null, status: { not: 'deleted' } },
       orderBy: { createdAt: 'desc' },
       select: caseTaskSelect
     })
@@ -12829,15 +12849,116 @@ router.delete('/leads/:leadId/tasks/:id', authMiddleware, async (req: any, res) 
     }
     // Scope the delete to this case. Deleting by raw id let any caller
     // authorized on any lead remove any task in the database.
-    const existing = await prisma.caseTask.findUnique({ where: { id }, select: { id: true, assessmentId: true } })
+    const existing = await prisma.caseTask.findUnique({
+      where: { id },
+      select: { id: true, assessmentId: true, status: true, title: true },
+    })
     if (!existing || existing.assessmentId !== auth.lead.assessmentId) {
       return res.status(404).json({ error: 'Task not found' })
     }
-    await prisma.caseTask.delete({ where: { id } })
+    // Soft delete: the row stays so it can be restored from Deleted tasks, and
+    // so the AI loops (which dedupe across every status) do not recreate it.
+    if (existing.status !== TASK_DELETED_STATUS) {
+      await prisma.caseTask.update({ where: { id }, data: { status: TASK_DELETED_STATUS, reviewStatus: null } })
+      await writeAutomationAudit({
+        userId: req.user?.id,
+        attorneyId: auth.attorney?.id ?? null,
+        action: 'task_deleted',
+        entityType: 'case_task',
+        entityId: id,
+        metadata: { from: existing.status, title: existing.title, deletedByName: requestActorName(req.user) },
+      })
+      await reconcileWorkflowProgress(auth.lead.assessmentId).catch(() => undefined)
+    }
     res.json({ ok: true })
   } catch (error: any) {
     logger.error('Failed to delete case task', { error: error.message })
     res.status(500).json({ error: 'Failed to delete case task' })
+  }
+})
+
+// Deleted tasks for this case, newest first, with who deleted them.
+router.get('/leads/:leadId/tasks/deleted', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAuthorizedLead(req, req.params.leadId)
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
+    }
+    const rows = await prisma.caseTask.findMany({
+      where: { assessmentId: auth.lead.assessmentId, status: TASK_DELETED_STATUS },
+      orderBy: { updatedAt: 'desc' },
+      select: caseTaskSelect,
+      take: 200,
+    })
+    const audits = rows.length
+      ? await prisma.auditLog
+          .findMany({
+            where: { entityType: 'case_task', action: 'task_deleted', entityId: { in: rows.map((r) => r.id) } },
+            orderBy: { createdAt: 'desc' },
+            select: { entityId: true, createdAt: true, metadata: true },
+          })
+          .catch(() => [] as Array<{ entityId: string | null; createdAt: Date; metadata: string | null }>)
+      : []
+    const latest = new Map<string, { createdAt: Date; metadata: string | null }>()
+    for (const a of audits) {
+      if (a.entityId && !latest.has(a.entityId)) latest.set(a.entityId, a)
+    }
+    res.json({
+      tasks: rows.map((t) => {
+        const audit = latest.get(t.id)
+        const meta = parseAuditMetadata(audit?.metadata)
+        return {
+          ...t,
+          deletedAt: (audit?.createdAt ?? (t as any).updatedAt ?? null) as Date | null,
+          deletedByName: (meta?.deletedByName as string) || null,
+        }
+      }),
+    })
+  } catch (error: any) {
+    logger.error('Failed to list deleted case tasks', { error: error.message })
+    res.status(500).json({ error: 'Failed to load deleted tasks' })
+  }
+})
+
+// Put a deleted task back in the list with the status it had when deleted.
+router.post('/leads/:leadId/tasks/:id/restore', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId, id } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
+    }
+    const existing = await prisma.caseTask.findUnique({ where: { id }, select: { id: true, assessmentId: true, status: true } })
+    if (!existing || existing.assessmentId !== auth.lead.assessmentId || existing.status !== TASK_DELETED_STATUS) {
+      return res.status(404).json({ error: 'Deleted task not found' })
+    }
+    const audit = await prisma.auditLog
+      .findFirst({
+        where: { entityType: 'case_task', action: 'task_deleted', entityId: id },
+        orderBy: { createdAt: 'desc' },
+        select: { metadata: true },
+      })
+      .catch(() => null)
+    const prior = String(parseAuditMetadata(audit?.metadata)?.from || '')
+    const status = prior && prior !== TASK_DELETED_STATUS ? prior : 'open'
+    const record = await prisma.caseTask.update({
+      where: { id },
+      data: { status, ...(status === 'done' ? {} : { completedAt: null }) },
+      select: caseTaskSelect,
+    })
+    await writeAutomationAudit({
+      userId: req.user?.id,
+      attorneyId: auth.attorney?.id ?? null,
+      action: 'task_restored',
+      entityType: 'case_task',
+      entityId: id,
+      metadata: { to: status },
+    })
+    await reconcileWorkflowProgress(auth.lead.assessmentId).catch(() => undefined)
+    res.json({ task: record })
+  } catch (error: any) {
+    logger.error('Failed to restore case task', { error: error.message })
+    res.status(500).json({ error: 'Failed to restore task' })
   }
 })
 
@@ -13104,7 +13225,7 @@ router.post('/leads/:leadId/tasks/approve-all', authMiddleware, async (req: any,
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
     const pending = await prisma.caseTask.findMany({
-      where: { assessmentId: auth.lead.assessmentId, reviewStatus: 'pending' },
+      where: { assessmentId: auth.lead.assessmentId, reviewStatus: 'pending', status: { not: 'deleted' } },
       select: { id: true, assessmentId: true, assignedRole: true, createdById: true, createdByName: true },
     })
     let approved = 0

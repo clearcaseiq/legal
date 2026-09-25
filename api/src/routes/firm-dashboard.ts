@@ -23,6 +23,8 @@ import {
 import { respondESignError } from '../lib/esign/http'
 import { resolveTemplateTokens, fillTemplateTokens, renderTemplateBodyPdf } from '../lib/esign/firm-template-doc'
 import { applyFirmWorkflowToCase } from '../lib/case-workflow'
+import { buildCaseIntelligence } from '../lib/case-intelligence'
+import { deidentifyAssessmentForOffer } from '../lib/offer-deidentify'
 import { normalizeJurisdictionInput } from '../lib/jurisdictions'
 import { AI_SIGNALS, CONDITION_FIELDS, CONDITION_OPS, isValidAiSignal } from '../lib/workflow-signals'
 import {
@@ -267,6 +269,15 @@ async function getFirmContext(req: any) {
   }
 
   return null
+}
+
+function safeParseJson(value: string | null | undefined): any {
+  if (!value) return null
+  try {
+    return JSON.parse(value)
+  } catch {
+    return null
+  }
 }
 
 function parseJsonArray(value: unknown): any[] {
@@ -1418,6 +1429,110 @@ router.get('/new-leads', authMiddleware as any, async (req: any, res: Response) 
   } catch (error: any) {
     logger.error('Failed to get firm new leads', { error: error?.message || String(error) })
     res.status(500).json({ error: 'Failed to get firm new leads' })
+  }
+})
+
+// One routed-but-unaccepted lead, for intake staff to review before an attorney
+// accepts. Same de-identification as the attorney offer screen: no claimant
+// name or contact details, and the narrative is scrubbed.
+router.get('/new-leads/:assessmentId', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) {
+      return res.status(404).json({ error: 'No law firm associated with this user' })
+    }
+    const canReview =
+      requireFirmPermission(context, 'review_new_leads') ||
+      requireFirmPermission(context, 'view_all_cases') ||
+      requireFirmPermission(context, 'review_cases') ||
+      requireFirmPermission(context, 'accept_cases')
+    if (!canReview) {
+      return res.status(403).json({ error: 'You do not have permission to review new leads' })
+    }
+
+    const { assessmentId } = req.params
+    const intros = await prisma.introduction.findMany({
+      where: { assessmentId, attorney: { lawFirmId: context.lawFirmId } },
+      select: {
+        id: true,
+        status: true,
+        requestedAt: true,
+        respondedAt: true,
+        waveNumber: true,
+        requestedInfoNotes: true,
+        attorney: { select: { id: true, name: true } },
+      },
+      orderBy: { requestedAt: 'desc' },
+    })
+    if (intros.length === 0) {
+      return res.status(404).json({ error: 'Lead not found' })
+    }
+
+    const assessment = await prisma.assessment.findUnique({
+      where: { id: assessmentId },
+      select: {
+        id: true,
+        claimType: true,
+        venueState: true,
+        venueCounty: true,
+        referenceCode: true,
+        caseName: true,
+        createdAt: true,
+        facts: true,
+        user: { select: { id: true, firstName: true, lastName: true } },
+        evidenceFiles: { select: { category: true } },
+        predictions: { orderBy: { createdAt: 'desc' }, take: 1, select: { viability: true, bands: true } },
+      },
+    })
+    if (!assessment) {
+      return res.status(404).json({ error: 'Lead not found' })
+    }
+
+    const safe = deidentifyAssessmentForOffer(assessment)
+    const facts = (typeof safe.facts === 'string' ? safeParseJson(safe.facts) : (safe.facts as any)) || {}
+    const intelligence = await buildCaseIntelligence(assessmentId).catch(() => null)
+
+    const evidenceCounts: Record<string, number> = {}
+    for (const file of assessment.evidenceFiles || []) {
+      const cat = file.category || 'other'
+      evidenceCounts[cat] = (evidenceCounts[cat] || 0) + 1
+    }
+    const prediction = assessment.predictions?.[0]
+
+    res.json({
+      assessmentId,
+      referenceCode: assessment.referenceCode,
+      claimType: assessment.claimType,
+      venueState: assessment.venueState,
+      venueCounty: assessment.venueCounty,
+      caseName: safe.caseName ?? null,
+      createdAt: assessment.createdAt?.toISOString() ?? null,
+      incident: {
+        date: facts?.incident?.date ?? null,
+        narrative: facts?.incident?.narrative ?? null,
+      },
+      summary: intelligence?.summary ?? null,
+      known: (intelligence?.known || []).filter((k) => k.key !== 'claim_type' && k.key !== 'venue'),
+      gaps: (intelligence?.gaps || [])
+        .filter((g) => !g.resolved)
+        .map((g) => ({ key: g.key, label: g.label, severity: g.severity })),
+      evidenceCounts,
+      prediction: prediction
+        ? { viability: safeParseJson(prediction.viability), bands: safeParseJson(prediction.bands) }
+        : null,
+      offers: intros.map((i) => ({
+        id: i.id,
+        status: i.status,
+        attorney: i.attorney,
+        waveNumber: i.waveNumber,
+        routedAt: i.requestedAt?.toISOString() ?? null,
+        respondedAt: i.respondedAt?.toISOString() ?? null,
+        requestedInfoNotes: i.requestedInfoNotes ?? null,
+      })),
+    })
+  } catch (error: any) {
+    logger.error('Failed to get firm new lead detail', { error: error?.message || String(error) })
+    res.status(500).json({ error: 'Failed to load lead' })
   }
 })
 

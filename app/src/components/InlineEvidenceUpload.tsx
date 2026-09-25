@@ -225,6 +225,11 @@ interface InlineEvidenceUploadProps {
   dropTargetRef?: React.RefObject<HTMLElement | null>
   /** Notifies the parent when files are being dragged over the external drop target (for highlight UI). */
   onDragStateChange?: (active: boolean) => void
+  /**
+   * List only files carrying `subcategory`. Custom requested items share the
+   * `other` category, so without this each row would list every `other` file.
+   */
+  filterBySubcategory?: boolean
 }
 
 const EMPTY_INITIAL_FILES: EvidenceFile[] = []
@@ -254,7 +259,16 @@ export default function InlineEvidenceUpload({
   onWarningsChange,
   dropTargetRef,
   onDragStateChange,
+  filterBySubcategory = false,
 }: InlineEvidenceUploadProps) {
+  const scopeFiles = useCallback(
+    (list: EvidenceFile[]) => {
+      if (!filterBySubcategory || !subcategory) return list
+      const want = subcategory.toLowerCase()
+      return list.filter((f) => String(f.subcategory || '').toLowerCase() === want)
+    },
+    [filterBySubcategory, subcategory],
+  )
   const [files, setFiles] = useState<EvidenceFile[]>(() => initialFiles)
   const [loading, setLoading] = useState(false)
   const [dragActive, setDragActive] = useState(false)
@@ -435,7 +449,7 @@ export default function InlineEvidenceUpload({
       
       const evidenceFiles = await getEvidenceFiles(assessmentId, category || undefined)
       console.log('Loaded evidence files:', evidenceFiles)
-      setFiles(evidenceFiles)
+      setFiles(scopeFiles(evidenceFiles))
     } catch (error: any) {
       console.error('Failed to load evidence files:', error)
       // If it's a 429 error, wait longer before retrying
@@ -447,7 +461,7 @@ export default function InlineEvidenceUpload({
     } finally {
       setIsLoadingFiles(false)
     }
-  }, [assessmentId, category ?? '']) // Removed isLoadingFiles and onFilesUploaded from dependencies
+  }, [assessmentId, category ?? '', scopeFiles]) // Removed isLoadingFiles and onFilesUploaded from dependencies
 
   // Handle file upload
   const handleFileUpload = async (file: File, uploadMethod: string = 'drag_drop') => {
@@ -1026,7 +1040,7 @@ export default function InlineEvidenceUpload({
         
         if (isMounted) {
           console.log('Loaded evidence files:', evidenceFiles)
-          setFiles(evidenceFiles)
+          setFiles(scopeFiles(evidenceFiles))
         }
       } catch (error) {
         if (isMounted) {

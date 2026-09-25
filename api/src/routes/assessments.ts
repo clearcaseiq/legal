@@ -54,6 +54,9 @@ import { buildCaseValueHistory } from '../lib/case-value-history'
 import {
   requestedDocLabel,
   isRequestedDocFulfilled,
+  countRequestUploads,
+  evidenceCategoryForRequestKey,
+  requestUploadSubcategory,
   parseRequestedDocs,
 } from '../lib/document-request-status'
 import { reconcileOrphanClientDocumentTasks } from '../lib/document-request-create'
@@ -887,16 +890,19 @@ router.get('/:id/document-requests', authMiddleware, async (req: AuthRequest, re
     const requests = (assessment.leadSubmission?.documentRequests || []).map((request) => {
       const requestedDocs = parseRequestedDocs(request.requestedDocs)
       const items = requestedDocs.map((key) => {
-        const fulfilled = isRequestedDocFulfilled({
+        const match = {
           key,
           evidenceFiles,
           requestCreatedAt: request.createdAt,
           requestKeys: requestedDocs,
-        })
+        }
         return {
           key,
           label: requestedDocLabel(key),
-          fulfilled,
+          fulfilled: isRequestedDocFulfilled(match),
+          uploadedCount: countRequestUploads(match),
+          uploadCategory: evidenceCategoryForRequestKey(key),
+          uploadSubcategory: requestUploadSubcategory(key),
         }
       })
       const fulfilledCount = items.filter((item) => item.fulfilled).length
@@ -974,6 +980,7 @@ router.get('/:id/tasks', authMiddleware, async (req: AuthRequest, res) => {
       where: {
         assessmentId: id,
         assignedRole: { in: ['client', 'plaintiff'] },
+        status: { not: 'deleted' },
       },
       orderBy: [{ status: 'desc' }, { dueDate: 'asc' }, { createdAt: 'desc' }],
       select: {

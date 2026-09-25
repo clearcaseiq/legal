@@ -14,6 +14,7 @@
 import { prisma } from './prisma'
 import { logger } from './logger'
 import { recordCaseChange } from './data-authority'
+import { taskWorkAlreadyCovered } from './task-identity'
 
 export const DEMAND_PREP_MILESTONE = 'demand_preparation'
 
@@ -90,10 +91,14 @@ export async function createDemandPrepTasks(
   opts?: { createdById?: string | null; createdByName?: string | null },
 ): Promise<number> {
   const existing = await prisma.caseTask
-    .findMany({ where: { assessmentId }, select: { title: true } })
-    .catch(() => [] as Array<{ title: string }>)
+    .findMany({ where: { assessmentId }, select: { title: true, notes: true } })
+    .catch(() => [] as Array<{ title: string; notes: string | null }>)
   const existingTitles = new Set(existing.map((t) => String(t.title || '').trim().toLowerCase()))
-
+  // Workflow steps word these differently ("Attorney review & approve demand").
+  const workflowItems = await Promise.resolve(
+    (prisma as any).caseWorkflowItem?.findMany({ where: { caseWorkflow: { assessmentId } }, select: { title: true } }),
+  ).catch(() => null)
+  const covered = [...existing, ...((workflowItems as Array<{ title: string }> | null) || [])]
   const createdByName = opts?.createdByName ?? 'ClearCaseIQ'
   const now = new Date()
   let created = 0
@@ -101,6 +106,7 @@ export async function createDemandPrepTasks(
   for (const def of DEMAND_PREP_CHECKLIST) {
     const normalized = def.title.trim().toLowerCase()
     if (existingTitles.has(normalized)) continue
+    if (taskWorkAlreadyCovered(covered, { title: def.title })) continue
     const dueDate = addDays(now, def.dueInDays)
     await prisma.caseTask
       .create({

@@ -312,6 +312,7 @@ export async function closeRelatedOpenTasksForWorkflowItem(
   assessmentId: string,
   item: { id: string; title: string },
   reason: string,
+  only?: (task: TaskRow) => boolean,
 ): Promise<number> {
   const noteLine = reason.startsWith('Auto-completed')
     ? reason
@@ -327,7 +328,7 @@ export async function closeRelatedOpenTasksForWorkflowItem(
       completedAt: true,
     },
   })
-  const related = tasksRelatedToWorkflowItem(item, tasks)
+  const related = tasksRelatedToWorkflowItem(item, tasks).filter((t) => !only || only(t))
   for (const task of related) {
     await prisma.caseTask.update({
       where: { id: task.id },

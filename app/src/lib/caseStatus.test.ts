@@ -84,7 +84,7 @@ describe('getPlaintiffPipelineProgress', () => {
     ).toEqual({ currentIdx: 2, completeThrough: 2 })
   })
 
-  it('lights the demand milestone once a demand has gone out', () => {
+  it('completes the demand milestone and moves to settlement once a demand has gone out', () => {
     expect(
       getPlaintiffPipelineProgress({
         submittedForReview: true,
@@ -92,6 +92,18 @@ describe('getPlaintiffPipelineProgress', () => {
         hasScheduledConsult: true,
         retained: isPlaintiffRetained({ leadStatus: 'consulted', caseStage: 'DEMAND_SENT' }),
         caseStage: 'DEMAND_SENT',
+      }),
+    ).toEqual({ currentIdx: 8, completeThrough: 8 })
+  })
+
+  it('keeps demand as the live step while it is being prepared', () => {
+    expect(
+      getPlaintiffPipelineProgress({
+        submittedForReview: true,
+        attorneyMatched: true,
+        hasScheduledConsult: true,
+        retained: true,
+        caseStage: 'DEMAND_PREPARATION',
       }),
     ).toEqual({ currentIdx: 7, completeThrough: 7 })
   })

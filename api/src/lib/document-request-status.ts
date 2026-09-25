@@ -34,6 +34,8 @@ export const DOCUMENT_REQUEST_CATEGORY_MAP: Record<string, string[]> = {
   // only counts evidence uploaded at/after the request was created.
   prior_treatment: ['prior_treatment', 'prior_medical', 'prior_records', 'medical_records', 'medical'],
   product_preservation: ['product', 'product_evidence', 'product_photos', 'photos'],
+  // Intake Supporting Documents files these under `witness_statements`.
+  witness_statements: ['witness_statements', 'witness_statement', 'witness', 'statements'],
 }
 
 /**
@@ -56,6 +58,7 @@ export const DOCUMENT_REQUEST_LABELS: Record<string, string> = {
   hipaa: 'HIPAA authorization',
   prior_treatment: 'Prior treatment records',
   product_preservation: 'Product preservation confirmation',
+  witness_statements: 'Witness statements',
 }
 
 /**
@@ -92,6 +95,9 @@ const REQUEST_KEY_ALIASES: Record<string, string> = {
   'prior treatment records': 'prior_treatment',
   'hipaa authorization': 'hipaa',
   'other documents': 'other',
+  'witness statement': 'witness_statements',
+  'witness statements': 'witness_statements',
+  'witness statement(s)': 'witness_statements',
 }
 
 /**
@@ -129,7 +135,40 @@ export function normalizeRequestedDocKey(value: string): string {
   const aliased = REQUEST_KEY_ALIASES[collapsed]
   if (aliased) return aliased
   const slug = collapsed.replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
-  return DOCUMENT_REQUEST_CATEGORY_MAP[slug] ? slug : raw
+  return presetKeyForSlug(slug) ?? raw
+}
+
+/** "witness_statement" and "witness_statements" name the same preset. */
+function presetKeyForSlug(slug: string): string | null {
+  if (!slug) return null
+  if (DOCUMENT_REQUEST_CATEGORY_MAP[slug]) return slug
+  if (DOCUMENT_REQUEST_CATEGORY_MAP[`${slug}s`]) return `${slug}s`
+  if (slug.endsWith('s') && DOCUMENT_REQUEST_CATEGORY_MAP[slug.slice(0, -1)]) return slug.slice(0, -1)
+  return null
+}
+
+/**
+ * The preset a custom item's wording names ("custom:Witness statement" is a
+ * witness-statements request), so an upload into that preset's slot counts.
+ */
+function presetKeyForCustomText(key: string): string | null {
+  const text = key.slice(CUSTOM_REQUEST_PREFIX.length)
+  const preset = normalizeRequestedDocKey(text)
+  return preset !== 'other' && DOCUMENT_REQUEST_CATEGORY_MAP[preset] ? preset : null
+}
+
+/**
+ * Items with no preset behind them: explicit custom items and free-text keys
+ * stored before custom items existed. Both are answered by `other` uploads.
+ */
+function isAdHocRequestKey(key: string): boolean {
+  return isCustomRequestKey(key) || !DOCUMENT_REQUEST_CATEGORY_MAP[key]
+}
+
+/** Subcategory an upload carries to name the ad-hoc item it answers. */
+export function requestUploadSubcategory(key: string): string | null {
+  if (!isAdHocRequestKey(key) || key === 'other') return null
+  return isCustomRequestKey(key) ? key : `${CUSTOM_REQUEST_PREFIX}${key}`
 }
 
 export function normalizeRequestedDocKeys(values: unknown): string[] {
@@ -158,8 +197,12 @@ export function parseRequestedDocs(value: string | null | undefined): string[] {
 
 /** Categories that satisfy a requested-doc key (includes the key itself). */
 export function acceptedCategoriesForRequestKey(key: string): string[] {
-  if (isCustomRequestKey(key)) return ['other']
-  const accepted = DOCUMENT_REQUEST_CATEGORY_MAP[key] || []
+  if (isCustomRequestKey(key)) {
+    const preset = presetKeyForCustomText(key)
+    return preset ? Array.from(new Set(['other', ...acceptedCategoriesForRequestKey(preset)])) : ['other']
+  }
+  const accepted = DOCUMENT_REQUEST_CATEGORY_MAP[key]
+  if (!accepted) return [key, 'other']
   return accepted.length ? Array.from(new Set([key, ...accepted])) : [key]
 }
 
@@ -175,7 +218,7 @@ export function acceptedCategoriesForRequestKey(key: string): string[] {
  */
 export function evidenceCategoryForRequestKey(key: string): string {
   const normalized = normalizeRequestedDocKey(key)
-  if (isCustomRequestKey(normalized)) return 'other'
+  if (isAdHocRequestKey(normalized)) return 'other'
   return DOCUMENT_REQUEST_CATEGORY_MAP[normalized]?.[0] || normalized || 'other'
 }
 
@@ -195,31 +238,56 @@ export type RequestEvidenceFile = {
  * answers in `subcategory` (the full `custom:` key). An untagged `other` file
  * can only stand in for a custom item when the request has exactly one.
  */
-function customItemMatches(key: string, file: RequestEvidenceFile, requestKeys: string[] | undefined): boolean {
+function customTagFor(file: RequestEvidenceFile): string {
   const tag = (file.subcategory || '').trim()
-  if (isCustomRequestKey(tag)) return tag.toLowerCase() === key.toLowerCase()
-  const customCount = (requestKeys || [key]).filter(isCustomRequestKey).length
-  return customCount <= 1
+  return isCustomRequestKey(tag) ? tag.toLowerCase() : ''
 }
 
-export function isRequestedDocFulfilled(params: {
+function customItemMatches(key: string, file: RequestEvidenceFile, requestKeys: string[] | undefined): boolean {
+  const tag = customTagFor(file)
+  if (tag) return tag === (requestUploadSubcategory(key) || key).toLowerCase()
+  const adHocCount = (requestKeys || [key]).filter((k) => k !== 'other' && isAdHocRequestKey(k)).length
+  return adHocCount <= 1
+}
+
+type RequestMatchParams = {
   key: string
   evidenceFiles: RequestEvidenceFile[]
   requestCreatedAt: Date | string
   /** Every key on the same request; needed to attribute untagged custom uploads. */
   requestKeys?: string[]
-}): boolean {
+}
+
+function matchingRequestFiles(params: RequestMatchParams): RequestEvidenceFile[] {
   const accepted = new Set(acceptedCategoriesForRequestKey(params.key))
-  const custom = isCustomRequestKey(params.key)
+  const adHoc = params.key !== 'other' && isAdHocRequestKey(params.key)
   const requestAt = new Date(params.requestCreatedAt).getTime()
-  if (!Number.isFinite(requestAt)) return false
-  return params.evidenceFiles.some((file) => {
+  if (!Number.isFinite(requestAt)) return []
+  return params.evidenceFiles.filter((file) => {
     const category = (file.category || '').trim()
     if (!category || !accepted.has(category)) return false
-    if (custom && !customItemMatches(params.key, file, params.requestKeys)) return false
+    if (adHoc) {
+      if (category === 'other') {
+        if (!customItemMatches(params.key, file, params.requestKeys)) return false
+      } else {
+        // A preset-slot upload answers the item its wording names, unless it
+        // was tagged for a different custom item.
+        const tag = customTagFor(file)
+        if (tag && tag !== (requestUploadSubcategory(params.key) || params.key).toLowerCase()) return false
+      }
+    }
     const uploadedAt = new Date(file.createdAt).getTime()
     return Number.isFinite(uploadedAt) && uploadedAt >= requestAt
   })
+}
+
+export function isRequestedDocFulfilled(params: RequestMatchParams): boolean {
+  return matchingRequestFiles(params).length > 0
+}
+
+/** How many uploads answer a requested item (same rules as fulfillment). */
+export function countRequestUploads(params: RequestMatchParams): number {
+  return matchingRequestFiles(params).length
 }
 
 /** Compute a request's status from evidence uploaded for that request. */
@@ -234,6 +302,21 @@ export function computeRequestStatus(
   ).length
   if (fulfilledCount === 0) return 'pending'
   return fulfilledCount === requestedDocs.length ? 'completed' : 'partial'
+}
+
+/** Distinct uploads answering any item on a request. */
+export function countUploadsForRequest(
+  requestedDocs: string[],
+  evidenceFiles: RequestEvidenceFile[],
+  requestCreatedAt: Date | string,
+): number {
+  const seen = new Set<RequestEvidenceFile>()
+  for (const key of requestedDocs) {
+    for (const file of matchingRequestFiles({ key, evidenceFiles, requestCreatedAt, requestKeys: requestedDocs })) {
+      seen.add(file)
+    }
+  }
+  return seen.size
 }
 
 /**

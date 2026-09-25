@@ -252,6 +252,9 @@ export function getPlaintiffPipelineProgress(input: {
     // Light it green and move the live step to "Closed" — the only thing left is
     // formally closing the matter (CP: "if settlement is done it should be green").
     if (stage === 'DISBURSEMENT') return { currentIdx: 9, completeThrough: 9 }
+    // A sent demand finishes the Demand step; the carrier's response is the
+    // start of Settlement, so that is the live step while the client waits.
+    if (stage === 'DEMAND_SENT') return { currentIdx: 8, completeThrough: 8 }
     if (bucket === 'negotiation') return { currentIdx: 8, completeThrough: 8 }
     if (bucket === 'demand') return { currentIdx: 7, completeThrough: 7 }
     if (bucket === 'treatment') return { currentIdx: 6, completeThrough: 6 }

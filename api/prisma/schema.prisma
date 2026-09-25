@@ -408,6 +408,10 @@ model InsuranceDetail {
   decPageRequestId  String?
   coverageConfirmed Boolean @default(false)
 
+  // The uploaded insurance document this policy was recorded from, so deleting
+  // the policy can offer to remove the file too.
+  sourceEvidenceFileId String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

@@ -69,6 +69,9 @@ import {
   createLeadSolTask,
   deleteLeadEvidence,
   deleteLeadTask,
+  getDeletedLeadTasks,
+  restoreLeadTask,
+  type DeletedLeadTask,
   mergeLeadTasks,
   downloadEvidenceByUrl,
   bulkDownloadEvidenceZip,
@@ -4219,6 +4222,8 @@ function TasksPanel({
   const [mergeOpen, setMergeOpen] = useState(false)
   const [merging, setMerging] = useState(false)
   const [groupBy, setGroupBy] = useState<'workflow' | 'due'>('workflow')
+  // Explicit open/closed choices per section; unset sections collapse once every task is done.
+  const [sectionOpenOverride, setSectionOpenOverride] = useState<Record<string, boolean>>({})
   const [colleagues, setColleagues] = useState<FirmColleague[]>([])
 
   useEffect(() => {
@@ -4531,15 +4536,42 @@ function TasksPanel({
 
   const remove = (t: TaskRow) => setTaskToDelete(t)
 
+  const [deletedOpen, setDeletedOpen] = useState(false)
+  const [deletedTasks, setDeletedTasks] = useState<DeletedLeadTask[] | null>(null)
+  const loadDeleted = useCallback(async () => {
+    try {
+      setDeletedTasks(await getDeletedLeadTasks(leadId))
+    } catch {
+      setDeletedTasks([])
+    }
+  }, [leadId])
+  useEffect(() => {
+    if (deletedOpen) void loadDeleted()
+  }, [deletedOpen, loadDeleted])
+
+  const restore = async (t: DeletedLeadTask) => {
+    setBusy(t.id)
+    try {
+      await restoreLeadTask(leadId, t.id)
+      flash('ok', `Restored "${t.title}".`)
+      await Promise.all([load(), loadDeleted()])
+    } catch (err: any) {
+      flash('err', err?.response?.data?.error || 'Failed to restore task.')
+    } finally {
+      setBusy(null)
+    }
+  }
+
   const confirmRemove = async () => {
     const t = taskToDelete
     if (!t) return
     setBusy(t.id)
     try {
       await deleteLeadTask(leadId, t.id)
-      flash('ok', 'Task deleted.')
+      flash('ok', 'Task deleted. Restore it from Deleted tasks below.')
       setTaskToDelete(null)
       await load()
+      if (deletedOpen) void loadDeleted()
     } catch (err: any) {
       flash('err', err?.response?.data?.error || 'Failed to delete task.')
     } finally {
@@ -4643,6 +4675,11 @@ function TasksPanel({
   })()
 
   const hasWorkflowGroups = tasks.some((t) => Boolean(t.workflowPhase || t.workflowStage))
+
+  const sectionIsOpen = (key: string, items: TaskRow[]) =>
+    sectionOpenOverride[key] ?? !(items.length > 0 && items.every(isDone))
+  const toggleSection = (key: string, items: TaskRow[]) =>
+    setSectionOpenOverride((prev) => ({ ...prev, [key]: !sectionIsOpen(key, items) }))
 
   const now = new Date()
   now.setHours(0, 0, 0, 0)
@@ -4943,7 +4980,8 @@ function TasksPanel({
         message={
           taskToDelete ? (
             <>
-              This will permanently delete <span className="font-semibold">"{taskToDelete.title}"</span>. This can't be undone.
+              <span className="font-semibold">"{taskToDelete.title}"</span> will be removed from the task list. You can
+              restore it from Deleted tasks at the bottom of this tab.
             </>
           ) : undefined
         }
@@ -4959,7 +4997,7 @@ function TasksPanel({
           <TaskStat label="Open" value={active.length} tone="text-slate-900" />
           <TaskStat label="Done" value={done.length} tone={done.length ? 'text-emerald-600' : 'text-slate-900'} />
           <TaskStat label="Overdue" value={overdueCount} tone={overdueCount ? 'text-rose-600' : 'text-slate-900'} />
-          <TaskStat label="Due ≤7d" value={dueSoonCount} tone={dueSoonCount ? 'text-amber-600' : 'text-slate-900'} />
+          <TaskStat label="Due ≤ 7d" value={dueSoonCount} tone={dueSoonCount ? 'text-amber-600' : 'text-slate-900'} />
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <span className="group relative inline-flex items-center">
@@ -5211,46 +5249,75 @@ function TasksPanel({
       {tasks.length ? (
         groupBy === 'workflow' && hasWorkflowGroups ? (
           <div className="space-y-4">
-            {listedByWorkflow.map((phase) => (
-              <div key={`${phase.phaseOrder}:${phase.phase}`} className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-                <div className="flex items-center justify-between gap-2 border-b border-slate-100 bg-slate-50/80 px-4 py-2.5">
-                  <h4 className="text-sm font-semibold text-slate-800">{phase.phase}</h4>
-                  <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-500 ring-1 ring-inset ring-slate-200">
-                    {phase.count}
-                  </span>
-                </div>
-                <div className="divide-y divide-slate-100">
-                  {phase.stages.map((stage) => (
-                    <div key={`${stage.stageOrder}:${stage.stage}`}>
-                      {phase.stages.length > 1 || stage.stage !== phase.phase ? (
-                        <div className="px-4 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                          {stage.stage}
+            {listedByWorkflow.map((phase) => {
+              const key = `wf:${phase.phaseOrder}:${phase.phase}`
+              const items = phase.stages.flatMap((s) => s.items)
+              const open = sectionIsOpen(key, items)
+              return (
+                <div key={key} className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+                  <button
+                    type="button"
+                    onClick={() => toggleSection(key, items)}
+                    aria-expanded={open}
+                    className={`flex w-full items-center justify-between gap-2 bg-slate-50/80 px-4 py-2.5 text-left transition hover:bg-slate-100/80 ${open ? 'border-b border-slate-100' : ''}`}
+                  >
+                    <span className="flex min-w-0 items-center gap-2">
+                      {open ? (
+                        <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
+                      ) : (
+                        <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
+                      )}
+                      <h4 className="truncate text-sm font-semibold text-slate-800">{phase.phase}</h4>
+                    </span>
+                    <TaskSectionCounts items={items} />
+                  </button>
+                  {open ? (
+                    <div className="divide-y divide-slate-100">
+                      {phase.stages.map((stage) => (
+                        <div key={`${stage.stageOrder}:${stage.stage}`}>
+                          {phase.stages.length > 1 || stage.stage !== phase.phase ? (
+                            <div className="px-4 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                              {stage.stage}
+                            </div>
+                          ) : null}
+                          <ul className="divide-y divide-slate-100">
+                            {stage.items.map(renderTask)}
+                          </ul>
                         </div>
-                      ) : null}
-                      <ul className="divide-y divide-slate-100">
-                        {stage.items.map(renderTask)}
-                      </ul>
+                      ))}
                     </div>
-                  ))}
+                  ) : null}
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         ) : (
           <div className="space-y-3">
-            {listedByDay.map((g) => (
-              <div key={g.key}>
-                <div className="mb-1 flex items-center gap-2 px-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                  {g.label}
-                  <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">
-                    {g.items.length}
-                  </span>
+            {listedByDay.map((g) => {
+              const key = `day:${g.key}`
+              const open = sectionIsOpen(key, g.items)
+              return (
+                <div key={g.key}>
+                  <button
+                    type="button"
+                    onClick={() => toggleSection(key, g.items)}
+                    aria-expanded={open}
+                    className="mb-1 flex w-full items-center justify-between gap-2 rounded-md px-1 py-0.5 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400 transition hover:text-slate-600"
+                  >
+                    <span className="flex items-center gap-1.5">
+                      {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                      {g.label}
+                    </span>
+                    <TaskSectionCounts items={g.items} />
+                  </button>
+                  {open ? (
+                    <ul className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-white">
+                      {g.items.map(renderTask)}
+                    </ul>
+                  ) : null}
                 </div>
-                <ul className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-white">
-                  {g.items.map(renderTask)}
-                </ul>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )
       ) : !formOpen ? (
@@ -5273,6 +5340,53 @@ function TasksPanel({
           </div>
         </div>
       ) : null}
+
+      <div className="rounded-xl border border-slate-200 bg-white">
+        <button
+          type="button"
+          onClick={() => setDeletedOpen((v) => !v)}
+          aria-expanded={deletedOpen}
+          className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs font-semibold text-slate-500 transition hover:text-slate-700"
+        >
+          <span className="flex items-center gap-1.5">
+            {deletedOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+            <Trash2 className="h-3.5 w-3.5" /> Deleted tasks
+          </span>
+          {deletedTasks ? <span className="text-[11px] font-medium text-slate-400">{deletedTasks.length}</span> : null}
+        </button>
+        {deletedOpen ? (
+          deletedTasks === null ? (
+            <p className="flex items-center gap-2 border-t border-slate-100 px-3 py-3 text-xs text-slate-400">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading deleted tasks…
+            </p>
+          ) : deletedTasks.length === 0 ? (
+            <p className="border-t border-slate-100 px-3 py-3 text-xs text-slate-400">No deleted tasks.</p>
+          ) : (
+            <ul className="divide-y divide-slate-100 border-t border-slate-100">
+              {deletedTasks.map((t) => (
+                <li key={t.id} className="flex items-center justify-between gap-3 px-3 py-2">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm text-slate-500 line-through decoration-slate-300">{t.title}</p>
+                    <p className="text-[11px] text-slate-400">
+                      Deleted {t.deletedAt ? relativeTime(t.deletedAt) : ''}
+                      {t.deletedByName ? ` by ${t.deletedByName}` : ''}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void restore(t)}
+                    disabled={busy === t.id}
+                    className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-60"
+                  >
+                    {busy === t.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Undo2 className="h-3.5 w-3.5" />}
+                    Restore
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )
+        ) : null}
+      </div>
     </div>
   )
 }
@@ -5455,6 +5569,29 @@ const PRIORITY_BADGE: Record<string, string> = {
   high: 'bg-rose-50 text-rose-700 ring-rose-200',
   medium: 'bg-amber-50 text-amber-700 ring-amber-200',
   low: 'bg-slate-100 text-slate-600 ring-slate-200',
+}
+
+function TaskSectionCounts({ items }: { items: TaskRow[] }) {
+  const doneCount = items.filter(isDone).length
+  const openCount = items.length - doneCount
+  const allDone = items.length > 0 && openCount === 0
+  return (
+    <span className="flex shrink-0 items-center gap-1.5 text-[11px] font-semibold normal-case tracking-normal">
+      {allDone ? (
+        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-emerald-700 ring-1 ring-inset ring-emerald-200">
+          <CheckCircle2 className="h-3 w-3" /> All done
+        </span>
+      ) : (
+        <span className="rounded-full bg-amber-50 px-2 py-0.5 text-amber-700 ring-1 ring-inset ring-amber-200">{openCount} open</span>
+      )}
+      {!allDone && doneCount > 0 ? (
+        <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-emerald-700 ring-1 ring-inset ring-emerald-200">{doneCount} done</span>
+      ) : null}
+      <span className="rounded-full bg-white px-2 py-0.5 text-slate-500 ring-1 ring-inset ring-slate-200" title="Total tasks">
+        {items.length} total
+      </span>
+    </span>
+  )
 }
 
 function PriorityBadge({ priority }: { priority: string }) {

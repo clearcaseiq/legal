@@ -1,11 +1,17 @@
 /**
  * ClearCaseIQ Universal + Branching 12-Screen Intake Flow
  */
-import { Fragment, useState, useEffect, useLayoutEffect, useRef, type ReactNode } from 'react'
+import { Fragment, useCallback, useMemo, useState, useEffect, useLayoutEffect, useRef, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { createAssessment, predict, uploadEvidenceFile, processEvidenceFile, extractEvidenceData, analyzeCaseWithChatGPT, calculateSOL, createIntakeLead, updateIntakeLead, getIntakeLead, getEvidenceFiles, lookupZipCounties, type IntakeLeadPayload } from '../lib/api-plaintiff'
-import { deleteEvidenceFile, extractIncidentDetails, type IncidentExtraction } from '../lib/api'
+import {
+  deleteEvidenceFile,
+  extractIncidentDetails,
+  getPlaintiffDocumentRequests,
+  type IncidentExtraction,
+  type PlaintiffDocumentRequest,
+} from '../lib/api'
 import { ChevronRight, ChevronLeft, ChevronDown, Car, Footprints, HardHat, Stethoscope, HelpCircle, Check, X, MapPin, Building2, Camera, Video, FileText, Shield, Mail, Phone, DollarSign, Dog, Package, AlertTriangle, Droplets, CalendarDays, Hospital, Scissors, Ambulance, PersonStanding, Scan, Syringe, Pill, Lock, MessageSquare, Info, CheckCircle2, Save, ShieldCheck, Users, HeartPulse, Activity, Bone, CalendarClock, Ban, BedDouble, Moon, Dumbbell, Bike, Truck, User, Briefcase, Landmark, CornerUpLeft, Receipt, Wine, RotateCw, XCircle, Clock, UserX, Lightbulb, ClipboardCheck, Umbrella, Pencil, FolderOpen, Scale, Star, Sparkles, TrendingUp, Brain, Upload, CalendarCheck, History, Hand, CircleDot, type LucideIcon } from 'lucide-react'
 import InlineEvidenceUpload from '../components/InlineEvidenceUpload'
 import DynamicInjuryCards from '../components/DynamicInjuryCards'
@@ -1095,6 +1101,57 @@ export default function IntakeWizardQuick() {
   // When deep-linked with ?focus=, start on that category; plaintiff can expand.
   const [expandAllEvidenceCategories, setExpandAllEvidenceCategories] = useState(false)
   const [manageEvidence, setManageEvidence] = useState<Record<string, boolean>>({})
+  // Attorney document requests, flattened to one row per requested item for the
+  // "Additional Requested Documents" section.
+  const [attorneyDocRequests, setAttorneyDocRequests] = useState<PlaintiffDocumentRequest[]>([])
+  const refreshAttorneyDocRequests = useCallback(async () => {
+    if (!assessmentId) return
+    try {
+      const res = await getPlaintiffDocumentRequests(assessmentId)
+      setAttorneyDocRequests(Array.isArray(res?.requests) ? res.requests : [])
+    } catch {
+      /* not signed in, or no attorney yet — the section simply stays hidden */
+    }
+  }, [assessmentId])
+  useEffect(() => {
+    void refreshAttorneyDocRequests()
+  }, [refreshAttorneyDocRequests])
+  const requestedDocUploadCounts = useRef<Record<string, number>>({})
+  const requestedDocRows = useMemo(() => {
+    type Row = {
+      key: string
+      label: string
+      fulfilled: boolean
+      uploadedCount: number
+      category: string
+      subcategory: string | null
+      attorneyName: string | null
+      requestedAt: string
+    }
+    const byKey = new Map<string, Row>()
+    // Newest request first, so a repeated item shows its latest ask.
+    for (const request of attorneyDocRequests) {
+      for (const item of request.items || []) {
+        const existing = byKey.get(item.key)
+        if (existing) {
+          existing.fulfilled = existing.fulfilled || item.fulfilled
+          existing.uploadedCount = Math.max(existing.uploadedCount, item.uploadedCount || 0)
+          continue
+        }
+        byKey.set(item.key, {
+          key: item.key,
+          label: item.label,
+          fulfilled: item.fulfilled,
+          uploadedCount: item.uploadedCount || 0,
+          category: item.uploadCategory || 'other',
+          subcategory: item.uploadSubcategory || null,
+          attorneyName: request.attorney?.name || null,
+          requestedAt: request.createdAt,
+        })
+      }
+    }
+    return [...byKey.values()].sort((a, b) => Number(a.fulfilled) - Number(b.fulfilled))
+  }, [attorneyDocRequests])
   type EvidenceWarning = { fileName: string; status: string; message: string; title?: string; action?: { label: string; onClick: () => void } }
   const [evidenceWarnings, setEvidenceWarnings] = useState<Record<string, { items: EvidenceWarning[]; dismiss: (fileName: string) => void }>>({})
   // Per-category drop targets so the entire evidence row (not just the small upload
@@ -6149,6 +6206,115 @@ export default function IntakeWizardQuick() {
                   </button>
                 </div>
               ) : null}
+
+              {requestedDocRows.length > 0 && (
+                <details open className="group rounded-2xl border border-brand-200 bg-white dark:border-brand-500/30 dark:bg-slate-900/40">
+                  <summary className="flex cursor-pointer list-none items-center gap-3 px-3 py-3 [&::-webkit-details-marker]:hidden">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-500/10"><ClipboardCheck className="h-4 w-4" aria-hidden /></span>
+                    <div className="min-w-0 flex-1">
+                      <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">{tx('evidence_requestedTitle')}</p>
+                      <p className="break-words text-xs text-gray-500">{tx('evidence_requestedHelper')}</p>
+                    </div>
+                    <span className="hidden shrink-0 text-xs font-medium text-gray-500 sm:inline">
+                      {tx('evidence_xOfYUploaded')
+                        .replace('{done}', String(requestedDocRows.filter((r) => r.fulfilled).length))
+                        .replace('{total}', String(requestedDocRows.length))}
+                    </span>
+                    <ChevronDown className="h-4 w-4 shrink-0 text-gray-400 transition-transform group-open:rotate-180" aria-hidden />
+                  </summary>
+                  <div className="space-y-2 border-t border-slate-200 p-3 dark:border-slate-700">
+                    {requestedDocRows.map((row) => {
+                      const manageKey = `request:${row.key}`
+                      const managing = !!manageEvidence[manageKey]
+                      const setManaging = (open: boolean) => setManageEvidence((p) => ({ ...p, [manageKey]: open }))
+                      const requestedOn = new Date(row.requestedAt)
+                      const meta = [
+                        row.attorneyName ? tx('evidence_requestedBy').replace('{name}', row.attorneyName) : null,
+                        Number.isNaN(requestedOn.getTime()) ? null : requestedOn.toLocaleDateString(),
+                      ].filter(Boolean).join(' · ')
+                      const needsHipaa = HIPAA_UPLOAD_CATEGORIES.includes(row.category) && !hipaaAuthorized && !row.fulfilled
+                      return (
+                        <div
+                          key={row.key}
+                          className={`rounded-xl border px-3 py-2 ${
+                            row.fulfilled
+                              ? 'border-emerald-200 bg-emerald-50/60 dark:border-emerald-500/30 dark:bg-emerald-500/[0.06]'
+                              : 'border-amber-200 bg-amber-50/40 dark:border-amber-500/30 dark:bg-amber-500/[0.06]'
+                          }`}
+                        >
+                          <div className="flex flex-wrap items-center gap-3">
+                            <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${row.fulfilled ? 'bg-emerald-600 text-white' : 'border-2 border-amber-400 text-amber-500'}`}>
+                              {row.fulfilled ? <Check className="h-3 w-3" aria-hidden /> : <Clock className="h-3 w-3" aria-hidden />}
+                            </span>
+                            <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${row.fulfilled ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15' : 'bg-slate-100 text-slate-500 dark:bg-slate-800'}`}>
+                              <FileText className="h-3.5 w-3.5" aria-hidden />
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              <p className="break-words text-sm font-semibold text-gray-900 dark:text-slate-100">{row.label}</p>
+                              {meta ? <p className="break-words text-xs text-gray-500">{meta}</p> : null}
+                            </div>
+                            <div className="hidden w-[104px] shrink-0 text-right sm:block">
+                              {row.fulfilled ? (
+                                <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">
+                                  {tx('evidence_uploadedCount').replace('{count}', String(Math.max(1, row.uploadedCount)))}
+                                </p>
+                              ) : (
+                                <p className="text-xs font-semibold text-amber-600 dark:text-amber-500">{tx('evidence_requestedPending')}</p>
+                              )}
+                            </div>
+                            <div className="flex w-full shrink-0 items-center justify-end gap-2 sm:w-auto">
+                              {row.fulfilled && (
+                                <button type="button" onClick={() => setManaging(true)} className="inline-flex !min-h-0 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 transition-colors hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900/40 dark:text-slate-200">
+                                  <FolderOpen className="h-3.5 w-3.5" aria-hidden /><span className="hidden sm:inline">{tx('evidence_manageShort')}</span>
+                                </button>
+                              )}
+                              <div className={row.fulfilled ? '' : 'w-[104px]'}>
+                                {needsHipaa ? (
+                                  <button
+                                    type="button"
+                                    onClick={openHipaaModal}
+                                    className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-amber-600"
+                                    title={tx('hipaa_authorizeHint')}
+                                  >
+                                    <Lock className="h-3.5 w-3.5" aria-hidden />
+                                    {tx('hipaa_authorizeAction')}
+                                  </button>
+                                ) : (
+                                  <InlineEvidenceUpload
+                                    assessmentId={assessmentId || undefined}
+                                    category={row.category}
+                                    subcategory={row.subcategory || undefined}
+                                    filterBySubcategory={Boolean(row.subcategory)}
+                                    description={row.label}
+                                    compact
+                                    tightChrome
+                                    hideCameraButton
+                                    alwaysShowUpload={!row.fulfilled}
+                                    hideHeader
+                                    hideTightSummary
+                                    manageOpen={managing}
+                                    onManageOpenChange={setManaging}
+                                    uploadButtonLabel={tx('evidence_uploadAction')}
+                                    uploadButtonColorClass="bg-amber-500 text-white hover:bg-amber-600"
+                                    onFilesUploaded={(files) => {
+                                      // Preset items share their category's bucket with the rows below.
+                                      if (!row.subcategory) handleEvidenceFiles(row.category, files)
+                                      const count = files.length
+                                      const previous = requestedDocUploadCounts.current[row.key]
+                                      requestedDocUploadCounts.current[row.key] = count
+                                      if (previous !== undefined && previous !== count) void refreshAttorneyDocRequests()
+                                    }}
+                                  />
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </details>
+              )}
 
               {/* Grouped evidence accordions */}
               {evGroups.map((group) => {

@@ -15,7 +15,7 @@ import {
   applySoleAttorneyAssignee,
   findSoleAttorneyForAssessment,
 } from './sole-firm-attorney'
-import { normalizeTaskTitle, taskWorkAlreadyCovered } from './task-identity'
+import { isSameUnitOfWork, normalizeTaskTitle, taskWorkAlreadyCovered } from './task-identity'
 
 export const WORKFLOW_ITEM_TASK_PREFIX = 'wfitem:'
 
@@ -170,7 +170,7 @@ async function upsertTaskForItem(
     )
     if (closed > 0) return 'updated'
     if (!existing) return 'noop'
-    if (existing.status === 'done') return 'noop'
+    if (existing.status === 'done' || existing.status === 'deleted') return 'noop'
     await prisma.caseTask.update({
       where: { id: existing.id },
       data: {
@@ -254,8 +254,11 @@ async function upsertTaskForItem(
     return 'created'
   }
 
+  // The attorney deleted this step's task; restoring it is theirs to do.
+  if (existing.status === 'deleted') return 'noop'
+
   const data: Record<string, unknown> = {}
-  if (existing.status === 'done') {
+  if (existing.status === 'done' && !(await stepWaitsOnAnotherOpenTask(assessmentId, item, existing.id))) {
     // Step re-opened on workflow — reopen task.
     data.status = 'open'
     data.completedAt = null
@@ -416,6 +419,28 @@ export async function syncWorkflowStepTasks(
 }
 
 /**
+ * A pending step with a done task is either a step reopened on the Workflow tab
+ * or one still waiting on another related task. Only the first should reopen the
+ * task; the second is the attorney having finished their part.
+ */
+async function stepWaitsOnAnotherOpenTask(
+  assessmentId: string,
+  item: { id: string; title: string },
+  doneTaskId: string,
+): Promise<boolean> {
+  try {
+    const { tasksRelatedToWorkflowItem } = await import('./workflow-reconcile')
+    const open = await prisma.caseTask.findMany({
+      where: { assessmentId, mergedIntoId: null, status: { in: ['open', 'in_progress'] }, id: { not: doneTaskId } },
+      select: { id: true, title: true, status: true, notes: true, sourceTemplateStepId: true, completedAt: true },
+    })
+    return tasksRelatedToWorkflowItem(item, open as any).length > 0
+  } catch {
+    return false
+  }
+}
+
+/**
  * When a CaseTask is completed (or reopened) from the Tasks UI, reconcile every
  * Workflow step that task belongs to. One Workflow step may map to many tasks;
  * the step completes only when all related tasks are done.
@@ -429,7 +454,39 @@ export async function syncWorkflowItemFromTask(task: {
 }): Promise<void> {
   if (!task.assessmentId) return
   // Dynamic import avoids a circular dependency with workflow-reconcile.
-  const { reconcileWorkflowItemsFromTasks } = await import('./workflow-reconcile')
+  const { reconcileWorkflowItemsFromTasks, closeRelatedOpenTasksForWorkflowItem, taskBelongsToWorkflowItem } =
+    await import('./workflow-reconcile')
+
+  // Completing one of several tasks for the same step (the workflow's own task
+  // plus a checklist or coach duplicate) completes the step. Otherwise the step
+  // stays pending on the duplicate, and the next sync reopens the task the
+  // attorney just finished.
+  if (task.status === 'done') {
+    try {
+      const completed = await prisma.caseTask.findUnique({
+        where: { id: task.id },
+        select: { id: true, title: true, notes: true, status: true, sourceTemplateStepId: true, completedAt: true },
+      })
+      const items: Array<{ id: string; title: string }> = completed
+        ? await (prisma as any).caseWorkflowItem.findMany({
+            where: { caseWorkflow: { assessmentId: task.assessmentId }, stepType: { not: 'ai_milestone' }, status: 'pending' },
+            select: { id: true, title: true },
+          })
+        : []
+      for (const item of items) {
+        if (!taskBelongsToWorkflowItem(item, completed as any)) continue
+        await closeRelatedOpenTasksForWorkflowItem(
+          task.assessmentId,
+          item,
+          `Completed with "${completed!.title}"`,
+          (sibling) => isSameUnitOfWork(completed!, sibling),
+        )
+      }
+    } catch (error: any) {
+      logger.warn('Closing duplicate step tasks failed', { assessmentId: task.assessmentId, error: error?.message })
+    }
+  }
+
   await reconcileWorkflowItemsFromTasks(task.assessmentId)
 }
 

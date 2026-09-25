@@ -72,6 +72,7 @@ import { resolveUploadedPhotoUrl } from '../lib/avatar'
 import { invalidateFirmDashboardSummary, useFirmDashboardSummary } from '../hooks/useFirmDashboardSummary'
 import { FirmTemplatesTab } from '../features/firm/FirmTemplatesTab'
 import { FirmWorkflowsTab } from '../features/firm/FirmWorkflowsTab'
+import { FirmNewLeadReview } from '../features/firm/FirmNewLeadReview'
 import { FirmTimeBillingTab } from '../features/firm/FirmTimeBillingTab'
 
 const CASE_TYPES = [
@@ -479,6 +480,7 @@ export default function FirmDashboard() {
   const [newLeads, setNewLeads] = useState<{ active: FirmNewLead[]; expired: FirmNewLead[] }>({ active: [], expired: [] })
   const [newLeadsLoading, setNewLeadsLoading] = useState(false)
   const [newLeadsError, setNewLeadsError] = useState<string | null>(null)
+  const [reviewLeadId, setReviewLeadId] = useState<string | null>(null)
 
   const refreshNewLeads = useCallback(async () => {
     setNewLeadsLoading(true)
@@ -1596,6 +1598,7 @@ export default function FirmDashboard() {
                 columns={newLeadColumns}
                 rows={newLeads.active}
                 rowKey={(r: FirmNewLead) => r.assessmentId}
+                onRowClick={(r: FirmNewLead) => setReviewLeadId(r.assessmentId)}
               />
             )}
           </SectionCard>
@@ -1612,9 +1615,11 @@ export default function FirmDashboard() {
                 columns={newLeadColumns}
                 rows={newLeads.expired}
                 rowKey={(r: FirmNewLead) => r.assessmentId}
+                onRowClick={(r: FirmNewLead) => setReviewLeadId(r.assessmentId)}
               />
             </SectionCard>
           )}
+          {reviewLeadId ? <FirmNewLeadReview assessmentId={reviewLeadId} onClose={() => setReviewLeadId(null)} /> : null}
             </div>
       )}
 

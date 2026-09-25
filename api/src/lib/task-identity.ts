@@ -70,6 +70,12 @@ const TITLE_HINTS: Array<{ re: RegExp; key: string }> = [
   { re: /identify (the )?defendant|defendant('s)? (name|identity)/i, key: 'defendant_identity' },
   { re: /um\/uim|own coverage|medpay|pip/i, key: 'first_party_coverage' },
   { re: /prior injur/i, key: 'prior_injuries' },
+  // Draft, approve and send are separate steps. Folding them into demand_ready
+  // tied every demand task to every demand workflow step, so completing one was
+  // undone while any other stayed open.
+  { re: /approv\w* (the )?demand/i, key: 'demand_approve' },
+  { re: /demand (letter |package )?sent|send (the )?demand/i, key: 'demand_send' },
+  { re: /\bdraft\w* (and finalize )?(the )?demand|finali[sz]e (the )?demand/i, key: 'demand_draft' },
   { re: /\bdemand\b/i, key: 'demand_ready' },
   { re: /\blien\b|subrogation/i, key: 'lien_investigation' },
   { re: /future (treatment|care|medical)/i, key: 'future_care' },
@@ -110,6 +116,36 @@ export function normalizeTaskTitle(title: string): string {
     .replace(/[^a-z0-9]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+/** Work that happens once per case, so two open tasks for it are duplicates. */
+const SINGLE_INSTANCE_WORK = new Set([
+  'send_retainer',
+  'confirm_retainer',
+  'conflict_check',
+  'welcome_packet',
+  'open_insurance_claim',
+  'treatment_status',
+  'defendant_policy_limits',
+  'defendant_carrier',
+  'defendant_identity',
+  'demand_draft',
+  'demand_approve',
+  'demand_send',
+  'sol',
+  'plaintiff_questions',
+])
+
+/**
+ * Stricter than taskWorkAlreadyCovered: true only when finishing one task means
+ * the other is finished too. Records requests to two providers share a work key
+ * but are separate work, so a shared key alone is not enough.
+ */
+export function isSameUnitOfWork(a: TaskIdentitySource, b: TaskIdentitySource): boolean {
+  const titleA = normalizeTaskTitle(a.title || '')
+  if (titleA && titleA === normalizeTaskTitle(b.title || '')) return true
+  const keyA = resolveTaskWorkKey(a)
+  return Boolean(keyA && SINGLE_INSTANCE_WORK.has(keyA) && keyA === resolveTaskWorkKey(b))
 }
 
 /** True when an existing task already covers the same unit of work. */
