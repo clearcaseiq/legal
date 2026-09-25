@@ -118,8 +118,8 @@ export default function AttorneyDashboardAnalyticsTab({
             <div className="text-gray-900">{retainRate}%</div>
           </div>
           <div className="rounded-md border border-gray-100 p-3 md:col-span-1">
-            <div className="text-gray-500">Marketplace Ranking</div>
-            <div className="text-gray-900">Overall Attorney Score: {marketplaceScore}</div>
+            <div className="text-gray-500">Profile Score</div>
+            <div className="text-gray-900">{marketplaceScore} / 100</div>
           </div>
         </div>
         <div className="mt-4 rounded-xl border border-indigo-100 bg-indigo-50 p-4">
@@ -128,7 +128,7 @@ export default function AttorneyDashboardAnalyticsTab({
               ['Response Speed', responseSpeedLabel],
               ['Acceptance Rate', acceptanceRateLabel],
               ['Client Satisfaction', satisfactionLabel],
-              ['Plaintiff Ranking', plaintiffRankingLabel],
+              ['Overall', plaintiffRankingLabel],
             ].map(([label, value]) => (
               <div key={label} className="rounded-lg bg-white/70 px-3 py-3">
                 <div className="text-xs font-semibold uppercase tracking-wide text-indigo-700">{label}</div>
@@ -137,7 +137,9 @@ export default function AttorneyDashboardAnalyticsTab({
             ))}
           </div>
           <p className="mt-3 text-xs text-gray-600">
-            Ranking updates from live response, acceptance, satisfaction, and conversion signals.
+            Your profile score combines client rating, response speed, acceptance rate, and conversion.
+            It is a guide to your own performance, not your position against other attorneys or in
+            case routing.
           </p>
         </div>
       </div>
@@ -215,7 +217,7 @@ export default function AttorneyDashboardAnalyticsTab({
         <h3 className="text-lg font-medium text-gray-900 mb-4">Case-Level Intelligence</h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
           <div className="rounded-md border border-gray-100 p-3">
-            <div className="text-gray-500">Cost vs Outcome</div>
+            <div className="text-gray-500">Net Outcome (settlements minus costs)</div>
             <div className="text-gray-900">
               {formatCurrency(
                 (analyticsIntel?.caseLevel || []).reduce(
@@ -226,7 +228,7 @@ export default function AttorneyDashboardAnalyticsTab({
             </div>
           </div>
           <div className="rounded-md border border-gray-100 p-3">
-            <div className="text-gray-500">Duration vs Value</div>
+            <div className="text-gray-500">Avg Case Duration</div>
             <div className="text-gray-900">
               {analyticsIntel?.caseLevel?.length
                 ? `${Math.round((analyticsIntel.caseLevel.reduce((sum: number, item: any) => sum + (item.durationDays || 0), 0) / analyticsIntel.caseLevel.length) || 0)} days avg`
@@ -283,11 +285,11 @@ export default function AttorneyDashboardAnalyticsTab({
               <span className="font-semibold">{casesInNegotiation}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-sm text-gray-600">Demand Packages Sent</span>
+              <span className="text-sm text-gray-600">Demand-Ready Files</span>
               <span className="font-semibold">{demandReadyCount}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-sm text-gray-600">Likely Retained This Month</span>
+              <span className="text-sm text-gray-600">Projected Retained (at current rate)</span>
               <span className="font-semibold text-green-600">{likelyRetainedThisMonth}</span>
             </div>
           </div>
@@ -331,7 +333,7 @@ export default function AttorneyDashboardAnalyticsTab({
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="card">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">Revenue by Insurer</h3>
+          <h3 className="text-lg font-medium text-gray-900 mb-4">Return by Insurer</h3>
           <div className="space-y-2 text-sm">
             {analyticsIntel?.firmLevel?.roiByInsurer ? (
               Object.entries(analyticsIntel.firmLevel.roiByInsurer).map(([key, metrics]: any) => (
@@ -346,7 +348,7 @@ export default function AttorneyDashboardAnalyticsTab({
           </div>
         </div>
         <div className="card">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">Revenue by Venue</h3>
+          <h3 className="text-lg font-medium text-gray-900 mb-4">Return by Venue</h3>
           <div className="space-y-2 text-sm">
             {analyticsIntel?.firmLevel?.roiByVenue ? (
               Object.entries(analyticsIntel.firmLevel.roiByVenue).map(([key, metrics]: any) => (
@@ -361,7 +363,7 @@ export default function AttorneyDashboardAnalyticsTab({
           </div>
         </div>
         <div className="card">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">Revenue by Adjuster</h3>
+          <h3 className="text-lg font-medium text-gray-900 mb-4">Return by Adjuster</h3>
           <div className="space-y-2 text-sm">
             {analyticsIntel?.firmLevel?.roiByAdjuster ? (
               Object.entries(analyticsIntel.firmLevel.roiByAdjuster).map(([key, metrics]: any) => (
@@ -378,10 +380,13 @@ export default function AttorneyDashboardAnalyticsTab({
       </div>
 
       <div className="card">
-        <h3 className="text-lg font-medium text-gray-900 mb-4">AI Forecast</h3>
+        <h3 className="text-lg font-medium text-gray-900 mb-1">30-Day Projection</h3>
+        <p className="text-xs text-gray-500 mb-4">
+          Assumes the next 30 days match the last 30, at your current conversion rate and average fee.
+        </p>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
           <div>
-            <div className="text-gray-500">Expected New Matches Next 30 Days</div>
+            <div className="text-gray-500">New Matches (last 30 days' pace)</div>
             <div className="text-gray-900">
               {expectedNewMatchesNext30Days}
             </div>

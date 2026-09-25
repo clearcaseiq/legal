@@ -58,8 +58,8 @@ export function IntakeFunnelPanel({ days }: { days: number }) {
       <p className="mb-4 flex items-start gap-2 rounded-lg bg-slate-50 p-3 text-xs text-slate-600 dark:bg-slate-800/50 dark:text-slate-400">
         <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
         <span>
-          First-party, from the wizard's own step history &mdash; no analytics tag runs on these
-          screens. Times are medians of the gap between one step and the next, so a step's figure is
+          First-party, from the wizard's own step history, so it does not depend on Google Analytics
+          and will not match its screen counts exactly. Times are medians of the gap between one step and the next, so a step's figure is
           the time spent <em>before</em> moving on. Gaps over 30 minutes are treated as an abandoned
           tab and excluded, and a step with fewer than five samples reports no time at all.
         </span>

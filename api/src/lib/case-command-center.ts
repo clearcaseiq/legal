@@ -119,6 +119,21 @@ export type CaseCommandCenter = {
   sources: CaseCommandCenterSource[]
 }
 
+// Gaps the firm closes in its own case tabs; asking the client to "send" them
+// produces a document request nobody can fulfil.
+const FIRM_WORK_GAP_KEYS = new Set([
+  'defendant_carrier',
+  'defendant_policy_limits',
+  'coverage_unconfirmed',
+  'claim_not_opened',
+  'defendant_identity',
+  'liability_evidence',
+  'comparative_negligence_theory',
+  'witness_statements',
+  'damages_ledger_empty',
+  'medical_specials_missing',
+])
+
 function parseJson<T>(value: string | null | undefined, fallback: T): T {
   if (!value) return fallback
   try {
@@ -809,7 +824,7 @@ export async function buildCaseCommandCenter(params: {
               : 'This helps your attorney keep the case moving with fewer gaps.',
   }))
 
-  const topMissing = missingItems.slice(0, 3)
+  const topMissing = missingItems.filter((item) => !FIRM_WORK_GAP_KEYS.has(item.key)).slice(0, 3)
   const suggestedDocumentRequest = topMissing.length > 0
     ? {
         requestedDocs: topMissing.map((item) => item.key),

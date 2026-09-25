@@ -245,6 +245,14 @@ export function resolveTaskPrimaryAction(task: TaskLike): TaskPrimaryAction | nu
   const title = String(task.title || '')
   if (!title.trim()) return null
 
+  if (/\bdec(larations?)? page\b/i.test(title)) {
+    return openSection(
+      'open_insurance',
+      'Open',
+      'Open Insurance and use "Request declarations page" on this policy — it goes to the adjuster, or to your client for their own policy',
+    )
+  }
+
   if (
     /complete conflict check/i.test(title) ||
     /open matter.*conflict check/i.test(title) ||

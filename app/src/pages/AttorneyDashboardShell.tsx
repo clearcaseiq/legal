@@ -3368,10 +3368,10 @@ export default function AttorneyDashboardShell({ chromeless = false, initialView
 
       <section className="rounded-2xl border border-indigo-100 bg-white p-5 shadow-sm">
         <p className="text-xs font-semibold uppercase tracking-wide text-indigo-600">Marketplace Performance</p>
-        <h2 className="mt-1 text-xl font-semibold text-slate-950">Your Marketplace Standing</h2>
+        <h2 className="mt-1 text-xl font-semibold text-slate-950">Your Profile Performance</h2>
         <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           <div className="rounded-xl bg-indigo-50 p-4">
-            <p className="text-xs font-semibold text-indigo-700">Overall Score</p>
+            <p className="text-xs font-semibold text-indigo-700">Profile Score</p>
             <p className="mt-2 text-3xl font-extrabold text-indigo-950">{marketplaceRankingScore}</p>
           </div>
           <div className="rounded-xl bg-indigo-50 p-4">

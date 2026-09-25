@@ -201,9 +201,11 @@ export function readinessLabel(config: HeuristicsConfig, score: number): string 
 
 /** Marketplace ranking label from the configured tiers. */
 export function marketplaceRankLabel(config: HeuristicsConfig, score: number): string {
-  if (score >= config.marketplaceRank.top5Min) return 'Top 5%'
-  if (score >= config.marketplaceRank.top10Min) return 'Top 10%'
-  if (score >= config.marketplaceRank.top25Min) return 'Top 25%'
-  if (score > 0) return 'Building rank'
-  return 'Not ranked yet'
+  // Fixed cutoffs on the attorney's own score, never compared with other
+  // attorneys, so the tiers must not read as percentiles.
+  if (score >= config.marketplaceRank.top5Min) return 'Excellent'
+  if (score >= config.marketplaceRank.top10Min) return 'Strong'
+  if (score >= config.marketplaceRank.top25Min) return 'Good'
+  if (score > 0) return 'Building'
+  return 'Not scored yet'
 }

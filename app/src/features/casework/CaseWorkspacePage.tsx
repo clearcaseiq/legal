@@ -1225,6 +1225,7 @@ function WorkstreamPanel({
     const high = v?.high || 0
     const readinessScore = Number(cc?.readiness?.score ?? 0)
     const blockers = cc?.missingItems || []
+    const requestableBlockers = blockers.filter((b) => !BLOCKER_SECTIONS[b.key])
     const latestDemand = n?.latestDemand ?? 0
     const medSpecials = bm?.medCharges ?? bm?.benchmarkTypicalTotal ?? 0
 
@@ -1326,18 +1327,46 @@ function WorkstreamPanel({
           <div className="rounded-xl border border-slate-200 bg-white p-4">
             <div className="flex items-center justify-between gap-3">
               <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Close before sending demand</h4>
-              <button
-                type="button"
-                onClick={() => requestDocs(blockers.map((b) => b.label), cc?.suggestedDocumentRequest?.customMessage, 'all', blockers.map((b) => b.key))}
-                disabled={actionBusy != null || blockers.every((b) => requestedDocKeys.has(b.key))}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-brand-200 bg-brand-50 px-2.5 py-1 text-xs font-semibold text-brand-700 transition hover:bg-brand-100 disabled:opacity-50"
-              >
-                <Send className="h-3.5 w-3.5" />
-                {actionBusy === 'all' ? 'Requesting…' : 'Request all'}
-              </button>
+              {requestableBlockers.length ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    requestDocs(
+                      requestableBlockers.map((b) => b.label),
+                      cc?.suggestedDocumentRequest?.customMessage,
+                      'all',
+                      requestableBlockers.map((b) => b.key),
+                    )
+                  }
+                  disabled={actionBusy != null || requestableBlockers.every((b) => requestedDocKeys.has(b.key))}
+                  title="Email the client a request for the documents they can send"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-brand-200 bg-brand-50 px-2.5 py-1 text-xs font-semibold text-brand-700 transition hover:bg-brand-100 disabled:opacity-50"
+                >
+                  <Send className="h-3.5 w-3.5" />
+                  {actionBusy === 'all' ? 'Requesting…' : 'Request all from client'}
+                </button>
+              ) : null}
             </div>
             <ul className="mt-2.5 space-y-1.5">
               {blockers.map((m) => {
+                const target = BLOCKER_SECTIONS[m.key]
+                if (target) {
+                  return (
+                    <li key={m.key} className="flex items-center gap-2.5 text-sm">
+                      <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded border border-slate-300 bg-slate-50" aria-hidden />
+                      <span className="flex-1 truncate text-slate-700">{m.label}</span>
+                      <PriorityBadge priority={m.priority} />
+                      <button
+                        type="button"
+                        onClick={() => goToSection(target.section)}
+                        title={`Open the ${target.tab} tab`}
+                        className="inline-flex items-center rounded-md px-2 py-1 text-xs font-semibold text-brand-700 transition hover:bg-brand-50"
+                      >
+                        Open {target.tab}
+                      </button>
+                    </li>
+                  )
+                }
                 const done = requestedDocKeys.has(m.key)
                 const busy = actionBusy === `doc-${m.key}`
                 return (
@@ -1837,6 +1866,21 @@ const REQUESTABLE_DOCS: { id: string; label: string }[] = [
   { id: 'wage_loss', label: 'Wage-loss documentation' },
   { id: 'prior_treatment', label: 'Prior treatment records' },
 ]
+
+// Demand blockers that are the firm's own work in a case tab, not something the
+// client can send. "Request" on these emailed the client a document request.
+const BLOCKER_SECTIONS: Record<string, { section: string; tab: string }> = {
+  defendant_carrier: { section: 'insurance', tab: 'Insurance' },
+  defendant_policy_limits: { section: 'insurance', tab: 'Insurance' },
+  coverage_unconfirmed: { section: 'insurance', tab: 'Insurance' },
+  claim_not_opened: { section: 'insurance', tab: 'Insurance' },
+  defendant_identity: { section: 'liability', tab: 'Liability' },
+  liability_evidence: { section: 'liability', tab: 'Liability' },
+  comparative_negligence_theory: { section: 'liability', tab: 'Liability' },
+  witness_statements: { section: 'liability', tab: 'Liability' },
+  damages_ledger_empty: { section: 'damages', tab: 'Damages' },
+  medical_specials_missing: { section: 'damages', tab: 'Damages' },
+}
 
 function labelRequestedDoc(idOrLabel: string): string {
   const hit = REQUESTABLE_DOCS.find((d) => d.id === idOrLabel || d.label === idOrLabel)

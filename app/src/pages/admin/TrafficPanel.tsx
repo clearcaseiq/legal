@@ -79,9 +79,9 @@ function Boundary() {
     <p className="mb-4 flex items-start gap-2 rounded-lg bg-slate-50 p-3 text-xs text-slate-600 dark:bg-slate-800/50 dark:text-slate-400">
       <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
       <span>
-        Public marketing and SEO pages only. The intake wizard, dashboards and signed-in screens
-        carry no analytics tag by design, so these are top-of-funnel numbers and will not reconcile
-        against case counts.
+        Every page on the site, from Google Tag Manager: marketing pages, the intake wizard, and the
+        signed-in attorney and admin screens. Internal use is counted alongside visitors, so these
+        figures run higher than claimant traffic alone and will not reconcile against case counts.
       </span>
     </p>
   )

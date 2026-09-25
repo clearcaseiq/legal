@@ -177,8 +177,8 @@ export default function AdminAnalytics() {
           arrive here, and everything below is what became of them. */}
       <TrafficPanel days={days} />
 
-      {/* Then the funnel those visits enter, which is the one surface GA4
-          cannot see: the wizard carries no tag, so this is first-party. */}
+      {/* Then the funnel those visits enter, measured first-party from the
+          wizard's step history rather than from GA4. */}
       <IntakeFunnelPanel days={days} />
 
       {/* Intake analytics */}
@@ -413,8 +413,7 @@ const money = (value: number) =>
  * The one place on this screen where marketing spend meets outcome. The traffic
  * panel above can say a campaign produced sessions; only this can say it
  * produced cases, because it is built from attribution stored on our own
- * records rather than from a tag that never runs on the pages where people
- * convert.
+ * records, and GA4 never learns which visits became retained cases.
  *
  * Spend is joined on exactly, channel and campaign together, and left blank
  * where GA4 has no matching row. Spreading a channel's spend across its

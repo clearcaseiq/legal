@@ -18,6 +18,26 @@ describe('resolveTaskPrimaryAction', () => {
     expect(action?.kind).toBe('open_overview')
   })
 
+  it.each([undefined, 'evidence', 'liability', 'general', 'insurance'])(
+    'opens Insurance for confirming the defendant carrier and claim number (type %s)',
+    (taskType) => {
+      const action = resolveTaskPrimaryAction({
+        title: 'Confirm defendant insurance carrier / claim number',
+        taskType,
+      })
+      expect(action?.kind).toBe('open_insurance')
+      expect(sectionForTaskAction(action!.kind)).toBe('insurance')
+    },
+  )
+
+  it.each(['Request Dec Page from State Farm', 'Request declarations page from Zion'])(
+    'opens Insurance for "%s"',
+    (title) => {
+      const action = resolveTaskPrimaryAction({ title, taskType: 'general' })
+      expect(action?.kind).toBe('open_insurance')
+    },
+  )
+
   it('sends the carrier letter from the Insurance tab', () => {
     const action = resolveTaskPrimaryAction({ title: 'Send Letter of Representation (LOR)' })
     expect(action?.kind).toBe('send_lor')

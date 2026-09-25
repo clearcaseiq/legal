@@ -124,12 +124,12 @@ const SECTIONS: SectionDef[] = [
   },
   {
     id: 'marketplaceRank',
-    title: 'Marketplace ranking tiers',
-    description: 'Marketplace score (0–100) cutoffs for the Top 5% / Top 10% / Top 25% ranking shown to attorneys.',
+    title: 'Attorney profile score tiers',
+    description: 'Profile score (0–100) cutoffs for the Excellent / Strong / Good tier shown to attorneys on their Analytics tab.',
     fields: [
-      { path: ['marketplaceRank', 'top5Min'], label: '“Top 5%” minimum', step: 1, min: 0, max: 100 },
-      { path: ['marketplaceRank', 'top10Min'], label: '“Top 10%” minimum', step: 1, min: 0, max: 100 },
-      { path: ['marketplaceRank', 'top25Min'], label: '“Top 25%” minimum', step: 1, min: 0, max: 100 },
+      { path: ['marketplaceRank', 'top5Min'], label: '“Excellent” minimum', step: 1, min: 0, max: 100 },
+      { path: ['marketplaceRank', 'top10Min'], label: '“Strong” minimum', step: 1, min: 0, max: 100 },
+      { path: ['marketplaceRank', 'top25Min'], label: '“Good” minimum', step: 1, min: 0, max: 100 },
     ],
   },
   {
