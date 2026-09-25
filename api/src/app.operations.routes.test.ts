@@ -4283,6 +4283,7 @@ describe('HTTP operations regressions', () => {
           select: {
             id: true,
             viability: true,
+            explain: true,
           },
         },
       },

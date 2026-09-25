@@ -26,6 +26,7 @@ import {
   refreshLeadEnvelopes,
   remindEnvelope,
   voidEnvelope,
+  deleteEnvelope,
   HipaaAuthorizationRequiredError,
   listEnvelopesForLead,
   ensureSignedFile,
@@ -646,6 +647,21 @@ router.post('/leads/:leadId/envelopes/:envelopeId/void', authMiddleware, async (
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     logger.error('Void envelope failed', { message })
+    res.status(400).json({ error: message })
+  }
+})
+
+// Remove a signature request from the case list (cancels it first if still open).
+router.delete('/leads/:leadId/envelopes/:envelopeId', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const attorney = await resolveAttorney(req)
+    if (!attorney) return res.status(403).json({ error: 'Not an attorney account' })
+
+    await deleteEnvelope(req.params.envelopeId, req.params.leadId, attorney.id)
+    res.json({ ok: true })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    logger.error('Delete envelope failed', { message })
     res.status(400).json({ error: message })
   }
 })

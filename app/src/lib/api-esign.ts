@@ -198,6 +198,11 @@ export const voidEnvelope = async (leadId: string, envelopeId: string): Promise<
   return res.data.envelope
 }
 
+/** Delete a signature request (the server cancels it first if still open). */
+export const deleteEnvelope = async (leadId: string, envelopeId: string): Promise<void> => {
+  await api.delete(`/v1/documents/leads/${leadId}/envelopes/${envelopeId}`)
+}
+
 /** Correct the signer's email on an in-flight envelope and re-send. */
 export const correctSignerEmail = async (
   leadId: string,

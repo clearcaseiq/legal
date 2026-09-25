@@ -10955,12 +10955,18 @@ router.get('/leads/:leadId/tasks', authMiddleware, async (req: any, res) => {
       .filter((id): id is string => Boolean(id))
     const wfMeta = new Map<
       string,
-      { phaseName: string | null; phaseOrder: number | null; stageName: string | null; stageOrder: number | null }
+      {
+        phaseName: string | null
+        phaseOrder: number | null
+        stageName: string | null
+        stageOrder: number | null
+        stepOrder: number | null
+      }
     >()
     if (wfItemIds.length) {
       const items = await (prisma as any).caseWorkflowItem.findMany({
         where: { id: { in: wfItemIds } },
-        select: { id: true, phaseName: true, phaseOrder: true, stageName: true, stageOrder: true },
+        select: { id: true, phaseName: true, phaseOrder: true, stageName: true, stageOrder: true, sortOrder: true },
       })
       for (const it of items as any[]) {
         wfMeta.set(it.id, {
@@ -10968,6 +10974,7 @@ router.get('/leads/:leadId/tasks', authMiddleware, async (req: any, res) => {
           phaseOrder: typeof it.phaseOrder === 'number' ? it.phaseOrder : null,
           stageName: it.stageName || null,
           stageOrder: typeof it.stageOrder === 'number' ? it.stageOrder : null,
+          stepOrder: typeof it.sortOrder === 'number' ? it.sortOrder : null,
         })
       }
     }
@@ -11004,6 +11011,7 @@ router.get('/leads/:leadId/tasks', authMiddleware, async (req: any, res) => {
           workflowPhaseOrder: meta?.phaseOrder ?? inferred?.phaseOrder ?? null,
           workflowStage: stage,
           workflowStageOrder: meta?.stageOrder ?? inferred?.stageOrder ?? null,
+          workflowStepOrder: meta?.stepOrder ?? null,
           workflowCategoryInferred: Boolean(inferred),
         }
       }),
@@ -12030,6 +12038,62 @@ router.delete('/leads/:leadId/workflow/items/:itemId', authMiddleware, async (re
   } catch (error: any) {
     logger.error('Failed to delete workflow task', { error: error.message })
     res.status(500).json({ error: 'Failed to delete workflow task' })
+  }
+})
+
+// Set the order of the steps in one stage, as dragged on the Workflow tab. The
+// listed steps become that stage's full sequence; a step dragged in from another
+// stage moves into this one. The Tasks tab orders linked tasks the same way.
+router.post('/leads/:leadId/workflow/reorder', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const { lead } = auth
+
+    const itemIds: string[] = Array.isArray(req.body?.itemIds)
+      ? Array.from(new Set(req.body.itemIds.map((v: any) => String(v || '').trim()).filter(Boolean)))
+      : []
+    const stageName = String(req.body?.stageName || '').trim()
+    if (itemIds.length === 0 || !stageName) {
+      return res.status(400).json({ error: 'stageName and itemIds are required' })
+    }
+
+    const cw = await (prisma as any).caseWorkflow.findUnique({
+      where: { assessmentId: lead.assessmentId },
+      select: { id: true },
+    })
+    if (!cw) return res.status(404).json({ error: 'No workflow on this case' })
+
+    const items = await (prisma as any).caseWorkflowItem.findMany({
+      where: { id: { in: itemIds }, caseWorkflowId: cw.id },
+      select: { id: true },
+    })
+    if (items.length !== itemIds.length) {
+      return res.status(404).json({ error: 'Step not found' })
+    }
+
+    const phaseName = req.body?.phaseName == null ? null : String(req.body.phaseName).trim() || null
+    const phaseOrder = Number.isFinite(Number(req.body?.phaseOrder)) ? Number(req.body.phaseOrder) : null
+    const stageOrder = Number.isFinite(Number(req.body?.stageOrder)) ? Number(req.body.stageOrder) : 0
+
+    await prisma.$transaction(
+      itemIds.map((id, index) =>
+        (prisma as any).caseWorkflowItem.update({
+          where: { id },
+          data: { sortOrder: (index + 1) * 10, stageName, stageOrder, phaseName, phaseOrder },
+        }),
+      ),
+    )
+
+    const fresh = await (prisma as any).caseWorkflow.findUnique({
+      where: { id: cw.id },
+      include: { items: true },
+    })
+    res.json({ workflow: await serializeCaseWorkflow(fresh) })
+  } catch (error: any) {
+    logger.error('Failed to reorder workflow steps', { error: error.message })
+    res.status(500).json({ error: 'Failed to reorder workflow steps' })
   }
 })
 

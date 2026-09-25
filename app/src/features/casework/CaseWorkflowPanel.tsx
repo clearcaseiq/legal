@@ -26,6 +26,9 @@ import {
   X,
   Info,
   ExternalLink,
+  GripVertical,
+  ChevronUp,
+  ChevronDown,
 } from 'lucide-react'
 import {
   getCaseWorkflow,
@@ -34,8 +37,10 @@ import {
   assignCaseWorkflowStep,
   addCaseWorkflowStep,
   deleteCaseWorkflowStep,
+  reorderCaseWorkflowSteps,
   type CaseWorkflow,
   type CaseWorkflowPhase,
+  type CaseWorkflowStage,
   type CaseWorkflowStep,
   type FirmMemberOption,
   type WorkflowStepType,
@@ -166,6 +171,65 @@ export default function CaseWorkflowPanel({ leadId }: { leadId: string }) {
   }
 
   const removeStep = (step: CaseWorkflowStep) => setStepToDelete(step)
+
+  // Drag-and-drop reordering. `dropAt` is the stage + insertion index under the
+  // pointer, drawn as a line so the attorney sees where the step will land.
+  const [dragStepId, setDragStepId] = useState<string | null>(null)
+  const [dropAt, setDropAt] = useState<{ phaseOrder: number; stageOrder: number; index: number } | null>(null)
+
+  const moveStep = async (
+    stepId: string,
+    phase: CaseWorkflowPhase,
+    stage: CaseWorkflowStage,
+    targetIndex: number,
+  ) => {
+    if (!workflow) return
+    const withoutStep = stage.steps.filter((s) => s.id !== stepId)
+    const fromIndex = stage.steps.findIndex((s) => s.id === stepId)
+    // Dropping below its own slot in the same stage shifts the target up by one.
+    const index = fromIndex >= 0 && fromIndex < targetIndex ? targetIndex - 1 : targetIndex
+    const clamped = Math.max(0, Math.min(index, withoutStep.length))
+    if (fromIndex === clamped) return
+    const moving =
+      stage.steps.find((s) => s.id === stepId) ??
+      workflow.phases.flatMap((p) => p.stages.flatMap((st) => st.steps)).find((s) => s.id === stepId)
+    if (!moving) return
+    const ordered = [...withoutStep.slice(0, clamped), moving, ...withoutStep.slice(clamped)]
+
+    // Optimistic: show the new order immediately, then take the server's copy.
+    setWorkflow({
+      ...workflow,
+      phases: workflow.phases.map((p) => ({
+        ...p,
+        stages: p.stages.map((st) =>
+          p.order === phase.order && st.order === stage.order
+            ? { ...st, steps: ordered }
+            : { ...st, steps: st.steps.filter((s) => s.id !== stepId) },
+        ),
+      })),
+    })
+    setPendingId(stepId)
+    try {
+      const res = await reorderCaseWorkflowSteps(leadId, {
+        phaseName: phase.name,
+        phaseOrder: phase.order,
+        stageName: stage.name,
+        stageOrder: stage.order,
+        itemIds: ordered.map((s) => s.id),
+      })
+      setWorkflow(res.workflow)
+    } catch (e: any) {
+      setPanelError(e?.response?.data?.error || 'Failed to reorder steps')
+      load()
+    } finally {
+      setPendingId(null)
+    }
+  }
+
+  const endDrag = () => {
+    setDragStepId(null)
+    setDropAt(null)
+  }
 
   const confirmRemoveStep = async () => {
     const step = stepToDelete
@@ -349,24 +413,71 @@ export default function CaseWorkflowPanel({ leadId }: { leadId: string }) {
                             {stageDone}/{stage.steps.length}
                           </span>
                         </div>
-                        <ul className="divide-y divide-slate-100">
-                          {stage.steps.map((step) => (
-                            <StepItem
-                              key={step.id}
-                              step={step}
-                              pending={pendingId === step.id}
-                              members={members}
-                              canAssign={canAssign}
-                              onToggle={() => toggle(step)}
-                              onAssign={(firmMemberId) => assign(step, firmMemberId)}
-                              onDelete={() => removeStep(step)}
-                              onOpenTask={
-                                step.linkedTaskId
-                                  ? () => navigate(`/attorney-dashboard/cases/${leadId}/tasks`)
-                                  : undefined
-                              }
-                            />
-                          ))}
+                        <ul
+                          className={`divide-y divide-slate-100 ${
+                            dragStepId && stage.steps.length === 0 ? 'min-h-[2.5rem]' : ''
+                          }`}
+                          onDragOver={(e) => {
+                            if (!dragStepId) return
+                            e.preventDefault()
+                            if (e.target === e.currentTarget) {
+                              setDropAt({ phaseOrder: phase.order, stageOrder: stage.order, index: stage.steps.length })
+                            }
+                          }}
+                          onDrop={(e) => {
+                            e.preventDefault()
+                            const target = dropAt
+                            const stepId = dragStepId
+                            endDrag()
+                            if (!stepId || !target || target.phaseOrder !== phase.order || target.stageOrder !== stage.order) return
+                            void moveStep(stepId, phase, stage, target.index)
+                          }}
+                        >
+                          {stage.steps.map((step, index) => {
+                            const lineBefore =
+                              dropAt?.phaseOrder === phase.order && dropAt.stageOrder === stage.order && dropAt.index === index
+                            const lineAfter =
+                              index === stage.steps.length - 1 &&
+                              dropAt?.phaseOrder === phase.order &&
+                              dropAt.stageOrder === stage.order &&
+                              dropAt.index === stage.steps.length
+                            return (
+                              <StepItem
+                                key={step.id}
+                                step={step}
+                                pending={pendingId === step.id}
+                                members={members}
+                                canAssign={canAssign}
+                                dragging={dragStepId === step.id}
+                                dropLine={lineBefore ? 'before' : lineAfter ? 'after' : null}
+                                canMoveUp={index > 0}
+                                canMoveDown={index < stage.steps.length - 1}
+                                onMoveUp={() => void moveStep(step.id, phase, stage, index - 1)}
+                                onMoveDown={() => void moveStep(step.id, phase, stage, index + 2)}
+                                onDragStart={(e) => {
+                                  e.dataTransfer.effectAllowed = 'move'
+                                  e.dataTransfer.setData('text/plain', step.id)
+                                  setDragStepId(step.id)
+                                }}
+                                onDragOver={(e) => {
+                                  if (!dragStepId) return
+                                  e.preventDefault()
+                                  const rect = e.currentTarget.getBoundingClientRect()
+                                  const below = e.clientY > rect.top + rect.height / 2
+                                  setDropAt({ phaseOrder: phase.order, stageOrder: stage.order, index: below ? index + 1 : index })
+                                }}
+                                onDragEnd={endDrag}
+                                onToggle={() => toggle(step)}
+                                onAssign={(firmMemberId) => assign(step, firmMemberId)}
+                                onDelete={() => removeStep(step)}
+                                onOpenTask={
+                                  step.linkedTaskId
+                                    ? () => navigate(`/attorney-dashboard/cases/${leadId}/tasks`)
+                                    : undefined
+                                }
+                              />
+                            )
+                          })}
                         </ul>
                         <AddStepRow
                           members={members}
@@ -479,6 +590,15 @@ function StepItem({
   onAssign,
   onDelete,
   onOpenTask,
+  dragging,
+  dropLine,
+  canMoveUp,
+  canMoveDown,
+  onMoveUp,
+  onMoveDown,
+  onDragStart,
+  onDragOver,
+  onDragEnd,
 }: {
   step: CaseWorkflowStep
   pending: boolean
@@ -488,6 +608,15 @@ function StepItem({
   onAssign: (firmMemberId: string | null) => void
   onDelete: () => void
   onOpenTask?: () => void
+  dragging: boolean
+  dropLine: 'before' | 'after' | null
+  canMoveUp: boolean
+  canMoveDown: boolean
+  onMoveUp: () => void
+  onMoveDown: () => void
+  onDragStart: (e: React.DragEvent<HTMLLIElement>) => void
+  onDragOver: (e: React.DragEvent<HTMLLIElement>) => void
+  onDragEnd: () => void
 }) {
   const done = step.status === 'done'
   const due = dueMeta(step.dueDate, done)
@@ -496,7 +625,50 @@ function StepItem({
   const taskDriven = Boolean(step.linkedTaskId) && !step.readOnly
 
   return (
-    <li className="flex items-start gap-3 px-4 py-2.5">
+    <li
+      draggable
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDragEnd={onDragEnd}
+      className={`group relative flex items-start gap-2 py-2.5 pl-1.5 pr-4 ${dragging ? 'opacity-40' : ''}`}
+    >
+      {dropLine ? (
+        <span
+          aria-hidden
+          className={`pointer-events-none absolute inset-x-2 h-0.5 rounded bg-brand-500 ${
+            dropLine === 'before' ? '-top-px' : '-bottom-px'
+          }`}
+        />
+      ) : null}
+      <div className="flex shrink-0 flex-col items-center pt-0.5">
+        <span
+          className="cursor-grab text-slate-300 transition hover:text-slate-500 active:cursor-grabbing"
+          title="Drag to reorder"
+          aria-hidden
+        >
+          <GripVertical className="h-4 w-4" />
+        </span>
+        <button
+          type="button"
+          onClick={onMoveUp}
+          disabled={!canMoveUp || pending}
+          className="text-slate-300 opacity-0 transition hover:text-slate-600 focus:opacity-100 disabled:invisible group-hover:opacity-100"
+          aria-label="Move step up"
+          title="Move up"
+        >
+          <ChevronUp className="h-3.5 w-3.5" />
+        </button>
+        <button
+          type="button"
+          onClick={onMoveDown}
+          disabled={!canMoveDown || pending}
+          className="text-slate-300 opacity-0 transition hover:text-slate-600 focus:opacity-100 disabled:invisible group-hover:opacity-100"
+          aria-label="Move step down"
+          title="Move down"
+        >
+          <ChevronDown className="h-3.5 w-3.5" />
+        </button>
+      </div>
       {step.readOnly ? (
         /* AI milestone: read-only, derived status. */
         <span className="mt-0.5 shrink-0" title="Tracked automatically">

@@ -27,6 +27,7 @@ import {
   Clock,
   Pencil,
   Plus,
+  Trash2,
 } from 'lucide-react'
 import { EsignProviderPicker } from './EsignProviderPicker'
 import ModalPortal from './ModalPortal'
@@ -49,6 +50,7 @@ import {
   sendOnboardingPacket,
   uploadFeeAgreement,
   voidEnvelope,
+  deleteEnvelope,
   type CaseFirmTemplate,
   type DocumentEnvelope,
   type EnvelopeStatus,
@@ -778,6 +780,31 @@ export default function SignatureRequestPanel({
     }
   }
 
+  const handleDelete = async (env: DocumentEnvelope) => {
+    setError(null)
+    setNotice(null)
+    const open = OPEN_STATUSES.includes(env.status)
+    const message = open
+      ? `Delete "${env.title}"? It hasn't been signed yet — the request will be cancelled and the signing link will stop working.`
+      : `Delete "${env.title}" from this list?`
+    if (!window.confirm(message)) return
+    setBusyId(env.id)
+    try {
+      await deleteEnvelope(leadId, env.id)
+      if (open) {
+        // Envelopes from the same combined packet were cancelled with it.
+        setEnvelopes(await listEnvelopes(leadId))
+      } else {
+        setEnvelopes((prev) => prev.filter((e) => e.id !== env.id))
+      }
+      setNotice(`Deleted "${env.title}".`)
+    } catch (err: any) {
+      setError(err?.response?.data?.error || 'Could not delete this signature request.')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
   const startCorrect = (env: DocumentEnvelope) => {
     setCorrectingId(env.id)
     setCorrectEmail(env.signerEmail)
@@ -1277,6 +1304,16 @@ export default function SignatureRequestPanel({
                       >
                         <Download className="h-3.5 w-3.5" />
                         {downloadingId === env.id ? 'Downloading…' : 'Download signed'}
+                      </button>
+                    )}
+                    {env.status !== 'signed' && (
+                      <button
+                        onClick={() => handleDelete(env)}
+                        disabled={isBusy}
+                        className="ml-auto inline-flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-red-600 disabled:opacity-50"
+                        title="Delete this signature request"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" /> Delete
                       </button>
                     )}
                   </div>

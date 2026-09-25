@@ -490,6 +490,38 @@ export async function voidEnvelope(envelopeId: string, leadId: string, attorneyI
   return prisma.documentEnvelope.update({ where: { id: env.id }, data: { status: 'voided' } })
 }
 
+/**
+ * Remove a signature request from the case. Signed envelopes are the executed
+ * record (retainer / HIPAA gates read them), so they can't be deleted. An open
+ * request is cancelled at the provider first so the signing link stops working;
+ * rows from the same combined packet share that provider request, so they are
+ * marked voided alongside it.
+ */
+export async function deleteEnvelope(envelopeId: string, leadId: string, attorneyId: string) {
+  const env = await ownedEnvelope(envelopeId, leadId, attorneyId)
+  if (env.status === 'signed') {
+    throw new Error('Signed documents are part of the case record and cannot be deleted')
+  }
+  if (OPEN_STATUSES.has(env.status as EnvelopeStatus) && env.externalEnvelopeId) {
+    const provider = getESignatureProvider(env.provider)
+    if (!provider.voidEnvelope) {
+      throw new Error(`Provider "${provider.id}" does not support cancelling requests, so this one can't be deleted yet`)
+    }
+    await provider.voidEnvelope(env.externalEnvelopeId)
+    await prisma.documentEnvelope.updateMany({
+      where: {
+        provider: env.provider,
+        externalEnvelopeId: env.externalEnvelopeId,
+        id: { not: env.id },
+        status: { in: [...OPEN_ENVELOPE_STATUSES] },
+      },
+      data: { status: 'voided' },
+    })
+  }
+  await prisma.documentEnvelope.delete({ where: { id: env.id } })
+  logger.info('Signature request deleted', { envelopeId: env.id, leadId, attorneyId, status: env.status })
+}
+
 /** Re-send the signing email to nudge a signer who hasn't completed. */
 export async function remindEnvelope(envelopeId: string, leadId: string, attorneyId: string) {
   const env = await ownedEnvelope(envelopeId, leadId, attorneyId)

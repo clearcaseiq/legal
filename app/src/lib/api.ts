@@ -6816,6 +6816,15 @@ export async function addCaseWorkflowStep(
   return data
 }
 
+/** Save the full step order of one stage; steps from other stages move into it. */
+export async function reorderCaseWorkflowSteps(
+  leadId: string,
+  payload: { phaseName: string | null; phaseOrder: number | null; stageName: string; stageOrder: number; itemIds: string[] }
+): Promise<{ workflow: CaseWorkflow }> {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/workflow/reorder`, payload)
+  return data
+}
+
 export async function deleteCaseWorkflowStep(
   leadId: string,
   itemId: string
