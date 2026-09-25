@@ -92,6 +92,12 @@ export interface CasePreparationResult {
   readinessScore: number // 0-100
   /** Per-factor contribution to readinessScore, for surfacing "what's holding it down". */
   readinessFactors: ReadinessFactor[]
+  timeline: CaseTimelineEstimate
+}
+
+export interface CaseTimelineEstimate {
+  minMonths: number
+  maxMonths: number
 }
 
 export interface SettlementBenchmark {
@@ -759,6 +765,8 @@ export interface CasePreparationInput {
    * gets the old inference.
    */
   hasPrediction?: boolean
+  /** `Prediction.explain`, for the severity level behind the timeline estimate. */
+  explain?: unknown
 }
 
 /** The columns scoreCasePreparation needs, for a caller batching its own read. */
@@ -769,7 +777,7 @@ export const CASE_PREPARATION_SELECT = {
   predictions: {
     orderBy: { createdAt: 'desc' as const },
     take: 1,
-    select: { id: true, viability: true },
+    select: { id: true, viability: true, explain: true },
   },
 } as const
 
@@ -780,6 +788,7 @@ const EMPTY_PREPARATION: CasePreparationResult = {
   weaknesses: [],
   readinessScore: 0,
   readinessFactors: [],
+  timeline: { minMonths: 8, maxMonths: 16 },
 }
 
 export async function computeCasePreparation(assessmentId: string): Promise<CasePreparationResult> {
@@ -796,6 +805,7 @@ export async function computeCasePreparation(assessmentId: string): Promise<Case
     evidenceCategories: (assessment.evidenceFiles || []).map((f) => f.category),
     viability: assessment.predictions?.[0]?.viability,
     hasPrediction: (assessment.predictions?.length ?? 0) > 0,
+    explain: assessment.predictions?.[0]?.explain,
   })
 }
 
@@ -1071,7 +1081,73 @@ export function scoreCasePreparation(input: CasePreparationInput): CasePreparati
     weaknesses,
     readinessScore,
     readinessFactors,
+    timeline: estimateCaseTimeline({
+      claimType: input.claimType,
+      missingDocCount: missingDocs.length,
+      treatmentGapCount: treatmentGaps.length,
+      treatmentCount: Array.isArray(facts?.treatment) ? facts.treatment.length : 0,
+      evidenceCount,
+      severityLevel: parseSeverityLevel(input.explain),
+    }),
   }
+}
+
+const TIMELINE_BASE_MONTHS: Record<string, [number, number]> = {
+  auto: [6, 12],
+  slip_and_fall: [8, 14],
+  workplace: [6, 12],
+  medmal: [18, 30],
+  dog_bite: [5, 10],
+  product: [12, 24],
+  assault: [8, 16],
+  toxic: [18, 36],
+}
+
+/**
+ * Expected months to resolution. The one estimate both the claimant report and
+ * the attorney screens display, so the two can never quote different ranges.
+ */
+export function estimateCaseTimeline(input: {
+  claimType?: string | null
+  missingDocCount: number
+  treatmentGapCount: number
+  treatmentCount: number
+  evidenceCount: number
+  severityLevel?: number | null
+}): CaseTimelineEstimate {
+  const [baseMin, baseMax] = TIMELINE_BASE_MONTHS[String(input.claimType || '')] || [8, 16]
+  const n = input.missingDocCount
+  const missingDocPenalty = n >= 4 ? 4 : n >= 2 ? 2 : n === 1 ? 1 : 0
+  const treatmentGapPenalty = input.treatmentGapCount > 0 ? 2 : 0
+  const noTreatmentPenalty = input.treatmentCount > 0 ? 0 : 2
+  const severeCasePenalty = (input.severityLevel || 0) >= 3 ? 4 : 0
+  const lowEvidencePenalty = input.evidenceCount === 0 ? 2 : 0
+  const chronologyBonus = input.treatmentCount >= 3 ? -1 : 0
+
+  const minMonths = Math.max(3, baseMin + missingDocPenalty + treatmentGapPenalty + noTreatmentPenalty + chronologyBonus)
+  const maxMonths = Math.max(
+    minMonths + 2,
+    baseMax + missingDocPenalty + treatmentGapPenalty + noTreatmentPenalty + severeCasePenalty + lowEvidencePenalty,
+  )
+  return { minMonths, maxMonths }
+}
+
+/** Severity on the 1-4 scale from a stored `Prediction.explain`, or null. */
+function parseSeverityLevel(explain: unknown): number | null {
+  let data: any = explain
+  if (typeof explain === 'string') {
+    try {
+      data = JSON.parse(explain)
+    } catch {
+      return null
+    }
+  }
+  if (!data || typeof data !== 'object') return null
+  const direct = Number(data.severity?.level ?? data.injury_severity)
+  if (Number.isFinite(direct) && direct > 0) return direct
+  const score = Number(data.underwriting?.scores?.severity)
+  if (Number.isFinite(score) && score > 0) return score >= 75 ? 4 : score >= 50 ? 3 : score >= 25 ? 2 : 1
+  return null
 }
 
 export async function buildPlaintiffMedicalReview(

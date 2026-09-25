@@ -37,6 +37,8 @@ export interface ESignProviderMeta {
   configured: boolean
   /** True when the provider will sign a BAA (required for HIPAA authorizations). */
   hipaaCapable: boolean
+  /** True when one envelope can carry several PDFs (`additionalFilePaths`). */
+  multiDocument?: boolean
   /** Short note shown in the connect/settings UI. */
   notes?: string
   docsUrl?: string
@@ -50,6 +52,8 @@ export interface CreateEnvelopeInput {
   signerEmail: string
   /** Absolute path to the source PDF (rendered from a template) to be signed. */
   filePath: string
+  /** Further PDFs signed in the same envelope. Only for `multiDocument` providers. */
+  additionalFilePaths?: string[]
   /** Where to send the signer after completion (embedded/hosted flows). */
   redirectUrl?: string
   /** Opaque reference stored with the provider for idempotency + webhook match. */

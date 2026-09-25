@@ -44,6 +44,7 @@ import { checkCollectPoliceReport } from '../lib/police-report-collect'
 import { checkCollectEvidence, type EvidenceCollectKind } from '../lib/evidence-collect'
 import { listActiveFirmTemplates, sendFirmTemplateForLead } from '../lib/esign/send-firm-template'
 import type { SignableDocumentType } from '../lib/esign/types'
+import { readClaimantContact } from '../lib/claimant-contact'
 
 async function afterRetainerEnvelopeSent(leadId: string, note: string) {
   const lead = await prisma.leadSubmission.findUnique({
@@ -808,6 +809,81 @@ router.post('/leads/:leadId/onboarding-packet', authMiddleware, async (req: Auth
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     logger.error('Create onboarding packet failed', { message })
+    respondESignError(res, error)
+  }
+})
+
+// One-click welcome packet from the "Send client welcome packet" task: emails the
+// client the retainer + HIPAA authorization for signature, using the case's
+// claimant contact and the firm's signing defaults.
+router.post('/leads/:leadId/welcome-packet', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const attorney = await resolveAttorney(req)
+    if (!attorney) return res.status(403).json({ error: 'Not an attorney account' })
+    const resolved = await resolveLeadForAttorney(req.params.leadId, attorney)
+    if (resolved.error === 404) return res.status(404).json({ error: 'Lead not found' })
+    if (resolved.error === 403) return res.status(403).json({ error: 'Lead is assigned to another attorney' })
+
+    const lead = await prisma.leadSubmission.findUnique({
+      where: { id: req.params.leadId },
+      select: { assessmentId: true },
+    })
+    const contact = lead?.assessmentId ? await readClaimantContact(lead.assessmentId) : null
+    const signerName = [contact?.firstName, contact?.lastName].filter(Boolean).join(' ').trim()
+    const signerEmail = contact?.email?.trim() || ''
+    if (!signerName || !signerEmail) {
+      return res.status(422).json({
+        error: 'The client needs a name and email on file before the welcome packet can be sent. Add them under Client Info.',
+        code: 'missing_client_contact',
+      })
+    }
+
+    const provider = listESignatureProviders().find((p) => p.configured && p.hipaaCapable)
+    if (!provider) {
+      return res.status(422).json({
+        error: 'The welcome packet includes a HIPAA authorization. Connect a HIPAA-capable signature tool first.',
+        code: 'no_hipaa_provider',
+      })
+    }
+
+    const open = await prisma.documentEnvelope.findMany({
+      where: {
+        leadId: req.params.leadId,
+        documentType: { in: ['retainer', 'hipaa_authorization'] },
+        status: { in: ['sent', 'viewed'] },
+      },
+      select: { documentType: true },
+    })
+    const openTypes = new Set(open.map((e) => e.documentType))
+    if (openTypes.has('retainer') && openTypes.has('hipaa_authorization') && req.body?.force !== true) {
+      return res.status(409).json({
+        error: 'A retainer and HIPAA authorization are already out for signature with this client.',
+        code: 'packet_already_sent',
+      })
+    }
+
+    const withFirm = await prisma.attorney.findUnique({
+      where: { id: attorney.id },
+      select: { name: true, lawFirm: { select: { name: true } } },
+    })
+    const envPct = Number(process.env.DEFAULT_CONTINGENCY_PERCENT)
+    const result = await createOnboardingPacket({
+      leadId: req.params.leadId,
+      attorneyId: attorney.id,
+      providerId: provider.id,
+      caseRef: req.params.leadId,
+      signerName,
+      signerEmail,
+      attorneyName: withFirm?.name || attorney.name || undefined,
+      firmName: withFirm?.lawFirm?.name || withFirm?.name || undefined,
+      contingencyPercent: Number.isFinite(envPct) && envPct > 0 ? envPct : 33.33,
+    })
+    await afterRetainerEnvelopeSent(req.params.leadId, 'Sent via welcome packet.')
+    await completeWelcomePacketForLead(req.params.leadId, `Welcome packet sent to ${signerEmail}.`).catch(() => undefined)
+    res.status(201).json({ ...result, signerEmail })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    logger.error('Send welcome packet failed', { message })
     respondESignError(res, error)
   }
 })

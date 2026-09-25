@@ -101,7 +101,7 @@ import {
 } from '../../lib/api'
 import { getApiOrigin } from '../../lib/runtimeEnv'
 import { useHeuristics } from '../../contexts/HeuristicsContext'
-import { checkEvidenceCollect, checkPoliceReportCollect, confirmRetainerSigned } from '../../lib/api-esign'
+import { checkEvidenceCollect, checkPoliceReportCollect, confirmRetainerSigned, sendWelcomePacket } from '../../lib/api-esign'
 import SignatureRequestPanel from '../../components/SignatureRequestPanel'
 import ClientContactDialog from './ClientContactDialog'
 import ClientInfoPanel from './ClientInfoPanel'
@@ -4368,7 +4368,31 @@ function TasksPanel({
     }
   }
 
+  const sendWelcomePacketForTask = async (t: TaskRow) => {
+    if (isDone(t)) {
+      goCaseSection('signatures')
+      return
+    }
+    setBusy(t.id)
+    try {
+      const res = await sendWelcomePacket(leadId)
+      flash('ok', `Welcome packet sent to ${res.signerEmail}: retainer agreement and HIPAA authorization for signature.`)
+      await load()
+    } catch (err: any) {
+      const data = err?.response?.data
+      flash('err', data?.error || data?.detail || 'Failed to send the welcome packet.')
+      if (data?.code === 'missing_client_contact') goCaseSection('client-info')
+      else if (data?.code === 'packet_already_sent' || data?.code === 'no_hipaa_provider') goCaseSection('signatures')
+    } finally {
+      setBusy(null)
+    }
+  }
+
   const runPrimaryAction = async (t: TaskRow, kind: TaskPrimaryActionKind) => {
+    if (kind === 'send_welcome') {
+      await sendWelcomePacketForTask(t)
+      return
+    }
     if (kind === 'run_conflict') {
       if (!isDone(t)) await runConflictCheckForTask(t)
       return

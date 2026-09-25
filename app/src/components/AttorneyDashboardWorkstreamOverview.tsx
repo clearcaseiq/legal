@@ -1,4 +1,5 @@
 import { ChevronRight } from 'lucide-react'
+import { useLeadTimeline } from '../hooks/useLeadTimeline'
 import { formatCurrency } from '../lib/formatters'
 import { useHeuristics } from '../contexts/HeuristicsContext'
 import { evidenceCompletenessLabel, opportunityLabel as computeOpportunityLabel } from '../lib/heuristics'
@@ -43,6 +44,7 @@ export default function AttorneyDashboardWorkstreamOverview({
   handleStatusUpdate,
   handleCreateContactFromCommand,
 }: AttorneyDashboardWorkstreamOverviewProps) {
+  const serverTimeline = useLeadTimeline(selectedLead?.id)
   const heuristics = useHeuristics()
   const facts: any = selectedLeadFacts || {}
   const injuries = Array.isArray(facts?.injuries) ? facts.injuries : []
@@ -174,7 +176,7 @@ export default function AttorneyDashboardWorkstreamOverview({
       : null
   const medianSettlement = bands?.median ?? (valueLow && valueHigh ? (valueLow + valueHigh) / 2 : 0)
   const venueState = selectedLead?.assessment?.venueState || 'California'
-  const timelineEstimate = treatments.length >= 2 ? '8–14 months' : treatments.length === 1 ? '6–12 months' : '8–14 months'
+  const timelineEstimate = serverTimeline || '—'
   const checklistItems = [
     // Plausible means the shared grader puts it above the weak tier, so this tick
     // cannot contradict the grade shown elsewhere on the same case.
@@ -341,7 +343,7 @@ export default function AttorneyDashboardWorkstreamOverview({
             <div className="space-y-2 text-sm">
               <div><span className="text-gray-500">Median Settlement</span><p className="font-semibold text-brand-700">{medianSettlement ? `$${Math.round(medianSettlement).toLocaleString()}` : '—'}</p></div>
               <div><span className="text-gray-500">Range</span><p className="font-medium">{valueLow && valueHigh ? `${formatCurrency(valueLow)}–${formatCurrency(valueHigh)}` : '—'}</p></div>
-              <div><span className="text-gray-500">Avg Time to Settlement</span><p className="font-medium">{timelineEstimate || '8–14 months'}</p></div>
+              <div><span className="text-gray-500">Avg Time to Settlement</span><p className="font-medium">{timelineEstimate}</p></div>
             </div>
           </div>
 

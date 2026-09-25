@@ -96,6 +96,12 @@ describe('getPlaintiffPipelineProgress', () => {
     ).toEqual({ currentIdx: 8, completeThrough: 8 })
   })
 
+  it('completes Retained and moves to treatment once the retainer is signed', () => {
+    const base = { submittedForReview: true, attorneyMatched: true, hasScheduledConsult: true, retained: true, caseStage: 'INTAKE' }
+    expect(getPlaintiffPipelineProgress(base)).toEqual({ currentIdx: 5, completeThrough: 5 })
+    expect(getPlaintiffPipelineProgress({ ...base, retainerSigned: true })).toEqual({ currentIdx: 6, completeThrough: 6 })
+  })
+
   it('keeps demand as the live step while it is being prepared', () => {
     expect(
       getPlaintiffPipelineProgress({

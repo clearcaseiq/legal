@@ -56,7 +56,7 @@ import {
   type FirmColleague,
   type QuestionTaskProposal,
 } from '../../lib/api'
-import { checkEvidenceCollect, checkPoliceReportCollect, confirmRetainerSigned } from '../../lib/api-esign'
+import { checkEvidenceCollect, checkPoliceReportCollect, confirmRetainerSigned, sendWelcomePacket } from '../../lib/api-esign'
 import { isAiTask } from './TaskOriginBadge'
 import {
   resolveTaskHelpTooltip,
@@ -546,6 +546,27 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
         }
       } catch (err: any) {
         setError(err?.response?.data?.error || 'Failed to check retainer signature status.')
+      } finally {
+        setActionBusy(false)
+      }
+      return
+    }
+    if (kind === 'send_welcome') {
+      if (done) {
+        navigate(`/attorney-dashboard/cases/${leadId}/signatures`)
+        onClose()
+        return
+      }
+      setActionBusy(true)
+      setError(null)
+      try {
+        await sendWelcomePacket(leadId)
+        const d = await getTaskDetail(leadId, taskId)
+        setTask(d)
+        onChanged?.()
+      } catch (err: any) {
+        const data = err?.response?.data
+        setError(data?.error || data?.detail || 'Failed to send the welcome packet.')
       } finally {
         setActionBusy(false)
       }

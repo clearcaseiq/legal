@@ -4,6 +4,7 @@
  */
 
 import { useState } from 'react'
+import { useLeadTimeline } from '../hooks/useLeadTimeline'
 import { Phone, MessageSquare, Calendar, Download, ChevronDown, ChevronRight, FileText } from 'lucide-react'
 import { formatCurrency } from '../lib/formatters'
 import { useHeuristics } from '../contexts/HeuristicsContext'
@@ -115,6 +116,7 @@ export default function PostAcceptanceView({
   analysisLoading,
   caseFileLoading
 }: PostAcceptanceViewProps) {
+  const serverTimeline = useLeadTimeline(selectedLead?.id)
   const [callModalOpen, setCallModalOpen] = useState(false)
   const [messageModalOpen, setMessageModalOpen] = useState(false)
   const [scheduleModalOpen, setScheduleModalOpen] = useState(false)
@@ -198,7 +200,7 @@ export default function PostAcceptanceView({
     ? 'Consultation Scheduled'
     : caseStatusLabel
 
-  const timelineEstimate = treatments.length >= 2 ? '8–14 months' : treatments.length === 1 ? '6–12 months' : '—'
+  const timelineEstimate = serverTimeline || '—'
 
   const phone = selectedLead?.assessment?.user?.phone || ''
   const email = selectedLead?.assessment?.user?.email || ''

@@ -2023,6 +2023,12 @@ export default function Results() {
     chronologyCount: medicalChronology.length,
   })
   const timelineDrivers = Array.isArray(timelineEstimate?.drivers) ? timelineEstimate.drivers : []
+  // The server's range is the one the attorney screens show; the local one is
+  // only a fallback while case preparation loads.
+  const serverTimeline = casePreparation?.timeline
+  if (serverTimeline && Number.isFinite(serverTimeline.minMonths) && Number.isFinite(serverTimeline.maxMonths)) {
+    timelineEstimate.label = t('results.calc.monthsRange', { min: serverTimeline.minMonths, max: serverTimeline.maxMonths })
+  }
   const estimatedTimeline = timelineEstimate.label
   // Sub-scores live on the same prediction as viability.overall, so an unscored case
   // has no liability figure either. hasLiabilityScore gates every place a liability

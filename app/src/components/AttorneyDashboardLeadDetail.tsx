@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { useLeadTimeline } from '../hooks/useLeadTimeline'
 import { Calendar, MessageSquare, Phone } from 'lucide-react'
 import { BackButton } from '../features/shared/ui'
 import PreAcceptanceView from './PreAcceptanceView'
@@ -171,6 +172,7 @@ export default function AttorneyDashboardLeadDetail({
   copilotAnswer,
   copilotLoading,
 }: AttorneyDashboardLeadDetailProps) {
+  const serverTimeline = useLeadTimeline(selectedLead?.id)
   const heuristics = useHeuristics()
 
   // The header only said "Lead Details", so an attorney reviewing a match had no
@@ -568,7 +570,7 @@ export default function AttorneyDashboardLeadDetail({
             const caseScore = Math.round(rawViabilityScore <= 1 ? rawViabilityScore * 100 : Math.min(100, rawViabilityScore))
             const caseStrength = caseStrengthLabel(heuristics, caseScore)
             const treatment = treatments.length > 0 ? 'Yes' : 'No'
-            const timelineEstimate = treatments.length >= 2 ? '8–14 months' : treatments.length === 1 ? '6–12 months' : '—'
+            const timelineEstimate = serverTimeline || '—'
             const firstName = selectedLead?.assessment?.user?.firstName || ''
             const lastName = selectedLead?.assessment?.user?.lastName || ''
             const plaintiffName = `${firstName} ${lastName.charAt(0) || ''}.`.trim() || 'Not provided'

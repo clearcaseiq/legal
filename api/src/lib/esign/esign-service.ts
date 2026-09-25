@@ -309,10 +309,12 @@ export async function applyEsignWebhook(
   const event = provider.parseWebhook(rawBody, headers)
   if (!event) return null
 
-  const envelope = await prisma.documentEnvelope.findFirst({
+  // An onboarding packet is one provider envelope backing two rows (retainer +
+  // HIPAA), so every row on that envelope moves together.
+  const envelopes = await prisma.documentEnvelope.findMany({
     where: { provider: provider.id, externalEnvelopeId: event.externalEnvelopeId },
   })
-  if (!envelope) {
+  if (envelopes.length === 0) {
     logger.warn('E-sign webhook for unknown envelope', {
       provider: provider.id,
       externalEnvelopeId: event.externalEnvelopeId,
@@ -320,7 +322,12 @@ export async function applyEsignWebhook(
     return null
   }
 
-  return finalizeStatusTransition(envelope, event.status, event.signedAt)
+  let first: EnvelopeRow | null = null
+  for (const envelope of envelopes) {
+    const updated = await finalizeStatusTransition(envelope, event.status, event.signedAt)
+    first = first ?? updated
+  }
+  return first
 }
 
 type EnvelopeRow = Awaited<ReturnType<typeof prisma.documentEnvelope.findFirstOrThrow>>
@@ -546,6 +553,11 @@ export interface OnboardingPacketParams {
  * enforces that and surfaces a clear error otherwise.
  */
 export async function createOnboardingPacket(params: OnboardingPacketParams) {
+  const provider = getESignatureProvider(params.providerId)
+  if (provider.meta().multiDocument) {
+    return createCombinedOnboardingPacket(params, provider)
+  }
+
   const retainer = await createRetainerAgreementEnvelope({
     leadId: params.leadId,
     attorneyId: params.attorneyId,
@@ -573,6 +585,94 @@ export async function createOnboardingPacket(params: OnboardingPacketParams) {
   })
 
   return { retainer, hipaa }
+}
+
+/**
+ * One signature request carrying both the retainer and the HIPAA authorization,
+ * so the client gets a single email with both documents. Each document keeps its
+ * own DocumentEnvelope row (sharing the provider envelope id) so retainer- and
+ * HIPAA-specific completion side effects still run per type.
+ */
+async function createCombinedOnboardingPacket(
+  params: OnboardingPacketParams,
+  provider: ReturnType<typeof getESignatureProvider>,
+) {
+  if (!provider.meta().hipaaCapable) {
+    throw new Error(
+      `Provider "${provider.id}" is not HIPAA-capable; a signed BAA or self-hosted deployment is required for HIPAA authorizations`
+    )
+  }
+
+  const retainerDoc = await renderRetainerAgreementPdf({
+    leadId: params.leadId,
+    clientName: params.signerName,
+    firmName: params.firmName,
+    attorneyName: params.attorneyName,
+    contingencyPercent: params.contingencyPercent,
+    costsResponsibility: params.costsResponsibility,
+    scope: params.scope,
+    caseRef: params.caseRef,
+  })
+  const hipaaDoc = await renderHipaaAuthorizationPdf({
+    leadId: params.leadId,
+    clientName: params.signerName,
+    clientDob: params.clientDob,
+    recordsCustodian: params.recordsCustodian,
+    recordsDateRange: params.recordsDateRange,
+    caseRef: params.caseRef,
+  })
+
+  const base = {
+    leadId: params.leadId,
+    attorneyId: params.attorneyId,
+    signerName: params.signerName,
+    signerEmail: params.signerEmail,
+    provider: provider.id,
+    status: 'draft',
+  }
+  const retainerRow = await prisma.documentEnvelope.create({
+    data: { ...base, documentType: 'retainer', title: retainerDoc.title },
+  })
+  const hipaaRow = await prisma.documentEnvelope.create({
+    data: { ...base, documentType: 'hipaa_authorization', title: hipaaDoc.title },
+  })
+
+  try {
+    const firm = params.firmName ? ` — ${params.firmName}` : ''
+    const result = await provider.createEnvelope({
+      documentType: 'retainer',
+      title: `Client onboarding packet${firm}: retainer agreement + HIPAA authorization`,
+      signerName: params.signerName,
+      signerEmail: params.signerEmail,
+      filePath: retainerDoc.filePath,
+      additionalFilePaths: [hipaaDoc.filePath],
+      reference: retainerRow.id,
+      metadata: {
+        leadId: params.leadId,
+        attorneyId: params.attorneyId,
+        envelopeId: retainerRow.id,
+        hipaaEnvelopeId: hipaaRow.id,
+      },
+    })
+    const nextStatus: EnvelopeStatus = result.status === 'draft' ? 'sent' : result.status
+    const data = {
+      externalEnvelopeId: result.externalEnvelopeId,
+      signingUrl: result.signingUrl,
+      status: nextStatus,
+      ...timestampsFor(nextStatus),
+    }
+    const retainer = await prisma.documentEnvelope.update({ where: { id: retainerRow.id }, data })
+    const hipaa = await prisma.documentEnvelope.update({ where: { id: hipaaRow.id }, data })
+    return { retainer, hipaa }
+  } catch (err) {
+    logger.error('Failed to send combined onboarding packet; leaving rows as draft', {
+      retainerEnvelopeId: retainerRow.id,
+      hipaaEnvelopeId: hipaaRow.id,
+      provider: provider.id,
+      error: err instanceof Error ? err.message : String(err),
+    })
+    throw err
+  }
 }
 
 /** Document types that should be filed into the case's Documents list when signed. */

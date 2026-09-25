@@ -50,6 +50,7 @@ export default function CaseProgressPipeline({
   attorneyMatched,
   hasScheduledConsult,
   retained,
+  retainerSigned,
   caseStage,
   lifecycleState,
   statusMessage,
@@ -60,6 +61,8 @@ export default function CaseProgressPipeline({
   attorneyMatched: boolean
   hasScheduledConsult: boolean
   retained?: boolean
+  /** Client signed the retainer — completes the Retained step. */
+  retainerSigned?: boolean
   caseStage?: string | null
   lifecycleState?: string
   statusMessage?: string
@@ -101,6 +104,7 @@ export default function CaseProgressPipeline({
     attorneyMatched,
     hasScheduledConsult,
     retained: !!retained,
+    retainerSigned,
     caseStage,
   })
 

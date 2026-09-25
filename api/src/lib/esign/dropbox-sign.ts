@@ -168,6 +168,7 @@ export const dropboxSignProvider: ESignatureProvider = {
       label: 'Dropbox Sign',
       configured: configured(),
       hipaaCapable: true,
+      multiDocument: true,
       notes: 'API-first, embedded/email signing, BAA available for HIPAA authorizations.',
       docsUrl: 'https://developers.hellosign.com/api/reference/',
     }
@@ -188,6 +189,15 @@ export const dropboxSignProvider: ESignatureProvider = {
       new Blob([new Uint8Array(fileBuf)], { type: 'application/pdf' }),
       basename(input.filePath)
     )
+    let fileIndex = 1
+    for (const extraPath of input.additionalFilePaths ?? []) {
+      const extraBuf = await readFile(extraPath)
+      form.append(
+        `file[${fileIndex++}]`,
+        new Blob([new Uint8Array(extraBuf)], { type: 'application/pdf' }),
+        basename(extraPath)
+      )
+    }
     if (input.reference) form.append('metadata[reference]', input.reference)
     for (const [k, v] of Object.entries(input.metadata ?? {})) {
       form.append(`metadata[${k}]`, v)

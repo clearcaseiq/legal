@@ -1133,6 +1133,21 @@ export default function Dashboard() {
     : null
   const pendingDocumentRequests = documentRequests.filter((request) => request.status !== 'completed')
   const nextDocumentRequest = pendingDocumentRequests[0] || null
+  // Upload page scoped to the oldest open attorney request (its "Additional
+  // Requested Documents" section lists every open request).
+  const nextDocumentRequestHref =
+    nextDocumentRequest && activeAssessment
+      ? evidenceUploadHref(activeAssessment.id, {
+          from: 'dashboard',
+          returnTo: plaintiffDashboardReturnTo(activeAssessment.id, 'tasks'),
+          focus: evidenceTargetForRequestKey(
+            nextDocumentRequest.remainingDocs[0] ||
+              nextDocumentRequest.items.find((item) => !item.fulfilled)?.key ||
+              '',
+          )?.focus,
+          requestId: nextDocumentRequest.id,
+        })
+      : null
   // One document urgency surface: Action Center when attorney requests exist.
   const showDocActionCenter = pendingDocumentRequests.length > 0
   // Consult card: details when booked; schedule CTA only pre-retain.
@@ -1169,18 +1184,7 @@ export default function Dashboard() {
           { count: nextDocumentRequest.remainingDocs.length || nextDocumentRequest.items.length || 1 }
         ),
         cta: t('plaintiffDashboard.dynamic.action.uploadDocumentsCta'),
-        href: activeAssessment
-          ? evidenceUploadHref(activeAssessment.id, {
-              from: 'dashboard',
-              returnTo: plaintiffDashboardReturnTo(activeAssessment.id, 'tasks'),
-              focus: evidenceTargetForRequestKey(
-                nextDocumentRequest.remainingDocs[0] ||
-                  nextDocumentRequest.items.find((item) => !item.fulfilled)?.key ||
-                  '',
-              )?.focus,
-              requestId: nextDocumentRequest.id,
-            })
-          : START_ASSESSMENT_HREF,
+        href: nextDocumentRequestHref || START_ASSESSMENT_HREF,
         isSchedule: false
       }
     : attorneyMatched && hasUpcomingConsult
@@ -1961,22 +1965,22 @@ export default function Dashboard() {
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-3 sm:border-l sm:border-amber-200/80 sm:pl-5">
-            <button
-                  type="button"
-                  onClick={() => selectTab('tasks')}
+                <Link
+                  to={nextDocumentRequestHref || '?tab=tasks'}
+                  onClick={nextDocumentRequestHref ? undefined : (e) => { e.preventDefault(); selectTab('tasks') }}
                   className="inline-flex items-center gap-2 rounded-lg border border-orange-400 bg-transparent px-3.5 py-2 text-sm font-semibold text-orange-600 transition hover:bg-orange-50"
                 >
                   <ExternalLink className="h-4 w-4" aria-hidden />
                   {t('plaintiffDashboard.actionCenter.viewDetails')}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => selectTab('tasks')}
+                </Link>
+                <Link
+                  to={nextDocumentRequestHref || '?tab=tasks'}
+                  onClick={nextDocumentRequestHref ? undefined : (e) => { e.preventDefault(); selectTab('tasks') }}
                   aria-label={t('plaintiffDashboard.actionCenter.viewDetails')}
                   className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-white text-orange-500 shadow-md ring-1 ring-black/5 transition hover:bg-orange-50"
                 >
                   <ChevronRight className="h-5 w-5" aria-hidden />
-            </button>
+                </Link>
           </div>
             </div>
           </div>
@@ -2133,6 +2137,7 @@ export default function Dashboard() {
                   attorneyMatched={attorneyMatched}
                   hasScheduledConsult={hasUpcomingConsult}
                   retained={caseRetained}
+                  retainerSigned={String(routingStatus?.leadStatus || '').toLowerCase() === 'retained'}
                   caseStage={routingStatus?.caseStage}
                   lifecycleState={routingLifecycle}
                   statusMessage={plaintiffRoutingStatusMessage}

@@ -43,7 +43,7 @@ import { parseTaskDueDate } from '../lib/task-due-date'
 import { isAcceptedUpload } from '../lib/upload-filter'
 import { buildMergedSurvivor, reminderMessagesFor, validateMerge } from '../lib/task-merge'
 import { runAnalysisForAssessment } from './evidence'
-import { generateSceneImageForAssessment } from '../services/incident-scene'
+import { generateSceneImageForAssessment, hasSceneDescription, SCENE_NEEDS_DESCRIPTION } from '../services/incident-scene'
 import { processEvidenceFileForExtraction, shouldAutoProcessEvidence } from '../lib/evidence-processing'
 import { parseIdentityCheck } from '../lib/claimant-identity-check'
 import { runCaseRecalculation } from '../lib/case-recalculation'
@@ -15820,8 +15820,12 @@ router.get('/leads/:leadId', authMiddleware, async (req: any, res) => {
     // get one generated on first open (non-blocking). Reflect that as "pending".
     let sceneImageStatus = (assessment as any)?.sceneImageStatus ?? null
     if (assessment && !assessment.sceneImageUrl && sceneImageStatus !== 'pending' && sceneImageStatus !== 'failed') {
-      sceneImageStatus = 'pending'
-      void generateSceneImageForAssessment(assessment.id).catch(() => {})
+      if (!hasSceneDescription(assessment.facts)) {
+        sceneImageStatus = SCENE_NEEDS_DESCRIPTION
+      } else {
+        sceneImageStatus = 'pending'
+        void generateSceneImageForAssessment(assessment.id).catch(() => {})
+      }
     }
 
     // Same speakable case number plaintiffs see (CCIQ-XXXXXX), minting lazily for
@@ -16784,6 +16788,13 @@ router.post('/leads/:leadId/scene/regenerate', authMiddleware, async (req: any, 
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
     const { lead } = auth
+    const target = await prisma.assessment.findUnique({ where: { id: lead.assessmentId }, select: { facts: true } })
+    if (!hasSceneDescription(target?.facts)) {
+      await prisma.assessment
+        .update({ where: { id: lead.assessmentId }, data: { sceneImageStatus: SCENE_NEEDS_DESCRIPTION } })
+        .catch(() => {})
+      return res.json({ status: SCENE_NEEDS_DESCRIPTION })
+    }
     // Kick off regeneration (force) but don't block the request on the image call.
     void generateSceneImageForAssessment(lead.assessmentId, { force: true }).catch(() => {})
     res.json({ status: 'pending' })

@@ -263,6 +263,18 @@ export const sendOnboardingPacket = async (
   return res.data
 }
 
+/**
+ * Email the client the welcome packet (retainer + HIPAA authorization) for
+ * signature, using the case's client contact and the firm's signing defaults.
+ */
+export const sendWelcomePacket = async (
+  leadId: string,
+  opts: { force?: boolean } = {},
+): Promise<{ retainer: DocumentEnvelope; hipaa: DocumentEnvelope; signerEmail: string }> => {
+  const res = await api.post(`/v1/documents/leads/${leadId}/welcome-packet`, opts)
+  return res.data
+}
+
 export interface CaseFirmTemplate {
   id: string
   name: string

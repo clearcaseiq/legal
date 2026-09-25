@@ -142,6 +142,26 @@ function extractFacts(factsRaw: string | null | undefined) {
   }
 }
 
+/** Status stored when there is no incident description to reconstruct from. */
+export const SCENE_NEEDS_DESCRIPTION = 'needs_description'
+
+const MIN_SCENE_DESCRIPTION_CHARS = 15
+
+/**
+ * Whether the intake has an incident description to reconstruct a scene from.
+ * Without one the image model invents a generic diagram, which reads as fact.
+ */
+export function hasSceneDescription(factsRaw: string | null | undefined): boolean {
+  let facts: any = {}
+  try {
+    facts = factsRaw ? JSON.parse(factsRaw) : {}
+  } catch {
+    facts = {}
+  }
+  const narrative = typeof facts?.incident?.narrative === 'string' ? facts.incident.narrative.trim() : ''
+  return narrative.length >= MIN_SCENE_DESCRIPTION_CHARS
+}
+
 /**
  * Generate (or regenerate) the AI incident-scene schematic for an assessment.
  * Fire-and-forget safe: never throws. Writes a PNG under uploads/scenes and stores
@@ -173,6 +193,14 @@ export async function generateSceneImageForAssessment(
       if (assessment.sceneImageUrl && assessment.sceneImageStatus === 'ready') {
         return { ok: true, url: assessment.sceneImageUrl, status: 'ready' }
       }
+    }
+
+    if (!hasSceneDescription(assessment.facts)) {
+      await prisma.assessment.update({
+        where: { id: assessmentId },
+        data: { sceneImageStatus: SCENE_NEEDS_DESCRIPTION },
+      }).catch(() => {})
+      return { ok: false, status: SCENE_NEEDS_DESCRIPTION, reason: 'no_incident_description' }
     }
 
     if (!openai) {

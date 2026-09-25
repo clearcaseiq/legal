@@ -239,6 +239,8 @@ export function getPlaintiffPipelineProgress(input: {
   attorneyMatched: boolean
   hasScheduledConsult: boolean
   retained: boolean
+  /** The client signed the retainer (lead status `retained`), not just an engaged attorney. */
+  retainerSigned?: boolean
   caseStage?: string | null
 }): { currentIdx: number; completeThrough: number } {
   const stage = String(input.caseStage || '').toUpperCase()
@@ -258,6 +260,8 @@ export function getPlaintiffPipelineProgress(input: {
     if (bucket === 'negotiation') return { currentIdx: 8, completeThrough: 8 }
     if (bucket === 'demand') return { currentIdx: 7, completeThrough: 7 }
     if (bucket === 'treatment') return { currentIdx: 6, completeThrough: 6 }
+    // A signed retainer finishes the Retained step; treatment is what comes next.
+    if (input.retainerSigned) return { currentIdx: 6, completeThrough: 6 }
     return { currentIdx: 5, completeThrough: 5 } // Retained
   }
   // Consult booked/past but not retained: first 5 green, no amber post-retain step.
@@ -273,6 +277,7 @@ export function getPlaintiffPipelineIndex(input: {
   attorneyMatched: boolean
   hasScheduledConsult: boolean
   retained: boolean
+  retainerSigned?: boolean
   caseStage?: string | null
 }): number {
   const { currentIdx, completeThrough } = getPlaintiffPipelineProgress(input)

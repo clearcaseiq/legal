@@ -5,7 +5,8 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { formatCurrency, formatPercentage } from '../lib/formatters'
-import { ChevronDown, ChevronRight, Clock, Check, Info, RefreshCw, Sparkles, ImageOff, Gauge, Image as ImageIcon, Stethoscope, ShieldCheck, FolderOpen, AlertCircle } from 'lucide-react'
+import { useLeadTimeline } from '../hooks/useLeadTimeline'
+import { ChevronDown, ChevronRight, Clock, Check, Info, RefreshCw, Sparkles, ImageOff, Gauge, Image as ImageIcon, Stethoscope, ShieldCheck, FolderOpen, AlertCircle, FileText } from 'lucide-react'
 import { useHeuristics } from '../contexts/HeuristicsContext'
 import { caseStrengthLabel } from '../lib/heuristics'
 import { useStatHints, StatHintsToggle } from '../features/shared/ui'
@@ -126,6 +127,7 @@ export default function PreAcceptanceView({
   accepted = false,
   decisionError = null
 }: PreAcceptanceViewProps) {
+  const serverTimeline = useLeadTimeline(selectedLead?.id)
   const heuristics = useHeuristics()
   const { showHints, toggleHints } = useStatHints()
   const [advancedOpen, setAdvancedOpen] = useState(false)
@@ -239,7 +241,7 @@ export default function PreAcceptanceView({
 
   // Evidence status
   const evidenceItems = Array.isArray(evidenceChecklist?.required) ? evidenceChecklist.required : []
-  const expectedTimeline = '8–14 months'
+  const expectedTimeline = serverTimeline || '—'
   const medicalSharing = selectedLead?.assessment?.medicalSharing
   const medicalSharingPending = medicalSharing && medicalSharing.canShareMedicalData === false
   const medicalPendingMessage = medicalSharing?.message || DEFAULT_MEDICAL_PENDING_MESSAGE
@@ -878,6 +880,8 @@ export default function PreAcceptanceView({
   )
 }
 
+const SCENE_NEEDS_DESCRIPTION = 'needs_description'
+
 /**
  * Scene tab — shows the AI-generated incident-scene schematic for the lead.
  * Loads the stored PNG as a same-origin blob (so it renders inline without the
@@ -955,8 +959,8 @@ function SceneTab({
           setFileUrl(url)
           setStatus('ready')
           window.clearInterval(intervalId)
-        } else if (st === 'failed') {
-          setStatus('failed')
+        } else if (st === 'failed' || st === SCENE_NEEDS_DESCRIPTION) {
+          setStatus(st)
           window.clearInterval(intervalId)
         }
       } catch {
@@ -983,7 +987,8 @@ function SceneTab({
     }
     setObjectUrl(null)
     try {
-      await regenerateLeadSceneImage(leadId)
+      const res = await regenerateLeadSceneImage(leadId)
+      if (res?.status === SCENE_NEEDS_DESCRIPTION) setStatus(SCENE_NEEDS_DESCRIPTION)
     } catch {
       setStatus('failed')
     }
@@ -1014,6 +1019,15 @@ function SceneTab({
             alt="AI-generated schematic reconstruction of the incident"
             className="mx-auto max-h-[520px] w-full object-contain bg-white"
           />
+        ) : status === SCENE_NEEDS_DESCRIPTION ? (
+          <div className="flex flex-col items-center justify-center gap-2 px-6 py-16 text-center">
+            <FileText className="h-8 w-8 text-slate-400" aria-hidden />
+            <p className="text-sm font-medium text-slate-600">An incident description is needed to generate this scene.</p>
+            <p className="max-w-md text-xs text-slate-500">
+              The reconstruction is drawn from how the incident happened — where it took place, which way each party was
+              moving, and the point of impact. Once a description is added to the case, click Regenerate.
+            </p>
+          </div>
         ) : status === 'failed' ? (
           <div className="flex flex-col items-center justify-center gap-2 px-6 py-16 text-center">
             <ImageOff className="h-8 w-8 text-slate-400" aria-hidden />
