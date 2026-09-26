@@ -26,6 +26,7 @@ import { engagedLeadsOnly } from '../lib/leadStatus'
 import { formatPhoneInput } from '../lib/phone'
 import { computeProfileStrength } from '../lib/profileStrength'
 import { useAttorneyCommunications } from '../hooks/useAttorneyCommunications'
+import { useFirmAccess } from '../hooks/useFirmAccess'
 import { useAttorneyCaseActivity } from '../hooks/useAttorneyCaseActivity'
 import { useAttorneyCaseHealth } from '../hooks/useAttorneyCaseHealth'
 import { useAttorneyCaseInsights } from '../hooks/useAttorneyCaseInsights'
@@ -358,6 +359,7 @@ export interface AttorneyDashboardProps {
 }
 
 export default function AttorneyDashboardShell({ chromeless = false, initialView }: AttorneyDashboardProps = {}) {
+  const { can: canFirmAction } = useFirmAccess()
   const { t } = useLanguage()
   const { showToast } = useToast()
   const heuristics = useHeuristics()
@@ -3253,6 +3255,7 @@ export default function AttorneyDashboardShell({ chromeless = false, initialView
                               >
                                 Review
                               </button>
+                              {canFirmAction('accept') && (
                               <button
                                 type="button"
                                 onClick={() => void handleLeadDecision(lead.id, 'accept')}
@@ -3261,6 +3264,8 @@ export default function AttorneyDashboardShell({ chromeless = false, initialView
                               >
                                 Accept
                               </button>
+                              )}
+                              {canFirmAction('request') && (
                               <button
                                 type="button"
                                 onClick={() => handleQuickActionForLead(lead, 'documentRequest')}
@@ -3268,6 +3273,7 @@ export default function AttorneyDashboardShell({ chromeless = false, initialView
                               >
                                 Request Info
                               </button>
+                              )}
                             </div>
                           </td>
                         </tr>

@@ -20,6 +20,7 @@ import { CalendarClock } from 'lucide-react'
 import ChatAvatar from './ChatAvatar'
 import PresenceIndicator from './PresenceIndicator'
 import { useCounterpartPresence } from '../lib/presence'
+import { useFirmAccess } from '../hooks/useFirmAccess'
 
 interface Message {
   id: string
@@ -68,6 +69,7 @@ export default function ChatDrawer({
   onMessageSent,
   initialDraft = '',
 }: ChatDrawerProps) {
+  const roleCanMessage = useFirmAccess().can('message')
   const presence = useCounterpartPresence()
   const clientPresence = (userId && presence.clients[userId]) || (assessmentId && presence.cases[assessmentId]) || null
   const [chatRoomId, setChatRoomId] = useState<string | null>(null)
@@ -408,7 +410,13 @@ export default function ChatDrawer({
                     </div>
                   )}
                 </div>
+                {!roleCanMessage && (
+                  <p className="mb-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                    Read only: your firm role doesn&apos;t include messaging clients.
+                  </p>
+                )}
                 <textarea
+                  disabled={!roleCanMessage}
                   value={input}
                   onChange={(e) => setInput(e.target.value.slice(0, CHAT_MESSAGE_MAX_LENGTH))}
                   onKeyDown={(e) => {
@@ -515,7 +523,7 @@ export default function ChatDrawer({
                 <button
                   type="button"
                   onClick={handleSend}
-                  disabled={!input.trim() || sending}
+                  disabled={!roleCanMessage || !input.trim() || sending}
                   className="col-span-2 inline-flex min-h-11 items-center justify-center rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <Send className="h-4 w-4 mr-2" />

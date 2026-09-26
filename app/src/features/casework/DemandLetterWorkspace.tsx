@@ -25,6 +25,7 @@ import {
   X,
 } from 'lucide-react'
 import ConfirmDialog from '../../components/ConfirmDialog'
+import { useFirmAccess } from '../../hooks/useFirmAccess'
 import {
   approveLeadDemandLetter,
   downloadDemandLetterDocx,
@@ -66,6 +67,7 @@ function AuthorChip({ name, source }: { name: string | null; source?: string | n
 }
 
 export default function DemandLetterWorkspace({ leadId }: { leadId: string }) {
+  const canWorkDemands = useFirmAccess().can('demand')
   const [letters, setLetters] = useState<DemandLetter[]>([])
   const [active, setActive] = useState<DemandLetter | null>(null)
   const [draftText, setDraftText] = useState('')
@@ -296,7 +298,12 @@ export default function DemandLetterWorkspace({ leadId }: { leadId: string }) {
   }
 
   return (
-    <div className="space-y-4">
+    <fieldset disabled={!canWorkDemands} className="m-0 min-w-0 space-y-4 border-0 p-0">
+      {!canWorkDemands && (
+        <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+          Read only: your firm role doesn&apos;t include drafting or sending demand letters.
+        </div>
+      )}
       {awaitingReview ? (
         <div className="flex items-start gap-3 rounded-xl border border-violet-200 bg-violet-50/70 p-4">
           <Bot className="mt-0.5 h-5 w-5 shrink-0 text-violet-600" />
@@ -723,6 +730,6 @@ export default function DemandLetterWorkspace({ leadId }: { leadId: string }) {
         onConfirm={() => { pendingConfirm?.action(); setPendingConfirm(null) }}
         onCancel={() => setPendingConfirm(null)}
       />
-    </div>
+    </fieldset>
   )
 }

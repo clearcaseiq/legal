@@ -36,11 +36,11 @@ import {
 import {
   FIRM_ROLE_PERMISSIONS,
   CASE_ASSIGNMENT_ROLES,
-  roleHasPermission,
   ALL_FIRM_PERMISSIONS,
   LOCKED_ROLE_PERMISSIONS,
   effectiveRolePermissions,
 } from '../lib/firm-roles'
+import { permissionsForMember } from '../lib/firm-access'
 
 const router: Router = Router()
 
@@ -209,7 +209,7 @@ async function ensureAttorneyFirmContext(user: any, attorney: any) {
     lawFirmId: firm.id,
     role: 'firm_admin',
     member,
-    permissions: eff.firm_admin,
+    permissions: permissionsForMember('firm_admin', (firm as any)?.rolePermissions, null),
     roleCapabilities: eff,
   }
 }
@@ -238,10 +238,11 @@ async function getFirmContext(req: any) {
       lawFirmId: firmMember.lawFirmId,
       role: firmMember.role || 'intake_specialist',
       member: firmMember,
-      permissions: [
-        ...(eff[firmMember.role] || []),
-        ...parseJsonArray(firmMember.permissions)
-      ],
+      permissions: permissionsForMember(
+        firmMember.role || 'intake_specialist',
+        (firmMember.lawFirm as any)?.rolePermissions,
+        firmMember.permissions,
+      ),
       roleCapabilities: eff,
     }
   }
@@ -258,7 +259,7 @@ async function getFirmContext(req: any) {
       lawFirmId: attorney.lawFirmId,
       role: 'firm_admin',
       member: null,
-      permissions: eff.firm_admin,
+      permissions: permissionsForMember('firm_admin', (firm as any)?.rolePermissions, null),
       roleCapabilities: eff,
     }
   }
@@ -291,8 +292,13 @@ function parseJsonArray(value: unknown): any[] {
   }
 }
 
+/**
+ * The firm's own role settings are the answer. This used to also accept the
+ * platform default for the role, so unticking a permission in Firm Settings
+ * never took it away.
+ */
 function requireFirmPermission(context: Awaited<ReturnType<typeof getFirmContext>>, permission: string) {
-  return Boolean(context && (context.permissions.includes(permission) || roleHasPermission(context.role, permission)))
+  return Boolean(context && context.permissions.includes(permission))
 }
 
 router.post('/offices', authMiddleware as any, async (req: any, res: Response) => {

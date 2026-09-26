@@ -102,7 +102,8 @@ import { hasAppointmentConflict } from '../lib/availability-slots'
 import { buildCaseAwareMessageTemplates, buildCaseCommandCenter } from '../lib/case-command-center'
 import { ensurePredictionsForAssessments } from '../lib/prediction-materializer'
 import { computeSettlement, estimateAttorneyFee, isFeeOutstanding, parsePredictedMedian } from '../lib/settlement'
-import { effectiveRolePermissions } from '../lib/firm-roles'
+import { firmAllows, resolveFirmAccess, resolveMemberAccess, type FirmAccess } from '../lib/firm-access'
+import { ALL_FIRM_PERMISSIONS } from '../lib/firm-roles'
 import { buildAttorneyWorkQueue } from '../lib/attorney-work-queue'
 import { buildReadinessAutomationPlan } from '../lib/readiness-automation'
 import { exportCaseToConnectionSafe } from '../lib/cms'
@@ -310,54 +311,93 @@ const LIVE_INTRO_STATUSES = ['PENDING', 'REQUESTED_INFO']
  * (with the firm's per-role overrides and the member's extra grants — the same
  * resolution firm-dashboard.ts uses). Creates no firm rows as a side effect.
  */
-async function resolveFirmVisibility(req: any, attorney: any): Promise<FirmVisibility> {
-  const none: FirmVisibility = { lawFirmId: null, canViewAllCases: false }
+/** The caller's firm access, resolved once per request. */
+async function getRequestFirmAccess(req: any): Promise<FirmAccess | null> {
+  if (req.__firmAccess === undefined) {
+    req.__firmAccess = await resolveFirmAccess(prisma as any, req.user).catch(() => null)
+  }
+  return req.__firmAccess
+}
+
+/**
+ * Membership-only access for action gates. A caller with no active membership
+ * is a solo attorney or a firm's founding attorney (its admin) — unrestricted
+ * either way — so the attorney lookup is skipped.
+ */
+async function getRequestMemberAccess(req: any): Promise<FirmAccess | null> {
+  if (req.__firmAccess !== undefined) return req.__firmAccess
+  if (req.__memberAccess === undefined) {
+    req.__memberAccess = await resolveMemberAccess(prisma as any, req.user).catch(() => null)
+  }
+  return req.__memberAccess
+}
+
+async function resolveFirmVisibility(req: any, _attorney: any): Promise<FirmVisibility> {
+  const access = await getRequestFirmAccess(req)
+  if (!access) return { lawFirmId: null, userId: req.user?.id ?? null, canViewAllCases: false }
+  const has = (p: string) => access.permissions.includes(p)
+  const canViewAllCases = has('view_all_cases')
+  const canAcceptFirmMatches = canViewAllCases || has('accept_cases')
+  const canReviewFirmMatches = canAcceptFirmMatches || has('review_cases') || has('review_new_leads')
+  return { lawFirmId: access.lawFirmId, userId: access.userId, canViewAllCases, canReviewFirmMatches, canAcceptFirmMatches }
+}
+
+/**
+ * Refuse an action the caller's firm role does not grant. Sends the 403 and
+ * returns true when refused. Callers outside a firm (solo attorneys, case
+ * specialists) are not limited by firm roles.
+ */
+async function denyWithoutFirmPermission(req: any, res: any, anyOf: string[]): Promise<boolean> {
+  const access = await getRequestMemberAccess(req)
+  if (firmAllows(access, anyOf)) return false
+  res.status(403).json({
+    error: 'Your firm role does not allow this action. Ask your firm admin to update your permissions.',
+    code: 'FIRM_PERMISSION_DENIED',
+    permission: anyOf[0],
+  })
+  return true
+}
+
+/** Permission groups for the case actions the firm role matrix governs. */
+const CASE_ACTION_PERMISSIONS = {
+  message: ['message_plaintiffs'],
+  demand: ['generate_demands'],
+  documents: ['upload_documents', 'manage_documents', 'upload_records'],
+  request: ['request_evidence', 'request_records'],
+  schedule: ['schedule_consultations'],
+  chronology: ['manage_chronology'],
+  accept: ['accept_cases'],
+  decline: ['decline_cases'],
+} as const satisfies Record<string, readonly string[]>
+
+const firmGate = (group: keyof typeof CASE_ACTION_PERMISSIONS) => async (req: any, res: any, next: any) => {
   try {
-    const email = req.user?.email ? String(req.user.email).toLowerCase() : null
-    if (!email) return none
-
-    const user = await prisma.user.findUnique({ where: { email } })
-    const firmMember = user
-      ? await (prisma as any).firmMember
-          .findFirst({ where: { userId: user.id, status: 'active' }, include: { lawFirm: { select: { rolePermissions: true } } } })
-          .catch(() => null)
-      : null
-
-    if (firmMember?.lawFirmId) {
-      const role = firmMember.role || 'intake_specialist'
-      let extraPermissions: string[] = []
-      if (typeof firmMember.permissions === 'string' && firmMember.permissions.trim()) {
-        try {
-          const parsed = JSON.parse(firmMember.permissions)
-          if (Array.isArray(parsed)) extraPermissions = parsed
-        } catch {
-          /* ignore malformed permission JSON */
-        }
-      } else if (Array.isArray(firmMember.permissions)) {
-        extraPermissions = firmMember.permissions
-      }
-      const permissions = new Set([
-        ...(effectiveRolePermissions(firmMember.lawFirm?.rolePermissions)[role] || []),
-        ...extraPermissions,
-      ])
-      const canViewAllCases = permissions.has('view_all_cases')
-      const canAcceptFirmMatches = canViewAllCases || permissions.has('accept_cases')
-      const canReviewFirmMatches =
-        canAcceptFirmMatches || permissions.has('review_cases') || permissions.has('review_new_leads')
-      return { lawFirmId: firmMember.lawFirmId, userId: user?.id ?? null, canViewAllCases, canReviewFirmMatches, canAcceptFirmMatches }
-    }
-
-    // An attorney tied to a firm but without an explicit membership row is
-    // treated as the firm admin (same fallback as firm-dashboard.ts).
-    if (attorney?.lawFirmId) {
-      return { lawFirmId: attorney.lawFirmId, userId: user?.id ?? null, canViewAllCases: true, canReviewFirmMatches: true, canAcceptFirmMatches: true }
-    }
-
-    return { ...none, userId: user?.id ?? null }
-  } catch {
-    return none
+    if (await denyWithoutFirmPermission(req, res, [...CASE_ACTION_PERMISSIONS[group]])) return
+    next()
+  } catch (err) {
+    next(err)
   }
 }
+
+/**
+ * The caller's resolved firm permissions, so the web app hides actions the
+ * server would refuse. `firm: null` means no firm role applies.
+ */
+router.get('/access', authMiddleware, async (req: any, res: any) => {
+  try {
+    const access = await getRequestFirmAccess(req)
+    res.json({
+      firm: access ? { id: access.lawFirmId, role: access.role } : null,
+      permissions: access ? access.permissions : ALL_FIRM_PERMISSIONS,
+      actions: Object.fromEntries(
+        Object.entries(CASE_ACTION_PERMISSIONS).map(([k, perms]) => [k, firmAllows(access, [...perms])]),
+      ),
+    })
+  } catch (error: any) {
+    logger.error('Failed to resolve firm access', { error: error?.message })
+    res.status(500).json({ error: 'Failed to resolve permissions' })
+  }
+})
 
 /** Leads the caller is on the firm case team for (lead attorney, paralegal, …). */
 function firmCaseTeamTerm(attorneyId: string | null, firm: FirmVisibility): any | null {
@@ -3984,7 +4024,7 @@ router.get('/profile/preferences', authMiddleware, async (req: any, res) => {
   }
 })
 
-router.patch('/appointments/:appointmentId', authMiddleware, async (req: any, res) => {
+router.patch('/appointments/:appointmentId', authMiddleware, firmGate('schedule'), async (req: any, res) => {
   try {
     const auth = await getAttorneyFromReq(req)
     if (auth.error) {
@@ -4255,7 +4295,7 @@ async function cancelAttorneyAppointment(params: {
   return appointment
 }
 
-router.post('/appointments/:appointmentId/cancel', authMiddleware, async (req: any, res) => {
+router.post('/appointments/:appointmentId/cancel', authMiddleware, firmGate('schedule'), async (req: any, res) => {
   try {
     const auth = await getAttorneyFromReq(req)
     if (auth.error) {
@@ -5514,7 +5554,7 @@ router.patch('/document-requests/:requestId/viewed', authMiddleware, async (req:
   }
 })
 
-router.post('/document-requests/:requestId/nudge', authMiddleware, async (req: any, res) => {
+router.post('/document-requests/:requestId/nudge', authMiddleware, firmGate('request'), async (req: any, res) => {
   try {
     const auth = await getAttorneyFromReq(req)
     if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
@@ -6059,7 +6099,7 @@ router.post('/leads/:leadId/reassign', authMiddleware, async (req: any, res) => 
 // Lead contact and booking endpoints
 
 // Create a contact attempt
-router.post('/leads/:leadId/contact', authMiddleware, async (req: any, res) => {
+router.post('/leads/:leadId/contact', authMiddleware, firmGate('message'), async (req: any, res) => {
   try {
     const { leadId } = req.params
     const { contactType, contactMethod, scheduledAt, notes } = req.body
@@ -6264,7 +6304,7 @@ router.post('/leads/:leadId/contact', authMiddleware, async (req: any, res) => {
 })
 
 // Create document request (structured workflow)
-router.post('/leads/:leadId/document-request', authMiddleware, async (req: any, res) => {
+router.post('/leads/:leadId/document-request', authMiddleware, firmGate('request'), async (req: any, res) => {
   try {
     const { leadId } = req.params
     const { requestedDocs = [], customMessage, sendUploadLinkOnly } = req.body
@@ -6363,7 +6403,7 @@ const DOCUMENT_REQUEST_TEXT_ERRORS: Record<string, string> = {
 // Ask the claimant for documents by text, and open the channel they reply on.
 // Same DocumentRequest rows as the email flow, so a texted photo settles the
 // request rather than arriving as an unattached file.
-router.post('/leads/:leadId/document-request-text', authMiddleware, async (req: any, res) => {
+router.post('/leads/:leadId/document-request-text', authMiddleware, firmGate('request'), async (req: any, res) => {
   try {
     const { leadId } = req.params
     const { requestedDocs = [], customMessage } = req.body
@@ -6546,7 +6586,7 @@ const opposingDocRequestSchema = z.object({
 // Create a document request directed at the DEFENDANT / opposing party / insurer.
 // Unlike the plaintiff flow, the recipient has no platform account, so they receive a
 // tokenized external upload portal link instead of an in-app message.
-router.post('/leads/:leadId/opposing-document-request', authMiddleware, async (req: any, res) => {
+router.post('/leads/:leadId/opposing-document-request', authMiddleware, firmGate('request'), async (req: any, res) => {
   try {
     const { leadId } = req.params
     const parsed = opposingDocRequestSchema.safeParse(req.body)
@@ -6818,7 +6858,7 @@ router.get('/leads/:leadId/opposing-document-suggestions', authMiddleware, async
 })
 
 // Schedule consultation (structured workflow)
-router.post('/leads/:leadId/schedule-consult', authMiddleware, async (req: any, res) => {
+router.post('/leads/:leadId/schedule-consult', authMiddleware, firmGate('schedule'), async (req: any, res) => {
   try {
     const { leadId } = req.params
     const { date, time, meetingType, notes } = req.body
@@ -7558,7 +7598,7 @@ router.get('/leads/:leadId/evidence', authMiddleware, async (req: any, res) => {
   }
 })
 
-router.post('/leads/:leadId/evidence/:fileId/review', authMiddleware, async (req: any, res) => {
+router.post('/leads/:leadId/evidence/:fileId/review', authMiddleware, firmGate('documents'), async (req: any, res) => {
   try {
     const { leadId, fileId } = req.params
     const { content, status } = req.body || {}
@@ -7623,6 +7663,7 @@ router.post('/leads/:leadId/evidence/:fileId/review', authMiddleware, async (req
 router.post(
   '/leads/:leadId/evidence',
   authMiddleware,
+  firmGate('documents'),
   leadAttorneyEvidenceMulter.single('file'),
   async (req: any, res) => {
     try {
@@ -7773,7 +7814,7 @@ router.post(
 // EvidenceFile record, so the generic /v1/evidence/:id route (which checks
 // ownership) 404s for the attorney; this attorney-scoped route authorizes by
 // case assignment instead.
-router.delete('/leads/:leadId/evidence/:fileId', authMiddleware, async (req: any, res) => {
+router.delete('/leads/:leadId/evidence/:fileId', authMiddleware, firmGate('documents'), async (req: any, res) => {
   try {
     const { leadId, fileId } = req.params
     const auth = await getAuthorizedLead(req, leadId)
@@ -9989,7 +10030,7 @@ router.delete('/leads/:leadId/insurance/:id', authMiddleware, async (req: any, r
 // own policy is the client's to produce (usually a download from their insurer's
 // app), so it goes to the plaintiff's Requested Documents. Any other policy goes
 // to the adjuster through the opposing-party tokenized upload portal.
-router.post('/leads/:leadId/insurance/:id/request-dec-page', authMiddleware, async (req: any, res) => {
+router.post('/leads/:leadId/insurance/:id/request-dec-page', authMiddleware, firmGate('request'), async (req: any, res) => {
   try {
     const { leadId, id } = req.params
     const auth = await getAuthorizedLead(req, leadId)
@@ -10910,7 +10951,7 @@ router.get('/leads/:leadId/medical-timeline', authMiddleware, async (req: any, r
   }
 })
 
-router.post('/leads/:leadId/medical-timeline/entries', authMiddleware, async (req: any, res) => {
+router.post('/leads/:leadId/medical-timeline/entries', authMiddleware, firmGate('chronology'), async (req: any, res) => {
   try {
     const { leadId } = req.params
     const auth = await getAuthorizedLead(req, leadId)
@@ -10928,7 +10969,7 @@ router.post('/leads/:leadId/medical-timeline/entries', authMiddleware, async (re
   }
 })
 
-router.patch('/leads/:leadId/medical-timeline/entries/:entryId', authMiddleware, async (req: any, res) => {
+router.patch('/leads/:leadId/medical-timeline/entries/:entryId', authMiddleware, firmGate('chronology'), async (req: any, res) => {
   try {
     const { leadId, entryId } = req.params
     const auth = await getAuthorizedLead(req, leadId)
@@ -10943,7 +10984,7 @@ router.patch('/leads/:leadId/medical-timeline/entries/:entryId', authMiddleware,
   }
 })
 
-router.delete('/leads/:leadId/medical-timeline/entries/:entryId', authMiddleware, async (req: any, res) => {
+router.delete('/leads/:leadId/medical-timeline/entries/:entryId', authMiddleware, firmGate('chronology'), async (req: any, res) => {
   try {
     const { leadId, entryId } = req.params
     const auth = await getAuthorizedLead(req, leadId)
@@ -10959,7 +11000,7 @@ router.delete('/leads/:leadId/medical-timeline/entries/:entryId', authMiddleware
   }
 })
 
-router.patch('/leads/:leadId/medical-timeline/status', authMiddleware, async (req: any, res) => {
+router.patch('/leads/:leadId/medical-timeline/status', authMiddleware, firmGate('chronology'), async (req: any, res) => {
   try {
     const { leadId } = req.params
     const auth = await getAuthorizedLead(req, leadId)
@@ -16214,7 +16255,7 @@ router.get('/leads/:leadId/demand-letters/:demandId', authMiddleware, async (req
  * `guidance` is the free-text steer from whoever asked ("lead with the delayed
  * MRI"), which is how the case assistant hands a request down to the drafter.
  */
-router.post('/leads/:leadId/demand-letters', authMiddleware, async (req: any, res) => {
+router.post('/leads/:leadId/demand-letters', authMiddleware, firmGate('demand'), async (req: any, res) => {
   try {
     const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true, firmMemberWrite: true })
     if (auth.error) {
@@ -16308,6 +16349,7 @@ router.post('/leads/:leadId/demand-letters', authMiddleware, async (req: any, re
 router.post(
   '/leads/:leadId/demand-letters/import',
   authMiddleware,
+  firmGate('demand'),
   (req: any, res, next) => {
     demandImportUpload.single('file')(req, res, (err: any) => {
       if (err) return res.status(400).json({ error: err.message || 'Upload failed' })
@@ -16495,7 +16537,7 @@ router.get('/leads/:leadId/demand-letters/:demandId/original', authMiddleware, a
 })
 
 /** Re-draft an existing letter, keeping its history. */
-router.post('/leads/:leadId/demand-letters/:demandId/regenerate', authMiddleware, async (req: any, res) => {
+router.post('/leads/:leadId/demand-letters/:demandId/regenerate', authMiddleware, firmGate('demand'), async (req: any, res) => {
   try {
     const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true, firmMemberWrite: true })
     if (auth.error) {
@@ -16537,7 +16579,7 @@ router.post('/leads/:leadId/demand-letters/:demandId/regenerate', authMiddleware
 })
 
 /** Save a human edit as the next version. */
-router.patch('/leads/:leadId/demand-letters/:demandId', authMiddleware, async (req: any, res) => {
+router.patch('/leads/:leadId/demand-letters/:demandId', authMiddleware, firmGate('demand'), async (req: any, res) => {
   try {
     const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true, firmMemberWrite: true })
     if (auth.error) {
@@ -16602,7 +16644,7 @@ router.patch('/leads/:leadId/demand-letters/:demandId', authMiddleware, async (r
 })
 
 /** Clear the review hold on a letter Rose drafted on her own. */
-router.post('/leads/:leadId/demand-letters/:demandId/approve', authMiddleware, async (req: any, res) => {
+router.post('/leads/:leadId/demand-letters/:demandId/approve', authMiddleware, firmGate('demand'), async (req: any, res) => {
   try {
     const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true, firmMemberWrite: true })
     if (auth.error) {
@@ -16649,7 +16691,7 @@ router.post('/leads/:leadId/demand-letters/:demandId/approve', authMiddleware, a
 })
 
 /** Lock the letter. Finalized text is no longer editable. */
-router.post('/leads/:leadId/demand-letters/:demandId/finalize', authMiddleware, async (req: any, res) => {
+router.post('/leads/:leadId/demand-letters/:demandId/finalize', authMiddleware, firmGate('demand'), async (req: any, res) => {
   try {
     const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true, firmMemberWrite: true })
     if (auth.error) {
@@ -16702,7 +16744,7 @@ router.post('/leads/:leadId/demand-letters/:demandId/finalize', authMiddleware, 
  * unreachable. Stamping `sentAt` + logging a negotiation "demand" event feeds
  * both the stage engine's demand-sent signal and the negotiation timeline.
  */
-router.post('/leads/:leadId/demand-letters/:demandId/send', authMiddleware, async (req: any, res) => {
+router.post('/leads/:leadId/demand-letters/:demandId/send', authMiddleware, firmGate('demand'), async (req: any, res) => {
   try {
     const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true, firmMemberWrite: true })
     if (auth.error) {
@@ -16962,6 +17004,10 @@ router.post('/leads/:leadId/decision', authMiddleware, async (req: any, res) => 
 
     if (!req.user?.email) {
       return res.status(401).json({ error: 'Authentication required' })
+    }
+
+    if (await denyWithoutFirmPermission(req, res, [...CASE_ACTION_PERMISSIONS[decision === 'accept' ? 'accept' : 'decline']])) {
+      return
     }
 
     const attorney = await prisma.attorney.findFirst({
@@ -18188,7 +18234,7 @@ router.get('/messaging/chat-room/:chatRoomId/messages', authMiddleware, async (r
 })
 
 // Send message as attorney
-router.post('/messaging/send', authMiddleware, async (req: any, res) => {
+router.post('/messaging/send', authMiddleware, firmGate('message'), async (req: any, res) => {
   try {
     const auth = await getAttorneyFromReq(req)
     if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })

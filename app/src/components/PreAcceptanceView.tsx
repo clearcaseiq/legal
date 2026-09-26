@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { formatCurrency, formatPercentage } from '../lib/formatters'
 import { useLeadTimeline } from '../hooks/useLeadTimeline'
+import { useFirmAccess } from '../hooks/useFirmAccess'
 import { ChevronDown, ChevronRight, Clock, Check, Info, RefreshCw, Sparkles, ImageOff, Gauge, Image as ImageIcon, Stethoscope, ShieldCheck, FolderOpen, AlertCircle, FileText } from 'lucide-react'
 import { useHeuristics } from '../contexts/HeuristicsContext'
 import { caseStrengthLabel } from '../lib/heuristics'
@@ -128,6 +129,9 @@ export default function PreAcceptanceView({
   decisionError = null
 }: PreAcceptanceViewProps) {
   const serverTimeline = useLeadTimeline(selectedLead?.id)
+  const { can } = useFirmAccess()
+  const canAccept = can('accept')
+  const canDecline = can('decline')
   const heuristics = useHeuristics()
   const { showHints, toggleHints } = useStatHints()
   const [advancedOpen, setAdvancedOpen] = useState(false)
@@ -376,6 +380,12 @@ export default function PreAcceptanceView({
                   <span className="text-base font-bold tabular-nums leading-tight">{expiresIn}</span>
                 </span>
               )}
+              {!canAccept && !canDecline && (
+                <span className="inline-flex items-center rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                  Your firm role can review this case but not accept or decline it.
+                </span>
+              )}
+              {canAccept && (
               <button
                 onClick={() => {
                   if (conflictNeedsAck) {
@@ -416,6 +426,8 @@ export default function PreAcceptanceView({
                   'Accept Case'
                 )}
               </button>
+              )}
+              {canDecline && (
               <button
                 onClick={onDecline}
                 disabled={loading || decisionLocked}
@@ -428,6 +440,7 @@ export default function PreAcceptanceView({
               >
                 Decline
               </button>
+              )}
             </div>
           )}
         </div>

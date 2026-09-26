@@ -14,7 +14,7 @@ import { isAdminUser, resolveAdminCapabilities } from '../lib/admin-access'
 import { canWorkCaseAssistance, isCaseAssistanceManager, isSpecialistRole } from '../lib/specialist-access'
 import { adoptGuestCasesByEmail } from '../lib/guest-case-adoption'
 import { sendClaimEmail } from '../lib/claims'
-import { permissionsForRole } from '../lib/firm-roles'
+import { permissionsForMember } from '../lib/firm-access'
 import { PASSWORD_RESET_TTL_MS, hashResetToken, passwordResetUrl } from '../lib/password-reset'
 import { issueEmailVerification, notifyEmailAddressChanged } from '../lib/email-verification'
 import { syncClaimantContactForUser } from '../lib/claimant-contact'
@@ -612,12 +612,7 @@ router.post('/staff-login', async (req, res) => {
         name: membership.lawFirm?.name || null,
         role: membership.role,
         title: membership.title || null,
-        permissions: [
-          ...permissionsForRole(membership.role),
-          ...(Array.isArray(membership.permissions)
-            ? membership.permissions.map(String)
-            : parseStringArrayField(membership.permissions)),
-        ],
+        permissions: permissionsForMember(membership.role, membership.lawFirm?.rolePermissions, membership.permissions),
       },
       token,
       role: 'staff',

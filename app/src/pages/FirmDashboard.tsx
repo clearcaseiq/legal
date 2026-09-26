@@ -330,10 +330,10 @@ const TABS: Array<{ key: TabKey; label: string; icon: typeof LayoutDashboard }> 
   { key: 'time', label: 'Time & Billing', icon: Clock },
 ]
 
-// Firm attorneys and admins keep full access to every tab (no regression from
-// before staff login existed). Non-attorney staff (paralegal, case manager,
-// intake specialist, etc.) see only the tabs their permissions support.
-const FULL_ACCESS_FIRM_ROLES = ['firm_admin', 'attorney']
+// Firm admins hold every permission. Everyone else — associate attorneys
+// included — sees the tabs their firm's role settings grant, the same
+// permissions the server enforces.
+const FULL_ACCESS_FIRM_ROLES = ['firm_admin']
 
 function canSeeFirmTab(tab: TabKey, role: string | undefined, permissions: string[]): boolean {
   if (!role || FULL_ACCESS_FIRM_ROLES.includes(role)) return true
@@ -347,13 +347,17 @@ function canSeeFirmTab(tab: TabKey, role: string | undefined, permissions: strin
       // their broader case-visibility permissions (CP-588).
       return has('review_new_leads') || has('view_all_cases') || has('review_cases') || has('accept_cases')
     case 'team':
-      return has('manage_users')
+      return has('manage_users') || has('assign_cases')
     case 'templates':
       return has('manage_documents') || has('generate_demands')
     case 'workflow':
       return has('manage_routing')
     case 'time':
-      return has('manage_billing') || has('manage_invoices') || has('process_payments')
+      // Case workers log their own hours; billing roles review everyone's.
+      return (
+        has('manage_billing') || has('manage_invoices') || has('process_payments') ||
+        has('manage_assigned_cases') || has('view_assigned_cases')
+      )
     default:
       return false
   }

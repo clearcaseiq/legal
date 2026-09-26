@@ -19,6 +19,7 @@ import {
   updateLeadMedicalStatus,
 } from '../../lib/api'
 import ConfirmDialog from '../../components/ConfirmDialog'
+import { useFirmAccess } from '../../hooks/useFirmAccess'
 
 interface Entry {
   id: string
@@ -115,6 +116,7 @@ function dateInput(iso: string | null) {
 const visitLabel = (v: string) => VISIT_TYPES.find((x) => x.value === v)?.label ?? 'Visit'
 
 export default function MedicalTimelinePanel({ leadId }: { leadId: string }) {
+  const canEdit = useFirmAccess().can('chronology')
   const [data, setData] = useState<Timeline | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -280,7 +282,12 @@ export default function MedicalTimelinePanel({ leadId }: { leadId: string }) {
   )
 
   return (
-    <div className="space-y-4">
+    <fieldset disabled={!canEdit} className="m-0 min-w-0 space-y-4 border-0 p-0">
+      {!canEdit && (
+        <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+          Read only: your firm role doesn&apos;t include editing the medical chronology.
+        </div>
+      )}
       <ConfirmDialog
         open={Boolean(entryToDelete)}
         title="Delete visit?"
@@ -587,6 +594,6 @@ export default function MedicalTimelinePanel({ leadId }: { leadId: string }) {
       <p className="text-xs text-slate-400">
         {saving ? 'Saving…' : 'The medical timeline feeds demand-readiness (MMI / treatment complete), treatment-gap detection, and the valuation engine automatically.'}
       </p>
-    </div>
+    </fieldset>
   )
 }

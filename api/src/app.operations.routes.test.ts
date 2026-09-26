@@ -2074,6 +2074,12 @@ describe('HTTP operations regressions', () => {
   })
 
   it('GET /v1/attorney-dashboard/dashboard splits capped recent leads from lean pipeline data', async () => {
+    // A solo attorney: no firm on either lookup of the same row.
+    vi.mocked(prisma.attorney.findFirst).mockResolvedValue({
+      id: 'attorney-record-1',
+      email: 'attorney@example.com',
+      isVerified: true,
+    } as any)
     vi.mocked(prisma.attorney.findUnique).mockImplementation(async (args: any) => {
       if (args?.where?.email === 'attorney@example.com') {
         return {
@@ -2189,7 +2195,7 @@ describe('HTTP operations regressions', () => {
                 {
                   assessment: {
                     firmCaseAssignments: {
-                      some: { status: 'active', OR: [{ assignedAttorneyId: 'attorney-record-1' }] },
+                      some: { status: 'active', OR: [{ assignedAttorneyId: 'attorney-record-1' }, { assignedUserId: 'attorney-user-1' }] },
                     },
                   },
                 },
@@ -2216,7 +2222,7 @@ describe('HTTP operations regressions', () => {
           {
             assessment: {
               firmCaseAssignments: {
-                some: { status: 'active', OR: [{ assignedAttorneyId: 'attorney-record-1' }] },
+                some: { status: 'active', OR: [{ assignedAttorneyId: 'attorney-record-1' }, { assignedUserId: 'attorney-user-1' }] },
               },
             },
           },
@@ -2245,7 +2251,7 @@ describe('HTTP operations regressions', () => {
           {
             assessment: {
               firmCaseAssignments: {
-                some: { status: 'active', OR: [{ assignedAttorneyId: 'attorney-record-1' }] },
+                some: { status: 'active', OR: [{ assignedAttorneyId: 'attorney-record-1' }, { assignedUserId: 'attorney-user-1' }] },
               },
             },
           },
@@ -2975,7 +2981,7 @@ describe('HTTP operations regressions', () => {
           },
           {
             assessment: {
-              firmCaseAssignments: { some: { status: 'active', OR: [{ assignedAttorneyId: 'attorney-record-1' }] } },
+              firmCaseAssignments: { some: { status: 'active', OR: [{ assignedAttorneyId: 'attorney-record-1' }, { assignedUserId: 'attorney-user-1' }] } },
             },
           },
           { assignedAttorney: { lawFirmId: 'firm-1' } },
