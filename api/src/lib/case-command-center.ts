@@ -565,6 +565,27 @@ function policyLimitFromFacts(facts: Record<string, any>): number | null {
   return Number.isFinite(n) && n > 0 ? n : null
 }
 
+/**
+ * Coverage that can pay this claimant: the at-fault side's liability limits
+ * plus the client's own confirmed UM/UIM. MedPay and the client's other
+ * policies (their own liability, collision) don't pay a bodily-injury
+ * recovery, so they stay out. A record with no party set is read as the
+ * defendant's, as demand drafting does.
+ */
+export function recoverableCoverage(
+  details: Array<{ policyLimit?: number | null; insuredParty?: string | null; coverageType?: string | null; coverageConfirmed?: boolean | null }>,
+): number {
+  return details.reduce((sum, item) => {
+    const party = String(item.insuredParty ?? '').toLowerCase()
+    const type = String(item.coverageType ?? '').toLowerCase()
+    const limit = item.policyLimit ?? 0
+    if (party === 'client') {
+      return ['um', 'uim', 'um_uim'].includes(type) && item.coverageConfirmed === true ? sum + limit : sum
+    }
+    return type === '' || type === 'liability' ? sum + limit : sum
+  }, 0)
+}
+
 export async function buildCaseCommandCenter(params: {
   assessmentId: string
   leadId?: string | null
@@ -630,7 +651,7 @@ export async function buildCaseCommandCenter(params: {
     }),
     prisma.insuranceDetail.findMany({
       where: { assessmentId: assessment.id },
-      select: { policyLimit: true },
+      select: { policyLimit: true, insuredParty: true, coverageType: true, coverageConfirmed: true },
     }),
     prisma.negotiationEvent.findMany({
       where: { assessmentId: assessment.id },
@@ -689,10 +710,10 @@ export async function buildCaseCommandCenter(params: {
   const nextUpcomingConsult = appointments.find((item) => item.status === 'SCHEDULED' && new Date(item.scheduledAt) > new Date())
   const latestDemand = negotiationEvents.find((item) => item.eventType === 'demand')?.amount ?? null
   const hasNegotiation = negotiationEvents.length > 0
-  // Same figure as the Insurance tab's "Documented coverage". Recorded policies
-  // win over the intake answer: they are what the attorney edits, and an intake
-  // limit taking precedence meant Insurance-tab changes never reached the header.
-  const documentedCoverage = insuranceDetails.reduce((sum, item) => sum + (item.policyLimit ?? 0), 0)
+  // Recorded policies win over the intake answer: they are what the attorney
+  // edits, and an intake limit taking precedence meant Insurance-tab changes
+  // never reached the header.
+  const documentedCoverage = recoverableCoverage(insuranceDetails)
   const policyLimit = documentedCoverage > 0 ? documentedCoverage : policyLimitFromFacts(facts)
   const stage = buildStage({
     leadStatus: assessment.leadSubmission?.status,

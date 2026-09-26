@@ -8,7 +8,7 @@ vi.mock('./case-insights', () => ({
 
 import { prisma } from './prisma'
 import { resetUniversalPrismaMock } from '../test/universalPrismaMock'
-import { answerCommandCenterCopilot, buildCaseAwareMessageTemplates, buildCaseCommandCenter } from './case-command-center'
+import { answerCommandCenterCopilot, buildCaseAwareMessageTemplates, buildCaseCommandCenter, recoverableCoverage } from './case-command-center'
 import { buildMedicalChronology, computeCasePreparation } from './case-insights'
 
 describe('buildCaseCommandCenter', () => {
@@ -112,6 +112,27 @@ describe('buildCaseCommandCenter', () => {
     const summary = await buildCaseCommandCenter({ assessmentId: 'asm-4', leadId: 'lead-4' })
 
     expect(summary.coverageStory.policyLimit).toBe(60000)
+  })
+
+  it('leaves MedPay and the client’s own non-UM policies out of the policy limit', () => {
+    expect(
+      recoverableCoverage([
+        { policyLimit: 1_000_000, insuredParty: 'defendant', coverageType: 'liability' },
+        { policyLimit: 5_000, insuredParty: 'client', coverageType: 'medpay' },
+        { policyLimit: 100_000, insuredParty: 'client', coverageType: 'liability' },
+        { policyLimit: 50_000, insuredParty: 'client', coverageType: 'uim', coverageConfirmed: false },
+      ]),
+    ).toBe(1_000_000)
+  })
+
+  it('adds confirmed client UM/UIM to the defendant’s liability limit', () => {
+    expect(
+      recoverableCoverage([
+        { policyLimit: 15_000, insuredParty: 'defendant', coverageType: 'liability' },
+        { policyLimit: 5_000, insuredParty: 'defendant', coverageType: 'medpay' },
+        { policyLimit: 100_000, insuredParty: 'client', coverageType: 'uim', coverageConfirmed: true },
+      ]),
+    ).toBe(115_000)
   })
 
   it('moves negotiation-active files into negotiation stage and answers copilot questions from summary', async () => {
