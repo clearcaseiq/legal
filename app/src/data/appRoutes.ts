@@ -116,6 +116,7 @@ export const KNOWN_ROUTE_PATHS = new Set([
   '/rose',
   '/set-password',
   '/staff-login',
+  '/staff-profile',
   '/terms-of-service',
   '/test-consent',
   '/verify-email',

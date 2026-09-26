@@ -131,6 +131,7 @@ const DocumentRequestPage = lazy(() => import('./pages/DocumentRequestPage'))
 const DraftMessagePage = lazy(() => import('./pages/DraftMessagePage'))
 const CalendarPage = lazy(() => import('./pages/CalendarPage'))
 const FirmDashboard = lazy(() => import('./pages/FirmDashboard'))
+const StaffProfile = lazy(() => import('./pages/StaffProfile'))
 const FirmSettings = lazy(() => import('./pages/FirmSettings'))
 const AttorneyBilling = lazy(() => import('./pages/AttorneyBilling'))
 const AttorneyProfile = lazy(() => import('./pages/AttorneyProfile'))
@@ -1362,6 +1363,9 @@ function App() {
             {/* Firm workspace is shared by firm attorneys/admins and non-attorney
                 staff (paralegals, case managers, etc.); the page scopes its tabs
                 by the member's permissions. */}
+            <Route element={<ProtectedRoute role="staff" />}>
+              <Route path="/staff-profile" element={<StaffProfile />} />
+            </Route>
             <Route element={<ProtectedRoute role={['attorney', 'staff']} />}>
               <Route path="/firm-dashboard" element={<FirmDashboard />} />
             </Route>

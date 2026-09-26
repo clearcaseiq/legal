@@ -2394,6 +2394,23 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
     const attorneyNameById = new Map<string, string>(
       attorneys.map((a: any) => [a.id, a.name])
     )
+    // Without a firm-wide grant a member sees only the cases they hold: on the
+    // case team, or the attorney the lead is assigned to.
+    const callerUserId: string | null = context.user?.id ?? null
+    const callerAttorneyId: string | null = context.attorney?.id ?? null
+    const heldByCaller = new Set<string>(
+      firmCases
+        .filter(
+          (assessment: any) =>
+            (!!callerAttorneyId && assessment.leadSubmission?.assignedAttorneyId === callerAttorneyId) ||
+            (assessment.firmCaseAssignments || []).some(
+              (x: any) =>
+                (!!callerUserId && x.assignedUserId === callerUserId) ||
+                (!!callerAttorneyId && x.assignedAttorneyId === callerAttorneyId),
+            ),
+        )
+        .map((assessment: any) => assessment.id),
+    )
     const firmCasesList = firmCases.filter(isActiveCase).map((assessment: any) => {
       const lead = assessment.leadSubmission
       const primaryAttorneyId: string | null = lead?.assignedAttorneyId || null
@@ -2424,6 +2441,10 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
         officeId: assessment.officeId ?? null,
       }
     })
+
+    const visibleCases = canSeeFirmCaseload
+      ? firmCasesList
+      : firmCasesList.filter((c: any) => heldByCaller.has(c.assessmentId))
 
     // Marketplace Performance (firm scope): KPI tiles, acquisition funnel, and
     // spend-vs-return monthly series across every attorney in the firm.
@@ -2536,7 +2557,7 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
               operationsQueueCount: operationsQueue.length,
               firmROI: totalPlatformSpend > 0 ? (feesCollectedFromPayments / totalPlatformSpend) : null,
             }
-          : {}),
+          : { activeCases: visibleCases.length }),
       },
       // Marketplace Performance KPIs (firm scope). Mirrors the attorney-dashboard
       // analytics shape the frontend reads for ROI / conversion / average fee.
@@ -2624,7 +2645,7 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
       // Both carry client-identifying case data — `cases` has the client's name
       // on every row — so they are the grant's whole point, not an aggregate.
       operationsQueue: canSeeFirmCaseload ? operationsQueue : [],
-      cases: canSeeFirmCaseload ? firmCasesList : [],
+      cases: visibleCases,
       attorneys: attorneys.map(a => ({
         id: a.id,
         name: a.name,

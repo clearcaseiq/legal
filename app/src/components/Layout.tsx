@@ -220,6 +220,10 @@ export default function Layout({ children }: LayoutProps) {
     (storedRole === 'attorney' ||
       // Legacy attorney sessions that never wrote auth_role still carry the blob.
       (storedRole == null && !!attorney))
+  // Firm staff (paralegal, intake, case manager) sign in as a User with a firm
+  // membership: their home is the firm dashboard, not the claimant portal.
+  const isStaff = !isAdmin && storedRole === 'staff'
+  const profileHref = isAttorney ? '/attorney-profile' : isStaff ? '/staff-profile' : '/profile'
   // The attorney WORKSPACE sidebar renders by route (AttorneyWorkspaceLayout is
   // mounted for /attorney-* and /firm-* paths regardless of role detection), but
   // `isAttorney` above is role-based and can lag or mismatch on a fresh session
@@ -629,7 +633,7 @@ export default function Layout({ children }: LayoutProps) {
                           }
                           return (
                             <Link
-                              to={isAttorney ? '/attorney-profile' : '/profile'}
+                              to={profileHref}
                               onClick={() => setUserMenuOpen(false)}
                               className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500 dark:hover:bg-slate-800"
                             >
@@ -639,7 +643,7 @@ export default function Layout({ children }: LayoutProps) {
                         })()}
                         <div className="mx-2 my-1 h-px bg-slate-100 dark:bg-slate-800" />
                         <Link
-                          to={isAdminArea ? '/admin' : isAttorney ? '/attorney-dashboard' : '/dashboard'}
+                          to={isAdminArea ? '/admin' : isAttorney ? '/attorney-dashboard' : isStaff ? '/firm-dashboard' : '/dashboard'}
                           onClick={() => setUserMenuOpen(false)}
                           className={menuItemCls}
                         >
@@ -661,7 +665,7 @@ export default function Layout({ children }: LayoutProps) {
                         {!isAdmin && (
                           <>
                             <Link
-                              to={isAttorney ? '/attorney-profile' : '/profile'}
+                              to={profileHref}
                               onClick={() => setUserMenuOpen(false)}
                               className={menuItemCls}
                             >
@@ -812,7 +816,7 @@ export default function Layout({ children }: LayoutProps) {
                       <Link to={isAdminArea ? '/admin/cases' : isAttorney ? ATTORNEY_ACTIVE_CASES_HREF : plaintiffCaseHref} onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">{isAdminArea ? 'Cases' : isAttorney ? t('common.myCases') : (hasCase ? t('common.continueMyCase') : t('common.myCase'))}</Link>
                       )}
                       {!isAdmin && (
-                        <Link to={isAttorney ? '/attorney-profile' : '/profile'} onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">{t('common.myProfile')}</Link>
+                        <Link to={profileHref} onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">{t('common.myProfile')}</Link>
                       )}
                       {isAttorney && (
                         <>

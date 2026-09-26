@@ -102,6 +102,7 @@ import { hasAppointmentConflict } from '../lib/availability-slots'
 import { buildCaseAwareMessageTemplates, buildCaseCommandCenter } from '../lib/case-command-center'
 import { ensurePredictionsForAssessments } from '../lib/prediction-materializer'
 import { computeSettlement, estimateAttorneyFee, isFeeOutstanding, parsePredictedMedian } from '../lib/settlement'
+import { effectiveRolePermissions } from '../lib/firm-roles'
 import { buildAttorneyWorkQueue } from '../lib/attorney-work-queue'
 import { buildReadinessAutomationPlan } from '../lib/readiness-automation'
 import { exportCaseToConnectionSafe } from '../lib/cms'
@@ -287,15 +288,27 @@ const demandImportUpload = multer({
 export type FirmVisibility = {
   /** Firm the caller belongs to, when any. */
   lawFirmId: string | null
-  /** True when the caller may see every case in their firm (firm admin). */
+  /** The caller's User id, for matching firm case-team assignments. */
+  userId?: string | null
+  /** `view_all_cases`: every case in the firm. */
   canViewAllCases: boolean
+  /**
+   * `review_cases` / `review_new_leads` / `accept_cases`: the firm's live
+   * offers (New Matches), so a colleague can review a case routed to the
+   * firm's main attorney before anyone accepts it.
+   */
+  canReviewFirmMatches?: boolean
+  /** `accept_cases`: may accept a live offer made to a firm colleague. */
+  canAcceptFirmMatches?: boolean
 }
 
+/** Offer statuses that are still open for the firm to act on. */
+const LIVE_INTRO_STATUSES = ['PENDING', 'REQUESTED_INFO']
+
 /**
- * Resolve whether the caller can see cases firm-wide (CP-299). Firm admins
- * should see cases routed to any attorney in their firm — not just their own.
- * Mirrors the firm-role model used by firm-dashboard.ts without creating any
- * firm rows as a side effect.
+ * What the caller may see beyond their own cases, from the firm's role matrix
+ * (with the firm's per-role overrides and the member's extra grants — the same
+ * resolution firm-dashboard.ts uses). Creates no firm rows as a side effect.
  */
 async function resolveFirmVisibility(req: any, attorney: any): Promise<FirmVisibility> {
   const none: FirmVisibility = { lawFirmId: null, canViewAllCases: false }
@@ -306,7 +319,7 @@ async function resolveFirmVisibility(req: any, attorney: any): Promise<FirmVisib
     const user = await prisma.user.findUnique({ where: { email } })
     const firmMember = user
       ? await (prisma as any).firmMember
-          .findFirst({ where: { userId: user.id, status: 'active' } })
+          .findFirst({ where: { userId: user.id, status: 'active' }, include: { lawFirm: { select: { rolePermissions: true } } } })
           .catch(() => null)
       : null
 
@@ -323,21 +336,41 @@ async function resolveFirmVisibility(req: any, attorney: any): Promise<FirmVisib
       } else if (Array.isArray(firmMember.permissions)) {
         extraPermissions = firmMember.permissions
       }
-      const FIRM_WIDE_ROLES = ['firm_admin', 'case_manager', 'intake_specialist']
-      const canViewAllCases = FIRM_WIDE_ROLES.includes(role) || extraPermissions.includes('view_all_cases')
-      return { lawFirmId: firmMember.lawFirmId, canViewAllCases }
+      const permissions = new Set([
+        ...(effectiveRolePermissions(firmMember.lawFirm?.rolePermissions)[role] || []),
+        ...extraPermissions,
+      ])
+      const canViewAllCases = permissions.has('view_all_cases')
+      const canAcceptFirmMatches = canViewAllCases || permissions.has('accept_cases')
+      const canReviewFirmMatches =
+        canAcceptFirmMatches || permissions.has('review_cases') || permissions.has('review_new_leads')
+      return { lawFirmId: firmMember.lawFirmId, userId: user?.id ?? null, canViewAllCases, canReviewFirmMatches, canAcceptFirmMatches }
     }
 
     // An attorney tied to a firm but without an explicit membership row is
     // treated as the firm admin (same fallback as firm-dashboard.ts).
     if (attorney?.lawFirmId) {
-      return { lawFirmId: attorney.lawFirmId, canViewAllCases: true }
+      return { lawFirmId: attorney.lawFirmId, userId: user?.id ?? null, canViewAllCases: true, canReviewFirmMatches: true, canAcceptFirmMatches: true }
     }
 
-    return none
+    return { ...none, userId: user?.id ?? null }
   } catch {
     return none
   }
+}
+
+/** Leads the caller is on the firm case team for (lead attorney, paralegal, …). */
+function firmCaseTeamTerm(attorneyId: string | null, firm: FirmVisibility): any | null {
+  const who: any[] = []
+  if (attorneyId) who.push({ assignedAttorneyId: attorneyId })
+  if (firm.userId) who.push({ assignedUserId: firm.userId })
+  if (!who.length) return null
+  return { assessment: { firmCaseAssignments: { some: { status: 'active', OR: who } } } }
+}
+
+/** Leads with a live offer to any attorney in the firm. */
+function firmLiveOfferTerm(lawFirmId: string): any {
+  return { assessment: { introductions: { some: { attorney: { lawFirmId }, status: { in: LIVE_INTRO_STATUSES } } } } }
 }
 
 // Re-exported for the surfaces already importing it from here. The definition
@@ -361,12 +394,16 @@ function buildLeadVisibilityOr(attorneyId: string, firm: FirmVisibility, extra: 
     { assessment: { introductions: { some: { attorneyId, status: { notIn: [...TERMINAL_INTRO_STATUSES] } } } } },
     ...extra,
   ]
+  const team = firmCaseTeamTerm(attorneyId, firm)
+  if (team) or.push(team)
   if (firm.canViewAllCases && firm.lawFirmId) {
     or.push(
       { assignedAttorney: { lawFirmId: firm.lawFirmId } },
       { assessment: { lawFirmId: firm.lawFirmId } },
       { assessment: { introductions: { some: { attorney: { lawFirmId: firm.lawFirmId }, status: { notIn: [...TERMINAL_INTRO_STATUSES] } } } } },
     )
+  } else if (firm.canReviewFirmMatches && firm.lawFirmId) {
+    or.push(firmLiveOfferTerm(firm.lawFirmId))
   }
   return or
 }
@@ -395,6 +432,8 @@ function buildEngagedLeadVisibilityOr(attorneyId: string, firm: FirmVisibility):
     { assignedAttorneyId: attorneyId },
     { assessment: { introductions: { some: { attorneyId, status: 'ACCEPTED' } } } },
   ]
+  const team = firmCaseTeamTerm(attorneyId, firm)
+  if (team) or.push(team)
   if (firm.canViewAllCases && firm.lawFirmId) {
     or.push(
       { assignedAttorney: { lawFirmId: firm.lawFirmId } },
@@ -430,6 +469,41 @@ async function firmHoldsLead(
     select: { id: true },
   })
   return !!match
+}
+
+/** Whether an attorney in the firm holds a live (unanswered) offer on this lead. */
+async function firmHasLiveOffer(lead: { assessmentId: string }, lawFirmId: string): Promise<boolean> {
+  const intro = await prisma.introduction.findFirst({
+    where: { assessmentId: lead.assessmentId, status: { in: LIVE_INTRO_STATUSES }, attorney: { lawFirmId } },
+    select: { id: true },
+  })
+  return !!intro
+}
+
+/** Whether the caller is on the firm case team for this lead. */
+async function onFirmCaseTeam(lead: { assessmentId: string }, attorneyId: string | null, firm: FirmVisibility): Promise<boolean> {
+  const team = firmCaseTeamTerm(attorneyId, firm)
+  if (!team) return false
+  const row = await (prisma as any).firmCaseAssignment.findFirst({
+    where: { assessmentId: lead.assessmentId, ...team.assessment.firmCaseAssignments.some },
+    select: { id: true },
+  })
+  return !!row
+}
+
+/**
+ * The firm-level claims that let a colleague read a lead they don't hold
+ * themselves: firm-wide visibility, a live firm offer they may review, or a
+ * seat on the case team.
+ */
+async function firmGrantsLeadRead(
+  lead: { id: string; assessmentId: string },
+  attorneyId: string | null,
+  firm: FirmVisibility,
+): Promise<boolean> {
+  if (firm.lawFirmId && firm.canViewAllCases && (await firmHoldsLead(lead, firm.lawFirmId))) return true
+  if (firm.lawFirmId && firm.canReviewFirmMatches && (await firmHasLiveOffer(lead, firm.lawFirmId))) return true
+  return onFirmCaseTeam(lead, attorneyId, firm)
 }
 
 async function getAttorneyFromReq(req: any) {
@@ -492,14 +566,13 @@ async function getFirmMemberLeadAccess(
   // opening it then answered 403. Fall back to the same firm claim the list is
   // built from, so the two agree.
   //
-  // `resolveFirmVisibility` only grants firm-wide roles, and only to an active
-  // membership, so this fallback adds nothing for a paralegal or an invitee.
-  // That is not a claim they are well guarded: the `sameFirm` term above hands
-  // any member — invited ones included — every firm case that has a workflow
-  // row, which makes `assignedStep` moot. Tightening that is its own change.
+  // `resolveFirmVisibility` only resolves an active membership, so an invitee
+  // gains nothing here. That is not a claim members are well guarded: the
+  // `sameFirm` term above hands any member — invited ones included — every firm
+  // case that has a workflow row, which makes `assignedStep` moot. Tightening
+  // that is its own change.
   const firm = await resolveFirmVisibility(req, null)
-  if (!firm.canViewAllCases || !firm.lawFirmId) return null
-  return (await firmHoldsLead(lead, firm.lawFirmId)) ? member : null
+  return (await firmGrantsLeadRead(lead, null, firm)) ? member : null
 }
 
 /**
@@ -640,7 +713,12 @@ async function getAuthorizedLead(
   // grants access regardless, since that attorney has already engaged the case.
   const sharedAccess = isShared && attorney.isVerified
 
-  if (!sharedAccess && !isAssigned && !intro && !sameFirm && !acceptedShare) {
+  const firmGrant =
+    !sharedAccess && !isAssigned && !intro && !sameFirm && !acceptedShare
+      ? await firmGrantsLeadRead(lead, attorney.id, await resolveFirmVisibility(req, attorney))
+      : false
+
+  if (!sharedAccess && !isAssigned && !intro && !sameFirm && !acceptedShare && !firmGrant) {
     return { error: { status: 403, message: 'Not authorized to view this lead' } }
   }
 
@@ -2617,7 +2695,9 @@ router.get('/dashboard', authMiddleware, async (req: any, res) => {
             where:
               firmVisibility.canViewAllCases && firmVisibility.lawFirmId
                 ? { OR: [{ attorneyId }, { attorney: { lawFirmId: firmVisibility.lawFirmId } }] }
-                : { attorneyId },
+                : firmVisibility.canReviewFirmMatches && firmVisibility.lawFirmId
+                  ? { OR: [{ attorneyId }, { attorney: { lawFirmId: firmVisibility.lawFirmId }, status: { in: LIVE_INTRO_STATUSES } }] }
+                  : { attorneyId },
             orderBy: { requestedAt: 'desc' as const },
             take: 1,
             select: {
@@ -16923,6 +17003,11 @@ router.post('/leads/:leadId/decision', authMiddleware, async (req: any, res) => 
     let authorized = isAssigned || !!intro
     if (!authorized && firmVisibility.canViewAllCases && firmVisibility.lawFirmId) {
       authorized = await firmHoldsLead(existingLead, firmVisibility.lawFirmId)
+    }
+    // Accept only: declining without an offer of one's own would reject the
+    // lead for the whole firm while the colleague's offer is still open.
+    if (!authorized && decision === 'accept' && firmVisibility.canAcceptFirmMatches && firmVisibility.lawFirmId) {
+      authorized = await firmHasLiveOffer(existingLead, firmVisibility.lawFirmId)
     }
     if (!authorized) {
       return res.status(403).json({ error: 'Not authorized to update this lead' })

@@ -2186,6 +2186,13 @@ describe('HTTP operations regressions', () => {
                     },
                   },
                 },
+                {
+                  assessment: {
+                    firmCaseAssignments: {
+                      some: { status: 'active', OR: [{ assignedAttorneyId: 'attorney-record-1' }] },
+                    },
+                  },
+                },
               ],
             },
           },
@@ -2203,6 +2210,13 @@ describe('HTTP operations regressions', () => {
             assessment: {
               introductions: {
                 some: { attorneyId: 'attorney-record-1' },
+              },
+            },
+          },
+          {
+            assessment: {
+              firmCaseAssignments: {
+                some: { status: 'active', OR: [{ assignedAttorneyId: 'attorney-record-1' }] },
               },
             },
           },
@@ -2225,6 +2239,13 @@ describe('HTTP operations regressions', () => {
             assessment: {
               introductions: {
                 some: { attorneyId: 'attorney-record-1' },
+              },
+            },
+          },
+          {
+            assessment: {
+              firmCaseAssignments: {
+                some: { status: 'active', OR: [{ assignedAttorneyId: 'attorney-record-1' }] },
               },
             },
           },
@@ -2950,6 +2971,11 @@ describe('HTTP operations regressions', () => {
           {
             assessment: {
               introductions: { some: { attorneyId: 'attorney-record-1', status: { notIn: ['EXPIRED', 'DECLINED'] } } },
+            },
+          },
+          {
+            assessment: {
+              firmCaseAssignments: { some: { status: 'active', OR: [{ assignedAttorneyId: 'attorney-record-1' }] } },
             },
           },
           { assignedAttorney: { lawFirmId: 'firm-1' } },
