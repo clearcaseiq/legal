@@ -77,7 +77,7 @@ export default function MarketplaceScreen() {
 
       <View style={styles.kpiRow}>
         <Kpi label="Routing spend" value={money(mp.routingSpend)} accent={colors.text} />
-        <Kpi label="Retained value" value={money(mp.retainedValue)} accent={colors.success} />
+        <Kpi label="Est. fees on signed cases" value={money(mp.retainedValue)} accent={colors.success} />
       </View>
       <View style={styles.kpiRow}>
         <Kpi label="Return on spend" value={roiText(mp.returnOnSpend)} accent={returnGood ? colors.success : colors.warning} />

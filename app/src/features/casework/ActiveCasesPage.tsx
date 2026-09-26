@@ -695,7 +695,13 @@ export default function ActiveCasesPage() {
           active={view === 'demands'}
           onClick={() => toggleView('demands')}
         />
-        <FilterStat value={compactMoney(retainedValue)} label="Retained value" tone="success" filled />
+        <FilterStat
+          value={compactMoney(retainedValue)}
+          label="Est. fees on signed cases"
+          tone="success"
+          filled
+          hint="Estimated contingency fee: 33% of each signed case's median value. Earned only if the case recovers."
+        />
       </StatGrid>
 
       <FilterBar

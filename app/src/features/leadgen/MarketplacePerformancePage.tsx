@@ -126,7 +126,7 @@ const attorneyColumns: DataTableColumn<AttorneyRow>[] = [
   { key: 'cases', header: 'Cases retained', align: 'right', cellClassName: 'tabular-nums text-slate-600', cell: (r) => String(r.casesRetained) },
   {
     key: 'rv',
-    header: 'Retained value',
+    header: 'Est. fees (signed)',
     align: 'right',
     cellClassName: 'tabular-nums font-semibold text-emerald-700',
     cell: (r) => compactMoney(r.retainedValue),
@@ -181,7 +181,7 @@ function FunnelChart({ rows }: { rows: FunnelRow[] }) {
   )
 }
 
-/** Monthly spend-vs-return with a magnitude bar for retained value + ROI badge. */
+/** Monthly spend-vs-return with a magnitude bar for estimated fees + ROI badge. */
 function MonthlyReturns({ rows }: { rows: MonthlyRow[] }) {
   const maxRv = Math.max(1, ...rows.map((r) => r.retainedValue))
   if (rows.length === 0) return <EmptyState message="No monthly spend recorded yet." />
@@ -190,7 +190,7 @@ function MonthlyReturns({ rows }: { rows: MonthlyRow[] }) {
       <THeadRow>
         <Th>Month</Th>
         <Th align="right">Routing spend</Th>
-        <Th>Retained value</Th>
+        <Th>Est. fees (signed)</Th>
         <Th align="right">Cases</Th>
         <Th align="right">ROI</Th>
       </THeadRow>
@@ -340,7 +340,7 @@ export default function MarketplacePerformancePage() {
         <>
           <StatGrid columns={5}>
             <FilterStat value={money(mp.routingSpend)} label="Routing spend" tone="neutral" filled hint={hint('Total platform routing fees paid over the last 30 days.')} />
-            <FilterStat value={compactMoney(mp.retainedValue)} label="Retained value" tone="success" filled hint={hint('Estimated combined value of cases you retained from routed matches.')} />
+            <FilterStat value={compactMoney(mp.retainedValue)} label="Est. fees on signed cases" tone="success" filled hint={hint('Estimated contingency fee on cases signed from routed matches: 33% of each case\u2019s median value. Earned only if the case recovers.')} />
             <FilterStat value={multiple(mp.returnOnSpend)} label="Return on spend" tone="success" filled hint={hint('Fees collected on retained cases ÷ routing spend — real dollars returned per $1 of routing fees.')} />
             <FilterStat value={money(mp.costPerRetained)} label="Cost / retained case" tone="neutral" filled hint={hint('Routing spend ÷ cases retained — what each signed client cost in routing fees.')} />
             <FilterStat
