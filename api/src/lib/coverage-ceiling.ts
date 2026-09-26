@@ -23,11 +23,15 @@
  *
  * Capping at the defendant's limit while ignoring the claimant's own
  * underinsured coverage would understate the case, which is the more damaging
- * error because it looks authoritative. UIM stacks on top of the defendant's
- * policy: a $120,000 case against a $50,000 policy still recovers $95,000 when
- * the claimant carries $45,000 of UIM. So when UM/UIM is confirmed but its
- * amount is unknown — which is what intake captures today, a yes/no with no
- * figure — this deliberately declines to cap at all and says why.
+ * error because it looks authoritative. In California UIM does not stack on
+ * the defendant's policy; it is offset by what the at-fault carrier pays
+ * (Ins. Code § 11580.2(p)), so it only fills the gap up to the claimant's own
+ * UIM limit. A $120,000 case against a $50,000 policy recovers $100,000 when
+ * the claimant carries $100,000 of UIM, and still $50,000 when they carry
+ * $45,000. The ceiling is therefore the larger of the two limits, not their
+ * sum. When UM/UIM is confirmed but its amount is unknown — which is what
+ * intake captures today, a yes/no with no figure — the UIM limit could be the
+ * larger one, so this deliberately declines to cap at all and says why.
  *
  * MedPay is not part of the ceiling. It is a first-party medical benefit that
  * pays regardless of fault and does not reduce the third-party bodily-injury
@@ -132,10 +136,13 @@ export function resolveCoverageCeiling(
 
   if (underinsuredLimit) {
     return {
-      ceiling: defendantLimit + underinsuredLimit,
+      ceiling: Math.max(defendantLimit, underinsuredLimit),
       defendantLimit,
       underinsuredLimit,
-      basis: `Capped at the defendant's limit plus confirmed UM/UIM coverage.`,
+      basis:
+        underinsuredLimit > defendantLimit
+          ? `Capped at the claimant's confirmed UIM limit, which is offset by the defendant's limit rather than added to it.`
+          : `Capped at the defendant's limit; confirmed UIM is offset by it and adds nothing above it.`,
     }
   }
 

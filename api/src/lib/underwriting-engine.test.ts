@@ -192,7 +192,7 @@ describe('calculateSettlement policy limits', () => {
     expect(result.settlement.expected).toBeGreaterThan(25000)
   })
 
-  it('caps at the combined limit once UM/UIM is confirmed', () => {
+  it('caps at the confirmed UIM limit, offset rather than stacked', () => {
     const result = underwriteCase({
       ...seriousCase({ policy_limit: 25000, has_um_uim_coverage: true }),
       insuranceDetails: [
@@ -200,7 +200,7 @@ describe('calculateSettlement policy limits', () => {
         { insuredParty: 'client', coverageType: 'uim', policyLimit: 50000, coverageConfirmed: true },
       ],
     })
-    expect(result.settlement.high).toBe(75000)
+    expect(result.settlement.high).toBe(50000)
     expect(result.settlement.policyLimitConstrained).toBe(true)
   })
 })

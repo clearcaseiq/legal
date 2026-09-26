@@ -566,24 +566,30 @@ function policyLimitFromFacts(facts: Record<string, any>): number | null {
 }
 
 /**
- * Coverage that can pay this claimant: the at-fault side's liability limits
- * plus the client's own confirmed UM/UIM. MedPay and the client's other
- * policies (their own liability, collision) don't pay a bodily-injury
+ * Coverage that can pay this claimant: the at-fault side's liability limits,
+ * or the client's own confirmed UM/UIM if that is larger. UIM is offset by
+ * what the liability carriers pay rather than added to it (Cal. Ins. Code
+ * § 11580.2(p)), so the two limits are not summed. MedPay and the client's
+ * other policies (their own liability, collision) don't pay a bodily-injury
  * recovery, so they stay out. A record with no party set is read as the
  * defendant's, as demand drafting does.
  */
 export function recoverableCoverage(
   details: Array<{ policyLimit?: number | null; insuredParty?: string | null; coverageType?: string | null; coverageConfirmed?: boolean | null }>,
 ): number {
-  return details.reduce((sum, item) => {
+  let liability = 0
+  let underinsured = 0
+  for (const item of details) {
     const party = String(item.insuredParty ?? '').toLowerCase()
     const type = String(item.coverageType ?? '').toLowerCase()
     const limit = item.policyLimit ?? 0
     if (party === 'client') {
-      return ['um', 'uim', 'um_uim'].includes(type) && item.coverageConfirmed === true ? sum + limit : sum
+      if (['um', 'uim', 'um_uim'].includes(type) && item.coverageConfirmed === true) underinsured += limit
+    } else if (type === '' || type === 'liability') {
+      liability += limit
     }
-    return type === '' || type === 'liability' ? sum + limit : sum
-  }, 0)
+  }
+  return Math.max(liability, underinsured)
 }
 
 export async function buildCaseCommandCenter(params: {

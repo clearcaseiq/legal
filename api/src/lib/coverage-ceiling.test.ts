@@ -43,15 +43,23 @@ describe('resolveCoverageCeiling', () => {
     expect(result.defendantLimit).toBe(50000)
   })
 
-  it('adds confirmed UM/UIM on top of the defendant limit', () => {
-    // The guide's ACL example: a $120k case against a $50k policy still
-    // recovers $95k when the claimant carries $45k of UIM.
+  it('offsets confirmed UIM by the defendant limit instead of stacking it', () => {
+    // California (Ins. Code § 11580.2(p)): UIM pays its limit minus what the
+    // at-fault carrier paid, so $45k of UIM adds nothing to a $50k policy.
     const result = resolveCoverageCeiling({ insurance: { policy_limit: 50000 } }, [
       { insuredParty: 'defendant', policyLimit: 50000 },
       { insuredParty: 'client', coverageType: 'uim', policyLimit: 45000, coverageConfirmed: true },
     ])
-    expect(result.ceiling).toBe(95000)
+    expect(result.ceiling).toBe(50000)
     expect(result.underinsuredLimit).toBe(45000)
+  })
+
+  it('raises the ceiling to a confirmed UIM limit above the defendant limit', () => {
+    const result = resolveCoverageCeiling({ insurance: { policy_limit: 50000 } }, [
+      { insuredParty: 'defendant', policyLimit: 50000 },
+      { insuredParty: 'client', coverageType: 'uim', policyLimit: 100000, coverageConfirmed: true },
+    ])
+    expect(result.ceiling).toBe(100000)
   })
 
   it('refuses to cap when UM/UIM exists but its amount is unknown', () => {

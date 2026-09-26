@@ -125,14 +125,20 @@ describe('buildCaseCommandCenter', () => {
     ).toBe(1_000_000)
   })
 
-  it('adds confirmed client UM/UIM to the defendant’s liability limit', () => {
+  it('offsets confirmed client UIM by the liability limit instead of adding it', () => {
     expect(
       recoverableCoverage([
         { policyLimit: 15_000, insuredParty: 'defendant', coverageType: 'liability' },
         { policyLimit: 5_000, insuredParty: 'defendant', coverageType: 'medpay' },
         { policyLimit: 100_000, insuredParty: 'client', coverageType: 'uim', coverageConfirmed: true },
       ]),
-    ).toBe(115_000)
+    ).toBe(100_000)
+    expect(
+      recoverableCoverage([
+        { policyLimit: 1_000_000, insuredParty: 'defendant', coverageType: 'liability' },
+        { policyLimit: 5_000, insuredParty: 'client', coverageType: 'uim', coverageConfirmed: true },
+      ]),
+    ).toBe(1_000_000)
   })
 
   it('moves negotiation-active files into negotiation stage and answers copilot questions from summary', async () => {
