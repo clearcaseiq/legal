@@ -233,13 +233,11 @@ router.get('/assessment/:id/status', authMiddleware, async (req: AuthRequest, re
     const accepted = intros.find(i => i.status === 'ACCEPTED')
     const reviewingCount = intros.filter(i => i.status === 'PENDING').length
 
-    // Safety net: signed retainer must surface as retained/engaged for plaintiff
-    // Case Status even if the e-sign webhook/task path missed the flip.
-    if (
-      lead?.id &&
-      String(lead.status || '').toLowerCase() !== 'retained' &&
-      String(lead.lifecycleState || '') !== 'engaged'
-    ) {
+    // Safety net: signed retainer must surface as retained for plaintiff Case
+    // Status even if the e-sign webhook/task path missed the flip. An engaged
+    // lifecycle alone (attorney accepted) doesn't mean the retainer was signed,
+    // so it must not skip this check.
+    if (lead?.id && String(lead.status || '').toLowerCase() !== 'retained') {
       const leadId = lead.id
       const signedRetainer = await prisma.documentEnvelope
         .findFirst({
