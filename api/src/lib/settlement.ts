@@ -89,10 +89,10 @@ export interface SettlementResult {
 }
 
 /** Robustly pull a median dollar figure out of the many band JSON shapes we've stored. */
-function parsePredictedMedian(bandsRaw: string | null | undefined): number {
+export function parsePredictedMedian(bandsRaw: unknown): number {
   if (!bandsRaw) return 0
   try {
-    const bands: any = JSON.parse(bandsRaw)
+    const bands: any = typeof bandsRaw === 'string' ? JSON.parse(bandsRaw) : bandsRaw
     if (typeof bands?.median === 'number') return bands.median
     if (typeof bands?.p50 === 'number') return bands.p50
     const mid = bands?.mid
@@ -108,6 +108,49 @@ function parsePredictedMedian(bandsRaw: string | null | undefined): number {
 }
 
 const round = (n: number) => Math.round(n)
+
+type FeeScenario = { grossAmount?: number | null; contingencyPct?: number | null; feeBasis?: string | null } | null | undefined
+
+/**
+ * The attorney's fee on one case: the gross the attorney entered on the
+ * Settlement tab (or the predicted median until they do) times the case's
+ * contingency rate. The Settlement tab and every dashboard fee figure go
+ * through this so they can't disagree.
+ */
+export function estimateAttorneyFee(input: {
+  bands: unknown
+  claimType?: string | null
+  scenario?: FeeScenario
+  /** Case costs; only used when the fee is computed net of costs. */
+  costs?: number
+}): { gross: number; grossIsEstimate: boolean; predictedMedian: number; contingencyPct: number; feeBasis: 'gross' | 'net_of_costs'; attorneyFee: number } {
+  const { scenario } = input
+  const predictedMedian = parsePredictedMedian(input.bands)
+  const grossOverride = scenario?.grossAmount ?? null
+  const grossIsEstimate = !(grossOverride != null && grossOverride > 0)
+  const gross = grossIsEstimate ? predictedMedian : (grossOverride as number)
+  const defaultPct = input.claimType === 'medmal' ? 40 : 33.33
+  const contingencyPct = scenario?.contingencyPct != null ? scenario.contingencyPct : defaultPct
+  const feeBasis: 'gross' | 'net_of_costs' = scenario?.feeBasis === 'net_of_costs' ? 'net_of_costs' : 'gross'
+  const feeBase = feeBasis === 'net_of_costs' ? Math.max(0, gross - (input.costs ?? 0)) : gross
+  return { gross, grossIsEstimate, predictedMedian, contingencyPct, feeBasis, attorneyFee: round(feeBase * (contingencyPct / 100)) }
+}
+
+/**
+ * Whether a signed case's fee is still ahead of the firm: not closed, and the
+ * settlement not yet disbursed (at which point the fee has been paid).
+ */
+export function isFeeOutstanding(assessment: {
+  status?: string | null
+  caseStage?: string | null
+  closedAt?: Date | string | null
+  settlementScenario?: { status?: string | null } | null
+} | null | undefined): boolean {
+  if (!assessment) return true
+  if (['closed', 'settled'].includes(String(assessment.status || ''))) return false
+  if (String(assessment.caseStage || '') === 'CLOSED' || assessment.closedAt) return false
+  return assessment.settlementScenario?.status !== 'disbursed'
+}
 
 export async function computeSettlement(assessmentId: string): Promise<SettlementResult> {
   const assessment = await prisma.assessment.findUnique({
@@ -149,15 +192,6 @@ export async function computeSettlement(assessmentId: string): Promise<Settlemen
   }
 
   const scenario = assessment.settlementScenario
-  const predictedMedian = parsePredictedMedian(assessment.predictions[0]?.bands)
-
-  const grossOverride = scenario?.grossAmount ?? null
-  const gross = grossOverride != null && grossOverride > 0 ? grossOverride : predictedMedian
-  const grossIsEstimate = !(grossOverride != null && grossOverride > 0)
-
-  const defaultPct = assessment.claimType === 'medmal' ? 40 : 33.33
-  const contingencyPct = scenario ? scenario.contingencyPct : defaultPct
-  const feeBasis: 'gross' | 'net_of_costs' = scenario?.feeBasis === 'net_of_costs' ? 'net_of_costs' : 'gross'
 
   const costItems: SettlementCostLine[] = assessment.caseExpenses.map((e) => ({
     id: e.id,
@@ -211,8 +245,12 @@ export async function computeSettlement(assessmentId: string): Promise<Settlemen
   const liensFinal = round(liens.reduce((s, l) => s + l.final, 0))
   const lienSavings = Math.max(0, liensAsserted - liensFinal)
 
-  const feeBase = feeBasis === 'net_of_costs' ? Math.max(0, gross - costs) : gross
-  const attorneyFee = round(feeBase * (contingencyPct / 100))
+  const { gross, grossIsEstimate, predictedMedian, contingencyPct, feeBasis, attorneyFee } = estimateAttorneyFee({
+    bands: assessment.predictions[0]?.bands,
+    claimType: assessment.claimType,
+    scenario,
+    costs,
+  })
   const netToClient = round(gross - attorneyFee - costs - liensFinal)
   const netPct = gross > 0 ? netToClient / gross : 0
 

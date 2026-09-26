@@ -340,7 +340,7 @@ export default function MarketplacePerformancePage() {
         <>
           <StatGrid columns={5}>
             <FilterStat value={money(mp.routingSpend)} label="Routing spend" tone="neutral" filled hint={hint('Total platform routing fees paid over the last 30 days.')} />
-            <FilterStat value={compactMoney(mp.retainedValue)} label="Est. fees on signed cases" tone="success" filled hint={hint('Estimated contingency fee on cases signed from routed matches: 33% of each case\u2019s median value. Earned only if the case recovers.')} />
+            <FilterStat value={compactMoney(mp.retainedValue)} label="Est. fees on signed cases" tone="success" filled hint={hint('Estimated contingency fee on open cases signed from routed matches: each case\u2019s settlement amount (or median value until one is entered) \u00d7 its contingency rate. Earned only if the case recovers.')} />
             <FilterStat value={multiple(mp.returnOnSpend)} label="Return on spend" tone="success" filled hint={hint('Fees collected on retained cases ÷ routing spend — real dollars returned per $1 of routing fees.')} />
             <FilterStat value={money(mp.costPerRetained)} label="Cost / retained case" tone="neutral" filled hint={hint('Routing spend ÷ cases retained — what each signed client cost in routing fees.')} />
             <FilterStat

@@ -700,7 +700,7 @@ export default function ActiveCasesPage() {
           label="Est. fees on signed cases"
           tone="success"
           filled
-          hint="Estimated contingency fee: 33% of each signed case's median value. Earned only if the case recovers."
+          hint="Estimated contingency fee on open signed cases: the settlement amount on each case's Settlement tab (or its median value until one is entered) × its contingency rate. Earned only if the case recovers."
         />
       </StatGrid>
 

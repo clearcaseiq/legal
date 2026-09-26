@@ -10,24 +10,19 @@
  * Everything is computed live from the database — nothing hardcoded.
  */
 
-// Attorneys work on contingency; retained "value" is the expected fee share of
-// the case, matching how the attorney dashboard already reports retainedValue.
-const CONTINGENCY_RATE = 0.33
+import { estimateAttorneyFee, isFeeOutstanding } from './settlement'
 
 const ACCEPTED_STATUSES = ['contacted', 'consulted', 'retained']
 const SETTLED_STATUSES = ['closed', 'settled']
 
-function parseMedian(pred: any): number {
-  const bandsRaw = pred?.bands
-  if (!bandsRaw) return 0
-  try {
-    const b = typeof bandsRaw === 'string' ? JSON.parse(bandsRaw) : bandsRaw
-    const v = b?.median ?? b?.p50 ?? (b?.low != null && b?.high != null ? (Number(b.low) + Number(b.high)) / 2 : 0)
-    const n = Number(v)
-    return Number.isFinite(n) ? n : 0
-  } catch {
-    return 0
-  }
+// Attorneys work on contingency, so a case's "value" to the firm is its
+// estimated fee — the same figure the Settlement tab shows — and only while
+// that fee is still outstanding.
+function leadFee(lead: any): number {
+  const a = lead?.assessment
+  if (!isFeeOutstanding(a)) return 0
+  const costs = (a?.caseExpenses || []).reduce((s: number, e: any) => s + Number(e.amount || 0), 0)
+  return estimateAttorneyFee({ bands: a?.predictions?.[0]?.bands, claimType: a?.claimType, scenario: a?.settlementScenario, costs }).attorneyFee
 }
 
 function inMonth(value: any, start: Date, end: Date): boolean {
@@ -130,6 +125,9 @@ export async function computeMarketplacePerformance(
           status: true,
           caseStage: true,
           closedAt: true,
+          claimType: true,
+          settlementScenario: { select: { grossAmount: true, contingencyPct: true, feeBasis: true, status: true } },
+          caseExpenses: { select: { amount: true } },
           predictions: {
             orderBy: { createdAt: 'desc' as const },
             take: 1,
@@ -156,7 +154,7 @@ export async function computeMarketplacePerformance(
   const casesRetained = retainedLeads.length
   const settledCount = leads.filter(isSettled).length
   const retainedValue = retainedLeads.reduce(
-    (s: number, l: any) => s + parseMedian(l.assessment?.predictions?.[0]) * CONTINGENCY_RATE,
+    (s: number, l: any) => s + leadFee(l),
     0,
   )
 
@@ -217,7 +215,7 @@ export async function computeMarketplacePerformance(
     ['contacted', 'consulted'].includes(String(l.status || '')),
   )
   const valueAtRisk = acceptedNotRetained.reduce(
-    (s: number, l: any) => s + parseMedian(l.assessment?.predictions?.[0]) * CONTINGENCY_RATE,
+    (s: number, l: any) => s + leadFee(l),
     0,
   )
   const netReturn = feesCollected - routingSpend
@@ -241,7 +239,7 @@ export async function computeMarketplacePerformance(
       .reduce((s: number, p: any) => s + Number(p.amount ?? 0), 0)
     const monthRetained = retainedLeads.filter((l: any) => inMonth(l.updatedAt, start, end))
     const rv = monthRetained.reduce(
-      (s: number, l: any) => s + parseMedian(l.assessment?.predictions?.[0]) * CONTINGENCY_RATE,
+      (s: number, l: any) => s + leadFee(l),
       0,
     )
     const fees = billing.filter((b: any) => inMonth(b.createdAt, start, end)).reduce((s: number, b: any) => s + Number(b.amount ?? 0), 0)

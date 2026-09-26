@@ -101,7 +101,7 @@ import { resolveSchedulingTimezone } from '../lib/scheduling-timezone'
 import { hasAppointmentConflict } from '../lib/availability-slots'
 import { buildCaseAwareMessageTemplates, buildCaseCommandCenter } from '../lib/case-command-center'
 import { ensurePredictionsForAssessments } from '../lib/prediction-materializer'
-import { computeSettlement } from '../lib/settlement'
+import { computeSettlement, estimateAttorneyFee, isFeeOutstanding, parsePredictedMedian } from '../lib/settlement'
 import { buildAttorneyWorkQueue } from '../lib/attorney-work-queue'
 import { buildReadinessAutomationPlan } from '../lib/readiness-automation'
 import { exportCaseToConnectionSafe } from '../lib/cms'
@@ -2653,6 +2653,11 @@ router.get('/dashboard', authMiddleware, async (req: any, res) => {
       assessment: {
         select: {
           claimType: true,
+          status: true,
+          caseStage: true,
+          closedAt: true,
+          settlementScenario: { select: { grossAmount: true, contingencyPct: true, feeBasis: true, status: true } },
+          caseExpenses: { select: { amount: true } },
           predictions: {
             orderBy: { createdAt: 'desc' as const },
             take: 1,
@@ -2925,23 +2930,17 @@ router.get('/dashboard', authMiddleware, async (req: any, res) => {
           .sort((a: any, b: any) => b.score - a.score)[0]?.lead?.id ?? null
       : null
 
-    // Pipeline value: sum(expected_case_value × contingency_rate) for active leads
-    const CONTINGENCY_RATE = 0.33
-    const getLeadMedian = (lead: any) => {
-      const pred = lead.assessment?.predictions?.[0] || lead.assessment?.predictions
-      const predObj = Array.isArray(pred) ? pred[0] : pred
-      if (!predObj?.bands) return 0
-      try {
-        const b = typeof predObj.bands === 'string' ? JSON.parse(predObj.bands) : predObj.bands
-        return b.median ?? b.p50 ?? (b.low && b.high ? (b.low + b.high) / 2 : 0)
-      } catch { return 0 }
+    // Pipeline value and retained value are estimated contingency fees on cases
+    // whose fee hasn't been paid yet, using the same math as the Settlement tab.
+    const leadFee = (lead: any) => {
+      const a = lead.assessment
+      if (!isFeeOutstanding(a)) return 0
+      const costs = (a?.caseExpenses || []).reduce((s: number, e: any) => s + Number(e.amount || 0), 0)
+      return estimateAttorneyFee({ bands: a?.predictions?.[0]?.bands, claimType: a?.claimType, scenario: a?.settlementScenario, costs }).attorneyFee
     }
     const activeLeadsForValue = [...accepted, ...contacted, ...consultScheduled, ...retained]
-    const pipelineValue = activeLeadsForValue.reduce((sum: number, lead: any) => {
-      const median = getLeadMedian(lead)
-      return sum + (median || 0) * CONTINGENCY_RATE
-    }, 0)
-    const retainedValue = retained.reduce((sum: number, lead: any) => sum + getLeadMedian(lead) * CONTINGENCY_RATE, 0)
+    const pipelineValue = activeLeadsForValue.reduce((sum: number, lead: any) => sum + leadFee(lead), 0)
+    const retainedValue = retained.reduce((sum: number, lead: any) => sum + leadFee(lead), 0)
 
     // Pipeline alerts
     const now = new Date()
@@ -3675,11 +3674,11 @@ router.get('/dashboard', authMiddleware, async (req: any, res) => {
       dailyQueueSummary: workQueueData.dailyQueueSummary,
       automationFeed,
       pipelinePreviews: {
-        matched: matched.slice(0, 3).map((l: any) => ({ id: l.id, claimType: l.assessment?.claimType, venue: [l.assessment?.venueCounty, l.assessment?.venueState].filter(Boolean).join(', '), estimatedValue: getLeadMedian(l), viability: l.viabilityScore })),
-        accepted: accepted.slice(0, 3).map((l: any) => ({ id: l.id, claimType: l.assessment?.claimType, venue: [l.assessment?.venueCounty, l.assessment?.venueState].filter(Boolean).join(', '), estimatedValue: getLeadMedian(l), viability: l.viabilityScore })),
-        contacted: contacted.slice(0, 3).map((l: any) => ({ id: l.id, claimType: l.assessment?.claimType, venue: [l.assessment?.venueCounty, l.assessment?.venueState].filter(Boolean).join(', '), estimatedValue: getLeadMedian(l), viability: l.viabilityScore })),
+        matched: matched.slice(0, 3).map((l: any) => ({ id: l.id, claimType: l.assessment?.claimType, venue: [l.assessment?.venueCounty, l.assessment?.venueState].filter(Boolean).join(', '), estimatedValue: parsePredictedMedian(l.assessment?.predictions?.[0]?.bands), viability: l.viabilityScore })),
+        accepted: accepted.slice(0, 3).map((l: any) => ({ id: l.id, claimType: l.assessment?.claimType, venue: [l.assessment?.venueCounty, l.assessment?.venueState].filter(Boolean).join(', '), estimatedValue: parsePredictedMedian(l.assessment?.predictions?.[0]?.bands), viability: l.viabilityScore })),
+        contacted: contacted.slice(0, 3).map((l: any) => ({ id: l.id, claimType: l.assessment?.claimType, venue: [l.assessment?.venueCounty, l.assessment?.venueState].filter(Boolean).join(', '), estimatedValue: parsePredictedMedian(l.assessment?.predictions?.[0]?.bands), viability: l.viabilityScore })),
         consultScheduled: consultScheduled.slice(0, 3).map((l: any) => ({ id: l.id, claimType: l.assessment?.claimType, venue: [l.assessment?.venueCounty, l.assessment?.venueState].filter(Boolean).join(', ') })),
-        retained: retained.slice(0, 3).map((l: any) => ({ id: l.id, claimType: l.assessment?.claimType, estimatedValue: getLeadMedian(l) }))
+        retained: retained.slice(0, 3).map((l: any) => ({ id: l.id, claimType: l.assessment?.claimType, estimatedValue: parsePredictedMedian(l.assessment?.predictions?.[0]?.bands) }))
       },
       funnel: {
         matched: funnelMatched,
