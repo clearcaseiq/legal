@@ -22,7 +22,7 @@ import { REGION_LIBRARY, ALL_REGION_OPTIONS, deriveLegacyInjuryFields, type Regi
 import { caseTypeModuleFor } from '../data/caseTypeIntake'
 import { useLanguage } from '../contexts/LanguageContext'
 import { buildCaseTaxonomy, injuryTypeToClaimType, planDetectionFill, sanitizeDetectedCounty, usesPoliceReportLabel } from '../lib/intakeQuickHelpers'
-import { INCIDENT_SUBTYPE_PROMPTS, INCIDENT_SUBTYPE_FREE_TEXT, getIncidentSubtypes, hasIncidentSubtypes } from '../lib/caseTaxonomy'
+import { INCIDENT_SUBTYPE_PROMPTS, INCIDENT_SUBTYPE_FREE_TEXT, caseTypePreset, getIncidentSubtypes, hasIncidentSubtypes } from '../lib/caseTaxonomy'
 import { US_STATES } from '../lib/constants'
 import { getCountiesForState } from '../lib/usLocationData'
 import { formatPhoneInput, validatePhoneField } from '../lib/phone'
@@ -1475,11 +1475,24 @@ export default function IntakeWizardQuick() {
       setCurrentStep('injury_type')
       setFurthestReachedStepIndex(0)
       draftLoadedRef.current = true
+      // A case-type link from the home page answers the first question already.
+      const preset = caseTypePreset(new URLSearchParams(window.location.search).get('type'))
+      if (preset) {
+        setFormData(prev => ({
+          ...prev,
+          injuryType: preset.injuryType,
+          claimType: injuryTypeToClaimType(preset.injuryType),
+          incidentSubtype: preset.incidentSubtype,
+          branch: {},
+        }))
+        setSubtypePanelOpen(!preset.incidentSubtype && hasIncidentSubtypes(preset.injuryType))
+      }
       // Drop the one-shot ?fresh flag so a later refresh mid-assessment doesn't
       // wipe the in-progress draft we start saving below.
       try {
         const url = new URL(window.location.href)
         url.searchParams.delete('fresh')
+        url.searchParams.delete('type')
         window.history.replaceState(null, '', url.pathname + url.search + url.hash)
       } catch { /* ignore */ }
       return

@@ -62,6 +62,7 @@ export default function HomeProductPreview() {
               <p className="text-sm font-semibold text-slate-900 dark:text-slate-100 sm:text-base">{t('home.previewTimelineValue')}</p>
             </div>
           </div>
+          <p className="text-xs leading-relaxed text-slate-500 dark:text-slate-400">{t('home.previewDisclaimer')}</p>
           <div className="flex items-center gap-2 rounded-xl border border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/30 px-3 py-2.5">
             <ShieldCheckIcon className="h-5 w-5 text-brand-600 dark:text-brand-400 shrink-0" aria-hidden />
             <p className="text-sm leading-relaxed text-slate-600 dark:text-slate-300">

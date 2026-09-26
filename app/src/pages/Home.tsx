@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import LocaleLink from '../components/LocaleLink'
 import { START_ASSESSMENT_HREF } from '../data/appRoutes'
+import { trackCtaClick } from '../lib/ctaTracking'
 import { BarChart3, ClipboardList, Users } from 'lucide-react'
 import { useLanguage } from '../contexts/LanguageContext'
 import MarketingHeroArt from '../components/MarketingHeroArt'
@@ -43,12 +44,13 @@ export default function Home() {
     return () => observer.disconnect()
   }, [])
 
+  // `slug` preselects the matching answer on the intake's first step.
   const CASE_TYPES = [
-    { key: 'caseType1', href: START_ASSESSMENT_HREF },
-    { key: 'caseType2', href: START_ASSESSMENT_HREF },
-    { key: 'caseType3', href: START_ASSESSMENT_HREF },
-    { key: 'caseType4', href: START_ASSESSMENT_HREF },
-    { key: 'caseType5', href: START_ASSESSMENT_HREF },
+    { key: 'caseType1', slug: 'car' },
+    { key: 'caseType2', slug: 'slip_fall' },
+    { key: 'caseType3', slug: 'dog_bite' },
+    { key: 'caseType4', slug: 'medmal' },
+    { key: 'caseType5', slug: 'pedestrian' },
   ]
 
   const faqJsonLd = {
@@ -107,6 +109,7 @@ export default function Home() {
                 <Link
                   ref={heroCtaRef}
                   to={START_ASSESSMENT_HREF}
+                  onClick={() => trackCtaClick('hero')}
                   className="btn-cta group px-8 py-4 text-lg shadow-xl shadow-accent-500/30 duration-200 hover:-translate-y-1 hover:scale-[1.02] hover:shadow-2xl hover:shadow-accent-500/40 sm:px-11 sm:py-5 sm:text-xl"
                 >
                   <FileTextIcon className="mr-2 h-6 w-6 transition-transform group-hover:rotate-[-4deg] sm:h-7 sm:w-7" aria-hidden />
@@ -114,6 +117,7 @@ export default function Home() {
                 </Link>
                 <Link
                   to="/assess"
+                  onClick={() => trackCtaClick('hero_resume')}
                   className="group inline-flex items-center justify-center rounded-xl px-3 py-1.5 text-sm font-medium text-slate-500 underline-offset-4 transition-colors hover:text-brand-600 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 dark:text-slate-400 dark:hover:text-brand-300 dark:focus-visible:ring-offset-slate-900"
                 >
                   {t('common.alreadyStartedResume')}
@@ -224,7 +228,8 @@ export default function Home() {
             {CASE_TYPES.map((type) => (
               <Link
                 key={type.key}
-                to={type.href}
+                to={`${START_ASSESSMENT_HREF}&type=${type.slug}`}
+                onClick={() => trackCtaClick('case_type_chip', { caseType: type.slug })}
                 className="px-5 py-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-medium hover:border-brand-300 dark:hover:border-brand-600 hover:bg-brand-50/50 dark:hover:bg-brand-950/30 hover:text-brand-800 dark:hover:text-brand-300 transition-all shadow-sm hover:shadow-md"
               >
                 {t(`home.${type.key}`)}
@@ -285,6 +290,7 @@ export default function Home() {
             </ul>
             <Link
               to={START_ASSESSMENT_HREF}
+              onClick={() => trackCtaClick('final_banner')}
               className="group inline-flex items-center justify-center rounded-2xl bg-gradient-to-r from-accent-600 via-orange-500 to-amber-500 px-8 py-4 text-base font-bold text-white shadow-lg shadow-black/25 ring-1 ring-white/20 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xl focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-accent-300 sm:text-lg"
             >
               <FileTextIcon className="mr-2 h-5 w-5 transition-transform group-hover:rotate-[-4deg]" aria-hidden />
@@ -339,6 +345,7 @@ export default function Home() {
         >
           <Link
             to={START_ASSESSMENT_HREF}
+            onClick={() => trackCtaClick('sticky_mobile')}
             className="flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-accent-600 via-orange-500 to-amber-500 px-6 py-3 text-base font-bold text-white shadow-lg shadow-accent-500/25"
           >
             <FileTextIcon className="h-5 w-5" aria-hidden />

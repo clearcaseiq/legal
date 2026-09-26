@@ -192,6 +192,24 @@ export function isValidIncidentSubtype(injuryType: string, subtype: string): boo
 }
 
 /**
+ * `?type=` slugs used by the home page case-type links, mapped to the intake's
+ * first answer so the claimant isn't asked again what they just clicked.
+ */
+const CASE_TYPE_PRESETS: Record<string, { injuryType: string; incidentSubtype?: string }> = {
+  car: { injuryType: 'vehicle', incidentSubtype: 'car_accident' },
+  pedestrian: { injuryType: 'vehicle', incidentSubtype: 'pedestrian_accident' },
+  slip_fall: { injuryType: 'slip_fall' },
+  dog_bite: { injuryType: 'dog_bite' },
+  medmal: { injuryType: 'medmal' },
+}
+
+export function caseTypePreset(slug: string | null | undefined): { injuryType: string; incidentSubtype: string } | null {
+  const preset = slug ? CASE_TYPE_PRESETS[slug] : undefined
+  if (!preset) return null
+  return { injuryType: preset.injuryType, incidentSubtype: preset.incidentSubtype ?? '' }
+}
+
+/**
  * Tags carried by a subtype, on top of the subtype slug itself.
  *
  * These exist because the underwriting engine pattern-matches a text blob built
