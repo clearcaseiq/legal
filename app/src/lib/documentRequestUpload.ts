@@ -33,6 +33,23 @@ export function evidenceTargetForRequestKey(requestKey: string): EvidenceUploadT
   return REQUEST_KEY_TO_UPLOAD[key] || null
 }
 
+// Legacy request uploads were filed under the request key; the API list endpoint
+// folds these the same way (api evidenceCategoriesForListing).
+const LEGACY_SUPPORTING_DOC_CATEGORY: Record<string, string> = {
+  wage_loss: 'wage_verification',
+  lost_wages: 'wage_verification',
+  wages: 'wage_verification',
+  insurance: 'insurance_letters',
+  insurance_card: 'insurance_letters',
+  insurance_info: 'insurance_letters',
+}
+
+/** The Supporting Documents row an evidence file's stored category belongs to. */
+export function supportingDocCategory(category: string | null | undefined): string {
+  const cat = (category || '').trim() || 'other'
+  return LEGACY_SUPPORTING_DOC_CATEGORY[cat] || cat
+}
+
 /** Whether this request key can use an inline single-category uploader on Tasks. */
 export function canInlineUploadRequestKey(requestKey: string): boolean {
   return evidenceTargetForRequestKey(requestKey) != null

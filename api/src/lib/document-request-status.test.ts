@@ -7,12 +7,44 @@ import {
   computeRequestStatus,
   countRequestUploads,
   countUploadsForRequest,
+  evidenceCategoriesForListing,
   evidenceCategoryForRequestKey,
   requestUploadSubcategory,
   isRequestedDocFulfilled,
   normalizeRequestedDocKeys,
   requestedDocLabel,
 } from './document-request-status'
+
+describe('request uploads land in a Supporting Documents row', () => {
+  it('files wage and insurance requests under the Financial Impact categories', () => {
+    expect(evidenceCategoryForRequestKey('wage_loss')).toBe('wage_verification')
+    expect(evidenceCategoryForRequestKey('Wage loss documentation')).toBe('wage_verification')
+    expect(evidenceCategoryForRequestKey('insurance')).toBe('insurance_letters')
+    expect(evidenceCategoryForRequestKey('prior_treatment')).toBe('medical_records')
+    expect(evidenceCategoryForRequestKey('product_preservation')).toBe('photos')
+  })
+
+  it('still fulfils the request from uploads filed under the old category', () => {
+    const requestedAt = new Date('2026-09-01T00:00:00Z')
+    const after = new Date('2026-09-02T00:00:00Z')
+    const legacy = [
+      { category: 'wage_loss', createdAt: after },
+      { category: 'insurance', createdAt: after },
+    ]
+    expect(computeRequestStatus(['wage_loss', 'insurance'], legacy, requestedAt)).toBe('completed')
+  })
+
+  it('lists legacy spellings with the row category', () => {
+    expect(evidenceCategoriesForListing('wage_verification')).toEqual(['wage_verification', 'wage_loss', 'lost_wages', 'wages'])
+    expect(evidenceCategoriesForListing('insurance_letters')).toEqual([
+      'insurance_letters',
+      'insurance',
+      'insurance_card',
+      'insurance_info',
+    ])
+    expect(evidenceCategoriesForListing('photos')).toEqual(['photos'])
+  })
+})
 
 describe('custom request items', () => {
   it('keeps the attorney wording, collapsing whitespace', () => {

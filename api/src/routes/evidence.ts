@@ -19,7 +19,7 @@ import { recordCaseChange } from '../lib/data-authority'
 import { processEvidenceFileForExtraction, shouldAutoProcessEvidence, extractDataFromBuffer } from '../lib/evidence-processing'
 import { syncCaseCoachTasks } from '../lib/case-coach-loop'
 import { analyzeImageRelevance, analyzePdfRelevance, analyzeVideoRelevance, type VisionRelevanceResult } from '../lib/evidence-vision'
-import { syncPlaintiffDocumentRequestStatuses } from '../lib/document-request-status'
+import { evidenceCategoriesForListing, syncPlaintiffDocumentRequestStatuses } from '../lib/document-request-status'
 import { recordAssistanceDocumentSubmission } from '../lib/assistance-document-intake'
 import { ensureCaseOwnerUserId } from '../lib/case-owner'
 import { uploadLimiter } from '../lib/rate-limits'
@@ -831,7 +831,7 @@ router.get('/', optionalAuthMiddleware, async (req: any, res) => {
     } else {
       return res.status(401).json({ error: 'Unauthorized' })
     }
-    if (category) where.category = category
+    if (category) where.category = { in: evidenceCategoriesForListing(String(category)) }
     if (processingStatus) where.processingStatus = processingStatus
     if (query) {
       where.OR = [

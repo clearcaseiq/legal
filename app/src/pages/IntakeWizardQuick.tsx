@@ -27,6 +27,7 @@ import { US_STATES } from '../lib/constants'
 import { getCountiesForState } from '../lib/usLocationData'
 import { formatPhoneInput, validatePhoneField } from '../lib/phone'
 import { savePendingRegistration } from '../lib/pendingRegistration'
+import { supportingDocCategory } from '../lib/documentRequestUpload'
 import { createConsent, fetchPublicConsentTemplate } from '../lib/api-consent'
 import { hasValidAuthToken } from '../lib/auth'
 import {
@@ -1578,7 +1579,7 @@ export default function IntakeWizardQuick() {
         if (cancelled || !Array.isArray(serverFiles) || serverFiles.length === 0) return
         const byCategory: Record<string, any[]> = {}
         for (const file of serverFiles) {
-          const cat = file?.category || 'other'
+          const cat = supportingDocCategory(file?.category)
           ;(byCategory[cat] ||= []).push(file)
         }
         setPendingEvidenceFiles((prev) => {
@@ -6295,7 +6296,7 @@ export default function IntakeWizardQuick() {
                                 ) : (
                                   <InlineEvidenceUpload
                                     assessmentId={assessmentId || undefined}
-                                    category={row.category}
+                                    category={supportingDocCategory(row.category)}
                                     subcategory={row.subcategory || undefined}
                                     filterBySubcategory={Boolean(row.subcategory)}
                                     description={row.label}
@@ -6311,7 +6312,7 @@ export default function IntakeWizardQuick() {
                                     uploadButtonColorClass="bg-amber-500 text-white hover:bg-amber-600"
                                     onFilesUploaded={(files) => {
                                       // Preset items share their category's bucket with the rows below.
-                                      if (!row.subcategory) handleEvidenceFiles(row.category, files)
+                                      if (!row.subcategory) handleEvidenceFiles(supportingDocCategory(row.category), files)
                                       const count = files.length
                                       const previous = requestedDocUploadCounts.current[row.key]
                                       requestedDocUploadCounts.current[row.key] = count

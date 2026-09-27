@@ -13,9 +13,11 @@ export const DOCUMENT_REQUEST_CATEGORY_MAP: Record<string, string[]> = {
   police_report: ['police_report', 'police'],
   medical_records: ['medical_records', 'bills', 'medical', 'medical_bills'],
   injury_photos: ['photos', 'injury_photos', 'injury', 'injuries'],
-  // Intake Supporting Documents uploads wage docs as `wage_verification`.
-  wage_loss: ['wage_loss', 'lost_wages', 'wages', 'wage_verification'],
-  insurance: ['insurance', 'insurance_card', 'insurance_info', 'insurance_letters', 'dec_page'],
+  // The first entry is where a request upload is filed (evidenceCategoryForRequestKey),
+  // so it must be a category the Supporting Documents rows read: wage docs live under
+  // `wage_verification` and insurance letters under `insurance_letters` (Financial Impact).
+  wage_loss: ['wage_verification', 'wage_loss', 'lost_wages', 'wages'],
+  insurance: ['insurance_letters', 'insurance', 'insurance_card', 'insurance_info', 'dec_page'],
   // Declarations page requests (attorney insurance / DEC flow) — CP-583.
   dec_page: ['dec_page', 'insurance', 'insurance_policy', 'insurance_letters', 'declarations'],
   other: [],
@@ -32,8 +34,8 @@ export const DOCUMENT_REQUEST_CATEGORY_MAP: Record<string, string[]> = {
   // The old worry — a brand-new request auto-completing from PRE-EXISTING case
   // records — is already prevented by isRequestedDocFulfilled's time gate, which
   // only counts evidence uploaded at/after the request was created.
-  prior_treatment: ['prior_treatment', 'prior_medical', 'prior_records', 'medical_records', 'medical'],
-  product_preservation: ['product', 'product_evidence', 'product_photos', 'photos'],
+  prior_treatment: ['medical_records', 'prior_treatment', 'prior_medical', 'prior_records', 'medical'],
+  product_preservation: ['photos', 'product', 'product_evidence', 'product_photos'],
   // Intake Supporting Documents files these under `witness_statements`.
   witness_statements: ['witness_statements', 'witness_statement', 'witness', 'statements'],
 }
@@ -220,6 +222,20 @@ export function evidenceCategoryForRequestKey(key: string): string {
   const normalized = normalizeRequestedDocKey(key)
   if (isAdHocRequestKey(normalized)) return 'other'
   return DOCUMENT_REQUEST_CATEGORY_MAP[normalized]?.[0] || normalized || 'other'
+}
+
+/**
+ * Supporting Documents rows list files by one category, but request uploads were
+ * once filed under the request's own key (`wage_loss`, `insurance`). Listing a row's
+ * category also returns those legacy spellings so the files show and count there.
+ */
+const SUPPORTING_DOC_CATEGORY_ALIASES: Record<string, string[]> = {
+  wage_verification: ['wage_loss', 'lost_wages', 'wages'],
+  insurance_letters: ['insurance', 'insurance_card', 'insurance_info'],
+}
+
+export function evidenceCategoriesForListing(category: string): string[] {
+  return [category, ...(SUPPORTING_DOC_CATEGORY_ALIASES[category] || [])]
 }
 
 /**
