@@ -1,8 +1,8 @@
 /**
  * A firm member without `view_all_cases` / `view_analytics` sees the cases they
- * hold — on the case team, or the attorney the lead is assigned to — and not
- * the rest of the firm's roster. Returning nothing at all left paralegals and
- * case managers with an empty Caseload for cases they were staffed on.
+ * hold (on the case team, or the attorney the lead is assigned to) plus any
+ * firm case nobody has been staffed on yet. A case with a case team is hidden
+ * from everyone outside it.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import request from 'supertest'
@@ -49,19 +49,20 @@ beforeEach(() => {
   vi.mocked((prisma as any).lawFirm.findUnique).mockResolvedValue({ id: 'firm-1', name: 'Kia Law', attorneys: [] } as any)
   vi.mocked((prisma as any).assessment.findMany).mockResolvedValue([
     caseRow('mine', [{ role: 'paralegal', assignedUserId: staffUser.id, assignedUser: { firstName: 'P', lastName: 'L' } }]),
-    caseRow('theirs', []),
+    caseRow('theirs', [{ role: 'paralegal', assignedUserId: 'user-other', assignedUser: { firstName: 'O', lastName: 'T' } }]),
+    caseRow('unstaffed', []),
   ] as any)
 })
 
 describe('GET /v1/firm-dashboard caseload scope', () => {
-  it('shows a paralegal the cases they are staffed on, and only those', async () => {
+  it('shows a paralegal their staffed cases and unstaffed firm cases, not other teams', async () => {
     asMember('paralegal')
 
     const res = await request(app).get('/v1/firm-dashboard').set(auth)
 
     expect(res.status).toBe(200)
-    expect(res.body.cases.map((c: any) => c.assessmentId)).toEqual(['mine'])
-    expect(res.body.metrics.activeCases).toBe(1)
+    expect(res.body.cases.map((c: any) => c.assessmentId).sort()).toEqual(['mine', 'unstaffed'])
+    expect(res.body.metrics.activeCases).toBe(2)
   })
 
   it('shows the whole firm roster to a role with view_all_cases', async () => {
@@ -70,6 +71,6 @@ describe('GET /v1/firm-dashboard caseload scope', () => {
     const res = await request(app).get('/v1/firm-dashboard').set(auth)
 
     expect(res.status).toBe(200)
-    expect(res.body.cases.map((c: any) => c.assessmentId).sort()).toEqual(['mine', 'theirs'])
+    expect(res.body.cases.map((c: any) => c.assessmentId).sort()).toEqual(['mine', 'theirs', 'unstaffed'])
   })
 })

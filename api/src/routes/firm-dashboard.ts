@@ -2400,8 +2400,7 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
     const attorneyNameById = new Map<string, string>(
       attorneys.map((a: any) => [a.id, a.name])
     )
-    // Without a firm-wide grant a member sees only the cases they hold: on the
-    // case team, or the attorney the lead is assigned to.
+    // Cases the caller holds: on the case team, or the attorney the lead is assigned to.
     const callerUserId: string | null = context.user?.id ?? null
     const callerAttorneyId: string | null = context.attorney?.id ?? null
     const heldByCaller = new Set<string>(
@@ -2448,9 +2447,10 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
       }
     })
 
+    // A staffed case is visible to its case team; an unstaffed one to the whole firm.
     const visibleCases = canSeeFirmCaseload
       ? firmCasesList
-      : firmCasesList.filter((c: any) => heldByCaller.has(c.assessmentId))
+      : firmCasesList.filter((c: any) => heldByCaller.has(c.assessmentId) || c.assignments.length === 0)
 
     // Marketplace Performance (firm scope): KPI tiles, acquisition funnel, and
     // spend-vs-return monthly series across every attorney in the firm.

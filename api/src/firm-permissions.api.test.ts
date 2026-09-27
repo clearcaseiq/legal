@@ -98,6 +98,51 @@ describe('case action gates', () => {
   })
 })
 
+describe('reading a colleague case', () => {
+  const openLetters = () => request(app).get('/v1/attorney-dashboard/leads/lead-1/demand-letters').set(auth)
+
+  beforeEach(() => {
+    asMember('attorney')
+    vi.mocked((prisma as any).attorney.findFirst).mockResolvedValue({ id: 'att-assoc', email: user.email, lawFirmId: 'firm-1' } as any)
+    vi.mocked((prisma as any).attorney.findUnique).mockResolvedValue({ lawFirmId: 'firm-1' } as any)
+    vi.mocked((prisma as any).leadSubmission.findUnique).mockResolvedValue({
+      id: 'lead-1',
+      assessmentId: 'asm-1',
+      assignedAttorneyId: 'att-main',
+      assignmentType: 'exclusive',
+      status: 'retained',
+    } as any)
+  })
+
+  /** `onTeam`: whether the caller is on the case team, when the case is staffed. */
+  const staffed = (onTeam: boolean) =>
+    vi.mocked((prisma as any).firmCaseAssignment.findFirst).mockImplementation(async (args: any) =>
+      args?.where?.OR ? (onTeam ? ({ id: 'fca-me' } as any) : null) : ({ id: 'fca-other' } as any),
+    )
+
+  it('refuses an associate once the case is staffed with other people', async () => {
+    staffed(false)
+
+    const res = await openLetters()
+
+    expect(res.status).toBe(403)
+  })
+
+  it('lets an associate on the case team read it', async () => {
+    staffed(true)
+
+    const res = await openLetters()
+
+    expect(res.status).not.toBe(403)
+  })
+
+  it('lets any colleague read a case nobody is staffed on', async () => {
+    const res = await openLetters()
+
+    expect(res.status).not.toBe(403)
+  })
+})
+
 describe('GET /v1/attorney-dashboard/access', () => {
   it("reports the member's resolved actions", async () => {
     asMember('paralegal')

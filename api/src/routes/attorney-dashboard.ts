@@ -408,6 +408,20 @@ function firmCaseTeamTerm(attorneyId: string | null, firm: FirmVisibility): any 
   return { assessment: { firmCaseAssignments: { some: { status: 'active', OR: who } } } }
 }
 
+/**
+ * The firm's taken cases that nobody has been put on. A case with a case team
+ * is visible to that team only; until the admin staffs it, the whole firm sees
+ * it. Limited to engaged statuses so an unanswered offer does not reach
+ * members who cannot review new matches.
+ */
+function firmUnassignedCaseTerm(lawFirmId: string): any {
+  return {
+    status: { in: [...ENGAGED_LEAD_STATUSES] },
+    assessment: { firmCaseAssignments: { none: { status: 'active' } } },
+    OR: [{ assignedAttorney: { lawFirmId } }, { assessment: { lawFirmId } }],
+  }
+}
+
 /** Leads with a live offer to any attorney in the firm. */
 function firmLiveOfferTerm(lawFirmId: string): any {
   return { assessment: { introductions: { some: { attorney: { lawFirmId }, status: { in: LIVE_INTRO_STATUSES } } } } }
@@ -442,8 +456,9 @@ function buildLeadVisibilityOr(attorneyId: string, firm: FirmVisibility, extra: 
       { assessment: { lawFirmId: firm.lawFirmId } },
       { assessment: { introductions: { some: { attorney: { lawFirmId: firm.lawFirmId }, status: { notIn: [...TERMINAL_INTRO_STATUSES] } } } } },
     )
-  } else if (firm.canReviewFirmMatches && firm.lawFirmId) {
-    or.push(firmLiveOfferTerm(firm.lawFirmId))
+  } else if (firm.lawFirmId) {
+    or.push(firmUnassignedCaseTerm(firm.lawFirmId))
+    if (firm.canReviewFirmMatches) or.push(firmLiveOfferTerm(firm.lawFirmId))
   }
   return or
 }
@@ -480,6 +495,8 @@ function buildEngagedLeadVisibilityOr(attorneyId: string, firm: FirmVisibility):
       { assessment: { lawFirmId: firm.lawFirmId } },
       { assessment: { introductions: { some: { attorney: { lawFirmId: firm.lawFirmId }, status: 'ACCEPTED' } } } },
     )
+  } else if (firm.lawFirmId) {
+    or.push(firmUnassignedCaseTerm(firm.lawFirmId))
   }
   return or
 }
@@ -543,6 +560,35 @@ async function firmGrantsLeadRead(
 ): Promise<boolean> {
   if (firm.lawFirmId && firm.canViewAllCases && (await firmHoldsLead(lead, firm.lawFirmId))) return true
   if (firm.lawFirmId && firm.canReviewFirmMatches && (await firmHasLiveOffer(lead, firm.lawFirmId))) return true
+  if (await onFirmCaseTeam(lead, attorneyId, firm)) return true
+  return !!firm.lawFirmId && (await isUnassignedFirmCase(lead, firm.lawFirmId))
+}
+
+/** Whether this lead is one of the firm's taken cases with no case team yet. */
+async function isUnassignedFirmCase(lead: { id: string }, lawFirmId: string): Promise<boolean> {
+  const match = await prisma.leadSubmission.findFirst({
+    where: { id: lead.id, ...firmUnassignedCaseTerm(lawFirmId) },
+    select: { id: true },
+  })
+  return !!match
+}
+
+/**
+ * A firm colleague's claim to read a case beyond what they hold themselves.
+ * Once the case has a case team, only that team (and firm-wide viewers) may
+ * see it; an unstaffed case stays open to the whole firm.
+ */
+async function sameFirmMayRead(
+  lead: { assessmentId: string },
+  attorneyId: string | null,
+  firm: FirmVisibility,
+): Promise<boolean> {
+  if (firm.canViewAllCases) return true
+  const staffed = await (prisma as any).firmCaseAssignment.findFirst({
+    where: { assessmentId: lead.assessmentId, status: 'active' },
+    select: { id: true },
+  })
+  if (!staffed) return true
   return onFirmCaseTeam(lead, attorneyId, firm)
 }
 
@@ -594,23 +640,18 @@ async function getFirmMemberLeadAccess(
     select: { lawFirmId: true, items: { select: { assignedFirmMemberId: true } } }
   })
 
-  const sameFirm = !!member.lawFirmId && caseWorkflow?.lawFirmId === member.lawFirmId
   const assignedStep = (caseWorkflow?.items || []).some(
     (item: any) => item.assignedFirmMemberId === member.id
   )
-  if (sameFirm || assignedStep) return member
+  if (assignedStep) return member
+  const sameFirm = !!member.lawFirmId && caseWorkflow?.lawFirmId === member.lawFirmId
+  if (sameFirm && (await sameFirmMayRead(lead, null, await resolveFirmVisibility(req, null)))) return member
 
   // A routed lead has no CaseWorkflow until somebody applies one, so requiring
   // that row dead-ended precisely the members whose work starts before it
   // exists: firm-wide visibility listed the lead for them under New Leads and
   // opening it then answered 403. Fall back to the same firm claim the list is
   // built from, so the two agree.
-  //
-  // `resolveFirmVisibility` only resolves an active membership, so an invitee
-  // gains nothing here. That is not a claim members are well guarded: the
-  // `sameFirm` term above hands any member — invited ones included — every firm
-  // case that has a workflow row, which makes `assignedStep` moot. Tightening
-  // that is its own change.
   const firm = await resolveFirmVisibility(req, null)
   return (await firmGrantsLeadRead(lead, null, firm)) ? member : null
 }
@@ -727,10 +768,13 @@ async function getAuthorizedLead(
         })
       )?.lawFirmId ?? null
     : null
-  const sameFirm =
+  const firmColleague =
     !!attorney.lawFirmId &&
     ((!!assignedAttorney?.lawFirmId && attorney.lawFirmId === assignedAttorney.lawFirmId) ||
       (!!workflowFirmId && attorney.lawFirmId === workflowFirmId))
+  // A colleague reads the case only while it is unstaffed or they are on its team.
+  const sameFirm =
+    firmColleague && !isAssigned && (await sameFirmMayRead(lead, attorney.id, await resolveFirmVisibility(req, attorney)))
   const acceptedShare = await prisma.caseShare.findFirst({
     where: {
       assessmentId: lead.assessmentId,
