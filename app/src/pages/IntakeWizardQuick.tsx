@@ -28,6 +28,7 @@ import { getCountiesForState } from '../lib/usLocationData'
 import { formatPhoneInput, validatePhoneField } from '../lib/phone'
 import { savePendingRegistration } from '../lib/pendingRegistration'
 import { supportingDocCategory } from '../lib/documentRequestUpload'
+import { trackAssessmentSubmitted } from '../lib/assessmentTracking'
 import { createConsent, fetchPublicConsentTemplate } from '../lib/api-consent'
 import { hasValidAuthToken } from '../lib/auth'
 import {
@@ -2980,6 +2981,7 @@ export default function IntakeWizardQuick() {
         throw new Error('Assessment was created without a valid ID.')
       }
       setAssessmentId(id)
+      trackAssessmentSubmitted({ caseType: formData.claimType || formData.injuryType || undefined })
       try {
         localStorage.setItem('pending_assessment_id', id)
       } catch {
