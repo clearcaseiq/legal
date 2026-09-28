@@ -15,10 +15,7 @@ import {
   CloseIcon,
   FileTextIcon,
   ScaleIcon,
-  MoonIcon,
-  SunIcon,
 } from './StartupIcons'
-import { useTheme } from '../contexts/ThemeContext'
 import { useLanguage } from '../contexts/LanguageContext'
 import { currentBuildVersion } from '../lib/buildVersion'
 import { useBrowserStateReady } from '../contexts/ServerRenderContext'
@@ -118,7 +115,6 @@ export default function Layout({ children }: LayoutProps) {
   const userMenuRef = useRef<HTMLDivElement>(null)
   const footerRef = useRef<HTMLElement>(null)
 
-  const { showWorkspaceThemeToggle, darkMode, toggle } = useTheme()
   // Sign-in state lives in localStorage, which the server cannot see. On
   // server-rendered routes these stay empty through hydration so both renders
   // produce the signed-out chrome, then the real values arrive on the next
@@ -236,7 +232,6 @@ export default function Layout({ children }: LayoutProps) {
   // English only, so it is hidden for attorney sessions and on every attorney
   // workspace route (#7).
   const showHeaderLanguageSwitcher = !isAttorneyWorkspace
-  const showThemeToggle = showWorkspaceThemeToggle && !isAttorney
   // The footer's language anchors are the only crawlable way into the Spanish
   // and Chinese editions, so they cannot simply be deleted — crawl-inventory.mjs
   // fails when a sitemap URL is unreachable by navigation. Crawlers are never
@@ -536,16 +531,6 @@ export default function Layout({ children }: LayoutProps) {
 
             {/* Right: Language + Primary CTA + User menu */}
             <div className="flex min-w-0 items-center gap-2 lg:gap-3">
-              {showThemeToggle && (
-                <button
-                  type="button"
-                  onClick={toggle}
-                  className="hidden lg:inline-flex rounded-full border border-slate-200 bg-white/80 p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
-                  aria-label={darkMode ? 'Use light theme' : 'Use dark theme'}
-                >
-                  {darkMode ? <SunIcon className="h-5 w-5" /> : <MoonIcon className="h-5 w-5" />}
-                </button>
-              )}
               {showHeaderLanguageSwitcher && (
                 <div className="hidden lg:block">
                   <LanguageSwitcher />
@@ -554,7 +539,7 @@ export default function Layout({ children }: LayoutProps) {
               {/* Everything left of this divider is conditional, so the divider is
                   too — on an attorney workspace neither control renders and it was
                   left standing on its own, dividing nothing. */}
-              {(showThemeToggle || showHeaderLanguageSwitcher) && (
+              {showHeaderLanguageSwitcher && (
                 <span className="hidden h-6 w-px bg-slate-200 dark:bg-slate-800 lg:block" aria-hidden />
               )}
               {isAuthenticated ? (
@@ -792,16 +777,6 @@ export default function Layout({ children }: LayoutProps) {
               </div>
               {isAuthenticated ? (
                 <>
-                  {showWorkspaceThemeToggle && !isAttorney && (
-                    <button
-                      type="button"
-                      onClick={toggle}
-                      className="flex items-center gap-2 py-2 text-sm font-medium text-slate-700 dark:text-slate-200"
-                    >
-                      {darkMode ? <SunIcon className="h-4 w-4" /> : <MoonIcon className="h-4 w-4" />}
-                      {darkMode ? 'Light mode' : 'Dark mode'}
-                    </button>
-                  )}
                   {isFocusRoute ? (
                     <>
                       <Link to={navLinks.home} onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">Home</Link>

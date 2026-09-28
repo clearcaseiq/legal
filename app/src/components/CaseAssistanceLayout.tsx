@@ -41,8 +41,6 @@ export default function CaseAssistanceLayout() {
     navigate(getLoginPathForRole('specialist'), { replace: true })
   }
 
-  // `ThemeProvider` puts the `dark` class on documentElement for workspace
-  // paths, so this shell only needs the variants, not the toggle.
   return (
     <div>
       <div className="min-h-screen bg-slate-50 dark:bg-slate-950">

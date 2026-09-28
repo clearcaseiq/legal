@@ -5,7 +5,6 @@ import { StaticRouter } from 'react-router-dom/server'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import App from './App'
 import { LanguageProvider, LocalePathSync } from './contexts/LanguageContext'
-import { ThemeProvider } from './contexts/ThemeContext'
 import { ToastProvider } from './contexts/ToastContext'
 import { HeuristicsProvider } from './contexts/HeuristicsContext'
 import { ServerRenderedProvider } from './contexts/ServerRenderContext'
@@ -64,13 +63,11 @@ export default function AppProviders({
         >
           <Router location={location}>
             <LocalePathSync />
-            <ThemeProvider>
-              <ToastProvider>
-                <HeuristicsProvider>
-                  <App />
-                </HeuristicsProvider>
-              </ToastProvider>
-            </ThemeProvider>
+            <ToastProvider>
+              <HeuristicsProvider>
+                <App />
+              </HeuristicsProvider>
+            </ToastProvider>
           </Router>
         </LanguageProvider>
       </QueryClientProvider>
