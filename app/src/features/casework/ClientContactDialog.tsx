@@ -8,6 +8,8 @@
 import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
 import { updateClaimantContact, type ClaimantContact } from '../../lib/api'
+import PhoneInput from '../../components/PhoneInput'
+import { validatePhoneField } from '../../lib/phone'
 
 interface ClientContactDialogProps {
   leadId: string
@@ -43,6 +45,11 @@ export default function ClientContactDialog({ leadId, initial, onClose, onSaved 
     setForm((prev) => ({ ...prev, [key]: e.target.value }))
 
   const save = async () => {
+    const phoneError = validatePhoneField(form.phone)
+    if (phoneError) {
+      setError(phoneError)
+      return
+    }
     setSaving(true)
     setError(null)
     try {
@@ -90,7 +97,14 @@ export default function ClientContactDialog({ leadId, initial, onClose, onSaved 
             {field('Last name', 'lastName')}
           </div>
           {field('Email', 'email', 'email')}
-          {field('Mobile phone', 'phone', 'tel', '(555) 555-0100')}
+          <label className="block">
+            <span className="text-xs font-medium text-slate-600">Mobile phone</span>
+            <PhoneInput
+              value={form.phone}
+              onChange={(phone) => setForm((prev) => ({ ...prev, phone }))}
+              className="mt-1 w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm text-slate-800 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
+            />
+          </label>
 
           <div className="border-t border-slate-100 pt-3">
             <p className="text-xs font-semibold text-slate-700">Mailing address</p>

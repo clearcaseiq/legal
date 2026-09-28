@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { Building2, CheckCircle, Loader2, Lock, Trash2, Upload } from 'lucide-react'
 import { BackButton } from '../features/shared/ui'
 import { US_STATES } from '../lib/constants'
+import { validatePhoneField } from '../lib/phone'
+import PhoneInput from '../components/PhoneInput'
 import { resolveUploadedPhotoUrl } from '../lib/avatar'
 import {
   getFirmIntakeSettings,
@@ -114,6 +116,11 @@ export default function FirmSettings() {
     }
     if (form.primaryEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.primaryEmail.trim())) {
       setSaveError('Please enter a valid email address.')
+      return
+    }
+    const phoneError = validatePhoneField(form.phone)
+    if (phoneError) {
+      setSaveError(phoneError)
       return
     }
 
@@ -336,13 +343,11 @@ export default function FirmSettings() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
-              <input
-                type="tel"
+              <PhoneInput
                 value={form.phone}
-                onChange={(e) => updateField('phone', e.target.value)}
+                onChange={(phone) => updateField('phone', phone)}
                 disabled={!canEdit}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-brand-500 focus:border-brand-500 disabled:bg-gray-100 disabled:text-gray-500"
-                placeholder="(555) 123-4567"
               />
             </div>
             <div className="md:col-span-2">

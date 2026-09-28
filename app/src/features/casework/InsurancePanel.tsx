@@ -19,6 +19,8 @@ import {
   Send,
 } from 'lucide-react'
 import ConfirmDialog from '../../components/ConfirmDialog'
+import PhoneInput from '../../components/PhoneInput'
+import { validatePhoneField } from '../../lib/phone'
 import {
   getLeadInsurance,
   createLeadInsurance,
@@ -235,6 +237,11 @@ export default function InsurancePanel({
       setBanner({ tone: 'err', text: 'Carrier name is required.' })
       return
     }
+    const adjusterPhoneError = validatePhoneField(form.adjusterPhone)
+    if (adjusterPhoneError) {
+      setBanner({ tone: 'err', text: `Adjuster phone: ${adjusterPhoneError}` })
+      return
+    }
     setSaving(true)
     setBanner(null)
     const limit = Number(String(form.policyLimit).replace(/[^0-9.]/g, ''))
@@ -444,7 +451,7 @@ export default function InsurancePanel({
             </div>
             <div>
               <label className={labelCls}>Adjuster phone</label>
-              <input className={inputCls} value={form.adjusterPhone} onChange={(e) => set('adjusterPhone', e.target.value)} />
+              <PhoneInput className={inputCls} value={form.adjusterPhone} onChange={(v) => set('adjusterPhone', v)} />
             </div>
             <div className="sm:col-span-2">
               <label className={labelCls}>Notes</label>

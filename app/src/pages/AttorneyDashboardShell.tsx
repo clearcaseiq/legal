@@ -23,7 +23,8 @@ import { AttorneyDashboardPanelSkeleton, AttorneyDashboardSkeleton } from '../co
 import { clearStoredAuth, getLoginRedirect, hasValidAuthToken } from '../lib/auth'
 import { getAttorneyCaseStatusKey, caseStatusLabel, caseStatusColor } from '../lib/caseStatus'
 import { engagedLeadsOnly } from '../lib/leadStatus'
-import { formatPhoneInput } from '../lib/phone'
+import { validatePhoneField } from '../lib/phone'
+import PhoneInput from '../components/PhoneInput'
 import { computeProfileStrength } from '../lib/profileStrength'
 import { useAttorneyCommunications } from '../hooks/useAttorneyCommunications'
 import { useFirmAccess } from '../hooks/useFirmAccess'
@@ -2523,18 +2524,18 @@ export default function AttorneyDashboardShell({ chromeless = false, initialView
                     <option value="Video">Video</option>
                     <option value="In person">In person</option>
                   </select>
+                ) : activityType === 'call' || activityType === 'sms' ? (
+                  <PhoneInput
+                    value={contactForm.contactMethod}
+                    onChange={(contactMethod) => setContactForm(prev => ({ ...prev, contactMethod }))}
+                    className="input w-full"
+                    placeholder={copy.placeholder}
+                  />
                 ) : (
                   <input
-                    type={activityType === 'call' || activityType === 'sms' ? 'tel' : activityType === 'email' ? 'email' : 'text'}
-                    inputMode={activityType === 'call' || activityType === 'sms' ? 'tel' : undefined}
+                    type={activityType === 'email' ? 'email' : 'text'}
                     value={contactForm.contactMethod}
-                    onChange={(e) => {
-                      // Format + cap phone entries at 10 digits for call/SMS (#128).
-                      const next = activityType === 'call' || activityType === 'sms'
-                        ? formatPhoneInput(e.target.value)
-                        : e.target.value
-                      setContactForm(prev => ({ ...prev, contactMethod: next }))
-                    }}
+                    onChange={(e) => setContactForm(prev => ({ ...prev, contactMethod: e.target.value }))}
                     className="input"
                     placeholder={copy.placeholder}
                   />
@@ -2565,7 +2566,10 @@ export default function AttorneyDashboardShell({ chromeless = false, initialView
             <div className="mt-3 flex items-center gap-2">
               <button
                 onClick={handleLogContact}
-                disabled={contactLoading}
+                disabled={
+                  contactLoading ||
+                  ((activityType === 'call' || activityType === 'sms') && Boolean(validatePhoneField(contactForm.contactMethod)))
+                }
                 className="px-3 py-1.5 text-sm font-medium text-white bg-slate-700 rounded-md hover:bg-slate-800 disabled:opacity-50"
               >
                 {contactLoading ? 'Saving…' : copy.submit}

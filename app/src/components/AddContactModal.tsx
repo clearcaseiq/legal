@@ -3,7 +3,8 @@
  */
 import { useState } from 'react'
 import { X } from 'lucide-react'
-import { formatPhoneInput } from '../lib/phone'
+import { validatePhoneField } from '../lib/phone'
+import PhoneInput from './PhoneInput'
 import { formatClaimType } from '../lib/claimTypes'
 
 const CONTACT_TYPES = [
@@ -80,6 +81,11 @@ export default function AddContactModal({
     const ln = lastName.trim()
     if (!fn || !ln) {
       setSubmitError('First name and last name are required.')
+      return
+    }
+    const phoneError = validatePhoneField(phone)
+    if (phoneError) {
+      setSubmitError(phoneError)
       return
     }
     setSubmitError(null)
@@ -160,14 +166,10 @@ export default function AddContactModal({
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
-            <input
-              type="tel"
-              inputMode="tel"
+            <PhoneInput
               value={phone}
-              // Format as the user types and cap US numbers at 10 digits (#128).
-              onChange={(e) => setPhone(formatPhoneInput(e.target.value))}
+              onChange={setPhone}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
-              placeholder="(555) 123-4567"
             />
           </div>
           <div>

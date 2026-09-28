@@ -63,6 +63,8 @@ import {
   type DataTableColumn,
 } from '../features/shared/ui'
 import { formatCurrency } from '../lib/formatters'
+import { validatePhoneField } from '../lib/phone'
+import PhoneInput from '../components/PhoneInput'
 import { formatClaimType } from '../lib/claimTypes'
 import { US_STATES } from '../lib/constants'
 import { StateMultiSelect } from '../components/StateMultiSelect'
@@ -990,6 +992,11 @@ export default function FirmDashboard() {
     if (!editingOffice) return
     if (!editOfficeForm.name.trim()) {
       setTeamOfficeError('Office name is required.')
+      return
+    }
+    const officePhoneError = validatePhoneField(editOfficeForm.phone)
+    if (officePhoneError) {
+      setTeamOfficeError(officePhoneError)
       return
     }
     setOfficeEditSaving(true)
@@ -2500,7 +2507,7 @@ export default function FirmDashboard() {
               </div>
               <input type="text" value={editOfficeForm.address} onChange={(e) => setEditOfficeForm({ ...editOfficeForm, address: e.target.value })} placeholder="Address (optional)" className={inputCls} />
               <div className="grid grid-cols-2 gap-2">
-                <input type="text" value={editOfficeForm.phone} onChange={(e) => setEditOfficeForm({ ...editOfficeForm, phone: e.target.value })} placeholder="Phone (optional)" className={inputCls} />
+                <PhoneInput value={editOfficeForm.phone} onChange={(phone) => setEditOfficeForm({ ...editOfficeForm, phone })} placeholder="Phone (optional)" className={`${inputCls} w-full`} />
                 <input type="number" min={0} step={1} value={editOfficeForm.capacity} onChange={(e) => setEditOfficeForm({ ...editOfficeForm, capacity: e.target.value })} placeholder="Capacity" className={inputCls} />
               </div>
               {teamOfficeError && <p className="text-sm text-red-600">{teamOfficeError}</p>}

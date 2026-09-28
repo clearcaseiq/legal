@@ -1,3 +1,6 @@
+import PhoneInput from './PhoneInput'
+import { validatePhoneField } from '../lib/phone'
+
 type AttorneyDashboardWorkstreamInsuranceProps = {
   insuranceTab: 'insurance' | 'liens'
   setInsuranceTab: any
@@ -142,10 +145,10 @@ export default function AttorneyDashboardWorkstreamInsurance({
                 className="input"
                 placeholder="Adjuster email"
               />
-              <input
+              <PhoneInput
                 value={insuranceForm.adjusterPhone}
-                onChange={(e) => setInsuranceForm((prev: any) => ({ ...prev, adjusterPhone: e.target.value }))}
-                className="input"
+                onChange={(adjusterPhone) => setInsuranceForm((prev: any) => ({ ...prev, adjusterPhone }))}
+                className="input w-full"
                 placeholder="Adjuster phone"
               />
               <select
@@ -196,7 +199,8 @@ export default function AttorneyDashboardWorkstreamInsurance({
             <div className="mt-3">
               <button
                 onClick={handleAddInsurance}
-                className="px-3 py-1.5 text-sm font-medium text-white bg-brand-600 rounded-md hover:bg-brand-700"
+                disabled={Boolean(validatePhoneField(insuranceForm.adjusterPhone))}
+                className="px-3 py-1.5 text-sm font-medium text-white bg-brand-600 rounded-md hover:bg-brand-700 disabled:opacity-50"
               >
                 Add Insurance
               </button>

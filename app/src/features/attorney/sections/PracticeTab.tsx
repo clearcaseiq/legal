@@ -3,6 +3,8 @@ import { Building2, CheckCircle, Loader2, MapPin, Plus, Shield, Trash2 } from 'l
 import { CountyCoverageEditor } from '../../../components/CountyCoverageEditor'
 import { StateMultiSelect } from '../../../components/StateMultiSelect'
 import { US_STATES } from '../../../lib/constants'
+import { validatePhoneField } from '../../../lib/phone'
+import PhoneInput from '../../../components/PhoneInput'
 import type { CountiesByState } from '../../../lib/attorneyJurisdictions'
 import type { AttorneyProfileModel, FirmLocation, Jurisdiction } from '../attorneyProfileModel'
 import { useAttorneyLicense } from '../useAttorneyLicense'
@@ -224,13 +226,11 @@ export default function PracticeTab({ profile, saving, onSave, onProfileChanged 
                         placeholder="ZIP"
                         maxLength={10}
                       />
-                      <input
-                        type="tel"
+                      <PhoneInput
                         value={location.phone || ''}
-                        onChange={(e) => editFirmLocation(index, { phone: e.target.value })}
+                        onChange={(phone) => editFirmLocation(index, { phone })}
                         className={INPUT}
                         placeholder="Phone"
-                        maxLength={30}
                       />
                     </div>
                   </div>
@@ -272,7 +272,7 @@ export default function PracticeTab({ profile, saving, onSave, onProfileChanged 
         <button
           type="button"
           onClick={() => void save()}
-          disabled={!dirty || saving}
+          disabled={!dirty || saving || firmLocations.some((l) => validatePhoneField(l.phone))}
           className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
         >
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}

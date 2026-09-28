@@ -8,6 +8,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { BadgeCheck, Loader2 } from 'lucide-react'
 import { getClaimantContact, updateClaimantContact, updateLeadTask, type ClaimantContact } from '../../lib/api'
+import PhoneInput from '../../components/PhoneInput'
+import { validatePhoneField } from '../../lib/phone'
 
 type Form = Record<
   'firstName' | 'lastName' | 'email' | 'phone' | 'addressLine1' | 'addressLine2' | 'city' | 'state' | 'postalCode',
@@ -76,6 +78,11 @@ export default function ClientInfoPanel({ leadId, tasks, reloadTasks, onSaved }:
   const verified = verifyTask ? isDone(verifyTask.status) : false
 
   const save = async () => {
+    const phoneError = validatePhoneField(form.phone)
+    if (phoneError) {
+      setMessage({ tone: 'err', text: phoneError })
+      return
+    }
     setSaving(true)
     setMessage(null)
     try {
@@ -177,7 +184,15 @@ export default function ClientInfoPanel({ leadId, tasks, reloadTasks, onSaved }:
           {field('First name', 'firstName')}
           {field('Last name', 'lastName')}
           {field('Email', 'email', { type: 'email' })}
-          {field('Mobile phone', 'phone', { type: 'tel', placeholder: '(555) 555-0100' })}
+          <label className="block min-w-0">
+            <span className="text-xs font-medium text-slate-600">Mobile phone</span>
+            <PhoneInput
+              value={form.phone}
+              onChange={(phone) => setForm((prev) => ({ ...prev, phone }))}
+              disabled={saving}
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100 disabled:bg-slate-50"
+            />
+          </label>
         </div>
       </section>
 

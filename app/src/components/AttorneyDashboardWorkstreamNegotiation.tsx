@@ -1,3 +1,6 @@
+import PhoneInput from './PhoneInput'
+import { validatePhoneField } from '../lib/phone'
+
 type AttorneyDashboardWorkstreamNegotiationProps = {
   negotiationTab: 'tracker' | 'cadence'
   setNegotiationTab: any
@@ -151,10 +154,10 @@ export default function AttorneyDashboardWorkstreamNegotiation({
               className="input"
               placeholder="Adjuster email"
             />
-            <input
+            <PhoneInput
               value={negotiationForm.adjusterPhone}
-              onChange={(e) => setNegotiationForm((prev: any) => ({ ...prev, adjusterPhone: e.target.value }))}
-              className="input"
+              onChange={(adjusterPhone) => setNegotiationForm((prev: any) => ({ ...prev, adjusterPhone }))}
+              className="input w-full"
               placeholder="Adjuster phone"
             />
             <input
@@ -187,7 +190,8 @@ export default function AttorneyDashboardWorkstreamNegotiation({
           <div className="mt-3">
             <button
               onClick={handleAddNegotiation}
-              className="px-3 py-1.5 text-sm font-medium text-white bg-brand-600 rounded-md hover:bg-brand-700"
+              disabled={Boolean(validatePhoneField(negotiationForm.adjusterPhone))}
+              className="px-3 py-1.5 text-sm font-medium text-white bg-brand-600 rounded-md hover:bg-brand-700 disabled:opacity-50"
             >
               Add Event
             </button>

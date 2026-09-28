@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { getAdminSmsStatus, sendAdminTestSms, type AdminSmsStatus } from '../../lib/api'
 import { Badge, PageHeader, SectionCard } from '../../features/shared/ui'
+import PhoneInput from '../../components/PhoneInput'
+import { validatePhoneField } from '../../lib/phone'
 
 function SmsTestPanel() {
   const [status, setStatus] = useState<AdminSmsStatus | null>(null)
@@ -17,8 +19,9 @@ function SmsTestPanel() {
 
   const handleSend = async () => {
     setResult(null)
-    if (!phone.trim()) {
-      setResult({ ok: false, text: 'Enter a phone number.' })
+    const phoneError = validatePhoneField(phone, { required: true })
+    if (phoneError) {
+      setResult({ ok: false, text: phoneError })
       return
     }
     setSending(true)
@@ -63,13 +66,12 @@ function SmsTestPanel() {
       )}
 
       <div className="mt-4 space-y-2">
-        <input
-          type="tel"
+        <PhoneInput
           value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-          placeholder="+1 (555) 123-4567"
+          onChange={setPhone}
+          required
           aria-label="Destination phone number"
-          className="input"
+          className="input w-full"
         />
         <input
           type="text"
