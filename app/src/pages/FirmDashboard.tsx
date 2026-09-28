@@ -73,6 +73,7 @@ import { invalidateFirmDashboardSummary, useFirmDashboardSummary } from '../hook
 import { FirmTemplatesTab } from '../features/firm/FirmTemplatesTab'
 import { FirmWorkflowsTab } from '../features/firm/FirmWorkflowsTab'
 import { FirmNewLeadReview } from '../features/firm/FirmNewLeadReview'
+import { FirmCaseDetail } from '../features/firm/FirmCaseDetail'
 import { FirmTimeBillingTab } from '../features/firm/FirmTimeBillingTab'
 
 const CASE_TYPES = [
@@ -319,11 +320,14 @@ const CASELOAD_STATUS_LABELS: Record<Exclude<CaseloadStatus, 'all'>, string> = {
   retained: 'Retained',
 }
 
+/** Active Cases member-filter value for cases with no owner or case team. */
+const UNASSIGNED_MEMBER = '__unassigned__'
+
 type TabKey = 'overview' | 'newleads' | 'caseload' | 'team' | 'templates' | 'workflow' | 'time'
 const TABS: Array<{ key: TabKey; label: string; icon: typeof LayoutDashboard }> = [
   { key: 'overview', label: 'Overview', icon: LayoutDashboard },
   { key: 'newleads', label: 'New Leads', icon: Inbox },
-  { key: 'caseload', label: 'Caseload', icon: Briefcase },
+  { key: 'caseload', label: 'Active Cases', icon: Briefcase },
   { key: 'team', label: 'Team & Roles', icon: Users },
   { key: 'templates', label: 'Firm Templates', icon: FileText },
   { key: 'workflow', label: 'Workflow', icon: Workflow },
@@ -485,6 +489,7 @@ export default function FirmDashboard() {
   const [newLeadsLoading, setNewLeadsLoading] = useState(false)
   const [newLeadsError, setNewLeadsError] = useState<string | null>(null)
   const [reviewLeadId, setReviewLeadId] = useState<string | null>(null)
+  const [openCaseId, setOpenCaseId] = useState<string | null>(null)
 
   const refreshNewLeads = useCallback(async () => {
     setNewLeadsLoading(true)
@@ -873,6 +878,8 @@ export default function FirmDashboard() {
     (workspace?.permissions || []).includes('manage_users') || workspace?.currentRole === 'firm_admin'
   const canManageRouting =
     (workspace?.permissions || []).includes('manage_routing') || workspace?.currentRole === 'firm_admin'
+  const canAssignCases =
+    (workspace?.permissions || []).includes('assign_cases') || workspace?.currentRole === 'firm_admin'
 
   // firm_admin can never lose manage_users (mirrors the server-side lock).
   const isLockedCell = (role: string, perm: string) => role === 'firm_admin' && perm === 'manage_users'
@@ -1168,7 +1175,9 @@ export default function FirmDashboard() {
       const wanted = new Set(CASELOAD_STATUS_VALUES[caseloadStatus])
       list = list.filter((c) => wanted.has(String(c.leadStatus || '').toLowerCase()))
     }
-    if (caseloadMember !== 'all') {
+    if (caseloadMember === UNASSIGNED_MEMBER) {
+      list = list.filter((c) => c.unassigned)
+    } else if (caseloadMember !== 'all') {
       list = list.filter(
         (c) =>
           c.primaryAttorney?.name === caseloadMember ||
@@ -1321,9 +1330,9 @@ export default function FirmDashboard() {
             onClick={() => goToTab('caseload')}
             disabled={!canSeeTab('caseload')}
             className="disabled:cursor-default"
-            title={canSeeTab('caseload') ? 'Open caseload' : undefined}
+            title={canSeeTab('caseload') ? 'Open active cases' : undefined}
           >
-            <Badge tone="blue">{metrics.activeCases || 0} cases</Badge>
+            <Badge tone="blue">{metrics.activeCases || 0} active cases</Badge>
           </button>
           </div>
         </div>
@@ -1368,7 +1377,7 @@ export default function FirmDashboard() {
               value={metrics.activeCases || 0}
               label="Active cases"
               onClick={canSeeTab('caseload') ? () => goToTab('caseload', { status: 'all' }) : undefined}
-              hint={canSeeTab('caseload') ? 'Open the active caseload' : undefined}
+              hint={canSeeTab('caseload') ? 'Open Active Cases' : undefined}
             />
             <FilterStat
               filled
@@ -1385,19 +1394,19 @@ export default function FirmDashboard() {
               value={metrics.totalLeadsReceived}
               label="Leads received"
               onClick={canSeeTab('caseload') ? () => goToTab('caseload', { status: 'all' }) : undefined}
-              hint={canSeeTab('caseload') ? 'See cases in the caseload' : undefined}
+              hint={canSeeTab('caseload') ? 'See Active Cases' : undefined}
             />
             <FilterStat
               value={metrics.acceptedCases || 0}
               label="Accepted"
               onClick={canSeeTab('caseload') ? () => goToTab('caseload', { status: 'accepted' }) : undefined}
-              hint={canSeeTab('caseload') ? 'See accepted cases in the caseload' : undefined}
+              hint={canSeeTab('caseload') ? 'See accepted cases in Active Cases' : undefined}
             />
             <FilterStat
               value={metrics.retainedCases || 0}
               label="Retained"
               onClick={canSeeTab('caseload') ? () => goToTab('caseload', { status: 'retained' }) : undefined}
-              hint={canSeeTab('caseload') ? 'See retained cases in the caseload' : undefined}
+              hint={canSeeTab('caseload') ? 'See retained cases in Active Cases' : undefined}
             />
             <FilterStat
               value={metrics.avgAttorneyRating ? metrics.avgAttorneyRating.toFixed(1) : 'N/A'}
@@ -1415,6 +1424,18 @@ export default function FirmDashboard() {
                   <strong>{unassignedCount}</strong> {unassignedCount === 1 ? 'case has' : 'cases have'} no owner assigned yet.
                 </span>
             </div>
+              {canAssignCases && canSeeTab('caseload') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCaseloadMember(UNASSIGNED_MEMBER)
+                    goToTab('caseload', { status: 'all' })
+                  }}
+                  className="text-sm font-semibold text-amber-800 underline underline-offset-2 hover:text-amber-900"
+                >
+                  Assign now
+                </button>
+              )}
           </div>
           )}
 
@@ -1431,7 +1452,7 @@ export default function FirmDashboard() {
                       onClick={() => goToTab('caseload')}
                       disabled={!canSeeTab('caseload')}
                       className={`block w-full text-left ${canSeeTab('caseload') ? 'group rounded-lg -mx-2 px-2 py-1 transition hover:bg-slate-50' : 'cursor-default'}`}
-                      title={canSeeTab('caseload') ? 'Open caseload' : undefined}
+                      title={canSeeTab('caseload') ? 'Open active cases' : undefined}
                     >
                       <div className="mb-1 flex items-center justify-between text-sm">
                         <span className={`font-medium text-slate-700 ${canSeeTab('caseload') ? 'group-hover:text-brand-700' : ''}`}>
@@ -1463,7 +1484,7 @@ export default function FirmDashboard() {
                         onClick={() => goToTab('caseload')}
                         disabled={!canSeeTab('caseload')}
                         className={`block w-full text-left ${canSeeTab('caseload') ? 'group rounded-lg -mx-2 px-2 py-1 transition hover:bg-slate-50' : 'cursor-default'}`}
-                        title={canSeeTab('caseload') ? 'Open caseload' : undefined}
+                        title={canSeeTab('caseload') ? 'Open active cases' : undefined}
                       >
                         <div className="mb-1 flex items-center justify-between text-sm">
                           <span className={`font-medium text-slate-700 ${canSeeTab('caseload') ? 'group-hover:text-brand-700' : ''}`}>{o.name}</span>
@@ -1607,22 +1628,6 @@ export default function FirmDashboard() {
             )}
           </SectionCard>
 
-          {newLeads.expired.length > 0 && (
-            <SectionCard
-              title="Expired leads"
-              trailing={<Badge tone="warning">{newLeads.expired.length}</Badge>}
-            >
-              <p className="mb-3 text-sm text-slate-500">
-                Offers whose response window lapsed and re-routed to other attorneys. Kept here for visibility (CP-592).
-              </p>
-              <DataTable
-                columns={newLeadColumns}
-                rows={newLeads.expired}
-                rowKey={(r: FirmNewLead) => r.assessmentId}
-                onRowClick={(r: FirmNewLead) => setReviewLeadId(r.assessmentId)}
-              />
-            </SectionCard>
-          )}
           {reviewLeadId ? <FirmNewLeadReview assessmentId={reviewLeadId} onClose={() => setReviewLeadId(null)} /> : null}
             </div>
       )}
@@ -1644,7 +1649,7 @@ export default function FirmDashboard() {
             </div>
           )}
           {caseloadByOwner.length > 0 && (
-            <SectionCard title="Caseload by attorney" trailing={<Badge tone="neutral">{cases.length} active</Badge>}>
+            <SectionCard title="Active cases by attorney" trailing={<Badge tone="neutral">{cases.length} active</Badge>}>
               <div className="flex flex-wrap gap-2">
                 {caseloadByOwner.map((o) => {
                   const active = caseloadMember === o.name
@@ -1672,7 +1677,7 @@ export default function FirmDashboard() {
           )}
 
           <SectionCard
-            title="Team caseload"
+            title="Active cases"
             trailing={<Badge tone="brand">{caseloadFiltered.length}</Badge>}
           >
             <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -1682,6 +1687,7 @@ export default function FirmDashboard() {
                 className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 shadow-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
               >
                 <option value="all">All members</option>
+                {unassignedCount > 0 && <option value={UNASSIGNED_MEMBER}>Unassigned ({unassignedCount})</option>}
                 {caseloadPeople.map((p) => (
                   <option key={p.name} value={p.name}>{p.name} ({p.count})</option>
                 ))}
@@ -1703,7 +1709,15 @@ export default function FirmDashboard() {
             </div>
 
             {caseloadFiltered.length === 0 ? (
-              <EmptyState message={caseloadMember === 'all' ? 'No active cases yet.' : `No cases for ${caseloadMember}.`} />
+              <EmptyState
+                message={
+                  caseloadMember === 'all'
+                    ? 'No active cases yet.'
+                    : caseloadMember === UNASSIGNED_MEMBER
+                      ? 'Every case has an owner.'
+                      : `No cases for ${caseloadMember}.`
+                }
+              />
             ) : (
               <DataTable
                 columns={[
@@ -1765,12 +1779,49 @@ export default function FirmDashboard() {
                     header: 'Updated',
                     cell: (c: any) => <span className="text-slate-400">{c.updatedAt ? new Date(c.updatedAt).toLocaleDateString() : '—'}</span>,
                   },
+                  ...(canAssignCases
+                    ? [
+                        {
+                          key: 'assign',
+                          header: '',
+                          align: 'right',
+                          cell: (c: FirmCaseRow) => (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                openAssign(c)
+                              }}
+                              className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:border-brand-300 hover:bg-brand-50 hover:text-brand-700"
+                            >
+                              Assign
+                            </button>
+                          ),
+                        },
+                      ]
+                    : []),
                 ] as DataTableColumn<any>[]}
                 rows={caseloadFiltered}
                 rowKey={(c: any) => c.assessmentId}
+                onRowClick={(c: any) => setOpenCaseId(c.assessmentId)}
               />
             )}
           </SectionCard>
+          {openCaseId ? (
+            <FirmCaseDetail
+              assessmentId={openCaseId}
+              onClose={() => setOpenCaseId(null)}
+              onAssign={
+                canAssignCases
+                  ? () => {
+                      const row = cases.find((c) => c.assessmentId === openCaseId)
+                      setOpenCaseId(null)
+                      if (row) openAssign(row)
+                    }
+                  : undefined
+              }
+            />
+          ) : null}
         </div>
       )}
 

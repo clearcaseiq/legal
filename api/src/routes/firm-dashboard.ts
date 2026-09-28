@@ -41,6 +41,8 @@ import {
   effectiveRolePermissions,
 } from '../lib/firm-roles'
 import { permissionsForMember } from '../lib/firm-access'
+import { getAttorneyResponseDeadlineMinutes, getMatchingRules } from '../lib/matching-rules-config'
+import { triggerOfferExpirySweepSoon } from '../lib/offer-expiry-sweep'
 
 const router: Router = Router()
 
@@ -1393,6 +1395,14 @@ router.get('/new-leads', authMiddleware as any, async (req: any, res: Response) 
       attorneys: Array<{ id: string; name: string }>
     }
 
+    // A PENDING offer stays PENDING until the expiry sweep runs, so judge it by its
+    // response window too — the attorney New Matches view already does (CP-606).
+    const responseWindowMs = getAttorneyResponseDeadlineMinutes(await getMatchingRules()) * 60 * 1000
+    const nowMs = Date.now()
+    const isLapsed = (intro: { status: string; requestedAt: Date | null }) =>
+      intro.status === 'PENDING' && !!intro.requestedAt && intro.requestedAt.getTime() + responseWindowMs <= nowMs
+    if (intros.some(isLapsed)) triggerOfferExpirySweepSoon()
+
     const byAssessment = new Map<string, LeadRow>()
     for (const intro of intros) {
       const a = intro.assessment
@@ -1401,7 +1411,7 @@ router.get('/new-leads', authMiddleware as any, async (req: any, res: Response) 
       if ((a.introductions || []).some((i) => i.status === 'ACCEPTED')) continue
 
       const existing = byAssessment.get(a.id)
-      const isActiveOffer = intro.status === 'PENDING' || intro.status === 'REQUESTED_INFO'
+      const isActiveOffer = (intro.status === 'PENDING' || intro.status === 'REQUESTED_INFO') && !isLapsed(intro)
       if (!existing) {
         byAssessment.set(a.id, {
           assessmentId: a.id,
@@ -1539,6 +1549,110 @@ router.get('/new-leads/:assessmentId', authMiddleware as any, async (req: any, r
   } catch (error: any) {
     logger.error('Failed to get firm new lead detail', { error: error?.message || String(error) })
     res.status(500).json({ error: 'Failed to load lead' })
+  }
+})
+
+// One active case, read-only, for the firm dashboard's Active Cases list. Staff
+// without the attorney workspace (intake specialists) had no way to open a case
+// they could see in that list. Visibility is the list's own rule: firm-wide
+// grants see every case, anyone else the cases they hold plus unstaffed ones.
+router.get('/cases/:assessmentId', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) {
+      return res.status(404).json({ error: 'No law firm associated with this user' })
+    }
+    const { assessmentId } = req.params
+    const assessment = await (prisma as any).assessment.findFirst({
+      where: {
+        id: assessmentId,
+        OR: [
+          { lawFirmId: context.lawFirmId },
+          { leadSubmission: { assignedAttorney: { lawFirmId: context.lawFirmId } } },
+          { introductions: { some: { attorney: { lawFirmId: context.lawFirmId } } } },
+        ],
+      },
+      include: {
+        leadSubmission: { select: { id: true, status: true, assignedAttorneyId: true, assignedAttorney: { select: { id: true, name: true } } } },
+        user: { select: { firstName: true, lastName: true, email: true, phone: true } },
+        caseTasks: {
+          where: { status: { not: 'done' } },
+          orderBy: [{ priority: 'desc' }, { dueDate: 'asc' }],
+          take: 20,
+          select: { id: true, title: true, priority: true, dueDate: true, assignedRole: true },
+        },
+        firmCaseAssignments: {
+          where: { status: 'active' },
+          include: { assignedUser: true, assignedAttorney: true },
+        },
+        evidenceFiles: { select: { category: true } },
+      },
+    })
+    const ACTIVE_CASE_STATUSES = ['contacted', 'consulted', 'retained']
+    if (!assessment || !ACTIVE_CASE_STATUSES.includes(assessment.leadSubmission?.status)) {
+      return res.status(404).json({ error: 'Case not found' })
+    }
+
+    const callerUserId: string | null = context.user?.id ?? null
+    const callerAttorneyId: string | null = context.attorney?.id ?? null
+    const assignmentRows: any[] = assessment.firmCaseAssignments || []
+    const held =
+      (!!callerAttorneyId && assessment.leadSubmission?.assignedAttorneyId === callerAttorneyId) ||
+      assignmentRows.some(
+        (x) =>
+          (!!callerUserId && x.assignedUserId === callerUserId) ||
+          (!!callerAttorneyId && x.assignedAttorneyId === callerAttorneyId),
+      )
+    const firmWide =
+      requireFirmPermission(context, 'view_all_cases') || requireFirmPermission(context, 'view_analytics')
+    if (!firmWide && !held && assignmentRows.length > 0) {
+      return res.status(403).json({ error: 'This case is limited to its case team' })
+    }
+
+    const facts = (typeof assessment.facts === 'string' ? safeParseJson(assessment.facts) : assessment.facts) || {}
+    const intelligence = await buildCaseIntelligence(assessmentId).catch(() => null)
+    const evidenceCounts: Record<string, number> = {}
+    for (const file of assessment.evidenceFiles || []) {
+      const cat = file.category || 'other'
+      evidenceCounts[cat] = (evidenceCounts[cat] || 0) + 1
+    }
+    const clientName = `${assessment.user?.firstName || ''} ${assessment.user?.lastName || ''}`.trim() || null
+
+    res.json({
+      assessmentId,
+      leadId: assessment.leadSubmission?.id ?? null,
+      referenceCode: assessment.referenceCode ?? null,
+      claimType: assessment.claimType,
+      venueState: assessment.venueState,
+      venueCounty: assessment.venueCounty ?? null,
+      leadStatus: assessment.leadSubmission?.status,
+      updatedAt: assessment.updatedAt?.toISOString?.() ?? null,
+      client: { name: clientName, email: assessment.user?.email ?? null, phone: assessment.user?.phone ?? null },
+      primaryAttorney: assessment.leadSubmission?.assignedAttorney ?? null,
+      assignments: assignmentRows.map((x) => ({
+        role: x.role,
+        name:
+          x.assignedAttorney?.name ||
+          `${x.assignedUser?.firstName || ''} ${x.assignedUser?.lastName || ''}`.trim() ||
+          null,
+      })),
+      incident: { date: facts?.incident?.date ?? null, narrative: facts?.incident?.narrative ?? null },
+      summary: intelligence?.summary ?? null,
+      gaps: (intelligence?.gaps || [])
+        .filter((g) => !g.resolved)
+        .map((g) => ({ key: g.key, label: g.label, severity: g.severity })),
+      evidenceCounts,
+      openTasks: (assessment.caseTasks || []).map((t: any) => ({
+        id: t.id,
+        title: t.title,
+        priority: t.priority,
+        dueDate: t.dueDate?.toISOString?.() ?? null,
+        assignedRole: t.assignedRole ?? null,
+      })),
+    })
+  } catch (error: any) {
+    logger.error('Failed to get firm case detail', { error: error?.message || String(error) })
+    res.status(500).json({ error: 'Failed to load case' })
   }
 })
 

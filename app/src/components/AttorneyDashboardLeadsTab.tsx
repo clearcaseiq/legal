@@ -251,9 +251,15 @@ export default function AttorneyDashboardLeadsTab({
     return 'bg-red-100 text-red-700'
   }
 
-  const getCaseStatusLabel = (lead: any) => caseStatusLabel(getAttorneyCaseStatusKey(lead))
+  // A lapsed offer keeps lead status 'submitted' (another attorney may still take
+  // it), which would otherwise read as "In Review" for an attorney who can no
+  // longer accept it.
+  const getCaseStatusLabel = (lead: any) =>
+    isExpiredMatch(lead) ? 'Expired' : caseStatusLabel(getAttorneyCaseStatusKey(lead))
 
-  const getFlowStatus = (lead: any) => ({ color: caseStatusColor(getAttorneyCaseStatusKey(lead)) })
+  const getFlowStatus = (lead: any) => ({
+    color: isExpiredMatch(lead) ? 'bg-slate-100 text-slate-600 border-slate-200' : caseStatusColor(getAttorneyCaseStatusKey(lead)),
+  })
 
   const getRelativeTime = (dateString: string) => {
     const timestamp = Date.parse(dateString)
@@ -1078,9 +1084,13 @@ export default function AttorneyDashboardLeadsTab({
                           ) : (
                             <button
                               onClick={() => handleOpenLead(lead)}
-                              className="inline-flex min-h-7 items-center justify-center whitespace-nowrap rounded bg-green-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-green-700"
+                              className={
+                                isExpiredMatch(lead)
+                                  ? 'inline-flex min-h-7 items-center justify-center whitespace-nowrap rounded border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50'
+                                  : 'inline-flex min-h-7 items-center justify-center whitespace-nowrap rounded bg-green-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-green-700'
+                              }
                             >
-                              Review
+                              {isExpiredMatch(lead) ? 'View' : 'Review'}
                             </button>
                           )}
                         </div>

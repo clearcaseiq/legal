@@ -1862,6 +1862,31 @@ export async function getFirmNewLeadDetail(assessmentId: string): Promise<FirmNe
   return data
 }
 
+export type FirmCaseDetail = {
+  assessmentId: string
+  leadId: string | null
+  referenceCode: string | null
+  claimType: string
+  venueState: string
+  venueCounty: string | null
+  leadStatus: string
+  updatedAt: string | null
+  client: { name: string | null; email: string | null; phone: string | null }
+  primaryAttorney: { id: string; name: string } | null
+  assignments: Array<{ role: string; name: string | null }>
+  incident: { date: string | null; narrative: string | null }
+  summary: FirmNewLeadDetail['summary']
+  gaps: Array<{ key: string; label: string; severity: number }>
+  evidenceCounts: Record<string, number>
+  openTasks: Array<{ id: string; title: string; priority: string | null; dueDate: string | null; assignedRole: string | null }>
+}
+
+// Read-only detail of one active case from the firm dashboard's Active Cases list.
+export async function getFirmCaseDetail(assessmentId: string): Promise<FirmCaseDetail> {
+  const { data } = await api.get(`/v1/firm-dashboard/cases/${encodeURIComponent(assessmentId)}`)
+  return data
+}
+
 // Per-team caseload aggregation (+ office capacity utilization). Firm-admin scoped.
 export async function getFirmTeamCaseload() {
   const { data } = await api.get(`/v1/firm-dashboard/teams/caseload`)
