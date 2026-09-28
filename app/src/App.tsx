@@ -18,6 +18,7 @@ import {
 // Definitions only: importing from `seoTopicHubs` here would pull the full text
 // of all 173 landing pages into the chunk that loads on every route.
 import { topicHubs } from './data/seoTopicHubDefs'
+import { caseAssessmentPages } from './data/caseAssessmentPages'
 import { CALCULATOR_VARIANT_SLUGS } from './data/settlementCalculatorVariantSlugs'
 import { LANDING_ES_SLUGS } from './data/seoLandingPagesEsSlugs'
 import { LANDING_ZH_SLUGS } from './data/seoLandingPagesZhSlugs'
@@ -270,6 +271,7 @@ const EditorialStandards = dynamic(() => import('./pages/EditorialStandards'), {
 const Help = dynamic(() => import('./pages/Help'), { ssr: true })
 const Contact = dynamic(() => import('./pages/Contact'), { ssr: true })
 const HowItWorks = dynamic(() => import('./pages/HowItWorks'), { ssr: true })
+const CaseAssessmentLanding = dynamic(() => import('./pages/CaseAssessmentLanding'), { ssr: true })
 const AiMlConsent = lazy(() => import('./pages/AiMlConsent'))
 const HipaaAuthorization = lazy(() => import('./pages/HipaaAuthorization'))
 const PaymentSuccess = lazy(() => import('./pages/PaymentSuccess'))
@@ -600,6 +602,11 @@ function App() {
               <Route key={hub.slug} path={hub.slug} element={<TopicHub />} />
             ))}
             <Route path="/how-it-works" element={<HowItWorks />} />
+            {/* Paid-search landing pages, one per ad group. Enumerated like the
+                topic hubs so an invented /case-assessment/* still 404s. */}
+            {caseAssessmentPages.map((page) => (
+              <Route key={page.path} path={page.path} element={<CaseAssessmentLanding />} />
+            ))}
             <Route path="/attorney-network" element={<AttorneyNetwork />} />
             {/* Spanish editions. Enumerated beside their English twins rather than
                 generated from the registry, so the route table stays greppable and

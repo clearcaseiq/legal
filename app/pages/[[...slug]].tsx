@@ -297,7 +297,7 @@ const resolvePage: GetServerSideProps<PageProps> = async ({ params, query, res }
               ? null
               : JSON.stringify(buildMarketingPageSchema(marketingPage)),
           ogImage: ogImageUrl(marketingPage.title),
-          noindex: isEmbed,
+          noindex: isEmbed || marketingPage.noindex === true,
           alternates: isEmbed ? [] : alternatesFor(pathname),
         },
       },

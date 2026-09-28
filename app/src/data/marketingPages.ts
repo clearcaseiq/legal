@@ -10,6 +10,7 @@
 import type { LanguageCode } from '../i18n'
 import { marketingPagesEs } from './marketingPagesEs'
 import { marketingPagesZh } from './marketingPagesZh'
+import { CASE_ASSESSMENT_CONTENT_UPDATED, caseAssessmentPages } from './caseAssessmentPages'
 import {
   TOPICS_INDEX_DESCRIPTION,
   TOPICS_INDEX_SLUG,
@@ -42,6 +43,11 @@ export type MarketingPage = {
    * restate it. Set only on the pages a crawl found with no structured data.
    */
   schemaType?: 'WebPage' | 'CollectionPage'
+  /**
+   * Serve `noindex` and leave out of the sitemap. For paid-traffic pages that
+   * would otherwise compete with the SEO articles covering the same query.
+   */
+  noindex?: boolean
 }
 
 /**
@@ -208,9 +214,19 @@ const topicHubMarketingPages: MarketingPage[] = [
   })),
 ]
 
+const caseAssessmentMarketingPages: MarketingPage[] = caseAssessmentPages.map((page) => ({
+  path: page.path,
+  title: page.metaTitle,
+  description: page.metaDescription,
+  serverRender: true,
+  contentUpdated: CASE_ASSESSMENT_CONTENT_UPDATED,
+  noindex: true,
+}))
+
 export const allMarketingPages: MarketingPage[] = [
   ...marketingPages,
   ...topicHubMarketingPages,
+  ...caseAssessmentMarketingPages,
   ...marketingPagesEs,
   ...marketingPagesZh,
 ]
@@ -234,5 +250,5 @@ export const marketingPagesByPath = new Map(allMarketingPages.map((page) => [pag
  * back in the sitemap on its own.
  */
 export const marketingSitemapPaths = allMarketingPages
-  .filter((page) => page.serverRender)
+  .filter((page) => page.serverRender && !page.noindex)
   .map((page) => page.path)
