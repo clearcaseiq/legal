@@ -31,6 +31,7 @@ import {
   Link2,
   ListChecks,
   Loader2,
+  Lock,
   Mail,
   MailCheck,
   MapPin,
@@ -142,7 +143,7 @@ import { todayDateKey } from '../../lib/taskDueDate'
 import CaseNameEditor from './CaseNameEditor'
 import DemandLetterWorkspace from './DemandLetterWorkspace'
 import { getStoredRole } from '../../lib/auth'
-import { useFirmAccess } from '../../hooks/useFirmAccess'
+import { useFirmAccess, type FirmAction } from '../../hooks/useFirmAccess'
 import { STAFF_CASES_ROUTE } from '../shared/AttorneyWorkspaceLayout'
 
 function claimLabel(type?: string) {
@@ -175,6 +176,41 @@ type Tab = (typeof TABS)[number]
 
 // E-sign envelopes and fee-sharing referrals are served to attorneys only.
 const STAFF_HIDDEN_TABS: ReadonlySet<Tab> = new Set<Tab>(['Signatures', 'Referrals'])
+
+/**
+ * The permission group the API requires for every write on these tabs. Staff
+ * without it see the tab view-only. Tabs whose writes are split across groups
+ * (Tasks, Workflow, Medical, Evidence) gate their own controls instead.
+ */
+const TAB_WRITE_ACTION: Partial<Record<Tab, { action: FirmAction; what: string }>> = {
+  'Client Info': { action: 'manage', what: 'editing case details' },
+  Liability: { action: 'manage', what: 'editing case details' },
+  Insurance: { action: 'manage', what: 'editing case details' },
+  Damages: { action: 'manage', what: 'editing case details' },
+  Negotiation: { action: 'manage', what: 'editing case details' },
+  Settlement: { action: 'manage', what: 'editing case details' },
+  Demand: { action: 'demand', what: 'preparing demand letters' },
+  Billing: { action: 'billing', what: 'billing' },
+}
+
+/**
+ * Renders a tab's content with every control disabled, for staff whose firm
+ * role lacks the permission the server enforces for it.
+ */
+function StaffViewOnly({ locked, what, children }: { locked: boolean; what: string; children: ReactNode }) {
+  if (!locked) return <>{children}</>
+  return (
+    <div className="space-y-3">
+      <p className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+        <Lock className="h-3.5 w-3.5 shrink-0" aria-hidden />
+        View only. Your firm role doesn't include {what}; a firm admin can change that.
+      </p>
+      <fieldset disabled className="min-w-0">
+        {children}
+      </fieldset>
+    </div>
+  )
+}
 
 const SECTION_TO_TAB: Record<string, Tab> = {
   info: 'Client Info',
@@ -917,7 +953,12 @@ export default function CaseWorkspacePage() {
               </div>
             </header>
             <div className="p-5 sm:p-6">
-              <WorkstreamPanel tab={tab} section={section} lead={lead} detail={detail} cc={cc} tasks={tasks} reloadTasks={reloadTasks} reloadCc={reloadCc} onOpenChat={openChat} onContactSaved={(contact) => setContactOverride(contact)} onAssessmentPatch={(patch) => setLead((prev: any) => (prev ? { ...prev, assessment: { ...(prev.assessment || {}), ...patch } } : prev))} />
+              <StaffViewOnly
+                locked={Boolean(isStaff && TAB_WRITE_ACTION[tab] && !can(TAB_WRITE_ACTION[tab]!.action))}
+                what={TAB_WRITE_ACTION[tab]?.what ?? ''}
+              >
+                <WorkstreamPanel tab={tab} section={section} lead={lead} detail={detail} cc={cc} tasks={tasks} reloadTasks={reloadTasks} reloadCc={reloadCc} onOpenChat={openChat} onContactSaved={(contact) => setContactOverride(contact)} onAssessmentPatch={(patch) => setLead((prev: any) => (prev ? { ...prev, assessment: { ...(prev.assessment || {}), ...patch } } : prev))} />
+              </StaffViewOnly>
             </div>
           </section>
 
@@ -974,6 +1015,9 @@ function WorkstreamPanel({
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const heuristics = useHeuristics()
+  const isStaff = getStoredRole() === 'staff'
+  const { can } = useFirmAccess()
+  const staffLacks = (action: FirmAction) => isStaff && !can(action)
   const fromSuffix = searchParams.get('from') ? `?from=${searchParams.get('from')}` : ''
   const [actionBusy, setActionBusy] = useState<string | null>(null)
   const [actionMsg, setActionMsg] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null)
@@ -1071,12 +1115,16 @@ function WorkstreamPanel({
     return (
       <div className="space-y-6">
         <PlaintiffImpactJournalPanel entries={detail.painJournal || []} />
-        <MedicalTimelinePanel leadId={lead.id} />
-        <ProviderLettersPanel
-          leadId={lead.id}
-          onOpenSection={goToSection}
-          openLetter={searchParams.get('letter') === '1'}
-        />
+        <StaffViewOnly locked={staffLacks('chronology')} what="editing the medical chronology">
+          <MedicalTimelinePanel leadId={lead.id} />
+        </StaffViewOnly>
+        <StaffViewOnly locked={staffLacks('request')} what="sending provider letters">
+          <ProviderLettersPanel
+            leadId={lead.id}
+            onOpenSection={goToSection}
+            openLetter={searchParams.get('letter') === '1'}
+          />
+        </StaffViewOnly>
         <div className="border-t border-slate-100 pt-6">
           <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">
             Evidence-derived chronology
@@ -1545,7 +1593,7 @@ function WorkstreamPanel({
   }
 
   if (tab === 'Workflow') {
-    return <CaseWorkflowPanel leadId={lead.id} />
+    return <CaseWorkflowPanel leadId={lead.id} canManage={!staffLacks('manage')} />
   }
 
   if (tab === 'Time') {
@@ -1582,6 +1630,7 @@ function WorkstreamPanel({
         tasks={tasks}
         reload={reloadTasks}
         caseLabel={`${detail.client} · ${detail.type}`}
+        canManage={!staffLacks('manage')}
       />
     )
   }
@@ -4233,11 +4282,14 @@ function TasksPanel({
   tasks,
   reload,
   caseLabel,
+  canManage = true,
 }: {
   leadId: string
   tasks: TaskRow[]
   reload: () => Promise<void> | void
   caseLabel?: string | null
+  /** False hides create, delete, restore, approve, merge, and auto-generate; completing and editing stay open to the case team. */
+  canManage?: boolean
 }) {
   const navigate = useNavigate()
   const [msg, setMsg] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null)
@@ -4765,7 +4817,7 @@ function TasksPanel({
           type="checkbox"
           checked={selected.has(t.id)}
           onChange={() => toggleSelected(t.id)}
-          disabled={t.taskType === 'question'}
+          disabled={!canManage || t.taskType === 'question'}
           aria-label={`Select ${t.title}`}
           title={
             t.taskType === 'question'
@@ -4937,6 +4989,7 @@ function TasksPanel({
           {(() => {
             // Pending AI tasks must be approved before domain actions are useful.
             if (t.reviewStatus === 'pending') {
+              if (!canManage) return <span className="text-[11px] font-medium text-slate-400">In review</span>
               return (
                 <button
                   onClick={() => void setApproval(t, true)}
@@ -4984,7 +5037,7 @@ function TasksPanel({
                 </button>
               )
             }
-            if (t.reviewStatus === 'approved' && !taskDone) {
+            if (t.reviewStatus === 'approved' && !taskDone && canManage) {
               return (
                 <button
                   onClick={() => void setApproval(t, false)}
@@ -5009,15 +5062,17 @@ function TasksPanel({
           >
             <Pencil className="h-3.5 w-3.5" />
           </button>
-          <button
-            onClick={() => remove(t)}
-            disabled={rowBusy}
-            className="grid h-7 w-7 place-items-center rounded-lg text-slate-400 opacity-0 transition hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50 group-hover:opacity-100"
-            aria-label={t.reviewStatus === 'pending' ? 'Reject task' : 'Delete task'}
-            title={t.reviewStatus === 'pending' ? 'Reject' : 'Delete'}
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
+          {canManage && (
+            <button
+              onClick={() => remove(t)}
+              disabled={rowBusy}
+              className="grid h-7 w-7 place-items-center rounded-lg text-slate-400 opacity-0 transition hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50 group-hover:opacity-100"
+              aria-label={t.reviewStatus === 'pending' ? 'Reject task' : 'Delete task'}
+              title={t.reviewStatus === 'pending' ? 'Reject' : 'Delete'}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          )}
         </div>
       </li>
     )
@@ -5059,7 +5114,7 @@ function TasksPanel({
           <TaskStat label="Overdue" value={overdueCount} tone={overdueCount ? 'text-rose-600' : 'text-slate-900'} />
           <TaskStat label="Due ≤ 7d" value={dueSoonCount} tone={dueSoonCount ? 'text-amber-600' : 'text-slate-900'} />
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className={`flex flex-wrap items-center gap-2 ${canManage ? '' : 'hidden'}`}>
           <span className="group relative inline-flex items-center">
             <button
               type="button"
@@ -5384,8 +5439,10 @@ function TasksPanel({
         <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center">
           <ListChecks className="mx-auto h-8 w-8 text-slate-300" />
           <p className="mt-2 text-sm font-medium text-slate-600">No tasks for this case</p>
-          <p className="mt-0.5 text-xs text-slate-400">Add one manually, auto-generate from readiness, or drop in the filing deadline.</p>
-          <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+          {canManage && (
+            <p className="mt-0.5 text-xs text-slate-400">Add one manually, auto-generate from readiness, or drop in the filing deadline.</p>
+          )}
+          <div className={`mt-4 flex flex-wrap items-center justify-center gap-2 ${canManage ? '' : 'hidden'}`}>
             <button onClick={openCreate} className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700">
               <Plus className="h-4 w-4" /> Add task
             </button>
@@ -5432,15 +5489,17 @@ function TasksPanel({
                       {t.deletedByName ? ` by ${t.deletedByName}` : ''}
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => void restore(t)}
-                    disabled={busy === t.id}
-                    className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-60"
-                  >
-                    {busy === t.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Undo2 className="h-3.5 w-3.5" />}
-                    Restore
-                  </button>
+                  {canManage && (
+                    <button
+                      type="button"
+                      onClick={() => void restore(t)}
+                      disabled={busy === t.id}
+                      className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-60"
+                    >
+                      {busy === t.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Undo2 className="h-3.5 w-3.5" />}
+                      Restore
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>

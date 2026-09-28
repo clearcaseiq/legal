@@ -90,7 +90,12 @@ function dueMeta(dueDate: string | null, done: boolean) {
   return { label, cls: 'text-slate-500' }
 }
 
-export default function CaseWorkflowPanel({ leadId }: { leadId: string }) {
+/**
+ * `canManage` false leaves only checking steps off, which any case-team member
+ * may do; applying, adding, reordering, reassigning, and deleting need
+ * manage_assigned_cases on the server.
+ */
+export default function CaseWorkflowPanel({ leadId, canManage = true }: { leadId: string; canManage?: boolean }) {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
   const [workflow, setWorkflow] = useState<CaseWorkflow | null>(null)
@@ -263,7 +268,7 @@ export default function CaseWorkflowPanel({ leadId }: { leadId: string }) {
           <ListChecks className="h-8 w-8 text-slate-300" />
           <WorkflowHowItWorksTip />
         </div>
-        {canApply ? (
+        {canApply && canManage ? (
           <>
             <p className="mt-3 text-sm text-slate-600">
               This case doesn't have a workflow yet. Apply your firm's standard workflow
@@ -447,7 +452,8 @@ export default function CaseWorkflowPanel({ leadId }: { leadId: string }) {
                                 step={step}
                                 pending={pendingId === step.id}
                                 members={members}
-                                canAssign={canAssign}
+                                canAssign={canAssign && canManage}
+                                canManage={canManage}
                                 dragging={dragStepId === step.id}
                                 dropLine={lineBefore ? 'before' : lineAfter ? 'after' : null}
                                 canMoveUp={index > 0}
@@ -479,19 +485,21 @@ export default function CaseWorkflowPanel({ leadId }: { leadId: string }) {
                             )
                           })}
                         </ul>
-                        <AddStepRow
-                          members={members}
-                          canAssign={canAssign}
-                          onAdd={(payload) =>
-                            addStep({
-                              ...payload,
-                              phaseName: phase.name,
-                              phaseOrder: phase.order,
-                              stageName: stage.name,
-                              stageOrder: stage.order,
-                            })
-                          }
-                        />
+                        {canManage && (
+                          <AddStepRow
+                            members={members}
+                            canAssign={canAssign}
+                            onAdd={(payload) =>
+                              addStep({
+                                ...payload,
+                                phaseName: phase.name,
+                                phaseOrder: phase.order,
+                                stageName: stage.name,
+                                stageOrder: stage.order,
+                              })
+                            }
+                          />
+                        )}
                       </div>
                     )
                   })}
@@ -586,6 +594,7 @@ function StepItem({
   pending,
   members,
   canAssign,
+  canManage,
   onToggle,
   onAssign,
   onDelete,
@@ -604,6 +613,7 @@ function StepItem({
   pending: boolean
   members: FirmMemberOption[]
   canAssign: boolean
+  canManage: boolean
   onToggle: () => void
   onAssign: (firmMemberId: string | null) => void
   onDelete: () => void
@@ -626,10 +636,10 @@ function StepItem({
 
   return (
     <li
-      draggable
-      onDragStart={onDragStart}
-      onDragOver={onDragOver}
-      onDragEnd={onDragEnd}
+      draggable={canManage}
+      onDragStart={canManage ? onDragStart : undefined}
+      onDragOver={canManage ? onDragOver : undefined}
+      onDragEnd={canManage ? onDragEnd : undefined}
       className={`group relative flex items-start gap-2 py-2.5 pl-1.5 pr-4 ${dragging ? 'opacity-40' : ''}`}
     >
       {dropLine ? (
@@ -640,7 +650,7 @@ function StepItem({
           }`}
         />
       ) : null}
-      <div className="flex shrink-0 flex-col items-center pt-0.5">
+      <div className={`flex shrink-0 flex-col items-center pt-0.5 ${canManage ? '' : 'invisible'}`}>
         <span
           className="cursor-grab text-slate-300 transition hover:text-slate-500 active:cursor-grabbing"
           title="Drag to reorder"
@@ -651,7 +661,7 @@ function StepItem({
         <button
           type="button"
           onClick={onMoveUp}
-          disabled={!canMoveUp || pending}
+          disabled={!canManage || !canMoveUp || pending}
           className="text-slate-300 opacity-0 transition hover:text-slate-600 focus:opacity-100 disabled:invisible group-hover:opacity-100"
           aria-label="Move step up"
           title="Move up"
@@ -661,7 +671,7 @@ function StepItem({
         <button
           type="button"
           onClick={onMoveDown}
-          disabled={!canMoveDown || pending}
+          disabled={!canManage || !canMoveDown || pending}
           className="text-slate-300 opacity-0 transition hover:text-slate-600 focus:opacity-100 disabled:invisible group-hover:opacity-100"
           aria-label="Move step down"
           title="Move down"
@@ -825,7 +835,7 @@ function StepItem({
           )}
         </div>
       </div>
-      {step.custom && (
+      {step.custom && canManage && (
         <button
           type="button"
           onClick={onDelete}
