@@ -82,6 +82,45 @@ describe('GET /v1/firm-dashboard caseload scope', () => {
   })
 })
 
+describe('closed cases', () => {
+  const closedRow = () => ({
+    ...caseRow('closed', []),
+    status: 'closed',
+    caseStage: 'CLOSED',
+    closedAt: new Date('2026-09-20T00:00:00Z'),
+  })
+
+  it('leaves a closed case (lead still retained) out of Active Cases and its counts', async () => {
+    asMember('intake_specialist')
+    vi.mocked((prisma as any).assessment.findMany).mockResolvedValue([caseRow('open', []), closedRow()] as any)
+
+    const res = await request(app).get('/v1/firm-dashboard').set(auth)
+
+    expect(res.status).toBe(200)
+    expect(res.body.cases.map((c: any) => c.assessmentId)).toEqual(['open'])
+    expect(res.body.metrics.activeCases).toBe(1)
+  })
+
+  it('does not count a closed case as retained for a firm admin', async () => {
+    asMember('firm_admin')
+    vi.mocked((prisma as any).assessment.findMany).mockResolvedValue([caseRow('open', []), closedRow()] as any)
+
+    const res = await request(app).get('/v1/firm-dashboard').set(auth)
+
+    expect(res.body.metrics.activeCases).toBe(1)
+    expect(res.body.metrics.retainedCases).toBe(1)
+  })
+
+  it('does not open a closed case in the case panel', async () => {
+    asMember('intake_specialist')
+    vi.mocked((prisma as any).assessment.findFirst).mockResolvedValue(closedRow() as any)
+
+    const res = await request(app).get('/v1/firm-dashboard/cases/closed').set(auth)
+
+    expect(res.status).toBe(404)
+  })
+})
+
 describe('GET /v1/firm-dashboard/cases/:assessmentId', () => {
   const detailRow = (id: string, assignments: any[], status = 'retained') => ({
     ...caseRow(id, assignments),

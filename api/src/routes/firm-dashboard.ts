@@ -43,6 +43,24 @@ import {
 import { permissionsForMember } from '../lib/firm-access'
 import { getAttorneyResponseDeadlineMinutes, getMatchingRules } from '../lib/matching-rules-config'
 import { triggerOfferExpirySweepSoon } from '../lib/offer-expiry-sweep'
+import { CLOSED_STATUSES } from '../lib/case-stage'
+
+const ACTIVE_LEAD_STATUSES = ['contacted', 'consulted', 'retained']
+
+/**
+ * An accepted case that is still open. Closing a case writes Assessment.status
+ * and caseStage but leaves the lead at 'retained', so the lead status alone
+ * kept closed cases in Active Cases.
+ */
+function isActiveFirmCase(assessment: any): boolean {
+  const lead = assessment?.leadSubmission
+  if (!ACTIVE_LEAD_STATUSES.includes(lead?.status)) return false
+  if (CLOSED_STATUSES.has(String(assessment.status || '').toLowerCase())) return false
+  if (String(assessment.caseStage || '').toUpperCase() === 'CLOSED') return false
+  if (assessment.closedAt) return false
+  if (lead?.lifecycleState === 'closed') return false
+  return true
+}
 
 const router: Router = Router()
 
@@ -1573,7 +1591,7 @@ router.get('/cases/:assessmentId', authMiddleware as any, async (req: any, res: 
         ],
       },
       include: {
-        leadSubmission: { select: { id: true, status: true, assignedAttorneyId: true, assignedAttorney: { select: { id: true, name: true } } } },
+        leadSubmission: { select: { id: true, status: true, lifecycleState: true, assignedAttorneyId: true, assignedAttorney: { select: { id: true, name: true } } } },
         user: { select: { firstName: true, lastName: true, email: true, phone: true } },
         caseTasks: {
           where: { status: { not: 'done' } },
@@ -1588,8 +1606,7 @@ router.get('/cases/:assessmentId', authMiddleware as any, async (req: any, res: 
         evidenceFiles: { select: { category: true } },
       },
     })
-    const ACTIVE_CASE_STATUSES = ['contacted', 'consulted', 'retained']
-    if (!assessment || !ACTIVE_CASE_STATUSES.includes(assessment.leadSubmission?.status)) {
+    if (!assessment || !isActiveFirmCase(assessment)) {
       return res.status(404).json({ error: 'Case not found' })
     }
 
@@ -2484,10 +2501,11 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
     // merely routed to the firm (status 'submitted') and declined/expired ones
     // ('rejected') are NOT the firm's cases — they must not count toward active
     // caseload or the "no owner assigned yet" queue.
-    const ACTIVE_CASE_STATUSES = ['contacted', 'consulted', 'retained']
-    const isActiveCase = (assessment: any) => ACTIVE_CASE_STATUSES.includes(assessment.leadSubmission?.status)
+    const isActiveCase = isActiveFirmCase
     const acceptedCases = firmCases.filter(isActiveCase).length
-    const retainedCases = firmCases.filter((assessment: any) => assessment.leadSubmission?.status === 'retained').length
+    const retainedCases = firmCases.filter(
+      (assessment: any) => isActiveCase(assessment) && assessment.leadSubmission?.status === 'retained',
+    ).length
     // Accepted = live accepted caseload (contacted/consulted/retained), not the
     // stale stored dashboard counter.
     totalLeadsAccepted = acceptedCases
