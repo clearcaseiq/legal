@@ -12,6 +12,7 @@ export type FirmAction =
   | 'accept'
   | 'decline'
   | 'manage'
+  | 'billing'
 
 export type FirmAccess = {
   firm: { id: string; role: string } | null

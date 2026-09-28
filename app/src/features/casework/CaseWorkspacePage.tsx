@@ -770,7 +770,7 @@ export default function CaseWorkspacePage() {
                 <span className="inline-flex rounded-full bg-emerald-50 px-3 py-1 text-sm font-semibold text-emerald-700">
                   {detail.stage}
                 </span>
-                {!isStaff && (
+                {(!isStaff || can('message')) && (
                   <button
                     type="button"
                     onClick={() => openChat()}
@@ -2271,7 +2271,7 @@ function EvidencePanel({
 }) {
   const [spEv] = useSearchParams()
   const { can } = useFirmAccess()
-  const canUpload = getStoredRole() !== 'staff' && can('documents')
+  const canUpload = can('documents')
   const initialCategory = spEv.get('uploadCategory') || 'other'
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [docs, setDocs] = useState<any[]>(initialFiles || [])

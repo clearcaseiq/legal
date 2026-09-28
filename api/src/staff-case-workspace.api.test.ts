@@ -97,13 +97,148 @@ describe('staff reading a firm case', () => {
 })
 
 describe('staff writes', () => {
-  it('explains that the role cannot make a change the workspace has not opened to staff', async () => {
+  it('lets a case manager create a task', async () => {
     asMember('case_manager')
+    vi.mocked((prisma as any).caseTask.create).mockResolvedValue({ id: 't-1', title: 'x', assessmentId: 'asm-1' } as any)
+
+    const res = await request(app).post('/v1/attorney-dashboard/leads/lead-1/tasks').set(auth).send({ title: 'x' })
+
+    expect(res.status).toBe(200)
+    expect((prisma as any).caseTask.create).toHaveBeenCalled()
+  })
+
+  it('refuses task creation to a role without manage_assigned_cases', async () => {
+    asMember('intake_specialist')
 
     const res = await request(app).post('/v1/attorney-dashboard/leads/lead-1/tasks').set(auth).send({ title: 'x' })
 
     expect(res.status).toBe(403)
     expect(res.body.error).toMatch(/firm role/i)
+    expect((prisma as any).caseTask.create).not.toHaveBeenCalled()
+  })
+
+  describe('working a task without manage_assigned_cases', () => {
+    const task = (assignedUserId: string | null) =>
+      vi.mocked((prisma as any).caseTask.findUnique).mockResolvedValue({
+        id: 't-1',
+        assessmentId: 'asm-1',
+        title: 'Collect records',
+        status: 'open',
+        assignedUserId,
+      } as any)
+
+    it('lets a paralegal complete a task assigned to them', async () => {
+      asMember('paralegal')
+      task(user.id)
+
+      const res = await request(app).patch('/v1/attorney-dashboard/leads/lead-1/tasks/t-1').set(auth).send({ status: 'done' })
+
+      expect(res.status).not.toBe(403)
+      expect((prisma as any).caseTask.update).toHaveBeenCalled()
+    })
+
+    it('refuses re-planning their own task', async () => {
+      asMember('paralegal')
+      task(user.id)
+
+      const res = await request(app).patch('/v1/attorney-dashboard/leads/lead-1/tasks/t-1').set(auth).send({ title: 'New' })
+
+      expect(res.status).toBe(403)
+      expect(res.body.code).toBe('FIRM_PERMISSION_DENIED')
+    })
+
+    it("refuses someone else's task", async () => {
+      asMember('paralegal')
+      task('someone-else')
+
+      const res = await request(app).patch('/v1/attorney-dashboard/leads/lead-1/tasks/t-1').set(auth).send({ status: 'done' })
+
+      expect(res.status).toBe(403)
+      expect((prisma as any).caseTask.update).not.toHaveBeenCalled()
+    })
+  })
+
+  it('holds case-data edits to manage_assigned_cases', async () => {
+    asMember('intake_specialist')
+
+    const res = await request(app).post('/v1/attorney-dashboard/leads/lead-1/damages').set(auth).send({ category: 'medical', amount: 100 })
+
+    expect(res.status).toBe(403)
+  })
+
+  it('lets a case manager record damages', async () => {
+    asMember('case_manager')
+
+    const res = await request(app).post('/v1/attorney-dashboard/leads/lead-1/damages').set(auth).send({ category: 'medical', amount: 100 })
+
+    expect(res.status).not.toBe(403)
+  })
+
+  it('opens invoices to billing roles only', async () => {
+    asMember('paralegal')
+    const refused = await request(app).post('/v1/attorney-dashboard/leads/lead-1/invoices').set(auth).send({ amount: 100 })
+    expect(refused.status).toBe(403)
+
+    asMember('billing_admin')
+    const allowed = await request(app).post('/v1/attorney-dashboard/leads/lead-1/invoices').set(auth).send({ amount: 100 })
+    expect(allowed.status).not.toBe(403)
+  })
+
+  it('signs a staff note with the staff member rather than an attorney', async () => {
+    asMember('intake_specialist')
+    vi.mocked((prisma as any).caseNote.create).mockResolvedValue({ id: 'n-1' } as any)
+
+    const res = await request(app).post('/v1/attorney-dashboard/leads/lead-1/notes').set(auth).send({ message: 'Called client' })
+
+    expect(res.status).toBe(200)
+    expect((prisma as any).caseNote.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ authorId: user.id, authorEmail: user.email }) }),
+    )
+  })
+
+  describe('client messaging', () => {
+    const room = () => {
+      vi.mocked((prisma as any).chatRoom.findUnique).mockResolvedValue({ attorneyId: 'att-main', assessmentId: 'asm-1' } as any)
+      vi.mocked((prisma as any).chatRoom.findFirst).mockResolvedValue({ id: 'room-1', userId: 'plaintiff-1' } as any)
+      vi.mocked((prisma as any).leadSubmission.findMany).mockResolvedValue([{ id: 'lead-1' }] as any)
+      vi.mocked((prisma as any).attorney.findUnique).mockResolvedValue({ id: 'att-main', lawFirmId: 'firm-1', name: 'Ann Lead' } as any)
+      vi.mocked((prisma as any).message.create).mockResolvedValue({ id: 'm-1', content: 'Hi', senderType: 'attorney' } as any)
+    }
+
+    it("sends a case manager's message in the lead attorney's room, signed by the staff member", async () => {
+      asMember('case_manager')
+      room()
+
+      const res = await request(app).post('/v1/attorney-dashboard/messaging/send').set(auth).send({ chatRoomId: 'room-1', content: 'Hi' })
+
+      expect(res.status).toBe(201)
+      expect((prisma as any).chatRoom.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'room-1', attorneyId: 'att-main' } }),
+      )
+      const data = vi.mocked((prisma as any).message.create).mock.calls[0][0].data
+      expect(data.senderId).toBe(user.id)
+      expect(JSON.parse(data.metadata)).toMatchObject({ sentByUserId: user.id, onBehalfOfAttorneyId: 'att-main' })
+    })
+
+    it('refuses a role without message_plaintiffs', async () => {
+      asMember('intake_specialist')
+      room()
+
+      const res = await request(app).post('/v1/attorney-dashboard/messaging/send').set(auth).send({ chatRoomId: 'room-1', content: 'Hi' })
+
+      expect(res.status).toBe(403)
+      expect((prisma as any).message.create).not.toHaveBeenCalled()
+    })
+
+    it("does not let staff into a room that is not the case's lead-attorney room", async () => {
+      asMember('case_manager')
+      room()
+      vi.mocked((prisma as any).chatRoom.findUnique).mockResolvedValue({ attorneyId: 'att-other', assessmentId: 'asm-1' } as any)
+
+      const res = await request(app).get('/v1/attorney-dashboard/messaging/chat-room/room-1/messages').set(auth)
+
+      expect(res.status).toBe(404)
+    })
   })
 
   it('refuses closing a case to a role without manage_assigned_cases', async () => {
@@ -180,6 +315,6 @@ describe('GET /v1/attorney-dashboard/access', () => {
 
     const res = await request(app).get('/v1/attorney-dashboard/access').set(auth)
 
-    expect(res.body.actions).toMatchObject({ manage: false, schedule: true, request: true })
+    expect(res.body.actions).toMatchObject({ manage: false, schedule: true, request: true, billing: false })
   })
 })
