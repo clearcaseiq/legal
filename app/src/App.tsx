@@ -1374,6 +1374,8 @@ function App() {
                 <Route path="/attorney-dashboard/lead/:leadId/:section" element={<CaseWorkspacePage />} />
                 <Route path="/attorney-dashboard/cases/:leadId/:section" element={<CaseWorkspacePage />} />
               </Route>
+              {/* Staff book on behalf of the case's lead attorney. */}
+              <Route path="/attorney-dashboard/schedule-consult/:leadId" element={<ScheduleConsultPage />} />
             </Route>
             <Route element={<ProtectedRoute role="attorney" />}>
               {/* Two-domain workspace shell (Lead Generation vs Case Management).
@@ -1432,7 +1434,6 @@ function App() {
               <Route path="/attorney-dashboard/add-note/:leadId" element={<AddNotePage />} />
               <Route path="/attorney-dashboard/add-expense/:leadId" element={<AddExpensePage />} />
               <Route path="/attorney-dashboard/create-invoice/:leadId" element={<CreateInvoicePage />} />
-              <Route path="/attorney-dashboard/schedule-consult/:leadId" element={<ScheduleConsultPage />} />
               <Route path="/attorney-dashboard/request-docs/:leadId" element={<DocumentRequestPage />} />
               <Route path="/attorney-dashboard/draft-message/:leadId" element={<DraftMessagePage />} />
               <Route path="/attorney-dashboard/calendar" element={<Navigate to="/attorney-dashboard/cases/calendar" replace />} />

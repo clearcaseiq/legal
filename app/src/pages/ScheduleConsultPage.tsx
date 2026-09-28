@@ -14,6 +14,8 @@ import {
 } from '../lib/api'
 import { invalidateAttorneyDashboardSummary } from '../hooks/useAttorneyDashboardSummary'
 import { BackButton } from '../features/shared/ui'
+import { getStoredRole } from '../lib/auth'
+import { STAFF_CASES_ROUTE } from '../features/shared/AttorneyWorkspaceLayout'
 
 const MEETING_TYPES = [
   { id: 'phone', label: 'Phone call' },
@@ -49,8 +51,16 @@ export default function ScheduleConsultPage() {
   // (e.g. Active Cases). Must be an internal path. Falls back to the Consult &
   // Schedule (calendar) module rather than the New Matches dashboard so a
   // just-scheduled consult lands where it's visible (CP-328).
+  // Staff have no Zoom account or calendar of their own here: the consult is
+  // booked on the lead attorney's, so the Zoom connect step doesn't apply.
+  const isStaff = getStoredRole() === 'staff'
   const returnToRaw = searchParams.get('returnTo')
-  const returnTo = returnToRaw && returnToRaw.startsWith('/') ? returnToRaw : '/attorney-dashboard/cases/calendar'
+  const returnTo =
+    returnToRaw && returnToRaw.startsWith('/')
+      ? returnToRaw
+      : isStaff
+        ? STAFF_CASES_ROUTE
+        : '/attorney-dashboard/cases/calendar'
   const [lead, setLead] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -117,6 +127,7 @@ export default function ScheduleConsultPage() {
   }, [leadId])
 
   useEffect(() => {
+    if (isStaff) return
     getAttorneyZoomStatus()
       .then(setZoomStatus)
       // Leaving this null pinned the panel on "Checking your Zoom connection…"
@@ -339,7 +350,12 @@ export default function ScheduleConsultPage() {
 
               {meetingType === 'video' && (
                 <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
-                  {!zoomStatus ? (
+                  {isStaff ? (
+                    <p className="text-sm text-gray-600">
+                      The meeting link is created on the lead attorney's Zoom account when it is connected.
+                      Otherwise, paste a Google Meet or Microsoft Teams link in the Notes field below.
+                    </p>
+                  ) : !zoomStatus ? (
                     <p className="flex items-center gap-2 text-sm text-gray-500">
                       <Loader2 className="h-4 w-4 animate-spin" /> Checking your Zoom connection…
                     </p>

@@ -1389,16 +1389,19 @@ export default function FirmDashboard() {
             <FilterStat
               filled
               tone="success"
-              value={formatCurrency(metrics.feesCollectedFromPayments)}
+              value={formatCurrency(metrics.feesCollectedFromPayments || 0)}
               label="Fees collected"
               onClick={canSeeTab('time') ? () => goToTab('time') : undefined}
               hint={canSeeTab('time') ? 'Open Time & Billing' : undefined}
             />
-            <FilterStat filled tone="warning" value={metrics.firmROI != null ? `${metrics.firmROI.toFixed(1)}x` : '—'} label="Marketing ROI" />
+            {/* Absent (not null) when the member can't see firm spend; null means no spend yet. */}
+            {metrics.firmROI !== undefined && (
+              <FilterStat filled tone="warning" value={metrics.firmROI != null ? `${metrics.firmROI.toFixed(1)}x` : '—'} label="Marketing ROI" />
+            )}
           </StatGrid>
           <StatGrid columns={4}>
             <FilterStat
-              value={metrics.totalLeadsReceived}
+              value={metrics.totalLeadsReceived || 0}
               label="Leads received"
               onClick={canSeeTab('caseload') ? () => goToTab('caseload', { status: 'all' }) : undefined}
               hint={canSeeTab('caseload') ? 'See Active Cases' : undefined}

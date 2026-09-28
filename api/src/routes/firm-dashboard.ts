@@ -2388,6 +2388,7 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
     let feesCollectedFromPayments = 0
     let totalPlatformSpend = 0
     const totalFeesByAttorneyId = new Map<string, number>()
+    const feesByAssessmentId = new Map<string, number>()
 
     if (attorneyIds.length > 0) {
       try {
@@ -2402,6 +2403,7 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
           },
           select: {
             amount: true,
+            assessmentId: true,
             assessment: {
               select: {
                 leadSubmission: {
@@ -2422,6 +2424,9 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
         payments.forEach((payment: any) => {
           const amount = Number(payment.amount ?? 0)
           feesCollectedFromPayments += amount
+          if (payment.assessmentId) {
+            feesByAssessmentId.set(payment.assessmentId, (feesByAssessmentId.get(payment.assessmentId) || 0) + amount)
+          }
 
           const relatedAttorneyIds = new Set<string>()
           const assignedAttorneyId = payment.assessment?.leadSubmission?.assignedAttorneyId
@@ -2683,9 +2688,10 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
         avgAttorneyRating,
         totalReviews,
         verifiedReviewCount,
+        // A pipeline count with no case detail, so every member sees it.
+        totalLeadsReceived,
         ...(canSeeFirmCaseload
           ? {
-              totalLeadsReceived,
               totalLeadsAccepted,
               feesCollectedFromPayments,
               totalPlatformSpend,
@@ -2695,7 +2701,17 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
               operationsQueueCount: operationsQueue.length,
               firmROI: totalPlatformSpend > 0 ? (feesCollectedFromPayments / totalPlatformSpend) : null,
             }
-          : { activeCases: visibleCases.length }),
+          : {
+              // Without the firm-caseload grant, the case figures cover the
+              // cases this member can see; firm spend and ROI stay withheld.
+              activeCases: visibleCases.length,
+              acceptedCases: visibleCases.length,
+              retainedCases: visibleCases.filter((c: any) => c.leadStatus === 'retained').length,
+              feesCollectedFromPayments: visibleCases.reduce(
+                (sum: number, c: any) => sum + (feesByAssessmentId.get(c.assessmentId) || 0),
+                0,
+              ),
+            }),
       },
       // Marketplace Performance KPIs (firm scope). Mirrors the attorney-dashboard
       // analytics shape the frontend reads for ROI / conversion / average fee.

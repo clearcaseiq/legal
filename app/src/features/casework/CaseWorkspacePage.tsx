@@ -2330,6 +2330,24 @@ function EvidencePanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leadId])
 
+  // Extraction finishes server-side after the upload returns, so re-check while
+  // anything is still processing. Capped so a file stuck in `pending` can't poll forever.
+  const hasProcessingDocs = docs.some((d) => evidenceStatusLabel(d.processingStatus) === 'Processing')
+  useEffect(() => {
+    if (!hasProcessingDocs) return
+    let polls = 0
+    const timer = window.setInterval(() => {
+      polls += 1
+      if (polls > 60) {
+        window.clearInterval(timer)
+        return
+      }
+      refreshDocs()
+    }, 4000)
+    return () => window.clearInterval(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasProcessingDocs, leadId])
+
   // Prevent the browser's default "open the dropped file" behavior. Without this,
   // a file dropped anywhere outside the dropzone navigates the tab to the file and
   // unloads the SPA (which is why the view resets to New Matches).
