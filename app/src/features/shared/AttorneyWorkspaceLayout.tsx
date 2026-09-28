@@ -75,6 +75,20 @@ const NAV_SECTIONS: NavSection[] = [
   },
 ]
 
+export const STAFF_CASES_ROUTE = '/firm-dashboard?tab=caseload'
+
+// Staff reach a case from the firm dashboard; the attorney-only pages above
+// would bounce them straight back there.
+const STAFF_NAV_SECTIONS: NavSection[] = [
+  {
+    id: 'casework',
+    label: 'Case Management',
+    entries: [
+      { to: STAFF_CASES_ROUTE, id: 'active', label: 'Active Cases', description: 'Caseload & quick re-entry', icon: Briefcase },
+    ],
+  },
+]
+
 // Per-domain color coding for the nav chips + active states. Lead Generation is
 // blue (acquisition), Case Management is emerald (delivery).
 type DomainId = 'leadgen' | 'casework'
@@ -127,7 +141,7 @@ function navEntryActive(to: string, pathname: string): boolean {
   if (pathname === to || pathname.startsWith(`${to}/`)) return true
   // Active Cases is the single door into a case, so it owns the single-case
   // workspace file routes (/lead/:id/... and /cases/:id/...) for highlighting.
-  if (to === '/attorney-dashboard/cases/active' && isCaseFilePath(pathname)) return true
+  if ((to === '/attorney-dashboard/cases/active' || to === STAFF_CASES_ROUTE) && isCaseFilePath(pathname)) return true
   return false
 }
 
@@ -155,7 +169,7 @@ const NOTIFICATIONS_ROUTE = '/attorney-dashboard/notifications'
 function Sidebar() {
   const location = useLocation()
   const { t } = useLanguage()
-  const { attorney, isFirmAdmin, unreadMessages, unreadTeamMessages, unreadNotifications } = useAttorneyWorkspace()
+  const { attorney, isFirmAdmin, isStaff, unreadMessages, unreadTeamMessages, unreadNotifications } = useAttorneyWorkspace()
 
   const isActive = (to: string) => navEntryActive(to, location.pathname)
   const badgeFor = (to: string) =>
@@ -165,8 +179,8 @@ function Sidebar() {
     <aside className="hidden w-64 shrink-0 lg:block">
       <div className="sticky top-24 space-y-5 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
         <Link
-          to="/attorney-profile"
-          title="View your attorney profile"
+          to={isStaff ? '/staff-profile' : '/attorney-profile'}
+          title={isStaff ? 'View your profile' : 'View your attorney profile'}
           className="group flex items-center gap-3 rounded-xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white px-3 py-2.5 transition hover:border-brand-200 hover:shadow-sm"
         >
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-500 to-brand-700 text-xs font-bold text-white shadow-sm">
@@ -179,7 +193,7 @@ function Sidebar() {
           <ChevronRight className="h-4 w-4 shrink-0 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-brand-500" />
         </Link>
 
-        {(() => {
+        {!isStaff && (() => {
           const active = navEntryActive(NOTIFICATIONS_ROUTE, location.pathname)
           return (
             <Link
@@ -207,7 +221,7 @@ function Sidebar() {
           )
         })()}
 
-        {NAV_SECTIONS.map((section) => {
+        {(isStaff ? STAFF_NAV_SECTIONS : NAV_SECTIONS).map((section) => {
           const entries = section.entries.filter((entry) => !entry.firmAdminOnly || isFirmAdmin)
           const style = domainStyle(section.id)
           return (
@@ -279,18 +293,18 @@ function Sidebar() {
 function MobileNav() {
   const location = useLocation()
   const { t } = useLanguage()
-  const { isFirmAdmin, unreadMessages, unreadTeamMessages, unreadNotifications } = useAttorneyWorkspace()
+  const { isFirmAdmin, isStaff, unreadMessages, unreadTeamMessages, unreadNotifications } = useAttorneyWorkspace()
   const isActive = (to: string) => navEntryActive(to, location.pathname)
   const badgeFor = (to: string) =>
     to === MESSAGES_ROUTE ? unreadMessages : to === TEAM_ROUTE ? unreadTeamMessages : 0
-  const entries = NAV_SECTIONS.flatMap((s) => s.entries.map((e) => ({ ...e, domain: s.id }))).filter(
+  const entries = (isStaff ? STAFF_NAV_SECTIONS : NAV_SECTIONS).flatMap((s) => s.entries.map((e) => ({ ...e, domain: s.id }))).filter(
     (e) => !e.firmAdminOnly || isFirmAdmin,
   )
   const notificationsActive = navEntryActive(NOTIFICATIONS_ROUTE, location.pathname)
   return (
     <div className="lg:hidden">
       <div className="flex gap-2 overflow-x-auto pb-2 [-webkit-overflow-scrolling:touch]">
-        <Link
+        {!isStaff && <Link
           to={NOTIFICATIONS_ROUTE}
           className={`flex shrink-0 items-center gap-2 rounded-full border py-1.5 pl-1.5 pr-3 text-xs font-semibold transition ${
             notificationsActive ? 'border-brand-300 bg-brand-50 text-brand-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
@@ -309,7 +323,7 @@ function MobileNav() {
             )}
           </span>
           {t('attorneyWorkspace.notifications.label')}
-        </Link>
+        </Link>}
         {entries.map((entry) => {
           const Icon = entry.icon
           const active = isActive(entry.to)
@@ -368,6 +382,7 @@ function WorkspaceChrome() {
   // centered at a comfortable reading width. Calendar also hides global search.
   const isFullWidth = isWideAttorneyRoute(location.pathname)
   const isCalendar = isCalendarRoute(location.pathname)
+  const { isStaff } = useAttorneyWorkspace()
   return (
     <div className={isFullWidth ? 'w-full' : 'mx-auto w-full max-w-7xl'}>
       <div className="mb-4 flex items-center gap-3">
@@ -380,7 +395,7 @@ function WorkspaceChrome() {
       <div className="flex gap-6">
         <Sidebar />
         <div className="min-w-0 flex-1 space-y-4">
-          {!isLeadGen && !isCalendar && <GlobalSearch />}
+          {!isLeadGen && !isCalendar && !isStaff && <GlobalSearch />}
           <MobileNav />
           <Outlet />
         </div>

@@ -1803,7 +1803,11 @@ export default function FirmDashboard() {
                 ] as DataTableColumn<any>[]}
                 rows={caseloadFiltered}
                 rowKey={(c: any) => c.assessmentId}
-                onRowClick={(c: any) => setOpenCaseId(c.assessmentId)}
+                onRowClick={(c: any) =>
+                  c.leadId
+                    ? navigate(`/attorney-dashboard/cases/${c.leadId}/overview`)
+                    : setOpenCaseId(c.assessmentId)
+                }
               />
             )}
           </SectionCard>

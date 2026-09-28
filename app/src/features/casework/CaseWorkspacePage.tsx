@@ -141,6 +141,9 @@ import { resolveCaseName, suggestedCaseName } from '../../lib/caseName'
 import { todayDateKey } from '../../lib/taskDueDate'
 import CaseNameEditor from './CaseNameEditor'
 import DemandLetterWorkspace from './DemandLetterWorkspace'
+import { getStoredRole } from '../../lib/auth'
+import { useFirmAccess } from '../../hooks/useFirmAccess'
+import { STAFF_CASES_ROUTE } from '../shared/AttorneyWorkspaceLayout'
 
 function claimLabel(type?: string) {
   return type ? formatClaimType(type) : 'Other'
@@ -169,6 +172,9 @@ const ROW_TONE: Record<Tone, string> = {
 
 const TABS = ['Overview', 'Client Info', 'AI Copilot', 'Rose', 'Workflow', 'Tasks', 'Evidence', 'Signatures', 'Medical', 'Liability', 'Insurance', 'Damages', 'Negotiation', 'Demand', 'Timeline', 'Settlement', 'Time', 'Billing', 'Referrals'] as const
 type Tab = (typeof TABS)[number]
+
+// E-sign envelopes and fee-sharing referrals are served to attorneys only.
+const STAFF_HIDDEN_TABS: ReadonlySet<Tab> = new Set<Tab>(['Signatures', 'Referrals'])
 
 const SECTION_TO_TAB: Record<string, Tab> = {
   info: 'Client Info',
@@ -434,10 +440,14 @@ export default function CaseWorkspacePage() {
   // Where the user came from, so the back button + tab navigation return there.
   const fromParam = searchParams.get('from')
   const fromSuffix = fromParam ? `?from=${fromParam}` : ''
-  const backTarget =
-    fromParam === 'calendar'
+  const isStaff = getStoredRole() === 'staff'
+  const { can } = useFirmAccess()
+  const backTarget = isStaff
+    ? { to: STAFF_CASES_ROUTE, label: 'Active cases' }
+    : fromParam === 'calendar'
       ? { to: '/attorney-dashboard/cases/calendar', label: 'Calendar' }
       : { to: '/attorney-dashboard/cases/active', label: 'Active cases' }
+  const visibleTabs = isStaff ? TABS.filter((t) => !STAFF_HIDDEN_TABS.has(t)) : TABS
 
   const [lead, setLead] = useState<any | null>(null)
   const [cc, setCc] = useState<CaseCommandCenter | null>(null)
@@ -463,7 +473,8 @@ export default function CaseWorkspacePage() {
     setChatOpen(true)
   }
 
-  const tab = SECTION_TO_TAB[(section || 'overview').toLowerCase()] ?? 'Overview'
+  const requestedTab = SECTION_TO_TAB[(section || 'overview').toLowerCase()] ?? 'Overview'
+  const tab: Tab = isStaff && STAFF_HIDDEN_TABS.has(requestedTab) ? 'Overview' : requestedTab
 
   // Single source of truth for this case's tasks — shared by the Tasks tab
   // (full CRUD) and the Deadlines tab, so a change in one updates the other.
@@ -521,7 +532,7 @@ export default function CaseWorkspacePage() {
           // Firm staff without an attorney profile get a 403 here; that must not
           // abort the load, because the direct lead fetch below still works for
           // them (CP-332).
-          getAttorneyDashboard().catch(() => null as any),
+          isStaff ? Promise.resolve(null as any) : getAttorneyDashboard().catch(() => null as any),
           getLeadTasks(leadId).catch(() => [] as any[]),
         ])
         if (cancelled) return
@@ -759,14 +770,16 @@ export default function CaseWorkspacePage() {
                 <span className="inline-flex rounded-full bg-emerald-50 px-3 py-1 text-sm font-semibold text-emerald-700">
                   {detail.stage}
                 </span>
-                <button
-                  type="button"
-                  onClick={() => openChat()}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700"
-                >
-                  <MessageSquare className="h-4 w-4" />
-                  Message client
-                </button>
+                {!isStaff && (
+                  <button
+                    type="button"
+                    onClick={() => openChat()}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700"
+                  >
+                    <MessageSquare className="h-4 w-4" />
+                    Message client
+                  </button>
+                )}
               </div>
             </div>
 
@@ -780,14 +793,16 @@ export default function CaseWorkspacePage() {
             <div className="mt-4 flex flex-wrap gap-x-6 gap-y-1 border-t border-slate-100 pt-3 text-sm text-slate-500">
               <span>
                 Client: <span className="text-slate-700">{detail.client}</span> · {detail.phone}
-                <button
-                  type="button"
-                  onClick={() => setContactOpen(true)}
-                  title="Correct the client's name, email, or phone"
-                  className="ml-2 font-semibold text-brand-700 hover:text-brand-800"
-                >
-                  Edit
-                </button>
+                {can('manage') && (
+                  <button
+                    type="button"
+                    onClick={() => setContactOpen(true)}
+                    title="Correct the client's name, email, or phone"
+                    className="ml-2 font-semibold text-brand-700 hover:text-brand-800"
+                  >
+                    Edit
+                  </button>
+                )}
               </span>
               <span>
                 Mailing address:{' '}
@@ -846,7 +861,7 @@ export default function CaseWorkspacePage() {
 
           {/* Tab strip — wraps onto multiple rows so every tab (icon + full label) stays fully visible */}
           <div className="flex flex-wrap items-center gap-1.5 rounded-2xl border border-slate-200 bg-slate-50 p-1.5 shadow-sm">
-            {TABS.map((t) => {
+            {visibleTabs.map((t) => {
               const active = t === tab
               const TabIcon = TAB_META[t].icon
               const isTasks = t === 'Tasks'
@@ -2255,6 +2270,8 @@ function EvidencePanel({
   initialFiles: any[]
 }) {
   const [spEv] = useSearchParams()
+  const { can } = useFirmAccess()
+  const canUpload = getStoredRole() !== 'staff' && can('documents')
   const initialCategory = spEv.get('uploadCategory') || 'other'
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [docs, setDocs] = useState<any[]>(initialFiles || [])
@@ -3164,7 +3181,7 @@ function EvidencePanel({
           }}
           onDragLeave={() => setDragOver(false)}
           onDrop={handleDrop}
-          className={`rounded-2xl border p-4 shadow-sm transition ${dragOver ? 'border-brand-400 bg-brand-50/60' : 'border-slate-200 bg-white'}`}
+          className={`rounded-2xl border p-4 shadow-sm transition ${dragOver ? 'border-brand-400 bg-brand-50/60' : 'border-slate-200 bg-white'} ${canUpload ? '' : 'hidden'}`}
         >
           <div className="flex items-start gap-3">
             <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-brand-600 shadow-sm">
@@ -3223,7 +3240,7 @@ function EvidencePanel({
           </button>
         </div>
 
-        <div className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className={`relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-sm ${can('request') ? '' : 'hidden'}`}>
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-start gap-3">
               <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-brand-600 shadow-sm">

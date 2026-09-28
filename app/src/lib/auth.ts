@@ -131,7 +131,6 @@ export function getLoginRedirect(pathname: string, role?: WebAppRole | WebAppRol
   // generic login.
   if (
     roles.includes('attorney') &&
-    !roles.includes('staff') &&
     (pathname.startsWith('/attorney-dashboard') ||
       pathname.startsWith('/attorney-') ||
       pathname.startsWith('/o/'))

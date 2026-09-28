@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { getStoredUser } from '../../lib/auth'
+import { getStoredRole, getStoredUser } from '../../lib/auth'
 import { getAttorneyUnreadCount, getFirmDirectMessageUnread, getAttorneyNotificationUnreadCount } from '../../lib/api'
 import { useFirmDashboardSummary } from '../../hooks/useFirmDashboardSummary'
 
@@ -21,6 +21,8 @@ export interface AttorneyWorkspaceValue {
   permissions: string[]
   /** True when the signed-in attorney can see firm-wide (all-attorney) surfaces. */
   isFirmAdmin: boolean
+  /** Non-attorney firm staff (paralegal, intake, …) opening a case from the firm dashboard. */
+  isStaff: boolean
   loading: boolean
   /** Unread in-app client messages across all of this attorney's threads (polled). */
   unreadMessages: number
@@ -65,14 +67,18 @@ export function AttorneyWorkspaceProvider({ children }: { children: ReactNode })
   // fresh while the attorney works elsewhere. Best-effort; errors are ignored.
   // Also refresh immediately when a thread is marked read (CP-602) or the tab
   // regains focus / visibility.
+  const isStaff = getStoredRole() === 'staff'
+
   useEffect(() => {
     let cancelled = false
     const refresh = async () => {
-      try {
-        const res = await getAttorneyUnreadCount()
-        if (!cancelled) setUnreadMessages(Number(res?.unreadCount) || 0)
-      } catch {
-        /* ignore transient failures */
+      if (!isStaff) {
+        try {
+          const res = await getAttorneyUnreadCount()
+          if (!cancelled) setUnreadMessages(Number(res?.unreadCount) || 0)
+        } catch {
+          /* ignore transient failures */
+        }
       }
       try {
         const dm = await getFirmDirectMessageUnread()
@@ -104,7 +110,7 @@ export function AttorneyWorkspaceProvider({ children }: { children: ReactNode })
       document.removeEventListener('visibilitychange', onVisibility)
       window.removeEventListener('attorney-unread-refresh', onMarkedRead)
     }
-  }, [])
+  }, [isStaff])
 
   const value = useMemo<AttorneyWorkspaceValue>(() => {
     const attorney = readStoredAttorney()
@@ -116,8 +122,8 @@ export function AttorneyWorkspaceProvider({ children }: { children: ReactNode })
       permissions.includes('view_all_cases') ||
       permissions.includes('manage_users')
 
-    return { attorney, firmRole, permissions, isFirmAdmin, loading, unreadMessages, unreadTeamMessages, unreadNotifications }
-  }, [data, loading, unreadMessages, unreadTeamMessages, unreadNotifications])
+    return { attorney, firmRole, permissions, isFirmAdmin, isStaff, loading, unreadMessages, unreadTeamMessages, unreadNotifications }
+  }, [data, loading, isStaff, unreadMessages, unreadTeamMessages, unreadNotifications])
 
   return <AttorneyWorkspaceContext.Provider value={value}>{children}</AttorneyWorkspaceContext.Provider>
 }

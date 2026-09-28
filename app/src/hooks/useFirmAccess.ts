@@ -2,7 +2,16 @@ import { useEffect, useState } from 'react'
 import api from '../lib/http'
 
 /** Case actions governed by the firm role matrix. Mirrors CASE_ACTION_PERMISSIONS on the API. */
-export type FirmAction = 'message' | 'demand' | 'documents' | 'request' | 'schedule' | 'chronology' | 'accept' | 'decline'
+export type FirmAction =
+  | 'message'
+  | 'demand'
+  | 'documents'
+  | 'request'
+  | 'schedule'
+  | 'chronology'
+  | 'accept'
+  | 'decline'
+  | 'manage'
 
 export type FirmAccess = {
   firm: { id: string; role: string } | null

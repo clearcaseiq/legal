@@ -1368,6 +1368,12 @@ function App() {
             </Route>
             <Route element={<ProtectedRoute role={['attorney', 'staff']} />}>
               <Route path="/firm-dashboard" element={<FirmDashboard />} />
+              {/* Single-case workspace (canonical + plan alias). Staff open it from
+                  the firm dashboard; the server scopes each action to their role. */}
+              <Route element={<AttorneyWorkspaceLayout />}>
+                <Route path="/attorney-dashboard/lead/:leadId/:section" element={<CaseWorkspacePage />} />
+                <Route path="/attorney-dashboard/cases/:leadId/:section" element={<CaseWorkspacePage />} />
+              </Route>
             </Route>
             <Route element={<ProtectedRoute role="attorney" />}>
               {/* Two-domain workspace shell (Lead Generation vs Case Management).
@@ -1411,9 +1417,6 @@ function App() {
                 <Route path="/attorney-dashboard/cases/copilot" element={<CaseCopilotPage />} />
                 <Route path="/attorney-dashboard/cases/ai-manager" element={<AiCaseManagerPage />} />
                 <Route path="/attorney-dashboard/cases/firm" element={<FirmDashboard />} />
-                {/* Single-case workspace (canonical + plan alias) */}
-                <Route path="/attorney-dashboard/lead/:leadId/:section" element={<CaseWorkspacePage />} />
-                <Route path="/attorney-dashboard/cases/:leadId/:section" element={<CaseWorkspacePage />} />
               </Route>
               {/* Default landing → new two-domain workspace; legacy ?tab= deep
                   links redirect to their first-class route (see AttorneyDashboardEntry). */}

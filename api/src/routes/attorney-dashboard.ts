@@ -368,6 +368,7 @@ const CASE_ACTION_PERMISSIONS = {
   chronology: ['manage_chronology'],
   accept: ['accept_cases'],
   decline: ['decline_cases'],
+  manage: ['manage_assigned_cases'],
 } as const satisfies Record<string, readonly string[]>
 
 const firmGate = (group: keyof typeof CASE_ACTION_PERMISSIONS) => async (req: any, res: any, next: any) => {
@@ -725,6 +726,19 @@ async function getAuthorizedLead(
       if (firmMember) {
         return { attorney: null as any, firmMember, lead }
       }
+    } else if (req.user?.id) {
+      const member = await (prisma as any).firmMember.findFirst({
+        where: { userId: req.user.id, status: 'active' },
+        select: { id: true },
+      })
+      if (member) {
+        return {
+          error: {
+            status: 403,
+            message: 'Your firm role does not allow this action. Ask your firm admin or the lead attorney.',
+          },
+        }
+      }
     }
     return { error: { status: 403, message: 'Attorney profile not found' } }
   }
@@ -807,6 +821,32 @@ async function getAuthorizedLead(
   }
 
   return { attorney, lead }
+}
+
+/**
+ * The attorney a non-attorney staff write is performed on behalf of: the case
+ * team's lead attorney, else the lead's assigned attorney, and only within the
+ * staff member's own firm. Consults land on that attorney's calendar and client
+ * requests go out under their name.
+ */
+async function resolveActingAttorney(auth: { attorney?: any; firmMember?: any; lead: any }) {
+  if (auth.attorney) return auth.attorney
+  const lawFirmId = auth.firmMember?.lawFirmId
+  if (!lawFirmId) return null
+  const teamLead = await (prisma as any).firmCaseAssignment.findFirst({
+    where: {
+      assessmentId: auth.lead.assessmentId,
+      lawFirmId,
+      role: 'lead_attorney',
+      status: 'active',
+      assignedAttorneyId: { not: null },
+    },
+    select: { assignedAttorneyId: true },
+  })
+  const attorneyId = teamLead?.assignedAttorneyId || auth.lead.assignedAttorneyId
+  if (!attorneyId) return null
+  const attorney = await prisma.attorney.findUnique({ where: { id: attorneyId } })
+  return attorney && attorney.lawFirmId === lawFirmId ? attorney : null
 }
 
 /**
@@ -6353,12 +6393,15 @@ router.post('/leads/:leadId/document-request', authMiddleware, firmGate('request
     const { leadId } = req.params
     const { requestedDocs = [], customMessage, sendUploadLinkOnly } = req.body
 
-    const auth = await getAuthorizedLead(req, leadId)
+    const auth = await getAuthorizedLead(req, leadId, { allowFirmMember: true, firmMemberWrite: true })
     if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
-    const { lead, attorney } = auth
+    const { lead } = auth
 
     const notAccepted = checkLeadIsAccepted(lead, 'requesting documents from the plaintiff')
     if (notAccepted) return res.status(notAccepted.status).json({ error: notAccepted.message })
+
+    const attorney = await resolveActingAttorney(auth)
+    if (!attorney) return res.status(409).json({ error: 'Assign a lead attorney to this case first.' })
 
     const result = await createAndNotifyPlaintiffDocumentRequest({
       leadId,
@@ -6405,7 +6448,7 @@ router.get('/leads/:leadId/client-contact', authMiddleware, async (req: any, res
   }
 })
 
-router.patch('/leads/:leadId/client-contact', authMiddleware, async (req: any, res) => {
+router.patch('/leads/:leadId/client-contact', authMiddleware, firmGate('manage'), async (req: any, res) => {
   try {
     const auth = await getAuthorizedLead(req, req.params.leadId, {
       allowFirmMember: true,
@@ -6452,12 +6495,15 @@ router.post('/leads/:leadId/document-request-text', authMiddleware, firmGate('re
     const { leadId } = req.params
     const { requestedDocs = [], customMessage } = req.body
 
-    const auth = await getAuthorizedLead(req, leadId)
+    const auth = await getAuthorizedLead(req, leadId, { allowFirmMember: true, firmMemberWrite: true })
     if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
-    const { lead, attorney } = auth
+    const { lead } = auth
 
     const notAccepted = checkLeadIsAccepted(lead, 'requesting documents from the plaintiff')
     if (notAccepted) return res.status(notAccepted.status).json({ error: notAccepted.message })
+
+    const attorney = await resolveActingAttorney(auth)
+    if (!attorney) return res.status(409).json({ error: 'Assign a lead attorney to this case first.' })
 
     const result = await sendDocumentRequestText({
       leadId,
@@ -6907,12 +6953,15 @@ router.post('/leads/:leadId/schedule-consult', authMiddleware, firmGate('schedul
     const { leadId } = req.params
     const { date, time, meetingType, notes } = req.body
 
-    const auth = await getAuthorizedLead(req, leadId)
+    const auth = await getAuthorizedLead(req, leadId, { allowFirmMember: true, firmMemberWrite: true })
     if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
-    const { lead, attorney } = auth
+    const { lead } = auth
 
     const notAccepted = checkLeadIsAccepted(lead, 'scheduling a consultation with the plaintiff')
     if (notAccepted) return res.status(notAccepted.status).json({ error: notAccepted.message })
+
+    const attorney = await resolveActingAttorney(auth)
+    if (!attorney) return res.status(409).json({ error: 'Assign a lead attorney to this case first.' })
 
     const assessment = await prisma.assessment.findUnique({
       where: { id: lead.assessmentId },
@@ -7534,7 +7583,7 @@ router.get('/leads/:leadId/evidence', authMiddleware, async (req: any, res) => {
   try {
     const { leadId } = req.params
 
-    const auth = await getAuthorizedLead(req, leadId)
+    const auth = await getAuthorizedLead(req, leadId, { allowFirmMember: true })
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
@@ -7905,7 +7954,7 @@ router.delete('/leads/:leadId/evidence/:fileId', authMiddleware, firmGate('docum
 router.get('/leads/:leadId/medical-chronology', authMiddleware, async (req: any, res) => {
   try {
     const { leadId } = req.params
-    const auth = await getAuthorizedLead(req, leadId)
+    const auth = await getAuthorizedLead(req, leadId, { allowFirmMember: true })
     if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
     const assessment = await prisma.assessment.findUnique({
       where: { id: auth.lead.assessmentId },
@@ -7929,7 +7978,7 @@ router.get('/leads/:leadId/medical-chronology', authMiddleware, async (req: any,
 router.get('/leads/:leadId/case-preparation', authMiddleware, async (req: any, res) => {
   try {
     const { leadId } = req.params
-    const auth = await getAuthorizedLead(req, leadId)
+    const auth = await getAuthorizedLead(req, leadId, { allowFirmMember: true })
     if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
     const preparation = await computeCasePreparation(auth.lead.assessmentId)
     res.json(preparation)
@@ -7942,7 +7991,7 @@ router.get('/leads/:leadId/case-preparation', authMiddleware, async (req: any, r
 router.get('/leads/:leadId/settlement-benchmarks', authMiddleware, async (req: any, res) => {
   try {
     const { leadId } = req.params
-    const auth = await getAuthorizedLead(req, leadId)
+    const auth = await getAuthorizedLead(req, leadId, { allowFirmMember: true })
     if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
     const benchmarks = await getSettlementBenchmarks(auth.lead.assessmentId)
     res.json({ benchmarks })
@@ -8760,7 +8809,7 @@ router.get('/leads/:leadId/case-file', authMiddleware, async (req: any, res) => 
 router.post('/leads/:leadId/evidence/bulk-download', authMiddleware, async (req: any, res) => {
   try {
     const { leadId } = req.params
-    const auth = await getAuthorizedLead(req, leadId)
+    const auth = await getAuthorizedLead(req, leadId, { allowFirmMember: true })
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
@@ -9838,7 +9887,7 @@ router.get('/leads/:leadId/finance/underwriting/pdf', authMiddleware, async (req
 router.get('/leads/:leadId/insurance', authMiddleware, async (req: any, res) => {
   try {
     const { leadId } = req.params
-    const auth = await getAuthorizedLead(req, leadId)
+    const auth = await getAuthorizedLead(req, leadId, { allowFirmMember: true })
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
@@ -9862,7 +9911,7 @@ router.get('/leads/:leadId/insurance', authMiddleware, async (req: any, res) => 
 router.get('/leads/:leadId/insurance/suggestion', authMiddleware, async (req: any, res) => {
   try {
     const { leadId } = req.params
-    const auth = await getAuthorizedLead(req, leadId)
+    const auth = await getAuthorizedLead(req, leadId, { allowFirmMember: true })
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
@@ -10254,7 +10303,7 @@ router.get('/leads/:leadId/insurance/:id/lor-preview', authMiddleware, async (re
   }
 })
 
-router.post('/leads/:leadId/insurance/:id/lor', authMiddleware, async (req: any, res) => {
+router.post('/leads/:leadId/insurance/:id/lor', authMiddleware, firmGate('request'), async (req: any, res) => {
   try {
     const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true, firmMemberWrite: true })
     if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
@@ -10318,7 +10367,7 @@ const providerContactSchema = z.object({
   specialty: z.string().trim().max(120).optional(),
 })
 
-router.put('/leads/:leadId/providers/contact', authMiddleware, async (req: any, res) => {
+router.put('/leads/:leadId/providers/contact', authMiddleware, firmGate('request'), async (req: any, res) => {
   try {
     const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true, firmMemberWrite: true })
     if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
@@ -10374,7 +10423,7 @@ router.get('/leads/:leadId/providers/lor-preview', authMiddleware, async (req: a
   }
 })
 
-router.post('/leads/:leadId/providers/lor', authMiddleware, async (req: any, res) => {
+router.post('/leads/:leadId/providers/lor', authMiddleware, firmGate('request'), async (req: any, res) => {
   try {
     const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true, firmMemberWrite: true })
     if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
@@ -10428,7 +10477,7 @@ router.post('/leads/:leadId/providers/lor', authMiddleware, async (req: any, res
 router.get('/leads/:leadId/liens', authMiddleware, async (req: any, res) => {
   try {
     const { leadId } = req.params
-    const auth = await getAuthorizedLead(req, leadId)
+    const auth = await getAuthorizedLead(req, leadId, { allowFirmMember: true })
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
@@ -10552,7 +10601,7 @@ const caseExpenseSelect = {
 router.get('/leads/:leadId/settlement', authMiddleware, async (req: any, res) => {
   try {
     const { leadId } = req.params
-    const auth = await getAuthorizedLead(req, leadId)
+    const auth = await getAuthorizedLead(req, leadId, { allowFirmMember: true })
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
@@ -10626,7 +10675,7 @@ router.patch('/leads/:leadId/settlement', authMiddleware, async (req: any, res) 
  * a positive gross recovery to model against; disbursing requires a finalized
  * scenario. `reopen` returns to draft.
  */
-router.post('/leads/:leadId/settlement/status', authMiddleware, async (req: any, res) => {
+router.post('/leads/:leadId/settlement/status', authMiddleware, firmGate('manage'), async (req: any, res) => {
   try {
     const { leadId } = req.params
     const auth = await getAuthorizedLead(req, leadId, { allowFirmMember: true, firmMemberWrite: true })
@@ -10716,7 +10765,7 @@ router.post('/leads/:leadId/settlement/status', authMiddleware, async (req: any,
 router.get('/leads/:leadId/expenses', authMiddleware, async (req: any, res) => {
   try {
     const { leadId } = req.params
-    const auth = await getAuthorizedLead(req, leadId)
+    const auth = await getAuthorizedLead(req, leadId, { allowFirmMember: true })
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
@@ -10835,7 +10884,7 @@ const damageItemSelect = {
 router.get('/leads/:leadId/damages', authMiddleware, async (req: any, res) => {
   try {
     const { leadId } = req.params
-    const auth = await getAuthorizedLead(req, leadId)
+    const auth = await getAuthorizedLead(req, leadId, { allowFirmMember: true })
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
@@ -10948,7 +10997,7 @@ router.delete('/leads/:leadId/damages/:id', authMiddleware, async (req: any, res
 router.get('/leads/:leadId/liability', authMiddleware, async (req: any, res) => {
   try {
     const { leadId } = req.params
-    const auth = await getAuthorizedLead(req, leadId)
+    const auth = await getAuthorizedLead(req, leadId, { allowFirmMember: true })
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
@@ -10985,7 +11034,7 @@ router.patch('/leads/:leadId/liability', authMiddleware, async (req: any, res) =
 router.get('/leads/:leadId/medical-timeline', authMiddleware, async (req: any, res) => {
   try {
     const { leadId } = req.params
-    const auth = await getAuthorizedLead(req, leadId)
+    const auth = await getAuthorizedLead(req, leadId, { allowFirmMember: true })
     if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
     const timeline = await getMedicalTimeline(auth.lead.assessmentId)
     res.json({ timeline })
@@ -11065,7 +11114,7 @@ router.patch('/leads/:leadId/medical-timeline/status', authMiddleware, firmGate(
 router.get('/leads/:leadId/tasks', authMiddleware, async (req: any, res) => {
   try {
     const { leadId } = req.params
-    const auth = await getAuthorizedLead(req, leadId)
+    const auth = await getAuthorizedLead(req, leadId, { allowFirmMember: true })
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
@@ -11206,12 +11255,13 @@ async function workflowMemberDirectory(lawFirmId: string | null | undefined) {
 router.get('/leads/:leadId/workflow', authMiddleware, async (req: any, res) => {
   try {
     const { leadId } = req.params
-    const auth = await getAuthorizedLead(req, leadId)
+    const auth = await getAuthorizedLead(req, leadId, { allowFirmMember: true })
     if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
     const { lead, attorney } = auth
+    const firmId: string | null = attorney?.lawFirmId ?? (auth as any).firmMember?.lawFirmId ?? null
 
-    const members = await workflowMemberDirectory(attorney.lawFirmId)
-    const canAssign = Boolean(attorney.lawFirmId)
+    const members = await workflowMemberDirectory(firmId)
+    const canAssign = Boolean(attorney?.lawFirmId)
 
     let cw = await (prisma as any).caseWorkflow.findUnique({
       where: { assessmentId: lead.assessmentId },
@@ -11222,7 +11272,7 @@ router.get('/leads/:leadId/workflow', authMiddleware, async (req: any, res) => {
     // the firm's default (auto-provisioning the standard PI blueprint if the firm
     // never authored one). This backfills already-retained cases the first time
     // their Workflow tab is opened, instead of leaving a dead-end empty state.
-    if (!cw && attorney.lawFirmId && process.env.AUTO_PROVISION_DEFAULT_WORKFLOW !== 'false') {
+    if (!cw && attorney?.lawFirmId && process.env.AUTO_PROVISION_DEFAULT_WORKFLOW !== 'false') {
       const applied = await applyFirmWorkflowToCase({
         assessmentId: lead.assessmentId,
         lawFirmId: attorney.lawFirmId,
@@ -11265,7 +11315,7 @@ router.get('/leads/:leadId/workflow', authMiddleware, async (req: any, res) => {
     }
 
     let appliedWorkflow: any = null
-    if (attorney.lawFirmId) {
+    if (attorney?.lawFirmId) {
       appliedWorkflow = await (prisma as any).firmWorkflow.findFirst({
         where: { lawFirmId: attorney.lawFirmId, isDefault: true },
         select: { id: true, name: true },
@@ -11304,7 +11354,7 @@ async function resolvedGapKeysForAssessment(
 router.get('/leads/:leadId/intelligence', authMiddleware, async (req: any, res) => {
   try {
     const { leadId } = req.params
-    const auth = await getAuthorizedLead(req, leadId)
+    const auth = await getAuthorizedLead(req, leadId, { allowFirmMember: true })
     if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
     const { lead } = auth
 
@@ -11343,7 +11393,7 @@ function intelligentQuestionKey(q: { id: string; text: string; source: 'ai' | 'b
 router.get('/leads/:leadId/intelligence/questions', authMiddleware, async (req: any, res) => {
   try {
     const { leadId } = req.params
-    const auth = await getAuthorizedLead(req, leadId)
+    const auth = await getAuthorizedLead(req, leadId, { allowFirmMember: true })
     if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
     const { lead } = auth
 
@@ -11523,7 +11573,7 @@ router.put('/leads/:leadId/intelligence/questions/answer', authMiddleware, async
 router.get('/leads/:leadId/intelligence/question-proposals', authMiddleware, async (req: any, res) => {
   try {
     const { leadId } = req.params
-    const auth = await getAuthorizedLead(req, leadId)
+    const auth = await getAuthorizedLead(req, leadId, { allowFirmMember: true })
     if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
     if (String(req.query.refresh || '') === '1') {
       const synced = await syncQuestionTaskProposals(auth.lead.assessmentId)
@@ -11732,7 +11782,7 @@ router.post('/leads/:leadId/intelligence/gap-action', authMiddleware, async (req
 router.get('/leads/:leadId/coach', authMiddleware, async (req: any, res) => {
   try {
     const { leadId } = req.params
-    const auth = await getAuthorizedLead(req, leadId)
+    const auth = await getAuthorizedLead(req, leadId, { allowFirmMember: true })
     if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
     const { lead, attorney } = auth
 
@@ -12376,7 +12426,7 @@ async function memberNameMap(firmMemberIds: string[]): Promise<Map<string, strin
 router.get('/leads/:leadId/time', authMiddleware, async (req: any, res) => {
   try {
     const { leadId } = req.params
-    const auth = await getAuthorizedLead(req, leadId)
+    const auth = await getAuthorizedLead(req, leadId, { allowFirmMember: true })
     if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
     const { lead, attorney } = auth
     const identity = await resolveActingTimeIdentity(req, attorney)
@@ -13108,7 +13158,7 @@ router.delete('/leads/:leadId/tasks/:id', authMiddleware, async (req: any, res) 
 // Deleted tasks for this case, newest first, with who deleted them.
 router.get('/leads/:leadId/tasks/deleted', authMiddleware, async (req: any, res) => {
   try {
-    const auth = await getAuthorizedLead(req, req.params.leadId)
+    const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true })
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
@@ -13483,7 +13533,7 @@ router.post('/leads/:leadId/tasks/approve-all', authMiddleware, async (req: any,
 router.get('/leads/:leadId/tasks/:id', authMiddleware, async (req: any, res) => {
   try {
     const { leadId, id } = req.params
-    const auth = await getAuthorizedLead(req, leadId)
+    const auth = await getAuthorizedLead(req, leadId, { allowFirmMember: true })
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
@@ -13491,7 +13541,9 @@ router.get('/leads/:leadId/tasks/:id', authMiddleware, async (req: any, res) => 
     if (!task || task.assessmentId !== auth.lead.assessmentId) {
       return res.status(404).json({ error: 'Task not found' })
     }
-    const members = await taskAssigneeDirectory(auth.attorney.lawFirmId)
+    const members = await taskAssigneeDirectory(
+      auth.attorney?.lawFirmId ?? (auth as any).firmMember?.lawFirmId ?? null,
+    )
     const logged = await prisma.timeEntry.aggregate({
       where: { caseTaskId: id } as any,
       _sum: { minutes: true },
@@ -13563,7 +13615,7 @@ router.get('/leads/:leadId/tasks/:id', authMiddleware, async (req: any, res) => 
 router.get('/leads/:leadId/tasks/:id/comments', authMiddleware, async (req: any, res) => {
   try {
     const { leadId, id } = req.params
-    const auth = await getAuthorizedLead(req, leadId)
+    const auth = await getAuthorizedLead(req, leadId, { allowFirmMember: true })
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
@@ -13677,7 +13729,7 @@ router.post('/leads/:leadId/tasks/:id/comments', authMiddleware, async (req: any
 router.get('/leads/:leadId/tasks/:id/history', authMiddleware, async (req: any, res) => {
   try {
     const { leadId, id } = req.params
-    const auth = await getAuthorizedLead(req, leadId)
+    const auth = await getAuthorizedLead(req, leadId, { allowFirmMember: true })
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
@@ -13867,7 +13919,7 @@ const upsertNegotiationInsights = async (assessmentId: string) => {
 router.get('/leads/:leadId/negotiations', authMiddleware, async (req: any, res) => {
   try {
     const { leadId } = req.params
-    const auth = await getAuthorizedLead(req, leadId)
+    const auth = await getAuthorizedLead(req, leadId, { allowFirmMember: true })
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
@@ -14034,7 +14086,7 @@ router.delete('/leads/:leadId/negotiations/:id', authMiddleware, async (req: any
 router.get('/leads/:leadId/notes', authMiddleware, async (req: any, res) => {
   try {
     const { leadId } = req.params
-    const auth = await getAuthorizedLead(req, leadId)
+    const auth = await getAuthorizedLead(req, leadId, { allowFirmMember: true })
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
@@ -14103,7 +14155,7 @@ router.delete('/leads/:leadId/notes/:id', authMiddleware, async (req: any, res) 
 router.get('/leads/:leadId/comments/threads', authMiddleware, async (req: any, res) => {
   try {
     const { leadId } = req.params
-    const auth = await getAuthorizedLead(req, leadId)
+    const auth = await getAuthorizedLead(req, leadId, { allowFirmMember: true })
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
@@ -14160,7 +14212,7 @@ router.post('/leads/:leadId/comments/threads', authMiddleware, async (req: any, 
 router.get('/leads/:leadId/comments/threads/:threadId', authMiddleware, async (req: any, res) => {
   try {
     const { leadId, threadId } = req.params
-    const auth = await getAuthorizedLead(req, leadId)
+    const auth = await getAuthorizedLead(req, leadId, { allowFirmMember: true })
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
@@ -14339,7 +14391,7 @@ router.post('/leads/:leadId/comments/threads/:threadId/summary', authMiddleware,
 router.get('/leads/:leadId/invoices', authMiddleware, async (req: any, res) => {
   try {
     const { leadId } = req.params
-    const auth = await getAuthorizedLead(req, leadId)
+    const auth = await getAuthorizedLead(req, leadId, { allowFirmMember: true })
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
@@ -14422,7 +14474,7 @@ router.patch('/leads/:leadId/invoices/:id', authMiddleware, async (req: any, res
 router.get('/leads/:leadId/invoices/:id/docx', authMiddleware, async (req: any, res) => {
   try {
     const { leadId, id } = req.params
-    const auth = await getAuthorizedLead(req, leadId)
+    const auth = await getAuthorizedLead(req, leadId, { allowFirmMember: true })
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
@@ -14466,7 +14518,7 @@ router.get('/leads/:leadId/invoices/:id/docx', authMiddleware, async (req: any, 
 router.get('/leads/:leadId/invoices/:id/pdf', authMiddleware, async (req: any, res) => {
   try {
     const { leadId, id } = req.params
-    const auth = await getAuthorizedLead(req, leadId)
+    const auth = await getAuthorizedLead(req, leadId, { allowFirmMember: true })
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
@@ -14520,7 +14572,7 @@ router.delete('/leads/:leadId/invoices/:id', authMiddleware, async (req: any, re
 router.get('/leads/:leadId/payments', authMiddleware, async (req: any, res) => {
   try {
     const { leadId } = req.params
-    const auth = await getAuthorizedLead(req, leadId)
+    const auth = await getAuthorizedLead(req, leadId, { allowFirmMember: true })
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
@@ -14573,7 +14625,7 @@ router.post('/leads/:leadId/payments', authMiddleware, async (req: any, res) => 
 router.get('/leads/:leadId/payments/:id/receipt/pdf', authMiddleware, async (req: any, res) => {
   try {
     const { leadId, id } = req.params
-    const auth = await getAuthorizedLead(req, leadId)
+    const auth = await getAuthorizedLead(req, leadId, { allowFirmMember: true })
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
@@ -15322,7 +15374,7 @@ router.post('/leads/:leadId/workflows/:templateId/apply', authMiddleware, async 
 router.get('/leads/:leadId/recurring-invoices', authMiddleware, async (req: any, res) => {
   try {
     const { leadId } = req.params
-    const auth = await getAuthorizedLead(req, leadId)
+    const auth = await getAuthorizedLead(req, leadId, { allowFirmMember: true })
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
@@ -15899,7 +15951,7 @@ router.patch('/leads/:leadId/decision-intelligence/outcome', authMiddleware, asy
 
 router.get('/leads/:leadId/command-center', authMiddleware, async (req: any, res) => {
   try {
-    const auth = await getAuthorizedLead(req, req.params.leadId)
+    const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true })
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
@@ -15947,7 +15999,8 @@ router.post('/leads/:leadId/command-center/copilot', authMiddleware, async (req:
         allowFirmMember: true,
         firmMemberWrite: true,
       })
-      if (writeAuth.error) {
+      const mayDraft = firmAllows(await getRequestMemberAccess(req), [...CASE_ACTION_PERMISSIONS.demand])
+      if (writeAuth.error || !mayDraft) {
         return res.json({
           question,
           answer: 'You do not have permission to draft a demand letter on this case.',
@@ -16873,7 +16926,7 @@ router.post('/leads/:leadId/demand-letters/:demandId/send', authMiddleware, firm
  * Close a case. Sets the authoritative Assessment.status to 'closed' and drives
  * the stage engine to CLOSED (which materializes the close-out checklist).
  */
-router.post('/leads/:leadId/close', authMiddleware, async (req: any, res) => {
+router.post('/leads/:leadId/close', authMiddleware, firmGate('manage'), async (req: any, res) => {
   try {
     const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true, firmMemberWrite: true })
     if (auth.error) {
@@ -16904,7 +16957,7 @@ router.post('/leads/:leadId/close', authMiddleware, async (req: any, res) => {
 })
 
 /** Reopen a closed case — recomputes the stage from current signals. */
-router.post('/leads/:leadId/reopen', authMiddleware, async (req: any, res) => {
+router.post('/leads/:leadId/reopen', authMiddleware, firmGate('manage'), async (req: any, res) => {
   try {
     const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true, firmMemberWrite: true })
     if (auth.error) {
@@ -16924,7 +16977,7 @@ router.post('/leads/:leadId/reopen', authMiddleware, async (req: any, res) => {
 })
 
 /** Set the litigation sub-track status (parallel to the settlement lifecycle). */
-router.post('/leads/:leadId/litigation', authMiddleware, async (req: any, res) => {
+router.post('/leads/:leadId/litigation', authMiddleware, firmGate('manage'), async (req: any, res) => {
   try {
     const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true, firmMemberWrite: true })
     if (auth.error) {
@@ -16960,7 +17013,7 @@ router.post('/leads/:leadId/litigation', authMiddleware, async (req: any, res) =
  * accepted their invitation, since this writes case data. The fallback returns
  * no Attorney row, so nothing here may assume one.
  */
-router.patch('/leads/:leadId/case-name', authMiddleware, async (req: any, res) => {
+router.patch('/leads/:leadId/case-name', authMiddleware, firmGate('manage'), async (req: any, res) => {
   try {
     const { leadId } = req.params
     if (!('caseName' in (req.body || {}))) {

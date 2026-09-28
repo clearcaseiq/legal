@@ -3904,9 +3904,14 @@ describe('HTTP operations regressions', () => {
       .send({ caseName: 'Rivera v. Delgado Trucking' })
       .expect(200)
 
-    expect(vi.mocked((prisma as any).firmMember.findFirst).mock.calls[0]?.[0]).toMatchObject({
-      where: { status: { in: ['active'] } },
-    })
+    const leadAccessLookups = vi
+      .mocked((prisma as any).firmMember.findFirst)
+      .mock.calls.map((call: any[]) => call[0])
+      .filter((args: any) => typeof args?.where?.status === 'object')
+    expect(leadAccessLookups.length).toBeGreaterThan(0)
+    for (const args of leadAccessLookups) {
+      expect(args).toMatchObject({ where: { status: { in: ['active'] } } })
+    }
   })
 
   it('PATCH /v1/attorney-dashboard/leads/:leadId/case-name rejects a request with no caseName field', async () => {
