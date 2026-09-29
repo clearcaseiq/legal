@@ -113,7 +113,7 @@ const PERMISSION_LABELS: Record<string, string> = {
   view_all_cases: 'View all cases',
   view_assigned_cases: 'View assigned cases',
   view_analytics: 'View analytics',
-  review_cases: 'Review cases',
+  review_cases: 'Review Active Cases',
   review_new_leads: 'Review new leads',
   accept_cases: 'Accept cases',
   decline_cases: 'Decline cases',
