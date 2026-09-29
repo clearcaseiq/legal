@@ -350,10 +350,10 @@ async function resolveFirmVisibility(req: any, _attorney: any): Promise<FirmVisi
   if (!access) return { lawFirmId: null, userId: req.user?.id ?? null, canViewAllCases: false }
   const has = (p: string) => access.permissions.includes(p)
   const canViewAllCases = has('view_all_cases')
-  // Accepting needs review: removing Review cases hides the firm's offers even
-  // from members who still hold Accept cases.
+  // Accept alone decides from the firm's anonymized New Leads list; opening the
+  // case file itself needs a review permission.
   const canReviewFirmMatches = canViewAllCases || has('review_cases') || has('review_new_leads')
-  const canAcceptFirmMatches = canViewAllCases || (canReviewFirmMatches && has('accept_cases'))
+  const canAcceptFirmMatches = canViewAllCases || has('accept_cases')
   const canViewTeamCases = CASE_ACCESS_PERMISSIONS.some(has)
   return {
     lawFirmId: access.lawFirmId,
@@ -17334,9 +17334,32 @@ router.post('/leads/:leadId/decision', authMiddleware, async (req: any, res) => 
       return
     }
 
-    const attorney = await prisma.attorney.findFirst({
+    let attorney = await prisma.attorney.findFirst({
       where: { email: req.user.email }
     })
+    // Firm staff (no attorney profile) who passed the permission check above
+    // decide for the firm attorney holding the live offer; that attorney takes
+    // the case. `onBehalfOfAttorneyId` picks one when several hold offers.
+    if (!attorney) {
+      const access = await getRequestMemberAccess(req)
+      const onBehalfOf = typeof req.body?.onBehalfOfAttorneyId === 'string' ? req.body.onBehalfOfAttorneyId : null
+      const target = access?.lawFirmId
+        ? await prisma.leadSubmission.findUnique({ where: { id: leadId }, select: { assessmentId: true } })
+        : null
+      if (access?.lawFirmId && target) {
+        const offer = await prisma.introduction.findFirst({
+          where: {
+            assessmentId: target.assessmentId,
+            status: { in: LIVE_INTRO_STATUSES },
+            attorney: { lawFirmId: access.lawFirmId },
+            ...(onBehalfOf ? { attorneyId: onBehalfOf } : {}),
+          },
+          orderBy: { requestedAt: 'desc' },
+          include: { attorney: true },
+        })
+        attorney = offer?.attorney ?? null
+      }
+    }
 
     if (!attorney) {
       return res.status(403).json({ error: 'Attorney profile not found' })

@@ -1415,9 +1415,14 @@ router.get('/new-leads', authMiddleware as any, async (req: any, res: Response) 
       requireFirmPermission(context, 'review_new_leads') ||
       requireFirmPermission(context, 'view_all_cases') ||
       requireFirmPermission(context, 'review_cases')
-    if (!canReview) {
+    // The list is anonymized, so members who may only accept or decline can
+    // work it; opening a lead's review still needs `canReview`.
+    const canAccept = requireFirmPermission(context, 'view_all_cases') || requireFirmPermission(context, 'accept_cases')
+    const canDecline = requireFirmPermission(context, 'view_all_cases') || requireFirmPermission(context, 'decline_cases')
+    if (!canReview && !canAccept && !canDecline) {
       return res.status(403).json({ error: 'You do not have permission to review new leads' })
     }
+    const permissions = { canReview, canAccept, canDecline }
 
     const firmAttorneys = await prisma.attorney.findMany({
       where: { lawFirmId: context.lawFirmId },
@@ -1425,7 +1430,7 @@ router.get('/new-leads', authMiddleware as any, async (req: any, res: Response) 
     })
     const attorneyIds = firmAttorneys.map((a) => a.id)
     if (attorneyIds.length === 0) {
-      return res.json({ active: [], expired: [] })
+      return res.json({ active: [], expired: [], permissions })
     }
 
     // Every non-accepted, non-declined offer routed to a firm attorney. Grouped
@@ -1520,6 +1525,7 @@ router.get('/new-leads', authMiddleware as any, async (req: any, res: Response) 
     res.json({
       active: rows.filter((r) => r.status === 'new'),
       expired: rows.filter((r) => r.status === 'expired'),
+      permissions,
     })
   } catch (error: any) {
     logger.error('Failed to get firm new leads', { error: error?.message || String(error) })

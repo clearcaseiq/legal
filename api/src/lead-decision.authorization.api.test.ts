@@ -176,6 +176,52 @@ describe('POST /leads/:leadId/decision authorization', () => {
     })
   })
 
+  describe('firm staff with no attorney profile', () => {
+    const MAIN_ATTORNEY = { id: 'att-main', isVerified: true, lawFirmId: 'firm-1' }
+    const asStaff = (permissions: string | null) => {
+      vi.mocked(prisma.user.findUnique).mockResolvedValue({ ...attorneyUser, role: 'staff' } as any)
+      vi.mocked((prisma as any).attorney.findFirst).mockResolvedValue(null as any)
+      vi.mocked((prisma as any).firmMember.findFirst).mockResolvedValue({
+        id: 'fm-staff',
+        lawFirmId: 'firm-1',
+        userId: attorneyUser.id,
+        role: 'intake_specialist',
+        permissions,
+        lawFirm: { rolePermissions: null },
+      } as any)
+      // The firm's main attorney holds the live offer.
+      vi.mocked((prisma as any).introduction.findFirst).mockImplementation(async (args: any) =>
+        args?.where?.attorney?.lawFirmId === 'firm-1' || args?.where?.attorneyId === 'att-main'
+          ? ({ id: 'intro-main', status: 'PENDING', requestedAt: new Date(), attorneyId: 'att-main', attorney: MAIN_ATTORNEY } as any)
+          : null,
+      )
+    }
+
+    it('accepts for the attorney the case was routed to when granted accept_cases', async () => {
+      asStaff(JSON.stringify({ grant: ['accept_cases'], revoke: [] }))
+
+      const res = await request(app)
+        .post('/v1/attorney-dashboard/leads/lead-9/decision')
+        .set(auth)
+        .send({ decision: 'accept', conflictAcknowledged: true, onBehalfOfAttorneyId: 'att-main' })
+
+      expect(res.status).toBe(200)
+      expect(leadWrites()).toHaveLength(1)
+    })
+
+    it('refuses staff whose permissions do not include accept_cases', async () => {
+      asStaff(null)
+
+      const res = await request(app)
+        .post('/v1/attorney-dashboard/leads/lead-9/decision')
+        .set(auth)
+        .send({ decision: 'accept', conflictAcknowledged: true })
+
+      expect(res.status).toBe(403)
+      expect(leadWrites()).toHaveLength(0)
+    })
+  })
+
   it('rejects a decision value that is neither accept nor reject', async () => {
     // This used to fall through to the reject branch, silently declining the
     // case on the attorney's behalf and pushing it back into routing.

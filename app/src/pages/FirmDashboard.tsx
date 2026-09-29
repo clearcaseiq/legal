@@ -50,7 +50,9 @@ import {
   setCaseOffice,
   getFirmTeamCaseload,
   getFirmNewLeads,
+  decideLead,
   type FirmNewLead,
+  type FirmNewLeadPermissions,
 } from '../lib/api'
 import {
   BackButton,
@@ -390,7 +392,10 @@ function canSeeFirmTab(tab: TabKey, role: string | undefined, permissions: strin
     case 'newleads':
       // Intake specialists own this surface; firm admins/attorneys reach it via
       // their broader case-visibility permissions (CP-588).
-      return has('review_new_leads') || has('view_all_cases') || has('review_cases')
+      return (
+        has('review_new_leads') || has('view_all_cases') || has('review_cases') ||
+        has('accept_cases') || has('decline_cases')
+      )
     case 'team':
       return has('manage_users') || has('assign_cases')
     case 'templates':
@@ -535,11 +540,17 @@ export default function FirmDashboard() {
   const [reviewLeadId, setReviewLeadId] = useState<string | null>(null)
   const [openCaseId, setOpenCaseId] = useState<string | null>(null)
 
+  const [newLeadPerms, setNewLeadPerms] = useState<FirmNewLeadPermissions>({ canReview: false, canAccept: false, canDecline: false })
+  const [decidingLeadId, setDecidingLeadId] = useState<string | null>(null)
+  const [decideError, setDecideError] = useState<string | null>(null)
+
   const refreshNewLeads = useCallback(async () => {
     setNewLeadsLoading(true)
     setNewLeadsError(null)
     try {
-      setNewLeads(await getFirmNewLeads())
+      const data = await getFirmNewLeads()
+      setNewLeads({ active: data.active, expired: data.expired })
+      setNewLeadPerms(data.permissions ?? { canReview: true, canAccept: false, canDecline: false })
     } catch (err: any) {
       setNewLeadsError(err?.response?.data?.error || 'Failed to load new leads.')
       setNewLeads({ active: [], expired: [] })
@@ -551,6 +562,28 @@ export default function FirmDashboard() {
   useEffect(() => {
     if (tab === 'newleads') void refreshNewLeads()
   }, [tab, refreshNewLeads])
+
+  // Staff decide for the attorney the lead was routed to (the first, when several).
+  const decideNewLead = useCallback(
+    async (r: FirmNewLead, decision: 'accept' | 'reject') => {
+      if (!r.leadId) return
+      const who = r.attorneys[0]
+      const label = decision === 'accept' ? 'Accept' : 'Decline'
+      if (!window.confirm(`${label} this case${who ? ` for ${who.name}` : ''}?`)) return
+      setDecidingLeadId(r.assessmentId)
+      setDecideError(null)
+      try {
+        await decideLead(r.leadId, decision, undefined, undefined, { onBehalfOfAttorneyId: who?.id })
+        invalidateFirmDashboardSummary()
+        await refreshNewLeads()
+      } catch (err: any) {
+        setDecideError(err?.response?.data?.error || `Failed to ${label.toLowerCase()} the case.`)
+      } finally {
+        setDecidingLeadId(null)
+      }
+    },
+    [refreshNewLeads],
+  )
 
   const newLeadColumns = useMemo<DataTableColumn<FirmNewLead>[]>(
     () => [
@@ -597,8 +630,42 @@ export default function FirmDashboard() {
         header: 'Status',
         cell: (r) => (r.status === 'expired' ? <Badge tone="warning">Expired</Badge> : <Badge tone="blue">New</Badge>),
       },
+      ...(newLeadPerms.canAccept || newLeadPerms.canDecline
+        ? [
+            {
+              key: 'decide',
+              header: '',
+              align: 'right' as const,
+              cell: (r: FirmNewLead) =>
+                r.status !== 'new' || !r.leadId ? null : (
+                  <div className="flex justify-end gap-2" onClick={(e) => e.stopPropagation()}>
+                    {newLeadPerms.canAccept && (
+                      <button
+                        type="button"
+                        disabled={decidingLeadId === r.assessmentId}
+                        onClick={() => void decideNewLead(r, 'accept')}
+                        className="rounded-lg bg-brand-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
+                      >
+                        Accept
+                      </button>
+                    )}
+                    {newLeadPerms.canDecline && (
+                      <button
+                        type="button"
+                        disabled={decidingLeadId === r.assessmentId}
+                        onClick={() => void decideNewLead(r, 'reject')}
+                        className={btnGhost + ' !px-2.5 !py-1 !text-xs disabled:opacity-50'}
+                      >
+                        Decline
+                      </button>
+                    )}
+                  </div>
+                ),
+            },
+          ]
+        : []),
     ],
-    [],
+    [newLeadPerms, decidingLeadId, decideNewLead],
   )
 
   // Move a case to a different office, then refresh cases + capacity bars.
@@ -1221,14 +1288,17 @@ export default function FirmDashboard() {
       setTab(visibleTabs[0].key)
     }
   }, [visibleTabs, tab])
-  // Members who assign cases land on Active Cases rather than Overview, unless
-  // the link asked for a tab. Applied once, when their permissions first load.
+  // Members who accept cases land on New Leads, and those who assign them on
+  // Active Cases, rather than Overview, unless the link asked for a tab.
+  // Applied once, when their permissions first load.
   const landingApplied = useRef(false)
   useEffect(() => {
     if (landingApplied.current || !workspace) return
     landingApplied.current = true
     if (searchParams.get('tab') || FULL_ACCESS_FIRM_ROLES.includes(workspace.currentRole || '')) return
-    if ((workspace.permissions || []).includes('assign_cases')) setTab('caseload')
+    const perms = workspace.permissions || []
+    if (perms.includes('accept_cases')) setTab('newleads')
+    else if (perms.includes('assign_cases')) setTab('caseload')
   }, [workspace, searchParams])
 
   const canSeeTab = (k: TabKey) => visibleTabs.some((t) => t.key === k)
@@ -1768,9 +1838,10 @@ export default function FirmDashboard() {
                 columns={newLeadColumns}
                 rows={newLeads.active}
                 rowKey={(r: FirmNewLead) => r.assessmentId}
-                onRowClick={(r: FirmNewLead) => setReviewLeadId(r.assessmentId)}
+                onRowClick={newLeadPerms.canReview ? (r: FirmNewLead) => setReviewLeadId(r.assessmentId) : undefined}
               />
             )}
+            {decideError && <p className="mt-2 text-sm text-red-600">{decideError}</p>}
           </SectionCard>
 
           {reviewLeadId ? <FirmNewLeadReview assessmentId={reviewLeadId} onClose={() => setReviewLeadId(null)} /> : null}

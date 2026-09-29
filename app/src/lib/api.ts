@@ -1651,13 +1651,14 @@ export async function decideLead(
   decision: 'accept' | 'reject',
   notes?: string,
   declineReason?: string,
-  opts?: { conflictAcknowledged?: boolean }
+  opts?: { conflictAcknowledged?: boolean; onBehalfOfAttorneyId?: string }
 ): Promise<{ status?: string }> {
   const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/decision`, {
     decision,
     notes,
     declineReason,
     conflictAcknowledged: opts?.conflictAcknowledged || undefined,
+    onBehalfOfAttorneyId: opts?.onBehalfOfAttorneyId,
   })
   return data
 }
@@ -1819,7 +1820,13 @@ export type FirmNewLead = {
 
 // New marketplace leads routed to the firm (staff/intake "New Matches"), split
 // into active offers and expired (lapsed/re-routed) offers.
-export async function getFirmNewLeads(): Promise<{ active: FirmNewLead[]; expired: FirmNewLead[] }> {
+export type FirmNewLeadPermissions = { canReview: boolean; canAccept: boolean; canDecline: boolean }
+
+export async function getFirmNewLeads(): Promise<{
+  active: FirmNewLead[]
+  expired: FirmNewLead[]
+  permissions?: FirmNewLeadPermissions
+}> {
   const { data } = await api.get(`/v1/firm-dashboard/new-leads`)
   return data
 }
