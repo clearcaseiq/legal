@@ -108,7 +108,7 @@ const FIRM_ROLES = [
 // Ordered so the role matrix columns stay stable regardless of API ordering.
 const PERMISSION_LABELS: Record<string, string> = {
   manage_users: 'Manage users',
-  manage_routing: 'Manage routing',
+  manage_routing: 'Manage workflow',
   assign_cases: 'Assign cases',
   view_all_cases: 'View all cases',
   view_assigned_cases: 'View assigned cases',
