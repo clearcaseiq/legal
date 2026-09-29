@@ -2403,7 +2403,8 @@ describe('HTTP operations regressions', () => {
       where: {
         // No assessmentId filter: the calendar deliberately includes public
         // "Calendly-style" bookings, which have no assessment attached.
-        attorneyId: 'attorney-record-1',
+        // An attorney's scope is only themselves.
+        attorneyId: { in: ['attorney-record-1'] },
         status: { in: ['SCHEDULED', 'CONFIRMED', 'COMPLETED', 'NO_SHOW'] },
       },
       orderBy: { scheduledAt: 'asc' },
