@@ -301,7 +301,7 @@ export type FirmVisibility = {
   /** `view_all_cases`: every case in the firm. */
   canViewAllCases: boolean
   /**
-   * `review_cases` / `review_new_leads` / `accept_cases`: the firm's live
+   * `review_cases` / `review_new_leads` / `view_all_cases`: the firm's live
    * offers (New Matches), so a colleague can review a case routed to the
    * firm's main attorney before anyone accepts it.
    */
@@ -350,8 +350,10 @@ async function resolveFirmVisibility(req: any, _attorney: any): Promise<FirmVisi
   if (!access) return { lawFirmId: null, userId: req.user?.id ?? null, canViewAllCases: false }
   const has = (p: string) => access.permissions.includes(p)
   const canViewAllCases = has('view_all_cases')
-  const canAcceptFirmMatches = canViewAllCases || has('accept_cases')
-  const canReviewFirmMatches = canAcceptFirmMatches || has('review_cases') || has('review_new_leads')
+  // Accepting needs review: removing Review cases hides the firm's offers even
+  // from members who still hold Accept cases.
+  const canReviewFirmMatches = canViewAllCases || has('review_cases') || has('review_new_leads')
+  const canAcceptFirmMatches = canViewAllCases || (canReviewFirmMatches && has('accept_cases'))
   const canViewTeamCases = CASE_ACCESS_PERMISSIONS.some(has)
   return {
     lawFirmId: access.lawFirmId,

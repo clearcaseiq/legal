@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useLocation, useSearchParams } from 'react-router-dom'
 import { getStoredRole } from '../lib/auth'
 import {
@@ -251,6 +251,8 @@ interface FirmCaseRow {
   openTaskCount: number
   unassigned: boolean
   officeId?: string | null
+  /** False when the caller may assign this case but not work it: it opens read-only. */
+  canOpen?: boolean
 }
 
 interface FirmDashboardData {
@@ -379,14 +381,16 @@ function canSeeFirmTab(tab: TabKey, role: string | undefined, permissions: strin
   const has = (p: string) => permissions.includes(p)
   switch (tab) {
     case 'overview':
-    case 'caseload':
-      // Both show cases and case figures: any case permission (mirrors the
+      // Shows cases and case figures: any case permission (mirrors the
       // server's CASE_ACCESS_PERMISSIONS) or firm analytics.
       return has('view_analytics') || CASE_ACCESS_PERMISSIONS.some(has)
+    case 'caseload':
+      // Same, plus assigners, who work from the Active Cases list.
+      return has('view_analytics') || has('assign_cases') || CASE_ACCESS_PERMISSIONS.some(has)
     case 'newleads':
       // Intake specialists own this surface; firm admins/attorneys reach it via
       // their broader case-visibility permissions (CP-588).
-      return has('review_new_leads') || has('view_all_cases') || has('review_cases') || has('accept_cases')
+      return has('review_new_leads') || has('view_all_cases') || has('review_cases')
     case 'team':
       return has('manage_users') || has('assign_cases')
     case 'templates':
@@ -850,6 +854,28 @@ export default function FirmDashboard() {
     }
   }
 
+  // Active Cases row dropdown: picking an attorney makes them lead attorney.
+  const [quickAssigningId, setQuickAssigningId] = useState<string | null>(null)
+  const [quickAssignError, setQuickAssignError] = useState<string | null>(null)
+  const quickAssign = async (row: FirmCaseRow, value: string) => {
+    if (value === 'team') {
+      openAssign(row)
+      return
+    }
+    const attorneyId = value.startsWith('att:') ? value.slice(4) : null
+    if (!attorneyId) return
+    try {
+      setQuickAssigningId(row.assessmentId)
+      setQuickAssignError(null)
+      await assignFirmCase(row.assessmentId, { role: 'lead_attorney', assignedAttorneyId: attorneyId })
+      invalidateFirmDashboardSummary()
+    } catch (err: any) {
+      setQuickAssignError(err.response?.data?.error || 'Failed to assign case.')
+    } finally {
+      setQuickAssigningId(null)
+    }
+  }
+
   const removeAssignment = async (assignmentId: string) => {
     if (!assignTarget) return
     try {
@@ -1195,6 +1221,15 @@ export default function FirmDashboard() {
       setTab(visibleTabs[0].key)
     }
   }, [visibleTabs, tab])
+  // Members who assign cases land on Active Cases rather than Overview, unless
+  // the link asked for a tab. Applied once, when their permissions first load.
+  const landingApplied = useRef(false)
+  useEffect(() => {
+    if (landingApplied.current || !workspace) return
+    landingApplied.current = true
+    if (searchParams.get('tab') || FULL_ACCESS_FIRM_ROLES.includes(workspace.currentRole || '')) return
+    if ((workspace.permissions || []).includes('assign_cases')) setTab('caseload')
+  }, [workspace, searchParams])
 
   const canSeeTab = (k: TabKey) => visibleTabs.some((t) => t.key === k)
   // Nothing renders for a tab the member may not open, including the default
@@ -1895,18 +1930,31 @@ export default function FirmDashboard() {
                           key: 'assign',
                           header: '',
                           align: 'right',
-                          cell: (c: FirmCaseRow) => (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                openAssign(c)
-                              }}
-                              className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:border-brand-300 hover:bg-brand-50 hover:text-brand-700"
-                            >
-                              Assign
-                            </button>
-                          ),
+                          cell: (c: FirmCaseRow) => {
+                            const lead = c.assignments.find((a) => a.role === 'lead_attorney' && a.assignedAttorneyId)
+                            return (
+                              <select
+                                aria-label="Assign case"
+                                value=""
+                                disabled={quickAssigningId === c.assessmentId}
+                                onClick={(e) => e.stopPropagation()}
+                                onChange={(e) => quickAssign(c, e.target.value)}
+                                className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700 shadow-sm hover:border-brand-300 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/30 disabled:opacity-50"
+                              >
+                                <option value="">{quickAssigningId === c.assessmentId ? 'Assigning…' : 'Assign…'}</option>
+                                {attorneys.length > 0 && (
+                                  <optgroup label="Lead attorney">
+                                    {attorneys.map((a) => (
+                                      <option key={a.id} value={`att:${a.id}`} disabled={lead?.assignedAttorneyId === a.id}>
+                                        {a.name}{lead?.assignedAttorneyId === a.id ? ' (current)' : ''}
+                                      </option>
+                                    ))}
+                                  </optgroup>
+                                )}
+                                <option value="team">Manage case team…</option>
+                              </select>
+                            )
+                          },
                         },
                       ]
                     : []),
@@ -1914,12 +1962,13 @@ export default function FirmDashboard() {
                 rows={caseloadFiltered}
                 rowKey={(c: any) => c.assessmentId}
                 onRowClick={(c: any) =>
-                  c.leadId
+                  c.leadId && c.canOpen !== false
                     ? navigate(`/attorney-dashboard/cases/${c.leadId}/overview`)
                     : setOpenCaseId(c.assessmentId)
                 }
               />
             )}
+            {quickAssignError && <p className="mt-2 text-sm text-red-600">{quickAssignError}</p>}
           </SectionCard>
           {openCaseId ? (
             <FirmCaseDetail

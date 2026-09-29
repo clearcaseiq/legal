@@ -1414,8 +1414,7 @@ router.get('/new-leads', authMiddleware as any, async (req: any, res: Response) 
     const canReview =
       requireFirmPermission(context, 'review_new_leads') ||
       requireFirmPermission(context, 'view_all_cases') ||
-      requireFirmPermission(context, 'review_cases') ||
-      requireFirmPermission(context, 'accept_cases')
+      requireFirmPermission(context, 'review_cases')
     if (!canReview) {
       return res.status(403).json({ error: 'You do not have permission to review new leads' })
     }
@@ -1540,8 +1539,7 @@ router.get('/new-leads/:assessmentId', authMiddleware as any, async (req: any, r
     const canReview =
       requireFirmPermission(context, 'review_new_leads') ||
       requireFirmPermission(context, 'view_all_cases') ||
-      requireFirmPermission(context, 'review_cases') ||
-      requireFirmPermission(context, 'accept_cases')
+      requireFirmPermission(context, 'review_cases')
     if (!canReview) {
       return res.status(403).json({ error: 'You do not have permission to review new leads' })
     }
@@ -1683,7 +1681,9 @@ router.get('/cases/:assessmentId', authMiddleware as any, async (req: any, res: 
           (!!callerAttorneyId && x.assignedAttorneyId === callerAttorneyId),
       )
     const firmWide =
-      requireFirmPermission(context, 'view_all_cases') || requireFirmPermission(context, 'view_analytics')
+      requireFirmPermission(context, 'view_all_cases') ||
+      requireFirmPermission(context, 'view_analytics') ||
+      requireFirmPermission(context, 'assign_cases')
     if (!firmWide && !CASE_ACCESS_PERMISSIONS.some((p) => requireFirmPermission(context, p))) {
       return res.status(403).json({ error: 'Your firm role does not include access to cases.' })
     }
@@ -2658,11 +2658,15 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
     // firm. Both need some case permission: a member whose admin removed all of
     // them sees no cases, even ones they are still staffed on.
     const canSeeTeamCases = CASE_ACCESS_PERMISSIONS.some((p) => requireFirmPermission(context, p))
-    const visibleCases = canSeeFirmCaseload
-      ? firmCasesList
-      : canSeeTeamCases
-        ? firmCasesList.filter((c: any) => heldByCaller.has(c.assessmentId) || c.assignments.length === 0)
-        : []
+    const canOpenCase = (c: any) =>
+      canSeeFirmCaseload ||
+      (canSeeTeamCases && (heldByCaller.has(c.assessmentId) || c.assignments.length === 0))
+    // Assigners staff every case, so they see the whole list; `canOpen` says
+    // whether a row opens the case itself or only its read-only summary.
+    const workableCases = firmCasesList.filter(canOpenCase)
+    const visibleCases = (requireFirmPermission(context, 'assign_cases') ? firmCasesList : workableCases).map(
+      (c: any) => ({ ...c, canOpen: canOpenCase(c) }),
+    )
 
     // Marketplace Performance (firm scope): KPI tiles, acquisition funnel, and
     // spend-vs-return monthly series across every attorney in the firm.
@@ -2779,10 +2783,10 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
           : {
               // Without the firm-caseload grant, the case figures cover the
               // cases this member can see; firm spend and ROI stay withheld.
-              activeCases: visibleCases.length,
-              acceptedCases: visibleCases.length,
-              retainedCases: visibleCases.filter((c: any) => c.leadStatus === 'retained').length,
-              feesCollectedFromPayments: visibleCases.reduce(
+              activeCases: workableCases.length,
+              acceptedCases: workableCases.length,
+              retainedCases: workableCases.filter((c: any) => c.leadStatus === 'retained').length,
+              feesCollectedFromPayments: workableCases.reduce(
                 (sum: number, c: any) => sum + (feesByAssessmentId.get(c.assessmentId) || 0),
                 0,
               ),
@@ -2849,6 +2853,9 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
         id: member.id,
         role: member.role,
         title: member.title,
+        // Per-person grants/revokes, so the Assign permissions window reopens
+        // with what was saved rather than the role's defaults.
+        ...(requireFirmPermission(context, 'manage_users') ? { permissions: member.permissions ?? null } : {}),
         status: member.status,
         invitedAt: member.invitedAt,
         office: member.office ? {
