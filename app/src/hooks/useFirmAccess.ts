@@ -15,7 +15,7 @@ export type FirmAction =
   | 'billing'
 
 export type FirmAccess = {
-  firm: { id: string; role: string } | null
+  firm: { id: string; role: string; name?: string | null } | null
   permissions: string[]
   actions: Partial<Record<FirmAction, boolean>>
 }

@@ -97,6 +97,7 @@
   },
   "attorneyWorkspace": {
     "workspaceSubtitle": "Espacio del abogado",
+    "associatedWith": "Asociado con",
     "comingSoon": "Próximamente",
     "soon": "Pronto",
     "notifications": {

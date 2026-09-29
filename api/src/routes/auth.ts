@@ -14,7 +14,7 @@ import { isAdminUser, resolveAdminCapabilities } from '../lib/admin-access'
 import { canWorkCaseAssistance, isCaseAssistanceManager, isSpecialistRole } from '../lib/specialist-access'
 import { adoptGuestCasesByEmail } from '../lib/guest-case-adoption'
 import { sendClaimEmail } from '../lib/claims'
-import { permissionsForMember } from '../lib/firm-access'
+import { activateAcceptedInvites, permissionsForMember } from '../lib/firm-access'
 import { PASSWORD_RESET_TTL_MS, hashResetToken, passwordResetUrl } from '../lib/password-reset'
 import { issueEmailVerification, notifyEmailAddressChanged } from '../lib/email-verification'
 import { syncClaimantContactForUser } from '../lib/claimant-contact'
@@ -41,6 +41,55 @@ function parseStringArrayField(raw: string | null | undefined): string[] {
   } catch {
     return []
   }
+}
+
+// Session payload for a firm member who just accepted an invite, shaped like
+// the /attorney-login or /staff-login response the web app already stores.
+// Firm attorneys get the attorney workspace; everyone else gets the staff one.
+async function buildInviteSession(userId: string) {
+  const user = await prisma.user.findUnique({ where: { id: userId } })
+  if (!user || !user.isActive) return null
+  const membership = await findActiveFirmMembership(userId)
+  if (!membership) return null
+
+  await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } })
+  const token = generateToken(user.id)
+  const userPayload = {
+    id: user.id,
+    email: user.email,
+    firstName: user.firstName,
+    lastName: user.lastName,
+    phone: user.phone,
+    createdAt: user.createdAt,
+  }
+  const firm = {
+    id: membership.lawFirmId,
+    name: membership.lawFirm?.name || null,
+    role: membership.role,
+    title: membership.title || null,
+    permissions: permissionsForMember(membership.role, membership.lawFirm?.rolePermissions, membership.permissions),
+  }
+
+  const attorney =
+    user.role === 'attorney'
+      ? await prisma.attorney.findFirst({ where: { email: { equals: user.email, mode: 'insensitive' } } })
+      : null
+  if (attorney) {
+    return {
+      token,
+      user: userPayload,
+      role: 'attorney' as const,
+      attorney: {
+        id: attorney.id,
+        name: attorney.name,
+        email: attorney.email,
+        specialties: parseStringArrayField(attorney.specialties),
+        venues: parseStringArrayField(attorney.venues),
+      },
+      firm,
+    }
+  }
+  return { token, user: userPayload, role: 'staff' as const, firm }
 }
 
 // Health check for auth routes (verify API is reachable)
@@ -413,11 +462,13 @@ router.post('/reset-password', async (req, res) => {
     // Setting a password means an invited firm member has accepted: flip any
     // pending memberships to active so they count toward the firm and can be
     // assigned work. Best-effort — never blocks the password reset.
+    let acceptedInvite = false
     try {
-      await (prisma as any).firmMember.updateMany({
+      const activated = await (prisma as any).firmMember.updateMany({
         where: { userId: record.userId, status: 'invited' },
         data: { status: 'active', joinedAt: new Date() },
       })
+      acceptedInvite = (activated?.count ?? 0) > 0
     } catch (activateErr) {
       logger.warn('Failed to activate firm memberships after password set', {
         userId: record.userId,
@@ -436,6 +487,26 @@ router.post('/reset-password', async (req, res) => {
     }
 
     logger.info('Password reset completed', { userId: record.userId })
+
+    // Accepting a firm invite signs the member straight in. Limited to invites:
+    // an ordinary reset still goes back through the sign-in screen.
+    if (acceptedInvite) {
+      const session = await buildInviteSession(record.userId).catch((sessionErr) => {
+        logger.warn('Could not start session after invite acceptance', {
+          userId: record.userId,
+          error: sessionErr instanceof Error ? sessionErr.message : sessionErr,
+        })
+        return null
+      })
+      if (session) {
+        logger.info('Invited firm member signed in after setting password', {
+          userId: record.userId,
+          role: session.role,
+        })
+        return res.json({ ok: true, message: 'Your password has been set.', ...session })
+      }
+    }
+
     return res.json({ ok: true, message: 'Your password has been updated. You can now sign in.', role: userRole })
   } catch (error) {
     logger.error('Password reset failed', { error })
@@ -497,6 +568,8 @@ router.post('/attorney-login', async (req, res) => {
         isAttorney: false,
       })
     }
+
+    await activateAcceptedInvites(prisma as any, { userId: user.id })
 
     // Update last login
     await prisma.user.update({
@@ -570,6 +643,7 @@ router.post('/staff-login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials' })
     }
 
+    await activateAcceptedInvites(prisma as any, { userId: user.id })
     const membership = await findActiveFirmMembership(user.id)
     if (!membership) {
       // Pending invite? Give an actionable hint instead of a flat rejection.

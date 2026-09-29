@@ -406,8 +406,13 @@ const firmGate = (group: keyof typeof CASE_ACTION_PERMISSIONS) => async (req: an
 router.get('/access', authMiddleware, async (req: any, res: any) => {
   try {
     const access = await getRequestFirmAccess(req)
+    const lawFirm = access
+      ? await prisma.lawFirm
+          .findUnique({ where: { id: access.lawFirmId }, select: { name: true } })
+          .catch(() => null)
+      : null
     res.json({
-      firm: access ? { id: access.lawFirmId, role: access.role } : null,
+      firm: access ? { id: access.lawFirmId, role: access.role, name: lawFirm?.name || null } : null,
       permissions: access ? access.permissions : ALL_FIRM_PERMISSIONS,
       actions: Object.fromEntries(
         Object.entries(CASE_ACTION_PERMISSIONS).map(([k, perms]) => [k, firmAllows(access, [...perms])]),

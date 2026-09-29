@@ -100,6 +100,7 @@
   },
   "attorneyWorkspace": {
     "workspaceSubtitle": "Attorney workspace",
+    "associatedWith": "Associated with",
     "comingSoon": "Coming soon",
     "soon": "Soon",
     "notifications": {

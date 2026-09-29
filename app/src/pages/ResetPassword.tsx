@@ -3,7 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import LoginLayout from '../components/LoginLayout'
 import { PasswordInputWithReveal } from '../components/PasswordInputWithReveal'
 import { resetPassword, validatePasswordResetToken } from '../lib/api-auth'
-import { getLoginPathForRole } from '../lib/auth'
+import { clearStoredAuth, getLoginPathForRole, getPostLoginRoute } from '../lib/auth'
 import { useLanguage } from '../contexts/LanguageContext'
 
 export default function ResetPassword() {
@@ -65,6 +65,19 @@ export default function ResetPassword() {
     try {
       const result = await resetPassword(token, password)
       const role = result.role || userRole
+      if (result.token && (result.role === 'attorney' || result.role === 'staff')) {
+        clearStoredAuth()
+        localStorage.setItem('auth_token', result.token)
+        if (result.user) localStorage.setItem('user', JSON.stringify(result.user))
+        if (result.role === 'attorney') {
+          if (result.attorney) localStorage.setItem('attorney', JSON.stringify(result.attorney))
+        } else if (result.firm) {
+          localStorage.setItem('firm_member', JSON.stringify(result.firm))
+        }
+        localStorage.setItem('auth_role', result.role)
+        window.location.assign(getPostLoginRoute(result.role))
+        return
+      }
       setDone(true)
       // Admins used to be sent to the firm staff login, which is a different
       // sign-in for law-firm employees and rejects them. A new admin setting

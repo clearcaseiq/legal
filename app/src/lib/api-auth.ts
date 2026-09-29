@@ -38,7 +38,17 @@ export async function validatePasswordResetToken(token: string) {
 
 export async function resetPassword(token: string, password: string) {
   const { data } = await api.post('/v1/auth/reset-password', { token, password })
-  return data as { ok: boolean; message: string; role?: string }
+  // `token` is present only when the link was a firm invite; the member is then
+  // signed in without a trip through the login screen.
+  return data as {
+    ok: boolean
+    message: string
+    role?: string
+    token?: string
+    user?: Record<string, unknown>
+    attorney?: Record<string, unknown>
+    firm?: Record<string, unknown>
+  }
 }
 
 export async function getCurrentUser() {

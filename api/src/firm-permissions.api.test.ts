@@ -150,7 +150,7 @@ describe('GET /v1/attorney-dashboard/access', () => {
     const res = await request(app).get('/v1/attorney-dashboard/access').set(auth)
 
     expect(res.status).toBe(200)
-    expect(res.body.firm).toEqual({ id: 'firm-1', role: 'paralegal' })
+    expect(res.body.firm).toMatchObject({ id: 'firm-1', role: 'paralegal' })
     expect(res.body.actions).toMatchObject({ chronology: true, documents: true, message: false, demand: false })
   })
 

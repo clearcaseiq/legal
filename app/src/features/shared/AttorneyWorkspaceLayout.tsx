@@ -25,6 +25,7 @@ import { initials } from './ui'
 import GlobalSearch from './GlobalSearch'
 import { isCalendarRoute, isWideAttorneyRoute } from '../../lib/layoutWidth'
 import { useLanguage } from '../../contexts/LanguageContext'
+import { useFirmAccess } from '../../hooks/useFirmAccess'
 
 interface NavEntry {
   to: string
@@ -170,6 +171,7 @@ function Sidebar() {
   const location = useLocation()
   const { t } = useLanguage()
   const { attorney, isFirmAdmin, isStaff, unreadMessages, unreadTeamMessages, unreadNotifications } = useAttorneyWorkspace()
+  const firmName = useFirmAccess().access?.firm?.name || attorney.firmName
 
   const isActive = (to: string) => navEntryActive(to, location.pathname)
   const badgeFor = (to: string) =>
@@ -188,7 +190,7 @@ function Sidebar() {
           </span>
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold text-slate-800">{attorney.name}</p>
-            <p className="truncate text-xs text-slate-500">{attorney.firmName || t('attorneyWorkspace.workspaceSubtitle')}</p>
+            <p className="truncate text-xs text-slate-500">{firmName || t('attorneyWorkspace.workspaceSubtitle')}</p>
           </div>
           <ChevronRight className="h-4 w-4 shrink-0 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-brand-500" />
         </Link>
@@ -383,14 +385,25 @@ function WorkspaceChrome() {
   const isFullWidth = isWideAttorneyRoute(location.pathname)
   const isCalendar = isCalendarRoute(location.pathname)
   const { isStaff } = useAttorneyWorkspace()
+  const firmName = useFirmAccess().access?.firm?.name
   return (
     <div className={isFullWidth ? 'w-full' : 'mx-auto w-full max-w-7xl'}>
-      <div className="mb-4 flex items-center gap-3">
+      <div className="mb-4 flex flex-wrap items-center gap-3">
         <div className="flex min-w-0 items-center gap-2 text-xs font-medium text-slate-500">
           <span className="font-semibold text-slate-700">ClearCaseIQ</span>
           <span className="text-slate-300">/</span>
           <span className="truncate">{t(`attorneyWorkspace.domain.${domain}`)}</span>
         </div>
+        {firmName && (
+          <div
+            className="mx-auto flex min-w-0 items-center gap-2 rounded-full border border-brand-200 bg-brand-50 px-3 py-1 text-xs text-brand-800"
+            title={firmName}
+          >
+            <Building2 className="h-3.5 w-3.5 shrink-0 text-brand-600" />
+            <span className="shrink-0 text-brand-600">{t('attorneyWorkspace.associatedWith')}</span>
+            <span className="truncate font-semibold">{firmName}</span>
+          </div>
+        )}
       </div>
       <div className="flex gap-6">
         <Sidebar />
