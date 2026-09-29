@@ -862,15 +862,35 @@ router.patch('/members/:memberId', authMiddleware as any, async (req: any, res: 
       data.title = typeof body.title === 'string' ? body.title.trim() || null : null
     }
 
-    // Permission overrides (JSON array of strings)
+    // Per-member adjustments to the role: `{ grant, revoke }`, a bare array of
+    // grants (the older format), or null to reset to the role's defaults.
     if ('permissions' in body) {
-      if (body.permissions === null || (Array.isArray(body.permissions) && body.permissions.length === 0)) {
-        data.permissions = null
-      } else if (Array.isArray(body.permissions) && body.permissions.every((p: unknown) => typeof p === 'string')) {
-        data.permissions = JSON.stringify(body.permissions)
+      const raw = body.permissions
+      const isStringList = (v: unknown) => Array.isArray(v) && v.every((p) => typeof p === 'string')
+      let overrides: { grant: string[]; revoke: string[] }
+      if (raw === null) {
+        overrides = { grant: [], revoke: [] }
+      } else if (isStringList(raw)) {
+        overrides = { grant: raw, revoke: [] }
+      } else if (
+        raw && typeof raw === 'object' &&
+        (raw.grant === undefined || isStringList(raw.grant)) &&
+        (raw.revoke === undefined || isStringList(raw.revoke))
+      ) {
+        overrides = { grant: raw.grant ?? [], revoke: raw.revoke ?? [] }
       } else {
-        return res.status(400).json({ error: 'permissions must be an array of strings or null' })
+        return res.status(400).json({ error: 'permissions must be { grant, revoke } string arrays, an array of strings, or null' })
       }
+      const unknown = [...overrides.grant, ...overrides.revoke].filter((p) => !ALL_FIRM_PERMISSIONS.includes(p))
+      if (unknown.length) {
+        return res.status(400).json({ error: `Unknown permission: ${unknown.join(', ')}` })
+      }
+      if (member.userId === context.member?.userId && overrides.revoke.includes('manage_users')) {
+        return res.status(400).json({ error: 'You cannot remove your own permission to manage users.' })
+      }
+      const grant = Array.from(new Set(overrides.grant))
+      const revoke = Array.from(new Set(overrides.revoke)).filter((p) => !grant.includes(p))
+      data.permissions = grant.length || revoke.length ? JSON.stringify({ grant, revoke }) : null
     }
 
     // Status change (suspend / reactivate)

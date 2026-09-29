@@ -6129,7 +6129,14 @@ export async function addFirmAttorney(payload: {
 
 export async function updateFirmMember(
   memberId: string,
-  payload: { officeId?: string | null; role?: string; title?: string | null; permissions?: string[] | null; status?: string }
+  payload: {
+    officeId?: string | null
+    role?: string
+    title?: string | null
+    /** Adjustments to the member's role; null resets them to the role's defaults. */
+    permissions?: { grant: string[]; revoke: string[] } | null
+    status?: string
+  }
 ) {
   const { data } = await api.patch(`/v1/firm-dashboard/members/${memberId}`, payload)
   return data

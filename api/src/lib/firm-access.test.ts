@@ -1,5 +1,34 @@
 import { describe, expect, it, vi } from 'vitest'
-import { resolveFirmAccess } from './firm-access'
+import { parseMemberOverrides, permissionsForMember, resolveFirmAccess } from './firm-access'
+import { ALL_FIRM_PERMISSIONS, FIRM_ROLE_PERMISSIONS } from './firm-roles'
+
+describe('permissionsForMember', () => {
+  it('adds grants and takes away revokes from the role defaults', () => {
+    const perms = permissionsForMember(
+      'case_manager',
+      null,
+      JSON.stringify({ grant: ['generate_demands'], revoke: ['manage_assigned_cases'] }),
+    )
+    expect(perms).toContain('generate_demands')
+    expect(perms).not.toContain('manage_assigned_cases')
+    expect(perms).toContain('message_plaintiffs')
+  })
+
+  it('reads the older bare-array format as grants', () => {
+    const perms = permissionsForMember('intake_specialist', null, JSON.stringify(['message_plaintiffs']))
+    expect(perms).toEqual(expect.arrayContaining([...FIRM_ROLE_PERMISSIONS.intake_specialist, 'message_plaintiffs']))
+  })
+
+  it('never takes permissions away from a firm admin', () => {
+    const perms = permissionsForMember('firm_admin', null, JSON.stringify({ revoke: ['manage_users'] }))
+    expect(perms).toEqual([...ALL_FIRM_PERMISSIONS])
+  })
+
+  it('treats malformed overrides as none', () => {
+    expect(parseMemberOverrides('{not json')).toEqual({ grant: [], revoke: [] })
+    expect(parseMemberOverrides(null)).toEqual({ grant: [], revoke: [] })
+  })
+})
 
 /** A client where the caller is an attorney linked to firm_1 with no active membership. */
 function linkedAttorneyClient(firmHasMembers: boolean) {

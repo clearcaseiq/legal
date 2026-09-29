@@ -38,15 +38,42 @@ export function parsePermissionList(value: unknown): string[] {
   return []
 }
 
-/** The member's permissions: the firm's setting for their role plus their own extra grants. */
+export type MemberPermissionOverrides = { grant: string[]; revoke: string[] }
+
+/**
+ * A member's own adjustments to their role, from `FirmMember.permissions`.
+ *
+ * Stored as `{ grant, revoke }`. A bare array is the older format, which could
+ * only add permissions, and is read as grants.
+ */
+export function parseMemberOverrides(value: unknown): MemberPermissionOverrides {
+  let parsed: unknown = value
+  if (typeof value === 'string') {
+    try {
+      parsed = value.trim() ? JSON.parse(value) : null
+    } catch {
+      parsed = null
+    }
+  }
+  if (Array.isArray(parsed)) return { grant: parsed.map(String), revoke: [] }
+  if (parsed && typeof parsed === 'object') {
+    const { grant, revoke } = parsed as { grant?: unknown; revoke?: unknown }
+    return { grant: parsePermissionList(grant), revoke: parsePermissionList(revoke) }
+  }
+  return { grant: [], revoke: [] }
+}
+
+/** The member's permissions: the firm's setting for their role, plus their grants, minus their revokes. */
 export function permissionsForMember(
   role: string,
   rolePermissionsJson: string | null | undefined,
-  memberExtras: unknown,
+  memberOverrides: unknown,
 ): string[] {
   if (SUPERUSER_FIRM_ROLES.includes(role)) return [...ALL_FIRM_PERMISSIONS]
   const byRole = effectiveRolePermissions(rolePermissionsJson)[role] || []
-  return Array.from(new Set([...byRole, ...parsePermissionList(memberExtras)]))
+  const { grant, revoke } = parseMemberOverrides(memberOverrides)
+  const revoked = new Set(revoke)
+  return Array.from(new Set([...byRole, ...grant])).filter((p) => !revoked.has(p))
 }
 
 type AccessClient = {

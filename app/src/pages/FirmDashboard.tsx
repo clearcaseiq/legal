@@ -176,6 +176,22 @@ const FIRM_ROLE_PERMISSIONS_FALLBACK: Record<string, string[]> = {
 const humanizePermission = (p: string) =>
   PERMISSION_LABELS[p] || p.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 
+/**
+ * A member's adjustments to their role, as stored on FirmMember.permissions:
+ * `{ grant, revoke }`, or a bare array of grants from before revokes existed.
+ * Mirrors parseMemberOverrides in api/src/lib/firm-access.ts.
+ */
+function parseMemberOverrides(value: unknown): { grant: string[]; revoke: string[] } {
+  let parsed: any = value
+  if (typeof value === 'string') {
+    try { parsed = value.trim() ? JSON.parse(value) : null } catch { parsed = null }
+  }
+  const list = (v: unknown) => (Array.isArray(v) ? v.map(String) : [])
+  if (Array.isArray(parsed)) return { grant: list(parsed), revoke: [] }
+  if (parsed && typeof parsed === 'object') return { grant: list(parsed.grant), revoke: list(parsed.revoke) }
+  return { grant: [], revoke: [] }
+}
+
 const TEAM_TYPES = [
   { value: 'case_team', label: 'Case Team' },
   { value: 'intake', label: 'Intake' },
@@ -467,7 +483,8 @@ export default function FirmDashboard() {
   const [editingMember, setEditingMember] = useState<any>(null)
   const [editMemberRole, setEditMemberRole] = useState('')
   const [editMemberTitle, setEditMemberTitle] = useState('')
-  const [editMemberPermOverrides, setEditMemberPermOverrides] = useState<string[]>([])
+  const [editMemberGrant, setEditMemberGrant] = useState<string[]>([])
+  const [editMemberRevoke, setEditMemberRevoke] = useState<string[]>([])
   const [editMemberSaving, setEditMemberSaving] = useState(false)
   const [editMemberError, setEditMemberError] = useState<string | null>(null)
   const [confirmRemoveMember, setConfirmRemoveMember] = useState(false)
@@ -1034,10 +1051,9 @@ export default function FirmDashboard() {
     setEditingMember(m)
     setEditMemberRole(m.role || 'intake_specialist')
     setEditMemberTitle(m.title || '')
-    const overrides = (() => {
-      try { return JSON.parse(m.permissions || '[]') } catch { return [] }
-    })()
-    setEditMemberPermOverrides(Array.isArray(overrides) ? overrides : [])
+    const { grant, revoke } = parseMemberOverrides(m.permissions)
+    setEditMemberGrant(grant)
+    setEditMemberRevoke(revoke)
     setEditMemberError(null)
     setConfirmRemoveMember(false)
   }
@@ -1046,10 +1062,27 @@ export default function FirmDashboard() {
     return (workspace?.roleCapabilities as Record<string, string[]> | undefined)?.[editMemberRole] || []
   }, [editMemberRole, workspace?.roleCapabilities])
 
+  const editMemberIsAdmin = editMemberRole === 'firm_admin'
+
+  const isPermActive = (perm: string) =>
+    !editMemberRevoke.includes(perm) && (roleDefaultPerms.includes(perm) || editMemberGrant.includes(perm))
+
+  // Toggling records the difference from the role: adding a permission the
+  // role lacks is a grant, removing one it has is a revoke.
   const togglePermOverride = (perm: string) => {
-    setEditMemberPermOverrides((prev) =>
-      prev.includes(perm) ? prev.filter((p) => p !== perm) : [...prev, perm]
-    )
+    const without = (list: string[]) => list.filter((p) => p !== perm)
+    if (isPermActive(perm)) {
+      setEditMemberGrant(without)
+      if (roleDefaultPerms.includes(perm)) setEditMemberRevoke((prev) => [...without(prev), perm])
+    } else {
+      setEditMemberRevoke(without)
+      if (!roleDefaultPerms.includes(perm)) setEditMemberGrant((prev) => [...without(prev), perm])
+    }
+  }
+
+  const resetMemberPerms = () => {
+    setEditMemberGrant([])
+    setEditMemberRevoke([])
   }
 
   const handleSaveMember = async () => {
@@ -1057,11 +1090,14 @@ export default function FirmDashboard() {
     setEditMemberSaving(true)
     setEditMemberError(null)
     try {
-      const extraPerms = editMemberPermOverrides.filter((p) => !roleDefaultPerms.includes(p))
+      // Re-derived against the role being saved, so switching roles drops
+      // grants the new role already includes and revokes it never had.
+      const grant = editMemberIsAdmin ? [] : editMemberGrant.filter((p) => !roleDefaultPerms.includes(p))
+      const revoke = editMemberIsAdmin ? [] : editMemberRevoke.filter((p) => roleDefaultPerms.includes(p))
       await updateFirmMember(editingMember.id, {
         role: editMemberRole,
         title: editMemberTitle.trim() || null,
-        permissions: extraPerms.length > 0 ? extraPerms : null,
+        permissions: grant.length || revoke.length ? { grant, revoke } : null,
       })
       await refresh(true)
       setEditingMember(null)
@@ -1895,6 +1931,22 @@ export default function FirmDashboard() {
                           <div className="flex items-center gap-2">
                             <span className="font-medium text-slate-800 group-hover:text-brand-700 group-hover:underline">{displayName}</span>
                             {m.status === 'invited' && <Badge tone="warning">Pending</Badge>}
+                            {(() => {
+                              if (m.role === 'firm_admin') return null
+                              const { grant, revoke } = parseMemberOverrides(m.permissions)
+                              if (!grant.length && !revoke.length) return null
+                              const label = [grant.length ? `+${grant.length}` : '', revoke.length ? `−${revoke.length}` : ''].filter(Boolean).join(' / ')
+                              return (
+                                <span
+                                  title={[
+                                    grant.length ? `Added: ${grant.map(humanizePermission).join(', ')}` : '',
+                                    revoke.length ? `Removed: ${revoke.map(humanizePermission).join(', ')}` : '',
+                                  ].filter(Boolean).join('\n')}
+                                >
+                                  <Badge tone="blue">Custom {label}</Badge>
+                                </span>
+                              )
+                            })()}
                   </div>
                           {att ? (
                             <div className="flex items-center gap-1 text-xs text-slate-400">
@@ -2000,10 +2052,10 @@ export default function FirmDashboard() {
                         <button
                           onClick={() => openEditMember(m)}
                           className={btnGhost + ' !px-2.5 !py-1 !text-xs'}
-                          title="Edit role & permissions"
+                          title="Set this person's role and permissions"
                         >
                           <Shield className="mr-1 inline h-3.5 w-3.5" />
-                          Manage
+                          Assign permissions
                         </button>
         </div>
                     )
@@ -2671,42 +2723,54 @@ export default function FirmDashboard() {
 
               {/* Permission matrix */}
               <div>
-                <label className="mb-2 block text-sm font-semibold text-slate-700">
-                  <Shield className="mr-1.5 inline h-4 w-4 text-brand-500" />
-                  Permissions
-                </label>
-                <p className="mb-3 text-xs text-slate-400">
-                  Permissions from the selected role (marked <span className="font-semibold text-brand-600">Role</span>) are always granted. Check any others to give this person extra access on top of their role.
-                </p>
-                <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
-                  {ALL_PERMISSIONS.map((perm) => {
-                    const isRoleDefault = roleDefaultPerms.includes(perm)
-                    const isOverride = editMemberPermOverrides.includes(perm)
-                    const isActive = isRoleDefault || isOverride
-                          return (
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <label className="block text-sm font-semibold text-slate-700">
+                    <Shield className="mr-1.5 inline h-4 w-4 text-brand-500" />
+                    Assign permissions
+                  </label>
+                  {!editMemberIsAdmin && (editMemberGrant.length > 0 || editMemberRevoke.length > 0) && (
+                    <button type="button" onClick={resetMemberPerms} className="text-xs font-semibold text-brand-700 hover:text-brand-800">
+                      Reset to role defaults
+                    </button>
+                  )}
+                </div>
+                {editMemberIsAdmin ? (
+                  <p className="rounded-lg bg-brand-50 px-3 py-2 text-xs text-brand-800">
+                    Firm admins always have every permission. Choose another role to customize this person's access.
+                  </p>
+                ) : (
+                  <>
+                    <p className="mb-3 text-xs text-slate-400">
+                      The role's permissions start checked. Uncheck one to take it away from this person only, or check any other to add it.
+                    </p>
+                    <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+                      {ALL_PERMISSIONS.map((perm) => {
+                        const isRoleDefault = roleDefaultPerms.includes(perm)
+                        const isActive = isPermActive(perm)
+                        return (
                           <label
-                        key={perm}
-                        className={`flex cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition ${
-                          isActive ? 'bg-brand-50 text-brand-800' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'
+                            key={perm}
+                            title={PERMISSION_DESCRIPTIONS[perm]}
+                            className={`flex cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition ${
+                              isActive ? 'bg-brand-50 text-brand-800' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'
                             }`}
                           >
                             <input
                               type="checkbox"
-                          checked={isActive}
-                          onChange={() => {
-                            if (isRoleDefault && !isOverride) return
-                            togglePermOverride(perm)
-                          }}
-                          disabled={isRoleDefault && !isOverride}
-                          className="rounded border-slate-300 text-brand-600 focus:ring-brand-500 disabled:opacity-40"
-                        />
-                        <span className="flex-1">{perm.replace(/_/g, ' ')}</span>
-                        {isRoleDefault && <span className="rounded bg-brand-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-brand-600">Role</span>}
-                        {!isRoleDefault && isOverride && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-600">Extra</span>}
+                              checked={isActive}
+                              onChange={() => togglePermOverride(perm)}
+                              className="rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                            />
+                            <span className="flex-1">{humanizePermission(perm)}</span>
+                            {isRoleDefault && isActive && <span className="rounded bg-brand-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-brand-600">Role</span>}
+                            {isRoleDefault && !isActive && <span className="rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-rose-600">Removed</span>}
+                            {!isRoleDefault && isActive && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-600">Added</span>}
                           </label>
-                    )
-                  })}
-                </div>
+                        )
+                      })}
+                    </div>
+                  </>
+                )}
               </div>
 
               {/* Status / Suspend / Remove */}
