@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { parseMemberOverrides, permissionsForMember, resolveFirmAccess } from './firm-access'
+import { activateAcceptedInvites, parseMemberOverrides, permissionsForMember, resolveFirmAccess } from './firm-access'
 import { ALL_FIRM_PERMISSIONS, FIRM_ROLE_PERMISSIONS } from './firm-roles'
 
 describe('permissionsForMember', () => {
@@ -54,5 +54,22 @@ describe('resolveFirmAccess', () => {
     // Invited but not accepted, suspended, or removed: Attorney.lawFirmId is still set.
     const access = await resolveFirmAccess(linkedAttorneyClient(true), { id: 'user_1', email: 'a@x.test' })
     expect(access).toBeNull()
+  })
+})
+
+describe('activateAcceptedInvites', () => {
+  it('activates only invited rows whose account has a password', async () => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 })
+    const count = await activateAcceptedInvites({ firmMember: { updateMany } }, { lawFirmId: 'firm_1' })
+    expect(count).toBe(1)
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { lawFirmId: 'firm_1', status: 'invited', user: { passwordHash: { not: null } } },
+      data: { status: 'active', joinedAt: expect.any(Date) },
+    })
+  })
+
+  it('never throws, so a sign-in or roster load is not blocked by it', async () => {
+    const updateMany = vi.fn().mockRejectedValue(new Error('db down'))
+    await expect(activateAcceptedInvites({ firmMember: { updateMany } }, { userId: 'user_1' })).resolves.toBe(0)
   })
 })

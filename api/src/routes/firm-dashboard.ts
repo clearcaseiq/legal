@@ -40,7 +40,7 @@ import {
   LOCKED_ROLE_PERMISSIONS,
   effectiveRolePermissions,
 } from '../lib/firm-roles'
-import { isMemberlessFirm, permissionsForMember } from '../lib/firm-access'
+import { activateAcceptedInvites, isMemberlessFirm, permissionsForMember } from '../lib/firm-access'
 import { getAttorneyResponseDeadlineMinutes, getMatchingRules } from '../lib/matching-rules-config'
 import { triggerOfferExpirySweepSoon } from '../lib/offer-expiry-sweep'
 import { CLOSED_STATUSES } from '../lib/case-stage'
@@ -2307,6 +2307,8 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
     if (!firm) {
       return res.status(404).json({ error: 'Law firm not found' })
     }
+
+    await activateAcceptedInvites(prisma as any, { lawFirmId: firm.id })
 
     const [members, offices, teams, firmCases] = await Promise.all([
       (prisma as any).firmMember.findMany({

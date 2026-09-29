@@ -144,6 +144,31 @@ export async function resolveFirmAccess(client: AccessClient, caller: Caller): P
   return null
 }
 
+/**
+ * Flip pending firm invites to active for accounts that have set a password.
+ *
+ * An invite is accepted by setting a password, and the password-set request is
+ * meant to activate the membership — but that step is best-effort, so a member
+ * could end up signed in while their membership still read "invited". Only
+ * active memberships carry firm permissions, so such an attorney was treated as
+ * solo and refused a colleague's match. Pass `userId` to repair one account, or
+ * `lawFirmId` to repair a firm's roster. Returns the number of rows activated.
+ */
+export async function activateAcceptedInvites(
+  client: { firmMember: { updateMany: (args: any) => Promise<{ count: number }> } },
+  scope: { userId: string } | { lawFirmId: string },
+): Promise<number> {
+  try {
+    const result = await client.firmMember.updateMany({
+      where: { ...scope, status: 'invited', user: { passwordHash: { not: null } } },
+      data: { status: 'active', joinedAt: new Date() },
+    })
+    return result?.count ?? 0
+  } catch {
+    return 0
+  }
+}
+
 /** Whether the caller holds any of `anyOf`. Callers outside a firm are not limited by firm roles. */
 export function firmAllows(access: FirmAccess | null, anyOf: string | string[]): boolean {
   if (!access) return true
