@@ -98,6 +98,7 @@ const Messaging = lazy(() => import('./pages/Messaging'))
 const SmartRecommendations = lazy(() => import('./pages/SmartRecommendations'))
 // Two-domain attorney workspace (Lead Generation vs Case Management)
 const AttorneyWorkspaceLayout = lazy(() => import('./features/shared/AttorneyWorkspaceLayout'))
+const RequireFirmPermission = lazy(() => import('./features/shared/RequireFirmPermission'))
 const NewMatchesPage = lazy(() => import('./features/leadgen/NewMatchesPage'))
 const OfferShortLink = lazy(() => import('./pages/OfferShortLink'))
 const AttorneyAnalyticsPage = lazy(() => import('./features/leadgen/AttorneyAnalyticsPage'))
@@ -1380,6 +1381,15 @@ function App() {
               <Route element={<AttorneyWorkspaceLayout />}>
                 <Route path="/attorney-dashboard/lead/:leadId/:section" element={<CaseWorkspacePage />} />
                 <Route path="/attorney-dashboard/cases/:leadId/:section" element={<CaseWorkspacePage />} />
+                {/* Staff holding "Schedule consults" run the firm attorneys' calendars. */}
+                <Route
+                  path="/attorney-dashboard/cases/calendar"
+                  element={<RequireFirmPermission action="schedule"><CalendarPage /></RequireFirmPermission>}
+                />
+                <Route
+                  path="/attorney-dashboard/cases/scheduling"
+                  element={<RequireFirmPermission action="schedule"><SchedulingSettingsPage /></RequireFirmPermission>}
+                />
               </Route>
               {/* Staff book on behalf of the case's lead attorney. */}
               <Route path="/attorney-dashboard/schedule-consult/:leadId" element={<ScheduleConsultPage />} />
@@ -1412,8 +1422,6 @@ function App() {
                 <Route path="/attorney-dashboard/cases/active" element={<ActiveCasesPage />} />
                 {/* Case Workspace launcher folded into Active Cases ("Jump back in" strip). */}
                 <Route path="/attorney-dashboard/cases/workspace" element={<Navigate to="/attorney-dashboard/cases/active" replace />} />
-                <Route path="/attorney-dashboard/cases/calendar" element={<CalendarPage />} />
-                <Route path="/attorney-dashboard/cases/scheduling" element={<SchedulingSettingsPage />} />
                 <Route path="/attorney-dashboard/cases/messages" element={<CaseMessagesPage />} />
                 <Route path="/attorney-dashboard/cases/team" element={<TeamMessagesPage />} />
                 <Route path="/attorney-dashboard/cases/activity" element={<ActivityPage />} />

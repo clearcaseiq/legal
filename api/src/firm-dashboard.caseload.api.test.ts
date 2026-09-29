@@ -72,6 +72,19 @@ describe('GET /v1/firm-dashboard caseload scope', () => {
     expect(res.body.metrics.activeCases).toBe(2)
   })
 
+  it('shows no cases to a member whose admin removed every permission', async () => {
+    asMember('paralegal')
+    vi.mocked((prisma as any).firmMember.findFirst).mockResolvedValue({
+      ...(await (prisma as any).firmMember.findFirst()),
+      permissions: JSON.stringify({ revoke: ['view_assigned_cases', 'manage_chronology', 'upload_documents'] }),
+    } as any)
+
+    const res = await request(app).get('/v1/firm-dashboard').set(auth)
+    expect(res.status).toBe(200)
+    expect(res.body.cases).toEqual([])
+    expect(res.body.metrics.activeCases).toBe(0)
+  })
+
   it('shows the whole firm roster to a role with view_all_cases', async () => {
     asMember('firm_admin')
 
@@ -144,6 +157,19 @@ describe('GET /v1/firm-dashboard/cases/:assessmentId', () => {
     expect(res.body.evidenceCounts).toEqual({ photos: 2 })
     expect(res.body.openTasks).toHaveLength(1)
     expect(res.body.incident.narrative).toBe('Rear-ended')
+  })
+
+  it('refuses even an unstaffed case to a member with every permission removed', async () => {
+    asMember('paralegal')
+    vi.mocked((prisma as any).firmMember.findFirst).mockResolvedValue({
+      ...(await (prisma as any).firmMember.findFirst()),
+      permissions: JSON.stringify({ revoke: ['view_assigned_cases', 'manage_chronology', 'upload_documents'] }),
+    } as any)
+    vi.mocked((prisma as any).assessment.findFirst).mockResolvedValue(detailRow('unstaffed', []) as any)
+
+    const res = await request(app).get('/v1/firm-dashboard/cases/unstaffed').set(auth)
+
+    expect(res.status).toBe(403)
   })
 
   it('opens a staffed case for a member of its team', async () => {

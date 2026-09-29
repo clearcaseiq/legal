@@ -135,6 +135,8 @@ export default function CalendarPage() {
         if (cancelled) return
         const tz = (res as any).timezone || null
         setTimezone(tz)
+        // Set only for a firm scheduler, who sees every attorney's consults.
+        const firmWide = (res.attorneys?.length ?? 0) > 0
         const items: CalItem[] = (res.events || [])
           .map((e) => {
             const d = zonedWallClock(e.scheduledAt, tz)
@@ -145,7 +147,10 @@ export default function CalendarPage() {
               leadId: e.leadId,
               date: d,
               end: new Date(d.getTime() + (e.duration || 30) * 60000),
-              title: e.plaintiffName || 'Consult',
+              title:
+                firmWide && e.attorneyName
+                  ? `${e.plaintiffName || 'Consult'} · ${e.attorneyName}`
+                  : e.plaintiffName || 'Consult',
               hasTime: true,
               source: e.source === 'booking' ? 'booking' : 'case',
               consult: {

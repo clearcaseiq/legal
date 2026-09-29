@@ -169,6 +169,21 @@ export async function activateAcceptedInvites(
   }
 }
 
+/** Firm permission that lets staff run the attorneys' calendars and booking links. */
+export const SCHEDULE_PERMISSION = 'schedule_consultations'
+
+/**
+ * Prisma filter for the firm attorneys whose consults a scheduler may manage.
+ * `Attorney.lawFirmId` outlives an unaccepted invite or a suspension, so an
+ * attorney with a non-active membership in the firm is left out.
+ */
+export function schedulableFirmAttorneysWhere(lawFirmId: string) {
+  return {
+    lawFirmId,
+    firmMemberships: { none: { lawFirmId, status: { not: 'active' } } },
+  }
+}
+
 /** Whether the caller holds any of `anyOf`. Callers outside a firm are not limited by firm roles. */
 export function firmAllows(access: FirmAccess | null, anyOf: string | string[]): boolean {
   if (!access) return true

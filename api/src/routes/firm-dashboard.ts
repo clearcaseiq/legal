@@ -35,6 +35,7 @@ import {
 } from '../lib/time-tracking'
 import {
   FIRM_ROLE_PERMISSIONS,
+  CASE_ACCESS_PERMISSIONS,
   CASE_ASSIGNMENT_ROLES,
   MULTI_ASSIGNEE_CASE_ROLES,
   ALL_FIRM_PERMISSIONS,
@@ -1683,6 +1684,9 @@ router.get('/cases/:assessmentId', authMiddleware as any, async (req: any, res: 
       )
     const firmWide =
       requireFirmPermission(context, 'view_all_cases') || requireFirmPermission(context, 'view_analytics')
+    if (!firmWide && !CASE_ACCESS_PERMISSIONS.some((p) => requireFirmPermission(context, p))) {
+      return res.status(403).json({ error: 'Your firm role does not include access to cases.' })
+    }
     if (!firmWide && !held && assignmentRows.length > 0) {
       return res.status(403).json({ error: 'This case is limited to its case team' })
     }
@@ -2650,10 +2654,15 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
       }
     })
 
-    // A staffed case is visible to its case team; an unstaffed one to the whole firm.
+    // A staffed case is visible to its case team; an unstaffed one to the whole
+    // firm. Both need some case permission: a member whose admin removed all of
+    // them sees no cases, even ones they are still staffed on.
+    const canSeeTeamCases = CASE_ACCESS_PERMISSIONS.some((p) => requireFirmPermission(context, p))
     const visibleCases = canSeeFirmCaseload
       ? firmCasesList
-      : firmCasesList.filter((c: any) => heldByCaller.has(c.assessmentId) || c.assignments.length === 0)
+      : canSeeTeamCases
+        ? firmCasesList.filter((c: any) => heldByCaller.has(c.assessmentId) || c.assignments.length === 0)
+        : []
 
     // Marketplace Performance (firm scope): KPI tiles, acquisition funnel, and
     // spend-vs-return monthly series across every attorney in the firm.

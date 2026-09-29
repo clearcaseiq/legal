@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useNavigate, useLocation, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useLocation, useSearchParams } from 'react-router-dom'
+import { getStoredRole } from '../lib/auth'
 import {
+  CalendarDays,
   LayoutDashboard,
   Users,
   Briefcase,
@@ -365,13 +367,22 @@ const TABS: Array<{ key: TabKey; label: string; icon: typeof LayoutDashboard }> 
 // permissions the server enforces.
 const FULL_ACCESS_FIRM_ROLES = ['firm_admin']
 
+const CASE_ACCESS_PERMISSIONS = [
+  'view_all_cases', 'view_assigned_cases', 'manage_assigned_cases', 'review_cases', 'review_new_leads',
+  'accept_cases', 'decline_cases', 'message_plaintiffs', 'generate_demands', 'upload_documents',
+  'manage_documents', 'upload_records', 'request_evidence', 'request_records', 'schedule_consultations',
+  'manage_chronology', 'manage_invoices', 'process_payments', 'manage_billing',
+]
+
 function canSeeFirmTab(tab: TabKey, role: string | undefined, permissions: string[]): boolean {
   if (!role || FULL_ACCESS_FIRM_ROLES.includes(role)) return true
   const has = (p: string) => permissions.includes(p)
   switch (tab) {
     case 'overview':
     case 'caseload':
-      return true
+      // Both show cases and case figures: any case permission (mirrors the
+      // server's CASE_ACCESS_PERMISSIONS) or firm analytics.
+      return has('view_analytics') || CASE_ACCESS_PERMISSIONS.some(has)
     case 'newleads':
       // Intake specialists own this surface; firm admins/attorneys reach it via
       // their broader case-visibility permissions (CP-588).
@@ -1186,6 +1197,9 @@ export default function FirmDashboard() {
   }, [visibleTabs, tab])
 
   const canSeeTab = (k: TabKey) => visibleTabs.some((t) => t.key === k)
+  // Nothing renders for a tab the member may not open, including the default
+  // tab when their permissions allow none.
+  const shownTab: TabKey | null = canSeeTab(tab) ? tab : null
   // Jump to a tab from a summary tile (only if the user can see that tab).
   //
   // `status` carries the tile's own meaning across. Every status tile used to
@@ -1431,12 +1445,29 @@ export default function FirmDashboard() {
             </button>
           )
         })}
+        {getStoredRole() === 'staff' && (workspace?.permissions || []).includes('schedule_consultations') && (
+          <Link
+            to="/attorney-dashboard/cases/calendar"
+            className="inline-flex flex-auto items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-slate-600 transition hover:bg-brand-50 hover:text-brand-700"
+          >
+            <CalendarDays className="h-4 w-4" />
+            Calendar &amp; Consults
+          </Link>
+        )}
       </div>
+      {visibleTabs.length === 0 && (
+        <div className="rounded-xl border border-slate-200 bg-white px-6 py-10 text-center">
+          <p className="font-semibold text-slate-800">Nothing to show yet</p>
+          <p className="mt-1 text-sm text-slate-500">
+            Your firm role doesn't include access to cases or firm data. Ask your firm admin to update your permissions.
+          </p>
+        </div>
+      )}
 
       {/* ---------------------------------------------------------------- */}
       {/* OVERVIEW                                                          */}
       {/* ---------------------------------------------------------------- */}
-      {tab === 'overview' && (
+      {shownTab === 'overview' && (
         <div className="space-y-6">
           <StatGrid columns={4}>
             <FilterStat
@@ -1675,7 +1706,7 @@ export default function FirmDashboard() {
       {/* ---------------------------------------------------------------- */}
       {/* CASELOAD — who owns / is working on what                          */}
       {/* ---------------------------------------------------------------- */}
-      {tab === 'newleads' && (
+      {shownTab === 'newleads' && (
         <div className="space-y-6">
           <SectionCard
             title="New leads"
@@ -1711,7 +1742,7 @@ export default function FirmDashboard() {
             </div>
       )}
 
-      {tab === 'caseload' && (
+      {shownTab === 'caseload' && (
         <div className="space-y-6">
           {caseloadStatus !== 'all' && (
             <div className="flex items-center gap-3 rounded-lg border border-brand-200 bg-brand-50 px-4 py-2.5 text-sm">
@@ -1911,16 +1942,16 @@ export default function FirmDashboard() {
       {/* ---------------------------------------------------------------- */}
       {/* FIRM TEMPLATES (document library + e-sign)                        */}
       {/* ---------------------------------------------------------------- */}
-      {tab === 'templates' && <FirmTemplatesTab />}
+      {shownTab === 'templates' && <FirmTemplatesTab />}
 
-      {tab === 'workflow' && <FirmWorkflowsTab />}
+      {shownTab === 'workflow' && <FirmWorkflowsTab />}
 
-      {tab === 'time' && <FirmTimeBillingTab />}
+      {shownTab === 'time' && <FirmTimeBillingTab />}
 
       {/* ---------------------------------------------------------------- */}
       {/* TEAM & ROLES                                                      */}
       {/* ---------------------------------------------------------------- */}
-      {tab === 'team' && (
+      {shownTab === 'team' && (
         <div className="space-y-6">
           {/* ── ① PEOPLE ──────────────────────────────────────────── */}
           <SectionCard

@@ -102,8 +102,15 @@ import { hasAppointmentConflict } from '../lib/availability-slots'
 import { buildCaseAwareMessageTemplates, buildCaseCommandCenter } from '../lib/case-command-center'
 import { ensurePredictionsForAssessments } from '../lib/prediction-materializer'
 import { computeSettlement, estimateAttorneyFee, isFeeOutstanding, parsePredictedMedian } from '../lib/settlement'
-import { firmAllows, resolveFirmAccess, resolveMemberAccess, type FirmAccess } from '../lib/firm-access'
-import { ALL_FIRM_PERMISSIONS } from '../lib/firm-roles'
+import {
+  firmAllows,
+  resolveFirmAccess,
+  resolveMemberAccess,
+  schedulableFirmAttorneysWhere,
+  SCHEDULE_PERMISSION,
+  type FirmAccess,
+} from '../lib/firm-access'
+import { ALL_FIRM_PERMISSIONS, CASE_ACCESS_PERMISSIONS } from '../lib/firm-roles'
 import { buildAttorneyWorkQueue } from '../lib/attorney-work-queue'
 import { buildReadinessAutomationPlan } from '../lib/readiness-automation'
 import { exportCaseToConnectionSafe } from '../lib/cms'
@@ -301,6 +308,12 @@ export type FirmVisibility = {
   canReviewFirmMatches?: boolean
   /** `accept_cases`: may accept a live offer made to a firm colleague. */
   canAcceptFirmMatches?: boolean
+  /**
+   * Holds any case permission (`CASE_ACCESS_PERMISSIONS`): may see cases
+   * through the firm — their case team's, and unstaffed firm cases. A member
+   * whose admin removed all of them sees no firm cases at all.
+   */
+  canViewTeamCases?: boolean
 }
 
 /** Offer statuses that are still open for the firm to act on. */
@@ -339,7 +352,15 @@ async function resolveFirmVisibility(req: any, _attorney: any): Promise<FirmVisi
   const canViewAllCases = has('view_all_cases')
   const canAcceptFirmMatches = canViewAllCases || has('accept_cases')
   const canReviewFirmMatches = canAcceptFirmMatches || has('review_cases') || has('review_new_leads')
-  return { lawFirmId: access.lawFirmId, userId: access.userId, canViewAllCases, canReviewFirmMatches, canAcceptFirmMatches }
+  const canViewTeamCases = CASE_ACCESS_PERMISSIONS.some(has)
+  return {
+    lawFirmId: access.lawFirmId,
+    userId: access.userId,
+    canViewAllCases,
+    canReviewFirmMatches,
+    canAcceptFirmMatches,
+    canViewTeamCases,
+  }
 }
 
 /**
@@ -426,6 +447,7 @@ router.get('/access', authMiddleware, async (req: any, res: any) => {
 
 /** Leads the caller is on the firm case team for (lead attorney, paralegal, …). */
 function firmCaseTeamTerm(attorneyId: string | null, firm: FirmVisibility): any | null {
+  if (firm.canViewTeamCases === false) return null
   const who: any[] = []
   if (attorneyId) who.push({ assignedAttorneyId: attorneyId })
   if (firm.userId) who.push({ assignedUserId: firm.userId })
@@ -482,7 +504,7 @@ function buildLeadVisibilityOr(attorneyId: string, firm: FirmVisibility, extra: 
       { assessment: { introductions: { some: { attorney: { lawFirmId: firm.lawFirmId }, status: { notIn: [...TERMINAL_INTRO_STATUSES] } } } } },
     )
   } else if (firm.lawFirmId) {
-    or.push(firmUnassignedCaseTerm(firm.lawFirmId))
+    if (firm.canViewTeamCases !== false) or.push(firmUnassignedCaseTerm(firm.lawFirmId))
     if (firm.canReviewFirmMatches) or.push(firmLiveOfferTerm(firm.lawFirmId))
   }
   return or
@@ -520,7 +542,7 @@ function buildEngagedLeadVisibilityOr(attorneyId: string, firm: FirmVisibility):
       { assessment: { lawFirmId: firm.lawFirmId } },
       { assessment: { introductions: { some: { attorney: { lawFirmId: firm.lawFirmId }, status: 'ACCEPTED' } } } },
     )
-  } else if (firm.lawFirmId) {
+  } else if (firm.lawFirmId && firm.canViewTeamCases !== false) {
     or.push(firmUnassignedCaseTerm(firm.lawFirmId))
   }
   return or
@@ -586,7 +608,7 @@ async function firmGrantsLeadRead(
   if (firm.lawFirmId && firm.canViewAllCases && (await firmHoldsLead(lead, firm.lawFirmId))) return true
   if (firm.lawFirmId && firm.canReviewFirmMatches && (await firmHasLiveOffer(lead, firm.lawFirmId))) return true
   if (await onFirmCaseTeam(lead, attorneyId, firm)) return true
-  return !!firm.lawFirmId && (await isUnassignedFirmCase(lead, firm.lawFirmId))
+  return !!firm.lawFirmId && firm.canViewTeamCases !== false && (await isUnassignedFirmCase(lead, firm.lawFirmId))
 }
 
 /** Whether this lead is one of the firm's taken cases with no case team yet. */
@@ -609,6 +631,7 @@ async function sameFirmMayRead(
   firm: FirmVisibility,
 ): Promise<boolean> {
   if (firm.canViewAllCases) return true
+  if (firm.canViewTeamCases === false) return false
   const staffed = await (prisma as any).firmCaseAssignment.findFirst({
     where: { assessmentId: lead.assessmentId, status: 'active' },
     select: { id: true },
@@ -633,6 +656,51 @@ async function getAttorneyFromReq(req: any) {
   const firm = await resolveFirmVisibility(req, attorney)
 
   return { attorney, firm }
+}
+
+type ScopeError = { error: { status: number; message: string } }
+
+/**
+ * The attorneys whose consults the caller manages. An attorney manages their
+ * own. Firm staff holding `schedule_consultations` have no calendar of their
+ * own and manage every attorney in the firm on their behalf.
+ */
+async function getSchedulingScope(
+  req: any,
+): Promise<ScopeError | { self: any | null; attorneys: any[] }> {
+  if (!req.user?.email) {
+    return { error: { status: 401, message: 'Authentication required' } }
+  }
+  const self = await prisma.attorney.findFirst({ where: { email: req.user.email } })
+  if (self) return { self, attorneys: [self] }
+
+  const access = await getRequestMemberAccess(req)
+  if (!access || !access.permissions.includes(SCHEDULE_PERMISSION)) {
+    return {
+      error: {
+        status: 403,
+        message: 'Your firm role does not allow scheduling consultations. Ask your firm admin to update your permissions.',
+      },
+    }
+  }
+  const attorneys = await prisma.attorney.findMany({
+    where: schedulableFirmAttorneysWhere(access.lawFirmId) as any,
+    orderBy: { name: 'asc' },
+  })
+  return { self: null, attorneys }
+}
+
+/** The attorney who owns an appointment, when the caller may manage it. */
+async function getAppointmentAttorney(req: any, appointmentId: string): Promise<ScopeError | { attorney: any }> {
+  const scope = await getSchedulingScope(req)
+  if ('error' in scope) return scope
+  const appointment = await prisma.appointment.findFirst({
+    where: { id: appointmentId, attorneyId: { in: scope.attorneys.map((a) => a.id) } },
+    select: { attorneyId: true },
+  })
+  const attorney = appointment && scope.attorneys.find((a) => a.id === appointment.attorneyId)
+  if (!attorney) return { error: { status: 404, message: 'Appointment not found' } }
+  return { attorney }
 }
 
 /**
@@ -665,19 +733,19 @@ async function getFirmMemberLeadAccess(
     select: { lawFirmId: true, items: { select: { assignedFirmMemberId: true } } }
   })
 
+  const firm = await resolveFirmVisibility(req, null)
   const assignedStep = (caseWorkflow?.items || []).some(
     (item: any) => item.assignedFirmMemberId === member.id
   )
-  if (assignedStep) return member
+  if (assignedStep && firm.canViewTeamCases !== false) return member
   const sameFirm = !!member.lawFirmId && caseWorkflow?.lawFirmId === member.lawFirmId
-  if (sameFirm && (await sameFirmMayRead(lead, null, await resolveFirmVisibility(req, null)))) return member
+  if (sameFirm && (await sameFirmMayRead(lead, null, firm))) return member
 
   // A routed lead has no CaseWorkflow until somebody applies one, so requiring
   // that row dead-ended precisely the members whose work starts before it
   // exists: firm-wide visibility listed the lead for them under New Leads and
   // opening it then answered 403. Fall back to the same firm claim the list is
   // built from, so the two agree.
-  const firm = await resolveFirmVisibility(req, null)
   return (await firmGrantsLeadRead(lead, null, firm)) ? member : null
 }
 
@@ -4050,11 +4118,15 @@ router.get('/dashboard', authMiddleware, async (req: any, res) => {
 // Attorney calendar: consultations / meetings linked to cases (date range for mobile & web)
 router.get('/appointments', authMiddleware, async (req: any, res) => {
   try {
-    const auth = await getAttorneyFromReq(req)
-    if (auth.error) {
-      return res.status(auth.error.status).json({ error: auth.error.message })
+    const scope = await getSchedulingScope(req)
+    if ('error' in scope) {
+      return res.status(scope.error.status).json({ error: scope.error.message })
     }
-    const { attorney } = auth
+    const requestedAttorneyId = typeof req.query.attorneyId === 'string' ? req.query.attorneyId : ''
+    const shown = requestedAttorneyId
+      ? scope.attorneys.filter((a) => a.id === requestedAttorneyId)
+      : scope.attorneys
+    const attorneyNameById = new Map<string, string>(scope.attorneys.map((a) => [a.id, a.name]))
 
     const now = new Date()
     let from = req.query.from ? new Date(String(req.query.from)) : new Date(now.getFullYear(), now.getMonth(), 1)
@@ -4074,12 +4146,13 @@ router.get('/appointments', authMiddleware, async (req: any, res) => {
     // event-type link or a firm round-robin link).
     const appointments = await prisma.appointment.findMany({
       where: {
-        attorneyId: attorney.id,
+        attorneyId: { in: shown.map((a) => a.id) },
         scheduledAt: { gte: from, lte: to },
         status: { in: ['SCHEDULED', 'CONFIRMED', 'COMPLETED', 'NO_SHOW'] },
       },
       select: {
         id: true,
+        attorneyId: true,
         assessmentId: true,
         eventTypeId: true,
         manageToken: true,
@@ -4132,6 +4205,8 @@ router.get('/appointments', authMiddleware, async (req: any, res) => {
       const eventTypeName = a.eventTypeId ? eventTypeNameById[a.eventTypeId] || null : null
       return {
         id: a.id,
+        attorneyId: a.attorneyId,
+        attorneyName: a.attorneyId ? attorneyNameById.get(a.attorneyId) || null : null,
         leadId: a.assessmentId ? leadByAssessment[a.assessmentId] : undefined,
         scheduledAt: a.scheduledAt,
         type: a.type,
@@ -4157,13 +4232,12 @@ router.get('/appointments', authMiddleware, async (req: any, res) => {
     // Surface the attorney's business timezone so the calendar can render times
     // in the zone the consult was scheduled in, rather than the viewer's browser
     // zone (which made times appear shifted / on the wrong slot) — CP-304.
-    const tzRow = await prisma.attorney.findUnique({
-      where: { id: attorney.id },
-      select: { schedulingTimezone: true },
-    })
-    const timezone = resolveSchedulingTimezone(tzRow?.schedulingTimezone)
+    // A scheduler viewing the whole firm sees it in the first attorney's zone;
+    // firms book in one market, and filtering to one attorney uses theirs.
+    const timezone = resolveSchedulingTimezone((scope.self || shown[0])?.schedulingTimezone)
+    const attorneys = scope.self ? [] : scope.attorneys.map((a) => ({ id: a.id, name: a.name }))
 
-    res.json({ from: from.toISOString(), to: to.toISOString(), timezone, events })
+    res.json({ from: from.toISOString(), to: to.toISOString(), timezone, events, attorneys })
   } catch (error: any) {
     logger.error('Failed to get attorney appointments', { error: error.message })
     res.status(500).json({ error: 'Failed to load appointments' })
@@ -4203,8 +4277,8 @@ router.get('/profile/preferences', authMiddleware, async (req: any, res) => {
 
 router.patch('/appointments/:appointmentId', authMiddleware, firmGate('schedule'), async (req: any, res) => {
   try {
-    const auth = await getAttorneyFromReq(req)
-    if (auth.error) {
+    const auth = await getAppointmentAttorney(req, req.params.appointmentId)
+    if ('error' in auth) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
 
@@ -4474,8 +4548,8 @@ async function cancelAttorneyAppointment(params: {
 
 router.post('/appointments/:appointmentId/cancel', authMiddleware, firmGate('schedule'), async (req: any, res) => {
   try {
-    const auth = await getAttorneyFromReq(req)
-    if (auth.error) {
+    const auth = await getAppointmentAttorney(req, req.params.appointmentId)
+    if ('error' in auth) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
 
@@ -4504,8 +4578,8 @@ router.post('/appointments/:appointmentId/cancel', authMiddleware, firmGate('sch
 // detail panel always has a Join action for video meetings (CP-601).
 router.post('/appointments/:appointmentId/ensure-meeting-link', authMiddleware, async (req: any, res) => {
   try {
-    const auth = await getAttorneyFromReq(req)
-    if (auth.error) {
+    const auth = await getAppointmentAttorney(req, String(req.params.appointmentId || ''))
+    if ('error' in auth) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
     const { attorney } = auth

@@ -58,6 +58,34 @@ export const CASE_ASSIGNMENT_ROLES = [
 ]
 
 /**
+ * Permissions that are work on cases. Holding any of them lets a member see the
+ * cases they work through the firm (their case team's and unstaffed ones); a
+ * member whose admin removed all of them sees no cases. Account-level grants
+ * (users, routing, subscriptions) are deliberately absent.
+ */
+export const CASE_ACCESS_PERMISSIONS = [
+  'view_all_cases',
+  'view_assigned_cases',
+  'manage_assigned_cases',
+  'review_cases',
+  'review_new_leads',
+  'accept_cases',
+  'decline_cases',
+  'message_plaintiffs',
+  'generate_demands',
+  'upload_documents',
+  'manage_documents',
+  'upload_records',
+  'request_evidence',
+  'request_records',
+  'schedule_consultations',
+  'manage_chronology',
+  'manage_invoices',
+  'process_payments',
+  'manage_billing',
+]
+
+/**
  * Case-team roles several people can hold at once (co-counsel). Every other
  * role has a single owner, and assigning someone new replaces the last one.
  */

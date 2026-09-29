@@ -25,7 +25,7 @@ import { initials } from './ui'
 import GlobalSearch from './GlobalSearch'
 import { isCalendarRoute, isWideAttorneyRoute } from '../../lib/layoutWidth'
 import { useLanguage } from '../../contexts/LanguageContext'
-import { useFirmAccess } from '../../hooks/useFirmAccess'
+import { useFirmAccess, type FirmAction } from '../../hooks/useFirmAccess'
 
 interface NavEntry {
   to: string
@@ -37,6 +37,8 @@ interface NavEntry {
   icon: ComponentType<{ className?: string }>
   firmAdminOnly?: boolean
   comingSoon?: boolean
+  /** Staff see the entry only when their firm permissions include this action. */
+  staffAction?: FirmAction
 }
 
 interface NavSection {
@@ -86,9 +88,25 @@ const STAFF_NAV_SECTIONS: NavSection[] = [
     label: 'Case Management',
     entries: [
       { to: STAFF_CASES_ROUTE, id: 'active', label: 'Active Cases', description: 'Caseload & quick re-entry', icon: Briefcase },
+      { to: '/attorney-dashboard/cases/calendar', id: 'calendar', label: 'Calendar & Consults', description: 'Upcoming meetings', icon: CalendarDays, staffAction: 'schedule' },
+      { to: '/attorney-dashboard/cases/scheduling', id: 'scheduling', label: 'Scheduling', description: 'Your public booking link', icon: CalendarClock, staffAction: 'schedule' },
     ],
   },
 ]
+
+/** The sidebar sections for this user, with entries their role cannot use removed. */
+function useNavSections(): NavSection[] {
+  const { isFirmAdmin, isStaff } = useAttorneyWorkspace()
+  const { access } = useFirmAccess()
+  return (isStaff ? STAFF_NAV_SECTIONS : NAV_SECTIONS).map((section) => ({
+    ...section,
+    entries: section.entries.filter(
+      (entry) =>
+        (!entry.firmAdminOnly || isFirmAdmin) &&
+        (!entry.staffAction || access?.actions?.[entry.staffAction] === true),
+    ),
+  }))
+}
 
 // Per-domain color coding for the nav chips + active states. Lead Generation is
 // blue (acquisition), Case Management is emerald (delivery).
@@ -170,8 +188,9 @@ const NOTIFICATIONS_ROUTE = '/attorney-dashboard/notifications'
 function Sidebar() {
   const location = useLocation()
   const { t } = useLanguage()
-  const { attorney, isFirmAdmin, isStaff, unreadMessages, unreadTeamMessages, unreadNotifications } = useAttorneyWorkspace()
+  const { attorney, isStaff, unreadMessages, unreadTeamMessages, unreadNotifications } = useAttorneyWorkspace()
   const firmName = useFirmAccess().access?.firm?.name || attorney.firmName
+  const navSections = useNavSections()
 
   const isActive = (to: string) => navEntryActive(to, location.pathname)
   const badgeFor = (to: string) =>
@@ -223,8 +242,8 @@ function Sidebar() {
           )
         })()}
 
-        {(isStaff ? STAFF_NAV_SECTIONS : NAV_SECTIONS).map((section) => {
-          const entries = section.entries.filter((entry) => !entry.firmAdminOnly || isFirmAdmin)
+        {navSections.map((section) => {
+          const entries = section.entries
           const style = domainStyle(section.id)
           return (
             <div key={section.id}>
@@ -295,13 +314,11 @@ function Sidebar() {
 function MobileNav() {
   const location = useLocation()
   const { t } = useLanguage()
-  const { isFirmAdmin, isStaff, unreadMessages, unreadTeamMessages, unreadNotifications } = useAttorneyWorkspace()
+  const { isStaff, unreadMessages, unreadTeamMessages, unreadNotifications } = useAttorneyWorkspace()
   const isActive = (to: string) => navEntryActive(to, location.pathname)
   const badgeFor = (to: string) =>
     to === MESSAGES_ROUTE ? unreadMessages : to === TEAM_ROUTE ? unreadTeamMessages : 0
-  const entries = (isStaff ? STAFF_NAV_SECTIONS : NAV_SECTIONS).flatMap((s) => s.entries.map((e) => ({ ...e, domain: s.id }))).filter(
-    (e) => !e.firmAdminOnly || isFirmAdmin,
-  )
+  const entries = useNavSections().flatMap((s) => s.entries.map((e) => ({ ...e, domain: s.id })))
   const notificationsActive = navEntryActive(NOTIFICATIONS_ROUTE, location.pathname)
   return (
     <div className="lg:hidden">

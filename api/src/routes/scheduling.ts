@@ -6,6 +6,7 @@ import { logger } from '../lib/logger'
 import { slugify } from '../lib/booking-slots'
 import { webBaseUrl } from '../lib/app-url'
 import { resolveSchedulingTimezone } from '../lib/scheduling-timezone'
+import { resolveMemberAccess, schedulableFirmAttorneysWhere, SCHEDULE_PERMISSION } from '../lib/firm-access'
 
 /**
  * Attorney-facing management for the public ("Calendly-style") booking page:
@@ -16,12 +17,39 @@ const router = Router()
 
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/
 
+const ATTORNEY_SELECT = { id: true, name: true, email: true, bookingSlug: true, schedulingTimezone: true } as const
+
+/**
+ * Firm attorneys a staff scheduler may manage, or null when the caller is not
+ * a scheduler. Attorneys are never schedulers here: they manage their own page.
+ */
+async function manageableFirmAttorneys(req: AuthRequest) {
+  const access = await resolveMemberAccess(prisma as any, req.user).catch(() => null)
+  if (!access || !access.permissions.includes(SCHEDULE_PERMISSION)) return null
+  return prisma.attorney.findMany({
+    where: schedulableFirmAttorneysWhere(access.lawFirmId) as any,
+    select: ATTORNEY_SELECT,
+    orderBy: { name: 'asc' },
+  })
+}
+
+/**
+ * The attorney whose booking page is being managed: the caller themselves, or
+ * for a firm scheduler the firm attorney named by `?attorneyId=` (defaulting to
+ * the first).
+ */
 async function getAttorneyByUser(req: AuthRequest) {
   if (!req.user?.email) return null
-  return prisma.attorney.findFirst({
+  const self = await prisma.attorney.findFirst({
     where: { email: req.user.email },
-    select: { id: true, name: true, email: true, bookingSlug: true, schedulingTimezone: true },
+    select: ATTORNEY_SELECT,
   })
+  if (self) return self
+  const attorneys = await manageableFirmAttorneys(req)
+  if (!attorneys?.length) return null
+  const requested = typeof req.query.attorneyId === 'string' ? req.query.attorneyId : ''
+  if (!requested) return attorneys[0]
+  return attorneys.find((a) => a.id === requested) || null
 }
 
 /** Ensure the attorney has a booking slug; derive a unique one from their name. */
@@ -97,6 +125,11 @@ router.get('/settings', authMiddleware, async (req: AuthRequest, res) => {
       },
       availability,
       eventTypes,
+      // Filled only for a staff scheduler, so the page can offer an attorney picker.
+      manageableAttorneys:
+        attorney.email === req.user?.email
+          ? []
+          : (await manageableFirmAttorneys(req))?.map((a) => ({ id: a.id, name: a.name })) || [],
     })
   } catch (error) {
     logger.error('Failed to load scheduling settings', { error })

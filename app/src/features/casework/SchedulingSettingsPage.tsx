@@ -21,6 +21,7 @@ import {
 } from 'lucide-react'
 import {
   getSchedulingSettings,
+  setSchedulingAttorney,
   updateSchedulingSettings,
   updateSchedulingAvailability,
   createEventType,
@@ -78,6 +79,8 @@ export default function SchedulingSettingsPage() {
     setLoading(true)
     try {
       const data = await getSchedulingSettings()
+      // Pin later saves to the attorney on screen, not the server's default.
+      if (data.manageableAttorneys?.length) setSchedulingAttorney(data.attorney.id)
       setSettings(data)
       setError(null)
     } catch {
@@ -89,7 +92,11 @@ export default function SchedulingSettingsPage() {
 
   useEffect(() => {
     load()
+    return () => setSchedulingAttorney(null)
   }, [load])
+
+  const manageable = settings?.manageableAttorneys || []
+  const isScheduler = manageable.length > 0
 
   if (loading) {
     return (
@@ -112,20 +119,48 @@ export default function SchedulingSettingsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Scheduling"
-        description="Share one link and let clients book consultations on your open times. Bookings sync to your calendar and create a Zoom link automatically."
+        description={
+          isScheduler
+            ? "Manage a firm attorney's booking link, open times and consultation types."
+            : 'Share one link and let clients book consultations on your open times. Bookings sync to your calendar and create a Zoom link automatically.'
+        }
       />
-      <ShareLinkCard settings={settings} onChange={load} />
-      <div className="grid gap-6 lg:grid-cols-2">
-        <AvailabilityCard settings={settings} onSaved={load} />
-        <EventTypesCard settings={settings} onChanged={load} />
+      {isScheduler && (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3">
+          <label htmlFor="scheduling-attorney" className="text-sm font-medium text-slate-700">
+            Attorney
+          </label>
+          <select
+            id="scheduling-attorney"
+            value={settings.attorney.id}
+            onChange={(e) => {
+              setSchedulingAttorney(e.target.value)
+              load()
+            }}
+            className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500/30"
+          >
+            {manageable.map((a) => (
+              <option key={a.id} value={a.id}>{a.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
+      <div key={settings.attorney.id} className="space-y-6">
+        <ShareLinkCard settings={settings} onChange={load} />
+        <div className="grid gap-6 lg:grid-cols-2">
+          <AvailabilityCard settings={settings} onSaved={load} />
+          <EventTypesCard settings={settings} onChanged={load} />
+        </div>
       </div>
-      <SectionCard title="Calendar & video connections">
-        <p className="mb-4 text-xs text-slate-500">
-          Connect your calendar so bookings only offer times you're actually free, and connect Zoom so video
-          consultations get a real meeting link automatically.
-        </p>
-        <AttorneyCalendarZoomSettings />
-      </SectionCard>
+      {!isScheduler && (
+        <SectionCard title="Calendar & video connections">
+          <p className="mb-4 text-xs text-slate-500">
+            Connect your calendar so bookings only offer times you're actually free, and connect Zoom so video
+            consultations get a real meeting link automatically.
+          </p>
+          <AttorneyCalendarZoomSettings />
+        </SectionCard>
+      )}
     </div>
   )
 }

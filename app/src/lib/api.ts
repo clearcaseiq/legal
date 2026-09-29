@@ -1957,13 +1957,16 @@ export interface CalendarConsultEvent {
   eventTypeName?: string | null
   bookerEmail?: string | null
   manageToken?: string | null
+  attorneyId?: string | null
+  attorneyName?: string | null
 }
 
 // Consults/appointments for the signed-in attorney within a date range (calendar).
+// For a firm scheduler: every firm attorney's, with `attorneys` listing them.
 export async function getAttorneyCalendarAppointments(
   from: string,
   to: string,
-): Promise<{ from: string; to: string; events: CalendarConsultEvent[] }> {
+): Promise<{ from: string; to: string; events: CalendarConsultEvent[]; attorneys?: Array<{ id: string; name: string }> }> {
   const { data } = await api.get('/v1/attorney-dashboard/appointments', { params: { from, to } })
   return data
 }
@@ -6363,27 +6366,37 @@ export interface SchedulingSettings {
   attorney: { id: string; name: string; bookingSlug: string; timezone: string; publicUrl: string }
   availability: SchedulingAvailabilityDay[]
   eventTypes: SchedulingEventType[]
+  /** Firm attorneys a staff scheduler can switch between; empty for attorneys. */
+  manageableAttorneys?: Array<{ id: string; name: string }>
 }
 
+// Which firm attorney's booking page a staff scheduler is editing. Attorneys
+// leave it unset and the server always uses their own.
+let schedulingAttorneyId: string | null = null
+export function setSchedulingAttorney(attorneyId: string | null) {
+  schedulingAttorneyId = attorneyId
+}
+const schedulingParams = () => (schedulingAttorneyId ? { attorneyId: schedulingAttorneyId } : undefined)
+
 export async function getSchedulingSettings(): Promise<SchedulingSettings> {
-  const { data } = await api.get('/v1/scheduling/settings')
+  const { data } = await api.get('/v1/scheduling/settings', { params: schedulingParams() })
   return data
 }
 
 export async function updateSchedulingSettings(payload: { timezone?: string; bookingSlug?: string }) {
-  const { data } = await api.patch('/v1/scheduling/settings', payload)
+  const { data } = await api.patch('/v1/scheduling/settings', payload, { params: schedulingParams() })
   return data as { bookingSlug: string; timezone: string; publicUrl: string }
 }
 
 export async function updateSchedulingAvailability(
   days: Array<{ dayOfWeek: number; isAvailable: boolean; slots: SchedulingTimeSlot[] }>,
 ) {
-  const { data } = await api.put('/v1/scheduling/availability', { days })
+  const { data } = await api.put('/v1/scheduling/availability', { days }, { params: schedulingParams() })
   return data
 }
 
 export async function createEventType(payload: Partial<SchedulingEventType>): Promise<SchedulingEventType> {
-  const { data } = await api.post('/v1/scheduling/event-types', payload)
+  const { data } = await api.post('/v1/scheduling/event-types', payload, { params: schedulingParams() })
   return data
 }
 
@@ -6391,12 +6404,12 @@ export async function updateEventType(
   id: string,
   payload: Partial<SchedulingEventType>,
 ): Promise<SchedulingEventType> {
-  const { data } = await api.patch(`/v1/scheduling/event-types/${id}`, payload)
+  const { data } = await api.patch(`/v1/scheduling/event-types/${id}`, payload, { params: schedulingParams() })
   return data
 }
 
 export async function deleteEventType(id: string) {
-  const { data } = await api.delete(`/v1/scheduling/event-types/${id}`)
+  const { data } = await api.delete(`/v1/scheduling/event-types/${id}`, { params: schedulingParams() })
   return data
 }
 
