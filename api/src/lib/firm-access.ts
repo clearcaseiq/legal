@@ -76,10 +76,25 @@ export async function resolveMemberAccess(client: AccessClient, caller: Caller):
 }
 
 /**
+ * Whether an attorney linked to this firm, with no active membership, is its
+ * admin. Only for firms that predate membership rows and have none at all.
+ *
+ * Once a firm has members, `Attorney.lawFirmId` alone proves nothing: it is set
+ * the moment an attorney is invited and survives suspension, so treating it as
+ * admin would hand the firm to invitees who never accepted and to members who
+ * were suspended or removed.
+ */
+export async function isMemberlessFirm(client: AccessClient, lawFirmId: string): Promise<boolean> {
+  const anyMember = await client.firmMember
+    .findFirst({ where: { lawFirmId }, select: { id: true } })
+    .catch(() => null)
+  return !anyMember
+}
+
+/**
  * Resolve the caller's firm access, or `null` when they belong to no firm (a
- * solo attorney, a claimant). Only an active membership counts. An attorney
- * tied to a firm without a membership row is its admin, as firm-dashboard.ts
- * has always treated them.
+ * solo attorney, a claimant). Only an active membership counts, except for the
+ * founding attorney of a firm with no membership rows; see `isMemberlessFirm`.
  */
 export async function resolveFirmAccess(client: AccessClient, caller: Caller): Promise<FirmAccess | null> {
   const fromMember = await resolveMemberAccess(client, caller)
@@ -88,7 +103,7 @@ export async function resolveFirmAccess(client: AccessClient, caller: Caller): P
   const email = String(caller?.email || '').trim()
   if (!email) return null
   const attorney = await client.attorney.findFirst({ where: { email } }).catch(() => null)
-  if (attorney?.lawFirmId) {
+  if (attorney?.lawFirmId && (await isMemberlessFirm(client, attorney.lawFirmId))) {
     return {
       lawFirmId: attorney.lawFirmId,
       role: 'firm_admin',

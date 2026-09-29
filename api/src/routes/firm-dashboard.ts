@@ -40,7 +40,7 @@ import {
   LOCKED_ROLE_PERMISSIONS,
   effectiveRolePermissions,
 } from '../lib/firm-roles'
-import { permissionsForMember } from '../lib/firm-access'
+import { isMemberlessFirm, permissionsForMember } from '../lib/firm-access'
 import { getAttorneyResponseDeadlineMinutes, getMatchingRules } from '../lib/matching-rules-config'
 import { triggerOfferExpirySweepSoon } from '../lib/offer-expiry-sweep'
 import { CLOSED_STATUSES } from '../lib/case-stage'
@@ -171,22 +171,19 @@ async function ensureAttorneyFirmContext(user: any, attorney: any) {
   const firmName = String(attorneyProfile?.firmName || attorney.name || '').trim()
   if (!firmName) return null
 
-  let firm = await (prisma as any).lawFirm.findFirst({
-    where: { name: firmName }
+  // A new firm even when one already has this name. The attorney is made its
+  // admin below, so adopting a same-named firm would grant them another firm's
+  // cases. Existing firms are joined by invitation only.
+  const slug = await ensureUniqueFirmSlug(slugifyFirmName(firmName))
+  const firm = await (prisma as any).lawFirm.create({
+    data: {
+      name: firmName,
+      slug,
+      primaryEmail: attorney.email || user?.email || null,
+      phone: attorney.phone || user?.phone || null,
+      website: attorneyProfile?.firmWebsite || null
+    }
   })
-
-  if (!firm) {
-    const slug = await ensureUniqueFirmSlug(slugifyFirmName(firmName))
-    firm = await (prisma as any).lawFirm.create({
-      data: {
-        name: firmName,
-        slug,
-        primaryEmail: attorney.email || user?.email || null,
-        phone: attorney.phone || user?.phone || null,
-        website: attorneyProfile?.firmWebsite || null
-      }
-    })
-  }
 
   await prisma.attorney.update({
     where: { id: attorney.id },
@@ -268,6 +265,9 @@ async function getFirmContext(req: any) {
   }
 
   if (attorney?.lawFirmId) {
+    // Invited, suspended, or removed from a firm that has members: no access,
+    // and no fresh firm either, so the pending invitation stays the way in.
+    if (!(await isMemberlessFirm(prisma as any, attorney.lawFirmId))) return null
     const firm = await (prisma as any).lawFirm.findUnique({
       where: { id: attorney.lawFirmId }
     })
@@ -925,7 +925,7 @@ router.delete('/members/:memberId', authMiddleware as any, async (req: any, res:
     const { memberId } = req.params
     const member = await (prisma as any).firmMember.findFirst({
       where: { id: memberId, lawFirmId: context.lawFirmId },
-      select: { id: true, userId: true, role: true }
+      select: { id: true, userId: true, role: true, attorneyId: true }
     })
     if (!member) {
       return res.status(404).json({ error: 'Member not found in this firm' })
@@ -935,6 +935,12 @@ router.delete('/members/:memberId', authMiddleware as any, async (req: any, res:
     }
 
     await (prisma as any).firmMember.delete({ where: { id: memberId } })
+    if (member.attorneyId) {
+      await prisma.attorney.updateMany({
+        where: { id: member.attorneyId, lawFirmId: context.lawFirmId },
+        data: { lawFirmId: null },
+      })
+    }
     logger.info('Firm member removed', { memberId, lawFirmId: context.lawFirmId })
 
     res.json({ ok: true })

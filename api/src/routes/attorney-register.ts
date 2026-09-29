@@ -194,12 +194,11 @@ router.post('/register', async (req, res) => {
     const primaryFirmLocation = firmLocations?.[0]
     const lawFirm = firmName?.trim()
       ? await (async () => {
+          // Always a new firm, never an existing one with the same name: the
+          // registrant becomes its admin, so matching by name would hand any
+          // signup admin access to whichever firm they named. Joining an
+          // existing firm is by invitation from its admin only.
           const normalizedFirmName = firmName.trim()
-          const existing = await (prisma as any).lawFirm.findFirst({
-            where: { name: normalizedFirmName }
-          })
-          if (existing) return existing
-
           const slug = await ensureUniqueFirmSlug(slugifyFirmName(normalizedFirmName))
           return (prisma as any).lawFirm.create({
             data: {
