@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { MessageSquare, Search, PenSquare } from 'lucide-react'
 import { getAttorneyUnreadSummary, getAttorneyDashboard } from '../../lib/api'
+import { getStoredRole } from '../../lib/auth'
 import LeadPickerModal from '../../components/LeadPickerModal'
 import { Avatar, Badge, ClientLink, DataTable, PageHeader, SectionCard, type DataTableColumn } from '../shared/ui'
 import { formatClaimType } from '../../lib/claimTypes'
@@ -144,6 +145,7 @@ const messageColumns: DataTableColumn<Room>[] = [
 
 export default function MessagesPage() {
   const navigate = useNavigate()
+  const isStaff = getStoredRole() === 'staff'
   const [rooms, setRooms] = useState<Room[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -181,8 +183,10 @@ export default function MessagesPage() {
     }
   }, [])
 
-  // Caseload for the "New message" picker — only cases we can message.
+  // Caseload for the "New message" picker — only cases we can message. The
+  // picker reads the attorney caseload, so staff start threads from the case.
   useEffect(() => {
+    if (isStaff) return
     let cancelled = false
     getAttorneyDashboard()
       .then((dash: any) => {
@@ -194,7 +198,7 @@ export default function MessagesPage() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [isStaff])
 
   const openThread = (lead: any) => {
     if (!lead?.id) return
@@ -260,13 +264,15 @@ export default function MessagesPage() {
                 className="w-56 rounded-lg border border-slate-300 bg-white py-2 pl-9 pr-3 text-sm text-slate-900 shadow-sm transition focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
               />
             </div>
-            <button
-              onClick={() => setPickerOpen(true)}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700"
-            >
-              <PenSquare className="h-4 w-4" />
-              New message
-            </button>
+            {!isStaff && (
+              <button
+                onClick={() => setPickerOpen(true)}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700"
+              >
+                <PenSquare className="h-4 w-4" />
+                New message
+              </button>
+            )}
           </div>
         }
       />

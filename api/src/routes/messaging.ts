@@ -12,6 +12,7 @@ import { notifyAttorneyInApp } from '../lib/case-notifications'
 import { ATTORNEY_EVENTS } from '../lib/notification-events'
 import { getPlaintiffLanguage } from '../lib/translate'
 import { decorateMessagesForReader } from '../lib/messaging-translate'
+import { resolveMemberAccess } from '../lib/firm-access'
 
 const router = Router()
 
@@ -280,10 +281,33 @@ router.get('/attorney/unread-summary', authMiddleware, async (req: AuthRequest, 
     const email = req.user?.email
     if (!email) return res.status(401).json({ error: 'Unauthenticated' })
     const attorney = await prisma.attorney.findFirst({ where: { email }, select: { id: true } })
-    if (!attorney) return res.status(403).json({ error: 'Not an attorney account' })
+    let roomWhere: any
+    if (attorney) {
+      roomWhere = { attorneyId: attorney.id }
+    } else {
+      // Firm staff with "Message clients" see the firm's client threads on the
+      // cases they can see: every one with View all cases, otherwise their case
+      // team's and the firm's unstaffed cases (the Active Cases rule).
+      const access = await resolveMemberAccess(prisma as any, req.user)
+      if (!access || !access.permissions.includes('message_plaintiffs')) {
+        return res.status(403).json({ error: 'Not an attorney account' })
+      }
+      const firmRoom = { attorney: { lawFirmId: access.lawFirmId } }
+      roomWhere = access.permissions.includes('view_all_cases')
+        ? firmRoom
+        : {
+            ...firmRoom,
+            assessment: {
+              OR: [
+                { firmCaseAssignments: { some: { status: 'active', assignedUserId: access.userId } } },
+                { firmCaseAssignments: { none: { status: 'active' } } },
+              ],
+            },
+          }
+    }
 
     const chatRooms = await prisma.chatRoom.findMany({
-      where: { attorneyId: attorney.id },
+      where: roomWhere,
       include: {
         user: { select: { id: true, firstName: true, lastName: true, email: true, avatar: true } },
         assessment: { select: { id: true, claimType: true, venueState: true } },

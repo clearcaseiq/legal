@@ -90,6 +90,7 @@ const STAFF_NAV_SECTIONS: NavSection[] = [
       { to: STAFF_CASES_ROUTE, id: 'active', label: 'Active Cases', description: 'Caseload & quick re-entry', icon: Briefcase },
       { to: '/attorney-dashboard/cases/calendar', id: 'calendar', label: 'Calendar & Consults', description: 'Upcoming meetings', icon: CalendarDays, staffAction: 'schedule' },
       { to: '/attorney-dashboard/cases/scheduling', id: 'scheduling', label: 'Scheduling', description: 'Your public booking link', icon: CalendarClock, staffAction: 'schedule' },
+      { to: '/attorney-dashboard/cases/messages', id: 'messages', label: 'Messages', description: 'Client threads', icon: MessagesSquare, staffAction: 'message' },
     ],
   },
 ]

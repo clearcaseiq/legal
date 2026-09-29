@@ -1390,6 +1390,11 @@ function App() {
                   path="/attorney-dashboard/cases/scheduling"
                   element={<RequireFirmPermission action="schedule"><SchedulingSettingsPage /></RequireFirmPermission>}
                 />
+                {/* Staff holding "Message clients" work the firm's client threads. */}
+                <Route
+                  path="/attorney-dashboard/cases/messages"
+                  element={<RequireFirmPermission action="message"><CaseMessagesPage /></RequireFirmPermission>}
+                />
               </Route>
               {/* Staff book on behalf of the case's lead attorney. */}
               <Route path="/attorney-dashboard/schedule-consult/:leadId" element={<ScheduleConsultPage />} />
@@ -1422,7 +1427,6 @@ function App() {
                 <Route path="/attorney-dashboard/cases/active" element={<ActiveCasesPage />} />
                 {/* Case Workspace launcher folded into Active Cases ("Jump back in" strip). */}
                 <Route path="/attorney-dashboard/cases/workspace" element={<Navigate to="/attorney-dashboard/cases/active" replace />} />
-                <Route path="/attorney-dashboard/cases/messages" element={<CaseMessagesPage />} />
                 <Route path="/attorney-dashboard/cases/team" element={<TeamMessagesPage />} />
                 <Route path="/attorney-dashboard/cases/activity" element={<ActivityPage />} />
                 <Route path="/attorney-dashboard/notifications" element={<NotificationsPage />} />
