@@ -36,6 +36,7 @@ import {
 import {
   FIRM_ROLE_PERMISSIONS,
   CASE_ASSIGNMENT_ROLES,
+  MULTI_ASSIGNEE_CASE_ROLES,
   ALL_FIRM_PERMISSIONS,
   LOCKED_ROLE_PERMISSIONS,
   effectiveRolePermissions,
@@ -1102,21 +1103,24 @@ router.post('/cases/:assessmentId/assignments', authMiddleware as any, async (re
       logger.warn('Auto-apply firm workflow on assignment failed', { error: wfErr?.message })
     }
 
-    // A role has a single active owner. Deactivate any prior active assignee for
-    // this (case, role) that isn't the person we're assigning now, so downstream
+    // Single-owner roles: deactivate any prior active assignee for this
+    // (case, role) that isn't the person we're assigning now, so downstream
     // team-caseload aggregation doesn't double-count superseded assignments.
-    await (prisma as any).firmCaseAssignment.updateMany({
-      where: {
-        assessmentId,
-        role,
-        status: 'active',
-        NOT: {
-          assignedUserId: assignedUserId || null,
-          assignedAttorneyId: assignedAttorneyId || null
-        }
-      },
-      data: { status: 'inactive' }
-    })
+    // Co-counsel roles keep everyone already on the case.
+    if (!MULTI_ASSIGNEE_CASE_ROLES.includes(role)) {
+      await (prisma as any).firmCaseAssignment.updateMany({
+        where: {
+          assessmentId,
+          role,
+          status: 'active',
+          NOT: {
+            assignedUserId: assignedUserId || null,
+            assignedAttorneyId: assignedAttorneyId || null
+          }
+        },
+        data: { status: 'inactive' }
+      })
+    }
 
     const existing = await (prisma as any).firmCaseAssignment.findFirst({
       where: {
@@ -1155,6 +1159,37 @@ router.post('/cases/:assessmentId/assignments', authMiddleware as any, async (re
   } catch (error: any) {
     logger.error('Failed to assign firm case', { error: error?.message || String(error), stack: error?.stack })
     res.status(500).json({ error: 'Failed to assign firm case' })
+  }
+})
+
+// Take someone off a case team. The row is kept as `removed` for history.
+router.delete('/cases/:assessmentId/assignments/:assignmentId', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) {
+      return res.status(404).json({ error: 'No law firm associated with this user' })
+    }
+    if (!requireFirmPermission(context, 'assign_cases')) {
+      return res.status(403).json({ error: 'You do not have permission to assign cases' })
+    }
+
+    const { assessmentId, assignmentId } = req.params
+    const assignment = await (prisma as any).firmCaseAssignment.findFirst({
+      where: { id: assignmentId, assessmentId, lawFirmId: context.lawFirmId, status: 'active' },
+      select: { id: true },
+    })
+    if (!assignment) {
+      return res.status(404).json({ error: 'That person is no longer on this case team' })
+    }
+
+    await (prisma as any).firmCaseAssignment.update({
+      where: { id: assignment.id },
+      data: { status: 'removed' },
+    })
+    res.json({ ok: true })
+  } catch (error: any) {
+    logger.error('Failed to remove firm case assignment', { error: error?.message || String(error) })
+    res.status(500).json({ error: 'Failed to remove from case team' })
   }
 })
 
@@ -2585,6 +2620,9 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
       const lead = assessment.leadSubmission
       const primaryAttorneyId: string | null = lead?.assignedAttorneyId || null
       const assignments = (assessment.firmCaseAssignments || []).map((x: any) => ({
+        id: x.id,
+        assignedAttorneyId: x.assignedAttorneyId || null,
+        assignedUserId: x.assignedUserId || null,
         role: x.role,
         name:
           x.assignedAttorney?.name ||
@@ -2756,6 +2794,7 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
         permissions: context?.permissions || FIRM_ROLE_PERMISSIONS.attorney,
         roleCapabilities: (context as any)?.roleCapabilities || FIRM_ROLE_PERMISSIONS,
         assignmentRoles: CASE_ASSIGNMENT_ROLES,
+        multiAssigneeRoles: MULTI_ASSIGNEE_CASE_ROLES,
         subscription: {
           planName: 'Professional Plan',
           includedSeats: 10,

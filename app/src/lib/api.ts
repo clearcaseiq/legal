@@ -6303,6 +6303,11 @@ export async function assignFirmCase(assessmentId: string, payload: {
   return data
 }
 
+export async function removeFirmCaseAssignment(assessmentId: string, assignmentId: string) {
+  const { data } = await api.delete(`/v1/firm-dashboard/cases/${assessmentId}/assignments/${assignmentId}`)
+  return data
+}
+
 // Move a case to a different office (or unassign with officeId: null).
 export async function setCaseOffice(assessmentId: string, officeId: string | null) {
   const { data } = await api.patch(`/v1/firm-dashboard/cases/${assessmentId}/office`, { officeId })

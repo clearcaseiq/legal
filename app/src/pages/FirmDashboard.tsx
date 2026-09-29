@@ -44,6 +44,7 @@ import {
   updateFirmMember,
   resendFirmMemberInvite,
   assignFirmCase,
+  removeFirmCaseAssignment,
   setCaseOffice,
   getFirmTeamCaseload,
   getFirmNewLeads,
@@ -238,7 +239,13 @@ interface FirmCaseRow {
   leadStatus: string
   updatedAt?: string | null
   primaryAttorney?: { id: string; name: string } | null
-  assignments: Array<{ role: string; name: string | null }>
+  assignments: Array<{
+    id?: string
+    role: string
+    name: string | null
+    assignedAttorneyId?: string | null
+    assignedUserId?: string | null
+  }>
   openTaskCount: number
   unassigned: boolean
   officeId?: string | null
@@ -274,6 +281,7 @@ interface FirmDashboardData {
     permissions: string[]
     roleCapabilities: Record<string, string[]>
     assignmentRoles: string[]
+    multiAssigneeRoles?: string[]
     subscription: { planName: string; includedSeats: number; seatMix: Record<string, number> }
   }
   offices?: Array<{ id: string; name: string; city?: string | null; state?: string | null; capacity?: number | null }>
@@ -425,7 +433,9 @@ export default function FirmDashboard() {
   const [caseloadQuery, setCaseloadQuery] = useState('')
   const [assignTarget, setAssignTarget] = useState<FirmCaseRow | null>(null)
   const [assignRole, setAssignRole] = useState('lead_attorney')
-  const [assignee, setAssignee] = useState('')
+  // Keys are `att:<attorneyId>` or `usr:<userId>`.
+  const [assignees, setAssignees] = useState<string[]>([])
+  const [removingAssignmentId, setRemovingAssignmentId] = useState<string | null>(null)
   const [assignSaving, setAssignSaving] = useState(false)
   const [assignError, setAssignError] = useState<string | null>(null)
 
@@ -799,30 +809,47 @@ export default function FirmDashboard() {
   const openAssign = (row: FirmCaseRow) => {
     setAssignTarget(row)
     setAssignRole('lead_attorney')
-    setAssignee('')
+    setAssignees([])
     setAssignError(null)
   }
 
   const submitAssign = async () => {
-    if (!assignTarget || !assignee) {
+    if (!assignTarget || assignees.length === 0) {
       setAssignError('Select a team member to assign.')
       return
     }
-    const [kind, id] = assignee.split(':')
     try {
       setAssignSaving(true)
       setAssignError(null)
-      await assignFirmCase(assignTarget.assessmentId, {
-        role: assignRole,
-        assignedAttorneyId: kind === 'att' ? id : undefined,
-        assignedUserId: kind === 'usr' ? id : undefined,
-      })
-      setAssignTarget(null)
+      for (const key of assignees) {
+        const [kind, id] = key.split(':')
+        await assignFirmCase(assignTarget.assessmentId, {
+          role: assignRole,
+          assignedAttorneyId: kind === 'att' ? id : undefined,
+          assignedUserId: kind === 'usr' ? id : undefined,
+        })
+      }
+      setAssignees([])
       invalidateFirmDashboardSummary()
     } catch (err: any) {
       setAssignError(err.response?.data?.error || 'Failed to assign case.')
+      invalidateFirmDashboardSummary()
     } finally {
       setAssignSaving(false)
+    }
+  }
+
+  const removeAssignment = async (assignmentId: string) => {
+    if (!assignTarget) return
+    try {
+      setRemovingAssignmentId(assignmentId)
+      setAssignError(null)
+      await removeFirmCaseAssignment(assignTarget.assessmentId, assignmentId)
+      invalidateFirmDashboardSummary()
+    } catch (err: any) {
+      setAssignError(err.response?.data?.error || 'Failed to remove from case team.')
+    } finally {
+      setRemovingAssignmentId(null)
     }
   }
 
@@ -865,6 +892,12 @@ export default function FirmDashboard() {
   const cases = dashboardData?.cases || []
   const workspace = dashboardData?.workspace
   const assignmentRoles = workspace?.assignmentRoles || ['lead_attorney', 'secondary_attorney', 'case_manager', 'paralegal']
+  const multiAssigneeRoles = workspace?.multiAssigneeRoles || ['secondary_attorney']
+  // The caseload refreshes after each change; read the team from it so the
+  // Case team window stays current while open.
+  const assignRow = assignTarget
+    ? (cases as FirmCaseRow[]).find((c) => c.assessmentId === assignTarget.assessmentId) || assignTarget
+    : null
 
   const ALL_PERMISSIONS = useMemo(() => {
     const set = new Set<string>()
@@ -2630,64 +2663,147 @@ export default function FirmDashboard() {
       )}
 
       {/* Assign case modal */}
-      {assignTarget && (
+      {assignTarget && assignRow && (() => {
+        const team = (assignRow.assignments || []).filter((a) => a.id)
+        const isMulti = multiAssigneeRoles.includes(assignRole)
+        const heldInRole = new Set(
+          team
+            .filter((a) => a.role === assignRole)
+            .map((a) => (a.assignedAttorneyId ? `att:${a.assignedAttorneyId}` : `usr:${a.assignedUserId}`)),
+        )
+        const staffOptions = members
+          .filter((m) => m.user?.id && !m.attorney)
+          .map((m) => ({
+            key: `usr:${m.user!.id}`,
+            label: `${[m.user?.firstName, m.user?.lastName].filter(Boolean).join(' ').trim() || m.user?.email || 'Member'} — ${formatRole(m.role)}`,
+          }))
+        const attorneyOptions = attorneys.map((a) => ({ key: `att:${a.id}`, label: a.name }))
+        const toggleAssignee = (key: string) =>
+          setAssignees((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]))
+        return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setAssignTarget(null)}>
-          <div className="w-full max-w-md rounded-2xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
+          <div className="w-full max-w-lg rounded-2xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-              <h3 className="text-lg font-semibold text-slate-900">Assign case</h3>
+              <h3 className="text-lg font-semibold text-slate-900">Case team</h3>
               <button onClick={() => setAssignTarget(null)} className="text-slate-400 hover:text-slate-600">
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <div className="space-y-4 px-5 py-4">
+            <div className="max-h-[70vh] space-y-5 overflow-y-auto px-5 py-4">
               <div className="rounded-lg bg-slate-50 px-3 py-2 text-sm">
-                <div className="font-medium text-slate-800">{assignTarget.clientName || (assignTarget.claimType ? formatClaimType(assignTarget.claimType) : 'Case')}</div>
-                <div className="text-xs text-slate-400">{assignTarget.claimType ? formatClaimType(assignTarget.claimType) : ''}{assignTarget.venueCounty ? ` · ${assignTarget.venueCounty}` : ''}</div>
+                <div className="font-medium text-slate-800">{assignRow.clientName || (assignRow.claimType ? formatClaimType(assignRow.claimType) : 'Case')}</div>
+                <div className="text-xs text-slate-400">{assignRow.claimType ? formatClaimType(assignRow.claimType) : ''}{assignRow.venueCounty ? ` · ${assignRow.venueCounty}` : ''}</div>
               </div>
+
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-slate-700">Role</label>
-                <select value={assignRole} onChange={(e) => setAssignRole(e.target.value)} className={inputCls}>
-                  {assignmentRoles.map((r) => (
-                    <option key={r} value={r}>{formatRole(r)}</option>
-                  ))}
-                </select>
+                <p className="mb-2 text-sm font-medium text-slate-700">On this case</p>
+                {assignRow.primaryAttorney && (
+                  <div className="mb-2 flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                    <span className="font-medium text-slate-800">{assignRow.primaryAttorney.name}</span>
+                    <Badge tone="brand">Accepting attorney</Badge>
+                  </div>
+                )}
+                {team.length === 0 ? (
+                  <p className="text-sm text-slate-400">No one else is on this case yet.</p>
+                ) : (
+                  <ul className="space-y-2">
+                    {team.map((a) => (
+                      <li key={a.id} className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                        <div className="min-w-0">
+                          <span className="truncate font-medium text-slate-800">{a.name || 'Team member'}</span>
+                          <span className="ml-2 text-xs text-slate-500">{formatRole(a.role)}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => removeAssignment(a.id!)}
+                          disabled={removingAssignmentId === a.id}
+                          className="shrink-0 text-xs font-semibold text-red-600 hover:text-red-700 disabled:opacity-50"
+                        >
+                          {removingAssignmentId === a.id ? 'Removing…' : 'Remove'}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              <div className="space-y-3 border-t border-slate-100 pt-4">
+                <p className="text-sm font-medium text-slate-700">Add to case team</p>
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-slate-500">Role</label>
+                  <select
+                    value={assignRole}
+                    onChange={(e) => {
+                      setAssignRole(e.target.value)
+                      setAssignees([])
+                    }}
+                    className={inputCls}
+                  >
+                    {assignmentRoles.map((r) => (
+                      <option key={r} value={r}>{formatRole(r)}{multiAssigneeRoles.includes(r) ? ' (several allowed)' : ''}</option>
+                    ))}
+                  </select>
+                  {!isMulti && heldInRole.size > 0 && (
+                    <p className="mt-1 text-xs text-amber-600">Only one person holds this role. Assigning someone new replaces the current one.</p>
+                  )}
                 </div>
-              <div>
-                <label className="mb-1.5 block text-sm font-medium text-slate-700">Assign to</label>
-                <select value={assignee} onChange={(e) => setAssignee(e.target.value)} className={inputCls}>
-                  <option value="">Select a team member…</option>
-                  {attorneys.length > 0 && (
-                    <optgroup label="Attorneys">
-                      {attorneys.map((a) => (
-                        <option key={`att:${a.id}`} value={`att:${a.id}`}>{a.name}</option>
-                      ))}
-                    </optgroup>
-                  )}
-                  {members.filter((m) => m.user?.id && !m.attorney).length > 0 && (
-                    <optgroup label="Staff">
-                      {members
-                        .filter((m) => m.user?.id && !m.attorney)
-                        .map((m) => {
-                          const name = [m.user?.firstName, m.user?.lastName].filter(Boolean).join(' ').trim() || m.user?.email || 'Member'
-                    return (
-                            <option key={`usr:${m.user!.id}`} value={`usr:${m.user!.id}`}>{name} — {formatRole(m.role)}</option>
-                          )
-                        })}
-                    </optgroup>
-                  )}
-                </select>
+                {isMulti ? (
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-slate-500">Attorneys</label>
+                    <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-slate-200 p-2">
+                      {attorneyOptions.length === 0 && <p className="px-1 text-sm text-slate-400">No attorneys in this firm yet.</p>}
+                      {attorneyOptions.map((o) => {
+                        const already = heldInRole.has(o.key)
+                        return (
+                          <label key={o.key} className={`flex items-center gap-2 rounded px-1.5 py-1 text-sm ${already ? 'text-slate-400' : 'cursor-pointer text-slate-700 hover:bg-slate-50'}`}>
+                            <input
+                              type="checkbox"
+                              checked={already || assignees.includes(o.key)}
+                              disabled={already}
+                              onChange={() => toggleAssignee(o.key)}
+                            />
+                            {o.label}
+                            {already && <span className="text-xs">(already on case)</span>}
+                          </label>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-slate-500">Assign to</label>
+                    <select value={assignees[0] || ''} onChange={(e) => setAssignees(e.target.value ? [e.target.value] : [])} className={inputCls}>
+                      <option value="">Select a team member…</option>
+                      {attorneyOptions.length > 0 && (
+                        <optgroup label="Attorneys">
+                          {attorneyOptions.map((o) => (
+                            <option key={o.key} value={o.key} disabled={heldInRole.has(o.key)}>{o.label}</option>
+                          ))}
+                        </optgroup>
+                      )}
+                      {staffOptions.length > 0 && (
+                        <optgroup label="Staff">
+                          {staffOptions.map((o) => (
+                            <option key={o.key} value={o.key} disabled={heldInRole.has(o.key)}>{o.label}</option>
+                          ))}
+                        </optgroup>
+                      )}
+                    </select>
+                  </div>
+                )}
               </div>
               {assignError && <p className="text-sm text-red-600">{assignError}</p>}
             </div>
             <div className="flex items-center justify-end gap-3 border-t border-slate-100 px-5 py-4">
-              <button onClick={() => setAssignTarget(null)} className={btnGhost}>Cancel</button>
-              <button onClick={submitAssign} disabled={assignSaving} className={btnPrimary}>
-                {assignSaving ? 'Assigning…' : 'Assign'}
+              <button onClick={() => setAssignTarget(null)} className={btnGhost}>Done</button>
+              <button onClick={submitAssign} disabled={assignSaving || assignees.length === 0} className={btnPrimary}>
+                {assignSaving ? 'Adding…' : assignees.length > 1 ? `Add ${assignees.length}` : 'Add'}
               </button>
             </div>
           </div>
         </div>
-      )}
+        )
+      })()}
 
       {/* ── EDIT MEMBER: Role & Permissions modal ───────────────────── */}
       {editingMember && (

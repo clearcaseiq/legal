@@ -57,6 +57,12 @@ export const CASE_ASSIGNMENT_ROLES = [
   'medical_records',
 ]
 
+/**
+ * Case-team roles several people can hold at once (co-counsel). Every other
+ * role has a single owner, and assigning someone new replaces the last one.
+ */
+export const MULTI_ASSIGNEE_CASE_ROLES = ['secondary_attorney']
+
 /** Roles that map to the attorney web experience rather than the staff one. */
 export const ATTORNEY_FIRM_ROLES = ['firm_admin', 'attorney']
 
