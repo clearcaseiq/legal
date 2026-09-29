@@ -39,7 +39,7 @@ beforeEach(() => {
 
 describe('GET /v1/messaging/attorney/unread-summary for firm staff', () => {
   it("lists the firm's threads on the cases the member can see", async () => {
-    asStaff(JSON.stringify({ grant: ['message_plaintiffs'], revoke: [] }))
+    asStaff(JSON.stringify({ grant: ['message_plaintiffs'], revoke: [] }), 'intake_specialist')
 
     const res = await request(app).get('/v1/messaging/attorney/unread-summary').set(auth)
 

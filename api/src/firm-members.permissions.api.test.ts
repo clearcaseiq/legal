@@ -43,7 +43,7 @@ describe('PATCH /v1/firm-dashboard/members/:id permissions', () => {
 
     expect(res.status).toBe(200)
     const { data } = vi.mocked((prisma as any).firmMember.update).mock.calls[0][0]
-    expect(JSON.parse(data.permissions)).toEqual({ grant: ['generate_demands'], revoke: ['manage_assigned_cases'] })
+    expect(JSON.parse(data.permissions)).toEqual({ v: 2, grant: ['generate_demands'], revoke: ['manage_assigned_cases'] })
   })
 
   it('still accepts the older bare array as grants', async () => {
@@ -51,7 +51,19 @@ describe('PATCH /v1/firm-dashboard/members/:id permissions', () => {
 
     expect(res.status).toBe(200)
     const { data } = vi.mocked((prisma as any).firmMember.update).mock.calls[0][0]
-    expect(JSON.parse(data.permissions)).toEqual({ grant: ['generate_demands'], revoke: [] })
+    expect(JSON.parse(data.permissions)).toEqual({ v: 2, grant: ['generate_demands'], revoke: [] })
+  })
+
+  it('stores retired permissions as the ones that now cover them', async () => {
+    const res = await patch({ permissions: { grant: ['decline_cases', 'request_records'], revoke: ['manage_chronology'] } })
+
+    expect(res.status).toBe(200)
+    const { data } = vi.mocked((prisma as any).firmMember.update).mock.calls[0][0]
+    expect(JSON.parse(data.permissions)).toEqual({
+      v: 2,
+      grant: ['accept_cases', 'manage_documents'],
+      revoke: ['manage_assigned_cases'],
+    })
   })
 
   it('clears the adjustments on null', async () => {

@@ -120,12 +120,21 @@ describe('reading a colleague case', () => {
       args?.where?.OR ? (onTeam ? ({ id: 'fca-me' } as any) : null) : ({ id: 'fca-other' } as any),
     )
 
-  it('refuses an associate once the case is staffed with other people', async () => {
+  it('refuses an associate without View All Cases once the case is staffed with other people', async () => {
+    asMember('attorney', JSON.stringify({ attorney: ['review_cases', 'accept_cases', 'generate_demands', 'manage_assigned_cases'] }))
     staffed(false)
 
     const res = await openLetters()
 
     expect(res.status).toBe(403)
+  })
+
+  it('lets an associate with the default View All Cases read a staffed colleague case', async () => {
+    staffed(false)
+
+    const res = await openLetters()
+
+    expect(res.status).not.toBe(403)
   })
 
   it('lets an associate on the case team read it', async () => {

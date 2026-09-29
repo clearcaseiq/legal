@@ -1,6 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
-import { activateAcceptedInvites, parseMemberOverrides, permissionsForMember, resolveFirmAccess } from './firm-access'
-import { ALL_FIRM_PERMISSIONS, FIRM_ROLE_PERMISSIONS } from './firm-roles'
+import {
+  MEMBER_OVERRIDES_VERSION,
+  activateAcceptedInvites,
+  currentMemberOverrides,
+  parseMemberOverrides,
+  permissionsForMember,
+  resolveFirmAccess,
+} from './firm-access'
+import { ALL_FIRM_PERMISSIONS, FIRM_ROLE_PERMISSIONS, canonicalPermission, effectiveRolePermissions } from './firm-roles'
 
 describe('permissionsForMember', () => {
   it('adds grants and takes away revokes from the role defaults', () => {
@@ -27,6 +34,57 @@ describe('permissionsForMember', () => {
   it('treats malformed overrides as none', () => {
     expect(parseMemberOverrides('{not json')).toEqual({ grant: [], revoke: [] })
     expect(parseMemberOverrides(null)).toEqual({ grant: [], revoke: [] })
+  })
+})
+
+describe('retired permissions', () => {
+  it('reads an old grant as the permission that now covers it', () => {
+    const perms = permissionsForMember('billing_admin', null, JSON.stringify({ grant: ['request_records'] }))
+    expect(perms).toContain('manage_documents')
+    expect(perms).not.toContain('request_records')
+  })
+
+  it('keeps access when an old revoke takes away only part of a merged group', () => {
+    // Attorneys held upload_documents, manage_documents, request_evidence and
+    // request_records; revoking one still left them document access.
+    const perms = permissionsForMember('attorney', null, JSON.stringify({ revoke: ['request_records'] }))
+    expect(perms).toContain('manage_documents')
+  })
+
+  it('takes the merged permission away when an old revoke covered everything the role held in it', () => {
+    const perms = permissionsForMember('paralegal', null, JSON.stringify({ revoke: ['upload_documents'] }))
+    expect(perms).not.toContain('manage_documents')
+    expect(perms).toEqual(expect.arrayContaining(['view_all_cases', 'manage_assigned_cases']))
+  })
+
+  it('maps a firm role setting saved in old terms', () => {
+    const rolePermissions = JSON.stringify({ paralegal: ['view_assigned_cases', 'upload_records'] })
+    expect(effectiveRolePermissions(rolePermissions).paralegal.sort()).toEqual(['manage_documents', 'view_all_cases'])
+    expect(permissionsForMember('paralegal', rolePermissions, null).sort()).toEqual(['manage_documents', 'view_all_cases'])
+  })
+
+  it('applies adjustments saved in new terms against the current defaults', () => {
+    const perms = permissionsForMember(
+      'attorney',
+      null,
+      JSON.stringify({ v: MEMBER_OVERRIDES_VERSION, grant: ['view_analytics'], revoke: ['manage_documents'] }),
+    )
+    expect(perms).toContain('view_analytics')
+    expect(perms).not.toContain('manage_documents')
+  })
+
+  it('does not hand billing admins routing through View subscriptions', () => {
+    expect(permissionsForMember('billing_admin', null, null)).not.toContain('manage_routing')
+    expect(canonicalPermission('view_subscriptions')).toBe('manage_billing')
+  })
+
+  it('restates old adjustments in new terms for the permissions window', () => {
+    expect(currentMemberOverrides('paralegal', null, JSON.stringify({ revoke: ['upload_documents'], grant: ['decline_cases'] })))
+      .toEqual({ v: MEMBER_OVERRIDES_VERSION, grant: ['accept_cases'], revoke: ['manage_documents'] })
+  })
+
+  it('has 13 permissions', () => {
+    expect(ALL_FIRM_PERMISSIONS).toHaveLength(13)
   })
 })
 

@@ -62,14 +62,48 @@ beforeEach(() => {
 })
 
 describe('GET /v1/firm-dashboard caseload scope', () => {
-  it('shows a paralegal their staffed cases and unstaffed firm cases, not other teams', async () => {
-    asMember('paralegal')
+  it('shows a member without View All Cases their staffed cases and unstaffed firm cases, not other teams', async () => {
+    asMember('intake_specialist')
 
     const res = await request(app).get('/v1/firm-dashboard').set(auth)
 
     expect(res.status).toBe(200)
     expect(res.body.cases.map((c: any) => c.assessmentId).sort()).toEqual(['mine', 'unstaffed'])
     expect(res.body.metrics.activeCases).toBe(2)
+  })
+
+  it('shows a paralegal the whole roster, since View assigned cases merged into View All Cases', async () => {
+    asMember('paralegal')
+
+    const res = await request(app).get('/v1/firm-dashboard').set(auth)
+
+    expect(res.status).toBe(200)
+    expect(res.body.cases.map((c: any) => c.assessmentId).sort()).toEqual(['mine', 'theirs', 'unstaffed'])
+  })
+
+  it('keeps fees, spend and ROI from a member who sees every case but lacks View analytics', async () => {
+    asMember('paralegal')
+
+    const res = await request(app).get('/v1/firm-dashboard').set(auth)
+
+    expect(res.status).toBe(200)
+    expect(res.body.metrics.activeCases).toBe(3)
+    expect(res.body.metrics).not.toHaveProperty('feesCollectedFromPayments')
+    expect(res.body.metrics).not.toHaveProperty('totalPlatformSpend')
+    expect(res.body.metrics).not.toHaveProperty('firmROI')
+    expect(res.body.analytics).toBeNull()
+    expect(res.body.marketplace).toBeNull()
+  })
+
+  it('shows the money to View analytics', async () => {
+    asMember('firm_admin')
+
+    const res = await request(app).get('/v1/firm-dashboard').set(auth)
+
+    expect(res.status).toBe(200)
+    expect(res.body.metrics).toHaveProperty('feesCollectedFromPayments')
+    expect(res.body.metrics).toHaveProperty('firmROI')
+    expect(res.body.analytics).not.toBeNull()
   })
 
   it('shows no cases to a member whose admin removed every permission', async () => {

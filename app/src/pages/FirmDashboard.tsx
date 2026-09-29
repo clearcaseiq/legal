@@ -110,72 +110,71 @@ const FIRM_ROLES = [
 // Ordered so the role matrix columns stay stable regardless of API ordering.
 const PERMISSION_LABELS: Record<string, string> = {
   manage_users: 'Manage users',
-  manage_routing: 'Manage workflow',
-  assign_cases: 'Assign cases',
-  view_all_cases: 'View all cases',
-  view_assigned_cases: 'View assigned cases',
+  manage_routing: 'Manage workflow & firm settings',
   view_analytics: 'View analytics',
+  view_all_cases: 'View All Cases',
+  assign_cases: 'Assign cases',
+  manage_assigned_cases: 'Work cases',
   review_cases: 'Review Active Cases',
-  review_new_leads: 'Review new leads',
-  accept_cases: 'Accept cases',
-  decline_cases: 'Decline cases',
-  manage_assigned_cases: 'Work assigned cases',
+  accept_cases: 'Accept & decline cases',
   message_plaintiffs: 'Message clients',
   schedule_consultations: 'Schedule consults',
+  manage_documents: 'Documents & records',
   generate_demands: 'Generate demands',
-  manage_chronology: 'Manage chronology',
-  upload_records: 'Upload records',
-  request_records: 'Request records',
-  request_evidence: 'Request evidence',
-  manage_documents: 'Manage documents',
-  upload_documents: 'Upload documents',
-  manage_billing: 'Manage billing',
-  manage_invoices: 'Manage invoices',
-  process_payments: 'Process payments',
-  manage_subscriptions: 'Manage subscriptions',
-  view_subscriptions: 'View subscriptions',
+  manage_billing: 'Billing & payments',
 }
 
 const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   manage_users: 'Add, edit, and remove firm members and set their roles.',
-  manage_routing: 'Configure how new matched cases are routed to the firm.',
+  manage_routing: 'Configure case routing and workflow, and change the firm plan and seats.',
+  view_analytics: 'View firm performance, fees, ROI and platform spend.',
+  view_all_cases: 'See every case in the firm.',
   assign_cases: 'Assign or reassign cases to attorneys and staff.',
-  view_all_cases: 'See every case in the firm, not just assigned ones.',
-  view_assigned_cases: 'See only the cases this person is assigned to.',
-  view_analytics: 'View firm performance dashboards and reports.',
-  review_cases: 'Open and review incoming case details.',
-  review_new_leads: 'Triage newly matched leads before acceptance.',
-  accept_cases: 'Accept a matched case on behalf of the firm.',
-  decline_cases: 'Decline a matched case on behalf of the firm.',
-  manage_assigned_cases: 'Do day-to-day work on assigned cases.',
+  manage_assigned_cases: 'Do day-to-day work on cases, including the medical chronology.',
+  review_cases: 'Open and review incoming cases and new leads.',
+  accept_cases: 'Accept or decline a matched case on behalf of the firm.',
   message_plaintiffs: 'Message clients through the platform.',
   schedule_consultations: 'Book and manage client consultations.',
+  manage_documents: 'Upload and manage case documents and records, and request them from clients and providers.',
   generate_demands: 'Draft and generate demand letters.',
-  manage_chronology: 'Build and edit the medical/treatment chronology.',
-  upload_records: 'Upload medical and billing records.',
-  request_records: 'Request records from providers.',
-  request_evidence: 'Request evidence and documents from clients.',
-  manage_documents: 'Organize and manage case documents.',
-  upload_documents: 'Upload documents to a case.',
-  manage_billing: 'Manage firm billing and platform spend.',
-  manage_invoices: 'Create and manage client invoices.',
-  process_payments: 'Process client and settlement payments.',
-  manage_subscriptions: 'Change the firm plan and seats.',
-  view_subscriptions: 'View the firm plan and seat usage.',
+  manage_billing: 'Invoices, payments and firm billing.',
+}
+
+/** The permission dialog and role matrix group permissions under these headings. */
+const PERMISSION_CATEGORIES: Array<{ label: string; permissions: string[] }> = [
+  { label: 'Firm', permissions: ['manage_users', 'manage_routing', 'view_analytics'] },
+  { label: 'Cases', permissions: ['view_all_cases', 'assign_cases', 'manage_assigned_cases'] },
+  { label: 'New leads', permissions: ['review_cases', 'accept_cases'] },
+  { label: 'Client', permissions: ['message_plaintiffs', 'schedule_consultations'] },
+  { label: 'Documents', permissions: ['manage_documents', 'generate_demands'] },
+  { label: 'Billing', permissions: ['manage_billing'] },
+]
+
+/** Group `perms` under PERMISSION_CATEGORIES, with anything unrecognized under "Other". */
+function groupPermissions(perms: string[]): Array<{ label: string; permissions: string[] }> {
+  const groups = PERMISSION_CATEGORIES
+    .map((c) => ({ label: c.label, permissions: c.permissions.filter((p) => perms.includes(p)) }))
+    .filter((g) => g.permissions.length)
+  const known = new Set(PERMISSION_CATEGORIES.flatMap((c) => c.permissions))
+  const other = perms.filter((p) => !known.has(p))
+  return other.length ? [...groups, { label: 'Other', permissions: other }] : groups
 }
 
 // Mirror of api/src/lib/firm-roles.ts — used only if the API hasn't sent
 // roleCapabilities (older backend). The API remains the source of truth.
 const FIRM_ROLE_PERMISSIONS_FALLBACK: Record<string, string[]> = {
-  firm_admin: ['manage_users', 'manage_routing', 'manage_billing', 'view_all_cases', 'view_analytics', 'assign_cases', 'manage_subscriptions'],
-  attorney: ['review_cases', 'accept_cases', 'decline_cases', 'message_plaintiffs', 'generate_demands', 'manage_assigned_cases', 'assign_cases'],
-  case_manager: ['upload_records', 'manage_documents', 'message_plaintiffs', 'request_evidence', 'manage_assigned_cases'],
-  intake_specialist: ['review_new_leads', 'schedule_consultations', 'request_records'],
-  paralegal: ['view_assigned_cases', 'manage_chronology', 'upload_documents'],
-  billing_admin: ['manage_invoices', 'view_subscriptions', 'process_payments'],
-  legal_assistant: ['view_assigned_cases', 'manage_documents', 'schedule_consultations'],
-  demand_writer: ['view_assigned_cases', 'generate_demands', 'manage_documents'],
-  medical_records: ['view_assigned_cases', 'upload_records', 'request_records'],
+  firm_admin: ['manage_users', 'manage_routing', 'manage_billing', 'view_all_cases', 'view_analytics', 'assign_cases'],
+  attorney: [
+    'review_cases', 'accept_cases', 'message_plaintiffs', 'generate_demands', 'manage_assigned_cases',
+    'view_all_cases', 'assign_cases', 'manage_documents', 'schedule_consultations',
+  ],
+  case_manager: ['manage_documents', 'message_plaintiffs', 'schedule_consultations', 'manage_assigned_cases', 'view_all_cases'],
+  intake_specialist: ['review_cases', 'schedule_consultations', 'manage_documents'],
+  paralegal: ['view_all_cases', 'manage_assigned_cases', 'manage_documents'],
+  billing_admin: ['manage_billing'],
+  legal_assistant: ['view_all_cases', 'manage_documents', 'schedule_consultations'],
+  demand_writer: ['view_all_cases', 'generate_demands', 'manage_documents'],
+  medical_records: ['view_all_cases', 'manage_documents'],
 }
 
 const humanizePermission = (p: string) =>
@@ -271,8 +270,8 @@ interface FirmDashboardData {
     attorneyCount: number
     totalLeadsReceived: number
     totalLeadsAccepted: number
-    feesCollectedFromPayments: number
-    totalPlatformSpend: number
+    feesCollectedFromPayments?: number
+    totalPlatformSpend?: number
     avgAttorneyRating: number
     totalReviews: number
     verifiedReviewCount: number
@@ -280,7 +279,7 @@ interface FirmDashboardData {
     acceptedCases?: number
     retainedCases?: number
     operationsQueueCount?: number
-    firmROI: number | null
+    firmROI?: number | null
   }
   workspace?: {
     currentRole: string
@@ -372,10 +371,8 @@ const TABS: Array<{ key: TabKey; label: string; icon: typeof LayoutDashboard }> 
 const FULL_ACCESS_FIRM_ROLES = ['firm_admin']
 
 const CASE_ACCESS_PERMISSIONS = [
-  'view_all_cases', 'view_assigned_cases', 'manage_assigned_cases', 'review_cases', 'review_new_leads',
-  'accept_cases', 'decline_cases', 'message_plaintiffs', 'generate_demands', 'upload_documents',
-  'manage_documents', 'upload_records', 'request_evidence', 'request_records', 'schedule_consultations',
-  'manage_chronology', 'manage_invoices', 'process_payments', 'manage_billing',
+  'view_all_cases', 'manage_assigned_cases', 'review_cases', 'accept_cases', 'message_plaintiffs',
+  'generate_demands', 'manage_documents', 'schedule_consultations', 'manage_billing',
 ]
 
 function canSeeFirmTab(tab: TabKey, role: string | undefined, permissions: string[]): boolean {
@@ -392,10 +389,7 @@ function canSeeFirmTab(tab: TabKey, role: string | undefined, permissions: strin
     case 'newleads':
       // Intake specialists own this surface; firm admins/attorneys reach it via
       // their broader case-visibility permissions (CP-588).
-      return (
-        has('review_new_leads') || has('view_all_cases') || has('review_cases') ||
-        has('accept_cases') || has('decline_cases')
-      )
+      return has('view_all_cases') || has('review_cases') || has('accept_cases')
     case 'team':
       return has('manage_users') || has('assign_cases')
     case 'templates':
@@ -404,10 +398,7 @@ function canSeeFirmTab(tab: TabKey, role: string | undefined, permissions: strin
       return has('manage_routing')
     case 'time':
       // Case workers log their own hours; billing roles review everyone's.
-      return (
-        has('manage_billing') || has('manage_invoices') || has('process_payments') ||
-        has('manage_assigned_cases') || has('view_assigned_cases')
-      )
+      return has('manage_billing') || has('manage_assigned_cases') || has('view_all_cases')
     default:
       return false
   }
@@ -1003,17 +994,9 @@ export default function FirmDashboard() {
     ? (cases as FirmCaseRow[]).find((c) => c.assessmentId === assignTarget.assessmentId) || assignTarget
     : null
 
-  const ALL_PERMISSIONS = useMemo(() => {
-    const set = new Set<string>()
-    Object.values(workspace?.roleCapabilities || {}).forEach((perms: any) =>
-      (perms as string[]).forEach((p) => set.add(p))
-    )
-    return Array.from(set).sort()
-  }, [workspace?.roleCapabilities])
-
   // Role × permission matrix data. Uses the API's roleCapabilities when present,
-  // else the local mirror. Columns are ordered by PERMISSION_LABELS, with any
-  // unknown permissions appended so nothing is silently dropped.
+  // else the local mirror. Columns are every catalog permission in category
+  // order, with any unknown ones appended so nothing is silently dropped.
   const roleMatrix = useMemo(() => {
     const apiCaps = workspace?.roleCapabilities as Record<string, string[]> | undefined
     const caps = apiCaps && Object.keys(apiCaps).length ? apiCaps : FIRM_ROLE_PERMISSIONS_FALLBACK
@@ -1024,10 +1007,10 @@ export default function FirmDashboard() {
     ]
     const present = new Set<string>()
     roles.forEach((r) => (caps[r] || []).forEach((p) => present.add(p)))
-    const orderedKnown = Object.keys(PERMISSION_LABELS).filter((p) => present.has(p))
+    const orderedKnown = PERMISSION_CATEGORIES.flatMap((c) => c.permissions)
     const extras = Array.from(present).filter((p) => !orderedKnown.includes(p))
     const columns = [...orderedKnown, ...extras]
-    return { caps, roles, columns }
+    return { caps, roles, columns, columnGroups: groupPermissions(columns) }
   }, [workspace?.roleCapabilities])
 
   const canManageUsers =
@@ -1057,11 +1040,8 @@ export default function FirmDashboard() {
     }
   }
 
-  // Full permission catalog (labelled perms + any extras a firm already uses).
-  const permissionCatalog = useMemo(
-    () => Array.from(new Set([...Object.keys(PERMISSION_LABELS), ...roleMatrix.columns])),
-    [roleMatrix.columns],
-  )
+  // Full permission catalog by category (plus any extras a firm already uses).
+  const permissionGroups = roleMatrix.columnGroups
 
   const openEditRole = (role: string) => {
     setEditingRole(role)
@@ -1591,15 +1571,17 @@ export default function FirmDashboard() {
               onClick={canSeeTab('caseload') ? () => goToTab('caseload', { status: 'all' }) : undefined}
               hint={canSeeTab('caseload') ? 'Open Active Cases' : undefined}
             />
-            <FilterStat
-              filled
-              tone="success"
-              value={formatCurrency(metrics.feesCollectedFromPayments || 0)}
-              label="Fees collected"
-              onClick={canSeeTab('time') ? () => goToTab('time') : undefined}
-              hint={canSeeTab('time') ? 'Open Time & Billing' : undefined}
-            />
-            {/* Absent (not null) when the member can't see firm spend; null means no spend yet. */}
+            {/* Fees and ROI are absent without View analytics; a null ROI means no spend yet. */}
+            {metrics.feesCollectedFromPayments !== undefined && (
+              <FilterStat
+                filled
+                tone="success"
+                value={formatCurrency(metrics.feesCollectedFromPayments || 0)}
+                label="Fees collected"
+                onClick={canSeeTab('time') ? () => goToTab('time') : undefined}
+                hint={canSeeTab('time') ? 'Open Time & Billing' : undefined}
+              />
+            )}
             {metrics.firmROI !== undefined && (
               <FilterStat filled tone="warning" value={metrics.firmROI != null ? `${metrics.firmROI.toFixed(1)}x` : '—'} label="Marketing ROI" />
             )}
@@ -2552,9 +2534,23 @@ export default function FirmDashboard() {
                   <table className="min-w-full border-collapse text-sm">
                     <thead>
                       <tr className="bg-slate-50">
-                        <th className="sticky left-0 z-10 bg-slate-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        <th
+                          rowSpan={2}
+                          className="sticky left-0 z-10 bg-slate-50 px-4 py-3 text-left align-bottom text-xs font-semibold uppercase tracking-wide text-slate-500"
+                        >
                           Role
                         </th>
+                        {roleMatrix.columnGroups.map((group) => (
+                          <th
+                            key={group.label}
+                            colSpan={group.permissions.length}
+                            className="border-l border-slate-200 px-3 pt-3 text-center text-[10px] font-semibold uppercase tracking-wide text-slate-400"
+                          >
+                            {group.label}
+                          </th>
+                        ))}
+                      </tr>
+                      <tr className="bg-slate-50">
                         {roleMatrix.columns.map((perm) => (
                           <th
                             key={perm}
@@ -2660,20 +2656,25 @@ export default function FirmDashboard() {
                         <X className="h-4 w-4" />
               </button>
             </div>
-                    <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                      {(roleMatrix.caps[expandedMatrixRole] || []).map((perm) => (
-                        <li key={perm} className="flex items-start gap-2 rounded-lg bg-white px-3 py-2 shadow-sm">
-                          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
-                          <div className="min-w-0">
-                            <p className="text-sm font-medium text-slate-800">{humanizePermission(perm)}</p>
-                            <p className="text-xs text-slate-500">{PERMISSION_DESCRIPTIONS[perm] || ''}</p>
-              </div>
-                        </li>
-                      ))}
-                      {(roleMatrix.caps[expandedMatrixRole] || []).length === 0 && (
-                        <li className="text-sm text-slate-400">This role has no permissions yet.</li>
-                      )}
-                    </ul>
+                    {groupPermissions(roleMatrix.caps[expandedMatrixRole] || []).map((group) => (
+                      <div key={group.label} className="mb-3">
+                        <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">{group.label}</p>
+                        <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          {group.permissions.map((perm) => (
+                            <li key={perm} className="flex items-start gap-2 rounded-lg bg-white px-3 py-2 shadow-sm">
+                              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
+                              <div className="min-w-0">
+                                <p className="text-sm font-medium text-slate-800">{humanizePermission(perm)}</p>
+                                <p className="text-xs text-slate-500">{PERMISSION_DESCRIPTIONS[perm] || ''}</p>
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
+                    {(roleMatrix.caps[expandedMatrixRole] || []).length === 0 && (
+                      <p className="text-sm text-slate-400">This role has no permissions yet.</p>
+                    )}
                     <p className="mt-3 text-xs text-slate-500">
                       These are the defaults for the role. To grant or remove a specific permission for one person, open that
                       member and use <span className="font-medium">Manage member → Permissions</span>.
@@ -2771,7 +2772,10 @@ export default function FirmDashboard() {
               <button onClick={() => setEditingRole(null)} className="text-slate-400 hover:text-slate-600"><X className="h-5 w-5" /></button>
             </div>
             <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto px-5 py-4">
-              {permissionCatalog.map((perm) => {
+              {permissionGroups.map((group) => (
+                <div key={group.label} className="space-y-1.5">
+                  <p className="pt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400 first:pt-0">{group.label}</p>
+              {group.permissions.map((perm) => {
                 const checked = editRolePerms.includes(perm)
                 const locked = isLockedCell(editingRole, perm)
                 return (
@@ -2800,6 +2804,8 @@ export default function FirmDashboard() {
                     </label>
                 )
               })}
+                </div>
+              ))}
               {roleMatrixError && <p className="text-sm text-rose-600">{roleMatrixError}</p>}
                 </div>
             <div className="flex items-center justify-between border-t border-slate-100 px-5 py-4">
@@ -3010,8 +3016,11 @@ export default function FirmDashboard() {
                     <p className="mb-3 text-xs text-slate-400">
                       The role's permissions start checked. Uncheck one to take it away from this person only, or check any other to add it.
                     </p>
+                    {permissionGroups.map((group) => (
+                    <div key={group.label} className="mb-3">
+                    <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">{group.label}</p>
                     <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
-                      {ALL_PERMISSIONS.map((perm) => {
+                      {group.permissions.map((perm) => {
                         const isRoleDefault = roleDefaultPerms.includes(perm)
                         const isActive = isPermActive(perm)
                         return (
@@ -3036,6 +3045,8 @@ export default function FirmDashboard() {
                         )
                       })}
                     </div>
+                    </div>
+                    ))}
                   </>
                 )}
               </div>

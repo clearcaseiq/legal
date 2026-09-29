@@ -1,4 +1,10 @@
-import { ALL_FIRM_PERMISSIONS, effectiveRolePermissions } from './firm-roles'
+import {
+  ALL_FIRM_PERMISSIONS,
+  LOCKED_ROLE_PERMISSIONS,
+  canonicalPermissions,
+  effectiveRolePermissions,
+  storedRolePermissions,
+} from './firm-roles'
 
 /**
  * What a firm member may do, resolved once from the firm's role matrix.
@@ -38,7 +44,13 @@ export function parsePermissionList(value: unknown): string[] {
   return []
 }
 
-export type MemberPermissionOverrides = { grant: string[]; revoke: string[] }
+/**
+ * `v: 2` marks adjustments made in terms of the consolidated catalog. Without
+ * it they predate consolidation and name the retired permissions.
+ */
+export const MEMBER_OVERRIDES_VERSION = 2
+
+export type MemberPermissionOverrides = { grant: string[]; revoke: string[]; v?: number }
 
 /**
  * A member's own adjustments to their role, from `FirmMember.permissions`.
@@ -57,8 +69,12 @@ export function parseMemberOverrides(value: unknown): MemberPermissionOverrides 
   }
   if (Array.isArray(parsed)) return { grant: parsed.map(String), revoke: [] }
   if (parsed && typeof parsed === 'object') {
-    const { grant, revoke } = parsed as { grant?: unknown; revoke?: unknown }
-    return { grant: parsePermissionList(grant), revoke: parsePermissionList(revoke) }
+    const { grant, revoke, v } = parsed as { grant?: unknown; revoke?: unknown; v?: unknown }
+    return {
+      grant: parsePermissionList(grant),
+      revoke: parsePermissionList(revoke),
+      ...(typeof v === 'number' ? { v } : {}),
+    }
   }
   return { grant: [], revoke: [] }
 }
@@ -70,10 +86,37 @@ export function permissionsForMember(
   memberOverrides: unknown,
 ): string[] {
   if (SUPERUSER_FIRM_ROLES.includes(role)) return [...ALL_FIRM_PERMISSIONS]
+  const overrides = parseMemberOverrides(memberOverrides)
+  if (overrides.v === MEMBER_OVERRIDES_VERSION) {
+    const byRole = effectiveRolePermissions(rolePermissionsJson)[role] || []
+    const revoked = new Set(canonicalPermissions(overrides.revoke))
+    return Array.from(new Set([...byRole, ...canonicalPermissions(overrides.grant)])).filter((p) => !revoked.has(p))
+  }
+  // Pre-consolidation adjustments: apply them to the role's list in the terms
+  // they were made in, then map. Taking away one of several retired
+  // permissions that now share a name keeps that name, as it kept access.
+  const revoked = new Set(overrides.revoke)
+  const held = [...storedRolePermissions(rolePermissionsJson, role), ...overrides.grant].filter((p) => !revoked.has(p))
+  const locked = LOCKED_ROLE_PERMISSIONS[role] || []
+  return canonicalPermissions([...held, ...locked]).filter((p) => ALL_FIRM_PERMISSIONS.includes(p))
+}
+
+/**
+ * A member's adjustments restated against their role's current defaults, in
+ * consolidated terms: what the Assign permissions window shows and saves.
+ */
+export function currentMemberOverrides(
+  role: string,
+  rolePermissionsJson: string | null | undefined,
+  memberOverrides: unknown,
+): MemberPermissionOverrides {
   const byRole = effectiveRolePermissions(rolePermissionsJson)[role] || []
-  const { grant, revoke } = parseMemberOverrides(memberOverrides)
-  const revoked = new Set(revoke)
-  return Array.from(new Set([...byRole, ...grant])).filter((p) => !revoked.has(p))
+  const held = permissionsForMember(role, rolePermissionsJson, memberOverrides)
+  return {
+    v: MEMBER_OVERRIDES_VERSION,
+    grant: held.filter((p) => !byRole.includes(p)),
+    revoke: byRole.filter((p) => !held.includes(p)),
+  }
 }
 
 type AccessClient = {
@@ -187,6 +230,6 @@ export function schedulableFirmAttorneysWhere(lawFirmId: string) {
 /** Whether the caller holds any of `anyOf`. Callers outside a firm are not limited by firm roles. */
 export function firmAllows(access: FirmAccess | null, anyOf: string | string[]): boolean {
   if (!access) return true
-  const wanted = Array.isArray(anyOf) ? anyOf : [anyOf]
+  const wanted = canonicalPermissions(Array.isArray(anyOf) ? anyOf : [anyOf])
   return wanted.some((p) => access.permissions.includes(p))
 }

@@ -127,8 +127,8 @@ describe('staff writes', () => {
         assignedUserId,
       } as any)
 
-    it('lets a paralegal complete a task assigned to them', async () => {
-      asMember('paralegal')
+    it('lets a legal assistant complete a task assigned to them', async () => {
+      asMember('legal_assistant')
       task(user.id)
 
       const res = await request(app).patch('/v1/attorney-dashboard/leads/lead-1/tasks/t-1').set(auth).send({ status: 'done' })
@@ -138,7 +138,7 @@ describe('staff writes', () => {
     })
 
     it('refuses re-planning their own task', async () => {
-      asMember('paralegal')
+      asMember('legal_assistant')
       task(user.id)
 
       const res = await request(app).patch('/v1/attorney-dashboard/leads/lead-1/tasks/t-1').set(auth).send({ title: 'New' })
@@ -148,7 +148,7 @@ describe('staff writes', () => {
     })
 
     it("refuses someone else's task", async () => {
-      asMember('paralegal')
+      asMember('legal_assistant')
       task('someone-else')
 
       const res = await request(app).patch('/v1/attorney-dashboard/leads/lead-1/tasks/t-1').set(auth).send({ status: 'done' })
@@ -251,15 +251,15 @@ describe('staff writes', () => {
   })
 
   it('refuses renaming a case to a role without manage_assigned_cases', async () => {
-    asMember('paralegal')
+    asMember('legal_assistant')
 
     const res = await request(app).patch('/v1/attorney-dashboard/leads/lead-1/case-name').set(auth).send({ caseName: 'x' })
 
     expect(res.body.code).toBe('FIRM_PERMISSION_DENIED')
   })
 
-  it('refuses a record request to a role without request permissions', async () => {
-    asMember('paralegal')
+  it('refuses a record request to a role without Documents & records', async () => {
+    asMember('billing_admin')
 
     const res = await request(app)
       .post('/v1/attorney-dashboard/leads/lead-1/document-request')

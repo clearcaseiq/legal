@@ -352,7 +352,7 @@ async function resolveFirmVisibility(req: any, _attorney: any): Promise<FirmVisi
   const canViewAllCases = has('view_all_cases')
   // Accept alone decides from the firm's anonymized New Leads list; opening the
   // case file itself needs a review permission.
-  const canReviewFirmMatches = canViewAllCases || has('review_cases') || has('review_new_leads')
+  const canReviewFirmMatches = canViewAllCases || has('review_cases')
   const canAcceptFirmMatches = canViewAllCases || has('accept_cases')
   const canViewTeamCases = CASE_ACCESS_PERMISSIONS.some(has)
   return {
@@ -385,14 +385,14 @@ async function denyWithoutFirmPermission(req: any, res: any, anyOf: string[]): P
 const CASE_ACTION_PERMISSIONS = {
   message: ['message_plaintiffs'],
   demand: ['generate_demands'],
-  documents: ['upload_documents', 'manage_documents', 'upload_records'],
-  request: ['request_evidence', 'request_records'],
+  documents: ['manage_documents'],
+  request: ['manage_documents'],
   schedule: ['schedule_consultations'],
-  chronology: ['manage_chronology'],
+  chronology: ['manage_assigned_cases'],
   accept: ['accept_cases'],
-  decline: ['decline_cases'],
+  decline: ['accept_cases'],
   manage: ['manage_assigned_cases'],
-  billing: ['manage_invoices', 'process_payments', 'manage_billing'],
+  billing: ['manage_billing'],
 } as const satisfies Record<string, readonly string[]>
 
 type CaseActionGroup = keyof typeof CASE_ACTION_PERMISSIONS

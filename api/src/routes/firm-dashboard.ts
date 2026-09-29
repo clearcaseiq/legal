@@ -40,9 +40,17 @@ import {
   MULTI_ASSIGNEE_CASE_ROLES,
   ALL_FIRM_PERMISSIONS,
   LOCKED_ROLE_PERMISSIONS,
+  canonicalPermission,
+  canonicalPermissions,
   effectiveRolePermissions,
 } from '../lib/firm-roles'
-import { activateAcceptedInvites, isMemberlessFirm, permissionsForMember } from '../lib/firm-access'
+import {
+  MEMBER_OVERRIDES_VERSION,
+  activateAcceptedInvites,
+  currentMemberOverrides,
+  isMemberlessFirm,
+  permissionsForMember,
+} from '../lib/firm-access'
 import { getAttorneyResponseDeadlineMinutes, getMatchingRules } from '../lib/matching-rules-config'
 import { triggerOfferExpirySweepSoon } from '../lib/offer-expiry-sweep'
 import { CLOSED_STATUSES } from '../lib/case-stage'
@@ -609,7 +617,7 @@ router.patch('/roles/:role/permissions', authMiddleware as any, async (req: any,
     }
     // Keep only real permissions, then force any locked permissions for the role
     // (e.g. firm_admin always keeps manage_users) so a firm can't lock itself out.
-    const sanitized = (incoming as string[]).filter((p) => ALL_FIRM_PERMISSIONS.includes(p))
+    const sanitized = canonicalPermissions(incoming as string[]).filter((p) => ALL_FIRM_PERMISSIONS.includes(p))
     const locked = LOCKED_ROLE_PERMISSIONS[role] || []
     const nextPerms = Array.from(new Set([...sanitized, ...locked]))
 
@@ -883,16 +891,19 @@ router.patch('/members/:memberId', authMiddleware as any, async (req: any, res: 
       } else {
         return res.status(400).json({ error: 'permissions must be { grant, revoke } string arrays, an array of strings, or null' })
       }
-      const unknown = [...overrides.grant, ...overrides.revoke].filter((p) => !ALL_FIRM_PERMISSIONS.includes(p))
+      const unknown = [...overrides.grant, ...overrides.revoke]
+        .filter((p) => !ALL_FIRM_PERMISSIONS.includes(canonicalPermission(p)))
       if (unknown.length) {
         return res.status(400).json({ error: `Unknown permission: ${unknown.join(', ')}` })
       }
-      if (member.userId === context.member?.userId && overrides.revoke.includes('manage_users')) {
+      const grant = canonicalPermissions(overrides.grant)
+      const revoke = canonicalPermissions(overrides.revoke).filter((p) => !grant.includes(p))
+      if (member.userId === context.member?.userId && revoke.includes('manage_users')) {
         return res.status(400).json({ error: 'You cannot remove your own permission to manage users.' })
       }
-      const grant = Array.from(new Set(overrides.grant))
-      const revoke = Array.from(new Set(overrides.revoke)).filter((p) => !grant.includes(p))
-      data.permissions = grant.length || revoke.length ? JSON.stringify({ grant, revoke }) : null
+      data.permissions = grant.length || revoke.length
+        ? JSON.stringify({ v: MEMBER_OVERRIDES_VERSION, grant, revoke })
+        : null
     }
 
     // Status change (suspend / reactivate)
@@ -1409,17 +1420,16 @@ router.get('/new-leads', authMiddleware as any, async (req: any, res: Response) 
     if (!context) {
       return res.status(404).json({ error: 'No law firm associated with this user' })
     }
-    // Intake specialists own this surface (`review_new_leads`); firm admins and
-    // attorneys reach it through their broader case-visibility permissions.
+    // Intake specialists own this surface (`review_cases`); firm admins reach it
+    // through their broader case visibility.
     const canReview =
-      requireFirmPermission(context, 'review_new_leads') ||
       requireFirmPermission(context, 'view_all_cases') ||
       requireFirmPermission(context, 'review_cases')
     // The list is anonymized, so members who may only accept or decline can
     // work it; opening a lead's review still needs `canReview`.
     const canAccept = requireFirmPermission(context, 'view_all_cases') || requireFirmPermission(context, 'accept_cases')
-    const canDecline = requireFirmPermission(context, 'view_all_cases') || requireFirmPermission(context, 'decline_cases')
-    if (!canReview && !canAccept && !canDecline) {
+    const canDecline = canAccept
+    if (!canReview && !canAccept) {
       return res.status(403).json({ error: 'You do not have permission to review new leads' })
     }
     const permissions = { canReview, canAccept, canDecline }
@@ -1543,7 +1553,6 @@ router.get('/new-leads/:assessmentId', authMiddleware as any, async (req: any, r
       return res.status(404).json({ error: 'No law firm associated with this user' })
     }
     const canReview =
-      requireFirmPermission(context, 'review_new_leads') ||
       requireFirmPermission(context, 'view_all_cases') ||
       requireFirmPermission(context, 'review_cases')
     if (!canReview) {
@@ -2335,6 +2344,9 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
      */
     const canSeeFirmCaseload =
       requireFirmPermission(context, 'view_all_cases') || requireFirmPermission(context, 'view_analytics')
+    // Fees, platform spend, ROI and per-attorney performance: View analytics
+    // only. Seeing every case does not make someone privy to the firm's money.
+    const canSeeFirmMoney = requireFirmPermission(context, 'view_analytics')
 
     // Get firm with all attorneys
     const firm = await (prisma as any).lawFirm.findUnique({
@@ -2461,7 +2473,6 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
     let feesCollectedFromPayments = 0
     let totalPlatformSpend = 0
     const totalFeesByAttorneyId = new Map<string, number>()
-    const feesByAssessmentId = new Map<string, number>()
 
     if (attorneyIds.length > 0) {
       try {
@@ -2497,9 +2508,6 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
         payments.forEach((payment: any) => {
           const amount = Number(payment.amount ?? 0)
           feesCollectedFromPayments += amount
-          if (payment.assessmentId) {
-            feesByAssessmentId.set(payment.assessmentId, (feesByAssessmentId.get(payment.assessmentId) || 0) + amount)
-          }
 
           const relatedAttorneyIds = new Set<string>()
           const assignedAttorneyId = payment.assessment?.leadSubmission?.assignedAttorneyId
@@ -2679,7 +2687,7 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
     // Skipped rather than nulled for a caller without the grant, so the work is
     // not done at all for a response that would discard it.
     let marketplace: any = null
-    if (canSeeFirmCaseload) {
+    if (canSeeFirmMoney) {
       try {
         marketplace = await computeMarketplacePerformance(prisma, {
           attorneyIds,
@@ -2778,29 +2786,29 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
         ...(canSeeFirmCaseload
           ? {
               totalLeadsAccepted,
-              feesCollectedFromPayments,
-              totalPlatformSpend,
               activeCases: firmCasesList.length,
               acceptedCases,
               retainedCases,
               operationsQueueCount: operationsQueue.length,
-              firmROI: totalPlatformSpend > 0 ? (feesCollectedFromPayments / totalPlatformSpend) : null,
             }
           : {
               // Without the firm-caseload grant, the case figures cover the
-              // cases this member can see; firm spend and ROI stay withheld.
+              // cases this member can see.
               activeCases: workableCases.length,
               acceptedCases: workableCases.length,
               retainedCases: workableCases.filter((c: any) => c.leadStatus === 'retained').length,
-              feesCollectedFromPayments: workableCases.reduce(
-                (sum: number, c: any) => sum + (feesByAssessmentId.get(c.assessmentId) || 0),
-                0,
-              ),
             }),
+        ...(canSeeFirmMoney
+          ? {
+              feesCollectedFromPayments,
+              totalPlatformSpend,
+              firmROI: totalPlatformSpend > 0 ? (feesCollectedFromPayments / totalPlatformSpend) : null,
+            }
+          : {}),
       },
       // Marketplace Performance KPIs (firm scope). Mirrors the attorney-dashboard
       // analytics shape the frontend reads for ROI / conversion / average fee.
-      analytics: canSeeFirmCaseload
+      analytics: canSeeFirmMoney
         ? {
             conversionRate: acceptedCases > 0 ? Math.round((retainedCases / acceptedCases) * 100) : 0,
             roi: totalPlatformSpend > 0 ? (feesCollectedFromPayments / totalPlatformSpend) : 0,
@@ -2861,7 +2869,9 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
         title: member.title,
         // Per-person grants/revokes, so the Assign permissions window reopens
         // with what was saved rather than the role's defaults.
-        ...(requireFirmPermission(context, 'manage_users') ? { permissions: member.permissions ?? null } : {}),
+        ...(requireFirmPermission(context, 'manage_users')
+          ? { permissions: currentMemberOverrides(member.role || 'intake_specialist', (firm as any)?.rolePermissions, member.permissions) }
+          : {}),
         status: member.status,
         invitedAt: member.invitedAt,
         office: member.office ? {
@@ -2904,9 +2914,9 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
         // Live-computed so the Match Quality firm view reflects real activity
         // rather than stale stored AttorneyDashboard counters. Per-colleague
         // lead volume and fee revenue are firm performance data, so they ride
-        // the same grant; the identity fields above stay open to every member
+        // View analytics; the identity fields above stay open to every member
         // because the roster is how the rest of the app addresses people.
-        ...(canSeeFirmCaseload
+        ...(canSeeFirmMoney
           ? {
               dashboard: {
                 totalLeadsReceived: attorneyLeadStats.get(a.id)?.routed ?? a.dashboard?.totalLeadsReceived ?? 0,
