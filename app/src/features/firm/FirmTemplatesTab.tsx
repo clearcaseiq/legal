@@ -123,8 +123,9 @@ export function FirmTemplatesTab() {
 
   // Bulk import: process files sequentially so failures are isolated.
   const onImport = async (fileList: FileList | null) => {
-    if (importInputRef.current) importInputRef.current.value = ''
+    // Copy before clearing the input: resetting its value empties the live FileList.
     const files = fileList ? Array.from(fileList) : []
+    if (importInputRef.current) importInputRef.current.value = ''
     if (files.length === 0) return
     setImporting(true)
     setImportError(null)

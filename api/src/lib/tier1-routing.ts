@@ -1,5 +1,6 @@
 import { prisma } from './prisma'
 import { attorneysBlockedByFirmDecline } from './firm-decline'
+import { attorneysBlockedByDeclineLearning } from './decline-learning'
 import { logger } from './logger'
 import { CaseFacts } from './case-tier-classifier'
 import { CaseForRouting } from './routing'
@@ -102,7 +103,7 @@ export function isTier1Case(
     return { isTier1: false, reason: `Claim type ${claimType} not in Tier 1 types` }
   }
 
-  // 2. Calculate injury severity score (0-4, Tier 1 requires ≤ 1)
+  // 2. Calculate injury severity score (0-4, Tier 1 requires â‰¤ 1)
   const maxSeverity = Math.max(
     0,
     ...(facts.injuries?.map(i => i.severity || 0) || []),
@@ -653,12 +654,16 @@ export async function routeTier1Case(caseId: string): Promise<Tier1RoutingResult
     // STEP 0: Build Eligible Firm Pool
     const pool = await buildEligibleFirmPool(caseData)
     const declinedByFirm = await attorneysBlockedByFirmDecline(caseId)
-    const eligible = pool.eligible.filter((firm) => !declinedByFirm.has(firm.id))
+    const learnedBlocks = await attorneysBlockedByDeclineLearning(caseId, pool.eligible.map((firm) => firm.id))
+    const eligible = pool.eligible.filter((firm) => !declinedByFirm.has(firm.id) && !learnedBlocks.has(firm.id))
     const ineligible = [
       ...pool.ineligible,
       ...pool.eligible
         .filter((firm) => declinedByFirm.has(firm.id))
         .map((firm) => ({ firmId: firm.id, reason: 'Firm already declined this case' })),
+      ...pool.eligible
+        .filter((firm) => !declinedByFirm.has(firm.id) && learnedBlocks.has(firm.id))
+        .map((firm) => ({ firmId: firm.id, reason: learnedBlocks.get(firm.id)! })),
     ]
 
     if (eligible.length === 0) {

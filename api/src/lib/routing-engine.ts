@@ -19,6 +19,7 @@ import {
 } from './routing'
 import { sendCaseOfferToAttorney } from './case-notifications'
 import { attorneysBlockedByFirmDecline } from './firm-decline'
+import { declineAdjustmentFor, loadDeclineLearning, traitsFromAssessment } from './decline-learning'
 import {
   recordRoutingEvent,
   isRoutingLocked,
@@ -609,7 +610,13 @@ export async function runRoutingEngine(
     // 8. Rank with new formula (re-use scoring, apply new weights)
     const { scoreAndRankAttorneys } = await import('./routing')
     const scored = await scoreAndRankAttorneys(qualified, caseData)
-    const feedbackByAttorneyId = await loadAttorneyRoutingFeedback(qualified.map((attorney) => attorney.id))
+    const qualifiedIds = qualified.map((attorney) => attorney.id)
+    const [feedbackByAttorneyId, declineLearning] = await Promise.all([
+      loadAttorneyRoutingFeedback(qualifiedIds),
+      loadDeclineLearning(qualifiedIds),
+    ])
+    const declineTraits = traitsFromAssessment(assessment)
+    const learnedExclusions: Array<{ attorneyId: string; stage: 'quality'; reason: string }> = []
 
     // Re-rank using design doc formula
     const reranked = scored
@@ -622,13 +629,38 @@ export async function runRoutingEngine(
           weights,
           feedbackByAttorneyId.get(attorney.id) ?? emptyFeedback()
         )
+        const adjustment = declineAdjustmentFor(declineLearning.get(attorney.id), declineTraits)
+        if (adjustment.blockedReason) {
+          learnedExclusions.push({ attorneyId: attorney.id, stage: 'quality', reason: adjustment.blockedReason })
+          return null
+        }
+        routingScore.routingScore = clampScore(routingScore.routingScore * adjustment.multiplier)
         return {
           attorney,
           score,
           routingScore,
         }
       })
+      .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
       .sort((a, b) => b.routingScore.routingScore - a.routingScore.routingScore)
+    qualityExcludedPreview.push(...learnedExclusions.slice(0, Math.max(0, 20 - qualityExcludedPreview.length)))
+    if (reranked.length === 0) {
+      return {
+        success: false,
+        gatePassed: true,
+        normalizedCase,
+        candidatesTotal: attorneysForRouting.length,
+        candidatesEligible: eligible.length,
+        candidatesQualified: 0,
+        diagnostics: {
+          ...diagnosticsBase,
+          selected: [],
+          rankedPreview: [],
+          excludedPreview: qualityExcludedPreview,
+        },
+        errors: ['All qualified attorneys excluded by learned decline preferences', ...learnedExclusions.slice(0, 3).map((e) => e.reason)]
+      }
+    }
 
     // 9. Controlled wave: optionally honor the plaintiff's ranked attorney order first.
     const preferredAttorneyIds = (options?.preferredAttorneyIds || []).filter(Boolean)

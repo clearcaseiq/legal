@@ -1,5 +1,6 @@
 import { prisma } from './prisma'
 import { attorneysBlockedByFirmDecline } from './firm-decline'
+import { attorneysBlockedByDeclineLearning } from './decline-learning'
 import { logger } from './logger'
 import { CaseFacts } from './case-tier-classifier'
 import { sendCaseOfferSms } from './sms'
@@ -963,12 +964,16 @@ export async function routeTier2Case(caseId: string): Promise<Tier2RoutingResult
     // STEP 0: Build Eligible Firm Pool
     const pool = await buildEligibleFirmPool(caseData, price)
     const declinedByFirm = await attorneysBlockedByFirmDecline(caseId)
-    const eligible = pool.eligible.filter((firm) => !declinedByFirm.has(firm.id))
+    const learnedBlocks = await attorneysBlockedByDeclineLearning(caseId, pool.eligible.map((firm) => firm.id))
+    const eligible = pool.eligible.filter((firm) => !declinedByFirm.has(firm.id) && !learnedBlocks.has(firm.id))
     const ineligible = [
       ...pool.ineligible,
       ...pool.eligible
         .filter((firm) => declinedByFirm.has(firm.id))
         .map((firm) => ({ firmId: firm.id, reason: 'Firm already declined this case' })),
+      ...pool.eligible
+        .filter((firm) => !declinedByFirm.has(firm.id) && learnedBlocks.has(firm.id))
+        .map((firm) => ({ firmId: firm.id, reason: learnedBlocks.get(firm.id)! })),
     ]
 
     if (eligible.length === 0) {

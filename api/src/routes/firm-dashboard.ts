@@ -11,6 +11,7 @@ import { authMiddleware, AuthRequest } from '../lib/auth'
 import { sendTransactionalEmail } from '../lib/claims'
 import { computeMarketplacePerformance, computeMarketplacePerformanceByAttorney } from '../lib/marketplace-performance'
 import { createNotificationEvent } from '../lib/platform-notifications'
+import { DECLINE_LEARNING_WINDOW_DAYS, describeDeclineLearning, loadDeclineLearning } from '../lib/decline-learning'
 import { createEnvelopeForLead } from '../lib/esign/esign-service'
 import { listESignatureProviders } from '../lib/esign'
 import type { SignableDocumentType } from '../lib/esign/types'
@@ -3298,6 +3299,70 @@ function parseTemplateBody(body: any) {
 
 // Templates are firm documents, so the documents permission governs them; firm
 // admins keep access through Manage firm.
+function canManageRoutingLearning(context: Awaited<ReturnType<typeof getFirmContext>>): boolean {
+  return requireFirmPermission(context, 'review_cases') || requireFirmPermission(context, 'manage_users')
+}
+
+// GET /v1/firm-dashboard/routing-learning — what routing has learned from
+// each firm attorney's decline reasons over the last 90 days.
+router.get('/routing-learning', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
+    if (!canManageRoutingLearning(context)) return res.status(403).json({ error: 'Not allowed' })
+
+    const attorneys = await prisma.attorney.findMany({
+      where: { lawFirmId: context.lawFirmId },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    })
+    const learning = await loadDeclineLearning(attorneys.map((a) => a.id))
+    res.json({
+      windowDays: DECLINE_LEARNING_WINDOW_DAYS,
+      attorneys: attorneys.map((a) => ({
+        attorneyId: a.id,
+        name: a.name,
+        ...describeDeclineLearning(learning.get(a.id)!),
+      })),
+    })
+  } catch (error: any) {
+    logger.error('Failed to load routing learning', { error: error?.message })
+    res.status(500).json({ error: 'Failed to load routing learning' })
+  }
+})
+
+// POST /v1/firm-dashboard/routing-learning/:attorneyId/reset — forget past
+// decline reasons for one attorney; later declines start learning again.
+router.post('/routing-learning/:attorneyId/reset', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
+    if (!canManageRoutingLearning(context)) return res.status(403).json({ error: 'Not allowed' })
+
+    const attorney = await prisma.attorney.findFirst({
+      where: { id: req.params.attorneyId, lawFirmId: context.lawFirmId },
+      select: { id: true, meta: true },
+    })
+    if (!attorney) return res.status(404).json({ error: 'Attorney not found in your firm' })
+
+    let meta: Record<string, any> = {}
+    try {
+      meta = attorney.meta ? JSON.parse(attorney.meta) : {}
+    } catch {
+      meta = {}
+    }
+    const resetAt = new Date().toISOString()
+    await prisma.attorney.update({
+      where: { id: attorney.id },
+      data: { meta: JSON.stringify({ ...meta, declineLearningResetAt: resetAt }) },
+    })
+    res.json({ attorneyId: attorney.id, resetAt })
+  } catch (error: any) {
+    logger.error('Failed to reset routing learning', { error: error?.message })
+    res.status(500).json({ error: 'Failed to reset routing learning' })
+  }
+})
+
 function canManageTemplates(context: Awaited<ReturnType<typeof getFirmContext>>): boolean {
   return requireFirmPermission(context, 'manage_documents') || requireFirmPermission(context, 'manage_users')
 }

@@ -81,6 +81,7 @@ import { invalidateFirmDashboardSummary, useFirmDashboardSummary } from '../hook
 import { FirmTemplatesTab } from '../features/firm/FirmTemplatesTab'
 import { FirmWorkflowsTab } from '../features/firm/FirmWorkflowsTab'
 import { FirmNewLeadReview } from '../features/firm/FirmNewLeadReview'
+import { FirmRoutingLearningPanel } from '../features/firm/FirmRoutingLearningPanel'
 import DeclineModal, { type DeclineReasonCode } from '../components/DeclineModal'
 import { FirmCaseDetail } from '../features/firm/FirmCaseDetail'
 import { FirmTimeBillingTab } from '../features/firm/FirmTimeBillingTab'
@@ -555,7 +556,6 @@ export default function FirmDashboard() {
     async (r: FirmNewLead) => {
       if (!r.leadId) return
       const who = r.attorneys[0]
-      if (!window.confirm(`Accept this case${who ? ` for ${who.name}` : ''}? You'll be taken to pay the case fee.`)) return
       setDecidingLeadId(r.assessmentId)
       setDecideError(null)
       setAcceptNotice(null)
@@ -1883,6 +1883,8 @@ export default function FirmDashboard() {
             loading={Boolean(decliningLead && decidingLeadId === decliningLead.assessmentId)}
             success={declineDone}
           />
+
+          {(newLeadPerms.canReview || newLeadPerms.canDecline) && <FirmRoutingLearningPanel />}
 
           {reviewLeadId ? <FirmNewLeadReview assessmentId={reviewLeadId} onClose={() => setReviewLeadId(null)} /> : null}
             </div>

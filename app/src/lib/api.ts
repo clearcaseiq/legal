@@ -6574,6 +6574,33 @@ export async function deleteFirmTemplate(id: string) {
   return data
 }
 
+export type FirmRoutingLearningAttorney = {
+  attorneyId: string
+  name: string
+  claimTypes: Array<{ claimType: string; weight: number; blocked: boolean }>
+  counties: Array<{ state: string; county: string; weight: number; blocked: boolean }>
+  minValue: number | null
+  pausedUntil: string | null
+  weakLiability: number
+  resetAt: string | null
+  declinesConsidered: number
+}
+
+export type FirmRoutingLearningResponse = {
+  windowDays: number
+  attorneys: FirmRoutingLearningAttorney[]
+}
+
+export async function getFirmRoutingLearning(): Promise<FirmRoutingLearningResponse> {
+  const { data } = await api.get('/v1/firm-dashboard/routing-learning')
+  return data
+}
+
+export async function resetFirmRoutingLearning(attorneyId: string): Promise<{ attorneyId: string; resetAt: string }> {
+  const { data } = await api.post(`/v1/firm-dashboard/routing-learning/${encodeURIComponent(attorneyId)}/reset`)
+  return data
+}
+
 export async function seedRecommendedFirmTemplates(): Promise<{ added: number; templates: FirmTemplate[] }> {
   const { data } = await api.post('/v1/firm-dashboard/templates/seed-recommended')
   return data
