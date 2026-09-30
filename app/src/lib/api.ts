@@ -3550,6 +3550,8 @@ export async function createRoutingFeePaymentSession(payload: {
   leadId: string
   successUrl?: string
   cancelUrl?: string
+  /** Firm staff accepting for the routed attorney. */
+  onBehalfOfAttorneyId?: string
 }) {
   const { data } = await api.post('/v1/payments/platform/routing-fee-session', payload)
   return data as {

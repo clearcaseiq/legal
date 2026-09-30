@@ -11,7 +11,7 @@ export const FIRM_PERMISSIONS = [
   'manage_users', // Manage firm: members, workflow and routing, plan and seats, analytics
   'view_all_cases',
   'assign_cases',
-  'manage_assigned_cases', // Work cases, including the chronology
+  'manage_assigned_cases', // Work on active cases, including the chronology
   'review_cases', // Review, accept & decline cases, including new leads
   'message_plaintiffs', // Client communication: messages and consultations
   'manage_documents', // Documents, records & demands
@@ -118,10 +118,11 @@ export const CASE_ACCESS_PERMISSIONS = [
 ]
 
 /**
- * Case-team roles several people can hold at once (co-counsel). Every other
- * role has a single owner, and assigning someone new replaces the last one.
+ * Case-team roles several people can hold at once (co-counsel and support
+ * staff). The lead attorney has a single owner, and assigning someone new
+ * replaces the last one.
  */
-export const MULTI_ASSIGNEE_CASE_ROLES = ['secondary_attorney']
+export const MULTI_ASSIGNEE_CASE_ROLES = ['secondary_attorney', 'case_manager', 'paralegal']
 
 /** Roles that map to the attorney web experience rather than the staff one. */
 export const ATTORNEY_FIRM_ROLES = ['firm_admin', 'attorney']

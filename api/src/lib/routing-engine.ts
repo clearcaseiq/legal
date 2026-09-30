@@ -18,6 +18,7 @@ import {
   type MatchScore
 } from './routing'
 import { sendCaseOfferToAttorney } from './case-notifications'
+import { attorneysBlockedByFirmDecline } from './firm-decline'
 import {
   recordRoutingEvent,
   isRoutingLocked,
@@ -541,7 +542,10 @@ export async function runRoutingEngine(
     }))
 
     // 6. Candidate generation (hard filters)
-    const excludeIds = new Set(options?.excludeAttorneyIds ?? [])
+    const excludeIds = new Set([
+      ...(options?.excludeAttorneyIds ?? []),
+      ...(await attorneysBlockedByFirmDecline(assessmentId)),
+    ])
     const attorneysToConsider = excludeIds.size > 0
       ? attorneysForRouting.filter(a => !excludeIds.has(a.id))
       : attorneysForRouting

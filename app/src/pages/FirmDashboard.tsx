@@ -51,6 +51,7 @@ import {
   getFirmTeamCaseload,
   getFirmNewLeads,
   decideLead,
+  createRoutingFeePaymentSession,
   type FirmNewLead,
   type FirmNewLeadPermissions,
 } from '../lib/api'
@@ -80,6 +81,7 @@ import { invalidateFirmDashboardSummary, useFirmDashboardSummary } from '../hook
 import { FirmTemplatesTab } from '../features/firm/FirmTemplatesTab'
 import { FirmWorkflowsTab } from '../features/firm/FirmWorkflowsTab'
 import { FirmNewLeadReview } from '../features/firm/FirmNewLeadReview'
+import DeclineModal, { type DeclineReasonCode } from '../components/DeclineModal'
 import { FirmCaseDetail } from '../features/firm/FirmCaseDetail'
 import { FirmTimeBillingTab } from '../features/firm/FirmTimeBillingTab'
 
@@ -113,7 +115,7 @@ const PERMISSION_LABELS: Record<string, string> = {
   manage_billing: 'Billing & payments',
   view_all_cases: 'View All Cases',
   assign_cases: 'Assign cases',
-  manage_assigned_cases: 'Work cases',
+  manage_assigned_cases: 'Work on active cases',
   review_cases: 'Review, accept & decline cases',
   message_plaintiffs: 'Client communication',
   manage_documents: 'Documents, records & demands',
@@ -125,11 +127,11 @@ const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   manage_billing: 'Invoices, payments and firm billing.',
   view_all_cases: 'See every case in the firm.',
   assign_cases: 'Assign or reassign cases to attorneys and staff.',
-  manage_assigned_cases: 'Do day-to-day work on cases, including the medical chronology.',
+  manage_assigned_cases: 'Do day-to-day work on active cases, including tasks and the medical chronology.',
   review_cases: 'Open and review incoming cases and new leads, and accept or decline them on behalf of the firm.',
   message_plaintiffs: "Message clients, and book and manage their consultations on the attorneys' calendars.",
   manage_documents:
-    'Upload and manage case documents and records, request them from clients and providers, and draft demand letters.',
+    'Upload and manage case documents and records, request them from clients and providers, draft demand letters, and manage firm templates and send them for signature.',
 }
 
 /** The permission dialog and role matrix group permissions under these headings. */
@@ -541,26 +543,83 @@ export default function FirmDashboard() {
     if (tab === 'newleads') void refreshNewLeads()
   }, [tab, refreshNewLeads])
 
+  const [decliningLead, setDecliningLead] = useState<FirmNewLead | null>(null)
+  const [declineDone, setDeclineDone] = useState(false)
+  const [acceptNotice, setAcceptNotice] = useState<string | null>(null)
+
   // Staff decide for the attorney the lead was routed to (the first, when several).
-  const decideNewLead = useCallback(
-    async (r: FirmNewLead, decision: 'accept' | 'reject') => {
+  // Accepting goes through the same routing-fee checkout an attorney sees, with
+  // the fee charged to that attorney; the accept itself is recorded on return
+  // from Stripe (PaymentSuccess).
+  const acceptNewLead = useCallback(
+    async (r: FirmNewLead) => {
       if (!r.leadId) return
       const who = r.attorneys[0]
-      const label = decision === 'accept' ? 'Accept' : 'Decline'
-      if (!window.confirm(`${label} this case${who ? ` for ${who.name}` : ''}?`)) return
+      if (!window.confirm(`Accept this case${who ? ` for ${who.name}` : ''}? You'll be taken to pay the case fee.`)) return
       setDecidingLeadId(r.assessmentId)
       setDecideError(null)
+      setAcceptNotice(null)
       try {
-        await decideLead(r.leadId, decision, undefined, undefined, { onBehalfOfAttorneyId: who?.id })
+        const origin = window.location.origin
+        const staffParams = `${who ? `&onBehalfOf=${encodeURIComponent(who.id)}` : ''}&returnTo=firm`
+        const payment = await createRoutingFeePaymentSession({
+          leadId: r.leadId,
+          onBehalfOfAttorneyId: who?.id,
+          successUrl: `${origin}/payment/success?type=routing_fee&leadId=${encodeURIComponent(r.leadId)}${staffParams}&session_id={CHECKOUT_SESSION_ID}`,
+          cancelUrl: `${origin}/payment/cancel?type=routing_fee&leadId=${encodeURIComponent(r.leadId)}${staffParams}`,
+        })
+        if (payment.checkoutUrl) {
+          window.location.assign(payment.checkoutUrl)
+          return
+        }
+        await decideLead(r.leadId, 'accept', undefined, undefined, { onBehalfOfAttorneyId: who?.id })
+        if (payment.status?.startsWith('skipped')) {
+          const fee = typeof payment.amount === 'number' ? ` of $${payment.amount.toFixed(2)}` : ''
+          setAcceptNotice(
+            `Accepted without payment: the case fee${fee} was not charged because payments are not currently configured. The firm may be invoiced for it later.`,
+          )
+        }
         invalidateFirmDashboardSummary()
         await refreshNewLeads()
       } catch (err: any) {
-        setDecideError(err?.response?.data?.error || `Failed to ${label.toLowerCase()} the case.`)
+        setDecideError(err?.response?.data?.error || 'Failed to accept the case.')
       } finally {
         setDecidingLeadId(null)
       }
     },
     [refreshNewLeads],
+  )
+
+  const declineNewLead = useCallback(
+    async (reason: DeclineReasonCode, otherText?: string) => {
+      const r = decliningLead
+      if (!r?.leadId) return
+      setDecidingLeadId(r.assessmentId)
+      setDecideError(null)
+      try {
+        await decideLead(r.leadId, 'reject', reason === 'other' ? otherText : undefined, reason, {
+          onBehalfOfAttorneyId: r.attorneys[0]?.id,
+        })
+        setDeclineDone(true)
+        invalidateFirmDashboardSummary()
+        await refreshNewLeads()
+      } catch (err: any) {
+        setDecideError(err?.response?.data?.error || 'Failed to decline the case.')
+        setDecliningLead(null)
+      } finally {
+        setDecidingLeadId(null)
+      }
+    },
+    [decliningLead, refreshNewLeads],
+  )
+
+  const decideNewLead = useCallback(
+    (r: FirmNewLead, decision: 'accept' | 'reject') => {
+      if (decision === 'accept') return acceptNewLead(r)
+      setDeclineDone(false)
+      setDecliningLead(r)
+    },
+    [acceptNewLead],
   )
 
   const newLeadColumns = useMemo<DataTableColumn<FirmNewLead>[]>(
@@ -974,7 +1033,7 @@ export default function FirmDashboard() {
   const cases = dashboardData?.cases || []
   const workspace = dashboardData?.workspace
   const assignmentRoles = workspace?.assignmentRoles || ['lead_attorney', 'secondary_attorney', 'case_manager', 'paralegal']
-  const multiAssigneeRoles = workspace?.multiAssigneeRoles || ['secondary_attorney']
+  const multiAssigneeRoles = workspace?.multiAssigneeRoles || ['secondary_attorney', 'case_manager', 'paralegal']
   // The caseload refreshes after each change; read the team from it so the
   // Case team window stays current while open.
   const assignRow = assignTarget
@@ -1811,7 +1870,19 @@ export default function FirmDashboard() {
               />
             )}
             {decideError && <p className="mt-2 text-sm text-red-600">{decideError}</p>}
+            {acceptNotice && <p className="mt-2 text-sm text-amber-700">{acceptNotice}</p>}
           </SectionCard>
+
+          <DeclineModal
+            open={Boolean(decliningLead)}
+            onClose={() => {
+              setDecliningLead(null)
+              setDeclineDone(false)
+            }}
+            onSubmit={declineNewLead}
+            loading={Boolean(decliningLead && decidingLeadId === decliningLead.assessmentId)}
+            success={declineDone}
+          />
 
           {reviewLeadId ? <FirmNewLeadReview assessmentId={reviewLeadId} onClose={() => setReviewLeadId(null)} /> : null}
             </div>
@@ -1991,7 +2062,7 @@ export default function FirmDashboard() {
                                     ))}
                                   </optgroup>
                                 )}
-                                <option value="team">Manage case team…</option>
+                                <option value="team">Add people to case team…</option>
                               </select>
                             )
                           },
@@ -2893,24 +2964,36 @@ export default function FirmDashboard() {
                 </div>
                 {isMulti ? (
                   <div>
-                    <label className="mb-1.5 block text-xs font-medium text-slate-500">Attorneys</label>
+                    <label className="mb-1.5 block text-xs font-medium text-slate-500">Select one or more people</label>
                     <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-slate-200 p-2">
-                      {attorneyOptions.length === 0 && <p className="px-1 text-sm text-slate-400">No attorneys in this firm yet.</p>}
-                      {attorneyOptions.map((o) => {
-                        const already = heldInRole.has(o.key)
-                        return (
-                          <label key={o.key} className={`flex items-center gap-2 rounded px-1.5 py-1 text-sm ${already ? 'text-slate-400' : 'cursor-pointer text-slate-700 hover:bg-slate-50'}`}>
-                            <input
-                              type="checkbox"
-                              checked={already || assignees.includes(o.key)}
-                              disabled={already}
-                              onChange={() => toggleAssignee(o.key)}
-                            />
-                            {o.label}
-                            {already && <span className="text-xs">(already on case)</span>}
-                          </label>
-                        )
-                      })}
+                      {(assignRole === 'secondary_attorney' ? attorneyOptions : [...attorneyOptions, ...staffOptions]).length === 0 && (
+                        <p className="px-1 text-sm text-slate-400">No one in this firm to add yet.</p>
+                      )}
+                      {[
+                        { label: 'Attorneys', options: attorneyOptions },
+                        ...(assignRole === 'secondary_attorney' ? [] : [{ label: 'Staff', options: staffOptions }]),
+                      ]
+                        .filter((group) => group.options.length > 0)
+                        .map((group) => (
+                          <div key={group.label}>
+                            <p className="px-1.5 pb-0.5 pt-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">{group.label}</p>
+                            {group.options.map((o) => {
+                              const already = heldInRole.has(o.key)
+                              return (
+                                <label key={o.key} className={`flex items-center gap-2 rounded px-1.5 py-1 text-sm ${already ? 'text-slate-400' : 'cursor-pointer text-slate-700 hover:bg-slate-50'}`}>
+                                  <input
+                                    type="checkbox"
+                                    checked={already || assignees.includes(o.key)}
+                                    disabled={already}
+                                    onChange={() => toggleAssignee(o.key)}
+                                  />
+                                  {o.label}
+                                  {already && <span className="text-xs">(already on case)</span>}
+                                </label>
+                              )
+                            })}
+                          </div>
+                        ))}
                     </div>
                   </div>
                 ) : (

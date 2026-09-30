@@ -32,6 +32,7 @@ import {
   LayoutDashboard,
   PenLine,
   Info,
+  Lock,
 } from 'lucide-react'
 import { todayDateKey } from '../../lib/taskDueDate'
 import {
@@ -73,6 +74,8 @@ interface TaskDetailModalProps {
   caseLabel?: string | null
   onClose: () => void
   onChanged?: () => void
+  /** Staff whose firm role lacks Work on active cases can read the task but not change or comment on it. */
+  readOnly?: boolean
 }
 
 const PRIORITY_OPTIONS = [
@@ -156,7 +159,7 @@ function describeHistory(entry: TaskHistoryEntry): string {
   }
 }
 
-export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, onChanged }: TaskDetailModalProps) {
+export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, onChanged, readOnly = false }: TaskDetailModalProps) {
   const navigate = useNavigate()
   const [task, setTask] = useState<TaskDetail | null>(null)
   const [loading, setLoading] = useState(true)
@@ -658,8 +661,9 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
           <div className="min-w-0 flex-1">
             <input
               value={title}
+              readOnly={readOnly}
               onChange={(e) => setTitle(e.target.value)}
-              onBlur={() => title.trim() && title !== task?.title && patch({ title: title.trim() })}
+              onBlur={() => !readOnly && title.trim() && title !== task?.title && patch({ title: title.trim() })}
               placeholder="Task title"
               className="w-full rounded-lg border border-transparent px-1 py-0.5 text-lg font-semibold text-slate-900 hover:border-slate-200 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
             />
@@ -678,6 +682,7 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
           <div className="flex shrink-0 items-center gap-1">
             {saving ? <Loader2 className="h-4 w-4 animate-spin text-slate-400" /> : null}
             <button
+              hidden={readOnly}
               onClick={remove}
               disabled={deleting}
               className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
@@ -709,8 +714,15 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
               {error ? (
                 <div className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700 ring-1 ring-rose-200">{error}</div>
               ) : null}
+              {readOnly ? (
+                <p className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  <Lock className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                  View only. Your firm role doesn't include Work on active cases; a firm admin can change that.
+                </p>
+              ) : null}
+              <fieldset disabled={readOnly} className="min-w-0 space-y-5">
 
-              {primaryAction && primaryAction.kind !== 'open_task_detail' ? (() => {
+              {!readOnly && primaryAction && primaryAction.kind !== 'open_task_detail' ? (() => {
                 const ActionIcon = primaryActionIcon(primaryAction.kind)
                 const label = done && primaryAction.doneLabel ? primaryAction.doneLabel : primaryAction.label
                 const hint = done && primaryAction.doneHint ? primaryAction.doneHint : primaryAction.hint
@@ -1229,6 +1241,7 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
                   />
                 </div>
               </div>
+              </fieldset>
             </div>
 
             {/* Right column: Comments / History */}
@@ -1269,6 +1282,11 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
                       ))
                     )}
                   </div>
+                  {readOnly ? (
+                    <p className="border-t border-slate-200 p-3 text-center text-xs text-slate-400">
+                      Commenting needs Work on active cases.
+                    </p>
+                  ) : (
                   <div className="relative border-t border-slate-200 p-2.5">
                     {mentionOpen && filteredColleagues.length > 0 && (
                       <div className="absolute bottom-full left-2.5 right-2.5 z-10 max-h-40 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg">
@@ -1317,6 +1335,7 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
                       </button>
                     </div>
                   </div>
+                  )}
                 </div>
               ) : (
                 <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3 max-h-72 lg:max-h-none">

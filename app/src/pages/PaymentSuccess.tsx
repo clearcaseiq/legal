@@ -8,14 +8,19 @@ export default function PaymentSuccess() {
   const sessionId = searchParams.get('session_id')
   const type = searchParams.get('type')
   const leadId = searchParams.get('leadId')
+  // Set when firm staff accepted for the routed attorney from the Firm dashboard.
+  const onBehalfOf = searchParams.get('onBehalfOf') || undefined
+  const fromFirm = searchParams.get('returnTo') === 'firm'
   const [acceptanceStatus, setAcceptanceStatus] = useState<'idle' | 'accepting' | 'accepted' | 'failed'>('idle')
   const [acceptanceError, setAcceptanceError] = useState<string | null>(null)
-  const caseWorkspacePath = leadId ? `/attorney-dashboard/lead/${leadId}/overview` : '/attorney-dashboard'
   // Carry a one-time flag into the workspace so it can greet the attorney with a
   // "Congratulations, this case is now yours" banner right after the purchase.
-  const caseWorkspacePathAfterAccept = leadId
-    ? `/attorney-dashboard/lead/${leadId}/overview?accepted=1`
-    : '/attorney-dashboard'
+  const caseWorkspacePathAfterAccept = fromFirm
+    ? '/firm-dashboard?tab=caseload'
+    : leadId
+      ? `/attorney-dashboard/lead/${leadId}/overview?accepted=1`
+      : '/attorney-dashboard'
+  const backToLeadsPath = fromFirm ? '/firm-dashboard?tab=newleads' : '/attorney-dashboard/leadgen/matches'
 
   useEffect(() => {
     if (type !== 'routing_fee' || !leadId) return
@@ -34,7 +39,7 @@ export default function PaymentSuccess() {
     } catch {
       conflictAcknowledged = false
     }
-    decideLead(leadId, 'accept', undefined, undefined, { conflictAcknowledged })
+    decideLead(leadId, 'accept', undefined, undefined, { conflictAcknowledged, onBehalfOfAttorneyId: onBehalfOf })
       .then(() => {
         window.sessionStorage.setItem(acceptanceKey, 'true')
         try {
@@ -57,7 +62,7 @@ export default function PaymentSuccess() {
     return () => {
       cancelled = true
     }
-  }, [leadId, sessionId, type])
+  }, [leadId, sessionId, type, onBehalfOf])
 
   // Once the routing fee is paid and the case is accepted, drop the attorney
   // straight into the Case Workspace rather than leaving them on this receipt
@@ -132,12 +137,12 @@ export default function PaymentSuccess() {
         )}
         <div className="mt-6 flex flex-wrap gap-3">
           {acceptanceFailed ? (
-            <Link to="/attorney-dashboard/leadgen/matches" className="btn-primary">
-              Back to New Matches
+            <Link to={backToLeadsPath} className="btn-primary">
+              {fromFirm ? 'Back to New leads' : 'Back to New Matches'}
             </Link>
           ) : type === 'routing_fee' ? (
             <Link to={caseWorkspacePathAfterAccept} className="btn-primary">
-              Open Case Workspace
+              {fromFirm ? 'Open firm caseload' : 'Open Case Workspace'}
             </Link>
           ) : (
             <Link to="/dashboard" className="btn-primary">

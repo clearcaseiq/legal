@@ -117,7 +117,7 @@ describe('staff writes', () => {
     expect((prisma as any).caseTask.create).not.toHaveBeenCalled()
   })
 
-  describe('working a task without manage_assigned_cases', () => {
+  describe('tasks are view-only without manage_assigned_cases', () => {
     const task = (assignedUserId: string | null) =>
       vi.mocked((prisma as any).caseTask.findUnique).mockResolvedValue({
         id: 't-1',
@@ -127,34 +127,45 @@ describe('staff writes', () => {
         assignedUserId,
       } as any)
 
-    it('lets a legal assistant complete a task assigned to them', async () => {
+    it('refuses completing even a task assigned to them', async () => {
       asMember('legal_assistant')
       task(user.id)
-
-      const res = await request(app).patch('/v1/attorney-dashboard/leads/lead-1/tasks/t-1').set(auth).send({ status: 'done' })
-
-      expect(res.status).not.toBe(403)
-      expect((prisma as any).caseTask.update).toHaveBeenCalled()
-    })
-
-    it('refuses re-planning their own task', async () => {
-      asMember('legal_assistant')
-      task(user.id)
-
-      const res = await request(app).patch('/v1/attorney-dashboard/leads/lead-1/tasks/t-1').set(auth).send({ title: 'New' })
-
-      expect(res.status).toBe(403)
-      expect(res.body.code).toBe('FIRM_PERMISSION_DENIED')
-    })
-
-    it("refuses someone else's task", async () => {
-      asMember('legal_assistant')
-      task('someone-else')
 
       const res = await request(app).patch('/v1/attorney-dashboard/leads/lead-1/tasks/t-1').set(auth).send({ status: 'done' })
 
       expect(res.status).toBe(403)
       expect((prisma as any).caseTask.update).not.toHaveBeenCalled()
+    })
+
+    it('refuses commenting on a task', async () => {
+      asMember('legal_assistant')
+      task(user.id)
+
+      const res = await request(app)
+        .post('/v1/attorney-dashboard/leads/lead-1/tasks/t-1/comments')
+        .set(auth)
+        .send({ message: 'Done?' })
+
+      expect(res.status).toBe(403)
+      expect((prisma as any).caseTaskComment?.create ?? vi.fn()).not.toHaveBeenCalled()
+    })
+
+    it('still lets them read the task list', async () => {
+      asMember('legal_assistant')
+
+      const res = await request(app).get('/v1/attorney-dashboard/leads/lead-1/tasks').set(auth)
+
+      expect(res.status).not.toBe(403)
+    })
+
+    it('lets a role with manage_assigned_cases complete a task', async () => {
+      asMember('paralegal')
+      task('someone-else')
+
+      const res = await request(app).patch('/v1/attorney-dashboard/leads/lead-1/tasks/t-1').set(auth).send({ status: 'done' })
+
+      expect(res.status).not.toBe(403)
+      expect((prisma as any).caseTask.update).toHaveBeenCalled()
     })
   })
 

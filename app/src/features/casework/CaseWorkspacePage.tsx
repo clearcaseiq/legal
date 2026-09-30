@@ -4288,7 +4288,7 @@ function TasksPanel({
   tasks: TaskRow[]
   reload: () => Promise<void> | void
   caseLabel?: string | null
-  /** False hides create, delete, restore, approve, merge, and auto-generate; completing and editing stay open to the case team. */
+  /** False makes the panel view-only: tasks can be opened and read, but not created, completed, edited, assigned or commented on. */
   canManage?: boolean
 }) {
   const navigate = useNavigate()
@@ -4828,7 +4828,7 @@ function TasksPanel({
         />
         <button
           onClick={() => toggleDone(t)}
-          disabled={rowBusy}
+          disabled={rowBusy || !canManage}
           className="mt-0.5 shrink-0 text-slate-300 transition hover:text-emerald-500 disabled:opacity-50"
           aria-label={taskDone ? 'Mark task open' : 'Mark task done'}
           title={taskDone ? 'Mark as open' : 'Mark as done'}
@@ -4953,7 +4953,7 @@ function TasksPanel({
                     ? CLIENT_ASSIGN_VALUE
                     : t.assignedUserId || ''
                 }
-                disabled={rowBusy || t.reviewStatus === 'pending'}
+                disabled={rowBusy || t.reviewStatus === 'pending' || !canManage}
                 onChange={(e) => void assignTask(t, e.target.value)}
                 aria-label={`Assign ${t.title}`}
                 className="min-w-0 flex-1 truncate bg-transparent text-xs focus:outline-none disabled:opacity-50"
@@ -5001,7 +5001,7 @@ function TasksPanel({
                 </button>
               )
             }
-            const primary = resolveTaskPrimaryAction(t)
+            const primary = canManage ? resolveTaskPrimaryAction(t) : null
             if (primary) {
               const ActionIcon = primaryActionIcon(primary.kind)
               const label = taskDone && primary.doneLabel ? primary.doneLabel : primary.label
@@ -5087,6 +5087,7 @@ function TasksPanel({
           caseLabel={caseLabel}
           onClose={() => setDetailTaskId(null)}
           onChanged={() => void load()}
+          readOnly={!canManage}
         />
       ) : null}
       <ConfirmDialog

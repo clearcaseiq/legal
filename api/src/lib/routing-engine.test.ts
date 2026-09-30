@@ -197,9 +197,9 @@ describe('runRoutingEngine', () => {
       attorneyRow({ id: 'att-eng-2' }),
     ] as any)
     vi.mocked(prisma.introduction.count).mockResolvedValue(0)
-    vi.mocked(prisma.introduction.findMany).mockResolvedValue([
-      { attorneyId: 'att-eng-1' },
-    ] as any)
+    // No firm has declined this case; att-eng-1 already holds an offer.
+    vi.mocked(prisma.introduction.findMany).mockImplementation((async (args: any) =>
+      args?.where?.status?.in?.includes('DECLINED') ? [] : [{ attorneyId: 'att-eng-1' }]) as any)
     vi.mocked(prisma.introduction.create)
       .mockResolvedValueOnce({ id: 'intro-new-2' } as any)
 

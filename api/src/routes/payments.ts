@@ -4,6 +4,7 @@ import { authMiddleware, type AuthRequest } from '../lib/auth'
 import { logger } from '../lib/logger'
 import { ATTORNEY_SELF_SOURCE } from '../lib/attorney-case-factory'
 import { ENV } from '../env'
+import { firmAllows, resolveMemberAccess } from '../lib/firm-access'
 import {
   getAttorneyResponseDeadlineMinutes,
   getAttorneySubscriptionTier,
@@ -79,8 +80,32 @@ async function getDefaultPaymentMethodId(stripe: any, customerId: string) {
   return typeof defaultPaymentMethod === 'string' ? defaultPaymentMethod : defaultPaymentMethod.id
 }
 
+/**
+ * Firm staff with no attorney profile accept for the firm attorney holding the
+ * live offer, as the decision endpoint does, so the fee is charged to that
+ * attorney. `onBehalfOfAttorneyId` picks one when several hold offers.
+ */
+async function getOfferAttorneyForStaff(req: AuthRequest, leadId: string) {
+  const access = await resolveMemberAccess(db, req.user as any).catch(() => null)
+  if (!access?.lawFirmId || !firmAllows(access, ['review_cases'])) return null
+  const lead = await db.leadSubmission.findUnique({ where: { id: leadId }, select: { assessmentId: true } })
+  if (!lead) return null
+  const onBehalfOf = typeof req.body?.onBehalfOfAttorneyId === 'string' ? req.body.onBehalfOfAttorneyId : null
+  const offer = await db.introduction.findFirst({
+    where: {
+      assessmentId: lead.assessmentId,
+      status: { in: ['PENDING', 'REQUESTED_INFO'] },
+      attorney: { lawFirmId: access.lawFirmId },
+      ...(onBehalfOf ? { attorneyId: onBehalfOf } : {}),
+    },
+    orderBy: { requestedAt: 'desc' },
+    include: { attorney: { include: { attorneyProfile: true } } },
+  })
+  return offer?.attorney ?? null
+}
+
 async function getAuthorizedLeadForAttorney(req: AuthRequest, leadId: string) {
-  const attorney = await getAttorneyForUser(req)
+  const attorney = (await getAttorneyForUser(req)) ?? (await getOfferAttorneyForStaff(req, leadId))
   if (!attorney) return { error: { status: 403, message: 'Attorney profile not found' } }
 
   const lead = await db.leadSubmission.findUnique({

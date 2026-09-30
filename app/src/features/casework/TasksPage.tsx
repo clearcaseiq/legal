@@ -28,6 +28,8 @@ import {
   type DataTableColumn,
 } from '../shared/ui'
 import TaskDetailModal from './TaskDetailModal'
+import { getStoredRole } from '../../lib/auth'
+import { useFirmAccess } from '../../hooks/useFirmAccess'
 import TaskOriginBadge, { PendingReviewBadge } from './TaskOriginBadge'
 import MergeTasksDialog from './MergeTasksDialog'
 import ConfirmDialog from '../../components/ConfirmDialog'
@@ -193,6 +195,7 @@ const ASSIGNEES = [
 ]
 
 export default function TasksPage() {
+  const { can } = useFirmAccess()
   const navigate = useNavigate()
   const [summary, setSummary] = useState<TaskSummary | null>(null)
   const [loading, setLoading] = useState(true)
@@ -762,6 +765,7 @@ export default function TasksPage() {
           caseLabel={detail.caseLabel}
           onClose={() => setDetail(null)}
           onChanged={() => void loadTasks()}
+          readOnly={getStoredRole() === 'staff' && !can('manage')}
         />
       ) : null}
       <ConfirmDialog

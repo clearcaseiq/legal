@@ -3296,6 +3296,12 @@ function parseTemplateBody(body: any) {
   }
 }
 
+// Templates are firm documents, so the documents permission governs them; firm
+// admins keep access through Manage firm.
+function canManageTemplates(context: Awaited<ReturnType<typeof getFirmContext>>): boolean {
+  return requireFirmPermission(context, 'manage_documents') || requireFirmPermission(context, 'manage_users')
+}
+
 // GET /v1/firm-dashboard/templates — the firm's template library + metadata
 // the create/send UI needs (categories, e-sign providers, signable clients).
 router.get('/templates', authMiddleware as any, async (req: any, res: Response) => {
@@ -3303,7 +3309,7 @@ router.get('/templates', authMiddleware as any, async (req: any, res: Response) 
     const context = await getFirmContext(req)
     if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
 
-    const canManage = requireFirmPermission(context, 'manage_users')
+    const canManage = canManageTemplates(context)
     const canViewCases = requireFirmPermission(context, 'view_all_cases')
 
     const templates = await (prisma as any).firmTemplate.findMany({
@@ -3372,7 +3378,7 @@ router.post('/templates', authMiddleware as any, async (req: any, res: Response)
   try {
     const context = await getFirmContext(req)
     if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
-    if (!requireFirmPermission(context, 'manage_users')) {
+    if (!canManageTemplates(context)) {
       return res.status(403).json({ error: 'You do not have permission to manage templates' })
     }
     const data = parseTemplateBody(req.body)
@@ -3394,7 +3400,7 @@ router.post('/templates/seed-recommended', authMiddleware as any, async (req: an
   try {
     const context = await getFirmContext(req)
     if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
-    if (!requireFirmPermission(context, 'manage_users')) {
+    if (!canManageTemplates(context)) {
       return res.status(403).json({ error: 'You do not have permission to manage templates' })
     }
 
@@ -3435,7 +3441,7 @@ router.patch('/templates/:id', authMiddleware as any, async (req: any, res: Resp
   try {
     const context = await getFirmContext(req)
     if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
-    if (!requireFirmPermission(context, 'manage_users')) {
+    if (!canManageTemplates(context)) {
       return res.status(403).json({ error: 'You do not have permission to manage templates' })
     }
     const existing = await (prisma as any).firmTemplate.findFirst({
@@ -3467,7 +3473,7 @@ router.delete('/templates/:id', authMiddleware as any, async (req: any, res: Res
   try {
     const context = await getFirmContext(req)
     if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
-    if (!requireFirmPermission(context, 'manage_users')) {
+    if (!canManageTemplates(context)) {
       return res.status(403).json({ error: 'You do not have permission to manage templates' })
     }
     const existing = await (prisma as any).firmTemplate.findFirst({
@@ -3496,7 +3502,7 @@ router.post(
     try {
       const context = await getFirmContext(req)
       if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
-      if (!requireFirmPermission(context, 'manage_users')) {
+      if (!canManageTemplates(context)) {
         return res.status(403).json({ error: 'You do not have permission to manage templates' })
       }
       const file = req.file
@@ -3534,7 +3540,7 @@ router.delete('/templates/:id/file', authMiddleware as any, async (req: any, res
   try {
     const context = await getFirmContext(req)
     if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
-    if (!requireFirmPermission(context, 'manage_users')) {
+    if (!canManageTemplates(context)) {
       return res.status(403).json({ error: 'You do not have permission to manage templates' })
     }
     const existing = await (prisma as any).firmTemplate.findFirst({
@@ -3606,7 +3612,7 @@ router.post('/templates/:id/send', authMiddleware as any, async (req: any, res: 
   try {
     const context = await getFirmContext(req)
     if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
-    if (!requireFirmPermission(context, 'manage_users')) {
+    if (!canManageTemplates(context)) {
       return res.status(403).json({ error: 'You do not have permission to send templates for signature' })
     }
 

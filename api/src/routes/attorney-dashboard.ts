@@ -110,6 +110,7 @@ import {
   SCHEDULE_PERMISSION,
   type FirmAccess,
 } from '../lib/firm-access'
+import { closeFirmColleagueOffers } from '../lib/firm-decline'
 import { ALL_FIRM_PERMISSIONS, CASE_ACCESS_PERMISSIONS } from '../lib/firm-roles'
 import { buildAttorneyWorkQueue } from '../lib/attorney-work-queue'
 import { buildReadinessAutomationPlan } from '../lib/readiness-automation'
@@ -13133,7 +13134,7 @@ router.post('/leads/:leadId/readiness/sync', authMiddleware, async (req: any, re
 router.patch('/leads/:leadId/tasks/:id', authMiddleware, async (req: any, res) => {
   try {
     const { leadId, id } = req.params
-    const auth = await getAuthorizedLead(req, leadId, { staffCan: 'any' })
+    const auth = await getAuthorizedLead(req, leadId, { staffCan: 'manage' })
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
@@ -13159,22 +13160,6 @@ router.patch('/leads/:leadId/tasks/:id', authMiddleware, async (req: any, res) =
     const existing = await prisma.caseTask.findUnique({ where: { id }, select: caseTaskSelect })
     if (!existing || existing.assessmentId !== auth.lead.assessmentId) {
       return res.status(404).json({ error: 'Task not found' })
-    }
-
-    // Staff without case-management rights may still work a task handed to
-    // them: progress it, but not re-plan or reassign it.
-    if (!auth.attorney && !firmAllows(await getRequestMemberAccess(req), [...CASE_ACTION_PERMISSIONS.manage])) {
-      const ASSIGNEE_FIELDS = new Set(['status', 'notes', 'subtasks', 'estimateMinutes'])
-      const touched = Object.keys(req.body || {}).filter((k) => (req.body as any)[k] !== undefined)
-      const ownTask = !!existing.assignedUserId && existing.assignedUserId === req.user?.id
-      if (!ownTask || touched.some((k) => !ASSIGNEE_FIELDS.has(k))) {
-        return res.status(403).json({
-          error: ownTask
-            ? 'Your firm role can update the status, notes and checklist of your own tasks only.'
-            : 'Your firm role can only update tasks assigned to you.',
-          code: 'FIRM_PERMISSION_DENIED',
-        })
-      }
     }
 
     // Only when the caller is actually changing the date. An already-overdue task
@@ -13864,7 +13849,7 @@ router.get('/leads/:leadId/tasks/:id/comments', authMiddleware, async (req: any,
 router.post('/leads/:leadId/tasks/:id/comments', authMiddleware, async (req: any, res) => {
   try {
     const { leadId, id } = req.params
-    const auth = await getAuthorizedLead(req, leadId, { staffCan: 'any' })
+    const auth = await getAuthorizedLead(req, leadId, { staffCan: 'manage' })
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
@@ -17588,8 +17573,14 @@ router.post('/leads/:leadId/decision', authMiddleware, async (req: any, res) => 
     // Record routing event for analytics, admin dashboard, and matching algorithm
     if (decisionIntroId) {
       if (decision === 'reject') {
+        const closedColleagueOffers = await closeFirmColleagueOffers(
+          existingLead.assessmentId,
+          attorney.lawFirmId,
+          attorneyId,
+        )
         await recordRoutingEvent(existingLead.assessmentId, decisionIntroId, attorneyId, 'declined', {
-          declineReason: declineReason || notes || null
+          declineReason: declineReason || notes || null,
+          ...(closedColleagueOffers ? { firmDecline: true, closedColleagueOffers } : {}),
         })
       } else if (decision === 'accept') {
         await recordRoutingEvent(existingLead.assessmentId, decisionIntroId, attorneyId, 'accepted', {})

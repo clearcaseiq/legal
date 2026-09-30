@@ -1,4 +1,5 @@
 import { prisma } from './prisma'
+import { attorneysBlockedByFirmDecline } from './firm-decline'
 import { logger } from './logger'
 import { CaseFacts } from './case-tier-classifier'
 import { sendCaseOfferSms } from './sms'
@@ -919,7 +920,15 @@ export async function routeTier3Case(caseId: string): Promise<Tier3RoutingResult
 
     const price = await getCaseRoutingFeeDollars()
 
-    const { eligible, ineligible } = await buildEligibleFirmPool(caseData, price)
+    const pool = await buildEligibleFirmPool(caseData, price)
+    const declinedByFirm = await attorneysBlockedByFirmDecline(caseId)
+    const eligible = pool.eligible.filter((firm) => !declinedByFirm.has(firm.id))
+    const ineligible = [
+      ...pool.ineligible,
+      ...pool.eligible
+        .filter((firm) => declinedByFirm.has(firm.id))
+        .map((firm) => ({ firmId: firm.id, reason: 'Firm already declined this case' })),
+    ]
 
     if (eligible.length === 0) {
       await markCaseHold(caseId)
