@@ -10,7 +10,10 @@ import { DEFAULT_LANGUAGE, type LanguageCode } from '../src/i18n'
 import { alternatesForPath } from '../src/data/localeAlternates'
 import { marketingPagesByPath } from '../src/data/marketingPages'
 import { landingPagesBySlug } from '../src/data/seoLandingPages'
+import { CASE_TYPE_HUBS_UPDATED, caseTypeHubBySlug } from '../src/data/caseTypeHubDefs'
+import { caseTypeHubContent } from '../src/data/caseTypeHubs'
 import {
+  buildCaseTypeHubSchema,
   buildLandingPageSchema,
   buildMarketingPageSchema,
   clampDescription,
@@ -276,6 +279,7 @@ const resolvePage: GetServerSideProps<PageProps> = async ({ params, query, res }
   const marketingPage = marketingPagesByPath.get(pathname)
 
   if (marketingPage) {
+    const caseHub = caseTypeHubBySlug.get(pathname)
     if (marketingPage.serverRender) {
       // Server-rendered marketing pages show the signed-out shell to everyone,
       // so the response is identical for every visitor and safe to cache.
@@ -292,10 +296,15 @@ const resolvePage: GetServerSideProps<PageProps> = async ({ params, query, res }
           title: clampTitle(marketingPage.title),
           description: clampDescription(marketingPage.description),
           canonical,
-          schema:
-            isEmbed || !marketingPage.schemaType
-              ? null
-              : JSON.stringify(buildMarketingPageSchema(marketingPage)),
+          schema: isEmbed
+            ? null
+            : caseHub
+              ? JSON.stringify(
+                  buildCaseTypeHubSchema(caseHub, caseTypeHubContent[caseHub.caseType], CASE_TYPE_HUBS_UPDATED)
+                )
+              : marketingPage.schemaType
+                ? JSON.stringify(buildMarketingPageSchema(marketingPage))
+                : null,
           ogImage: ogImageUrl(marketingPage.title),
           noindex: isEmbed || marketingPage.noindex === true,
           alternates: isEmbed ? [] : alternatesFor(pathname),

@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import LocaleLink from '../components/LocaleLink'
 import { START_ASSESSMENT_HREF } from '../data/appRoutes'
+import { caseTypeHubs } from '../data/caseTypeHubDefs'
+import { DEFAULT_LANGUAGE } from '../i18n'
 import { trackCtaClick } from '../lib/ctaTracking'
 import { BarChart3, ClipboardList, Users } from 'lucide-react'
 import { useLanguage } from '../contexts/LanguageContext'
@@ -26,7 +28,7 @@ import {
 const STEP_ICONS = [ClipboardList, BarChart3, Users]
 
 export default function Home() {
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
   const { hash } = useLocation()
 
   // The sticky mobile CTA is redundant while the hero's own "Start" button is on
@@ -237,6 +239,32 @@ export default function Home() {
             ))}
           </div>
         </section>
+
+        {/* The guides are written in English only, so the translated home pages
+            leave them out rather than link a reader into another language. */}
+        {language === DEFAULT_LANGUAGE && (
+          <section className="py-8" aria-labelledby="case-guides-heading">
+            <h2 id="case-guides-heading" className="font-display text-2xl font-bold text-slate-900 dark:text-slate-50 text-center mb-2">
+              Case guides
+            </h2>
+            <p className="mx-auto mb-6 max-w-2xl text-center text-sm text-slate-600 dark:text-slate-400">
+              How each type of California claim works: fault, injuries, insurance, value and deadlines.
+            </p>
+            <ul className="mx-auto grid max-w-4xl gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {caseTypeHubs.map((hub) => (
+                <li key={hub.slug}>
+                  <Link
+                    to={hub.slug}
+                    className="flex h-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-5 py-4 font-medium text-slate-800 shadow-sm transition-all hover:border-brand-300 hover:bg-brand-50/50 hover:text-brand-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-brand-600 dark:hover:bg-brand-950/30 dark:hover:text-brand-300"
+                  >
+                    {hub.title.replace(/ in California$/, '')}
+                    <span aria-hidden>→</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
         <section className="py-8">
           <h2 className="font-display text-3xl font-bold text-slate-900 dark:text-slate-50 text-center mb-2">

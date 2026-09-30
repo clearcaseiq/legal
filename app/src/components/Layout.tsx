@@ -20,7 +20,8 @@ import { useLanguage } from '../contexts/LanguageContext'
 import { currentBuildVersion } from '../lib/buildVersion'
 import { useBrowserStateReady } from '../contexts/ServerRenderContext'
 import { clearStoredAuth, getStoredRole, getStoredUser, hasValidAuthToken } from '../lib/auth'
-import { LANGUAGES } from '../i18n'
+import { DEFAULT_LANGUAGE, LANGUAGES } from '../i18n'
+import { caseTypeHubs } from '../data/caseTypeHubDefs'
 import { hreflangFor, localeHome } from '../i18n/routing'
 import { localizedPath, pathForLocale } from '../data/localePathPairs'
 import { isCalendarRoute, isWideAttorneyRoute, isWideContentRoute } from '../lib/layoutWidth'
@@ -921,7 +922,11 @@ export default function Layout({ children }: LayoutProps) {
         {/* Tracks the body column, or the footer sits visibly inset under the
             widened admin console. */}
         <div className={`mx-auto px-4 py-4 sm:px-6 ${isAdminArea ? 'max-w-[1600px]' : 'max-w-7xl lg:px-8'} ${showMobileAssessmentCta ? 'pb-10 md:pb-4' : ''}`}>
-          <div className="grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-[1.5fr_repeat(4,auto)] md:items-start md:justify-between">
+          <div
+            className={`grid grid-cols-2 gap-x-6 gap-y-4 md:items-start md:justify-between ${
+              language === DEFAULT_LANGUAGE ? 'md:grid-cols-[1.5fr_repeat(5,auto)]' : 'md:grid-cols-[1.5fr_repeat(4,auto)]'
+            }`}
+          >
             {/* On mobile the brand block laid out as a narrow vertical stack in a
                 full-width row, leaving a large empty gap on the right. Lay the logo
                 and the identity text side-by-side on small screens to fill the row,
@@ -958,6 +963,19 @@ export default function Layout({ children }: LayoutProps) {
                 <li><Link to="/case-tracker" className="text-slate-400 transition-colors hover:text-white">{t('footer.caseTracker')}</Link></li>
               </ul>
             </div>
+            {/* English-only guides; see the matching section on the home page. */}
+            {language === DEFAULT_LANGUAGE && (
+              <div>
+                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-white/90">Case guides</h3>
+                <ul className="space-y-1.5 text-sm">
+                  {caseTypeHubs.map((hub) => (
+                    <li key={hub.slug}>
+                      <Link to={hub.slug} className="text-slate-400 transition-colors hover:text-white">{hub.label}</Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <div>
               <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-white/90">{t('footer.forAttorneys')}</h3>
               <ul className="space-y-1.5 text-sm">

@@ -1,4 +1,6 @@
 import type { LanguageCode } from '../i18n'
+import type { CaseSection, CaseType } from './caseTypeHubDefs'
+import { NEXT_STEPS, caseAssignmentFor } from './caseTypeAssignments'
 import { requestedLandingPages } from './seoRequestedPages'
 import { priorityLandingPages } from './seoPriorityPages'
 import { cityGuidePages } from './seoCityGuides'
@@ -144,6 +146,7 @@ import { rideshareCityGuidePages3 } from './seoRideshareCityGuides3'
 import { motorcycleCityGuidePages3 } from './seoMotorcycleCityGuides3'
 import { dogBiteCityGuidePages3 } from './seoDogBiteCityGuides3'
 import { slipAndFallCityGuidePages3 } from './seoSlipAndFallCityGuides3'
+import { caseTypeDraftPages } from './seoCaseTypeDrafts'
 import { CONTENT_PUBLISHED_ES, CONTENT_UPDATED_ES, landingPagesEs } from './seoLandingPagesEs'
 import { CONTENT_PUBLISHED_ZH, CONTENT_UPDATED_ZH, landingPagesZh } from './seoLandingPagesZh'
 import {
@@ -240,6 +243,33 @@ export type LandingPage = {
    * refactor when it does.
    */
   noindex?: boolean
+  /**
+   * The case-type hub this page sits under, and its section there. Drives the
+   * breadcrumb trail ("Home > Car Accidents > Injuries > page") and the Related
+   * resources block. Most pages take these from `caseTypeAssignments`; set them
+   * here only on pages written with the case-type layer in mind.
+   */
+  caseType?: CaseType
+  caseSection?: CaseSection
+  /**
+   * The in-text link to the question a reader usually asks next, rendered as a
+   * sentence in the article body. At most three, each with an anchor that says
+   * where it goes; never "click here".
+   */
+  nextStep?: NextStep | NextStep[]
+}
+
+/** One sentence in the article body: `{lead} <a>{anchor}</a>.` */
+export type NextStep = {
+  lead: string
+  anchor: string
+  to: string
+}
+
+/** A page's next-step links as a list, whichever way they were authored. */
+export function nextStepsFor(page: Pick<LandingPage, 'nextStep'>): NextStep[] {
+  if (!page.nextStep) return []
+  return Array.isArray(page.nextStep) ? page.nextStep : [page.nextStep]
 }
 
 /**
@@ -397,6 +427,7 @@ export const CONTENT_UPDATED = {
   motorcycleCityGuides3: '2026-08-21',
   dogBiteCityGuides3: '2026-08-21',
   slipAndFallCityGuides3: '2026-08-21',
+  caseTypeDrafts: '2026-09-29',
 } as const
 
 /**
@@ -562,11 +593,19 @@ export const CONTENT_PUBLISHED = {
   motorcycleCityGuides3: '2026-08-21',
   dogBiteCityGuides3: '2026-08-21',
   slipAndFallCityGuides3: '2026-08-21',
+  caseTypeDrafts: '2026-09-29',
 } as const
 
 /** Applies a set's dates without overriding page-specific ones. */
 function stamp(pages: LandingPage[], contentUpdated: string, contentPublished: string): LandingPage[] {
-  return pages.map((page) => ({ contentUpdated, contentPublished, ...page }))
+  return pages.map((page) => ({
+    contentUpdated,
+    contentPublished,
+    // The case-type hubs are English-only; translated pages keep their own trail.
+    ...(page.locale ? {} : caseAssignmentFor(page)),
+    ...(NEXT_STEPS[page.slug] ? { nextStep: NEXT_STEPS[page.slug] } : {}),
+    ...page,
+  }))
 }
 
 export const landingPages: LandingPage[] = [
@@ -1081,6 +1120,7 @@ export const allLandingPages: LandingPage[] = [
   ...stamp(motorcycleCityGuidePages3, CONTENT_UPDATED.motorcycleCityGuides3, CONTENT_PUBLISHED.motorcycleCityGuides3),
   ...stamp(dogBiteCityGuidePages3, CONTENT_UPDATED.dogBiteCityGuides3, CONTENT_PUBLISHED.dogBiteCityGuides3),
   ...stamp(slipAndFallCityGuidePages3, CONTENT_UPDATED.slipAndFallCityGuides3, CONTENT_PUBLISHED.slipAndFallCityGuides3),
+  ...stamp(caseTypeDraftPages, CONTENT_UPDATED.caseTypeDrafts, CONTENT_PUBLISHED.caseTypeDrafts),
   // The Spanish set is dated separately: restamping it with an English content
   // date would claim these pages changed on a day they did not exist.
   ...stamp(landingPagesEs, CONTENT_UPDATED_ES, CONTENT_PUBLISHED_ES),

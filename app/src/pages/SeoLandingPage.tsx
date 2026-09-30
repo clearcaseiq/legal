@@ -2,15 +2,22 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, Navigate, useLocation } from 'react-router-dom'
 import { Activity, AlertTriangle, Calculator, CheckCircle, ChevronRight, FileText, Search, Shield, Stethoscope, TrendingUp } from 'lucide-react'
 import ContentByline from '../components/ContentByline'
-import { landingPagesBySlug, type LandingPageCategory } from '../data/seoLandingPages'
+import { landingPagesBySlug, nextStepsFor, type LandingPageCategory } from '../data/seoLandingPages'
 import { cityLocalFacts } from '../data/seoCityLocalFacts'
 import {
+  landingPageBreadcrumbs,
   landingPageFaqs,
   landingPageFirstPublished,
   landingPageLastModified,
 } from '../data/seoLandingPageSchema'
 import { topicContentBySlug, type TopicContent } from '../data/seoLandingPageTopicContent'
-import { TOPICS_INDEX_SLUG, hubForPage, relatedLandingPages } from '../data/seoTopicHubs'
+import {
+  TOPICS_INDEX_SLUG,
+  caseTypeRelatedResources,
+  hubForPage,
+  relatedLandingPages,
+} from '../data/seoTopicHubs'
+import { caseTypeAssessmentHref } from '../data/caseTypeHubDefs'
 import { START_ASSESSMENT_HREF } from '../data/appRoutes'
 import SeoCiteEmbed from '../components/SeoCiteEmbed'
 
@@ -742,6 +749,10 @@ export default function SeoLandingPage() {
   }))
   const relatedLinks = [...siblingLinks, ...toolLinks.filter((link) => link.to !== location.pathname)]
   const hub = hubForPage(page)
+  const breadcrumbs = landingPageBreadcrumbs(page)
+  const nextSteps = nextStepsFor(page)
+  const caseResources = caseTypeRelatedResources(page.slug)
+  const caseAssessHref = page.caseType ? caseTypeAssessmentHref(page.caseType) : START_ASSESSMENT_HREF
   // /tools/settlement-calculator has its own component now, so this page can
   // always point at the real calculator without linking to itself.
   const estimatorCta = '/tools/settlement-calculator'
@@ -751,7 +762,7 @@ export default function SeoLandingPage() {
     location.pathname.startsWith('/average-') ||
     location.pathname.includes('case-worth')
       ? '/tools/settlement-calculator'
-      : START_ASSESSMENT_HREF
+      : caseAssessHref
   const citeEmbedToolPath =
     location.pathname.includes('medical-record') || location.pathname.includes('chronology')
       ? '/tools/medical-records-checklist'
@@ -762,29 +773,24 @@ export default function SeoLandingPage() {
           : '/tools/california-sol-checker'
   return (
     <main className="mx-auto w-full max-w-6xl overflow-x-clip px-3 py-6 sm:px-6 sm:py-10 lg:px-8">
-      {/* The BreadcrumbList structured data described a trail the reader could not
-          see. This renders it, and gives every topic a link up to its hub. */}
+      {/* The same trail the BreadcrumbList describes, from the same function, so
+          the two cannot drift apart. */}
       <nav aria-label="Breadcrumb" className="mb-4">
         <ol className="flex flex-wrap items-center gap-1.5 text-sm text-slate-500">
-          <li>
-            <Link to="/" className="hover:text-slate-900">
-              Home
-            </Link>
-          </li>
-          {hub && (
-            <li className="flex items-center gap-1.5">
-              <ChevronRight className="h-3.5 w-3.5 text-slate-300" aria-hidden />
-              <Link to={hub.slug} className="hover:text-slate-900">
-                {hub.title}
-              </Link>
+          {breadcrumbs.map((crumb, index) => (
+            <li key={`${crumb.label}-${index}`} className="flex items-center gap-1.5">
+              {index > 0 && <ChevronRight className="h-3.5 w-3.5 text-slate-300" aria-hidden />}
+              {crumb.to ? (
+                <Link to={crumb.to} className="hover:text-slate-900">
+                  {crumb.label}
+                </Link>
+              ) : (
+                <span className="font-medium text-slate-900" aria-current="page">
+                  {crumb.label}
+                </span>
+              )}
             </li>
-          )}
-          <li className="flex items-center gap-1.5">
-            <ChevronRight className="h-3.5 w-3.5 text-slate-300" aria-hidden />
-            <span className="font-medium text-slate-900" aria-current="page">
-              {page.title}
-            </span>
-          </li>
+          ))}
         </ol>
       </nav>
 
@@ -1090,6 +1096,15 @@ export default function SeoLandingPage() {
               <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Why this matters</p>
               <h2 className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">{page.cluster}</h2>
               <p className="mt-3 text-sm leading-7 text-slate-700">{page.sections.whyItMatters}</p>
+              {nextSteps.map((step) => (
+                <p key={step.to} className="mt-3 text-sm leading-7 text-slate-700">
+                  {step.lead}{' '}
+                  <Link to={step.to} className="font-semibold text-brand-700 underline-offset-2 hover:underline">
+                    {step.anchor}
+                  </Link>
+                  .
+                </p>
+              ))}
             </div>
           </div>
 
@@ -1111,7 +1126,7 @@ export default function SeoLandingPage() {
               <p className="mt-3 text-sm leading-7 text-brand-900">{page.sections.howClearCaseHelps}</p>
               <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2">
                 <Link
-                  to={START_ASSESSMENT_HREF}
+                  to={caseAssessHref}
                   className="inline-flex items-center text-sm font-semibold text-brand-700 hover:text-brand-800"
                 >
                   Start a free assessment
@@ -1302,7 +1317,7 @@ export default function SeoLandingPage() {
           ))}
         </div>
         <Link
-          to={START_ASSESSMENT_HREF}
+          to={caseAssessHref}
           className="mt-5 inline-flex items-center justify-center rounded-xl bg-brand-700 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-brand-800"
         >
           {page.cta}
@@ -1336,6 +1351,38 @@ export default function SeoLandingPage() {
         </div>
       </section>
 
+      {caseResources ? (
+      <section className="mt-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Related resources</p>
+        <h2 className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">What to read next</h2>
+        <ul className="mt-5 grid gap-3 sm:grid-cols-2">
+          {caseResources.map((resource) => (
+            <li key={resource.to}>
+              <Link
+                to={resource.to}
+                className="group flex h-full flex-col rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 hover:border-brand-200 hover:bg-brand-50"
+              >
+                <span className="flex items-center justify-between gap-3 text-sm font-semibold text-slate-800 group-hover:text-brand-800">
+                  {resource.label}
+                  <ChevronRight className="h-4 w-4 shrink-0" aria-hidden />
+                </span>
+                <span className="mt-1 text-sm leading-6 text-slate-600">{resource.description}</span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+        <div className="mt-5 flex flex-col gap-3 rounded-xl border border-brand-100 bg-brand-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm font-semibold text-brand-950">Want to understand your situation?</p>
+          <Link
+            to={caseAssessHref}
+            className="inline-flex shrink-0 items-center justify-center rounded-xl bg-brand-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-800"
+          >
+            Assess My Case
+            <ChevronRight className="ml-1 h-4 w-4" aria-hidden />
+          </Link>
+        </div>
+      </section>
+      ) : (
       <section className="mt-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Related legal and medical topics</p>
         <h2 className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">{topic}: related legal and medical topics</h2>
@@ -1364,6 +1411,7 @@ export default function SeoLandingPage() {
           ))}
         </div>
       </section>
+      )}
 
       <div className="mt-8">
         <SeoCiteEmbed
@@ -1393,7 +1441,7 @@ export default function SeoLandingPage() {
             <p className="mt-2 text-sm leading-6 text-slate-300">Answer a few questions, upload documents when available, and get a ClearCaseIQ report.</p>
           </div>
           <Link
-            to={START_ASSESSMENT_HREF}
+            to={caseAssessHref}
             className="inline-flex shrink-0 items-center justify-center rounded-xl bg-white px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-slate-100"
           >
             {page.cta}

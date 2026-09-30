@@ -3,6 +3,13 @@ import { reviewerFor } from './contentReviewers'
 import { cityLocalFacts } from './seoCityLocalFacts'
 import type { LandingPage } from './seoLandingPages'
 import { hubForPage } from './seoTopicHubDefs'
+import {
+  CASE_SECTION_ANCHORS,
+  CASE_SECTION_LABELS,
+  caseTypeHubByType,
+  type CaseTypeHubDef,
+} from './caseTypeHubDefs'
+import type { CaseTypeHubContent } from './caseTypeHubs'
 import { DEFAULT_SITE_URL } from './siteOrigin'
 
 // Re-exported so the existing importers keep working; the constant itself lives
@@ -368,6 +375,80 @@ function bareTitle(title: string) {
 }
 
 /**
+ * Structured data for a case-type hub: the page, its one-level trail, and the
+ * FAQ the hub renders. Every node describes content in the served HTML.
+ */
+export function buildCaseTypeHubSchema(
+  hub: CaseTypeHubDef,
+  content: Pick<CaseTypeHubContent, 'faqs'>,
+  contentUpdated: string,
+  origin: string = siteUrl
+) {
+  const canonical = `${origin}${hub.slug}`
+  return {
+    '@context': 'https://schema.org',
+    '@graph': [
+      {
+        '@type': 'WebPage',
+        name: hub.title,
+        description: clampDescription(hub.description),
+        inLanguage: 'en-US',
+        url: canonical,
+        dateModified: contentUpdated,
+        isPartOf: { '@type': 'WebSite', name: 'ClearCaseIQ', url: origin },
+        publisher: { '@type': 'Organization', name: 'ClearCaseIQ', url: origin },
+      },
+      {
+        '@type': 'BreadcrumbList',
+        itemListElement: [
+          { '@type': 'ListItem', position: 1, name: 'Home', item: `${origin}/` },
+          { '@type': 'ListItem', position: 2, name: hub.label, item: canonical },
+        ],
+      },
+      {
+        '@type': 'FAQPage',
+        mainEntity: content.faqs.map((faq) => ({
+          '@type': 'Question',
+          name: faq.q,
+          acceptedAnswer: { '@type': 'Answer', text: faq.a },
+        })),
+      },
+    ],
+  }
+}
+
+export type Breadcrumb = { label: string; to?: string }
+
+/**
+ * The trail above an English landing page, shared by the rendered breadcrumb
+ * and the BreadcrumbList so the two cannot describe different paths.
+ *
+ * A page with a case type reads "Home > Car Accidents > Injuries > page": the
+ * case-type hub is the page a reader of a whiplash article is most likely to
+ * want next, and the section says where on it this page sits. Pages outside the
+ * six case types keep the subject hub from `/topics/`.
+ */
+export function landingPageBreadcrumbs(page: LandingPage): Breadcrumb[] {
+  const trail: Breadcrumb[] = [{ label: 'Home', to: '/' }]
+  const caseHub = page.caseType ? caseTypeHubByType.get(page.caseType) : undefined
+  if (caseHub && page.caseSection) {
+    trail.push({ label: caseHub.label, to: caseHub.slug })
+    trail.push({
+      label: CASE_SECTION_LABELS[page.caseSection],
+      to: `${caseHub.slug}#${CASE_SECTION_ANCHORS[page.caseSection]}`,
+    })
+  } else {
+    // Point the section crumb at the category hub. It used to derive a URL from
+    // the first slug segment (/injuries), which is not a page that exists, and it
+    // was skipped entirely for top-level slugs so those had no section at all.
+    const hub = hubForPage(page)
+    if (hub) trail.push({ label: hub.title, to: hub.slug })
+  }
+  trail.push({ label: page.title })
+  return trail
+}
+
+/**
  * Structured data for a landing page. Schema.org requires absolute URLs, so the
  * origin has to be threaded through rather than using the request path directly.
  */
@@ -380,35 +461,19 @@ export function buildLandingPageSchema(page: LandingPage, origin: string = siteU
   // The trail has to stay inside the page's own language. Sending a Spanish page's
   // breadcrumb up to the English home and an English hub describes a path the
   // reader cannot take and contradicts what the rendered breadcrumb shows.
-  const breadcrumbs: Array<Record<string, unknown>> = isTranslated
-    ? [{ '@type': 'ListItem', position: 1, name: nav.homeLabel, item: `${origin}${nav.home}` }]
-    : [{ '@type': 'ListItem', position: 1, name: 'Home', item: `${origin}/` }]
-
-  // Point the section crumb at the category hub. It used to derive a URL from the
-  // first slug segment (/injuries), which is not a page that exists, and it was
-  // skipped entirely for top-level slugs so those had no section at all.
-  const hub = isTranslated ? undefined : hubForPage(page)
-  if (isTranslated) {
-    breadcrumbs.push({
-      '@type': 'ListItem',
-      position: breadcrumbs.length + 1,
-      name: nav.topicsLabel,
-      item: `${origin}${nav.topics}`,
-    })
-  } else if (hub) {
-    breadcrumbs.push({
-      '@type': 'ListItem',
-      position: breadcrumbs.length + 1,
-      name: hub.title,
-      item: `${origin}${hub.slug}`,
-    })
-  }
-  breadcrumbs.push({
+  const trail: Breadcrumb[] = isTranslated
+    ? [
+        { label: nav.homeLabel, to: nav.home },
+        { label: nav.topicsLabel, to: nav.topics },
+        { label: page.title },
+      ]
+    : landingPageBreadcrumbs(page)
+  const breadcrumbs = trail.map((crumb, index) => ({
     '@type': 'ListItem',
-    position: breadcrumbs.length + 1,
-    name: page.title,
-    item: canonical,
-  })
+    position: index + 1,
+    name: crumb.label,
+    item: crumb.to ? `${origin}${crumb.to}` : canonical,
+  }))
 
   const reviewer = reviewerFor(page.reviewedBy)
 

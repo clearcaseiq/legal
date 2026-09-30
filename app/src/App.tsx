@@ -283,6 +283,7 @@ const TopicsEs = dynamic(() => import('./pages/TopicsEs'), { ssr: true })
 const SeoLandingPageZh = dynamic(() => import('./pages/SeoLandingPageZh'), { ssr: true })
 const TopicsZh = dynamic(() => import('./pages/TopicsZh'), { ssr: true })
 const TopicHub = dynamic(() => import('./pages/TopicHub'), { ssr: true })
+const CaseTypeHub = dynamic(() => import('./pages/CaseTypeHub'), { ssr: true })
 
 const NotFound = lazy(() => import('./pages/NotFound'))
 
@@ -602,6 +603,13 @@ function App() {
             {topicHubs.map((hub) => (
               <Route key={hub.slug} path={hub.slug} element={<TopicHub />} />
             ))}
+            {/* Case-type hubs: the indexed page each case type's articles link up to. */}
+            <Route path="/car-accident" element={<CaseTypeHub />} />
+            <Route path="/slip-and-fall" element={<CaseTypeHub />} />
+            <Route path="/dog-bite" element={<CaseTypeHub />} />
+            <Route path="/pedestrian-accident" element={<CaseTypeHub />} />
+            <Route path="/medical-malpractice" element={<CaseTypeHub />} />
+            <Route path="/wrongful-death" element={<CaseTypeHub />} />
             <Route path="/how-it-works" element={<HowItWorks />} />
             {/* Paid-search landing pages, one per ad group. Enumerated like the
                 topic hubs so an invented /case-assessment/* still 404s. */}
@@ -710,6 +718,32 @@ function App() {
             <Route path="/who-is-liable-for-a-dog-bite-in-california" element={<SeoLandingPage />} />
             <Route path="/california-dog-bite-statute-of-limitations" element={<SeoLandingPage />} />
             <Route path="/when-to-hire-a-dog-bite-lawyer-in-california" element={<SeoLandingPage />} />
+            {/* Case-type supporting articles; drafts served noindex until reviewed. */}
+            <Route path="/who-pays-medical-bills-after-a-car-accident-in-california" element={<SeoLandingPage />} />
+            <Route path="/lost-wages-after-a-car-accident-in-california" element={<SeoLandingPage />} />
+            <Route path="/car-accident-settlement-offer-too-low" element={<SeoLandingPage />} />
+            <Route path="/car-accident-without-a-police-report-in-california" element={<SeoLandingPage />} />
+            <Route path="/how-long-does-a-car-accident-claim-take-in-california" element={<SeoLandingPage />} />
+            <Route path="/car-accident-evidence-checklist" element={<SeoLandingPage />} />
+            <Route path="/car-accident-with-a-pre-existing-injury" element={<SeoLandingPage />} />
+            <Route path="/car-accident-property-damage-claim-california" element={<SeoLandingPage />} />
+            <Route path="/slipped-on-a-wet-floor-in-a-store-california" element={<SeoLandingPage />} />
+            <Route path="/broken-hip-from-a-fall-california" element={<SeoLandingPage />} />
+            <Route path="/slip-and-fall-evidence" element={<SeoLandingPage />} />
+            <Route path="/slip-and-fall-medical-bills-and-lost-wages" element={<SeoLandingPage />} />
+            <Route path="/dog-bite-scarring-compensation-california" element={<SeoLandingPage />} />
+            <Route path="/dog-bite-infection-and-treatment" element={<SeoLandingPage />} />
+            <Route path="/does-homeowners-insurance-cover-dog-bites-in-california" element={<SeoLandingPage />} />
+            <Route path="/hit-by-a-car-in-a-crosswalk-california" element={<SeoLandingPage />} />
+            <Route path="/pedestrian-hit-and-run-uninsured-motorist-coverage" element={<SeoLandingPage />} />
+            <Route path="/common-pedestrian-accident-injuries" element={<SeoLandingPage />} />
+            <Route path="/misdiagnosis-or-delayed-diagnosis-claim-california" element={<SeoLandingPage />} />
+            <Route path="/surgical-error-claim-california" element={<SeoLandingPage />} />
+            <Route path="/medication-error-claim-california" element={<SeoLandingPage />} />
+            <Route path="/birth-injury-claim-california" element={<SeoLandingPage />} />
+            <Route path="/wrongful-death-vs-survival-action-california" element={<SeoLandingPage />} />
+            <Route path="/wrongful-death-evidence" element={<SeoLandingPage />} />
+            <Route path="/wrongful-death-after-a-car-accident-california" element={<SeoLandingPage />} />
             {/* Slip-and-fall / premises-liability hub. */}
             <Route path="/how-much-is-a-slip-and-fall-case-worth" element={<SeoLandingPage />} />
             <Route path="/who-is-liable-for-a-slip-and-fall-in-california" element={<SeoLandingPage />} />

@@ -47,6 +47,7 @@ const WRAPPERS: Record<string, string> = { HomeRoute: 'Home' }
 const GENERATED_ROUTE_COMPONENTS: Record<string, string> = {
   '/topics/': 'TopicHub',
   '/es/temas': 'TopicsEs',
+  '/case-assessment/': 'CaseAssessmentLanding',
 }
 
 function componentFor(path: string): string | undefined {

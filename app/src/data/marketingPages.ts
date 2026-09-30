@@ -11,6 +11,7 @@ import type { LanguageCode } from '../i18n'
 import { marketingPagesEs } from './marketingPagesEs'
 import { marketingPagesZh } from './marketingPagesZh'
 import { CASE_ASSESSMENT_CONTENT_UPDATED, caseAssessmentPages } from './caseAssessmentPages'
+import { CASE_TYPE_HUBS_UPDATED, caseTypeHubs } from './caseTypeHubDefs'
 import {
   TOPICS_INDEX_DESCRIPTION,
   TOPICS_INDEX_SLUG,
@@ -223,9 +224,23 @@ const caseAssessmentMarketingPages: MarketingPage[] = caseAssessmentPages.map((p
   noindex: true,
 }))
 
+/**
+ * The case-type hubs. Indexed, unlike the paid `/case-assessment/*` pages
+ * below: these are the organic pages the articles link up to. Their structured
+ * data is built from the hub copy on the server, not from `schemaType`.
+ */
+const caseTypeHubMarketingPages: MarketingPage[] = caseTypeHubs.map((hub) => ({
+  path: hub.slug,
+  title: `${hub.title} | ClearCaseIQ`,
+  description: hub.description,
+  serverRender: true,
+  contentUpdated: CASE_TYPE_HUBS_UPDATED,
+}))
+
 export const allMarketingPages: MarketingPage[] = [
   ...marketingPages,
   ...topicHubMarketingPages,
+  ...caseTypeHubMarketingPages,
   ...caseAssessmentMarketingPages,
   ...marketingPagesEs,
   ...marketingPagesZh,

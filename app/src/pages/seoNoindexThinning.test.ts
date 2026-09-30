@@ -3,6 +3,7 @@ import type { GetServerSideProps, GetServerSidePropsContext } from 'next'
 import { getServerSideProps as catchAll } from '../../pages/[[...slug]]'
 import { getServerSideProps as sitemapXml } from '../../pages/sitemap.xml'
 import { allLandingPages, indexableLandingPages, landingPagesBySlug } from '../data/seoLandingPages'
+import { CASE_TYPE_DRAFT_SLUGS } from '../data/seoCaseTypeDrafts'
 
 /**
  * The per-page `noindex` switch used to thin the library.
@@ -54,15 +55,17 @@ function withNoindex(slug: string, run: () => Promise<void> | void) {
 }
 
 afterEach(() => {
-  for (const page of allLandingPages) delete page.noindex
+  for (const page of allLandingPages) if (!CASE_TYPE_DRAFT_SLUGS.has(page.slug)) delete page.noindex
 })
 
 describe('landing pages are indexable unless deliberately thinned', () => {
-  it('marks nothing noindex today', () => {
+  it('marks nothing noindex today except drafts awaiting review', () => {
     // The audit finds no page under 40% unique and no duplicate bodies, so the
-    // switch ships unused. If this fails, someone thinned the library — which is
-    // allowed, but should be a visible decision rather than a silent diff.
-    expect(allLandingPages.filter((page) => page.noindex)).toEqual([])
+    // switch ships unused for thinning. If this fails, someone thinned the
+    // library — which is allowed, but should be a visible decision rather than a
+    // silent diff. The case-type drafts use the same switch until approved.
+    const flagged = allLandingPages.filter((page) => page.noindex).map((page) => page.slug)
+    expect(new Set(flagged)).toEqual(CASE_TYPE_DRAFT_SLUGS)
   })
 
   it('serves a canonical and no robots tag in the normal case', async () => {
@@ -73,7 +76,7 @@ describe('landing pages are indexable unless deliberately thinned', () => {
   })
 
   it('lists every page in the sitemap while none are thinned', () => {
-    expect(indexableLandingPages()).toHaveLength(allLandingPages.length)
+    expect(indexableLandingPages()).toHaveLength(allLandingPages.length - CASE_TYPE_DRAFT_SLUGS.size)
     expect(renderText(sitemapXml)).toContain(SUBJECT)
   })
 })
@@ -112,7 +115,7 @@ describe('thinning a page', () => {
       const other = await seoFor('/settlements/knee-surgery-settlement')
 
       expect(other?.noindex).toBeFalsy()
-      expect(indexableLandingPages()).toHaveLength(allLandingPages.length - 1)
+      expect(indexableLandingPages()).toHaveLength(allLandingPages.length - CASE_TYPE_DRAFT_SLUGS.size - 1)
     })
   })
 
