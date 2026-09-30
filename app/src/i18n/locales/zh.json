@@ -4269,6 +4269,8 @@
       "uploadDocuments": "上传文件",
       "mostUrgent": "最紧急的任务",
       "waitingOn": "{name}仍在等待{docs}。",
+      "signatureWaiting": "{name}已发送{doc}，请您签署。",
+      "reviewAndSign": "审阅并签署",
       "yourAttorney": "您的律师",
       "aRequestedDocument": "一份所需文件",
       "nRequestedDocuments": "{count} 份所需文件",

@@ -394,6 +394,9 @@ export type PlaintiffCaseTask = {
   taskType?: string
   /** External link for the task's action (e.g. the e-signature page). */
   actionUrl?: string | null
+  /** Signature tasks: who sent it and what is being signed. */
+  attorneyName?: string | null
+  documentTitle?: string | null
 }
 
 export async function getPlaintiffCaseTasks(assessmentId: string): Promise<{

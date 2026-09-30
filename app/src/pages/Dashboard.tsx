@@ -1149,7 +1149,10 @@ export default function Dashboard() {
         })
       : null
   // One document urgency surface: Action Center when attorney requests exist.
-  const showDocActionCenter = pendingDocumentRequests.length > 0
+  const pendingSignatures = attorneyTasks.filter((task) => task.taskType === 'signature' && task.status !== 'done')
+  const nextSignature = pendingSignatures[0] || null
+  const actionRequiredCount = pendingDocumentRequests.length + pendingSignatures.length
+  const showDocActionCenter = actionRequiredCount > 0
   // Consult card: details when booked; schedule CTA only pre-retain.
   const showConsultCard = hasUpcomingConsult || (attorneyMatched && !caseRetained)
   // Pre-consult checklist only while a consult is still ahead (not after retain).
@@ -1944,11 +1947,16 @@ export default function Dashboard() {
                       {t('plaintiffDashboard.actionCenter.title')}
                     </p>
                     <span className="inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-orange-500 px-1.5 text-xs font-bold text-white">
-                      {pendingDocumentRequests.length}
+                      {actionRequiredCount}
                     </span>
             </div>
                   <p className="mt-1 text-sm text-slate-600">
-                    {nextDocumentRequest
+                    {nextSignature
+                      ? t('plaintiffDashboard.actionCenter.signatureWaiting', {
+                          name: nextSignature.attorneyName || t('plaintiffDashboard.actionCenter.yourAttorney'),
+                          doc: nextSignature.documentTitle || nextSignature.title.replace(/^Sign:\s*/, ''),
+                        })
+                      : nextDocumentRequest
                       ? t('plaintiffDashboard.actionCenter.waitingOn', {
                           name: nextDocumentRequest.attorney?.name || t('plaintiffDashboard.actionCenter.yourAttorney'),
                           docs:
@@ -1973,17 +1981,29 @@ export default function Dashboard() {
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-3 sm:border-l sm:border-amber-200/80 sm:pl-5">
+                {nextSignature?.actionUrl ? (
+                  <a
+                    href={nextSignature.actionUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 rounded-lg border border-orange-400 bg-transparent px-3.5 py-2 text-sm font-semibold text-orange-600 transition hover:bg-orange-50"
+                  >
+                    <ExternalLink className="h-4 w-4" aria-hidden />
+                    {t('plaintiffDashboard.actionCenter.reviewAndSign')}
+                  </a>
+                ) : (
+                  <Link
+                    to={nextSignature ? '?tab=tasks' : nextDocumentRequestHref || '?tab=tasks'}
+                    onClick={!nextSignature && nextDocumentRequestHref ? undefined : (e) => { e.preventDefault(); selectTab('tasks') }}
+                    className="inline-flex items-center gap-2 rounded-lg border border-orange-400 bg-transparent px-3.5 py-2 text-sm font-semibold text-orange-600 transition hover:bg-orange-50"
+                  >
+                    <ExternalLink className="h-4 w-4" aria-hidden />
+                    {t('plaintiffDashboard.actionCenter.viewDetails')}
+                  </Link>
+                )}
                 <Link
-                  to={nextDocumentRequestHref || '?tab=tasks'}
-                  onClick={nextDocumentRequestHref ? undefined : (e) => { e.preventDefault(); selectTab('tasks') }}
-                  className="inline-flex items-center gap-2 rounded-lg border border-orange-400 bg-transparent px-3.5 py-2 text-sm font-semibold text-orange-600 transition hover:bg-orange-50"
-                >
-                  <ExternalLink className="h-4 w-4" aria-hidden />
-                  {t('plaintiffDashboard.actionCenter.viewDetails')}
-                </Link>
-                <Link
-                  to={nextDocumentRequestHref || '?tab=tasks'}
-                  onClick={nextDocumentRequestHref ? undefined : (e) => { e.preventDefault(); selectTab('tasks') }}
+                  to={nextSignature ? '?tab=tasks' : nextDocumentRequestHref || '?tab=tasks'}
+                  onClick={!nextSignature && nextDocumentRequestHref ? undefined : (e) => { e.preventDefault(); selectTab('tasks') }}
                   aria-label={t('plaintiffDashboard.actionCenter.viewDetails')}
                   className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-white text-orange-500 shadow-md ring-1 ring-black/5 transition hover:bg-orange-50"
                 >

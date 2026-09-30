@@ -3050,6 +3050,8 @@
       "uploadDocuments": "Upload Documents",
       "mostUrgent": "Most urgent task",
       "waitingOn": "{name} is still waiting on {docs}.",
+      "signatureWaiting": "{name} sent {doc} for your signature.",
+      "reviewAndSign": "Review & sign",
       "yourAttorney": "Your attorney",
       "aRequestedDocument": "a requested document",
       "nRequestedDocuments": "{count} requested documents",

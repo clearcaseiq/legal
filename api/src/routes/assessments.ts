@@ -1036,6 +1036,8 @@ router.get('/:id/tasks', authMiddleware, async (req: AuthRequest, res) => {
         dueDate: null,
         taskType: 'signature',
         actionUrl: signed ? null : signingUrl,
+        attorneyName: group[0].attorney?.name || null,
+        documentTitle: group.map((e) => e.title).join(' + '),
       }
     })
 

@@ -4269,6 +4269,8 @@
       "uploadDocuments": "Subir documentos",
       "mostUrgent": "Tarea más urgente",
       "waitingOn": "{name} sigue esperando {docs}.",
+      "signatureWaiting": "{name} te envió {doc} para que lo firmes.",
+      "reviewAndSign": "Revisar y firmar",
       "yourAttorney": "Tu abogado",
       "aRequestedDocument": "un documento solicitado",
       "nRequestedDocuments": "{count} documentos solicitados",
