@@ -1,7 +1,7 @@
 import type { LandingPage } from './seoLandingPages'
 
 /**
- * Supporting articles written for the case-type hubs, published as drafts.
+ * Supporting articles written for the case-type hubs.
  *
  * Each one fills a question the hub needed an article for and the library did
  * not have: who pays the medical bills after a crash, a store fall on a wet
@@ -10,10 +10,9 @@ import type { LandingPage } from './seoLandingPages'
  * wrongful death damages) are linked from the hubs instead of rewritten, since a
  * second page on the same question would compete with the first.
  *
- * All of them ship `noindex` and without `reviewedBy`, so they can be read on
- * QA and linked from the hubs without asking search engines to index copy no
- * one has approved yet. Approving one is two edits: delete its `noindex` and
- * remove it from `CASE_TYPE_DRAFT_SLUGS`.
+ * They are indexed but carry no `reviewedBy`: no attorney has reviewed them, and
+ * the byline only credits a reviewer who did. To hold a page back from search
+ * again, set `noindex: true` on it; that also puts it in `CASE_TYPE_DRAFT_SLUGS`.
  *
  * No page states an average or typical payout. Deadlines match the figures the
  * SOL guides and the deadline checker use.
@@ -22,11 +21,9 @@ import type { LandingPage } from './seoLandingPages'
 const NOT_ADVICE =
   'ClearCaseIQ is not a law firm, and this is general information rather than legal advice. A licensed California attorney can review the facts particular to you.'
 
-const draft = (page: Omit<LandingPage, 'noindex'>): LandingPage => ({ ...page, noindex: true })
-
 export const caseTypeDraftPages: LandingPage[] = [
   // Car accident
-  draft({
+  {
     slug: '/who-pays-medical-bills-after-a-car-accident-in-california',
     category: 'Insurance',
     cluster: 'Car Accident Medical Bills',
@@ -66,8 +63,8 @@ export const caseTypeDraftPages: LandingPage[] = [
       anchor: 'what a car accident case may be worth',
       to: '/how-much-is-a-car-accident-case-worth',
     },
-  }),
-  draft({
+  },
+  {
     slug: '/lost-wages-after-a-car-accident-in-california',
     category: 'Settlement',
     cluster: 'Car Accident Lost Wages',
@@ -107,8 +104,8 @@ export const caseTypeDraftPages: LandingPage[] = [
       anchor: 'what a car accident case may be worth',
       to: '/how-much-is-a-car-accident-case-worth',
     },
-  }),
-  draft({
+  },
+  {
     slug: '/car-accident-settlement-offer-too-low',
     category: 'Insurance',
     cluster: 'Low Car Accident Settlement Offers',
@@ -148,8 +145,8 @@ export const caseTypeDraftPages: LandingPage[] = [
       anchor: 'what a car accident case may be worth',
       to: '/how-much-is-a-car-accident-case-worth',
     },
-  }),
-  draft({
+  },
+  {
     slug: '/car-accident-without-a-police-report-in-california',
     category: 'Liability',
     cluster: 'Car Accident Without a Police Report',
@@ -189,8 +186,8 @@ export const caseTypeDraftPages: LandingPage[] = [
       anchor: 'the car accident evidence checklist',
       to: '/car-accident-evidence-checklist',
     },
-  }),
-  draft({
+  },
+  {
     slug: '/how-long-does-a-car-accident-claim-take-in-california',
     category: 'Insurance',
     cluster: 'Car Accident Claim Timeline',
@@ -230,8 +227,8 @@ export const caseTypeDraftPages: LandingPage[] = [
       anchor: 'what a car accident case may be worth',
       to: '/how-much-is-a-car-accident-case-worth',
     },
-  }),
-  draft({
+  },
+  {
     slug: '/car-accident-evidence-checklist',
     category: 'Liability',
     cluster: 'Car Accident Evidence',
@@ -271,8 +268,8 @@ export const caseTypeDraftPages: LandingPage[] = [
       anchor: 'the value of a car accident case',
       to: '/how-much-is-a-car-accident-case-worth',
     },
-  }),
-  draft({
+  },
+  {
     slug: '/car-accident-with-a-pre-existing-injury',
     category: 'Claim Types',
     cluster: 'Pre-Existing Injury Aggravation',
@@ -312,8 +309,8 @@ export const caseTypeDraftPages: LandingPage[] = [
       anchor: 'what a car accident case may be worth',
       to: '/how-much-is-a-car-accident-case-worth',
     },
-  }),
-  draft({
+  },
+  {
     slug: '/car-accident-property-damage-claim-california',
     category: 'Insurance',
     cluster: 'Vehicle Damage Claims',
@@ -353,10 +350,10 @@ export const caseTypeDraftPages: LandingPage[] = [
       anchor: 'our guide to car accident case value',
       to: '/how-much-is-a-car-accident-case-worth',
     },
-  }),
+  },
 
   // Slip and fall
-  draft({
+  {
     slug: '/slipped-on-a-wet-floor-in-a-store-california',
     category: 'Liability',
     cluster: 'Store Wet Floor Falls',
@@ -396,8 +393,8 @@ export const caseTypeDraftPages: LandingPage[] = [
       anchor: 'what a slip and fall case may be worth',
       to: '/how-much-is-a-slip-and-fall-case-worth',
     },
-  }),
-  draft({
+  },
+  {
     slug: '/broken-hip-from-a-fall-california',
     category: 'Symptoms',
     cluster: 'Broken Hip From a Fall',
@@ -437,8 +434,8 @@ export const caseTypeDraftPages: LandingPage[] = [
       anchor: 'what a slip and fall case may be worth',
       to: '/how-much-is-a-slip-and-fall-case-worth',
     },
-  }),
-  draft({
+  },
+  {
     slug: '/slip-and-fall-evidence',
     category: 'Liability',
     cluster: 'Slip and Fall Evidence',
@@ -478,8 +475,8 @@ export const caseTypeDraftPages: LandingPage[] = [
       anchor: 'what a slip and fall case may be worth',
       to: '/how-much-is-a-slip-and-fall-case-worth',
     },
-  }),
-  draft({
+  },
+  {
     slug: '/slip-and-fall-medical-bills-and-lost-wages',
     category: 'Settlement',
     cluster: 'Slip and Fall Economic Losses',
@@ -519,10 +516,10 @@ export const caseTypeDraftPages: LandingPage[] = [
       anchor: 'the full value of a slip and fall case',
       to: '/how-much-is-a-slip-and-fall-case-worth',
     },
-  }),
+  },
 
   // Dog bite
-  draft({
+  {
     slug: '/dog-bite-scarring-compensation-california',
     category: 'Settlement',
     cluster: 'Dog Bite Scarring',
@@ -562,8 +559,8 @@ export const caseTypeDraftPages: LandingPage[] = [
       anchor: 'what a dog bite case may be worth',
       to: '/how-much-is-a-dog-bite-case-worth',
     },
-  }),
-  draft({
+  },
+  {
     slug: '/dog-bite-infection-and-treatment',
     category: 'Treatment',
     cluster: 'Dog Bite Infection',
@@ -603,8 +600,8 @@ export const caseTypeDraftPages: LandingPage[] = [
       anchor: 'what a dog bite case may be worth',
       to: '/how-much-is-a-dog-bite-case-worth',
     },
-  }),
-  draft({
+  },
+  {
     slug: '/does-homeowners-insurance-cover-dog-bites-in-california',
     category: 'Insurance',
     cluster: 'Dog Bite Homeowners Insurance',
@@ -644,10 +641,10 @@ export const caseTypeDraftPages: LandingPage[] = [
       anchor: 'what a dog bite case may be worth',
       to: '/how-much-is-a-dog-bite-case-worth',
     },
-  }),
+  },
 
   // Pedestrian
-  draft({
+  {
     slug: '/hit-by-a-car-in-a-crosswalk-california',
     category: 'Liability',
     cluster: 'Crosswalk Pedestrian Accidents',
@@ -687,8 +684,8 @@ export const caseTypeDraftPages: LandingPage[] = [
       anchor: 'what a pedestrian accident case may be worth',
       to: '/how-much-is-a-pedestrian-accident-case-worth',
     },
-  }),
-  draft({
+  },
+  {
     slug: '/pedestrian-hit-and-run-uninsured-motorist-coverage',
     category: 'Insurance',
     cluster: 'Pedestrian Hit-and-Run Coverage',
@@ -728,8 +725,8 @@ export const caseTypeDraftPages: LandingPage[] = [
       anchor: 'what a pedestrian accident case may be worth',
       to: '/how-much-is-a-pedestrian-accident-case-worth',
     },
-  }),
-  draft({
+  },
+  {
     slug: '/common-pedestrian-accident-injuries',
     category: 'Symptoms',
     cluster: 'Pedestrian Accident Injuries',
@@ -769,10 +766,10 @@ export const caseTypeDraftPages: LandingPage[] = [
       anchor: 'the value of a pedestrian accident case',
       to: '/how-much-is-a-pedestrian-accident-case-worth',
     },
-  }),
+  },
 
   // Medical malpractice
-  draft({
+  {
     slug: '/misdiagnosis-or-delayed-diagnosis-claim-california',
     category: 'Claim Types',
     cluster: 'Misdiagnosis and Delayed Diagnosis',
@@ -812,8 +809,8 @@ export const caseTypeDraftPages: LandingPage[] = [
       anchor: 'what a medical malpractice case may be worth under MICRA',
       to: '/how-much-is-a-medical-malpractice-case-worth-in-california',
     },
-  }),
-  draft({
+  },
+  {
     slug: '/surgical-error-claim-california',
     category: 'Claim Types',
     cluster: 'Surgical Error Claims',
@@ -853,8 +850,8 @@ export const caseTypeDraftPages: LandingPage[] = [
       anchor: 'what a medical malpractice case may be worth',
       to: '/how-much-is-a-medical-malpractice-case-worth-in-california',
     },
-  }),
-  draft({
+  },
+  {
     slug: '/medication-error-claim-california',
     category: 'Claim Types',
     cluster: 'Medication Error Claims',
@@ -894,8 +891,8 @@ export const caseTypeDraftPages: LandingPage[] = [
       anchor: 'what a medical malpractice case may be worth',
       to: '/how-much-is-a-medical-malpractice-case-worth-in-california',
     },
-  }),
-  draft({
+  },
+  {
     slug: '/birth-injury-claim-california',
     category: 'Claim Types',
     cluster: 'Birth Injury Claims',
@@ -935,10 +932,10 @@ export const caseTypeDraftPages: LandingPage[] = [
       anchor: 'what a medical malpractice case may be worth',
       to: '/how-much-is-a-medical-malpractice-case-worth-in-california',
     },
-  }),
+  },
 
   // Wrongful death
-  draft({
+  {
     slug: '/wrongful-death-vs-survival-action-california',
     category: 'Claim Types',
     cluster: 'Wrongful Death vs Survival Action',
@@ -978,8 +975,8 @@ export const caseTypeDraftPages: LandingPage[] = [
       anchor: 'what a wrongful death case may be worth in California',
       to: '/how-much-is-a-wrongful-death-case-worth-in-california',
     },
-  }),
-  draft({
+  },
+  {
     slug: '/wrongful-death-evidence',
     category: 'Liability',
     cluster: 'Wrongful Death Evidence',
@@ -1019,8 +1016,8 @@ export const caseTypeDraftPages: LandingPage[] = [
       anchor: 'what a wrongful death case may be worth in California',
       to: '/how-much-is-a-wrongful-death-case-worth-in-california',
     },
-  }),
-  draft({
+  },
+  {
     slug: '/wrongful-death-after-a-car-accident-california',
     category: 'Claim Types',
     cluster: 'Fatal Car Accident Claims',
@@ -1060,7 +1057,7 @@ export const caseTypeDraftPages: LandingPage[] = [
       anchor: 'what a wrongful death case may be worth in California',
       to: '/how-much-is-a-wrongful-death-case-worth-in-california',
     },
-  }),
+  },
 ]
 
 /**
