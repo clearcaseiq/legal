@@ -2262,21 +2262,22 @@ export default function FirmDashboard() {
                         {att ? (
                           <button
                             onClick={() => startEditAttorney(att)}
-                            className={btnGhost + ' !h-8 !w-28 shrink-0 justify-center whitespace-nowrap !px-2.5 !py-0 !text-xs'}
+                            className={btnGhost + ' !h-8 !w-8 shrink-0 justify-center !p-0'}
+                            title="Edit profile"
+                            aria-label="Edit profile"
                           >
-                            <Pencil className="h-3.5 w-3.5" />
-                            Edit profile
+                            <Pencil className="h-4 w-4" />
                           </button>
                         ) : (
-                          <span className="w-28 shrink-0" aria-hidden />
+                          <span className="w-8 shrink-0" aria-hidden />
                         )}
                         <button
                           onClick={() => openEditMember(m)}
-                          className={btnGhost + ' !h-8 !w-44 shrink-0 justify-center whitespace-nowrap !px-2.5 !py-0 !text-xs'}
-                          title="Set this person's role and permissions"
+                          className={btnGhost + ' !h-8 !w-8 shrink-0 justify-center !p-0'}
+                          title="Assign permissions"
+                          aria-label="Assign permissions"
                         >
-                          <Shield className="h-3.5 w-3.5" />
-                          Assign permissions
+                          <Shield className="h-4 w-4" />
                         </button>
         </div>
                     )
