@@ -2247,20 +2247,22 @@ export default function FirmDashboard() {
                   cell: (m: any) => {
                     const att = m.attorney?.id ? attorneyById.get(m.attorney.id) : null
                     return (
-                      <div className="flex items-center justify-end gap-2">
-                        {m.status === 'invited' && (
-            <button
+                      <div className="flex flex-nowrap items-center justify-end gap-2">
+                        {m.status === 'invited' ? (
+                          <button
                             onClick={() => handleResendInvite(m.id)}
                             disabled={resendingMemberId === m.id}
-                            className={btnGhost + ' !px-2.5 !py-1 !text-xs disabled:opacity-60'}
+                            className={btnGhost + ' !h-8 !w-28 shrink-0 justify-center whitespace-nowrap !px-2.5 !py-0 !text-xs disabled:opacity-60'}
                           >
                             {resendingMemberId === m.id ? 'Sending…' : 'Resend invite'}
-            </button>
+                          </button>
+                        ) : (
+                          <span className="w-28 shrink-0" aria-hidden />
                         )}
                         {att ? (
                           <button
                             onClick={() => startEditAttorney(att)}
-                            className={btnGhost + ' !w-28 whitespace-nowrap !px-2.5 !py-1 !text-xs'}
+                            className={btnGhost + ' !h-8 !w-28 shrink-0 justify-center whitespace-nowrap !px-2.5 !py-0 !text-xs'}
                           >
                             <Pencil className="h-3.5 w-3.5" />
                             Edit profile
@@ -2270,7 +2272,7 @@ export default function FirmDashboard() {
                         )}
                         <button
                           onClick={() => openEditMember(m)}
-                          className={btnGhost + ' !w-44 whitespace-nowrap !px-2.5 !py-1 !text-xs'}
+                          className={btnGhost + ' !h-8 !w-44 shrink-0 justify-center whitespace-nowrap !px-2.5 !py-0 !text-xs'}
                           title="Set this person's role and permissions"
                         >
                           <Shield className="h-3.5 w-3.5" />
