@@ -3,6 +3,7 @@ import { z } from 'zod'
 import crypto from 'crypto'
 import { prisma } from '../lib/prisma'
 import { logger } from '../lib/logger'
+import { optionalAuthMiddleware, type AuthRequest } from '../lib/auth'
 import { computeBookableSlots } from '../lib/booking-slots'
 import { createExternalCalendarEvent, deleteExternalCalendarEvent } from '../lib/calendar-sync'
 import { createZoomMeeting } from '../lib/zoom'
@@ -178,7 +179,7 @@ const BookingCreate = z.object({
 })
 
 // POST /v1/public/booking/:slug/:eventSlug — create a confirmed booking.
-router.post('/:slug/:eventSlug', async (req, res) => {
+router.post('/:slug/:eventSlug', optionalAuthMiddleware, async (req: AuthRequest, res) => {
   try {
     const attorney = await loadAttorney(req.params.slug)
     if (!attorney) return res.status(404).json({ error: 'Booking page not found' })
@@ -242,11 +243,15 @@ router.post('/:slug/:eventSlug', async (req, res) => {
       return res.status(409).json({ error: 'That time is no longer available. Please pick another slot.' })
     }
 
-    // Provision (or reuse) a lightweight passwordless account for the booker.
+    // A signed-in plaintiff books as themselves regardless of the email typed,
+    // otherwise the booking lands on a separate guest account their dashboard
+    // never sees. Anonymous visitors get a lightweight passwordless account.
     const normalizedEmail = email.trim().toLowerCase()
     const [firstName, ...rest] = name.trim().split(/\s+/)
     const lastName = rest.join(' ') || '—'
-    const user = await prisma.user.upsert({
+    const user = req.user && req.user.role === 'user'
+      ? { id: req.user.id }
+      : await prisma.user.upsert({
       where: { email: normalizedEmail },
       update: {},
       create: {

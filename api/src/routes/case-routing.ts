@@ -333,9 +333,25 @@ router.get('/assessment/:id/status', authMiddleware, async (req: AuthRequest, re
       // plaintiff already booked. If this user booked one of the attorneys tied
       // to *this* case, adopt that orphan booking into the case (backfilling
       // assessmentId) so every downstream view stays consistent.
+      // Case attorneys include the directly-assigned one (imported/hand-created
+      // cases have no Introduction) and firm colleagues, since a booking link
+      // shared in the case thread may be another attorney at the same firm.
       if (!assessment.userId) return null
+      const directAttorneys = [
+        ...intros.map((i) => i.attorney),
+        matchedAttorney,
+        lead?.assignedAttorney ?? null,
+      ].filter((a): a is NonNullable<typeof a> => Boolean(a?.id))
+      const firmIds = Array.from(
+        new Set(directAttorneys.map((a) => a.lawFirmId).filter((id): id is string => Boolean(id))),
+      )
+      const firmAttorneys = firmIds.length
+        ? await prisma.attorney
+            .findMany({ where: { lawFirmId: { in: firmIds } }, select: { id: true } })
+            .catch(() => [])
+        : []
       const caseAttorneyIds = Array.from(
-        new Set(intros.map((i) => i.attorney?.id).filter((id): id is string => Boolean(id))),
+        new Set([...directAttorneys.map((a) => a.id), ...firmAttorneys.map((a) => a.id)]),
       )
       if (caseAttorneyIds.length === 0) return null
       const orphanWhere: Prisma.AppointmentWhereInput = {
