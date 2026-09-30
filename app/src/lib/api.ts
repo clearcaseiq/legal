@@ -2396,8 +2396,11 @@ export type AttorneyDocumentRequest = {
   clientName?: string | null
 }
 
-export async function getAttorneyDocumentRequests(): Promise<AttorneyDocumentRequest[]> {
-  const { data } = await api.get('/v1/attorney-dashboard/document-requests')
+/** Without `leadId`, the attorney's own requests; with it, every request on that case. */
+export async function getAttorneyDocumentRequests(leadId?: string): Promise<AttorneyDocumentRequest[]> {
+  const { data } = await api.get('/v1/attorney-dashboard/document-requests', {
+    params: leadId ? { leadId } : undefined,
+  })
   return data
 }
 

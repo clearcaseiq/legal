@@ -39,6 +39,8 @@ interface NavEntry {
   comingSoon?: boolean
   /** Staff see the entry only when their firm permissions include this action. */
   staffAction?: FirmAction
+  /** Staff see the entry only when they hold at least one of these firm permissions. */
+  staffAnyPermission?: string[]
 }
 
 interface NavSection {
@@ -79,6 +81,20 @@ const NAV_SECTIONS: NavSection[] = [
 ]
 
 export const STAFF_CASES_ROUTE = '/firm-dashboard?tab=caseload'
+const STAFF_NEW_LEADS_ROUTE = '/firm-dashboard?tab=newleads'
+
+/**
+ * Firm permissions that involve working accepted cases. Review, accept &
+ * decline alone is new-lead work, so it doesn't open Active Cases.
+ */
+export const STAFF_ACTIVE_CASE_PERMISSIONS = [
+  'view_all_cases',
+  'assign_cases',
+  'manage_assigned_cases',
+  'message_plaintiffs',
+  'manage_documents',
+  'manage_billing',
+]
 
 // Staff reach a case from the firm dashboard; the attorney-only pages above
 // would bounce them straight back there.
@@ -87,7 +103,22 @@ const STAFF_NAV_SECTIONS: NavSection[] = [
     id: 'casework',
     label: 'Case Management',
     entries: [
-      { to: STAFF_CASES_ROUTE, id: 'active', label: 'Active Cases', description: 'Caseload & quick re-entry', icon: Briefcase },
+      {
+        to: STAFF_NEW_LEADS_ROUTE,
+        id: 'matches',
+        label: 'New Leads',
+        description: 'Cases awaiting review',
+        icon: Inbox,
+        staffAnyPermission: ['review_cases'],
+      },
+      {
+        to: STAFF_CASES_ROUTE,
+        id: 'active',
+        label: 'Active Cases',
+        description: 'Caseload & quick re-entry',
+        icon: Briefcase,
+        staffAnyPermission: STAFF_ACTIVE_CASE_PERMISSIONS,
+      },
       { to: '/attorney-dashboard/cases/calendar', id: 'calendar', label: 'Calendar & Consults', description: 'Upcoming meetings', icon: CalendarDays, staffAction: 'schedule' },
       { to: '/attorney-dashboard/cases/scheduling', id: 'scheduling', label: 'Scheduling', description: 'Your public booking link', icon: CalendarClock, staffAction: 'schedule' },
       { to: '/attorney-dashboard/cases/messages', id: 'messages', label: 'Messages', description: 'Client threads', icon: MessagesSquare, staffAction: 'message' },
@@ -104,7 +135,8 @@ function useNavSections(): NavSection[] {
     entries: section.entries.filter(
       (entry) =>
         (!entry.firmAdminOnly || isFirmAdmin) &&
-        (!entry.staffAction || access?.actions?.[entry.staffAction] === true),
+        (!entry.staffAction || access?.actions?.[entry.staffAction] === true) &&
+        (!entry.staffAnyPermission || entry.staffAnyPermission.some((p) => access?.permissions?.includes(p))),
     ),
   }))
 }

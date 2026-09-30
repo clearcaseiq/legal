@@ -174,8 +174,8 @@ const ROW_TONE: Record<Tone, string> = {
 const TABS = ['Overview', 'Client Info', 'AI Copilot', 'Rose', 'Workflow', 'Tasks', 'Evidence', 'Signatures', 'Medical', 'Liability', 'Insurance', 'Damages', 'Negotiation', 'Demand', 'Timeline', 'Settlement', 'Time', 'Billing', 'Referrals'] as const
 type Tab = (typeof TABS)[number]
 
-// E-sign envelopes and fee-sharing referrals are served to attorneys only.
-const STAFF_HIDDEN_TABS: ReadonlySet<Tab> = new Set<Tab>(['Signatures', 'Referrals'])
+// Fee-sharing referrals are served to attorneys only.
+const STAFF_HIDDEN_TABS: ReadonlySet<Tab> = new Set<Tab>(['Referrals'])
 
 /**
  * The permission group the API requires for every write on these tabs. Staff
@@ -954,8 +954,12 @@ export default function CaseWorkspacePage() {
             </header>
             <div className="p-5 sm:p-6">
               <StaffViewOnly
-                locked={Boolean(isStaff && TAB_WRITE_ACTION[tab] && !can(TAB_WRITE_ACTION[tab]!.action))}
-                what={TAB_WRITE_ACTION[tab]?.what ?? ''}
+                locked={
+                  tab === 'Signatures'
+                    ? isStaff && !can('documents') && !can('manage')
+                    : Boolean(isStaff && TAB_WRITE_ACTION[tab] && !can(TAB_WRITE_ACTION[tab]!.action))
+                }
+                what={tab === 'Signatures' ? 'sending documents for signature' : TAB_WRITE_ACTION[tab]?.what ?? ''}
               >
                 <WorkstreamPanel tab={tab} section={section} lead={lead} detail={detail} cc={cc} tasks={tasks} reloadTasks={reloadTasks} reloadCc={reloadCc} onOpenChat={openChat} onContactSaved={(contact) => setContactOverride(contact)} onAssessmentPatch={(patch) => setLead((prev: any) => (prev ? { ...prev, assessment: { ...(prev.assessment || {}), ...patch } } : prev))} />
               </StaffViewOnly>
@@ -2368,7 +2372,7 @@ function EvidencePanel({
       .catch(() => {})
   }
   const refreshRequests = () => {
-    getAttorneyDocumentRequests()
+    getAttorneyDocumentRequests(leadId)
       .then((rs) => setOpenRequests((rs || []).filter((r) => r.leadId === leadId && r.status !== 'completed')))
       .catch(() => {})
   }

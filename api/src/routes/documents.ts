@@ -46,6 +46,8 @@ import { checkCollectEvidence, type EvidenceCollectKind } from '../lib/evidence-
 import { listActiveFirmTemplates, sendFirmTemplateForLead } from '../lib/esign/send-firm-template'
 import type { SignableDocumentType } from '../lib/esign/types'
 import { readClaimantContact } from '../lib/claimant-contact'
+import { firmAllows, resolveMemberAccess } from '../lib/firm-access'
+import { getAuthorizedLead } from './attorney-dashboard'
 
 async function afterRetainerEnvelopeSent(leadId: string, note: string) {
   const lead = await prisma.leadSubmission.findUnique({
@@ -75,12 +77,47 @@ const feeAgreementUpload = multer({
   },
 })
 
-async function resolveAttorney(req: AuthRequest) {
+const NO_CASE_ACCESS = 'Your firm role does not allow this action. Ask your firm admin to update your permissions.'
+
+/** Staff may send signature documents with either of these firm permissions. */
+const STAFF_SEND_PERMISSIONS = ['manage_documents', 'manage_assigned_cases']
+
+const attorneySelect = { id: true, name: true, email: true, lawFirmId: true } as const
+
+/**
+ * The attorney a request acts as. Attorneys act as themselves. Firm staff have
+ * no Attorney row, so on a case they may work they act as the case's attorney
+ * (envelopes are always sent in an attorney's name): the assigned attorney, else
+ * the firm attorney the case was introduced to, else any attorney at the firm.
+ * `staffWrite` requires one of STAFF_SEND_PERMISSIONS; reads need case access only.
+ */
+async function resolveAttorney(req: AuthRequest, opts: { staffWrite?: boolean } = {}) {
   if (!req.user?.email) return null
-  return prisma.attorney.findFirst({
-    where: { email: req.user.email },
-    select: { id: true, name: true, email: true, lawFirmId: true },
+  const own = await prisma.attorney.findFirst({ where: { email: req.user.email }, select: attorneySelect })
+  if (own) return own
+
+  const leadId = (req.params as any)?.leadId
+  if (!leadId) return null
+  const auth: any = await getAuthorizedLead(req, leadId, { staffCan: 'any' })
+  if (auth.error || !auth.firmMember) return null
+  if (opts.staffWrite) {
+    const access = await resolveMemberAccess(prisma as any, req.user as any).catch(() => null)
+    if (!firmAllows(access, STAFF_SEND_PERMISSIONS)) return null
+  }
+
+  const lawFirmId: string | null = auth.firmMember.lawFirmId ?? null
+  if (auth.lead.assignedAttorneyId) {
+    const assigned = await prisma.attorney.findUnique({ where: { id: auth.lead.assignedAttorneyId }, select: attorneySelect })
+    if (assigned) return assigned
+  }
+  if (!lawFirmId) return null
+  const intro = await prisma.introduction.findFirst({
+    where: { assessmentId: auth.lead.assessmentId, attorney: { lawFirmId } },
+    orderBy: { requestedAt: 'desc' },
+    select: { attorney: { select: attorneySelect } },
   })
+  if (intro?.attorney) return intro.attorney
+  return prisma.attorney.findFirst({ where: { lawFirmId }, orderBy: { createdAt: 'asc' }, select: attorneySelect })
 }
 
 /**
@@ -129,7 +166,7 @@ router.get('/providers', authMiddleware, async (_req: AuthRequest, res) => {
 router.get('/leads/:leadId/firm-templates', authMiddleware, async (req: AuthRequest, res) => {
   try {
     const attorney = await resolveAttorney(req)
-    if (!attorney) return res.status(403).json({ error: 'Not an attorney account' })
+    if (!attorney) return res.status(403).json({ error: NO_CASE_ACCESS })
     const resolved = await resolveLeadForAttorney(req.params.leadId, attorney)
     if (resolved.error === 404) return res.status(404).json({ error: 'Lead not found' })
     if (resolved.error === 403) return res.status(403).json({ error: 'Lead is assigned to another attorney' })
@@ -162,8 +199,8 @@ router.post(
   authMiddleware,
   async (req: AuthRequest, res) => {
     try {
-      const attorney = await resolveAttorney(req)
-      if (!attorney) return res.status(403).json({ error: 'Not an attorney account' })
+      const attorney = await resolveAttorney(req, { staffWrite: true })
+      if (!attorney) return res.status(403).json({ error: NO_CASE_ACCESS })
       if (!attorney.lawFirmId) {
         return res.status(400).json({ error: 'No law firm is linked to this attorney account' })
       }
@@ -262,7 +299,7 @@ router.get('/envelopes/:envelopeId/signed', authMiddleware, async (req: AuthRequ
 router.get('/leads/:leadId/envelopes', authMiddleware, async (req: AuthRequest, res) => {
   try {
     const attorney = await resolveAttorney(req)
-    if (!attorney) return res.status(403).json({ error: 'Not an attorney account' })
+    if (!attorney) return res.status(403).json({ error: NO_CASE_ACCESS })
     const resolved = await resolveLeadForAttorney(req.params.leadId, attorney)
     if (resolved.error === 404) return res.status(404).json({ error: 'Lead not found' })
     if (resolved.error === 403) return res.status(403).json({ error: 'Lead is assigned to another attorney' })
@@ -279,8 +316,8 @@ router.get('/leads/:leadId/envelopes', authMiddleware, async (req: AuthRequest, 
 
 router.post('/leads/:leadId/envelopes', authMiddleware, async (req: AuthRequest, res) => {
   try {
-    const attorney = await resolveAttorney(req)
-    if (!attorney) return res.status(403).json({ error: 'Not an attorney account' })
+    const attorney = await resolveAttorney(req, { staffWrite: true })
+    if (!attorney) return res.status(403).json({ error: NO_CASE_ACCESS })
 
     const parsed = createSchema.safeParse(req.body)
     if (!parsed.success) {
@@ -320,8 +357,8 @@ const hipaaSchema = z.object({
 // and send it for signature via a HIPAA-capable provider (enforced server-side).
 router.post('/leads/:leadId/hipaa-authorization', authMiddleware, async (req: AuthRequest, res) => {
   try {
-    const attorney = await resolveAttorney(req)
-    if (!attorney) return res.status(403).json({ error: 'Not an attorney account' })
+    const attorney = await resolveAttorney(req, { staffWrite: true })
+    if (!attorney) return res.status(403).json({ error: NO_CASE_ACCESS })
 
     const parsed = hipaaSchema.safeParse(req.body)
     if (!parsed.success) {
@@ -365,8 +402,8 @@ const policeReportAuthSchema = z.object({
 /** Client authorization for counsel to obtain a CA police/incident report. */
 router.post('/leads/:leadId/police-report-authorization', authMiddleware, async (req: AuthRequest, res) => {
   try {
-    const attorney = await resolveAttorney(req)
-    if (!attorney) return res.status(403).json({ error: 'Not an attorney account' })
+    const attorney = await resolveAttorney(req, { staffWrite: true })
+    if (!attorney) return res.status(403).json({ error: NO_CASE_ACCESS })
 
     const parsed = policeReportAuthSchema.safeParse(req.body)
     if (!parsed.success) {
@@ -411,8 +448,8 @@ const retainerSchema = z.object({
 // send it for signature via any configured provider (no HIPAA/BAA requirement).
 router.post('/leads/:leadId/retainer', authMiddleware, async (req: AuthRequest, res) => {
   try {
-    const attorney = await resolveAttorney(req)
-    if (!attorney) return res.status(403).json({ error: 'Not an attorney account' })
+    const attorney = await resolveAttorney(req, { staffWrite: true })
+    if (!attorney) return res.status(403).json({ error: NO_CASE_ACCESS })
 
     const parsed = retainerSchema.safeParse(req.body)
     if (!parsed.success) {
@@ -456,8 +493,8 @@ const recordsRequestSchema = z.object({
 // authorization; reuses the external upload portal for delivery + status.
 router.post('/leads/:leadId/medical-records-request', authMiddleware, async (req: AuthRequest, res) => {
   try {
-    const attorney = await resolveAttorney(req)
-    if (!attorney) return res.status(403).json({ error: 'Not an attorney account' })
+    const attorney = await resolveAttorney(req, { staffWrite: true })
+    if (!attorney) return res.status(403).json({ error: NO_CASE_ACCESS })
 
     const parsed = recordsRequestSchema.safeParse(req.body)
     if (!parsed.success) {
@@ -496,7 +533,7 @@ router.post('/leads/:leadId/medical-records-request', authMiddleware, async (req
 router.get('/leads/:leadId/defaults', authMiddleware, async (req: AuthRequest, res) => {
   try {
     const attorney = await resolveAttorney(req)
-    if (!attorney) return res.status(403).json({ error: 'Not an attorney account' })
+    if (!attorney) return res.status(403).json({ error: NO_CASE_ACCESS })
 
     const withFirm = await prisma.attorney.findUnique({
       where: { id: attorney.id },
@@ -529,7 +566,7 @@ router.get('/leads/:leadId/defaults', authMiddleware, async (req: AuthRequest, r
 router.post('/leads/:leadId/envelopes/refresh', authMiddleware, async (req: AuthRequest, res) => {
   try {
     const attorney = await resolveAttorney(req)
-    if (!attorney) return res.status(403).json({ error: 'Not an attorney account' })
+    if (!attorney) return res.status(403).json({ error: NO_CASE_ACCESS })
     const resolved = await resolveLeadForAttorney(req.params.leadId, attorney)
     if (resolved.error === 404) return res.status(404).json({ error: 'Lead not found' })
     if (resolved.error === 403) return res.status(403).json({ error: 'Lead is assigned to another attorney' })
@@ -550,8 +587,8 @@ router.post('/leads/:leadId/envelopes/refresh', authMiddleware, async (req: Auth
  */
 router.post('/leads/:leadId/confirm-retainer-signed', authMiddleware, async (req: AuthRequest, res) => {
   try {
-    const attorney = await resolveAttorney(req)
-    if (!attorney) return res.status(403).json({ error: 'Not an attorney account' })
+    const attorney = await resolveAttorney(req, { staffWrite: true })
+    if (!attorney) return res.status(403).json({ error: NO_CASE_ACCESS })
     const resolved = await resolveLeadForAttorney(req.params.leadId, attorney)
     if (resolved.error === 404) return res.status(404).json({ error: 'Lead not found' })
     if (resolved.error === 403) {
@@ -574,8 +611,8 @@ router.post('/leads/:leadId/confirm-retainer-signed', authMiddleware, async (req
  */
 router.post('/leads/:leadId/check-police-report', authMiddleware, async (req: AuthRequest, res) => {
   try {
-    const attorney = await resolveAttorney(req)
-    if (!attorney) return res.status(403).json({ error: 'Not an attorney account' })
+    const attorney = await resolveAttorney(req, { staffWrite: true })
+    if (!attorney) return res.status(403).json({ error: NO_CASE_ACCESS })
     const resolved = await resolveLeadForAttorney(req.params.leadId, attorney)
     if (resolved.error === 404) return res.status(404).json({ error: 'Lead not found' })
     if (resolved.error === 403) {
@@ -598,8 +635,8 @@ router.post('/leads/:leadId/check-police-report', authMiddleware, async (req: Au
  */
 router.post('/leads/:leadId/check-evidence-collect', authMiddleware, async (req: AuthRequest, res) => {
   try {
-    const attorney = await resolveAttorney(req)
-    if (!attorney) return res.status(403).json({ error: 'Not an attorney account' })
+    const attorney = await resolveAttorney(req, { staffWrite: true })
+    if (!attorney) return res.status(403).json({ error: NO_CASE_ACCESS })
     const resolved = await resolveLeadForAttorney(req.params.leadId, attorney)
     if (resolved.error === 404) return res.status(404).json({ error: 'Lead not found' })
     if (resolved.error === 403) {
@@ -624,8 +661,8 @@ router.post('/leads/:leadId/check-evidence-collect', authMiddleware, async (req:
 // Nudge the current signer (re-send the signing email).
 router.post('/leads/:leadId/envelopes/:envelopeId/remind', authMiddleware, async (req: AuthRequest, res) => {
   try {
-    const attorney = await resolveAttorney(req)
-    if (!attorney) return res.status(403).json({ error: 'Not an attorney account' })
+    const attorney = await resolveAttorney(req, { staffWrite: true })
+    if (!attorney) return res.status(403).json({ error: NO_CASE_ACCESS })
 
     await remindEnvelope(req.params.envelopeId, req.params.leadId, attorney.id)
     res.json({ ok: true })
@@ -639,8 +676,8 @@ router.post('/leads/:leadId/envelopes/:envelopeId/remind', authMiddleware, async
 // Cancel/void an outstanding envelope so it can no longer be signed.
 router.post('/leads/:leadId/envelopes/:envelopeId/void', authMiddleware, async (req: AuthRequest, res) => {
   try {
-    const attorney = await resolveAttorney(req)
-    if (!attorney) return res.status(403).json({ error: 'Not an attorney account' })
+    const attorney = await resolveAttorney(req, { staffWrite: true })
+    if (!attorney) return res.status(403).json({ error: NO_CASE_ACCESS })
 
     const envelope = await voidEnvelope(req.params.envelopeId, req.params.leadId, attorney.id)
     res.json({ envelope })
@@ -654,8 +691,8 @@ router.post('/leads/:leadId/envelopes/:envelopeId/void', authMiddleware, async (
 // Remove a signature request from the case list (cancels it first if still open).
 router.delete('/leads/:leadId/envelopes/:envelopeId', authMiddleware, async (req: AuthRequest, res) => {
   try {
-    const attorney = await resolveAttorney(req)
-    if (!attorney) return res.status(403).json({ error: 'Not an attorney account' })
+    const attorney = await resolveAttorney(req, { staffWrite: true })
+    if (!attorney) return res.status(403).json({ error: NO_CASE_ACCESS })
 
     await deleteEnvelope(req.params.envelopeId, req.params.leadId, attorney.id)
     res.json({ ok: true })
@@ -674,8 +711,8 @@ const correctEmailSchema = z.object({
 // Correct the signer's email on an in-flight envelope and re-send.
 router.post('/leads/:leadId/envelopes/:envelopeId/correct-email', authMiddleware, async (req: AuthRequest, res) => {
   try {
-    const attorney = await resolveAttorney(req)
-    if (!attorney) return res.status(403).json({ error: 'Not an attorney account' })
+    const attorney = await resolveAttorney(req, { staffWrite: true })
+    if (!attorney) return res.status(403).json({ error: NO_CASE_ACCESS })
 
     const parsed = correctEmailSchema.safeParse(req.body)
     if (!parsed.success) {
@@ -722,7 +759,7 @@ const previewSchema = z.object({
 router.post('/leads/:leadId/preview', authMiddleware, async (req: AuthRequest, res) => {
   try {
     const attorney = await resolveAttorney(req)
-    if (!attorney) return res.status(403).json({ error: 'Not an attorney account' })
+    if (!attorney) return res.status(403).json({ error: NO_CASE_ACCESS })
 
     const parsed = previewSchema.safeParse(req.body)
     if (!parsed.success) {
@@ -794,8 +831,8 @@ const packetSchema = z.object({
 // One-click onboarding packet: retainer + HIPAA authorization to the same client.
 router.post('/leads/:leadId/onboarding-packet', authMiddleware, async (req: AuthRequest, res) => {
   try {
-    const attorney = await resolveAttorney(req)
-    if (!attorney) return res.status(403).json({ error: 'Not an attorney account' })
+    const attorney = await resolveAttorney(req, { staffWrite: true })
+    if (!attorney) return res.status(403).json({ error: NO_CASE_ACCESS })
 
     const parsed = packetSchema.safeParse(req.body)
     if (!parsed.success) {
@@ -834,8 +871,8 @@ router.post('/leads/:leadId/onboarding-packet', authMiddleware, async (req: Auth
 // claimant contact and the firm's signing defaults.
 router.post('/leads/:leadId/welcome-packet', authMiddleware, async (req: AuthRequest, res) => {
   try {
-    const attorney = await resolveAttorney(req)
-    if (!attorney) return res.status(403).json({ error: 'Not an attorney account' })
+    const attorney = await resolveAttorney(req, { staffWrite: true })
+    if (!attorney) return res.status(403).json({ error: NO_CASE_ACCESS })
     const resolved = await resolveLeadForAttorney(req.params.leadId, attorney)
     if (resolved.error === 404) return res.status(404).json({ error: 'Lead not found' })
     if (resolved.error === 403) return res.status(403).json({ error: 'Lead is assigned to another attorney' })
@@ -914,8 +951,8 @@ router.post(
   replicateUploads,
   async (req: AuthRequest, res) => {
     try {
-      const attorney = await resolveAttorney(req)
-      if (!attorney) return res.status(403).json({ error: 'Not an attorney account' })
+      const attorney = await resolveAttorney(req, { staffWrite: true })
+      if (!attorney) return res.status(403).json({ error: NO_CASE_ACCESS })
 
       const file = (req as AuthRequest & { file?: Express.Multer.File }).file
       if (!file) return res.status(400).json({ error: 'A PDF file is required' })
@@ -971,8 +1008,8 @@ router.post(
     req.body = { ...(req.body || {}), documentType: 'retainer' }
     // Reuse fee-agreement route logic by forwarding — call same shape inline.
     try {
-      const attorney = await resolveAttorney(req)
-      if (!attorney) return res.status(403).json({ error: 'Not an attorney account' })
+      const attorney = await resolveAttorney(req, { staffWrite: true })
+      if (!attorney) return res.status(403).json({ error: NO_CASE_ACCESS })
       const file = (req as AuthRequest & { file?: Express.Multer.File }).file
       if (!file) return res.status(400).json({ error: 'A PDF file is required' })
       const signerName = String(req.body.signerName || '').trim()

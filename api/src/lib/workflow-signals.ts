@@ -226,7 +226,7 @@ export async function loadSignalContext(assessmentId: string): Promise<SignalCon
       .catch(() => 0),
     leadId
       ? (prisma as any).documentRequest
-          .findMany({ where: { leadId, status: { not: 'completed' } }, select: { requestedDocs: true } })
+          .findMany({ where: { leadId, status: { not: 'completed' } }, select: { requestedDocs: true, createdAt: true } })
           .catch(() => [])
       : Promise.resolve([]),
     (prisma as any).demandLetter.count({ where: { assessmentId } }),
@@ -247,8 +247,23 @@ export async function loadSignalContext(assessmentId: string): Promise<SignalCon
   const status = String((assessment as any).status || '').toLowerCase()
   const settlementStatus = String((assessment as any).settlementScenario?.status || '').toLowerCase()
 
-  const pendingMedicalDocRequest = (pendingMedicalReqRows as Array<{ requestedDocs: string | null }>).some(
+  // When every treatment task is done, only a medical request raised after the
+  // last one was completed re-opens treatment. The intake request for records
+  // and bills usually predates that and belongs to record collection.
+  let treatmentDoneAt: Date | null = null
+  if (treatmentTasksTotal > 0 && treatmentTasksOpen === 0) {
+    const done: Array<{ completedAt: Date | null; updatedAt: Date }> = await (prisma as any).caseTask
+      .findMany({ where: { ...treatmentTaskFilter, status: 'done' }, select: { completedAt: true, updatedAt: true } })
+      .catch(() => [])
+    for (const t of done) {
+      const at = t.completedAt ?? t.updatedAt
+      if (at && (!treatmentDoneAt || at > treatmentDoneAt)) treatmentDoneAt = at
+    }
+  }
+
+  const pendingMedicalDocRequest = (pendingMedicalReqRows as Array<{ requestedDocs: string | null; createdAt: Date }>).some(
     (row) => {
+      if (treatmentDoneAt && row.createdAt && new Date(row.createdAt) <= treatmentDoneAt) return false
       try {
         const keys = JSON.parse(row.requestedDocs || '[]')
         return Array.isArray(keys) && keys.some((k: unknown) => MEDICAL_DOC_REQUEST_KEYS.includes(String(k).toLowerCase()))

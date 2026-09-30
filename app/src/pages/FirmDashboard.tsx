@@ -81,6 +81,7 @@ import { invalidateFirmDashboardSummary, useFirmDashboardSummary } from '../hook
 import { FirmTemplatesTab } from '../features/firm/FirmTemplatesTab'
 import { FirmWorkflowsTab } from '../features/firm/FirmWorkflowsTab'
 import { FirmNewLeadReview } from '../features/firm/FirmNewLeadReview'
+import { STAFF_ACTIVE_CASE_PERMISSIONS } from '../features/shared/AttorneyWorkspaceLayout'
 import { FirmRoutingLearningPanel } from '../features/firm/FirmRoutingLearningPanel'
 import DeclineModal, { type DeclineReasonCode } from '../components/DeclineModal'
 import { FirmCaseDetail } from '../features/firm/FirmCaseDetail'
@@ -385,8 +386,8 @@ function canSeeFirmTab(tab: TabKey, role: string | undefined, permissions: strin
       // server's CASE_ACCESS_PERMISSIONS) or firm analytics (Manage firm).
       return has('manage_users') || CASE_ACCESS_PERMISSIONS.some(has)
     case 'caseload':
-      // Same, plus assigners, who work from the Active Cases list.
-      return has('manage_users') || has('assign_cases') || CASE_ACCESS_PERMISSIONS.some(has)
+      // Accepted-case work. Review, accept & decline alone is new-lead work.
+      return has('manage_users') || STAFF_ACTIVE_CASE_PERMISSIONS.some(has)
     case 'newleads':
       // Intake specialists own this surface; firm admins/attorneys reach it via
       // their broader case-visibility permissions (CP-588).

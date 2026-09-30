@@ -782,7 +782,7 @@ async function getSpecialistLeadAccess(req: any, lead: { assessmentId: string; s
   return assistance
 }
 
-async function getAuthorizedLead(
+export async function getAuthorizedLead(
   req: any,
   leadId: string,
   // `firmMemberWrite` narrows the non-attorney fallback to accepted members, for
@@ -5591,14 +5591,51 @@ router.get('/search', authMiddleware, async (req: any, res) => {
 })
 
 // Pending document requests for this attorney (mobile status screen).
+/**
+ * Authorize access to one document request. Its creator always may; anyone
+ * else needs access to its case (staff: `staffCan` for writes, case-team read
+ * otherwise), so firm colleagues and staff see requests another member sent.
+ */
+async function authorizeDocumentRequest(
+  req: any,
+  requestId: string,
+  staffCan?: CaseActionGroup,
+): Promise<{ ok: true } | { error: { status: number; message: string } }> {
+  const doc = await prisma.documentRequest.findUnique({
+    where: { id: requestId },
+    select: { attorneyId: true, leadId: true },
+  })
+  if (!doc) return { error: { status: 404, message: 'Document request not found' } }
+  const own = req.user?.email
+    ? await prisma.attorney.findFirst({ where: { email: req.user.email }, select: { id: true } })
+    : null
+  if (own && doc.attorneyId === own.id) return { ok: true }
+  if (!doc.leadId) return { error: { status: 404, message: 'Document request not found' } }
+  const auth = await getAuthorizedLead(req, doc.leadId, staffCan ? { staffCan } : { allowFirmMember: true })
+  if (auth.error) {
+    return { error: auth.error.status === 403 ? auth.error : { status: 404, message: 'Document request not found' } }
+  }
+  return { ok: true }
+}
+
 router.get('/document-requests', authMiddleware, async (req: any, res) => {
   try {
-    const auth = await getAttorneyFromReq(req)
-    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
-    const { attorney } = auth
+    // With ?leadId=, list that case's requests for anyone who can open the case
+    // (including firm staff); without it, the attorney's own requests.
+    const leadIdFilter = typeof req.query.leadId === 'string' && req.query.leadId ? req.query.leadId : null
+    let where: any
+    if (leadIdFilter) {
+      const leadAuth = await getAuthorizedLead(req, leadIdFilter, { allowFirmMember: true })
+      if (leadAuth.error) return res.status(leadAuth.error.status).json({ error: leadAuth.error.message })
+      where = { leadId: leadIdFilter }
+    } else {
+      const auth = await getAttorneyFromReq(req)
+      if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+      where = { attorneyId: auth.attorney.id }
+    }
 
     const rows = await prisma.documentRequest.findMany({
-      where: { attorneyId: attorney.id },
+      where,
       select: {
         id: true,
         leadId: true,
@@ -5808,11 +5845,11 @@ router.patch('/document-requests/:requestId/viewed', authMiddleware, async (req:
 
 router.post('/document-requests/:requestId/nudge', authMiddleware, firmGate('request'), async (req: any, res) => {
   try {
-    const auth = await getAttorneyFromReq(req)
-    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
     const { requestId } = req.params
+    const authz = await authorizeDocumentRequest(req, requestId, 'request')
+    if ('error' in authz) return res.status(authz.error.status).json({ error: authz.error.message })
     const doc = await prisma.documentRequest.findFirst({
-      where: { id: requestId, attorneyId: auth.attorney.id },
+      where: { id: requestId },
       select: {
         id: true,
         status: true,
@@ -5822,6 +5859,7 @@ router.post('/document-requests/:requestId/nudge', authMiddleware, firmGate('req
         targetType: true,
         recipientName: true,
         recipientEmail: true,
+        attorney: { select: { name: true, email: true } },
         lead: {
           select: {
             assessmentId: true,
@@ -5836,6 +5874,7 @@ router.post('/document-requests/:requestId/nudge', authMiddleware, firmGate('req
       },
     })
     if (!doc) return res.status(404).json({ error: 'Document request not found' })
+    const sender = { name: doc.attorney?.name ?? null, email: doc.attorney?.email ?? null }
     if (doc.status === 'completed') {
       return res.status(400).json({ error: 'This request is already completed.' })
     }
@@ -5851,7 +5890,7 @@ router.post('/document-requests/:requestId/nudge', authMiddleware, firmGate('req
       if (!doc.recipientEmail) {
         return res.status(400).json({ error: 'No email on file for this recipient.' })
       }
-      const attorneyName = auth.attorney.name || 'the attorney'
+      const attorneyName = sender.name || 'the attorney'
       const subject = 'Reminder: documents requested for a claim'
       const message = `Hello ${doc.recipientName || 'there'},\n\nThis is a reminder from ${attorneyName} regarding the documents previously requested. You can upload them securely here:\n\n${doc.uploadLink}\n\nThank you,\nClearCaseIQ`
       await createNotification(doc.recipientEmail, subject, message, {
@@ -5862,8 +5901,8 @@ router.post('/document-requests/:requestId/nudge', authMiddleware, firmGate('req
         uploadLink: doc.uploadLink,
         nudge: true,
       }, {
-        replyTo: auth.attorney.email || null,
-        fromName: auth.attorney.name || null,
+        replyTo: sender.email || null,
+        fromName: sender.name || null,
       })
       await prisma.documentRequest.update({
         where: { id: doc.id },
@@ -5886,7 +5925,7 @@ router.post('/document-requests/:requestId/nudge', authMiddleware, firmGate('req
       return res.status(400).json({ error: 'No email on file for this plaintiff.' })
     }
 
-    const attorneyName = auth.attorney.name || 'Your attorney'
+    const attorneyName = sender.name || 'Your attorney'
     const plaintiffName = assessment?.user?.firstName
       ? `${assessment.user.firstName} ${assessment.user.lastName || ''}`.trim()
       : 'there'
@@ -5900,8 +5939,8 @@ router.post('/document-requests/:requestId/nudge', authMiddleware, firmGate('req
       uploadLink: doc.uploadLink,
       nudge: true,
     }, {
-      replyTo: auth.attorney.email || null,
-      fromName: auth.attorney.name || null,
+      replyTo: sender.email || null,
+      fromName: sender.name || null,
       userId: assessment?.user?.id ?? null,
       assessmentId: doc.lead?.assessmentId ?? null,
       role: 'plaintiff',
@@ -7019,12 +7058,12 @@ router.post('/leads/:leadId/opposing-document-request', authMiddleware, firmGate
 // List documents an opposing party has uploaded against a request (attorney view).
 router.get('/document-requests/:requestId/uploads', authMiddleware, async (req: any, res) => {
   try {
-    const auth = await getAttorneyFromReq(req)
-    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
     const { requestId } = req.params
+    const authz = await authorizeDocumentRequest(req, requestId)
+    if ('error' in authz) return res.status(authz.error.status).json({ error: authz.error.message })
 
     const docRequest = await prisma.documentRequest.findFirst({
-      where: { id: requestId, attorneyId: auth.attorney.id },
+      where: { id: requestId },
       include: {
         externalUploads: { orderBy: { createdAt: 'desc' } },
       },
@@ -7052,12 +7091,12 @@ router.get('/document-requests/:requestId/uploads', authMiddleware, async (req: 
 // Download a single opposing-party uploaded file (attorney only).
 router.get('/document-requests/:requestId/uploads/:uploadId/download', authMiddleware, async (req: any, res) => {
   try {
-    const auth = await getAttorneyFromReq(req)
-    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
     const { requestId, uploadId } = req.params
+    const authz = await authorizeDocumentRequest(req, requestId)
+    if ('error' in authz) return res.status(authz.error.status).json({ error: authz.error.message })
 
     const docRequest = await prisma.documentRequest.findFirst({
-      where: { id: requestId, attorneyId: auth.attorney.id },
+      where: { id: requestId },
       select: { id: true },
     })
     if (!docRequest) return res.status(404).json({ error: 'Document request not found' })
