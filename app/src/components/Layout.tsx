@@ -30,6 +30,7 @@ import { getApiOrigin } from '../lib/runtimeEnv'
 
 const NotificationBell = lazy(() => import('./NotificationBell'))
 const NotificationsBell = lazy(() => import('./NotificationsBell'))
+const NewLeadAlert = lazy(() => import('./NewLeadAlert'))
 const PlaintiffNotificationBell = lazy(() => import('./PlaintiffNotificationBell'))
 const PlaintiffNotificationsBell = lazy(() => import('./PlaintiffNotificationsBell'))
 const SupportChatWidget = lazy(() => import('./SupportChatWidget'))
@@ -546,6 +547,11 @@ export default function Layout({ children }: LayoutProps) {
               {isAuthenticated ? (
                 <>
                   {/* Notification bell for attorneys */}
+                  {isAttorney && (
+                    <Suspense fallback={null}>
+                      <NewLeadAlert />
+                    </Suspense>
+                  )}
                   {isAttorney && (
                     <div className="hidden items-center gap-1 lg:flex">
                       <Suspense fallback={shellIconFallback}>

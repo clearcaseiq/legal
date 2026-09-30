@@ -25,6 +25,96 @@ import {
 } from '../../lib/api'
 import { PageHeader, SectionCard, EmptyState } from '../shared/ui'
 import { notificationDestination } from '../../lib/notifications'
+import {
+  NEW_LEAD_ALERT_OPTIONS,
+  desktopNotificationsSupported,
+  getNewLeadAlertMode,
+  playNewLeadRingtone,
+  requestDesktopNotificationPermission,
+  setNewLeadAlertMode,
+  wantsPopup,
+  wantsRingtone,
+  type NewLeadAlertMode,
+} from '../../lib/newLeadAlerts'
+
+function NewLeadAlertSettings() {
+  const [mode, setMode] = useState<NewLeadAlertMode>(() => getNewLeadAlertMode())
+  const [permission, setPermission] = useState<string>(() =>
+    desktopNotificationsSupported() ? Notification.permission : 'unsupported',
+  )
+  const [testShown, setTestShown] = useState(false)
+
+  const choose = (next: NewLeadAlertMode) => {
+    setMode(next)
+    setNewLeadAlertMode(next)
+  }
+
+  const test = () => {
+    if (wantsRingtone(mode)) playNewLeadRingtone()
+    if (wantsPopup(mode)) {
+      setTestShown(true)
+      window.setTimeout(() => setTestShown(false), 4000)
+    }
+  }
+
+  return (
+    <SectionCard title="New lead alerts">
+      <p className="mb-3 text-sm text-slate-600">
+        Choose how you want to be alerted when a new lead lands in New Matches. This setting applies to this browser.
+      </p>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {NEW_LEAD_ALERT_OPTIONS.map((opt) => (
+          <label
+            key={opt.value}
+            className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition ${
+              mode === opt.value ? 'border-brand-400 bg-brand-50/60' : 'border-slate-200 hover:border-slate-300'
+            }`}
+          >
+            <input
+              type="radio"
+              name="new-lead-alert-mode"
+              value={opt.value}
+              checked={mode === opt.value}
+              onChange={() => choose(opt.value)}
+              className="mt-1"
+            />
+            <span>
+              <span className="block text-sm font-semibold text-slate-900">{opt.label}</span>
+              <span className="block text-xs text-slate-500">{opt.description}</span>
+            </span>
+          </label>
+        ))}
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          onClick={test}
+          disabled={mode === 'off'}
+          className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+        >
+          Test alert
+        </button>
+        {wantsPopup(mode) && permission === 'default' && (
+          <button
+            type="button"
+            onClick={async () => setPermission(await requestDesktopNotificationPermission())}
+            className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            Allow desktop notifications
+          </button>
+        )}
+        {wantsPopup(mode) && permission === 'denied' && (
+          <span className="text-xs text-slate-500">Desktop notifications are blocked in your browser settings.</span>
+        )}
+        {testShown && (
+          <span className="rounded-lg bg-brand-50 px-3 py-1.5 text-xs font-semibold text-brand-700">
+            This is how a new-lead popup gets your attention.
+          </span>
+        )}
+      </div>
+    </SectionCard>
+  )
+}
 
 type IconMeta = { Icon: typeof Bell; tone: string }
 
@@ -142,6 +232,8 @@ export default function NotificationsPage() {
         title="Notifications"
         description="New matches, deadlines, documents, messages, and case activity — all in one place."
       />
+
+      <NewLeadAlertSettings />
 
       <SectionCard
         title="All notifications"
