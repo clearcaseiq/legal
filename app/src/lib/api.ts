@@ -392,6 +392,8 @@ export type PlaintiffCaseTask = {
   priority: string
   dueDate?: string | null
   taskType?: string
+  /** External link for the task's action (e.g. the e-signature page). */
+  actionUrl?: string | null
 }
 
 export async function getPlaintiffCaseTasks(assessmentId: string): Promise<{

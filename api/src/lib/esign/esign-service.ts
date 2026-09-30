@@ -16,6 +16,7 @@ import { renderPoliceReportAuthorizationPdf } from './police-report-authorizatio
 import { renderRetainerAgreementPdf } from './retainer-agreement'
 import type { EnvelopeStatus, SignableDocumentType } from './types'
 import { ensureLocalCopy, persistUpload } from '../object-storage'
+import { notifyPlaintiffSignatureRequestedSafe } from './signature-request-notify'
 
 const SIGNED_DIR = path.join(process.cwd(), 'uploads', 'signed-documents')
 
@@ -138,7 +139,7 @@ export async function createEnvelopeForLead(params: CreateEnvelopeParams) {
     })
 
     const nextStatus: EnvelopeStatus = result.status === 'draft' ? 'sent' : result.status
-    return await prisma.documentEnvelope.update({
+    const sent = await prisma.documentEnvelope.update({
       where: { id: envelope.id },
       data: {
         externalEnvelopeId: result.externalEnvelopeId,
@@ -147,6 +148,8 @@ export async function createEnvelopeForLead(params: CreateEnvelopeParams) {
         ...timestampsFor(nextStatus),
       },
     })
+    notifyPlaintiffSignatureRequestedSafe([envelope.id])
+    return sent
   } catch (err) {
     // Leave the row as a draft so it can be retried or cleaned up; surface the
     // error to the caller (an unconfigured/stubbed provider lands here).
@@ -695,6 +698,7 @@ async function createCombinedOnboardingPacket(
     }
     const retainer = await prisma.documentEnvelope.update({ where: { id: retainerRow.id }, data })
     const hipaa = await prisma.documentEnvelope.update({ where: { id: hipaaRow.id }, data })
+    notifyPlaintiffSignatureRequestedSafe([retainerRow.id, hipaaRow.id])
     return { retainer, hipaa }
   } catch (err) {
     logger.error('Failed to send combined onboarding packet; leaving rows as draft', {

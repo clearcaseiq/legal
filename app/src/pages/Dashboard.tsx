@@ -1399,8 +1399,16 @@ export default function Dashboard() {
     : attorneyTasks
         // Document asks belong under Requested Documents (upload UI) — keep them
         // out of Your next steps so the middle column is not a second docs list.
-        .filter((task) => !looksLikeDocumentAsk(task.title || ''))
-        .map((task) => ({
+        .filter((task) => task.taskType === 'signature' || !looksLikeDocumentAsk(task.title || ''))
+        .map((task) => task.taskType === 'signature'
+          ? {
+              label: task.title,
+              detail: task.notes || '',
+              done: task.status === 'done',
+              href: task.actionUrl || '',
+              kind: 'sign' as const,
+            }
+          : {
           label: task.title,
           detail: task.notes?.trim()
             ? task.notes.trim()
@@ -1409,7 +1417,7 @@ export default function Dashboard() {
             : t('plaintiffDashboard.dynamic.task.attorneyRequested'),
           done: task.status === 'done',
           href: '/messaging',
-        }))
+        })
   // After match, upload checklist items live in Requested Documents — not here.
   const checklistTasks = attorneyMatched
     ? []

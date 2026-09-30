@@ -71,6 +71,7 @@ type DashboardTask = {
   detail: string
   done: boolean
   href: string
+  kind?: 'sign'
 }
 
 type JournalEntry = {
@@ -396,14 +397,17 @@ export default function PlaintiffDashboardDeferredTabPanel({
     const doneTasks = tasks.filter((task) => task.done)
     const totalTasks = tasks.length
     const donePct = totalTasks > 0 ? Math.round((doneTasks.length / totalTasks) * 100) : 0
-    const taskKind = (href: string): 'upload' | 'message' | 'submit' | 'wait' =>
-      href.includes('/evidence-upload')
+    const taskKind = (task: DashboardTask): 'sign' | 'upload' | 'message' | 'submit' | 'wait' => {
+      if (task.kind === 'sign') return 'sign'
+      const href = task.href
+      return href.includes('/evidence-upload')
         ? 'upload'
         : href.includes('/messaging')
         ? 'message'
         : href.includes('review=1')
         ? 'submit'
         : 'wait'
+    }
 
     return (
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3 lg:items-stretch">
@@ -440,9 +444,11 @@ export default function PlaintiffDashboardDeferredTabPanel({
           {openTasks.length > 0 ? (
             <div className="mt-5 min-h-0 flex-1 space-y-3 overflow-y-auto border-t border-slate-100 pt-5">
               {openTasks.map((task) => {
-                const kind = taskKind(task.href)
+                const kind = taskKind(task)
                 const meta =
-                  kind === 'upload'
+                  kind === 'sign'
+                    ? { Icon: FileText, tint: 'bg-rose-100 text-rose-700', cta: task.href ? t('plaintiffDashboard.deferred.tasks.signNow') : null, ctaClass: 'bg-rose-600 text-white hover:bg-rose-700', ctaIcon: false, badge: t('plaintiffDashboard.deferred.tasks.signatureBadge'), badgeClass: 'bg-rose-50 text-rose-700' }
+                    : kind === 'upload'
                     ? { Icon: Upload, tint: 'bg-amber-100 text-amber-700', cta: t('plaintiffDashboard.deferred.tasks.addDocuments'), ctaClass: 'bg-amber-500 text-white hover:bg-amber-600', ctaIcon: true, badge: t('plaintiffDashboard.deferred.tasks.strengthensBadge'), badgeClass: 'bg-amber-50 text-amber-700' }
                     : kind === 'message'
                     ? { Icon: MessageCircle, tint: 'bg-brand-100 text-brand-700', cta: t('plaintiffDashboard.deferred.tasks.openMessages'), ctaClass: 'bg-brand-600 text-white hover:bg-brand-700', ctaIcon: false, badge: null as string | null, badgeClass: '' }
@@ -459,7 +465,11 @@ export default function PlaintiffDashboardDeferredTabPanel({
                         {meta.badge && <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${meta.badgeClass}`}>{meta.badge}</span>}
                       </div>
                       <p className="mt-1 text-sm text-slate-600">{task.detail}</p>
-                      {meta.cta && (
+                      {meta.cta && kind === 'sign' ? (
+                        <a href={task.href} target="_blank" rel="noopener noreferrer" className={`mt-3 inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-semibold ${meta.ctaClass}`}>
+                          {meta.cta}
+                        </a>
+                      ) : meta.cta && (
                         <Link to={task.href} className={`mt-3 inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-semibold ${meta.ctaClass}`}>
                           {meta.ctaIcon && <Upload className="h-4 w-4" aria-hidden />}
                           {meta.cta}

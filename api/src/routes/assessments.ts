@@ -994,17 +994,66 @@ router.get('/:id/tasks', authMiddleware, async (req: AuthRequest, res) => {
       },
     })
 
+    // Documents the attorney sent for e-signature are plaintiff to-dos too.
+    // Combined packets share one provider envelope, so list them once.
+    const envelopes = await Promise.resolve()
+      .then(() => prisma.documentEnvelope.findMany({
+        where: {
+          lead: { assessmentId: id },
+          status: { in: ['sent', 'viewed', 'signed'] },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          title: true,
+          status: true,
+          signingUrl: true,
+          externalEnvelopeId: true,
+          sentAt: true,
+          attorney: { select: { name: true } },
+        },
+      }))
+      .catch(() => [])
+    const envelopeGroups = new Map<string, typeof envelopes>()
+    for (const env of envelopes) {
+      const key = env.externalEnvelopeId || env.id
+      envelopeGroups.set(key, [...(envelopeGroups.get(key) || []), env])
+    }
+    const signatureTasks = Array.from(envelopeGroups.values()).map((group) => {
+      const signed = group.every((e) => e.status === 'signed')
+      const from = group[0].attorney?.name || 'Your attorney'
+      const signingUrl = group.find((e) => e.signingUrl)?.signingUrl || null
+      return {
+        id: `envelope:${group[0].id}`,
+        title: `Sign: ${group.map((e) => e.title).join(' + ')}`,
+        notes: signed
+          ? 'Signed. Thank you!'
+          : signingUrl
+            ? `${from} sent this for your signature.`
+            : `${from} sent this for your signature. Check your email for the secure signing link.`,
+        status: signed ? 'done' : 'open',
+        priority: 'high',
+        dueDate: null,
+        taskType: 'signature',
+        actionUrl: signed ? null : signingUrl,
+      }
+    })
+
     res.json({
       assessmentId: id,
-      tasks: tasks.map((task) => ({
-        id: task.id,
-        title: task.title,
-        notes: task.notes,
-        status: task.status,
-        priority: task.priority,
-        dueDate: task.dueDate,
-        taskType: task.taskType,
-      })),
+      tasks: [
+        ...signatureTasks.filter((t) => t.status !== 'done'),
+        ...tasks.map((task) => ({
+          id: task.id,
+          title: task.title,
+          notes: task.notes,
+          status: task.status,
+          priority: task.priority,
+          dueDate: task.dueDate,
+          taskType: task.taskType,
+        })),
+        ...signatureTasks.filter((t) => t.status === 'done'),
+      ],
     })
   } catch (error) {
     logger.error('Failed to load plaintiff case tasks', { error, assessmentId: req.params.id })
