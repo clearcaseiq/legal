@@ -2256,15 +2256,23 @@ export default function FirmDashboard() {
                             {resendingMemberId === m.id ? 'Sending…' : 'Resend invite'}
             </button>
                         )}
-                        {att && (
-                          <button onClick={() => startEditAttorney(att)} className={btnGhost + ' !px-2.5 !py-1 !text-xs'}>Edit profile</button>
+                        {att ? (
+                          <button
+                            onClick={() => startEditAttorney(att)}
+                            className={btnGhost + ' !w-28 whitespace-nowrap !px-2.5 !py-1 !text-xs'}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                            Edit profile
+                          </button>
+                        ) : (
+                          <span className="w-28 shrink-0" aria-hidden />
                         )}
                         <button
                           onClick={() => openEditMember(m)}
-                          className={btnGhost + ' !px-2.5 !py-1 !text-xs'}
+                          className={btnGhost + ' !w-44 whitespace-nowrap !px-2.5 !py-1 !text-xs'}
                           title="Set this person's role and permissions"
                         >
-                          <Shield className="mr-1 inline h-3.5 w-3.5" />
+                          <Shield className="h-3.5 w-3.5" />
                           Assign permissions
                         </button>
         </div>
