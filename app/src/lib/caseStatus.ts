@@ -259,6 +259,9 @@ export function getPlaintiffPipelineProgress(input: {
     if (stage === 'DEMAND_SENT') return { currentIdx: 8, completeThrough: 8 }
     if (bucket === 'negotiation') return { currentIdx: 8, completeThrough: 8 }
     if (bucket === 'demand') return { currentIdx: 7, completeThrough: 7 }
+    // The server only reaches RECORD_COLLECTION once treatment is complete, so
+    // Treatment is done; gathering the remaining records is demand work.
+    if (stage === 'RECORD_COLLECTION') return { currentIdx: 7, completeThrough: 7 }
     if (bucket === 'treatment') return { currentIdx: 6, completeThrough: 6 }
     // A signed retainer finishes the Retained step; treatment is what comes next.
     if (input.retainerSigned) return { currentIdx: 6, completeThrough: 6 }

@@ -113,6 +113,12 @@ describe('getPlaintiffPipelineProgress', () => {
       }),
     ).toEqual({ currentIdx: 7, completeThrough: 7 })
   })
+
+  it('shows Treatment done once treatment is complete and records are being collected', () => {
+    const base = { submittedForReview: true, attorneyMatched: true, hasScheduledConsult: true, retained: true }
+    expect(getPlaintiffPipelineProgress({ ...base, caseStage: 'TREATMENT' })).toEqual({ currentIdx: 6, completeThrough: 6 })
+    expect(getPlaintiffPipelineProgress({ ...base, caseStage: 'RECORD_COLLECTION' })).toEqual({ currentIdx: 7, completeThrough: 7 })
+  })
 })
 
 describe('getPlaintiffCaseStatusKey with a lagging retained flag', () => {
