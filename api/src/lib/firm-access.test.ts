@@ -14,9 +14,9 @@ describe('permissionsForMember', () => {
     const perms = permissionsForMember(
       'case_manager',
       null,
-      JSON.stringify({ grant: ['generate_demands'], revoke: ['manage_assigned_cases'] }),
+      JSON.stringify({ grant: ['assign_cases'], revoke: ['manage_assigned_cases'] }),
     )
-    expect(perms).toContain('generate_demands')
+    expect(perms).toContain('assign_cases')
     expect(perms).not.toContain('manage_assigned_cases')
     expect(perms).toContain('message_plaintiffs')
   })
@@ -67,24 +67,52 @@ describe('retired permissions', () => {
     const perms = permissionsForMember(
       'attorney',
       null,
-      JSON.stringify({ v: MEMBER_OVERRIDES_VERSION, grant: ['view_analytics'], revoke: ['manage_documents'] }),
+      JSON.stringify({ v: MEMBER_OVERRIDES_VERSION, grant: ['manage_users'], revoke: ['manage_documents'] }),
     )
-    expect(perms).toContain('view_analytics')
+    expect(perms).toContain('manage_users')
     expect(perms).not.toContain('manage_documents')
   })
 
-  it('does not hand billing admins routing through View subscriptions', () => {
-    expect(permissionsForMember('billing_admin', null, null)).not.toContain('manage_routing')
+  it('does not hand billing admins firm management through View subscriptions', () => {
+    expect(permissionsForMember('billing_admin', null, null)).not.toContain('manage_users')
     expect(canonicalPermission('view_subscriptions')).toBe('manage_billing')
+  })
+
+  it('maps permissions retired in either consolidation to the current catalog', () => {
+    expect(canonicalPermission('manage_subscriptions')).toBe('manage_users')
+    expect(canonicalPermission('view_analytics')).toBe('manage_users')
+    expect(canonicalPermission('decline_cases')).toBe('review_cases')
+    expect(canonicalPermission('schedule_consultations')).toBe('message_plaintiffs')
+    expect(canonicalPermission('generate_demands')).toBe('manage_documents')
   })
 
   it('restates old adjustments in new terms for the permissions window', () => {
     expect(currentMemberOverrides('paralegal', null, JSON.stringify({ revoke: ['upload_documents'], grant: ['decline_cases'] })))
-      .toEqual({ v: MEMBER_OVERRIDES_VERSION, grant: ['accept_cases'], revoke: ['manage_documents'] })
+      .toEqual({ v: MEMBER_OVERRIDES_VERSION, grant: ['review_cases'], revoke: ['manage_documents'] })
   })
 
-  it('has 13 permissions', () => {
-    expect(ALL_FIRM_PERMISSIONS).toHaveLength(13)
+  it('has 8 permissions', () => {
+    expect(ALL_FIRM_PERMISSIONS).toHaveLength(8)
+  })
+})
+
+describe('adjustments saved against the 13-permission catalog (v: 2)', () => {
+  it('reads a grant as the permission it merged into', () => {
+    const perms = permissionsForMember('attorney', null, JSON.stringify({ v: 2, grant: ['view_analytics'], revoke: [] }))
+    expect(perms).toContain('manage_users')
+  })
+
+  it('keeps access when a revoke takes away only one half of a merged pair', () => {
+    // Case managers held both Message clients and Schedule consults.
+    const perms = permissionsForMember('case_manager', null, JSON.stringify({ v: 2, grant: [], revoke: ['schedule_consultations'] }))
+    expect(perms).toContain('message_plaintiffs')
+  })
+
+  it('takes the merged permission away when the revoke covered everything the role held in it', () => {
+    // Legal assistants held Schedule consults but not Message clients.
+    const perms = permissionsForMember('legal_assistant', null, JSON.stringify({ v: 2, grant: [], revoke: ['schedule_consultations'] }))
+    expect(perms).not.toContain('message_plaintiffs')
+    expect(perms).toEqual(expect.arrayContaining(['view_all_cases', 'manage_documents']))
   })
 })
 

@@ -27,16 +27,16 @@ describe('permissionsForMember', () => {
   it("lets the firm's settings take a default permission away", () => {
     const stored = JSON.stringify({ attorney: ['review_cases', 'accept_cases'] })
     const perms = permissionsForMember('attorney', stored, null)
-    expect(perms).toContain('accept_cases')
-    expect(perms).not.toContain('generate_demands')
+    expect(perms).toContain('review_cases')
+    expect(perms).not.toContain('manage_documents')
   })
 
   it("adds the member's own extra grants", () => {
-    expect(permissionsForMember('paralegal', null, JSON.stringify(['generate_demands']))).toContain('generate_demands')
+    expect(permissionsForMember('paralegal', null, JSON.stringify(['message_plaintiffs']))).toContain('message_plaintiffs')
   })
 
   it('does not limit a caller outside any firm', () => {
-    expect(firmAllows(null, ['generate_demands'])).toBe(true)
+    expect(firmAllows(null, ['manage_documents'])).toBe(true)
   })
 })
 
@@ -62,8 +62,8 @@ beforeEach(() => {
 })
 
 describe('case action gates', () => {
-  it('refuses demand drafting to a role without generate_demands', async () => {
-    asMember('intake_specialist')
+  it('refuses demand drafting to a role without Documents, records & demands', async () => {
+    asMember('billing_admin')
 
     const res = await request(app).post('/v1/attorney-dashboard/leads/lead-1/demand-letters').set(auth).send({})
 
@@ -71,7 +71,7 @@ describe('case action gates', () => {
     expect(res.body.code).toBe('FIRM_PERMISSION_DENIED')
   })
 
-  it('refuses an associate the firm has taken generate_demands away from', async () => {
+  it('refuses an associate the firm has taken Documents, records & demands away from', async () => {
     asMember('attorney', JSON.stringify({ attorney: ['review_cases', 'accept_cases'] }))
 
     const res = await request(app).post('/v1/attorney-dashboard/leads/lead-1/demand-letters').set(auth).send({})
@@ -160,7 +160,7 @@ describe('GET /v1/attorney-dashboard/access', () => {
 
     expect(res.status).toBe(200)
     expect(res.body.firm).toMatchObject({ id: 'firm-1', role: 'paralegal' })
-    expect(res.body.actions).toMatchObject({ chronology: true, documents: true, message: false, demand: false })
+    expect(res.body.actions).toMatchObject({ chronology: true, documents: true, demand: true, message: false, schedule: false })
   })
 
   it('reports no firm limits for a solo attorney', async () => {

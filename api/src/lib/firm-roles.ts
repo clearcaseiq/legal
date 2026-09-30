@@ -3,30 +3,28 @@
 // web app and backend agree on what a case manager / paralegal / etc. can do.
 
 /**
- * The permission catalog: 13 permissions, each covering what used to be one or
- * more finer-grained ones (see LEGACY_PERMISSION_ALIASES). Several of the old
- * ones were only ever enforced as a group, so they could not be told apart.
+ * The permission catalog: 8 permissions, each covering what used to be one or
+ * more finer-grained ones (see LEGACY_PERMISSION_ALIASES and
+ * MERGED_PERMISSION_ALIASES).
  */
 export const FIRM_PERMISSIONS = [
-  'manage_users',
-  'manage_routing', // Manage firm: workflow, routing, plan and seats
-  'view_analytics', // also firm fees, ROI and platform spend
+  'manage_users', // Manage firm: members, workflow and routing, plan and seats, analytics
   'view_all_cases',
   'assign_cases',
   'manage_assigned_cases', // Work cases, including the chronology
-  'review_cases', // Review Active Cases, including new leads
-  'accept_cases', // Accept & decline cases
-  'message_plaintiffs',
-  'schedule_consultations',
-  'manage_documents', // Documents & records, including requests to the client
-  'generate_demands',
+  'review_cases', // Review, accept & decline cases, including new leads
+  'message_plaintiffs', // Client communication: messages and consultations
+  'manage_documents', // Documents, records & demands
   'manage_billing', // Billing & payments
 ] as const
 
-/** Retired permission → the permission that now covers it. */
+/**
+ * Retired in the first consolidation (25 → 13): retired permission → its name
+ * in the 13-permission catalog. MERGED_PERMISSION_ALIASES then maps that on.
+ */
 export const LEGACY_PERMISSION_ALIASES: Record<string, string> = {
   manage_subscriptions: 'manage_routing',
-  // Not to manage_routing: billing admins hold it, and it must not hand them routing.
+  // Not to manage_routing: billing admins hold it, and it must not hand them firm management.
   view_subscriptions: 'manage_billing',
   view_assigned_cases: 'view_all_cases',
   manage_chronology: 'manage_assigned_cases',
@@ -40,9 +38,24 @@ export const LEGACY_PERMISSION_ALIASES: Record<string, string> = {
   process_payments: 'manage_billing',
 }
 
+/** Merged in the second consolidation (13 → 8): 13-catalog permission → the one that now covers it. */
+export const MERGED_PERMISSION_ALIASES: Record<string, string> = {
+  manage_routing: 'manage_users',
+  view_analytics: 'manage_users',
+  accept_cases: 'review_cases',
+  schedule_consultations: 'message_plaintiffs',
+  generate_demands: 'manage_documents',
+}
+
+/** `permission` in the 13-permission catalog's terms, the ones version-2 member adjustments were saved in. */
+export function v2Permission(permission: string): string {
+  return LEGACY_PERMISSION_ALIASES[permission] || permission
+}
+
 /** The current permission for `permission`, whether it is current or retired. */
 export function canonicalPermission(permission: string): string {
-  return LEGACY_PERMISSION_ALIASES[permission] || permission
+  const v2 = v2Permission(permission)
+  return MERGED_PERMISSION_ALIASES[v2] || v2
 }
 
 /** Map a list that may hold retired permissions onto the current catalog. */
@@ -92,18 +105,15 @@ export const CASE_ASSIGNMENT_ROLES = [
 /**
  * Permissions that are work on cases. Holding any of them lets a member see the
  * cases they work through the firm (their case team's and unstaffed ones); a
- * member whose admin removed all of them sees no cases. Account-level grants
- * (users, routing, subscriptions) are deliberately absent.
+ * member whose admin removed all of them sees no cases. The account-level
+ * grant, managing the firm, is deliberately absent.
  */
 export const CASE_ACCESS_PERMISSIONS = [
   'view_all_cases',
   'manage_assigned_cases',
   'review_cases',
-  'accept_cases',
   'message_plaintiffs',
-  'generate_demands',
   'manage_documents',
-  'schedule_consultations',
   'manage_billing',
 ]
 

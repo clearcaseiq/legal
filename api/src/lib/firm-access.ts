@@ -4,6 +4,7 @@ import {
   canonicalPermissions,
   effectiveRolePermissions,
   storedRolePermissions,
+  v2Permission,
 } from './firm-roles'
 
 /**
@@ -45,10 +46,12 @@ export function parsePermissionList(value: unknown): string[] {
 }
 
 /**
- * `v: 2` marks adjustments made in terms of the consolidated catalog. Without
- * it they predate consolidation and name the retired permissions.
+ * `v: 3` marks adjustments made in terms of the current 8-permission catalog.
+ * `v: 2` ones were made against the 13-permission catalog, and unversioned ones
+ * predate consolidation altogether; both name permissions since merged.
  */
-export const MEMBER_OVERRIDES_VERSION = 2
+export const MEMBER_OVERRIDES_VERSION = 3
+const V2_MEMBER_OVERRIDES = 2
 
 export type MemberPermissionOverrides = { grant: string[]; revoke: string[]; v?: number }
 
@@ -92,11 +95,14 @@ export function permissionsForMember(
     const revoked = new Set(canonicalPermissions(overrides.revoke))
     return Array.from(new Set([...byRole, ...canonicalPermissions(overrides.grant)])).filter((p) => !revoked.has(p))
   }
-  // Pre-consolidation adjustments: apply them to the role's list in the terms
-  // they were made in, then map. Taking away one of several retired
-  // permissions that now share a name keeps that name, as it kept access.
-  const revoked = new Set(overrides.revoke)
-  const held = [...storedRolePermissions(rolePermissionsJson, role), ...overrides.grant].filter((p) => !revoked.has(p))
+  // Older adjustments: apply them to the role's list in the terms they were
+  // made in, then map. Taking away one of several permissions that now share
+  // a name keeps that name, as it kept access.
+  const inSavedTerms = overrides.v === V2_MEMBER_OVERRIDES ? v2Permission : (p: string) => p
+  const revoked = new Set(overrides.revoke.map(inSavedTerms))
+  const held = [...storedRolePermissions(rolePermissionsJson, role), ...overrides.grant]
+    .map(inSavedTerms)
+    .filter((p) => !revoked.has(p))
   const locked = LOCKED_ROLE_PERMISSIONS[role] || []
   return canonicalPermissions([...held, ...locked]).filter((p) => ALL_FIRM_PERMISSIONS.includes(p))
 }
@@ -212,8 +218,8 @@ export async function activateAcceptedInvites(
   }
 }
 
-/** Firm permission that lets staff run the attorneys' calendars and booking links. */
-export const SCHEDULE_PERMISSION = 'schedule_consultations'
+/** Firm permission that lets staff run the attorneys' calendars and booking links (client communication). */
+export const SCHEDULE_PERMISSION = 'message_plaintiffs'
 
 /**
  * Prisma filter for the firm attorneys whose consults a scheduler may manage.

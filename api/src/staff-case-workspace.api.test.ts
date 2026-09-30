@@ -221,7 +221,7 @@ describe('staff writes', () => {
     })
 
     it('refuses a role without message_plaintiffs', async () => {
-      asMember('intake_specialist')
+      asMember('paralegal')
       room()
 
       const res = await request(app).post('/v1/attorney-dashboard/messaging/send').set(auth).send({ chatRoomId: 'room-1', content: 'Hi' })

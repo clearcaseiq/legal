@@ -39,29 +39,31 @@ const patch = (body: unknown, memberId = targetMember.id) =>
 
 describe('PATCH /v1/firm-dashboard/members/:id permissions', () => {
   it('stores grants and revokes together', async () => {
-    const res = await patch({ permissions: { grant: ['generate_demands'], revoke: ['manage_assigned_cases'] } })
+    const res = await patch({ permissions: { grant: ['assign_cases'], revoke: ['manage_assigned_cases'] } })
 
     expect(res.status).toBe(200)
     const { data } = vi.mocked((prisma as any).firmMember.update).mock.calls[0][0]
-    expect(JSON.parse(data.permissions)).toEqual({ v: 2, grant: ['generate_demands'], revoke: ['manage_assigned_cases'] })
+    expect(JSON.parse(data.permissions)).toEqual({ v: 3, grant: ['assign_cases'], revoke: ['manage_assigned_cases'] })
   })
 
   it('still accepts the older bare array as grants', async () => {
-    const res = await patch({ permissions: ['generate_demands'] })
+    const res = await patch({ permissions: ['assign_cases'] })
 
     expect(res.status).toBe(200)
     const { data } = vi.mocked((prisma as any).firmMember.update).mock.calls[0][0]
-    expect(JSON.parse(data.permissions)).toEqual({ v: 2, grant: ['generate_demands'], revoke: [] })
+    expect(JSON.parse(data.permissions)).toEqual({ v: 3, grant: ['assign_cases'], revoke: [] })
   })
 
   it('stores retired permissions as the ones that now cover them', async () => {
-    const res = await patch({ permissions: { grant: ['decline_cases', 'request_records'], revoke: ['manage_chronology'] } })
+    const res = await patch({
+      permissions: { grant: ['decline_cases', 'request_records', 'generate_demands'], revoke: ['manage_chronology'] },
+    })
 
     expect(res.status).toBe(200)
     const { data } = vi.mocked((prisma as any).firmMember.update).mock.calls[0][0]
     expect(JSON.parse(data.permissions)).toEqual({
-      v: 2,
-      grant: ['accept_cases', 'manage_documents'],
+      v: 3,
+      grant: ['review_cases', 'manage_documents'],
       revoke: ['manage_assigned_cases'],
     })
   })

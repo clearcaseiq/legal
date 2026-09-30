@@ -306,7 +306,7 @@ export type FirmVisibility = {
    * firm's main attorney before anyone accepts it.
    */
   canReviewFirmMatches?: boolean
-  /** `accept_cases`: may accept a live offer made to a firm colleague. */
+  /** `review_cases` / `view_all_cases`: may accept a live offer made to a firm colleague. */
   canAcceptFirmMatches?: boolean
   /**
    * Holds any case permission (`CASE_ACCESS_PERMISSIONS`): may see cases
@@ -350,10 +350,8 @@ async function resolveFirmVisibility(req: any, _attorney: any): Promise<FirmVisi
   if (!access) return { lawFirmId: null, userId: req.user?.id ?? null, canViewAllCases: false }
   const has = (p: string) => access.permissions.includes(p)
   const canViewAllCases = has('view_all_cases')
-  // Accept alone decides from the firm's anonymized New Leads list; opening the
-  // case file itself needs a review permission.
   const canReviewFirmMatches = canViewAllCases || has('review_cases')
-  const canAcceptFirmMatches = canViewAllCases || has('accept_cases')
+  const canAcceptFirmMatches = canReviewFirmMatches
   const canViewTeamCases = CASE_ACCESS_PERMISSIONS.some(has)
   return {
     lawFirmId: access.lawFirmId,
@@ -384,13 +382,13 @@ async function denyWithoutFirmPermission(req: any, res: any, anyOf: string[]): P
 /** Permission groups for the case actions the firm role matrix governs. */
 const CASE_ACTION_PERMISSIONS = {
   message: ['message_plaintiffs'],
-  demand: ['generate_demands'],
+  demand: ['manage_documents'],
   documents: ['manage_documents'],
   request: ['manage_documents'],
-  schedule: ['schedule_consultations'],
+  schedule: ['message_plaintiffs'],
   chronology: ['manage_assigned_cases'],
-  accept: ['accept_cases'],
-  decline: ['accept_cases'],
+  accept: ['review_cases'],
+  decline: ['review_cases'],
   manage: ['manage_assigned_cases'],
   billing: ['manage_billing'],
 } as const satisfies Record<string, readonly string[]>
@@ -664,7 +662,7 @@ type ScopeError = { error: { status: number; message: string } }
 
 /**
  * The attorneys whose consults the caller manages. An attorney manages their
- * own. Firm staff holding `schedule_consultations` have no calendar of their
+ * own. Firm staff holding `SCHEDULE_PERMISSION` have no calendar of their
  * own and manage every attorney in the firm on their behalf.
  */
 async function getSchedulingScope(

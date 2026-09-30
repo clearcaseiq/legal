@@ -109,45 +109,34 @@ const FIRM_ROLES = [
 // Human-friendly labels + one-line descriptions for every firm permission.
 // Ordered so the role matrix columns stay stable regardless of API ordering.
 const PERMISSION_LABELS: Record<string, string> = {
-  manage_users: 'Manage users',
-  manage_routing: 'Manage workflow & firm settings',
-  view_analytics: 'View analytics',
+  manage_users: 'Manage firm',
+  manage_billing: 'Billing & payments',
   view_all_cases: 'View All Cases',
   assign_cases: 'Assign cases',
   manage_assigned_cases: 'Work cases',
-  review_cases: 'Review Active Cases',
-  accept_cases: 'Accept & decline cases',
-  message_plaintiffs: 'Message clients',
-  schedule_consultations: 'Schedule consults',
-  manage_documents: 'Documents & records',
-  generate_demands: 'Generate demands',
-  manage_billing: 'Billing & payments',
+  review_cases: 'Review, accept & decline cases',
+  message_plaintiffs: 'Client communication',
+  manage_documents: 'Documents, records & demands',
 }
 
 const PERMISSION_DESCRIPTIONS: Record<string, string> = {
-  manage_users: 'Add, edit, and remove firm members and set their roles.',
-  manage_routing: 'Configure case routing and workflow, and change the firm plan and seats.',
-  view_analytics: 'View firm performance, fees, ROI and platform spend.',
+  manage_users:
+    'Add, edit, and remove firm members and set their roles; configure routing and workflow; change the plan and seats; view firm performance, fees, ROI and platform spend.',
+  manage_billing: 'Invoices, payments and firm billing.',
   view_all_cases: 'See every case in the firm.',
   assign_cases: 'Assign or reassign cases to attorneys and staff.',
   manage_assigned_cases: 'Do day-to-day work on cases, including the medical chronology.',
-  review_cases: 'Open and review incoming cases and new leads.',
-  accept_cases: 'Accept or decline a matched case on behalf of the firm.',
-  message_plaintiffs: 'Message clients through the platform.',
-  schedule_consultations: 'Book and manage client consultations.',
-  manage_documents: 'Upload and manage case documents and records, and request them from clients and providers.',
-  generate_demands: 'Draft and generate demand letters.',
-  manage_billing: 'Invoices, payments and firm billing.',
+  review_cases: 'Open and review incoming cases and new leads, and accept or decline them on behalf of the firm.',
+  message_plaintiffs: "Message clients, and book and manage their consultations on the attorneys' calendars.",
+  manage_documents:
+    'Upload and manage case documents and records, request them from clients and providers, and draft demand letters.',
 }
 
 /** The permission dialog and role matrix group permissions under these headings. */
 const PERMISSION_CATEGORIES: Array<{ label: string; permissions: string[] }> = [
-  { label: 'Firm', permissions: ['manage_users', 'manage_routing', 'view_analytics'] },
-  { label: 'Cases', permissions: ['view_all_cases', 'assign_cases', 'manage_assigned_cases'] },
-  { label: 'New leads', permissions: ['review_cases', 'accept_cases'] },
-  { label: 'Client', permissions: ['message_plaintiffs', 'schedule_consultations'] },
-  { label: 'Documents', permissions: ['manage_documents', 'generate_demands'] },
-  { label: 'Billing', permissions: ['manage_billing'] },
+  { label: 'Firm', permissions: ['manage_users', 'manage_billing'] },
+  { label: 'Cases', permissions: ['view_all_cases', 'assign_cases', 'manage_assigned_cases', 'review_cases'] },
+  { label: 'Clients & documents', permissions: ['message_plaintiffs', 'manage_documents'] },
 ]
 
 /** Group `perms` under PERMISSION_CATEGORIES, with anything unrecognized under "Other". */
@@ -163,17 +152,16 @@ function groupPermissions(perms: string[]): Array<{ label: string; permissions: 
 // Mirror of api/src/lib/firm-roles.ts — used only if the API hasn't sent
 // roleCapabilities (older backend). The API remains the source of truth.
 const FIRM_ROLE_PERMISSIONS_FALLBACK: Record<string, string[]> = {
-  firm_admin: ['manage_users', 'manage_routing', 'manage_billing', 'view_all_cases', 'view_analytics', 'assign_cases'],
+  firm_admin: ['manage_users', 'manage_billing', 'view_all_cases', 'assign_cases'],
   attorney: [
-    'review_cases', 'accept_cases', 'message_plaintiffs', 'generate_demands', 'manage_assigned_cases',
-    'view_all_cases', 'assign_cases', 'manage_documents', 'schedule_consultations',
+    'review_cases', 'message_plaintiffs', 'manage_assigned_cases', 'view_all_cases', 'assign_cases', 'manage_documents',
   ],
-  case_manager: ['manage_documents', 'message_plaintiffs', 'schedule_consultations', 'manage_assigned_cases', 'view_all_cases'],
-  intake_specialist: ['review_cases', 'schedule_consultations', 'manage_documents'],
+  case_manager: ['manage_documents', 'message_plaintiffs', 'manage_assigned_cases', 'view_all_cases'],
+  intake_specialist: ['review_cases', 'message_plaintiffs', 'manage_documents'],
   paralegal: ['view_all_cases', 'manage_assigned_cases', 'manage_documents'],
   billing_admin: ['manage_billing'],
-  legal_assistant: ['view_all_cases', 'manage_documents', 'schedule_consultations'],
-  demand_writer: ['view_all_cases', 'generate_demands', 'manage_documents'],
+  legal_assistant: ['view_all_cases', 'manage_documents', 'message_plaintiffs'],
+  demand_writer: ['view_all_cases', 'manage_documents'],
   medical_records: ['view_all_cases', 'manage_documents'],
 }
 
@@ -371,8 +359,7 @@ const TABS: Array<{ key: TabKey; label: string; icon: typeof LayoutDashboard }> 
 const FULL_ACCESS_FIRM_ROLES = ['firm_admin']
 
 const CASE_ACCESS_PERMISSIONS = [
-  'view_all_cases', 'manage_assigned_cases', 'review_cases', 'accept_cases', 'message_plaintiffs',
-  'generate_demands', 'manage_documents', 'schedule_consultations', 'manage_billing',
+  'view_all_cases', 'manage_assigned_cases', 'review_cases', 'message_plaintiffs', 'manage_documents', 'manage_billing',
 ]
 
 function canSeeFirmTab(tab: TabKey, role: string | undefined, permissions: string[]): boolean {
@@ -381,21 +368,21 @@ function canSeeFirmTab(tab: TabKey, role: string | undefined, permissions: strin
   switch (tab) {
     case 'overview':
       // Shows cases and case figures: any case permission (mirrors the
-      // server's CASE_ACCESS_PERMISSIONS) or firm analytics.
-      return has('view_analytics') || CASE_ACCESS_PERMISSIONS.some(has)
+      // server's CASE_ACCESS_PERMISSIONS) or firm analytics (Manage firm).
+      return has('manage_users') || CASE_ACCESS_PERMISSIONS.some(has)
     case 'caseload':
       // Same, plus assigners, who work from the Active Cases list.
-      return has('view_analytics') || has('assign_cases') || CASE_ACCESS_PERMISSIONS.some(has)
+      return has('manage_users') || has('assign_cases') || CASE_ACCESS_PERMISSIONS.some(has)
     case 'newleads':
       // Intake specialists own this surface; firm admins/attorneys reach it via
       // their broader case-visibility permissions (CP-588).
-      return has('view_all_cases') || has('review_cases') || has('accept_cases')
+      return has('view_all_cases') || has('review_cases')
     case 'team':
       return has('manage_users') || has('assign_cases')
     case 'templates':
-      return has('manage_documents') || has('generate_demands')
+      return has('manage_documents')
     case 'workflow':
-      return has('manage_routing')
+      return has('manage_users')
     case 'time':
       // Case workers log their own hours; billing roles review everyone's.
       return has('manage_billing') || has('manage_assigned_cases') || has('view_all_cases')
@@ -1016,7 +1003,7 @@ export default function FirmDashboard() {
   const canManageUsers =
     (workspace?.permissions || []).includes('manage_users') || workspace?.currentRole === 'firm_admin'
   const canManageRouting =
-    (workspace?.permissions || []).includes('manage_routing') || workspace?.currentRole === 'firm_admin'
+    (workspace?.permissions || []).includes('manage_users') || workspace?.currentRole === 'firm_admin'
   const canAssignCases =
     (workspace?.permissions || []).includes('assign_cases') || workspace?.currentRole === 'firm_admin'
 
@@ -1277,7 +1264,7 @@ export default function FirmDashboard() {
     landingApplied.current = true
     if (searchParams.get('tab') || FULL_ACCESS_FIRM_ROLES.includes(workspace.currentRole || '')) return
     const perms = workspace.permissions || []
-    if (perms.includes('accept_cases')) setTab('newleads')
+    if (perms.includes('review_cases')) setTab('newleads')
     else if (perms.includes('assign_cases')) setTab('caseload')
   }, [workspace, searchParams])
 
@@ -1530,7 +1517,7 @@ export default function FirmDashboard() {
             </button>
           )
         })}
-        {getStoredRole() === 'staff' && (workspace?.permissions || []).includes('schedule_consultations') && (
+        {getStoredRole() === 'staff' && (workspace?.permissions || []).includes('message_plaintiffs') && (
           <Link
             to="/attorney-dashboard/cases/calendar"
             className="inline-flex flex-auto items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-slate-600 transition hover:bg-brand-50 hover:text-brand-700"

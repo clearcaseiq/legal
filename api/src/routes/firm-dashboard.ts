@@ -337,7 +337,7 @@ router.post('/offices', authMiddleware as any, async (req: any, res: Response) =
     if (!context) {
       return res.status(404).json({ error: 'No law firm associated with this user' })
     }
-    if (!requireFirmPermission(context, 'manage_routing')) {
+    if (!requireFirmPermission(context, 'manage_users')) {
       return res.status(403).json({ error: 'You do not have permission to manage firm offices' })
     }
 
@@ -480,7 +480,7 @@ router.patch('/offices/:officeId', authMiddleware as any, async (req: any, res: 
   try {
     const context = await getFirmContext(req)
     if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
-    if (!requireFirmPermission(context, 'manage_routing')) {
+    if (!requireFirmPermission(context, 'manage_users')) {
       return res.status(403).json({ error: 'You do not have permission to manage firm offices' })
     }
     const { officeId } = req.params
@@ -517,7 +517,7 @@ router.delete('/offices/:officeId', authMiddleware as any, async (req: any, res:
   try {
     const context = await getFirmContext(req)
     if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
-    if (!requireFirmPermission(context, 'manage_routing')) {
+    if (!requireFirmPermission(context, 'manage_users')) {
       return res.status(403).json({ error: 'You do not have permission to manage firm offices' })
     }
     const { officeId } = req.params
@@ -1420,16 +1420,15 @@ router.get('/new-leads', authMiddleware as any, async (req: any, res: Response) 
     if (!context) {
       return res.status(404).json({ error: 'No law firm associated with this user' })
     }
-    // Intake specialists own this surface (`review_cases`); firm admins reach it
-    // through their broader case visibility.
+    // Intake specialists own this surface (`review_cases`, which also covers
+    // accepting and declining); firm admins reach it through their broader
+    // case visibility.
     const canReview =
       requireFirmPermission(context, 'view_all_cases') ||
       requireFirmPermission(context, 'review_cases')
-    // The list is anonymized, so members who may only accept or decline can
-    // work it; opening a lead's review still needs `canReview`.
-    const canAccept = requireFirmPermission(context, 'view_all_cases') || requireFirmPermission(context, 'accept_cases')
-    const canDecline = canAccept
-    if (!canReview && !canAccept) {
+    const canAccept = canReview
+    const canDecline = canReview
+    if (!canReview) {
       return res.status(403).json({ error: 'You do not have permission to review new leads' })
     }
     const permissions = { canReview, canAccept, canDecline }
@@ -1697,7 +1696,7 @@ router.get('/cases/:assessmentId', authMiddleware as any, async (req: any, res: 
       )
     const firmWide =
       requireFirmPermission(context, 'view_all_cases') ||
-      requireFirmPermission(context, 'view_analytics') ||
+      requireFirmPermission(context, 'manage_users') ||
       requireFirmPermission(context, 'assign_cases')
     if (!firmWide && !CASE_ACCESS_PERMISSIONS.some((p) => requireFirmPermission(context, p))) {
       return res.status(403).json({ error: 'Your firm role does not include access to cases.' })
@@ -1761,7 +1760,7 @@ router.get('/teams/caseload', authMiddleware as any, async (req: any, res: Respo
     if (!context) {
       return res.status(404).json({ error: 'No law firm associated with this user' })
     }
-    if (!requireFirmPermission(context, 'view_all_cases') && !requireFirmPermission(context, 'view_analytics')) {
+    if (!requireFirmPermission(context, 'view_all_cases') && !requireFirmPermission(context, 'manage_users')) {
       return res.status(403).json({ error: 'You do not have permission to view firm caseload' })
     }
 
@@ -2336,17 +2335,18 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
      * were both well outside what their role grants.
      *
      * The two permissions are checked together because they are the firm-wide
-     * grants: `view_all_cases` for the roster, `view_analytics` for the
-     * aggregates, and every role that holds either is trusted with both here.
+     * grants: `view_all_cases` for the roster, `manage_users` (Manage firm,
+     * which covers analytics) for the aggregates, and every role that holds
+     * either is trusted with both here.
      * Mirrors the guard `GET /teams/caseload` already applies (see line ~1432),
      * which is why that panel correctly rendered empty on the same screen this
      * one was filling in.
      */
     const canSeeFirmCaseload =
-      requireFirmPermission(context, 'view_all_cases') || requireFirmPermission(context, 'view_analytics')
-    // Fees, platform spend, ROI and per-attorney performance: View analytics
+      requireFirmPermission(context, 'view_all_cases') || requireFirmPermission(context, 'manage_users')
+    // Fees, platform spend, ROI and per-attorney performance: Manage firm
     // only. Seeing every case does not make someone privy to the firm's money.
-    const canSeeFirmMoney = requireFirmPermission(context, 'view_analytics')
+    const canSeeFirmMoney = requireFirmPermission(context, 'manage_users')
 
     // Get firm with all attorneys
     const firm = await (prisma as any).lawFirm.findUnique({

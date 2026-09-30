@@ -141,7 +141,7 @@ describe('POST /leads/:leadId/decision authorization', () => {
       )
     }
 
-    it('lets an associate attorney (accept_cases) accept it', async () => {
+    it('lets an associate attorney (review_cases) accept it', async () => {
       asFirmMember('attorney')
 
       const res = await request(app)
@@ -197,8 +197,8 @@ describe('POST /leads/:leadId/decision authorization', () => {
       )
     }
 
-    it('accepts for the attorney the case was routed to when granted accept_cases', async () => {
-      asStaff(JSON.stringify({ grant: ['accept_cases'], revoke: [] }))
+    it('accepts for the attorney the case was routed to when holding review_cases', async () => {
+      asStaff(null)
 
       const res = await request(app)
         .post('/v1/attorney-dashboard/leads/lead-9/decision')
@@ -209,8 +209,8 @@ describe('POST /leads/:leadId/decision authorization', () => {
       expect(leadWrites()).toHaveLength(1)
     })
 
-    it('refuses staff whose permissions do not include accept_cases', async () => {
-      asStaff(null)
+    it('refuses staff whose permissions do not include review_cases', async () => {
+      asStaff(JSON.stringify({ v: 3, grant: [], revoke: ['review_cases'] }))
 
       const res = await request(app)
         .post('/v1/attorney-dashboard/leads/lead-9/decision')
