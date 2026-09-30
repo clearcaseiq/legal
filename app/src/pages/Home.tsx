@@ -83,6 +83,9 @@ export default function Home() {
           <div className="grid lg:grid-cols-2 gap-10 lg:gap-12 items-center">
             <div className="relative text-center lg:text-left order-1">
               <MarketingHeroArt />
+              <p className="mb-3 text-sm font-semibold uppercase tracking-[0.12em] text-brand-700 dark:text-brand-300">
+                {t('home.heroEyebrow')}
+              </p>
               <h1 className="font-display text-4xl font-bold tracking-tight text-slate-900 sm:text-5xl md:text-[3.25rem] leading-[1.1] mb-4 dark:text-slate-50">
                 {t('home.heroTitlePre')}
                 <span className="whitespace-nowrap bg-gradient-to-r from-accent-600 to-amber-500 bg-clip-text text-transparent">
@@ -170,11 +173,10 @@ export default function Home() {
           {/* Stats band — honest, verifiable claims about the product itself
               (replaces the former placeholder testimonials). */}
           <div className="grid gap-4 sm:grid-cols-3 max-w-3xl mx-auto">
-            {[1, 2, 3].map((n, i) => (
+            {[1, 2, 3].map((n) => (
               <div
                 key={n}
-                className="hiw-reveal rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm dark:border-slate-800 dark:bg-slate-900/50"
-                style={{ animationDelay: `${i * 120}ms` }}
+                className="rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm dark:border-slate-800 dark:bg-slate-900/50"
               >
                 <p className="font-display text-3xl font-bold tabular-nums text-brand-700 dark:text-brand-300">
                   {t(`home.stat${n}Value`)}
@@ -186,20 +188,19 @@ export default function Home() {
         </section>
 
         <section id="how-it-works" className="py-10 scroll-mt-24">
-          <p className="text-center text-slate-600 dark:text-slate-400 max-w-2xl mx-auto mb-4">
-            {t('home.howItWorksIntro')}
-          </p>
-          <h2 className="font-display text-3xl font-bold text-slate-900 dark:text-slate-50 text-center mb-10">
+          <h2 className="font-display text-3xl font-bold text-slate-900 dark:text-slate-50 text-center mb-4">
             {t('home.howItWorksTitle')}
           </h2>
+          <p className="text-center text-slate-600 dark:text-slate-400 max-w-2xl mx-auto mb-10">
+            {t('home.howItWorksIntro')}
+          </p>
           <div className="grid md:grid-cols-3 gap-8 max-w-4xl mx-auto">
             {[1, 2, 3].map((n, i) => {
               const StepIcon = STEP_ICONS[i]
               return (
                 <div
                   key={n}
-                  className="hiw-reveal text-center rounded-2xl p-6 border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900/50 hover:border-brand-200 dark:hover:border-brand-800 hover:shadow-card transition-all duration-200"
-                  style={{ animationDelay: `${i * 120}ms` }}
+                  className="text-center rounded-2xl p-6 border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900/50 hover:border-brand-200 dark:hover:border-brand-800 hover:shadow-card transition-all duration-200"
                 >
                   <div className="relative inline-flex items-center justify-center h-14 w-14 rounded-2xl bg-brand-100 dark:bg-brand-950 text-brand-700 dark:text-brand-300 mb-4">
                     <StepIcon className="h-7 w-7" aria-hidden />
@@ -266,21 +267,8 @@ export default function Home() {
           </section>
         )}
 
-        <section className="py-8">
-          <h2 className="font-display text-3xl font-bold text-slate-900 dark:text-slate-50 text-center mb-2">
-            {t('home.reportIncludes')}
-          </h2>
-          <p className="text-center text-slate-600 dark:text-slate-400 text-sm mb-6">{t('home.reportIncludesDesc')}</p>
-          <div className="max-w-xl mx-auto grid sm:grid-cols-2 gap-4">
-            {['reportItem1', 'reportItem2', 'reportItem3', 'reportItem4', 'reportItem5', 'reportItem6'].map((key) => (
-              <div key={key} className="flex items-center gap-3">
-                <CheckCircleIcon className="h-5 w-5 text-emerald-600 flex-shrink-0" aria-hidden />
-                <span className="text-slate-700 dark:text-slate-300">{t(`home.${key}`)}</span>
-              </div>
-            ))}
-          </div>
-        </section>
-
+        {/* What the visitor gets is carried by the hero preview; this section
+            covers why to start here, rather than listing the same outputs again. */}
         <section className="py-12 rounded-2xl border border-slate-200/60 dark:border-slate-800 px-6 bg-slate-50/90 dark:bg-slate-900/50">
           <h2 className="font-display text-3xl font-bold text-slate-900 dark:text-slate-50 text-center mb-2">
             {t('home.whyUse')}
@@ -324,8 +312,8 @@ export default function Home() {
               <FileTextIcon className="mr-2 h-5 w-5 transition-transform group-hover:rotate-[-4deg]" aria-hidden />
               {t('common.startAssessment')}
             </Link>
-            <p className="mt-3 text-sm text-white/75">{t('home.finalCtaHelper')}</p>
-            <p className="mx-auto mt-5 max-w-xl text-xs leading-relaxed text-white/60">{t('home.deadlineNote')}</p>
+            <p className="mt-3 text-sm text-white/85">{t('home.finalCtaHelper')}</p>
+            <p className="mx-auto mt-5 max-w-xl text-sm leading-relaxed text-white/85">{t('home.deadlineNote')}</p>
           </div>
         </section>
 
@@ -334,7 +322,7 @@ export default function Home() {
             for legal services. */}
         <section className="py-6">
           <div className="mx-auto max-w-3xl space-y-3 text-center">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400 dark:text-slate-500">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-600 dark:text-slate-400">
               {t('home.platformLabel')}
             </p>
             <h2 className="text-base font-semibold text-slate-700 dark:text-slate-200">
@@ -343,7 +331,7 @@ export default function Home() {
             <p className="text-sm leading-relaxed text-slate-600 dark:text-slate-300">
               {t('home.platformPositioning')}
             </p>
-            <p className="text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+            <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-400">
               {t('home.legalDisclaimer')}
             </p>
             <div className="flex flex-wrap gap-3">
@@ -365,8 +353,10 @@ export default function Home() {
 
         {/* Sticky mobile CTA — hidden while the hero's own CTA is on screen to
             avoid showing two identical buttons at once. */}
+        {/* `inert` rather than `aria-hidden` alone: a hidden bar must also leave
+            the tab order, or keyboard users land on an invisible button. */}
         <div
-          aria-hidden={heroCtaVisible}
+          inert={heroCtaVisible}
           className={`fixed inset-x-0 bottom-0 z-40 border-t border-slate-200/80 bg-white/95 px-4 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 shadow-[0_-4px_20px_rgba(15,23,42,0.08)] backdrop-blur-xl transition-all duration-300 md:hidden dark:border-slate-800 dark:bg-slate-900/95 ${
             heroCtaVisible ? 'pointer-events-none translate-y-full opacity-0' : 'translate-y-0 opacity-100'
           }`}
@@ -379,7 +369,7 @@ export default function Home() {
             <FileTextIcon className="h-5 w-5" aria-hidden />
             {t('common.startAssessment')}
           </Link>
-          <p className="mt-1 text-center text-[11px] font-medium text-slate-500 dark:text-slate-400">
+          <p className="mt-1 text-center text-xs font-medium text-slate-600 dark:text-slate-400">
             {t('home.stickyCtaHelper')}
           </p>
         </div>
