@@ -3,6 +3,7 @@ import { ChevronRight } from 'lucide-react'
 import { caseTypeAssessmentHref, caseTypeHubBySlug, caseTypeHubs } from '../data/caseTypeHubDefs'
 import { CASE_TYPE_HUB_DISCLAIMER, caseTypeHubContent } from '../data/caseTypeHubs'
 import { allLandingPages } from '../data/seoLandingPages'
+import { trackCtaClick } from '../lib/ctaTracking'
 
 /**
  * A case-type hub: `/car-accident`, `/slip-and-fall`, and the other four.
@@ -52,6 +53,7 @@ export default function CaseTypeHub() {
         ))}
         <Link
           to={assessHref}
+          onClick={() => trackCtaClick('hub_header', { caseType: hub.caseType, page: hub.slug })}
           className="mt-5 inline-flex items-center justify-center rounded-xl bg-brand-700 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-brand-800"
         >
           Assess My Case
@@ -148,6 +150,7 @@ export default function CaseTypeHub() {
           </div>
           <Link
             to={assessHref}
+            onClick={() => trackCtaClick('hub_final', { caseType: hub.caseType, page: hub.slug })}
             className="inline-flex shrink-0 items-center justify-center rounded-xl bg-white px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-slate-100"
           >
             Assess My Case

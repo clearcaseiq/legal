@@ -19,6 +19,7 @@ import {
 } from '../data/seoTopicHubs'
 import { caseTypeAssessmentHref } from '../data/caseTypeHubDefs'
 import { START_ASSESSMENT_HREF } from '../data/appRoutes'
+import { type CtaLocation, trackCtaClick } from '../lib/ctaTracking'
 import SeoCiteEmbed from '../components/SeoCiteEmbed'
 
 const categoryTone: Record<string, string> = {
@@ -753,6 +754,7 @@ export default function SeoLandingPage() {
   const nextSteps = nextStepsFor(page)
   const caseResources = caseTypeRelatedResources(page.slug)
   const caseAssessHref = page.caseType ? caseTypeAssessmentHref(page.caseType) : START_ASSESSMENT_HREF
+  const trackAssess = (cta: CtaLocation) => () => trackCtaClick(cta, { caseType: page.caseType, page: page.slug })
   // /tools/settlement-calculator has its own component now, so this page can
   // always point at the real calculator without linking to itself.
   const estimatorCta = '/tools/settlement-calculator'
@@ -1127,6 +1129,7 @@ export default function SeoLandingPage() {
               <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2">
                 <Link
                   to={caseAssessHref}
+                  onClick={trackAssess('article_helps')}
                   className="inline-flex items-center text-sm font-semibold text-brand-700 hover:text-brand-800"
                 >
                   Start a free assessment
@@ -1318,6 +1321,7 @@ export default function SeoLandingPage() {
         </div>
         <Link
           to={caseAssessHref}
+          onClick={trackAssess('article_signals')}
           className="mt-5 inline-flex items-center justify-center rounded-xl bg-brand-700 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-brand-800"
         >
           {page.cta}
@@ -1375,6 +1379,7 @@ export default function SeoLandingPage() {
           <p className="text-sm font-semibold text-brand-950">Want to understand your situation?</p>
           <Link
             to={caseAssessHref}
+            onClick={trackAssess('article_related')}
             className="inline-flex shrink-0 items-center justify-center rounded-xl bg-brand-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-800"
           >
             Assess My Case
@@ -1442,6 +1447,7 @@ export default function SeoLandingPage() {
           </div>
           <Link
             to={caseAssessHref}
+            onClick={trackAssess('article_final')}
             className="inline-flex shrink-0 items-center justify-center rounded-xl bg-white px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-slate-100"
           >
             {page.cta}

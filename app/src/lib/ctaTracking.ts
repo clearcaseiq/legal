@@ -3,16 +3,29 @@
  *
  * Every "Start Free Case Assessment" button leads to the same URL, so without
  * this the container can't tell the hero button from the sticky mobile bar or
- * a case-type chip. Only a fixed location label and (for chips) the case-type
- * slug are sent — never form input.
+ * a case-type chip. Only a fixed location label, the case-type slug and the
+ * path of the page the button is on are sent — never form input.
  *
  * Silent when no container has loaded, like `pushScreenView`.
  */
-export type CtaLocation = 'hero' | 'hero_resume' | 'sticky_mobile' | 'final_banner' | 'case_type_chip'
+export type CtaLocation =
+  | 'hero'
+  | 'hero_resume'
+  | 'sticky_mobile'
+  | 'final_banner'
+  | 'case_type_chip'
+  // Case-type hubs
+  | 'hub_header'
+  | 'hub_final'
+  // Articles
+  | 'article_helps'
+  | 'article_signals'
+  | 'article_related'
+  | 'article_final'
 
 export function trackCtaClick(
   location: CtaLocation,
-  details: { caseType?: string } = {},
+  details: { caseType?: string; page?: string } = {},
   scope: Record<string, unknown> | undefined = typeof window === 'undefined'
     ? undefined
     : (window as unknown as Record<string, unknown>),
@@ -24,5 +37,6 @@ export function trackCtaClick(
     event: 'cta_click',
     cta_location: location,
     ...(details.caseType ? { cta_case_type: details.caseType } : {}),
+    ...(details.page ? { cta_page: details.page } : {}),
   })
 }
