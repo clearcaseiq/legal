@@ -2628,6 +2628,10 @@ describe('HTTP operations regressions', () => {
   })
 
   it('POST /v1/attorney-dashboard/document-requests/:requestId/nudge uses compact fetch and records reminder', async () => {
+    vi.mocked(prisma.documentRequest.findUnique).mockResolvedValue({
+      attorneyId: 'attorney-record-1',
+      leadId: 'lead-1',
+    } as any)
     vi.mocked(prisma.documentRequest.findFirst).mockResolvedValue({
       id: 'docreq-1',
       status: 'pending',
@@ -2655,7 +2659,7 @@ describe('HTTP operations regressions', () => {
 
     expect(res.body).toEqual({ ok: true })
     expect(vi.mocked(prisma.documentRequest.findFirst).mock.calls[0]?.[0]).toEqual({
-      where: { id: 'docreq-1', attorneyId: 'attorney-record-1' },
+      where: { id: 'docreq-1' },
       select: {
         id: true,
         status: true,
@@ -2665,6 +2669,7 @@ describe('HTTP operations regressions', () => {
         targetType: true,
         recipientName: true,
         recipientEmail: true,
+        attorney: { select: { name: true, email: true } },
         lead: {
           select: {
             assessmentId: true,
