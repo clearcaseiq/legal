@@ -176,15 +176,29 @@ export async function loadSignalContext(assessmentId: string): Promise<SignalCon
   // "Treatment" work = clinical/medical checkpoint tasks (confirm treatment
   // status/complete, MMI/discharge, treatment gap, monitor treatment). Treatment
   // is only "complete" once ALL of these firm-side tasks are done — not just one.
+  //
+  // Later-stage checklists are excluded: Demand preparation's own "Confirm
+  // treatment complete / MMI" task is created on entering that stage, and
+  // counting it here re-opened treatment and pulled the case straight back.
   const treatmentTaskFilter = {
     assessmentId,
     mergedIntoId: null,
-    OR: [
-      { checkpointType: { in: ['medical_checkpoint', 'treatment_status', 'treatment_gap', 'monitor_treatment'] } },
-      { title: { contains: 'treatment', mode: 'insensitive' as const } },
-      { title: { contains: 'MMI', mode: 'insensitive' as const } },
-      { title: { contains: 'maximum medical', mode: 'insensitive' as const } },
-      { title: { contains: 'discharge', mode: 'insensitive' as const } },
+    AND: [
+      {
+        OR: [
+          { milestoneType: null },
+          { milestoneType: { notIn: ['demand_preparation', 'settlement', 'disbursement'] } },
+        ],
+      },
+      {
+        OR: [
+          { checkpointType: { in: ['medical_checkpoint', 'treatment_status', 'treatment_gap', 'monitor_treatment'] } },
+          { title: { contains: 'treatment', mode: 'insensitive' as const } },
+          { title: { contains: 'MMI', mode: 'insensitive' as const } },
+          { title: { contains: 'maximum medical', mode: 'insensitive' as const } },
+          { title: { contains: 'discharge', mode: 'insensitive' as const } },
+        ],
+      },
     ],
   }
   // Document-request keys that represent medical/treatment records. A pending one
