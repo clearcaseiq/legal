@@ -46,6 +46,12 @@ const PUBLIC_PREFIXES = ['/avatars/', '/firm-logos/']
 /** Resolvable to an owning assessment, so they get a per-case decision. */
 const CASE_SCOPED_PREFIXES = ['/evidence/', '/scenes/']
 
+/**
+ * Never served by the static mount. These files have their own authorized
+ * download route, and a bare session is not enough to read another firm's case.
+ */
+const ROUTE_ONLY_PREFIXES = ['/demand-imports/']
+
 function hasPrefix(pathname: string, prefixes: string[]) {
   return prefixes.some((prefix) => pathname.startsWith(prefix))
 }
@@ -86,6 +92,10 @@ export async function requireSessionForPrivateUploads(
   const normalized = pathname.replace(/\\/g, '/')
   if (normalized.includes('..')) {
     return res.status(400).json({ error: 'Malformed path' })
+  }
+
+  if (hasPrefix(normalized, ROUTE_ONLY_PREFIXES)) {
+    return res.status(404).json({ error: 'Not found' })
   }
 
   if (hasPrefix(normalized, PUBLIC_PREFIXES)) return next()

@@ -714,6 +714,17 @@ describe('HTTP hardening regressions', () => {
       expect(res.status).toBe(404)
     })
 
+    it('never serves imported demand originals statically, even with a session', async () => {
+      const server = createServer()
+
+      const res = await request(server)
+        .get('/uploads/demand-imports/abc-demand.pdf')
+        .set('Authorization', 'Bearer attorney')
+
+      expect(res.status).toBe(404)
+      expect(res.body).toEqual({ error: 'Not found' })
+    })
+
     it('refuses anonymous reads of evidence', async () => {
       const server = createServer()
       vi.mocked(prisma.evidenceFile.findFirst).mockResolvedValue({ assessmentId: 'asm-1' } as any)

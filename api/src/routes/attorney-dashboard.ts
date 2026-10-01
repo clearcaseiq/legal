@@ -9,6 +9,7 @@ import { leadAccessOr, TERMINAL_INTRO_STATUSES } from '../lib/lead-access'
 import { authMiddleware } from '../lib/auth'
 import { canWorkCaseAssistance, isCaseAssistanceManager } from '../lib/specialist-access'
 import { logger } from '../lib/logger'
+import { ensureLocalCopy, persistUpload } from '../lib/object-storage'
 import { recordCaseChange } from '../lib/data-authority'
 import { serializeCaseFacts } from '../lib/case-facts'
 import { webUrl } from '../lib/app-url'
@@ -16940,15 +16941,19 @@ router.post(
       }
       content = content.slice(0, 500_000)
 
-      // Persist the original file to a NON-public dir (not /uploads) so it is
-      // only reachable through the authenticated /original route.
+      // `uploads/` is the only directory the container user can write and the
+      // only one on a persistent volume. The static mount refuses
+      // `demand-imports/` (see uploads-access), so the original stays reachable
+      // only through the authenticated /original route.
       if (req.file) {
-        const dir = path.join(process.cwd(), 'storage', 'demand-imports')
+        const dir = path.join(process.cwd(), 'uploads', 'demand-imports')
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
         const safeName = (importedFileName || 'demand').replace(/[^\w.\-]+/g, '_')
         const stored = `${uuidv4()}-${safeName}`
-        fs.writeFileSync(path.join(dir, stored), req.file.buffer)
-        importedFilePath = path.join('storage', 'demand-imports', stored)
+        const abs = path.join(dir, stored)
+        fs.writeFileSync(abs, req.file.buffer)
+        await persistUpload(abs)
+        importedFilePath = path.posix.join('uploads', 'demand-imports', stored)
       }
 
       const recipient = {
@@ -17074,7 +17079,7 @@ router.get('/leads/:leadId/demand-letters/:demandId/original', authMiddleware, a
     }
 
     const abs = path.join(process.cwd(), letter.importedFilePath)
-    if (!fs.existsSync(abs)) {
+    if (!(await ensureLocalCopy(abs))) {
       return res.status(404).json({ error: 'Original file is missing' })
     }
 
