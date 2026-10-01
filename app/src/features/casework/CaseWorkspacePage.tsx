@@ -1198,7 +1198,7 @@ function WorkstreamPanel({
               </div>
             ) : null}
           </div>
-          <NegotiationLogPanel leadId={lead.id} canManage={!staffLacks('manage')} onChanged={() => void reloadCc()} />
+          <NegotiationLogPanel leadId={lead.id} clientName={detail.client} canManage={!staffLacks('manage')} onChanged={() => void reloadCc()} />
         </div>
       )
     }
@@ -1248,7 +1248,7 @@ function WorkstreamPanel({
           </div>
         </div>
 
-        <NegotiationLogPanel leadId={lead.id} canManage={!staffLacks('manage')} onChanged={() => void reloadCc()} />
+        <NegotiationLogPanel leadId={lead.id} clientName={detail.client} canManage={!staffLacks('manage')} onChanged={() => void reloadCc()} />
 
         {n.recommendedMove ? (
           <div className="flex items-start gap-2.5 rounded-xl border border-brand-100 bg-brand-50/60 px-4 py-3 text-sm leading-relaxed text-slate-700">
@@ -4174,8 +4174,10 @@ function dayGroupOf(value?: string | null): DayGroupKey {
   return 'later'
 }
 
+const OTHER_TASKS_SECTION = 'Other Tasks'
+
 const TASK_TYPES = [
-  { id: 'general', label: 'General' },
+  { id: 'general', label: 'Other task' },
   { id: 'evidence', label: 'Evidence' },
   { id: 'medical', label: 'Medical records' },
   { id: 'client', label: 'Client follow-up' },
@@ -4793,9 +4795,9 @@ function TasksPanel({
   const listedByWorkflow: WorkflowPhaseGroup[] = (() => {
     const phaseMap = new Map<string, WorkflowPhaseGroup>()
     for (const t of tasks) {
-      const phase = (t.workflowPhase || '').trim() || 'Other tasks'
+      const phase = (t.workflowPhase || '').trim() || OTHER_TASKS_SECTION
       const phaseOrder = typeof t.workflowPhaseOrder === 'number' ? t.workflowPhaseOrder : 999
-      const stage = (t.workflowStage || '').trim() || (phase === 'Other tasks' ? 'General' : 'Tasks')
+      const stage = (t.workflowStage || '').trim() || (phase === OTHER_TASKS_SECTION ? OTHER_TASKS_SECTION : 'Tasks')
       const stageOrder = typeof t.workflowStageOrder === 'number' ? t.workflowStageOrder : 999
       const phaseKey = `${phaseOrder}:${phase}`
       if (!phaseMap.has(phaseKey)) {
@@ -4825,7 +4827,8 @@ function TasksPanel({
     return phases
   })()
 
-  const hasWorkflowGroups = tasks.some((t) => Boolean(t.workflowPhase || t.workflowStage))
+  const hasWorkflowGroups =
+    workflowPhases.length > 0 || tasks.some((t) => Boolean(t.workflowPhase || t.workflowStage))
 
   const sectionIsOpen = (key: string, items: TaskRow[]) =>
     sectionOpenOverride[key] ?? !(items.length > 0 && items.every(isDone))
@@ -5296,7 +5299,7 @@ function TasksPanel({
                     onChange={(e) => setForm((f) => ({ ...f, section: e.target.value }))}
                     className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
                   >
-                    <option value="">General</option>
+                    <option value="">Other task</option>
                     {workflowPhases.map((p) => (
                       <optgroup key={p.phase} label={p.phase}>
                         {p.stages.map((s) => (

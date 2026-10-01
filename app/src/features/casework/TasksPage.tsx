@@ -83,7 +83,7 @@ const BUCKET_LABEL: Record<Bucket, string> = {
 }
 
 const TASK_TYPES = [
-  { id: 'general', label: 'General' },
+  { id: 'general', label: 'Other task' },
   { id: 'evidence', label: 'Evidence' },
   { id: 'medical', label: 'Medical records' },
   { id: 'client', label: 'Client follow-up' },

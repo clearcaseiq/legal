@@ -3,7 +3,7 @@ import { prisma } from '../lib/prisma'
 import { logger } from '../lib/logger'
 import { recordCaseChange } from '../lib/data-authority'
 import { z } from 'zod'
-import { Document, Packer, Paragraph } from 'docx'
+import { buildDemandLetterDocx } from '../lib/demand-docx'
 import { authMiddleware, optionalAuthMiddleware, AuthRequest } from '../lib/auth'
 import { analyzeCaseWithChatGPT, CaseAnalysisRequest } from '../services/chatgpt'
 import { generateDemandLetter } from '../lib/demand-letter'
@@ -378,16 +378,7 @@ router.get('/:demandId/docx', optionalAuthMiddleware, async (req: AuthRequest, r
       }
     }
 
-    const lines = (demand.content || '').split(/\r?\n/)
-    const doc = new Document({
-      sections: [
-        {
-          children: lines.map(line => new Paragraph(line))
-        }
-      ]
-    })
-
-    const buffer = await Packer.toBuffer(doc)
+    const buffer = await buildDemandLetterDocx(demand)
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
     res.setHeader('Content-Disposition', `attachment; filename="demand-letter-${demand.id}.docx"`)

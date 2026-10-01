@@ -155,6 +155,7 @@ const SECTION_ORDER: ExhibitSection[] = ['liability', 'treatment', 'bills', 'wag
 /** Number the case's files in the order their sections appear in the letter. */
 export function buildDemandExhibits(
   files: Array<{
+    id?: string
     category?: string | null
     subcategory?: string | null
     originalName: string
@@ -177,7 +178,12 @@ export function buildDemandExhibits(
     const kind = isCustomRequestKey(String(file.subcategory || ''))
       ? requestedDocLabel(String(file.subcategory))
       : EXHIBIT_CATEGORY_LABELS[String(file.category)] || 'Document'
-    return { number: index + 1, section, label: `${kind} (${file.originalName})` }
+    return {
+      number: index + 1,
+      section,
+      label: `${kind} (${file.originalName})`,
+      ...(file.id ? { fileId: file.id } : {}),
+    }
   })
 }
 

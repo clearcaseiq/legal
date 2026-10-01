@@ -88,10 +88,13 @@ function DecisionBadge({ entry }: { entry: NegotiationEntry }) {
 
 export default function NegotiationLogPanel({
   leadId,
+  clientName,
   canManage = true,
   onChanged,
 }: {
   leadId: string
+  /** The plaintiff's display name, shown for entries made on the client's side. */
+  clientName?: string
   canManage?: boolean
   /** Called after any write so the summary cards and ladder refresh. */
   onChanged?: () => void
@@ -105,6 +108,8 @@ export default function NegotiationLogPanel({
   const [busy, setBusy] = useState<string | null>(null)
   const [msg, setMsg] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const plaintiffName = clientName?.trim()
+  const plaintiffLabel = plaintiffName && plaintiffName !== 'Client' ? `Plaintiff · ${plaintiffName}` : 'Plaintiff'
 
   const flash = (tone: 'ok' | 'err', text: string) => {
     setMsg({ tone, text })
@@ -292,8 +297,8 @@ export default function NegotiationLogPanel({
                 value={form.counterpartyType}
                 onChange={(e) => setForm((f) => ({ ...f, counterpartyType: e.target.value }))}
               >
-                <option value="insurer">Carrier</option>
-                <option value="claimant">Us</option>
+                <option value="insurer">{form.insurerName.trim() ? `Carrier · ${form.insurerName.trim()}` : 'Carrier'}</option>
+                <option value="claimant">{plaintiffLabel}</option>
               </select>
             </div>
             <div>
@@ -442,7 +447,7 @@ export default function NegotiationLogPanel({
                         {TYPE_LABEL[e.eventType] || e.eventType}
                       </span>
                       <span className="text-xs text-slate-500">
-                        {e.counterpartyType === 'claimant' ? 'Us' : e.insurerName || 'Carrier'} · {fmtDate(e.eventDate)}
+                        {e.counterpartyType === 'claimant' ? plaintiffLabel : e.insurerName || 'Carrier'} · {fmtDate(e.eventDate)}
                       </span>
                       <DecisionBadge entry={e} />
                     </div>

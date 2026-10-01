@@ -54,6 +54,8 @@ export interface DemandExhibit {
   number: number
   section: ExhibitSection
   label: string
+  /** The EvidenceFile behind the exhibit, so an export can embed it. */
+  fileId?: string
 }
 
 /**
