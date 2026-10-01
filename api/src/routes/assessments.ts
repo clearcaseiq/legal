@@ -10,6 +10,7 @@ import { enforceAssessmentReadAccess } from '../lib/assessment-access'
 import { serializeCaseFacts, updateCaseFacts, type CaseFacts } from '../lib/case-facts'
 import { assignReferenceCode, ensureReferenceCode } from '../lib/case-reference'
 import { createClaimToken, verifyClaimToken } from '../lib/claim-token'
+import { claimCaseWithToken } from '../lib/case-claim'
 import { recordCaseChange } from '../lib/data-authority'
 import { webUrl } from '../lib/app-url'
 import { cancelReportReadyForAssessment, caseReportUrl } from '../lib/report-ready'
@@ -261,11 +262,23 @@ router.post('/', optionalAuthMiddleware, async (req: AuthRequest, res) => {
       }
     })()
     
+    // A guest's browser is the only holder of this case until they register. The
+    // token lets sign-up keep this exact case even under a different email.
+    let claimToken: string | null = null
+    if (!req.user) {
+      try {
+        claimToken = createClaimToken(assessment.id)
+      } catch (tokenError) {
+        logger.warn('Failed to mint claim token for new guest case', { assessmentId: assessment.id, error: tokenError })
+      }
+    }
+
     res.json({ 
       assessment_id: assessment.id,
       reference_code: referenceCode,
       status: assessment.status,
-      created_at: assessment.createdAt
+      created_at: assessment.createdAt,
+      ...(claimToken ? { claim_token: claimToken } : {}),
     })
   } catch (error: any) {
     logger.error('Failed to create assessment', { error })
@@ -2015,61 +2028,9 @@ router.post('/claim', authMiddleware, async (req: AuthRequest, res) => {
     const token = typeof req.body?.token === 'string' ? req.body.token : ''
     if (!token) return res.status(400).json({ error: 'A claim token is required' })
 
-    const assessmentId = verifyClaimToken(token)
-    if (!assessmentId) {
-      return res.status(400).json({ error: 'This claim link is invalid or has expired.' })
-    }
-
-    const assessment = await prisma.assessment.findUnique({
-      where: { id: assessmentId },
-      select: {
-        id: true,
-        userId: true,
-        referenceCode: true,
-        user: { select: { email: true, passwordHash: true, provider: true } },
-      },
-    })
-    if (!assessment) return res.status(404).json({ error: 'Case not found' })
-
-    // Already owned by this user — nothing to do, treat as success (the link may
-    // have been clicked twice).
-    if (assessment.userId === req.user!.id) {
-      return res.json({ claimed: true, assessmentId, reference_code: assessment.referenceCode })
-    }
-
-    if (!isTransferableCaseOwner(assessment.userId ? assessment.user : null)) {
-      return res.status(409).json({ error: 'This case is already linked to another account.' })
-    }
-
-    await prisma.assessment.update({ where: { id: assessmentId }, data: { userId: req.user!.id } })
-    await prisma.evidenceFile.updateMany({ where: { assessmentId }, data: { userId: req.user!.id } })
-
-    // A claimant who signed up under a different email or phone than they
-    // submitted with keeps this same case; the case copy of their contact
-    // details follows the account so attorneys reach them where they now are.
-    const owner = await prisma.user.findUnique({ where: { id: req.user!.id }, select: { email: true, phone: true } })
-    if (owner?.email) {
-      await updateCaseFacts({
-        assessmentId,
-        source: 'web',
-        action: 'contact_updated',
-        recordChange: false,
-        mutate: (current) => {
-          const context = { ...((current.plaintiffContext || {}) as Record<string, unknown>) }
-          context.email = owner.email
-          if (owner.phone) context.phone = owner.phone
-          return { ...current, plaintiffContext: context }
-        },
-      }).catch((err: unknown) =>
-        logger.warn('Could not sync claimant contact onto claimed case', {
-          assessmentId,
-          error: err instanceof Error ? err.message : String(err),
-        }),
-      )
-    }
-
-    logger.info('Case claimed via claim link', { assessmentId, userId: req.user!.id })
-    res.json({ claimed: true, assessmentId, reference_code: assessment.referenceCode })
+    const result = await claimCaseWithToken(token, req.user!.id)
+    if (!result.ok) return res.status(result.status).json({ error: result.error })
+    res.json({ claimed: true, assessmentId: result.assessmentId, reference_code: result.referenceCode })
   } catch (error) {
     logger.error('Failed to claim case', { error, userId: req.user?.id })
     res.status(500).json({ error: 'Failed to claim case' })
@@ -2107,14 +2068,9 @@ router.post('/:id/claim-verification', intakeLimiter, optionalAuthMiddleware, as
   try {
     const parsed = ClaimVerificationRequest.safeParse(req.body || {})
     if (!parsed.success) return res.status(400).json({ error: 'Invalid input' })
-    const allowed = await enforceAssessmentReadAccess({
-      assessmentId: req.params.id,
-      user: req.user,
-      res,
-      route: 'assessments.claim-verification',
-    })
-    if (!allowed) return
-
+    // No read-access gate: once sent, the case is owned by the provisional intake
+    // account, so a signed-out claimant would be refused. The code only ever goes
+    // to the address on record, which is what keeps this safe.
     const target = await claimVerificationTarget(req.params.id)
     if ('error' in target) return res.status(target.error.status).json({ error: target.error.message })
 

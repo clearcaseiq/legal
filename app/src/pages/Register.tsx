@@ -20,7 +20,7 @@ import { useToast } from '../contexts/ToastContext'
 import { resetCachedPlaintiffSessionSummary, updateCachedPlaintiffAssessments, updateCachedPlaintiffUser } from '../hooks/usePlaintiffSessionSummary'
 import { type RegisterFieldErrors, type RegisterInput, validateRegisterInput } from '../lib/registerValidation'
 import { formatPhoneInput } from '../lib/phone'
-import { clearPendingRegistration, getPendingRegistration } from '../lib/pendingRegistration'
+import { clearPendingRegistration, getCaseClaimToken, getPendingRegistration } from '../lib/pendingRegistration'
 
 // Turn an email local-part into a friendly first name when intake didn't collect
 // one (e.g. "joe.rogan@x.com" → "Joe"). Falls back to "there" so the required
@@ -70,12 +70,20 @@ export default function Register() {
   // after sign-up so the case keeps its id even if the claimant registers under a
   // different email or phone than they submitted with.
   const [pendingContact] = useState(() => getPendingRegistration())
-  const caseClaimToken = claimToken || pendingContact.claimToken || null
-  // A case not yet sent has no claim token, and `/associate` only links a case to
-  // an account whose email is on it. Signing up under a new email therefore
-  // needs a code from the case's original address, which is exchanged for a token.
   const caseAssessmentId =
     assessmentId || pendingContact.assessmentId || localStorage.getItem('pending_assessment_id') || null
+  // Only a token for this exact case: a leftover one from an earlier case would
+  // claim that case instead and leave this one behind.
+  const pendingTokenMatchesCase =
+    !caseAssessmentId || !pendingContact.assessmentId || pendingContact.assessmentId === caseAssessmentId
+  const caseClaimToken =
+    claimToken ||
+    getCaseClaimToken(caseAssessmentId) ||
+    (pendingTokenMatchesCase ? pendingContact.claimToken : null) ||
+    null
+  // With no token from this browser (e.g. another device), `/associate` only links
+  // a case to an account whose email is on it, so a new email needs a code from
+  // the case's original address, which is exchanged for a token.
   const verifiedClaimTokenRef = useRef<string | null>(null)
   const formRef = useRef<HTMLFormElement>(null)
   const [claimVerify, setClaimVerify] = useState<{ destination: string; devCode?: string } | null>(null)
@@ -265,7 +273,7 @@ export default function Register() {
       } catch (verifyErr: any) {
         const status = verifyErr?.response?.status
         // Throttled or undeliverable: registering now would silently leave the case behind.
-        if (status === 429 || status === 502) {
+        if (status === 429 || !status || status >= 500) {
           setError(verifyErr.response?.data?.error || 'We could not send a verification code. Please try again.')
           setIsLoading(false)
           return
@@ -273,6 +281,7 @@ export default function Register() {
       }
     }
 
+    const effectiveClaimToken = caseClaimToken || verifiedClaimTokenRef.current
     try {
       const response = await register({
         firstName: derivedFirstName,
@@ -280,7 +289,9 @@ export default function Register() {
         email: form.email.trim(),
         password: form.password,
         phone: form.phone.trim() || undefined,
+        ...(effectiveClaimToken ? { claimTokens: [effectiveClaimToken] } : {}),
       })
+      const claimedAtSignup: string[] = Array.isArray(response?.claimedAssessmentIds) ? response.claimedAssessmentIds : []
       
       // Store the auth token
       localStorage.setItem('auth_token', response.token)
@@ -303,10 +314,17 @@ export default function Register() {
         }
       }
 
-      // Attach the case named by the emailed claim link (or the token from this
-      // browser's submit), then send the user to that case once consent is done.
-      const effectiveClaimToken = caseClaimToken || verifiedClaimTokenRef.current
-      if (effectiveClaimToken) {
+      // Registration already attached the case named by the token; the separate
+      // claim call is only a fallback if that did not happen.
+      if (claimedAtSignup.length > 0) {
+        setClaimedAssessmentId(claimedAtSignup[0])
+        try {
+          const assessments = await listAssessments()
+          updateCachedPlaintiffAssessments(assessments || [])
+        } catch {
+          /* the dashboard reloads the list */
+        }
+      } else if (effectiveClaimToken) {
         try {
           const claimResult = await claimAssessmentByToken(effectiveClaimToken)
           if (claimResult?.assessmentId) {
@@ -821,8 +839,6 @@ export default function Register() {
                   <p className="text-sm font-semibold text-gray-900">{t('auth.needHelpTitle')}</p>
                   <p className="text-xs text-gray-500">{t('auth.needHelpDesc')}</p>
                   <p className="mt-1 text-xs">
-                    <a href={`tel:${t('auth.supportPhone')}`} className="font-medium text-brand-600 hover:text-brand-500">{t('auth.supportPhone')}</a>
-                    <span className="text-gray-400">{'  •  '}</span>
                     <a href={`mailto:${t('auth.supportEmail')}`} className="font-medium text-brand-600 hover:text-brand-500">{t('auth.supportEmail')}</a>
                   </p>
                 </div>

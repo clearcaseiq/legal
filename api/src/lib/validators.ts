@@ -258,7 +258,10 @@ export const UserRegister = z.object({
   // Optional: intake only collects a first name, so the streamlined signup can
   // finish without a last name. Defaults to empty rather than failing validation.
   lastName: z.string().max(80).optional().default(''),
-  phone: optionalPhone
+  phone: optionalPhone,
+  // Claim tokens for the guest cases this browser created or sent; each named
+  // case moves onto the new account even when the email differs from intake.
+  claimTokens: z.array(z.string().max(2048)).max(20).optional(),
 })
 
 export const UserLogin = z.object({

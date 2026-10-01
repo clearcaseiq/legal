@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { login } from '../lib/api-auth'
 import { getPlaintiffConsentCompliance } from '../lib/api-consent'
 import { associateAssessments, claimAssessmentByToken, listAssessments } from '../lib/api-plaintiff'
+import { getCaseClaimToken } from '../lib/pendingRegistration'
 import OAuthButtons from '../components/OAuthButtons'
 import LoginLayout from '../components/LoginLayout'
 import { PasswordInputWithReveal } from '../components/PasswordInputWithReveal'
@@ -92,9 +93,10 @@ export default function Login() {
       // endpoint is idempotent and refuses cases owned by a real account, so a
       // re-clicked or forwarded link is harmless.
       let destination = redirectTo
-      if (claimToken) {
+      const caseClaimToken = claimToken || getCaseClaimToken(assessmentId)
+      if (caseClaimToken) {
         try {
-          const claimResult = await claimAssessmentByToken(claimToken)
+          const claimResult = await claimAssessmentByToken(caseClaimToken)
           if (claimResult?.assessmentId) {
             destination = `/dashboard?case=${encodeURIComponent(claimResult.assessmentId)}`
             const assessments = await listAssessments()

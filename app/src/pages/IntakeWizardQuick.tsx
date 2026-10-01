@@ -3022,6 +3022,7 @@ export default function IntakeWizardQuick() {
       savePendingRegistration({
         email: formData.contact.email.trim(),
         phone: formData.contact.phone.trim(),
+        assessmentId: id,
       })
       clearDraft()
       void syncLead({ assessmentId: id, status: 'completed' })

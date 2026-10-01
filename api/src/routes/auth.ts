@@ -18,6 +18,7 @@ import { activateAcceptedInvites, permissionsForMember } from '../lib/firm-acces
 import { PASSWORD_RESET_TTL_MS, hashResetToken, passwordResetUrl } from '../lib/password-reset'
 import { issueEmailVerification, notifyEmailAddressChanged } from '../lib/email-verification'
 import { syncClaimantContactForUser } from '../lib/claimant-contact'
+import { claimCaseWithToken } from '../lib/case-claim'
 
 // Look up a user's active firm membership (the record that makes a paralegal /
 // case manager / etc. a real firm staffer). Returns null for plaintiffs.
@@ -108,7 +109,7 @@ router.post('/register', async (req, res) => {
       })
     }
 
-    const { email, password, firstName, lastName, phone } = parsed.data
+    const { email, password, firstName, lastName, phone, claimTokens } = parsed.data
 
     // Check if user already exists
     const existingUser = await prisma.user.findUnique({
@@ -166,13 +167,25 @@ router.post('/register', async (req, res) => {
 
     logger.info(existingUser ? 'Provisional account upgraded via registration' : 'User registered', { userId: user.id, email: user.email })
 
+    const claimedAssessmentIds: string[] = []
+    for (const claimToken of new Set(claimTokens || [])) {
+      try {
+        const result = await claimCaseWithToken(claimToken, user.id)
+        if (result.ok) claimedAssessmentIds.push(result.assessmentId)
+        else logger.warn('Registration could not claim a case', { userId: user.id, status: result.status, error: result.error })
+      } catch (claimError) {
+        logger.error('Registration case claim failed', { userId: user.id, error: claimError })
+      }
+    }
+
     // Send the email-verification link on signup (best-effort — never blocks or
     // fails registration if the email provider is unconfigured or slow) (#224).
     void issueEmailVerification(user, { welcome: true })
 
     res.status(201).json({
       user,
-      token
+      token,
+      claimedAssessmentIds,
     })
   } catch (error) {
     logger.error('Registration failed', { error })

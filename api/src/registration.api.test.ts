@@ -19,6 +19,7 @@ import { buildApp } from './build-app'
 import { prisma } from './lib/prisma'
 import { issueEmailVerification } from './lib/email-verification'
 import { resetUniversalPrismaMock } from './test/universalPrismaMock'
+import { createClaimToken } from './lib/claim-token'
 
 const plaintiffValid = {
   email: 'plaintiff.integration@test.local',
@@ -145,6 +146,49 @@ describe('Plaintiff registration POST /v1/auth/register', () => {
     const res = await request(app).post('/v1/auth/register').send({ email: plaintiffValid.email })
 
     expect(res.status).toBe(400)
+  })
+
+  // A claimant who signs up under a different email than intake keeps the same
+  // case: the browser's claim token moves it off the provisional intake account.
+  it('links the guest case named by a claim token under a changed email', async () => {
+    const token = createClaimToken('case-1')
+    vi.mocked(prisma.user.findUnique).mockResolvedValue(null as any)
+    vi.mocked(prisma.user.create).mockResolvedValue({ id: 'user-new', email: 'new@test.local' } as any)
+    vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
+      id: 'case-1',
+      userId: 'provisional-1',
+      referenceCode: 'CCQ-1',
+      user: { email: 'old@test.local', passwordHash: null, provider: 'intake' },
+    } as any)
+
+    const res = await request(app)
+      .post('/v1/auth/register')
+      .send({ ...plaintiffValid, email: 'new@test.local', claimTokens: [token] })
+
+    expect(res.status).toBe(201)
+    expect(res.body.claimedAssessmentIds).toEqual(['case-1'])
+    expect(prisma.assessment.update).toHaveBeenCalledWith({ where: { id: 'case-1' }, data: { userId: 'user-new' } })
+    expect(prisma.evidenceFile.updateMany).toHaveBeenCalledWith({ where: { assessmentId: 'case-1' }, data: { userId: 'user-new' } })
+  })
+
+  it('never moves a case held by a password-backed account', async () => {
+    const token = createClaimToken('case-2')
+    vi.mocked(prisma.user.findUnique).mockResolvedValue(null as any)
+    vi.mocked(prisma.user.create).mockResolvedValue({ id: 'user-new', email: 'new@test.local' } as any)
+    vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
+      id: 'case-2',
+      userId: 'real-owner',
+      referenceCode: null,
+      user: { email: 'owner@test.local', passwordHash: 'hash', provider: 'local' },
+    } as any)
+
+    const res = await request(app)
+      .post('/v1/auth/register')
+      .send({ ...plaintiffValid, email: 'new@test.local', claimTokens: [token] })
+
+    expect(res.status).toBe(201)
+    expect(res.body.claimedAssessmentIds).toEqual([])
+    expect(prisma.assessment.update).not.toHaveBeenCalled()
   })
 })
 

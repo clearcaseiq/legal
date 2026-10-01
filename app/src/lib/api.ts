@@ -1,6 +1,7 @@
 import api from './http'
 import { clearStoredAuth } from './auth'
 import { apiDebug } from './debug'
+import { saveCaseClaimToken } from './pendingRegistration'
 import type { AttorneyDashboardResponse } from '../../../shared/api-contracts'
 import type { HeuristicsConfig } from './heuristics'
 import type { FieldMappingsConfig } from './field-mappings'
@@ -185,6 +186,7 @@ export async function createAssessment(payload: any) {
       apiDebug.error('createAssessment returned unexpected response shape:', data)
       throw new Error('Assessment was created but the API response did not include a valid ID.')
     }
+    if (typeof data?.claim_token === 'string') saveCaseClaimToken(assessmentId, data.claim_token)
     return assessmentId
   } catch (error: any) {
     apiDebug.error('createAssessment failed:', error)

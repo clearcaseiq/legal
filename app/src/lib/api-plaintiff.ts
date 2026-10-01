@@ -1,6 +1,7 @@
 import api from './http'
 import { apiDebug } from './debug'
 import { getAttribution } from './attribution'
+import { saveCaseClaimToken } from './pendingRegistration'
 
 const freshParams = () => ({ _: Date.now() })
 
@@ -179,6 +180,7 @@ export async function createAssessment(payload: any) {
       apiDebug.error('createAssessment returned unexpected response shape:', data)
       throw new Error('Assessment was created but the API response did not include a valid ID.')
     }
+    if (typeof data?.claim_token === 'string') saveCaseClaimToken(assessmentId, data.claim_token)
     return assessmentId
   } catch (error: any) {
     apiDebug.error('createAssessment failed:', error)

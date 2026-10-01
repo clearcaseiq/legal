@@ -202,6 +202,7 @@ export function ResultsSubmittedView({
         firstName: contactPrefill.firstName,
         email: contactPrefill.email,
         phone: contactPrefill.phone,
+        assessmentId: assessmentId || undefined,
       })
     }
   }

@@ -3144,6 +3144,7 @@ Checklist:
       firstName: contactForm.firstName,
       email: contactForm.email,
       phone: contactForm.phone,
+      assessmentId: resolvedAssessmentId || undefined,
     })
   }
 
