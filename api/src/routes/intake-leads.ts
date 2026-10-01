@@ -8,6 +8,8 @@ import { provisionAndLinkIntakeAccount } from '../lib/intake-account'
 import { scheduleReportReady } from '../lib/report-ready'
 import { webUrl } from '../lib/app-url'
 import { deviceTypeFromUserAgent } from '../lib/device-type'
+import { optionalAuthMiddleware, type AuthRequest } from '../lib/auth'
+import { checkContactDuplicates } from '../lib/contact-duplicates'
 
 const router = Router()
 
@@ -155,6 +157,32 @@ function appendStepHistory(existing: string | null | undefined, step: string): s
   history.push({ step, at: new Date().toISOString() })
   return JSON.stringify(history.slice(-MAX_STEP_HISTORY))
 }
+
+const ContactCheckInput = z.object({
+  email: emailField,
+  phone: z.string().trim().max(40).optional().or(z.literal('')),
+})
+
+// Is this email / phone already on a claimant account? Used by intake step 1,
+// the attorney-selection contact edit, and sign-up so the claimant can choose
+// to keep a new case under their existing account.
+router.post('/contact-check', optionalAuthMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const parsed = ContactCheckInput.safeParse(req.body || {})
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() })
+    }
+    const result = await checkContactDuplicates({
+      email: parsed.data.email || null,
+      phone: parsed.data.phone || null,
+      excludeUserId: req.user?.id ?? null,
+    })
+    res.json(result)
+  } catch (error) {
+    logger.error('Failed to check intake contact duplicates', { error })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
 
 // Create a partial intake lead (no auth: the plaintiff has not registered yet).
 router.post('/', async (req, res) => {

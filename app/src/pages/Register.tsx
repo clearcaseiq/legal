@@ -5,6 +5,7 @@ import { register } from '../lib/api-auth'
 import { createConsent } from '../lib/api-consent'
 import {
   associateAssessments,
+  checkContactDuplicates,
   claimAssessmentByToken,
   listAssessments,
   lookupClaimInvite,
@@ -63,6 +64,14 @@ export default function Register() {
   // Signed "claim your case" token from the guest confirmation email. Names the
   // exact case to attach to the new account (see /assessments/claim).
   const claimToken = searchParams.get('claim')
+  // The same token, handed back when the case was sent from this browser. Redeemed
+  // after sign-up so the case keeps its id even if the claimant registers under a
+  // different email or phone than they submitted with.
+  const [pendingContact] = useState(() => getPendingRegistration())
+  const caseClaimToken = claimToken || pendingContact.claimToken || null
+  // Contact key the claimant already chose to keep despite a duplicate warning.
+  const [acknowledgedDuplicateKey, setAcknowledgedDuplicateKey] = useState<string | null>(null)
+  const [duplicateNotice, setDuplicateNotice] = useState<string | null>(null)
   // After an intake signup, send the user straight to their dashboard (with the
   // new case linked). Otherwise honor an explicit redirect or fall back home.
   const redirectTo = assessmentId
@@ -75,7 +84,7 @@ export default function Register() {
   // bare /login was never associated with the account they signed into, so the
   // dashboard came up empty right after they had finished the intake.
   const signInParams = new URLSearchParams()
-  if (claimToken) signInParams.set('claim', claimToken)
+  if (caseClaimToken) signInParams.set('claim', caseClaimToken)
   if (assessmentId) signInParams.set('assessmentId', assessmentId)
   const signInHref = signInParams.toString() ? `/login?${signInParams}` : '/login'
 
@@ -201,6 +210,34 @@ export default function Register() {
     setError(null)
     setOfferSignIn(false)
 
+    // Re-check only what changed since the case was sent; the details carried
+    // over from intake were already checked there.
+    const typedEmail = form.email.trim().toLowerCase()
+    const typedPhoneDigits = form.phone.replace(/\D/g, '').slice(-10)
+    const emailChanged = Boolean(pendingContact.email) && typedEmail !== pendingContact.email!.trim().toLowerCase()
+    const phoneChanged = typedPhoneDigits.length === 10 && typedPhoneDigits !== (pendingContact.phone || '').replace(/\D/g, '').slice(-10)
+    const duplicateKey = `${typedEmail}|${typedPhoneDigits}`
+    if ((emailChanged || phoneChanged || !pendingContact.email) && acknowledgedDuplicateKey !== duplicateKey) {
+      try {
+        const duplicate = await checkContactDuplicates({ email: typedEmail, phone: form.phone.trim() || undefined })
+        if (duplicate.email?.exists && duplicate.email.registered) {
+          setError(t('auth.claimAlreadyRegistered'))
+          setOfferSignIn(true)
+          setIsLoading(false)
+          return
+        }
+        if (duplicate.phone?.exists && !duplicate.phone.sameAccountAsEmail) {
+          setDuplicateNotice('This phone number is already linked to another ClearCaseIQ account. Change it, or select Create account again to use it anyway.')
+          setAcknowledgedDuplicateKey(duplicateKey)
+          setIsLoading(false)
+          return
+        }
+      } catch {
+        // The server still refuses a duplicate registered email; a failed check never blocks sign-up.
+      }
+    }
+    setDuplicateNotice(null)
+
     try {
       const response = await register({
         firstName: derivedFirstName,
@@ -231,11 +268,11 @@ export default function Register() {
         }
       }
 
-      // Attach the case named by the emailed claim link, then send the user to
-      // that case once consent is done.
-      if (claimToken) {
+      // Attach the case named by the emailed claim link (or the token from this
+      // browser's submit), then send the user to that case once consent is done.
+      if (caseClaimToken) {
         try {
-          const claimResult = await claimAssessmentByToken(claimToken)
+          const claimResult = await claimAssessmentByToken(caseClaimToken)
           if (claimResult?.assessmentId) {
             setClaimedAssessmentId(claimResult.assessmentId)
             const assessments = await listAssessments()
@@ -401,6 +438,19 @@ export default function Register() {
                   {claimToken ? t('auth.claimSignInToAttach') : t('auth.signIn')}
                 </Link>
               )}
+            </div>
+          )}
+
+          {duplicateNotice && (
+            <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 p-4" role="alert">
+              <p className="text-sm text-amber-900">{duplicateNotice}</p>
+            </div>
+          )}
+          {caseClaimToken && pendingContact.email && form.email.trim() && form.email.trim().toLowerCase() !== pendingContact.email.trim().toLowerCase() && (
+            <div className="mb-4 rounded-md border border-brand-200 bg-brand-50 p-4">
+              <p className="text-sm text-brand-900">
+                You're signing up with a different email than the one on your case. Your case keeps its Case ID and will be moved to this new account, with its contact email updated.
+              </p>
             </div>
           )}
 

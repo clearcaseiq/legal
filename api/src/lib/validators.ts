@@ -230,6 +230,17 @@ export const SubmitCaseForReview = z.object({
   // The plaintiff's authorization to disclose the case to the firms they selected,
   // captured at the moment the case is transmitted.
   attorneyShareAuthorized: z.boolean().optional(),
+  // The one-time code sent by POST /:id/submit-otp.
+  otpCode: z.string().trim().max(12).optional(),
+})
+
+export const RequestCaseSubmitOtp = z.object({
+  email: z.preprocess(
+    (v) => (typeof v === 'string' ? v.trim().toLowerCase() : v),
+    z.string().email().optional()
+  ),
+  phone: optionalPhone,
+  preferredContactMethod: z.enum(['phone', 'text', 'email']).optional(),
 })
 
 // Authentication schemas

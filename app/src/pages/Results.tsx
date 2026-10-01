@@ -20,6 +20,10 @@ import {
   searchAttorneys,
   getWaveConfig,
   submitCaseForReview,
+  requestCaseSubmitOtp,
+  checkContactDuplicates,
+  type CaseSubmitOtpChallenge,
+  type ContactDuplicateCheck,
   getPendingAttorneyBatch,
   approvePendingAttorneyBatch,
   declinePendingAttorneyBatch,
@@ -711,6 +715,21 @@ function upsertMedicalReviewEdit(
   return next
 }
 
+type SubmitVerifyState = {
+  stage: 'duplicate' | 'otp'
+  attorneyIds: string[]
+  duplicate?: ContactDuplicateCheck
+  challenge?: CaseSubmitOtpChallenge
+  code: string
+  error: string | null
+  busy: boolean
+  resendAt: number
+}
+
+function contactKey(email: string, phone: string): string {
+  return `${email.trim().toLowerCase()}|${phone.replace(/\D/g, '').slice(-10)}`
+}
+
 export default function Results() {
   const { t } = useLanguage()
   const { assessmentId } = useParams<{ assessmentId: string }>()
@@ -815,6 +834,12 @@ export default function Results() {
   const [shareAuthorized, setShareAuthorized] = useState(false)
   const [contactFormError, setContactFormError] = useState<string | null>(null)
   const [contactPhoneError, setContactPhoneError] = useState<string | null>(null)
+  // Contact details already on the case (or confirmed by the claimant after a
+  // duplicate warning). Editing to anything else on the send screen re-runs the
+  // duplicate check before the verification code goes out.
+  const confirmedContactKeysRef = useRef<Set<string>>(new Set())
+  const [submitVerify, setSubmitVerify] = useState<SubmitVerifyState | null>(null)
+  const [resendTick, setResendTick] = useState(0)
   // Human-friendly case reference (e.g. "CCIQ-7Q2K9F") shown after a guest sends
   // their case, so they can quote it to support and find their way back.
   const [caseReferenceCode, setCaseReferenceCode] = useState<string | null>(null)
@@ -1024,6 +1049,7 @@ export default function Results() {
     if (isLoggedIn) {
       loadPlaintiffSessionSummary().then((session) => {
         const user = session.user
+        confirmedContactKeysRef.current.add(contactKey(user?.email || '', user?.phone || ''))
         setContactForm(prev => ({
           firstName: user?.firstName || '',
           email: user?.email || '',
@@ -1034,6 +1060,7 @@ export default function Results() {
     } else {
       const intakeContact = parsedFacts?.intakeData?.contact
       if (intakeContact) {
+        confirmedContactKeysRef.current.add(contactKey(intakeContact.email || '', intakeContact.phone || ''))
         setContactForm(prev => ({
           ...prev,
           email: prev.email || intakeContact.email || '',
@@ -1308,6 +1335,108 @@ export default function Results() {
           .slice(0, waveOneSize)
       }
     }
+    setContactFormError(null)
+
+    // The claimant edited their contact details on this screen: tell them if the
+    // new email/phone already belongs to an account before anything is sent.
+    const key = contactKey(email, phone)
+    if (!confirmedContactKeysRef.current.has(key)) {
+      setSubmitLoading(true)
+      let duplicate: ContactDuplicateCheck | null = null
+      try {
+        duplicate = await checkContactDuplicates({ email: email.trim(), phone: phone.trim() })
+      } catch {
+        duplicate = null
+      } finally {
+        setSubmitLoading(false)
+      }
+      const emailTaken = Boolean(duplicate?.email?.exists)
+      const phoneTaken = Boolean(duplicate?.phone?.exists && !duplicate.phone.sameAccountAsEmail)
+      if (duplicate && (emailTaken || phoneTaken)) {
+        setSubmitVerify({ stage: 'duplicate', attorneyIds: selectedRankedAttorneyIds, duplicate, code: '', error: null, busy: false, resendAt: 0 })
+        return
+      }
+      confirmedContactKeysRef.current.add(key)
+    }
+
+    await startSubmitVerification(selectedRankedAttorneyIds)
+  }
+
+  /** Send the one-time code and open the entry prompt. */
+  const startSubmitVerification = async (attorneyIds: string[]) => {
+    if (!resolvedAssessmentId) return
+    const { email, phone, preferredContactMethod } = contactForm
+    setSubmitVerify((current) => ({
+      stage: 'otp',
+      attorneyIds,
+      code: '',
+      error: null,
+      busy: true,
+      resendAt: current?.resendAt ?? 0,
+      challenge: current?.challenge,
+    }))
+    try {
+      const challenge = await requestCaseSubmitOtp(resolvedAssessmentId, {
+        email: email.trim(),
+        phone: phone.trim(),
+        preferredContactMethod,
+      })
+      if (!challenge.required) {
+        setSubmitVerify(null)
+        await finalizeSubmitForReview(attorneyIds, undefined)
+        return
+      }
+      setSubmitVerify({
+        stage: 'otp',
+        attorneyIds,
+        challenge,
+        code: challenge.devCode ?? '',
+        error: null,
+        busy: false,
+        resendAt: Date.now() + (challenge.resendAfterSeconds ?? 30) * 1000,
+      })
+    } catch (err: any) {
+      const retryAfter = Number(err?.response?.data?.retryAfterSeconds) || 0
+      setSubmitVerify((current) => ({
+        stage: 'otp',
+        attorneyIds,
+        challenge: current?.challenge,
+        code: current?.code ?? '',
+        busy: false,
+        error: err?.response?.data?.error || 'We could not send your verification code. Please try again.',
+        resendAt: retryAfter ? Date.now() + retryAfter * 1000 : current?.resendAt ?? 0,
+      }))
+    }
+  }
+
+  const confirmDuplicateContact = async () => {
+    if (!submitVerify) return
+    confirmedContactKeysRef.current.add(contactKey(contactForm.email, contactForm.phone))
+    await startSubmitVerification(submitVerify.attorneyIds)
+  }
+
+  const editContactAfterDuplicate = () => {
+    setSubmitVerify(null)
+    setShowContactEdit(true)
+  }
+
+  const verifyCodeAndSubmit = async () => {
+    if (!submitVerify) return
+    const code = submitVerify.code.replace(/\D/g, '')
+    if (code.length !== 6) {
+      setSubmitVerify({ ...submitVerify, error: 'Enter the 6-digit code.' })
+      return
+    }
+    setSubmitVerify({ ...submitVerify, busy: true, error: null })
+    const error = await finalizeSubmitForReview(submitVerify.attorneyIds, code)
+    if (error) setSubmitVerify((current) => (current ? { ...current, busy: false, error } : current))
+    else setSubmitVerify(null)
+  }
+
+  /** Returns an error message for the code prompt, or null once the case is sent. */
+  const finalizeSubmitForReview = async (selectedRankedAttorneyIds: string[], otpCode: string | undefined): Promise<string | null> => {
+    if (!resolvedAssessmentId) return null
+    const { firstName, email, phone, preferredContactMethod } = contactForm
     try {
       setSubmitLoading(true)
       setContactFormError(null)
@@ -1327,7 +1456,8 @@ export default function Results() {
         hipaa: isLoggedIn ? hasHipaaConsent || sendHipaaConsent : false,
         rankedAttorneyIds: selectedRankedAttorneyIds,
         dismissedAttorneyIds,
-        attorneyShareAuthorized: shareAuthorized
+        attorneyShareAuthorized: shareAuthorized,
+        ...(otpCode ? { otpCode } : {}),
       })
       if (submitResult?.reference_code) setCaseReferenceCode(submitResult.reference_code)
       setCaseSubmittedForReview(true)
@@ -1336,12 +1466,15 @@ export default function Results() {
       localStorage.setItem('pending_assessment_id', resolvedAssessmentId)
       // Carry the choose-attorney contact details into signup so Create Account
       // prefills email/phone/name (the confirmation screen uses a separate CTA
-      // that previously never wrote pending_registration).
+      // that previously never wrote pending_registration). The claim token keeps
+      // this exact case on the new account even if they sign up with a new email.
       if (!isLoggedIn) {
         savePendingRegistration({
           firstName: firstName.trim(),
           email: email.trim(),
           phone: phone.trim(),
+          assessmentId: resolvedAssessmentId,
+          ...(submitResult?.claim_token ? { claimToken: submitResult.claim_token } : {}),
         })
       }
       if (isLoggedIn) {
@@ -1349,13 +1482,24 @@ export default function Results() {
         const target = `${window.location.origin}/dashboard?case=${resolvedAssessmentId}`
         window.location.replace(target)
       }
+      return null
     } catch (err: any) {
       console.error('Failed to submit for review:', err)
-      setContactFormError(err.response?.data?.error || 'Failed to submit. Please try again.')
+      const message = err.response?.data?.error || 'Failed to submit. Please try again.'
+      const otpError = typeof err.response?.data?.code === 'string' && err.response.data.code.startsWith('OTP_')
+      if (!otpError) setContactFormError(message)
+      return message
     } finally {
       setSubmitLoading(false)
     }
   }
+
+  // Re-render once a second while the resend button is cooling down.
+  useEffect(() => {
+    if (!submitVerify || submitVerify.stage !== 'otp' || submitVerify.resendAt <= Date.now()) return
+    const handle = window.setTimeout(() => setResendTick((n) => n + 1), 1000)
+    return () => window.clearTimeout(handle)
+  }, [submitVerify, resendTick])
 
   const handleResubmit = async () => {
     if (!resolvedAssessmentId) return
@@ -3773,6 +3917,93 @@ Checklist:
                 {t('results.chrome.cancel')}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {submitVerify && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/50 px-4" role="dialog" aria-modal="true" aria-labelledby="submit-verify-title">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+            {submitVerify.stage === 'duplicate' ? (
+              <>
+                <div className="flex items-start gap-3">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700"><AlertTriangle className="h-5 w-5" /></span>
+                  <div>
+                    <h3 id="submit-verify-title" className="text-base font-semibold text-slate-900">These contact details are already on file</h3>
+                    <ul className="mt-2 space-y-1.5 text-sm text-slate-700">
+                      {submitVerify.duplicate?.email?.exists && (
+                        <li><span className="font-medium">{contactForm.email.trim()}</span> is already registered with ClearCaseIQ.</li>
+                      )}
+                      {submitVerify.duplicate?.phone?.exists && !submitVerify.duplicate.phone.sameAccountAsEmail && (
+                        <li><span className="font-medium">{contactForm.phone.trim()}</span> is already linked to {submitVerify.duplicate?.email?.exists ? 'a different' : 'an existing'} account.</li>
+                      )}
+                    </ul>
+                    <p className="mt-3 text-sm text-slate-600">
+                      Do you want to continue with these details? This case keeps its own Case ID and will be filed under that account alongside any other cases.
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-5 flex flex-col gap-2 sm:flex-row-reverse">
+                  <button type="button" className="btn-primary flex-1" onClick={() => void confirmDuplicateContact()}>Yes, continue</button>
+                  <button type="button" className="btn-ghost flex-1" onClick={editContactAfterDuplicate}>Use different details</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex items-start gap-3">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-50 text-brand-700"><ShieldCheck className="h-5 w-5" /></span>
+                  <div>
+                    <h3 id="submit-verify-title" className="text-base font-semibold text-slate-900">Confirm it's you</h3>
+                    <p className="mt-1 text-sm text-slate-600">
+                      {submitVerify.challenge?.destination
+                        ? <>We sent a 6-digit code by {submitVerify.challenge.channel === 'sms' ? 'text' : 'email'} to <span className="font-medium text-slate-900">{submitVerify.challenge.destination}</span>. Enter it to send your case to attorneys.</>
+                        : submitVerify.busy ? 'Sending your verification code…' : 'Enter the verification code to send your case to attorneys.'}
+                    </p>
+                  </div>
+                </div>
+                <form
+                  className="mt-4"
+                  onSubmit={(e) => { e.preventDefault(); void verifyCodeAndSubmit() }}
+                >
+                  <label htmlFor="submit-otp-code" className="mb-1 block text-sm font-medium text-slate-700">Verification code</label>
+                  <input
+                    id="submit-otp-code"
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    autoFocus
+                    maxLength={6}
+                    value={submitVerify.code}
+                    onChange={(e) => setSubmitVerify({ ...submitVerify, code: e.target.value.replace(/\D/g, '').slice(0, 6), error: null })}
+                    className="input text-center text-2xl tracking-[0.5em]"
+                    placeholder="••••••"
+                    disabled={submitVerify.busy}
+                  />
+                  {submitVerify.error && <p className="mt-2 text-sm text-red-600" role="alert">{submitVerify.error}</p>}
+                  <button
+                    type="submit"
+                    className="btn-primary mt-4 w-full py-3 disabled:cursor-not-allowed disabled:opacity-70"
+                    disabled={submitVerify.busy || submitVerify.code.length !== 6}
+                  >
+                    {submitVerify.busy ? t('results.calc.sending') : 'Verify & Send My Case'}
+                  </button>
+                </form>
+                <div className="mt-3 flex items-center justify-between text-sm">
+                  <button
+                    type="button"
+                    className="font-semibold text-brand-700 hover:text-brand-800 disabled:cursor-not-allowed disabled:text-slate-400"
+                    disabled={submitVerify.busy || submitVerify.resendAt > Date.now()}
+                    onClick={() => void startSubmitVerification(submitVerify.attorneyIds)}
+                  >
+                    {submitVerify.resendAt > Date.now()
+                      ? `Resend code in ${Math.ceil((submitVerify.resendAt - Date.now()) / 1000)}s`
+                      : 'Resend code'}
+                  </button>
+                  <button type="button" className="text-slate-500 hover:text-slate-700" disabled={submitVerify.busy} onClick={() => setSubmitVerify(null)}>
+                    {t('results.chrome.cancel')}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

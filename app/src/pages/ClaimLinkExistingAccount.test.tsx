@@ -30,6 +30,7 @@ vi.mock('../lib/api-plaintiff', () => ({
   associateAssessments: vi.fn(async () => ({})),
   claimAssessmentByToken: vi.fn(async () => ({ claimed: true, assessmentId: 'asm-1' })),
   listAssessments: vi.fn(async () => []),
+  checkContactDuplicates: vi.fn(async () => ({ email: null, phone: null })),
   // Register prefills the invited address from the claim token. These cases are
   // about redeeming the token, not about the prefill, so it resolves to nothing
   // to fill and leaves the form as the test typed it.

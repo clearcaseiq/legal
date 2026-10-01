@@ -352,9 +352,40 @@ export async function submitCaseForReview(
     rankedAttorneyIds?: string[]
     dismissedAttorneyIds?: string[]
     attorneyShareAuthorized?: boolean
+    otpCode?: string
   }
 ) {
   const { data } = await api.post(`/v1/assessments/${assessmentId}/submit-for-review`, contactInfo || {})
+  return data as { ok: boolean; submitted: boolean; reference_code?: string | null; claim_token?: string; awaitingAttorneyApproval?: boolean }
+}
+
+export interface CaseSubmitOtpChallenge {
+  required: boolean
+  channel?: 'sms' | 'email'
+  destination?: string
+  expiresAt?: string
+  resendAfterSeconds?: number
+  /** Only from non-production servers with no email/SMS provider. */
+  devCode?: string
+}
+
+/** Send the one-time code the claimant enters before the case goes to attorneys. */
+export async function requestCaseSubmitOtp(
+  assessmentId: string,
+  contact: { email?: string; phone?: string; preferredContactMethod?: 'phone' | 'text' | 'email' },
+): Promise<CaseSubmitOtpChallenge> {
+  const { data } = await api.post(`/v1/assessments/${assessmentId}/submit-otp`, contact)
+  return data
+}
+
+export interface ContactDuplicateCheck {
+  email: { exists: boolean; registered: boolean } | null
+  phone: { exists: boolean; sameAccountAsEmail: boolean } | null
+}
+
+/** Whether an email / phone is already on a claimant account (no case details are revealed). */
+export async function checkContactDuplicates(contact: { email?: string; phone?: string }): Promise<ContactDuplicateCheck> {
+  const { data } = await api.post('/v1/intake-leads/contact-check', contact)
   return data
 }
 

@@ -4866,6 +4866,27 @@ model SmsOptOut {
   @@map("sms_opt_outs")
 }
 
+/// One-time code the claimant must enter before their case is sent to
+/// attorneys. Only a hash of the code is kept. `destination` is the exact
+/// address or number the code went to, so the submit that consumes it can be
+/// held to that same contact.
+model CaseSubmitOtp {
+  id           String    @id @default(cuid())
+  assessmentId String
+  /// `sms` or `email`.
+  channel      String
+  destination  String
+  codeHash     String
+  attempts     Int       @default(0)
+  expiresAt    DateTime
+  verifiedAt   DateTime?
+  consumedAt   DateTime?
+  createdAt    DateTime  @default(now())
+
+  @@index([assessmentId, createdAt])
+  @@map("case_submit_otps")
+}
+
 /// Which case a phone number is allowed to text documents to.
 ///
 /// Inbound SMS carries no identity beyond the sending number, and the claimant's

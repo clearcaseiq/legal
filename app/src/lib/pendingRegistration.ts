@@ -9,6 +9,9 @@ export type PendingRegistration = {
   lastName?: string
   email?: string
   phone?: string
+  /** Signed claim token from submit; sign-up redeems it so the case stays attached under a changed email. */
+  claimToken?: string
+  assessmentId?: string
 }
 
 export function savePendingRegistration(next: PendingRegistration) {

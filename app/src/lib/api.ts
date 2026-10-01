@@ -444,6 +444,7 @@ export async function submitCaseForReview(
     rankedAttorneyIds?: string[]
     dismissedAttorneyIds?: string[]
     attorneyShareAuthorized?: boolean
+    otpCode?: string
   }
 ) {
   const { data } = await api.post(`/v1/assessments/${assessmentId}/submit-for-review`, contactInfo || {})

@@ -27,6 +27,7 @@ vi.mock('../lib/api-plaintiff', () => ({
     throw new Error('offline')
   }),
   predict: vi.fn(async () => ({})),
+  checkContactDuplicates: vi.fn(async () => ({ email: null, phone: null })),
   uploadEvidenceFile: vi.fn(async () => ({})),
   processEvidenceFile: vi.fn(async () => ({})),
   extractEvidenceData: vi.fn(async () => ({})),

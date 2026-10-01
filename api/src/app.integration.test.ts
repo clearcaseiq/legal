@@ -16,6 +16,13 @@ vi.mock('./lib/assessment-routing', () => ({
   }),
 }))
 
+vi.mock('./lib/case-submit-otp', () => ({
+  isCaseSubmitOtpRequired: vi.fn(() => true),
+  issueCaseSubmitOtp: vi.fn(),
+  verifyCaseSubmitOtp: vi.fn().mockResolvedValue({ ok: true, otpId: 'otp-1' }),
+  consumeCaseSubmitOtp: vi.fn().mockResolvedValue(undefined),
+}))
+
 vi.mock('./lib/prisma', () => import('./test/universalPrismaMock'))
 
 import { buildApp } from './build-app'

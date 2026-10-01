@@ -2,7 +2,8 @@ import { Router, type Response as ExpressResponse } from 'express'
 import { createHash } from 'crypto'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma'
-import { AssessmentWrite, AssessmentUpdate, SubmitCaseForReview } from '../lib/validators'
+import { AssessmentWrite, AssessmentUpdate, RequestCaseSubmitOtp, SubmitCaseForReview } from '../lib/validators'
+import { consumeCaseSubmitOtp, isCaseSubmitOtpRequired, issueCaseSubmitOtp, verifyCaseSubmitOtp } from '../lib/case-submit-otp'
 import { logger } from '../lib/logger'
 import { optionalAuthMiddleware, authMiddleware, AuthRequest } from '../lib/auth'
 import { enforceAssessmentReadAccess } from '../lib/assessment-access'
@@ -1233,6 +1234,54 @@ router.get('/', optionalAuthMiddleware, async (req: AuthRequest, res) => {
   }
 })
 
+// Send the one-time code the claimant must enter before the case goes to attorneys.
+router.post('/:id/submit-otp', intakeLimiter, optionalAuthMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const id = req.params.id
+    const parsed = RequestCaseSubmitOtp.safeParse(req.body || {})
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() })
+    }
+    const allowed = await enforceAssessmentReadAccess({
+      assessmentId: id,
+      user: req.user,
+      res,
+      route: 'assessments.submit-otp',
+    })
+    if (!allowed) return
+
+    if (!isCaseSubmitOtpRequired()) {
+      return res.json({ required: false })
+    }
+
+    const result = await issueCaseSubmitOtp({
+      assessmentId: id,
+      email: parsed.data.email,
+      phone: parsed.data.phone,
+      preferredContactMethod: parsed.data.preferredContactMethod,
+    })
+    if (!result.ok) {
+      if (result.retryAfterSeconds) res.setHeader('Retry-After', String(result.retryAfterSeconds))
+      return res.status(result.status).json({
+        error: result.error,
+        code: result.code,
+        ...(result.retryAfterSeconds ? { retryAfterSeconds: result.retryAfterSeconds } : {}),
+      })
+    }
+    res.json({
+      required: true,
+      channel: result.channel,
+      destination: result.maskedDestination,
+      expiresAt: result.expiresAt.toISOString(),
+      resendAfterSeconds: result.resendAfterSeconds,
+      ...(result.devCode ? { devCode: result.devCode } : {}),
+    })
+  } catch (error) {
+    logger.error('Failed to issue case submit OTP', { error, assessmentId: req.params.id })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
 // Submit case for attorney review (plaintiff self-submission)
 router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRequest, res) => {
   try {
@@ -1287,6 +1336,19 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
     })
     if (!assessment) {
       return res.status(404).json({ error: 'Assessment not found' })
+    }
+
+    let verifiedOtpId: string | null = null
+    if (isCaseSubmitOtpRequired()) {
+      const otp = await verifyCaseSubmitOtp({ assessmentId: id, code: parsed.data.otpCode, email, phone })
+      if (!otp.ok) {
+        return res.status(otp.status).json({
+          error: otp.error,
+          code: otp.code,
+          ...(otp.attemptsRemaining !== undefined ? { attemptsRemaining: otp.attemptsRemaining } : {}),
+        })
+      }
+      verifiedOtpId = otp.otpId
     }
     // A case with a lead row is not a case anyone has necessarily seen. Manual
     // review upserts one, an admin release upserts one, and a first attempt is
@@ -1488,6 +1550,24 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
       await prisma.leadSubmission.create({ data: { assessmentId: id, ...leadData } })
     }
     logger.info('Case submitted for review', { assessmentId: id, userId: req.user?.id })
+    if (verifiedOtpId) await consumeCaseSubmitOtp(verifiedOtpId)
+
+    // A guest has just proved they hold this case's contact details, so hand back
+    // the same claim token the receipt email carries. Sign-up redeems it, which
+    // keeps this case id on their account even if they register under a
+    // different email than the one they submitted with.
+    let claimToken: string | null = null
+    if (!req.user) {
+      try {
+        claimToken = createClaimToken(id)
+      } catch (tokenErr) {
+        logger.warn('Could not mint claim token on submit', {
+          assessmentId: id,
+          error: tokenErr instanceof Error ? tokenErr.message : String(tokenErr),
+        })
+      }
+    }
+    const claimExtras = claimToken ? { claim_token: claimToken } : {}
 
     // The report email queued when the assessment finished would otherwise land
     // beside the receipt below, which now carries the report link itself.
@@ -1580,7 +1660,7 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
       void placeAssessmentInManualReview(id, CLAIMANT_REPRESENTED_REASON, CLAIMANT_REPRESENTED_NOTE).catch((err) =>
         logger.error('Failed to hold represented claimant on submit', { assessmentId: id, error: err.message })
       )
-      return res.json({ ok: true, submitted: true, reference_code: referenceCode })
+      return res.json({ ok: true, submitted: true, reference_code: referenceCode, ...claimExtras })
     }
 
     if (rankedAttorneyIds.length === 0) {
@@ -1608,7 +1688,7 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
           logger.error('Failed to propose attorneys on submit', { assessmentId: id, error: err.message })
         )
 
-      return res.json({ ok: true, submitted: true, awaitingAttorneyApproval: true, reference_code: referenceCode })
+      return res.json({ ok: true, submitted: true, awaitingAttorneyApproval: true, reference_code: referenceCode, ...claimExtras })
     }
 
     // Trigger unified routing orchestration against the attorneys the plaintiff chose.
@@ -1644,7 +1724,7 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
       }
     }).catch(err => logger.error('Unified routing failed on submit', { assessmentId: id, error: err.message }))
 
-    res.json({ ok: true, submitted: true, reference_code: referenceCode })
+    res.json({ ok: true, submitted: true, reference_code: referenceCode, ...claimExtras })
   } catch (error: any) {
     logger.error('Failed to submit case for review', { error, assessmentId: req.params.id })
     res.status(500).json({ error: 'Internal server error' })
@@ -1963,6 +2043,30 @@ router.post('/claim', authMiddleware, async (req: AuthRequest, res) => {
 
     await prisma.assessment.update({ where: { id: assessmentId }, data: { userId: req.user!.id } })
     await prisma.evidenceFile.updateMany({ where: { assessmentId }, data: { userId: req.user!.id } })
+
+    // A claimant who signed up under a different email or phone than they
+    // submitted with keeps this same case; the case copy of their contact
+    // details follows the account so attorneys reach them where they now are.
+    const owner = await prisma.user.findUnique({ where: { id: req.user!.id }, select: { email: true, phone: true } })
+    if (owner?.email) {
+      await updateCaseFacts({
+        assessmentId,
+        source: 'web',
+        action: 'contact_updated',
+        recordChange: false,
+        mutate: (current) => {
+          const context = { ...((current.plaintiffContext || {}) as Record<string, unknown>) }
+          context.email = owner.email
+          if (owner.phone) context.phone = owner.phone
+          return { ...current, plaintiffContext: context }
+        },
+      }).catch((err: unknown) =>
+        logger.warn('Could not sync claimant contact onto claimed case', {
+          assessmentId,
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      )
+    }
 
     logger.info('Case claimed via claim link', { assessmentId, userId: req.user!.id })
     res.json({ claimed: true, assessmentId, reference_code: assessment.referenceCode })

@@ -4,7 +4,7 @@
 import { Fragment, useCallback, useMemo, useState, useEffect, useLayoutEffect, useRef, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
-import { createAssessment, predict, uploadEvidenceFile, processEvidenceFile, extractEvidenceData, analyzeCaseWithChatGPT, calculateSOL, createIntakeLead, updateIntakeLead, getIntakeLead, getEvidenceFiles, lookupZipCounties, type IntakeLeadPayload } from '../lib/api-plaintiff'
+import { createAssessment, predict, uploadEvidenceFile, processEvidenceFile, extractEvidenceData, analyzeCaseWithChatGPT, calculateSOL, createIntakeLead, updateIntakeLead, getIntakeLead, getEvidenceFiles, lookupZipCounties, checkContactDuplicates, type ContactDuplicateCheck, type IntakeLeadPayload } from '../lib/api-plaintiff'
 import {
   deleteEvidenceFile,
   extractIncidentDetails,
@@ -1096,6 +1096,11 @@ export default function IntakeWizardQuick() {
   const [draftRestored, setDraftRestored] = useState(false)
   const [showResetConfirm, setShowResetConfirm] = useState(false)
   const [emailDeliverable, setEmailDeliverable] = useState<'unknown' | 'checking' | 'ok' | 'bad'>('unknown')
+  // Step 1 duplicate check: an email/phone already on an account prompts the
+  // claimant to file this new case (its own Case ID) under that account or change it.
+  const [contactDuplicate, setContactDuplicate] = useState<ContactDuplicateCheck | null>(null)
+  const [contactCheckPending, setContactCheckPending] = useState(false)
+  const confirmedIntakeContactRef = useRef<string | null>(null)
   const [contactMethod, setContactMethod] = useState<'email' | 'phone'>('email')
   const [pendingEvidenceFiles, setPendingEvidenceFiles] = useState<Record<string, any[]>>({})
   // "Send documents" flow for the plaintiff document-upload page (CP-499).
@@ -2662,6 +2667,31 @@ export default function IntakeWizardQuick() {
     setErrors(err)
     if (Object.keys(err).length > 0) return
     if (currentStep === 'injury_type' && (formData.contact.email.trim() || formData.contact.phone.trim())) {
+      const email = formData.contact.email.trim().toLowerCase()
+      const phone = formData.contact.phone.trim()
+      const key = `${email}|${phone.replace(/\D/g, '').slice(-10)}`
+      if (confirmedIntakeContactRef.current !== key) {
+        if (contactCheckPending) return
+        setContactCheckPending(true)
+        checkContactDuplicates({ email: email || undefined, phone: phone || undefined })
+          .then((duplicate) => {
+            const emailTaken = Boolean(duplicate.email?.exists)
+            const phoneTaken = Boolean(duplicate.phone?.exists && !duplicate.phone.sameAccountAsEmail)
+            if (emailTaken || phoneTaken) {
+              setContactDuplicate(duplicate)
+              return
+            }
+            confirmedIntakeContactRef.current = key
+            validateAndNextRef.current()
+          })
+          .catch(() => {
+            // A failed lookup never blocks intake.
+            confirmedIntakeContactRef.current = key
+            validateAndNextRef.current()
+          })
+          .finally(() => setContactCheckPending(false))
+        return
+      }
       void syncLead()
     }
     if (returnToReviewFromStep === currentStep) {
@@ -7484,13 +7514,62 @@ export default function IntakeWizardQuick() {
           <button
             type="button"
             onClick={validateAndNext}
-            className="inline-flex min-h-11 flex-1 items-center justify-center rounded-xl bg-accent-600 px-6 py-2.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-accent-700 sm:ml-auto sm:flex-none"
+            disabled={contactCheckPending}
+            className="inline-flex min-h-11 flex-1 items-center justify-center rounded-xl bg-accent-600 px-6 py-2.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-accent-700 disabled:opacity-70 sm:ml-auto sm:flex-none"
           >
-            {currentStep === 'injury_severity' ? tx('cta_continueReview') : t('common.next')} <ChevronRight className="h-4 w-4 ml-1" aria-hidden />
+            {contactCheckPending ? tx('dupContact_checking') : currentStep === 'injury_severity' ? tx('cta_continueReview') : t('common.next')} <ChevronRight className="h-4 w-4 ml-1" aria-hidden />
           </button>
         )}
       </div>
       </div>
+
+      {contactDuplicate && createPortal(
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="dup-contact-title"
+        >
+          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+            <div className="flex items-start gap-3">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700"><AlertTriangle className="h-5 w-5" aria-hidden /></span>
+              <div>
+                <h2 id="dup-contact-title" className="text-base font-semibold text-slate-900 dark:text-slate-50">{tx('dupContact_title')}</h2>
+                <ul className="mt-1.5 space-y-1 text-sm text-slate-700 dark:text-slate-300">
+                  {contactDuplicate.email?.exists && <li>{tx('dupContact_email')}</li>}
+                  {contactDuplicate.phone?.exists && !contactDuplicate.phone.sameAccountAsEmail && <li>{tx('dupContact_phone')}</li>}
+                </ul>
+                <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">{tx('dupContact_body')}</p>
+              </div>
+            </div>
+            <div className="mt-4 flex flex-col gap-2 sm:flex-row-reverse">
+              <button
+                type="button"
+                onClick={() => {
+                  const email = formData.contact.email.trim().toLowerCase()
+                  confirmedIntakeContactRef.current = `${email}|${formData.contact.phone.replace(/\D/g, '').slice(-10)}`
+                  setContactDuplicate(null)
+                  validateAndNextRef.current()
+                }}
+                className="inline-flex min-h-10 flex-1 items-center justify-center rounded-lg bg-accent-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-accent-700"
+              >
+                {tx('dupContact_continue')}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setContactDuplicate(null)
+                  window.setTimeout(() => document.getElementById('contact-email')?.focus(), 50)
+                }}
+                className="inline-flex min-h-10 flex-1 items-center justify-center rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+              >
+                {tx('dupContact_change')}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
 
       {showResetConfirm && createPortal(
         <div
