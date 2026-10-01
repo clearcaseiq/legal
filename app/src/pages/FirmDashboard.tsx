@@ -504,6 +504,10 @@ export default function FirmDashboard() {
 
   // Member permissions editor state
   const [editingMember, setEditingMember] = useState<any>(null)
+  const [editingStaff, setEditingStaff] = useState<any | null>(null)
+  const [staffForm, setStaffForm] = useState({ firstName: '', lastName: '', title: '', phone: '' })
+  const [staffSaving, setStaffSaving] = useState(false)
+  const [staffError, setStaffError] = useState<string | null>(null)
   const [editMemberRole, setEditMemberRole] = useState('')
   const [editMemberTitle, setEditMemberTitle] = useState('')
   const [editMemberGrant, setEditMemberGrant] = useState<string[]>([])
@@ -1206,6 +1210,40 @@ export default function FirmDashboard() {
       await refresh(true)
     } catch (e: any) {
       setTeamOfficeError(e?.response?.data?.error || 'Failed to delete office.')
+    }
+  }
+
+  const openEditStaff = (m: any) => {
+    setEditingStaff(m)
+    setStaffError(null)
+    setStaffForm({
+      firstName: m.user?.firstName || '',
+      lastName: m.user?.lastName || '',
+      title: m.title || '',
+      phone: m.user?.phone || '',
+    })
+  }
+
+  const handleSaveStaff = async () => {
+    if (!editingStaff) return
+    setStaffError(null)
+    if (!staffForm.firstName.trim() || !staffForm.lastName.trim()) return setStaffError('First and last name are required.')
+    const phoneError = validatePhoneField(staffForm.phone)
+    if (phoneError) return setStaffError(phoneError)
+    setStaffSaving(true)
+    try {
+      await updateFirmMember(editingStaff.id, {
+        firstName: staffForm.firstName.trim(),
+        lastName: staffForm.lastName.trim(),
+        title: staffForm.title.trim() || null,
+        phone: staffForm.phone.trim() || null,
+      })
+      setEditingStaff(null)
+      await refresh(true)
+    } catch (err: any) {
+      setStaffError(err?.response?.data?.error || 'Failed to update profile.')
+    } finally {
+      setStaffSaving(false)
     }
   }
 
@@ -2268,6 +2306,15 @@ export default function FirmDashboard() {
                           >
                             <Pencil className="h-4 w-4" />
                           </button>
+                        ) : m.userId || m.user?.id ? (
+                          <button
+                            onClick={() => openEditStaff(m)}
+                            className={btnGhost + ' !h-8 !w-8 shrink-0 justify-center !p-0'}
+                            title="Edit profile"
+                            aria-label="Edit profile"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </button>
                         ) : (
                           <span className="w-8 shrink-0" aria-hidden />
                         )}
@@ -3162,6 +3209,35 @@ export default function FirmDashboard() {
               <button onClick={() => setEditingMember(null)} className={btnGhost}>Cancel</button>
               <button onClick={handleSaveMember} disabled={editMemberSaving} className={btnPrimary}>
                 {editMemberSaving ? 'Saving…' : 'Save changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editingStaff && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+              <h3 className="text-lg font-semibold text-slate-900">Edit profile</h3>
+              <button type="button" onClick={() => setEditingStaff(null)} className="text-slate-400 hover:text-slate-600" aria-label="Close">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="space-y-3 px-6 py-4">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <input type="text" value={staffForm.firstName} onChange={(e) => setStaffForm({ ...staffForm, firstName: e.target.value })} placeholder="First name" maxLength={NAME_MAX} className={inputCls} />
+                <input type="text" value={staffForm.lastName} onChange={(e) => setStaffForm({ ...staffForm, lastName: e.target.value })} placeholder="Last name" maxLength={NAME_MAX} className={inputCls} />
+              </div>
+              <input type="text" value={staffForm.title} onChange={(e) => setStaffForm({ ...staffForm, title: e.target.value })} placeholder="Title, e.g. Senior Paralegal" maxLength={NAME_MAX} className={inputCls} />
+              <input type="tel" value={staffForm.phone} onChange={(e) => setStaffForm({ ...staffForm, phone: e.target.value })} placeholder="Phone (optional)" className={inputCls} />
+              <p className="text-xs text-slate-500">Email: {editingStaff.user?.email || '—'}</p>
+              {staffError && <p className="text-sm text-red-600">{staffError}</p>}
+            </div>
+            <div className="flex items-center justify-end gap-3 border-t border-slate-100 px-6 py-4">
+              <button type="button" onClick={() => setEditingStaff(null)} className={btnGhost}>Cancel</button>
+              <button type="button" onClick={handleSaveStaff} disabled={staffSaving} className={btnPrimary}>
+                {staffSaving ? 'Saving…' : 'Save changes'}
               </button>
             </div>
           </div>

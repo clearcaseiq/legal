@@ -37,9 +37,11 @@ export default function LetterComposerModal({
   onClose,
   controls,
   footnote,
+  docLabel = 'Letter of representation',
 }: {
   leadId: string
   title: string
+  docLabel?: string
   recipientLabel: string
   defaultEmail: string | null
   /** Changing this reloads the prefilled letter (e.g. toggling lien language). */
@@ -83,14 +85,14 @@ export default function LetterComposerModal({
     try {
       const result = await onSend({ body, delivery, ...(delivery === 'email' ? { recipientEmail: email.trim() } : {}) })
       if (delivery === 'download') {
-        await saveLetterPdf(leadId, result.letter.id, `Letter-of-Representation-${recipientLabel.replace(/[^a-z0-9]+/gi, '-')}.pdf`)
+        await saveLetterPdf(leadId, result.letter.id, `${docLabel.replace(/[^a-z0-9]+/gi, '-')}-${recipientLabel.replace(/[^a-z0-9]+/gi, '-')}.pdf`)
       }
       const closed = result.tasksCompleted ? ' The task is marked done.' : ''
       onSent(
         result,
         delivery === 'email'
-          ? `Letter of representation emailed to ${email.trim()}.${closed}`
-          : `Letter of representation downloaded for ${recipientLabel} and logged as sent.${closed}`,
+          ? `${docLabel} emailed to ${email.trim()}.${closed}`
+          : `${docLabel} downloaded for ${recipientLabel} and logged as sent.${closed}`,
       )
     } catch (err: any) {
       setError(err?.response?.data?.error || err?.message || 'Could not send the letter.')

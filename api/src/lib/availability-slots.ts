@@ -93,6 +93,8 @@ export function generateAvailableTimeSlots(params: {
   endTime: string
   duration: number
   existingAppointments: AppointmentLike[]
+  /** Slots starting before this instant are not offered (time already passed). */
+  notBefore?: Date
   /**
    * @deprecated Prefer dateStr + timezone. Kept so older callers that only have a
    * Date can still build a YYYY-MM-DD key from its UTC calendar day.
@@ -119,6 +121,7 @@ export function generateAvailableTimeSlots(params: {
     const slotEnd = new Date(current.getTime() + params.duration * 60000)
     if (
       slotEnd.getTime() <= windowEnd.getTime() &&
+      (!params.notBefore || current.getTime() >= params.notBefore.getTime()) &&
       !hasAppointmentConflict(current, params.duration, params.existingAppointments)
     ) {
       slots.push({

@@ -5,6 +5,7 @@ import { logger } from './logger'
 import { CaseFacts } from './case-tier-classifier'
 import { CaseForRouting } from './routing'
 import { sendCaseOfferSms } from './sms'
+import { notifyAttorneyNewMatchInApp } from './case-notifications'
 import { coversClaimType } from './case-type-match'
 import { getCaseRoutingFeeDollars } from './matching-rules-config'
 
@@ -402,6 +403,7 @@ async function sendOfferToFirm(
 
   const smsSummary = method === 'subscription' ? 'Tier 1 case - Subscription allocation' : 'Tier 1 case - Fixed price offer'
   await sendCaseOfferSms(firmId, intro.id, smsSummary, Math.ceil(TIER_1_SUBSCRIPTION_TIMEOUT_MS / 60000))
+  await notifyAttorneyNewMatchInApp(firmId, intro.id)
 
   return intro.id
 }

@@ -663,7 +663,9 @@ describe('GET /v1/case-routing/assessment/:id/status (plaintiff)', () => {
       expect(res.body.attorneyMatched).toBeNull()
     })
 
-    it('still prefers an accepted introduction when there is one', async () => {
+    // A firm transfer moves the lead's assignee but leaves the introduction on
+    // the attorney who accepted. Consults must book with the current holder.
+    it('names the current assignee when a case was transferred after acceptance', async () => {
       vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
         ...imported('contacted'),
         introductions: [
@@ -677,7 +679,7 @@ describe('GET /v1/case-routing/assessment/:id/status (plaintiff)', () => {
 
       const res = await status()
 
-      expect(res.body.attorneyMatched.id).toBe('a1')
+      expect(res.body.attorneyMatched.id).toBe('a9')
       expect(res.body.attorneyMatched.origin).toBe('introduction')
       expect(res.body.attorneyMatched.acceptedAt).toBe('2026-04-06T11:00:00.000Z')
     })

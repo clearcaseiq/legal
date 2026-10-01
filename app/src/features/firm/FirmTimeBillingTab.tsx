@@ -114,15 +114,35 @@ export function FirmTimeBillingTab() {
     }
   }
 
+  const [exporting, setExporting] = useState(false)
+  const [exportError, setExportError] = useState<string | null>(null)
   const download = async () => {
-    const url = await exportFirmTimeCsv(filters)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = 'time-entries.csv'
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    setTimeout(() => URL.revokeObjectURL(url), 2000)
+    setExporting(true)
+    setExportError(null)
+    try {
+      const url = await exportFirmTimeCsv(filters)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'time-entries.csv'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 2000)
+    } catch (err: any) {
+      // The request asks for a blob, so an error body arrives as one too.
+      let message = 'Could not export time entries.'
+      const body = err?.response?.data
+      if (body instanceof Blob) {
+        try {
+          message = JSON.parse(await body.text())?.error || message
+        } catch {
+          /* not JSON */
+        }
+      }
+      setExportError(message)
+    } finally {
+      setExporting(false)
+    }
   }
 
   const roleLabel = useMemo(() => {
@@ -216,9 +236,12 @@ export function FirmTimeBillingTab() {
       <SectionCard
         title="Time entries"
         trailing={
-          <button type="button" className={btnGhost} onClick={download}>
-            <Download className="h-3.5 w-3.5" /> Export CSV
-          </button>
+          <div className="flex items-center gap-2">
+            {exportError && <span className="text-xs text-red-600">{exportError}</span>}
+            <button type="button" className={btnGhost} onClick={download} disabled={exporting}>
+              {exporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />} Export CSV
+            </button>
+          </div>
         }
       >
         <div>

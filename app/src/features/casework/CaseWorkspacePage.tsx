@@ -64,6 +64,8 @@ import {
 import {
   createDocumentRequest,
   createLeadDamage,
+  getLeadDamages,
+  getCaseWorkflow,
   createLeadInsurance,
   createLeadTask,
   createLeadTasksFromReadiness,
@@ -115,6 +117,7 @@ import ProviderLettersPanel from './ProviderLettersPanel'
 import SettlementPanel from './SettlementPanel'
 import CaseLifecycleControls from './CaseLifecycleControls'
 import DamagesPanel from './DamagesPanel'
+import NegotiationLogPanel from './NegotiationLogPanel'
 import LiabilityPanel from './LiabilityPanel'
 import MedicalTimelinePanel from './MedicalTimelinePanel'
 import PlaintiffImpactJournalPanel from './PlaintiffImpactJournalPanel'
@@ -1195,6 +1198,7 @@ function WorkstreamPanel({
               </div>
             ) : null}
           </div>
+          <NegotiationLogPanel leadId={lead.id} canManage={!staffLacks('manage')} onChanged={() => void reloadCc()} />
         </div>
       )
     }
@@ -1204,17 +1208,6 @@ function WorkstreamPanel({
     const gapClosedPct = demand > 0 && offer > 0 ? Math.round((offer / demand) * 100) : null
     const scaleMax = Math.max(demand, offer, policy, median) || 1
     const asPct = (v: number) => Math.max(0, Math.min(100, (v / scaleMax) * 100))
-
-    const rows: string[][] = []
-    const tone: Tone[] = []
-    if (n.latestDemand != null) {
-      rows.push([formatDate(n.latestEventDate), 'Us', 'Demand', money(n.latestDemand)])
-      tone.push('info')
-    }
-    if (n.latestOffer != null) {
-      rows.push([formatDate(n.latestEventDate), 'Carrier', n.latestStatus || 'Offer', money(n.latestOffer)])
-      tone.push('warning')
-    }
 
     return (
       <div className="space-y-4">
@@ -1255,9 +1248,7 @@ function WorkstreamPanel({
           </div>
         </div>
 
-        {rows.length ? (
-          <DataTable headers={['Date', 'Party', 'Position', 'Amount']} align={['left', 'left', 'left', 'right']} rows={rows} tone={tone} />
-        ) : null}
+        <NegotiationLogPanel leadId={lead.id} canManage={!staffLacks('manage')} onChanged={() => void reloadCc()} />
 
         {n.recommendedMove ? (
           <div className="flex items-start gap-2.5 rounded-xl border border-brand-100 bg-brand-50/60 px-4 py-3 text-sm leading-relaxed text-slate-700">
@@ -2380,6 +2371,18 @@ function EvidencePanel({
   useEffect(() => {
     refreshDocs()
     refreshRequests()
+    // Evidence-sourced ledger lines carry "From evidence <fileId>" in notes;
+    // seed from the saved ledger so added files stay hidden across reloads.
+    getLeadDamages(leadId)
+      .then(({ items }) => {
+        const ids = new Set<string>()
+        for (const it of items || []) {
+          const m = /From evidence (\S+)/.exec(String(it?.notes || ''))
+          if (m) ids.add(m[1])
+        }
+        setAddedDamageIds((prev) => new Set([...prev, ...ids]))
+      })
+      .catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leadId])
 
@@ -4195,6 +4198,8 @@ interface TaskFormState {
   dueDate: string
   priority: string
   taskType: string
+  /** JSON `[phase, stage]` from the case Workflow; '' files the task under General. */
+  section: string
   assignedRole: string
   assignedUserId: string
   notes: string
@@ -4205,6 +4210,7 @@ const EMPTY_TASK_FORM: TaskFormState = {
   dueDate: '',
   priority: 'medium',
   taskType: 'general',
+  section: '',
   assignedRole: 'attorney',
   assignedUserId: '',
   notes: '',
@@ -4310,12 +4316,29 @@ function TasksPanel({
   // Explicit open/closed choices per section; unset sections collapse once every task is done.
   const [sectionOpenOverride, setSectionOpenOverride] = useState<Record<string, boolean>>({})
   const [colleagues, setColleagues] = useState<FirmColleague[]>([])
+  const [workflowPhases, setWorkflowPhases] = useState<{ phase: string; stages: string[] }[]>([])
 
   useEffect(() => {
     getFirmColleagues()
       .then((res) => setColleagues(Array.isArray(res?.colleagues) ? res.colleagues : []))
       .catch(() => setColleagues([]))
   }, [])
+
+  useEffect(() => {
+    getCaseWorkflow(leadId)
+      .then((res) => {
+        const phases = [...(res?.workflow?.phases ?? [])].sort((a, b) => a.order - b.order)
+        setWorkflowPhases(
+          phases
+            .map((p) => ({
+              phase: p.name,
+              stages: [...p.stages].sort((a, b) => a.order - b.order).map((s) => s.name).filter(Boolean),
+            }))
+            .filter((p) => p.phase && p.stages.length),
+        )
+      })
+      .catch(() => setWorkflowPhases([]))
+  }, [leadId])
 
   const load = async () => {
     await reload()
@@ -4461,7 +4484,12 @@ function TasksPanel({
     setBusy(t.id)
     try {
       const res = await sendWelcomePacket(leadId)
-      flash('ok', `Welcome packet sent to ${res.signerEmail}: retainer agreement and HIPAA authorization for signature.`)
+      const sent = [res.retainer?.title, res.hipaa?.title, ...(res.templates || []).map((e) => e.title)].filter(Boolean)
+      const failedNote = res.failed?.length ? ` ${res.failed.length} document(s) could not be sent.` : ''
+      flash(
+        res.failed?.length ? 'err' : 'ok',
+        `Welcome packet sent to ${res.signerEmail}: ${sent.length} document${sent.length === 1 ? '' : 's'} for signature.${failedNote}`,
+      )
       await load()
     } catch (err: any) {
       const data = err?.response?.data
@@ -4597,11 +4625,18 @@ function TasksPanel({
       return
     }
     setBusy('save')
+    const [sectionPhase, sectionStage] = form.section ? (JSON.parse(form.section) as [string, string]) : [null, null]
     const payload = {
       title: form.title.trim(),
       dueDate: form.dueDate || null,
       priority: form.priority,
-      taskType: form.taskType,
+      ...(workflowPhases.length
+        ? {
+            taskType: form.assignedRole === 'client' ? 'client' : 'general',
+            workflowPhase: sectionPhase,
+            workflowStage: sectionStage,
+          }
+        : { taskType: form.taskType }),
       assignedRole: form.assignedRole,
       assignedUserId: form.assignedRole === 'client' ? null : form.assignedUserId || null,
       notes: form.notes.trim() || null,
@@ -5252,7 +5287,27 @@ function TasksPanel({
                 </select>
               </div>
               <div>
-                <label className="mb-1 block text-xs font-semibold text-slate-600">Type</label>
+                <label className="mb-1 block text-xs font-semibold text-slate-600">
+                  {workflowPhases.length ? 'Workflow section' : 'Type'}
+                </label>
+                {workflowPhases.length ? (
+                  <select
+                    value={form.section}
+                    onChange={(e) => setForm((f) => ({ ...f, section: e.target.value }))}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
+                  >
+                    <option value="">General</option>
+                    {workflowPhases.map((p) => (
+                      <optgroup key={p.phase} label={p.phase}>
+                        {p.stages.map((s) => (
+                          <option key={`${p.phase}:${s}`} value={JSON.stringify([p.phase, s])}>
+                            {s}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                ) : (
                 <select
                   value={form.taskType}
                   onChange={(e) => {
@@ -5270,6 +5325,7 @@ function TasksPanel({
                     <option key={t.id} value={t.id}>{t.label}</option>
                   ))}
                 </select>
+                )}
               </div>
               <div>
                 <label className="mb-1 block text-xs font-semibold text-slate-600">Assign</label>

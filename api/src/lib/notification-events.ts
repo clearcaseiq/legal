@@ -45,6 +45,7 @@ export const ATTORNEY_EVENTS = {
   plaintiff_replied: 'attorney.plaintiff_replied',
   case_result_verified: 'attorney.case_result_verified',
   case_result_rejected: 'attorney.case_result_rejected',
+  negotiation_decision: 'attorney.negotiation_decision',
 } as const
 
 /** Case Assistance — ClearCaseIQ specialists working the assisted-intake queue. */

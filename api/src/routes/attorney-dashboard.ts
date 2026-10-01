@@ -85,6 +85,12 @@ import {
   syncDecisionMemoryForAssessment
 } from '../lib/routing-lifecycle'
 import { sendPlaintiffAttorneyAccepted, notifyPlaintiffInApp, sendPlaintiffCaseClosed } from '../lib/case-notifications'
+import {
+  loadProofFiles,
+  notifyPlaintiffOfNegotiationDecision,
+  sanitizeProofFileIds,
+  withProofFiles,
+} from '../lib/negotiation-client'
 import { createExternalCalendarEvent, deleteExternalCalendarEvent } from '../lib/calendar-sync'
 import { notifyWaitlistForFreedSlot, syncLeadStatusAfterConsultCancelled } from '../lib/appointment-engagement'
 import { createZoomMeeting } from '../lib/zoom'
@@ -146,6 +152,13 @@ import {
   syncQuestionTaskProposals,
 } from '../lib/question-task-proposals'
 import { syncCaseCoachTasks, resolveCaseAssignees } from '../lib/case-coach-loop'
+import {
+  diffTaskEdits,
+  normalizeDismissReason,
+  recordAttorneyActivity,
+  taskOrigin,
+  taskTiming,
+} from '../lib/attorney-activity'
 import { openCaseStage, syncCaseStage, reopenCaseStage } from '../lib/case-stage'
 import { setLitigationStatus, isLitigationStatus, LITIGATION_LABELS } from '../lib/litigation'
 import { completeHipaaOpeningTaskIfSatisfied, createCaseOpeningTasks } from '../lib/case-opening'
@@ -412,7 +425,17 @@ function actorFirmId(auth: { attorney?: any; firmMember?: any }): string | null 
   return auth.attorney?.lawFirmId ?? auth.firmMember?.lawFirmId ?? null
 }
 
-const firmGate = (group: keyof typeof CASE_ACTION_PERMISSIONS) => async (req: any, res: any, next: any) => {
+/** Shared fields for an attorney-activity event raised on a lead's case. */
+function leadActivityBase(req: any, auth: { attorney?: any; firmMember?: any; lead: any }, leadId: string) {
+  return {
+    assessmentId: auth.lead.assessmentId as string,
+    leadId,
+    lawFirmId: actorFirmId(auth),
+    actor: { id: req.user?.id ?? null, role: auth.attorney ? 'attorney' : auth.firmMember ? 'staff' : req.user?.role ?? null },
+  }
+}
+
+export const firmGate = (group: keyof typeof CASE_ACTION_PERMISSIONS) => async (req: any, res: any, next: any) => {
   try {
     if (await denyWithoutFirmPermission(req, res, [...CASE_ACTION_PERMISSIONS[group]])) return
     next()
@@ -939,7 +962,7 @@ export async function getAuthorizedLead(
  * staff member's own firm. Consults land on that attorney's calendar and client
  * requests go out under their name.
  */
-async function resolveActingAttorney(auth: { attorney?: any; firmMember?: any; lead: any }) {
+export async function resolveActingAttorney(auth: { attorney?: any; firmMember?: any; lead: any }) {
   if (auth.attorney) return auth.attorney
   const lawFirmId = auth.firmMember?.lawFirmId
   if (!lawFirmId) return null
@@ -1017,7 +1040,7 @@ async function getChatRoomActor(req: any, chatRoomId: string) {
  * `submitted` is a review, and a `rejected` lead is gone — reaching out to the
  * plaintiff in either state is out of bounds (CP-408).
  */
-function checkLeadIsAccepted(
+export function checkLeadIsAccepted(
   lead: { status?: string | null },
   action: string
 ): { status: number; message: string } | null {
@@ -1420,6 +1443,13 @@ const negotiationEventSelect = {
   concessionValue: true,
   concessionNotes: true,
   acceptanceRationale: true,
+  terms: true,
+  proofFileIds: true,
+  sharedWithClientAt: true,
+  clientDecision: true,
+  clientDecisionNote: true,
+  clientDecidedAt: true,
+  createdByName: true,
   createdAt: true,
   updatedAt: true,
 } as const
@@ -1496,6 +1526,14 @@ const insuranceDetailSelect = {
   claimOpenedAt: true,
   decPageRequestId: true,
   coverageConfirmed: true,
+  lorAcknowledgedAt: true,
+  claimNumberAt: true,
+  coverageConfirmedAt: true,
+  liabilityDecision: true,
+  liabilityDecisionAt: true,
+  limitsDemandSentAt: true,
+  limitsDemandDeadline: true,
+  limitsDemandStatus: true,
   createdAt: true,
   updatedAt: true,
 } as const
@@ -1618,6 +1656,8 @@ const caseTaskSelect = {
   createdByName: true,
   sourceTemplateId: true,
   sourceTemplateStepId: true,
+  workflowPhase: true,
+  workflowStage: true,
   mergedIntoId: true,
   completedAt: true,
   createdAt: true,
@@ -2406,7 +2446,7 @@ function calculateFeeSplit(projectedRecovery: number | null | undefined, feeSpli
   return { referringFeeAmount, receivingFeeAmount }
 }
 
-async function createNotification(
+export async function createNotification(
   recipient: string,
   subject: string,
   message: string,
@@ -10198,7 +10238,9 @@ router.post('/leads/:leadId/insurance', authMiddleware, async (req: any, res) =>
         claimNumber: claimNumber || null,
         claimStatus: normalizedClaimStatus,
         claimOpenedAt: normalizedClaimStatus !== 'not_opened' ? new Date() : null,
-        coverageConfirmed: Boolean(coverageConfirmed)
+        claimNumberAt: claimNumber ? new Date() : null,
+        coverageConfirmed: Boolean(coverageConfirmed),
+        coverageConfirmedAt: coverageConfirmed ? new Date() : null
       },
       select: insuranceDetailSelect
     })
@@ -10268,18 +10310,24 @@ router.patch('/leads/:leadId/insurance/:id', authMiddleware, async (req: any, re
 
     // When the claim moves off "not_opened" for the first time, stamp the opened
     // date; clear it if the claim is reset to not_opened.
+    const existing = await prisma.insuranceDetail.findUnique({
+      where: { id },
+      select: { claimOpenedAt: true, claimNumber: true, coverageConfirmed: true }
+    })
     let claimOpenedAtPatch: Record<string, Date | null> = {}
     if (claimStatus !== undefined) {
       const normalized = normalizeEnum(claimStatus, CLAIM_STATUSES) ?? 'not_opened'
-      const existing = await prisma.insuranceDetail.findUnique({
-        where: { id },
-        select: { claimOpenedAt: true }
-      })
       if (normalized === 'not_opened') {
         claimOpenedAtPatch = { claimOpenedAt: null }
       } else if (!existing?.claimOpenedAt) {
         claimOpenedAtPatch = { claimOpenedAt: new Date() }
       }
+    }
+    if (claimNumber !== undefined && Boolean(claimNumber) !== Boolean(existing?.claimNumber)) {
+      claimOpenedAtPatch.claimNumberAt = claimNumber ? new Date() : null
+    }
+    if (coverageConfirmed !== undefined && Boolean(coverageConfirmed) !== Boolean(existing?.coverageConfirmed)) {
+      claimOpenedAtPatch.coverageConfirmedAt = coverageConfirmed ? new Date() : null
     }
 
     const record = await prisma.insuranceDetail.update({
@@ -11425,7 +11473,21 @@ router.get('/leads/:leadId/tasks', authMiddleware, async (req: any, res) => {
     res.json(
       workRecords.map((t) => {
         const itemId = parseWorkflowItemIdFromTaskKey(t.sourceTemplateStepId)
-        const meta = itemId ? wfMeta.get(itemId) : null
+        let meta = itemId ? wfMeta.get(itemId) : null
+        const chosenStage = !itemId ? (t as any).workflowStage?.trim() : null
+        if (!meta && chosenStage) {
+          const chosenPhase = (t as any).workflowPhase?.trim() || null
+          const slot = catalog.find(
+            (s) => s.stageName === chosenStage && (!chosenPhase || s.phaseName === chosenPhase),
+          )
+          meta = {
+            phaseName: slot?.phaseName ?? chosenPhase,
+            phaseOrder: slot?.phaseOrder ?? null,
+            stageName: chosenStage,
+            stageOrder: slot?.stageOrder ?? null,
+            stepOrder: null,
+          }
+        }
         const inferred = meta ? null : inferWorkflowCategoryForTask(t, catalog)
         const phase = meta?.phaseName ?? inferred?.phaseName ?? null
         const stage = meta?.stageName ?? inferred?.stageName ?? null
@@ -12973,7 +13035,9 @@ router.post('/leads/:leadId/tasks', authMiddleware, async (req: any, res) => {
       estimateMinutes,
       subtasks,
       sourceTemplateId,
-      sourceTemplateStepId
+      sourceTemplateStepId,
+      workflowPhase,
+      workflowStage
     } = req.body
 
     if (!title) {
@@ -13040,7 +13104,9 @@ router.post('/leads/:leadId/tasks', authMiddleware, async (req: any, res) => {
         createdByName: req.user ? `${req.user.firstName || ''} ${req.user.lastName || ''}`.trim() || req.user.email : null,
         escalationLevel: escalationLevel || 'none',
         sourceTemplateId: sourceTemplateId || null,
-        sourceTemplateStepId: sourceTemplateStepId || null
+        sourceTemplateStepId: sourceTemplateStepId || null,
+        workflowPhase: workflowStage ? String(workflowPhase || '').trim() || null : null,
+        workflowStage: String(workflowStage || '').trim() || null,
       },
       select: caseTaskSelect
     })
@@ -13051,6 +13117,20 @@ router.post('/leads/:leadId/tasks', authMiddleware, async (req: any, res) => {
       entityType: 'case_task',
       entityId: record.id,
       metadata: { title: record.title },
+    })
+    recordAttorneyActivity({
+      ...leadActivityBase(req, auth, leadId),
+      action: 'task_created',
+      entityId: record.id,
+      task: record,
+      properties: {
+        title: record.title,
+        taskType: record.taskType,
+        priority: record.priority,
+        assignedRole: record.assignedRole,
+        dueInDays: record.dueDate ? -(taskTiming(record).daysVsDue ?? 0) : null,
+        estimateMinutes: record.estimateMinutes,
+      },
     })
     await scheduleTaskReminder(record.assessmentId, {
       title: record.title,
@@ -13193,7 +13273,9 @@ router.patch('/leads/:leadId/tasks/:id', authMiddleware, async (req: any, res) =
       reminderAt,
       escalationLevel,
       estimateMinutes,
-      subtasks
+      subtasks,
+      workflowPhase,
+      workflowStage
     } = req.body
 
     const existing = await prisma.caseTask.findUnique({ where: { id }, select: caseTaskSelect })
@@ -13250,6 +13332,12 @@ router.patch('/leads/:leadId/tasks/:id', authMiddleware, async (req: any, res) =
           ? { estimateMinutes: estimateMinutes === null || estimateMinutes === '' ? null : Number(estimateMinutes) }
           : {}),
         ...(subtasks !== undefined ? { subtasks: JSON.stringify(normalizeSubtasks(subtasks)) } : {}),
+        ...(workflowStage !== undefined
+          ? {
+              workflowPhase: workflowStage ? String(workflowPhase || '').trim() || null : null,
+              workflowStage: String(workflowStage || '').trim() || null,
+            }
+          : {}),
         ...(status === 'done' ? { completedAt: new Date() } : {}),
         ...(status !== undefined && status !== 'done' ? { completedAt: null } : {})
       },
@@ -13339,6 +13427,23 @@ router.patch('/leads/:leadId/tasks/:id', authMiddleware, async (req: any, res) =
       })
     }
 
+    const activityBase = { ...leadActivityBase(req, auth, leadId), entityId: id, task: existing }
+    if (status !== undefined && status !== existing.status) {
+      recordAttorneyActivity({
+        ...activityBase,
+        action: 'task_status_changed',
+        properties: { title: record.title, from: existing.status, to: record.status, ...taskTiming(existing) },
+      })
+    }
+    const edits = diffTaskEdits(existing, record)
+    if (Object.keys(edits).length > 0) {
+      recordAttorneyActivity({
+        ...activityBase,
+        action: 'task_edited',
+        properties: { title: record.title, changes: edits, statusAtEdit: existing.status },
+      })
+    }
+
     await scheduleTaskReminder(record.assessmentId, {
       title: record.title,
       dueDate: record.dueDate,
@@ -13377,11 +13482,24 @@ router.delete('/leads/:leadId/tasks/:id', authMiddleware, async (req: any, res) 
     // authorized on any lead remove any task in the database.
     const existing = await prisma.caseTask.findUnique({
       where: { id },
-      select: { id: true, assessmentId: true, status: true, title: true },
+      select: {
+        id: true,
+        assessmentId: true,
+        status: true,
+        title: true,
+        taskType: true,
+        reviewStatus: true,
+        createdById: true,
+        sourceTemplateId: true,
+        sourceTemplateStepId: true,
+        dueDate: true,
+        createdAt: true,
+      },
     })
     if (!existing || existing.assessmentId !== auth.lead.assessmentId) {
       return res.status(404).json({ error: 'Task not found' })
     }
+    const dismissReason = normalizeDismissReason(req.body?.reason ?? req.query?.reason)
     // Soft delete: the row stays so it can be restored from Deleted tasks, and
     // so the AI loops (which dedupe across every status) do not recreate it.
     if (existing.status !== TASK_DELETED_STATUS) {
@@ -13393,6 +13511,20 @@ router.delete('/leads/:leadId/tasks/:id', authMiddleware, async (req: any, res) 
         entityType: 'case_task',
         entityId: id,
         metadata: { from: existing.status, title: existing.title, deletedByName: requestActorName(req.user) },
+      })
+      const ai = taskOrigin(existing) === 'ai'
+      recordAttorneyActivity({
+        ...leadActivityBase(req, auth, leadId),
+        action: ai ? 'ai_suggestion_dismissed' : 'task_deleted',
+        entityId: id,
+        task: existing,
+        properties: {
+          title: existing.title,
+          from: existing.status,
+          reviewStatus: existing.reviewStatus,
+          reason: dismissReason,
+          ...taskTiming(existing),
+        },
       })
       await reconcileWorkflowProgress(auth.lead.assessmentId).catch(() => undefined)
     }
@@ -13479,6 +13611,13 @@ router.post('/leads/:leadId/tasks/:id/restore', authMiddleware, async (req: any,
       entityType: 'case_task',
       entityId: id,
       metadata: { to: status },
+    })
+    recordAttorneyActivity({
+      ...leadActivityBase(req, auth, leadId),
+      action: 'task_restored',
+      entityId: id,
+      task: record,
+      properties: { title: record.title, to: status },
     })
     await reconcileWorkflowProgress(auth.lead.assessmentId).catch(() => undefined)
     res.json({ task: record })
@@ -13684,6 +13823,13 @@ router.post('/leads/:leadId/tasks/:id/approve', authMiddleware, async (req: any,
       entityId: id,
       metadata: { assignee: record.assignedTo || 'Unassigned' },
     })
+    recordAttorneyActivity({
+      ...leadActivityBase(req, auth, leadId),
+      action: 'ai_suggestion_accepted',
+      entityId: id,
+      task,
+      properties: { title: record.title, via: 'review_gate', assignedRole: record.assignedRole, ...taskTiming(record) },
+    })
     res.json(record)
   } catch (error: any) {
     logger.error('Failed to approve case task', { error: error.message })
@@ -13734,6 +13880,13 @@ router.post('/leads/:leadId/tasks/:id/unapprove', authMiddleware, async (req: an
       action: 'task_review_unapproved',
       entityType: 'case_task',
       entityId: id,
+    })
+    recordAttorneyActivity({
+      ...leadActivityBase(req, auth, leadId),
+      action: 'ai_suggestion_unapproved',
+      entityId: id,
+      task: record,
+      properties: { title: record.title },
     })
     res.json(record)
   } catch (error: any) {
@@ -14178,7 +14331,8 @@ router.get('/leads/:leadId/negotiations', authMiddleware, async (req: any, res) 
       orderBy: { eventDate: 'desc' },
       select: negotiationEventSelect
     })
-    res.json(records)
+    const proofById = await loadProofFiles(records)
+    res.json(records.map((r) => withProofFiles(r, proofById)))
   } catch (error: any) {
     logger.error('Failed to load negotiation events', { error: error.message })
     res.status(500).json({ error: 'Failed to load negotiation events' })
@@ -14206,15 +14360,26 @@ router.post('/leads/:leadId/negotiations', authMiddleware, async (req: any, res)
       adjusterPhone,
       concessionValue,
       concessionNotes,
-      acceptanceRationale
+      acceptanceRationale,
+      terms,
+      proofFileIds,
+      shareWithClient
     } = req.body
 
     if (!eventType) {
       return res.status(400).json({ error: 'eventType is required' })
     }
 
+    const proofIds = await sanitizeProofFileIds(lead.assessmentId, proofFileIds)
+    const share = Boolean(shareWithClient)
     const record = await prisma.negotiationEvent.create({
       data: {
+        terms: terms ? String(terms) : null,
+        proofFileIds: proofIds.length ? JSON.stringify(proofIds) : null,
+        ...(share ? { sharedWithClientAt: new Date(), clientDecision: 'pending' } : {}),
+        createdById: req.user?.id ?? null,
+        createdByName:
+          `${req.user?.firstName || ''} ${req.user?.lastName || ''}`.trim() || req.user?.email || null,
         assessmentId: lead.assessmentId,
         eventType,
         amount: amount ? Number(amount) : null,
@@ -14245,7 +14410,16 @@ router.post('/leads/:leadId/negotiations', authMiddleware, async (req: any, res)
     // An offer/counter/acceptance can advance the case (→ NEGOTIATION,
     // SETTLEMENT_PENDING). Fire-and-forget; monotonic so it never regresses.
     void syncCaseStage(lead.assessmentId, { source: 'attorney' })
-    res.json(record)
+    if (share) {
+      void notifyPlaintiffOfNegotiationDecision({
+        assessmentId: lead.assessmentId,
+        eventId: record.id,
+        eventType: record.eventType,
+        amount: record.amount,
+        attorneyId: auth.attorney?.id ?? null,
+      })
+    }
+    res.json(withProofFiles(record, await loadProofFiles([record])))
   } catch (error: any) {
     logger.error('Failed to create negotiation event', { error: error.message })
     res.status(500).json({ error: 'Failed to create negotiation event' })
@@ -14273,12 +14447,34 @@ router.patch('/leads/:leadId/negotiations/:id', authMiddleware, async (req: any,
       adjusterPhone,
       concessionValue,
       concessionNotes,
-      acceptanceRationale
+      acceptanceRationale,
+      terms,
+      proofFileIds,
+      shareWithClient
     } = req.body
+
+    const existing = await prisma.negotiationEvent.findFirst({
+      where: { id, assessmentId: lead.assessmentId },
+      select: { id: true, clientDecision: true },
+    })
+    if (!existing) return res.status(404).json({ error: 'Negotiation entry not found' })
+    // Re-sharing reopens the question, e.g. after the carrier revises its terms.
+    const share = Boolean(shareWithClient) && existing.clientDecision !== 'pending'
+    const proofIds = proofFileIds !== undefined ? await sanitizeProofFileIds(lead.assessmentId, proofFileIds) : null
 
     const record = await prisma.negotiationEvent.update({
       where: { id },
       data: {
+        ...(terms !== undefined ? { terms: terms ? String(terms) : null } : {}),
+        ...(proofIds ? { proofFileIds: proofIds.length ? JSON.stringify(proofIds) : null } : {}),
+        ...(share
+          ? {
+              sharedWithClientAt: new Date(),
+              clientDecision: 'pending',
+              clientDecisionNote: null,
+              clientDecidedAt: null,
+            }
+          : {}),
         ...(eventType !== undefined ? { eventType } : {}),
         ...(amount !== undefined ? { amount: amount ? Number(amount) : null } : {}),
         ...(eventDate !== undefined ? { eventDate: eventDate ? new Date(eventDate) : new Date() } : {}),
@@ -14306,7 +14502,16 @@ router.patch('/leads/:leadId/negotiations/:id', authMiddleware, async (req: any,
       actor: { type: 'user', id: req.user?.id ?? null },
     })
     void syncCaseStage(lead.assessmentId, { source: 'attorney' })
-    res.json(record)
+    if (share) {
+      void notifyPlaintiffOfNegotiationDecision({
+        assessmentId: lead.assessmentId,
+        eventId: record.id,
+        eventType: record.eventType,
+        amount: record.amount,
+        attorneyId: auth.attorney?.id ?? null,
+      })
+    }
+    res.json(withProofFiles(record, await loadProofFiles([record])))
   } catch (error: any) {
     logger.error('Failed to update negotiation event', { error: error.message })
     res.status(500).json({ error: 'Failed to update negotiation event' })
@@ -14321,7 +14526,8 @@ router.delete('/leads/:leadId/negotiations/:id', authMiddleware, async (req: any
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
     const { lead } = auth
-    await prisma.negotiationEvent.delete({ where: { id } })
+    const deleted = await prisma.negotiationEvent.deleteMany({ where: { id, assessmentId: lead.assessmentId } })
+    if (!deleted.count) return res.status(404).json({ error: 'Negotiation entry not found' })
     await upsertNegotiationInsights(lead.assessmentId)
     res.json({ ok: true })
   } catch (error: any) {

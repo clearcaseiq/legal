@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import request from 'supertest'
 
 vi.mock('./lib/prisma', () => import('./test/universalPrismaMock'))
@@ -14,6 +14,15 @@ import { resetUniversalPrismaMock } from './test/universalPrismaMock'
 import { generateToken } from './lib/auth'
 
 const app = buildApp()
+
+// The fixtures book in April 2026; past slots are rejected, so the clock sits before them.
+beforeAll(() => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-04-01T12:00:00.000Z'))
+})
+afterAll(() => {
+  vi.useRealTimers()
+})
 
 const plaintiffUser = {
   id: 'user-pl-1',

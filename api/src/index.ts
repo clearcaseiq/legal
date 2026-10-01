@@ -22,6 +22,7 @@ import { runAdsConversionSweep } from './lib/ads-conversion-sweep'
 import { isGoogleAdsConfigured } from './lib/google-ads-conversions'
 import { runInboundSyncSweep, SYNC_INTERVAL_MS } from './lib/cms/inbound-sync-sweep'
 import { runEvidenceProcessingSweep } from './lib/evidence-processing-sweep'
+import { runInsuranceFollowUps } from './lib/insurance-workbench'
 import { reconcileAllAttorneyRatingAggregates } from './lib/attorney-rating-aggregates'
 import { beginSweep, registerSweep } from './lib/ops-status'
 import { startSchedulerLeadership, stopSchedulerLeadership } from './lib/scheduler-leader'
@@ -45,6 +46,7 @@ let errorRateTimer: NodeJS.Timeout | null = null
 let adsConversionTimer: NodeJS.Timeout | null = null
 let inboundSyncTimer: NodeJS.Timeout | null = null
 let evidenceProcessingTimer: NodeJS.Timeout | null = null
+let insuranceFollowUpTimer: NodeJS.Timeout | null = null
 
 async function runCalendarWebhookRenewalSweep(trigger: 'startup' | 'interval') {
   const sweep = beginSweep('calendar-webhook-renewal')
@@ -562,7 +564,35 @@ function startEvidenceProcessingLoop() {
   }, intervalMs)
 }
 
+async function runInsuranceFollowUpLoop(trigger: 'startup' | 'interval') {
+  const sweep = beginSweep('insurance-followups')
+  try {
+    const result = await runInsuranceFollowUps()
+    sweep.succeed()
+    if (result.created > 0 || result.expired > 0 || trigger === 'startup') {
+      logger.info('Insurance follow-up sweep completed', { trigger, ...result })
+    }
+  } catch (error) {
+    sweep.fail(error)
+    logger.error('Insurance follow-up sweep failed', { error, trigger })
+  }
+}
+
+function startInsuranceFollowUpLoop() {
+  const intervalMs = 60 * 60 * 1000
+  registerSweep('insurance-followups', {
+    label: 'Insurance carrier follow-ups',
+    enabled: true,
+    intervalMs,
+  })
+  void runInsuranceFollowUpLoop('startup')
+  insuranceFollowUpTimer = setInterval(() => {
+    void runInsuranceFollowUpLoop('interval')
+  }, intervalMs)
+}
+
 function startBackgroundLoops() {
+  startInsuranceFollowUpLoop()
   startCalendarWebhookRenewalLoop()
   startAppointmentEngagementLoop()
   startNotificationRetryLoop()
@@ -623,6 +653,8 @@ function stopBackgroundLoops() {
   if (adsConversionTimer) clearInterval(adsConversionTimer)
   if (inboundSyncTimer) clearInterval(inboundSyncTimer)
   if (evidenceProcessingTimer) clearInterval(evidenceProcessingTimer)
+  if (insuranceFollowUpTimer) clearInterval(insuranceFollowUpTimer)
+  insuranceFollowUpTimer = null
   calendarWebhookRenewalTimer = null
   appointmentEngagementTimer = null
   notificationRetryTimer = null

@@ -5,6 +5,13 @@ import { z } from 'zod'
 import { authMiddleware, AuthRequest } from '../lib/auth'
 import { getPlaintiffLanguage } from '../lib/translate'
 import { buildCaseCommandCenter } from '../lib/case-command-center'
+import {
+  CLIENT_DECISIONS,
+  loadProofFiles,
+  notifyAttorneyOfClientDecision,
+  withProofFiles,
+  type ClientDecision,
+} from '../lib/negotiation-client'
 
 const router = Router()
 
@@ -814,6 +821,117 @@ router.get('/case/:caseId/timeline', authMiddleware, async (req: AuthRequest, re
   } catch (error) {
     logger.error('Failed to get case timeline', { error, caseId: req.params.caseId })
     res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+const plaintiffNegotiationSelect = {
+  id: true,
+  eventType: true,
+  amount: true,
+  eventDate: true,
+  counterpartyType: true,
+  insurerName: true,
+  terms: true,
+  proofFileIds: true,
+  sharedWithClientAt: true,
+  clientDecision: true,
+  clientDecisionNote: true,
+  clientDecidedAt: true,
+} as const
+
+// Negotiation entries the firm shared with the plaintiff for accept/decline.
+// Internal-only fields (adjuster contact, concession math, notes) stay firm-side.
+router.get('/case/:caseId/negotiations', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const assessment = await prisma.assessment.findFirst({
+      where: { id: req.params.caseId, userId: req.user!.id },
+      select: { id: true },
+    })
+    if (!assessment) return res.status(404).json({ error: 'Case not found' })
+
+    const records = await prisma.negotiationEvent.findMany({
+      where: { assessmentId: assessment.id, sharedWithClientAt: { not: null } },
+      orderBy: { eventDate: 'desc' },
+      select: plaintiffNegotiationSelect,
+    })
+    const proofById = await loadProofFiles(records)
+    res.json({ entries: records.map((r) => withProofFiles(r, proofById)) })
+  } catch (error: any) {
+    logger.error('Failed to load plaintiff negotiations', { error: error.message })
+    res.status(500).json({ error: 'Failed to load negotiations' })
+  }
+})
+
+// Whether to ask the claimant for a photo of their own auto insurance card.
+// Their UM/UIM and MedPay coverage is often the larger recovery, and the card
+// is the fastest way for the case team to find the carrier and policy number.
+const VEHICLE_CLAIM = /auto|vehicle|motor|car|truck|motorcycle|pedestrian|bicycl|rideshare|uber|lyft/i
+
+router.get('/case/:caseId/insurance-card', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const assessment = await prisma.assessment.findFirst({
+      where: { id: req.params.caseId, userId: req.user!.id },
+      select: { id: true, claimType: true },
+    })
+    if (!assessment) return res.status(404).json({ error: 'Case not found' })
+    const [cards, clientPolicy] = await Promise.all([
+      prisma.evidenceFile.findMany({
+        where: { assessmentId: assessment.id, subcategory: 'insurance_card' },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, originalName: true, createdAt: true },
+      }),
+      prisma.insuranceDetail.findFirst({
+        where: { assessmentId: assessment.id, insuredParty: 'client' },
+        select: { id: true },
+      }),
+    ])
+    const relevant = VEHICLE_CLAIM.test(String(assessment.claimType || ''))
+    res.json({ show: relevant && !clientPolicy, uploaded: cards, hasClientPolicy: Boolean(clientPolicy) })
+  } catch (error: any) {
+    logger.error('Failed to load insurance card prompt', { error: error.message })
+    res.status(500).json({ error: 'Failed to load insurance card status' })
+  }
+})
+
+router.post('/case/:caseId/negotiations/:eventId/decision', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const decision = String(req.body?.decision || '') as ClientDecision
+    if (!(CLIENT_DECISIONS as readonly string[]).includes(decision)) {
+      return res.status(400).json({ error: 'decision must be accepted or declined' })
+    }
+    const note = typeof req.body?.note === 'string' ? req.body.note.trim().slice(0, 2000) || null : null
+
+    const assessment = await prisma.assessment.findFirst({
+      where: { id: req.params.caseId, userId: req.user!.id },
+      select: { id: true },
+    })
+    if (!assessment) return res.status(404).json({ error: 'Case not found' })
+
+    // Conditional update so a double-click or a second tab cannot overwrite the first answer.
+    const updated = await prisma.negotiationEvent.updateMany({
+      where: { id: req.params.eventId, assessmentId: assessment.id, clientDecision: 'pending' },
+      data: { clientDecision: decision, clientDecisionNote: note, clientDecidedAt: new Date() },
+    })
+    if (!updated.count) {
+      return res.status(409).json({ error: 'This entry is not waiting for your decision.' })
+    }
+    const record = await prisma.negotiationEvent.findUniqueOrThrow({
+      where: { id: req.params.eventId },
+      select: plaintiffNegotiationSelect,
+    })
+
+    void notifyAttorneyOfClientDecision({
+      assessmentId: assessment.id,
+      eventId: record.id,
+      eventType: record.eventType,
+      amount: record.amount,
+      decision,
+      note,
+    })
+    res.json({ entry: withProofFiles(record, await loadProofFiles([record])) })
+  } catch (error: any) {
+    logger.error('Failed to save plaintiff negotiation decision', { error: error.message })
+    res.status(500).json({ error: 'Failed to save decision' })
   }
 })
 

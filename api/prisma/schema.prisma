@@ -412,10 +412,72 @@ model InsuranceDetail {
   // the policy can offer to remove the file too.
   sourceEvidenceFileId String?
 
+  // Claim milestones, stamped as each one happens. They drive the claim
+  // timeline and the follow-up cadences in lib/insurance-workbench.
+  lorAcknowledgedAt   DateTime?
+  claimNumberAt       DateTime?
+  coverageConfirmedAt DateTime?
+  liabilityDecision   String? // accepted | denied | partial
+  liabilityDecisionAt DateTime?
+
+  // Time-limited policy-limits demand. A carrier that lets the deadline pass
+  // on a clear-liability, excess-damages claim is the classic bad-faith setup.
+  limitsDemandSentAt   DateTime?
+  limitsDemandDeadline DateTime?
+  limitsDemandStatus   String? // sent | accepted | rejected | expired
+  limitsDemandLetterId String?
+
+  correspondence InsuranceCorrespondence[]
+  documents      InsuranceDocument[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@map("insurance_details")
+}
+
+// One entry in a policy's communication thread with the carrier: an email sent
+// from the platform, a logged adjuster call, a received letter, a note.
+model InsuranceCorrespondence {
+  id                String          @id @default(cuid())
+  insuranceDetailId String
+  insuranceDetail   InsuranceDetail @relation(fields: [insuranceDetailId], references: [id], onDelete: Cascade)
+  assessmentId      String
+  direction         String // outbound | inbound
+  channel           String // email | call | letter | fax | portal | note
+  subject           String?
+  body              String?         @db.Text
+  contactName       String?
+  occurredAt        DateTime        @default(now())
+  // JSON array of EvidenceFile ids on this case attached to the entry.
+  evidenceFileIds   String?
+  emailed           Boolean         @default(false)
+  createdById       String?
+  createdByName     String?
+  createdAt         DateTime        @default(now())
+
+  @@index([insuranceDetailId, occurredAt])
+  @@index([assessmentId])
+  @@map("insurance_correspondence")
+}
+
+// A document filed into one of a policy's slots (dec page, LOR acknowledgment,
+// reservation of rights, denial, MedPay ledger...). Points at either a case
+// EvidenceFile or a file the adjuster uploaded through the secure portal.
+model InsuranceDocument {
+  id                String          @id @default(cuid())
+  insuranceDetailId String
+  insuranceDetail   InsuranceDetail @relation(fields: [insuranceDetailId], references: [id], onDelete: Cascade)
+  assessmentId      String
+  docType           String
+  evidenceFileId    String?
+  externalUploadId  String?
+  createdAt         DateTime        @default(now())
+
+  @@unique([insuranceDetailId, evidenceFileId])
+  @@unique([insuranceDetailId, externalUploadId])
+  @@index([assessmentId])
+  @@map("insurance_documents")
 }
 
 model LienHolder {
@@ -656,6 +718,10 @@ model CaseTask {
   createdByName        String?
   sourceTemplateId     String?
   sourceTemplateStepId String?
+  // Workflow heading picked when the task was created by hand. Wins over the
+  // title-based inference in the task list; ignored for wfitem:-linked tasks.
+  workflowPhase        String?
+  workflowStage        String?
   // Set when this task was folded into another during a merge. The row is kept
   // (closed) rather than deleted for two reasons: the AI loops dedupe on title
   // across every status, so deleting one makes the coach recreate it within the
@@ -722,9 +788,22 @@ model NegotiationEvent {
   concessionValue     Float?
   concessionNotes     String?
   acceptanceRationale String?
+  // Terms of the offer/demand as the firm recorded them (structure, liens, deadlines).
+  terms               String?    @db.Text
+  // JSON array of EvidenceFile ids on this case backing the entry (carrier letter, email, etc.).
+  proofFileIds        String?
+  // Set when the firm asks the plaintiff to accept or decline this entry.
+  sharedWithClientAt  DateTime?
+  // pending | accepted | declined — the plaintiff's answer; null when never shared.
+  clientDecision      String?
+  clientDecisionNote  String?
+  clientDecidedAt     DateTime?
+  createdById         String?
+  createdByName       String?
   createdAt           DateTime   @default(now())
   updatedAt           DateTime   @updatedAt
 
+  @@index([assessmentId, clientDecision])
   @@map("negotiation_events")
 }
 
@@ -3071,6 +3150,9 @@ model DocumentRequest {
   recipientRole  String? // 'defendant' | 'opposing_counsel' | 'insurer'
   caseContactId  String? // optional link to a CaseContact representing the recipient
   origin         String  @default("attorney") // 'attorney' | 'plaintiff_suggested'
+  // Set when the request went to a carrier for one policy, so the adjuster's
+  // uploads file into that policy's document slots.
+  insuranceDetailId String?
 
   // Links a provider-directed medical-records request to the signed HIPAA
   // authorization (DocumentEnvelope) that legally permits the disclosure. The
@@ -4724,6 +4806,35 @@ model CaseChangeEvent {
   @@index([lawFirmId, seq])
   @@index([createdAt])
   @@map("case_change_events")
+}
+
+/// Append-only record of what attorneys and staff do with tasks, and of every
+/// task the AI proposes, kept as training data for task recommendation.
+///
+/// First-party only: attorney screens carry PHI, so none of this may be sent to
+/// an analytics vendor (see app/src/lib/analyticsBoundary.ts). `context` is a
+/// snapshot of the case at the moment of the decision, so a model trained on
+/// it only sees what the attorney could see then, not facts learned later.
+model AttorneyActivityEvent {
+  id           String   @id @default(cuid())
+  occurredAt   DateTime @default(now())
+  lawFirmId    String?
+  actorUserId  String?
+  actorRole    String? // attorney | staff | ai | system
+  assessmentId String?
+  leadId       String?
+  entityType   String // task
+  entityId     String?
+  action       String // task_created | task_status_changed | task_edited | task_deleted | ai_suggestion_created | ai_suggestion_accepted | ai_suggestion_dismissed | ...
+  // manual | template | ai | system: who originated the task being acted on.
+  taskOrigin   String?
+  properties   String?  @db.Text // JSON
+  context      String?  @db.Text // JSON case snapshot
+
+  @@index([lawFirmId, occurredAt])
+  @@index([assessmentId, occurredAt])
+  @@index([action, occurredAt])
+  @@map("attorney_activity_events")
 }
 
 /// Numbers that have asked not to be texted.

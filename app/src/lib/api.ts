@@ -3076,7 +3076,7 @@ export async function requestLeadDecPage(leadId: string, insuranceId: string, pa
 
 export type CaseLetter = {
   id: string
-  kind: 'carrier_lor' | 'provider_lor'
+  kind: 'carrier_lor' | 'provider_lor' | 'limits_demand'
   insuranceDetailId: string | null
   caseContactId: string | null
   providerName: string | null
@@ -3122,6 +3122,188 @@ export async function getCarrierLetterPreview(leadId: string, insuranceId: strin
 export async function sendCarrierLetter(leadId: string, insuranceId: string, payload: LetterDelivery) {
   const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/insurance/${insuranceId}/lor`, payload)
   return data as { letter: CaseLetter; emailed: boolean; tasksCompleted: number }
+}
+
+export type MilestoneStatus = 'done' | 'overdue' | 'due_soon' | 'pending' | 'not_applicable'
+
+export type ClaimMilestone = {
+  key: string
+  label: string
+  at: string | null
+  dueAt: string | null
+  status: MilestoneStatus
+  detail?: string
+}
+
+export type InsuranceThreadItem = {
+  id: string
+  kind: 'entry' | 'letter' | 'request'
+  direction: 'outbound' | 'inbound'
+  channel: string
+  subject: string | null
+  body: string | null
+  contactName: string | null
+  occurredAt: string
+  emailed: boolean
+  createdByName: string | null
+  letterId?: string
+  status?: string
+  evidenceFileIds: string[]
+}
+
+export type PolicyDocument = {
+  id: string
+  docType: string
+  label: string
+  originalName: string
+  source: 'adjuster' | 'case'
+  uploadedByName: string | null
+  evidenceFileId: string | null
+  processing: boolean
+  createdAt: string
+}
+
+export type AdjusterProfile = {
+  key: string
+  name: string | null
+  email: string | null
+  phone: string | null
+  carriers: string[]
+  caseCount: number
+  avgResponseDays: number | null
+  responsesMeasured: number
+  unansweredOutreach: number
+  liabilityAccepted: number
+  liabilityDenied: number
+  limitsAccepted: number
+  limitsRejected: number
+  lastContactAt: string | null
+}
+
+export type PolicyWorkbench = {
+  milestones: ClaimMilestone[]
+  thread: InsuranceThreadItem[]
+  documents: PolicyDocument[]
+  slots: { key: string; label: string }[]
+  requestableDocs: { key: string; label: string }[]
+  autofill: {
+    policyNumber?: string
+    claimNumber?: string
+    policyLimit?: number
+    adjusterEmail?: string
+    adjusterPhone?: string
+    coverageHints?: string[]
+    sourceName?: string
+  } | null
+  adjuster: AdjusterProfile | null
+}
+
+export type CoverageStack = {
+  liability: number
+  umUim: number
+  medpay: number
+  other: number
+  total: number
+  specials: number
+  future: number
+  damagesTotal: number
+  gap: number
+  damagesSource: 'ledger' | 'intake' | 'none'
+  flags: { tone: 'warn' | 'info' | 'ok'; text: string }[]
+  insuranceCards: { id: string; originalName: string; createdAt: string }[]
+}
+
+const insuranceBase = (leadId: string, insuranceId?: string) =>
+  `/v1/attorney-dashboard/leads/${leadId}/insurance${insuranceId ? `/${insuranceId}` : ''}`
+
+export async function getInsuranceOverview(leadId: string) {
+  const { data } = await api.get(`${insuranceBase(leadId)}/overview`)
+  return data as { coverage: CoverageStack; slots: { key: string; label: string }[] }
+}
+
+export async function getAdjusterDirectory(leadId: string, q?: string) {
+  const { data } = await api.get(`${insuranceBase(leadId)}/adjusters`, { params: q ? { q } : {} })
+  return (data?.adjusters || []) as AdjusterProfile[]
+}
+
+export async function getPolicyWorkbench(leadId: string, insuranceId: string) {
+  const { data } = await api.get(`${insuranceBase(leadId, insuranceId)}/workbench`)
+  return data as PolicyWorkbench
+}
+
+export async function updatePolicyMilestones(
+  leadId: string,
+  insuranceId: string,
+  payload: { lorAcknowledged?: boolean; liabilityDecision?: 'accepted' | 'denied' | 'partial' | null },
+) {
+  const { data } = await api.patch(`${insuranceBase(leadId, insuranceId)}/milestones`, payload)
+  return data
+}
+
+export async function logInsuranceCorrespondence(
+  leadId: string,
+  insuranceId: string,
+  payload: {
+    direction: 'outbound' | 'inbound'
+    channel: string
+    subject?: string
+    body?: string
+    contactName?: string
+    occurredAt?: string
+    evidenceFileIds?: string[]
+    sendEmail?: boolean
+    recipientEmail?: string
+  },
+) {
+  const { data } = await api.post(`${insuranceBase(leadId, insuranceId)}/correspondence`, payload)
+  return data as { entry: any; emailed: boolean }
+}
+
+export async function deleteInsuranceCorrespondence(leadId: string, insuranceId: string, entryId: string) {
+  await api.delete(`${insuranceBase(leadId, insuranceId)}/correspondence/${entryId}`)
+}
+
+export async function attachPolicyDocument(leadId: string, insuranceId: string, docType: string, evidenceFileId: string) {
+  const { data } = await api.post(`${insuranceBase(leadId, insuranceId)}/documents`, { docType, evidenceFileId })
+  return data
+}
+
+export async function removePolicyDocument(leadId: string, insuranceId: string, docId: string) {
+  await api.delete(`${insuranceBase(leadId, insuranceId)}/documents/${docId}`)
+}
+
+export async function downloadPolicyDocument(leadId: string, insuranceId: string, docId: string) {
+  const { data } = await api.get(`${insuranceBase(leadId, insuranceId)}/documents/${docId}/download`, { responseType: 'blob' })
+  return data as Blob
+}
+
+export async function requestCarrierDocuments(
+  leadId: string,
+  insuranceId: string,
+  payload: { docs: string[]; message?: string; recipientEmail?: string },
+) {
+  const { data } = await api.post(`${insuranceBase(leadId, insuranceId)}/request-documents`, payload)
+  return data
+}
+
+export async function getLimitsDemandPreview(leadId: string, insuranceId: string, days: number) {
+  const { data } = await api.get(`${insuranceBase(leadId, insuranceId)}/limits-demand/preview`, { params: { days } })
+  return data as LetterPreview & { deadline: string }
+}
+
+export async function sendLimitsDemand(leadId: string, insuranceId: string, payload: LetterDelivery & { deadlineDays: number }) {
+  const { data } = await api.post(`${insuranceBase(leadId, insuranceId)}/limits-demand`, payload)
+  return data as { letterId: string; emailed: boolean }
+}
+
+export async function setLimitsDemandStatus(leadId: string, insuranceId: string, status: 'accepted' | 'rejected' | 'sent') {
+  const { data } = await api.patch(`${insuranceBase(leadId, insuranceId)}/limits-demand`, { status })
+  return data
+}
+
+export async function getPlaintiffInsuranceCardStatus(caseId: string) {
+  const { data } = await api.get(`/v1/case-tracker/case/${caseId}/insurance-card`)
+  return data as { show: boolean; uploaded: { id: string; originalName: string; createdAt: string }[]; hasClientPolicy: boolean }
 }
 
 export async function getLeadProviders(leadId: string) {
@@ -3496,6 +3678,53 @@ export async function updateLeadNegotiation(leadId: string, negotiationId: strin
 export async function deleteLeadNegotiation(leadId: string, negotiationId: string) {
   const { data } = await api.delete(`/v1/attorney-dashboard/leads/${leadId}/negotiations/${negotiationId}`)
   return data
+}
+
+export type NegotiationProofFile = {
+  id: string
+  originalName: string
+  fileUrl: string | null
+  mimetype: string | null
+}
+
+export type NegotiationClientDecision = 'pending' | 'accepted' | 'declined'
+
+export interface NegotiationEntry {
+  id: string
+  eventType: string
+  amount: number | null
+  eventDate: string
+  status?: string
+  notes?: string | null
+  counterpartyType: string | null
+  insurerName: string | null
+  adjusterName?: string | null
+  terms: string | null
+  proofFileIds: string[]
+  proofFiles: NegotiationProofFile[]
+  sharedWithClientAt: string | null
+  clientDecision: NegotiationClientDecision | null
+  clientDecisionNote: string | null
+  clientDecidedAt: string | null
+  createdByName?: string | null
+}
+
+export async function getPlaintiffNegotiations(caseId: string): Promise<NegotiationEntry[]> {
+  const { data } = await api.get(`/v1/case-tracker/case/${caseId}/negotiations`)
+  return Array.isArray(data?.entries) ? data.entries : []
+}
+
+export async function submitPlaintiffNegotiationDecision(
+  caseId: string,
+  eventId: string,
+  decision: 'accepted' | 'declined',
+  note?: string,
+): Promise<NegotiationEntry> {
+  const { data } = await api.post(`/v1/case-tracker/case/${caseId}/negotiations/${eventId}/decision`, {
+    decision,
+    note: note || undefined,
+  })
+  return data.entry
 }
 
 export async function getLeadNotes(leadId: string) {
@@ -6094,14 +6323,26 @@ export async function getFirmDashboard() {
 }
 
 // Update the current user's firm profile/settings (firm-admin only)
-export async function getFirmIntakeSettings() {
-  const { data } = await api.get('/v1/firm-dashboard/intake-settings')
-  return data as { autoSendRetainerOnAcquire: boolean }
+export type WelcomePacketContents = { retainer: boolean; hipaa: boolean; templateIds: string[] }
+
+export type FirmIntakeSettings = {
+  autoSendRetainerOnAcquire: boolean
+  autoSendWelcomePacketOnAcquire: boolean
+  welcomePacket: WelcomePacketContents
 }
 
-export async function updateFirmIntakeSettings(payload: { autoSendRetainerOnAcquire: boolean }) {
+export async function getFirmIntakeSettings() {
+  const { data } = await api.get('/v1/firm-dashboard/intake-settings')
+  return data as FirmIntakeSettings
+}
+
+export async function updateFirmIntakeSettings(payload: {
+  autoSendRetainerOnAcquire?: boolean
+  autoSendWelcomePacketOnAcquire?: boolean
+  welcomePacket?: WelcomePacketContents
+}) {
   const { data } = await api.put('/v1/firm-dashboard/intake-settings', payload)
-  return data as { autoSendRetainerOnAcquire: boolean }
+  return data as FirmIntakeSettings
 }
 
 export async function updateFirm(payload: {
@@ -6156,6 +6397,9 @@ export async function updateFirmMember(
     /** Adjustments to the member's role; null resets them to the role's defaults. */
     permissions?: { grant: string[]; revoke: string[] } | null
     status?: string
+    firstName?: string
+    lastName?: string
+    phone?: string | null
   }
 ) {
   const { data } = await api.patch(`/v1/firm-dashboard/members/${memberId}`, payload)

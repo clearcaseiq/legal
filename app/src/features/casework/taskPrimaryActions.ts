@@ -513,7 +513,7 @@ export function resolveTaskPrimaryAction(task: TaskLike): TaskPrimaryAction | nu
       kind: 'send_welcome',
       label: 'Send',
       doneLabel: 'View',
-      hint: 'Email the client the retainer agreement and HIPAA authorization to sign',
+      hint: 'Email the client the firm welcome packet documents to sign',
       doneHint: 'Open Signatures to review packet status',
     }
   }

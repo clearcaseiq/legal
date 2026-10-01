@@ -290,8 +290,12 @@ router.get('/assessment/:id/status', authMiddleware, async (req: AuthRequest, re
     //
     // `isEngagedLeadStatus` is what keeps a lead merely *offered* to an
     // attorney out of this: assignment alone is not a match.
-    const matchedAttorney =
-      accepted?.attorney ?? (isEngagedLeadStatus(lead?.status) ? lead?.assignedAttorney ?? null : null)
+    //
+    // Once engaged, the assigned attorney wins over the introduction: a firm
+    // transfer moves only `assignedAttorneyId`, and consults booked against the
+    // original attorney never reached the calendar of the one working the case.
+    const engagedAssignee = isEngagedLeadStatus(lead?.status) ? lead?.assignedAttorney ?? null : null
+    const matchedAttorney = engagedAssignee ?? accepted?.attorney ?? null
 
     // Consultation for this assessment (plaintiff dashboard). Prefer the next
     // future booking; if lifecycle already says consultation_scheduled but the
@@ -575,14 +579,17 @@ router.get('/assessment/:id/status', authMiddleware, async (req: AuthRequest, re
     // In-app chat messages (when attorney matched and plaintiff has userId)
     let caseChatRoomId: string | null = null
     if (matchedAttorney && assessment.userId && req.user?.id === assessment.userId) {
-      const chatRoom = await prisma.chatRoom.findFirst({
-        where: {
-          userId: assessment.userId,
-          attorneyId: matchedAttorney.id,
-          assessmentId
-        },
-        select: { id: true }
-      }).catch(() => null)
+      // After a firm transfer the thread may still belong to the original attorney.
+      const chatRoom =
+        (await prisma.chatRoom.findFirst({
+          where: { userId: assessment.userId, attorneyId: matchedAttorney.id, assessmentId },
+          select: { id: true }
+        }).catch(() => null)) ??
+        (await prisma.chatRoom.findFirst({
+          where: { userId: assessment.userId, assessmentId },
+          orderBy: { createdAt: 'desc' },
+          select: { id: true }
+        }).catch(() => null))
       if (chatRoom) {
         caseChatRoomId = chatRoom.id
         const chatMessages = await prisma.message.findMany({

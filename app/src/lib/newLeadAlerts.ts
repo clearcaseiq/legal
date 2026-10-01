@@ -14,6 +14,9 @@ export const NEW_LEAD_ALERT_OPTIONS: { value: NewLeadAlertMode; label: string; d
   { value: 'off', label: 'Off', description: 'No alert — new leads still appear in the bell and New Matches.' },
 ]
 
+/** Window event fired when new matches arrive, so open lists can reload. */
+export const NEW_LEADS_EVENT = 'ccq:new-leads'
+
 const MODE_KEY = 'ccq.newLeadAlertMode'
 const SEEN_KEY = 'ccq.newLeadAlertSeen'
 const MAX_SEEN = 200

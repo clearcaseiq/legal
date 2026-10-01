@@ -27,6 +27,8 @@ import {
   plaintiffCaseStageBucket,
 } from '../lib/caseStatus'
 import OpposingDocSuggestionCard from '../components/OpposingDocSuggestionCard'
+import PlaintiffNegotiationDecisions from '../components/PlaintiffNegotiationDecisions'
+import PlaintiffInsuranceCardPrompt from '../components/PlaintiffInsuranceCardPrompt'
 import PlaintiffSatisfactionCard from '../components/PlaintiffSatisfactionCard'
 import { DashboardPageSkeleton, DashboardTabPanelSkeleton } from '../components/PageSkeletons'
 import { getLoginRedirect } from '../lib/auth'
@@ -2233,6 +2235,14 @@ export default function Dashboard() {
                       </p>
                     </div>
                   </div>
+                )}
+
+                {activeAssessment?.id && (
+                  <PlaintiffNegotiationDecisions assessmentId={activeAssessment.id} />
+                )}
+
+                {activeAssessment?.id && (
+                  <PlaintiffInsuranceCardPrompt assessmentId={activeAssessment.id} />
                 )}
 
                 {activeAssessment?.id && (

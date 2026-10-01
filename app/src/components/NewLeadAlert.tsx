@@ -16,6 +16,7 @@ import {
   getNewLeadAlertMode,
   getSeenLeadAlertIds,
   markLeadAlertsSeen,
+  NEW_LEADS_EVENT,
   playNewLeadRingtone,
   showDesktopNotification,
   wantsPopup,
@@ -70,6 +71,7 @@ export default function NewLeadAlert() {
       )
       if (!fresh.length) return
       markLeadAlertsSeen(fresh.map((n) => n.id))
+      window.dispatchEvent(new CustomEvent(NEW_LEADS_EVENT))
       if (mode === 'off') return
       if (wantsRingtone(mode)) playNewLeadRingtone()
       if (wantsPopup(mode)) {

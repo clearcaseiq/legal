@@ -4,6 +4,7 @@ import { attorneysBlockedByDeclineLearning } from './decline-learning'
 import { logger } from './logger'
 import { CaseFacts } from './case-tier-classifier'
 import { sendCaseOfferSms } from './sms'
+import { notifyAttorneyNewMatchInApp } from './case-notifications'
 import { coversClaimType } from './case-type-match'
 import { getCaseRoutingFeeDollars } from './matching-rules-config'
 
@@ -732,6 +733,8 @@ async function sendOfferToFirm(
   })
 
   await sendCaseOfferSms(firmId, intro.id, message.slice(0, 100), Math.ceil(TIER_3_EXCLUSIVE_TIMEOUT_SECONDS / 60))
+
+  await notifyAttorneyNewMatchInApp(firmId, intro.id)
 
   return intro.id
 }

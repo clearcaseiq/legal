@@ -7,11 +7,16 @@ import { validatePhoneField } from '../lib/phone'
 import PhoneInput from '../components/PhoneInput'
 import { resolveUploadedPhotoUrl } from '../lib/avatar'
 import {
+  createFirmTemplate,
   getFirmIntakeSettings,
+  getFirmTemplates,
   removeFirmLogo,
   updateFirm,
   updateFirmIntakeSettings,
   uploadFirmLogo,
+  uploadFirmTemplateFile,
+  type FirmTemplate,
+  type WelcomePacketContents,
 } from '../lib/api'
 import { invalidateFirmDashboardSummary, useFirmDashboardSummary } from '../hooks/useFirmDashboardSummary'
 
@@ -48,6 +53,12 @@ export default function FirmSettings() {
   const [autoSendRetainer, setAutoSendRetainer] = useState(false)
   const [intakeSaving, setIntakeSaving] = useState(false)
   const [intakeMsg, setIntakeMsg] = useState<string | null>(null)
+  const [packet, setPacket] = useState<WelcomePacketContents>({ retainer: true, hipaa: true, templateIds: [] })
+  const [packetTemplates, setPacketTemplates] = useState<FirmTemplate[]>([])
+  const [packetSaving, setPacketSaving] = useState(false)
+  const [autoSendWelcome, setAutoSendWelcome] = useState(true)
+  const [packetMsg, setPacketMsg] = useState<string | null>(null)
+  const packetUploadRef = useRef<HTMLInputElement>(null)
   const [logoBusy, setLogoBusy] = useState(false)
   const [logoError, setLogoError] = useState<string | null>(null)
   const logoInputRef = useRef<HTMLInputElement>(null)
@@ -77,9 +88,76 @@ export default function FirmSettings() {
   useEffect(() => {
     if (!firm) return
     getFirmIntakeSettings()
-      .then((s) => setAutoSendRetainer(Boolean(s.autoSendRetainerOnAcquire)))
+      .then((s) => {
+        setAutoSendRetainer(Boolean(s.autoSendRetainerOnAcquire))
+        setAutoSendWelcome(s.autoSendWelcomePacketOnAcquire !== false)
+        if (s.welcomePacket) setPacket(s.welcomePacket)
+      })
       .catch(() => setAutoSendRetainer(false))
+    getFirmTemplates()
+      .then((res) => setPacketTemplates(res.templates || []))
+      .catch(() => setPacketTemplates([]))
   }, [firm])
+
+  // Only templates that can actually be sent for signature: a PDF, or body text
+  // that is rendered to one.
+  const sendableTemplates = useMemo(
+    () => packetTemplates.filter((t) => t.isActive && (t.isPdf || Boolean(t.body?.trim()))),
+    [packetTemplates],
+  )
+
+  const savePacket = async (next: WelcomePacketContents, message = 'Welcome packet saved.') => {
+    const previous = packet
+    setPacket(next)
+    setPacketMsg(null)
+    setPacketSaving(true)
+    try {
+      const res = await updateFirmIntakeSettings({ welcomePacket: next })
+      setPacket(res.welcomePacket)
+      setPacketMsg(message)
+    } catch (err: any) {
+      setPacket(previous)
+      setPacketMsg(err?.response?.data?.error || 'Failed to save the welcome packet.')
+    } finally {
+      setPacketSaving(false)
+    }
+  }
+
+  const toggleTemplate = (id: string) => {
+    const has = packet.templateIds.includes(id)
+    void savePacket({
+      ...packet,
+      templateIds: has ? packet.templateIds.filter((t) => t !== id) : [...packet.templateIds, id],
+    })
+  }
+
+  const uploadPacketDocument = async (file: File) => {
+    if (file.type !== 'application/pdf') {
+      setPacketMsg('Upload a PDF so it can be sent for e-signature.')
+      return
+    }
+    setPacketMsg(null)
+    setPacketSaving(true)
+    try {
+      const name = file.name.replace(/\.pdf$/i, '').trim() || 'Welcome packet document'
+      const created = await createFirmTemplate({ name, category: 'onboarding' })
+      const withFile = await uploadFirmTemplateFile(created.id, file)
+      setPacketTemplates((prev) => [...prev, withFile])
+      await savePacket(
+        { ...packet, templateIds: [...packet.templateIds, withFile.id] },
+        `Added "${withFile.name}" to the welcome packet and to Templates.`,
+      )
+    } catch (err: any) {
+      setPacketMsg(err?.response?.data?.error || 'Failed to upload the document.')
+    } finally {
+      setPacketSaving(false)
+    }
+  }
+
+  const packetCount =
+    (packet.retainer ? 1 : 0) +
+    (packet.hipaa ? 1 : 0) +
+    packet.templateIds.filter((id) => sendableTemplates.some((t) => t.id === id)).length
 
   const updateField = (key: keyof FirmForm, value: string) => {
     setForm(prev => ({ ...prev, [key]: value }))
@@ -303,6 +381,127 @@ export default function FirmSettings() {
           </span>
         </label>
         {intakeMsg ? <p className="mt-2 text-xs text-slate-600">{intakeMsg}</p> : null}
+
+        <div className="mt-6 border-t border-slate-100 pt-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h4 className="text-sm font-semibold text-gray-900">Welcome packet</h4>
+              <p className="mt-1 text-xs text-gray-600">
+                Choose the documents emailed to the client for e-signature. Every new case gets a “Send client welcome
+                packet” task listing these documents.
+              </p>
+            </div>
+            {canEdit && (
+              <>
+                <input
+                  ref={packetUploadRef}
+                  type="file"
+                  accept="application/pdf"
+                  className="sr-only"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0]
+                    e.target.value = ''
+                    if (file) void uploadPacketDocument(file)
+                  }}
+                />
+                <button
+                  type="button"
+                  disabled={packetSaving}
+                  onClick={() => packetUploadRef.current?.click()}
+                  className="inline-flex items-center gap-2 rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                >
+                  {packetSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                  Upload document
+                </button>
+              </>
+            )}
+          </div>
+
+          <label className="mt-4 flex items-start gap-3 text-sm text-gray-800">
+            <input
+              type="checkbox"
+              checked={autoSendWelcome}
+              disabled={!canEdit || packetSaving}
+              onChange={async (e) => {
+                const next = e.target.checked
+                setAutoSendWelcome(next)
+                setPacketMsg(null)
+                setPacketSaving(true)
+                try {
+                  const res = await updateFirmIntakeSettings({ autoSendWelcomePacketOnAcquire: next })
+                  setAutoSendWelcome(res.autoSendWelcomePacketOnAcquire !== false)
+                  setPacketMsg('Welcome packet setting saved.')
+                } catch (err: any) {
+                  setAutoSendWelcome(!next)
+                  setPacketMsg(err?.response?.data?.error || 'Failed to save the welcome packet setting.')
+                } finally {
+                  setPacketSaving(false)
+                }
+              }}
+              className="mt-0.5 h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+            />
+            <span>
+              <span className="font-semibold">Send the welcome packet when a case is purchased</span>
+              <span className="block text-xs text-gray-500">
+                The client gets the signing link by email, text and on their dashboard. If it can’t be sent (no client
+                email or signature tool), the task stays open for your team.
+              </span>
+            </span>
+          </label>
+
+          <ul className="mt-4 divide-y divide-slate-100 rounded-lg border border-slate-200">
+            {[
+              { key: 'retainer' as const, label: 'Retainer agreement', hint: 'Built-in contingency-fee agreement' },
+              { key: 'hipaa' as const, label: 'HIPAA authorization', hint: 'Built-in; requires a HIPAA-capable signature tool' },
+            ].map((item) => (
+              <li key={item.key}>
+                <label className="flex items-start gap-3 px-4 py-3 text-sm text-gray-800">
+                  <input
+                    type="checkbox"
+                    checked={packet[item.key]}
+                    disabled={!canEdit || packetSaving}
+                    onChange={(e) => void savePacket({ ...packet, [item.key]: e.target.checked })}
+                    className="mt-0.5 h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                  />
+                  <span>
+                    <span className="font-medium">{item.label}</span>
+                    <span className="block text-xs text-gray-500">{item.hint}</span>
+                  </span>
+                </label>
+              </li>
+            ))}
+            {sendableTemplates.map((t) => (
+              <li key={t.id}>
+                <label className="flex items-start gap-3 px-4 py-3 text-sm text-gray-800">
+                  <input
+                    type="checkbox"
+                    checked={packet.templateIds.includes(t.id)}
+                    disabled={!canEdit || packetSaving}
+                    onChange={() => toggleTemplate(t.id)}
+                    className="mt-0.5 h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                  />
+                  <span className="min-w-0">
+                    <span className="font-medium">{t.name}</span>
+                    <span className="block text-xs text-gray-500">
+                      From Templates{t.isPdf ? ' · PDF' : ' · text template'}
+                    </span>
+                  </span>
+                </label>
+              </li>
+            ))}
+          </ul>
+          {sendableTemplates.length === 0 && (
+            <p className="mt-2 text-xs text-gray-500">
+              Add documents from Firm Dashboard → Templates, or upload a PDF here.
+            </p>
+          )}
+          <p className="mt-2 text-xs text-gray-500">
+            {packetCount === 0
+              ? 'No documents selected — the welcome packet task will not be created.'
+              : `${packetCount} document${packetCount === 1 ? '' : 's'} in the packet.`}
+          </p>
+          {packetMsg ? <p className="mt-1 text-xs text-slate-600">{packetMsg}</p> : null}
+        </div>
       </div>
 
       <form onSubmit={handleSubmit} className="bg-white shadow rounded-lg p-6 space-y-6">

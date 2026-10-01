@@ -23,6 +23,7 @@ import { AttorneyDashboardPanelSkeleton, AttorneyDashboardSkeleton } from '../co
 import { clearStoredAuth, getLoginRedirect, hasValidAuthToken } from '../lib/auth'
 import { getAttorneyCaseStatusKey, caseStatusLabel, caseStatusColor } from '../lib/caseStatus'
 import { engagedLeadsOnly } from '../lib/leadStatus'
+import { NEW_LEADS_EVENT } from '../lib/newLeadAlerts'
 import { validatePhoneField } from '../lib/phone'
 import PhoneInput from '../components/PhoneInput'
 import { computeProfileStrength } from '../lib/profileStrength'
@@ -1811,6 +1812,13 @@ export default function AttorneyDashboardShell({ chromeless = false, initialView
     }, 100)
     return () => clearTimeout(timer)
   }, [navigate, loadDashboardData])
+
+  // NewLeadAlert announces fresh matches; pull them in without a page reload.
+  useEffect(() => {
+    const onNewLeads = () => void loadDashboardData(0)
+    window.addEventListener(NEW_LEADS_EVENT, onNewLeads)
+    return () => window.removeEventListener(NEW_LEADS_EVENT, onNewLeads)
+  }, [loadDashboardData])
 
   useEffect(() => {
     if (!hasValidAuthToken()) return

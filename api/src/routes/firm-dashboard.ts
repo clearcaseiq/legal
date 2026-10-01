@@ -919,8 +919,32 @@ router.patch('/members/:memberId', authMiddleware as any, async (req: any, res: 
       data.status = body.status
     }
 
-    if (Object.keys(data).length === 0) {
+    // Staff profile. Attorneys edit theirs through /attorneys/:id, which also
+    // keeps the Attorney record's display name in step.
+    const userData: Record<string, string | null> = {}
+    for (const field of ['firstName', 'lastName'] as const) {
+      if (field in body) {
+        const value = typeof body[field] === 'string' ? body[field].trim() : ''
+        if (!value) return res.status(400).json({ error: `${field === 'firstName' ? 'First' : 'Last'} name is required` })
+        if (value.length > 100) return res.status(400).json({ error: 'Name is too long' })
+        userData[field] = value
+      }
+    }
+    if ('phone' in body) {
+      const phone = typeof body.phone === 'string' ? body.phone.trim() : ''
+      if (phone.length > 30) return res.status(400).json({ error: 'Phone number is too long' })
+      userData.phone = phone || null
+    }
+    if (Object.keys(userData).length > 0 && !member.userId) {
+      return res.status(400).json({ error: 'This member has not accepted their invitation yet' })
+    }
+
+    if (Object.keys(data).length === 0 && Object.keys(userData).length === 0) {
       return res.status(400).json({ error: 'No supported fields to update' })
+    }
+
+    if (Object.keys(userData).length > 0) {
+      await prisma.user.update({ where: { id: member.userId }, data: userData })
     }
 
     const updated = await (prisma as any).firmMember.update({
@@ -4653,9 +4677,7 @@ router.get('/time-entries/export.csv', authMiddleware as any, async (req: any, r
   try {
     const context = await getFirmContext(req)
     if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
-    if (!requireFirmPermission(context, 'manage_users')) {
-      return res.status(403).json({ error: 'You do not have permission to export time' })
-    }
+    // Same audience as GET /time-entries — the file holds exactly what the tab shows.
     const { entries, nameByMember, caseLabelById } = await buildTimeEntryQuery(context, req.query)
 
     const esc = (v: any) => {
@@ -4691,12 +4713,8 @@ router.get('/intake-settings', authMiddleware as any, async (req: any, res: Resp
   try {
     const context = await getFirmContext(req)
     if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
-    const { getFirmSettingBool, FIRM_SETTING_AUTO_SEND_RETAINER } = await import('../lib/intake-acquire')
-    const autoSendRetainerOnAcquire = await getFirmSettingBool(
-      context.lawFirmId,
-      FIRM_SETTING_AUTO_SEND_RETAINER,
-    )
-    res.json({ autoSendRetainerOnAcquire })
+    const { readIntakeSettings } = await import('../lib/intake-acquire')
+    res.json(await readIntakeSettings(context.lawFirmId))
   } catch (error) {
     logger.error('Failed to load intake settings', { error })
     res.status(500).json({ error: 'Internal server error' })
@@ -4711,9 +4729,14 @@ router.put('/intake-settings', authMiddleware as any, async (req: any, res: Resp
     if (!requireFirmPermission(context, 'manage_users')) {
       return res.status(403).json({ error: 'Only firm admins can change intake settings' })
     }
-    const { setFirmSetting, getFirmSettingBool, FIRM_SETTING_AUTO_SEND_RETAINER } = await import(
-      '../lib/intake-acquire'
-    )
+    const {
+      setFirmSetting,
+      readIntakeSettings,
+      normalizeWelcomePacketContents,
+      FIRM_SETTING_AUTO_SEND_RETAINER,
+      FIRM_SETTING_AUTO_SEND_WELCOME,
+      FIRM_SETTING_WELCOME_PACKET,
+    } = await import('../lib/intake-acquire')
     if (typeof req.body?.autoSendRetainerOnAcquire === 'boolean') {
       await setFirmSetting(
         context.lawFirmId,
@@ -4721,11 +4744,22 @@ router.put('/intake-settings', authMiddleware as any, async (req: any, res: Resp
         req.body.autoSendRetainerOnAcquire,
       )
     }
-    const autoSendRetainerOnAcquire = await getFirmSettingBool(
-      context.lawFirmId,
-      FIRM_SETTING_AUTO_SEND_RETAINER,
-    )
-    res.json({ autoSendRetainerOnAcquire })
+    if (req.body?.welcomePacket && typeof req.body.welcomePacket === 'object') {
+      const next = normalizeWelcomePacketContents(req.body.welcomePacket)
+      if (next.templateIds.length) {
+        const owned = await (prisma as any).firmTemplate.findMany({
+          where: { lawFirmId: context.lawFirmId, id: { in: next.templateIds } },
+          select: { id: true },
+        })
+        const ownedIds = new Set(owned.map((t: { id: string }) => t.id))
+        next.templateIds = next.templateIds.filter((id) => ownedIds.has(id))
+      }
+      await setFirmSetting(context.lawFirmId, FIRM_SETTING_WELCOME_PACKET, next)
+    }
+    if (typeof req.body?.autoSendWelcomePacketOnAcquire === 'boolean') {
+      await setFirmSetting(context.lawFirmId, FIRM_SETTING_AUTO_SEND_WELCOME, req.body.autoSendWelcomePacketOnAcquire)
+    }
+    res.json(await readIntakeSettings(context.lawFirmId))
   } catch (error) {
     logger.error('Failed to update intake settings', { error })
     res.status(500).json({ error: 'Internal server error' })

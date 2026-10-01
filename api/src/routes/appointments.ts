@@ -4,6 +4,7 @@ import { logger } from '../lib/logger'
 import { z } from 'zod'
 import { authMiddleware, AuthRequest } from '../lib/auth'
 import { generateAvailableTimeSlots, getDayBounds, getDayBoundsInTimezone, hasAppointmentConflict } from '../lib/availability-slots'
+import { isEngagedLeadStatus } from '../lib/lead-status'
 import { formatInSchedulingTimezone, resolveSchedulingTimezone } from '../lib/scheduling-timezone'
 import { recordRoutingEvent } from '../lib/routing-lifecycle'
 import { createExternalCalendarEvent, deleteExternalCalendarEvent } from '../lib/calendar-sync'
@@ -22,6 +23,9 @@ import { notifyAttorneyInApp } from '../lib/case-notifications'
 import { ATTORNEY_EVENTS } from '../lib/notification-events'
 
 const router = Router()
+
+// A slot a few minutes away cannot realistically be attended; hide it too.
+const MIN_BOOKING_NOTICE_MINUTES = 15
 
 const AppointmentCreate = z.object({
   attorneyId: z.string(),
@@ -83,6 +87,9 @@ router.post('/', authMiddleware, async (req: AuthRequest, res) => {
 
     const { attorneyId, assessmentId, type, scheduledAt, duration, notes, meetingUrl, location, phoneNumber } = parsed.data
     const scheduledStart = new Date(scheduledAt)
+    if (scheduledStart.getTime() < Date.now()) {
+      return res.status(400).json({ error: 'That time has already passed. Please choose a later time.' })
+    }
     const { startOfDay, endOfDay } = getDayBounds(scheduledStart)
 
     // Check if attorney exists and is available
@@ -116,7 +123,15 @@ router.post('/', authMiddleware, async (req: AuthRequest, res) => {
         select: { id: true }
       })
 
-      if (!acceptedIntroduction) {
+      // A case transferred within the firm keeps its introduction on the first
+      // attorney; the lead's assignee is who the consult is actually with.
+      const assignedLead = acceptedIntroduction
+        ? null
+        : await prisma.leadSubmission.findFirst({
+            where: { assessmentId, assignedAttorneyId: attorneyId },
+            select: { status: true },
+          })
+      if (!acceptedIntroduction && !isEngagedLeadStatus(assignedLead?.status)) {
         return res.status(409).json({ error: 'Booking is only available after the matched attorney accepts your case.' })
       }
     }
@@ -922,6 +937,7 @@ router.get('/attorney/:attorneyId/availability', async (req, res) => {
     // Generate available slots across every window. Windows are pre-sorted and
     // non-overlapping (enforced on save), so concatenation stays chronological.
     const busy = [...existingAppointments, ...busyBlocksToAppointments(calendarBusyBlocks)]
+    const notBefore = new Date(Date.now() + MIN_BOOKING_NOTICE_MINUTES * 60000)
     const slots = windows.flatMap((w) =>
       generateAvailableTimeSlots({
         dateStr,
@@ -930,6 +946,7 @@ router.get('/attorney/:attorneyId/availability', async (req, res) => {
         endTime: w.endTime,
         duration: parseInt(duration as string),
         existingAppointments: busy,
+        notBefore,
       }),
     )
 

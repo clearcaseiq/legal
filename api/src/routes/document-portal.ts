@@ -17,6 +17,7 @@ import {
   requestUploadSubcategory,
   parseRequestedDocs,
 } from '../lib/document-request-status'
+import { fileCarrierPortalUpload, POLICY_DOC_LABELS } from '../lib/insurance-workbench'
 
 const router = Router()
 
@@ -34,6 +35,7 @@ const OPPOSING_DOC_LABELS: Record<string, string> = {
   correspondence: 'Relevant correspondence',
   photos: 'Photographs of the scene/vehicle',
   other: 'Other documents',
+  ...POLICY_DOC_LABELS,
 }
 
 const EXTERNAL_UPLOAD_DIR = path.join(process.cwd(), 'uploads', 'external-documents')
@@ -299,6 +301,20 @@ router.post(
     const status = computeStatus(requestedDocs, uploadedDocTypes)
     if (status !== docRequest.status) {
       await prisma.documentRequest.update({ where: { id: docRequest.id }, data: { status } })
+    }
+
+    if (docRequest.insuranceDetailId) {
+      await fileCarrierPortalUpload({
+        insuranceDetailId: docRequest.insuranceDetailId,
+        externalUploadId: created.id,
+        docType,
+        filePath: created.filePath,
+        originalName: created.originalName,
+        mimeType: created.mimeType,
+        uploadedByName,
+      }).catch((error: any) =>
+        logger.warn('Failed to file carrier upload into its policy', { error: error?.message, requestId: docRequest.id }),
+      )
     }
 
     res.json({

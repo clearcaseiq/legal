@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { prisma } from '../lib/prisma'
 import { IntroRequest } from '../lib/validators'
 import { logger } from '../lib/logger'
+import { notifyAttorneyNewMatchInApp } from '../lib/case-notifications'
 import { authMiddleware, type AuthRequest } from '../lib/auth'
 import { offerReferenceCode } from '../lib/offer-reference'
 
@@ -79,6 +80,7 @@ router.post('/request', authMiddleware, async (req: AuthRequest, res) => {
       assessmentId, 
       attorneyId 
     })
+    await notifyAttorneyNewMatchInApp(attorneyId, intro.id)
 
     res.json({
       intro_id: intro.id,

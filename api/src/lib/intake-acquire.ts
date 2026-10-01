@@ -1,6 +1,7 @@
 /**
- * Post-acquire intake hooks: conflict re-screen, Send retainer task, optional
- * firm auto-send of retainer via Dropbox Sign / configured e-sign provider.
+ * Post-acquire intake hooks: conflict re-screen, Send retainer and welcome
+ * packet tasks, optional firm auto-send of retainer via Dropbox Sign /
+ * configured e-sign provider.
  */
 import fs from 'fs'
 import { prisma } from './prisma'
@@ -22,6 +23,9 @@ export function isRetainerTemplateName(name: string): boolean {
 
 export const SEND_RETAINER_TASK_TITLE = 'Send retainer to client'
 export const FIRM_SETTING_AUTO_SEND_RETAINER = 'autoSendRetainerOnAcquire'
+/** On unless the firm turns it off: the client gets the packet link the moment the case is bought. */
+export const FIRM_SETTING_AUTO_SEND_WELCOME = 'autoSendWelcomePacketOnAcquire'
+export const AUTO_SEND_WELCOME_DEFAULT = true
 
 const RETAINER_DONE_TITLE_MATCHERS = [
   /^send retainer to client$/i,
@@ -36,12 +40,16 @@ function addDays(date: Date, days: number): Date {
   return d
 }
 
-export async function getFirmSettingBool(lawFirmId: string | null | undefined, key: string): Promise<boolean> {
-  if (!lawFirmId) return false
+export async function getFirmSettingBool(
+  lawFirmId: string | null | undefined,
+  key: string,
+  fallback = false,
+): Promise<boolean> {
+  if (!lawFirmId) return fallback
   const row = await (prisma as any).firmSetting
     .findUnique({ where: { lawFirmId_key: { lawFirmId, key } } })
     .catch(() => null)
-  if (!row?.value) return false
+  if (!row?.value) return fallback
   try {
     const parsed = JSON.parse(row.value)
     return parsed === true || parsed === 'true' || parsed === 1
@@ -268,9 +276,45 @@ async function tryAutoSendRetainer(params: {
   }
 }
 
+async function tryAutoSendWelcomePacket(params: {
+  leadId: string
+  attorneyId: string
+  lawFirmId?: string | null
+}): Promise<{ includedRetainer: boolean } | null> {
+  try {
+    const attorney = await prisma.attorney.findUnique({
+      where: { id: params.attorneyId },
+      select: { id: true, name: true, lawFirmId: true },
+    })
+    if (!attorney) return null
+    // Imported lazily: the welcome packet module depends on this one.
+    const { sendWelcomePacketForLead } = await import('./esign/welcome-packet')
+    const result = await sendWelcomePacketForLead({
+      leadId: params.leadId,
+      attorney: { ...attorney, lawFirmId: attorney.lawFirmId ?? params.lawFirmId ?? null },
+    })
+    logger.info('Auto-sent welcome packet on acquire', {
+      leadId: params.leadId,
+      documents: (result.retainer ? 1 : 0) + (result.hipaa ? 1 : 0) + result.templates.length,
+      failed: result.failed.length,
+    })
+    return { includedRetainer: Boolean(result.retainer) }
+  } catch (error: any) {
+    // Missing client email, no signature tool, empty packet: the open
+    // "Send client welcome packet" task is the attorney's fallback.
+    logger.warn('Auto-send welcome packet on acquire skipped', {
+      leadId: params.leadId,
+      code: error?.code,
+      error: error?.message || String(error),
+    })
+    return null
+  }
+}
+
 /**
  * Run after a successful accept/acquire: post-acquire conflict screen, ensure
- * Send retainer task, optionally auto-send retainer.
+ * Send retainer and welcome packet tasks, auto-send the welcome packet (unless
+ * the firm turned it off), optionally auto-send retainer.
  */
 export async function runPostAcquireIntakeHooks(params: {
   leadId: string
@@ -305,6 +349,27 @@ export async function runPostAcquireIntakeHooks(params: {
     logger.warn('Ensure retainer tasks failed', { assessmentId: params.assessmentId, error: error?.message })
   }
 
+  try {
+    await ensureWelcomePacketTask(params.assessmentId, {
+      lawFirmId: params.lawFirmId,
+      createdById: params.actorUserId,
+      createdByName: params.actorName || 'ClearCaseIQ',
+    })
+  } catch (error: any) {
+    logger.warn('Ensure welcome packet task failed', { assessmentId: params.assessmentId, error: error?.message })
+  }
+
+  const autoWelcome = await getFirmSettingBool(
+    params.lawFirmId,
+    FIRM_SETTING_AUTO_SEND_WELCOME,
+    AUTO_SEND_WELCOME_DEFAULT,
+  )
+  if (autoWelcome) {
+    const packet = await tryAutoSendWelcomePacket(params)
+    // The packet already carried the retainer; a second one would confuse the client.
+    if (packet?.includedRetainer) return
+  }
+
   const autoSend = await getFirmSettingBool(params.lawFirmId, FIRM_SETTING_AUTO_SEND_RETAINER)
   if (autoSend) {
     await tryAutoSendRetainer({
@@ -313,6 +378,122 @@ export async function runPostAcquireIntakeHooks(params: {
       assessmentId: params.assessmentId,
     })
   }
+}
+
+export const FIRM_SETTING_WELCOME_PACKET = 'welcomePacketContents'
+export const WELCOME_PACKET_TASK_TITLE = 'Send client welcome packet'
+
+/** What the firm sends when someone clicks Send on the welcome packet task. */
+export type WelcomePacketContents = { retainer: boolean; hipaa: boolean; templateIds: string[] }
+
+export const DEFAULT_WELCOME_PACKET: WelcomePacketContents = { retainer: true, hipaa: true, templateIds: [] }
+
+export function normalizeWelcomePacketContents(raw: unknown): WelcomePacketContents {
+  if (!raw || typeof raw !== 'object') return { ...DEFAULT_WELCOME_PACKET }
+  const r = raw as Record<string, unknown>
+  const templateIds = Array.isArray(r.templateIds)
+    ? Array.from(new Set(r.templateIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)))
+    : []
+  return {
+    retainer: typeof r.retainer === 'boolean' ? r.retainer : DEFAULT_WELCOME_PACKET.retainer,
+    hipaa: typeof r.hipaa === 'boolean' ? r.hipaa : DEFAULT_WELCOME_PACKET.hipaa,
+    templateIds: templateIds.slice(0, 20),
+  }
+}
+
+export async function getWelcomePacketContents(lawFirmId: string | null | undefined): Promise<WelcomePacketContents> {
+  if (!lawFirmId) return { ...DEFAULT_WELCOME_PACKET }
+  const row = await (prisma as any).firmSetting
+    .findUnique({ where: { lawFirmId_key: { lawFirmId, key: FIRM_SETTING_WELCOME_PACKET } } })
+    .catch(() => null)
+  if (!row?.value) return { ...DEFAULT_WELCOME_PACKET }
+  try {
+    return normalizeWelcomePacketContents(JSON.parse(row.value))
+  } catch {
+    return { ...DEFAULT_WELCOME_PACKET }
+  }
+}
+
+export async function readIntakeSettings(lawFirmId: string | null | undefined) {
+  const [autoSendRetainerOnAcquire, autoSendWelcomePacketOnAcquire, welcomePacket] = await Promise.all([
+    getFirmSettingBool(lawFirmId, FIRM_SETTING_AUTO_SEND_RETAINER),
+    getFirmSettingBool(lawFirmId, FIRM_SETTING_AUTO_SEND_WELCOME, AUTO_SEND_WELCOME_DEFAULT),
+    getWelcomePacketContents(lawFirmId),
+  ])
+  return { autoSendRetainerOnAcquire, autoSendWelcomePacketOnAcquire, welcomePacket }
+}
+
+/** Human-readable packet items, in send order; deleted/inactive templates drop out. */
+export async function describeWelcomePacket(
+  lawFirmId: string | null | undefined,
+  contents: WelcomePacketContents,
+): Promise<string[]> {
+  const items: string[] = []
+  if (contents.retainer) items.push('Retainer agreement')
+  if (contents.hipaa) items.push('HIPAA authorization')
+  if (lawFirmId && contents.templateIds.length) {
+    const templates = await (prisma as any).firmTemplate
+      .findMany({
+        where: { lawFirmId, id: { in: contents.templateIds }, isActive: true },
+        select: { id: true, name: true },
+      })
+      .catch(() => [] as Array<{ id: string; name: string }>)
+    const byId = new Map<string, string>(templates.map((t: { id: string; name: string }) => [t.id, t.name]))
+    for (const id of contents.templateIds) {
+      const name = byId.get(id)
+      if (name) items.push(name)
+    }
+  }
+  return items
+}
+
+/**
+ * Put the welcome packet task on the case's task list at acquire, carrying the
+ * firm's configured contents as subtasks. The workflow step of the same title
+ * links to this task rather than creating a second one.
+ */
+export async function ensureWelcomePacketTask(assessmentId: string, opts: {
+  lawFirmId?: string | null
+  createdById?: string | null
+  createdByName?: string | null
+}): Promise<'created' | 'exists' | 'noop'> {
+  if (!assessmentId) return 'noop'
+  const existing = await prisma.caseTask.findFirst({
+    where: {
+      assessmentId,
+      mergedIntoId: null,
+      title: { equals: WELCOME_PACKET_TASK_TITLE, mode: 'insensitive' },
+    },
+    select: { id: true },
+  })
+  if (existing) return 'exists'
+
+  const contents = await getWelcomePacketContents(opts.lawFirmId)
+  const items = await describeWelcomePacket(opts.lawFirmId, contents)
+  if (!items.length) return 'noop'
+
+  const dueDate = addDays(new Date(), 3)
+  await prisma.caseTask.create({
+    data: {
+      assessmentId,
+      title: WELCOME_PACKET_TASK_TITLE,
+      taskType: 'milestone',
+      milestoneType: 'case_opening',
+      dueDate,
+      reminderAt: dueDate,
+      priority: 'medium',
+      escalationLevel: 'none',
+      status: 'open',
+      assignedRole: 'intake_specialist',
+      assignedTo: null,
+      assignedUserId: null,
+      notes: `Email the client the firm welcome packet for e-signature: ${items.join(', ')}. Set in Firm Settings → Intake automation.`,
+      subtasks: JSON.stringify(items.map((title, i) => ({ id: `welcome-${i + 1}`, title, done: false }))),
+      createdById: opts.createdById || null,
+      createdByName: opts.createdByName || 'ClearCaseIQ',
+    },
+  })
+  return 'created'
 }
 
 export async function completeRetainerRelatedTasks(assessmentId: string): Promise<number> {

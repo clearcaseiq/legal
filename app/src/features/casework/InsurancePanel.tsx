@@ -17,7 +17,11 @@ import {
   Sparkles,
   AlertTriangle,
   Send,
+  ChevronDown,
+  Users,
 } from 'lucide-react'
+import PolicyWorkbench from './PolicyWorkbench'
+import { AdjusterDirectoryModal, CoverageStackCard, useAdjusterDirectory } from './InsuranceOverview'
 import ConfirmDialog from '../../components/ConfirmDialog'
 import PhoneInput from '../../components/PhoneInput'
 import { validatePhoneField } from '../../lib/phone'
@@ -31,7 +35,9 @@ import {
   getLeadLetters,
   getCarrierLetterPreview,
   sendCarrierLetter,
+  getInsuranceOverview,
   type CaseLetter,
+  type CoverageStack,
 } from '../../lib/api'
 import LetterComposerModal, { saveLetterPdf } from './LetterComposerModal'
 
@@ -55,6 +61,11 @@ interface InsuranceRecord {
   claimOpenedAt: string | null
   decPageRequestId: string | null
   coverageConfirmed: boolean
+  lorAcknowledgedAt: string | null
+  liabilityDecision: string | null
+  limitsDemandSentAt: string | null
+  limitsDemandDeadline: string | null
+  limitsDemandStatus: string | null
   createdAt: string
   updatedAt: string
 }
@@ -163,15 +174,21 @@ export default function InsurancePanel({
   const [saving, setSaving] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [suggestion, setSuggestion] = useState<any | null>(null)
+  const [coverage, setCoverage] = useState<CoverageStack | null>(null)
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [directoryOpen, setDirectoryOpen] = useState(false)
+  const adjusters = useAdjusterDirectory(leadId)
 
   const load = useCallback(async () => {
     try {
-      const [data, sent] = await Promise.all([
+      const [data, sent, overview] = await Promise.all([
         getLeadInsurance(leadId),
         getLeadLetters(leadId).catch(() => ({ letters: [] as CaseLetter[] })),
+        getInsuranceOverview(leadId).catch(() => null),
       ])
       setRecords(Array.isArray(data) ? data : [])
       setLetters(sent.letters || [])
+      setCoverage(overview?.coverage ?? null)
     } catch (err: any) {
       setError(err?.response?.data?.error || 'Could not load insurance details.')
     } finally {
@@ -188,7 +205,27 @@ export default function InsurancePanel({
 
   const totalCoverage = records.reduce((sum, r) => sum + (r.policyLimit || 0), 0)
 
-  const lettersFor = (r: InsuranceRecord) => letters.filter((l) => l.insuranceDetailId === r.id)
+  const lettersFor = (r: InsuranceRecord) => letters.filter((l) => l.insuranceDetailId === r.id && l.kind === 'carrier_lor')
+
+  const pickAdjuster = (name: string) => {
+    const match = adjusters.find((a) => a.name && a.name.toLowerCase() === name.trim().toLowerCase())
+    setForm((prev) => ({
+      ...prev,
+      adjusterName: name,
+      ...(match
+        ? {
+            adjusterEmail: prev.adjusterEmail || match.email || '',
+            adjusterPhone: prev.adjusterPhone || match.phone || '',
+          }
+        : {}),
+    }))
+  }
+
+  const startAddClientPolicy = () => {
+    setForm({ ...EMPTY_FORM, insuredParty: 'client', coverageType: 'uim' })
+    setEditingId('new')
+    setBanner(null)
+  }
 
   useEffect(() => {
     if (!openLetter || loading || autoOpened.current) return
@@ -347,16 +384,28 @@ export default function InsurancePanel({
             </>
           ) : null}
         </div>
-        {editingId === null ? (
+        <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={startAdd}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700"
+            onClick={() => setDirectoryOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
           >
-            <Plus className="h-4 w-4" /> Add policy
+            <Users className="h-4 w-4" /> Adjusters
           </button>
-        ) : null}
+          {editingId === null ? (
+            <button
+              type="button"
+              onClick={startAdd}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700"
+            >
+              <Plus className="h-4 w-4" /> Add policy
+            </button>
+          ) : null}
+        </div>
       </div>
+
+      {coverage && editingId === null ? <CoverageStackCard coverage={coverage} onAddClientPolicy={startAddClientPolicy} /> : null}
+      {directoryOpen ? <AdjusterDirectoryModal leadId={leadId} onClose={() => setDirectoryOpen(false)} /> : null}
 
       {banner ? (
         <div className={`rounded-lg px-3 py-2 text-sm ${banner.tone === 'ok' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
@@ -443,7 +492,16 @@ export default function InsurancePanel({
             </div>
             <div>
               <label className={labelCls}>Adjuster name</label>
-              <input className={inputCls} value={form.adjusterName} onChange={(e) => set('adjusterName', e.target.value)} />
+              <input className={inputCls} value={form.adjusterName} onChange={(e) => pickAdjuster(e.target.value)} list="known-adjusters" placeholder="Start typing to pick a known adjuster" />
+              <datalist id="known-adjusters">
+                {adjusters
+                  .filter((a) => a.name)
+                  .map((a) => (
+                    <option key={a.key} value={a.name!}>
+                      {[a.carriers.join(', '), a.avgResponseDays != null ? `~${a.avgResponseDays}d response` : null].filter(Boolean).join(' · ')}
+                    </option>
+                  ))}
+              </datalist>
             </div>
             <div>
               <label className={labelCls}>Adjuster email</label>
@@ -596,6 +654,28 @@ export default function InsurancePanel({
               </div>
             )
           })()}
+
+          <button
+            type="button"
+            onClick={() => setExpandedId(expandedId === r.id ? null : r.id)}
+            className="mt-3 flex w-full items-center justify-between border-t border-slate-100 pt-3 text-xs font-semibold text-slate-600 hover:text-slate-900"
+          >
+            <span>
+              Claim timeline, correspondence and documents
+              {r.limitsDemandStatus === 'sent' ? ' · limits demand pending' : r.limitsDemandStatus === 'expired' ? ' · limits demand expired' : ''}
+            </span>
+            <ChevronDown className={`h-4 w-4 transition ${expandedId === r.id ? 'rotate-180' : ''}`} />
+          </button>
+          {expandedId === r.id ? (
+            <PolicyWorkbench
+              leadId={leadId}
+              policy={r}
+              onChanged={() => {
+                void load()
+                onChanged?.()
+              }}
+            />
+          ) : null}
         </div>
       ))}
 

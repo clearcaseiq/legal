@@ -145,6 +145,46 @@ export async function notifyAttorneyInApp(input: {
   }
 }
 
+/**
+ * The bell entry (and new-lead popup) for a case offer.
+ *
+ * The tier routers and plaintiff-requested introductions create the
+ * Introduction and text the attorney but never went through
+ * `sendCaseOfferToAttorney`, so no `attorney.case_routed` row existed and the
+ * new match only surfaced when New Matches was reloaded.
+ */
+export async function notifyAttorneyNewMatchInApp(attorneyId: string, introductionId: string): Promise<boolean> {
+  try {
+    const intro = await prisma.introduction.findUnique({
+      where: { id: introductionId },
+      select: {
+        assessmentId: true,
+        assessment: { select: { claimType: true, venueState: true, venueCounty: true, facts: true } },
+      },
+    })
+    if (!intro) return false
+    const lead = await prisma.leadSubmission.findFirst({
+      where: { assessmentId: intro.assessmentId },
+      select: { id: true },
+    })
+    const caseType = intro.assessment ? caseTypeLabelFor(intro.assessment) : 'New case'
+    const place = [intro.assessment?.venueCounty, intro.assessment?.venueState].filter(Boolean).join(', ')
+    return notifyAttorneyInApp({
+      attorneyId,
+      assessmentId: intro.assessmentId,
+      eventType: ATTORNEY_EVENTS.case_routed,
+      subject: 'New case match',
+      body: place ? `${caseType} in ${place} is waiting in New Matches.` : `${caseType} is waiting in New Matches.`,
+      leadId: lead?.id ?? null,
+      link: lead?.id ? `/attorney-dashboard/lead/${lead.id}/overview` : '/attorney-dashboard/leadgen/matches',
+      payload: { introductionId },
+    })
+  } catch (err) {
+    logger.warn('notifyAttorneyNewMatchInApp failed', { attorneyId, introductionId, error: (err as Error).message })
+    return false
+  }
+}
+
 /** Every plaintiff in-app notification type carries this prefix. See below. */
 const PLAINTIFF_EVENT_PREFIX = 'plaintiff.'
 

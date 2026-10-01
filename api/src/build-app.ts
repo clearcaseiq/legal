@@ -21,6 +21,7 @@ import caseTracker from './routes/case-tracker'
 import financing from './routes/financing'
 import smartRecommendations from './routes/smart-recommendations'
 import attorneyDashboard from './routes/attorney-dashboard'
+import insuranceWorkbench from './routes/insurance-workbench'
 import leadQuality from './routes/lead-quality'
 import attorneyProfile from './routes/attorney-profile'
 import attorneyRegister from './routes/attorney-register'
@@ -81,6 +82,7 @@ export function buildApp(): Express {
   app.use('/v1/case-tracker', caseTracker)
   app.use('/v1/financing', financing)
   app.use('/v1/smart-recommendations', smartRecommendations)
+  app.use('/v1/attorney-dashboard', insuranceWorkbench)
   app.use('/v1/attorney-dashboard', attorneyDashboard)
   app.use('/v1/lead-quality', leadQuality)
   app.use('/v1/attorney-profile', attorneyProfile)

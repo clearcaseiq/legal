@@ -183,7 +183,7 @@ export function countBlanks(body: string): number {
   return (body.match(/_{4,}/g) || []).length
 }
 
-async function renderLetterPdf(ctx: LetterContext, body: string, baseName: string): Promise<string> {
+export async function renderLetterPdf(ctx: LetterContext, body: string, baseName: string): Promise<string> {
   if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true })
   const filePath = path.join(OUTPUT_DIR, `${baseName}-${ctx.leadId}-${Date.now()}.pdf`)
 
