@@ -3178,6 +3178,7 @@ export type AdjusterProfile = {
   limitsAccepted: number
   limitsRejected: number
   lastContactAt: string | null
+  cases?: { policyId: string; carrierName: string; leadId: string | null; clientName: string }[]
 }
 
 export type PolicyWorkbench = {
@@ -3224,6 +3225,14 @@ export async function getInsuranceOverview(leadId: string) {
 export async function getAdjusterDirectory(leadId: string, q?: string) {
   const { data } = await api.get(`${insuranceBase(leadId)}/adjusters`, { params: q ? { q } : {} })
   return (data?.adjusters || []) as AdjusterProfile[]
+}
+
+export async function updateAdjuster(
+  leadId: string,
+  payload: { key: string; name?: string; email?: string; phone?: string },
+) {
+  const { data } = await api.patch(`${insuranceBase(leadId)}/adjusters`, payload)
+  return data as { updated: number }
 }
 
 export async function getPolicyWorkbench(leadId: string, insuranceId: string) {

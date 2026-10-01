@@ -405,7 +405,16 @@ export default function InsurancePanel({
       </div>
 
       {coverage && editingId === null ? <CoverageStackCard coverage={coverage} onAddClientPolicy={startAddClientPolicy} /> : null}
-      {directoryOpen ? <AdjusterDirectoryModal leadId={leadId} onClose={() => setDirectoryOpen(false)} /> : null}
+      {directoryOpen ? (
+        <AdjusterDirectoryModal
+          leadId={leadId}
+          onClose={() => setDirectoryOpen(false)}
+          onChanged={() => {
+            void load()
+            onChanged?.()
+          }}
+        />
+      ) : null}
 
       {banner ? (
         <div className={`rounded-lg px-3 py-2 text-sm ${banner.tone === 'ok' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>

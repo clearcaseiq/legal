@@ -737,6 +737,7 @@ export interface AdjusterProfile {
   limitsAccepted: number
   limitsRejected: number
   lastContactAt: string | null
+  policies: { id: string; assessmentId: string; carrierName: string }[]
 }
 
 export function adjusterKey(p: { adjusterEmail?: string | null; adjusterName?: string | null; carrierName?: string | null }): string | null {
@@ -814,6 +815,7 @@ export async function buildAdjusterDirectory(assessmentIds: string[], q?: string
         limitsAccepted: 0,
         limitsRejected: 0,
         lastContactAt: null,
+        policies: [],
         _cases: new Set(),
         _carriers: new Set(),
         _responseMs: [],
@@ -824,6 +826,7 @@ export async function buildAdjusterDirectory(assessmentIds: string[], q?: string
     prof.email = prof.email || p.adjusterEmail
     prof.phone = prof.phone || p.adjusterPhone
     prof._cases.add(p.assessmentId)
+    prof.policies.push({ id: p.id, assessmentId: p.assessmentId, carrierName: p.carrierName })
     if (p.carrierName) prof._carriers.add(p.carrierName)
     if (p.liabilityDecision === 'accepted') prof.liabilityAccepted += 1
     if (p.liabilityDecision === 'denied') prof.liabilityDenied += 1

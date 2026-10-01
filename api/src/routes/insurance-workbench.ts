@@ -76,27 +76,90 @@ router.get('/leads/:leadId/insurance/overview', authMiddleware, async (req: any,
   }
 })
 
+/** The cases this user's firm handles (or just their own / this one), keyed by assessment. */
+async function firmCaseScope(auth: any) {
+  const firmId = auth.attorney?.lawFirmId ?? auth.firmMember?.lawFirmId ?? null
+  const leads = await prisma.leadSubmission.findMany({
+    where: firmId
+      ? { assignedAttorney: { lawFirmId: firmId } }
+      : auth.attorney?.id
+        ? { assignedAttorneyId: auth.attorney.id }
+        : { id: auth.lead.id },
+    select: { id: true, assessmentId: true, assessment: { select: { user: { select: { firstName: true, lastName: true } } } } },
+    take: 5000,
+  })
+  const byAssessment = new Map<string, { leadId: string; clientName: string }>()
+  for (const l of leads) {
+    if (!l.assessmentId) continue
+    const u = l.assessment?.user
+    byAssessment.set(l.assessmentId, {
+      leadId: l.id,
+      clientName: [u?.firstName, u?.lastName].filter(Boolean).join(' ').trim() || 'Client',
+    })
+  }
+  if (auth.lead?.assessmentId && !byAssessment.has(auth.lead.assessmentId)) {
+    byAssessment.set(auth.lead.assessmentId, { leadId: auth.lead.id, clientName: 'This case' })
+  }
+  return byAssessment
+}
+
 // Firm-wide adjuster directory, built from every case the firm handles.
 router.get('/leads/:leadId/insurance/adjusters', authMiddleware, async (req: any, res) => {
   try {
     const auth: any = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true })
     if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
-    const firmId = auth.attorney?.lawFirmId ?? auth.firmMember?.lawFirmId ?? null
-    const leads = await prisma.leadSubmission.findMany({
-      where: firmId
-        ? { assignedAttorney: { lawFirmId: firmId } }
-        : auth.attorney?.id
-          ? { assignedAttorneyId: auth.attorney.id }
-          : { id: auth.lead.id },
-      select: { assessmentId: true },
-      take: 5000,
-    })
-    const ids = [...new Set([auth.lead.assessmentId, ...leads.map((l) => l.assessmentId)].filter(Boolean))] as string[]
+    const scope = await firmCaseScope(auth)
     const q = typeof req.query.q === 'string' ? req.query.q.slice(0, 100) : undefined
-    res.json({ adjusters: await buildAdjusterDirectory(ids, q) })
+    const adjusters = await buildAdjusterDirectory([...scope.keys()], q)
+    res.json({
+      adjusters: adjusters.map((a) => ({
+        ...a,
+        cases: a.policies.map((p) => ({
+          policyId: p.id,
+          carrierName: p.carrierName,
+          leadId: scope.get(p.assessmentId)?.leadId ?? null,
+          clientName: scope.get(p.assessmentId)?.clientName ?? 'Client',
+        })),
+      })),
+    })
   } catch (error: any) {
     logger.error('Failed to build adjuster directory', { error: error.message })
     res.status(500).json({ error: 'Failed to load adjusters' })
+  }
+})
+
+// Correct an adjuster's contact details on every policy they handle at this firm.
+const adjusterEditSchema = z.object({
+  key: z.string().min(1).max(400),
+  name: z.string().trim().max(200).optional().or(z.literal('')),
+  email: z.string().trim().email().optional().or(z.literal('')),
+  phone: z.string().trim().max(40).optional().or(z.literal('')),
+})
+
+router.patch('/leads/:leadId/insurance/adjusters', authMiddleware, async (req: any, res) => {
+  try {
+    const auth: any = await getAuthorizedLead(req, req.params.leadId, { staffCan: 'manage' })
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const parsed = adjusterEditSchema.safeParse(req.body)
+    if (!parsed.success) return res.status(400).json({ error: 'Check the adjuster details: the email address is invalid.' })
+    const { key, name, email, phone } = parsed.data
+    if (!name && !email) return res.status(400).json({ error: 'An adjuster needs a name or an email.' })
+
+    const scope = await firmCaseScope(auth)
+    const policies = await prisma.insuranceDetail.findMany({
+      where: { assessmentId: { in: [...scope.keys()] } },
+      select: { id: true, adjusterName: true, adjusterEmail: true, carrierName: true },
+    })
+    const ids = policies.filter((p) => adjusterKey(p) === key).map((p) => p.id)
+    if (!ids.length) return res.status(404).json({ error: 'Adjuster not found' })
+    const result = await prisma.insuranceDetail.updateMany({
+      where: { id: { in: ids } },
+      data: { adjusterName: name || null, adjusterEmail: email || null, adjusterPhone: phone || null },
+    })
+    res.json({ updated: result.count })
+  } catch (error: any) {
+    logger.error('Failed to update adjuster', { error: error.message })
+    res.status(500).json({ error: 'Failed to update the adjuster' })
   }
 })
 
@@ -214,14 +277,8 @@ router.get('/leads/:leadId/insurance/:id/workbench', authMiddleware, async (req:
     let adjuster = null
     const key = adjusterKey(insurance)
     if (key) {
-      const firmId = auth.attorney?.lawFirmId ?? auth.firmMember?.lawFirmId ?? null
-      const leads = await prisma.leadSubmission.findMany({
-        where: firmId ? { assignedAttorney: { lawFirmId: firmId } } : { id: auth.lead.id },
-        select: { assessmentId: true },
-        take: 5000,
-      })
-      const ids = [...new Set([auth.lead.assessmentId, ...leads.map((l) => l.assessmentId)].filter(Boolean))] as string[]
-      adjuster = (await buildAdjusterDirectory(ids)).find((a) => a.key === key) || null
+      const scope = await firmCaseScope(auth)
+      adjuster = (await buildAdjusterDirectory([...scope.keys()])).find((a) => a.key === key) || null
     }
 
     res.json({
