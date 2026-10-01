@@ -341,6 +341,17 @@ export async function claimAssessmentByToken(token: string) {
   return data as { claimed: boolean; assessmentId: string; reference_code?: string | null }
 }
 
+/** Ask for a code at the case's original address when signing up under a different email. */
+export async function requestClaimVerification(assessmentId: string, email: string) {
+  const { data } = await api.post(`/v1/assessments/${encodeURIComponent(assessmentId)}/claim-verification`, { email })
+  return data as { required: boolean; channel?: 'email' | 'sms'; destination?: string; resendAfterSeconds?: number; devCode?: string }
+}
+
+export async function confirmClaimVerification(assessmentId: string, code: string) {
+  const { data } = await api.post(`/v1/assessments/${encodeURIComponent(assessmentId)}/claim-verification/verify`, { code })
+  return data as { claim_token: string }
+}
+
 export async function submitCaseForReview(
   assessmentId: string,
   contactInfo?: {

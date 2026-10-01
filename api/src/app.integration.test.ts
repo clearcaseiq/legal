@@ -276,6 +276,67 @@ describe('HTTP API (integration)', () => {
     expect(prisma.leadSubmission.create).not.toHaveBeenCalled()
   })
 
+  it('POST /v1/assessments/:id/claim-verification sends the code to the address on the case, not the new one', async () => {
+    vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
+      ...assessmentRow,
+      facts: JSON.stringify({ plaintiffContext: { email: 'old@example.com' } }),
+      user: null,
+    } as any)
+    const { issueCaseSubmitOtp } = await import('./lib/case-submit-otp')
+    vi.mocked(issueCaseSubmitOtp).mockResolvedValue({
+      ok: true,
+      channel: 'email',
+      maskedDestination: 'o**@example.com',
+      expiresAt: new Date(),
+      resendAfterSeconds: 30,
+    })
+
+    const changed = await request(app)
+      .post('/v1/assessments/assess-int-test-1/claim-verification')
+      .send({ email: 'new@example.com' })
+      .expect(200)
+    expect(changed.body).toMatchObject({ required: true, destination: 'o**@example.com' })
+    expect(vi.mocked(issueCaseSubmitOtp)).toHaveBeenCalledWith(
+      expect.objectContaining({ email: 'old@example.com', purpose: 'claim' }),
+    )
+
+    vi.mocked(issueCaseSubmitOtp).mockClear()
+    const same = await request(app)
+      .post('/v1/assessments/assess-int-test-1/claim-verification')
+      .send({ email: 'OLD@example.com' })
+      .expect(200)
+    expect(same.body).toEqual({ required: false })
+    expect(vi.mocked(issueCaseSubmitOtp)).not.toHaveBeenCalled()
+  })
+
+  it('POST /v1/assessments/:id/claim-verification/verify exchanges a valid code for a claim token', async () => {
+    vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
+      ...assessmentRow,
+      facts: JSON.stringify({ plaintiffContext: { email: 'old@example.com' } }),
+      user: null,
+    } as any)
+    const res = await request(app)
+      .post('/v1/assessments/assess-int-test-1/claim-verification/verify')
+      .send({ code: '123456' })
+      .expect(200)
+    expect(typeof res.body.claim_token).toBe('string')
+    const { verifyClaimToken } = await import('./lib/claim-token')
+    expect(verifyClaimToken(res.body.claim_token)).toBe('assess-int-test-1')
+  })
+
+  it('POST /v1/assessments/:id/claim-verification refuses a case a real account already holds', async () => {
+    vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
+      ...assessmentRow,
+      userId: 'owner-1',
+      facts: JSON.stringify({ plaintiffContext: { email: 'old@example.com' } }),
+      user: { email: 'old@example.com', passwordHash: 'hash', provider: 'local' },
+    } as any)
+    await request(app)
+      .post('/v1/assessments/assess-int-test-1/claim-verification/verify')
+      .send({ code: '123456' })
+      .expect(409)
+  })
+
   it('POST /v1/assessments/:id/submit-for-review persists HIPAA consent when provided', async () => {
     vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
       ...assessmentRow,

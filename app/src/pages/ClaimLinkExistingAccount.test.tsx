@@ -17,7 +17,7 @@ import { act } from 'react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { ToastProvider } from '../contexts/ToastContext'
 import { login, register } from '../lib/api-auth'
-import { claimAssessmentByToken } from '../lib/api-plaintiff'
+import { claimAssessmentByToken, confirmClaimVerification, requestClaimVerification } from '../lib/api-plaintiff'
 import Login from './Login'
 import Register from './Register'
 
@@ -35,6 +35,8 @@ vi.mock('../lib/api-plaintiff', () => ({
   // about redeeming the token, not about the prefill, so it resolves to nothing
   // to fill and leaves the form as the test typed it.
   lookupClaimInvite: vi.fn(async () => ({ alreadyClaimed: false, email: null, firstName: null })),
+  requestClaimVerification: vi.fn(async () => ({ required: false })),
+  confirmClaimVerification: vi.fn(async () => ({ claim_token: 'verified-claim-token' })),
 }))
 
 vi.mock('../lib/api-consent', () => ({
@@ -235,5 +237,71 @@ describe('claim link when the visitor already has an account', () => {
     await flush()
 
     expect(assign).toHaveBeenCalledWith(expect.stringContaining('/dashboard'))
+  })
+})
+
+describe('signing up under a new email before the case was sent', () => {
+  it('verifies the original address, then claims the case onto the new account', async () => {
+    window.localStorage.setItem(
+      'pending_registration',
+      JSON.stringify({ email: 'old@example.com', firstName: 'Dana', assessmentId: 'asm-9' }),
+    )
+    vi.mocked(requestClaimVerification).mockResolvedValue({ required: true, channel: 'email', destination: 'o**@example.com' })
+    vi.mocked(register).mockResolvedValue({ token: 't', user: { id: 'user-9', email: 'new@example.com' } } as never)
+
+    mount('/register?assessmentId=asm-9')
+    await flush()
+
+    setInput(field('email'), 'new@example.com')
+    setInput(field('password'), 'correct-horse')
+    act(() => {
+      field('accept-legal-signup').click()
+    })
+    const form = container.querySelector('form') as HTMLFormElement
+    await act(async () => {
+      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    })
+    await flush()
+
+    expect(vi.mocked(requestClaimVerification)).toHaveBeenCalledWith('asm-9', 'new@example.com')
+    expect(vi.mocked(register)).not.toHaveBeenCalled()
+    expect(container.textContent).toContain('o**@example.com')
+
+    const codeInput = container.querySelector('input[aria-label="Verification code"]') as HTMLInputElement
+    setInput(codeInput, '123456')
+    const verifyButton = Array.from(container.querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('Verify and create account'),
+    ) as HTMLButtonElement
+    await act(async () => {
+      verifyButton.click()
+    })
+    await flush()
+    await flush()
+
+    expect(vi.mocked(confirmClaimVerification)).toHaveBeenCalledWith('asm-9', '123456')
+    expect(vi.mocked(register)).toHaveBeenCalledWith(expect.objectContaining({ email: 'new@example.com' }))
+    expect(vi.mocked(claimAssessmentByToken)).toHaveBeenCalledWith('verified-claim-token')
+  })
+
+  it('skips verification when the email matches the case', async () => {
+    window.localStorage.setItem('pending_registration', JSON.stringify({ email: 'dana@example.com', assessmentId: 'asm-9' }))
+    vi.mocked(requestClaimVerification).mockResolvedValue({ required: false })
+    vi.mocked(register).mockResolvedValue({ token: 't', user: { id: 'user-9', email: 'dana@example.com' } } as never)
+
+    mount('/register?assessmentId=asm-9')
+    await flush()
+
+    setInput(field('password'), 'correct-horse')
+    act(() => {
+      field('accept-legal-signup').click()
+    })
+    const form = container.querySelector('form') as HTMLFormElement
+    await act(async () => {
+      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    })
+    await flush()
+
+    expect(vi.mocked(register)).toHaveBeenCalled()
+    expect(vi.mocked(claimAssessmentByToken)).not.toHaveBeenCalled()
   })
 })

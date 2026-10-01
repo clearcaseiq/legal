@@ -2076,4 +2076,101 @@ router.post('/claim', authMiddleware, async (req: AuthRequest, res) => {
   }
 })
 
+const ClaimVerificationRequest = z.object({ email: z.string().trim().max(320) })
+const ClaimVerificationConfirm = z.object({ code: z.string().trim().min(1).max(12) })
+
+/** The transferable case and the address on record that a claim code is sent to. */
+async function claimVerificationTarget(
+  assessmentId: string,
+): Promise<{ error: { status: number; message: string } } | { contactEmails: string[] }> {
+  const assessment = await prisma.assessment.findUnique({
+    where: { id: assessmentId },
+    select: { id: true, userId: true, facts: true, user: { select: { email: true, passwordHash: true, provider: true } } },
+  })
+  if (!assessment) return { error: { status: 404, message: 'Case not found' } }
+  if (!isTransferableCaseOwner(assessment.userId ? assessment.user : null)) {
+    return { error: { status: 409, message: 'This case is already linked to another account.' } }
+  }
+  const contactEmails = await assessmentContactEmails(assessment.id, assessment.facts)
+  return { contactEmails }
+}
+
+/**
+ * Start keeping a not-yet-sent case on an account registered under a new email.
+ *
+ * `/associate` only moves a case to an account whose email is on the case,
+ * because a case id alone proves nothing. A claimant who signs up under a
+ * different address therefore has to show they still hold the original one:
+ * the code goes to the address on record, never to the one being typed.
+ */
+router.post('/:id/claim-verification', intakeLimiter, optionalAuthMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const parsed = ClaimVerificationRequest.safeParse(req.body || {})
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid input' })
+    const allowed = await enforceAssessmentReadAccess({
+      assessmentId: req.params.id,
+      user: req.user,
+      res,
+      route: 'assessments.claim-verification',
+    })
+    if (!allowed) return
+
+    const target = await claimVerificationTarget(req.params.id)
+    if ('error' in target) return res.status(target.error.status).json({ error: target.error.message })
+
+    const typed = parsed.data.email.toLowerCase()
+    if (target.contactEmails.length === 0 || target.contactEmails.includes(typed)) {
+      return res.json({ required: false })
+    }
+
+    const result = await issueCaseSubmitOtp({
+      assessmentId: req.params.id,
+      email: target.contactEmails[0],
+      preferredContactMethod: 'email',
+      purpose: 'claim',
+    })
+    if (!result.ok) {
+      if (result.retryAfterSeconds) res.setHeader('Retry-After', String(result.retryAfterSeconds))
+      return res.status(result.status).json({ error: result.error, code: result.code })
+    }
+    res.json({
+      required: true,
+      channel: result.channel,
+      destination: result.maskedDestination,
+      resendAfterSeconds: result.resendAfterSeconds,
+      ...(result.devCode ? { devCode: result.devCode } : {}),
+    })
+  } catch (error) {
+    logger.error('Failed to start claim verification', { error, assessmentId: req.params.id })
+    res.status(500).json({ error: 'Could not send a verification code' })
+  }
+})
+
+/** Exchange a claim code for the same signed claim token a sent case receives. */
+router.post('/:id/claim-verification/verify', intakeLimiter, optionalAuthMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const parsed = ClaimVerificationConfirm.safeParse(req.body || {})
+    if (!parsed.success) return res.status(400).json({ error: 'Enter the verification code we sent you.' })
+
+    const target = await claimVerificationTarget(req.params.id)
+    if ('error' in target) return res.status(target.error.status).json({ error: target.error.message })
+    if (target.contactEmails.length === 0) return res.status(400).json({ error: 'Please request a verification code first.' })
+
+    const verified = await verifyCaseSubmitOtp({
+      assessmentId: req.params.id,
+      code: parsed.data.code,
+      email: target.contactEmails[0],
+    })
+    if (!verified.ok) {
+      return res.status(verified.status).json({ error: verified.error, code: verified.code })
+    }
+    await consumeCaseSubmitOtp(verified.otpId)
+    logger.info('Claim verification passed', { assessmentId: req.params.id })
+    res.json({ claim_token: createClaimToken(req.params.id) })
+  } catch (error) {
+    logger.error('Failed to verify claim code', { error, assessmentId: req.params.id })
+    res.status(500).json({ error: 'Could not verify the code' })
+  }
+})
+
 export default router

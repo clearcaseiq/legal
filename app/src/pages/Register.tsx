@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { ArrowRight, Bell, CheckCircle, FileText, Headset, Lock, MessageSquare, ShieldCheck, UploadCloud } from 'lucide-react'
 import { register } from '../lib/api-auth'
@@ -7,8 +7,10 @@ import {
   associateAssessments,
   checkContactDuplicates,
   claimAssessmentByToken,
+  confirmClaimVerification,
   listAssessments,
   lookupClaimInvite,
+  requestClaimVerification,
 } from '../lib/api-plaintiff'
 import OAuthButtons from '../components/OAuthButtons'
 import ConsentWorkflow from '../components/ConsentWorkflow'
@@ -69,6 +71,18 @@ export default function Register() {
   // different email or phone than they submitted with.
   const [pendingContact] = useState(() => getPendingRegistration())
   const caseClaimToken = claimToken || pendingContact.claimToken || null
+  // A case not yet sent has no claim token, and `/associate` only links a case to
+  // an account whose email is on it. Signing up under a new email therefore
+  // needs a code from the case's original address, which is exchanged for a token.
+  const caseAssessmentId =
+    assessmentId || pendingContact.assessmentId || localStorage.getItem('pending_assessment_id') || null
+  const verifiedClaimTokenRef = useRef<string | null>(null)
+  const formRef = useRef<HTMLFormElement>(null)
+  const [claimVerify, setClaimVerify] = useState<{ destination: string; devCode?: string } | null>(null)
+  const [claimCode, setClaimCode] = useState('')
+  const [claimVerifyError, setClaimVerifyError] = useState<string | null>(null)
+  const [claimVerifyBusy, setClaimVerifyBusy] = useState(false)
+  const [claimVerified, setClaimVerified] = useState(false)
   // Contact key the claimant already chose to keep despite a duplicate warning.
   const [acknowledgedDuplicateKey, setAcknowledgedDuplicateKey] = useState<string | null>(null)
   const [duplicateNotice, setDuplicateNotice] = useState<string | null>(null)
@@ -238,6 +252,27 @@ export default function Register() {
     }
     setDuplicateNotice(null)
 
+    if (!caseClaimToken && !verifiedClaimTokenRef.current && caseAssessmentId) {
+      try {
+        const verification = await requestClaimVerification(caseAssessmentId, typedEmail)
+        if (verification.required) {
+          setClaimVerify({ destination: verification.destination || 'the email on your case', devCode: verification.devCode })
+          setClaimCode('')
+          setClaimVerifyError(null)
+          setIsLoading(false)
+          return
+        }
+      } catch (verifyErr: any) {
+        const status = verifyErr?.response?.status
+        // Throttled or undeliverable: registering now would silently leave the case behind.
+        if (status === 429 || status === 502) {
+          setError(verifyErr.response?.data?.error || 'We could not send a verification code. Please try again.')
+          setIsLoading(false)
+          return
+        }
+      }
+    }
+
     try {
       const response = await register({
         firstName: derivedFirstName,
@@ -270,9 +305,10 @@ export default function Register() {
 
       // Attach the case named by the emailed claim link (or the token from this
       // browser's submit), then send the user to that case once consent is done.
-      if (caseClaimToken) {
+      const effectiveClaimToken = caseClaimToken || verifiedClaimTokenRef.current
+      if (effectiveClaimToken) {
         try {
-          const claimResult = await claimAssessmentByToken(caseClaimToken)
+          const claimResult = await claimAssessmentByToken(effectiveClaimToken)
           if (claimResult?.assessmentId) {
             setClaimedAssessmentId(claimResult.assessmentId)
             const assessments = await listAssessments()
@@ -280,6 +316,11 @@ export default function Register() {
           }
         } catch (error) {
           console.error('Failed to claim case after register:', error)
+          showToast({
+            variant: 'error',
+            title: 'Your case was not linked',
+            message: 'Your account was created, but we could not attach your case. Contact support with your case reference and we will link it.',
+          })
         }
       }
 
@@ -307,6 +348,47 @@ export default function Register() {
     } finally {
       setIsLoading(false)
     }
+  }
+
+  const handleVerifyClaimCode = async () => {
+    if (!caseAssessmentId || !claimCode.trim()) return
+    setClaimVerifyBusy(true)
+    setClaimVerifyError(null)
+    try {
+      const { claim_token } = await confirmClaimVerification(caseAssessmentId, claimCode.trim())
+      verifiedClaimTokenRef.current = claim_token
+      setClaimVerified(true)
+      setClaimVerify(null)
+      formRef.current?.requestSubmit()
+    } catch (err: any) {
+      setClaimVerifyError(err?.response?.data?.error || 'That code could not be verified.')
+    } finally {
+      setClaimVerifyBusy(false)
+    }
+  }
+
+  const handleResendClaimCode = async () => {
+    if (!caseAssessmentId) return
+    setClaimVerifyBusy(true)
+    setClaimVerifyError(null)
+    try {
+      const verification = await requestClaimVerification(caseAssessmentId, form.email.trim().toLowerCase())
+      if (verification.required) {
+        setClaimVerify({ destination: verification.destination || 'the email on your case', devCode: verification.devCode })
+      } else {
+        setClaimVerify(null)
+      }
+    } catch (err: any) {
+      setClaimVerifyError(err?.response?.data?.error || 'Could not send a new code.')
+    } finally {
+      setClaimVerifyBusy(false)
+    }
+  }
+
+  const handleUseOriginalEmail = () => {
+    if (pendingContact.email) setForm((current) => ({ ...current, email: pendingContact.email || current.email }))
+    setClaimVerify(null)
+    setClaimVerifyError(null)
   }
 
   const handleConsentComplete = async (consents: any[]) => {
@@ -446,7 +528,58 @@ export default function Register() {
               <p className="text-sm text-amber-900">{duplicateNotice}</p>
             </div>
           )}
-          {caseClaimToken && pendingContact.email && form.email.trim() && form.email.trim().toLowerCase() !== pendingContact.email.trim().toLowerCase() && (
+          {claimVerify && (
+            <div className="mb-4 rounded-md border border-brand-200 bg-brand-50 p-4" role="dialog" aria-labelledby="claim-verify-title">
+              <p id="claim-verify-title" className="text-sm font-semibold text-brand-900">
+                Confirm it's you to keep your case
+              </p>
+              <p className="mt-1 text-sm text-brand-900">
+                You're signing up with a different email than the one on your case. To move your case to this new account, enter
+                the 6-digit code we sent to {claimVerify.destination}.
+              </p>
+              {claimVerify.devCode ? (
+                <p className="mt-1 text-xs text-brand-700">Development code: {claimVerify.devCode}</p>
+              ) : null}
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <input
+                  value={claimCode}
+                  onChange={(e) => setClaimCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  aria-label="Verification code"
+                  placeholder="123456"
+                  className="w-32 rounded-md border border-gray-300 px-3 py-2 text-center font-mono tracking-widest focus:border-brand-500 focus:outline-none focus:ring-brand-500 sm:text-sm"
+                />
+                <button
+                  type="button"
+                  onClick={handleVerifyClaimCode}
+                  disabled={claimVerifyBusy || claimCode.length < 6}
+                  className="rounded-md bg-brand-600 px-3 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
+                >
+                  {claimVerifyBusy ? 'Checking…' : 'Verify and create account'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleResendClaimCode}
+                  disabled={claimVerifyBusy}
+                  className="text-sm font-medium text-brand-700 hover:text-brand-600 disabled:opacity-50"
+                >
+                  Send a new code
+                </button>
+              </div>
+              {claimVerifyError ? <p className="mt-2 text-sm text-red-600">{claimVerifyError}</p> : null}
+              {pendingContact.email ? (
+                <button
+                  type="button"
+                  onClick={handleUseOriginalEmail}
+                  className="mt-2 text-xs font-medium text-gray-600 underline hover:text-gray-800"
+                >
+                  Use my original email ({pendingContact.email}) instead
+                </button>
+              ) : null}
+            </div>
+          )}
+          {(caseClaimToken || claimVerified) && pendingContact.email && form.email.trim() && form.email.trim().toLowerCase() !== pendingContact.email.trim().toLowerCase() && (
             <div className="mb-4 rounded-md border border-brand-200 bg-brand-50 p-4">
               <p className="text-sm text-brand-900">
                 You're signing up with a different email than the one on your case. Your case keeps its Case ID and will be moved to this new account, with its contact email updated.
@@ -471,7 +604,7 @@ export default function Register() {
             </div>
           </div>
 
-          <form className="space-y-6" onSubmit={onSubmit}>
+          <form ref={formRef} className="space-y-6" onSubmit={onSubmit}>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label htmlFor="firstName" className="block text-sm font-medium text-gray-700">

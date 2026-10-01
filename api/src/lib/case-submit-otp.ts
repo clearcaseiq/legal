@@ -61,6 +61,8 @@ export async function issueCaseSubmitOtp(params: {
   email?: string | null
   phone?: string | null
   preferredContactMethod?: 'phone' | 'text' | 'email' | null
+  /** 'claim' when the code keeps a case on an account registered under different contact details. */
+  purpose?: 'submit' | 'claim'
 }): Promise<IssueCaseSubmitOtpResult> {
   const email = normalizeEmail(params.email)
   const phone = phoneDigits(params.phone)
@@ -96,7 +98,10 @@ export async function issueCaseSubmitOtp(params: {
     const sent = await sendTransactionalEmail({
       to: email,
       subject: `Your ClearCaseIQ verification code: ${code}`,
-      body: `Hi,\n\nUse this code to confirm it's you and send your case to the attorneys you selected:\n\n${code}\n\nThe code expires in ${CASE_SUBMIT_OTP_TTL_MINUTES} minutes. If you didn't request it, you can ignore this email; nothing will be sent.`,
+      body:
+        params.purpose === 'claim'
+          ? `Hi,\n\nSomeone is creating a ClearCaseIQ account under a different email address and asked to keep your case on it. If that's you, enter this code on the sign-up page:\n\n${code}\n\nThe code expires in ${CASE_SUBMIT_OTP_TTL_MINUTES} minutes. If you didn't request it, ignore this email and your case stays where it is.`
+          : `Hi,\n\nUse this code to confirm it's you and send your case to the attorneys you selected:\n\n${code}\n\nThe code expires in ${CASE_SUBMIT_OTP_TTL_MINUTES} minutes. If you didn't request it, you can ignore this email; nothing will be sent.`,
     })
     if (sent) channel = 'email'
   }
