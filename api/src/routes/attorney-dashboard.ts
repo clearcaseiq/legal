@@ -182,7 +182,13 @@ import {
 } from '../lib/medical-record'
 import { isReviewGateEnabled } from '../lib/task-review'
 import { AI_AUTHOR_NAME } from '../lib/ai-author'
-import { DEFAULT_DEMAND_RECIPIENT, draftDemandForAssessment, saveDemandVersion } from '../lib/demand-drafting'
+import {
+  DEFAULT_DEMAND_RECIPIENT,
+  analyzeDemandLetter,
+  draftDemandForAssessment,
+  saveDemandVersion,
+} from '../lib/demand-drafting'
+import { SUPER_DEMAND_TEMPLATE, summarizeApprovalGate, updateApprovalGate } from '../lib/super-demand'
 import { extractDemandText } from '../lib/demand-import'
 import type { TaskIdentitySource } from '../lib/task-identity'
 import { askCaseAssistant } from '../services/case-assistant'
@@ -16697,6 +16703,8 @@ const demandLetterSelect = {
   sentAt: true,
   createdAt: true,
   updatedAt: true,
+  template: true,
+  approvalChecklist: true,
 } as const
 
 function parseDemandRecipient(raw: string | null | undefined) {
@@ -16734,6 +16742,11 @@ function serializeDemandLetter(letter: any, versions?: any[]) {
     sentAt: letter.sentAt || null,
     createdAt: letter.createdAt,
     updatedAt: letter.updatedAt,
+    template: letter.template || null,
+    approvalGate:
+      letter.template === SUPER_DEMAND_TEMPLATE
+        ? summarizeApprovalGate(letter.approvalChecklist, letter.currentVersion)
+        : null,
     ...(versions
       ? {
           versions: versions.map((v: any) => ({
@@ -16834,6 +16847,7 @@ router.post('/leads/:leadId/demand-letters', authMiddleware, firmGate('demand'),
       targetAmount,
       recipient,
       guidance,
+      template: req.body?.template === 'standard' ? 'standard' : 'super',
     })
     if (!drafted) {
       return res.status(404).json({ error: 'Case not found' })
@@ -16851,6 +16865,7 @@ router.post('/leads/:leadId/demand-letters', authMiddleware, firmGate('demand'),
         status: 'DRAFT',
         origin: byAi ? 'ai' : 'attorney',
         contentSource: drafted.source,
+        template: drafted.template,
         createdById: req.user?.id || null,
         // Rose gets the credit when she wrote the prose, so the case workspace
         // shows AI work as AI work rather than crediting whoever clicked.
@@ -17104,7 +17119,7 @@ router.post('/leads/:leadId/demand-letters/:demandId/regenerate', authMiddleware
 
     const existing = await prisma.demandLetter.findFirst({
       where: { id: req.params.demandId, assessmentId: lead.assessmentId },
-      select: { id: true, status: true, targetAmount: true, recipient: true },
+      select: { id: true, status: true, targetAmount: true, recipient: true, template: true },
     })
     if (!existing) {
       return res.status(404).json({ error: 'Demand letter not found' })
@@ -17114,18 +17129,28 @@ router.post('/leads/:leadId/demand-letters/:demandId/regenerate', authMiddleware
     }
 
     const guidance = typeof req.body?.guidance === 'string' ? req.body.guidance.trim().slice(0, 2000) : null
+    const template =
+      req.body?.template === 'super' || req.body?.template === 'standard'
+        ? req.body.template
+        : existing.template === SUPER_DEMAND_TEMPLATE
+          ? 'super'
+          : 'standard'
     const drafted = await draftDemandForAssessment({
       assessmentId: lead.assessmentId,
       useAi: req.body?.useAi !== false,
       targetAmount: existing.targetAmount,
       recipient: parseDemandRecipient(existing.recipient),
       guidance,
+      template,
     })
     if (!drafted) {
       return res.status(404).json({ error: 'Case not found' })
     }
 
     await saveDemandVersion({ demandLetterId: existing.id, content: drafted.content, source: drafted.source })
+    if (drafted.template !== existing.template) {
+      await prisma.demandLetter.update({ where: { id: existing.id }, data: { template: drafted.template } })
+    }
 
     const letter = await prisma.demandLetter.findUnique({ where: { id: existing.id }, select: demandLetterSelect })
     res.json(serializeDemandLetter(letter))
@@ -17247,6 +17272,88 @@ router.post('/leads/:leadId/demand-letters/:demandId/approve', authMiddleware, f
   }
 })
 
+/**
+ * Demand Intelligence for a letter: readiness, valuation, weaknesses,
+ * statement confidence, quality check and the approval gate. Attorney-only;
+ * none of it is part of the letter the carrier receives.
+ */
+router.get('/leads/:leadId/demand-letters/:demandId/intelligence', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true })
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
+    }
+    const letter = await prisma.demandLetter.findFirst({
+      where: { id: req.params.demandId, assessmentId: auth.lead.assessmentId },
+      select: { id: true, assessmentId: true, content: true, targetAmount: true, currentVersion: true, approvalChecklist: true },
+    })
+    if (!letter) {
+      return res.status(404).json({ error: 'Demand letter not found' })
+    }
+    const intelligence = await analyzeDemandLetter(letter)
+    if (!intelligence) {
+      return res.status(404).json({ error: 'Case not found' })
+    }
+    res.json(intelligence)
+  } catch (error: any) {
+    logger.error('Failed to analyze demand letter', { error: error.message, demandId: req.params.demandId })
+    res.status(500).json({ error: 'Failed to analyze demand letter' })
+  }
+})
+
+/** Tick or untick attorney approval-gate items on the current version of a Super Demand. */
+router.put('/leads/:leadId/demand-letters/:demandId/approval-gate', authMiddleware, firmGate('demand'), async (req: any, res) => {
+  try {
+    const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true, firmMemberWrite: true })
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
+    }
+    const { lead, attorney } = auth
+    const existing = await prisma.demandLetter.findFirst({
+      where: { id: req.params.demandId, assessmentId: lead.assessmentId },
+      select: { id: true, status: true, template: true, approvalChecklist: true, currentVersion: true },
+    })
+    if (!existing) {
+      return res.status(404).json({ error: 'Demand letter not found' })
+    }
+    if (existing.template !== SUPER_DEMAND_TEMPLATE) {
+      return res.status(400).json({ error: 'Only a Super Demand has an approval gate' })
+    }
+    if (existing.status !== 'DRAFT') {
+      return res.status(400).json({ error: 'This letter is finalized' })
+    }
+    const raw = req.body?.items
+    if (!raw || typeof raw !== 'object') {
+      return res.status(400).json({ error: 'items is required' })
+    }
+    const changes: Record<string, boolean> = {}
+    for (const [key, value] of Object.entries(raw)) {
+      if (typeof value === 'boolean') changes[key] = value
+    }
+
+    const next = updateApprovalGate(existing.approvalChecklist, existing.currentVersion, changes, requestActorName(req.user))
+    const letter = await prisma.demandLetter.update({
+      where: { id: existing.id },
+      data: { approvalChecklist: JSON.stringify(next) },
+      select: demandLetterSelect,
+    })
+
+    await writeAutomationAudit({
+      userId: req.user?.id,
+      attorneyId: attorney?.id ?? null,
+      action: 'demand_letter_approval_gate',
+      entityType: 'demand_letter',
+      entityId: letter.id,
+      metadata: { leadId: lead.id, version: existing.currentVersion, changes },
+    })
+
+    res.json(serializeDemandLetter(letter))
+  } catch (error: any) {
+    logger.error('Failed to update demand approval gate', { error: error.message, demandId: req.params.demandId })
+    res.status(500).json({ error: 'Failed to update approval gate' })
+  }
+})
+
 /** Lock the letter. Finalized text is no longer editable. */
 router.post('/leads/:leadId/demand-letters/:demandId/finalize', authMiddleware, firmGate('demand'), async (req: any, res) => {
   try {
@@ -17258,7 +17365,7 @@ router.post('/leads/:leadId/demand-letters/:demandId/finalize', authMiddleware, 
 
     const existing = await prisma.demandLetter.findFirst({
       where: { id: req.params.demandId, assessmentId: lead.assessmentId },
-      select: { id: true, status: true, reviewStatus: true },
+      select: { id: true, status: true, reviewStatus: true, template: true, approvalChecklist: true, currentVersion: true },
     })
     if (!existing) {
       return res.status(404).json({ error: 'Demand letter not found' })
@@ -17269,6 +17376,16 @@ router.post('/leads/:leadId/demand-letters/:demandId/finalize', authMiddleware, 
     // A letter Rose wrote unprompted must be looked at before it can be locked.
     if (existing.reviewStatus === 'pending') {
       return res.status(400).json({ error: 'Approve the AI draft before finalizing it' })
+    }
+    if (existing.template === SUPER_DEMAND_TEMPLATE) {
+      const gate = summarizeApprovalGate(existing.approvalChecklist, existing.currentVersion)
+      if (!gate.complete) {
+        return res.status(400).json({
+          error: gate.stale
+            ? 'The letter changed after it was approved. Complete the attorney approval gate again before finalizing.'
+            : 'Complete the attorney approval gate before finalizing this Super Demand.',
+        })
+      }
     }
 
     const letter = await prisma.demandLetter.update({

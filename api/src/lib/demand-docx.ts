@@ -21,6 +21,13 @@ import { logger } from './logger'
 import { ensureLocalCopy } from './object-storage'
 import { loadPDFParse, type PDFParseInstance } from './pdf-parse-client'
 import { buildDemandExhibits } from './demand-drafting'
+import {
+  SUPER_DEMAND_CONFIDENTIAL,
+  SUPER_DEMAND_SECTION_HEADINGS,
+  SUPER_DEMAND_SUBTITLE,
+  SUPER_DEMAND_TEMPLATE,
+  SUPER_DEMAND_TITLE,
+} from './super-demand'
 
 /** Letter page, 1" margins, at the 96 dpi docx uses for image transforms. */
 const CONTENT_WIDTH_PX = 624
@@ -214,9 +221,53 @@ async function exhibitBody(file: ExhibitFile, label: string, budget: { remaining
   return [note('This file type cannot be shown inside a Word document. Attach the original file separately.')]
 }
 
-export async function buildDemandLetterDocx(demand: { assessmentId: string; content: string | null }): Promise<Buffer> {
+const SUPER_HEADINGS = new Set<string>(SUPER_DEMAND_SECTION_HEADINGS)
+const SUPER_TITLE_LINES = new Set([SUPER_DEMAND_TITLE, SUPER_DEMAND_SUBTITLE, SUPER_DEMAND_CONFIDENTIAL])
+
+function superDemandParagraph(line: string): Paragraph {
+  const trimmed = line.trim()
+  if (trimmed === SUPER_DEMAND_TITLE) {
+    return new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: trimmed, bold: true, size: 32 })] })
+  }
+  if (SUPER_TITLE_LINES.has(trimmed)) {
+    return new Paragraph({
+      alignment: AlignmentType.CENTER,
+      children: [new TextRun({ text: trimmed, bold: trimmed === SUPER_DEMAND_SUBTITLE, italics: trimmed === SUPER_DEMAND_CONFIDENTIAL, size: 20 })],
+    })
+  }
+  if (SUPER_HEADINGS.has(trimmed)) {
+    return new Paragraph({ spacing: { before: 240, after: 80 }, children: [new TextRun({ text: trimmed, bold: true, size: 24 })] })
+  }
+  if (ENCLOSURE_GROUPS.has(trimmed)) {
+    return new Paragraph({ spacing: { before: 120 }, children: [new TextRun({ text: trimmed, bold: true, underline: {} })] })
+  }
+  return new Paragraph(line)
+}
+
+export async function buildDemandLetterDocx(demand: {
+  assessmentId: string
+  content: string | null
+  template?: string | null
+  status?: string | null
+}): Promise<Buffer> {
   const content = demand.content || ''
-  const letter = { children: content.split(/\r?\n/).map((line) => new Paragraph(line)) }
+  const isSuper = demand.template === SUPER_DEMAND_TEMPLATE
+  const draftBanner =
+    isSuper && demand.status === 'DRAFT'
+      ? [
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 240 },
+            children: [new TextRun({ text: 'DRAFT \u2014 NOT YET ATTORNEY APPROVED \u2014 DO NOT SEND', bold: true, color: 'C00000' })],
+          }),
+        ]
+      : []
+  const letter = {
+    children: [
+      ...draftBanner,
+      ...content.split(/\r?\n/).map((line) => (isSuper ? superDemandParagraph(line) : new Paragraph(line))),
+    ],
+  }
 
   const planned = await planDemandExhibits(demand.assessmentId, content).catch((error: any) => {
     logger.warn('Demand export could not load exhibits', { assessmentId: demand.assessmentId, error: error?.message })

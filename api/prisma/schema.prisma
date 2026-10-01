@@ -1692,6 +1692,12 @@ model DemandLetter {
   // an LLM round-trip sits between the read and the insert.
   autoDraftKey String? @unique
 
+  // 'super' for a ClearCaseIQ Super Demand™ package; null for the standard letter.
+  template String?
+  // Super Demand approval gate: JSON { version, items: { key: { checked, byName, at } } }.
+  // Signs one version; any later edit leaves it stale and finalize refuses.
+  approvalChecklist String? @db.Text
+
   versions DemandLetterVersion[]
 
   @@index([assessmentId])

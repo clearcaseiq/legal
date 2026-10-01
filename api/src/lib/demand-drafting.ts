@@ -17,11 +17,19 @@ import {
   renderDemandLetter,
   type DemandCaseRecord,
   type DemandExhibit,
+  type DemandLetterSections,
   type DemandMode,
   type ExhibitSection,
   type TreatmentLedger,
   type TreatmentLedgerEntry,
 } from './demand-letter'
+import {
+  SUPER_DEMAND_TEMPLATE,
+  analyzeDemandIntelligence,
+  renderSuperDemand,
+  type DemandIntelligence,
+  type SuperDemandContext,
+} from './super-demand'
 import { getLiabilityRecord } from './liability-record'
 import { getMedicalTimeline } from './medical-record'
 import { parseIdentityCheck } from './claimant-identity-check'
@@ -289,11 +297,134 @@ export function demandRecipientFor(
   }
 }
 
+export type DemandTemplate = 'super' | 'standard'
+
 export interface DraftedDemand {
   content: string
   targetAmount: number
   recipient: { name: string; address: string; email?: string }
   source: 'ai' | 'deterministic'
+  /** Null for the standard letter. */
+  template: typeof SUPER_DEMAND_TEMPLATE | null
+}
+
+function parseJson(raw: unknown): any {
+  if (typeof raw !== 'string') return raw && typeof raw === 'object' ? raw : null
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return null
+  }
+}
+
+/** The latest model valuation, falling back to the saved LLM analysis range. */
+async function loadDemandValuation(assessmentId: string, analysis: any) {
+  const prediction = await prisma.prediction
+    .findFirst({ where: { assessmentId }, orderBy: { createdAt: 'desc' }, select: { bands: true, viability: true } })
+    .catch(() => null)
+  const bands = parseJson(prediction?.bands)
+  const viability = parseJson(prediction?.viability)
+  const num = (v: unknown) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : null)
+  if (bands && num(bands.median ?? bands.p50)) {
+    return {
+      valuation: { p25: num(bands.p25), expected: num(bands.median ?? bands.p50), p75: num(bands.p75), source: 'model' as const },
+      viability,
+    }
+  }
+  const range = analysis?.expectedSettlementRange
+  if (range && num(range.mid)) {
+    return { valuation: { p25: num(range.low), expected: num(range.mid), p75: num(range.high), source: 'analysis' as const }, viability }
+  }
+  return { valuation: null, viability }
+}
+
+/** The carrier's most recent offer on the negotiation log. */
+async function loadCurrentOffer(assessmentId: string): Promise<number | null> {
+  const offer = await prisma.negotiationEvent
+    .findFirst({
+      where: { assessmentId, eventType: { in: ['offer', 'counter'] }, counterpartyType: { not: 'claimant' }, amount: { gt: 0 } },
+      orderBy: { eventDate: 'desc' },
+      select: { amount: true },
+    })
+    .catch(() => null)
+  return offer?.amount ?? null
+}
+
+/**
+ * Everything the letter and the Demand Intelligence read from the case.
+ * Shared so the analysis judges the same record the letter was built from.
+ */
+async function loadDemandInputs(assessmentId: string) {
+  const assessment = await prisma.assessment.findUnique({
+    where: { id: assessmentId },
+    include: { evidenceFiles: true, user: { select: { firstName: true, lastName: true } } },
+  })
+  if (!assessment) return null
+  const analysis = extractAnalysisPayload(assessment)
+  const facts = parseAssessmentFacts(assessment.facts)
+  const [treatmentLedger, caseRecord, valued, currentOffer] = await Promise.all([
+    loadTreatmentLedger(assessmentId),
+    loadDemandCaseRecord(assessment),
+    loadDemandValuation(assessmentId, analysis),
+    loadCurrentOffer(assessmentId),
+  ])
+  return { assessment, analysis, facts, treatmentLedger, caseRecord, ...valued, currentOffer }
+}
+
+function superDemandContext(
+  inputs: NonNullable<Awaited<ReturnType<typeof loadDemandInputs>>>,
+  sections: DemandLetterSections,
+): SuperDemandContext {
+  return {
+    sections,
+    caseRecord: inputs.caseRecord,
+    facts: inputs.facts,
+    assessment: inputs.assessment,
+    ledger: inputs.treatmentLedger,
+    valuation: inputs.valuation,
+    viability: inputs.viability,
+    currentOffer: inputs.currentOffer,
+  }
+}
+
+function sectionsFor(
+  inputs: NonNullable<Awaited<ReturnType<typeof loadDemandInputs>>>,
+  options: { targetAmount?: number; recipient?: { name: string; address: string; email?: string }; mode?: DemandMode },
+) {
+  const { assessment, analysis, facts, treatmentLedger, caseRecord } = inputs
+  const targetAmount =
+    options.targetAmount ?? analysis?.expectedSettlementRange?.mid ?? analysis?.estimatedValue?.medium ?? 0
+  const recipient = demandRecipientFor(options.recipient, caseRecord.claim)
+  const sections = buildDemandLetterSections({
+    assessment,
+    facts,
+    targetAmount,
+    recipient,
+    message: analysis?.demandPackage?.liabilityOutline,
+    mode: options.mode ?? 'represented',
+    treatmentLedger,
+    analysis,
+    caseRecord,
+  })
+  return { sections, targetAmount, recipient }
+}
+
+/**
+ * Demand Intelligence for a stored letter: readiness, valuation, weaknesses,
+ * statement confidence, the quality check against the saved text, and the
+ * approval gate. Attorney-facing only; none of it is written into the letter.
+ */
+export async function analyzeDemandLetter(letter: {
+  assessmentId: string
+  content: string
+  targetAmount: number
+  currentVersion: number
+  approvalChecklist?: string | null
+}): Promise<DemandIntelligence | null> {
+  const inputs = await loadDemandInputs(letter.assessmentId)
+  if (!inputs) return null
+  const { sections } = sectionsFor(inputs, { targetAmount: letter.targetAmount })
+  return analyzeDemandIntelligence(superDemandContext(inputs, sections), letter)
 }
 
 /**
@@ -311,38 +442,22 @@ export async function draftDemandForAssessment(options: {
   mode?: DemandMode
   /** Free-text steer, e.g. "emphasise the delayed MRI and the missed work". */
   guidance?: string | null
+  /** Represented letters default to the Super Demand; a pro se letter is always standard. */
+  template?: DemandTemplate
 }): Promise<DraftedDemand | null> {
-  const assessment = await prisma.assessment.findUnique({
-    where: { id: options.assessmentId },
-    include: { evidenceFiles: true, user: { select: { firstName: true, lastName: true } } },
-  })
-  if (!assessment) return null
+  const inputs = await loadDemandInputs(options.assessmentId)
+  if (!inputs) return null
+  const { assessment, facts } = inputs
+  const mode = options.mode ?? 'represented'
+  const useSuper = mode === 'represented' && (options.template ?? 'super') === 'super'
 
-  const analysis = extractAnalysisPayload(assessment)
-  const facts = parseAssessmentFacts(assessment.facts)
-  const [treatmentLedger, caseRecord] = await Promise.all([
-    loadTreatmentLedger(options.assessmentId),
-    loadDemandCaseRecord(assessment),
-  ])
-
-  const targetAmount =
-    options.targetAmount ?? analysis?.expectedSettlementRange?.mid ?? analysis?.estimatedValue?.medium ?? 0
-  const recipient = demandRecipientFor(options.recipient, caseRecord.claim)
-
-  const sections = buildDemandLetterSections({
-    assessment,
-    facts,
-    targetAmount,
-    recipient,
-    message: analysis?.demandPackage?.liabilityOutline,
-    mode: options.mode ?? 'represented',
-    treatmentLedger,
-    analysis,
-    caseRecord,
-  })
+  const { sections, targetAmount, recipient } = sectionsFor(inputs, { ...options, mode })
+  const render = (s: DemandLetterSections) =>
+    useSuper ? renderSuperDemand(superDemandContext(inputs, s)) : renderDemandLetter(s)
+  const template = useSuper ? SUPER_DEMAND_TEMPLATE : null
 
   if (!options.useAi) {
-    return { content: renderDemandLetter(sections), targetAmount, recipient, source: 'deterministic' }
+    return { content: render(sections), targetAmount, recipient, source: 'deterministic', template }
   }
 
   const narrated = await narrateDemandLetter(sections, {
@@ -354,10 +469,11 @@ export async function draftDemandForAssessment(options: {
   })
 
   return {
-    content: renderDemandLetter(narrated.sections),
+    content: render(narrated.sections),
     targetAmount,
     recipient,
     source: narrated.source,
+    template,
   }
 }
 

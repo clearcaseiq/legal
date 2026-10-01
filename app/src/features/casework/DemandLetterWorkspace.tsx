@@ -26,6 +26,7 @@ import {
 } from 'lucide-react'
 import ConfirmDialog from '../../components/ConfirmDialog'
 import { useFirmAccess } from '../../hooks/useFirmAccess'
+import DemandIntelligencePanel from './DemandIntelligencePanel'
 import {
   approveLeadDemandLetter,
   downloadDemandLetterDocx,
@@ -97,6 +98,8 @@ export default function DemandLetterWorkspace({ leadId }: { leadId: string }) {
   const locked = active?.status !== 'DRAFT'
   const sent = active?.status === 'SENT' || !!active?.sentAt
   const awaitingReview = active?.reviewStatus === 'pending'
+  const isSuper = active?.template === 'super'
+  const gateIncomplete = isSuper && !active?.approvalGate?.complete
 
   const openLetter = useCallback(
     async (demandId: string) => {
@@ -142,6 +145,12 @@ export default function DemandLetterWorkspace({ leadId }: { leadId: string }) {
     })
   }, [])
 
+  /** Approval-gate changes update the letter's metadata without touching unsaved text. */
+  const applyGateUpdate = useCallback((letter: DemandLetter) => {
+    setActive((prev) => (prev && prev.id === letter.id ? { ...prev, ...letter, versions: prev.versions } : prev))
+    setLetters((prev) => prev.map((l) => (l.id === letter.id ? { ...l, approvalGate: letter.approvalGate } : l)))
+  }, [])
+
   const run = useCallback(
     async (key: string, fn: () => Promise<DemandLetter>, okText: string) => {
       setBusy(key)
@@ -163,13 +172,19 @@ export default function DemandLetterWorkspace({ leadId }: { leadId: string }) {
 
   const [pendingConfirm, setPendingConfirm] = useState<{ title: string; message: string; action: () => void } | null>(null)
 
-  const handleRegenerate = () => {
+  const handleRegenerate = (asSuper = false) => {
     if (!active) return
     const go = () =>
       run(
         'regen',
-        () => regenerateLeadDemandLetter(leadId, active.id, { guidance: guidance.trim() || null }),
-        'Redrafted. Your previous wording is kept in history.',
+        () =>
+          regenerateLeadDemandLetter(leadId, active.id, {
+            guidance: guidance.trim() || null,
+            ...(asSuper ? { template: 'super' as const } : {}),
+          }),
+        asSuper
+          ? 'Redrafted as a Super Demand. Your previous wording is kept in history.'
+          : 'Redrafted. Your previous wording is kept in history.',
       )
     if (dirty) {
       setPendingConfirm({ title: 'Unsaved edits', message: 'Regenerating replaces your unsaved edits. Continue?', action: go })
@@ -330,8 +345,9 @@ export default function DemandLetterWorkspace({ leadId }: { leadId: string }) {
           <FileText className="mx-auto h-8 w-8 text-slate-300" />
           <p className="mt-3 text-sm font-semibold text-slate-900">No demand letter yet</p>
           <p className="mx-auto mt-1 max-w-md text-sm text-slate-500">
-            {AI_AUTHOR} can draft one from the case record: the incident, liability, treatment timeline, bills, wage
-            loss, and the damages summary. You can edit every word before it goes out.
+            {AI_AUTHOR} drafts a ClearCaseIQ Super Demand™ from the case record: a 17-section settlement package for the
+            carrier, plus Demand Intelligence for you (readiness, valuation, weaknesses, statement confidence, and a quality
+            check). You edit every word and sign the approval gate before it goes out.
           </p>
           <textarea
             value={guidance}
@@ -348,7 +364,7 @@ export default function DemandLetterWorkspace({ leadId }: { leadId: string }) {
               className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-700 disabled:opacity-50"
             >
               {busy === 'draft' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-              {busy === 'draft' ? 'Drafting…' : 'Draft demand letter'}
+              {busy === 'draft' ? 'Drafting…' : 'Draft Super Demand'}
             </button>
             <button
               type="button"
@@ -366,13 +382,20 @@ export default function DemandLetterWorkspace({ leadId }: { leadId: string }) {
           </p>
         </div>
       ) : (
-        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className={isSuper ? 'grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_360px]' : ''}>
+        <div className="min-w-0 rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-slate-100 px-5 py-3.5">
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <h3 className="truncate text-sm font-semibold text-slate-900">
                   {active.title || 'Demand letter'}
                 </h3>
+                {isSuper ? (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-brand-50 px-2 py-0.5 text-[11px] font-medium text-brand-700">
+                    <Sparkles className="h-3 w-3" />
+                    Super Demand™
+                  </span>
+                ) : null}
                 {active.origin === 'imported' ? (
                   <span className="inline-flex items-center gap-1 rounded-full bg-sky-50 px-2 py-0.5 text-[11px] font-medium text-sky-700">
                     <Upload className="h-3 w-3" />
@@ -438,9 +461,20 @@ export default function DemandLetterWorkspace({ leadId }: { leadId: string }) {
               </button>
               {!locked ? (
                 <>
+                  {!isSuper && active.origin !== 'imported' ? (
+                    <button
+                      type="button"
+                      onClick={() => handleRegenerate(true)}
+                      disabled={busy != null}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-brand-200 bg-brand-50 px-2.5 py-1.5 text-xs font-semibold text-brand-700 transition hover:bg-brand-100 disabled:opacity-50"
+                    >
+                      <Sparkles className="h-3.5 w-3.5" />
+                      Redraft as Super Demand
+                    </button>
+                  ) : null}
                   <button
                     type="button"
-                    onClick={handleRegenerate}
+                    onClick={() => handleRegenerate()}
                     disabled={busy != null}
                     className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
                   >
@@ -463,8 +497,14 @@ export default function DemandLetterWorkspace({ leadId }: { leadId: string }) {
                   <button
                     type="button"
                     onClick={handleFinalize}
-                    disabled={busy != null || awaitingReview}
-                    title={awaitingReview ? `Approve ${AI_AUTHOR}'s draft first` : undefined}
+                    disabled={busy != null || awaitingReview || gateIncomplete}
+                    title={
+                      awaitingReview
+                        ? `Approve ${AI_AUTHOR}'s draft first`
+                        : gateIncomplete
+                          ? 'Sign every item in the attorney approval gate first'
+                          : undefined
+                    }
                     className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-40"
                   >
                     <Lock className="h-3.5 w-3.5" />
@@ -546,6 +586,15 @@ export default function DemandLetterWorkspace({ leadId }: { leadId: string }) {
               locked ? 'bg-slate-50' : 'bg-white'
             }`}
           />
+        </div>
+        {isSuper ? (
+          <DemandIntelligencePanel
+            leadId={leadId}
+            letter={active}
+            readOnly={locked || !canWorkDemands}
+            onLetterUpdated={applyGateUpdate}
+          />
+        ) : null}
         </div>
       )}
 

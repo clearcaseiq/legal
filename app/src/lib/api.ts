@@ -2591,7 +2591,48 @@ export interface DemandLetter {
   sentAt: string | null
   createdAt: string
   updatedAt: string
+  /** 'super' for a ClearCaseIQ Super Demand™ package; null for the standard letter. */
+  template?: 'super' | null
+  approvalGate?: DemandApprovalGate | null
   versions?: DemandLetterVersion[]
+}
+
+export type DemandTemplate = 'super' | 'standard'
+
+export interface DemandApprovalGate {
+  items: Array<{ key: string; label: string; checked: boolean; checkedByName: string | null; checkedAt: string | null }>
+  complete: boolean
+  signedVersion: number | null
+  /** The letter changed after the gate was signed. */
+  stale: boolean
+}
+
+export type DemandConfidenceLevel = 'green' | 'yellow' | 'orange' | 'red'
+
+export interface DemandIntelligence {
+  readiness: {
+    score: number
+    band: 'ready' | 'nearly_ready' | 'needs_work' | 'not_ready'
+    factors: Array<{ key: string; label: string; score: number; max: number; note: string }>
+  }
+  valuation: {
+    p25: number | null
+    expected: number | null
+    p75: number | null
+    source: 'model' | 'analysis' | null
+    specials: number
+    general: number
+    demand: number
+    currentOffer: number | null
+    demandToExpected: number | null
+    offerToDemand: number | null
+    demandMultipleOfSpecials: number | null
+    position: 'below_range' | 'in_range' | 'above_range' | 'unknown'
+  }
+  weaknesses: Array<{ key: string; severity: 'high' | 'medium' | 'low'; title: string; detail: string; mitigation: string }>
+  statementConfidence: Array<{ key: string; section: string; statement: string; level: DemandConfidenceLevel; basis: string }>
+  qualityCheck: Array<{ key: string; label: string; status: 'pass' | 'warn' | 'fail'; detail: string; items?: string[] }>
+  approvalGate: DemandApprovalGate
 }
 
 const demandLettersPath = (leadId: string) => `/v1/attorney-dashboard/leads/${leadId}/demand-letters`
@@ -2608,7 +2649,7 @@ export async function getLeadDemandLetter(leadId: string, demandId: string) {
 
 export async function draftLeadDemandLetter(
   leadId: string,
-  options: { guidance?: string | null; useAi?: boolean; title?: string } = {},
+  options: { guidance?: string | null; useAi?: boolean; title?: string; template?: DemandTemplate } = {},
 ) {
   const { data } = await api.post(demandLettersPath(leadId), options)
   return data as DemandLetter
@@ -2617,7 +2658,7 @@ export async function draftLeadDemandLetter(
 export async function regenerateLeadDemandLetter(
   leadId: string,
   demandId: string,
-  options: { guidance?: string | null; useAi?: boolean } = {},
+  options: { guidance?: string | null; useAi?: boolean; template?: DemandTemplate } = {},
 ) {
   const { data } = await api.post(`${demandLettersPath(leadId)}/${demandId}/regenerate`, options)
   return data as DemandLetter
@@ -2634,6 +2675,16 @@ export async function saveLeadDemandLetter(
 
 export async function approveLeadDemandLetter(leadId: string, demandId: string) {
   const { data } = await api.post(`${demandLettersPath(leadId)}/${demandId}/approve`)
+  return data as DemandLetter
+}
+
+export async function getLeadDemandIntelligence(leadId: string, demandId: string) {
+  const { data } = await api.get(`${demandLettersPath(leadId)}/${demandId}/intelligence`)
+  return data as DemandIntelligence
+}
+
+export async function updateLeadDemandApprovalGate(leadId: string, demandId: string, items: Record<string, boolean>) {
+  const { data } = await api.put(`${demandLettersPath(leadId)}/${demandId}/approval-gate`, { items })
   return data as DemandLetter
 }
 

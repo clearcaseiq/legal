@@ -159,6 +159,19 @@ export interface DemandLetterSections {
   exhibitRefs?: Partial<Record<ExhibitSection, string>>
   /** The numbered exhibit list printed after the signature. */
   enclosures?: string[]
+  /** The figures behind the damages lines, so other renderings reuse them rather than recompute. */
+  totals?: DemandTotals
+}
+
+export interface DemandTotals {
+  medical: number
+  futureMedical: number
+  lostWages: number
+  earningCapacity: number
+  otherEconomic: number
+  specials: number
+  general: number
+  demand: number
 }
 
 /** The sections a model may rewrite. Everything else is data. */
@@ -537,6 +550,7 @@ export function buildDemandLetterSections({
     clientSubject: isPro ? 'I' : 'our client',
   }
 
+  const clientSubjectCap = voice.clientSubject.charAt(0).toUpperCase() + voice.clientSubject.slice(1)
   const medicalTabTimeline = record.medical ? buildTimelineFromMedicalTab(record.medical, voice.clientSubject) : null
   const defendantSubject = defendantName === 'your insured' ? 'Your insured' : defendantName
   const liabilityEvidence = record.liability
@@ -560,8 +574,8 @@ export function buildDemandLetterSections({
   const lostWagesSection = [
     'LOST WAGES',
     lostWages > 0
-      ? `${voice.clientSubject} incurred ${money(lostWages)} in lost earnings as a result of this incident and the resulting treatment and recovery. Wage-loss documentation (employer verification and/or pay records) is available upon request and incorporated herein by reference.`
-      : `${voice.clientSubject} experienced lost time from work as a result of this incident. Supporting wage-loss documentation will be provided.`,
+      ? `${clientSubjectCap} incurred ${money(lostWages)} in lost earnings as a result of this incident and the resulting treatment and recovery. Wage-loss documentation (employer verification and/or pay records) is available upon request and incorporated herein by reference.`
+      : `${clientSubjectCap} experienced lost time from work as a result of this incident. Supporting wage-loss documentation will be provided.`,
     ...(wageItems.length > 1 || (wageItems.length === 1 && wageItems[0].provider) ? wageItems.map(itemLine) : []),
     ...(capacityItems.length
       ? [`${isPro ? 'My' : 'Our client\u2019s'} future earning capacity has also been diminished by ${money(earningCapacity)}:`, ...capacityItems.map(itemLine)]
@@ -675,6 +689,16 @@ export function buildDemandLetterSections({
     otherDamages,
     exhibitRefs,
     enclosures,
+    totals: {
+      medical: medicalTotal,
+      futureMedical,
+      lostWages,
+      earningCapacity,
+      otherEconomic,
+      specials,
+      general: generalDamages,
+      demand: targetAmount,
+    },
   }
 }
 

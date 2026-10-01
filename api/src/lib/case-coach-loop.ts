@@ -429,6 +429,7 @@ async function autoDraftDemandOnce(
         status: 'DRAFT',
         origin: 'ai',
         contentSource: drafted.source,
+        template: drafted.template,
         reviewStatus: gate ? 'pending' : null,
         createdByName: AI_AUTHOR_NAME,
         updatedByName: AI_AUTHOR_NAME,
