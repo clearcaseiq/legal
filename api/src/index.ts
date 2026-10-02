@@ -26,6 +26,7 @@ import { runInsuranceFollowUps } from './lib/insurance-workbench'
 import { reconcileAllAttorneyRatingAggregates } from './lib/attorney-rating-aggregates'
 import { beginSweep, registerSweep } from './lib/ops-status'
 import { startSchedulerLeadership, stopSchedulerLeadership } from './lib/scheduler-leader'
+import { closeRealtime, initRealtime } from './lib/realtime'
 
 const app = buildApp()
 
@@ -634,6 +635,7 @@ const server = app.listen(ENV.PORT, ENV.HOST, () => {
   // later than before.
   startSchedulerLeadership(leadershipHandlers)
 })
+initRealtime(server)
 
 function stopBackgroundLoops() {
   if (calendarWebhookRenewalTimer) clearInterval(calendarWebhookRenewalTimer)
@@ -693,6 +695,7 @@ async function shutdown(signal: 'SIGTERM' | 'SIGINT') {
   // out the full TTL. This has to happen before $disconnect below.
   await stopSchedulerLeadership(leadershipHandlers)
   try {
+    await closeRealtime()
     await closeHttpServer()
     await prisma.$disconnect()
     logger.info('Server closed')

@@ -24,6 +24,7 @@ import { clearStoredAuth, getLoginRedirect, hasValidAuthToken } from '../lib/aut
 import { getAttorneyCaseStatusKey, caseStatusLabel, caseStatusColor } from '../lib/caseStatus'
 import { engagedLeadsOnly } from '../lib/leadStatus'
 import { NEW_LEADS_EVENT } from '../lib/newLeadAlerts'
+import { useRealtimeEvent } from '../lib/realtime'
 import { validatePhoneField } from '../lib/phone'
 import PhoneInput from '../components/PhoneInput'
 import { computeProfileStrength } from '../lib/profileStrength'
@@ -1118,10 +1119,12 @@ export default function AttorneyDashboardShell({ chromeless = false, initialView
     }
   }, [])
 
-  const loadDashboardData = useCallback(async (retryCount = 0) => {
+  const loadDashboardData = useCallback(async (retryCount = 0, opts: { silent?: boolean } = {}) => {
     try {
-      setLoading(true)
-      setError(null)
+      if (!opts.silent) {
+        setLoading(true)
+        setError(null)
+      }
       
       // Verify auth token exists
       if (!hasValidAuthToken()) {
@@ -1297,6 +1300,10 @@ export default function AttorneyDashboardShell({ chromeless = false, initialView
         setAnalyticsIntel(null)
       }
     } catch (err: any) {
+      if (opts.silent) {
+        console.warn('Background dashboard refresh failed:', err)
+        return
+      }
       console.error('Dashboard error:', err)
       console.error('Error type:', err?.constructor?.name)
       console.error('Error details:', {
@@ -1346,7 +1353,7 @@ export default function AttorneyDashboardShell({ chromeless = false, initialView
         setError(errorMessage)
       }
     } finally {
-      setLoading(false)
+      if (!opts.silent) setLoading(false)
     }
   }, [navigate])
 
@@ -1819,6 +1826,45 @@ export default function AttorneyDashboardShell({ chromeless = false, initialView
     window.addEventListener(NEW_LEADS_EVENT, onNewLeads)
     return () => window.removeEventListener(NEW_LEADS_EVENT, onNewLeads)
   }, [loadDashboardData])
+
+  // Another attorney accepted a case this attorney was also offered: drop it from
+  // New Matches now, then resync quietly so counts and pipeline reflect the server.
+  useRealtimeEvent(
+    'lead:claimed',
+    ({ leadId }) => {
+      if (leadId) {
+        setDashboardData((prev) => {
+          if (!prev) return prev
+          const wasOpenMatch = prev.recentLeads.some((l) => l.id === leadId && (!l.status || l.status === 'submitted'))
+          return {
+            ...prev,
+            recentLeads: prev.recentLeads.filter((l) => l.id !== leadId),
+            newCaseMatches: prev.newCaseMatches?.filter((l) => l.id !== leadId),
+            activeCases:
+              wasOpenMatch && prev.activeCases
+                ? { ...prev.activeCases, matched: Math.max(0, (prev.activeCases.matched ?? 0) - 1) }
+                : prev.activeCases,
+          }
+        })
+        setSelectedLeadIds((prev) => {
+          if (!prev.has(leadId)) return prev
+          const next = new Set(prev)
+          next.delete(leadId)
+          return next
+        })
+        if (selectedLead?.id === leadId) {
+          setSelectedLead(null)
+          showToast({
+            variant: 'info',
+            title: 'Case no longer available',
+            message: 'Another attorney accepted this case.',
+          })
+        }
+      }
+      void loadDashboardData(0, { silent: true })
+    },
+    () => void loadDashboardData(0, { silent: true }),
+  )
 
   useEffect(() => {
     if (!hasValidAuthToken()) return

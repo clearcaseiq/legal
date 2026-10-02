@@ -5,6 +5,7 @@
 
 import { prisma } from './prisma'
 import { logger } from './logger'
+import { emitLeadClaimed } from './realtime'
 import {
   sendPlaintiffAttorneyAccepted,
   sendPlaintiffBatchApprovalRequest,
@@ -933,14 +934,32 @@ export async function retireCompetingOffers(
   assessmentId: string,
   winningIntroductionId: string,
 ): Promise<number> {
+  const where = {
+    assessmentId,
+    status: 'PENDING',
+    id: { not: winningIntroductionId },
+  }
+  const competing =
+    (await prisma.introduction.findMany({
+      where,
+      select: { attorneyId: true, attorney: { select: { lawFirmId: true } } },
+    })) ?? []
   const retired = await prisma.introduction.updateMany({
-    where: {
-      assessmentId,
-      status: 'PENDING',
-      id: { not: winningIntroductionId },
-    },
+    where,
     data: { status: 'EXPIRED', respondedAt: new Date() },
   })
+  if (retired.count > 0) {
+    const lead = await prisma.leadSubmission
+      .findUnique({ where: { assessmentId }, select: { id: true } })
+      .catch(() => null)
+    emitLeadClaimed(
+      { assessmentId, leadId: lead?.id ?? null },
+      {
+        attorneyIds: competing.map((c) => c.attorneyId),
+        lawFirmIds: competing.map((c) => c.attorney?.lawFirmId).filter((id): id is string => !!id),
+      },
+    )
+  }
   return retired.count
 }
 
