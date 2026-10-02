@@ -107,7 +107,7 @@ export default function AdminCaseDetailPage() {
   }
   const closeRouteModal = () => { setShowRouteModal(false); setAttorneyDebug(null); setRoutingState(null); setRouteError(null); setInvitePrompt(null) }
   const debugIntroduction = async (email: string) => { setAttorneyEmail(email); setRouteSuccess(null); openRouteModal(); setAttorneyDebug(null); try { setAttorneyDebug(await getAdminAttorneyDebug(email)) } catch (err: any) { setAttorneyDebug({ error: err.response?.data?.error || err.message }) } }
-  const crumbs = [{ label: 'Admin', to: '/admin' }, { label: 'Cases', to: '/admin/cases' }, { label: caseData ? formatCaseId({ id: caseData.id, claimType: caseData.claimType, createdAt: caseData.createdAt }) : 'Case' }]
+  const crumbs = [{ label: 'Admin', to: '/admin' }, { label: 'Cases', to: '/admin/cases' }, { label: caseData ? formatCaseId({ id: caseData.id, referenceCode: caseData.referenceCode, claimType: caseData.claimType, createdAt: caseData.createdAt }) : 'Case' }]
   if (loading) return <div className="space-y-6"><Breadcrumbs items={crumbs} /><div className="flex justify-center py-12"><RefreshCw className="h-8 w-8 animate-spin text-brand-600" /></div></div>
   if (error || !caseData) return <div className="space-y-4"><Breadcrumbs items={crumbs} /><BackButton onClick={() => navigate('/admin/cases')} label="Back to cases" /><div className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">{error || 'Case not found'}</div></div>
   const facts = caseData.facts || {}

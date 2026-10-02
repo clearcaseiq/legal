@@ -188,6 +188,7 @@ router.get('/chat-rooms', authMiddleware, async (req: AuthRequest, res) => {
         assessment: {
           select: {
             id: true,
+            referenceCode: true,
             claimType: true,
             venueState: true
           }
@@ -226,7 +227,7 @@ router.get('/unread-summary', authMiddleware, async (req: AuthRequest, res) => {
       where: { userId },
       include: {
         attorney: { select: { id: true, name: true } },
-        assessment: { select: { id: true, claimType: true, venueState: true } },
+        assessment: { select: { id: true, referenceCode: true, claimType: true, venueState: true } },
         messages: { orderBy: { createdAt: 'desc' }, take: 1 }
       },
       orderBy: [{ lastMessageAt: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }]
@@ -310,7 +311,7 @@ router.get('/attorney/unread-summary', authMiddleware, async (req: AuthRequest, 
       where: roomWhere,
       include: {
         user: { select: { id: true, firstName: true, lastName: true, email: true, avatar: true } },
-        assessment: { select: { id: true, claimType: true, venueState: true } },
+        assessment: { select: { id: true, referenceCode: true, claimType: true, venueState: true } },
         messages: { orderBy: { createdAt: 'desc' }, take: 1 },
       },
       orderBy: { lastMessageAt: 'desc' },

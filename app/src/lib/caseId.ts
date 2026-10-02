@@ -1,4 +1,9 @@
-// Human-meaningful case reference, e.g. "CCIQ-2606-MVA-7F3A".
+// The case number every surface shows: the stored `referenceCode` (e.g.
+// "CCIQ-7Q2K9F"), which is unique and what support searches by. New cases are
+// assigned one at creation.
+//
+// For legacy rows that have no stored code yet, fall back to a label derived
+// from existing fields, e.g. "CCIQ-2606-MVA-7F3A":
 //
 // Format: CCIQ-<YYMM>-<TYPE>-<XXXX>
 //   CCIQ  brand prefix
@@ -58,11 +63,14 @@ function suffixSegment(id?: string | null): string {
 
 export interface CaseIdInput {
   id?: string | null
+  referenceCode?: string | null
   claimType?: string | null
   createdAt?: string | number | Date | null
 }
 
 export function formatCaseId(input: CaseIdInput): string {
+  const stored = input.referenceCode?.trim()
+  if (stored) return stored
   const segments = [
     'CCIQ',
     yearMonthSegment(input.createdAt),
@@ -77,6 +85,7 @@ export function formatLeadCaseId(lead: any): string {
   const assessment = lead?.assessment || lead?.lead?.assessment || {}
   return formatCaseId({
     id: assessment.id || lead?.id,
+    referenceCode: assessment.referenceCode ?? assessment.reference_code ?? lead?.referenceCode,
     claimType: assessment.claimType ?? lead?.claimType,
     createdAt: assessment.createdAt ?? lead?.createdAt,
   })

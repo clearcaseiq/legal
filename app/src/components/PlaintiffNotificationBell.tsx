@@ -10,6 +10,7 @@ import { MessageSquare } from 'lucide-react'
 import { getPlaintiffMessageSummary } from '../lib/api'
 import { sortRoomsByRecency } from '../lib/messaging'
 import { formatClaimType } from '../lib/claimTypes'
+import { formatCaseId } from '../lib/caseId'
 import { MESSAGE_POLL_MS } from '../lib/notificationPolling'
 import { useVisibilityPoll } from '../hooks/useVisibilityPoll'
 
@@ -17,7 +18,7 @@ interface RoomPreview {
   id: string
   assessmentId?: string | null
   attorney: { id: string; name: string } | null
-  assessment?: { id: string; claimType?: string; venueState?: string } | null
+  assessment?: { id: string; claimType?: string; venueState?: string; referenceCode?: string | null } | null
   lastMessage?: { content: string; senderType: string; createdAt: string } | null
   unreadCount: number
 }
@@ -71,7 +72,9 @@ export default function PlaintiffNotificationBell() {
 
   const caseRef = (room: RoomPreview) => {
     const id = room.assessment?.id ?? room.assessmentId
-    return id ? `Case #${id.slice(-6).toUpperCase()}` : 'Case'
+    return id
+      ? `Case ${formatCaseId({ id, referenceCode: room.assessment?.referenceCode, claimType: room.assessment?.claimType })}`
+      : 'Case'
   }
 
   return (

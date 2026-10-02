@@ -624,6 +624,7 @@ router.get('/cases/all', authMiddleware, adminMiddleware, async (req: AuthReques
     if (searchTerm) {
       where.OR = [
         { id: { contains: searchTerm, mode: 'insensitive' } },
+        { referenceCode: { contains: searchTerm, mode: 'insensitive' } },
         { claimType: { contains: searchTerm, mode: 'insensitive' } },
         { venueState: { contains: searchTerm, mode: 'insensitive' } },
         { venueCounty: { contains: searchTerm, mode: 'insensitive' } },
@@ -686,6 +687,7 @@ router.get('/cases/all', authMiddleware, adminMiddleware, async (req: AuthReques
       where,
       select: {
         id: true,
+        referenceCode: true,
         claimType: true,
         venueState: true,
         venueCounty: true,
@@ -767,6 +769,7 @@ router.get('/cases/all', authMiddleware, adminMiddleware, async (req: AuthReques
 
       return {
         id: assessment.id,
+        referenceCode: assessment.referenceCode,
         claimType: assessment.claimType,
         venueState: assessment.venueState,
         venueCounty: assessment.venueCounty,
@@ -817,6 +820,7 @@ router.get('/cases/:id', authMiddleware, adminMiddleware, async (req: AuthReques
       where: { id },
       select: {
         id: true,
+        referenceCode: true,
         claimType: true,
         venueState: true,
         venueCounty: true,
@@ -951,6 +955,7 @@ router.get('/cases/:id', authMiddleware, adminMiddleware, async (req: AuthReques
 
     res.json({
       id: assessment.id,
+      referenceCode: assessment.referenceCode,
       claimType: assessment.claimType,
       venueState: assessment.venueState,
       venueCounty: assessment.venueCounty,

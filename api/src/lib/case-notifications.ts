@@ -281,7 +281,9 @@ export async function sendCaseOfferToAttorney(
   attorneyId: string,
   introductionId: string,
   summary: CaseSummaryForNotification,
-  timeoutMinutes?: number
+  timeoutMinutes?: number,
+  /** Set when the caller still has to create the LeadSubmission; it must emit `lead:new` itself afterwards. */
+  options: { deferRealtime?: boolean } = {},
 ): Promise<{ sms: boolean; email: boolean; inPlatform: boolean }> {
   // Quote the window the expiry sweep will apply, not a number of its own.
   const responseWindowMinutes = timeoutMinutes ?? (await getCurrentAttorneyResponseDeadlineMinutes())
@@ -398,11 +400,13 @@ export async function sendCaseOfferToAttorney(
         }
       })
       inPlatformSent = true
-      void emitLeadNew(attorneyId, {
-        assessmentId: summary.assessmentId,
-        leadId: lead?.id ?? null,
-        introductionId,
-      })
+      if (!options.deferRealtime) {
+        void emitLeadNew(attorneyId, {
+          assessmentId: summary.assessmentId,
+          leadId: lead?.id ?? null,
+          introductionId,
+        })
+      }
     } else {
       // The bell is keyed on a User id, so an attorney with no login account
       // cannot receive one. Say so: this branch used to fall through in silence,

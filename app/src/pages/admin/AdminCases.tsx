@@ -189,8 +189,8 @@ export default function AdminCases() {
             bVal = new Date(b.createdAt).getTime()
             break
           case 'caseId':
-            aVal = formatCaseId({ id: a.id, claimType: a.claimType, createdAt: a.createdAt }).toLowerCase()
-            bVal = formatCaseId({ id: b.id, claimType: b.claimType, createdAt: b.createdAt }).toLowerCase()
+            aVal = formatCaseId({ id: a.id, referenceCode: a.referenceCode, claimType: a.claimType, createdAt: a.createdAt }).toLowerCase()
+            bVal = formatCaseId({ id: b.id, referenceCode: b.referenceCode, claimType: b.claimType, createdAt: b.createdAt }).toLowerCase()
             break
           case 'plaintiff':
             aVal = plaintiffSortKey(a)
@@ -335,7 +335,7 @@ export default function AdminCases() {
     const rowsSource = selectedIds.size > 0 ? sortedCases.filter((c) => selectedIds.has(c.id)) : sortedCases
     const headers = ['Case ID', 'Claim type', 'Plaintiff', 'Email', 'Location', 'Routing status', 'Viability', 'Est. value', 'Submitted']
     const rows = rowsSource.map((c) => [
-      formatCaseId({ id: c.id, claimType: c.claimType, createdAt: c.createdAt }),
+      formatCaseId({ id: c.id, referenceCode: c.referenceCode, claimType: c.claimType, createdAt: c.createdAt }),
       formatClaimType(c.claimType),
       c.user ? `${c.user.firstName || ''} ${c.user.lastName || ''}`.trim() || 'Anonymous' : 'Anonymous',
       c.user?.email || '',
@@ -662,12 +662,12 @@ export default function AdminCases() {
                         type="checkbox"
                         checked={selectedIds.has(c.id)}
                         onChange={() => toggleOne(c.id)}
-                        aria-label={`Select case ${formatCaseId({ id: c.id, claimType: c.claimType, createdAt: c.createdAt })}`}
+                        aria-label={`Select case ${formatCaseId({ id: c.id, referenceCode: c.referenceCode, claimType: c.claimType, createdAt: c.createdAt })}`}
                         className="rounded border-slate-300 text-brand-600 focus:ring-brand-500"
                       />
                     </td>
                     <td className="py-3 px-4 text-ui-sm font-mono text-slate-600 dark:text-slate-400">
-                      {formatCaseId({ id: c.id, claimType: c.claimType, createdAt: c.createdAt })}
+                      {formatCaseId({ id: c.id, referenceCode: c.referenceCode, claimType: c.claimType, createdAt: c.createdAt })}
                       {/* The Routing status column keeps showing whatever the case
                           last did while it was live, so without this a finished
                           matter is indistinguishable from an active one. */}

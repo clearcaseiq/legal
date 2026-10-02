@@ -184,8 +184,7 @@ export default function AttorneyDashboardLeadDetail({
   const headerPlaintiff = isPostAcceptance
     ? [headerFirstName, headerLastName].filter(Boolean).join(' ')
     : [headerFirstName, headerLastName ? `${headerLastName.charAt(0)}.` : ''].filter(Boolean).join(' ')
-  const headerCaseRef = `#${(selectedLead?.id || selectedLead?.assessment?.id || '').slice(-8).toUpperCase()}`
-  const headerSubject = headerPlaintiff || (headerCaseRef.length > 1 ? `Case ${headerCaseRef}` : '')
+  const headerSubject = headerPlaintiff || (selectedLead ? `Case ${formatLeadCaseId(selectedLead)}` : '')
 
   return (
     <div className={leadWrapperClass}>

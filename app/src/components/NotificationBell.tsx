@@ -8,6 +8,7 @@ import { Link } from 'react-router-dom'
 import { MessageSquare } from 'lucide-react'
 import { getAttorneyUnreadSummary } from '../lib/api'
 import { formatClaimType } from '../lib/claimTypes'
+import { formatCaseId } from '../lib/caseId'
 import { MESSAGE_POLL_MS } from '../lib/notificationPolling'
 import { useVisibilityPoll } from '../hooks/useVisibilityPoll'
 
@@ -15,7 +16,7 @@ interface ChatRoomPreview {
   id: string
   leadId?: string | null
   plaintiff: { id: string; name: string; email?: string } | null
-  assessment?: { id: string; claimType?: string }
+  assessment?: { id: string; claimType?: string; referenceCode?: string | null }
   lastMessage?: { content: string; senderType: string; createdAt: string }
   unreadCount: number
   awaitingReply?: boolean
@@ -132,7 +133,7 @@ export default function NotificationBell() {
                     </div>
                     {room.assessment?.id && (
                       <div className="text-xs text-slate-500 mt-0.5">
-                        Case #{room.assessment.id.slice(-6).toUpperCase()}
+                        Case {formatCaseId({ id: room.assessment.id, referenceCode: room.assessment.referenceCode, claimType: room.assessment.claimType })}
                       </div>
                     )}
                     <div className="text-sm text-slate-600 truncate mt-0.5">

@@ -460,10 +460,10 @@ export default function Dashboard() {
         return dateLabel ? `${assessment.caseName.trim()} · ${dateLabel}` : assessment.caseName.trim()
       }
       // Same formatter the header badge uses, so a claimant reading a case number
-      // off this list quotes the same string support sees — the raw reference_code
-      // is a different identifier and showing both invited mismatches.
+      // off this list quotes the same string support and attorneys see.
       const caseId = formatCaseId({
         id: assessment.id,
+        referenceCode: assessment.reference_code,
         claimType: assessment.claimType,
         createdAt: assessment.created_at,
       })
@@ -1241,11 +1241,12 @@ export default function Dashboard() {
   // Use the canonical formatter so the incident type reads identically on web and
   // mobile ("Motor vehicle", not "Auto Accident") — CP-406. Localized for UI language.
   const claimTypeLabel = localizeClaimType(activeAssessment?.claimType)
-  // Human-friendly Case ID (e.g. "CCIQ-2608-PRD-584D"), derived from the case's
-  // own fields — not the raw database/reference id.
+  // The case's stored reference code (e.g. "CCIQ-7Q2K9F") — the same number the
+  // attorney and admin screens show.
   const caseIdDisplay = activeAssessment
     ? formatCaseId({
         id: activeAssessment.id,
+        referenceCode: assessments.find((a) => a.id === activeAssessment.id)?.reference_code,
         claimType: activeAssessment.claimType,
         createdAt: assessments.find((a) => a.id === activeAssessment.id)?.created_at,
       })

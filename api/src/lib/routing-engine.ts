@@ -18,6 +18,7 @@ import {
   type MatchScore
 } from './routing'
 import { sendCaseOfferToAttorney } from './case-notifications'
+import { emitLeadNew } from './realtime'
 import { attorneysBlockedByFirmDecline } from './firm-decline'
 import { declineAdjustmentFor, loadDeclineLearning, traitsFromAssessment } from './decline-learning'
 import {
@@ -739,7 +740,8 @@ export async function runRoutingEngine(
               introductionId: intro.id,
               assessmentId
             },
-            getAttorneyResponseDeadlineMinutes(matchingRules)
+            getAttorneyResponseDeadlineMinutes(matchingRules),
+            { deferRealtime: true },
           ).catch(err => {
             logger.warn('Failed to send case offer', { attorneyId: attorney.id, error: (err as Error).message })
           }),
@@ -836,6 +838,17 @@ export async function runRoutingEngine(
             assignedAttorneyId: routedTo[0],
           })
         }
+      }
+    }
+
+    // Push only now: an open New Matches list reloads on this event, and before
+    // the LeadSubmission exists that reload comes back without the new case.
+    if (introResults.length > 0) {
+      const lead = await prisma.leadSubmission
+        .findUnique({ where: { assessmentId }, select: { id: true } })
+        .catch(() => null)
+      for (const { attorneyId, introId } of introResults) {
+        void emitLeadNew(attorneyId, { assessmentId, leadId: lead?.id ?? null, introductionId: introId })
       }
     }
 
