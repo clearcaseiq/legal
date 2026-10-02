@@ -286,6 +286,7 @@ interface FirmDashboardData {
   }
   workspace?: {
     currentRole: string
+    currentMemberId?: string | null
     permissions: string[]
     roleCapabilities: Record<string, string[]>
     assignmentRoles: string[]
@@ -464,6 +465,9 @@ export default function FirmDashboard() {
   const [newMember, setNewMember] = useState({ firstName: '', lastName: '', email: '', role: 'case_manager', title: '', officeId: '' })
   const [memberOfficeSavingId, setMemberOfficeSavingId] = useState<string | null>(null)
   const [resendingMemberId, setResendingMemberId] = useState<string | null>(null)
+  const [rowActionMemberId, setRowActionMemberId] = useState<string | null>(null)
+  const [confirmDeleteMemberId, setConfirmDeleteMemberId] = useState<string | null>(null)
+  const [rowActionError, setRowActionError] = useState<string | null>(null)
   const [memberSaving, setMemberSaving] = useState(false)
   const [memberError, setMemberError] = useState<string | null>(null)
   const [memberSuccess, setMemberSuccess] = useState<string | null>(null)
@@ -1066,6 +1070,10 @@ export default function FirmDashboard() {
     (workspace?.permissions || []).includes('manage_users') || workspace?.currentRole === 'firm_admin'
   const canManageRouting =
     (workspace?.permissions || []).includes('manage_users') || workspace?.currentRole === 'firm_admin'
+  // Mirrors the server: attorneys may deactivate or delete anyone but a firm admin, never themselves.
+  const canManageMembershipOf = (m: any) =>
+    m.id !== workspace?.currentMemberId &&
+    (canManageUsers || (workspace?.currentRole === 'attorney' && m.role !== 'firm_admin'))
   const canAssignCases =
     (workspace?.permissions || []).includes('assign_cases') || workspace?.currentRole === 'firm_admin'
 
@@ -1320,6 +1328,33 @@ export default function FirmDashboard() {
       setEditMemberError(err.response?.data?.error || `Failed to ${newStatus === 'suspended' ? 'suspend' : 'reactivate'} member.`)
     } finally {
       setEditMemberSaving(false)
+    }
+  }
+
+  const handleRowMemberStatus = async (m: any, status: 'active' | 'suspended') => {
+    setRowActionMemberId(m.id)
+    setRowActionError(null)
+    try {
+      await updateFirmMember(m.id, { status })
+      await refresh(true)
+    } catch (err: any) {
+      setRowActionError(err.response?.data?.error || `Failed to ${status === 'suspended' ? 'deactivate' : 'reactivate'} member.`)
+    } finally {
+      setRowActionMemberId(null)
+    }
+  }
+
+  const handleRowMemberDelete = async (m: any) => {
+    setRowActionMemberId(m.id)
+    setRowActionError(null)
+    try {
+      await removeFirmMember(m.id)
+      setConfirmDeleteMemberId(null)
+      await refresh(true)
+    } catch (err: any) {
+      setRowActionError(err.response?.data?.error || 'Failed to delete member.')
+    } finally {
+      setRowActionMemberId(null)
     }
   }
 
@@ -2326,6 +2361,63 @@ export default function FirmDashboard() {
                         >
                           <Shield className="h-4 w-4" />
                         </button>
+                        {canManageMembershipOf(m) ? (
+                          <>
+                            {m.status === 'suspended' ? (
+                              <button
+                                onClick={() => handleRowMemberStatus(m, 'active')}
+                                disabled={rowActionMemberId === m.id}
+                                className={btnGhost + ' !h-8 !w-8 shrink-0 justify-center !p-0 text-green-600 hover:!bg-green-50 disabled:opacity-50'}
+                                title="Reactivate"
+                                aria-label="Reactivate"
+                              >
+                                <CheckCircle2 className="h-4 w-4" />
+                              </button>
+                            ) : m.status === 'invited' ? (
+                              <span className="w-8 shrink-0" aria-hidden />
+                            ) : (
+                              <button
+                                onClick={() => handleRowMemberStatus(m, 'suspended')}
+                                disabled={rowActionMemberId === m.id}
+                                className={btnGhost + ' !h-8 !w-8 shrink-0 justify-center !p-0 text-amber-600 hover:!bg-amber-50 disabled:opacity-50'}
+                                title="Deactivate"
+                                aria-label="Deactivate"
+                              >
+                                <Ban className="h-4 w-4" />
+                              </button>
+                            )}
+                            {confirmDeleteMemberId === m.id ? (
+                              <span className="flex shrink-0 items-center gap-1">
+                                <button
+                                  onClick={() => handleRowMemberDelete(m)}
+                                  disabled={rowActionMemberId === m.id}
+                                  className="inline-flex h-8 items-center rounded-lg bg-red-600 px-2.5 text-xs font-semibold text-white shadow-sm transition hover:bg-red-700 disabled:opacity-50"
+                                >
+                                  {rowActionMemberId === m.id ? 'Deleting…' : 'Delete'}
+                                </button>
+                                <button
+                                  onClick={() => setConfirmDeleteMemberId(null)}
+                                  className={btnGhost + ' !h-8 !w-8 shrink-0 justify-center !p-0'}
+                                  title="Cancel"
+                                  aria-label="Cancel delete"
+                                >
+                                  <X className="h-4 w-4" />
+                                </button>
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => { setConfirmDeleteMemberId(m.id); setRowActionError(null) }}
+                                className={btnGhost + ' !h-8 !w-8 shrink-0 justify-center !p-0 text-red-600 hover:!bg-red-50'}
+                                title="Delete from firm"
+                                aria-label="Delete from firm"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            )}
+                          </>
+                        ) : (
+                          <span className="w-[4.5rem] shrink-0" aria-hidden />
+                        )}
         </div>
                     )
                   },
@@ -2335,6 +2427,7 @@ export default function FirmDashboard() {
               rowKey={(m: any) => m.id}
               emptyMessage={peopleFilter === 'attorneys' ? 'No attorneys yet. Add one below.' : peopleFilter === 'staff' ? 'No staff yet. Add someone below.' : 'No team members yet. Add attorneys or support staff below.'}
             />
+            {rowActionError && <p className="mt-2 text-sm text-red-600">{rowActionError}</p>}
           </SectionCard>
 
           {/* Add a person (attorney or staff) */}

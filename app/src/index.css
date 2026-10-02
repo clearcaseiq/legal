@@ -233,6 +233,11 @@
     @apply pressable bg-slate-200 text-slate-900 dark:bg-slate-700 dark:text-slate-100 px-4 py-2 rounded-lg hover:bg-slate-300 dark:hover:bg-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 transition-colors;
   }
 
+  /* The one save-button look across attorney and firm screens. */
+  .btn-save {
+    @apply pressable inline-flex items-center justify-center gap-2 rounded-md border border-brand-200 bg-white px-4 py-2 text-sm font-medium text-brand-700 hover:bg-brand-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 transition-colors dark:bg-slate-800 dark:border-slate-600 dark:text-brand-200 dark:hover:bg-slate-700;
+  }
+
   .btn-outline {
     @apply pressable border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 px-4 py-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 transition-colors;
   }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { CheckCircle, Clock, Filter, Gauge, Loader2 } from 'lucide-react'
+import { Clock, Filter, Gauge } from 'lucide-react'
 import { ATTORNEY_CASE_TYPES, formatSpecialty } from '../../../lib/constants'
 import { formatCurrency } from '../../../lib/formatters'
 import { useAttorneyDecisionProfile } from '../useAttorneyDecisionProfile'
@@ -394,10 +394,9 @@ export default function CasePreferencesTab({ profile, saving, onSave }: Props) {
           type="button"
           onClick={() => void save()}
           disabled={!dirty || saving}
-          className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+          className="btn-save"
         >
-          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
-          Save Changes
+          {saving ? 'Saving…' : 'Save Changes'}
         </button>
       </div>
 
@@ -442,9 +441,9 @@ export default function CasePreferencesTab({ profile, saving, onSave }: Props) {
             type="button"
             onClick={() => void decision.handleSaveDecisionProfile()}
             disabled={decision.decisionProfileLoading}
-            className="rounded-md border border-brand-200 px-4 py-2 text-sm font-medium text-brand-700 hover:bg-brand-50 disabled:opacity-50"
+            className="btn-save"
           >
-            {decision.decisionProfileLoading ? 'Saving…' : 'Save Decision Profile'}
+            {decision.decisionProfileLoading ? 'Saving…' : 'Save Changes'}
           </button>
         </div>
       </div>

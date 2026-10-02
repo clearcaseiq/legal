@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Building2, CheckCircle, Loader2, MapPin, Plus, Shield, Trash2 } from 'lucide-react'
+import { Building2, MapPin, Plus, Shield, Trash2 } from 'lucide-react'
 import { CountyCoverageEditor } from '../../../components/CountyCoverageEditor'
 import { StateMultiSelect } from '../../../components/StateMultiSelect'
 import { US_STATES } from '../../../lib/constants'
@@ -273,10 +273,9 @@ export default function PracticeTab({ profile, saving, onSave, onProfileChanged 
           type="button"
           onClick={() => void save()}
           disabled={!dirty || saving || firmLocations.some((l) => validatePhoneField(l.phone))}
-          className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+          className="btn-save"
         >
-          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
-          Save Changes
+          {saving ? 'Saving…' : 'Save Changes'}
         </button>
       </div>
 

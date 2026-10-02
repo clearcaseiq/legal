@@ -332,6 +332,15 @@ function requireFirmPermission(context: Awaited<ReturnType<typeof getFirmContext
   return Boolean(context && context.permissions.includes(permission))
 }
 
+/**
+ * Deactivate, reactivate or remove a member. Managers can act on anyone; firm
+ * attorneys can act on everyone except firm admins, who only managers may touch.
+ */
+function canManageMembership(context: Awaited<ReturnType<typeof getFirmContext>>, targetRole: string | null | undefined) {
+  if (requireFirmPermission(context, 'manage_users')) return true
+  return context?.role === 'attorney' && targetRole !== 'firm_admin'
+}
+
 router.post('/offices', authMiddleware as any, async (req: any, res: Response) => {
   try {
     const context = await getFirmContext(req)
@@ -822,10 +831,6 @@ router.patch('/members/:memberId', authMiddleware as any, async (req: any, res: 
     if (!context) {
       return res.status(404).json({ error: 'No law firm associated with this user' })
     }
-    if (!requireFirmPermission(context, 'manage_users')) {
-      return res.status(403).json({ error: 'You do not have permission to manage firm users' })
-    }
-
     const { memberId } = req.params
     const member = await (prisma as any).firmMember.findFirst({
       where: { id: memberId, lawFirmId: context.lawFirmId },
@@ -836,6 +841,12 @@ router.patch('/members/:memberId', authMiddleware as any, async (req: any, res: 
     }
 
     const body = req.body || {}
+    // Firm attorneys may only deactivate or reactivate; every other edit needs manage_users.
+    const statusOnly = Object.keys(body).length > 0 && Object.keys(body).every((key) => key === 'status')
+    const allowed = requireFirmPermission(context, 'manage_users') || (statusOnly && canManageMembership(context, member.role))
+    if (!allowed) {
+      return res.status(403).json({ error: 'You do not have permission to manage firm users' })
+    }
     const data: Record<string, any> = {}
 
     // Office assignment
@@ -976,10 +987,6 @@ router.delete('/members/:memberId', authMiddleware as any, async (req: any, res:
     if (!context) {
       return res.status(404).json({ error: 'No law firm associated with this user' })
     }
-    if (!requireFirmPermission(context, 'manage_users')) {
-      return res.status(403).json({ error: 'You do not have permission to manage firm users' })
-    }
-
     const { memberId } = req.params
     const member = await (prisma as any).firmMember.findFirst({
       where: { id: memberId, lawFirmId: context.lawFirmId },
@@ -987,6 +994,9 @@ router.delete('/members/:memberId', authMiddleware as any, async (req: any, res:
     })
     if (!member) {
       return res.status(404).json({ error: 'Member not found in this firm' })
+    }
+    if (!canManageMembership(context, member.role)) {
+      return res.status(403).json({ error: 'You do not have permission to remove this member' })
     }
     if (member.userId === context.member?.userId) {
       return res.status(400).json({ error: 'You cannot remove yourself from the firm' })
@@ -2843,6 +2853,7 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
       marketplace,
       workspace: {
         currentRole: context?.role || 'attorney',
+        currentMemberId: context?.member?.id || null,
         permissions: context?.permissions || FIRM_ROLE_PERMISSIONS.attorney,
         roleCapabilities: (context as any)?.roleCapabilities || FIRM_ROLE_PERMISSIONS,
         assignmentRoles: CASE_ASSIGNMENT_ROLES,

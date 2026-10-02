@@ -89,3 +89,50 @@ describe('PATCH /v1/firm-dashboard/members/:id permissions', () => {
     expect((prisma as any).firmMember.update).not.toHaveBeenCalled()
   })
 })
+
+describe('firm attorneys deactivating and deleting members', () => {
+  const attorneyMember = { ...adminMember, id: 'fm-attorney', role: 'attorney' }
+  const firmAdminTarget = { id: 'fm-other-admin', userId: 'user-other-admin', lawFirmId: firm.id, role: 'firm_admin', attorneyId: null }
+
+  beforeEach(() => {
+    vi.mocked((prisma as any).firmMember.findFirst).mockImplementation(async ({ where }: any) =>
+      where?.id === targetMember.id
+        ? targetMember
+        : where?.id === firmAdminTarget.id
+          ? firmAdminTarget
+          : where?.userId === adminUser.id
+            ? attorneyMember
+            : null,
+    )
+  })
+
+  it('lets an attorney deactivate a staff member', async () => {
+    const res = await patch({ status: 'suspended' })
+
+    expect(res.status).toBe(200)
+    expect(vi.mocked((prisma as any).firmMember.update).mock.calls[0][0].data).toEqual({ status: 'suspended' })
+  })
+
+  it('does not let an attorney change anything but status', async () => {
+    const res = await patch({ role: 'firm_admin' })
+
+    expect(res.status).toBe(403)
+    expect((prisma as any).firmMember.update).not.toHaveBeenCalled()
+  })
+
+  it('lets an attorney delete a member', async () => {
+    const res = await request(app).delete(`/v1/firm-dashboard/members/${targetMember.id}`).set(auth)
+
+    expect(res.status).toBe(200)
+    expect((prisma as any).firmMember.delete).toHaveBeenCalledWith({ where: { id: targetMember.id } })
+  })
+
+  it('does not let an attorney delete or deactivate a firm admin', async () => {
+    const del = await request(app).delete(`/v1/firm-dashboard/members/${firmAdminTarget.id}`).set(auth)
+    const suspend = await patch({ status: 'suspended' }, firmAdminTarget.id)
+
+    expect(del.status).toBe(403)
+    expect(suspend.status).toBe(403)
+    expect((prisma as any).firmMember.delete).not.toHaveBeenCalled()
+  })
+})

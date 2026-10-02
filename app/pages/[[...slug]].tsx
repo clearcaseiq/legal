@@ -6,6 +6,7 @@ import AppRouteShell from '../src/components/AppRouteShell'
 import SiteAnalytics from '../src/components/SiteAnalytics'
 import { isKnownAppRoute, topicHubForClusterPrefix } from '../src/data/appRoutes'
 import { indexingEnabled } from '../src/lib/siteConfig'
+import { appScreenTitle } from '../src/lib/pageTitle'
 import { DEFAULT_LANGUAGE, type LanguageCode } from '../src/i18n'
 import { alternatesForPath } from '../src/data/localeAlternates'
 import { marketingPagesByPath } from '../src/data/marketingPages'
@@ -364,7 +365,7 @@ const resolvePage: GetServerSideProps<PageProps> = async ({ params, query, res }
       publicPage: false,
       embed: isEmbed,
       seo: {
-        title: appRouteTitle(pathname),
+        title: appScreenTitle(pathname) ?? appRouteTitle(pathname),
         description: DEFAULT_DESCRIPTION,
         canonical,
         schema: null,

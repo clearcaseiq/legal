@@ -7,6 +7,7 @@ import { GuestRoute, ProtectedRoute } from './components/AuthRoute'
 import { getStoredRole, getPostLoginRoute, getLoginRedirect, hasValidAuthToken } from './lib/auth'
 import { applyAnalyticsBoundary } from './lib/analyticsBoundary'
 import { pushScreenView } from './lib/screenView'
+import { appScreenTitle } from './lib/pageTitle'
 import { captureAttribution } from './lib/attribution'
 import {
   clearEvidenceReturnTo,
@@ -445,6 +446,17 @@ function AnalyticsBoundary() {
   return null
 }
 
+// The server sets the tab title for the first URL only, so in-app navigation
+// kept showing it (e.g. "Payment success" on the Attorney Dashboard).
+function RouteTitleSync() {
+  const location = useLocation()
+  useEffect(() => {
+    const title = appScreenTitle(location.pathname)
+    if (title) document.title = title
+  }, [location.pathname])
+  return null
+}
+
 // Route-scoped boundary that lives inside <Layout> so a render crash on one
 // page shows an inline, recoverable error (with the nav still usable) instead
 // of blanking the whole app. Resetting on pathname change lets the user simply
@@ -466,6 +478,7 @@ function App() {
   return (
     <ErrorBoundary>
       <AnalyticsBoundary />
+      <RouteTitleSync />
       <Layout>
         <RouteErrorBoundary>
         <Suspense fallback={<RouteFallback />}>
