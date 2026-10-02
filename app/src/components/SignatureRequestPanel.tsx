@@ -28,8 +28,10 @@ import {
   Pencil,
   Plus,
   Trash2,
+  Lock,
 } from 'lucide-react'
 import { EsignProviderPicker } from './EsignProviderPicker'
+import { EssentialFieldsForm } from './EssentialFieldsForm'
 import ModalPortal from './ModalPortal'
 import { FirmTemplateForm } from '../features/firm/FirmTemplateForm'
 import { getFirmTemplates, type FirmTemplate } from '../lib/api'
@@ -40,7 +42,11 @@ import {
   correctSignerEmail,
   downloadSignedEnvelope,
   getEsignProviders,
+  getEssentialFields,
   getSigningDefaults,
+  previewCaseFirmTemplate,
+  previewCustomDocument,
+  sendCustomDocument,
   listCaseFirmTemplates,
   listEnvelopes,
   previewDocument,
@@ -55,7 +61,26 @@ import {
   type DocumentEnvelope,
   type EnvelopeStatus,
   type EsignProviderMeta,
+  type EssentialDocType,
+  type EssentialField,
+  type EssentialValues,
 } from '../lib/api-esign'
+
+/** Error text from an axios error whose response body may be a Blob (PDF endpoints). */
+async function errorMessage(err: any, fallback: string): Promise<string> {
+  const data = err?.response?.data
+  if (data instanceof Blob) {
+    try {
+      const parsed = JSON.parse(await data.text())
+      return parsed?.error || fallback
+    } catch {
+      return fallback
+    }
+  }
+  return data?.detail || data?.error || fallback
+}
+
+type EssentialState = { fields: EssentialField[]; prefill: EssentialValues; values: EssentialValues }
 
 const DOC_TYPES = [
   { id: 'hipaa_authorization', label: 'HIPAA authorization' },
@@ -99,6 +124,45 @@ function daysSince(dateStr?: string | null): number | null {
   const ms = Date.now() - new Date(dateStr).getTime()
   if (!Number.isFinite(ms)) return null
   return Math.floor(ms / 86400000)
+}
+
+function TemplateSourcePicker({
+  name,
+  value,
+  onChange,
+  docLabel,
+  labelCls,
+}: {
+  name: string
+  value: RetainerSource
+  onChange: (next: RetainerSource) => void
+  docLabel: string
+  labelCls: string
+}) {
+  const options: { id: RetainerSource; label: string }[] = [
+    { id: 'platform', label: 'ClearCaseIQ template' },
+    { id: 'firm', label: 'Firm template library' },
+    { id: 'upload', label: `Upload my own ${docLabel} (PDF or Word)` },
+  ]
+  return (
+    <div>
+      <label className={labelCls}>{docLabel.charAt(0).toUpperCase() + docLabel.slice(1)} source</label>
+      <div className="mt-1 flex flex-col gap-1.5 text-sm text-slate-700">
+        {options.map((o) => (
+          <label key={o.id} className="inline-flex items-center gap-2">
+            <input
+              type="radio"
+              name={name}
+              checked={value === o.id}
+              onChange={() => onChange(o.id)}
+              className="h-4 w-4 border-slate-300 text-brand-600 focus:ring-brand-400"
+            />
+            {o.label}
+          </label>
+        ))}
+      </div>
+    </div>
+  )
 }
 
 function FirmTemplatePicker({
@@ -342,6 +406,9 @@ export default function SignatureRequestPanel({
 
   const [documentType, setDocumentType] = useState(initialDocumentType)
   const [retainerSource, setRetainerSource] = useState<RetainerSource>('platform')
+  const [hipaaSource, setHipaaSource] = useState<RetainerSource>('platform')
+  const [essential, setEssential] = useState<Partial<Record<EssentialDocType, EssentialState>>>({})
+  const [essentialLoading, setEssentialLoading] = useState(false)
   const [firmTemplates, setFirmTemplates] = useState<CaseFirmTemplate[]>([])
   const [firmTemplateId, setFirmTemplateId] = useState('')
   const [provider, setProvider] = useState<string | null>(null)
@@ -386,10 +453,15 @@ export default function SignatureRequestPanel({
   const isPoliceAuth = documentType === 'police_report_authorization'
   const isFee = documentType === 'fee_agreement'
   const isFirmTemplate = documentType === 'firm_template'
-  const usesFirmTemplate = isFirmTemplate || (isRetainer && retainerSource === 'firm')
-  const isUploadDoc = isFee || (isRetainer && retainerSource === 'upload')
-  const canPreview =
-    (isHipaa || isPoliceAuth || (isRetainer && retainerSource === 'platform')) && !usesFirmTemplate
+  const essentialType: EssentialDocType | null = isRetainer ? 'retainer' : isHipaa ? 'hipaa_authorization' : null
+  const essentialSource = isRetainer ? retainerSource : isHipaa ? hipaaSource : 'platform'
+  // The firm's own retainer / HIPAA (library or one-off upload) gets the editable fields.
+  const customMode = essentialType !== null && essentialSource !== 'platform'
+  const isCustomUpload = customMode && essentialSource === 'upload'
+  const usesFirmTemplate = isFirmTemplate || (customMode && essentialSource === 'firm')
+  const isUploadDoc = isFee || isCustomUpload
+  const essentialState = essentialType ? essential[essentialType] : undefined
+  const canPreview = customMode || isHipaa || isPoliceAuth || (isRetainer && retainerSource === 'platform')
 
   const selectableFirmTemplates = useMemo(() => {
     if (isRetainer && retainerSource === 'firm') {
@@ -397,8 +469,40 @@ export default function SignatureRequestPanel({
         (t) => t.suggestedDocumentType === 'retainer' || /retainer|contingency|representation/i.test(t.name),
       )
     }
+    if (isHipaa && hipaaSource === 'firm') {
+      return firmTemplates.filter((t) => t.suggestedDocumentType === 'hipaa_authorization' || /hipaa/i.test(t.name))
+    }
     return firmTemplates
-  }, [firmTemplates, isRetainer, retainerSource])
+  }, [firmTemplates, isRetainer, retainerSource, isHipaa, hipaaSource])
+
+  // Prefill the essential fields from intake the first time a custom source is chosen.
+  useEffect(() => {
+    if (!customMode || !essentialType || essential[essentialType]) return
+    let cancelled = false
+    setEssentialLoading(true)
+    getEssentialFields(leadId, essentialType)
+      .then(({ fields, values }) => {
+        if (cancelled) return
+        setEssential((prev) => ({ ...prev, [essentialType]: { fields, prefill: values, values } }))
+      })
+      .catch(() => {
+        if (!cancelled) setError('Could not load the client and case details for this document.')
+      })
+      .finally(() => {
+        if (!cancelled) setEssentialLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [customMode, essentialType, essential, leadId])
+
+  const setEssentialValues = (next: EssentialValues) => {
+    if (!essentialType) return
+    setEssential((prev) => {
+      const cur = prev[essentialType]
+      return cur ? { ...prev, [essentialType]: { ...cur, values: next } } : prev
+    })
+  }
 
   const selectedFirmTemplate = useMemo(
     () => selectableFirmTemplates.find((t) => t.id === firmTemplateId) || null,
@@ -591,7 +695,15 @@ export default function SignatureRequestPanel({
       return
     }
     if (isUploadDoc && !feeFile) {
-      setError(isRetainer ? 'Attach your retainer PDF to send.' : 'Attach the fee-agreement PDF to send.')
+      setError(
+        isCustomUpload
+          ? `Attach your ${isRetainer ? 'retainer' : 'HIPAA authorization'} (PDF or Word) to send.`
+          : 'Attach the fee-agreement PDF to send.',
+      )
+      return
+    }
+    if (customMode && !essentialState) {
+      setError('The document fields are still loading.')
       return
     }
     if (duplicateGuard()) return
@@ -599,15 +711,26 @@ export default function SignatureRequestPanel({
     setSubmitting(true)
     try {
       let envelope: DocumentEnvelope
-      if (usesFirmTemplate) {
+      if (isCustomUpload && essentialType && essentialState) {
+        envelope = await sendCustomDocument(leadId, feeFile as File, {
+          documentType: essentialType,
+          fieldValues: essentialState.values,
+          signerName: signerName.trim(),
+          signerEmail: signerEmail.trim(),
+          title: feeTitle.trim() || undefined,
+          provider: provider ?? undefined,
+        })
+        setFeeFile(null)
+        setFeeTitle('')
+        if (feeInputRef.current) feeInputRef.current.value = ''
+      } else if (usesFirmTemplate) {
         envelope = await sendCaseFirmTemplate(leadId, firmTemplateId, {
           signerName: signerName.trim(),
           signerEmail: signerEmail.trim(),
           title: selectedFirmTemplate?.name,
           provider: provider ?? undefined,
-          documentType: isRetainer
-            ? 'retainer'
-            : selectedFirmTemplate?.suggestedDocumentType || 'other',
+          documentType: essentialType ?? (selectedFirmTemplate?.suggestedDocumentType || 'other'),
+          fieldValues: customMode ? essentialState?.values : undefined,
         })
       } else if (isRetainer && retainerSource === 'platform') {
         envelope = await createRetainerAgreement(leadId, {
@@ -648,7 +771,7 @@ export default function SignatureRequestPanel({
           signerEmail: signerEmail.trim(),
           title: feeTitle.trim() || undefined,
           provider: provider ?? undefined,
-          documentType: isRetainer ? 'retainer' : 'fee_agreement',
+          documentType: 'fee_agreement',
         })
         setFeeFile(null)
         setFeeTitle('')
@@ -660,7 +783,7 @@ export default function SignatureRequestPanel({
       setCostsResponsibility('')
       setScope('')
     } catch (err: any) {
-      setError(err?.response?.data?.detail || err?.response?.data?.error || 'Failed to send for signature.')
+      setError(await errorMessage(err, 'Failed to send for signature.'))
     } finally {
       setSubmitting(false)
     }
@@ -704,6 +827,32 @@ export default function SignatureRequestPanel({
 
   const handlePreview = async () => {
     setError(null)
+    if (customMode && essentialType) {
+      if (!essentialState) return setError('The document fields are still loading.')
+      if (isCustomUpload && !feeFile) return setError('Attach your template (PDF or Word) to preview it.')
+      if (!isCustomUpload && !firmTemplateId) return setError('Choose a firm template to preview.')
+      setPreviewLoading(true)
+      try {
+        const url = isCustomUpload
+          ? await previewCustomDocument(leadId, feeFile as File, {
+              documentType: essentialType,
+              fieldValues: essentialState.values,
+              signerName: signerName.trim() || undefined,
+              title: feeTitle.trim() || undefined,
+            })
+          : await previewCaseFirmTemplate(leadId, firmTemplateId, {
+              documentType: essentialType,
+              title: selectedFirmTemplate?.name,
+              fieldValues: essentialState.values,
+            })
+        setPreviewUrl(url)
+      } catch (err) {
+        setError(await errorMessage(err, 'Could not render a preview of this document.'))
+      } finally {
+        setPreviewLoading(false)
+      }
+      return
+    }
     if (!signerName.trim()) {
       setError('Enter the client name to preview the document.')
       return
@@ -912,6 +1061,28 @@ export default function SignatureRequestPanel({
         </div>
 
         {isHipaa && (
+          <TemplateSourcePicker
+            name="hipaa-source"
+            value={hipaaSource}
+            onChange={setHipaaSource}
+            docLabel="HIPAA authorization"
+            labelCls={labelCls}
+          />
+        )}
+
+        {isHipaa && hipaaSource === 'firm' && (
+          <FirmTemplatePicker
+            templates={selectableFirmTemplates}
+            value={firmTemplateId}
+            onChange={setFirmTemplateId}
+            onLibraryChanged={refreshFirmTemplates}
+            labelCls={labelCls}
+            inputCls={inputCls}
+            emptyHint="No HIPAA templates in your firm library yet. Upload one in Firm Dashboard → Templates and set its document type to HIPAA authorization."
+          />
+        )}
+
+        {isHipaa && hipaaSource === 'platform' && (
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <label className={labelCls}>Records custodian / provider</label>
@@ -1011,41 +1182,13 @@ export default function SignatureRequestPanel({
 
         {isRetainer && (
           <div className="space-y-4">
-            <div>
-              <label className={labelCls}>Retainer source</label>
-              <div className="mt-1 flex flex-col gap-1.5 text-sm text-slate-700">
-                <label className="inline-flex items-center gap-2">
-                  <input
-                    type="radio"
-                    name="retainer-source"
-                    checked={retainerSource === 'platform'}
-                    onChange={() => setRetainerSource('platform')}
-                    className="h-4 w-4 border-slate-300 text-brand-600 focus:ring-brand-400"
-                  />
-                  ClearCaseIQ template
-                </label>
-                <label className="inline-flex items-center gap-2">
-                  <input
-                    type="radio"
-                    name="retainer-source"
-                    checked={retainerSource === 'firm'}
-                    onChange={() => setRetainerSource('firm')}
-                    className="h-4 w-4 border-slate-300 text-brand-600 focus:ring-brand-400"
-                  />
-                  Firm template library
-                </label>
-                <label className="inline-flex items-center gap-2">
-                  <input
-                    type="radio"
-                    name="retainer-source"
-                    checked={retainerSource === 'upload'}
-                    onChange={() => setRetainerSource('upload')}
-                    className="h-4 w-4 border-slate-300 text-brand-600 focus:ring-brand-400"
-                  />
-                  Upload my own retainer PDF
-                </label>
-              </div>
-            </div>
+            <TemplateSourcePicker
+              name="retainer-source"
+              value={retainerSource}
+              onChange={setRetainerSource}
+              docLabel="retainer"
+              labelCls={labelCls}
+            />
             {retainerSource === 'platform' && (
             <div className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
@@ -1131,12 +1274,20 @@ export default function SignatureRequestPanel({
 
         {isUploadDoc && (
           <div>
-            <label className={labelCls}>{isRetainer ? 'Retainer PDF' : 'Fee-agreement PDF'}</label>
+            <label className={labelCls}>
+              {isCustomUpload
+                ? `Your ${isRetainer ? 'retainer agreement' : 'HIPAA authorization'} (PDF or Word)`
+                : 'Fee-agreement PDF'}
+            </label>
             <div className="flex items-center gap-3">
               <input
                 ref={feeInputRef}
                 type="file"
-                accept="application/pdf"
+                accept={
+                  isCustomUpload
+                    ? 'application/pdf,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx'
+                    : 'application/pdf'
+                }
                 onChange={(e) => setFeeFile(e.target.files?.[0] ?? null)}
                 className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-brand-50 file:px-3 file:py-2 file:text-sm file:font-medium file:text-brand-700 hover:file:bg-brand-100"
               />
@@ -1145,12 +1296,28 @@ export default function SignatureRequestPanel({
               <input
                 value={feeTitle}
                 onChange={(e) => setFeeTitle(e.target.value)}
-                placeholder={`Title (default: ${isRetainer ? 'Retainer' : 'Fee'} agreement — ${signerName || 'client'})`}
+                placeholder={`Title (default: ${isRetainer ? 'Retainer agreement' : isHipaa ? 'HIPAA authorization' : 'Fee agreement'} — ${signerName || 'client'})`}
                 className={`${inputCls} mt-2`}
               />
             )}
-            <p className="mt-1 text-xs text-slate-400">Upload your firm's own agreement PDF (max 25MB) to send it for signature.</p>
+            <p className="mt-1 text-xs text-slate-400">
+              {isCustomUpload
+                ? 'Max 25MB. Fillable PDF fields and {{tokens}} in Word files (e.g. {{client_name}}, {{fee_percentage}}) are filled from the fields below. A PDF without fillable fields gets a "Key terms" page in front, and your pages are kept unchanged.'
+                : "Upload your firm's own agreement PDF (max 25MB) to send it for signature."}
+            </p>
           </div>
+        )}
+
+        {customMode && (
+          <EssentialFieldsForm
+            fields={essentialState?.fields ?? []}
+            values={essentialState?.values ?? {}}
+            prefill={essentialState?.prefill ?? {}}
+            loading={essentialLoading && !essentialState}
+            onChange={setEssentialValues}
+            labelCls={labelCls}
+            inputCls={inputCls}
+          />
         )}
 
         {error && <p className="text-sm text-red-600">{error}</p>}
@@ -1305,6 +1472,14 @@ export default function SignatureRequestPanel({
                         <Download className="h-3.5 w-3.5" />
                         {downloadingId === env.id ? 'Downloading…' : 'Download signed'}
                       </button>
+                    )}
+                    {env.status === 'signed' && (
+                      <span
+                        className="inline-flex items-center gap-1 text-[11px] text-slate-400"
+                        title="Signed documents are locked. Send a new request to change any terms."
+                      >
+                        <Lock className="h-3 w-3" /> Locked
+                      </span>
                     )}
                     {env.status !== 'signed' && (
                       <button

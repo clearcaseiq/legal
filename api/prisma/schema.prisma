@@ -2267,6 +2267,9 @@ model FirmTemplate {
   // insurance, disclosure, closing, other.
   category    String  @default("other")
   description String? @db.Text
+  // What the template is signed as: 'retainer' | 'hipaa_authorization' | null
+  // (generic). Retainer and HIPAA templates get the essential-fields form.
+  documentType String?
 
   // Editable text/markdown body with optional merge tokens like {{client_name}}.
   body        String? @db.Text
@@ -3263,6 +3266,13 @@ model DocumentEnvelope {
   signingUrl         String? // embedded or hosted signing URL for the signer
   auditTrailUrl      String? // provider certificate of completion / audit trail
   signedFilePath     String? // stored fully-executed PDF once completed
+
+  // What was sent, frozen at send time: the firm template it came from, the
+  // essential-field values filled in, and the SHA-256 of the exact PDF sent.
+  templateId     String?
+  fieldValues    String? @db.Text
+  sourceFilePath String?
+  sourceSha256   String?
 
   // Lifecycle timestamps, set as provider webhooks arrive.
   sentAt     DateTime?

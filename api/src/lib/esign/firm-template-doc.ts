@@ -92,7 +92,7 @@ export function fillTemplateTokens(text: string, tokens: TemplateTokens): string
 type PdfDoc = InstanceType<typeof PDFDocument>
 
 /** Minimal markdown -> pdfkit renderer (headings, bullets, paragraphs). */
-function renderMarkdown(doc: PdfDoc, markdown: string) {
+export function renderMarkdown(doc: PdfDoc, markdown: string) {
   for (const rawLine of markdown.split('\n')) {
     const line = rawLine.trimEnd()
     if (line === '') {

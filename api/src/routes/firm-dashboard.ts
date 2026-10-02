@@ -3313,6 +3313,7 @@ function serializeTemplate(t: any) {
     fileMime: t.fileMime || null,
     fileSize: t.fileSize || null,
     isPdf: t.fileMime === 'application/pdf',
+    documentType: t.documentType || null,
     isActive: t.isActive,
     sortOrder: t.sortOrder,
     updatedAt: t.updatedAt,
@@ -3329,6 +3330,12 @@ function parseTemplateBody(body: any) {
     description: typeof body?.description === 'string' ? body.description.trim() || null : null,
     body: typeof body?.body === 'string' ? body.body : null,
     isActive: body?.isActive !== false,
+    documentType:
+      body?.documentType === undefined
+        ? undefined
+        : body.documentType === 'retainer' || body.documentType === 'hipaa_authorization'
+          ? (body.documentType as string)
+          : null,
   }
 }
 
@@ -3559,6 +3566,7 @@ router.patch('/templates/:id', authMiddleware as any, async (req: any, res: Resp
         description: data.description,
         body: data.body,
         isActive: data.isActive,
+        documentType: data.documentType,
       },
     })
     res.json(serializeTemplate(updated))
@@ -4725,7 +4733,11 @@ router.get('/intake-settings', authMiddleware as any, async (req: any, res: Resp
     const context = await getFirmContext(req)
     if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
     const { readIntakeSettings } = await import('../lib/intake-acquire')
-    res.json(await readIntakeSettings(context.lawFirmId))
+    const { readFirmDefaultContingency } = await import('../lib/esign/essential-fields')
+    res.json({
+      ...(await readIntakeSettings(context.lawFirmId)),
+      defaultContingencyPercent: await readFirmDefaultContingency(context.lawFirmId),
+    })
   } catch (error) {
     logger.error('Failed to load intake settings', { error })
     res.status(500).json({ error: 'Internal server error' })
@@ -4770,7 +4782,23 @@ router.put('/intake-settings', authMiddleware as any, async (req: any, res: Resp
     if (typeof req.body?.autoSendWelcomePacketOnAcquire === 'boolean') {
       await setFirmSetting(context.lawFirmId, FIRM_SETTING_AUTO_SEND_WELCOME, req.body.autoSendWelcomePacketOnAcquire)
     }
-    res.json(await readIntakeSettings(context.lawFirmId))
+    const { FIRM_SETTING_DEFAULT_CONTINGENCY, readFirmDefaultContingency } = await import('../lib/esign/essential-fields')
+    if (req.body?.defaultContingencyPercent !== undefined) {
+      const pct = req.body.defaultContingencyPercent === null ? null : Number(req.body.defaultContingencyPercent)
+      if (pct !== null && !(Number.isFinite(pct) && pct > 0 && pct <= 100)) {
+        return res.status(400).json({ error: 'Default fee must be a percentage between 0 and 100' })
+      }
+      if (pct === null) {
+        await (prisma as any).firmSetting
+          .deleteMany({ where: { lawFirmId: context.lawFirmId, key: FIRM_SETTING_DEFAULT_CONTINGENCY } })
+      } else {
+        await setFirmSetting(context.lawFirmId, FIRM_SETTING_DEFAULT_CONTINGENCY, Math.round(pct * 100) / 100)
+      }
+    }
+    res.json({
+      ...(await readIntakeSettings(context.lawFirmId)),
+      defaultContingencyPercent: await readFirmDefaultContingency(context.lawFirmId),
+    })
   } catch (error) {
     logger.error('Failed to update intake settings', { error })
     res.status(500).json({ error: 'Internal server error' })

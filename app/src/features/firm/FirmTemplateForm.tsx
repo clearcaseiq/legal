@@ -46,6 +46,7 @@ export function FirmTemplateForm({
   const [description, setDescription] = useState(value?.description ?? '')
   const [body, setBody] = useState(value?.body ?? '')
   const [isActive, setIsActive] = useState(value?.isActive ?? true)
+  const [documentType, setDocumentType] = useState<string>(value?.documentType ?? '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -69,6 +70,7 @@ export function FirmTemplateForm({
         description: description.trim() || null,
         body: body || null,
         isActive,
+        documentType: documentType || null,
       }
       const saved = value ? await updateFirmTemplate(value.id, payload) : await createFirmTemplate(payload)
       onSaved(saved)
@@ -130,7 +132,20 @@ export function FirmTemplateForm({
             ))}
           </select>
         </div>
-        <div className="flex items-end">
+        <div>
+          <label className={labelCls}>Signs as</label>
+          <select className={inputCls} value={documentType} onChange={(e) => setDocumentType(e.target.value)}>
+            <option value="">General document</option>
+            <option value="retainer">Retainer agreement</option>
+            <option value="hipaa_authorization">HIPAA authorization</option>
+          </select>
+          {documentType && (
+            <p className="mt-1 text-xs text-slate-400">
+              On a case, the essential fields are prefilled from intake and can be edited before sending.
+            </p>
+          )}
+        </div>
+        <div className="flex items-end md:col-span-2">
           <label className="flex items-center gap-2 text-sm text-slate-700">
             <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
             Active
@@ -194,7 +209,11 @@ export function FirmTemplateForm({
                 </button>
               </>
             )}
-            <span className="w-full text-xs text-slate-400">Only PDF files can be sent for e-signature.</span>
+            <span className="w-full text-xs text-slate-400">
+              {documentType
+                ? 'PDF or Word (.docx). Fillable PDF fields named like client_name or fee_percentage, and {{tokens}} in Word files, are filled from the case. A PDF without fillable fields gets a "Key terms" page in front, and your pages are kept unchanged.'
+                : 'Only PDF files can be sent for e-signature.'}
+            </span>
           </div>
         ) : (
           <p className="text-xs text-slate-400">Save the template first, then re-open it to attach a PDF/Word file.</p>

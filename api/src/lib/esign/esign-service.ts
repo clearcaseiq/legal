@@ -50,6 +50,9 @@ export interface CreateEnvelopeParams {
   filePath: string
   /** Override the active provider (defaults to ESIGN_PROVIDER). */
   providerId?: string
+  /** Snapshot of what was sent, kept with the envelope once it is signed. */
+  templateId?: string | null
+  fieldValues?: Record<string, string> | null
 }
 
 /** Which timestamp column a given status transition should stamp. */
@@ -129,6 +132,9 @@ export async function createEnvelopeForLead(params: CreateEnvelopeParams) {
     )
   }
 
+  const sourceSha256 = fs.existsSync(params.filePath)
+    ? crypto.createHash('sha256').update(fs.readFileSync(params.filePath)).digest('hex')
+    : null
   const envelope = await prisma.documentEnvelope.create({
     data: {
       leadId: params.leadId,
@@ -139,6 +145,10 @@ export async function createEnvelopeForLead(params: CreateEnvelopeParams) {
       signerEmail: params.signerEmail,
       provider: provider.id,
       status: 'draft',
+      templateId: params.templateId || null,
+      fieldValues: params.fieldValues ? JSON.stringify(params.fieldValues) : null,
+      sourceFilePath: params.filePath,
+      sourceSha256,
     },
   })
 

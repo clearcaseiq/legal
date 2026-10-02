@@ -6392,6 +6392,8 @@ export type FirmIntakeSettings = {
   autoSendRetainerOnAcquire: boolean
   autoSendWelcomePacketOnAcquire: boolean
   welcomePacket: WelcomePacketContents
+  /** Firm default fee prefilled on retainers; null = platform default (33.33%). */
+  defaultContingencyPercent?: number | null
 }
 
 export async function getFirmIntakeSettings() {
@@ -6403,6 +6405,7 @@ export async function updateFirmIntakeSettings(payload: {
   autoSendRetainerOnAcquire?: boolean
   autoSendWelcomePacketOnAcquire?: boolean
   welcomePacket?: WelcomePacketContents
+  defaultContingencyPercent?: number | null
 }) {
   const { data } = await api.put('/v1/firm-dashboard/intake-settings', payload)
   return data as FirmIntakeSettings
@@ -6839,6 +6842,7 @@ export interface FirmTemplate {
   fileMime: string | null
   fileSize: number | null
   isPdf: boolean
+  documentType?: string | null
   isActive: boolean
   sortOrder: number
   updatedAt: string
@@ -6867,6 +6871,7 @@ export interface FirmTemplateInput {
   description?: string | null
   body?: string | null
   isActive?: boolean
+  documentType?: string | null
 }
 
 export async function getFirmTemplates(): Promise<FirmTemplatesResponse> {

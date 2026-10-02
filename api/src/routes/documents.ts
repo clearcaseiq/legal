@@ -14,7 +14,7 @@ import { z } from 'zod'
 import { authMiddleware, type AuthRequest } from '../lib/auth'
 import { prisma } from '../lib/prisma'
 import { logger } from '../lib/logger'
-import { replicateUploads } from '../lib/object-storage'
+import { persistUploadedFiles, replicateUploads } from '../lib/object-storage'
 import {
   createEnvelopeForLead,
   createHipaaAuthorizationEnvelope,
@@ -44,7 +44,19 @@ import {
 import { sendWelcomePacketForLead, WelcomePacketError } from '../lib/esign/welcome-packet'
 import { checkCollectPoliceReport } from '../lib/police-report-collect'
 import { checkCollectEvidence, type EvidenceCollectKind } from '../lib/evidence-collect'
-import { listActiveFirmTemplates, sendFirmTemplateForLead } from '../lib/esign/send-firm-template'
+import {
+  listActiveFirmTemplates,
+  renderFirmTemplateForLead,
+  sendFirmTemplateForLead,
+} from '../lib/esign/send-firm-template'
+import { buildCustomDocument, CustomDocumentError, isSupportedTemplateFile } from '../lib/esign/custom-document'
+import {
+  buildEssentialPrefill,
+  essentialFieldsFor,
+  isEssentialDocType,
+  resolveDefaultContingency,
+  sanitizeEssentialValues,
+} from '../lib/esign/essential-fields'
 import type { SignableDocumentType } from '../lib/esign/types'
 import { readClaimantContact } from '../lib/claimant-contact'
 import { firmAllows, resolveMemberAccess } from '../lib/firm-access'
@@ -192,7 +204,174 @@ const firmTemplateSendSchema = z.object({
   documentType: z
     .enum(['retainer', 'hipaa_authorization', 'police_report_authorization', 'fee_agreement', 'other'])
     .optional(),
+  fieldValues: z.record(z.string()).optional(),
 })
+
+/** Caller attorney + lead access for a write on this case, or the HTTP error to send. */
+async function authorizeLeadWrite(req: AuthRequest) {
+  const attorney = await resolveAttorney(req, { staffWrite: true })
+  if (!attorney) return { error: { status: 403, body: { error: NO_CASE_ACCESS } } }
+  const resolved = await resolveLeadForAttorney(req.params.leadId, attorney)
+  if (resolved.error === 404) return { error: { status: 404, body: { error: 'Lead not found' } } }
+  if (resolved.error === 403) return { error: { status: 403, body: { error: 'Lead is assigned to another attorney' } } }
+  return { attorney }
+}
+
+function sendPdfInline(res: any, filePath: string, name: string) {
+  res.setHeader('Content-Type', 'application/pdf')
+  res.setHeader('Content-Disposition', `inline; filename="${name.replace(/[^\w.\- ]+/g, '')}.pdf"`)
+  fs.createReadStream(filePath).pipe(res)
+}
+
+/**
+ * The essential fields for a retainer / HIPAA authorization, prefilled from
+ * intake, the firm and the attorney, for the attorney to review before sending.
+ */
+router.get('/leads/:leadId/essential-fields', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const docType = String(req.query.documentType || '')
+    if (!isEssentialDocType(docType)) return res.status(400).json({ error: 'documentType must be retainer or hipaa_authorization' })
+    const attorney = await resolveAttorney(req)
+    if (!attorney) return res.status(403).json({ error: NO_CASE_ACCESS })
+    const resolved = await resolveLeadForAttorney(req.params.leadId, attorney)
+    if (resolved.error === 404) return res.status(404).json({ error: 'Lead not found' })
+    if (resolved.error === 403) return res.status(403).json({ error: 'Lead is assigned to another attorney' })
+    const values = await buildEssentialPrefill({ leadId: req.params.leadId, attorneyId: attorney.id, docType })
+    res.json({ documentType: docType, fields: essentialFieldsFor(docType), values })
+  } catch (error) {
+    logger.error('Load essential fields failed', { message: error instanceof Error ? error.message : String(error) })
+    res.status(500).json({ error: 'Failed to load the document fields' })
+  }
+})
+
+/** Preview a firm template filled with the attorney's field values (not sent). */
+router.post('/leads/:leadId/firm-templates/:templateId/preview', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const auth = await authorizeLeadWrite(req)
+    if (auth.error) return res.status(auth.error.status).json(auth.error.body)
+    if (!auth.attorney.lawFirmId) return res.status(400).json({ error: 'No law firm is linked to this attorney account' })
+    const parsed = firmTemplateSendSchema.partial({ signerName: true, signerEmail: true }).safeParse(req.body || {})
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() })
+    const rendered = await renderFirmTemplateForLead({
+      templateId: req.params.templateId,
+      lawFirmId: auth.attorney.lawFirmId,
+      leadId: req.params.leadId,
+      attorneyId: auth.attorney.id,
+      title: parsed.data.title,
+      documentType: parsed.data.documentType as SignableDocumentType | undefined,
+      fieldValues: parsed.data.fieldValues,
+    })
+    sendPdfInline(res, rendered.filePath, rendered.title)
+  } catch (error: any) {
+    const status = Number(error?.status) || 0
+    if (status === 400 || status === 404) return res.status(status).json({ error: error.message })
+    logger.error('Preview firm template failed', { message: error instanceof Error ? error.message : String(error) })
+    res.status(500).json({ error: 'Could not render a preview of this template' })
+  }
+})
+
+// One-off retainer / HIPAA templates (PDF or Word) uploaded on the case.
+const customTemplateUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => {
+      const dir = path.join(process.cwd(), 'uploads', 'signable-documents')
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+      cb(null, dir)
+    },
+    filename: (_req, file, cb) =>
+      cb(null, `custom-template-${Date.now()}-${file.originalname.replace(/[^\w.\-]+/g, '_')}`),
+  }),
+  limits: { fileSize: 25 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (isSupportedTemplateFile(file.mimetype, file.originalname)) cb(null, true)
+    else cb(new Error('Upload a PDF or Word (.docx) file'))
+  },
+})
+
+const customDocumentSchema = z.object({
+  documentType: z.enum(['retainer', 'hipaa_authorization']),
+  signerName: z.string().optional(),
+  signerEmail: z.string().optional(),
+  title: z.string().optional(),
+  provider: z.string().optional(),
+  fieldValues: z.string().optional(),
+  preview: z.string().optional(),
+})
+
+/**
+ * Fill the essential fields into a retainer / HIPAA template uploaded on the
+ * case and either preview it (preview=1) or send it for signature.
+ */
+router.post(
+  '/leads/:leadId/custom-document',
+  authMiddleware,
+  (req, res, next) =>
+    customTemplateUpload.single('file')(req, res, (err: any) =>
+      err ? res.status(400).json({ error: err.message || 'Upload failed' }) : next(),
+    ),
+  async (req: AuthRequest, res) => {
+    try {
+      const auth = await authorizeLeadWrite(req)
+      if (auth.error) return res.status(auth.error.status).json(auth.error.body)
+      const parsed = customDocumentSchema.safeParse(req.body || {})
+      if (!parsed.success) return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() })
+      const file = (req as any).file as Express.Multer.File | undefined
+      if (!file) return res.status(400).json({ error: 'Attach your PDF or Word template.' })
+      await persistUploadedFiles(file, { optional: true })
+
+      const docType = parsed.data.documentType
+      let rawValues: unknown = null
+      try {
+        rawValues = parsed.data.fieldValues ? JSON.parse(parsed.data.fieldValues) : null
+      } catch {
+        return res.status(400).json({ error: 'fieldValues must be JSON' })
+      }
+      const values = rawValues
+        ? sanitizeEssentialValues(docType, rawValues)
+        : await buildEssentialPrefill({ leadId: req.params.leadId, attorneyId: auth.attorney.id, docType })
+      const defaultTitle = docType === 'retainer' ? 'Retainer agreement' : 'HIPAA authorization'
+      const title =
+        parsed.data.title?.trim() ||
+        `${defaultTitle} — ${parsed.data.signerName?.trim() || values.client_name || values.patient_name || 'client'}`
+
+      const built = await buildCustomDocument({
+        leadId: req.params.leadId,
+        docType,
+        title,
+        values,
+        source: { kind: 'file', filePath: file.path, mime: file.mimetype, fileName: file.originalname },
+      })
+      if (parsed.data.preview === '1' || parsed.data.preview === 'true') {
+        return sendPdfInline(res, built.filePath, title)
+      }
+
+      const signerName = parsed.data.signerName?.trim() || ''
+      const signerEmail = parsed.data.signerEmail?.trim() || ''
+      if (!signerName || !z.string().email().safeParse(signerEmail).success) {
+        return res.status(400).json({ error: 'Client name and a valid email are required.' })
+      }
+      const envelope = await createEnvelopeForLead({
+        leadId: req.params.leadId,
+        attorneyId: auth.attorney.id,
+        providerId: parsed.data.provider,
+        documentType: docType,
+        title,
+        signerName,
+        signerEmail,
+        filePath: built.filePath,
+        fieldValues: values,
+      })
+      if (docType === 'retainer') {
+        await afterRetainerEnvelopeSent(req.params.leadId, 'Sent custom retainer for signature (Signatures).')
+      }
+      res.status(201).json({ envelope, fillMode: built.mode })
+    } catch (error: any) {
+      if (error instanceof CustomDocumentError) return res.status(400).json({ error: error.message })
+      logger.error('Custom document send failed', { message: error instanceof Error ? error.message : String(error) })
+      respondESignError(res, error)
+    }
+  },
+)
 
 /** Send a firm library template for signature on this case. */
 router.post(
@@ -226,6 +405,7 @@ router.post(
         title: parsed.data.title,
         providerId: parsed.data.provider,
         documentType: parsed.data.documentType as SignableDocumentType | undefined,
+        fieldValues: parsed.data.fieldValues,
       })
       res.status(201).json({ envelope })
     } catch (error: any) {
@@ -541,11 +721,7 @@ router.get('/leads/:leadId/defaults', authMiddleware, async (req: AuthRequest, r
       select: { name: true, lawFirm: { select: { name: true } } },
     })
     const firmName = withFirm?.lawFirm?.name || withFirm?.name || undefined
-
-    // A firm-wide default contingency can live in an env var; fall back to the
-    // common 33.33% one-third fee.
-    const envPct = Number(process.env.DEFAULT_CONTINGENCY_PERCENT)
-    const contingencyPercent = Number.isFinite(envPct) && envPct > 0 ? envPct : 33.33
+    const contingencyPercent = await resolveDefaultContingency(attorney.lawFirmId)
 
     res.json({
       defaults: {

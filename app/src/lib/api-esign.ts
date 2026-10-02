@@ -295,8 +295,10 @@ export interface CaseFirmTemplate {
   fileName: string | null
   fileMime: string | null
   isPdf: boolean
+  isDocx?: boolean
   hasBody: boolean
   isActive: boolean
+  documentType?: string | null
   suggestedDocumentType:
     | 'retainer'
     | 'hipaa_authorization'
@@ -328,12 +330,100 @@ export const sendCaseFirmTemplate = async (
       | 'police_report_authorization'
       | 'fee_agreement'
       | 'other'
+    fieldValues?: EssentialValues
   },
 ): Promise<DocumentEnvelope> => {
   const res = await api.post(
     `/v1/documents/leads/${leadId}/firm-templates/${templateId}/send`,
     payload,
   )
+  return res.data.envelope
+}
+
+export type EssentialDocType = 'retainer' | 'hipaa_authorization'
+export type EssentialValues = Record<string, string>
+export interface EssentialField {
+  key: string
+  label: string
+  group: string
+  multiline?: boolean
+}
+
+/** Retainer / HIPAA essential fields, prefilled from intake for this case. */
+export const getEssentialFields = async (
+  leadId: string,
+  documentType: EssentialDocType,
+): Promise<{ fields: EssentialField[]; values: EssentialValues }> => {
+  const res = await api.get(`/v1/documents/leads/${leadId}/essential-fields`, { params: { documentType } })
+  return res.data
+}
+
+/** Preview a firm template filled with these field values; returns a blob: URL. */
+export const previewCaseFirmTemplate = async (
+  leadId: string,
+  templateId: string,
+  payload: { documentType: EssentialDocType; title?: string; fieldValues: EssentialValues },
+): Promise<string> => {
+  const { data } = await api.post<Blob>(
+    `/v1/documents/leads/${leadId}/firm-templates/${templateId}/preview`,
+    payload,
+    { responseType: 'blob' },
+  )
+  return URL.createObjectURL(data)
+}
+
+function customDocumentForm(
+  file: File,
+  opts: {
+    documentType: EssentialDocType
+    fieldValues: EssentialValues
+    signerName?: string
+    signerEmail?: string
+    title?: string
+    provider?: string
+  },
+  preview: boolean,
+) {
+  const form = new FormData()
+  form.append('file', file)
+  form.append('documentType', opts.documentType)
+  form.append('fieldValues', JSON.stringify(opts.fieldValues))
+  if (opts.signerName) form.append('signerName', opts.signerName)
+  if (opts.signerEmail) form.append('signerEmail', opts.signerEmail)
+  if (opts.title) form.append('title', opts.title)
+  if (opts.provider) form.append('provider', opts.provider)
+  if (preview) form.append('preview', '1')
+  return form
+}
+
+/** Preview the attorney's own uploaded retainer / HIPAA template with the fields filled in. */
+export const previewCustomDocument = async (
+  leadId: string,
+  file: File,
+  opts: { documentType: EssentialDocType; fieldValues: EssentialValues; signerName?: string; title?: string },
+): Promise<string> => {
+  const { data } = await api.post<Blob>(
+    `/v1/documents/leads/${leadId}/custom-document`,
+    customDocumentForm(file, opts, true),
+    { responseType: 'blob' },
+  )
+  return URL.createObjectURL(data)
+}
+
+/** Fill and send the attorney's own uploaded retainer / HIPAA template for signature. */
+export const sendCustomDocument = async (
+  leadId: string,
+  file: File,
+  opts: {
+    documentType: EssentialDocType
+    fieldValues: EssentialValues
+    signerName: string
+    signerEmail: string
+    title?: string
+    provider?: string
+  },
+): Promise<DocumentEnvelope> => {
+  const res = await api.post(`/v1/documents/leads/${leadId}/custom-document`, customDocumentForm(file, opts, false))
   return res.data.envelope
 }
 

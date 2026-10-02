@@ -58,6 +58,9 @@ export default function FirmSettings() {
   const [packetSaving, setPacketSaving] = useState(false)
   const [autoSendWelcome, setAutoSendWelcome] = useState(true)
   const [packetMsg, setPacketMsg] = useState<string | null>(null)
+  const [defaultFee, setDefaultFee] = useState('')
+  const [feeSaving, setFeeSaving] = useState(false)
+  const [feeMsg, setFeeMsg] = useState<string | null>(null)
   const packetUploadRef = useRef<HTMLInputElement>(null)
   const [logoBusy, setLogoBusy] = useState(false)
   const [logoError, setLogoError] = useState<string | null>(null)
@@ -92,6 +95,7 @@ export default function FirmSettings() {
         setAutoSendRetainer(Boolean(s.autoSendRetainerOnAcquire))
         setAutoSendWelcome(s.autoSendWelcomePacketOnAcquire !== false)
         if (s.welcomePacket) setPacket(s.welcomePacket)
+        setDefaultFee(s.defaultContingencyPercent != null ? String(s.defaultContingencyPercent) : '')
       })
       .catch(() => setAutoSendRetainer(false))
     getFirmTemplates()
@@ -381,6 +385,57 @@ export default function FirmSettings() {
           </span>
         </label>
         {intakeMsg ? <p className="mt-2 text-xs text-slate-600">{intakeMsg}</p> : null}
+
+        <div className="mt-6 border-t border-slate-100 pt-5">
+          <h4 className="text-sm font-semibold text-gray-900">Default contingency fee</h4>
+          <p className="mt-1 text-xs text-gray-600">
+            Prefilled as the fee percentage on retainer agreements. Attorneys can change it on each case before
+            sending. Leave blank to use 33.33%.
+          </p>
+          <div className="mt-3 flex items-center gap-2">
+            <input
+              type="number"
+              min={0}
+              max={100}
+              step="0.01"
+              value={defaultFee}
+              disabled={!canEdit || feeSaving}
+              onChange={(e) => setDefaultFee(e.target.value)}
+              placeholder="33.33"
+              className="w-28 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
+            />
+            <span className="text-sm text-gray-600">%</span>
+            {canEdit && (
+              <button
+                type="button"
+                disabled={feeSaving}
+                onClick={async () => {
+                  const trimmed = defaultFee.trim()
+                  const pct = trimmed ? Number(trimmed) : null
+                  if (pct !== null && !(Number.isFinite(pct) && pct > 0 && pct <= 100)) {
+                    setFeeMsg('Enter a percentage between 0 and 100.')
+                    return
+                  }
+                  setFeeSaving(true)
+                  setFeeMsg(null)
+                  try {
+                    const res = await updateFirmIntakeSettings({ defaultContingencyPercent: pct })
+                    setDefaultFee(res.defaultContingencyPercent != null ? String(res.defaultContingencyPercent) : '')
+                    setFeeMsg('Default fee saved.')
+                  } catch (err: any) {
+                    setFeeMsg(err?.response?.data?.error || 'Failed to save the default fee.')
+                  } finally {
+                    setFeeSaving(false)
+                  }
+                }}
+                className="rounded-lg bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
+              >
+                {feeSaving ? 'Saving…' : 'Save'}
+              </button>
+            )}
+          </div>
+          {feeMsg ? <p className="mt-2 text-xs text-slate-600">{feeMsg}</p> : null}
+        </div>
 
         <div className="mt-6 border-t border-slate-100 pt-5">
           <div className="flex flex-wrap items-start justify-between gap-3">
