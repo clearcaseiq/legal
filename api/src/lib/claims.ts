@@ -263,17 +263,72 @@ function bodyToText(body: string, cta?: EmailCta | null | EmailCta[]): string {
   return `${body}\n\n${lines}`
 }
 
+/** Button text for a link that arrived as a bare URL, judged by where it goes. */
+const INFERRED_CTA_LABELS: Array<[RegExp, string]> = [
+  [/reset-password|set-password/i, 'Set Your Password'],
+  [/invite|claim/i, 'Accept Invitation'],
+  [/verify/i, 'Verify Email'],
+  [/\/(login|signin|sign-in)\b/i, 'Sign In'],
+  [/[/_-]sign(ature)?s?\b|esign|envelope/i, 'Review & Sign'],
+  [/upload|evidence|document/i, 'Upload Documents'],
+  [/message|chat/i, 'View Message'],
+  [/book|schedule|appointment|consult/i, 'View Appointment'],
+  [/pay|checkout|invoice|billing/i, 'View Payment'],
+  [/review|feedback|rating/i, 'Leave a Review'],
+  [/attorney-dashboard|dashboard/i, 'Open Dashboard'],
+  [/case|assessment|results|overview/i, 'View Your Case'],
+]
+
+function inferCtaLabel(url: string): string {
+  let path = url
+  try {
+    const parsed = new URL(url)
+    path = `${parsed.pathname}${parsed.search}`
+  } catch {
+    /* fall through with the raw url */
+  }
+  for (const [pattern, label] of INFERRED_CTA_LABELS) {
+    if (pattern.test(path)) return label
+  }
+  return 'Open Link'
+}
+
+const STANDALONE_URL_RE = /^(https?:\/\/\S+)$/
+const LABELLED_URL_RE = /^([^:.!?]{2,48}):\s*(https?:\/\/\S+)$/
+
+/**
+ * A line that is nothing but a link (or "Short label: link") is an action, so
+ * it renders as a button with the address spelled out beneath it. Links inside
+ * a sentence stay inline.
+ */
+function standaloneLinkToButton(line: string, ctaUrls: Set<string>): string | null {
+  const trimmed = line.trim()
+  const bare = trimmed.match(STANDALONE_URL_RE)
+  const labelled = bare ? null : trimmed.match(LABELLED_URL_RE)
+  const rawUrl = bare?.[1] ?? labelled?.[2]
+  if (!rawUrl) return null
+  const url = safeHttpUrl(rawUrl.replace(/[).,]+$/, ''))
+  if (!url) return null
+  if (ctaUrls.has(url)) return ''
+  const cta: EmailCta = { label: labelled?.[1]?.trim() || inferCtaLabel(url), url }
+  return ctaButtonHtml(cta, true) + ctaFallbackHtml([cta])
+}
+
 function bodyToHtml(body: string, cta?: EmailCta | null | EmailCta[]): string {
   // Turn bare http(s) URLs into clickable links. We escape first, then match on
   // the escaped text (query separators become `&amp;`, which is still valid
   // inside an href), so reset/verification links are actually clickable in mail
   // clients instead of arriving as plain text.
   const urlRe = /(https?:\/\/[^\s<]+)/g
+  const ctas = ctaList(cta)
+  const ctaUrls = new Set(ctas.map((entry) => safeHttpUrl(entry.url) as string))
   const paragraphs = String(body || '')
     .split('\n')
     .map((line) => {
       const trimmed = line.trim()
       if (!trimmed) return '<div style="height:12px;line-height:12px">&nbsp;</div>'
+      const button = standaloneLinkToButton(line, ctaUrls)
+      if (button !== null) return button
       const escaped = escapeHtml(line)
       const linked = escaped.replace(
         urlRe,
@@ -282,7 +337,7 @@ function bodyToHtml(body: string, cta?: EmailCta | null | EmailCta[]): string {
       return `<p style="margin:0 0 12px;font-size:15px;line-height:1.6;color:#1f2937">${linked}</p>`
     })
     .join('')
-  return wrapBrandedEmail(paragraphs + ctasToHtml(ctaList(cta)))
+  return wrapBrandedEmail(paragraphs + ctasToHtml(ctas))
 }
 
 /**

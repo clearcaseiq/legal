@@ -27,6 +27,7 @@ import {
 } from '../lib/client-consent-guard'
 import { assessmentContactEmails, isTransferableCaseOwner } from '../lib/guest-case-adoption'
 import { findOrCreateIntakeUser } from '../lib/intake-account'
+import { plaintiffContextFromIntake } from '../lib/claimant-contact'
 import { analyzeCaseWithChatGPT, CaseAnalysisRequest } from '../services/chatgpt'
 import { startAssessmentRouting } from '../lib/assessment-routing'
 import { generateSceneImageForAssessment } from '../services/incident-scene'
@@ -171,8 +172,12 @@ router.post('/', optionalAuthMiddleware, async (req: AuthRequest, res) => {
       })
     }
 
+    const intakeContact = plaintiffContextFromIntake(parsed.data.intakeData)
     const enrichedFacts = {
       ...parsed.data,
+      ...(Object.keys(intakeContact).length
+        ? { plaintiffContext: { ...intakeContact, ...(parsed.data.plaintiffContext || {}) } }
+        : {}),
       caseTypeValidation: validateCaseTypeFromFacts(parsed.data.claimType, parsed.data as Record<string, unknown>),
       // Canonical provenance-tagged medical profile from the structured intake.
       // Self-reported at creation; the document pipeline confirms/adds documented

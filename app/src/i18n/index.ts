@@ -145,6 +145,11 @@ function getNestedTranslation(source: unknown, path: string): string | undefined
   return typeof value === 'string' ? value : undefined
 }
 
+/** Whether `language` itself defines `key`, without falling back to English. */
+export function hasTranslation(language: LanguageCode, key: string): boolean {
+  return getNestedTranslation(resources[language], key) !== undefined
+}
+
 export type TranslateParams = Record<string, string | number>
 
 // Replace `{name}` style placeholders with provided values. Unknown placeholders

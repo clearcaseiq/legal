@@ -436,7 +436,7 @@ export default function CasePreferencesTab({ profile, saving, onSave }: Props) {
             </select>
           </div>
         </div>
-        <div className="mt-4">
+        <div className="mt-4 flex justify-end">
           <button
             type="button"
             onClick={() => void decision.handleSaveDecisionProfile()}

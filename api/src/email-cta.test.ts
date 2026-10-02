@@ -171,4 +171,43 @@ describe('transactional email call-to-action', () => {
     // Bare URLs in a body are still auto-linked.
     expect(captured.html).toContain('<a href="https://app.clearcaseiq.test/verify/tok"')
   })
+
+  it('turns a link on its own line into a labelled button', async () => {
+    await sendClaimEmail({
+      to: 'rose@example.com',
+      subject: "You're invited to join Kalpana Law Firm on ClearCaseIQ",
+      body: 'Hi Rose,\n\nClick the link below to set your password.\n\nhttps://app.clearcaseiq.test/reset-password?token=abc\n\nThanks',
+    })
+
+    const html = captured.html || ''
+    expect(html).toMatch(/<td[^>]*bgcolor="#2563eb"/)
+    expect(html).toContain('>Set Your Password</a>')
+    expect(html).toContain('Or paste this into your browser:')
+    expect(captured.text).toContain('https://app.clearcaseiq.test/reset-password?token=abc')
+  })
+
+  it('uses the text before the colon as the button label', async () => {
+    await sendClaimEmail({
+      to: 'claimant@example.com',
+      subject: 'Update',
+      body: 'View your case: https://app.clearcaseiq.test/results/asm-1',
+    })
+
+    expect(captured.html).toContain('>View your case</a>')
+    expect(captured.html).toMatch(/<td[^>]*bgcolor="#2563eb"/)
+  })
+
+  it('does not repeat a link that is already the CTA button', async () => {
+    const url = 'https://app.clearcaseiq.test/results/asm-1'
+    await sendClaimEmail({
+      to: 'claimant@example.com',
+      subject: 'Report ready',
+      body: `Your report is ready.\n\n${url}`,
+      cta: { label: 'View your case report', url },
+    })
+
+    const html = captured.html || ''
+    expect(html.match(/bgcolor="#2563eb"/g)?.length).toBe(1)
+    expect(html).toContain('View your case report')
+  })
 })

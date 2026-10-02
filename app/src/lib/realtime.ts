@@ -21,8 +21,15 @@ export type LeadClaimedEvent = {
   leadId: string | null
 }
 
+export type LeadNewEvent = {
+  assessmentId: string
+  leadId: string | null
+  introductionId: string | null
+}
+
 type RealtimeEvents = {
   'lead:claimed': LeadClaimedEvent
+  'lead:new': LeadNewEvent
 }
 
 let socket: Socket | null = null

@@ -11,10 +11,9 @@
  * builds the full feed before counting it, so these polls are not free, and
  * every signed-in session runs several bells at once.
  *
- * Shortening this further is the wrong lever. Genuinely realtime delivery needs
- * a server push (SSE or WebSocket), which the deployment cannot carry yet — the
- * nginx API location sends no Upgrade headers and there is no pub/sub backplane
- * shared between the two instances behind the load balancer.
+ * Shortening this further is the wrong lever. Events that need to be instant
+ * (new and claimed leads) are pushed over socket.io — see `lib/realtime.ts` —
+ * and this poll is the fallback for everything else.
  */
 export const NOTIFICATION_POLL_MS = 30_000
 

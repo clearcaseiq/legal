@@ -8,6 +8,7 @@ import { logger } from './logger'
 import { webUrl } from './app-url'
 import { notifyAttorneyByUserEmail } from './attorney-push'
 import { createNotificationEvent } from './platform-notifications'
+import { emitLeadNew } from './realtime'
 import { ATTORNEY_EVENTS, PLAINTIFF_EVENTS } from './notification-events'
 import { buildOfferSms } from './offer-sms'
 import { getCurrentAttorneyResponseDeadlineMinutes } from './matching-rules-config'
@@ -134,6 +135,14 @@ export async function notifyAttorneyInApp(input: {
         ...(input.link ? { link: input.link } : {}),
       },
     })
+    if (input.eventType === ATTORNEY_EVENTS.case_routed && input.assessmentId) {
+      const introductionId = input.payload?.introductionId
+      void emitLeadNew(input.attorneyId, {
+        assessmentId: input.assessmentId,
+        leadId: input.leadId ?? null,
+        introductionId: typeof introductionId === 'string' ? introductionId : null,
+      })
+    }
     return true
   } catch (err) {
     logger.warn('notifyAttorneyInApp failed', {
@@ -389,6 +398,11 @@ export async function sendCaseOfferToAttorney(
         }
       })
       inPlatformSent = true
+      void emitLeadNew(attorneyId, {
+        assessmentId: summary.assessmentId,
+        leadId: lead?.id ?? null,
+        introductionId,
+      })
     } else {
       // The bell is keyed on a User id, so an attorney with no login account
       // cannot receive one. Say so: this branch used to fall through in silence,

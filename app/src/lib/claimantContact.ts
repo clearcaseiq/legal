@@ -40,7 +40,13 @@ export function resolveClaimantContact(source: ContactSource): ResolvedClaimantC
   if (source.facts) {
     try {
       const facts = typeof source.facts === 'string' ? JSON.parse(source.facts) : (source.facts as any)
-      context = (facts?.plaintiffContext || {}) as Record<string, any>
+      // Cases created before step-one contact was copied into plaintiffContext
+      // only have it in intakeData.contact; it fills whatever the context lacks.
+      const intake = (facts?.intakeData?.contact || {}) as Record<string, any>
+      context = { ...(facts?.plaintiffContext || {}) } as Record<string, any>
+      for (const field of ['firstName', 'lastName', 'email', 'phone']) {
+        if (!context[field] && typeof intake[field] === 'string' && intake[field].trim()) context[field] = intake[field].trim()
+      }
     } catch {
       context = {}
     }

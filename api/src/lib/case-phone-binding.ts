@@ -13,6 +13,7 @@
 import { prisma } from './prisma'
 import { logger } from './logger'
 import { optOutKey } from './sms-opt-out'
+import { caseContactContext } from './claimant-contact'
 
 export type CasePhoneBindingRef = {
   id: string
@@ -38,7 +39,7 @@ export async function claimantPhoneForAssessment(assessmentId: string): Promise<
   if (assessment.facts) {
     try {
       const facts = typeof assessment.facts === 'string' ? JSON.parse(assessment.facts) : assessment.facts
-      const context = (facts?.plaintiffContext || {}) as Record<string, unknown>
+      const context = caseContactContext(facts)
       if (typeof context.phone === 'string') fromFacts = context.phone
     } catch {
       /* a malformed facts blob is not a reason to fail the lookup */

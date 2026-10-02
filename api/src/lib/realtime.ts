@@ -30,6 +30,12 @@ export type LeadClaimedEvent = {
   leadId: string | null
 }
 
+export type LeadNewEvent = {
+  assessmentId: string
+  leadId: string | null
+  introductionId: string | null
+}
+
 let io: Server | null = null
 
 function allowedOrigins(): string[] {
@@ -80,7 +86,10 @@ export function initRealtime(httpServer: HttpServer): Server {
     try {
       const [attorney, member] = await Promise.all([
         email
-          ? prisma.attorney.findFirst({ where: { email }, select: { id: true, lawFirmId: true } })
+          ? prisma.attorney.findFirst({
+              where: { email: { equals: email, mode: 'insensitive' } },
+              select: { id: true, lawFirmId: true },
+            })
           : Promise.resolve(null),
         (prisma as any).firmMember.findFirst({
           where: { userId, status: 'active' },
@@ -150,5 +159,24 @@ export function emitLeadClaimed(
     io.to(rooms).emit('lead:claimed', event)
   } catch (err) {
     logger.warn('Realtime lead:claimed emit failed', { assessmentId: event.assessmentId, error: (err as Error).message })
+  }
+}
+
+/**
+ * Tell an attorney (and their firm) that a case was just offered to them, so an
+ * open New Matches list pulls it in without waiting for the notification poll.
+ */
+export async function emitLeadNew(attorneyId: string, event: LeadNewEvent): Promise<void> {
+  if (!io) return
+  try {
+    const attorney = await prisma.attorney.findUnique({
+      where: { id: attorneyId },
+      select: { lawFirmId: true },
+    })
+    const rooms = [`attorney:${attorneyId}`]
+    if (attorney?.lawFirmId) rooms.push(`firm:${attorney.lawFirmId}`)
+    io.to(rooms).emit('lead:new', event)
+  } catch (err) {
+    logger.warn('Realtime lead:new emit failed', { attorneyId, assessmentId: event.assessmentId, error: (err as Error).message })
   }
 }

@@ -282,6 +282,42 @@ export async function syncClaimantContactForUser(
   return updated
 }
 
+/**
+ * The case copy of the contact details. `plaintiffContext` is written when the
+ * case is created and on every edit; cases created before that only carry the
+ * step-one answers in `intakeData.contact`, which fill whatever the context
+ * lacks. Every reader of the case copy goes through here so they agree.
+ */
+export function caseContactContext(facts: any): Record<string, any> {
+  const intake = (facts?.intakeData?.contact || {}) as Record<string, any>
+  const context = (facts?.plaintiffContext || {}) as Record<string, any>
+  const merged: Record<string, any> = { ...context }
+  for (const field of ['firstName', 'lastName', 'email', 'phone'] as const) {
+    const value = intake[field]
+    if (!merged[field] && typeof value === 'string' && value.trim()) merged[field] = value.trim()
+  }
+  return merged
+}
+
+/**
+ * The step-one contact answers as a `plaintiffContext`, so a case is reachable
+ * from the moment it exists rather than only after it is sent to attorneys.
+ */
+export function plaintiffContextFromIntake(intakeData: unknown): Record<string, string> {
+  const contact = ((intakeData as any)?.contact || {}) as Record<string, unknown>
+  const out: Record<string, string> = {}
+  const firstName = clean(typeof contact.firstName === 'string' ? contact.firstName : undefined)
+  const lastName = clean(typeof contact.lastName === 'string' ? contact.lastName : undefined)
+  const email = clean(typeof contact.email === 'string' ? contact.email : undefined)?.toLowerCase()
+  const rawPhone = clean(typeof contact.phone === 'string' ? contact.phone : undefined)
+  if (firstName) out.firstName = firstName
+  if (lastName) out.lastName = lastName
+  if (email && EMAIL_SHAPE.test(email)) out.email = email
+  const phone = rawPhone ? normalizePhone(rawPhone) : null
+  if (phone) out.phone = phone
+  return out
+}
+
 /** True for the synthetic owner row, whose address nobody can receive mail at. */
 export function isShadowEmail(email: string | null | undefined): boolean {
   return /^guest\+.*@caseiq\.local$/i.test(email || '')
@@ -316,7 +352,7 @@ export function resolveClaimantContact(source: {
   if (source.facts) {
     try {
       const facts = typeof source.facts === 'string' ? JSON.parse(source.facts) : (source.facts as any)
-      context = (facts?.plaintiffContext || {}) as Record<string, any>
+      context = caseContactContext(facts)
     } catch {
       context = {}
     }

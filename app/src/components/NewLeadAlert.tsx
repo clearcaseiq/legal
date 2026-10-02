@@ -12,6 +12,7 @@ import { Sparkles, X } from 'lucide-react'
 import { getAttorneyNotifications, markAttorneyNotificationRead, type AttorneyNotification } from '../lib/api'
 import { notificationDestination } from '../lib/notifications'
 import { NOTIFICATION_POLL_MS } from '../lib/notificationPolling'
+import { useRealtimeEvent } from '../lib/realtime'
 import {
   getNewLeadAlertMode,
   getSeenLeadAlertIds,
@@ -56,7 +57,7 @@ export default function NewLeadAlert() {
     [navigate],
   )
 
-  const check = useCallback(async () => {
+  const check = useCallback(async (announce = true) => {
     const mode = modeRef.current
     try {
       const res = await getAttorneyNotifications(15)
@@ -71,7 +72,7 @@ export default function NewLeadAlert() {
       )
       if (!fresh.length) return
       markLeadAlertsSeen(fresh.map((n) => n.id))
-      window.dispatchEvent(new CustomEvent(NEW_LEADS_EVENT))
+      if (announce) window.dispatchEvent(new CustomEvent(NEW_LEADS_EVENT))
       if (mode === 'off') return
       if (wantsRingtone(mode)) playNewLeadRingtone()
       if (wantsPopup(mode)) {
@@ -102,6 +103,9 @@ export default function NewLeadAlert() {
       document.removeEventListener('visibilitychange', onVisible)
     }
   }, [check])
+
+  // The dashboard reloads New Matches on this event itself; only the alert is needed here.
+  useRealtimeEvent('lead:new', () => void check(false))
 
   if (!alerts.length) return null
   const first = alerts[0]

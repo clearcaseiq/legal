@@ -7,10 +7,12 @@ const users: Record<string, { id: string; email: string; isActive: boolean }> = 
   'tok-winner': { id: 'u-winner', email: 'winner@firm-a.test', isActive: true },
   'tok-loser': { id: 'u-loser', email: 'loser@firm-b.test', isActive: true },
   'tok-staff': { id: 'u-staff', email: 'staff@firm-b.test', isActive: true },
+  'tok-mixed': { id: 'u-mixed', email: 'Mixed@Firm-C.test', isActive: true },
 }
 const attorneys: Record<string, { id: string; lawFirmId: string | null }> = {
   'winner@firm-a.test': { id: 'att-winner', lawFirmId: 'firm-a' },
   'loser@firm-b.test': { id: 'att-loser', lawFirmId: 'firm-b' },
+  'mixed@firm-c.test': { id: 'att-mixed', lawFirmId: null },
 }
 
 vi.mock('./auth', () => ({
@@ -27,7 +29,8 @@ vi.mock('./prisma', () => ({
       findUnique: async ({ where }: any) => Object.values(users).find((u) => u.id === where.id) ?? null,
     },
     attorney: {
-      findFirst: async ({ where }: any) => attorneys[where.email] ?? null,
+      findFirst: async ({ where }: any) => attorneys[String(where.email.equals).toLowerCase()] ?? null,
+      findUnique: async ({ where }: any) => Object.values(attorneys).find((a) => a.id === where.id) ?? null,
     },
     firmMember: {
       findFirst: async ({ where }: any) => (where.userId === 'u-staff' ? { lawFirmId: 'firm-b' } : null),
@@ -35,7 +38,7 @@ vi.mock('./prisma', () => ({
   },
 }))
 
-import { closeRealtime, emitLeadClaimed, initRealtime, REALTIME_PATH } from './realtime'
+import { closeRealtime, emitLeadClaimed, emitLeadNew, initRealtime, REALTIME_PATH } from './realtime'
 
 let httpServer: HttpServer
 let url: string
@@ -50,10 +53,10 @@ function open(token: string): Promise<Socket> {
   })
 }
 
-function nextEvent(s: Socket, timeoutMs = 500): Promise<unknown> {
+function nextEvent(s: Socket, event = 'lead:claimed', timeoutMs = 500): Promise<unknown> {
   return new Promise((resolve) => {
     const timer = setTimeout(() => resolve(null), timeoutMs)
-    s.once('lead:claimed', (payload) => {
+    s.once(event, (payload) => {
       clearTimeout(timer)
       resolve(payload)
     })
@@ -91,5 +94,27 @@ describe('realtime lead:claimed', () => {
     expect(toWinner).toBeNull()
     expect(toLoser).toEqual({ assessmentId: 'asm-1', leadId: 'lead-1' })
     expect(toStaff).toEqual({ assessmentId: 'asm-1', leadId: 'lead-1' })
+  })
+
+  it('places an attorney whose login email differs in case into their attorney room', async () => {
+    const mixed = await open('tok-mixed')
+    const pending = nextEvent(mixed)
+    emitLeadClaimed({ assessmentId: 'asm-2', leadId: 'lead-2' }, { attorneyIds: ['att-mixed'], lawFirmIds: [] })
+    expect(await pending).toEqual({ assessmentId: 'asm-2', leadId: 'lead-2' })
+  })
+})
+
+describe('realtime lead:new', () => {
+  it('reaches the offered attorney and their firm staff only', async () => {
+    const [winner, loser, staff] = await Promise.all([open('tok-winner'), open('tok-loser'), open('tok-staff')])
+    const pending = [winner, loser, staff].map((s) => nextEvent(s, 'lead:new'))
+    const event = { assessmentId: 'asm-3', leadId: 'lead-3', introductionId: 'intro-3' }
+
+    await emitLeadNew('att-loser', event)
+
+    const [toWinner, toLoser, toStaff] = await Promise.all(pending)
+    expect(toWinner).toBeNull()
+    expect(toLoser).toEqual(event)
+    expect(toStaff).toEqual(event)
   })
 })

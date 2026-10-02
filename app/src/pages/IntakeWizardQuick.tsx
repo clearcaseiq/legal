@@ -21,6 +21,7 @@ import RecoveryImpactSection from '../components/RecoveryImpactSection'
 import { REGION_LIBRARY, ALL_REGION_OPTIONS, deriveLegacyInjuryFields, type RegionDetailMap } from '../data/injuryQuestionLibrary'
 import { caseTypeModuleFor } from '../data/caseTypeIntake'
 import { useLanguage } from '../contexts/LanguageContext'
+import { hasTranslation } from '../i18n'
 import { buildCaseTaxonomy, injuryTypeToClaimType, planDetectionFill, sanitizeDetectedCounty, usesPoliceReportLabel } from '../lib/intakeQuickHelpers'
 import { INCIDENT_SUBTYPE_PROMPTS, INCIDENT_SUBTYPE_FREE_TEXT, caseTypePreset, getIncidentSubtypes, hasIncidentSubtypes } from '../lib/caseTaxonomy'
 import { US_STATES } from '../lib/constants'
@@ -992,8 +993,27 @@ function ReportGeneratingOverlay({ title, subtitle, steps }: { title: string; su
 }
 
 export default function IntakeWizardQuick() {
-  const { t } = useLanguage()
+  const { t: translateKey, language } = useLanguage()
   const navigate = useNavigate()
+
+  // Who "This happened to" names. Kept in a ref because formData is declared
+  // further down; it is refreshed as soon as formData is read each render.
+  const injuredPartyRef = useRef<'self' | 'child' | 'dependent' | 'deceased'>('self')
+
+  /**
+   * Intake copy is written to the claimant ("your injuries"). When they are
+   * filing for someone else, prefer the `key__child` / `key__dependent` /
+   * `key__deceased` wording if this language defines it, so a missing
+   * translation falls back to the default wording rather than to English.
+   */
+  const t = (key: string, params?: Parameters<typeof translateKey>[1]) => {
+    const party = injuredPartyRef.current
+    if (party !== 'self' && key.startsWith('intake.')) {
+      const variantKey = `${key}__${party}`
+      if (hasTranslation(language, variantKey)) return translateKey(variantKey, params)
+    }
+    return translateKey(key, params)
+  }
 
   /** Shorthand for keys in the intake namespace. */
   const tx = (key: string) => t(`intake.${key}`)
@@ -1318,6 +1338,7 @@ export default function IntakeWizardQuick() {
     },
     consents: { tos: false, privacy: false, ml_use: false }
   })
+  injuredPartyRef.current = formData.injuredParty
 
   // A detection response lands a second or two after the request, by which time
   // the claimant may have answered one of the fields it wants to fill. Deciding
@@ -1351,7 +1372,7 @@ export default function IntakeWizardQuick() {
           ...(needsSubtype ? [subtypeOk] : []),
           dateOk,
           !!formData.venue.state && !!formData.venue.county?.trim(),
-          !!formData.contact.email.trim() || !!formData.contact.phone.trim(),
+          !!formData.contact.email.trim() && !!formData.contact.phone.trim(),
         ]
         return checks.filter(Boolean).length / checks.length
       }
@@ -2598,7 +2619,7 @@ export default function IntakeWizardQuick() {
     incidentDate: !!errors.incidentDate && !formData.incidentDate,
     location: (!!errors.state && !formData.venue.state) || (!!errors.county && !formData.venue.county?.trim()),
     contact:
-      (!!errors.contact && !formData.contact.email.trim() && !formData.contact.phone.trim()) ||
+      (!!errors.contact && (!formData.contact.email.trim() || !formData.contact.phone.trim())) ||
       !!errors.contactEmail || !!errors.contactPhone,
     severity: !!errors.injurySeverity && !formData.injurySeverity,
     treatment: !!errors.medicalTreatment && formData.medicalTreatment.length === 0,
@@ -2643,8 +2664,8 @@ export default function IntakeWizardQuick() {
       if (!formData.venue.county?.trim()) err.county = t('intake.enterCounty')
       // Narrative text is optional but recommended; contact fields live on this combined screen too.
       const email = formData.contact.email.trim()
-      if (!email && !formData.contact.phone.trim()) err.contact = tx('contact_required')
-      else if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) err.contactEmail = tx('contact_emailError')
+      if (!email || !formData.contact.phone.trim()) err.contact = tx('contact_required')
+      if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) err.contactEmail = tx('contact_emailError')
       else if (email && emailDeliverable === 'bad') err.contactEmail = tx('contact_emailUndeliverable')
       const phoneError = validatePhoneField(formData.contact.phone)
       if (phoneError) err.contactPhone = tx('contact_phoneError')
@@ -2961,7 +2982,7 @@ export default function IntakeWizardQuick() {
       await retryFailedUploads()
       return
     }
-    if (!formData.contact.email.trim() && !formData.contact.phone.trim()) {
+    if (!formData.contact.email.trim() || !formData.contact.phone.trim()) {
       setErrors({ contact: tx('contact_required') })
       setReturnToReviewFromStep('injury_type')
       setCurrentStep('injury_type')
@@ -4026,7 +4047,7 @@ export default function IntakeWizardQuick() {
         ? 'intake-incident-basics'
         : !(fd.venue.state && fd.venue.county?.trim())
           ? 'intake-where'
-          : !fd.contact.email.trim() && !fd.contact.phone.trim()
+          : !fd.contact.email.trim() || !fd.contact.phone.trim()
             ? 'intake-contact'
             : null
       if (!targetId) return

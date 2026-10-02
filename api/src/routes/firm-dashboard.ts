@@ -122,7 +122,7 @@ async function sendFirmMemberInvite(params: {
         '',
         `You've been invited to join ${firm} on ClearCaseIQ as a ${roleLabel}.`,
         '',
-        'Click the link below to verify your email and set your password. This link expires in 7 days and can be used once.',
+        'Use the button below to verify your email and set your password. This link expires in 7 days and can be used once.',
         '',
         link,
         '',

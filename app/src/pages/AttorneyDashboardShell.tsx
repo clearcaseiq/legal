@@ -1827,6 +1827,9 @@ export default function AttorneyDashboardShell({ chromeless = false, initialView
     return () => window.removeEventListener(NEW_LEADS_EVENT, onNewLeads)
   }, [loadDashboardData])
 
+  // A case was just offered to this attorney or their firm.
+  useRealtimeEvent('lead:new', () => void loadDashboardData(0, { silent: true }))
+
   // Another attorney accepted a case this attorney was also offered: drop it from
   // New Matches now, then resync quietly so counts and pipeline reflect the server.
   useRealtimeEvent(
