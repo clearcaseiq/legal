@@ -8,7 +8,7 @@ import { logger } from './logger'
 import { webUrl } from './app-url'
 import { notifyAttorneyByUserEmail } from './attorney-push'
 import { createNotificationEvent } from './platform-notifications'
-import { emitLeadNew } from './realtime'
+import { emitCaseUpdated, emitLeadNew } from './realtime'
 import { ATTORNEY_EVENTS, PLAINTIFF_EVENTS } from './notification-events'
 import { buildOfferSms } from './offer-sms'
 import { getCurrentAttorneyResponseDeadlineMinutes } from './matching-rules-config'
@@ -263,6 +263,7 @@ export async function notifyPlaintiffInApp(input: {
         ...(input.link ? { link: input.link } : {}),
       },
     })
+    emitCaseUpdated(input.userId, { assessmentId: input.assessmentId || null, kind: eventType })
     return true
   } catch (err) {
     logger.warn('notifyPlaintiffInApp failed', {

@@ -18,6 +18,7 @@ import { renderRetainerAgreementPdf } from './retainer-agreement'
 import type { EnvelopeStatus, SignableDocumentType } from './types'
 import { ensureLocalCopy, persistUpload } from '../object-storage'
 import { notifyPlaintiffSignatureRequestedSafe } from './signature-request-notify'
+import { emitCaseUpdatedForLead } from '../realtime'
 
 const SIGNED_DIR = path.join(process.cwd(), 'uploads', 'signed-documents')
 
@@ -442,6 +443,7 @@ async function finalizeStatusTransition(
     }
   }
 
+  void emitCaseUpdatedForLead(updated.leadId, `signature_${status}`)
   return updated
 }
 
@@ -508,7 +510,9 @@ export async function voidEnvelope(envelopeId: string, leadId: string, attorneyI
   const provider = getESignatureProvider(env.provider)
   if (!provider.voidEnvelope) throw new Error(`Provider "${provider.id}" does not support voiding envelopes`)
   if (env.externalEnvelopeId) await provider.voidEnvelope(env.externalEnvelopeId)
-  return prisma.documentEnvelope.update({ where: { id: env.id }, data: { status: 'voided' } })
+  const updated = await prisma.documentEnvelope.update({ where: { id: env.id }, data: { status: 'voided' } })
+  void emitCaseUpdatedForLead(leadId, 'signature_voided')
+  return updated
 }
 
 /**
@@ -540,6 +544,7 @@ export async function deleteEnvelope(envelopeId: string, leadId: string, attorne
     })
   }
   await prisma.documentEnvelope.delete({ where: { id: env.id } })
+  void emitCaseUpdatedForLead(leadId, 'signature_deleted')
   logger.info('Signature request deleted', { envelopeId: env.id, leadId, attorneyId, status: env.status })
 }
 

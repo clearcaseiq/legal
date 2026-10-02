@@ -11,6 +11,7 @@ import { notifyPlaintiffInApp } from '../case-notifications'
 import { deliverDirectNotification } from '../platform-notifications'
 import { claimantPhoneForAssessment } from '../case-phone-binding'
 import { sendSms } from '../sms'
+import { emitCaseUpdatedForLead } from '../realtime'
 
 export async function notifyPlaintiffSignatureRequested(envelopeIds: string[]): Promise<void> {
   if (!envelopeIds.length) return
@@ -139,6 +140,8 @@ export function notifyPlaintiffSignatureRequestedSafe(envelopeIds: string[]): vo
       for (const row of rows || []) {
         let ids = pendingByLead.get(row.leadId)
         if (!ids) {
+          // The open dashboard refreshes now; only the email/text/bell wait for the batch.
+          void emitCaseUpdatedForLead(row.leadId, 'signature_requested')
           ids = new Set()
           pendingByLead.set(row.leadId, ids)
           const timer = setTimeout(() => flushLead(row.leadId), BATCH_WINDOW_MS)

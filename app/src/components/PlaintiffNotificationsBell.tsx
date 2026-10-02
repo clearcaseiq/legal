@@ -25,6 +25,7 @@ import {
 import { formatClaimType as claimLabel } from '../lib/claimTypes'
 import { NOTIFICATION_POLL_MS } from '../lib/notificationPolling'
 import { useVisibilityPoll } from '../hooks/useVisibilityPoll'
+import { useRealtimeEvent } from '../lib/realtime'
 
 type NotificationKind =
   | 'matched'
@@ -280,6 +281,7 @@ export default function PlaintiffNotificationsBell() {
   }
 
   useVisibilityPoll(() => void loadData(), NOTIFICATION_POLL_MS)
+  useRealtimeEvent('case:updated', () => void loadData(), () => void loadData())
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {

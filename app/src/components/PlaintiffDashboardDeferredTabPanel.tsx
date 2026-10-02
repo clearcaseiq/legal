@@ -16,10 +16,25 @@ type PlaintiffEvidenceFile = {
   originalName?: string
   filename?: string
   category?: string
+  subcategory?: string | null
+  uploadMethod?: string | null
   fileUrl?: string
   createdAt?: string
   size?: number
   processingStatus?: string
+}
+
+/**
+ * A signed agreement the e-sign flow filed into the case. It is listed under
+ * Signed agreements, so it stays out of "Your documents".
+ */
+function isFiledSignedAgreement(file: PlaintiffEvidenceFile): boolean {
+  return (
+    String(file.fileUrl || '').includes('/uploads/signed-documents/') ||
+    file.uploadMethod === 'esign' ||
+    file.subcategory === 'signed_agreement' ||
+    file.subcategory === 'signed_authorization'
+  )
 }
 
 type DeferredTabId = 'tasks' | 'documents' | 'attorney' | 'value' | 'journal' | 'insights' | 'evidence' | 'activity'
@@ -229,6 +244,7 @@ export default function PlaintiffDashboardDeferredTabPanel({
   const [yourFilesOpen, setYourFilesOpen] = useState(true)
   const [signedAgreementsOpen, setSignedAgreementsOpen] = useState(true)
   const [medicalSummaryOpen, setMedicalSummaryOpen] = useState(true)
+  const yourFiles = evidenceFiles.filter((file) => !isFiledSignedAgreement(file))
   const documentsUploadHref = evidenceUploadHref(activeAssessmentId, {
     from: 'dashboard',
     returnTo: plaintiffDashboardReturnTo(activeAssessmentId, 'documents'),
@@ -1058,12 +1074,12 @@ export default function PlaintiffDashboardDeferredTabPanel({
                 {t('plaintiffDashboard.deferred.documents.yourFiles')}
               </span>
               <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
-                {evidenceFiles.length}
+                {yourFiles.length}
               </span>
             </button>
             {yourFilesOpen ? (
               <div className="space-y-2 border-t border-slate-100 px-3 py-3">
-                {evidenceFiles.length === 0 ? (
+                {yourFiles.length === 0 ? (
                   <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/70 px-4 py-6 text-center">
                     <p className="text-sm font-medium text-slate-700">
                       {t('plaintiffDashboard.deferred.documents.yourFilesEmpty')}
@@ -1078,7 +1094,7 @@ export default function PlaintiffDashboardDeferredTabPanel({
                   </div>
                 ) : (
                   <>
-                    {evidenceFiles.map((file) => (
+                    {yourFiles.map((file) => (
                       <div
                         key={file.id}
                         className="flex items-start gap-3 rounded-xl border border-emerald-100 bg-emerald-50/40 p-3"

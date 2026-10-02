@@ -1,6 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { useRealtimeEvent } from '../lib/realtime'
 import { listAssessments, getAssessment, getEvidenceFiles, associateAssessments, getRoutingStatus, createAppointment, getAttorneyAvailability, updateAppointment, cancelAppointment, joinAppointmentWaitlist, updateAppointmentPreparation, getPlaintiffConsentCompliance, getPlaintiffDocumentRequests, getPlaintiffSignedDocuments, getPlaintiffCaseTasks, createAttorneyReview, getMedicalChronology, updateAssessment, getCasePreparation, type PlaintiffDocumentRequest, type PlaintiffSignedDocument, type PlaintiffCaseTask } from '../lib/api'
 import { useHeuristics } from '../contexts/HeuristicsContext'
 import { UNDOCUMENTED_READINESS_CEILING } from '../lib/heuristics'
@@ -562,6 +563,33 @@ export default function Dashboard() {
       })
     return () => { cancelled = true }
   }, [activeAssessment?.id])
+
+  // The attorney sent, voided or completed a signature request (or posted any
+  // other update) — pull the Tasks and Documents lists without a manual refresh.
+  const refreshCaseActivity = (assessmentId: string) => {
+    void refreshCaseDocuments(assessmentId)
+    getPlaintiffSignedDocuments(assessmentId)
+      .then((data) => setSignedDocuments(Array.isArray(data?.documents) ? data.documents : []))
+      .catch(() => undefined)
+    getPlaintiffCaseTasks(assessmentId)
+      .then((data) => {
+        setAttorneyTasks(Array.isArray(data?.tasks) ? data.tasks : [])
+        setAttorneyTasksFailed(false)
+      })
+      .catch(() => undefined)
+  }
+  useRealtimeEvent(
+    'case:updated',
+    (event) => {
+      const assessmentId = activeAssessment?.id
+      if (assessmentId && (!event.assessmentId || event.assessmentId === assessmentId)) {
+        refreshCaseActivity(assessmentId)
+      }
+    },
+    () => {
+      if (activeAssessment?.id) refreshCaseActivity(activeAssessment.id)
+    },
+  )
 
   // Opening Tasks runs document-request reconcile (orphaned "Request from client"
   // CaseTasks → Requested Documents) and refreshes both columns.

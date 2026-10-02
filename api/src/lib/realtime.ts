@@ -1,9 +1,10 @@
 /**
- * Server push for attorney workspaces (socket.io).
+ * Server push for attorney workspaces and claimant dashboards (socket.io).
  *
  * Browsers connect to `/v1/realtime` so the socket rides the same nginx `/v1/`
  * route as the REST API. Each connection authenticates with the same JWT the
  * REST calls carry and is placed in rooms:
+ *   - `user:<userId>` for everyone (claimant pushes)
  *   - `attorney:<attorneyId>` when the user is an attorney
  *   - `firm:<lawFirmId>` for attorneys and active firm members alike
  *
@@ -34,6 +35,12 @@ export type LeadNewEvent = {
   assessmentId: string
   leadId: string | null
   introductionId: string | null
+}
+
+/** Something on a claimant's case changed (signature request, notification, …). */
+export type CaseUpdatedEvent = {
+  assessmentId: string | null
+  kind: string
 }
 
 let io: Server | null = null
@@ -159,6 +166,34 @@ export function emitLeadClaimed(
     io.to(rooms).emit('lead:claimed', event)
   } catch (err) {
     logger.warn('Realtime lead:claimed emit failed', { assessmentId: event.assessmentId, error: (err as Error).message })
+  }
+}
+
+/**
+ * Tell a claimant their case changed, so an open dashboard and notification
+ * bell refetch instead of waiting for a manual refresh.
+ */
+export function emitCaseUpdated(userId: string, event: CaseUpdatedEvent): void {
+  if (!io || !userId) return
+  try {
+    io.to(`user:${userId}`).emit('case:updated', event)
+  } catch (err) {
+    logger.warn('Realtime case:updated emit failed', { userId, kind: event.kind, error: (err as Error).message })
+  }
+}
+
+/** `emitCaseUpdated` for the claimant who owns the case behind a lead. */
+export async function emitCaseUpdatedForLead(leadId: string, kind: string): Promise<void> {
+  if (!io || !leadId) return
+  try {
+    const lead = await prisma.leadSubmission.findUnique({
+      where: { id: leadId },
+      select: { assessmentId: true, assessment: { select: { userId: true } } },
+    })
+    const userId = lead?.assessment?.userId
+    if (userId) emitCaseUpdated(userId, { assessmentId: lead?.assessmentId ?? null, kind })
+  } catch (err) {
+    logger.warn('Realtime case:updated lookup failed', { leadId, kind, error: (err as Error).message })
   }
 }
 
