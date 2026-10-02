@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { ArrowRight, Pin } from 'lucide-react'
+import { ArrowRight, Pin, Users } from 'lucide-react'
 import { getAttorneyDashboard } from '../../lib/api'
+import { useFirmDashboardSummary } from '../../hooks/useFirmDashboardSummary'
+import CaseTeamDialog, { canAssignFirmCases } from '../firm/CaseTeamDialog'
 import { Avatar, Badge, ClientLink, DataTable, FilterBar, FilterStat, PageHeader, SectionCard, StatGrid, type BadgeTone, type DataTableColumn, type FilterField } from '../shared/ui'
 import { getPinnedCaseIds, getRecentCases, togglePinnedCase } from './recentCases'
 import { CLAIM_TYPE_OPTIONS, canonicalClaimType, formatClaimType } from '../../lib/claimTypes'
@@ -78,6 +80,9 @@ type CaseScope = 'active' | 'closed' | 'all'
 interface CaseRow {
   id: string
   leadId: string
+  assessmentId: string
+  /** Names of the people on the firm case team. */
+  team: string[]
   client: string
   claimType: string
   typeLabel: string
@@ -392,6 +397,25 @@ export default function ActiveCasesPage() {
     evidence: '',
   }))
 
+  const [reloadKey, setReloadKey] = useState(0)
+  const [assignTarget, setAssignTarget] = useState<CaseRow | null>(null)
+  const { data: firmSummary } = useFirmDashboardSummary()
+  const canAssign = canAssignFirmCases(firmSummary)
+
+  // Case-team member names by assignment key, from the firm's people.
+  const teamNameFor = useMemo(() => {
+    const names = new Map<string, string>()
+    for (const a of firmSummary?.attorneys || []) if (a?.id) names.set(`att:${a.id}`, a.name || 'Attorney')
+    for (const m of firmSummary?.members || []) {
+      if (!m?.user?.id) continue
+      const name = [m.user.firstName, m.user.lastName].filter(Boolean).join(' ').trim() || m.user.email || 'Member'
+      names.set(`usr:${m.user.id}`, name)
+      if (m.attorney?.id && !names.has(`att:${m.attorney.id}`)) names.set(`att:${m.attorney.id}`, name)
+    }
+    return (a: { assignedAttorneyId?: string | null; assignedUserId?: string | null }) =>
+      names.get(a.assignedAttorneyId ? `att:${a.assignedAttorneyId}` : `usr:${a.assignedUserId}`) || null
+  }, [firmSummary])
+
   useEffect(() => {
     let cancelled = false
     setLoading(true)
@@ -407,7 +431,7 @@ export default function ActiveCasesPage() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [reloadKey])
 
   // Which of my cases has a consult scheduled for today (from the calendar feed).
   const consultTodayLeadIds = useMemo(() => {
@@ -513,9 +537,16 @@ export default function ActiveCasesPage() {
         else if (dueTodayTaskCount > 0) dueInfo = { key: 'today', label: 'Task due today' }
         else dueInfo = classifyDue(due)
 
+        const assignments: any[] = Array.isArray(lead?.assessment?.firmCaseAssignments)
+          ? lead.assessment.firmCaseAssignments
+          : []
+        const team = Array.from(new Set(assignments.map((a) => teamNameFor(a)).filter(Boolean))) as string[]
+
         return {
           id: lead.id,
           leadId: lead.id,
+          assessmentId: lead?.assessmentId || lead?.assessment?.id || '',
+          team,
           client,
           claimType: lead?.assessment?.claimType || '',
           typeLabel: claimLabel(lead?.assessment?.claimType),
@@ -547,7 +578,13 @@ export default function ActiveCasesPage() {
           evidenceCategories,
         }
       })
-  }, [leads, consultTodayLeadIds])
+  }, [leads, consultTodayLeadIds, teamNameFor])
+
+  const inFirm = Boolean(firmSummary?.workspace)
+  const columns = useMemo(
+    () => buildCaseColumns({ onAssign: canAssign ? setAssignTarget : null, showTeam: inFirm }),
+    [canAssign, inFirm],
+  )
 
   // A closed matter has no live work, so it must never count toward the actionable
   // "Consults today / Tasks due / Demands to send" tiles even when the Closed/All
@@ -727,7 +764,7 @@ export default function ActiveCasesPage() {
           <ActionLegend />
         </div>
         <DataTable
-          columns={caseColumns}
+          columns={columns}
           rows={visible}
           rowKey={(r) => r.id}
           loading={loading}
@@ -737,6 +774,15 @@ export default function ActiveCasesPage() {
           maxHeight="max(320px, calc(100vh - 20rem))"
         />
       </SectionCard>
+
+      {assignTarget && (
+        <CaseTeamDialog
+          assessmentId={assignTarget.assessmentId}
+          caseLabel={assignTarget.client}
+          onClose={() => setAssignTarget(null)}
+          onChanged={() => setReloadKey((k) => k + 1)}
+        />
+      )}
     </div>
   )
 }
@@ -755,6 +801,38 @@ function nextActionHref(leadId: string, nextAction: string): string {
   if (a.includes('demand')) return `/attorney-dashboard/lead/${leadId}/demand`
   if (a.includes('retainer')) return `/attorney-dashboard/lead/${leadId}/documents`
   return `/attorney-dashboard/lead/${leadId}/tasks`
+}
+
+function buildCaseColumns({
+  onAssign,
+  showTeam,
+}: {
+  onAssign: ((row: CaseRow) => void) | null
+  showTeam: boolean
+}): DataTableColumn<CaseRow>[] {
+  const assignColumns: DataTableColumn<CaseRow>[] = onAssign
+    ? [
+        {
+          key: 'assign',
+          header: '',
+          align: 'right',
+          cell: (r) => (
+            <button
+              type="button"
+              disabled={!r.assessmentId}
+              onClick={(e) => {
+                e.stopPropagation()
+                onAssign(r)
+              }}
+              className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 shadow-sm hover:border-brand-300 hover:text-brand-700 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/30 disabled:opacity-50"
+            >
+              <Users className="h-3.5 w-3.5" /> Assign
+            </button>
+          ),
+        },
+      ]
+    : []
+  return [...caseColumns.filter((c) => showTeam || c.key !== 'team'), ...assignColumns]
 }
 
 const caseColumns: DataTableColumn<CaseRow>[] = [
@@ -814,6 +892,19 @@ const caseColumns: DataTableColumn<CaseRow>[] = [
     ),
   },
   { key: 'due', header: 'Due', cell: (r) => <Badge tone={DUE_BADGE_TONE[r.dueKey]}>{r.dueLabel}</Badge> },
+  {
+    key: 'team',
+    header: 'Assigned',
+    cell: (r) =>
+      r.team.length ? (
+        <span className="text-slate-600" title={r.team.join(', ')}>
+          {r.team.slice(0, 2).join(', ')}
+          {r.team.length > 2 ? ` +${r.team.length - 2}` : ''}
+        </span>
+      ) : (
+        <span className="text-slate-400">Unassigned</span>
+      ),
+  },
   {
     key: 'value',
     header: 'Value',

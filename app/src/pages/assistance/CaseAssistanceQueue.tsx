@@ -434,7 +434,7 @@ export default function CaseAssistanceQueue() {
               <input
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Name, email or reference"
+                placeholder="Name, email or Case ID"
                 aria-label="Search cases"
                 className="input w-56"
               />

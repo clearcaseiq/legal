@@ -89,7 +89,7 @@ export async function renderHipaaAuthorizationPdf(
       ['Records custodian / provider', ctx.recordsCustodian || 'As directed by counsel'],
       ['Records date range', ctx.recordsDateRange || 'All dates relevant to the claim'],
       ['Authorization version', `${tpl.version} (effective ${tpl.effectiveDate})`],
-      ['Case reference', ctx.caseRef || ctx.leadId],
+      ['Case ID', ctx.caseRef || ctx.leadId],
     ]
     for (const [label, value] of facts) {
       doc.font('Helvetica-Bold').fontSize(10).fillColor('#111827').text(`${label}: `, { continued: true })

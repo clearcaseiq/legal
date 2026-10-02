@@ -184,7 +184,7 @@ export default function AttorneyDashboardLeadDetail({
   const headerPlaintiff = isPostAcceptance
     ? [headerFirstName, headerLastName].filter(Boolean).join(' ')
     : [headerFirstName, headerLastName ? `${headerLastName.charAt(0)}.` : ''].filter(Boolean).join(' ')
-  const headerSubject = headerPlaintiff || (selectedLead ? `Case ${formatLeadCaseId(selectedLead)}` : '')
+  const headerSubject = headerPlaintiff || (selectedLead ? `Case ID ${formatLeadCaseId(selectedLead)}` : '')
 
   return (
     <div className={leadWrapperClass}>

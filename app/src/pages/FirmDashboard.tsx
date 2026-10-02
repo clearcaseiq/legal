@@ -78,6 +78,7 @@ import { CountyCoverageEditor } from '../components/CountyCoverageEditor'
 import { buildAttorneyJurisdictions, readAttorneyCounties, type CountiesByState } from '../lib/attorneyJurisdictions'
 import { resolveUploadedPhotoUrl } from '../lib/avatar'
 import { invalidateFirmDashboardSummary, useFirmDashboardSummary } from '../hooks/useFirmDashboardSummary'
+import { STAFF_DEFAULT_CASE_ROLE } from '../features/firm/CaseTeamDialog'
 import { FirmTemplatesTab } from '../features/firm/FirmTemplatesTab'
 import { FirmWorkflowsTab } from '../features/firm/FirmWorkflowsTab'
 import { FirmNewLeadReview } from '../features/firm/FirmNewLeadReview'
@@ -167,17 +168,6 @@ const FIRM_ROLE_PERMISSIONS_FALLBACK: Record<string, string[]> = {
   legal_assistant: ['view_all_cases', 'manage_documents', 'message_plaintiffs'],
   demand_writer: ['view_all_cases', 'manage_documents'],
   medical_records: ['view_all_cases', 'manage_documents'],
-}
-
-/** Case-team role preselected when a staff member is checked in the case team window. */
-const STAFF_DEFAULT_CASE_ROLE: Record<string, string> = {
-  case_manager: 'case_manager',
-  paralegal: 'paralegal',
-  legal_assistant: 'paralegal',
-  intake_specialist: 'intake_owner',
-  billing_admin: 'billing_owner',
-  demand_writer: 'demand_writer',
-  medical_records: 'medical_records',
 }
 
 const humanizePermission = (p: string) =>

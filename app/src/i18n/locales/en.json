@@ -262,7 +262,7 @@
     "alreadyHaveAccount": "Already have an account?",
     "signIn": "Sign in",
     "claimAttaching": "Attaching your case to your account…",
-    "claimAttachFailed": "We couldn't attach your case automatically. Your case is safe — sign in and open your dashboard, or contact support with your case reference.",
+    "claimAttachFailed": "We couldn't attach your case automatically. Your case is safe — sign in and open your dashboard, or contact support with your Case ID.",
     "claimAlreadyRegistered": "This email already has an account.",
     "claimSignInToAttach": "Sign in and we'll attach your case",
     "attorneySignUp": "Attorney Sign Up",

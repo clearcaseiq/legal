@@ -82,7 +82,7 @@ export async function renderPoliceReportAuthorizationPdf(
     fact(doc, 'Report / case / DR number', ctx.reportNumber || 'To be completed by counsel if unknown at signing')
     fact(doc, 'Incident / collision date', ctx.incidentDate || '—')
     fact(doc, 'Venue (city / county)', ctx.incidentVenue || '—')
-    fact(doc, 'Case reference', ctx.caseRef || ctx.leadId)
+    fact(doc, 'Case ID', ctx.caseRef || ctx.leadId)
     doc.moveDown(0.7)
 
     doc.font('Helvetica-Bold').fontSize(11).fillColor('#0b1220').text('1. Authorization')

@@ -193,7 +193,7 @@ export function renderSuperDemand(ctx: SuperDemandContext): string {
     `Date of Loss: ${incidentDate}`,
     venue ? `Venue: ${venue}` : null,
     ctx.assessment.claimType ? `Claim Type: ${String(ctx.assessment.claimType).replace(/_/g, ' ')}` : null,
-    ctx.assessment.referenceCode ? `ClearCaseIQ Reference: ${ctx.assessment.referenceCode}` : null,
+    ctx.assessment.referenceCode ? `ClearCaseIQ Case ID: ${ctx.assessment.referenceCode}` : null,
   ].filter(Boolean) as string[]
 
   const executive = [

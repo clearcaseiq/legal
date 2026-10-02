@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { loginStaff } from '../lib/api-auth'
-import { getStoredRole, hasValidAuthToken } from '../lib/auth'
+import { getStoredRole, hasValidAuthToken, staffHomeRoute } from '../lib/auth'
 import BrandLogo from '../components/BrandLogo'
 import { PasswordInputWithReveal } from '../components/PasswordInputWithReveal'
 import { type LoginFieldErrors, type LoginInput, validateLoginInput } from '../lib/loginValidation'
@@ -20,7 +20,7 @@ export default function StaffLogin() {
 
   useEffect(() => {
     if (hasValidAuthToken() && getStoredRole() === 'staff') {
-      window.location.assign('/firm-dashboard')
+      window.location.assign(staffHomeRoute())
     }
   }, [])
 
@@ -48,7 +48,7 @@ export default function StaffLogin() {
       if (response.user) localStorage.setItem('user', JSON.stringify(response.user))
       if (response.firm) localStorage.setItem('firm_member', JSON.stringify(response.firm))
       localStorage.setItem('auth_role', 'staff')
-      window.location.assign('/firm-dashboard')
+      window.location.assign(staffHomeRoute())
     } catch (err: any) {
       const data = err.response?.data
       // A pending invite isn't really an error — nudge them to the invite email.

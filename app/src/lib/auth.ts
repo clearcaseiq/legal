@@ -152,13 +152,29 @@ export function getLoginRedirect(pathname: string, role?: WebAppRole | WebAppRol
   return `/login/plaintiff?redirect=${encodeURIComponent(pathname)}`
 }
 
+/**
+ * Where firm staff land: New Matches when they review new leads, otherwise
+ * Active Cases. Reads the permissions saved at staff sign-in.
+ */
+export function staffHomeRoute(): string {
+  let permissions: string[] = []
+  try {
+    if (typeof window !== 'undefined') {
+      permissions = JSON.parse(localStorage.getItem('firm_member') || '{}')?.permissions || []
+    }
+  } catch {
+    /* fall through to Active Cases */
+  }
+  return permissions.includes('review_cases') ? '/attorney-dashboard/leadgen/matches' : '/attorney-dashboard/cases/active'
+}
+
 export function getPostLoginRoute(role?: WebAppRole | null) {
   if (role === 'admin') return '/admin'
   // Attorneys land in the two-domain workspace (Lead Generation / Case Management).
   if (role === 'attorney') return '/attorney-dashboard/leadgen/matches'
-  // Firm staff (paralegals, case managers, etc.) land in the firm workspace,
+  // Firm staff (paralegals, case managers, etc.) work in the attorney workspace,
   // scoped by their permissions.
-  if (role === 'staff') return '/firm-dashboard'
+  if (role === 'staff') return staffHomeRoute()
   // Case Specialists land on their queue, not a dashboard — the queue IS the job.
   if (role === 'specialist') return '/assistance'
   return '/dashboard'

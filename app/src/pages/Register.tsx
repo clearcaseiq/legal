@@ -337,7 +337,7 @@ export default function Register() {
           showToast({
             variant: 'error',
             title: 'Your case was not linked',
-            message: 'Your account was created, but we could not attach your case. Contact support with your case reference and we will link it.',
+            message: 'Your account was created, but we could not attach your case. Contact support with your Case ID and we will link it.',
           })
         }
       }

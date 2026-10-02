@@ -1621,7 +1621,7 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
       const submitterName =
         (firstName && firstName.trim()) || (plaintiffContext.firstName as string | undefined) || 'there'
       const referenceLine = referenceCode
-        ? `\n\nYour case reference number is ${referenceCode}. Keep it handy — quote it if you call or email us.`
+        ? `\n\nYour Case ID is ${referenceCode}. Keep it handy — quote it if you call or email us.`
         : ''
       // Submitting cancels the separate report email, so this is the claimant's
       // link back to the report they just finished.

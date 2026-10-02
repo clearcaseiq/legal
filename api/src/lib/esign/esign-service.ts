@@ -10,6 +10,7 @@ import crypto from 'crypto'
 import { prisma } from '../prisma'
 import { logger } from '../logger'
 import { webUrl } from '../app-url'
+import { ensureReferenceCode } from '../case-reference'
 import { getESignatureProvider } from './index'
 import { renderHipaaAuthorizationPdf } from './hipaa-authorization'
 import { renderPoliceReportAuthorizationPdf } from './police-report-authorization'
@@ -19,6 +20,23 @@ import { ensureLocalCopy, persistUpload } from '../object-storage'
 import { notifyPlaintiffSignatureRequestedSafe } from './signature-request-notify'
 
 const SIGNED_DIR = path.join(process.cwd(), 'uploads', 'signed-documents')
+
+/** The Case ID printed on signable documents: the case's reference code, the same one every screen shows. */
+async function caseIdForLead(leadId: string, fallback?: string): Promise<string | undefined> {
+  try {
+    const lead = await prisma.leadSubmission.findUnique({
+      where: { id: leadId },
+      select: { assessment: { select: { id: true, referenceCode: true } } },
+    })
+    if (lead?.assessment) {
+      const code = await ensureReferenceCode(lead.assessment.id, lead.assessment.referenceCode)
+      if (code) return code
+    }
+  } catch (err) {
+    logger.warn('Case ID lookup for e-sign document failed', { leadId, error: (err as Error).message })
+  }
+  return fallback
+}
 
 export interface CreateEnvelopeParams {
   leadId: string
@@ -187,7 +205,7 @@ export async function createHipaaAuthorizationEnvelope(params: CreateHipaaAuthor
     clientDob: params.clientDob,
     recordsCustodian: params.recordsCustodian,
     recordsDateRange: params.recordsDateRange,
-    caseRef: params.caseRef,
+    caseRef: await caseIdForLead(params.leadId, params.caseRef),
   })
 
   return createEnvelopeForLead({
@@ -232,7 +250,7 @@ export async function createPoliceReportAuthorizationEnvelope(
     reportNumber: params.reportNumber,
     incidentDate: params.incidentDate,
     incidentVenue: params.incidentVenue,
-    caseRef: params.caseRef,
+    caseRef: await caseIdForLead(params.leadId, params.caseRef),
   })
 
   return createEnvelopeForLead({
@@ -276,7 +294,7 @@ export async function createRetainerAgreementEnvelope(params: CreateRetainerAgre
     contingencyPercent: params.contingencyPercent,
     costsResponsibility: params.costsResponsibility,
     scope: params.scope,
-    caseRef: params.caseRef,
+    caseRef: await caseIdForLead(params.leadId, params.caseRef),
   })
 
   return createEnvelopeForLead({
@@ -646,7 +664,7 @@ async function createCombinedOnboardingPacket(
     contingencyPercent: params.contingencyPercent,
     costsResponsibility: params.costsResponsibility,
     scope: params.scope,
-    caseRef: params.caseRef,
+    caseRef: await caseIdForLead(params.leadId, params.caseRef),
   })
   const hipaaDoc = await renderHipaaAuthorizationPdf({
     leadId: params.leadId,
@@ -654,7 +672,7 @@ async function createCombinedOnboardingPacket(
     clientDob: params.clientDob,
     recordsCustodian: params.recordsCustodian,
     recordsDateRange: params.recordsDateRange,
-    caseRef: params.caseRef,
+    caseRef: await caseIdForLead(params.leadId, params.caseRef),
   })
 
   const base = {

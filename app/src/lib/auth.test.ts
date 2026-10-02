@@ -68,8 +68,17 @@ describe('getLoginRedirect', () => {
 describe('getPostLoginRoute', () => {
   it('lands each role in its own workspace', () => {
     expect(getPostLoginRoute('admin')).toBe('/admin')
-    expect(getPostLoginRoute('staff')).toBe('/firm-dashboard')
+    expect(getPostLoginRoute('staff')).toBe('/attorney-dashboard/cases/active')
     expect(getPostLoginRoute('specialist')).toBe('/assistance')
     expect(getPostLoginRoute('plaintiff')).toBe('/dashboard')
+  })
+
+  it('lands staff who review new leads on New Matches', () => {
+    localStorage.setItem('firm_member', JSON.stringify({ permissions: ['review_cases'] }))
+    try {
+      expect(getPostLoginRoute('staff')).toBe('/attorney-dashboard/leadgen/matches')
+    } finally {
+      localStorage.removeItem('firm_member')
+    }
   })
 })

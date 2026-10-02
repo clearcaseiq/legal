@@ -79,8 +79,8 @@ const NAV_SECTIONS: NavSection[] = [
   },
 ]
 
-export const STAFF_CASES_ROUTE = '/firm-dashboard?tab=caseload'
-const STAFF_NEW_LEADS_ROUTE = '/firm-dashboard?tab=newleads'
+export const STAFF_CASES_ROUTE = '/attorney-dashboard/cases/active'
+const STAFF_NEW_LEADS_ROUTE = '/attorney-dashboard/leadgen/matches'
 
 /**
  * Firm permissions that involve working accepted cases. Review, accept &
@@ -95,8 +95,8 @@ export const STAFF_ACTIVE_CASE_PERMISSIONS = [
   'manage_billing',
 ]
 
-// Staff reach a case from the firm dashboard; the attorney-only pages above
-// would bounce them straight back there.
+// Staff get New Matches and Active Cases (scoped server-side to their firm
+// role) plus the pages their permissions open; the rest stays attorney-only.
 const STAFF_NAV_SECTIONS: NavSection[] = [
   {
     id: 'casework',

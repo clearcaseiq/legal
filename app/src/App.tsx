@@ -1442,6 +1442,13 @@ function App() {
                   path="/attorney-dashboard/cases/messages"
                   element={<RequireFirmPermission action="message"><CaseMessagesPage /></RequireFirmPermission>}
                 />
+                {/* Staff work New Matches and Active Cases like attorneys; the
+                    dashboard endpoint scopes the cases to their firm role. */}
+                <Route path="/attorney-dashboard/leadgen/matches" element={<NewMatchesPage />} />
+                {/* Pre-acceptance / expired review stays inside Lead Generation (read-only
+                    snapshot) — it must never open the Case Management case file. */}
+                <Route path="/attorney-dashboard/leadgen/matches/:leadId/:section" element={<NewMatchesPage />} />
+                <Route path="/attorney-dashboard/cases/active" element={<ActiveCasesPage />} />
               </Route>
               {/* Staff book on behalf of the case's lead attorney. */}
               <Route path="/attorney-dashboard/schedule-consult/:leadId" element={<ScheduleConsultPage />} />
@@ -1451,10 +1458,6 @@ function App() {
                   Each route mounts the shared sidebar layout and a focused page. */}
               <Route element={<AttorneyWorkspaceLayout />}>
                 {/* Lead Generation */}
-                <Route path="/attorney-dashboard/leadgen/matches" element={<NewMatchesPage />} />
-                {/* Pre-acceptance / expired review stays inside Lead Generation (read-only
-                    snapshot) — it must never open the Case Management case file. */}
-                <Route path="/attorney-dashboard/leadgen/matches/:leadId/:section" element={<NewMatchesPage />} />
                 <Route path="/attorney-dashboard/leadgen/quality" element={<MatchQualityPage />} />
                 <Route path="/attorney-dashboard/leadgen/marketplace" element={<MarketplacePerformancePage />} />
                 <Route path="/attorney-dashboard/leadgen/analytics" element={<AttorneyAnalyticsPage />} />
@@ -1471,7 +1474,6 @@ function App() {
                 <Route path="/attorney-dashboard/leadgen/intake" element={<Navigate to="/attorney-dashboard/cases/intake" replace />} />
                 {/* Case Management */}
                 <Route path="/attorney-dashboard/cases/intake" element={<IntakePage />} />
-                <Route path="/attorney-dashboard/cases/active" element={<ActiveCasesPage />} />
                 {/* Case Workspace launcher folded into Active Cases ("Jump back in" strip). */}
                 <Route path="/attorney-dashboard/cases/workspace" element={<Navigate to="/attorney-dashboard/cases/active" replace />} />
                 <Route path="/attorney-dashboard/cases/team" element={<TeamMessagesPage />} />

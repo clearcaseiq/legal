@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { changePassword, getCurrentUser, updateProfile } from '../lib/api'
+import { staffHomeRoute } from '../lib/auth'
 
 /**
  * "My Profile" for firm staff (paralegal, intake, case manager, …). They sign
@@ -125,8 +126,8 @@ export default function StaffProfile() {
             {[firm.title || ROLE_LABELS[firm.role || ''] || null, firm.name].filter(Boolean).join(' · ')}
           </p>
         </div>
-        <Link to="/firm-dashboard" className="text-sm font-medium text-brand-700 hover:text-brand-900">
-          Back to firm dashboard
+        <Link to={staffHomeRoute()} className="text-sm font-medium text-brand-700 hover:text-brand-900">
+          Back to dashboard
         </Link>
       </div>
 

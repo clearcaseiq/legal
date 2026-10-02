@@ -73,7 +73,7 @@ export default function PlaintiffNotificationBell() {
   const caseRef = (room: RoomPreview) => {
     const id = room.assessment?.id ?? room.assessmentId
     return id
-      ? `Case ${formatCaseId({ id, referenceCode: room.assessment?.referenceCode, claimType: room.assessment?.claimType })}`
+      ? `Case ID ${formatCaseId({ id, referenceCode: room.assessment?.referenceCode, claimType: room.assessment?.claimType })}`
       : 'Case'
   }
 

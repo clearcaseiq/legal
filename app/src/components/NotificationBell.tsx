@@ -133,7 +133,7 @@ export default function NotificationBell() {
                     </div>
                     {room.assessment?.id && (
                       <div className="text-xs text-slate-500 mt-0.5">
-                        Case {formatCaseId({ id: room.assessment.id, referenceCode: room.assessment.referenceCode, claimType: room.assessment.claimType })}
+                        Case ID {formatCaseId({ id: room.assessment.id, referenceCode: room.assessment.referenceCode, claimType: room.assessment.claimType })}
                       </div>
                     )}
                     <div className="text-sm text-slate-600 truncate mt-0.5">

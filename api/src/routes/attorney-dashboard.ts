@@ -476,6 +476,28 @@ router.get('/access', authMiddleware, async (req: any, res: any) => {
   }
 })
 
+/**
+ * The attorney whose dashboard row a firm staff member's view is built on: the
+ * attorney linked to their membership, else the firm admin attorney, else the
+ * firm's longest-standing attorney. Never decides which cases staff can see.
+ */
+async function firmStandInAttorney(lawFirmId: string, linkedAttorneyId: string | null) {
+  if (linkedAttorneyId) {
+    const linked = await prisma.attorney.findFirst({ where: { id: linkedAttorneyId, lawFirmId } })
+    if (linked) return linked
+  }
+  const adminMember = await (prisma as any).firmMember.findFirst({
+    where: { lawFirmId, status: 'active', role: 'firm_admin', attorneyId: { not: null } },
+    select: { attorneyId: true },
+    orderBy: { createdAt: 'asc' },
+  })
+  if (adminMember?.attorneyId) {
+    const admin = await prisma.attorney.findFirst({ where: { id: adminMember.attorneyId, lawFirmId } })
+    if (admin) return admin
+  }
+  return prisma.attorney.findFirst({ where: { lawFirmId }, orderBy: { createdAt: 'asc' } })
+}
+
 /** Leads the caller is on the firm case team for (lead attorney, paralegal, …). */
 function firmCaseTeamTerm(attorneyId: string | null, firm: FirmVisibility): any | null {
   if (firm.canViewTeamCases === false) return null
@@ -520,10 +542,15 @@ export { TERMINAL_INTRO_STATUSES }
  * or declined match drops out of the attorney's list once it has moved on to the
  * next attorney. Accepted cases stay visible via `assignedAttorneyId`.
  */
-function buildLeadVisibilityOr(attorneyId: string, firm: FirmVisibility, extra: any[] = []): any[] {
+function buildLeadVisibilityOr(attorneyId: string | null, firm: FirmVisibility, extra: any[] = []): any[] {
+  // `null` is a firm staff member: no cases of their own, only what the firm role grants.
   const or: any[] = [
-    { assignedAttorneyId: attorneyId },
-    { assessment: { introductions: { some: { attorneyId, status: { notIn: [...TERMINAL_INTRO_STATUSES] } } } } },
+    ...(attorneyId
+      ? [
+          { assignedAttorneyId: attorneyId },
+          { assessment: { introductions: { some: { attorneyId, status: { notIn: [...TERMINAL_INTRO_STATUSES] } } } } },
+        ]
+      : []),
     ...extra,
   ]
   const team = firmCaseTeamTerm(attorneyId, firm)
@@ -2924,6 +2951,17 @@ router.get('/dashboard', authMiddleware, async (req: any, res) => {
       })
     }
 
+    // Firm staff have no attorney profile. They get the same dashboard scoped to
+    // what their firm role grants, with the firm's lead attorney standing in for
+    // the attorney-keyed parts (stats row, profile, scheduling timezone).
+    let staffAccess: Awaited<ReturnType<typeof getRequestMemberAccess>> = null
+    if (!attorney) {
+      staffAccess = await getRequestMemberAccess(req)
+      if (staffAccess?.lawFirmId) {
+        attorney = await firmStandInAttorney(staffAccess.lawFirmId, staffAccess.attorneyId)
+      }
+    }
+
     if (!attorney) {
       logger.error('Attorney profile not found for user', { 
         userId, 
@@ -2936,6 +2974,7 @@ router.get('/dashboard', authMiddleware, async (req: any, res) => {
       })
     }
 
+    const isStaffView = !!staffAccess
     const attorneyId = attorney.id
     // Firm admins see cases routed to any attorney in their firm (CP-299).
     const firmVisibility = await resolveFirmVisibility(req, attorney)
@@ -3012,7 +3051,7 @@ router.get('/dashboard', authMiddleware, async (req: any, res) => {
     }
 
     const dashboardLeadWhere = {
-      OR: buildLeadVisibilityOr(attorneyId, firmVisibility)
+      OR: buildLeadVisibilityOr(isStaffView ? null : attorneyId, firmVisibility)
     }
     const dashboardLeadInclude = {
       assessment: {
@@ -3022,11 +3061,16 @@ router.get('/dashboard', authMiddleware, async (req: any, res) => {
           files: true,
           evidenceFiles: true,
           user: { select: { id: true, firstName: true, lastName: true, email: true, phone: true } },
+          // The case team, for the Active Cases "Assigned" column and Assign action.
+          firmCaseAssignments: {
+            where: { status: 'active' },
+            select: { id: true, role: true, assignedAttorneyId: true, assignedUserId: true },
+          },
           introductions: {
             // Firm admins should still see the routed introduction even when it
             // belongs to another attorney in the firm (CP-299).
             where:
-              firmVisibility.canViewAllCases && firmVisibility.lawFirmId
+              (firmVisibility.canViewAllCases || isStaffView) && firmVisibility.lawFirmId
                 ? { OR: [{ attorneyId }, { attorney: { lawFirmId: firmVisibility.lawFirmId } }] }
                 : firmVisibility.canReviewFirmMatches && firmVisibility.lawFirmId
                   ? { OR: [{ attorneyId }, { attorney: { lawFirmId: firmVisibility.lawFirmId }, status: { in: LIVE_INTRO_STATUSES } }] }
@@ -4115,6 +4159,16 @@ router.get('/dashboard', authMiddleware, async (req: any, res) => {
         expenses: expensesCount,
         documentRequests: documentRequestsCount,
         events: (upcomingConsults || []).length
+      }
+    }
+
+    if (isStaffView) {
+      const view = response as any
+      view.staffView = true
+      if (!staffAccess?.permissions.includes('manage_billing')) {
+        view.dashboard = { ...view.dashboard, feesCollectedFromPayments: 0, totalPlatformSpend: 0 }
+        view.analytics = { ...view.analytics, roi: 0, averageFee: 0 }
+        view.marketplace = null
       }
     }
 

@@ -19,7 +19,7 @@ import {
 import { useLanguage } from '../contexts/LanguageContext'
 import { currentBuildVersion } from '../lib/buildVersion'
 import { useBrowserStateReady } from '../contexts/ServerRenderContext'
-import { clearStoredAuth, getStoredRole, getStoredUser, hasValidAuthToken } from '../lib/auth'
+import { clearStoredAuth, getStoredRole, getStoredUser, hasValidAuthToken, staffHomeRoute } from '../lib/auth'
 import { DEFAULT_LANGUAGE, LANGUAGES } from '../i18n'
 import { caseTypeHubs } from '../data/caseTypeHubDefs'
 import { hreflangFor, localeHome } from '../i18n/routing'
@@ -340,7 +340,7 @@ export default function Layout({ children }: LayoutProps) {
     if (!origin) return avatar
     return `${origin}${avatar.startsWith('/') ? '' : '/'}${avatar}`
   })()
-  const roleLabel = isAdmin ? 'Administrator' : isAttorney ? 'Attorney' : 'Client'
+  const roleLabel = isAdmin ? 'Administrator' : isAttorney ? 'Attorney' : isStaff ? 'Staff' : 'Client'
   const pendingAssessmentId =
     browserStateReady && !isAuthenticated ? localStorage.getItem('pending_assessment_id') : null
   // Once a claimant has started/completed a case, the marketing links ("How it
@@ -635,7 +635,7 @@ export default function Layout({ children }: LayoutProps) {
                         })()}
                         <div className="mx-2 my-1 h-px bg-slate-100 dark:bg-slate-800" />
                         <Link
-                          to={isAdminArea ? '/admin' : isAttorney ? '/attorney-dashboard' : isStaff ? '/firm-dashboard' : '/dashboard'}
+                          to={isAdminArea ? '/admin' : isAttorney ? '/attorney-dashboard' : isStaff ? staffHomeRoute() : '/dashboard'}
                           onClick={() => setUserMenuOpen(false)}
                           className={menuItemCls}
                         >
@@ -665,6 +665,11 @@ export default function Layout({ children }: LayoutProps) {
                             </Link>
                             {/* "Profile Settings" used to sit here as a second
                                 entry. It is the same page as "My Profile" now. */}
+                            {isStaff && (
+                              <Link to="/firm-dashboard" onClick={() => setUserMenuOpen(false)} className={menuItemCls}>
+                                Firm Dashboard
+                              </Link>
+                            )}
                             {isAttorney && (
                               <>
                                 <Link to="/firm-dashboard" onClick={() => setUserMenuOpen(false)} className={menuItemCls}>
@@ -792,13 +797,16 @@ export default function Layout({ children }: LayoutProps) {
                     </>
                   ) : (
                     <>
-                      <Link to={isAdminArea ? '/admin' : isAttorney ? '/attorney-dashboard' : '/dashboard'} onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">{isAdminArea ? 'Admin Dashboard' : 'Dashboard'}</Link>
+                      <Link to={isAdminArea ? '/admin' : isAttorney ? '/attorney-dashboard' : isStaff ? staffHomeRoute() : '/dashboard'} onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">{isAdminArea ? 'Admin Dashboard' : 'Dashboard'}</Link>
                       {/* Plaintiffs already have Dashboard → /dashboard; skip the duplicate "Continue My Case" entry. */}
                       {(isAdminArea || isAttorney || !hidePlaintiffContinueMyCase) && (
                       <Link to={isAdminArea ? '/admin/cases' : isAttorney ? ATTORNEY_ACTIVE_CASES_HREF : plaintiffCaseHref} onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">{isAdminArea ? 'Cases' : isAttorney ? t('common.myCases') : (hasCase ? t('common.continueMyCase') : t('common.myCase'))}</Link>
                       )}
                       {!isAdmin && (
                         <Link to={profileHref} onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">{t('common.myProfile')}</Link>
+                      )}
+                      {isStaff && (
+                        <Link to="/firm-dashboard" onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">Firm Dashboard</Link>
                       )}
                       {isAttorney && (
                         <>

@@ -150,7 +150,7 @@ export async function renderRetainerAgreementPdf(
       ['Costs & expenses', ctx.costsResponsibility || 'Advanced by the Firm, reimbursed from recovery'],
       ['Matter / scope', ctx.scope || 'Personal injury claim'],
       ['Agreement version', `${RETAINER_TEMPLATE_VERSION} (effective ${RETAINER_TEMPLATE_EFFECTIVE_DATE})`],
-      ['Case reference', ctx.caseRef || ctx.leadId],
+      ['Case ID', ctx.caseRef || ctx.leadId],
     ]
     for (const [label, value] of facts) {
       doc.font('Helvetica-Bold').fontSize(10).fillColor('#111827').text(`${label}: `, { continued: true })

@@ -791,7 +791,7 @@ export default function CaseWorkspacePage() {
                   }
                 />
                 <p className="mt-0.5 text-sm text-slate-500">
-                  Case number:{' '}
+                  Case ID:{' '}
                   <span className="font-mono text-xs text-slate-700">
                     {lead?.assessment?.referenceCode || lead?.assessment?.reference_code || '—'}
                   </span>

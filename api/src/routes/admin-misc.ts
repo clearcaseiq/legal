@@ -341,7 +341,7 @@ router.get('/case-lookup', authMiddleware, adminMiddleware, async (req: AuthRequ
   try {
     const rawCode = typeof req.query.reference === 'string' ? req.query.reference : ''
     const code = normalizeReferenceCode(rawCode)
-    if (!code) return res.status(400).json({ error: 'A case reference code is required' })
+    if (!code) return res.status(400).json({ error: 'A Case ID is required' })
 
     const assessment = await prisma.assessment.findUnique({
       where: { referenceCode: code },
@@ -360,7 +360,7 @@ router.get('/case-lookup', authMiddleware, adminMiddleware, async (req: AuthRequ
     })
 
     if (!assessment) {
-      return res.status(404).json({ error: 'No case matches that reference code.' })
+      return res.status(404).json({ error: 'No case matches that Case ID.' })
     }
 
     let plaintiffContext: Record<string, unknown> = {}
