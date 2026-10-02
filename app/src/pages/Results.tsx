@@ -724,6 +724,8 @@ type SubmitVerifyState = {
   error: string | null
   busy: boolean
   resendAt: number
+  /** A resend was refused as too soon; show a live countdown instead of the server's fixed-time message. */
+  resendTooSoon?: boolean
 }
 
 function contactKey(email: string, phone: string): string {
@@ -1397,14 +1399,16 @@ export default function Results() {
       })
     } catch (err: any) {
       const retryAfter = Number(err?.response?.data?.retryAfterSeconds) || 0
+      const tooSoon = err?.response?.data?.code === 'OTP_RESEND_TOO_SOON' && retryAfter > 0
       setSubmitVerify((current) => ({
         stage: 'otp',
         attorneyIds,
         challenge: current?.challenge,
         code: current?.code ?? '',
         busy: false,
-        error: err?.response?.data?.error || 'We could not send your verification code. Please try again.',
+        error: tooSoon ? null : err?.response?.data?.error || 'We could not send your verification code. Please try again.',
         resendAt: retryAfter ? Date.now() + retryAfter * 1000 : current?.resendAt ?? 0,
+        resendTooSoon: tooSoon,
       }))
     }
   }
@@ -1420,14 +1424,14 @@ export default function Results() {
     setShowContactEdit(true)
   }
 
-  const verifyCodeAndSubmit = async () => {
-    if (!submitVerify) return
-    const code = submitVerify.code.replace(/\D/g, '')
+  const verifyCodeAndSubmit = async (enteredCode?: string) => {
+    if (!submitVerify || submitVerify.busy) return
+    const code = (enteredCode ?? submitVerify.code).replace(/\D/g, '')
     if (code.length !== 6) {
       setSubmitVerify({ ...submitVerify, error: 'Enter the 6-digit code.' })
       return
     }
-    setSubmitVerify({ ...submitVerify, busy: true, error: null })
+    setSubmitVerify({ ...submitVerify, code, busy: true, error: null })
     const error = await finalizeSubmitForReview(submitVerify.attorneyIds, code)
     if (error) setSubmitVerify((current) => (current ? { ...current, busy: false, error } : current))
     else setSubmitVerify(null)
@@ -3963,7 +3967,7 @@ Checklist:
                 </div>
                 <form
                   className="mt-4"
-                  onSubmit={(e) => { e.preventDefault(); void verifyCodeAndSubmit() }}
+                  onSubmit={(e) => { e.preventDefault(); void verifyCodeAndSubmit(submitVerify.code) }}
                 >
                   <label htmlFor="submit-otp-code" className="mb-1 block text-sm font-medium text-slate-700">Verification code</label>
                   <input
@@ -3974,12 +3978,21 @@ Checklist:
                     autoFocus
                     maxLength={6}
                     value={submitVerify.code}
-                    onChange={(e) => setSubmitVerify({ ...submitVerify, code: e.target.value.replace(/\D/g, '').slice(0, 6), error: null })}
+                    onChange={(e) => {
+                      const code = e.target.value.replace(/\D/g, '').slice(0, 6)
+                      if (code.length === 6 && code !== submitVerify.code) void verifyCodeAndSubmit(code)
+                      else setSubmitVerify({ ...submitVerify, code, error: null })
+                    }}
                     className="input text-center text-2xl tracking-[0.5em]"
                     placeholder="••••••"
                     disabled={submitVerify.busy}
                   />
                   {submitVerify.error && <p className="mt-2 text-sm text-red-600" role="alert">{submitVerify.error}</p>}
+                  {!submitVerify.error && submitVerify.resendTooSoon && submitVerify.resendAt > Date.now() && (
+                    <p className="mt-2 text-sm text-slate-600" aria-live="polite">
+                      We already sent you a code. You can request a new one in {Math.ceil((submitVerify.resendAt - Date.now()) / 1000)}s.
+                    </p>
+                  )}
                   <button
                     type="submit"
                     className="btn-primary mt-4 w-full py-3 disabled:cursor-not-allowed disabled:opacity-70"
