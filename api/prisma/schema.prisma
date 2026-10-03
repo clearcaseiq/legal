@@ -3274,6 +3274,16 @@ model DocumentEnvelope {
   sourceFilePath String?
   sourceSha256   String?
 
+  // Attorney countersignature: signs after the client. The envelope only reaches
+  // 'signed' once both have; clientSignedAt marks the client's part.
+  countersignerName  String?
+  countersignerEmail String?
+  countersignUrl     String?
+  clientSignedAt     DateTime?
+  // The client packet (DocumentRequest) this envelope was sent in, so the one
+  // link the client receives lists it under "Sign these documents".
+  packetRequestId    String?
+
   // Lifecycle timestamps, set as provider webhooks arrive.
   sentAt     DateTime?
   viewedAt   DateTime?
@@ -3290,6 +3300,7 @@ model DocumentEnvelope {
   @@index([attorneyId])
   @@index([status])
   @@index([provider, externalEnvelopeId])
+  @@index([packetRequestId])
   @@map("document_envelopes")
 }
 

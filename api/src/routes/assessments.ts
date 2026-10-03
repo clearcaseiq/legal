@@ -1029,6 +1029,7 @@ router.get('/:id/tasks', authMiddleware, async (req: AuthRequest, res) => {
           signingUrl: true,
           externalEnvelopeId: true,
           sentAt: true,
+          clientSignedAt: true,
           attorney: { select: { name: true } },
         },
       }))
@@ -1039,14 +1040,18 @@ router.get('/:id/tasks', authMiddleware, async (req: AuthRequest, res) => {
       envelopeGroups.set(key, [...(envelopeGroups.get(key) || []), env])
     }
     const signatureTasks = Array.from(envelopeGroups.values()).map((group) => {
-      const signed = group.every((e) => e.status === 'signed')
+      const fullySigned = group.every((e) => e.status === 'signed')
+      // The client's part is done once they sign; the attorney may still countersign.
+      const signed = group.every((e) => e.status === 'signed' || e.clientSignedAt)
       const from = group[0].attorney?.name || 'Your attorney'
       const signingUrl = group.find((e) => e.signingUrl)?.signingUrl || null
       return {
         id: `envelope:${group[0].id}`,
         title: `Sign: ${group.map((e) => e.title).join(' + ')}`,
-        notes: signed
+        notes: fullySigned
           ? 'Signed. Thank you!'
+          : signed
+            ? 'You signed. Waiting for your attorney to countersign.'
           : signingUrl
             ? `${from} sent this for your signature.`
             : `${from} sent this for your signature. Check your email for the secure signing link.`,

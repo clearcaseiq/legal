@@ -184,6 +184,11 @@ export const dropboxSignProvider: ESignatureProvider = {
     form.append('signers[0][name]', input.signerName)
     form.append('signers[0][email_address]', input.signerEmail)
     form.append('signers[0][order]', '0')
+    if (input.countersigner) {
+      form.append('signers[1][name]', input.countersigner.name)
+      form.append('signers[1][email_address]', input.countersigner.email)
+      form.append('signers[1][order]', '1')
+    }
     form.append(
       'file[0]',
       new Blob([new Uint8Array(fileBuf)], { type: 'application/pdf' }),
@@ -246,13 +251,19 @@ export const dropboxSignProvider: ESignatureProvider = {
     }
     const sr = data.signature_request
     const sig = sr?.signatures?.[0]
+    // With a countersigner, the client's signature alone doesn't complete the request.
+    const clientSigned = sig?.status_code === 'signed'
     const status: EnvelopeStatus = sr?.is_complete
       ? 'signed'
-      : statusFromSignatureCode(sig?.status_code)
+      : clientSigned
+        ? 'viewed'
+        : statusFromSignatureCode(sig?.status_code)
+    const lastSignedAt = Math.max(0, ...(sr?.signatures ?? []).map((s) => Number(s.signed_at) || 0))
     return {
       status,
-      signedAt: sig?.signed_at ? new Date(sig.signed_at * 1000).toISOString() : null,
+      signedAt: sr?.is_complete && lastSignedAt ? new Date(lastSignedAt * 1000).toISOString() : null,
       auditTrailUrl: sr?.files_url ?? null,
+      clientSigned,
     }
   },
 
@@ -334,7 +345,7 @@ export const dropboxSignProvider: ESignatureProvider = {
 
     let payload: {
       event?: { event_time?: string; event_type?: string; event_hash?: string }
-      signature_request?: { signature_request_id?: string }
+      signature_request?: { signature_request_id?: string; is_complete?: boolean }
     }
     try {
       payload = JSON.parse(jsonStr)
@@ -355,14 +366,22 @@ export const dropboxSignProvider: ESignatureProvider = {
       return null
     }
 
-    const status = statusFromEventType(ev.event_type)
+    let status = statusFromEventType(ev.event_type)
     const externalEnvelopeId = payload.signature_request?.signature_request_id
     if (!status || !externalEnvelopeId) return null
+
+    // signature_request_signed fires per signer. Until all have signed (the
+    // attorney countersigns after the client), it only records the client's part;
+    // signature_request_all_signed completes the envelope.
+    const partial =
+      ev.event_type === 'signature_request_signed' && payload.signature_request?.is_complete === false
+    if (partial) status = 'viewed'
 
     return {
       externalEnvelopeId,
       status,
       signedAt: status === 'signed' ? new Date(Number(ev.event_time) * 1000).toISOString() : null,
+      clientSigned: partial || status === 'signed' ? true : undefined,
       rawType: ev.event_type,
     }
   },

@@ -35,11 +35,20 @@ export interface DocumentEnvelope {
   declinedAt?: string | null
   createdAt: string
   updatedAt?: string
+  /** Attorney who countersigns after the client (retainers). */
+  countersignerName?: string | null
+  countersignerEmail?: string | null
+  countersignUrl?: string | null
+  /** The client has signed; a countersignature may still be pending. */
+  clientSignedAt?: string | null
 }
+
+export type Countersigner = { name: string; email: string }
 
 export interface SigningDefaults {
   firmName?: string
   attorneyName?: string
+  attorneyEmail?: string
   contingencyPercent?: number
 }
 
@@ -132,6 +141,7 @@ export interface CreateRetainerAgreementPayload {
   costsResponsibility?: string
   scope?: string
   provider?: string
+  countersigner?: Countersigner
 }
 
 export const createRetainerAgreement = async (
@@ -157,6 +167,37 @@ export const downloadSignedEnvelope = async (envelopeId: string, fileName: strin
   link.click()
   link.remove()
   URL.revokeObjectURL(url)
+}
+
+export type PacketSignType = 'retainer' | 'hipaa_authorization'
+
+export interface SendClientPacketPayload {
+  uploads: string[]
+  sign: Array<{ type: PacketSignType; templateId?: string | null }>
+  delivery: 'email' | 'text'
+  customMessage?: string
+  countersigner?: Countersigner
+}
+
+export interface SendClientPacketResult {
+  ok: true
+  documentRequestId: string
+  link: string
+  uploads: string[]
+  alreadyRequested: string[]
+  envelopes: Array<{ id: string; type: PacketSignType; title: string }>
+  failed: Array<{ type: PacketSignType; error: string }>
+  delivered: boolean
+  deliveredTo: string
+}
+
+/** One client packet: documents to sign + files to upload, behind one link. */
+export const sendClientPacket = async (
+  leadId: string,
+  payload: SendClientPacketPayload,
+): Promise<SendClientPacketResult> => {
+  const res = await api.post(`/v1/documents/leads/${leadId}/client-packet`, payload)
+  return res.data
 }
 
 /** Signing defaults (firm/attorney/contingency) to prefill the send form. */
@@ -331,6 +372,7 @@ export const sendCaseFirmTemplate = async (
       | 'fee_agreement'
       | 'other'
     fieldValues?: EssentialValues
+    countersigner?: Countersigner
   },
 ): Promise<DocumentEnvelope> => {
   const res = await api.post(
@@ -381,6 +423,7 @@ function customDocumentForm(
     signerEmail?: string
     title?: string
     provider?: string
+    countersigner?: Countersigner
   },
   preview: boolean,
 ) {
@@ -392,6 +435,10 @@ function customDocumentForm(
   if (opts.signerEmail) form.append('signerEmail', opts.signerEmail)
   if (opts.title) form.append('title', opts.title)
   if (opts.provider) form.append('provider', opts.provider)
+  if (opts.countersigner) {
+    form.append('countersignerName', opts.countersigner.name)
+    form.append('countersignerEmail', opts.countersigner.email)
+  }
   if (preview) form.append('preview', '1')
   return form
 }
@@ -421,6 +468,7 @@ export const sendCustomDocument = async (
     signerEmail: string
     title?: string
     provider?: string
+    countersigner?: Countersigner
   },
 ): Promise<DocumentEnvelope> => {
   const res = await api.post(`/v1/documents/leads/${leadId}/custom-document`, customDocumentForm(file, opts, false))

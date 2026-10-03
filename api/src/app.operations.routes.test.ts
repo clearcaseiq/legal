@@ -2587,6 +2587,7 @@ describe('HTTP operations regressions', () => {
         claimType: 'slip_and_fall',
         clientName: 'Slip And Fall',
         uploadedCount: 0,
+        items: [],
       },
     ])
     expect(vi.mocked(prisma.documentRequest.findMany).mock.calls[0]?.[0]).toEqual({

@@ -178,8 +178,43 @@ async function claimantPortalPayload(docRequest: Awaited<ReturnType<typeof loadR
   // matter how much they sent.
   const uploadedCategories = new Set(uploads.map((file) => (file.category || '').trim()))
 
+  // Documents sent for signature in this packet. Voided and failed sends are
+  // not the client's to act on.
+  const envelopes = await prisma.documentEnvelope.findMany({
+    where: { packetRequestId: docRequest.id, status: { notIn: ['draft', 'voided'] } },
+    select: {
+      id: true,
+      title: true,
+      documentType: true,
+      status: true,
+      signingUrl: true,
+      provider: true,
+      viewedAt: true,
+      clientSignedAt: true,
+    },
+    orderBy: { createdAt: 'asc' },
+  })
+
   return {
     mode: 'claimant',
+    sign: envelopes.map((env) => {
+      const signed = env.status === 'signed' || Boolean(env.clientSignedAt)
+      const status = signed
+        ? 'signed'
+        : env.status === 'declined' || env.status === 'expired'
+          ? env.status
+          : env.viewedAt || env.status === 'viewed'
+            ? 'viewed'
+            : 'sent'
+      return {
+        id: env.id,
+        title: env.title,
+        documentType: env.documentType,
+        status,
+        signingUrl: status === 'sent' || status === 'viewed' ? env.signingUrl : null,
+        provider: env.provider,
+      }
+    }),
     attorneyName: docRequest.attorney?.name || null,
     firmName: docRequest.attorney?.lawFirm?.name || null,
     customMessage: docRequest.customMessage,

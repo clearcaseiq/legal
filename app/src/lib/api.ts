@@ -2398,10 +2398,22 @@ export type AttorneyDocumentRequest = {
   recipientRole?: OpposingDocRole | null
   origin?: string | null
   uploadedCount?: number
+  /** Per requested item: Requested → Received → Reviewed. Plaintiff requests only. */
+  items?: Array<{ key: string; label: string; stage: 'requested' | 'received' | 'reviewed'; fileIds: string[] }>
   lastNudgeAt?: string | null
   createdAt: string
   claimType?: string | null
   clientName?: string | null
+}
+
+/** Mark a case file reviewed (or flag it for follow-up). */
+export async function reviewLeadEvidence(
+  leadId: string,
+  fileId: string,
+  status: 'reviewed' | 'needs_follow_up' = 'reviewed',
+) {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/evidence/${fileId}/review`, { status })
+  return data
 }
 
 /** Without `leadId`, the attorney's own requests; with it, every request on that case. */
@@ -2515,6 +2527,16 @@ export type DocumentPortalRequest = {
   /** `fulfilled` is resolved server-side; request keys and evidence categories differ. */
   requestedDocs: Array<{ key: string; label: string; fulfilled?: boolean }>
   uploads: Array<{ id: string; originalName: string; docType?: string | null; createdAt: string }>
+  /** Documents to sign in this packet (claimant packets only). */
+  sign?: Array<{
+    id: string
+    title: string
+    documentType: string
+    status: 'sent' | 'viewed' | 'signed' | 'declined' | 'expired'
+    /** Null once signed, or when the provider emails the signing link instead. */
+    signingUrl: string | null
+    provider: string
+  }>
 }
 
 export async function getDocumentPortalRequest(token: string): Promise<DocumentPortalRequest> {

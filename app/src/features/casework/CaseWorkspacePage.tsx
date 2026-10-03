@@ -28,12 +28,9 @@ import {
   Info,
   LayoutDashboard,
   LayoutGrid,
-  Link2,
   ListChecks,
   Loader2,
   Lock,
-  Mail,
-  MailCheck,
   MapPin,
   MessageSquare,
   PartyPopper,
@@ -90,8 +87,6 @@ import {
   type MedicalSharingStatus,
   getLeadMedicalChronologySummary,
   getLeadTasks,
-  nudgeDocumentRequest,
-  textDocumentRequest,
   updateLeadTask,
   approveLeadTask,
   unapproveLeadTask,
@@ -106,6 +101,7 @@ import { getApiOrigin } from '../../lib/runtimeEnv'
 import { useHeuristics } from '../../contexts/HeuristicsContext'
 import { checkEvidenceCollect, checkPoliceReportCollect, confirmRetainerSigned, sendWelcomePacket } from '../../lib/api-esign'
 import SignatureRequestPanel from '../../components/SignatureRequestPanel'
+import { DocumentTemplatesSection, RequestDocumentsDialog, UploadRequestsList } from './DocumentsSections'
 import ClientContactDialog from './ClientContactDialog'
 import ClientInfoPanel from './ClientInfoPanel'
 import type { ClaimantContact } from '../../lib/api'
@@ -174,7 +170,7 @@ const ROW_TONE: Record<Tone, string> = {
   danger: 'text-rose-700',
 }
 
-const TABS = ['Overview', 'Client Info', 'AI Copilot', 'Rose', 'Workflow', 'Tasks', 'Evidence', 'Signatures', 'Medical', 'Liability', 'Insurance', 'Damages', 'Negotiation', 'Demand', 'Timeline', 'Settlement', 'Time', 'Billing', 'Referrals'] as const
+const TABS = ['Overview', 'Client Info', 'AI Copilot', 'Rose', 'Workflow', 'Tasks', 'Documents', 'Medical', 'Liability', 'Insurance', 'Damages', 'Negotiation', 'Demand', 'Timeline', 'Settlement', 'Time', 'Billing', 'Referrals'] as const
 type Tab = (typeof TABS)[number]
 
 // Fee-sharing referrals are served to attorneys only.
@@ -228,15 +224,15 @@ const SECTION_TO_TAB: Record<string, Tab> = {
   'ai-manager': 'Rose',
   'ai-case-manager': 'Rose',
   workflow: 'Workflow',
-  evidence: 'Evidence',
-  // Texted-in documents are filed as evidence; old Inbox links land there.
-  inbox: 'Evidence',
-  'document-inbox': 'Evidence',
-  texted: 'Evidence',
-  signatures: 'Signatures',
-  esign: 'Signatures',
-  // "Send retainer" and other e-sign deep-links land on the Signatures tab.
-  documents: 'Signatures',
+  // Evidence and Signatures were merged into Documents; their old links land
+  // there (signature links open the Requests section).
+  documents: 'Documents',
+  evidence: 'Documents',
+  inbox: 'Documents',
+  'document-inbox': 'Documents',
+  texted: 'Documents',
+  signatures: 'Documents',
+  esign: 'Documents',
   medical: 'Medical',
   coverage: 'Insurance',
   insurance: 'Insurance',
@@ -268,8 +264,7 @@ const TAB_TO_SECTION: Record<Tab, string> = {
   'AI Copilot': 'copilot',
   Rose: 'rose',
   Workflow: 'workflow',
-  Evidence: 'evidence',
-  Signatures: 'signatures',
+  Documents: 'documents',
   Medical: 'medical',
   Insurance: 'insurance',
   Liability: 'liability',
@@ -299,8 +294,10 @@ const TAB_META: Record<Tab, TabMeta> = {
   },
   Workflow: { icon: Workflow, blurb: 'Your firm’s standard pipeline for this case — check off steps, assign owners, and track progress stage by stage.' },
   Tasks: { icon: ListChecks, blurb: 'Primary work queue for this case — recommended next steps, assignments, and open items.' },
-  Evidence: { icon: FolderOpen, blurb: 'Upload documents, request records, and track the case file.' },
-  Signatures: { icon: PenLine, blurb: 'Send retainers and authorizations for e-signature.' },
+  Documents: {
+    icon: FolderOpen,
+    blurb: 'Every file on the case, what the client still owes you, and your retainer and HIPAA templates.',
+  },
   Medical: { icon: Stethoscope, blurb: 'Providers, treatment chronology, and cost benchmarks.' },
   Insurance: { icon: Shield, blurb: 'Insurance carriers, policy limits, adjusters, and claims.' },
   Liability: { icon: Gavel, blurb: 'Fault theory, comparative negligence, and liability evidence.' },
@@ -957,12 +954,8 @@ export default function CaseWorkspacePage() {
             </header>
             <div className="p-5 sm:p-6">
               <StaffViewOnly
-                locked={
-                  tab === 'Signatures'
-                    ? isStaff && !can('documents') && !can('manage')
-                    : Boolean(isStaff && TAB_WRITE_ACTION[tab] && !can(TAB_WRITE_ACTION[tab]!.action))
-                }
-                what={tab === 'Signatures' ? 'sending documents for signature' : TAB_WRITE_ACTION[tab]?.what ?? ''}
+                locked={Boolean(isStaff && TAB_WRITE_ACTION[tab] && !can(TAB_WRITE_ACTION[tab]!.action))}
+                what={TAB_WRITE_ACTION[tab]?.what ?? ''}
               >
                 <WorkstreamPanel tab={tab} section={section} lead={lead} detail={detail} cc={cc} tasks={tasks} reloadTasks={reloadTasks} reloadCc={reloadCc} onOpenChat={openChat} onContactSaved={(contact) => setContactOverride(contact)} onAssessmentPatch={(patch) => setLead((prev: any) => (prev ? { ...prev, assessment: { ...(prev.assessment || {}), ...patch } } : prev))} />
               </StaffViewOnly>
@@ -1086,36 +1079,8 @@ function WorkstreamPanel({
     return <ClientInfoPanel leadId={lead.id} tasks={tasks} reloadTasks={reloadTasks} onSaved={onContactSaved} />
   }
 
-  if (tab === 'Evidence') {
-    return (
-      <EvidencePanel
-        leadId={lead.id}
-        assessmentId={detail.assessmentId}
-        clientName={detail.client}
-        initialFiles={detail.evidenceFiles}
-      />
-    )
-  }
-
-  if (tab === 'Signatures') {
-    const docParam = (searchParams.get('doc') || '').toLowerCase()
-    const initialDoc =
-      docParam === 'police_report_authorization' || docParam === 'police'
-        ? 'police_report_authorization'
-        : docParam === 'retainer' || (section || '').toLowerCase() === 'documents'
-          ? 'retainer'
-          : docParam === 'hipaa_authorization' || docParam === 'hipaa'
-            ? 'hipaa_authorization'
-            : 'hipaa_authorization'
-    return (
-      <SignatureRequestPanel
-        leadId={lead.id}
-        defaultSignerName={detail.client}
-        defaultSignerEmail={detail.clientEmail}
-        // Deep-links: ?doc=police_report_authorization | retainer | hipaa; section=documents → retainer.
-        initialDocumentType={initialDoc}
-      />
-    )
+  if (tab === 'Documents') {
+    return <DocumentsPanel lead={lead} detail={detail} section={section} />
   }
 
   if (tab === 'Medical') {
@@ -1689,6 +1654,7 @@ const UPLOAD_CATEGORIES = [
   { id: 'wage_loss', label: 'Wage loss' },
   { id: 'insurance', label: 'Insurance / dec page' },
   { id: 'correspondence', label: 'Correspondence' },
+  { id: 'agreements', label: 'Agreements' },
   { id: 'other', label: 'Other' },
 ]
 
@@ -1750,8 +1716,23 @@ function canonicalEvidenceCategory(raw?: string | null): string {
   return EVIDENCE_CATEGORY_ALIASES[key] || key
 }
 
-function evidenceCategoryLabel(raw?: string | null): string {
-  const id = canonicalEvidenceCategory(raw)
+/** Executed retainers and authorizations: the signed record, not evidence. */
+function isAgreementDoc(doc: any): boolean {
+  return (
+    doc?.uploadMethod === 'esign' ||
+    doc?.subcategory === 'signed_agreement' ||
+    doc?.subcategory === 'signed_authorization' ||
+    canonicalEvidenceCategory(doc?.category) === 'agreements'
+  )
+}
+
+/** A file's bucket. Signed agreements filed before Agreements existed sit under "other". */
+function docCategory(doc: any): string {
+  return isAgreementDoc(doc) ? 'agreements' : canonicalEvidenceCategory(doc?.category)
+}
+
+function evidenceCategoryLabel(doc: any): string {
+  const id = docCategory(doc)
   return UPLOAD_CATEGORIES.find((c) => c.id === id)?.label || id.replace(/_/g, ' ')
 }
 
@@ -1839,14 +1820,6 @@ function labelRequestedDoc(idOrLabel: string): string {
   if (idOrLabel.toLowerCase().startsWith(CUSTOM_REQUEST_PREFIX)) return idOrLabel.slice(CUSTOM_REQUEST_PREFIX.length)
   const hit = REQUESTABLE_DOCS.find((d) => d.id === idOrLabel || d.label === idOrLabel)
   return hit?.label || OTHER_REQUEST_LABELS[idOrLabel] || idOrLabel.replace(/_/g, ' ')
-}
-
-function formatRequestedDocs(docs: string[] | null | undefined): string {
-  const labels = (docs || []).map(labelRequestedDoc).filter(Boolean)
-  if (!labels.length) return 'Documents'
-  if (labels.length === 1) return labels[0]
-  if (labels.length === 2) return `${labels[0]} and ${labels[1]}`
-  return `${labels.slice(0, -1).join(', ')}, and ${labels[labels.length - 1]}`
 }
 
 function evidenceExtractedTotal(doc: any): number | null {
@@ -2302,16 +2275,199 @@ function MedicalPanel({
   )
 }
 
+type DocumentsView = 'files' | 'requests' | 'templates'
+
+const DOCUMENTS_VIEWS: { id: DocumentsView; label: string }[] = [
+  { id: 'files', label: 'All files' },
+  { id: 'requests', label: 'Requests' },
+  { id: 'templates', label: 'Templates' },
+]
+
+/**
+ * Documents: every file on the case, what the client still owes (uploads and
+ * signatures), and the firm's retainer and HIPAA templates.
+ */
+function DocumentsPanel({ lead, detail, section }: { lead: any; detail: CaseDetailVM; section?: string }) {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const { can } = useFirmAccess()
+  const sectionKey = (section || '').toLowerCase()
+  const docParam = (searchParams.get('doc') || '').toLowerCase()
+  const viewParam = searchParams.get('view') as DocumentsView | null
+  const view: DocumentsView =
+    viewParam && DOCUMENTS_VIEWS.some((v) => v.id === viewParam)
+      ? viewParam
+      : sectionKey === 'signatures' || sectionKey === 'esign' || docParam
+        ? 'requests'
+        : 'files'
+  const setView = (next: DocumentsView) => {
+    const params = new URLSearchParams(searchParams)
+    params.set('view', next)
+    setSearchParams(params, { replace: true })
+  }
+
+  const initialDoc =
+    docParam === 'police_report_authorization' || docParam === 'police'
+      ? 'police_report_authorization'
+      : docParam === 'retainer'
+        ? 'retainer'
+        : 'hipaa_authorization'
+
+  const uploadTrigger = useRef<(() => void) | null>(null)
+  const registerUploadTrigger = useCallback((open: (() => void) | null) => {
+    uploadTrigger.current = open
+  }, [])
+  const [requestUploads, setRequestUploads] = useState<string[] | null>(null)
+  const [reloadKey, setReloadKey] = useState(0)
+  const [notice, setNotice] = useState<string | null>(null)
+  const canUpload = can('documents')
+  const canRequest = can('request')
+
+  const openRequest = (uploadKeys: string[] = []) => {
+    setNotice(null)
+    setRequestUploads(uploadKeys)
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="inline-flex rounded-xl bg-slate-100 p-1" role="tablist" aria-label="Documents sections">
+          {DOCUMENTS_VIEWS.map((v) => (
+            <button
+              key={v.id}
+              type="button"
+              role="tab"
+              aria-selected={view === v.id}
+              onClick={() => setView(v.id)}
+              className={`rounded-lg px-3.5 py-1.5 text-sm font-semibold transition ${
+                view === v.id ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              {v.label}
+            </button>
+          ))}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {canUpload ? (
+            <button
+              type="button"
+              onClick={() => {
+                if (view !== 'files') setView('files')
+                uploadTrigger.current?.()
+              }}
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:border-brand-300 hover:text-brand-700"
+            >
+              <CloudUpload className="h-4 w-4 text-brand-600" /> Upload files
+            </button>
+          ) : null}
+          {canRequest ? (
+            <button
+              type="button"
+              onClick={() => openRequest()}
+              className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-3.5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-700"
+            >
+              <Send className="h-4 w-4" /> Request documents
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      {notice ? (
+        <p className="flex items-start justify-between gap-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+          <span>{notice}</span>
+          <button type="button" onClick={() => setNotice(null)} className="shrink-0 text-emerald-600 hover:text-emerald-800" aria-label="Dismiss">
+            <X className="h-4 w-4" />
+          </button>
+        </p>
+      ) : null}
+
+      {/* Kept mounted so the Upload files button can open its picker from any section. */}
+      <div className={view === 'files' ? '' : 'hidden'}>
+        <EvidencePanel
+          leadId={lead.id}
+          assessmentId={detail.assessmentId}
+          clientName={detail.client}
+          initialFiles={detail.evidenceFiles}
+          reloadKey={reloadKey}
+          registerUploadTrigger={registerUploadTrigger}
+          onRequestDocuments={openRequest}
+          onOpenRequests={() => setView('requests')}
+        />
+      </div>
+
+      {view === 'requests' ? (
+        <div className="space-y-6">
+          <section>
+            <div className="mb-2 flex items-baseline justify-between gap-2">
+              <h3 className="text-base font-semibold text-slate-900">Upload requests</h3>
+              <p className="text-xs text-slate-400">Requested → Received → Reviewed</p>
+            </div>
+            <UploadRequestsList
+              leadId={lead.id}
+              reloadKey={reloadKey}
+              canRequest={canRequest}
+              canReview={canUpload}
+              onChanged={() => setReloadKey((k) => k + 1)}
+              onViewFiles={() => setView('files')}
+            />
+          </section>
+          <section className="border-t border-slate-100 pt-5">
+            <div className="mb-2 flex items-baseline justify-between gap-2">
+              <h3 className="text-base font-semibold text-slate-900">Signature requests</h3>
+              <p className="text-xs text-slate-400">Sent → Viewed → Signed</p>
+            </div>
+            <StaffViewOnly locked={!can('documents') && !can('manage')} what="sending documents for signature">
+              <SignatureRequestPanel
+                key={reloadKey}
+                leadId={lead.id}
+                defaultSignerName={detail.client}
+                defaultSignerEmail={detail.clientEmail}
+                initialDocumentType={initialDoc}
+              />
+            </StaffViewOnly>
+          </section>
+        </div>
+      ) : null}
+
+      {view === 'templates' ? <DocumentTemplatesSection leadId={lead.id} clientName={detail.client} /> : null}
+
+      {requestUploads ? (
+        <RequestDocumentsDialog
+          leadId={lead.id}
+          clientName={detail.client}
+          initialUploads={requestUploads}
+          labelFor={labelRequestedDoc}
+          onClose={() => setRequestUploads(null)}
+          onSent={(summary) => {
+            setRequestUploads(null)
+            setNotice(summary)
+            setReloadKey((k) => k + 1)
+          }}
+        />
+      ) : null}
+    </div>
+  )
+}
+
 function EvidencePanel({
   leadId,
   assessmentId,
   clientName,
   initialFiles,
+  reloadKey,
+  registerUploadTrigger,
+  onRequestDocuments,
+  onOpenRequests,
 }: {
   leadId: string
   assessmentId: string | null
   clientName: string
   initialFiles: any[]
+  /** Bumped when something outside (a packet, a review) changed the files or requests. */
+  reloadKey: number
+  /** Hands the parent a way to open the file picker from its own button click. */
+  registerUploadTrigger: (open: (() => void) | null) => void
+  onRequestDocuments: (uploadKeys: string[]) => void
+  onOpenRequests: () => void
 }) {
   const [spEv] = useSearchParams()
   const { can } = useFirmAccess()
@@ -2322,14 +2478,6 @@ function EvidencePanel({
   const [uploading, setUploading] = useState(false)
   const [category, setCategory] = useState(initialCategory)
   const [description, setDescription] = useState('')
-  const [requestOpen, setRequestOpen] = useState(false)
-  const [requested, setRequested] = useState<string[]>([])
-  const [requestMessage, setRequestMessage] = useState('')
-  const [requesting, setRequesting] = useState(false)
-  const [texting, setTexting] = useState(false)
-  // Which channel the attorney picked on the way in. Both send buttons stay
-  // available in the form; this only decides which one reads as the primary.
-  const [requestChannel, setRequestChannel] = useState<'email' | 'text'>('email')
   const [openRequests, setOpenRequests] = useState<AttorneyDocumentRequest[]>([])
   const [banner, setBanner] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null)
   const [search, setSearch] = useState('')
@@ -2367,6 +2515,18 @@ function EvidencePanel({
       .then((rs) => setOpenRequests((rs || []).filter((r) => r.leadId === leadId && r.status !== 'completed')))
       .catch(() => {})
   }
+
+  useEffect(() => {
+    registerUploadTrigger(canUpload ? () => fileInputRef.current?.click() : null)
+    return () => registerUploadTrigger(null)
+  }, [canUpload, registerUploadTrigger])
+
+  useEffect(() => {
+    if (!reloadKey) return
+    refreshDocs()
+    refreshRequests()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reloadKey])
 
   useEffect(() => {
     refreshDocs()
@@ -2559,22 +2719,15 @@ function EvidencePanel({
     return keys
   }, [openRequests])
 
-  const openRequestForm = (channel: 'email' | 'text') => {
-    setRequestChannel(channel)
-    setRequestOpen(true)
-  }
-
-  const requestCategory = (reqLabel: string) => {
-    if (pendingRequestedKeys.has(reqLabel)) {
+  const requestCategory = (reqKey: string) => {
+    if (pendingRequestedKeys.has(reqKey)) {
       setBanner({
         tone: 'err',
-        text: `${labelRequestedDoc(reqLabel)} is already in an open request. Nudge the client instead of requesting it again.`,
+        text: `${labelRequestedDoc(reqKey)} is already in an open request. Nudge the client from Requests instead.`,
       })
-      setRequestOpen(true)
       return
     }
-    setRequested((prev) => (prev.includes(reqLabel) ? prev : [...prev, reqLabel]))
-    setRequestOpen(true)
+    onRequestDocuments([reqKey])
   }
 
   // Deleting evidence is destructive, so it gets the branded in-app dialog
@@ -2655,13 +2808,19 @@ function EvidencePanel({
     }
   }
 
+  const lockedIds = new Set(docs.filter((d) => d.locked || d.uploadMethod === 'esign').map((d) => d.id))
+  const deletableSelected = [...selected].filter((id) => !lockedIds.has(id))
+
   const bulkDelete = () => {
-    if (!selected.size) return
-    setPendingDelete({ kind: 'bulk', count: selected.size })
+    if (!deletableSelected.length) {
+      setBanner({ tone: 'err', text: 'Signed documents can’t be deleted.' })
+      return
+    }
+    setPendingDelete({ kind: 'bulk', count: deletableSelected.length })
   }
 
   const performBulkDelete = async () => {
-    const ids = [...selected]
+    const ids = deletableSelected
     if (!ids.length) return
     setBulkBusy(true)
     setBanner(null)
@@ -2754,123 +2913,6 @@ function EvidencePanel({
     }
   }
 
-  const toggleReq = (docId: string) => {
-    if (pendingRequestedKeys.has(docId)) return
-    setRequested((prev) => (prev.includes(docId) ? prev.filter((x) => x !== docId) : [...prev, docId]))
-  }
-
-  const [customDocOpen, setCustomDocOpen] = useState(false)
-  const [customDocText, setCustomDocText] = useState('')
-  const addCustomDoc = () => {
-    const text = customDocText.replace(/\s+/g, ' ').trim().slice(0, 120)
-    if (!text) return
-    const key = `${CUSTOM_REQUEST_PREFIX}${text}`
-    if (pendingRequestedKeys.has(key)) {
-      setBanner({ tone: 'err', text: `"${text}" is already in an open request. Use Nudge instead.` })
-      return
-    }
-    setRequested((prev) => (prev.includes(key) ? prev : [...prev, key]))
-    setCustomDocText('')
-    setCustomDocOpen(false)
-  }
-
-  const submitRequest = async () => {
-    const fresh = requested.filter((id) => !pendingRequestedKeys.has(id))
-    if (!requested.length) {
-      setBanner({ tone: 'err', text: 'Pick at least one document to request.' })
-      return
-    }
-    if (!fresh.length) {
-      setBanner({
-        tone: 'err',
-        text: 'Those documents are already in an open request. Use Nudge to remind the client.',
-      })
-      return
-    }
-    setRequesting(true)
-    setBanner(null)
-    try {
-      await createDocumentRequest(leadId, { requestedDocs: fresh, customMessage: requestMessage || undefined })
-      const skipped = requested.filter((id) => pendingRequestedKeys.has(id))
-      setBanner({
-        tone: 'ok',
-        text: skipped.length
-          ? `Requested ${formatRequestedDocs(fresh)} from ${clientName || 'the client'}. Skipped already-open: ${formatRequestedDocs(skipped)}.`
-          : `Requested ${formatRequestedDocs(fresh)} from ${clientName || 'the client'}.`,
-      })
-      setRequested([])
-      setRequestMessage('')
-      setRequestOpen(false)
-      refreshRequests()
-    } catch (err: any) {
-      setBanner({ tone: 'err', text: err?.response?.data?.error || 'Could not send the request.' })
-    } finally {
-      setRequesting(false)
-    }
-  }
-
-  /**
-   * The same ask, sent by text instead of email.
-   *
-   * Worth its own button rather than a toggle on the one above: a claimant who
-   * will not open an email attachment will photograph a bill, and the attorney
-   * generally knows which of the two this client is.
-   */
-  const submitRequestByText = async () => {
-    const fresh = requested.filter((id) => !pendingRequestedKeys.has(id))
-    if (!requested.length) {
-      setBanner({ tone: 'err', text: 'Pick at least one document to request.' })
-      return
-    }
-    if (!fresh.length) {
-      setBanner({
-        tone: 'err',
-        text: 'Those documents are already in an open request. Use Nudge to remind the client.',
-      })
-      return
-    }
-    setTexting(true)
-    setBanner(null)
-    try {
-      const result = await textDocumentRequest(leadId, {
-        requestedDocs: fresh,
-        customMessage: requestMessage || undefined,
-      })
-      const where =
-        result.mode === 'photo_reply'
-          ? 'They can reply with photos, which land on the Evidence tab.'
-          : 'They got a one-tap upload link that needs no login, and their files land here.'
-      setBanner({
-        tone: result.warning ? 'err' : 'ok',
-        text: result.warning || `Texted ${clientName || 'the client'} at •••${result.phoneLast4 || '••••'}. ${where}`,
-      })
-      if (!result.warning) {
-        setRequested([])
-        setRequestMessage('')
-        setRequestOpen(false)
-      }
-      refreshRequests()
-    } catch (err: any) {
-      // The refusals here are ones the attorney can act on — no number on file,
-      // the client texted STOP — so the server's wording beats a generic one.
-      setBanner({ tone: 'err', text: err?.response?.data?.error || 'Could not text the request.' })
-    } finally {
-      setTexting(false)
-    }
-  }
-
-  const handleNudge = async (id: string) => {
-    try {
-      await nudgeDocumentRequest(id)
-      setBanner({ tone: 'ok', text: 'Reminder sent to the client.' })
-      refreshRequests()
-    } catch (err: any) {
-      // Surface the server message (e.g. the 24h cooldown notice) instead of a
-      // generic failure so a second Nudge explains why it was blocked (CP-314).
-      setBanner({ tone: 'err', text: err?.response?.data?.error || 'Could not send the reminder.' })
-    }
-  }
-
   const apiOrigin = getApiOrigin() || (typeof window !== 'undefined' ? window.location.origin : '')
 
   // Derived views for the toolbar (search / filter / sort) and the summary strip.
@@ -2935,6 +2977,7 @@ function EvidencePanel({
     const isSelected = selected.has(doc.id)
     const damagePayload = damagesPayloadForEvidence(doc)
     const damageAdded = addedDamageIds.has(doc.id)
+    const locked = Boolean(doc.locked) || doc.uploadMethod === 'esign'
     return (
       <li
         key={doc.id}
@@ -2981,7 +3024,22 @@ function EvidencePanel({
               <span className="capitalize">{evidenceCategoryLabel(doc.category)}</span>
               {doc.size ? <span>· {formatSize(doc.size)}</span> : null}
               {doc.createdAt ? <span>· {formatDate(doc.createdAt)}</span> : null}
-              <span className={`ml-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${STATUS_BADGE[source.tone]}`}>{source.label}</span>
+              {locked ? (
+                <button
+                  type="button"
+                  onClick={onOpenRequests}
+                  title={
+                    doc.signedEnvelope?.title
+                      ? `Signed from “${doc.signedEnvelope.title}”. The executed record can’t be edited.`
+                      : 'The executed record can’t be edited.'
+                  }
+                  className="ml-1 inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 hover:bg-emerald-100"
+                >
+                  <Lock className="h-3 w-3" /> Signed · view request
+                </button>
+              ) : (
+                <span className={`ml-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${STATUS_BADGE[source.tone]}`}>{source.label}</span>
+              )}
               {doc.identityCheck?.verdict === 'mismatch' ? (
                 <span
                   className="inline-flex items-center gap-0.5 rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-700"
@@ -3052,23 +3110,31 @@ function EvidencePanel({
           >
             <Download className="h-4 w-4" />
           </button>
-          <button
-            type="button"
-            onClick={() => startReplace(doc.id)}
-            disabled={uploading}
-            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-brand-600 disabled:opacity-50"
-            title="Replace with a new version"
-          >
-            <RefreshCw className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            onClick={() => handleDelete(doc.id)}
-            className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
-            title="Delete"
-          >
-            <Trash2 className="h-4 w-4" />
-          </button>
+          {locked ? (
+            <span className="grid h-8 w-[3.75rem] place-items-center text-slate-300" title="Signed documents can’t be replaced or deleted">
+              <Lock className="h-4 w-4" />
+            </span>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => startReplace(doc.id)}
+                disabled={uploading}
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-brand-600 disabled:opacity-50"
+                title="Replace with a new version"
+              >
+                <RefreshCw className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDelete(doc.id)}
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                title="Delete"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </>
+          )}
         </div>
       </li>
     )
@@ -3086,16 +3152,7 @@ function EvidencePanel({
         </div>
       ) : null}
 
-      <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="flex items-center gap-3">
-          <span className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-brand-50">
-            <FileText className="h-6 w-6 text-brand-600" />
-          </span>
-          <div>
-            <h2 className="text-lg font-semibold text-slate-900">Evidence</h2>
-            <p className="text-sm text-slate-500">Upload documents, request records, and track the case file.</p>
-          </div>
-        </div>
+      <div className="flex flex-wrap items-center gap-4">
         <div className="flex flex-wrap items-stretch divide-x divide-slate-200 rounded-xl bg-slate-50 px-1 py-2">
           <EvidenceStat icon={FileText} value={docs.length} label="Documents" />
           <EvidenceStat icon={Database} value={totalSize ? formatSize(totalSize) : '—'} label="Total size" />
@@ -3116,6 +3173,7 @@ function EvidencePanel({
           <span className="rounded-full bg-brand-50 px-2.5 py-0.5 text-xs font-semibold text-brand-700">
             {coverageMet}/{COVERAGE_CHECKLIST.length} case docs
           </span>
+          <span className="text-xs text-slate-400">Supporting case records only — signed agreements don’t count.</span>
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
           {COVERAGE_CHECKLIST.map((c) => {
@@ -3246,294 +3304,71 @@ function EvidencePanel({
         )
       })()}
 
-      {/* Actions: upload + request */}
-      <div className="grid gap-3 lg:grid-cols-2">
-        <div
-          onDragOver={(e) => {
-            e.preventDefault()
-            if (!dragOver) setDragOver(true)
-          }}
-          onDragLeave={() => setDragOver(false)}
-          onDrop={handleDrop}
-          className={`rounded-2xl border p-4 shadow-sm transition ${dragOver ? 'border-brand-400 bg-brand-50/60' : 'border-slate-200 bg-white'} ${canUpload ? '' : 'hidden'}`}
-        >
-          <div className="flex items-start gap-3">
-            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-brand-600 shadow-sm">
-              <CloudUpload className="h-5 w-5 text-white" />
-            </span>
-            <div>
-              <p className="text-base font-semibold text-slate-900">Add a document</p>
-              <p className="text-sm text-slate-500">Upload files or drag and drop. Supports PDF, DOC, DOCX, images.</p>
-            </div>
-          </div>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <label className="flex flex-col gap-1 text-xs font-medium text-slate-600">
-              Category
-              <select
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                className="rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-sm text-slate-800 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
-              >
-                {UPLOAD_CATEGORIES.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="flex flex-col gap-1 text-xs font-medium text-slate-600">
-              Description (optional)
-              <input
-                type="text"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Brief description…"
-                className="rounded-lg border border-slate-200 px-2.5 py-2 text-sm text-slate-800 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
-              />
-            </label>
-          </div>
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            onChange={handleFiles}
-            className="hidden"
-            accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif,.webp,.txt"
-          />
+      {/* Upload strip: the top "Upload files" button opens the same picker. */}
+      <div
+        onDragOver={(e) => {
+          e.preventDefault()
+          if (!dragOver) setDragOver(true)
+        }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={handleDrop}
+        className={`rounded-2xl border p-4 shadow-sm transition ${dragOver ? 'border-brand-400 bg-brand-50/60' : 'border-slate-200 bg-white'} ${canUpload ? '' : 'hidden'}`}
+      >
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          onChange={handleFiles}
+          className="hidden"
+          accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif,.webp,.txt"
+        />
+        <div className="grid items-end gap-3 md:grid-cols-[minmax(0,12rem)_minmax(0,1fr)_minmax(0,1.4fr)]">
+          <label className="flex flex-col gap-1 text-xs font-medium text-slate-600">
+            Category
+            <select
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              className="rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-sm text-slate-800 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
+            >
+              {UPLOAD_CATEGORIES.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-xs font-medium text-slate-600">
+            Description (optional)
+            <input
+              type="text"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Brief description…"
+              className="rounded-lg border border-slate-200 px-2.5 py-2 text-sm text-slate-800 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
+            />
+          </label>
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={uploading}
-            className="mt-3 flex w-full flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/50 px-4 py-7 text-center transition hover:border-brand-300 hover:bg-brand-50/40 disabled:opacity-50"
+            className="flex items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/50 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-brand-300 hover:bg-brand-50/40 disabled:opacity-50"
           >
-            <CloudUpload className="h-7 w-7 text-brand-500" />
-            <span className="text-sm font-semibold text-slate-700">
-              {uploading ? 'Uploading…' : dragOver ? 'Drop to upload' : 'Drag & drop or click to upload'}
-            </span>
-            <span className="text-xs text-slate-400">PDF, DOC, or images · up to 10 files · max {MAX_UPLOAD_MB} MB each · category “{UPLOAD_CATEGORIES.find((c) => c.id === category)?.label || category}”</span>
+            <CloudUpload className="h-5 w-5 text-brand-500" />
+            {uploading ? 'Uploading…' : dragOver ? 'Drop to upload' : 'Drag & drop or click to upload'}
           </button>
         </div>
-
-        <div className={`relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-sm ${can('request') ? '' : 'hidden'}`}>
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex items-start gap-3">
-              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-brand-600 shadow-sm">
-                <Send className="h-5 w-5 text-white" />
-              </span>
-              <div>
-                <p className="text-base font-semibold text-slate-900">Request from client</p>
-                <p className="text-sm text-slate-500">Send the client a secure upload link for records, bills, and photos.</p>
-              </div>
-            </div>
-            {requestOpen ? (
-              <button
-                type="button"
-                onClick={() => setRequestOpen(false)}
-                className="text-xs font-semibold text-brand-700 hover:text-brand-800"
-              >
-                Cancel
-              </button>
-            ) : null}
-          </div>
-          {requestOpen ? (
-            <div className="mt-3 space-y-3">
-              <div className="flex flex-wrap gap-2">
-                {REQUESTABLE_DOCS.map((doc) => {
-                  const on = requested.includes(doc.id)
-                  const already = pendingRequestedKeys.has(doc.id)
-                  return (
-                    <button
-                      key={doc.id}
-                      type="button"
-                      onClick={() => toggleReq(doc.id)}
-                      disabled={already}
-                      title={already ? 'Already in an open request — use Nudge instead' : undefined}
-                      className={`rounded-full border px-2.5 py-1 text-xs font-medium transition ${
-                        already
-                          ? 'cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400'
-                          : on
-                            ? 'border-brand-400 bg-brand-50 text-brand-700'
-                            : 'border-slate-200 text-slate-600 hover:border-brand-300'
-                      }`}
-                    >
-                      {doc.label}
-                      {already ? ' · open' : ''}
-                    </button>
-                  )
-                })}
-                {requested
-                  .filter((id) => id.startsWith(CUSTOM_REQUEST_PREFIX))
-                  .map((id) => (
-                    <button
-                      key={id}
-                      type="button"
-                      onClick={() => toggleReq(id)}
-                      title="Remove"
-                      className="inline-flex items-center gap-1 rounded-full border border-brand-400 bg-brand-50 px-2.5 py-1 text-xs font-medium text-brand-700"
-                    >
-                      {labelRequestedDoc(id)}
-                      <X className="h-3 w-3" aria-hidden />
-                    </button>
-                  ))}
-                {customDocOpen ? null : (
-                  <button
-                    type="button"
-                    onClick={() => setCustomDocOpen(true)}
-                    className="inline-flex items-center gap-1 rounded-full border border-dashed border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 hover:border-brand-300 hover:text-brand-700"
-                  >
-                    <Plus className="h-3 w-3" aria-hidden />
-                    Other…
-                  </button>
-                )}
-              </div>
-              {customDocOpen ? (
-                <div className="flex items-center gap-2">
-                  <input
-                    autoFocus
-                    value={customDocText}
-                    onChange={(e) => setCustomDocText(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault()
-                        addCustomDoc()
-                      } else if (e.key === 'Escape') {
-                        setCustomDocOpen(false)
-                        setCustomDocText('')
-                      }
-                    }}
-                    maxLength={120}
-                    placeholder="Describe the document, e.g. Rideshare trip receipt"
-                    className="min-w-0 flex-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm text-slate-800 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
-                  />
-                  <button
-                    type="button"
-                    onClick={addCustomDoc}
-                    disabled={!customDocText.trim()}
-                    className="rounded-lg border border-brand-600 px-3 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-50 disabled:opacity-50"
-                  >
-                    Add
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCustomDocOpen(false)
-                      setCustomDocText('')
-                    }}
-                    className="text-xs font-semibold text-slate-500 hover:text-slate-700"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              ) : null}
-              <textarea
-                value={requestMessage}
-                onChange={(e) => setRequestMessage(e.target.value)}
-                rows={2}
-                placeholder={`Optional note to ${clientName || 'the client'}…`}
-                className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm text-slate-800 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
-              />
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={submitRequest}
-                  disabled={requesting || texting}
-                  className={`inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-semibold disabled:opacity-50 ${
-                    requestChannel === 'email'
-                      ? 'order-1 bg-brand-600 text-white hover:bg-brand-700'
-                      : 'order-2 border border-brand-600 bg-white text-brand-700 hover:bg-brand-50'
-                  }`}
-                >
-                  <Send className="h-4 w-4" />
-                  {requesting ? 'Sending…' : 'Email request to client'}
-                </button>
-                <button
-                  type="button"
-                  onClick={submitRequestByText}
-                  disabled={requesting || texting}
-                  title="Text the client — they send photos back or tap a link, no login either way"
-                  className={`inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-semibold disabled:opacity-50 ${
-                    requestChannel === 'text'
-                      ? 'order-1 bg-brand-600 text-white hover:bg-brand-700'
-                      : 'order-2 border border-brand-600 bg-white text-brand-700 hover:bg-brand-50'
-                  }`}
-                >
-                  <MessageSquare className="h-4 w-4" />
-                  {texting ? 'Texting…' : 'Text request to client'}
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="mt-4">
-              {/* Both channels are named up front. Hiding the text option behind
-                  the form made attorneys assume it did not exist. */}
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => openRequestForm('email')}
-                  className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:border-brand-300 hover:text-brand-700"
-                >
-                  <Mail className="h-4 w-4 text-brand-600" />
-                  Email request
-                </button>
-                <button
-                  type="button"
-                  onClick={() => openRequestForm('text')}
-                  className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:border-brand-300 hover:text-brand-700"
-                >
-                  <Link2 className="h-4 w-4 text-brand-600" />
-                  Text request
-                </button>
-              </div>
-              {openRequests.length === 0 ? (
-                <div className="pointer-events-none mt-2 hidden justify-end sm:flex" aria-hidden>
-                  <span className="grid h-24 w-24 place-items-center rounded-full bg-brand-50/70 ring-8 ring-brand-50/40">
-                    <MailCheck className="h-11 w-11 text-brand-400" />
-                  </span>
-                </div>
-              ) : null}
-            </div>
-          )}
-
+        <p className="mt-2 text-xs text-slate-400">
+          PDF, DOC, or images · up to 10 files · max {MAX_UPLOAD_MB} MB each · filed as “
+          {UPLOAD_CATEGORIES.find((c) => c.id === category)?.label || category}”
           {openRequests.length > 0 ? (
-            <div className="mt-3 space-y-2 border-t border-slate-100 pt-3">
-              {openRequests.map((r) => {
-                const docLabels = (r.requestedDocs || []).map(labelRequestedDoc)
-                return (
-                  <div key={r.id} className="flex items-start justify-between gap-3 text-xs">
-                    <div className="min-w-0">
-                      <p className="font-medium text-slate-700">
-                        {formatRequestedDocs(r.requestedDocs)}
-                      </p>
-                      <p className="mt-0.5 text-slate-500">
-                        {r.status}
-                        {typeof r.uploadedCount === 'number' ? ` · ${r.uploadedCount} uploaded` : ''}
-                      </p>
-                      {docLabels.length > 1 ? (
-                        <div className="mt-1.5 flex flex-wrap gap-1">
-                          {docLabels.map((label) => (
-                            <span
-                              key={label}
-                              className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600"
-                            >
-                              {label}
-                            </span>
-                          ))}
-                        </div>
-                      ) : null}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => handleNudge(r.id)}
-                      className="shrink-0 rounded border border-slate-200 px-2 py-1 font-semibold text-slate-600 hover:bg-slate-50"
-                    >
-                      Nudge
-                    </button>
-                  </div>
-                )
-              })}
-            </div>
+            <>
+              {' · '}
+              <button type="button" onClick={onOpenRequests} className="font-semibold text-brand-600 hover:text-brand-700">
+                {openRequests.length} open client request{openRequests.length === 1 ? '' : 's'}
+              </button>
+            </>
           ) : null}
-        </div>
+        </p>
       </div>
 
       {/* Hidden input used by the per-row "replace" action */}

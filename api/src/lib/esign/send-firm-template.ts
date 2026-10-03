@@ -152,6 +152,8 @@ export async function sendFirmTemplateForLead(params: {
   providerId?: string
   documentType?: SignableDocumentType
   fieldValues?: Record<string, unknown> | null
+  countersigner?: { name: string; email: string } | null
+  packetRequestId?: string | null
 }) {
   const { template, title, documentType, filePath, fieldValues } = await renderFirmTemplateForLead(params)
 
@@ -166,6 +168,9 @@ export async function sendFirmTemplateForLead(params: {
     filePath,
     templateId: template.id,
     fieldValues,
+    countersigner:
+      documentType === 'retainer' || documentType === 'fee_agreement' ? params.countersigner || null : null,
+    packetRequestId: params.packetRequestId,
   })
 
   if (documentType === 'retainer' || documentType === 'fee_agreement') {

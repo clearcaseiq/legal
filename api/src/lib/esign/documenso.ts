@@ -77,12 +77,22 @@ export const documensoProvider: ESignatureProvider = {
     if (!configured()) throw new ESignNotConfiguredError('documenso')
     const base = baseUrl() as string
 
+    const recipients: Record<string, unknown>[] = [
+      { email: input.signerEmail, name: input.signerName, role: 'SIGNER', signingOrder: 1 },
+    ]
+    if (input.countersigner) {
+      recipients.push({ email: input.countersigner.email, name: input.countersigner.name, role: 'SIGNER', signingOrder: 2 })
+    }
     const payload = {
       type: 'DOCUMENT',
       title: input.title,
       externalId: input.reference,
-      recipients: [{ email: input.signerEmail, name: input.signerName, role: 'SIGNER' }],
-      meta: { subject: input.title, ...(input.redirectUrl ? { redirectUrl: input.redirectUrl } : {}) },
+      recipients,
+      meta: {
+        subject: input.title,
+        ...(input.countersigner ? { signingOrder: 'SEQUENTIAL' } : {}),
+        ...(input.redirectUrl ? { redirectUrl: input.redirectUrl } : {}),
+      },
     }
 
     const fileBuf = await readFile(input.filePath)
@@ -126,6 +136,7 @@ export const documensoProvider: ESignatureProvider = {
     return {
       externalEnvelopeId,
       signingUrl: created.recipients?.[0]?.signingUrl ?? null,
+      countersignUrl: input.countersigner ? created.recipients?.[1]?.signingUrl ?? null : null,
       status: 'sent',
     }
   },
@@ -139,11 +150,19 @@ export const documensoProvider: ESignatureProvider = {
       const text = await res.text().catch(() => '')
       throw new Error(`Documenso get failed (${res.status}): ${text.slice(0, 500)}`)
     }
-    const data = (await res.json()) as { status?: string; completedAt?: string | null }
+    const data = (await res.json()) as {
+      status?: string
+      completedAt?: string | null
+      recipients?: { signingOrder?: number | null; signingStatus?: string }[]
+    }
+    const first = [...(data.recipients ?? [])].sort((a, b) => (a.signingOrder ?? 0) - (b.signingOrder ?? 0))[0]
+    const clientSigned = String(first?.signingStatus || '').toUpperCase() === 'SIGNED'
+    const status = statusFromDocumenso(data.status)
     return {
-      status: statusFromDocumenso(data.status),
+      status: status !== 'signed' && clientSigned ? 'viewed' : status,
       signedAt: data.completedAt ?? null,
       auditTrailUrl: null,
+      clientSigned,
     }
   },
 
@@ -228,9 +247,16 @@ export const documensoProvider: ESignatureProvider = {
     const externalEnvelopeId = body?.id != null ? String(body.id) : undefined
     if (!externalEnvelopeId) return null
 
+    // DOCUMENT_SIGNED fires per recipient; only DOCUMENT_COMPLETED (or a signed
+    // event whose document is already COMPLETED) means every signer is done.
     let status: EnvelopeStatus | null = null
-    if (/completed|signed/i.test(eventType)) status = 'signed'
-    else if (/opened|viewed/i.test(eventType)) status = 'viewed'
+    let clientSigned: boolean | undefined
+    if (/completed/i.test(eventType)) status = 'signed'
+    else if (/signed/i.test(eventType)) {
+      const complete = String(body?.status || '').toUpperCase() === 'COMPLETED'
+      status = complete ? 'signed' : 'viewed'
+      clientSigned = true
+    } else if (/opened|viewed/i.test(eventType)) status = 'viewed'
     else if (/rejected|declined/i.test(eventType)) status = 'declined'
     else if (/sent|pending/i.test(eventType)) status = 'sent'
     else if (body?.status) status = statusFromDocumenso(body.status)
@@ -240,6 +266,7 @@ export const documensoProvider: ESignatureProvider = {
       externalEnvelopeId,
       status,
       signedAt: status === 'signed' ? new Date().toISOString() : null,
+      clientSigned: status === 'signed' ? true : clientSigned,
       rawType: eventType,
     }
   },

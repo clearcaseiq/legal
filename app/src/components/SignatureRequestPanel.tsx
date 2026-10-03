@@ -425,6 +425,10 @@ export default function SignatureRequestPanel({
   // Retainer-specific fee terms (firm/attorney prefilled from firm defaults).
   const [firmName, setFirmName] = useState('')
   const [attorneyName, setAttorneyName] = useState('')
+  // Retainers: the attorney countersigns after the client.
+  const [countersign, setCountersign] = useState(true)
+  const [countersignerName, setCountersignerName] = useState('')
+  const [countersignerEmail, setCountersignerEmail] = useState('')
   const [contingencyPercent, setContingencyPercent] = useState('33.33')
   const [costsResponsibility, setCostsResponsibility] = useState('')
   const [scope, setScope] = useState('')
@@ -565,6 +569,8 @@ export default function SignatureRequestPanel({
       if (defaults) {
         if (defaults.firmName) setFirmName((v) => v || defaults.firmName || '')
         if (defaults.attorneyName) setAttorneyName((v) => v || defaults.attorneyName || '')
+        if (defaults.attorneyName) setCountersignerName((v) => v || defaults.attorneyName || '')
+        if (defaults.attorneyEmail) setCountersignerEmail((v) => v || defaults.attorneyEmail || '')
         if (typeof defaults.contingencyPercent === 'number') {
           setContingencyPercent((v) => (v && v !== '33.33' ? v : String(defaults.contingencyPercent)))
         }
@@ -706,6 +712,14 @@ export default function SignatureRequestPanel({
       setError('The document fields are still loading.')
       return
     }
+    const countersigner =
+      isRetainer && countersign
+        ? { name: countersignerName.trim(), email: countersignerEmail.trim() }
+        : undefined
+    if (countersigner && (!countersigner.name || !/^\S+@\S+\.\S+$/.test(countersigner.email))) {
+      setError('Enter the countersigning attorney’s name and email, or turn off attorney countersignature.')
+      return
+    }
     if (duplicateGuard()) return
 
     setSubmitting(true)
@@ -719,6 +733,7 @@ export default function SignatureRequestPanel({
           signerEmail: signerEmail.trim(),
           title: feeTitle.trim() || undefined,
           provider: provider ?? undefined,
+          countersigner,
         })
         setFeeFile(null)
         setFeeTitle('')
@@ -731,6 +746,7 @@ export default function SignatureRequestPanel({
           provider: provider ?? undefined,
           documentType: essentialType ?? (selectedFirmTemplate?.suggestedDocumentType || 'other'),
           fieldValues: customMode ? essentialState?.values : undefined,
+          countersigner,
         })
       } else if (isRetainer && retainerSource === 'platform') {
         envelope = await createRetainerAgreement(leadId, {
@@ -742,6 +758,7 @@ export default function SignatureRequestPanel({
           costsResponsibility: costsResponsibility.trim() || undefined,
           scope: scope.trim() || undefined,
           provider: provider ?? undefined,
+          countersigner,
         })
       } else if (isHipaa) {
         envelope = await createHipaaAuthorization(leadId, {
@@ -1308,6 +1325,49 @@ export default function SignatureRequestPanel({
           </div>
         )}
 
+        {isRetainer && (
+          <div className="rounded-lg border border-slate-200 p-3">
+            <label className="flex items-start gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={countersign}
+                onChange={(e) => setCountersign(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-400"
+              />
+              <span>
+                <span className="font-medium">Attorney countersigns</span>
+                <span className="block text-xs text-slate-500">
+                  After the client signs, the attorney gets the signing email. The retainer counts as signed only once
+                  both have signed.
+                </span>
+              </span>
+            </label>
+            {countersign && (
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <div>
+                  <label className={labelCls}>Countersigning attorney</label>
+                  <input
+                    value={countersignerName}
+                    onChange={(e) => setCountersignerName(e.target.value)}
+                    placeholder="Attorney name"
+                    className={inputCls}
+                  />
+                </div>
+                <div>
+                  <label className={labelCls}>Attorney email</label>
+                  <input
+                    type="email"
+                    value={countersignerEmail}
+                    onChange={(e) => setCountersignerEmail(e.target.value)}
+                    placeholder="attorney@firm.com"
+                    className={inputCls}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {customMode && (
           <EssentialFieldsForm
             fields={essentialState?.fields ?? []}
@@ -1398,6 +1458,29 @@ export default function SignatureRequestPanel({
                         {env.signerName} · {env.signerEmail} · {env.provider}
                       </p>
                       <StatusTimeline env={env} />
+                      {env.countersignerEmail && env.status !== 'signed' && open && (
+                        <p className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px]">
+                          {env.clientSignedAt ? (
+                            <span className="font-medium text-amber-700">
+                              Client signed · awaiting countersignature by {env.countersignerName || env.countersignerEmail}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400">
+                              Countersigned by {env.countersignerName || env.countersignerEmail} after the client signs
+                            </span>
+                          )}
+                          {env.clientSignedAt && env.countersignUrl && (
+                            <a
+                              href={env.countersignUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 font-semibold text-brand-600 hover:text-brand-700"
+                            >
+                              <PenLine className="h-3 w-3" /> Countersign now
+                            </a>
+                          )}
+                        </p>
+                      )}
                     </div>
                     <div className="flex flex-col items-end gap-1.5 shrink-0">
                       <span

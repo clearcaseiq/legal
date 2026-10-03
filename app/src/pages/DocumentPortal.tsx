@@ -113,6 +113,9 @@ export default function DocumentPortal() {
   // probably standing in a parking lot. They are not an "external recipient"
   // and there is nothing for them to identify themselves as.
   const isClaimant = request.mode === 'claimant'
+  const signTasks = request.sign || []
+  // A packet that only asks for signatures has nothing to upload.
+  const showUpload = !isClaimant || request.requestedDocs.length > 0 || signTasks.length === 0
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-10">
@@ -125,8 +128,11 @@ export default function DocumentPortal() {
         </h1>
         {isClaimant ? (
           <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
-            Your case team needs the documents below. Take a photo of each one or pick a file from your phone — you
-            don't need an account and nothing to sign in to.
+            {signTasks.length && request.requestedDocs.length
+              ? 'Your case team needs a few signatures and documents. Everything is on this page — you don’t need an account.'
+              : signTasks.length
+                ? 'Your case team needs your signature on the documents below. You don’t need an account.'
+                : "Your case team needs the documents below. Take a photo of each one or pick a file from your phone — you don't need an account and nothing to sign in to."}
           </p>
         ) : (
           <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
@@ -146,9 +152,60 @@ export default function DocumentPortal() {
           </div>
         )}
 
+        {signTasks.length > 0 && (
+          <div className="mt-6">
+            <h2 className="text-sm font-semibold text-slate-900 dark:text-white">Sign these documents</h2>
+            <ul className="mt-2 space-y-2">
+              {signTasks.map((task) => {
+                const done = task.status === 'signed'
+                const closed = task.status === 'declined' || task.status === 'expired'
+                return (
+                  <li
+                    key={task.id}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 px-3 py-2.5 dark:border-slate-700"
+                  >
+                    <span className="flex min-w-0 items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                      <span
+                        className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
+                          done ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-500'
+                        }`}
+                      >
+                        {done ? '✓' : ''}
+                      </span>
+                      <span className="min-w-0 truncate">{task.title}</span>
+                    </span>
+                    {done ? (
+                      <span className="text-xs font-semibold text-emerald-600">Signed</span>
+                    ) : closed ? (
+                      <span className="text-xs text-slate-500">
+                        {task.status === 'declined' ? 'Declined — your case team will follow up' : 'Expired — your case team will resend it'}
+                      </span>
+                    ) : task.signingUrl ? (
+                      <a
+                        href={task.signingUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700"
+                      >
+                        {task.status === 'viewed' ? 'Continue signing' : 'Sign now'}
+                      </a>
+                    ) : (
+                      <span className="text-xs text-slate-500">
+                        Check your email for the signing link{task.provider === 'dropbox_sign' ? ' from Dropbox Sign' : ''}.
+                      </span>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+          </div>
+        )}
+
         {request.requestedDocs.length > 0 && (
           <div className="mt-6">
-            <h2 className="text-sm font-semibold text-slate-900 dark:text-white">Requested documents</h2>
+            <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
+              {isClaimant ? 'Upload these files' : 'Requested documents'}
+            </h2>
             <ul className="mt-2 space-y-1">
               {request.requestedDocs.map((doc) => {
                 // Claimant uploads are stored under evidence categories, which
@@ -172,6 +229,7 @@ export default function DocumentPortal() {
           </div>
         )}
 
+        {showUpload && (
         <div className="mt-6 rounded-xl border border-slate-200 p-4 dark:border-slate-700">
           <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
             {isClaimant ? 'Add your documents' : 'Upload documents'}
@@ -298,6 +356,7 @@ export default function DocumentPortal() {
           {uploading && <p className="mt-2 text-sm text-indigo-600">Uploading…</p>}
           {toast && <p className="mt-2 text-sm text-emerald-600">{toast}</p>}
         </div>
+        )}
 
         {request.uploads.length > 0 && (
           <div className="mt-6">

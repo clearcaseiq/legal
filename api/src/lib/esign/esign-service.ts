@@ -19,6 +19,7 @@ import type { EnvelopeStatus, SignableDocumentType } from './types'
 import { ensureLocalCopy, persistUpload } from '../object-storage'
 import { notifyPlaintiffSignatureRequestedSafe } from './signature-request-notify'
 import { emitCaseUpdatedForLead } from '../realtime'
+import { AGREEMENT_CATEGORY } from '../evidence-supporting'
 
 const SIGNED_DIR = path.join(process.cwd(), 'uploads', 'signed-documents')
 
@@ -53,6 +54,13 @@ export interface CreateEnvelopeParams {
   /** Snapshot of what was sent, kept with the envelope once it is signed. */
   templateId?: string | null
   fieldValues?: Record<string, string> | null
+  /** The attorney signs after the client; the envelope completes only then. */
+  countersigner?: { name: string; email: string } | null
+  /**
+   * Sent inside a client packet. The packet link is the client's notice, so the
+   * per-envelope "please sign" message is skipped.
+   */
+  packetRequestId?: string | null
 }
 
 /** Which timestamp column a given status transition should stamp. */
@@ -149,6 +157,9 @@ export async function createEnvelopeForLead(params: CreateEnvelopeParams) {
       fieldValues: params.fieldValues ? JSON.stringify(params.fieldValues) : null,
       sourceFilePath: params.filePath,
       sourceSha256,
+      countersignerName: params.countersigner?.name || null,
+      countersignerEmail: params.countersigner?.email || null,
+      packetRequestId: params.packetRequestId || null,
     },
   })
 
@@ -158,6 +169,7 @@ export async function createEnvelopeForLead(params: CreateEnvelopeParams) {
       title: params.title,
       signerName: params.signerName,
       signerEmail: params.signerEmail,
+      countersigner: params.countersigner || null,
       filePath: params.filePath,
       reference: envelope.id,
       metadata: {
@@ -173,11 +185,12 @@ export async function createEnvelopeForLead(params: CreateEnvelopeParams) {
       data: {
         externalEnvelopeId: result.externalEnvelopeId,
         signingUrl: result.signingUrl,
+        countersignUrl: result.countersignUrl ?? null,
         status: nextStatus,
         ...timestampsFor(nextStatus),
       },
     })
-    notifyPlaintiffSignatureRequestedSafe([envelope.id])
+    if (!params.packetRequestId) notifyPlaintiffSignatureRequestedSafe([envelope.id])
     return sent
   } catch (err) {
     // Leave the row as a draft so it can be retried or cleaned up; surface the
@@ -202,6 +215,7 @@ export interface CreateHipaaAuthorizationParams {
   recordsDateRange?: string
   caseRef?: string
   providerId?: string
+  packetRequestId?: string | null
 }
 
 /**
@@ -228,6 +242,7 @@ export async function createHipaaAuthorizationEnvelope(params: CreateHipaaAuthor
     signerEmail: params.signerEmail,
     filePath,
     providerId: params.providerId,
+    packetRequestId: params.packetRequestId,
   })
 }
 
@@ -289,6 +304,8 @@ export interface CreateRetainerAgreementParams {
   scope?: string
   caseRef?: string
   providerId?: string
+  countersigner?: { name: string; email: string } | null
+  packetRequestId?: string | null
 }
 
 /**
@@ -317,6 +334,8 @@ export async function createRetainerAgreementEnvelope(params: CreateRetainerAgre
     signerEmail: params.signerEmail,
     filePath,
     providerId: params.providerId,
+    countersigner: params.countersigner || null,
+    packetRequestId: params.packetRequestId,
   })
 }
 
@@ -356,7 +375,7 @@ export async function applyEsignWebhook(
 
   let first: EnvelopeRow | null = null
   for (const envelope of envelopes) {
-    const updated = await finalizeStatusTransition(envelope, event.status, event.signedAt)
+    const updated = await finalizeStatusTransition(envelope, event.status, event.signedAt, event.clientSigned)
     first = first ?? updated
   }
   return first
@@ -374,9 +393,13 @@ type EnvelopeRow = Awaited<ReturnType<typeof prisma.documentEnvelope.findFirstOr
 async function finalizeStatusTransition(
   envelope: EnvelopeRow,
   status: EnvelopeStatus,
-  signedAt?: string | null
+  signedAt?: string | null,
+  clientSigned?: boolean
 ) {
   const provider = getESignatureProvider(envelope.provider)
+  // The client's part is done once they sign, even while the attorney's countersignature is pending.
+  const clientSignedAt =
+    envelope.clientSignedAt ?? (clientSigned || status === 'signed' ? new Date() : null)
 
   // On completion, pull the fully-executed PDF (with audit trail) and store it
   // so downstream consumers (e.g. the custodian portal) can serve it. Best
@@ -403,6 +426,7 @@ async function finalizeStatusTransition(
     data: {
       status,
       signedFilePath,
+      clientSignedAt,
       ...timestampsFor(status, signedAt),
     },
   })
@@ -473,8 +497,9 @@ export async function syncEnvelopeStatus(env: EnvelopeRow): Promise<boolean> {
   try {
     const provider = getESignatureProvider(env.provider)
     const result = await provider.getStatus(env.externalEnvelopeId as string)
-    if (result.status === (env.status as EnvelopeStatus)) return false
-    await finalizeStatusTransition(env, result.status, result.signedAt)
+    const newlyClientSigned = Boolean(result.clientSigned && !env.clientSignedAt)
+    if (result.status === (env.status as EnvelopeStatus) && !newlyClientSigned) return false
+    await finalizeStatusTransition(env, result.status, result.signedAt, result.clientSigned)
     return true
   } catch (err) {
     logger.warn('Envelope status poll failed', {
@@ -749,14 +774,24 @@ const CASE_FILED_DOC_TYPES = new Set<SignableDocumentType>([
   'retainer',
   'fee_agreement',
   'police_report_authorization',
+  'hipaa_authorization',
+  'other',
 ])
 
+const FILED_DOC_DESCRIPTIONS: Partial<Record<SignableDocumentType, string>> = {
+  retainer: 'retainer',
+  fee_agreement: 'fee agreement',
+  police_report_authorization: 'police / incident report authorization',
+  hipaa_authorization: 'HIPAA authorization',
+  other: 'document',
+}
+
 /**
- * File the executed PDF of a signed agreement (retainer / fee agreement) into the
- * case's Documents list (EvidenceFile), so the signed record lives with the rest
- * of the case file. Idempotent + best-effort: safe to call from the webhook or a
- * backfill. HIPAA authorizations are intentionally excluded (served separately via
- * the custodian portal).
+ * File the executed PDF of a signed document into the case's Documents list
+ * (EvidenceFile) under Agreements, so the signed record lives with the rest of
+ * the case file. The row's filename is `<envelopeId>.pdf`, which is what links
+ * it back to its signature request. Idempotent + best-effort: safe to call from
+ * the webhook or a backfill.
  */
 export async function fileSignedAgreementIntoCase(envelopeId: string) {
   const env = await prisma.documentEnvelope.findUnique({
@@ -802,15 +837,13 @@ export async function fileSignedAgreementIntoCase(envelopeId: string) {
       size,
       filePath: env.signedFilePath,
       fileUrl,
-      category: 'other',
+      category: AGREEMENT_CATEGORY,
       subcategory:
-        env.documentType === 'police_report_authorization' ? 'signed_authorization' : 'signed_agreement',
+        env.documentType === 'police_report_authorization' || env.documentType === 'hipaa_authorization'
+          ? 'signed_authorization'
+          : 'signed_agreement',
       description: `Executed ${
-        env.documentType === 'fee_agreement'
-          ? 'fee agreement'
-          : env.documentType === 'police_report_authorization'
-            ? 'police / incident report authorization'
-            : 'retainer'
+        FILED_DOC_DESCRIPTIONS[env.documentType as SignableDocumentType] || 'document'
       } — signed by ${env.signerName}`,
       dataType: 'unstructured',
       tags: JSON.stringify(['esign', env.documentType, 'signed']),

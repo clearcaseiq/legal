@@ -320,6 +320,33 @@ export function computeRequestStatus(
   return fulfilledCount === requestedDocs.length ? 'completed' : 'partial'
 }
 
+export type RequestItemStage = 'requested' | 'received' | 'reviewed'
+
+/**
+ * Where each requested item stands: nothing yet, an upload arrived, or every
+ * upload answering it has been reviewed by the case team.
+ */
+export function requestItemStages<F extends RequestEvidenceFile & { id: string; isVerified?: boolean | null }>(
+  requestedDocs: string[],
+  evidenceFiles: F[],
+  requestCreatedAt: Date | string,
+): Array<{ key: string; label: string; stage: RequestItemStage; fileIds: string[] }> {
+  return requestedDocs.map((key) => {
+    const matched = matchingRequestFiles({
+      key,
+      evidenceFiles,
+      requestCreatedAt,
+      requestKeys: requestedDocs,
+    }) as F[]
+    const stage: RequestItemStage = !matched.length
+      ? 'requested'
+      : matched.every((file) => file.isVerified)
+        ? 'reviewed'
+        : 'received'
+    return { key, label: requestedDocLabel(key), stage, fileIds: matched.map((file) => file.id) }
+  })
+}
+
 /** Distinct uploads answering any item on a request. */
 export function countUploadsForRequest(
   requestedDocs: string[],

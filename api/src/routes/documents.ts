@@ -60,7 +60,8 @@ import {
 import type { SignableDocumentType } from '../lib/esign/types'
 import { readClaimantContact } from '../lib/claimant-contact'
 import { firmAllows, resolveMemberAccess } from '../lib/firm-access'
-import { getAuthorizedLead } from './attorney-dashboard'
+import { checkLeadIsAccepted, getAuthorizedLead } from './attorney-dashboard'
+import { sendClientPacket } from '../lib/client-packet'
 
 async function afterRetainerEnvelopeSent(leadId: string, note: string) {
   const lead = await prisma.leadSubmission.findUnique({
@@ -196,6 +197,9 @@ router.get('/leads/:leadId/firm-templates', authMiddleware, async (req: AuthRequ
   }
 })
 
+/** The attorney who countersigns after the client (retainers). */
+const countersignerSchema = z.object({ name: z.string().min(1).max(200), email: z.string().email() })
+
 const firmTemplateSendSchema = z.object({
   signerName: z.string().min(1),
   signerEmail: z.string().email(),
@@ -205,6 +209,7 @@ const firmTemplateSendSchema = z.object({
     .enum(['retainer', 'hipaa_authorization', 'police_report_authorization', 'fee_agreement', 'other'])
     .optional(),
   fieldValues: z.record(z.string()).optional(),
+  countersigner: countersignerSchema.optional(),
 })
 
 /** Caller attorney + lead access for a write on this case, or the HTTP error to send. */
@@ -296,6 +301,8 @@ const customDocumentSchema = z.object({
   provider: z.string().optional(),
   fieldValues: z.string().optional(),
   preview: z.string().optional(),
+  countersignerName: z.string().max(200).optional(),
+  countersignerEmail: z.string().optional(),
 })
 
 /**
@@ -350,6 +357,15 @@ router.post(
       if (!signerName || !z.string().email().safeParse(signerEmail).success) {
         return res.status(400).json({ error: 'Client name and a valid email are required.' })
       }
+      let countersigner: { name: string; email: string } | null = null
+      if (parsed.data.countersignerEmail?.trim()) {
+        const cs = countersignerSchema.safeParse({
+          name: parsed.data.countersignerName?.trim(),
+          email: parsed.data.countersignerEmail.trim(),
+        })
+        if (!cs.success) return res.status(400).json({ error: 'Countersigning attorney needs a name and a valid email.' })
+        countersigner = cs.data
+      }
       const envelope = await createEnvelopeForLead({
         leadId: req.params.leadId,
         attorneyId: auth.attorney.id,
@@ -360,6 +376,7 @@ router.post(
         signerEmail,
         filePath: built.filePath,
         fieldValues: values,
+        countersigner: docType === 'retainer' ? countersigner : null,
       })
       if (docType === 'retainer') {
         await afterRetainerEnvelopeSent(req.params.leadId, 'Sent custom retainer for signature (Signatures).')
@@ -406,6 +423,7 @@ router.post(
         providerId: parsed.data.provider,
         documentType: parsed.data.documentType as SignableDocumentType | undefined,
         fieldValues: parsed.data.fieldValues,
+        countersigner: parsed.data.countersigner,
       })
       res.status(201).json({ envelope })
     } catch (error: any) {
@@ -623,6 +641,7 @@ const retainerSchema = z.object({
   costsResponsibility: z.string().max(2000).optional(),
   scope: z.string().max(2000).optional(),
   provider: z.string().optional(),
+  countersigner: countersignerSchema.optional(),
 })
 
 // End-to-end retainer agreement: render the contingency-fee agreement PDF and
@@ -658,6 +677,75 @@ router.post('/leads/:leadId/retainer', authMiddleware, async (req: AuthRequest, 
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     logger.error('Create retainer agreement failed', { message })
+    respondESignError(res, error)
+  }
+})
+
+const clientPacketSchema = z.object({
+  uploads: z.array(z.string().min(1).max(160)).max(20).default([]),
+  sign: z
+    .array(
+      z.object({
+        type: z.enum(['retainer', 'hipaa_authorization']),
+        templateId: z.string().optional().nullable(),
+      }),
+    )
+    .max(2)
+    .default([]),
+  delivery: z.enum(['email', 'text']),
+  customMessage: z.string().max(2000).optional(),
+  countersigner: countersignerSchema.optional(),
+})
+
+// One client packet: documents to sign and files to upload, sent as one link by
+// email or text. The signature envelopes are tied to the packet's request.
+router.post('/leads/:leadId/client-packet', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const attorney = await resolveAttorney(req, { staffWrite: true })
+    if (!attorney) return res.status(403).json({ error: NO_CASE_ACCESS })
+
+    const parsed = clientPacketSchema.safeParse(req.body)
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() })
+    }
+
+    const resolved = await resolveLeadForAttorney(req.params.leadId, attorney)
+    if (resolved.error === 404) return res.status(404).json({ error: 'Lead not found' })
+    if (resolved.error === 403) return res.status(403).json({ error: 'Lead is assigned to another attorney' })
+
+    const lead = await prisma.leadSubmission.findUnique({
+      where: { id: req.params.leadId },
+      select: { id: true, status: true, assessmentId: true },
+    })
+    if (!lead?.assessmentId) return res.status(404).json({ error: 'Lead not found' })
+    const notAccepted = checkLeadIsAccepted(lead, 'requesting documents from the client')
+    if (notAccepted) return res.status(notAccepted.status).json({ error: notAccepted.message })
+
+    const firm = attorney.lawFirmId
+      ? await prisma.lawFirm.findUnique({ where: { id: attorney.lawFirmId }, select: { name: true } })
+      : null
+
+    const result = await sendClientPacket({
+      leadId: lead.id,
+      assessmentId: lead.assessmentId,
+      attorney,
+      uploads: parsed.data.uploads,
+      sign: parsed.data.sign,
+      delivery: parsed.data.delivery,
+      customMessage: parsed.data.customMessage || null,
+      countersigner: parsed.data.countersigner || null,
+      firmName: firm?.name || null,
+      boundByUserId: req.user?.id || null,
+    })
+    if (!result.ok) return res.status(result.status).json({ error: result.error })
+
+    if (result.envelopes.some((e) => e.type === 'retainer')) {
+      await afterRetainerEnvelopeSent(lead.id, 'Sent for signature in a client packet (Documents).')
+    }
+    res.status(201).json(result)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    logger.error('Send client packet failed', { message })
     respondESignError(res, error)
   }
 })
@@ -718,7 +806,7 @@ router.get('/leads/:leadId/defaults', authMiddleware, async (req: AuthRequest, r
 
     const withFirm = await prisma.attorney.findUnique({
       where: { id: attorney.id },
-      select: { name: true, lawFirm: { select: { name: true } } },
+      select: { name: true, email: true, lawFirm: { select: { name: true } } },
     })
     const firmName = withFirm?.lawFirm?.name || withFirm?.name || undefined
     const contingencyPercent = await resolveDefaultContingency(attorney.lawFirmId)
@@ -727,6 +815,7 @@ router.get('/leads/:leadId/defaults', authMiddleware, async (req: AuthRequest, r
       defaults: {
         firmName,
         attorneyName: withFirm?.name || undefined,
+        attorneyEmail: withFirm?.email || undefined,
         contingencyPercent,
       },
     })

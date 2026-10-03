@@ -50,6 +50,8 @@ export interface CreateEnvelopeInput {
   title: string
   signerName: string
   signerEmail: string
+  /** Second signer (the attorney), asked to sign only after the client has. */
+  countersigner?: { name: string; email: string } | null
   /** Absolute path to the source PDF (rendered from a template) to be signed. */
   filePath: string
   /** Further PDFs signed in the same envelope. Only for `multiDocument` providers. */
@@ -66,6 +68,8 @@ export interface CreateEnvelopeResult {
   externalEnvelopeId: string
   /** Embedded or hosted URL the signer uses; null for pure email flows. */
   signingUrl: string | null
+  /** The countersigner's hosted signing URL, when the provider returns one. */
+  countersignUrl?: string | null
   status: EnvelopeStatus
 }
 
@@ -73,6 +77,8 @@ export interface EnvelopeStatusResult {
   status: EnvelopeStatus
   signedAt?: string | null
   auditTrailUrl?: string | null
+  /** The client (first signer) has signed; the envelope may still await the countersigner. */
+  clientSigned?: boolean
 }
 
 /** Normalized webhook event, mapped from a provider-specific payload. */
@@ -80,6 +86,8 @@ export interface ESignWebhookEvent {
   externalEnvelopeId: string
   status: EnvelopeStatus
   signedAt?: string | null
+  /** One signer signed but the envelope is not complete (a countersigner is pending). */
+  clientSigned?: boolean
   /** The raw provider event type, for logging/debugging. */
   rawType?: string
 }

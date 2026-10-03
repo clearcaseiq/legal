@@ -60,7 +60,8 @@ import {
   sendProviderLetter,
   signedHipaaEnvelope,
 } from '../lib/representation-letters'
-import { syncPlaintiffDocumentRequestStatuses, computeRequestStatus, countUploadsForRequest, parseRequestedDocs, normalizeRequestedDocKeys, DOCUMENT_REQUEST_LABELS } from '../lib/document-request-status'
+import { syncPlaintiffDocumentRequestStatuses, computeRequestStatus, countUploadsForRequest, parseRequestedDocs, normalizeRequestedDocKeys, DOCUMENT_REQUEST_LABELS, requestItemStages } from '../lib/document-request-status'
+import { countSupportingEvidence, SUPPORTING_EVIDENCE_WHERE } from '../lib/evidence-supporting'
 import { CONTACT_REVEALED_STATUSES, deidentifyAssessmentForOffer } from '../lib/offer-deidentify'
 import { createAndNotifyPlaintiffDocumentRequest } from '../lib/document-request-create'
 import { sendDocumentRequestText } from '../lib/document-request-text'
@@ -5782,20 +5783,22 @@ router.get('/document-requests', authMiddleware, async (req: any, res) => {
     )
     const evidenceByAssessment = new Map<
       string,
-      Array<{ category: string | null; subcategory: string | null; createdAt: Date }>
+      Array<{ id: string; category: string | null; subcategory: string | null; createdAt: Date; isVerified: boolean }>
     >()
     if (plaintiffAssessmentIds.length > 0) {
       const files = await prisma.evidenceFile.findMany({
         where: { assessmentId: { in: plaintiffAssessmentIds } },
-        select: { assessmentId: true, category: true, subcategory: true, createdAt: true },
+        select: { id: true, assessmentId: true, category: true, subcategory: true, createdAt: true, isVerified: true },
       })
       for (const f of files) {
         if (!f.assessmentId) continue
         if (!evidenceByAssessment.has(f.assessmentId)) evidenceByAssessment.set(f.assessmentId, [])
         evidenceByAssessment.get(f.assessmentId)!.push({
+          id: f.id,
           category: f.category,
           subcategory: f.subcategory,
           createdAt: f.createdAt,
+          isVerified: f.isVerified,
         })
       }
     }
@@ -5815,12 +5818,14 @@ router.get('/document-requests', authMiddleware, async (req: any, res) => {
       // status so a client's upload is reflected immediately (never regress).
       let status = r.status
       let uploadedCount = r._count?.externalUploads || 0
+      let items: ReturnType<typeof requestItemStages> = []
       if (r.targetType !== 'opposing_party' && r.lead?.assessmentId) {
         const files = evidenceByAssessment.get(r.lead.assessmentId) || []
         const docs = parseRequestedDocs(r.requestedDocs)
         const live = computeRequestStatus(docs, files, r.createdAt)
         if (live && (statusRank[live] ?? 0) > (statusRank[r.status] ?? 0)) status = live
         uploadedCount = Math.max(uploadedCount, countUploadsForRequest(docs, files, r.createdAt))
+        items = requestItemStages(docs, files, r.createdAt)
       }
 
       return {
@@ -5835,6 +5840,7 @@ router.get('/document-requests', authMiddleware, async (req: any, res) => {
         recipientRole: r.recipientRole,
         origin: r.origin,
         uploadedCount,
+        items,
         attorneyViewedAt: r.attorneyViewedAt,
         lastNudgeAt: r.lastNudgeAt,
         createdAt: r.createdAt,
@@ -7984,13 +7990,32 @@ router.get('/leads/:leadId/evidence', authMiddleware, async (req: any, res) => {
       ? evidenceFiles
       : evidenceFiles.filter((file) => !isMedicalEvidenceFile(file))
 
+    // Executed documents are filed as `<envelopeId>.pdf`; link each back to the
+    // signature request it came from. They are the signed record, so locked.
+    const envelopeIds = visible
+      .filter((file) => file.uploadMethod === 'esign')
+      .map((file) => file.filename.replace(/\.pdf$/i, ''))
+    const envelopes = envelopeIds.length
+      ? await prisma.documentEnvelope.findMany({
+          where: { id: { in: envelopeIds }, leadId },
+          select: { id: true, title: true, documentType: true, signedAt: true, packetRequestId: true },
+        })
+      : []
+    const envelopeById = new Map(envelopes.map((env) => [env.id, env]))
+
     res.json({
       // The verdict is parsed here rather than in the browser: the column holds
       // JSON as an implementation detail, and every consumer wants the verdict.
-      files: visible.map(({ identityCheck, ...file }) => ({
-        ...file,
-        identityCheck: parseIdentityCheck(identityCheck),
-      })),
+      files: visible.map(({ identityCheck, ...file }) => {
+        const signedEnvelope =
+          file.uploadMethod === 'esign' ? envelopeById.get(file.filename.replace(/\.pdf$/i, '')) || null : null
+        return {
+          ...file,
+          identityCheck: parseIdentityCheck(identityCheck),
+          locked: file.uploadMethod === 'esign',
+          signedEnvelope,
+        }
+      }),
       medicalSharing,
     })
   } catch (error: any) {
@@ -8233,10 +8258,13 @@ router.delete('/leads/:leadId/evidence/:fileId', authMiddleware, firmGate('docum
 
     const evidenceFile = await prisma.evidenceFile.findUnique({
       where: { id: fileId },
-      select: { id: true, assessmentId: true, filePath: true },
+      select: { id: true, assessmentId: true, filePath: true, uploadMethod: true },
     })
     if (!evidenceFile || evidenceFile.assessmentId !== lead.assessmentId) {
       return res.status(404).json({ error: 'Evidence file not found on this case.' })
+    }
+    if (evidenceFile.uploadMethod === 'esign') {
+      return res.status(409).json({ error: 'Signed documents are the executed record and cannot be deleted or replaced.' })
     }
 
     if (evidenceFile.filePath) {
@@ -9224,7 +9252,7 @@ router.get('/leads/:leadId/finance/summary', authMiddleware, async (req: any, re
     const viability = safeJsonParse<any>(prediction?.viability, {})
     const viabilityScore = typeof viability?.overall === 'number' ? viability.overall : null
 
-    const evidenceCount = assessment.evidenceFiles?.length || 0
+    const evidenceCount = countSupportingEvidence(assessment.evidenceFiles)
     const fileCount = assessment.files?.length || 0
     const demandLetters = assessment.demandLetters || []
     const insuranceLimits = (assessment.insuranceDetails || [])
@@ -9939,7 +9967,7 @@ router.get('/leads/:leadId/finance/dataroom', authMiddleware, async (req: any, r
     const viability = safeJsonParse<any>(prediction?.viability, {})
     const viabilityScore = typeof viability?.overall === 'number' ? viability.overall : null
 
-    const evidenceCount = assessment.evidenceFiles?.length || 0
+    const evidenceCount = countSupportingEvidence(assessment.evidenceFiles)
     const fileCount = assessment.files?.length || 0
     const demandLetters = assessment.demandLetters || []
     const insuranceLimits = (assessment.insuranceDetails || [])
@@ -10122,7 +10150,7 @@ router.get('/leads/:leadId/finance/underwriting/pdf', authMiddleware, async (req
     const viability = safeJsonParse<any>(prediction?.viability, {})
     const viabilityScore = typeof viability?.overall === 'number' ? viability.overall : null
 
-    const evidenceCount = assessment.evidenceFiles?.length || 0
+    const evidenceCount = countSupportingEvidence(assessment.evidenceFiles)
     const demandTarget = assessment.demandLetters?.[0]?.targetAmount || null
     const insuranceLimits = (assessment.insuranceDetails || [])
       .map((detail: any) => detail.policyLimit)
@@ -16031,7 +16059,7 @@ router.get('/leads/:leadId/decision-intelligence', authMiddleware, async (req: a
 
     const [evidenceCount, profile] = await Promise.all([
       prisma.evidenceFile.count({
-        where: { assessmentId: lead.assessmentId }
+        where: { assessmentId: lead.assessmentId, ...SUPPORTING_EVIDENCE_WHERE }
       }),
       prisma.attorneyDecisionProfile.findUnique({
         where: { attorneyId: attorney.id },
@@ -16268,7 +16296,7 @@ router.post('/leads/:leadId/decision-intelligence/override', authMiddleware, asy
 
     const [evidenceCount, profile] = await Promise.all([
       prisma.evidenceFile.count({
-        where: { assessmentId: lead.assessmentId }
+        where: { assessmentId: lead.assessmentId, ...SUPPORTING_EVIDENCE_WHERE }
       }),
       prisma.attorneyDecisionProfile.findUnique({
         where: { attorneyId: attorney.id },
@@ -16664,7 +16692,7 @@ router.get('/leads/:leadId', authMiddleware, async (req: any, res) => {
                   bands: safeJsonParse<any>(assessment.predictions[0].bands, {})
                 }
               : null,
-            evidenceCount: assessment.evidenceFiles?.length || 0,
+            evidenceCount: countSupportingEvidence(assessment.evidenceFiles),
             user: assessment.user,
             userId: assessment.userId
           })
