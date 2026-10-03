@@ -157,14 +157,21 @@ describe('loadDeclineLearning', () => {
 
 describe('attorneysBlockedByDeclineLearning', () => {
   it('returns only the attorneys a case must skip, with the reason', async () => {
-    attorneyFindMany.mockResolvedValue([
-      { id: 'att-1', meta: null },
-      { id: 'att-2', meta: null },
-    ])
-    introductionFindMany.mockResolvedValue([decline('too_busy', 0)])
-    assessmentFindUnique.mockResolvedValue({ claimType: 'auto', venueState: 'CA', venueCounty: 'Los Angeles', predictions: [] })
-    const blocked = await attorneysBlockedByDeclineLearning('asm-1', ['att-1', 'att-2'])
-    expect([...blocked.keys()]).toEqual(['att-1'])
+    // The function reads the real clock; pin it so the fixed-date pause is live.
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(NOW)
+    try {
+      attorneyFindMany.mockResolvedValue([
+        { id: 'att-1', meta: null },
+        { id: 'att-2', meta: null },
+      ])
+      introductionFindMany.mockResolvedValue([decline('too_busy', 0)])
+      assessmentFindUnique.mockResolvedValue({ claimType: 'auto', venueState: 'CA', venueCounty: 'Los Angeles', predictions: [] })
+      const blocked = await attorneysBlockedByDeclineLearning('asm-1', ['att-1', 'att-2'])
+      expect([...blocked.keys()]).toEqual(['att-1'])
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 
