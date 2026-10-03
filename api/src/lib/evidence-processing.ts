@@ -546,6 +546,8 @@ const NAME_STOPWORDS = new Set([
   'patient', 'name', 'member', 'insured', 'claimant', 'date', 'total', 'page', 'report',
   'provider', 'account', 'number', 'dob', 'birth', 'address', 'phone', 'guarantor',
   'subscriber', 'policy', 'group', 'id', 'mr', 'mrs', 'ms', 'dr', 'the', 'of', 'and',
+  'named', 'primary', 'holder', 'policyholder', 'driver', 'drivers', 'vehicle', 'auto',
+  'insurance', 'card', 'company', 'effective', 'expiration', 'year', 'make', 'model', 'vin',
 ])
 
 /**
@@ -558,11 +560,19 @@ export function extractPatientName(ocrText: string): string | null {
   if (!ocrText) return null
   // Case-insensitive labels; [ \t] (not \s) separators so a capture never bleeds
   // onto the next line.
+  const label =
+    "(?:patient(?:'s)?(?:[ \\t]+name)?|member(?:[ \\t]+name)?|(?:named[ \\t]+|primary[ \\t]+)?insured(?:[ \\t]+name)?|policy[ \\t]*holder(?:[ \\t]+name)?|driver(?:\\(s\\)|s)?|claimant|guarantor|name)"
+  const lastFirst = "([A-Za-z][A-Za-z'’\\-]+[ \\t]*,[ \\t]*[A-Za-z][A-Za-z'’.\\-]+(?:[ \\t]+[A-Za-z'’.\\-]+){0,2})"
+  const firstLast = "([A-Za-z][A-Za-z'’.\\-]+(?:[ \\t]+[A-Za-z'’.\\-]+){1,3})"
   const patterns: RegExp[] = [
     // "Patient: Last, First" / "Name: Doe, John A"
-    /(?:patient(?:'s)?(?:[ \t]+name)?|member(?:[ \t]+name)?|insured|claimant|guarantor|name)[ \t]*[:\-][ \t]*([A-Za-z][A-Za-z'’\-]+[ \t]*,[ \t]*[A-Za-z][A-Za-z'’.\-]+(?:[ \t]+[A-Za-z'’.\-]+){0,2})/i,
-    // "Patient Name: John A. Doe" / "Name: John Doe"
-    /(?:patient(?:'s)?(?:[ \t]+name)?|member(?:[ \t]+name)?|insured|claimant|guarantor|name)[ \t]*[:\-][ \t]*([A-Za-z][A-Za-z'’.\-]+(?:[ \t]+[A-Za-z'’.\-]+){1,3})/i,
+    new RegExp(`${label}[ \\t]*[:\\-][ \\t]*${lastFirst}`, 'i'),
+    // "Patient Name: John A. Doe" / "Policyholder: John Doe"
+    new RegExp(`${label}[ \\t]*[:\\-][ \\t]*${firstLast}`, 'i'),
+    // Cards and OCR line output often put the label on its own line:
+    // "NAMED INSURED\nJOHN A DOE"
+    new RegExp(`^[ \\t]*${label}[ \\t]*[:\\-]?[ \\t]*\\r?\\n[ \\t]*${lastFirst}[ \\t]*$`, 'im'),
+    new RegExp(`^[ \\t]*${label}[ \\t]*[:\\-]?[ \\t]*\\r?\\n[ \\t]*${firstLast}[ \\t]*$`, 'im'),
   ]
   for (const re of patterns) {
     const m = re.exec(ocrText)

@@ -41,14 +41,23 @@
  */
 import { prisma } from './prisma'
 
-export type IdentityVerdict = 'match' | 'mismatch'
+/**
+ * `unverified` means the comparison could not be made: no name was read off the
+ * document, or the case has no claimant name. It is shown to the attorney so a
+ * document that passed is distinguishable from one that was never compared, but
+ * it is not a flag — it does not send the file to manual review or the fraud gate.
+ */
+export type IdentityVerdict = 'match' | 'mismatch' | 'unverified'
+
+export type UnverifiedReason = 'no_document_name' | 'no_claimant_name'
 
 export interface IdentityCheck {
   verdict: IdentityVerdict
-  /** The person the document names, as OCR read them. */
+  /** The person the document names, as OCR read them. Empty when unreadable. */
   documentName: string
-  /** The claimant the case belongs to. */
+  /** The claimant the case belongs to. Empty when the case has none. */
   claimantName: string
+  reason?: UnverifiedReason
   checkedAt: string
 }
 
@@ -160,9 +169,10 @@ export async function claimantNameForAssessment(assessmentId: string): Promise<s
 /**
  * The verdict to store against one processed document, or null to store nothing.
  *
- * Null covers every "we cannot say": a category that names more than one person,
- * a case with no claimant name recorded, a document OCR read no name off. Only a
- * real comparison produces a row.
+ * Null is reserved for documents the check does not apply to: no case, or a
+ * category that names more than one person. A checked category always gets a
+ * row, with `unverified` when either name is missing, so an attorney can tell
+ * "names this client" from "nobody could read a name".
  */
 export async function checkDocumentIdentity(params: {
   assessmentId: string | null
@@ -172,18 +182,23 @@ export async function checkDocumentIdentity(params: {
   const { assessmentId, category, documentName } = params
   if (!assessmentId) return null
   if (!IDENTITY_CHECKED_CATEGORIES.has(category)) return null
-  if (nameTokens(documentName).length === 0) return null
 
+  const checkedAt = new Date().toISOString()
   const claimantName = await claimantNameForAssessment(assessmentId)
-  const verdict = compareToClaimant(documentName, claimantName)
-  if (!verdict || !claimantName) return null
-
-  return {
-    verdict,
-    documentName: String(documentName).trim(),
-    claimantName,
-    checkedAt: new Date().toISOString(),
+  const readName = nameTokens(documentName).length > 0 ? String(documentName).trim() : ''
+  if (!readName || !claimantName) {
+    return {
+      verdict: 'unverified',
+      documentName: readName,
+      claimantName: claimantName || '',
+      reason: readName ? 'no_claimant_name' : 'no_document_name',
+      checkedAt,
+    }
   }
+
+  const verdict = compareToClaimant(readName, claimantName)
+  if (!verdict) return null
+  return { verdict, documentName: readName, claimantName, checkedAt }
 }
 
 /** Reads the column back, tolerating the null and the unparseable. */
@@ -191,7 +206,9 @@ export function parseIdentityCheck(raw: string | null | undefined): IdentityChec
   if (!raw) return null
   try {
     const parsed = JSON.parse(raw) as IdentityCheck
-    return parsed?.verdict === 'match' || parsed?.verdict === 'mismatch' ? parsed : null
+    return parsed?.verdict === 'match' || parsed?.verdict === 'mismatch' || parsed?.verdict === 'unverified'
+      ? parsed
+      : null
   } catch {
     return null
   }

@@ -3047,6 +3047,17 @@ function EvidencePanel({
                 >
                   <AlertTriangle className="h-3 w-3" /> Different name
                 </span>
+              ) : doc.identityCheck?.verdict === 'unverified' ? (
+                <span
+                  className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600"
+                  title={
+                    doc.identityCheck.reason === 'no_claimant_name'
+                      ? 'The case has no client name to compare against'
+                      : 'No name could be read off this document'
+                  }
+                >
+                  Name not verified
+                </span>
               ) : null}
               {hasAi ? (
                 <span className="inline-flex items-center gap-0.5 rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-700">
@@ -3733,6 +3744,12 @@ function EvidencePreviewDrawer({
                   <span className="font-semibold">{doc.identityCheck.claimantName}</span>. Confirm it belongs on this
                   case — anything read off it already counts toward the case value.
                 </span>
+              </p>
+            ) : doc.identityCheck?.verdict === 'unverified' ? (
+              <p className="mt-2 rounded-lg bg-slate-50 px-2.5 py-2 text-xs text-slate-600">
+                {doc.identityCheck.reason === 'no_claimant_name'
+                  ? 'Name not verified: this case has no client name to compare the document against.'
+                  : 'Name not verified: no name could be read off this document. Check that it belongs to the client.'}
               </p>
             ) : null}
           </div>

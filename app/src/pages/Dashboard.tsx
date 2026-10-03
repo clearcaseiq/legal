@@ -357,7 +357,7 @@ export default function Dashboard() {
       preparation?: {
         checkInStatus?: string
         preparationNotes?: string
-        prepItems?: Array<{ id: string; label: string; status: string; isRequired: boolean }>
+        prepItems?: Array<{ id: string; itemType?: string; label: string; status: string; isRequired: boolean }>
         waitlistStatus?: string | null
       } | null
       reviewEligible?: boolean
@@ -389,6 +389,7 @@ export default function Dashboard() {
   const [cancelConsultReason, setCancelConsultReason] = useState('')
   const [cancelConsultLoading, setCancelConsultLoading] = useState(false)
   const [prepNotes, setPrepNotes] = useState('')
+  const prepNotesRef = useRef<HTMLTextAreaElement>(null)
   const [prepSaving, setPrepSaving] = useState(false)
   const [waitlistLoading, setWaitlistLoading] = useState(false)
   const [reviewOpen, setReviewOpen] = useState(false)
@@ -1764,22 +1765,6 @@ export default function Dashboard() {
     }
   }
 
-  const handleUpdatePrepStatus = async (itemId: string, status: 'pending' | 'uploaded' | 'completed' | 'skipped') => {
-    if (!routingStatus?.upcomingAppointment?.id || !activeAssessment?.id) return
-    try {
-      setPrepSaving(true)
-      await updateAppointmentPreparation(routingStatus.upcomingAppointment.id, {
-        items: [{ id: itemId, status }],
-      })
-      const data = await getRoutingStatus(activeAssessment.id)
-      setRoutingStatus(data)
-    } catch (err) {
-      console.error('Failed to update prep item', err)
-    } finally {
-      setPrepSaving(false)
-    }
-  }
-
   const handleSavePrepNotes = async () => {
     if (!routingStatus?.upcomingAppointment?.id || !activeAssessment?.id) return
     try {
@@ -2618,23 +2603,42 @@ export default function Dashboard() {
                       <div className="bg-amber-50 border border-amber-200 rounded-xl p-5">
                         <h3 className="text-sm font-bold text-amber-900 mb-2">{t('plaintiffDashboard.preConsult.title')}</h3>
                         <div className="space-y-2">
-                          {(routingStatus?.upcomingAppointment?.preparation?.prepItems || []).map((item) => (
-                            <div key={item.id} className="flex items-center justify-between gap-3 rounded-lg border border-amber-100 bg-white px-3 py-2">
-                              <div>
-                                <p className="text-sm text-amber-900">{item.label}</p>
-                                <p className="text-xs text-amber-700 capitalize">{item.isRequired ? t('plaintiffDashboard.preConsult.required') : t('plaintiffDashboard.preConsult.recommended')} • {item.status}</p>
+                          {(routingStatus?.upcomingAppointment?.preparation?.prepItems || []).map((item) => {
+                            const done = item.status === 'completed'
+                            const uploadFocus: Record<string, string> = {
+                              medical_records: 'medical_records',
+                              injury_photos: 'photos',
+                              wage_loss: 'wage_verification',
+                            }
+                            const focus = item.itemType ? uploadFocus[item.itemType] : undefined
+                            const actionClass = 'shrink-0 text-xs font-medium text-amber-800 hover:underline'
+                            return (
+                              <div key={item.id} className="flex items-center justify-between gap-3 rounded-lg border border-amber-100 bg-white px-3 py-2">
+                                <div>
+                                  <p className="text-sm text-amber-900">{item.label}</p>
+                                  <p className="text-xs text-amber-700">{item.isRequired ? t('plaintiffDashboard.preConsult.required') : t('plaintiffDashboard.preConsult.recommended')} • {done ? t('plaintiffDashboard.preConsult.statusDone') : t('plaintiffDashboard.preConsult.statusPending')}</p>
+                                </div>
+                                {done ? (
+                                  <CheckCircle className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
+                                ) : focus && activeAssessment?.id ? (
+                                  <Link to={evidenceUploadHref(activeAssessment.id, { from: 'dashboard', focus })} className={actionClass}>
+                                    {t('plaintiffDashboard.preConsult.upload')}
+                                  </Link>
+                                ) : item.itemType === 'incident_summary' ? (
+                                  <button type="button" onClick={() => setQuickEditMode('narrative')} className={actionClass}>
+                                    {t('plaintiffDashboard.preConsult.addSummary')}
+                                  </button>
+                                ) : item.itemType === 'consult_goal' ? (
+                                  <button type="button" onClick={() => prepNotesRef.current?.focus()} className={actionClass}>
+                                    {t('plaintiffDashboard.preConsult.writeQuestions')}
+                                  </button>
+                                ) : null}
                               </div>
-                              <button
-                                onClick={() => handleUpdatePrepStatus(item.id, item.status === 'completed' ? 'pending' : 'completed')}
-                                disabled={prepSaving}
-                                className="text-xs font-medium text-amber-800 hover:underline disabled:opacity-60"
-                              >
-                                {item.status === 'completed' ? t('plaintiffDashboard.preConsult.markPending') : t('plaintiffDashboard.preConsult.markDone')}
-                              </button>
-                            </div>
-                          ))}
+                            )
+                          })}
                         </div>
                         <textarea
+                          ref={prepNotesRef}
                           value={prepNotes}
                           onChange={(e) => setPrepNotes(e.target.value)}
                           placeholder={t('plaintiffDashboard.preConsult.notesPlaceholder')}

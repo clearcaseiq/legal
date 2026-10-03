@@ -66,6 +66,39 @@ function parseJson<T>(value?: string | null, fallback?: T): T | undefined {
   }
 }
 
+export type PrepCaseState = {
+  hasNarrative: boolean
+  evidence: Array<{ category?: string | null; originalName?: string | null }>
+  preparationNotes: string
+}
+
+/**
+ * A prep item is done when the case shows it, not when the client says so:
+ * a manual "done" toggle let "Upload medical records" read Completed with
+ * nothing uploaded, and left real uploads showing Pending.
+ */
+export function derivePrepItemStatus(itemType: string, state: PrepCaseState): 'completed' | 'pending' {
+  const categories = new Set(state.evidence.map((file) => (file.category || '').toLowerCase()))
+  const names = state.evidence.map((file) => (file.originalName || '').toLowerCase())
+  const done = (() => {
+    switch (itemType) {
+      case 'incident_summary':
+        return state.hasNarrative
+      case 'medical_records':
+        return categories.has('medical_records')
+      case 'injury_photos':
+        return categories.has('injury_photos') || categories.has('photos')
+      case 'wage_loss':
+        return categories.has('wage_verification') || categories.has('wage_loss') || names.some((name) => /pay ?stub|payroll|wage/.test(name))
+      case 'consult_goal':
+        return state.preparationNotes.trim().length > 0
+      default:
+        return false
+    }
+  })()
+  return done ? 'completed' : 'pending'
+}
+
 async function createNotification(params: {
   type?: string
   recipient: string
@@ -669,7 +702,7 @@ export async function getAppointmentPreparation(appointmentId: string, userId: s
   })
   if (!appointment?.user.email) return null
 
-  const [seedNotification, prepUpdates, notesEntry, waitlistEntry] = await Promise.all([
+  const [seedNotification, assessment, evidenceFiles, notesEntry, waitlistEntry] = await Promise.all([
     prisma.notification.findFirst({
       where: {
         recipient: appointment.user.email,
@@ -678,14 +711,14 @@ export async function getAppointmentPreparation(appointmentId: string, userId: s
       },
       orderBy: { createdAt: 'desc' },
     }),
-    prisma.notification.findMany({
-      where: {
-        recipient: appointment.user.email,
-        metadata: { contains: appointmentId },
-        subject: 'Consultation prep updated',
-      },
-      orderBy: { createdAt: 'asc' },
-    }),
+    appointment.assessmentId
+      ? prisma.assessment.findUnique({ where: { id: appointment.assessmentId }, select: { facts: true } })
+      : null,
+    appointment.assessmentId
+      ? prisma.evidenceFile
+          .findMany({ where: { assessmentId: appointment.assessmentId }, select: { category: true, originalName: true } })
+          .catch(() => [] as Array<{ category?: string | null; originalName?: string | null }>)
+      : [],
     prisma.notification.findFirst({
       where: {
         recipient: appointment.user.email,
@@ -712,19 +745,21 @@ export async function getAppointmentPreparation(appointmentId: string, userId: s
   const notesMetadata = parseJson<{ preparationNotes?: string; checkInStatus?: string }>(notesEntry?.metadata || '', {})
   const waitlistMetadata = parseJson<{ waitlistStatus?: string }>(waitlistEntry?.metadata || '', {})
 
-  const prepItems = (seed?.items || []).map((item) => {
-    const latest = prepUpdates
-      .filter((entry) => entry.metadata?.includes(`"itemType":"${item.itemType}"`))
-      .at(-1)
-    const latestMetadata = parseJson<{ status?: string }>(latest?.metadata || '', {})
-    return {
-      id: `${appointment.id}:${item.itemType}`,
-      label: item.label,
-      description: item.description,
-      isRequired: item.isRequired,
-      status: latestMetadata?.status || 'pending',
-    }
-  })
+  const facts = parseJson<AssessmentFacts>(assessment?.facts, {}) || {}
+  const caseState: PrepCaseState = {
+    hasNarrative: Boolean(facts.incident?.narrative?.trim()),
+    evidence: evidenceFiles || [],
+    preparationNotes: notesMetadata?.preparationNotes || '',
+  }
+
+  const prepItems = (seed?.items || []).map((item) => ({
+    id: `${appointment.id}:${item.itemType}`,
+    itemType: item.itemType,
+    label: item.label,
+    description: item.description,
+    isRequired: item.isRequired,
+    status: derivePrepItemStatus(item.itemType, caseState),
+  }))
 
   return {
     appointmentId: appointment.id,

@@ -483,6 +483,7 @@ router.get('/assessment/:id/status', authMiddleware, async (req: AuthRequest, re
                 preparationNotes: appointmentPrep.preparationNotes,
                 prepItems: appointmentPrep.prepItems.map((item: any) => ({
                   id: item.id,
+                  itemType: item.itemType,
                   label: item.label,
                   status: item.status,
                   isRequired: item.isRequired

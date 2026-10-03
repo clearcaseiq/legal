@@ -1,5 +1,27 @@
 import { describe, expect, it } from 'vitest'
-import { buildStructuredMedicalEvents, shouldAutoProcessEvidence } from './evidence-processing'
+import { buildStructuredMedicalEvents, extractPatientName, shouldAutoProcessEvidence } from './evidence-processing'
+
+describe('extractPatientName on insurance cards', () => {
+  it('reads a name on the line after its label', () => {
+    expect(extractPatientName('STATE FARM\nNAMED INSURED\nJOHN A DOE\n123 MAIN ST')).toBe('JOHN DOE')
+    expect(extractPatientName('Policyholder\nDoe, Jane')).toBe('Jane Doe')
+  })
+
+  it('reads card labels on the same line', () => {
+    expect(extractPatientName('Policyholder: Maria Lopez')).toBe('Maria Lopez')
+    expect(extractPatientName('Driver(s): JOHN DOE, JANE DOE')).toBe('JOHN DOE')
+  })
+
+  it('does not take card headings as a name', () => {
+    expect(extractPatientName('NAMED INSURED\nAUTO INSURANCE CARD')).toBeNull()
+    expect(extractPatientName('Insured Vehicle\n2019 Honda Civic')).toBeNull()
+  })
+
+  it('still reads the existing same-line formats', () => {
+    expect(extractPatientName('Patient Name: John A. Doe')).toBe('John Doe')
+    expect(extractPatientName('Patient: Doe, John')).toBe('John Doe')
+  })
+})
 
 describe('evidence-processing', () => {
   it('builds structured medical events from extracted dates and billing data', () => {

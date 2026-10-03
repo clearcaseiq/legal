@@ -2312,12 +2312,14 @@ export interface DocumentInboxExtract {
 
 /**
  * Whether the person named on a document is the claimant whose case it is on.
- * Null when no comparison was possible, which is not the same as passing one.
+ * `unverified` when no name could be read off the document (or the case has no
+ * claimant name); null when the document type is not checked at all.
  */
 export interface DocumentIdentityCheck {
-  verdict: 'match' | 'mismatch'
+  verdict: 'match' | 'mismatch' | 'unverified'
   documentName: string
   claimantName: string
+  reason?: 'no_document_name' | 'no_claimant_name'
   checkedAt: string
 }
 

@@ -152,15 +152,14 @@ describe('the verdict stored against a processed document', () => {
     expect(prisma.assessment.findUnique).not.toHaveBeenCalled()
   })
 
-  it('skips a document with no name on it rather than reading the case', async () => {
-    await expect(
-      checkDocumentIdentity({
-        assessmentId: 'asm-1',
-        category: 'medical_records',
-        documentName: null,
-      }),
-    ).resolves.toBeNull()
-    expect(prisma.assessment.findUnique).not.toHaveBeenCalled()
+  it('records a document with no readable name as unverified, not as a pass', async () => {
+    onCase(assessment({}))
+    const result = await checkDocumentIdentity({
+      assessmentId: 'asm-1',
+      category: 'insurance_letters',
+      documentName: null,
+    })
+    expect(result).toMatchObject({ verdict: 'unverified', reason: 'no_document_name', claimantName: 'Dana Reyes' })
   })
 
   it('skips an upload that is not attached to a case', async () => {
@@ -173,15 +172,14 @@ describe('the verdict stored against a processed document', () => {
     ).resolves.toBeNull()
   })
 
-  it('reaches no verdict when the case has no claimant name to compare against', async () => {
+  it('records unverified when the case has no claimant name to compare against', async () => {
     onCase(assessment({ facts: null }))
-    await expect(
-      checkDocumentIdentity({
-        assessmentId: 'asm-1',
-        category: 'medical_records',
-        documentName: 'Peter Okafor',
-      }),
-    ).resolves.toBeNull()
+    const result = await checkDocumentIdentity({
+      assessmentId: 'asm-1',
+      category: 'medical_records',
+      documentName: 'Peter Okafor',
+    })
+    expect(result).toMatchObject({ verdict: 'unverified', reason: 'no_claimant_name', documentName: 'Peter Okafor' })
   })
 })
 
