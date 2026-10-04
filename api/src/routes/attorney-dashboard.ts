@@ -5662,7 +5662,7 @@ router.get('/search', authMiddleware, async (req: any, res) => {
           leadId: r.leadId,
           title: label,
           subtitle: ['Request', client, humanize(r.status)].filter(Boolean).join(' · '),
-          href: `/attorney-dashboard/cases/${r.leadId}/evidence`,
+          href: `/attorney-dashboard/cases/${r.leadId}/documents?view=requests`,
         })
       }
     }
@@ -5675,7 +5675,7 @@ router.get('/search', authMiddleware, async (req: any, res) => {
           leadId: e.leadId,
           title: label,
           subtitle: ['E-sign', client, humanize(e.status)].filter(Boolean).join(' · '),
-          href: `/attorney-dashboard/cases/${e.leadId}/signatures`,
+          href: `/attorney-dashboard/cases/${e.leadId}/documents?view=requests`,
         })
       }
     }

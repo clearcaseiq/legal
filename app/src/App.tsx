@@ -199,13 +199,13 @@ function EvidenceUploadRedirect() {
   return <Navigate to={`/intake2?${qs.toString()}`} replace />
 }
 // The standalone per-case documents page is retired in favor of the case file's
-// Evidence tab inside the workspace shell. Old /attorney-dashboard/documents/:leadId
+// Documents tab inside the workspace shell. Old /attorney-dashboard/documents/:leadId
 // links now forward there.
 function AttorneyCaseDocumentsRedirect() {
   const { leadId } = useParams()
   return (
     <Navigate
-      to={leadId ? `/attorney-dashboard/cases/${leadId}/evidence` : '/attorney-dashboard/cases/active'}
+      to={leadId ? `/attorney-dashboard/cases/${leadId}/documents` : '/attorney-dashboard/cases/active'}
       replace
     />
   )

@@ -141,7 +141,7 @@ export default function ProviderLettersPanel({
           {onOpenSection ? (
             <button
               type="button"
-              onClick={() => onOpenSection('signatures?doc=hipaa_authorization')}
+              onClick={() => onOpenSection('documents?view=requests&doc=hipaa_authorization')}
               className="rounded-lg bg-white px-2.5 py-1 text-xs font-semibold text-amber-800 ring-1 ring-amber-200 hover:bg-amber-100"
             >
               Send HIPAA authorization

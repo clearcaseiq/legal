@@ -460,10 +460,10 @@ export default function TasksPage() {
         if (!done) await confirmRetainerSigned(leadId)
         await loadTasks()
       } catch {
-        // Still open Signatures.
+        // Still open Documents.
       } finally {
         setBusyId(null)
-        navigate(`/attorney-dashboard/cases/${leadId}/signatures`)
+        navigate(`/attorney-dashboard/cases/${leadId}/documents?view=requests`)
       }
       return
     }
@@ -471,11 +471,11 @@ export default function TasksPage() {
       setBusyId(row.id)
       try {
         // Case-workspace task list sync also runs here when attorneys open the case;
-        // refresh summary then land on HIPAA signatures.
+        // refresh summary then land on the HIPAA request in Documents.
         await loadTasks()
       } finally {
         setBusyId(null)
-        navigate(`/attorney-dashboard/cases/${leadId}/signatures?doc=hipaa_authorization`)
+        navigate(`/attorney-dashboard/cases/${leadId}/documents?view=requests&doc=hipaa_authorization`)
       }
       return
     }
@@ -485,10 +485,10 @@ export default function TasksPage() {
         if (!done) await checkPoliceReportCollect(leadId)
         await loadTasks()
       } catch {
-        // Still open Evidence.
+        // Still open Documents.
       } finally {
         setBusyId(null)
-        navigate(`/attorney-dashboard/cases/${leadId}/evidence`)
+        navigate(`/attorney-dashboard/cases/${leadId}/documents`)
       }
       return
     }
@@ -503,10 +503,10 @@ export default function TasksPage() {
         }
         await loadTasks()
       } catch {
-        // Still open Evidence.
+        // Still open Documents.
       } finally {
         setBusyId(null)
-        navigate(`/attorney-dashboard/cases/${leadId}/evidence`)
+        navigate(`/attorney-dashboard/cases/${leadId}/documents`)
       }
       return
     }

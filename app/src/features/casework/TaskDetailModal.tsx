@@ -528,7 +528,7 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
     }
     if (kind === 'check_retainer') {
       if (done) {
-        navigate(`/attorney-dashboard/cases/${leadId}/signatures`)
+        navigate(`/attorney-dashboard/cases/${leadId}/documents?view=requests`)
         onClose()
         return
       }
@@ -540,11 +540,11 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
           setTask(d)
           onChanged?.()
           if (res.alreadyDone) {
-            navigate(`/attorney-dashboard/cases/${leadId}/signatures`)
+            navigate(`/attorney-dashboard/cases/${leadId}/documents?view=requests`)
             onClose()
           }
         } else {
-          navigate(`/attorney-dashboard/cases/${leadId}/signatures`)
+          navigate(`/attorney-dashboard/cases/${leadId}/documents?view=requests`)
           onClose()
         }
       } catch (err: any) {
@@ -556,7 +556,7 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
     }
     if (kind === 'send_welcome') {
       if (done) {
-        navigate(`/attorney-dashboard/cases/${leadId}/signatures`)
+        navigate(`/attorney-dashboard/cases/${leadId}/documents?view=requests`)
         onClose()
         return
       }
@@ -582,7 +582,7 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
         onChanged?.()
       } finally {
         setActionBusy(false)
-        navigate(`/attorney-dashboard/cases/${leadId}/signatures?doc=hipaa_authorization`)
+        navigate(`/attorney-dashboard/cases/${leadId}/documents?view=requests&doc=hipaa_authorization`)
         onClose()
       }
       return
@@ -596,12 +596,12 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
           setTask(d)
           onChanged?.()
         } catch {
-          // Still open Evidence.
+          // Still open Documents.
         } finally {
           setActionBusy(false)
         }
       }
-      navigate(`/attorney-dashboard/cases/${leadId}/evidence`)
+      navigate(`/attorney-dashboard/cases/${leadId}/documents`)
       onClose()
       return
     }
@@ -614,12 +614,12 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
           setTask(d)
           onChanged?.()
         } catch {
-          // Still open Evidence.
+          // Still open Documents.
         } finally {
           setActionBusy(false)
         }
       }
-      navigate(`/attorney-dashboard/cases/${leadId}/evidence`)
+      navigate(`/attorney-dashboard/cases/${leadId}/documents`)
       onClose()
       return
     }

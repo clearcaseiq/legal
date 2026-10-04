@@ -682,10 +682,10 @@ export default function AttorneyDashboardShell({ chromeless = false, initialView
       navigate(`/attorney-dashboard/lead/${lead.id}/communications`)
     } else if (action === 'documentRequest') {
       setLeadPhaseTab('post')
-      navigate(`/attorney-dashboard/lead/${lead.id}/evidence`)
+      navigate(`/attorney-dashboard/lead/${lead.id}/documents?view=requests`)
     } else if (action === 'documents') {
       setLeadPhaseTab('post')
-      navigate(`/attorney-dashboard/lead/${lead.id}/evidence`)
+      navigate(`/attorney-dashboard/lead/${lead.id}/documents`)
     } else if (action === 'addContact') {
       setLeadPhaseTab('post')
       navigate(`/attorney-dashboard/lead/${lead.id}/communications`)
@@ -727,10 +727,10 @@ export default function AttorneyDashboardShell({ chromeless = false, initialView
       navigate(`/attorney-dashboard/lead/${lead.id}/communications`)
     } else if (action === 'documentRequest') {
       setLeadPhaseTab('post')
-      navigate(`/attorney-dashboard/lead/${lead.id}/evidence`)
+      navigate(`/attorney-dashboard/lead/${lead.id}/documents?view=requests`)
     } else if (action === 'documents') {
       setLeadPhaseTab('post')
-      navigate(`/attorney-dashboard/lead/${lead.id}/evidence`)
+      navigate(`/attorney-dashboard/lead/${lead.id}/documents`)
     } else if (action === 'addContact') {
       setLeadPhaseTab('post')
       navigate(`/attorney-dashboard/lead/${lead.id}/communications`)
@@ -4317,7 +4317,7 @@ function buildAttorneyAiOpportunities(data: DashboardData, demandReadyMin: numbe
       actionLabel: 'Request documents',
       toneClass: 'bg-amber-100 text-amber-700',
       leadId: missingDocsLead.id,
-      section: 'evidence',
+      section: 'documents?view=requests',
       tab: 'leads',
     })
   }

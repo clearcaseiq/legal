@@ -1083,7 +1083,7 @@ function WorkstreamPanel({
           ? sug.requestedDocs
           : (cc?.missingItems || []).map((m) => m.key)
         if (docKeys.length) await requestDocs(docKeys, sug?.customMessage, 'nba', (cc?.missingItems || []).map((m) => m.key))
-        else goToSection('evidence')
+        else goToSection('documents')
         break
       }
       default:
@@ -2110,7 +2110,7 @@ function MedicalPanel({
           </Note>
         )}
         <button
-          onClick={() => onOpenSection('evidence?uploadCategory=medical_records')}
+          onClick={() => onOpenSection('documents?uploadCategory=medical_records')}
           className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
         >
           <Upload className="h-4 w-4" /> Add medical records
@@ -2271,7 +2271,7 @@ function MedicalPanel({
                     {ev.details ? <p className="mt-1 line-clamp-2 text-xs text-slate-500">{ev.details}</p> : null}
                     {ev.sourceFileName ? (
                       <button
-                        onClick={() => onOpenSection('evidence')}
+                        onClick={() => onOpenSection('documents')}
                         className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-medium text-brand-600 hover:text-brand-700"
                       >
                         <FileText className="h-3 w-3" /> {ev.sourceFileName}
@@ -4345,28 +4345,28 @@ function TasksPanel({
 
   const checkPoliceCollectForTask = async (t: TaskRow) => {
     if (isDone(t)) {
-      goCaseSection('evidence')
+      goCaseSection('documents')
       return
     }
     setBusy(t.id)
     try {
-      // Best-effort: mark done when a report is already on file, then always open Evidence.
+      // Best-effort: mark done when a report is already on file, then always open Documents.
       const res = await checkPoliceReportCollect(leadId)
       if (res.reportOnFile && res.completedTasks) {
         flash('ok', 'Police/incident report is on file — collect task marked done.')
         await load()
       }
     } catch {
-      // Ignore — Collect's job is to open Evidence either way.
+      // Ignore — Collect's job is to open Documents either way.
     } finally {
       setBusy(null)
-      goCaseSection('evidence')
+      goCaseSection('documents')
     }
   }
 
   const checkEvidenceCollectForTask = async (t: TaskRow, kind: 'medical_records' | 'bills') => {
     const evidenceSection =
-      kind === 'medical_records' ? 'evidence?uploadCategory=medical_records' : 'evidence?uploadCategory=bills'
+      kind === 'medical_records' ? 'documents?uploadCategory=medical_records' : 'documents?uploadCategory=bills'
     if (isDone(t)) {
       goCaseSection(evidenceSection)
       return
@@ -4379,7 +4379,7 @@ function TasksPanel({
         await load()
       }
     } catch {
-      // Ignore — Collect still opens Evidence.
+      // Ignore — Collect still opens Documents.
     } finally {
       setBusy(null)
       goCaseSection(evidenceSection)
@@ -4388,7 +4388,7 @@ function TasksPanel({
 
   const checkConfirmSignedForTask = async (t: TaskRow) => {
     if (isDone(t)) {
-      goCaseSection('signatures')
+      goCaseSection('documents?view=requests')
       return
     }
     setBusy(t.id)
@@ -4398,17 +4398,17 @@ function TasksPanel({
         flash(
           'ok',
           res.alreadyDone
-            ? `Retainer already signed${res.title ? ` (“${res.title}”)` : ''}. Opening Signatures.`
+            ? `Retainer already signed${res.title ? ` (“${res.title}”)` : ''}. Opening Documents.`
             : `Retainer signed${res.title ? ` (“${res.title}”)` : ''} — confirm task marked done.`,
         )
         await load()
-        if (res.alreadyDone) goCaseSection('signatures')
+        if (res.alreadyDone) goCaseSection('documents?view=requests')
       } else {
         flash(
           'err',
-          'No signed retainer found yet. Opening Signatures so you can remind the client or wait for signature.',
+          'No signed retainer found yet. Opening Documents so you can remind the client or wait for signature.',
         )
-        goCaseSection('signatures')
+        goCaseSection('documents?view=requests')
       }
     } catch (err: any) {
       flash('err', err?.response?.data?.error || 'Failed to check retainer signature status.')
@@ -4444,13 +4444,13 @@ function TasksPanel({
       await load()
     } finally {
       setBusy(null)
-      goCaseSection('signatures?doc=hipaa_authorization')
+      goCaseSection('documents?view=requests&doc=hipaa_authorization')
     }
   }
 
   const sendWelcomePacketForTask = async (t: TaskRow) => {
     if (isDone(t)) {
-      goCaseSection('signatures')
+      goCaseSection('documents?view=requests')
       return
     }
     setBusy(t.id)
@@ -4467,7 +4467,7 @@ function TasksPanel({
       const data = err?.response?.data
       flash('err', data?.error || data?.detail || 'Failed to send the welcome packet.')
       if (data?.code === 'missing_client_contact') goCaseSection('client-info')
-      else if (data?.code === 'packet_already_sent' || data?.code === 'no_hipaa_provider') goCaseSection('signatures')
+      else if (data?.code === 'packet_already_sent' || data?.code === 'no_hipaa_provider') goCaseSection('documents?view=requests')
     } finally {
       setBusy(null)
     }

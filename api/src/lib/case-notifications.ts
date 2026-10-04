@@ -1035,7 +1035,7 @@ export async function sendAttorneyCaseMaterialUpdate(
     select: { id: true },
   })
   const materialLink = materialLead?.id
-    ? `/attorney-dashboard/cases/${materialLead.id}/evidence`
+    ? `/attorney-dashboard/cases/${materialLead.id}/documents`
     : undefined
 
   const message = [
