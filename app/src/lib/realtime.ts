@@ -32,10 +32,21 @@ export type CaseUpdatedEvent = {
   kind: string
 }
 
+export type NotificationNewEvent = {
+  kind: string | null
+}
+
+export type MessageNewEvent = {
+  chatRoomId: string
+  senderType: string | null
+}
+
 type RealtimeEvents = {
   'lead:claimed': LeadClaimedEvent
   'lead:new': LeadNewEvent
   'case:updated': CaseUpdatedEvent
+  'notification:new': NotificationNewEvent
+  'message:new': MessageNewEvent
 }
 
 let socket: Socket | null = null

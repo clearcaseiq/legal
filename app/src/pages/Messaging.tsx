@@ -33,6 +33,7 @@ import { CHAT_MESSAGE_MAX_LENGTH } from '../lib/messageLimits'
 import RecordedCallBar from '../components/RecordedCallBar'
 import { useLanguage } from '../contexts/LanguageContext'
 import { getStoredUser } from '../lib/auth'
+import { useRealtimeEvent } from '../lib/realtime'
 
 interface ChatRoom {
   id: string
@@ -162,6 +163,10 @@ export default function Messaging() {
     }, 5000)
     return () => clearInterval(interval)
   }, [selectedRoom])
+
+  useRealtimeEvent('message:new', ({ chatRoomId }) => {
+    if (selectedRoom?.id === chatRoomId) void loadMessages(chatRoomId, { silent: true })
+  })
 
   // Call the attorney: prefer their phone (native dialer), otherwise fall back
   // to email so the button always does something useful (CP-389).

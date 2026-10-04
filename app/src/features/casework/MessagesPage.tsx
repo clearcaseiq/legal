@@ -7,6 +7,9 @@ import LeadPickerModal from '../../components/LeadPickerModal'
 import { Avatar, Badge, ClientLink, DataTable, PageHeader, SectionCard, type DataTableColumn } from '../shared/ui'
 import { formatClaimType } from '../../lib/claimTypes'
 import { CounterpartPresence } from '../../components/PresenceIndicator'
+import { useRealtimeEvent } from '../../lib/realtime'
+
+const MESSAGE_PUSH_EVENT = 'ccq:messages-pushed'
 
 // Cases the attorney can actually message — identity is revealed once the
 // plaintiff is contacted/consulted/retained.
@@ -176,12 +179,16 @@ export default function MessagesPage() {
     const id = window.setInterval(() => load(false), 30_000)
     const onFocus = () => load(false)
     window.addEventListener('focus', onFocus)
+    window.addEventListener(MESSAGE_PUSH_EVENT, onFocus)
     return () => {
       cancelled = true
       window.clearInterval(id)
       window.removeEventListener('focus', onFocus)
+      window.removeEventListener(MESSAGE_PUSH_EVENT, onFocus)
     }
   }, [])
+
+  useRealtimeEvent('message:new', () => window.dispatchEvent(new Event(MESSAGE_PUSH_EVENT)))
 
   // Caseload for the "New message" picker — only cases we can message. The
   // picker reads the attorney caseload, so staff start threads from the case.

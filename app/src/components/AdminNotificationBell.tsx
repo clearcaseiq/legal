@@ -12,6 +12,7 @@ import { AlertTriangle, Bell, Check, Loader2 } from 'lucide-react'
 import { getAdminAlerts, markAdminAlertsRead, type AdminAlert } from '../lib/api'
 import { NOTIFICATION_POLL_MS } from '../lib/notificationPolling'
 import { useVisibilityPoll } from '../hooks/useVisibilityPoll'
+import { useRealtimeEvent } from '../lib/realtime'
 
 function relativeTime(iso: string): string {
   const then = Date.parse(iso)
@@ -50,6 +51,7 @@ export default function AdminNotificationBell() {
   }, [])
 
   useVisibilityPoll(() => void load(), NOTIFICATION_POLL_MS)
+  useRealtimeEvent('notification:new', () => void load(), () => void load())
 
   useEffect(() => {
     if (!open) return

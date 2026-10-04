@@ -20,6 +20,7 @@ import { CalendarClock } from 'lucide-react'
 import ChatAvatar from './ChatAvatar'
 import PresenceIndicator from './PresenceIndicator'
 import { useCounterpartPresence } from '../lib/presence'
+import { useRealtimeEvent } from '../lib/realtime'
 import { useFirmAccess } from '../hooks/useFirmAccess'
 
 interface Message {
@@ -159,31 +160,37 @@ export default function ChatDrawer({
     if (nearBottom) thread.scrollTop = thread.scrollHeight
   }, [messages])
 
+  const refreshThread = async (roomId: string) => {
+    try {
+      const { messages: updated, participants: nextParticipants } = await getAttorneyChatRoomMessages(roomId)
+      if (nextParticipants) setParticipants(nextParticipants)
+      let changed = true
+      setMessages((prev) => {
+        if (prev.length === updated.length && prev[prev.length - 1]?.id === updated[updated.length - 1]?.id) {
+          changed = false
+          return prev
+        }
+        return updated
+      })
+      if (changed && updated.some((m: Message) => !m.isRead && m.senderType === 'user')) {
+        await markAttorneyMessagesRead(roomId)
+      }
+    } catch {
+      // Silent: transient poll failures shouldn't disrupt the drawer.
+    }
+  }
+
   // Poll the open conversation so the attorney sees new plaintiff messages
-  // without reopening or refreshing.
+  // without reopening or refreshing; the push below makes it immediate.
   useEffect(() => {
     if (!open || !chatRoomId) return
-    const interval = setInterval(async () => {
-      try {
-        const { messages: updated, participants: nextParticipants } = await getAttorneyChatRoomMessages(chatRoomId)
-        if (nextParticipants) setParticipants(nextParticipants)
-        let changed = true
-        setMessages((prev) => {
-          if (prev.length === updated.length && prev[prev.length - 1]?.id === updated[updated.length - 1]?.id) {
-            changed = false
-            return prev
-          }
-          return updated
-        })
-        if (changed && updated.some((m: Message) => !m.isRead && m.senderType === 'user')) {
-          await markAttorneyMessagesRead(chatRoomId)
-        }
-      } catch {
-        // Silent: transient poll failures shouldn't disrupt the drawer.
-      }
-    }, 5000)
+    const interval = setInterval(() => void refreshThread(chatRoomId), 5000)
     return () => clearInterval(interval)
   }, [open, chatRoomId])
+
+  useRealtimeEvent('message:new', (event) => {
+    if (open && chatRoomId && event.chatRoomId === chatRoomId) void refreshThread(chatRoomId)
+  })
 
   const loadChat = async () => {
     if (!userId && !assessmentId) return

@@ -13,6 +13,7 @@ import { formatClaimType } from '../lib/claimTypes'
 import { formatCaseId } from '../lib/caseId'
 import { MESSAGE_POLL_MS } from '../lib/notificationPolling'
 import { useVisibilityPoll } from '../hooks/useVisibilityPoll'
+import { useRealtimeEvent } from '../lib/realtime'
 
 interface RoomPreview {
   id: string
@@ -46,6 +47,7 @@ export default function PlaintiffNotificationBell() {
   }
 
   useVisibilityPoll(() => void loadData(), MESSAGE_POLL_MS)
+  useRealtimeEvent('message:new', () => void loadData(), () => void loadData())
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {

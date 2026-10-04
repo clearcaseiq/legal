@@ -11,6 +11,7 @@ import { formatClaimType } from '../lib/claimTypes'
 import { formatCaseId } from '../lib/caseId'
 import { MESSAGE_POLL_MS } from '../lib/notificationPolling'
 import { useVisibilityPoll } from '../hooks/useVisibilityPoll'
+import { useRealtimeEvent } from '../lib/realtime'
 
 interface ChatRoomPreview {
   id: string
@@ -47,6 +48,7 @@ export default function NotificationBell() {
   }
 
   useVisibilityPoll(loadData, MESSAGE_POLL_MS)
+  useRealtimeEvent('message:new', () => void loadData(), () => void loadData())
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {

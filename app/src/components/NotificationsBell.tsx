@@ -27,6 +27,7 @@ import {
 import { notificationDestination } from '../lib/notifications'
 import { NOTIFICATION_POLL_MS } from '../lib/notificationPolling'
 import { useVisibilityPoll } from '../hooks/useVisibilityPoll'
+import { useRealtimeEvent } from '../lib/realtime'
 
 type IconMeta = { Icon: typeof Bell; tone: string }
 
@@ -141,6 +142,11 @@ export default function NotificationsBell() {
   }, [])
 
   useVisibilityPoll(loadCount, NOTIFICATION_POLL_MS)
+  useRealtimeEvent(
+    'notification:new',
+    () => void (open ? loadList() : loadCount()),
+    () => void loadCount(),
+  )
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {

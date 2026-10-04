@@ -43,6 +43,17 @@ export type CaseUpdatedEvent = {
   kind: string
 }
 
+/** A notification row was written for this user; the bell should refetch. */
+export type NotificationNewEvent = {
+  kind: string | null
+}
+
+/** A chat message was written in this room; message bells and threads refetch. */
+export type MessageNewEvent = {
+  chatRoomId: string
+  senderType: string | null
+}
+
 let io: Server | null = null
 
 function allowedOrigins(): string[] {
@@ -131,8 +142,69 @@ export function initRealtime(httpServer: HttpServer): Server {
     logger.warn('REDIS_URL not set; realtime events only reach sockets on this instance')
   }
 
+  pushOnWrites()
   logger.info(`Realtime socket server listening on ${REALTIME_PATH}`)
   return io
+}
+
+/**
+ * Notifications and chat messages are written from dozens of call sites across
+ * two notification tables, so the push hangs off the write itself rather than
+ * each caller: a new path cannot forget it.
+ */
+function pushOnWrites(): void {
+  const client = prisma as any
+  if (typeof client.$use !== 'function') return
+  client.$use(async (params: any, next: (p: any) => Promise<any>) => {
+    const result = await next(params)
+    if (params.action === 'create' && result) {
+      if (params.model === 'PlatformNotificationEvent') {
+        emitNotificationNew(
+          { userId: result.userId, attorneyId: result.role === 'attorney' ? result.attorneyId : null },
+          { kind: result.eventType ?? null },
+        )
+      } else if (params.model === 'Notification') {
+        emitNotificationNew({ userId: result.userId }, { kind: result.type ?? null })
+      } else if (params.model === 'Message') {
+        void emitMessageNew({ chatRoomId: result.chatRoomId, senderType: result.senderType ?? null })
+      }
+    }
+    return result
+  })
+}
+
+export function emitNotificationNew(
+  recipient: { userId?: string | null; attorneyId?: string | null },
+  event: NotificationNewEvent,
+): void {
+  if (!io) return
+  const rooms = [
+    ...(recipient.userId ? [`user:${recipient.userId}`] : []),
+    ...(recipient.attorneyId ? [`attorney:${recipient.attorneyId}`] : []),
+  ]
+  if (!rooms.length) return
+  try {
+    io.to(rooms).emit('notification:new', event)
+  } catch (err) {
+    logger.warn('Realtime notification:new emit failed', { error: (err as Error).message })
+  }
+}
+
+/** Push to both sides of the conversation, plus the attorney's firm for shared inboxes. */
+export async function emitMessageNew(event: MessageNewEvent): Promise<void> {
+  if (!io || !event.chatRoomId) return
+  try {
+    const room = await prisma.chatRoom.findUnique({
+      where: { id: event.chatRoomId },
+      select: { userId: true, attorneyId: true, attorney: { select: { lawFirmId: true } } },
+    })
+    if (!room) return
+    const rooms = [`user:${room.userId}`, `attorney:${room.attorneyId}`]
+    if (room.attorney?.lawFirmId) rooms.push(`firm:${room.attorney.lawFirmId}`)
+    io.to(rooms).emit('message:new', event)
+  } catch (err) {
+    logger.warn('Realtime message:new emit failed', { chatRoomId: event.chatRoomId, error: (err as Error).message })
+  }
 }
 
 /**

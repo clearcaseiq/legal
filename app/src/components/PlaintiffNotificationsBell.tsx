@@ -282,6 +282,7 @@ export default function PlaintiffNotificationsBell() {
 
   useVisibilityPoll(() => void loadData(), NOTIFICATION_POLL_MS)
   useRealtimeEvent('case:updated', () => void loadData(), () => void loadData())
+  useRealtimeEvent('notification:new', () => void loadData())
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
