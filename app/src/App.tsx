@@ -3,6 +3,7 @@ import dynamic from 'next/dynamic'
 import { Routes, Route, Navigate, Link, useLocation, useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import Layout from './components/Layout'
 import ErrorBoundary from './components/ErrorBoundary'
+import { RedirectToHubTab } from './features/shared/HubTabs'
 import { GuestRoute, ProtectedRoute } from './components/AuthRoute'
 import { getStoredRole, getPostLoginRoute, getLoginRedirect, hasValidAuthToken } from './lib/auth'
 import { applyAnalyticsBoundary } from './lib/analyticsBoundary'
@@ -107,19 +108,15 @@ const AttorneyOverviewPage = lazy(() => import('./features/leadgen/AttorneyOverv
 const IntakePage = lazy(() => import('./features/leadgen/IntakePage'))
 const MarketplacePerformancePage = lazy(() => import('./features/leadgen/MarketplacePerformancePage'))
 const MatchQualityPage = lazy(() => import('./features/leadgen/MatchQualityPage'))
-const ActiveCasesPage = lazy(() => import('./features/casework/ActiveCasesPage'))
+const ActiveCasesHubPage = lazy(() => import('./features/casework/ActiveCasesHubPage'))
+const CalendarHubPage = lazy(() => import('./features/casework/CalendarHubPage'))
+const MessagesHubPage = lazy(() => import('./features/casework/MessagesHubPage'))
+const TasksHubPage = lazy(() => import('./features/casework/TasksHubPage'))
 const CaseWorkspacePage = lazy(() => import('./features/casework/CaseWorkspacePage'))
-const CaseMessagesPage = lazy(() => import('./features/casework/MessagesPage'))
-const TeamMessagesPage = lazy(() => import('./features/casework/TeamMessagesPage'))
-const ActivityPage = lazy(() => import('./features/casework/ActivityPage'))
 const NotificationsPage = lazy(() => import('./features/casework/NotificationsPage'))
-const SchedulingSettingsPage = lazy(() => import('./features/casework/SchedulingSettingsPage'))
 const PublicBookingPage = lazy(() => import('./features/public/PublicBookingPage'))
 const BookingManagePage = lazy(() => import('./features/public/BookingManagePage'))
 const CaseDocumentsHubPage = lazy(() => import('./features/casework/DocumentsPage'))
-const CaseTasksPage = lazy(() => import('./features/casework/TasksPage'))
-const CaseDeadlinesPage = lazy(() => import('./features/casework/DeadlinesPage'))
-const CaseContactsPage = lazy(() => import('./features/casework/ContactsPage'))
 const CaseBillingPage = lazy(() => import('./features/casework/BillingPage'))
 const CaseCopilotPage = lazy(() => import('./features/casework/CopilotPage'))
 const AiCaseManagerPage = lazy(() => import('./features/casework/AiCaseManagerPage'))
@@ -132,7 +129,6 @@ const CreateInvoicePage = lazy(() => import('./pages/CreateInvoicePage'))
 const ScheduleConsultPage = lazy(() => import('./pages/ScheduleConsultPage'))
 const DocumentRequestPage = lazy(() => import('./pages/DocumentRequestPage'))
 const DraftMessagePage = lazy(() => import('./pages/DraftMessagePage'))
-const CalendarPage = lazy(() => import('./pages/CalendarPage'))
 const FirmDashboard = lazy(() => import('./pages/FirmDashboard'))
 const StaffProfile = lazy(() => import('./pages/StaffProfile'))
 const FirmSettings = lazy(() => import('./pages/FirmSettings'))
@@ -305,7 +301,7 @@ function RouteFallback() {
 // surface. Unknown tabs fall back to the default landing.
 const LEGACY_TAB_REDIRECTS: Record<string, string> = {
   leads: '/attorney-dashboard/leadgen/matches',
-  intake: '/attorney-dashboard/cases/intake',
+  intake: '/attorney-dashboard/leadgen/intake',
   analytics: '/attorney-dashboard/leadgen/analytics',
   overview: '/attorney-dashboard/overview',
   profile: '/attorney-profile',
@@ -1431,16 +1427,16 @@ function App() {
                 {/* Staff holding "Schedule consults" run the firm attorneys' calendars. */}
                 <Route
                   path="/attorney-dashboard/cases/calendar"
-                  element={<RequireFirmPermission action="schedule"><CalendarPage /></RequireFirmPermission>}
+                  element={<RequireFirmPermission action="schedule"><CalendarHubPage /></RequireFirmPermission>}
                 />
                 <Route
                   path="/attorney-dashboard/cases/scheduling"
-                  element={<RequireFirmPermission action="schedule"><SchedulingSettingsPage /></RequireFirmPermission>}
+                  element={<RedirectToHubTab to="/attorney-dashboard/cases/calendar" tab="booking" />}
                 />
                 {/* Staff holding "Message clients" work the firm's client threads. */}
                 <Route
                   path="/attorney-dashboard/cases/messages"
-                  element={<RequireFirmPermission action="message"><CaseMessagesPage /></RequireFirmPermission>}
+                  element={<RequireFirmPermission action="message"><MessagesHubPage /></RequireFirmPermission>}
                 />
                 {/* Staff work New Matches and Active Cases like attorneys; the
                     dashboard endpoint scopes the cases to their firm role. */}
@@ -1448,7 +1444,7 @@ function App() {
                 {/* Pre-acceptance / expired review stays inside Lead Generation (read-only
                     snapshot) — it must never open the Case Management case file. */}
                 <Route path="/attorney-dashboard/leadgen/matches/:leadId/:section" element={<NewMatchesPage />} />
-                <Route path="/attorney-dashboard/cases/active" element={<ActiveCasesPage />} />
+                <Route path="/attorney-dashboard/cases/active" element={<ActiveCasesHubPage />} />
               </Route>
               {/* Staff book on behalf of the case's lead attorney. */}
               <Route path="/attorney-dashboard/schedule-consult/:leadId" element={<ScheduleConsultPage />} />
@@ -1470,19 +1466,20 @@ function App() {
                   path="/attorney-dashboard/settings/profile"
                   element={<Navigate to="/attorney-profile" replace />}
                 />
-                {/* Intake now lives under Case Management; keep the old leadgen path as a redirect. */}
-                <Route path="/attorney-dashboard/leadgen/intake" element={<Navigate to="/attorney-dashboard/cases/intake" replace />} />
+                {/* Manual and imported leads are acquisition work; the old Case Management path redirects. */}
+                <Route path="/attorney-dashboard/leadgen/intake" element={<IntakePage />} />
                 {/* Case Management */}
-                <Route path="/attorney-dashboard/cases/intake" element={<IntakePage />} />
+                <Route path="/attorney-dashboard/cases/intake" element={<RedirectToHubTab to="/attorney-dashboard/leadgen/intake" />} />
                 {/* Case Workspace launcher folded into Active Cases ("Jump back in" strip). */}
                 <Route path="/attorney-dashboard/cases/workspace" element={<Navigate to="/attorney-dashboard/cases/active" replace />} />
-                <Route path="/attorney-dashboard/cases/team" element={<TeamMessagesPage />} />
-                <Route path="/attorney-dashboard/cases/activity" element={<ActivityPage />} />
+                {/* Team chat, mentions, booking link, deadlines and contacts are tabs of their sidebar hubs now. */}
+                <Route path="/attorney-dashboard/cases/team" element={<RedirectToHubTab to="/attorney-dashboard/cases/messages" tab="team" />} />
+                <Route path="/attorney-dashboard/cases/activity" element={<RedirectToHubTab to="/attorney-dashboard/cases/messages" tab="mentions" />} />
                 <Route path="/attorney-dashboard/notifications" element={<NotificationsPage />} />
                 <Route path="/attorney-dashboard/cases/documents" element={<CaseDocumentsHubPage />} />
-                <Route path="/attorney-dashboard/cases/tasks" element={<CaseTasksPage />} />
-                <Route path="/attorney-dashboard/cases/deadlines" element={<CaseDeadlinesPage />} />
-                <Route path="/attorney-dashboard/cases/contacts" element={<CaseContactsPage />} />
+                <Route path="/attorney-dashboard/cases/tasks" element={<TasksHubPage />} />
+                <Route path="/attorney-dashboard/cases/deadlines" element={<RedirectToHubTab to="/attorney-dashboard/cases/tasks" tab="deadlines" />} />
+                <Route path="/attorney-dashboard/cases/contacts" element={<RedirectToHubTab to="/attorney-dashboard/cases/active" tab="contacts" />} />
                 <Route path="/attorney-dashboard/cases/billing" element={<CaseBillingPage />} />
                 <Route path="/attorney-dashboard/cases/copilot" element={<CaseCopilotPage />} />
                 <Route path="/attorney-dashboard/cases/ai-manager" element={<AiCaseManagerPage />} />
@@ -1494,7 +1491,7 @@ function App() {
               {/* Short link from the routed-case text; trades the reply code
                   back for the case it refers to. */}
               <Route path="/o/:code" element={<OfferShortLink />} />
-              <Route path="/attorney-dashboard/contacts" element={<Navigate to="/attorney-dashboard/cases/contacts" replace />} />
+              <Route path="/attorney-dashboard/contacts" element={<RedirectToHubTab to="/attorney-dashboard/cases/active" tab="contacts" />} />
               <Route path="/attorney-dashboard/documents/:leadId" element={<AttorneyCaseDocumentsRedirect />} />
               <Route path="/attorney-dashboard/add-contact/:leadId" element={<AddContactPage />} />
               <Route path="/attorney-dashboard/time-entry/:leadId" element={<TimeEntryPage />} />

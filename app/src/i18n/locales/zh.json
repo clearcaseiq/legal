@@ -128,11 +128,11 @@
       },
       "active": {
         "label": "进行中的案件",
-        "description": "案件量与快速返回"
+        "description": "案件量与当事人名录"
       },
       "calendar": {
         "label": "日历与咨询",
-        "description": "即将到来的会议"
+        "description": "会议与你的预约链接"
       },
       "scheduling": {
         "label": "排期",
@@ -140,7 +140,7 @@
       },
       "messages": {
         "label": "消息",
-        "description": "客户与理赔员对话"
+        "description": "客户、团队聊天与提及"
       },
       "team": {
         "label": "团队聊天",
@@ -156,7 +156,7 @@
       },
       "tasks": {
         "label": "任务",
-        "description": "跨案件队列"
+        "description": "跨案件队列与截止日期"
       },
       "deadlines": {
         "label": "截止日期",

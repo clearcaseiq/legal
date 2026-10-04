@@ -7,14 +7,9 @@ import {
   Upload,
   Briefcase,
   CalendarDays,
-  CalendarClock,
   MessagesSquare,
-  Users2,
-  AtSign,
   FileSignature,
   ListChecks,
-  AlarmClock,
-  Contact,
   Wallet,
   Building2,
   Bell,
@@ -57,24 +52,19 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/attorney-dashboard/leadgen/matches', id: 'matches', label: 'New Matches', description: 'Cases awaiting review', icon: Inbox },
       { to: '/attorney-dashboard/leadgen/quality', id: 'quality', label: 'Match Quality', description: 'Conversion by practice area', icon: Gauge },
       { to: '/attorney-dashboard/leadgen/marketplace', id: 'marketplace', label: 'Marketplace Performance', description: 'Acquisition ROI', icon: Store },
+      { to: '/attorney-dashboard/leadgen/intake', id: 'intake', label: 'Intake', description: 'Manual & imported leads', icon: Upload },
     ],
   },
   {
     id: 'casework',
     label: 'Case Management',
     entries: [
-      { to: '/attorney-dashboard/cases/active', id: 'active', label: 'Active Cases', description: 'Caseload & quick re-entry', icon: Briefcase },
-      { to: '/attorney-dashboard/cases/calendar', id: 'calendar', label: 'Calendar & Consults', description: 'Upcoming meetings', icon: CalendarDays },
-      { to: '/attorney-dashboard/cases/scheduling', id: 'scheduling', label: 'Scheduling', description: 'Your public booking link', icon: CalendarClock },
-      { to: '/attorney-dashboard/cases/messages', id: 'messages', label: 'Messages', description: 'Client & adjuster threads', icon: MessagesSquare },
-      { to: '/attorney-dashboard/cases/team', id: 'team', label: 'Team Chat', description: 'Message firm colleagues', icon: Users2 },
-      { to: '/attorney-dashboard/cases/activity', id: 'activity', label: 'Activity', description: 'Mentions & case discussion', icon: AtSign },
+      { to: '/attorney-dashboard/cases/active', id: 'active', label: 'Active Cases', description: 'Caseload and parties directory', icon: Briefcase },
+      { to: '/attorney-dashboard/cases/calendar', id: 'calendar', label: 'Calendar & Consults', description: 'Meetings and your booking link', icon: CalendarDays },
+      { to: '/attorney-dashboard/cases/messages', id: 'messages', label: 'Messages', description: 'Clients, team chat and mentions', icon: MessagesSquare },
       { to: '/attorney-dashboard/cases/documents', id: 'documents', label: 'Documents & E-sign', description: 'Requests & signatures', icon: FileSignature },
-      { to: '/attorney-dashboard/cases/tasks', id: 'tasks', label: 'Tasks', description: 'Cross-case queue', icon: ListChecks },
-      { to: '/attorney-dashboard/cases/deadlines', id: 'deadlines', label: 'Deadlines', description: 'Statute-of-limitations radar', icon: AlarmClock },
-      { to: '/attorney-dashboard/cases/contacts', id: 'contacts', label: 'Contacts', description: 'Parties directory', icon: Contact },
-      { to: '/attorney-dashboard/cases/billing', id: 'billing', label: 'Billing', description: 'Fees collected by case', icon: Wallet },
-      { to: '/attorney-dashboard/cases/intake', id: 'intake', label: 'Intake', description: 'Manual & imported leads', icon: Upload },
+      { to: '/attorney-dashboard/cases/tasks', id: 'tasks', label: 'Tasks', description: 'Cross-case queue and deadlines', icon: ListChecks },
+      { to: '/attorney-dashboard/cases/billing', id: 'billing', label: 'Billing', description: 'Fees, invoices, costs', icon: Wallet },
     ],
   },
 ]
@@ -119,7 +109,6 @@ const STAFF_NAV_SECTIONS: NavSection[] = [
         staffAnyPermission: STAFF_ACTIVE_CASE_PERMISSIONS,
       },
       { to: '/attorney-dashboard/cases/calendar', id: 'calendar', label: 'Calendar & Consults', description: 'Upcoming meetings', icon: CalendarDays, staffAction: 'schedule' },
-      { to: '/attorney-dashboard/cases/scheduling', id: 'scheduling', label: 'Scheduling', description: 'Your public booking link', icon: CalendarClock, staffAction: 'schedule' },
       { to: '/attorney-dashboard/cases/messages', id: 'messages', label: 'Messages', description: 'Client threads', icon: MessagesSquare, staffAction: 'message' },
     ],
   },
@@ -204,7 +193,6 @@ function domainForPath(pathname: string): 'leadGeneration' | 'caseManagement' | 
 }
 
 const MESSAGES_ROUTE = '/attorney-dashboard/cases/messages'
-const TEAM_ROUTE = '/attorney-dashboard/cases/team'
 
 function NavBadge({ count }: { count: number }) {
   if (count <= 0) return null
@@ -226,7 +214,7 @@ function Sidebar() {
 
   const isActive = (to: string) => navEntryActive(to, location.pathname)
   const badgeFor = (to: string) =>
-    to === MESSAGES_ROUTE ? unreadMessages : to === TEAM_ROUTE ? unreadTeamMessages : 0
+    to === MESSAGES_ROUTE ? unreadMessages + (isStaff ? 0 : unreadTeamMessages) : 0
 
   return (
     <aside className="hidden w-64 shrink-0 lg:block">
@@ -251,7 +239,8 @@ function Sidebar() {
           return (
             <Link
               to={NOTIFICATIONS_ROUTE}
-              className={`group relative flex items-center gap-3 rounded-xl px-2.5 py-2 text-sm transition ${
+              title={t('attorneyWorkspace.notifications.description')}
+              className={`group relative flex items-center gap-3 rounded-xl px-2.5 py-1.5 text-sm transition ${
                 active ? 'bg-brand-50 text-brand-900' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
               }`}
             >
@@ -263,12 +252,7 @@ function Sidebar() {
               >
                 <Bell className="h-4 w-4" />
               </span>
-              <span className="min-w-0">
-                <span className="block font-medium leading-tight">{t('attorneyWorkspace.notifications.label')}</span>
-                <span className={`block text-[11px] leading-tight ${active ? 'text-brand-500' : 'text-slate-400'}`}>
-                  {t('attorneyWorkspace.notifications.description')}
-                </span>
-              </span>
+              <span className="min-w-0 truncate font-medium leading-tight">{t('attorneyWorkspace.notifications.label')}</span>
               <NavBadge count={unreadNotifications} />
             </Link>
           )
@@ -306,7 +290,8 @@ function Sidebar() {
                     <Link
                       key={entry.to}
                       to={entry.to}
-                      className={`group relative flex items-center gap-3 rounded-xl px-2.5 py-2 text-sm transition ${
+                      title={entry.description ? t(`attorneyWorkspace.nav.${entry.id}.description`) : undefined}
+                      className={`group relative flex items-center gap-3 rounded-xl px-2.5 py-1.5 text-sm transition ${
                         active ? style.row : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                       }`}
                     >
@@ -320,16 +305,7 @@ function Sidebar() {
                       >
                         <Icon className="h-4 w-4" />
                       </span>
-                      <span className="min-w-0">
-                        <span className="block font-medium leading-tight">{t(`attorneyWorkspace.nav.${entry.id}.label`)}</span>
-                        {entry.description && (
-                          <span
-                            className={`block text-[11px] leading-tight ${active ? style.desc : 'text-slate-400'}`}
-                          >
-                            {t(`attorneyWorkspace.nav.${entry.id}.description`)}
-                          </span>
-                        )}
-                      </span>
+                      <span className="min-w-0 truncate font-medium leading-tight">{t(`attorneyWorkspace.nav.${entry.id}.label`)}</span>
                       <NavBadge count={badgeFor(entry.to)} />
                     </Link>
                   )
@@ -349,7 +325,7 @@ function MobileNav() {
   const { isStaff, unreadMessages, unreadTeamMessages, unreadNotifications } = useAttorneyWorkspace()
   const isActive = (to: string) => navEntryActive(to, location.pathname)
   const badgeFor = (to: string) =>
-    to === MESSAGES_ROUTE ? unreadMessages : to === TEAM_ROUTE ? unreadTeamMessages : 0
+    to === MESSAGES_ROUTE ? unreadMessages + (isStaff ? 0 : unreadTeamMessages) : 0
   const entries = useNavSections().flatMap((s) => s.entries.map((e) => ({ ...e, domain: s.id })))
   const notificationsActive = navEntryActive(NOTIFICATIONS_ROUTE, location.pathname)
   return (

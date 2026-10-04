@@ -441,7 +441,7 @@ export default function CalendarPage() {
       </div>
 
       {/* Sidebar + calendar body */}
-      <div className="flex h-[calc(100vh-11rem)] min-h-[560px] gap-4">
+      <div className="flex h-[calc(100vh-14.5rem)] min-h-[560px] gap-4">
         <aside className="hidden w-56 shrink-0 flex-col gap-5 overflow-y-auto lg:flex">
           <button
             onClick={() => openCreate({ date: new Date(), withTime: false })}
@@ -493,7 +493,7 @@ export default function CalendarPage() {
           </div>
 
           <button
-            onClick={() => navigate('/attorney-dashboard/cases/scheduling')}
+            onClick={() => navigate('/attorney-dashboard/cases/calendar?tab=booking')}
             className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-sm font-medium text-slate-600 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
           >
             <LinkIcon className="h-4 w-4 text-slate-400" />

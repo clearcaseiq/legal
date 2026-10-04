@@ -128,11 +128,11 @@
       },
       "active": {
         "label": "Casos activos",
-        "description": "Cartera y reingreso rápido"
+        "description": "Cartera y directorio de partes"
       },
       "calendar": {
         "label": "Calendario y consultas",
-        "description": "Próximas reuniones"
+        "description": "Reuniones y tu enlace de reservas"
       },
       "scheduling": {
         "label": "Programación",
@@ -140,7 +140,7 @@
       },
       "messages": {
         "label": "Mensajes",
-        "description": "Hilos con clientes y ajustadores"
+        "description": "Clientes, chat del equipo y menciones"
       },
       "team": {
         "label": "Chat del equipo",
@@ -156,7 +156,7 @@
       },
       "tasks": {
         "label": "Tareas",
-        "description": "Cola entre casos"
+        "description": "Cola entre casos y plazos"
       },
       "deadlines": {
         "label": "Plazos",

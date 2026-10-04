@@ -131,11 +131,11 @@
       },
       "active": {
         "label": "Active Cases",
-        "description": "Caseload & quick re-entry"
+        "description": "Caseload and parties directory"
       },
       "calendar": {
         "label": "Calendar & Consults",
-        "description": "Upcoming meetings"
+        "description": "Meetings and your booking link"
       },
       "scheduling": {
         "label": "Scheduling",
@@ -143,7 +143,7 @@
       },
       "messages": {
         "label": "Messages",
-        "description": "Client & adjuster threads"
+        "description": "Clients, team chat and mentions"
       },
       "team": {
         "label": "Team Chat",
@@ -159,7 +159,7 @@
       },
       "tasks": {
         "label": "Tasks",
-        "description": "Cross-case queue"
+        "description": "Cross-case queue and deadlines"
       },
       "deadlines": {
         "label": "Deadlines",

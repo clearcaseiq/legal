@@ -3171,7 +3171,7 @@ router.post('/direct-messages/:userId', authMiddleware as any, async (req: any, 
       subject: `New message from ${senderName}`,
       body: body.slice(0, 140),
       recipient: recipientEmail,
-      payload: { link: `/attorney-dashboard/cases/team?dm=${meId}`, fromUserId: meId, fromName: senderName },
+      payload: { link: `/attorney-dashboard/cases/messages?tab=team&dm=${meId}`, fromUserId: meId, fromName: senderName },
     }).catch(() => {})
 
     res.status(201).json({ message: { id: created.id, body: created.body, at: created.createdAt, fromMe: true } })

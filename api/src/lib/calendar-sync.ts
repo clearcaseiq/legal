@@ -68,10 +68,11 @@ const GOOGLE_WEBHOOK_RENEWAL_BUFFER_MS = 24 * 60 * 60 * 1000
 const MICROSOFT_WEBHOOK_RENEWAL_BUFFER_MS = 6 * 60 * 60 * 1000
 
 function calendarFrontendRedirect(provider: CalendarProvider, status: 'success' | 'error', error?: string) {
-  // Land on Scheduling settings (owns calendar connect UI + OAuth result toasts).
+  // Land on the Calendar booking-link tab (owns calendar connect UI + OAuth result toasts).
   // Do not use /attorney-dashboard — that entry route immediately redirects to
   // New Matches and drops these query params.
-  const url = new URL('/attorney-dashboard/cases/scheduling', webBaseUrl())
+  const url = new URL('/attorney-dashboard/cases/calendar', webBaseUrl())
+  url.searchParams.set('tab', 'booking')
   url.searchParams.set('calendar_provider', provider)
   url.searchParams.set('calendar_sync', status)
   if (error) {
