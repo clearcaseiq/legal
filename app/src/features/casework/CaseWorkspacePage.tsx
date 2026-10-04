@@ -2405,7 +2405,10 @@ function DocumentsPanel({ lead, detail, section }: { lead: any; detail: CaseDeta
             </button>
           ))}
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        {/* Requests and Signatures carry these actions in their own coverage cards. */}
+        <div
+          className={`flex flex-wrap items-center gap-2 ${(view === 'requests' && coverage) || view === 'signatures' ? 'hidden' : ''}`}
+        >
           {canUpload ? (
             <UploadCategoryButton
               label="Upload files"
@@ -2508,6 +2511,10 @@ function DocumentsPanel({ lead, detail, section }: { lead: any; detail: CaseDeta
           canSign={canSign}
           onChanged={() => setReloadKey((k) => k + 1)}
           onViewFiles={() => setView('files')}
+          clientName={detail.client}
+          onSign={openSingleSign}
+          onSendPacket={() => openRequest()}
+          onUploadSigned={canUpload ? () => uploadAs('agreements') : undefined}
         />
       ) : null}
 

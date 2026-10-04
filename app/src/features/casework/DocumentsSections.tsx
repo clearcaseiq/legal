@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import {
   Bell,
   Check,
+  CheckCircle2,
   ChevronDown,
   ChevronRight,
   Eye,
@@ -28,6 +29,7 @@ import {
   RequestRow,
   type Channel,
   StepTrail,
+  displayTitle,
   isEnvelopeOpen,
   rowButtonCls,
   useCaseEnvelopes,
@@ -616,6 +618,165 @@ function SummaryTile({
   )
 }
 
+const SIGNATURE_COVERAGE: { type: string; label: string; required: boolean }[] = [
+  { type: 'retainer', label: 'Retainer agreement', required: true },
+  { type: 'hipaa_authorization', label: 'HIPAA authorization', required: true },
+  { type: 'police_report_authorization', label: 'Police report authorization', required: false },
+]
+
+type SignatureChip = { key: string; label: string; required: boolean; type: string; env: DocumentEnvelope | null }
+
+function signatureChips(envelopes: DocumentEnvelope[]): SignatureChip[] {
+  const live = envelopes
+    .filter((e) => e.status !== 'voided')
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
+  const standard = SIGNATURE_COVERAGE.map((d) => ({
+    key: d.type,
+    label: d.label,
+    required: d.required,
+    type: d.type,
+    env: live.find((e) => e.documentType === d.type) || null,
+  }))
+  const known = new Set(SIGNATURE_COVERAGE.map((d) => d.type))
+  const others = new Map<string, SignatureChip>()
+  for (const env of live) {
+    if (known.has(env.documentType)) continue
+    const label = displayTitle(env.title)
+    if (!others.has(label)) others.set(label, { key: `env:${env.id}`, label, required: false, type: env.documentType, env })
+  }
+  // The police authorization is optional; it only shows once one has been sent.
+  return [...standard.filter((c) => c.required || c.env), ...others.values()]
+}
+
+/** What the client has signed, what is out, and the ways to send more. */
+function SignatureCoverageCard({
+  envelopes,
+  clientName,
+  onSign,
+  onSendPacket,
+  onUploadSigned,
+}: {
+  envelopes: DocumentEnvelope[]
+  clientName: string
+  onSign?: (docType: string) => void
+  onSendPacket?: () => void
+  onUploadSigned?: () => void
+}) {
+  const chips = signatureChips(envelopes)
+  const required = chips.filter((c) => c.required)
+  const signedRequired = required.filter((c) => c.env && (c.env.status === 'signed' || c.env.clientSignedAt)).length
+  const policeSent = chips.some((c) => c.type === 'police_report_authorization')
+  const chipCls = 'inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium'
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="flex flex-wrap items-center gap-2">
+        <FileSignature className="h-5 w-5 text-violet-600" />
+        <p className="text-base font-semibold text-slate-900">Signature documents</p>
+        <span className="rounded-full bg-violet-50 px-2.5 py-0.5 text-xs font-semibold text-violet-700">
+          {signedRequired}/{required.length} signed
+        </span>
+        <span className="text-xs text-slate-400">Agreements and authorizations the client signs electronically.</span>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {chips.map((c) => {
+          const env = c.env
+          const signed = env && (env.status === 'signed' || env.clientSignedAt)
+          if (signed) {
+            return (
+              <span key={c.key} className={`${chipCls} border-emerald-200 bg-emerald-50 text-emerald-800`}>
+                <CheckCircle2 className="h-4 w-4 fill-emerald-500 text-white" />
+                {c.label}
+                <span className="text-emerald-600">· signed {fmtDate(env.signedAt || env.clientSignedAt)}</span>
+              </span>
+            )
+          }
+          if (env && isEnvelopeOpen(env)) {
+            return (
+              <span
+                key={c.key}
+                title={`${c.label} is out for signature — remind the client from the list below`}
+                className={`${chipCls} border-amber-200 bg-amber-50 text-amber-700`}
+              >
+                <Send className="h-3.5 w-3.5" />
+                {c.label}
+                <span className="text-amber-500">· {env.status === 'viewed' ? 'viewed' : 'sent'}</span>
+              </span>
+            )
+          }
+          const lapsed = env && (env.status === 'declined' || env.status === 'expired')
+          return onSign ? (
+            <button
+              key={c.key}
+              type="button"
+              onClick={() => onSign(c.type)}
+              title={`Send ${c.label} to ${clientName || 'the client'} for signature`}
+              className={`${chipCls} shadow-sm transition ${
+                lapsed
+                  ? 'border-rose-200 bg-rose-50 text-rose-700 hover:border-rose-300'
+                  : 'border-slate-200 bg-white text-slate-700 hover:border-brand-300 hover:text-brand-700'
+              }`}
+            >
+              <Plus className="h-4 w-4 opacity-70" />
+              {c.label}
+              <span className="text-[11px] font-normal opacity-70">
+                {lapsed ? `${env!.status} · resend` : c.required ? 'Required' : 'Send'}
+              </span>
+            </button>
+          ) : (
+            <span key={c.key} className={`${chipCls} border-slate-200 bg-white text-slate-500`}>
+              {c.label}
+            </span>
+          )
+        })}
+      </div>
+      {onSign || onSendPacket || onUploadSigned ? (
+        <div className="mt-3 flex flex-wrap gap-2 border-t border-slate-100 pt-3">
+          {onSign ? (
+            <button
+              type="button"
+              onClick={() => onSign('fee_agreement')}
+              title="Your own PDF or a firm template"
+              className={`${chipCls} border-dashed border-slate-300 text-slate-600 transition hover:border-brand-300 hover:text-brand-700`}
+            >
+              <Plus className="h-4 w-4" /> Other document
+            </button>
+          ) : null}
+          {onSign && !policeSent ? (
+            <button
+              type="button"
+              onClick={() => onSign('police_report_authorization')}
+              className={`${chipCls} border-dashed border-slate-300 text-slate-600 transition hover:border-brand-300 hover:text-brand-700`}
+            >
+              <Plus className="h-4 w-4" /> Police report authorization
+            </button>
+          ) : null}
+          {onSendPacket ? (
+            <button
+              type="button"
+              onClick={onSendPacket}
+              title="Files to upload plus retainer / HIPAA to sign, in one link"
+              className={`${chipCls} border-slate-200 text-slate-700 transition hover:border-brand-300 hover:text-brand-700`}
+            >
+              <Send className="h-3.5 w-3.5 text-brand-600" /> Client packet
+            </button>
+          ) : null}
+          {onUploadSigned ? (
+            <button
+              type="button"
+              onClick={onUploadSigned}
+              title="File a copy the client signed on paper or elsewhere"
+              className={`${chipCls} border-slate-200 text-slate-700 transition hover:border-brand-300 hover:text-brand-700`}
+            >
+              <Upload className="h-3.5 w-3.5 text-brand-600" /> Upload signed copy
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 /**
  * Everything the attorney has asked of the client (uploads and signatures) and
  * everything the client has suggested asking the other side for, ordered by
@@ -630,6 +791,10 @@ export function RequestsOverview({
   canSign,
   onChanged,
   onViewFiles,
+  clientName = '',
+  onSign,
+  onSendPacket,
+  onUploadSigned,
 }: {
   /** `uploads`: files asked of the client and client suggestions. `signatures`: documents out for signature. */
   mode?: 'uploads' | 'signatures'
@@ -640,6 +805,11 @@ export function RequestsOverview({
   canSign: boolean
   onChanged: () => void
   onViewFiles: () => void
+  clientName?: string
+  /** Signatures mode: open the single-document send form for a document type. */
+  onSign?: (docType: string) => void
+  onSendPacket?: () => void
+  onUploadSigned?: () => void
 }) {
   const forSignatures = mode === 'signatures'
   const navigate = useNavigate()
@@ -786,6 +956,15 @@ export function RequestsOverview({
 
   return (
     <div className="space-y-6">
+      {forSignatures && envelopes ? (
+        <SignatureCoverageCard
+          envelopes={envelopes}
+          clientName={clientName}
+          onSign={canSign ? onSign : undefined}
+          onSendPacket={canRequest ? onSendPacket : undefined}
+          onUploadSigned={onUploadSigned}
+        />
+      ) : null}
       <div className="flex flex-col gap-2 sm:flex-row">
         <SummaryTile
           label={forSignatures ? 'Awaiting signature' : 'Waiting on client'}
@@ -897,7 +1076,7 @@ export function RequestsOverview({
         ) : waiting.length === 0 ? (
           <p className="rounded-xl border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500">
             {forSignatures
-              ? 'Nothing out for signature. Use Request documents to send a retainer, HIPAA authorization, or your own document.'
+              ? 'Nothing out for signature. Pick a document in Signature documents above to send it.'
               : 'Nothing outstanding. Use Request documents to ask the client for files.'}
           </p>
         ) : (
