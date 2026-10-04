@@ -233,6 +233,16 @@ export const remindEnvelope = async (leadId: string, envelopeId: string): Promis
   await api.post(`/v1/documents/leads/${leadId}/envelopes/${envelopeId}/remind`)
 }
 
+/** Text the client a no-login link to sign (a first send or, with `reminder`, a nudge). */
+export const textEnvelope = async (
+  leadId: string,
+  envelopeId: string,
+  opts: { reminder?: boolean } = {},
+): Promise<{ deliveredTo: string }> => {
+  const { data } = await api.post(`/v1/documents/leads/${leadId}/envelopes/${envelopeId}/text`, opts)
+  return data
+}
+
 /** Cancel/void an outstanding envelope. */
 export const voidEnvelope = async (leadId: string, envelopeId: string): Promise<DocumentEnvelope> => {
   const res = await api.post(`/v1/documents/leads/${leadId}/envelopes/${envelopeId}/void`)

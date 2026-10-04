@@ -61,7 +61,7 @@ import type { SignableDocumentType } from '../lib/esign/types'
 import { readClaimantContact } from '../lib/claimant-contact'
 import { firmAllows, resolveMemberAccess } from '../lib/firm-access'
 import { checkLeadIsAccepted, getAuthorizedLead } from './attorney-dashboard'
-import { sendClientPacket } from '../lib/client-packet'
+import { sendClientPacket, textEnvelopeToClient } from '../lib/client-packet'
 
 async function afterRetainerEnvelopeSent(leadId: string, note: string) {
   const lead = await prisma.leadSubmission.findUnique({
@@ -936,6 +936,41 @@ router.post('/leads/:leadId/envelopes/:envelopeId/remind', authMiddleware, async
     const message = error instanceof Error ? error.message : String(error)
     logger.error('Send reminder failed', { message })
     res.status(400).json({ error: message })
+  }
+})
+
+// Text the client a link to sign (first send by text, or a reminder by text).
+router.post('/leads/:leadId/envelopes/:envelopeId/text', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const attorney = await resolveAttorney(req, { staffWrite: true })
+    if (!attorney) return res.status(403).json({ error: NO_CASE_ACCESS })
+    const resolved = await resolveLeadForAttorney(req.params.leadId, attorney)
+    if (resolved.error === 404) return res.status(404).json({ error: 'Lead not found' })
+    if (resolved.error === 403) return res.status(403).json({ error: 'Lead is assigned to another attorney' })
+
+    const lead = await prisma.leadSubmission.findUnique({
+      where: { id: req.params.leadId },
+      select: { id: true, assessmentId: true },
+    })
+    if (!lead?.assessmentId) return res.status(404).json({ error: 'Lead not found' })
+    const firm = attorney.lawFirmId
+      ? await prisma.lawFirm.findUnique({ where: { id: attorney.lawFirmId }, select: { name: true } })
+      : null
+
+    const result = await textEnvelopeToClient({
+      leadId: lead.id,
+      assessmentId: lead.assessmentId,
+      envelopeId: req.params.envelopeId,
+      attorney,
+      firmName: firm?.name || null,
+      reminder: Boolean(req.body?.reminder),
+    })
+    if (!result.ok) return res.status(result.status).json({ error: result.error })
+    res.json({ ok: true, deliveredTo: result.deliveredTo })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    logger.error('Text signing link failed', { message })
+    res.status(500).json({ error: 'Could not text the signing link.' })
   }
 })
 

@@ -60,11 +60,12 @@ import {
   sendProviderLetter,
   signedHipaaEnvelope,
 } from '../lib/representation-letters'
-import { syncPlaintiffDocumentRequestStatuses, computeRequestStatus, countUploadsForRequest, parseRequestedDocs, normalizeRequestedDocKeys, DOCUMENT_REQUEST_LABELS, requestItemStages } from '../lib/document-request-status'
+import { syncPlaintiffDocumentRequestStatuses, computeRequestStatus, countUploadsForRequest, parseRequestedDocs, normalizeRequestedDocKeys, DOCUMENT_REQUEST_LABELS, requestItemStages, requestedDocLabel } from '../lib/document-request-status'
 import { countSupportingEvidence, SUPPORTING_EVIDENCE_WHERE } from '../lib/evidence-supporting'
 import { CONTACT_REVEALED_STATUSES, deidentifyAssessmentForOffer } from '../lib/offer-deidentify'
 import { createAndNotifyPlaintiffDocumentRequest } from '../lib/document-request-create'
-import { sendDocumentRequestText } from '../lib/document-request-text'
+import { claimantPortalUrl, sendDocumentRequestText } from '../lib/document-request-text'
+import { textClient } from '../lib/client-packet'
 import { readClaimantContact, updateClaimantContact } from '../lib/claimant-contact'
 import { canReceiveInboundMedia } from '../lib/sms'
 import { analyzeCaseWithChatGPT, CaseAnalysisRequest } from '../services/chatgpt'
@@ -5966,6 +5967,8 @@ router.post('/document-requests/:requestId/nudge', authMiddleware, firmGate('req
         targetType: true,
         recipientName: true,
         recipientEmail: true,
+        secureToken: true,
+        requestedDocs: true,
         attorney: { select: { name: true, email: true } },
         lead: {
           select: {
@@ -5994,6 +5997,9 @@ router.post('/document-requests/:requestId/nudge', authMiddleware, firmGate('req
 
     // Opposing-party requests go to an external recipient with no platform account.
     if (doc.targetType === 'opposing_party') {
+      if (req.body?.channel === 'text') {
+        return res.status(400).json({ error: 'Requests to the other side can only be sent by email.' })
+      }
       if (!doc.recipientEmail) {
         return res.status(400).json({ error: 'No email on file for this recipient.' })
       }
@@ -6019,6 +6025,21 @@ router.post('/document-requests/:requestId/nudge', authMiddleware, firmGate('req
     }
 
     const assessment = doc.lead?.assessment
+    if (req.body?.channel === 'text') {
+      if (!doc.lead?.assessmentId) return res.status(400).json({ error: 'No client on this case.' })
+      const labels = parseRequestedDocs(doc.requestedDocs).map(requestedDocLabel)
+      const from = sender.name || 'Your attorney'
+      const greeting = assessment?.user?.firstName ? `Hi ${assessment.user.firstName}` : 'Hi'
+      const what = labels.length ? `: ${labels.join(', ')}` : ' your documents'
+      const link = doc.secureToken ? claimantPortalUrl(doc.secureToken) : doc.uploadLink
+      const texted = await textClient(
+        doc.lead.assessmentId,
+        `${from}: ${greeting}, a reminder to upload${what}. Open: ${link} (no login needed). Reply STOP to opt out.`,
+      )
+      if (!texted.ok) return res.status(texted.status).json({ error: texted.error })
+      await prisma.documentRequest.update({ where: { id: doc.id }, data: { lastNudgeAt: new Date() } })
+      return res.json({ ok: true, deliveredTo: texted.deliveredTo })
+    }
     let plaintiffEmail = assessment?.user?.email
     if (!plaintiffEmail && assessment?.facts) {
       try {

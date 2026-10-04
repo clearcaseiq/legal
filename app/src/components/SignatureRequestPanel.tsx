@@ -28,6 +28,7 @@ import {
   listEnvelopes,
   previewDocument,
   sendCaseFirmTemplate,
+  textEnvelope,
   uploadFeeAgreement,
   type CaseFirmTemplate,
   type DocumentEnvelope,
@@ -302,8 +303,10 @@ export default function SignatureRequestPanel({
   defaultSignerEmail?: string
   /** Preselect the document type (e.g. 'retainer' when arriving from "Send retainer"). */
   initialDocumentType?: string
-  onSent?: (envelope: DocumentEnvelope) => void
+  /** `summary` says how it reached the client (email, or email plus a texted link). */
+  onSent?: (envelope: DocumentEnvelope, summary: string) => void
 }) {
+  const [delivery, setDelivery] = useState<'email' | 'text'>('email')
   const [providers, setProviders] = useState<EsignProviderMeta[]>([])
   const [envelopes, setEnvelopes] = useState<DocumentEnvelope[]>([])
   const [loading, setLoading] = useState(true)
@@ -541,11 +544,22 @@ export default function SignatureRequestPanel({
     return false
   }
 
-  const afterSend = (env: DocumentEnvelope, msg: string) => {
+  const afterSend = async (env: DocumentEnvelope, msg: string) => {
     setEnvelopes((prev) => [env, ...prev])
     setNotice(msg)
     setConfirmResend(false)
-    onSent?.(env)
+    let summary = `Sent "${env.title.split(' — ')[0]}" to ${env.signerEmail} for signature.`
+    if (delivery === 'text') {
+      try {
+        const { deliveredTo } = await textEnvelope(leadId, env.id)
+        summary = `Sent "${env.title.split(' — ')[0]}" for signature and texted the link to ${deliveredTo}.`
+      } catch (err: any) {
+        summary = `Sent "${env.title.split(' — ')[0]}" for signature by email, but the text failed: ${
+          err?.response?.data?.error || 'could not send the text.'
+        } You can text it from Requests with Remind.`
+      }
+    }
+    onSent?.(env, summary)
   }
 
   const handleSend = async () => {
@@ -657,7 +671,7 @@ export default function SignatureRequestPanel({
         setFeeTitle('')
         if (feeInputRef.current) feeInputRef.current.value = ''
       }
-      afterSend(envelope, `Sent "${envelope.title}" for signature via ${envelope.provider}.`)
+      await afterSend(envelope, `Sent "${envelope.title}" for signature via ${envelope.provider}.`)
       setRecordsCustodian('')
       setRecordsDateRange('')
       setCostsResponsibility('')
@@ -1100,6 +1114,31 @@ export default function SignatureRequestPanel({
               <span>{notice}</span>
             </div>
           ))}
+
+        <div>
+          <label className={labelCls}>Send to the client by</label>
+          <div className="inline-flex rounded-lg bg-slate-100 p-1" role="radiogroup" aria-label="Delivery">
+            {(['email', 'text'] as const).map((d) => (
+              <button
+                key={d}
+                type="button"
+                role="radio"
+                aria-checked={delivery === d}
+                onClick={() => setDelivery(d)}
+                className={`rounded-md px-3 py-1 text-sm font-semibold transition ${
+                  delivery === d ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                {d === 'email' ? 'Email' : 'Text'}
+              </button>
+            ))}
+          </div>
+          <p className="mt-1 text-xs text-slate-400">
+            {delivery === 'email'
+              ? 'The signing service emails the client a link to sign.'
+              : 'We text the client a no-login link to sign. The signing service also sends its usual email.'}
+          </p>
+        </div>
 
         <div className="flex flex-wrap items-center gap-3 pt-1">
           <button

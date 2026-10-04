@@ -60,6 +60,7 @@ import {
 } from 'lucide-react'
 import {
   createDocumentRequest,
+  textDocumentRequest,
   createLeadDamage,
   getLeadDamages,
   getCaseWorkflow,
@@ -103,7 +104,7 @@ import { checkEvidenceCollect, checkPoliceReportCollect, confirmRetainerSigned, 
 import SignatureRequestPanel from '../../components/SignatureRequestPanel'
 import { DocumentTemplatesSection, RequestDocumentsDialog, RequestsOverview } from './DocumentsSections'
 import ModalPortal from '../../components/ModalPortal'
-import { displayTitle } from '../../components/EnvelopeList'
+import { ChannelButton, displayTitle, type Channel } from '../../components/EnvelopeList'
 import ClientContactDialog from './ClientContactDialog'
 import ClientInfoPanel from './ClientInfoPanel'
 import type { ClaimantContact } from '../../lib/api'
@@ -1032,14 +1033,26 @@ function WorkstreamPanel({
   // Fire a plaintiff-facing document request for the given labels (best-effort,
   // with inline success/error feedback). `keys` marks which missing-item rows to
   // grey out once requested.
-  const requestDocs = async (labels: string[], message: string | undefined, busyId: string, keys: string[]) => {
+  const requestDocs = async (
+    labels: string[],
+    message: string | undefined,
+    busyId: string,
+    keys: string[],
+    channel: Channel = 'email',
+  ) => {
     if (!labels.length) return
     setActionBusy(busyId)
     setActionMsg(null)
     try {
-      await createDocumentRequest(lead.id, { requestedDocs: labels, customMessage: message || undefined })
+      if (channel === 'text') {
+        const result = await textDocumentRequest(lead.id, { requestedDocs: labels, customMessage: message || undefined })
+        if (result.outcome !== 'sent') throw { response: { data: { error: result.warning || 'The text could not be sent.' } } }
+        setActionMsg({ tone: 'ok', text: `Texted the request to •••${result.phoneLast4 || '••••'}.` })
+      } else {
+        await createDocumentRequest(lead.id, { requestedDocs: labels, customMessage: message || undefined })
+        setActionMsg(null)
+      }
       setRequestedDocKeys((prev) => new Set([...prev, ...keys]))
-      setActionMsg(null)
     } catch (err: any) {
       setActionMsg({ tone: 'err', text: err?.response?.data?.error || 'Could not send the document request.' })
     } finally {
@@ -1332,8 +1345,12 @@ function WorkstreamPanel({
           <StoryCard title="Coverage" label={cc?.coverageStory?.label} detail={cc?.coverageStory?.detail} />
         </div>
 
-        {actionMsg?.tone === 'err' ? (
-          <div className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">
+        {actionMsg ? (
+          <div
+            className={`rounded-lg px-3 py-2 text-sm ${
+              actionMsg.tone === 'err' ? 'bg-rose-50 text-rose-700' : 'bg-emerald-50 text-emerald-800'
+            }`}
+          >
             {actionMsg.text}
           </div>
         ) : null}
@@ -1343,23 +1360,24 @@ function WorkstreamPanel({
             <div className="flex items-center justify-between gap-3">
               <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Close before sending demand</h4>
               {requestableBlockers.length ? (
-                <button
-                  type="button"
-                  onClick={() =>
-                    requestDocs(
+                <ChannelButton
+                  label="Request all from client"
+                  busy={actionBusy === 'all'}
+                  busyLabel="Requesting…"
+                  icon={Send}
+                  onSend={(channel) =>
+                    void requestDocs(
                       requestableBlockers.map((b) => b.label),
                       cc?.suggestedDocumentRequest?.customMessage,
                       'all',
                       requestableBlockers.map((b) => b.key),
+                      channel,
                     )
                   }
                   disabled={actionBusy != null || requestableBlockers.every((b) => requestedDocKeys.has(b.key))}
-                  title="Email the client a request for the documents they can send"
+                  title="Email or text the client a request for the documents they can send"
                   className="inline-flex items-center gap-1.5 rounded-lg border border-brand-200 bg-brand-50 px-2.5 py-1 text-xs font-semibold text-brand-700 transition hover:bg-brand-100 disabled:opacity-50"
-                >
-                  <Send className="h-3.5 w-3.5" />
-                  {actionBusy === 'all' ? 'Requesting…' : 'Request all from client'}
-                </button>
+                />
               ) : null}
             </div>
             <ul className="mt-2.5 space-y-1.5">
@@ -1396,14 +1414,17 @@ function WorkstreamPanel({
                     </span>
                     <span className={`flex-1 truncate ${done ? 'text-slate-400 line-through' : 'text-slate-700'}`}>{m.label}</span>
                     <PriorityBadge priority={m.priority} />
-                    <button
-                      type="button"
-                      onClick={() => requestDocs([m.label], cc?.suggestedDocumentRequest?.customMessage, `doc-${m.key}`, [m.key])}
+                    <ChannelButton
+                      label={done ? 'Requested' : 'Request'}
+                      busy={busy}
+                      busyLabel="Requesting…"
+                      icon={null}
+                      onSend={(channel) =>
+                        void requestDocs([m.label], cc?.suggestedDocumentRequest?.customMessage, `doc-${m.key}`, [m.key], channel)
+                      }
                       disabled={done || actionBusy != null}
                       className="inline-flex items-center rounded-md px-2 py-1 text-xs font-semibold text-brand-700 transition hover:bg-brand-50 disabled:cursor-default disabled:text-slate-400 disabled:hover:bg-transparent"
-                    >
-                      {done ? 'Requested' : busy ? 'Requesting…' : 'Request'}
-                    </button>
+                    />
                   </li>
                 )
               })}
@@ -1627,8 +1648,12 @@ function WorkstreamPanel({
         {/* AI Case Intelligence — Summary first so attorneys see the case at a glance */}
         <CaseIntelligencePanel leadId={lead.id} onUpdated={() => void reloadCc()} />
 
-        {actionMsg?.tone === 'err' ? (
-          <div className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">
+        {actionMsg ? (
+          <div
+            className={`rounded-lg px-3 py-2 text-sm ${
+              actionMsg.tone === 'err' ? 'bg-rose-50 text-rose-700' : 'bg-emerald-50 text-emerald-800'
+            }`}
+          >
             {actionMsg.text}
           </div>
         ) : null}
@@ -2507,9 +2532,9 @@ function DocumentsPanel({ lead, detail, section }: { lead: any; detail: CaseDeta
                     defaultSignerName={detail.client}
                     defaultSignerEmail={detail.clientEmail}
                     initialDocumentType={signDocType}
-                    onSent={(env) => {
+                    onSent={(_env, summary) => {
                       closeSingleSign()
-                      setNotice(`Sent "${displayTitle(env.title)}" to ${env.signerEmail} for signature.`)
+                      setNotice(summary)
                       setReloadKey((k) => k + 1)
                       setView('requests')
                     }}

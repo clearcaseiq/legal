@@ -343,3 +343,85 @@ export async function sendClientPacket(params: SendClientPacketParams): Promise<
     deliveredTo,
   }
 }
+
+export type TextClientResult = { ok: true; deliveredTo: string } | { ok: false; status: number; error: string }
+
+/**
+ * Text the claimant on the case. Refusals name what the attorney can fix: no
+ * mobile number on file, or the client texted STOP.
+ */
+export async function textClient(assessmentId: string, message: string): Promise<TextClientResult> {
+  const phone = await claimantPhoneForAssessment(assessmentId)
+  if (!phone) return { ok: false, status: 409, error: 'No mobile number on file for this client. Add one on Client Info, or send by email.' }
+  if (await isSmsSuppressed(phone)) {
+    return { ok: false, status: 409, error: 'This client texted STOP, so we cannot text them. Send by email instead.' }
+  }
+  const delivered = await sendSms(phone, message)
+  if (!delivered) return { ok: false, status: 502, error: 'The text could not be sent. Try again, or send by email.' }
+  return { ok: true, deliveredTo: `•••${phone.slice(-4)}` }
+}
+
+/**
+ * Text the client a link to sign one envelope. The signing service only emails
+ * signers, so the text points at the client's no-login documents page, which
+ * lists the envelope with its signing link. An envelope sent on its own gets a
+ * page of its own (an upload-free packet request) the first time it is texted.
+ */
+export async function textEnvelopeToClient(params: {
+  leadId: string
+  assessmentId: string
+  envelopeId: string
+  attorney: ClientPacketAttorney
+  firmName?: string | null
+  reminder?: boolean
+}): Promise<TextClientResult> {
+  const envelope = await prisma.documentEnvelope.findFirst({
+    where: { id: params.envelopeId, leadId: params.leadId },
+    select: { id: true, title: true, status: true, clientSignedAt: true, packetRequestId: true },
+  })
+  if (!envelope) return { ok: false, status: 404, error: 'Signature request not found.' }
+  if (!['sent', 'viewed'].includes(envelope.status) || envelope.clientSignedAt) {
+    return { ok: false, status: 409, error: 'This document is not waiting on the client’s signature.' }
+  }
+
+  let token: string | null = null
+  if (envelope.packetRequestId) {
+    const existing = await prisma.documentRequest.findUnique({
+      where: { id: envelope.packetRequestId },
+      select: { secureToken: true },
+    })
+    token = existing?.secureToken || null
+  }
+  if (!token) {
+    const created = await createAndNotifyPlaintiffDocumentRequest({
+      leadId: params.leadId,
+      assessmentId: params.assessmentId,
+      attorney: params.attorney,
+      requestedDocs: [],
+      sendUploadLinkOnly: true,
+      notify: false,
+    })
+    await prisma.documentEnvelope.update({
+      where: { id: envelope.id },
+      data: { packetRequestId: created.docRequest.id },
+    })
+    token = created.docRequest.secureToken
+  }
+
+  const contact = await readClaimantContact(params.assessmentId)
+  const sender = (params.firmName || '').trim() || 'ClearCaseIQ'
+  const greeting = contact?.firstName ? `Hi ${contact.firstName}` : 'Hi'
+  const title = String(envelope.title || 'your document').split(' — ')[0].trim()
+  const ask = params.reminder
+    ? `a reminder that your ${title} is still waiting for your signature.`
+    : `please sign your ${title}.`
+  const message = `${sender}: ${greeting}, ${ask} Open: ${claimantPortalUrl(token)} (no login needed). Reply STOP to opt out.`
+
+  const result = await textClient(params.assessmentId, message)
+  if (result.ok) {
+    await prisma.leadSubmission
+      .update({ where: { id: params.leadId }, data: { lastContactAt: new Date() } })
+      .catch(() => undefined)
+  }
+  return result
+}

@@ -2457,8 +2457,11 @@ export async function getAttorneyDocumentEnvelopes(): Promise<AttorneyDocumentEn
   return data
 }
 
-export async function nudgeDocumentRequest(requestId: string) {
-  const { data } = await api.post(`/v1/attorney-dashboard/document-requests/${requestId}/nudge`)
+export async function nudgeDocumentRequest(
+  requestId: string,
+  channel: 'email' | 'text' = 'email',
+): Promise<{ ok: boolean; deliveredTo?: string }> {
+  const { data } = await api.post(`/v1/attorney-dashboard/document-requests/${requestId}/nudge`, { channel })
   return data
 }
 

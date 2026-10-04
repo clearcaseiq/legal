@@ -23,8 +23,10 @@ import {
 } from 'lucide-react'
 import ModalPortal from '../../components/ModalPortal'
 import {
+  ChannelButton,
   EnvelopeRow,
   RequestRow,
+  type Channel,
   StepTrail,
   isEnvelopeOpen,
   rowButtonCls,
@@ -60,9 +62,15 @@ import {
 export const PACKET_UPLOAD_OPTIONS: { id: string; label: string }[] = [
   { id: 'medical_records', label: 'Medical records' },
   { id: 'bills', label: 'Medical bills' },
-  { id: 'police_report', label: 'Police report' },
-  { id: 'injury_photos', label: 'Photos' },
+  { id: 'police_report', label: 'Police / incident report' },
+  { id: 'injury_photos', label: 'Photos of injuries' },
+  { id: 'photos', label: 'Photos of property damage' },
+  { id: 'insurance', label: 'Insurance information' },
+  { id: 'wage_loss', label: 'Wage-loss documentation' },
+  { id: 'prior_treatment', label: 'Prior treatment records' },
 ]
+
+const CUSTOM_UPLOAD_PREFIX = 'custom:'
 
 const SIGN_OPTIONS: { id: PacketSignType; label: string }[] = [
   { id: 'retainer', label: 'Retainer agreement' },
@@ -171,6 +179,16 @@ export function RequestDocumentsDialog({
   const extraUploadKeys = uploads.filter((k) => !PACKET_UPLOAD_OPTIONS.some((o) => o.id === k))
   const toggleUpload = (key: string) =>
     setUploads((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]))
+  const [customOpen, setCustomOpen] = useState(false)
+  const [customText, setCustomText] = useState('')
+  const addCustomUpload = () => {
+    const text = customText.replace(/\s+/g, ' ').trim().slice(0, 120)
+    if (!text) return
+    const key = `${CUSTOM_UPLOAD_PREFIX}${text}`
+    setUploads((prev) => (prev.includes(key) ? prev : [...prev, key]))
+    setCustomText('')
+    setCustomOpen(false)
+  }
   const toggleSign = (type: PacketSignType) =>
     setSign((prev) => (prev.includes(type) ? prev.filter((t) => t !== type) : [...prev, type]))
 
@@ -277,7 +295,55 @@ export function RequestDocumentsDialog({
                       </button>
                     )
                   })}
+                  {customOpen ? null : (
+                    <button
+                      type="button"
+                      onClick={() => setCustomOpen(true)}
+                      className="inline-flex items-center gap-1 rounded-full border border-dashed border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-600 hover:border-brand-300 hover:text-brand-700"
+                    >
+                      <Plus className="h-3.5 w-3.5" /> Other…
+                    </button>
+                  )}
                 </div>
+                {customOpen ? (
+                  <div className="mt-2 flex items-center gap-2">
+                    <input
+                      autoFocus
+                      value={customText}
+                      onChange={(e) => setCustomText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          addCustomUpload()
+                        } else if (e.key === 'Escape') {
+                          setCustomOpen(false)
+                          setCustomText('')
+                        }
+                      }}
+                      maxLength={120}
+                      placeholder="Describe the document, e.g. Rideshare trip receipt"
+                      className={`${inputCls} min-w-0 flex-1`}
+                    />
+                    <button
+                      type="button"
+                      onClick={addCustomUpload}
+                      disabled={!customText.trim()}
+                      className="rounded-lg border border-brand-600 px-3 py-2 text-xs font-semibold text-brand-700 hover:bg-brand-50 disabled:opacity-50"
+                    >
+                      Add
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCustomOpen(false)
+                        setCustomText('')
+                      }}
+                      className="text-xs font-semibold text-slate-500 hover:text-slate-700"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : null}
               </section>
 
               <section>
@@ -610,11 +676,14 @@ export function RequestsOverview({
     }
   }, [leadId, reloadKey])
 
-  const nudge = async (requestId: string) => {
+  const nudge = async (requestId: string, channel: Channel) => {
     setBusy(`nudge:${requestId}`)
     try {
-      await nudgeDocumentRequest(requestId)
-      setBanner({ tone: 'ok', text: 'Reminder sent to the client.' })
+      const result = await nudgeDocumentRequest(requestId, channel)
+      setBanner({
+        tone: 'ok',
+        text: channel === 'text' ? `Reminder texted to ${result.deliveredTo || 'the client'}.` : 'Reminder emailed to the client.',
+      })
       loadRequests()
     } catch (err: any) {
       setBanner({ tone: 'err', text: apiError(err, 'Could not send the reminder.') })
@@ -678,14 +747,11 @@ export function RequestsOverview({
             </button>
           ) : null}
           {item.stage === 'requested' && canRequest ? (
-            <button
-              type="button"
-              onClick={() => void nudge(request.id)}
-              disabled={busy === `nudge:${request.id}`}
-              className={rowButtonCls}
-            >
-              <Bell className="h-3.5 w-3.5" /> Nudge
-            </button>
+            <ChannelButton
+              label="Nudge"
+              busy={busy === `nudge:${request.id}`}
+              onSend={(channel) => void nudge(request.id, channel)}
+            />
           ) : null}
         </>
       }

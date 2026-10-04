@@ -13,6 +13,7 @@ import {
   Link2,
   Lock,
   Mail,
+  MessageSquare,
   MoreHorizontal,
   PenLine,
   Trash2,
@@ -26,6 +27,7 @@ import {
   listEnvelopes,
   refreshEnvelopes,
   remindEnvelope,
+  textEnvelope,
   voidEnvelope,
   type DocumentEnvelope,
   type EnvelopeStatus,
@@ -143,6 +145,76 @@ export function RequestRow({
 
 export const rowButtonCls =
   'inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 hover:border-brand-300 hover:text-brand-700 disabled:opacity-50'
+
+export type Channel = 'email' | 'text'
+
+/** A follow-up button that asks how to reach the client: email or text. */
+export function ChannelButton({
+  label,
+  busy,
+  busyLabel = 'Sending…',
+  disabled,
+  icon: Icon = Bell,
+  className = rowButtonCls,
+  title,
+  onSend,
+}: {
+  label: string
+  busy?: boolean
+  busyLabel?: string
+  disabled?: boolean
+  icon?: typeof Bell | null
+  className?: string
+  title?: string
+  onSend: (channel: Channel) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const close = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [open])
+  const pick = (channel: Channel) => {
+    setOpen(false)
+    onSend(channel)
+  }
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        disabled={busy || disabled}
+        aria-expanded={open}
+        title={title}
+        className={className}
+      >
+        {Icon ? <Icon className="h-3.5 w-3.5" /> : null} {busy ? busyLabel : label}
+      </button>
+      {open ? (
+        <div className="absolute right-0 z-20 mt-1 w-36 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
+          <button
+            type="button"
+            onClick={() => pick('email')}
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs font-medium text-slate-700 hover:bg-slate-50"
+          >
+            <Mail className="h-3.5 w-3.5" /> By email
+          </button>
+          <button
+            type="button"
+            onClick={() => pick('text')}
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs font-medium text-slate-700 hover:bg-slate-50"
+          >
+            <MessageSquare className="h-3.5 w-3.5" /> By text
+          </button>
+        </div>
+      ) : null}
+    </div>
+  )
+}
 
 type MenuItem = { label: string; icon: typeof Bell; onSelect: () => void; danger?: boolean; disabled?: boolean }
 
@@ -307,11 +379,16 @@ export function EnvelopeRow({
     }
   }
 
-  const remind = () =>
+  const remind = (channel: Channel) =>
     run(async () => {
-      await remindEnvelope(leadId, env.id)
-      onMessage('ok', `Reminder sent to ${env.signerEmail}.`)
-    }, 'Could not send a reminder.')
+      if (channel === 'text') {
+        const { deliveredTo } = await textEnvelope(leadId, env.id, { reminder: true })
+        onMessage('ok', `Reminder texted to ${deliveredTo}.`)
+      } else {
+        await remindEnvelope(leadId, env.id)
+        onMessage('ok', `Reminder emailed to ${env.signerEmail}.`)
+      }
+    }, channel === 'text' ? 'Could not text the reminder.' : 'Could not send a reminder.')
 
   const download = () => run(() => downloadSignedEnvelope(env.id, `${title}.pdf`), 'Could not download the signed document.')
 
@@ -386,11 +463,7 @@ export function EnvelopeRow({
       </a>
     )
   } else if (open && canManage && !env.clientSignedAt) {
-    primary = (
-      <button type="button" onClick={() => void remind()} disabled={busy} className={rowButtonCls}>
-        <Bell className="h-3.5 w-3.5" /> Remind
-      </button>
-    )
+    primary = <ChannelButton label="Remind" busy={busy} onSend={(channel) => void remind(channel)} />
   }
 
   return (

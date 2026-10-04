@@ -8,6 +8,7 @@ import { BackButton } from '../features/shared/ui'
 import {
   getLead,
   createDocumentRequest,
+  textDocumentRequest,
   createOpposingDocumentRequest,
   getLeadOpposingDocSuggestions,
   getAttorneyDocumentRequests,
@@ -72,6 +73,7 @@ export default function DocumentRequestPage() {
   const [selected, setSelected] = useState<Set<DocTypeId>>(new Set())
   const [customMessage, setCustomMessage] = useState('')
   const [sendUploadLinkOnly, setSendUploadLinkOnly] = useState(false)
+  const [delivery, setDelivery] = useState<'email' | 'text'>('email')
   const [formTouched, setFormTouched] = useState(false)
   const [appliedAutoSuggestion, setAppliedAutoSuggestion] = useState(false)
 
@@ -324,7 +326,16 @@ export default function DocumentRequestPage() {
     setError(null)
     setSaving(true)
     try {
-      if (sendUploadLinkOnly) {
+      if (delivery === 'text') {
+        const result = await textDocumentRequest(leadId, {
+          requestedDocs: sendUploadLinkOnly ? [] : [...selected],
+          customMessage: customMessage.trim() || undefined,
+        })
+        if (result.outcome !== 'sent') {
+          setError(result.warning || 'The text could not be sent.')
+          return
+        }
+      } else if (sendUploadLinkOnly) {
         await createDocumentRequest(leadId, { requestedDocs: [], customMessage, sendUploadLinkOnly: true })
       } else {
         await createDocumentRequest(leadId, { requestedDocs: [...selected], customMessage: customMessage.trim() || undefined })
@@ -513,6 +524,30 @@ export default function DocumentRequestPage() {
                 rows={3}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
               />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Send to the client by</label>
+              <div className="inline-flex rounded-lg bg-gray-100 p-1" role="radiogroup" aria-label="Delivery">
+                {(['email', 'text'] as const).map((d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    role="radio"
+                    aria-checked={delivery === d}
+                    onClick={() => setDelivery(d)}
+                    className={`rounded-md px-3 py-1 text-sm font-semibold transition ${
+                      delivery === d ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    {d === 'email' ? 'Email' : 'Text'}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-gray-500 mt-1">
+                {delivery === 'email'
+                  ? 'The client gets an email with a link to upload.'
+                  : 'The client gets a text with a no-login link (or can reply with photos).'}
+              </p>
             </div>
           </div>
           <div className="flex justify-end gap-3 px-6 py-4 border-t border-gray-200 bg-gray-50">
