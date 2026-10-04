@@ -19221,11 +19221,13 @@ function serializeAttorneyNotification(n: {
 }) {
   let link: string | null = null
   let leadId: string | null = null
+  let assessmentId: string | null = null
   if (n.metadata) {
     try {
       const meta = JSON.parse(n.metadata)
       if (typeof meta?.link === 'string') link = meta.link
       if (typeof meta?.leadId === 'string') leadId = meta.leadId
+      if (typeof meta?.assessmentId === 'string') assessmentId = meta.assessmentId
     } catch {}
   }
   return {
@@ -19235,9 +19237,55 @@ function serializeAttorneyNotification(n: {
     body: n.message || '',
     link,
     leadId,
+    assessmentId,
     read: !!n.readAt,
     createdAt: n.createdAt,
   }
+}
+
+type SerializedAttorneyNotification = ReturnType<typeof serializeAttorneyNotification>
+
+/**
+ * Which case each notification is about, so the bell can group by case.
+ * One lookup for the whole page; notifications about no case (or a case this
+ * query cannot resolve) get `caseKey: null` and are grouped as general.
+ */
+async function withCaseLabels(items: SerializedAttorneyNotification[]) {
+  const leadIdOf = (n: SerializedAttorneyNotification) =>
+    n.leadId || n.link?.match(/\/attorney-dashboard\/(?:leadgen\/matches|lead)\/([^/?#]+)/)?.[1] || null
+  const leadIds = [...new Set(items.map(leadIdOf).filter(Boolean))] as string[]
+  const assessmentIds = [...new Set(items.map((n) => n.assessmentId).filter(Boolean))] as string[]
+  if (!leadIds.length && !assessmentIds.length) return items.map((n) => ({ ...n, caseKey: null, caseLabel: null, caseId: null }))
+
+  const leads = await prisma.leadSubmission.findMany({
+    where: { OR: [{ id: { in: leadIds } }, { assessmentId: { in: assessmentIds } }] },
+    select: {
+      id: true,
+      assessmentId: true,
+      assessment: {
+        select: {
+          referenceCode: true,
+          caseName: true,
+          claimType: true,
+          user: { select: { firstName: true, lastName: true } },
+        },
+      },
+    },
+  })
+  const byLead = new Map(leads.map((l) => [l.id, l]))
+  const byAssessment = new Map(leads.map((l) => [l.assessmentId, l]))
+
+  return items.map((n) => {
+    const leadId = leadIdOf(n)
+    const lead = (leadId && byLead.get(leadId)) || (n.assessmentId && byAssessment.get(n.assessmentId)) || null
+    if (!lead) return { ...n, caseKey: null, caseLabel: null, caseId: null }
+    return {
+      ...n,
+      caseKey: lead.id,
+      caseLabel: lead.assessment ? resolveCaseName(lead.assessment) : 'Case',
+      caseId: lead.assessment?.referenceCode || null,
+    }
+  })
 }
 
 router.get('/notifications', authMiddleware, async (req: any, res) => {
@@ -19254,7 +19302,7 @@ router.get('/notifications', authMiddleware, async (req: any, res) => {
       }),
       prisma.notification.count({ where: { ...attorneyNotificationWhere(userId), readAt: null } }),
     ])
-    res.json({ notifications: rows.map(serializeAttorneyNotification), unreadCount })
+    res.json({ notifications: await withCaseLabels(rows.map(serializeAttorneyNotification)), unreadCount })
   } catch (error: any) {
     logger.error('Failed to load attorney notifications', { error: error.message, userId: req.user?.id })
     res.status(500).json({ error: 'Failed to load notifications' })

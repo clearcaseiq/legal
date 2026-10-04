@@ -101,7 +101,7 @@ import { getApiOrigin } from '../../lib/runtimeEnv'
 import { useHeuristics } from '../../contexts/HeuristicsContext'
 import { checkEvidenceCollect, checkPoliceReportCollect, confirmRetainerSigned, sendWelcomePacket } from '../../lib/api-esign'
 import SignatureRequestPanel from '../../components/SignatureRequestPanel'
-import { DocumentTemplatesSection, RequestDocumentsDialog, UploadRequestsList } from './DocumentsSections'
+import { ClientSuggestionsList, DocumentTemplatesSection, RequestDocumentsDialog, UploadRequestsList } from './DocumentsSections'
 import ClientContactDialog from './ClientContactDialog'
 import ClientInfoPanel from './ClientInfoPanel'
 import type { ClaimantContact } from '../../lib/api'
@@ -2409,6 +2409,13 @@ function DocumentsPanel({ lead, detail, section }: { lead: any; detail: CaseDeta
               onChanged={() => setReloadKey((k) => k + 1)}
               onViewFiles={() => setView('files')}
             />
+          </section>
+          <section className="border-t border-slate-100 pt-5">
+            <div className="mb-2 flex items-baseline justify-between gap-2">
+              <h3 className="text-base font-semibold text-slate-900">Suggested by the client</h3>
+              <p className="text-xs text-slate-400">Documents to request from the other side</p>
+            </div>
+            <ClientSuggestionsList leadId={lead.id} reloadKey={reloadKey} canRequest={canRequest} />
           </section>
           <section className="border-t border-slate-100 pt-5">
             <div className="mb-2 flex items-baseline justify-between gap-2">

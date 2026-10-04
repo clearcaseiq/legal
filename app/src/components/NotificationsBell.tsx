@@ -1,7 +1,8 @@
 /**
  * Attorney notifications bell — surfaces lead/case activity (new matches,
  * expiring/expired matches, new evidence, plaintiff messages, consults) from the
- * in-app notifications feed. Separate from the Messages bell.
+ * in-app notifications feed, grouped by the case each alert is about. Separate
+ * from the Messages bell.
  */
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
@@ -24,7 +25,7 @@ import {
   markAllAttorneyNotificationsRead,
   type AttorneyNotification,
 } from '../lib/api'
-import { notificationDestination } from '../lib/notifications'
+import { groupNotificationsByCase, notificationDestination } from '../lib/notifications'
 import { NOTIFICATION_POLL_MS } from '../lib/notificationPolling'
 import { useVisibilityPoll } from '../hooks/useVisibilityPoll'
 import { useRealtimeEvent } from '../lib/realtime'
@@ -40,6 +41,7 @@ function iconFor(type: string): IconMeta {
     case 'attorney.case_expired':
       return { Icon: TimerOff, tone: 'bg-rose-50 text-rose-600' }
     case 'attorney.doc_uploaded':
+    case 'attorney.client_suggested_documents':
       return { Icon: FileText, tone: 'bg-blue-50 text-blue-600' }
     case 'attorney.new_message':
     case 'attorney.plaintiff_replied':
@@ -52,39 +54,16 @@ function iconFor(type: string): IconMeta {
 }
 
 /**
- * Group key for stacking look-alike alerts: notification type + the subject stem
- * before the " — <client>" suffix the API adds. This collapses a burst of the
- * same kind (e.g. several "Case readiness reminder — <name>") into one row while
- * keeping distinct kinds (e.g. an SOL deadline) separate so nothing important
- * gets buried.
+ * Titles end in " — <client>"; under a case heading that suffix repeats the
+ * heading, so drop it there.
  */
-function groupKeyFor(n: AttorneyNotification): string {
-  const stem = (n.title || '').split(' — ')[0].trim().toLowerCase()
-  return `${n.type}::${stem}`
+function titleWithinCase(n: AttorneyNotification): string {
+  if (!n.caseKey) return n.title
+  return (n.title || '').split(' — ')[0].trim() || n.title
 }
 
-function groupStem(n: AttorneyNotification): string {
-  return (n.title || '').split(' — ')[0].trim() || 'Notifications'
-}
-
-interface NotificationGroup {
-  key: string
-  items: AttorneyNotification[]
-}
-
-function groupNotifications(items: AttorneyNotification[]): NotificationGroup[] {
-  const order: string[] = []
-  const map = new Map<string, AttorneyNotification[]>()
-  for (const n of items) {
-    const key = groupKeyFor(n)
-    if (!map.has(key)) {
-      map.set(key, [])
-      order.push(key)
-    }
-    map.get(key)!.push(n)
-  }
-  return order.map((key) => ({ key, items: map.get(key)! }))
-}
+/** Alerts shown per case before "Show more". */
+const PER_CASE_PREVIEW = 3
 
 function relativeTime(iso: string): string {
   const then = new Date(iso).getTime()
@@ -109,7 +88,7 @@ export default function NotificationsBell() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const ref = useRef<HTMLDivElement>(null)
 
-  const groups = useMemo(() => groupNotifications(items), [items])
+  const groups = useMemo(() => groupNotificationsByCase(items), [items])
 
   const toggleGroup = (key: string) =>
     setExpanded((prev) => {
@@ -234,89 +213,47 @@ export default function NotificationsBell() {
                 <p className="mt-1 text-xs text-slate-400">New matches, deadlines, and case activity will show up here.</p>
               </div>
             ) : (
-              <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+              <div className="divide-y divide-slate-200 dark:divide-slate-800">
                 {groups.map((group) => {
-                  const first = group.items[0]
-                  const { Icon, tone } = iconFor(first.type)
-
-                  // Single alert of its kind → render the item directly.
-                  if (group.items.length === 1) {
-                    const n = first
-                    return (
-                      <li key={n.id}>
-                        <button
-                          onClick={() => handleOpenItem(n)}
-                          className={`flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/60 ${
-                            n.read ? '' : 'bg-brand-50/40 dark:bg-brand-950/20'
-                          }`}
-                        >
-                          <span className={`mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg ${tone}`}>
-                            <Icon className="h-4 w-4" />
-                          </span>
-                          <span className="min-w-0 flex-1">
-                            <span className="flex items-center justify-between gap-2">
-                              <span className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">{n.title}</span>
-                              <span className="shrink-0 text-[11px] text-slate-400">{relativeTime(n.createdAt)}</span>
-                            </span>
-                            <span className="mt-0.5 line-clamp-2 block text-xs leading-5 text-slate-500 dark:text-slate-400">
-                              {n.body}
-                            </span>
-                          </span>
-                          {!n.read && <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-rose-500" aria-hidden />}
-                        </button>
-                      </li>
-                    )
-                  }
-
-                  // Multiple same-kind alerts → collapse into one expandable row.
                   const isOpen = expanded.has(group.key)
-                  const unread = group.items.filter((it) => !it.read).length
-                  const stem = groupStem(first)
+                  const shown = isOpen ? group.items : group.items.slice(0, PER_CASE_PREVIEW)
+                  const hidden = group.items.length - shown.length
                   return (
-                    <li key={group.key}>
-                      <button
-                        onClick={() => toggleGroup(group.key)}
-                        aria-expanded={isOpen}
-                        className={`flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/60 ${
-                          unread > 0 ? 'bg-brand-50/40 dark:bg-brand-950/20' : ''
-                        }`}
-                      >
-                        <span className={`mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg ${tone}`}>
-                          <Icon className="h-4 w-4" />
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          <span className="flex items-center justify-between gap-2">
-                            <span className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
-                              {stem}
-                              <span className="ml-1.5 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-                                {group.items.length}
-                              </span>
-                            </span>
-                            <span className="shrink-0 text-[11px] text-slate-400">{relativeTime(first.createdAt)}</span>
+                    <section key={group.key}>
+                      <div className="flex items-center justify-between gap-2 bg-slate-50 px-4 py-1.5 dark:bg-slate-800/50">
+                        <span className="flex min-w-0 items-center gap-2">
+                          <span className="truncate text-xs font-semibold text-slate-700 dark:text-slate-200">
+                            {group.label || 'General'}
                           </span>
-                          <span className="mt-0.5 block truncate text-xs leading-5 text-slate-500 dark:text-slate-400">
-                            {isOpen ? 'Tap to collapse' : `${unread > 0 ? `${unread} new · ` : ''}Tap to see all ${group.items.length}`}
-                          </span>
+                          {group.caseId ? (
+                            <span className="shrink-0 font-mono text-[10px] text-slate-400">{group.caseId}</span>
+                          ) : null}
                         </span>
-                        <ChevronDown
-                          className={`mt-1 h-4 w-4 shrink-0 text-slate-400 transition-transform ${isOpen ? 'rotate-180' : ''}`}
-                          aria-hidden
-                        />
-                      </button>
-
-                      {isOpen && (
-                        <ul className="divide-y divide-slate-100 border-t border-slate-100 bg-slate-50/50 dark:divide-slate-800 dark:border-slate-800 dark:bg-slate-800/30">
-                          {group.items.map((n) => (
+                        {group.unread > 0 ? (
+                          <span className="shrink-0 rounded-full bg-rose-50 px-1.5 text-[10px] font-semibold text-rose-600">
+                            {group.unread} new
+                          </span>
+                        ) : null}
+                      </div>
+                      <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+                        {shown.map((n) => {
+                          const { Icon, tone } = iconFor(n.type)
+                          return (
                             <li key={n.id}>
                               <button
                                 onClick={() => handleOpenItem(n)}
-                                className={`flex w-full items-start gap-3 py-2.5 pl-14 pr-4 text-left transition-colors hover:bg-slate-100 dark:hover:bg-slate-800/60 ${
+                                className={`flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/60 ${
                                   n.read ? '' : 'bg-brand-50/40 dark:bg-brand-950/20'
                                 }`}
                               >
+                                <span className={`mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg ${tone}`}>
+                                  <Icon className="h-4 w-4" />
+                                </span>
                                 <span className="min-w-0 flex-1">
                                   <span className="flex items-center justify-between gap-2">
-                                    <span className="truncate text-[13px] font-medium text-slate-800 dark:text-slate-200">{n.title}</span>
+                                    <span className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
+                                      {titleWithinCase(n)}
+                                    </span>
                                     <span className="shrink-0 text-[11px] text-slate-400">{relativeTime(n.createdAt)}</span>
                                   </span>
                                   <span className="mt-0.5 line-clamp-2 block text-xs leading-5 text-slate-500 dark:text-slate-400">
@@ -326,13 +263,24 @@ export default function NotificationsBell() {
                                 {!n.read && <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-rose-500" aria-hidden />}
                               </button>
                             </li>
-                          ))}
-                        </ul>
-                      )}
-                    </li>
+                          )
+                        })}
+                      </ul>
+                      {group.items.length > PER_CASE_PREVIEW ? (
+                        <button
+                          type="button"
+                          onClick={() => toggleGroup(group.key)}
+                          aria-expanded={isOpen}
+                          className="flex w-full items-center justify-center gap-1 border-t border-slate-100 py-1.5 text-[11px] font-semibold text-slate-500 hover:bg-slate-50 hover:text-brand-600 dark:border-slate-800 dark:hover:bg-slate-800/60"
+                        >
+                          {isOpen ? 'Show less' : `Show ${hidden} more`}
+                          <ChevronDown className={`h-3 w-3 transition-transform ${isOpen ? 'rotate-180' : ''}`} aria-hidden />
+                        </button>
+                      ) : null}
+                    </section>
                   )
                 })}
-              </ul>
+              </div>
             )}
           </div>
 

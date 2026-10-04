@@ -23,15 +23,18 @@ import {
 } from 'lucide-react'
 import ModalPortal from '../../components/ModalPortal'
 import { FirmTemplateForm } from '../firm/FirmTemplateForm'
+import { useNavigate } from 'react-router-dom'
 import {
   getAttorneyDocumentRequests,
   getClaimantContact,
   getFirmTemplates,
+  getLeadOpposingDocSuggestions,
   nudgeDocumentRequest,
   reviewLeadEvidence,
   type AttorneyDocumentRequest,
   type ClaimantContact,
   type FirmTemplate,
+  type OpposingDocSuggestion,
 } from '../../lib/api'
 import {
   getEssentialFields,
@@ -637,6 +640,99 @@ export function UploadRequestsList({
 // ---------------------------------------------------------------------------
 // Templates
 // ---------------------------------------------------------------------------
+
+const OPPOSING_DOC_LABELS: Record<string, string> = {
+  insurance_policy: 'Insurance policy / declarations page',
+  incident_report: 'Incident / accident report',
+  surveillance: 'Surveillance or camera footage',
+  maintenance_records: 'Maintenance / inspection records',
+  vehicle_records: 'Vehicle / black-box (EDR) data',
+  employment_records: 'Employment / training records',
+  correspondence: 'Relevant correspondence',
+  photos: 'Photographs of the scene/vehicle',
+  other: 'Other documents',
+}
+
+const ROLE_LABELS: Record<string, string> = {
+  defendant: 'Defendant',
+  opposing_counsel: 'Opposing counsel',
+  insurer: 'Insurer / adjuster',
+}
+
+/**
+ * Documents the client thinks the other side holds. They wait here for the
+ * attorney to decide; nothing is sent until the attorney sends the request.
+ */
+export function ClientSuggestionsList({
+  leadId,
+  reloadKey,
+  canRequest,
+}: {
+  leadId: string
+  reloadKey: number
+  canRequest: boolean
+}) {
+  const navigate = useNavigate()
+  const [rows, setRows] = useState<OpposingDocSuggestion[] | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    getLeadOpposingDocSuggestions(leadId)
+      .then((list) => {
+        if (!cancelled) setRows((list || []).filter((s) => s.status === 'pending'))
+      })
+      .catch(() => {
+        if (!cancelled) setRows([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [leadId, reloadKey])
+
+  if (rows === null) return <p className="text-sm text-slate-400">Loading…</p>
+  if (rows.length === 0) {
+    return <p className="text-sm text-slate-500">No suggestions from the client right now.</p>
+  }
+
+  return (
+    <ul className="space-y-2">
+      {rows.map((s) => (
+        <li key={s.id} className="rounded-xl border border-indigo-100 bg-indigo-50/40 px-4 py-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-slate-900">
+                {s.recipientName || 'Other side'}
+                {s.recipientRole ? (
+                  <span className="ml-2 text-xs font-medium text-slate-500">{ROLE_LABELS[s.recipientRole] || s.recipientRole}</span>
+                ) : null}
+              </p>
+              {s.requestedDocs.length > 0 ? (
+                <p className="mt-0.5 text-xs text-slate-600">
+                  {s.requestedDocs.map((d) => OPPOSING_DOC_LABELS[d] || d).join(', ')}
+                </p>
+              ) : null}
+              {s.note ? <p className="mt-1 text-xs italic text-slate-500">“{s.note}”</p> : null}
+              <p className="mt-1 text-[11px] text-slate-400">Suggested {new Date(s.createdAt).toLocaleDateString()}</p>
+            </div>
+            {canRequest ? (
+              <button
+                type="button"
+                onClick={() =>
+                  navigate(`/attorney-dashboard/request-docs/${leadId}`, {
+                    state: { applySuggestionId: s.id, source: 'documents-requests' },
+                  })
+                }
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700"
+              >
+                <Send className="h-3.5 w-3.5" /> Request from other side
+              </button>
+            ) : null}
+          </div>
+        </li>
+      ))}
+    </ul>
+  )
+}
 
 export function DocumentTemplatesSection({ leadId, clientName }: { leadId: string; clientName: string }) {
   const [templates, setTemplates] = useState<CaseFirmTemplate[] | null>(null)

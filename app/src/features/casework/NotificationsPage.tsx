@@ -24,7 +24,7 @@ import {
   type AttorneyNotification,
 } from '../../lib/api'
 import { PageHeader, SectionCard, EmptyState } from '../shared/ui'
-import { notificationDestination } from '../../lib/notifications'
+import { groupNotificationsByCase, notificationDestination } from '../../lib/notifications'
 import {
   NEW_LEAD_ALERT_OPTIONS,
   desktopNotificationsSupported,
@@ -204,6 +204,7 @@ export default function NotificationsPage() {
     () => (filter === 'unread' ? items.filter((n) => !n.read) : items),
     [items, filter],
   )
+  const groups = useMemo(() => groupNotificationsByCase(visible), [visible])
   const canLoadMore = items.length >= limit && limit < MAX_LIMIT
 
   const filterChip = (key: 'all' | 'unread', label: string, count?: number) => (
@@ -265,33 +266,60 @@ export default function NotificationsPage() {
             }
           />
         ) : (
-          <ul className="-mx-2 divide-y divide-slate-100">
-            {visible.map((n) => {
-              const { Icon, tone } = iconFor(n.type)
-              return (
-                <li key={n.id}>
-                  <button
-                    onClick={() => openItem(n)}
-                    className={`flex w-full items-start gap-3 rounded-lg px-2 py-3 text-left transition hover:bg-slate-50 ${
-                      n.read ? '' : 'bg-brand-50/40'
-                    }`}
-                  >
-                    <span className={`mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-lg ${tone}`}>
-                      <Icon className="h-4 w-4" />
+          <div className="space-y-5">
+            {groups.map((group) => (
+              <section key={group.key}>
+                <div className="mb-1 flex items-center justify-between gap-2 border-b border-slate-100 pb-1.5">
+                  <div className="flex min-w-0 items-center gap-2">
+                    {group.label ? (
+                      <button
+                        type="button"
+                        onClick={() => navigate(`/attorney-dashboard/lead/${group.key}/overview`)}
+                        className="truncate text-sm font-semibold text-slate-900 hover:text-brand-700"
+                      >
+                        {group.label}
+                      </button>
+                    ) : (
+                      <span className="text-sm font-semibold text-slate-900">General</span>
+                    )}
+                    {group.caseId ? <span className="shrink-0 font-mono text-[11px] text-slate-400">{group.caseId}</span> : null}
+                  </div>
+                  {group.unread > 0 ? (
+                    <span className="shrink-0 rounded-full bg-rose-50 px-2 text-[11px] font-semibold text-rose-600">
+                      {group.unread} new
                     </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="flex items-center justify-between gap-2">
-                        <span className="truncate text-sm font-semibold text-slate-900">{n.title}</span>
-                        <span className="shrink-0 text-[11px] text-slate-400">{relativeTime(n.createdAt)}</span>
-                      </span>
-                      <span className="mt-0.5 block text-xs leading-5 text-slate-500">{n.body}</span>
-                    </span>
-                    {!n.read && <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-rose-500" aria-hidden />}
-                  </button>
-                </li>
-              )
-            })}
-          </ul>
+                  ) : null}
+                </div>
+                <ul className="-mx-2 divide-y divide-slate-100">
+                  {group.items.map((n) => {
+                    const { Icon, tone } = iconFor(n.type)
+                    return (
+                      <li key={n.id}>
+                        <button
+                          onClick={() => openItem(n)}
+                          className={`flex w-full items-start gap-3 rounded-lg px-2 py-3 text-left transition hover:bg-slate-50 ${
+                            n.read ? '' : 'bg-brand-50/40'
+                          }`}
+                        >
+                          <span className={`mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-lg ${tone}`}>
+                            <Icon className="h-4 w-4" />
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="flex items-center justify-between gap-2">
+                              <span className="truncate text-sm font-semibold text-slate-900">{n.title}</span>
+                              <span className="shrink-0 text-[11px] text-slate-400">{relativeTime(n.createdAt)}</span>
+                            </span>
+                            <span className="mt-0.5 block text-xs leading-5 text-slate-500">{n.body}</span>
+                          </span>
+                          {!n.read && <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-rose-500" aria-hidden />}
+                        </button>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </section>
+            ))}
+          </div>
         )}
 
         {canLoadMore && (

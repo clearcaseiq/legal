@@ -179,6 +179,9 @@ export default function DocumentRequestPage() {
         setSuggestions(pending)
         // If the plaintiff suggested a request, surface the defendant tab first.
         if (pending.length > 0) setMode('opposing')
+        const wanted = (location.state as { applySuggestionId?: string } | null)?.applySuggestionId
+        const match = wanted ? pending.find((s) => s.id === wanted) : undefined
+        if (match) applySuggestion(match)
       })
       .catch(() => {
         if (!cancelled) setSuggestions([])

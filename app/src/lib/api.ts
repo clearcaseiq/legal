@@ -1040,6 +1040,10 @@ export interface AttorneyNotification {
   body: string
   link: string | null
   leadId: string | null
+  /** The case this is about, for grouping; null for general notifications. */
+  caseKey?: string | null
+  caseLabel?: string | null
+  caseId?: string | null
   read: boolean
   createdAt: string
 }

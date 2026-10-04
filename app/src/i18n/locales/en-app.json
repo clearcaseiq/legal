@@ -3226,7 +3226,7 @@
       "uploadDocuments": "Upload Documents",
       "mostUrgent": "Most urgent task",
       "waitingOn": "{name} is still waiting on {docs}.",
-      "signatureWaiting": "{name} sent {doc} for your signature.",
+      "signatureWaiting": "{name} sent your {doc} to sign.",
       "reviewAndSign": "Review & sign",
       "yourAttorney": "Your attorney",
       "aRequestedDocument": "a requested document",

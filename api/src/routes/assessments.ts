@@ -64,6 +64,8 @@ import {
 } from '../lib/document-request-status'
 import { reconcileOrphanClientDocumentTasks } from '../lib/document-request-create'
 import { deliverDirectNotification } from '../lib/platform-notifications'
+import { notifyAttorneyInApp } from '../lib/case-notifications'
+import { plaintiffSignatureDocList } from '../lib/esign/plaintiff-doc-list'
 
 const router = Router()
 
@@ -1045,9 +1047,10 @@ router.get('/:id/tasks', authMiddleware, async (req: AuthRequest, res) => {
       const signed = group.every((e) => e.status === 'signed' || e.clientSignedAt)
       const from = group[0].attorney?.name || 'Your attorney'
       const signingUrl = group.find((e) => e.signingUrl)?.signingUrl || null
+      const documentTitle = plaintiffSignatureDocList(group.map((e) => e.title))
       return {
         id: `envelope:${group[0].id}`,
-        title: `Sign: ${group.map((e) => e.title).join(' + ')}`,
+        title: `Sign: ${documentTitle}`,
         notes: fullySigned
           ? 'Signed. Thank you!'
           : signed
@@ -1061,7 +1064,7 @@ router.get('/:id/tasks', authMiddleware, async (req: AuthRequest, res) => {
         taskType: 'signature',
         actionUrl: signed ? null : signingUrl,
         attorneyName: group[0].attorney?.name || null,
-        documentTitle: group.map((e) => e.title).join(' + '),
+        documentTitle,
       }
     })
 
@@ -1106,7 +1109,11 @@ router.post('/:id/opposing-document-suggestions', authMiddleware, async (req: Au
 
     const assessment = await prisma.assessment.findUnique({
       where: { id },
-      select: { userId: true, leadSubmission: { select: { id: true } } },
+      select: {
+        userId: true,
+        user: { select: { firstName: true, lastName: true } },
+        leadSubmission: { select: { id: true, assignedAttorneyId: true } },
+      },
     })
     if (!assessment) return res.status(404).json({ error: 'Assessment not found' })
     if (!assessment.userId || assessment.userId !== req.user.id) {
@@ -1130,6 +1137,21 @@ router.post('/:id/opposing-document-suggestions', authMiddleware, async (req: Au
         status: 'pending',
       },
     })
+
+    const lead = assessment.leadSubmission
+    if (lead?.assignedAttorneyId) {
+      const client = [assessment.user?.firstName, assessment.user?.lastName].filter(Boolean).join(' ') || 'Your client'
+      const what = docs.length === 1 ? '1 document' : docs.length > 1 ? `${docs.length} documents` : 'documents'
+      void notifyAttorneyInApp({
+        attorneyId: lead.assignedAttorneyId,
+        assessmentId: id,
+        leadId: lead.id,
+        eventType: 'attorney.client_suggested_documents',
+        subject: `Document suggestion — ${client}`,
+        body: `${client} suggested ${what} to request from the other side${parsed.data.recipientName ? ` (${parsed.data.recipientName})` : ''}.`,
+        link: `/attorney-dashboard/lead/${lead.id}/documents?view=requests`,
+      })
+    }
 
     res.json({
       id: suggestion.id,
