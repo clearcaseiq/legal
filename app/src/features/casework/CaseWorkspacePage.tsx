@@ -2363,6 +2363,7 @@ function DocumentsPanel({ lead, detail, section }: { lead: any; detail: CaseDeta
   const [requestMenuOpen, setRequestMenuOpen] = useState(false)
   const requestMenuRef = useRef<HTMLDivElement>(null)
   const [signDocType, setSignDocType] = useState<string | null>(null)
+  const [coverage, setCoverage] = useState<CoverageData | null>(null)
   const canUpload = can('documents')
   const canRequest = can('request')
   const canSign = can('documents') || can('manage')
@@ -2504,8 +2505,13 @@ function DocumentsPanel({ lead, detail, section }: { lead: any; detail: CaseDeta
           registerUploadTrigger={registerUploadTrigger}
           onRequestDocuments={openRequest}
           onOpenRequests={() => setView('requests')}
+          onCoverageChange={setCoverage}
         />
       </div>
+
+      {view === 'requests' && coverage ? (
+        <EvidenceCoverageCard coverage={coverage} clientName={detail.client} onRequestDocuments={openRequest} />
+      ) : null}
 
       {view === 'requests' ? (
         <RequestsOverview
@@ -2580,6 +2586,178 @@ function DocumentsPanel({ lead, detail, section }: { lead: any; detail: CaseDeta
   )
 }
 
+export type CoverageData = {
+  catCounts: Record<string, number>
+  pendingKeys: string[]
+  medicalSharing: MedicalSharingStatus | null
+}
+
+/**
+ * What the case file needs: the four core records plus any case-specific items
+ * requested or on file. Missing items start a client request.
+ */
+function EvidenceCoverageCard({
+  coverage,
+  clientName,
+  onRequestDocuments,
+}: {
+  coverage: CoverageData
+  clientName: string
+  onRequestDocuments: (uploadKeys: string[]) => void
+}) {
+  const { catCounts, medicalSharing } = coverage
+  const presentCats = new Set(Object.keys(catCounts))
+  const pendingRequestedKeys = new Set(coverage.pendingKeys)
+  const coverageMet = COVERAGE_CHECKLIST.filter((c) => presentCats.has(c.id)).length
+  const trackedOptional = OPTIONAL_COVERAGE.filter((c) => presentCats.has(c.id) || pendingRequestedKeys.has(c.req))
+  const coveredReqKeys = new Set([...COVERAGE_CHECKLIST, ...OPTIONAL_COVERAGE].map((c) => c.req))
+  const trackedRequestOnly = [...pendingRequestedKeys]
+    .filter((key) => !coveredReqKeys.has(key))
+    .map((key) => ({
+      id: `req:${key}`,
+      label: REQUEST_ONLY_COVERAGE.find((c) => c.req === key)?.label || labelRequestedDoc(key),
+      req: key,
+    }))
+  const addableCoverage = [...OPTIONAL_COVERAGE, ...REQUEST_ONLY_COVERAGE].filter(
+    (c) => !trackedOptional.some((t) => t.id === c.id) && !pendingRequestedKeys.has(c.req),
+  )
+  const requestCategory = (reqKey: string) => onRequestDocuments([reqKey])
+
+  const [coverageAddOpen, setCoverageAddOpen] = useState(false)
+  const coverageAddRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!coverageAddOpen) return
+    const close = (e: MouseEvent) => {
+      if (coverageAddRef.current && !coverageAddRef.current.contains(e.target as Node)) setCoverageAddOpen(false)
+    }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [coverageAddOpen])
+
+  return (
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex flex-wrap items-center gap-2">
+          <ClipboardList className="h-5 w-5 text-brand-600" />
+          <p className="text-base font-semibold text-slate-900">Evidence coverage</p>
+          <span className="rounded-full bg-brand-50 px-2.5 py-0.5 text-xs font-semibold text-brand-700">
+            {coverageMet}/{COVERAGE_CHECKLIST.length} case docs
+          </span>
+          <span className="text-xs text-slate-400">Supporting case records only — signed agreements don’t count.</span>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {[...COVERAGE_CHECKLIST, ...trackedOptional, ...trackedRequestOnly].map((c) => {
+            const required = COVERAGE_CHECKLIST.some((r) => r.id === c.id)
+            const have = presentCats.has(c.id)
+            const alreadyRequested = pendingRequestedKeys.has(c.req)
+            // The client may well have uploaded these already — we just cannot see
+            // them yet. Showing "request" here had attorneys chasing clients for
+            // files that were sitting behind the authorization.
+            const withheld =
+              !have &&
+              HIPAA_GATED_COVERAGE_IDS.has(c.id) &&
+              medicalSharing?.canShareMedicalData === false &&
+              medicalSharing.medicalFileCount > 0
+            return have ? (
+              <span
+                key={c.id}
+                className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-800"
+              >
+                <CheckCircle2 className="h-4 w-4 fill-emerald-500 text-white" />
+                {c.label}
+                <span className="text-emerald-600">· {catCounts[c.id] || 0}</span>
+              </span>
+            ) : withheld ? (
+              <span
+                key={c.id}
+                title={medicalSharing?.message || undefined}
+                className="inline-flex items-center gap-1.5 rounded-full border border-brand-200 bg-brand-50 px-3 py-1.5 text-sm font-medium text-brand-700"
+              >
+                <Shield className="h-3.5 w-3.5" />
+                {c.label}
+                <span className="text-brand-500">· on file, pending authorization</span>
+              </span>
+            ) : alreadyRequested ? (
+              <span
+                key={c.id}
+                title={`${c.label} is already requested — nudge the client from Waiting on the client below`}
+                className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-700"
+              >
+                <Send className="h-3.5 w-3.5" />
+                {c.label}
+                <span className="text-amber-500">· requested</span>
+              </span>
+            ) : (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => requestCategory(c.req)}
+                title={`Request ${c.label} from ${clientName || 'the client'}`}
+                className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm transition hover:border-brand-300 hover:text-brand-700"
+              >
+                <Plus className="h-4 w-4 text-slate-500" />
+                {c.label}
+                <span className="text-[11px] font-normal text-slate-400">{required ? 'Required' : 'Added'}</span>
+              </button>
+            )
+          })}
+          {addableCoverage.length ? (
+            <div className="relative" ref={coverageAddRef}>
+              <button
+                type="button"
+                onClick={() => setCoverageAddOpen((v) => !v)}
+                aria-expanded={coverageAddOpen}
+                className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:border-brand-300 hover:text-brand-700"
+              >
+                <Plus className="h-4 w-4" /> Add item
+              </button>
+              {coverageAddOpen ? (
+                <div className="absolute left-0 z-20 mt-1 w-60 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-lg">
+                  <p className="px-3 pb-1 pt-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                    Request from {clientName || 'the client'}
+                  </p>
+                  {addableCoverage.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => {
+                        setCoverageAddOpen(false)
+                        requestCategory(c.req)
+                      }}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+                    >
+                      <Plus className="h-3.5 w-3.5 text-slate-400" /> {c.label}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCoverageAddOpen(false)
+                      onRequestDocuments([])
+                    }}
+                    className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+                  >
+                    <Plus className="h-3.5 w-3.5 text-slate-400" /> Other…
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+        {medicalSharing?.canShareMedicalData === false && medicalSharing.medicalFileCount > 0 ? (
+          <p className="mt-2 text-xs text-brand-700">
+            {medicalSharing.medicalFileCount} medical{' '}
+            {medicalSharing.medicalFileCount === 1 ? 'file is' : 'files are'} on this case but stay hidden
+            until {clientName || 'the client'}
+            {medicalSharing.hasPlaintiffAccount
+              ? ' signs the HIPAA authorization.'
+              : ' creates an account and signs the HIPAA authorization.'}{' '}
+            They do not count toward coverage above.
+          </p>
+        ) : null}
+      </div>
+  )
+}
+
 function EvidencePanel({
   leadId,
   assessmentId,
@@ -2589,6 +2767,7 @@ function EvidencePanel({
   registerUploadTrigger,
   onRequestDocuments,
   onOpenRequests,
+  onCoverageChange,
 }: {
   leadId: string
   assessmentId: string | null
@@ -2600,6 +2779,8 @@ function EvidencePanel({
   registerUploadTrigger: (open: (() => void) | null) => void
   onRequestDocuments: (uploadKeys: string[]) => void
   onOpenRequests: () => void
+  /** Reports what is on file and requested, for the coverage card on Requests. */
+  onCoverageChange?: (coverage: CoverageData) => void
 }) {
   const [spEv] = useSearchParams()
   const { can } = useFirmAccess()
@@ -2851,27 +3032,15 @@ function EvidencePanel({
     return keys
   }, [openRequests])
 
-  const [coverageAddOpen, setCoverageAddOpen] = useState(false)
-  const coverageAddRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    if (!coverageAddOpen) return
-    const close = (e: MouseEvent) => {
-      if (coverageAddRef.current && !coverageAddRef.current.contains(e.target as Node)) setCoverageAddOpen(false)
+    if (!onCoverageChange) return
+    const catCounts: Record<string, number> = {}
+    for (const d of docs) {
+      const c = canonicalEvidenceCategory(d.category)
+      catCounts[c] = (catCounts[c] || 0) + 1
     }
-    document.addEventListener('mousedown', close)
-    return () => document.removeEventListener('mousedown', close)
-  }, [coverageAddOpen])
-
-  const requestCategory = (reqKey: string) => {
-    if (pendingRequestedKeys.has(reqKey)) {
-      setBanner({
-        tone: 'err',
-        text: `${labelRequestedDoc(reqKey)} is already in an open request. Nudge the client from Requests instead.`,
-      })
-      return
-    }
-    onRequestDocuments([reqKey])
-  }
+    onCoverageChange({ catCounts, pendingKeys: [...pendingRequestedKeys], medicalSharing })
+  }, [docs, pendingRequestedKeys, medicalSharing, onCoverageChange])
 
   // Deleting evidence is destructive, so it gets the branded in-app dialog
   // rather than a native browser confirm() (CP-434).
@@ -3077,18 +3246,6 @@ function EvidencePanel({
         : (Date.parse(b.createdAt || '') || 0) - (Date.parse(a.createdAt || '') || 0),
     )
   const coverageMet = COVERAGE_CHECKLIST.filter((c) => presentCats.has(c.id)).length
-  const trackedOptional = OPTIONAL_COVERAGE.filter((c) => presentCats.has(c.id) || pendingRequestedKeys.has(c.req))
-  const coveredReqKeys = new Set([...COVERAGE_CHECKLIST, ...OPTIONAL_COVERAGE].map((c) => c.req))
-  const trackedRequestOnly = [...pendingRequestedKeys]
-    .filter((key) => !coveredReqKeys.has(key))
-    .map((key) => ({
-      id: `req:${key}`,
-      label: REQUEST_ONLY_COVERAGE.find((c) => c.req === key)?.label || labelRequestedDoc(key),
-      req: key,
-    }))
-  const addableCoverage = [...OPTIONAL_COVERAGE, ...REQUEST_ONLY_COVERAGE].filter(
-    (c) => !trackedOptional.some((t) => t.id === c.id) && !pendingRequestedKeys.has(c.req),
-  )
 
   const catLabel = (id: string) =>
     UPLOAD_CATEGORIES.find((c) => c.id === id)?.label || (id || 'other').replace(/_/g, ' ')
@@ -3332,126 +3489,21 @@ function EvidencePanel({
         </div>
       </div>
 
-      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="flex flex-wrap items-center gap-2">
-          <ClipboardList className="h-5 w-5 text-brand-600" />
-          <p className="text-base font-semibold text-slate-900">Evidence coverage</p>
-          <span className="rounded-full bg-brand-50 px-2.5 py-0.5 text-xs font-semibold text-brand-700">
-            {coverageMet}/{COVERAGE_CHECKLIST.length} case docs
-          </span>
-          <span className="text-xs text-slate-400">Supporting case records only — signed agreements don’t count.</span>
-        </div>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {[...COVERAGE_CHECKLIST, ...trackedOptional, ...trackedRequestOnly].map((c) => {
-            const required = COVERAGE_CHECKLIST.some((r) => r.id === c.id)
-            const have = presentCats.has(c.id)
-            const alreadyRequested = pendingRequestedKeys.has(c.req)
-            // The client may well have uploaded these already — we just cannot see
-            // them yet. Showing "request" here had attorneys chasing clients for
-            // files that were sitting behind the authorization.
-            const withheld =
-              !have &&
-              HIPAA_GATED_COVERAGE_IDS.has(c.id) &&
-              medicalSharing?.canShareMedicalData === false &&
-              medicalSharing.medicalFileCount > 0
-            return have ? (
-              <span
-                key={c.id}
-                className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-800"
-              >
-                <CheckCircle2 className="h-4 w-4 fill-emerald-500 text-white" />
-                {c.label}
-                <span className="text-emerald-600">· {catCounts[c.id] || 0}</span>
-              </span>
-            ) : withheld ? (
-              <span
-                key={c.id}
-                title={medicalSharing?.message || undefined}
-                className="inline-flex items-center gap-1.5 rounded-full border border-brand-200 bg-brand-50 px-3 py-1.5 text-sm font-medium text-brand-700"
-              >
-                <Shield className="h-3.5 w-3.5" />
-                {c.label}
-                <span className="text-brand-500">· on file, pending authorization</span>
-              </span>
-            ) : alreadyRequested ? (
-              <span
-                key={c.id}
-                title={`${c.label} is already requested — nudge the client from Request from client`}
-                className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-700"
-              >
-                <Send className="h-3.5 w-3.5" />
-                {c.label}
-                <span className="text-amber-500">· requested</span>
-              </span>
-            ) : (
-              <button
-                key={c.id}
-                type="button"
-                onClick={() => requestCategory(c.req)}
-                title={`Request ${c.label} from ${clientName || 'the client'}`}
-                className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm transition hover:border-brand-300 hover:text-brand-700"
-              >
-                <Plus className="h-4 w-4 text-slate-500" />
-                {c.label}
-                <span className="text-[11px] font-normal text-slate-400">{required ? 'Required' : 'Added'}</span>
-              </button>
-            )
-          })}
-          {addableCoverage.length ? (
-            <div className="relative" ref={coverageAddRef}>
-              <button
-                type="button"
-                onClick={() => setCoverageAddOpen((v) => !v)}
-                aria-expanded={coverageAddOpen}
-                className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:border-brand-300 hover:text-brand-700"
-              >
-                <Plus className="h-4 w-4" /> Add item
-              </button>
-              {coverageAddOpen ? (
-                <div className="absolute left-0 z-20 mt-1 w-60 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-lg">
-                  <p className="px-3 pb-1 pt-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                    Request from {clientName || 'the client'}
-                  </p>
-                  {addableCoverage.map((c) => (
-                    <button
-                      key={c.id}
-                      type="button"
-                      onClick={() => {
-                        setCoverageAddOpen(false)
-                        requestCategory(c.req)
-                      }}
-                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
-                    >
-                      <Plus className="h-3.5 w-3.5 text-slate-400" /> {c.label}
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCoverageAddOpen(false)
-                      onRequestDocuments([])
-                    }}
-                    className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
-                  >
-                    <Plus className="h-3.5 w-3.5 text-slate-400" /> Other…
-                  </button>
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
-        {medicalSharing?.canShareMedicalData === false && medicalSharing.medicalFileCount > 0 ? (
-          <p className="mt-2 text-xs text-brand-700">
-            {medicalSharing.medicalFileCount} medical{' '}
-            {medicalSharing.medicalFileCount === 1 ? 'file is' : 'files are'} on this case but stay hidden
-            until {clientName || 'the client'}
-            {medicalSharing.hasPlaintiffAccount
-              ? ' signs the HIPAA authorization.'
-              : ' creates an account and signs the HIPAA authorization.'}{' '}
-            They do not count toward coverage above.
-          </p>
-        ) : null}
-      </div>
+      <button
+        type="button"
+        onClick={onOpenRequests}
+        className="inline-flex items-center gap-2 self-start text-sm text-slate-600 hover:text-brand-700"
+      >
+        <ClipboardList className="h-4 w-4 text-brand-600" />
+        <span>
+          Evidence coverage{' '}
+          <span className="font-semibold text-slate-900">
+            {coverageMet}/{COVERAGE_CHECKLIST.length}
+          </span>{' '}
+          case docs
+        </span>
+        <span className="font-semibold text-brand-700">View in Requests →</span>
+      </button>
 
       {(() => {
         const ready = docs.filter((d) => damagesPayloadForEvidence(d) && !addedDamageIds.has(d.id))
