@@ -156,9 +156,12 @@ export type TranslateParams = Record<string, string | number>
 // are left intact so a missing param is visible rather than silently dropped.
 function interpolate(template: string, params?: TranslateParams): string {
   if (!params) return template
-  return template.replace(/\{(\w+)\}/g, (match, name: string) =>
-    Object.prototype.hasOwnProperty.call(params, name) ? String(params[name]) : match
-  )
+  // Both `{name}` and `{{name}}` appear in the locale files; matching only the
+  // single form left the outer braces around the value ("{$10,000}").
+  return template.replace(/\{\{\s*(\w+)\s*\}\}|\{(\w+)\}/g, (match, doubled: string | undefined, single: string | undefined) => {
+    const name = (doubled ?? single) as string
+    return Object.prototype.hasOwnProperty.call(params, name) ? String(params[name]) : match
+  })
 }
 
 export function translate(language: LanguageCode, key: string, params?: TranslateParams): string {

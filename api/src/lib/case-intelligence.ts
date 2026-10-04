@@ -13,6 +13,7 @@
  * LLM layer (Phase 1) only narrates/prioritizes what this file produces.
  */
 import { prisma } from './prisma'
+import { gapKeysClosedByCompletedWork } from './gap-task-resolution'
 import { logger } from './logger'
 import { underwriteCase } from './underwriting-engine'
 import { loadUnderwritingInput } from './underwriting-input'
@@ -685,6 +686,18 @@ export function buildGaps(params: {
   })
 }
 
+/** Cross off open gaps whose work a completed task or workflow step has done. */
+export function applyCompletedWork(gaps: CaseGap[], closedByWork: Map<string, string>): CaseGap[] {
+  if (closedByWork.size === 0) return gaps
+  return gaps
+    .map((g) => {
+      const taskTitle = closedByWork.get(g.key)
+      if (g.resolved || !taskTitle) return g
+      return { ...g, resolved: true, actions: [], rationale: `Completed: ${taskTitle}.` }
+    })
+    .sort((a, b) => (a.resolved ? 1 : 0) - (b.resolved ? 1 : 0))
+}
+
 export async function buildCaseIntelligence(assessmentId: string): Promise<CaseIntelligence | null> {
   const assessment = await prisma.assessment.findUnique({
     where: { id: assessmentId },
@@ -810,12 +823,13 @@ export async function buildCaseIntelligence(assessmentId: string): Promise<CaseI
   ]
 
   // Structured ledgers (Phase B). Best-effort — never block intelligence on them.
-  const [damagesSummary, liabilityView] = await Promise.all([
+  const [damagesSummary, liabilityView, closedByWork] = await Promise.all([
     summarizeDamages(assessmentId).catch(() => null),
     getLiabilityRecord(assessmentId).catch(() => null),
+    gapKeysClosedByCompletedWork(assessmentId).catch(() => new Map<string, string>()),
   ])
 
-  const gaps = buildGaps({
+  const builtGaps = buildGaps({
     documentationMissing: underwriting.documentation.missing,
     facts,
     evidence,
@@ -825,6 +839,7 @@ export async function buildCaseIntelligence(assessmentId: string): Promise<CaseI
     damages: damagesSummary,
     liability: liabilityView,
   })
+  const gaps = applyCompletedWork(builtGaps, closedByWork)
 
   return {
     assessmentId,

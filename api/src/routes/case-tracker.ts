@@ -752,17 +752,35 @@ router.get('/case/:caseId/timeline', authMiddleware, async (req: AuthRequest, re
       }
     ]
 
-    // Add prediction events
-    predictions.forEach(pred => {
+    // The case is re-scored on every upload and edit, so one row per prediction
+    // filled the timeline with identical entries. First analysis, then one
+    // "updated" row for however many re-runs followed.
+    const predictionsByDate = [...predictions].sort(
+      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    )
+    const firstPrediction = predictionsByDate[0]
+    const latestPrediction = predictionsByDate[predictionsByDate.length - 1]
+    if (firstPrediction) {
       timeline.push({
-        id: `prediction-${pred.id}`,
+        id: `prediction-${firstPrediction.id}`,
         type: 'prediction_generated',
         title: 'Case Analysis Completed',
         description: 'AI prediction and viability assessment generated',
-        date: pred.createdAt,
+        date: firstPrediction.createdAt,
         status: 'completed'
       })
-    })
+    }
+    if (latestPrediction && latestPrediction !== firstPrediction) {
+      const reruns = predictionsByDate.length - 1
+      timeline.push({
+        id: `prediction-${latestPrediction.id}`,
+        type: 'prediction_updated',
+        title: 'Case Analysis Updated',
+        description: `Re-analyzed ${reruns === 1 ? 'once' : `${reruns} times`} as new information arrived`,
+        date: latestPrediction.createdAt,
+        status: 'completed'
+      })
+    }
 
     // Add appointment events
     appointments.forEach(apt => {

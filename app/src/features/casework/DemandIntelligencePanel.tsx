@@ -37,10 +37,22 @@ const POSITION: Record<DemandIntelligence['valuation']['position'], string> = {
   unknown: 'No model range to compare',
 }
 
-function Section({ title, badge, defaultOpen = true, children }: { title: string; badge?: ReactNode; defaultOpen?: boolean; children: ReactNode }) {
+function Section({
+  title,
+  badge,
+  defaultOpen = true,
+  id,
+  children,
+}: {
+  title: string
+  badge?: ReactNode
+  defaultOpen?: boolean
+  id?: string
+  children: ReactNode
+}) {
   const [open, setOpen] = useState(defaultOpen)
   return (
-    <div className="border-t border-slate-100">
+    <div id={id} className="scroll-mt-24 border-t border-slate-100">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -145,7 +157,15 @@ export default function DemandIntelligencePanel({
         {loading ? <Loader2 className="h-4 w-4 animate-spin text-slate-400" /> : null}
       </div>
 
-      <Section title="Readiness score" badge={<span className={`text-xs font-bold ${band.tone}`}>{intel.readiness.score}/100</span>}>
+      <Section
+        title="Readiness score"
+        defaultOpen={false}
+        badge={
+          <span className={`text-xs font-bold normal-case tracking-normal ${band.tone}`}>
+            {intel.readiness.score}/100 · {band.label}
+          </span>
+        }
+      >
         <div className="flex items-baseline gap-2">
           <span className={`text-2xl font-bold ${band.tone}`}>{intel.readiness.score}</span>
           <span className={`text-sm font-semibold ${band.tone}`}>{band.label}</span>
@@ -168,7 +188,11 @@ export default function DemandIntelligencePanel({
         </ul>
       </Section>
 
-      <Section title="Valuation">
+      <Section
+        title="Valuation"
+        defaultOpen={false}
+        badge={<span className="text-xs font-semibold normal-case tracking-normal text-slate-700">{money(v.expected)}</span>}
+      >
         <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
           <dt className="text-slate-500">Low (25th pct)</dt>
           <dd className="text-right tabular-nums text-slate-800">{money(v.p25)}</dd>
@@ -195,6 +219,7 @@ export default function DemandIntelligencePanel({
 
       <Section
         title="Weaknesses"
+        defaultOpen={intel.weaknesses.some((w) => w.severity === 'high')}
         badge={
           intel.weaknesses.length ? (
             <span className="rounded-full bg-amber-50 px-1.5 text-[11px] font-semibold text-amber-700">{intel.weaknesses.length}</span>
@@ -230,6 +255,7 @@ export default function DemandIntelligencePanel({
 
       <Section
         title="Statement confidence"
+        defaultOpen={false}
         badge={
           <span className="flex items-center gap-1">
             {(['green', 'yellow', 'orange', 'red'] as const).map((level) =>
@@ -262,6 +288,7 @@ export default function DemandIntelligencePanel({
 
       <Section
         title="Demand quality check"
+        defaultOpen={qualityFails > 0}
         badge={
           qualityFails || qualityWarns ? (
             <span className={`text-[11px] font-semibold ${qualityFails ? 'text-rose-600' : 'text-amber-600'}`}>
@@ -298,6 +325,7 @@ export default function DemandIntelligencePanel({
 
       {gate ? (
         <Section
+          id="demand-approval-gate"
           title="Attorney approval gate"
           badge={
             gate.complete ? (

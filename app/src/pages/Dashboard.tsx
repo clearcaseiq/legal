@@ -1241,10 +1241,10 @@ export default function Dashboard() {
     ? { action: t('plaintiffDashboard.dynamic.action.submitted'), detail: t('plaintiffDashboard.dynamic.action.submittedDetail', { label: responseDeadlineLabel }), cta: t('plaintiffDashboard.dynamic.action.viewReportCta'), href: activeAssessment ? `/results/${activeAssessment.id}?view=report` : START_ASSESSMENT_HREF, isSchedule: false }
     : { action: t('plaintiffDashboard.dynamic.action.submitCase'), detail: t('plaintiffDashboard.dynamic.action.submitCaseDetail'), cta: t('plaintiffDashboard.dynamic.action.sendForReviewCta'), href: activeAssessment ? `/results/${activeAssessment.id}` : START_ASSESSMENT_HREF, isSchedule: false }
   const evidenceImpact = [
-    { label: t('plaintiffDashboard.dynamic.evidence.medicalRecords'), done: hasMedicalRecords, impact: '+22%' },
-    { label: t('plaintiffDashboard.dynamic.evidence.injuryPhotos'), done: hasInjuryPhotos, impact: '+10%' },
-    { label: t('plaintiffDashboard.dynamic.evidence.policeReport'), done: hasPoliceReport, impact: '+8%' },
-    { label: t('plaintiffDashboard.dynamic.evidence.wageLossProof'), done: hasWageLoss, impact: '+15%' }
+    { label: t('plaintiffDashboard.dynamic.evidence.medicalRecords'), done: hasMedicalRecords, impact: '+22%', requestKeys: ['medical_records'] },
+    { label: t('plaintiffDashboard.dynamic.evidence.injuryPhotos'), done: hasInjuryPhotos, impact: '+10%', requestKeys: ['injury_photos', 'photos'] },
+    { label: t('plaintiffDashboard.dynamic.evidence.policeReport'), done: hasPoliceReport, impact: '+8%', requestKeys: ['police_report'] },
+    { label: t('plaintiffDashboard.dynamic.evidence.wageLossProof'), done: hasWageLoss, impact: '+15%', requestKeys: ['wage_loss'] }
   ]
   const attorneyActivity = routingStatus?.attorneyActivity ?? []
   const latestAttorneyActivity = attorneyActivity[0]
@@ -1373,22 +1373,19 @@ export default function Dashboard() {
   // Single source of truth for "what to do next". The Tasks tab renders exactly
   // this list, and the Tasks tab badge counts exactly these open items, so the
   // number on the tab can never disagree with the list inside it. Combines the
-  // submit-for-review step, the top evidence gaps, and score-improvement tips.
+  // submit-for-review step and the top evidence gaps. Score-factor tips stay on
+  // the insights panel: they come from the model, so no upload can complete one.
   const assessmentIdForTasks = activeAssessment?.id ?? ''
-  const scoreImprovementTasks = scoreFactors
-    .filter((factor) => factor.improve)
-    .map((factor) => ({
-      label: factor.label,
-      detail: factor.improve || '',
-      done: false,
-      href: assessmentIdForTasks ? evidenceUploadHref(assessmentIdForTasks, { from: 'dashboard' }) : START_ASSESSMENT_HREF,
-    }))
   // Keep completed evidence items in the list (marked done) rather than dropping
   // them. evidenceImpact is a fixed checklist, so a stable denominator means
   // completing an item raises the "done" count and the progress bar instead of
   // shrinking the total (CP-364).
+  // An item someone has explicitly requested is listed under Requested
+  // Documents with its own upload, so it is not repeated here as a suggestion.
+  const requestedKeys = new Set(pendingDocumentRequests.flatMap((request) => request.remainingDocs))
   const evidenceGapTasks = evidenceImpact
     .slice(0, 3)
+    .filter((item) => item.done || !item.requestKeys.some((key) => requestedKeys.has(key)))
     .map((item) => ({
       label: item.label,
       detail: item.done
@@ -1397,7 +1394,14 @@ export default function Dashboard() {
       done: item.done,
       href: assessmentIdForTasks ? evidenceUploadHref(assessmentIdForTasks, { from: 'dashboard' }) : START_ASSESSMENT_HREF,
     }))
-  const reviewTask = submittedForReview
+  // A closed or completed case has nothing left to submit, wait on, or book.
+  const caseIsClosed =
+    plaintiffCaseStatusKey === 'closed' ||
+    plaintiffCaseStatusKey === 'completed' ||
+    plaintiffCaseStageBucket(routingStatus?.caseStage) === 'closed'
+  const reviewTask = caseIsClosed
+    ? null
+    : submittedForReview
     ? {
         label: attorneyMatched ? t('plaintiffDashboard.dynamic.task.scheduleLabel') : t('plaintiffDashboard.dynamic.task.waitLabel'),
         detail: attorneyMatched
@@ -1407,6 +1411,8 @@ export default function Dashboard() {
           : t('plaintiffDashboard.dynamic.task.waitDetail'),
         done: attorneyMatched && hasUpcomingConsult,
         href: attorneyMatched ? '/messaging' : `/results/${assessmentIdForTasks}`,
+        // Waiting is status, not a step: shown, but never counted as to-do.
+        informational: !attorneyMatched,
       }
     : {
         label: t('plaintiffDashboard.dynamic.task.submitLabel'),
@@ -1456,12 +1462,12 @@ export default function Dashboard() {
   // After match, upload checklist items live in Requested Documents — not here.
   const checklistTasks = attorneyMatched
     ? []
-    : [...evidenceGapTasks, ...scoreImprovementTasks]
-  const dashboardTasks = [...attorneyTaskItems, reviewTask, ...checklistTasks].slice(
+    : evidenceGapTasks
+  const dashboardTasks = [...attorneyTaskItems, ...(reviewTask ? [reviewTask] : []), ...checklistTasks].slice(
     0,
     6 + attorneyTaskItems.length,
   )
-  const actionItemsCount = dashboardTasks.filter((task) => !task.done).length
+  const actionItemsCount = dashboardTasks.filter((task) => !task.done && !('informational' in task && task.informational)).length
 
   const riskLevel: 'Low' | 'Moderate' | 'High' = docLabel === 'Missing' ? 'Moderate' : evidenceCount === 0 ? 'Moderate' : 'Low'
   const potentialValueIncrease = !hasNarrative

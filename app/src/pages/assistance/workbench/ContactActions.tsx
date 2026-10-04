@@ -5,6 +5,7 @@ import {
   proposeAssistanceValue,
   sendAssistanceDocumentRequest,
   sendAssistanceEmail,
+  type AssistanceDocumentRequest,
   type AssistancePendingProposal,
   type AssistanceProposableField,
   type AssistanceStatus,
@@ -42,10 +43,13 @@ export function ContactActions({
   onDone,
   onError,
   idleMessage,
+  documentRequest,
 }: {
   assistanceId: string
   hasEmail: boolean
   suggestedDocs?: string[]
+  /** What has already been asked for; listed under the docs action. */
+  documentRequest?: AssistanceDocumentRequest | null
   /** Which forms this mount offers. Each tab shows the ones it is about. */
   actions: ContactAction[]
   open: ContactAction | null
@@ -74,6 +78,17 @@ export function ContactActions({
   const [proposalsLoaded, setProposalsLoaded] = useState(false)
 
   const uniqueSuggestions = useMemo(() => Array.from(new Set(suggestedDocs || [])), [suggestedDocs])
+  // Suggestion keys and request keys share a vocabulary, so a match means the
+  // claimant was already asked for this and has not sent it yet.
+  const openAsks = useMemo(
+    () =>
+      new Map(
+        (documentRequest?.items || [])
+          .filter((item) => !item.received)
+          .map((item) => [item.key, item.lastAskedAt] as const),
+      ),
+    [documentRequest],
+  )
 
   const selectedField = fields.find((field) => field.path === fieldPath)
 
@@ -166,6 +181,10 @@ export function ContactActions({
         <p className="text-sm text-slate-500 dark:text-slate-400">
           {idleMessage || 'Calls are dialled from your own phone and logged here. Texting claimants is not available yet.'}
         </p>
+      )}
+
+      {actions.includes('docs') && documentRequest && documentRequest.items.length > 0 && (
+        <RequestedDocuments request={documentRequest} />
       )}
 
       {open === 'call' && actions.includes('call') && (
@@ -384,6 +403,11 @@ export function ContactActions({
                       }
                     />
                     <span className="text-slate-700 dark:text-slate-300">{humanize(doc)}</span>
+                    {openAsks.has(doc) && (
+                      <span className="text-xs text-amber-700 dark:text-amber-300">
+                        already requested {timeAgo(openAsks.get(doc)!)}
+                      </span>
+                    )}
                   </label>
                 ))}
               </div>
@@ -462,6 +486,46 @@ export function ContactActions({
         </form>
       )}
     </SectionCard>
+  )
+}
+
+function RequestedDocuments({ request }: { request: AssistanceDocumentRequest }) {
+  const waiting = request.items.filter((item) => !item.received).length
+  return (
+    <div className="mt-3 border-t border-slate-200 pt-3 dark:border-slate-700">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+          Requested from the claimant
+        </p>
+        <span className="text-xs text-slate-500 dark:text-slate-400">
+          {waiting === 0 ? 'All received' : `${request.items.length - waiting} of ${request.items.length} received`}
+        </span>
+      </div>
+      <ul className="mt-2 divide-y divide-slate-100 dark:divide-slate-800">
+        {request.items.map((item) => (
+          <li key={item.key} className="flex items-center justify-between gap-3 py-2 text-sm">
+            <div className="min-w-0">
+              <p className="truncate font-medium text-slate-800 dark:text-slate-200">{item.label}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                {item.askCount > 1 ? `Asked ${item.askCount} times · last ` : 'Asked '}
+                {timeAgo(item.lastAskedAt)}
+              </p>
+            </div>
+            <span
+              className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                item.received
+                  ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300'
+                  : 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300'
+              }`}
+            >
+              {item.received
+                ? `Received${item.uploadedCount > 1 ? ` (${item.uploadedCount})` : ''}`
+                : 'Waiting'}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
   )
 }
 

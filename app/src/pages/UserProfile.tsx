@@ -34,6 +34,13 @@ function resolveAvatarUrl(avatar?: string | null): string | null {
   return `${origin}${avatar.startsWith('/') ? '' : '/'}${avatar}`
 }
 
+function longDate(value: string | null | undefined): string {
+  const d = value ? new Date(value) : null
+  return d && !Number.isNaN(d.getTime())
+    ? d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+    : '—'
+}
+
 function formatProfileAddress(user: UserProfile): string | null {
   const street = [user.addressLine1, user.addressLine2].filter(Boolean).join(', ')
   const region = [user.city, [user.state, user.postalCode].filter(Boolean).join(' ')].filter(Boolean).join(', ')
@@ -104,7 +111,8 @@ export default function UserProfile() {
   }, [data?.user, sessionError, sessionLoading])
 
   const applyUserUpdate = (updated: UserProfile, successMessage: string, holdMs = 3000) => {
-    setProfile(updated)
+    // Update responses can omit fields the page already has (createdAt was one).
+    setProfile((prev) => (prev ? { ...prev, ...updated } : updated))
     updateCachedPlaintiffUser(updated)
     syncStoredUserAvatar(updated.avatar)
     setSuccess(successMessage)
@@ -542,25 +550,13 @@ export default function UserProfile() {
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Member Since
                   </label>
-                  <p className="text-gray-900">
-                    {new Date(profile.createdAt).toLocaleDateString('en-US', {
-                      year: 'numeric',
-                      month: 'long',
-                      day: 'numeric'
-                    })}
-                  </p>
+                  <p className="text-gray-900">{longDate(profile.createdAt)}</p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Last Updated
                   </label>
-                  <p className="text-gray-900">
-                    {new Date(profile.updatedAt).toLocaleDateString('en-US', {
-                      year: 'numeric',
-                      month: 'long',
-                      day: 'numeric'
-                    })}
-                  </p>
+                  <p className="text-gray-900">{longDate(profile.updatedAt)}</p>
                 </div>
               </div>
             </div>

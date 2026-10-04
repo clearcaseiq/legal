@@ -23,6 +23,10 @@ import { createClient } from 'redis'
 import { verifyToken } from './auth'
 import { prisma } from './prisma'
 import { logger } from './logger'
+import { canWorkCaseAssistance } from './specialist-access'
+
+/** Everyone who works the Case Assistance queue: specialists and admins. */
+const CASE_ASSISTANCE_ROOM = 'case-assistance'
 
 export const REALTIME_PATH = '/v1/realtime'
 
@@ -87,11 +91,12 @@ export function initRealtime(httpServer: HttpServer): Server {
       const { userId } = verifyToken(token)
       const user = await prisma.user.findUnique({
         where: { id: userId },
-        select: { id: true, email: true, isActive: true },
+        select: { id: true, email: true, isActive: true, role: true },
       })
       if (!user || !user.isActive) return next(new Error('unauthorized'))
       socket.data.userId = user.id
       socket.data.email = user.email
+      socket.data.caseAssistance = canWorkCaseAssistance(user)
       next()
     } catch {
       next(new Error('unauthorized'))
@@ -118,6 +123,7 @@ export function initRealtime(httpServer: HttpServer): Server {
       if (attorney) rooms.push(`attorney:${attorney.id}`)
       const firmId = attorney?.lawFirmId ?? member?.lawFirmId ?? null
       if (firmId) rooms.push(`firm:${firmId}`)
+      if (socket.data.caseAssistance) rooms.push(CASE_ASSISTANCE_ROOM)
       await socket.join(rooms)
     } catch (err) {
       logger.warn('Realtime room join failed', { userId, error: (err as Error).message })
@@ -285,5 +291,18 @@ export async function emitLeadNew(attorneyId: string, event: LeadNewEvent): Prom
     io.to(rooms).emit('lead:new', event)
   } catch (err) {
     logger.warn('Realtime lead:new emit failed', { attorneyId, assessmentId: event.assessmentId, error: (err as Error).message })
+  }
+}
+
+/**
+ * Tell everyone working the Case Assistance queue that a case just entered it,
+ * so the new-arrival popup shows it now instead of on its next poll.
+ */
+export function emitAssistanceNew(event: { assessmentId: string }): void {
+  if (!io) return
+  try {
+    io.to(CASE_ASSISTANCE_ROOM).emit('assistance:new', event)
+  } catch (err) {
+    logger.warn('Realtime assistance:new emit failed', { assessmentId: event.assessmentId, error: (err as Error).message })
   }
 }

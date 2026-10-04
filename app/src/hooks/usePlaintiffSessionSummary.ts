@@ -72,7 +72,8 @@ export async function loadPlaintiffSessionSummary(force = false): Promise<Plaint
 
 export function updateCachedPlaintiffUser(user: any) {
   cachedSummary = {
-    user,
+    // Merge: an update response can carry fewer fields than the session user.
+    user: cachedSummary?.user ? { ...cachedSummary.user, ...user } : user,
     assessments: cachedSummary?.assessments ?? [],
   }
   cachedAt = Date.now()

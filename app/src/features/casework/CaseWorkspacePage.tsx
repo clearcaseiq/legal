@@ -1257,6 +1257,11 @@ function WorkstreamPanel({
 
     return (
       <div className="space-y-4">
+        <DemandLetterWorkspace
+          leadId={lead.id}
+          // Case readiness only until a letter exists; after that the Demand
+          // Intelligence panel carries the one readiness score for the letter.
+          intro={
         <div className={`flex items-start gap-3 rounded-2xl border p-4 ${demandReady ? 'border-emerald-200 bg-emerald-50/60' : 'border-amber-200 bg-amber-50/60'}`}>
           <div className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-white shadow-sm ${demandReady ? 'text-emerald-600' : 'text-amber-600'}`}>
             {demandReady ? <Check className="h-5 w-5" /> : <AlertTriangle className="h-5 w-5" />}
@@ -1272,8 +1277,10 @@ function WorkstreamPanel({
             </p>
           </div>
         </div>
-
-        <DemandLetterWorkspace leadId={lead.id} />
+          }
+          below={({ isSuper }) =>
+            isSuper ? null : (
+              <>
 
         {cc?.readiness ? (
           <MeterCard
@@ -1316,6 +1323,10 @@ function WorkstreamPanel({
           ) : null}
           {v?.detail ? <p className="mt-3 text-sm leading-relaxed text-slate-500">{v.detail}</p> : null}
         </div>
+              </>
+            )
+          }
+        />
 
         <div className="grid gap-3 sm:grid-cols-2">
           <StoryCard title="Liability" label={cc?.liabilityStory?.label} detail={cc?.liabilityStory?.detail} />

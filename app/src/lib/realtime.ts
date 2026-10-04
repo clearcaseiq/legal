@@ -41,7 +41,12 @@ export type MessageNewEvent = {
   senderType: string | null
 }
 
+export type AssistanceNewEvent = {
+  assessmentId: string
+}
+
 type RealtimeEvents = {
+  'assistance:new': AssistanceNewEvent
   'lead:claimed': LeadClaimedEvent
   'lead:new': LeadNewEvent
   'case:updated': CaseUpdatedEvent

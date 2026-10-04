@@ -11,6 +11,7 @@ import { logger } from './logger'
 import { createNotificationEvent } from './platform-notifications'
 import { SPECIALIST_EVENTS } from './notification-events'
 import { SPECIALIST_ROLE } from './specialist-access'
+import { emitAssistanceNew } from './realtime'
 import { ACTIVE_ASSISTANCE_STATUSES, reviewDueFrom } from './case-assistance'
 
 /**
@@ -100,6 +101,7 @@ export async function assignCaseAssistance(assessmentId: string): Promise<void> 
     const assistance = existing
       ? await prisma.caseAssistance.update({ where: { id: existing.id }, data: assignment })
       : await prisma.caseAssistance.create({ data: { assessmentId, ...assignment } })
+    if (!existing) emitAssistanceNew({ assessmentId })
 
     if (!specialistId) {
       logger.info('Case assistance queued unassigned: no active specialists', { assessmentId })

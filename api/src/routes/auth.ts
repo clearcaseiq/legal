@@ -1033,6 +1033,8 @@ router.put('/me', authMiddleware, async (req: AuthRequest, res) => {
         city: true,
         state: true,
         postalCode: true,
+        lastLoginAt: true,
+        createdAt: true,
         updatedAt: true
       }
     })

@@ -5809,8 +5809,24 @@ export async function getAssistanceCase(id: string) {
     } | null
     summary: Record<string, any>
     interactions: AssistanceInteraction[]
+    /** Every document ask sent from the workspace, one row per document. */
+    documentRequest: AssistanceDocumentRequest | null
     documents: AssistanceDocument[]
   }
+}
+
+export interface AssistanceDocumentRequest {
+  requestedBy: string | null
+  lastAskedAt: string
+  status: 'pending' | 'partial' | 'completed'
+  items: {
+    key: string
+    label: string
+    received: boolean
+    uploadedCount: number
+    askCount: number
+    lastAskedAt: string
+  }[]
 }
 
 /** A ranked next action. `priority` is critical | high | medium | low. */

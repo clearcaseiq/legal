@@ -10,6 +10,7 @@ import {
   AlertTriangle,
   Bot,
   Check,
+  ChevronDown,
   Clock,
   Download,
   FileDown,
@@ -67,7 +68,33 @@ function AuthorChip({ name, source }: { name: string | null; source?: string | n
   )
 }
 
-export default function DemandLetterWorkspace({ leadId }: { leadId: string }) {
+function MenuItem({ icon: Icon, onClick, children }: { icon: typeof Download; onClick: () => void; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50"
+    >
+      <Icon className="h-4 w-4 shrink-0 text-slate-400" />
+      {children}
+    </button>
+  )
+}
+
+const PRIMARY_BTN =
+  'inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-semibold text-white transition disabled:opacity-50'
+
+export default function DemandLetterWorkspace({
+  leadId,
+  intro,
+  below,
+}: {
+  leadId: string
+  /** Shown only while the case has no letter yet. */
+  intro?: ReactNode
+  /** Rendered under the letter; told whether the Super Demand panel is showing. */
+  below?: (ctx: { isSuper: boolean }) => ReactNode
+}) {
   const canWorkDemands = useFirmAccess().can('demand')
   const [letters, setLetters] = useState<DemandLetter[]>([])
   const [active, setActive] = useState<DemandLetter | null>(null)
@@ -77,6 +104,7 @@ export default function DemandLetterWorkspace({ leadId }: { leadId: string }) {
   const [busy, setBusy] = useState<string | null>(null)
   const [message, setMessage] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null)
   const [showHistory, setShowHistory] = useState(false)
+  const [moreOpen, setMoreOpen] = useState(false)
 
   // Import a letter authored in another tool (Word / Google Docs / PDF).
   const [showImport, setShowImport] = useState(false)
@@ -303,6 +331,76 @@ export default function DemandLetterWorkspace({ leadId }: { leadId: string }) {
 
   const versions = useMemo(() => active?.versions || [], [active])
 
+  // One next step at a time: the header's primary button is always the thing
+  // that unblocks the letter, so Finalize is never a dead, greyed-out button.
+  const gate = active?.approvalGate ?? null
+  const gateSigned = gate?.items.filter((item) => item.checked).length ?? 0
+  const gateTotal = gate?.items.length ?? 0
+  const steps = active
+    ? [
+        { key: 'draft', label: 'Drafted', done: true },
+        ...(active.reviewStatus
+          ? [{ key: 'approve', label: awaitingReview ? `Approve ${AI_AUTHOR}'s draft` : 'Approved', done: locked || !awaitingReview }]
+          : []),
+        ...(isSuper
+          ? [{ key: 'gate', label: gateTotal ? `Approval gate ${gateSigned}/${gateTotal}` : 'Approval gate', done: locked || !gateIncomplete }]
+          : []),
+        { key: 'final', label: 'Finalized', done: locked },
+        { key: 'sent', label: 'Sent', done: sent },
+      ]
+    : []
+  const nextStepKey = steps.find((step) => !step.done)?.key
+  const scrollToGate = () =>
+    document.getElementById('demand-approval-gate')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+
+  let primary: ReactNode = null
+  let blockedReason: string | null = null
+  if (active && sent) {
+    primary = (
+      <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-700">
+        <Send className="h-3.5 w-3.5" />
+        Sent {formatWhen(active.sentAt)}
+      </span>
+    )
+  } else if (active && locked) {
+    primary = (
+      <button type="button" onClick={handleMarkSent} disabled={busy != null} className={`${PRIMARY_BTN} bg-brand-600 hover:bg-brand-700`}>
+        {busy === 'send' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+        Mark as sent
+      </button>
+    )
+  } else if (active && dirty) {
+    primary = (
+      <button type="button" onClick={handleSave} disabled={busy != null} className={`${PRIMARY_BTN} bg-brand-600 hover:bg-brand-700`}>
+        {busy === 'save' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+        {busy === 'save' ? 'Saving…' : 'Save'}
+      </button>
+    )
+  } else if (active && awaitingReview) {
+    primary = (
+      <button type="button" onClick={handleApprove} disabled={busy != null} className={`${PRIMARY_BTN} bg-violet-600 hover:bg-violet-700`}>
+        {busy === 'approve' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+        {busy === 'approve' ? 'Approving…' : `Approve ${AI_AUTHOR}'s draft`}
+      </button>
+    )
+    blockedReason = `Finalize unlocks after you approve ${AI_AUTHOR}'s draft${isSuper ? ' and sign the attorney approval gate' : ''}.`
+  } else if (active && gateIncomplete) {
+    primary = (
+      <button type="button" onClick={scrollToGate} className={`${PRIMARY_BTN} bg-brand-600 hover:bg-brand-700`}>
+        <Lock className="h-3.5 w-3.5" />
+        Sign approval gate{gateTotal ? ` (${gateSigned}/${gateTotal})` : ''}
+      </button>
+    )
+    blockedReason = 'Finalize unlocks once every item in the attorney approval gate (right panel) is signed.'
+  } else if (active) {
+    primary = (
+      <button type="button" onClick={handleFinalize} disabled={busy != null} className={`${PRIMARY_BTN} bg-emerald-600 hover:bg-emerald-700`}>
+        {busy === 'finalize' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Lock className="h-3.5 w-3.5" />}
+        Finalize
+      </button>
+    )
+  }
+
   if (loading) {
     return (
       <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-6 text-sm text-slate-500">
@@ -329,16 +427,10 @@ export default function DemandLetterWorkspace({ leadId }: { leadId: string }) {
               Read it, edit anything you want, then approve.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={handleApprove}
-            disabled={busy != null}
-            className="shrink-0 rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-violet-700 disabled:opacity-50"
-          >
-            {busy === 'approve' ? 'Approving…' : 'Approve'}
-          </button>
         </div>
       ) : null}
+
+      {!active ? intro : null}
 
       {!active ? (
         <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center">
@@ -384,150 +476,118 @@ export default function DemandLetterWorkspace({ leadId }: { leadId: string }) {
       ) : (
         <div className={isSuper ? 'grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_360px]' : ''}>
         <div className="min-w-0 rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-slate-100 px-5 py-3.5">
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <h3 className="truncate text-sm font-semibold text-slate-900">
-                  {active.title || 'Demand letter'}
-                </h3>
-                {isSuper ? (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-brand-50 px-2 py-0.5 text-[11px] font-medium text-brand-700">
-                    <Sparkles className="h-3 w-3" />
-                    Super Demand™
-                  </span>
-                ) : null}
-                {active.origin === 'imported' ? (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-sky-50 px-2 py-0.5 text-[11px] font-medium text-sky-700">
-                    <Upload className="h-3 w-3" />
-                    Imported
-                  </span>
-                ) : null}
-                {locked ? (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
-                    <Lock className="h-3 w-3" />
-                    Final
-                  </span>
-                ) : null}
-              </div>
-              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                <span>Version {active.currentVersion}</span>
-                <AuthorChip name={active.updatedByName} source={active.contentSource} />
-                <span>{formatWhen(active.updatedAt)}</span>
-                {active.reviewedByName ? <span>· Approved by {active.reviewedByName}</span> : null}
-                {active.finalizedByName ? <span>· Finalized by {active.finalizedByName}</span> : null}
-              </div>
+          <div className="border-b border-slate-100 px-5 pb-3 pt-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="min-w-0 text-base font-semibold text-slate-900">{active.title || 'Demand letter'}</h3>
+              {isSuper ? (
+                <span className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full bg-brand-50 px-2 py-0.5 text-[11px] font-medium text-brand-700">
+                  <Sparkles className="h-3 w-3" />
+                  Super Demand™
+                </span>
+              ) : null}
+              {active.origin === 'imported' ? (
+                <span className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full bg-sky-50 px-2 py-0.5 text-[11px] font-medium text-sky-700">
+                  <Upload className="h-3 w-3" />
+                  Imported
+                </span>
+              ) : null}
+              {locked ? (
+                <span className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                  <Lock className="h-3 w-3" />
+                  Final
+                </span>
+              ) : null}
+            </div>
+            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500">
+              <span className="whitespace-nowrap">Version {active.currentVersion}</span>
+              <AuthorChip name={active.updatedByName} source={active.contentSource} />
+              <span className="whitespace-nowrap">{formatWhen(active.updatedAt)}</span>
+              {active.reviewedByName ? <span>· Approved by {active.reviewedByName}</span> : null}
+              {active.finalizedByName ? <span>· Finalized by {active.finalizedByName}</span> : null}
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              {versions.length > 1 ? (
+            <ol className="mt-3 flex flex-wrap items-center gap-x-1.5 gap-y-1.5 text-[11px] font-semibold">
+              {steps.map((step, i) => (
+                <li key={step.key} className="flex items-center gap-1.5">
+                  {i > 0 ? <span className="h-px w-3 bg-slate-200" aria-hidden /> : null}
+                  <span
+                    className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 ${
+                      step.done
+                        ? 'bg-emerald-50 text-emerald-700'
+                        : step.key === nextStepKey
+                          ? 'bg-amber-50 text-amber-800 ring-1 ring-amber-200'
+                          : 'bg-slate-100 text-slate-500'
+                    }`}
+                  >
+                    {step.done ? <Check className="h-3 w-3" /> : null}
+                    {step.label}
+                  </span>
+                </li>
+              ))}
+            </ol>
+
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              {!locked ? (
                 <button
                   type="button"
-                  onClick={() => setShowHistory((v) => !v)}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
-                >
-                  <History className="h-3.5 w-3.5" />
-                  History
-                </button>
-              ) : null}
-              {active.hasOriginalFile ? (
-                <button
-                  type="button"
-                  onClick={handleDownloadOriginal}
+                  onClick={() => handleRegenerate()}
                   disabled={busy != null}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
-                  title={active.importedFileName || 'Original uploaded file'}
                 >
-                  {busy === 'original' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileDown className="h-3.5 w-3.5" />}
-                  Original
+                  {busy === 'regen' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                  Redraft
                 </button>
               ) : null}
-              <button
-                type="button"
-                onClick={handleDownload}
-                disabled={busy != null}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
-              >
-                <Download className="h-3.5 w-3.5" />
-                Word
-              </button>
-              <button
-                type="button"
-                onClick={openImport}
-                disabled={busy != null}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
-              >
-                <Upload className="h-3.5 w-3.5" />
-                Import
-              </button>
-              {!locked ? (
-                <>
-                  {!isSuper && active.origin !== 'imported' ? (
-                    <button
-                      type="button"
-                      onClick={() => handleRegenerate(true)}
-                      disabled={busy != null}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-brand-200 bg-brand-50 px-2.5 py-1.5 text-xs font-semibold text-brand-700 transition hover:bg-brand-100 disabled:opacity-50"
-                    >
-                      <Sparkles className="h-3.5 w-3.5" />
-                      Redraft as Super Demand
-                    </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={() => handleRegenerate()}
-                    disabled={busy != null}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
-                  >
-                    {busy === 'regen' ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <RefreshCw className="h-3.5 w-3.5" />
-                    )}
-                    Redraft
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleSave}
-                    disabled={busy != null || !dirty}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-brand-700 disabled:opacity-40"
-                  >
-                    {busy === 'save' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-                    {busy === 'save' ? 'Saving…' : dirty ? 'Save' : 'Saved'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleFinalize}
-                    disabled={busy != null || awaitingReview || gateIncomplete}
-                    title={
-                      awaitingReview
-                        ? `Approve ${AI_AUTHOR}'s draft first`
-                        : gateIncomplete
-                          ? 'Sign every item in the attorney approval gate first'
-                          : undefined
-                    }
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-40"
-                  >
-                    <Lock className="h-3.5 w-3.5" />
-                    Finalize
-                  </button>
-                </>
-              ) : sent ? (
-                <span className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-700">
-                  <Send className="h-3.5 w-3.5" />
-                  Sent {formatWhen(active.sentAt)}
-                </span>
-              ) : (
+              <div className="relative">
                 <button
                   type="button"
-                  onClick={handleMarkSent}
-                  disabled={busy != null}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-brand-700 disabled:opacity-40"
+                  onClick={() => setMoreOpen((v) => !v)}
+                  aria-expanded={moreOpen}
+                  className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
                 >
-                  {busy === 'send' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-                  Mark as sent
+                  More
+                  <ChevronDown className={`h-3.5 w-3.5 transition ${moreOpen ? 'rotate-180' : ''}`} />
                 </button>
-              )}
+                {moreOpen ? (
+                  <>
+                    <button type="button" aria-label="Close menu" className="fixed inset-0 z-10 cursor-default" onClick={() => setMoreOpen(false)} />
+                    <div className="absolute left-0 z-20 mt-1 w-56 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-lg">
+                      <MenuItem icon={Download} onClick={() => { setMoreOpen(false); void handleDownload() }}>
+                        Download Word
+                      </MenuItem>
+                      {active.hasOriginalFile ? (
+                        <MenuItem icon={FileDown} onClick={() => { setMoreOpen(false); void handleDownloadOriginal() }}>
+                          Download original file
+                        </MenuItem>
+                      ) : null}
+                      {versions.length > 1 ? (
+                        <MenuItem icon={History} onClick={() => { setMoreOpen(false); setShowHistory((v) => !v) }}>
+                          {showHistory ? 'Hide version history' : 'Version history'}
+                        </MenuItem>
+                      ) : null}
+                      <MenuItem icon={Upload} onClick={() => { setMoreOpen(false); openImport() }}>
+                        Import a letter
+                      </MenuItem>
+                      {!locked && !isSuper && active.origin !== 'imported' ? (
+                        <MenuItem icon={Sparkles} onClick={() => { setMoreOpen(false); handleRegenerate(true) }}>
+                          Redraft as Super Demand
+                        </MenuItem>
+                      ) : null}
+                    </div>
+                  </>
+                ) : null}
+              </div>
+
+              <div className="ml-auto flex items-center gap-2.5">
+                {!locked ? (
+                  <span className="whitespace-nowrap text-xs text-slate-400">
+                    {dirty ? 'Unsaved changes' : `Saved${active.updatedAt ? ` · ${formatWhen(active.updatedAt)}` : ''}`}
+                  </span>
+                ) : null}
+                {primary}
+              </div>
             </div>
+            {blockedReason ? <p className="mt-2 text-xs text-amber-700">{blockedReason}</p> : null}
           </div>
 
           {!locked ? (
@@ -576,27 +636,34 @@ export default function DemandLetterWorkspace({ leadId }: { leadId: string }) {
             </div>
           ) : null}
 
-          <textarea
-            value={draftText}
-            onChange={(e) => setDraftText(e.target.value)}
-            readOnly={locked}
-            spellCheck
-            rows={28}
-            className={`w-full resize-y rounded-b-2xl border-0 px-5 py-4 font-mono text-[13px] leading-relaxed text-slate-800 focus:outline-none ${
-              locked ? 'bg-slate-50' : 'bg-white'
-            }`}
-          />
+          <div className="rounded-b-2xl bg-slate-100/70 px-3 py-5 sm:px-6">
+            <textarea
+              value={draftText}
+              onChange={(e) => setDraftText(e.target.value)}
+              readOnly={locked}
+              spellCheck
+              rows={30}
+              aria-label="Demand letter text"
+              className={`mx-auto block w-full max-w-[52rem] resize-y rounded-md border border-slate-200 px-6 py-8 font-serif text-[15px] leading-7 text-slate-800 shadow-sm focus:border-brand-300 focus:outline-none focus:ring-2 focus:ring-brand-100 sm:px-12 sm:py-12 ${
+                locked ? 'bg-slate-50' : 'bg-white'
+              }`}
+            />
+          </div>
         </div>
         {isSuper ? (
+          <div className="xl:sticky xl:top-24 xl:max-h-[calc(100vh-7rem)] xl:overflow-y-auto">
           <DemandIntelligencePanel
             leadId={leadId}
             letter={active}
             readOnly={locked || !canWorkDemands}
             onLetterUpdated={applyGateUpdate}
           />
+          </div>
         ) : null}
         </div>
       )}
+
+      {below?.({ isSuper: !!active && isSuper })}
 
       {message ? (
         <div

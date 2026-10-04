@@ -431,6 +431,7 @@ export default function CaseAssistanceWorkspace() {
             {...actionProps}
             actions={['docs']}
             suggestedDocs={suggestedDocs}
+            documentRequest={data.documentRequest}
             idleMessage="Email the claimant a link to upload what the file is missing."
           />
           <SectionCard title="Documents to request">

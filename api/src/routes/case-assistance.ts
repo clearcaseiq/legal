@@ -64,6 +64,7 @@ import {
   normalizeRequestedDocKey,
   normalizeRequestedDocKeys,
 } from '../lib/document-request-status'
+import { loadSpecialistDocumentRequest } from '../lib/specialist-document-requests'
 
 const router: ExpressRouter = Router()
 
@@ -612,6 +613,7 @@ router.get('/:id', async (req: AuthRequest, res) => {
           id: true,
           originalName: true,
           category: true,
+          subcategory: true,
           mimetype: true,
           size: true,
           fileUrl: true,
@@ -623,6 +625,7 @@ router.get('/:id', async (req: AuthRequest, res) => {
 
     const facts = parseFacts(assessment.facts)
     const contact = contactOf(assessment)
+    const documentRequest = await loadSpecialistDocumentRequest(assessment.id, evidenceFiles)
 
     res.json({
       success: true,
@@ -655,6 +658,19 @@ router.get('/:id', async (req: AuthRequest, res) => {
         narrative: typeof facts.narrative === 'string' ? facts.narrative : null,
       },
       interactions: interactions.map(serializeInteraction),
+      documentRequest: documentRequest && {
+        requestedBy: documentRequest.requestedBy,
+        lastAskedAt: documentRequest.lastAskedAt,
+        status: documentRequest.status,
+        items: documentRequest.items.map((item) => ({
+          key: item.key,
+          label: item.label,
+          received: item.fulfilled,
+          uploadedCount: item.uploadedCount,
+          askCount: item.askCount,
+          lastAskedAt: item.lastAskedAt,
+        })),
+      },
       documents: evidenceFiles.map((file) => ({
         id: file.id,
         name: file.originalName,
@@ -1467,7 +1483,8 @@ router.post('/:id/document-request', async (req: AuthRequest, res) => {
       replyTo: req.user?.email || null,
       fromEmail: req.user?.email || null,
       fromName: specialist,
-      metadata: { eventType: PLAINTIFF_EVENTS.doc_requested, docs, requestedBy: req.user?.id },
+      // Read back as the request itself by lib/specialist-document-requests.
+      metadata: { eventType: PLAINTIFF_EVENTS.doc_requested, docs, message: message || null, requestedBy: req.user?.id },
     })
 
     await recordInteraction({

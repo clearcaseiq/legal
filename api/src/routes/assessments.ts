@@ -62,6 +62,7 @@ import {
   requestUploadSubcategory,
   parseRequestedDocs,
 } from '../lib/document-request-status'
+import { loadSpecialistDocumentRequest } from '../lib/specialist-document-requests'
 import { reconcileOrphanClientDocumentTasks } from '../lib/document-request-create'
 import { deliverDirectNotification } from '../lib/platform-notifications'
 import { notifyAttorneyInApp } from '../lib/case-notifications'
@@ -663,6 +664,8 @@ router.get('/:id', optionalAuthMiddleware, async (req: AuthRequest, res) => {
         county: assessment.venueCounty
       },
       status: assessment.status,
+      caseStage: assessment.caseStage ?? null,
+      closedAt: assessment.closedAt ?? null,
       facts: JSON.parse(assessment.facts),
       created_at: assessment.createdAt,
       submittedForReview: !!assessment.leadSubmission,
@@ -958,7 +961,7 @@ router.get('/:id/document-requests', authMiddleware, async (req: AuthRequest, re
                 .map((item) => item.label)
                 .join(', ')}.`
             : 'Please upload the documents listed below so we can move your case forward.',
-        uploadLink: request.uploadLink,
+        uploadLink: request.uploadLink as string | null,
         status: displayStatus,
         rawStatus: request.status,
         completionPercent,
@@ -966,6 +969,32 @@ router.get('/:id/document-requests', authMiddleware, async (req: AuthRequest, re
         createdAt: request.createdAt
       }
     })
+
+    // A case specialist's asks have no DocumentRequest row; they fold into one
+    // request so the claimant sees them under Requested Documents too.
+    const specialistRequest = await loadSpecialistDocumentRequest(id, evidenceFiles)
+    if (specialistRequest) {
+      const items = specialistRequest.items.map(({ askCount: _askCount, lastAskedAt: _lastAskedAt, ...item }) => item)
+      const fulfilledCount = items.filter((item) => item.fulfilled).length
+      requests.push({
+        id: `specialist-${id}`,
+        leadId: assessment.leadSubmission?.id || null,
+        attorney: { id: '', name: specialistRequest.requestedBy || 'Your ClearCaseIQ case specialist', email: '' },
+        requestedDocs: items.map((item) => item.key),
+        items,
+        fulfilledDocs: items.filter((item) => item.fulfilled).map((item) => item.key),
+        remainingDocs: items.filter((item) => !item.fulfilled).map((item) => item.key),
+        customMessage:
+          specialistRequest.message ||
+          `Please upload the following so we can move your case forward: ${items.map((item) => item.label).join(', ')}.`,
+        uploadLink: null,
+        status: specialistRequest.status,
+        rawStatus: specialistRequest.status,
+        completionPercent: items.length > 0 ? Math.round((fulfilledCount / items.length) * 100) : 0,
+        lastNudgeAt: null,
+        createdAt: specialistRequest.lastAskedAt,
+      })
+    }
 
     res.json({
       assessmentId: id,

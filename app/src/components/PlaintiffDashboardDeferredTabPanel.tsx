@@ -87,6 +87,8 @@ type DashboardTask = {
   done: boolean
   href: string
   kind?: 'sign'
+  /** Status the claimant cannot act on: listed, but not counted as a step. */
+  informational?: boolean
 }
 
 type JournalEntry = {
@@ -411,7 +413,8 @@ export default function PlaintiffDashboardDeferredTabPanel({
   if (activeTab === 'tasks') {
     const openTasks = tasks.filter((task) => !task.done)
     const doneTasks = tasks.filter((task) => task.done)
-    const totalTasks = tasks.length
+    const openSteps = openTasks.filter((task) => !task.informational)
+    const totalTasks = tasks.filter((task) => !task.informational).length
     const donePct = totalTasks > 0 ? Math.round((doneTasks.length / totalTasks) * 100) : 0
     const taskKind = (task: DashboardTask): 'sign' | 'upload' | 'message' | 'submit' | 'wait' => {
       if (task.kind === 'sign') return 'sign'
@@ -443,8 +446,8 @@ export default function PlaintiffDashboardDeferredTabPanel({
             <div className="min-w-0">
               <h3 className="font-display text-xl font-bold text-slate-900">{t('plaintiffDashboard.deferred.tasks.title')}</h3>
               <p className="mt-1 text-sm text-slate-600">
-                {openTasks.length > 0
-                  ? t(openTasks.length === 1 ? 'plaintiffDashboard.deferred.tasks.oneThing' : 'plaintiffDashboard.deferred.tasks.manyThings', { count: openTasks.length })
+                {openSteps.length > 0
+                  ? t(openSteps.length === 1 ? 'plaintiffDashboard.deferred.tasks.oneThing' : 'plaintiffDashboard.deferred.tasks.manyThings', { count: openSteps.length })
                   : t('plaintiffDashboard.deferred.tasks.caughtUp')}
               </p>
             </div>
@@ -1323,7 +1326,11 @@ export default function PlaintiffDashboardDeferredTabPanel({
       settlementHigh
     const rangeSpan = Math.max(1, settlementHigh - settlementLow)
     const midpoint = settlementMedian || Math.round((settlementLow + settlementHigh) / 2)
-    const markerPct = Math.min(100, Math.max(0, ((midpoint - settlementLow) / rangeSpan) * 100))
+    const markerPct = settlementHigh > settlementLow
+      ? Math.min(100, Math.max(0, ((midpoint - settlementLow) / rangeSpan) * 100))
+      : 50
+    const markerLabelAlign =
+      markerPct < 15 ? 'translate-x-0' : markerPct > 85 ? '-translate-x-full' : '-translate-x-1/2'
 
     return (
       <div className="space-y-5">
@@ -1501,15 +1508,17 @@ export default function PlaintiffDashboardDeferredTabPanel({
                 aria-hidden
               />
             </div>
-            <div className="relative mt-2 h-5 text-[11px] text-slate-400">
-              <span className="absolute left-0">{formatCurrency(settlementLow)}</span>
+            <div className="mt-2 flex justify-between text-[11px] text-slate-400 tabular-nums">
+              <span>{formatCurrency(settlementLow)}</span>
+              <span>{formatCurrency(settlementHigh)}</span>
+            </div>
+            <div className="relative mt-1 h-4 text-[11px]">
               <span
-                className="absolute -translate-x-1/2 font-semibold text-brand-700"
+                className={`absolute whitespace-nowrap font-semibold text-brand-700 ${markerLabelAlign}`}
                 style={{ left: `${markerPct}%` }}
               >
                 {t('plaintiffDashboard.deferred.value.yourEstimate')}
               </span>
-              <span className="absolute right-0">{formatCurrency(settlementHigh)}</span>
             </div>
           </div>
         </div>

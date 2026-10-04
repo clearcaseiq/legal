@@ -125,6 +125,9 @@ interface Assessment {
   venueState?: string
   venueCounty?: string
   status: string
+  caseStage?: string | null
+  closedAt?: string | null
+  leadStatus?: string | null
   facts: any
   created_at: string
   submittedForReview?: boolean
@@ -3242,7 +3245,14 @@ Checklist:
   // Canonical target for evidence uploads: open the intake wizard's Supporting
   // Documents (Step 6 evidence) screen for this case via a focused deep link.
   const evidenceUploadTargetId = resolvedAssessmentId || assessment?.id
-  const evidenceUploadPath = evidenceUploadTargetId ? `/intake2?assessment=${evidenceUploadTargetId}&step=evidence` : undefined
+  const isCaseClosed =
+    String(assessment?.status || '').toLowerCase() === 'closed' ||
+    String(assessment?.caseStage || '').toUpperCase() === 'CLOSED' ||
+    String(assessment?.leadStatus || '').toLowerCase() === 'closed' ||
+    !!assessment?.closedAt
+  const evidenceUploadPath = evidenceUploadTargetId && !isCaseClosed
+    ? `/intake2?assessment=${evidenceUploadTargetId}&step=evidence`
+    : undefined
 
   // ---- Documents-as-readiness framing --------------------------------------------------
   // Product guidance: documents drive a better review, so quantify the upside and use

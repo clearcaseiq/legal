@@ -2,8 +2,10 @@ import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AlertCircle, ArrowRight, UserPlus, X } from 'lucide-react'
 import { getAssistanceNewArrivals, type AssistanceQueueRow } from '../lib/api'
+import { useRealtimeEvent } from '../lib/realtime'
 import { ASSISTANCE_STATUS_LABELS } from '../pages/assistance/assistanceLabels'
 
+/** Fallback only: arrivals are pushed over the socket as they happen. */
 const POLL_MS = 30_000
 const SNOOZE_MS = 10 * 60_000
 
@@ -54,6 +56,8 @@ export default function AdminNewCasePopup({ email }: { email: string | null }) {
       /* the queue is still there; a missed poll is retried */
     }
   }, [seenKey, snoozeKey])
+
+  useRealtimeEvent('assistance:new', () => void check(), () => void check())
 
   useEffect(() => {
     void check()
