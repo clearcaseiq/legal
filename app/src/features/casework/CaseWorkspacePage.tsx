@@ -2353,10 +2353,15 @@ function DocumentsPanel({ lead, detail, section }: { lead: any; detail: CaseDeta
         ? 'retainer'
         : 'hipaa_authorization'
 
-  const uploadTrigger = useRef<(() => void) | null>(null)
-  const registerUploadTrigger = useCallback((open: (() => void) | null) => {
+  const uploadTrigger = useRef<((category: string) => void) | null>(null)
+  const registerUploadTrigger = useCallback((open: ((category: string) => void) | null) => {
     uploadTrigger.current = open
   }, [])
+  // Uploads land in All files, which shows the result and any follow-up (e.g. dec-page coverage).
+  const uploadAs = (category: string) => {
+    if (view !== 'files') setView('files')
+    uploadTrigger.current?.(category)
+  }
   const [requestUploads, setRequestUploads] = useState<string[] | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
   const [notice, setNotice] = useState<string | null>(null)
@@ -2424,16 +2429,12 @@ function DocumentsPanel({ lead, detail, section }: { lead: any; detail: CaseDeta
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {canUpload ? (
-            <button
-              type="button"
-              onClick={() => {
-                if (view !== 'files') setView('files')
-                uploadTrigger.current?.()
-              }}
+            <UploadCategoryButton
+              label="Upload files"
+              align="right"
+              onPick={uploadAs}
               className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:border-brand-300 hover:text-brand-700"
-            >
-              <CloudUpload className="h-4 w-4 text-brand-600" /> Upload files
-            </button>
+            />
           ) : null}
           {canRequest || canSign ? (
             <div className="relative" ref={requestMenuRef}>
@@ -2510,7 +2511,12 @@ function DocumentsPanel({ lead, detail, section }: { lead: any; detail: CaseDeta
       </div>
 
       {view === 'requests' && coverage ? (
-        <EvidenceCoverageCard coverage={coverage} clientName={detail.client} onRequestDocuments={openRequest} />
+        <EvidenceCoverageCard
+          coverage={coverage}
+          clientName={detail.client}
+          onRequestDocuments={openRequest}
+          onUpload={canUpload ? uploadAs : undefined}
+        />
       ) : null}
 
       {view === 'requests' ? (
@@ -2586,6 +2592,60 @@ function DocumentsPanel({ lead, detail, section }: { lead: any; detail: CaseDeta
   )
 }
 
+/** Upload button that asks which category the files belong to, then opens the picker. */
+function UploadCategoryButton({
+  label,
+  className,
+  align = 'left',
+  onPick,
+}: {
+  label: string
+  className: string
+  align?: 'left' | 'right'
+  onPick: (category: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const close = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [open])
+  return (
+    <div className="relative" ref={ref}>
+      <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className={className}>
+        <CloudUpload className="h-4 w-4 text-brand-600" /> {label}
+      </button>
+      {open ? (
+        <div
+          className={`absolute ${align === 'right' ? 'right-0' : 'left-0'} z-30 mt-1 w-56 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-lg`}
+        >
+          <p className="px-3 pb-1 pt-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">File as</p>
+          {UPLOAD_CATEGORIES.map((c) => (
+            <button
+              key={c.id}
+              type="button"
+              onClick={() => {
+                setOpen(false)
+                onPick(c.id)
+              }}
+              className="flex w-full items-center px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+            >
+              {c.label}
+            </button>
+          ))}
+          <p className="border-t border-slate-100 px-3 py-1.5 text-[11px] text-slate-400">
+            PDF, DOC, or images · up to 10 files · max {MAX_UPLOAD_MB} MB each
+          </p>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 export type CoverageData = {
   catCounts: Record<string, number>
   pendingKeys: string[]
@@ -2600,10 +2660,13 @@ function EvidenceCoverageCard({
   coverage,
   clientName,
   onRequestDocuments,
+  onUpload,
 }: {
   coverage: CoverageData
   clientName: string
   onRequestDocuments: (uploadKeys: string[]) => void
+  /** Opens the file picker for the chosen category; omitted when the user cannot upload. */
+  onUpload?: (category: string) => void
 }) {
   const { catCounts, medicalSharing } = coverage
   const presentCats = new Set(Object.keys(catCounts))
@@ -2742,6 +2805,13 @@ function EvidenceCoverageCard({
               ) : null}
             </div>
           ) : null}
+          {onUpload ? (
+            <UploadCategoryButton
+              label="Upload"
+              onPick={onUpload}
+              className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm transition hover:border-brand-300 hover:text-brand-700"
+            />
+          ) : null}
         </div>
         {medicalSharing?.canShareMedicalData === false && medicalSharing.medicalFileCount > 0 ? (
           <p className="mt-2 text-xs text-brand-700">
@@ -2776,7 +2846,7 @@ function EvidencePanel({
   /** Bumped when something outside (a packet, a review) changed the files or requests. */
   reloadKey: number
   /** Hands the parent a way to open the file picker from its own button click. */
-  registerUploadTrigger: (open: (() => void) | null) => void
+  registerUploadTrigger: (open: ((category: string) => void) | null) => void
   onRequestDocuments: (uploadKeys: string[]) => void
   onOpenRequests: () => void
   /** Reports what is on file and requested, for the coverage card on Requests. */
@@ -2790,7 +2860,8 @@ function EvidencePanel({
   const [docs, setDocs] = useState<any[]>(initialFiles || [])
   const [uploading, setUploading] = useState(false)
   const [category, setCategory] = useState(initialCategory)
-  const [description, setDescription] = useState('')
+  // The category picked from an Upload menu; the picker's change event reads it.
+  const pickCategoryRef = useRef(initialCategory)
   const [openRequests, setOpenRequests] = useState<AttorneyDocumentRequest[]>([])
   const [banner, setBanner] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null)
   const [search, setSearch] = useState('')
@@ -2830,7 +2901,15 @@ function EvidencePanel({
   }
 
   useEffect(() => {
-    registerUploadTrigger(canUpload ? () => fileInputRef.current?.click() : null)
+    registerUploadTrigger(
+      canUpload
+        ? (cat: string) => {
+            pickCategoryRef.current = cat
+            setCategory(cat)
+            fileInputRef.current?.click()
+          }
+        : null,
+    )
     return () => registerUploadTrigger(null)
   }, [canUpload, registerUploadTrigger])
 
@@ -2933,7 +3012,7 @@ function EvidencePanel({
       return false
     }
     const cat = opts?.categoryOverride ?? category
-    const desc = opts?.descriptionOverride ?? description
+    const desc = opts?.descriptionOverride ?? ''
     setUploading(true)
     if (!rejected.length) setBanner(null)
     let succeeded = false
@@ -2959,7 +3038,6 @@ function EvidencePanel({
       if (failedNames.length) {
         setBanner({ tone: 'err', text: `Some files failed: ${failedNames.join('; ')}` })
       }
-      if (!opts) setDescription('')
       if (fileInputRef.current) fileInputRef.current.value = ''
       if (succeeded) {
         setBanner((b) => (b && b.tone === 'err' ? b : { tone: 'ok', text: `Uploaded ${created.length} document${created.length === 1 ? '' : 's'}.` }))
@@ -2978,7 +3056,7 @@ function EvidencePanel({
   }
 
   const handleFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    await uploadFiles(Array.from(e.target.files || []))
+    await uploadFiles(Array.from(e.target.files || []), { categoryOverride: pickCategoryRef.current })
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
@@ -3565,78 +3643,44 @@ function EvidencePanel({
         )
       })()}
 
-      {/* Upload strip: the top "Upload files" button opens the same picker. */}
-      <div
-        onDragOver={(e) => {
-          e.preventDefault()
-          if (!dragOver) setDragOver(true)
-        }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={handleDrop}
-        className={`rounded-2xl border p-4 shadow-sm transition ${dragOver ? 'border-brand-400 bg-brand-50/60' : 'border-slate-200 bg-white'} ${canUpload ? '' : 'hidden'}`}
-      >
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          onChange={handleFiles}
-          className="hidden"
-          accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif,.webp,.txt"
-        />
-        <div className="grid items-end gap-3 md:grid-cols-[minmax(0,12rem)_minmax(0,1fr)_minmax(0,1.4fr)]">
-          <label className="flex flex-col gap-1 text-xs font-medium text-slate-600">
-            Category
-            <select
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              className="rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-sm text-slate-800 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
-            >
-              {UPLOAD_CATEGORIES.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex flex-col gap-1 text-xs font-medium text-slate-600">
-            Description (optional)
-            <input
-              type="text"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Brief description…"
-              className="rounded-lg border border-slate-200 px-2.5 py-2 text-sm text-slate-800 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
-            />
-          </label>
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
-            className="flex items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/50 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-brand-300 hover:bg-brand-50/40 disabled:opacity-50"
-          >
-            <CloudUpload className="h-5 w-5 text-brand-500" />
-            {uploading ? 'Uploading…' : dragOver ? 'Drop to upload' : 'Drag & drop or click to upload'}
-          </button>
-        </div>
-        <p className="mt-2 text-xs text-slate-400">
-          PDF, DOC, or images · up to 10 files · max {MAX_UPLOAD_MB} MB each · filed as “
-          {UPLOAD_CATEGORIES.find((c) => c.id === category)?.label || category}”
-          {openRequests.length > 0 ? (
-            <>
-              {' · '}
-              <button type="button" onClick={onOpenRequests} className="font-semibold text-brand-600 hover:text-brand-700">
-                {openRequests.length} open client request{openRequests.length === 1 ? '' : 's'}
-              </button>
-            </>
-          ) : null}
-        </p>
-      </div>
+      {/* Opened by the Upload menus (top bar and Evidence coverage). */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        onChange={handleFiles}
+        className="hidden"
+        accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif,.webp,.txt"
+      />
 
       {/* Hidden input used by the per-row "replace" action */}
       <input ref={replaceInputRef} type="file" onChange={handleReplaceFile} className="hidden" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif,.webp,.txt" />
 
-      {/* Document list + toolbar */}
-      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      {/* Document list + toolbar; files dropped here are filed as the last-picked category. */}
+      <div
+        onDragOver={(e) => {
+          if (!canUpload) return
+          e.preventDefault()
+          if (!dragOver) setDragOver(true)
+        }}
+        onDragLeave={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragOver(false)
+        }}
+        onDrop={(e) => {
+          if (canUpload) handleDrop(e)
+        }}
+        className={`relative rounded-2xl border p-4 shadow-sm transition ${
+          dragOver ? 'border-brand-400 bg-brand-50/60' : 'border-slate-200 bg-white'
+        }`}
+      >
+        {dragOver || uploading ? (
+          <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-2xl border-2 border-dashed border-brand-400 bg-brand-50/80 text-sm font-semibold text-brand-700">
+            <CloudUpload className="mr-2 h-5 w-5" />
+            {uploading
+              ? 'Uploading…'
+              : `Drop to upload as ${UPLOAD_CATEGORIES.find((c) => c.id === category)?.label || category}`}
+          </div>
+        ) : null}
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <div className="mr-auto flex items-center gap-2.5">
             <span className="grid h-8 w-8 place-items-center rounded-lg bg-brand-50">
