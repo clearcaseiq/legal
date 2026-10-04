@@ -624,28 +624,58 @@ const SIGNATURE_COVERAGE: { type: string; label: string; required: boolean }[] =
   { type: 'police_report_authorization', label: 'Police report authorization', required: false },
 ]
 
-type SignatureChip = { key: string; label: string; required: boolean; type: string; env: DocumentEnvelope | null }
+type SignatureChip = {
+  key: string
+  label: string
+  required: boolean
+  type: string
+  /** Every non-voided copy, newest first. */
+  envs: DocumentEnvelope[]
+}
 
-function signatureChips(envelopes: DocumentEnvelope[]): SignatureChip[] {
+const isSigned = (env: DocumentEnvelope) => env.status === 'signed' || Boolean(env.clientSignedAt)
+
+export function chipState(envs: DocumentEnvelope[]) {
+  const signed = envs.find(isSigned) || null
+  const open = envs.find(isEnvelopeOpen) || null
+  const latest = envs[0] || null
+  // A copy sent after the signed one: the signature stands, the new copy is still out.
+  const newerOpen = signed && open && Date.parse(open.createdAt) > Date.parse(signed.createdAt) ? open : null
+  return { signed, open, latest, newerOpen }
+}
+
+/**
+ * One chip per agreement. Copies titled like the standard document share its
+ * chip; a custom-titled one (a firm's own fee agreement) gets its own.
+ */
+export function signatureChips(envelopes: DocumentEnvelope[]): SignatureChip[] {
   const live = envelopes
     .filter((e) => e.status !== 'voided')
     .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
-  const standard = SIGNATURE_COVERAGE.map((d) => ({
-    key: d.type,
-    label: d.label,
-    required: d.required,
-    type: d.type,
-    env: live.find((e) => e.documentType === d.type) || null,
-  }))
-  const known = new Set(SIGNATURE_COVERAGE.map((d) => d.type))
-  const others = new Map<string, SignatureChip>()
-  for (const env of live) {
-    if (known.has(env.documentType)) continue
+  const chips: SignatureChip[] = []
+  const custom = new Map<string, SignatureChip>()
+  const addCustom = (env: DocumentEnvelope) => {
     const label = displayTitle(env.title)
-    if (!others.has(label)) others.set(label, { key: `env:${env.id}`, label, required: false, type: env.documentType, env })
+    const key = `${env.documentType}:${label.toLowerCase()}`
+    const chip = custom.get(key)
+    if (chip) chip.envs.push(env)
+    else custom.set(key, { key, label, required: false, type: env.documentType, envs: [env] })
   }
-  // The police authorization is optional; it only shows once one has been sent.
-  return [...standard.filter((c) => c.required || c.env), ...others.values()]
+
+  for (const d of SIGNATURE_COVERAGE) {
+    const ofType = live.filter((e) => e.documentType === d.type)
+    const standard = ofType.filter((e) => displayTitle(e.title).toLowerCase() === d.label.toLowerCase())
+    ofType.filter((e) => !standard.includes(e)).forEach(addCustom)
+    const hasCustom = ofType.length > standard.length
+    // A firm's own retainer stands in for the standard one; the standard chip
+    // only shows when it has copies or nothing else covers a required document.
+    if (standard.length || (d.required && !hasCustom)) {
+      chips.push({ key: d.type, label: d.label, required: d.required, type: d.type, envs: standard })
+    }
+  }
+  const known = new Set(SIGNATURE_COVERAGE.map((d) => d.type))
+  live.filter((e) => !known.has(e.documentType)).forEach(addCustom)
+  return [...chips, ...custom.values()]
 }
 
 /** What the client has signed, what is out, and the ways to send more. */
@@ -663,8 +693,11 @@ function SignatureCoverageCard({
   onUploadSigned?: () => void
 }) {
   const chips = signatureChips(envelopes)
-  const required = chips.filter((c) => c.required)
-  const signedRequired = required.filter((c) => c.env && (c.env.status === 'signed' || c.env.clientSignedAt)).length
+  // A required document counts as signed when any copy of its type is, including a firm's own version.
+  const requiredTypes = SIGNATURE_COVERAGE.filter((d) => d.required).map((d) => d.type)
+  const signedRequired = requiredTypes.filter((type) =>
+    chips.some((c) => c.type === type && c.envs.some(isSigned)),
+  ).length
   const policeSent = chips.some((c) => c.type === 'police_report_authorization')
   const chipCls = 'inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium'
 
@@ -674,24 +707,28 @@ function SignatureCoverageCard({
         <FileSignature className="h-5 w-5 text-violet-600" />
         <p className="text-base font-semibold text-slate-900">Signature documents</p>
         <span className="rounded-full bg-violet-50 px-2.5 py-0.5 text-xs font-semibold text-violet-700">
-          {signedRequired}/{required.length} signed
+          {signedRequired}/{requiredTypes.length} signed
         </span>
         <span className="text-xs text-slate-400">Agreements and authorizations the client signs electronically.</span>
       </div>
       <div className="mt-3 flex flex-wrap gap-2">
         {chips.map((c) => {
-          const env = c.env
-          const signed = env && (env.status === 'signed' || env.clientSignedAt)
+          const { signed, open, latest, newerOpen } = chipState(c.envs)
           if (signed) {
             return (
-              <span key={c.key} className={`${chipCls} border-emerald-200 bg-emerald-50 text-emerald-800`}>
+              <span
+                key={c.key}
+                title={newerOpen ? `Signed ${fmtDate(signed.signedAt || signed.clientSignedAt)}; a newer copy sent ${fmtDate(newerOpen.sentAt || newerOpen.createdAt)} is still out` : undefined}
+                className={`${chipCls} border-emerald-200 bg-emerald-50 text-emerald-800`}
+              >
                 <CheckCircle2 className="h-4 w-4 fill-emerald-500 text-white" />
                 {c.label}
-                <span className="text-emerald-600">· signed {fmtDate(env.signedAt || env.clientSignedAt)}</span>
+                <span className="text-emerald-600">· signed {fmtDate(signed.signedAt || signed.clientSignedAt)}</span>
+                {newerOpen ? <span className="text-amber-600">· new copy {newerOpen.status === 'viewed' ? 'viewed' : 'sent'}</span> : null}
               </span>
             )
           }
-          if (env && isEnvelopeOpen(env)) {
+          if (open) {
             return (
               <span
                 key={c.key}
@@ -700,10 +737,11 @@ function SignatureCoverageCard({
               >
                 <Send className="h-3.5 w-3.5" />
                 {c.label}
-                <span className="text-amber-500">· {env.status === 'viewed' ? 'viewed' : 'sent'}</span>
+                <span className="text-amber-500">· {open.status === 'viewed' ? 'viewed' : 'sent'}</span>
               </span>
             )
           }
+          const env = latest
           const lapsed = env && (env.status === 'declined' || env.status === 'expired')
           return onSign ? (
             <button
