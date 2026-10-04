@@ -372,7 +372,7 @@ export function RequestDocumentsDialog({
                             {outNow ? (
                               <span className="block text-xs text-amber-700">
                                 Already out for signature since {fmtDate(latest!.sentAt || latest!.createdAt)} — remind
-                                from Requests.
+                                from Signatures.
                               </span>
                             ) : signed ? (
                               <span className="block text-xs text-emerald-700">
@@ -622,6 +622,7 @@ function SummaryTile({
  * what needs attention.
  */
 export function RequestsOverview({
+  mode = 'uploads',
   leadId,
   reloadKey,
   canRequest,
@@ -630,6 +631,8 @@ export function RequestsOverview({
   onChanged,
   onViewFiles,
 }: {
+  /** `uploads`: files asked of the client and client suggestions. `signatures`: documents out for signature. */
+  mode?: 'uploads' | 'signatures'
   leadId: string
   reloadKey: number
   canRequest: boolean
@@ -638,6 +641,7 @@ export function RequestsOverview({
   onChanged: () => void
   onViewFiles: () => void
 }) {
+  const forSignatures = mode === 'signatures'
   const navigate = useNavigate()
   const [requests, setRequests] = useState<AttorneyDocumentRequest[] | null>(null)
   const [suggestions, setSuggestions] = useState<OpposingDocSuggestion[] | null>(null)
@@ -711,8 +715,8 @@ export function RequestsOverview({
   const doneUploads = uploadRows.filter((r) => r.item.stage === 'reviewed')
   const openEnvelopes = (envelopes || []).filter(isEnvelopeOpen)
   const doneEnvelopes = (envelopes || []).filter((e) => !isEnvelopeOpen(e))
-  const pendingSuggestions = suggestions || []
-  const loading = requests === null || envelopes === null
+  const pendingSuggestions = forSignatures ? [] : suggestions || []
+  const loading = forSignatures ? envelopes === null : requests === null
 
   const scrollTo = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 
@@ -773,27 +777,32 @@ export function RequestsOverview({
   const byNewest = <T,>(rows: T[], at: (row: T) => string | null | undefined) =>
     [...rows].sort((a, b) => new Date(at(b) || 0).getTime() - new Date(at(a) || 0).getTime())
 
-  const waiting = [
-    ...openUploads.map((row) => ({ at: row.request.createdAt, node: renderUpload(row) })),
-    ...openEnvelopes.map((env) => ({ at: env.sentAt || env.createdAt, node: renderEnvelope(env) })),
-  ]
-  const done = [
-    ...doneUploads.map((row) => ({ at: row.request.createdAt, node: renderUpload(row) })),
-    ...doneEnvelopes.map((env) => ({ at: env.signedAt || env.updatedAt || env.createdAt, node: renderEnvelope(env) })),
-  ]
+  const waiting = forSignatures
+    ? openEnvelopes.map((env) => ({ at: env.sentAt || env.createdAt, node: renderEnvelope(env) }))
+    : openUploads.map((row) => ({ at: row.request.createdAt, node: renderUpload(row) }))
+  const done = forSignatures
+    ? doneEnvelopes.map((env) => ({ at: env.signedAt || env.updatedAt || env.createdAt, node: renderEnvelope(env) }))
+    : doneUploads.map((row) => ({ at: row.request.createdAt, node: renderUpload(row) }))
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-2 sm:flex-row">
-        <SummaryTile label="Waiting on client" value={waiting.length} tone="amber" onClick={() => scrollTo('requests-waiting')} />
         <SummaryTile
-          label="Client suggestions"
-          value={pendingSuggestions.length}
-          tone="indigo"
-          onClick={() => scrollTo(pendingSuggestions.length ? 'requests-suggestions' : 'requests-waiting')}
+          label={forSignatures ? 'Awaiting signature' : 'Waiting on client'}
+          value={waiting.length}
+          tone="amber"
+          onClick={() => scrollTo('requests-waiting')}
         />
+        {forSignatures ? null : (
+          <SummaryTile
+            label="Client suggestions"
+            value={pendingSuggestions.length}
+            tone="indigo"
+            onClick={() => scrollTo(pendingSuggestions.length ? 'requests-suggestions' : 'requests-waiting')}
+          />
+        )}
         <SummaryTile
-          label="Completed"
+          label={forSignatures ? 'Signed or closed' : 'Completed'}
           value={done.length}
           tone="emerald"
           onClick={() => {
@@ -866,9 +875,10 @@ export function RequestsOverview({
       <section>
         <SectionHeading
           id="requests-waiting"
-          title="Waiting on the client"
+          title={forSignatures ? 'Waiting for the client to sign' : 'Waiting on the client'}
           count={waiting.length}
           trailing={
+            forSignatures ? (
             <button
               type="button"
               onClick={() => void refresh().catch(() => setBanner({ tone: 'err', text: 'Could not refresh signature status.' }))}
@@ -879,13 +889,16 @@ export function RequestsOverview({
               <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
               {refreshing ? 'Checking…' : 'Refresh'}
             </button>
+            ) : undefined
           }
         />
         {loading ? (
-          <p className="text-sm text-slate-400">Loading requests…</p>
+          <p className="text-sm text-slate-400">{forSignatures ? 'Loading signatures…' : 'Loading requests…'}</p>
         ) : waiting.length === 0 ? (
           <p className="rounded-xl border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500">
-            Nothing outstanding. Use Request documents to ask the client for files or signatures.
+            {forSignatures
+              ? 'Nothing out for signature. Use Request documents to send a retainer, HIPAA authorization, or your own document.'
+              : 'Nothing outstanding. Use Request documents to ask the client for files.'}
           </p>
         ) : (
           <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white px-4">

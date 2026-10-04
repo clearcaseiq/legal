@@ -148,7 +148,7 @@ export default function DocumentsPage() {
 
   const startFlow = (lead: any) => {
     if (!lead?.id) return
-    const section = 'documents?view=requests'
+    const section = picker === 'esign' ? 'documents?view=signatures' : 'documents?view=requests'
     navigate(`/attorney-dashboard/cases/${lead.id}/${section}`)
   }
 
@@ -164,7 +164,7 @@ export default function DocumentsPage() {
       header: 'Document',
       cell: (r) => <span className="font-medium text-slate-800">{r.title}</span>,
     },
-    { key: 'case', header: 'Case', cell: (r) => <ClientLink name={r.caseName} leadId={r.leadId} section="documents?view=requests" /> },
+    { key: 'case', header: 'Case', cell: (r) => <ClientLink name={r.caseName} leadId={r.leadId} section={r.kind === 'esign' ? 'documents?view=signatures' : 'documents?view=requests'} /> },
     { key: 'recipient', header: 'Recipient', cell: (r) => <span className="text-slate-500">{r.recipient}</span> },
     { key: 'created', header: 'Sent', cell: (r) => <span className="text-slate-500">{relTime(r.createdAt)}</span> },
     {
@@ -281,7 +281,7 @@ export default function DocumentsPage() {
           columns={columns}
           rows={visible}
           rowKey={(r) => r.id}
-          onRowClick={(r) => navigate(`/attorney-dashboard/cases/${r.leadId}/documents?view=requests`)}
+          onRowClick={(r) => navigate(`/attorney-dashboard/cases/${r.leadId}/documents?view=${r.kind === 'esign' ? 'signatures' : 'requests'}`)}
           loading={loading}
           error={error}
           loadingMessage="Loading documents…"

@@ -2316,11 +2316,12 @@ function MedicalPanel({
   )
 }
 
-type DocumentsView = 'files' | 'requests' | 'templates'
+type DocumentsView = 'files' | 'requests' | 'signatures' | 'templates'
 
 const DOCUMENTS_VIEWS: { id: DocumentsView; label: string }[] = [
   { id: 'files', label: 'All files' },
   { id: 'requests', label: 'Requests' },
+  { id: 'signatures', label: 'Signatures' },
   { id: 'templates', label: 'Templates' },
 ]
 
@@ -2338,7 +2339,7 @@ function DocumentsPanel({ lead, detail, section }: { lead: any; detail: CaseDeta
     viewParam && DOCUMENTS_VIEWS.some((v) => v.id === viewParam)
       ? viewParam
       : sectionKey === 'signatures' || sectionKey === 'esign' || docParam
-        ? 'requests'
+        ? 'signatures'
         : 'files'
   const setView = (next: DocumentsView) => {
     const params = new URLSearchParams(searchParams)
@@ -2519,8 +2520,10 @@ function DocumentsPanel({ lead, detail, section }: { lead: any; detail: CaseDeta
         />
       ) : null}
 
-      {view === 'requests' ? (
+      {view === 'requests' || view === 'signatures' ? (
         <RequestsOverview
+          key={view}
+          mode={view === 'signatures' ? 'signatures' : 'uploads'}
           leadId={lead.id}
           reloadKey={reloadKey}
           canRequest={canRequest}
@@ -2562,7 +2565,7 @@ function DocumentsPanel({ lead, detail, section }: { lead: any; detail: CaseDeta
                       closeSingleSign()
                       setNotice(summary)
                       setReloadKey((k) => k + 1)
-                      setView('requests')
+                      setView('signatures')
                     }}
                   />
                 </div>
@@ -4564,7 +4567,7 @@ function TasksPanel({
 
   const checkConfirmSignedForTask = async (t: TaskRow) => {
     if (isDone(t)) {
-      goCaseSection('documents?view=requests')
+      goCaseSection('documents?view=signatures')
       return
     }
     setBusy(t.id)
@@ -4578,13 +4581,13 @@ function TasksPanel({
             : `Retainer signed${res.title ? ` (“${res.title}”)` : ''} — confirm task marked done.`,
         )
         await load()
-        if (res.alreadyDone) goCaseSection('documents?view=requests')
+        if (res.alreadyDone) goCaseSection('documents?view=signatures')
       } else {
         flash(
           'err',
           'No signed retainer found yet. Opening Documents so you can remind the client or wait for signature.',
         )
-        goCaseSection('documents?view=requests')
+        goCaseSection('documents?view=signatures')
       }
     } catch (err: any) {
       flash('err', err?.response?.data?.error || 'Failed to check retainer signature status.')
@@ -4620,13 +4623,13 @@ function TasksPanel({
       await load()
     } finally {
       setBusy(null)
-      goCaseSection('documents?view=requests&doc=hipaa_authorization')
+      goCaseSection('documents?view=signatures&doc=hipaa_authorization')
     }
   }
 
   const sendWelcomePacketForTask = async (t: TaskRow) => {
     if (isDone(t)) {
-      goCaseSection('documents?view=requests')
+      goCaseSection('documents?view=signatures')
       return
     }
     setBusy(t.id)
@@ -4643,7 +4646,7 @@ function TasksPanel({
       const data = err?.response?.data
       flash('err', data?.error || data?.detail || 'Failed to send the welcome packet.')
       if (data?.code === 'missing_client_contact') goCaseSection('client-info')
-      else if (data?.code === 'packet_already_sent' || data?.code === 'no_hipaa_provider') goCaseSection('documents?view=requests')
+      else if (data?.code === 'packet_already_sent' || data?.code === 'no_hipaa_provider') goCaseSection('documents?view=signatures')
     } finally {
       setBusy(null)
     }

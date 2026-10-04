@@ -5675,7 +5675,7 @@ router.get('/search', authMiddleware, async (req: any, res) => {
           leadId: e.leadId,
           title: label,
           subtitle: ['E-sign', client, humanize(e.status)].filter(Boolean).join(' · '),
-          href: `/attorney-dashboard/cases/${e.leadId}/documents?view=requests`,
+          href: `/attorney-dashboard/cases/${e.leadId}/documents?view=signatures`,
         })
       }
     }

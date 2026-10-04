@@ -550,13 +550,13 @@ export function sectionForTaskAction(kind: TaskPrimaryActionKind): string | null
     case 'check_retainer':
     case 'send_welcome':
     case 'open_signatures':
-      return 'documents?view=requests'
+      return 'documents?view=signatures'
     case 'send_lor':
       return 'insurance?letter=1'
     case 'send_lor_providers':
       return 'medical?letter=1'
     case 'send_hipaa':
-      return 'documents?view=requests&doc=hipaa_authorization'
+      return 'documents?view=signatures&doc=hipaa_authorization'
     case 'collect_police':
     case 'open_evidence':
       return 'documents'

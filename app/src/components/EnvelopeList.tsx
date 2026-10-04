@@ -1,5 +1,5 @@
 /**
- * Signature requests (envelopes) as rows in the Documents > Requests view, plus
+ * Signature requests (envelopes) as rows in the Documents > Signatures view, plus
  * the row layout and step trail that upload requests share so both kinds of
  * request read the same way.
  */

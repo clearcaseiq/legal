@@ -463,7 +463,7 @@ export default function TasksPage() {
         // Still open Documents.
       } finally {
         setBusyId(null)
-        navigate(`/attorney-dashboard/cases/${leadId}/documents?view=requests`)
+        navigate(`/attorney-dashboard/cases/${leadId}/documents?view=signatures`)
       }
       return
     }
@@ -475,7 +475,7 @@ export default function TasksPage() {
         await loadTasks()
       } finally {
         setBusyId(null)
-        navigate(`/attorney-dashboard/cases/${leadId}/documents?view=requests&doc=hipaa_authorization`)
+        navigate(`/attorney-dashboard/cases/${leadId}/documents?view=signatures&doc=hipaa_authorization`)
       }
       return
     }

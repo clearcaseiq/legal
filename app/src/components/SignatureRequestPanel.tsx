@@ -4,7 +4,7 @@
  * HIPAA authorizations and retainer agreements are rendered server-side from
  * canonical templates (and can be previewed before sending). Fee agreements are
  * the firm's own PDF, uploaded here as the source document. Sent envelopes are
- * tracked in Documents > Requests (see EnvelopeList).
+ * tracked in Documents > Signatures (see EnvelopeList).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -556,7 +556,7 @@ export default function SignatureRequestPanel({
       } catch (err: any) {
         summary = `Sent "${env.title.split(' — ')[0]}" for signature by email, but the text failed: ${
           err?.response?.data?.error || 'could not send the text.'
-        } You can text it from Requests with Remind.`
+        } You can text it from Signatures with Remind.`
       }
     }
     onSent?.(env, summary)

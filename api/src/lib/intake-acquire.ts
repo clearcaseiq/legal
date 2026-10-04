@@ -741,7 +741,7 @@ export async function onRetainerSigned(params: {
       eventType: ATTORNEY_EVENTS.doc_uploaded,
       subject: 'Retainer signed',
       body: 'The client signed the retainer agreement. Related opening tasks were completed and the case is marked retained.',
-      link: `/attorney-dashboard/cases/${lead.id}/documents?view=requests`,
+      link: `/attorney-dashboard/cases/${lead.id}/documents?view=signatures`,
       payload: { envelopeId: params.envelopeId, documentType: params.documentType },
     }).catch((e: any) => logger.warn('Retainer-signed attorney notify failed', { error: e?.message }))
   }
