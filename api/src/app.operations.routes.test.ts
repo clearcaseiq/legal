@@ -2670,6 +2670,8 @@ describe('HTTP operations regressions', () => {
         targetType: true,
         recipientName: true,
         recipientEmail: true,
+        secureToken: true,
+        requestedDocs: true,
         attorney: { select: { name: true, email: true } },
         lead: {
           select: {
