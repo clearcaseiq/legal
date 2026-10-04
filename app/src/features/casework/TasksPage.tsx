@@ -435,6 +435,8 @@ export default function TasksPage() {
     if (!primary) return
     const leadId = row.leadId
     const done = row.status === 'done' || Boolean(row.completedAt)
+    const openSection = () =>
+      navigate(`/attorney-dashboard/cases/${leadId}/${sectionForTaskAction(primary.kind, { done }) || 'tasks'}`)
 
     if (primary.kind === 'open_task_detail') {
       setDetail({ leadId, taskId: row.id, caseLabel: claimLabel(row.claimType) })
@@ -463,7 +465,7 @@ export default function TasksPage() {
         // Still open Documents.
       } finally {
         setBusyId(null)
-        navigate(`/attorney-dashboard/cases/${leadId}/documents?view=signatures`)
+        openSection()
       }
       return
     }
@@ -475,7 +477,7 @@ export default function TasksPage() {
         await loadTasks()
       } finally {
         setBusyId(null)
-        navigate(`/attorney-dashboard/cases/${leadId}/documents?view=signatures&doc=hipaa_authorization`)
+        openSection()
       }
       return
     }
@@ -488,7 +490,7 @@ export default function TasksPage() {
         // Still open Documents.
       } finally {
         setBusyId(null)
-        navigate(`/attorney-dashboard/cases/${leadId}/documents`)
+        openSection()
       }
       return
     }
@@ -506,12 +508,11 @@ export default function TasksPage() {
         // Still open Documents.
       } finally {
         setBusyId(null)
-        navigate(`/attorney-dashboard/cases/${leadId}/documents`)
+        openSection()
       }
       return
     }
-    const section = sectionForTaskAction(primary.kind)
-    if (section) navigate(`/attorney-dashboard/cases/${leadId}/${section}`)
+    if (sectionForTaskAction(primary.kind, { done })) openSection()
   }
 
   const taskColumns: DataTableColumn<TaskRow>[] = [

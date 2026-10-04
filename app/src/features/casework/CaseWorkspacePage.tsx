@@ -2343,8 +2343,6 @@ function DocumentsPanel({ lead, detail, section }: { lead: any; detail: CaseDeta
   const [requestUploads, setRequestUploads] = useState<string[] | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
   const [notice, setNotice] = useState<string | null>(null)
-  const [requestMenuOpen, setRequestMenuOpen] = useState(false)
-  const requestMenuRef = useRef<HTMLDivElement>(null)
   const [signDocType, setSignDocType] = useState<string | null>(null)
   const [coverage, setCoverage] = useState<CoverageData | null>(null)
   const canUpload = can('documents')
@@ -2353,13 +2351,11 @@ function DocumentsPanel({ lead, detail, section }: { lead: any; detail: CaseDeta
 
   const openRequest = (uploadKeys: string[] = []) => {
     setNotice(null)
-    setRequestMenuOpen(false)
     setRequestUploads(uploadKeys)
   }
 
   const openSingleSign = (docType: string) => {
     setNotice(null)
-    setRequestMenuOpen(false)
     setSignDocType(docType)
   }
 
@@ -2376,15 +2372,6 @@ function DocumentsPanel({ lead, detail, section }: { lead: any; detail: CaseDeta
       setSearchParams(params, { replace: true })
     }
   }
-
-  useEffect(() => {
-    if (!requestMenuOpen) return
-    const close = (e: MouseEvent) => {
-      if (requestMenuRef.current && !requestMenuRef.current.contains(e.target as Node)) setRequestMenuOpen(false)
-    }
-    document.addEventListener('mousedown', close)
-    return () => document.removeEventListener('mousedown', close)
-  }, [requestMenuOpen])
 
   return (
     <div className="space-y-5">
@@ -2404,66 +2391,6 @@ function DocumentsPanel({ lead, detail, section }: { lead: any; detail: CaseDeta
               {v.label}
             </button>
           ))}
-        </div>
-        {/* Requests and Signatures carry these actions in their own coverage cards. */}
-        <div
-          className={`flex flex-wrap items-center gap-2 ${(view === 'requests' && coverage) || view === 'signatures' ? 'hidden' : ''}`}
-        >
-          {canUpload ? (
-            <UploadCategoryButton
-              label="Upload files"
-              align="right"
-              onPick={uploadAs}
-              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:border-brand-300 hover:text-brand-700"
-            />
-          ) : null}
-          {canRequest || canSign ? (
-            <div className="relative" ref={requestMenuRef}>
-              <button
-                type="button"
-                onClick={() => setRequestMenuOpen((v) => !v)}
-                aria-expanded={requestMenuOpen}
-                className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-3.5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-700"
-              >
-                <Send className="h-4 w-4" /> Request documents
-                <ChevronDown className={`h-4 w-4 transition-transform ${requestMenuOpen ? 'rotate-180' : ''}`} />
-              </button>
-              {requestMenuOpen ? (
-                <div className="absolute right-0 z-30 mt-1 w-80 overflow-hidden rounded-xl border border-slate-200 bg-white p-1 shadow-xl">
-                  {canRequest ? (
-                    <button
-                      type="button"
-                      onClick={() => openRequest()}
-                      className="flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left hover:bg-slate-50"
-                    >
-                      <Send className="mt-0.5 h-4 w-4 shrink-0 text-brand-600" />
-                      <span>
-                        <span className="block text-sm font-semibold text-slate-900">Client packet</span>
-                        <span className="block text-xs text-slate-500">
-                          Files to upload plus retainer / HIPAA to sign, in one link
-                        </span>
-                      </span>
-                    </button>
-                  ) : null}
-                  {canSign ? (
-                    <button
-                      type="button"
-                      onClick={() => openSingleSign(initialDoc)}
-                      className="flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left hover:bg-slate-50"
-                    >
-                      <PenLine className="mt-0.5 h-4 w-4 shrink-0 text-violet-600" />
-                      <span>
-                        <span className="block text-sm font-semibold text-slate-900">Single document for signature</span>
-                        <span className="block text-xs text-slate-500">
-                          Your own PDF, a firm template, or a police report authorization
-                        </span>
-                      </span>
-                    </button>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
-          ) : null}
         </div>
       </div>
 
@@ -2887,18 +2814,16 @@ function EvidencePanel({
       .catch(() => {})
   }
 
+  const openUploadPicker = useCallback((cat: string) => {
+    pickCategoryRef.current = cat
+    setCategory(cat)
+    fileInputRef.current?.click()
+  }, [])
+
   useEffect(() => {
-    registerUploadTrigger(
-      canUpload
-        ? (cat: string) => {
-            pickCategoryRef.current = cat
-            setCategory(cat)
-            fileInputRef.current?.click()
-          }
-        : null,
-    )
+    registerUploadTrigger(canUpload ? openUploadPicker : null)
     return () => registerUploadTrigger(null)
-  }, [canUpload, registerUploadTrigger])
+  }, [canUpload, registerUploadTrigger, openUploadPicker])
 
   useEffect(() => {
     if (!reloadKey) return
@@ -3630,7 +3555,7 @@ function EvidencePanel({
         )
       })()}
 
-      {/* Opened by the Upload menus (top bar and Evidence coverage). */}
+      {/* Opened by the Upload menus (this list and Evidence coverage). */}
       <input
         ref={fileInputRef}
         type="file"
@@ -3680,6 +3605,13 @@ function EvidencePanel({
                 {visibleDocs.length !== docs.length ? ` of ${docs.length}` : ''})
               </span>
             </p>
+            {canUpload ? (
+              <UploadCategoryButton
+                label="Upload files"
+                onPick={openUploadPicker}
+                className="ml-1 inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 shadow-sm hover:border-brand-300 hover:text-brand-700"
+              />
+            ) : null}
           </div>
           <div className="relative">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
@@ -4508,13 +4440,15 @@ function TasksPanel({
 
   const checkPoliceCollectForTask = async (t: TaskRow) => {
     if (isDone(t)) {
-      goCaseSection('documents')
+      goCaseSection(sectionForTaskAction('collect_police', { done: isDone(t) })!)
       return
     }
     setBusy(t.id)
+    let onFile = false
     try {
       // Best-effort: mark done when a report is already on file, then always open Documents.
       const res = await checkPoliceReportCollect(leadId)
+      onFile = Boolean(res.reportOnFile)
       if (res.reportOnFile && res.completedTasks) {
         flash('ok', 'Police/incident report is on file — collect task marked done.')
         await load()
@@ -4523,20 +4457,21 @@ function TasksPanel({
       // Ignore — Collect's job is to open Documents either way.
     } finally {
       setBusy(null)
-      goCaseSection('documents')
+      goCaseSection(sectionForTaskAction('collect_police', { done: onFile })!)
     }
   }
 
   const checkEvidenceCollectForTask = async (t: TaskRow, kind: 'medical_records' | 'bills') => {
-    const evidenceSection =
-      kind === 'medical_records' ? 'documents?uploadCategory=medical_records' : 'documents?uploadCategory=bills'
+    const taskKind = kind === 'medical_records' ? 'collect_medical_records' : 'collect_bills'
     if (isDone(t)) {
-      goCaseSection(evidenceSection)
+      goCaseSection(sectionForTaskAction(taskKind, { done: true })!)
       return
     }
     setBusy(t.id)
+    let onFile = false
     try {
       const res = await checkEvidenceCollect(leadId, kind)
+      onFile = Boolean(res.onFile)
       if (res.onFile && res.completedTasks) {
         flash('ok', `${res.label} on file — collect task marked done.`)
         await load()
@@ -4545,7 +4480,7 @@ function TasksPanel({
       // Ignore — Collect still opens Documents.
     } finally {
       setBusy(null)
-      goCaseSection(evidenceSection)
+      goCaseSection(sectionForTaskAction(taskKind, { done: onFile })!)
     }
   }
 
@@ -4607,7 +4542,7 @@ function TasksPanel({
       await load()
     } finally {
       setBusy(null)
-      goCaseSection('documents?view=signatures&doc=hipaa_authorization')
+      goCaseSection(sectionForTaskAction('send_hipaa', { done: isDone(t) })!)
     }
   }
 
@@ -4669,7 +4604,7 @@ function TasksPanel({
       setDetailTaskId(t.id)
       return
     }
-    const section = sectionForTaskAction(kind)
+    const section = sectionForTaskAction(kind, { done: isDone(t) })
     if (section) goCaseSection(section)
   }
 

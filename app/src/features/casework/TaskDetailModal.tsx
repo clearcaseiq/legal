@@ -507,6 +507,10 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
 
   const runPrimaryAction = async (kind: TaskPrimaryActionKind) => {
     if (!task) return
+    const openSection = () => {
+      navigate(`/attorney-dashboard/cases/${leadId}/${sectionForTaskAction(kind, { done }) || 'tasks'}`)
+      onClose()
+    }
     if (kind === 'open_task_detail') {
       // Already in the detail modal — scroll focus isn't needed; no-op navigate away.
       return
@@ -528,8 +532,7 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
     }
     if (kind === 'check_retainer') {
       if (done) {
-        navigate(`/attorney-dashboard/cases/${leadId}/documents?view=signatures`)
-        onClose()
+        openSection()
         return
       }
       setActionBusy(true)
@@ -540,12 +543,10 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
           setTask(d)
           onChanged?.()
           if (res.alreadyDone) {
-            navigate(`/attorney-dashboard/cases/${leadId}/documents?view=signatures`)
-            onClose()
+            openSection()
           }
         } else {
-          navigate(`/attorney-dashboard/cases/${leadId}/documents?view=signatures`)
-          onClose()
+          openSection()
         }
       } catch (err: any) {
         setError(err?.response?.data?.error || 'Failed to check retainer signature status.')
@@ -556,8 +557,7 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
     }
     if (kind === 'send_welcome') {
       if (done) {
-        navigate(`/attorney-dashboard/cases/${leadId}/documents?view=signatures`)
-        onClose()
+        openSection()
         return
       }
       setActionBusy(true)
@@ -582,8 +582,7 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
         onChanged?.()
       } finally {
         setActionBusy(false)
-        navigate(`/attorney-dashboard/cases/${leadId}/documents?view=signatures&doc=hipaa_authorization`)
-        onClose()
+        openSection()
       }
       return
     }
@@ -601,8 +600,7 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
           setActionBusy(false)
         }
       }
-      navigate(`/attorney-dashboard/cases/${leadId}/documents`)
-      onClose()
+      openSection()
       return
     }
     if (kind === 'collect_medical_records' || kind === 'collect_bills') {
@@ -619,15 +617,10 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
           setActionBusy(false)
         }
       }
-      navigate(`/attorney-dashboard/cases/${leadId}/documents`)
-      onClose()
+      openSection()
       return
     }
-    const section = sectionForTaskAction(kind)
-    if (section) {
-      navigate(`/attorney-dashboard/cases/${leadId}/${section}`)
-      onClose()
-    }
+    if (sectionForTaskAction(kind, { done })) openSection()
   }
 
   return (

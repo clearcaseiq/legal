@@ -19,6 +19,7 @@ export type TaskPrimaryActionKind =
   | 'open_overview'
   | 'open_client_info'
   | 'open_evidence'
+  | 'collect_item'
   | 'open_medical'
   | 'open_liability'
   | 'open_damages'
@@ -279,7 +280,7 @@ function heuristicSectionAction(task: TaskLike): TaskPrimaryAction | null {
   const hay = `${title} ${type} ${phase}`
 
   if (/verify client/i.test(title)) {
-    return openSection('open_client_info', 'Open', 'Open Client Info to confirm and correct the client’s details')
+    return openSection('open_client_info', 'Open', 'Open Overview → Client info to confirm and correct the client’s details')
   }
 
   if (type === 'question' || /questions? for the (plaintiff|client)/i.test(title)) {
@@ -319,6 +320,10 @@ function heuristicSectionAction(task: TaskLike): TaskPrimaryAction | null {
     return openSection('open_medical', 'Open', 'Open Medical to update treatment and providers')
   }
 
+  if (/demand sent|offer received|adjuster offer|counter ?offer/i.test(title)) {
+    return openSection('open_negotiation', 'Open', 'Open Negotiation to log the demand or offer')
+  }
+
   if (
     /insurance|adjuster|coverage|carrier|claim\b|um\/uim|medpay|\bpip\b|policy|\bliens?\b|subrogation|letter of representation|\blor\b/i.test(hay)
   ) {
@@ -355,7 +360,7 @@ function heuristicSectionAction(task: TaskLike): TaskPrimaryAction | null {
       hay,
     )
   ) {
-    return openSection('open_signatures', 'Open', 'Open Signatures to send or review documents')
+    return openSection('open_signatures', 'Open', 'Open Documents → Signatures to send or review documents')
   }
 
   if (
@@ -364,7 +369,10 @@ function heuristicSectionAction(task: TaskLike): TaskPrimaryAction | null {
       hay,
     )
   ) {
-    return openSection('open_evidence', 'Open', 'Open Evidence to collect or review case documents')
+    if (/collect |request |secure |gather |obtain /i.test(title)) {
+      return openSection('collect_item', 'Open', 'Open Documents → Requests to request or upload this item', 'Open Documents to review collected files')
+    }
+    return openSection('open_evidence', 'Open', 'Open Documents to review case files')
   }
 
   if (type === 'client' || /contact the client|client follow|scope of representation/i.test(hay)) {
@@ -424,7 +432,7 @@ export function resolveTaskPrimaryAction(task: TaskLike): TaskPrimaryAction | nu
     }
   }
 
-  if (/obtain signed hipaa/i.test(title) || /signed hipaa authorization/i.test(title)) {
+  if (/obtain signed hipaa/i.test(title) || /signed hipaa authorization/i.test(title) || /^send (the )?hipaa/i.test(title)) {
     return {
       kind: 'send_hipaa',
       label: 'Check',
@@ -445,8 +453,8 @@ export function resolveTaskPrimaryAction(task: TaskLike): TaskPrimaryAction | nu
       kind: 'collect_police',
       label: 'Collect',
       doneLabel: 'View',
-      hint: 'Open Evidence to upload or request the police/incident report',
-      doneHint: 'Open Evidence to view the report',
+      hint: 'Open Documents → Requests to request or upload the police/incident report',
+      doneHint: 'Open Documents to view the report',
     }
   }
 
@@ -461,8 +469,8 @@ export function resolveTaskPrimaryAction(task: TaskLike): TaskPrimaryAction | nu
       kind: 'collect_medical_records',
       label: 'Collect',
       doneLabel: 'View',
-      hint: 'If records are already on file, marks this done; otherwise opens Evidence',
-      doneHint: 'Open Evidence to view medical records',
+      hint: 'If records are already on file, marks this done; otherwise opens Documents → Requests',
+      doneHint: 'Open Documents to view medical records',
     }
   }
 
@@ -479,8 +487,8 @@ export function resolveTaskPrimaryAction(task: TaskLike): TaskPrimaryAction | nu
       kind: 'collect_bills',
       label: 'Collect',
       doneLabel: 'View',
-      hint: 'If bills are already on file, marks this done; otherwise opens Evidence',
-      doneHint: 'Open Evidence to view bills',
+      hint: 'If bills are already on file, marks this done; otherwise opens Documents → Requests',
+      doneHint: 'Open Documents to view bills',
     }
   }
 
@@ -521,11 +529,11 @@ export function resolveTaskPrimaryAction(task: TaskLike): TaskPrimaryAction | nu
   // Readiness automation titles like "Collect {label}"
   if (/^collect\s+/i.test(title) && !/collect medical|collect police|collect bills/i.test(title)) {
     return {
-      kind: 'open_evidence',
+      kind: 'collect_item',
       label: 'Collect',
       doneLabel: 'View',
-      hint: 'Open Evidence to collect the requested item',
-      doneHint: 'Open Evidence to review collected items',
+      hint: 'Open Documents → Requests to request or upload this item',
+      doneHint: 'Open Documents to review collected files',
     }
   }
 
@@ -542,28 +550,33 @@ export function resolveTaskPrimaryAction(task: TaskLike): TaskPrimaryAction | nu
   }
 }
 
-/** Case-workspace section path for navigate-only actions. */
-export function sectionForTaskAction(kind: TaskPrimaryActionKind): string | null {
+/**
+ * Case-workspace section path a task's button opens. An open task lands where
+ * the work is done (a send form, the request list); a done one lands where its
+ * result can be reviewed.
+ */
+export function sectionForTaskAction(kind: TaskPrimaryActionKind, opts: { done?: boolean } = {}): string | null {
+  const done = Boolean(opts.done)
   switch (kind) {
     case 'send_retainer':
-      return 'documents'
+      return done ? 'documents?view=signatures' : 'documents?view=signatures&doc=retainer'
+    case 'send_hipaa':
+      return done ? 'documents?view=signatures' : 'documents?view=signatures&doc=hipaa_authorization'
     case 'check_retainer':
     case 'send_welcome':
     case 'open_signatures':
       return 'documents?view=signatures'
     case 'send_lor':
-      return 'insurance?letter=1'
+      return done ? 'insurance' : 'insurance?letter=1'
     case 'send_lor_providers':
-      return 'medical?letter=1'
-    case 'send_hipaa':
-      return 'documents?view=signatures&doc=hipaa_authorization'
+      return done ? 'medical' : 'medical?letter=1'
     case 'collect_police':
-    case 'open_evidence':
-      return 'documents'
     case 'collect_medical_records':
-      return 'documents?uploadCategory=medical_records'
     case 'collect_bills':
-      return 'documents?uploadCategory=bills'
+    case 'collect_item':
+      return done ? 'documents?view=files' : 'documents?view=requests'
+    case 'open_evidence':
+      return 'documents?view=files'
     case 'open_insurance':
       return 'insurance'
     case 'open_overview':
