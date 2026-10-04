@@ -1912,6 +1912,20 @@ const COVERAGE_CHECKLIST = [
   { id: 'photos', label: 'Photos', req: 'injury_photos' },
 ]
 
+// Case-specific records the attorney can add to coverage. Adding one asks the
+// client for it; the chip then tracks it until a file in that category arrives.
+const OPTIONAL_COVERAGE = [
+  { id: 'wage_loss', label: 'Wage loss', req: 'wage_loss' },
+  { id: 'insurance', label: 'Insurance', req: 'insurance' },
+]
+
+// Requestable records that file under a broader category (prior treatment lands
+// in medical records), so their chip shows only while the request is open.
+const REQUEST_ONLY_COVERAGE = [
+  { id: 'prior_treatment', label: 'Prior treatment records', req: 'prior_treatment' },
+  { id: 'property_photos', label: 'Property damage photos', req: 'photos' },
+]
+
 // The two buckets the API withholds until the HIPAA authorization is signed.
 // Absent from the file list does not mean the client never sent them, so these
 // cannot offer "request from client" the way the other categories do.
@@ -2837,6 +2851,17 @@ function EvidencePanel({
     return keys
   }, [openRequests])
 
+  const [coverageAddOpen, setCoverageAddOpen] = useState(false)
+  const coverageAddRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!coverageAddOpen) return
+    const close = (e: MouseEvent) => {
+      if (coverageAddRef.current && !coverageAddRef.current.contains(e.target as Node)) setCoverageAddOpen(false)
+    }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [coverageAddOpen])
+
   const requestCategory = (reqKey: string) => {
     if (pendingRequestedKeys.has(reqKey)) {
       setBanner({
@@ -3052,6 +3077,18 @@ function EvidencePanel({
         : (Date.parse(b.createdAt || '') || 0) - (Date.parse(a.createdAt || '') || 0),
     )
   const coverageMet = COVERAGE_CHECKLIST.filter((c) => presentCats.has(c.id)).length
+  const trackedOptional = OPTIONAL_COVERAGE.filter((c) => presentCats.has(c.id) || pendingRequestedKeys.has(c.req))
+  const coveredReqKeys = new Set([...COVERAGE_CHECKLIST, ...OPTIONAL_COVERAGE].map((c) => c.req))
+  const trackedRequestOnly = [...pendingRequestedKeys]
+    .filter((key) => !coveredReqKeys.has(key))
+    .map((key) => ({
+      id: `req:${key}`,
+      label: REQUEST_ONLY_COVERAGE.find((c) => c.req === key)?.label || labelRequestedDoc(key),
+      req: key,
+    }))
+  const addableCoverage = [...OPTIONAL_COVERAGE, ...REQUEST_ONLY_COVERAGE].filter(
+    (c) => !trackedOptional.some((t) => t.id === c.id) && !pendingRequestedKeys.has(c.req),
+  )
 
   const catLabel = (id: string) =>
     UPLOAD_CATEGORIES.find((c) => c.id === id)?.label || (id || 'other').replace(/_/g, ' ')
@@ -3305,7 +3342,8 @@ function EvidencePanel({
           <span className="text-xs text-slate-400">Supporting case records only — signed agreements don’t count.</span>
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
-          {COVERAGE_CHECKLIST.map((c) => {
+          {[...COVERAGE_CHECKLIST, ...trackedOptional, ...trackedRequestOnly].map((c) => {
+            const required = COVERAGE_CHECKLIST.some((r) => r.id === c.id)
             const have = presentCats.has(c.id)
             const alreadyRequested = pendingRequestedKeys.has(c.req)
             // The client may well have uploaded these already — we just cannot see
@@ -3355,10 +3393,52 @@ function EvidencePanel({
               >
                 <Plus className="h-4 w-4 text-slate-500" />
                 {c.label}
-                <span className="text-[11px] font-normal text-slate-400">Required</span>
+                <span className="text-[11px] font-normal text-slate-400">{required ? 'Required' : 'Added'}</span>
               </button>
             )
           })}
+          {addableCoverage.length ? (
+            <div className="relative" ref={coverageAddRef}>
+              <button
+                type="button"
+                onClick={() => setCoverageAddOpen((v) => !v)}
+                aria-expanded={coverageAddOpen}
+                className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:border-brand-300 hover:text-brand-700"
+              >
+                <Plus className="h-4 w-4" /> Add item
+              </button>
+              {coverageAddOpen ? (
+                <div className="absolute left-0 z-20 mt-1 w-60 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-lg">
+                  <p className="px-3 pb-1 pt-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                    Request from {clientName || 'the client'}
+                  </p>
+                  {addableCoverage.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => {
+                        setCoverageAddOpen(false)
+                        requestCategory(c.req)
+                      }}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+                    >
+                      <Plus className="h-3.5 w-3.5 text-slate-400" /> {c.label}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCoverageAddOpen(false)
+                      onRequestDocuments([])
+                    }}
+                    className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+                  >
+                    <Plus className="h-3.5 w-3.5 text-slate-400" /> Other…
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </div>
         {medicalSharing?.canShareMedicalData === false && medicalSharing.medicalFileCount > 0 ? (
           <p className="mt-2 text-xs text-brand-700">
