@@ -98,6 +98,15 @@ import {
   type FirmColleague,
   type MedicalChronologySummary,
 } from '../../lib/api'
+import {
+  CASE_SECTIONS as TABS,
+  CASE_TAB_GROUPS,
+  type CaseSection,
+  groupForSection,
+  resolveCaseSection,
+  SECTION_SUBTAB_LABEL,
+  TAB_TO_SECTION,
+} from './caseSections'
 import { getApiOrigin } from '../../lib/runtimeEnv'
 import { useHeuristics } from '../../contexts/HeuristicsContext'
 import { checkEvidenceCollect, checkPoliceReportCollect, confirmRetainerSigned, sendWelcomePacket } from '../../lib/api-esign'
@@ -173,8 +182,7 @@ const ROW_TONE: Record<Tone, string> = {
   danger: 'text-rose-700',
 }
 
-const TABS = ['Overview', 'Client Info', 'AI Copilot', 'Rose', 'Workflow', 'Tasks', 'Documents', 'Medical', 'Liability', 'Insurance', 'Damages', 'Negotiation', 'Demand', 'Timeline', 'Settlement', 'Time', 'Billing', 'Referrals'] as const
-type Tab = (typeof TABS)[number]
+type Tab = CaseSection
 
 // Fee-sharing referrals are served to attorneys only.
 const STAFF_HIDDEN_TABS: ReadonlySet<Tab> = new Set<Tab>(['Referrals'])
@@ -214,74 +222,6 @@ function StaffViewOnly({ locked, what, children }: { locked: boolean; what: stri
   )
 }
 
-const SECTION_TO_TAB: Record<string, Tab> = {
-  info: 'Client Info',
-  'client-info': 'Client Info',
-  client: 'Client Info',
-  contact: 'Client Info',
-  overview: 'Overview',
-  copilot: 'AI Copilot',
-  'ai-copilot': 'AI Copilot',
-  companion: 'AI Copilot',
-  rose: 'Rose',
-  'ai-manager': 'Rose',
-  'ai-case-manager': 'Rose',
-  workflow: 'Workflow',
-  // Evidence and Signatures were merged into Documents; their old links land
-  // there (signature links open the Requests section).
-  documents: 'Documents',
-  evidence: 'Documents',
-  inbox: 'Documents',
-  'document-inbox': 'Documents',
-  texted: 'Documents',
-  signatures: 'Documents',
-  esign: 'Documents',
-  medical: 'Medical',
-  coverage: 'Insurance',
-  insurance: 'Insurance',
-  liability: 'Liability',
-  fault: 'Liability',
-  damages: 'Damages',
-  negotiation: 'Negotiation',
-  demand: 'Demand',
-  timeline: 'Timeline',
-  chronology: 'Timeline',
-  deadlines: 'Overview',
-  settlement: 'Settlement',
-  billing: 'Billing',
-  invoices: 'Billing',
-  invoice: 'Billing',
-  payments: 'Billing',
-  referrals: 'Referrals',
-  referral: 'Referrals',
-  'co-counsel': 'Referrals',
-  collaboration: 'Referrals',
-  sharing: 'Referrals',
-  tasks: 'Tasks',
-  time: 'Time',
-}
-
-const TAB_TO_SECTION: Record<Tab, string> = {
-  Overview: 'overview',
-  'Client Info': 'client-info',
-  'AI Copilot': 'copilot',
-  Rose: 'rose',
-  Workflow: 'workflow',
-  Documents: 'documents',
-  Medical: 'medical',
-  Insurance: 'insurance',
-  Liability: 'liability',
-  Damages: 'damages',
-  Negotiation: 'negotiation',
-  Demand: 'demand',
-  Timeline: 'timeline',
-  Settlement: 'settlement',
-  Tasks: 'tasks',
-  Time: 'time',
-  Billing: 'billing',
-  Referrals: 'referrals',
-}
-
 type TabMeta = { icon: ComponentType<{ className?: string }>; blurb: string }
 
 const TAB_META: Record<Tab, TabMeta> = {
@@ -312,6 +252,17 @@ const TAB_META: Record<Tab, TabMeta> = {
   Time: { icon: Clock, blurb: 'Log team hours on this case for profitability and fee petitions.' },
   Billing: { icon: Receipt, blurb: 'Client invoices, payments received, and recurring billing for this case.' },
   Referrals: { icon: Handshake, blurb: 'Case sharing, referral fee splits, and co-counsel arrangements.' },
+}
+
+const GROUP_ICON: Record<string, ComponentType<{ className?: string }>> = {
+  overview: LayoutDashboard,
+  tasks: ListChecks,
+  ai: Sparkles,
+  documents: FolderOpen,
+  medical: Stethoscope,
+  claim: Shield,
+  resolution: Scale,
+  billing: Receipt,
 }
 
 // Command-center next-best-action → button label + icon on the Overview card.
@@ -512,8 +463,14 @@ export default function CaseWorkspacePage() {
     setChatOpen(true)
   }
 
-  const requestedTab = SECTION_TO_TAB[(section || 'overview').toLowerCase()] ?? 'Overview'
+  const requestedTab = resolveCaseSection(section)
   const tab: Tab = isStaff && STAFF_HIDDEN_TABS.has(requestedTab) ? 'Overview' : requestedTab
+  const activeGroup = groupForSection(tab)
+  const visibleGroups = CASE_TAB_GROUPS.map((g) => ({ ...g, sections: g.sections.filter((s) => visibleTabs.includes(s)) })).filter(
+    (g) => g.sections.length > 0,
+  )
+  const activeSubtabs = visibleGroups.find((g) => g.id === activeGroup.id)?.sections ?? [tab]
+  const openSection = (s: Tab) => navigate(`/attorney-dashboard/cases/${leadId}/${TAB_TO_SECTION[s]}${fromSuffix}`)
 
   // Single source of truth for this case's tasks — shared by the Tasks tab
   // (full CRUD) and the Deadlines tab, so a change in one updates the other.
@@ -898,22 +855,22 @@ export default function CaseWorkspacePage() {
             />
           ) : null}
 
-          {/* Tab strip — wraps onto multiple rows so every tab (icon + full label) stays fully visible */}
+          {/* Tab strip: one button per group; a group's sections show as subtabs in the body */}
           <div className="flex flex-wrap items-center gap-1.5 rounded-2xl border border-slate-200 bg-slate-50 p-1.5 shadow-sm">
-            {visibleTabs.map((t) => {
-              const active = t === tab
-              const TabIcon = TAB_META[t].icon
-              const isTasks = t === 'Tasks'
+            {visibleGroups.map((g) => {
+              const active = g.id === activeGroup.id
+              const TabIcon = GROUP_ICON[g.id] ?? TAB_META[g.sections[0]].icon
+              const isTasks = g.id === 'tasks'
               const openTaskCount = isTasks
                 ? tasks.filter((row) => !['done', 'completed', 'cancelled'].includes(String(row.status || '').toLowerCase())).length
                 : 0
               return (
                 <button
-                  key={t}
+                  key={g.id}
                   type="button"
-                  onClick={() => navigate(`/attorney-dashboard/cases/${leadId}/${TAB_TO_SECTION[t]}${fromSuffix}`)}
-                  title={isTasks ? 'Tasks — primary work queue for this case' : t}
-                  aria-label={isTasks && openTaskCount ? `Tasks, ${openTaskCount} open` : t}
+                  onClick={() => openSection(g.sections[0])}
+                  title={isTasks ? 'Tasks — primary work queue for this case' : g.sections.map((s) => SECTION_SUBTAB_LABEL[s] ?? s).join(' · ')}
+                  aria-label={isTasks && openTaskCount ? `Tasks, ${openTaskCount} open` : g.label}
                   aria-current={active ? 'page' : undefined}
                   className={`group relative inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl px-3 py-1.5 text-[13px] font-medium transition-all duration-200 ${
                     active
@@ -926,7 +883,7 @@ export default function CaseWorkspacePage() {
                   }`}
                 >
                   <TabIcon className={`h-4 w-4 shrink-0 transition-colors ${active ? 'text-white' : isTasks ? 'text-brand-600' : 'text-slate-400 group-hover:text-brand-600'}`} />
-                  <span>{t}</span>
+                  <span>{g.label}</span>
                   {isTasks && openTaskCount > 0 ? (
                     <span
                       className={`inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-bold leading-none ${
@@ -943,6 +900,26 @@ export default function CaseWorkspacePage() {
 
           {/* Tab body */}
           <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            {activeSubtabs.length > 1 ? (
+              <nav aria-label={`${activeGroup.label} sections`} className="flex flex-wrap gap-1 border-b border-slate-100 bg-white px-4 pt-3">
+                {activeSubtabs.map((s) => {
+                  const on = s === tab
+                  return (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => openSection(s)}
+                      aria-current={on ? 'page' : undefined}
+                      className={`-mb-px border-b-2 px-3 pb-2.5 pt-1 text-sm font-medium transition-colors ${
+                        on ? 'border-brand-600 text-brand-700' : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-800'
+                      }`}
+                    >
+                      {SECTION_SUBTAB_LABEL[s] ?? s}
+                    </button>
+                  )
+                })}
+              </nav>
+            ) : null}
             <header className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/60 px-5 py-4">
               <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-600">
                 {(() => {
@@ -951,7 +928,7 @@ export default function CaseWorkspacePage() {
                 })()}
               </span>
               <div className="min-w-0">
-                <h2 className="text-sm font-semibold text-slate-900">{tab}</h2>
+                <h2 className="text-sm font-semibold text-slate-900">{SECTION_SUBTAB_LABEL[tab] && activeSubtabs.length > 1 ? `${activeGroup.label} · ${SECTION_SUBTAB_LABEL[tab]}` : tab}</h2>
                 <p className="text-xs text-slate-500">{TAB_META[tab].blurb}</p>
               </div>
             </header>
@@ -2338,7 +2315,7 @@ function DocumentsPanel({ lead, detail, section }: { lead: any; detail: CaseDeta
   const view: DocumentsView =
     viewParam && DOCUMENTS_VIEWS.some((v) => v.id === viewParam)
       ? viewParam
-      : sectionKey === 'signatures' || sectionKey === 'esign' || docParam
+      : sectionKey === 'signatures' || sectionKey === 'esign' || sectionKey === 'retainer' || docParam
         ? 'signatures'
         : 'files'
   const setView = (next: DocumentsView) => {
@@ -5790,7 +5767,7 @@ function MeterCard({
   percent: number
   caption?: string
   barClass: string
-  breakdown?: Array<{ key: string; label: string; points: number; max: number; hint?: string }>
+  breakdown?: Array<{ key: string; label: string; points: number; max: number; hint?: string; basis?: string }>
   framed?: boolean
   hideLabel?: boolean
 }) {
@@ -5820,6 +5797,11 @@ function MeterCard({
                         <span className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />
                         <span>
                           {f.label}
+                          {/* Points earned by the client's own description weigh differently in a
+                              negotiation from points backed by a record. */}
+                          {f.basis === 'self_reported' ? (
+                            <span className="ml-1 rounded bg-amber-50 px-1 text-[10px] text-amber-700">Client-reported</span>
+                          ) : null}
                           {f.hint && !full ? (
                             <span className="block text-[11px] leading-tight text-slate-400">{f.hint}</span>
                           ) : null}

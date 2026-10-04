@@ -34,7 +34,6 @@ export default function CaseCopilotPanel({ leadId, cc, onGoSection }: Props) {
     cc?.copilot?.suggestedPrompts?.length ? cc.copilot.suggestedPrompts : FALLBACK_PROMPTS
 
   const readinessScore = Math.round(Number(cc?.readiness?.score ?? 0))
-  const readinessFactors = Array.isArray(cc?.readiness?.factors) ? cc!.readiness.factors : []
 
   const ask = async (q: string) => {
     const trimmed = q.trim()
@@ -71,54 +70,16 @@ export default function CaseCopilotPanel({ leadId, cc, onGoSection }: Props) {
         </div>
       </div>
 
-      <div className="rounded-xl border border-slate-200 bg-slate-50/40 p-4">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <ClipboardCheck className="h-4 w-4 text-slate-500" />
-            <h3 className="text-sm font-semibold text-slate-900">Workup readiness</h3>
-          </div>
-          <button
-            type="button"
-            onClick={() => onGoSection('demand')}
-            className="text-xs font-semibold text-brand-700 hover:underline"
-          >
-            {readinessScore}% · {cc?.readiness?.label || 'Not scored'}
-          </button>
-        </div>
-        {readinessFactors.length > 0 ? (
-          <div className="grid gap-2 sm:grid-cols-2">
-            {readinessFactors.slice(0, 6).map((f) => (
-              <div
-                key={f.key}
-                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-left"
-              >
-                <p className="text-xs font-medium text-slate-800">
-                  {f.label}
-                  {/* Points a claimant earned by describing something carry a
-                      different weight in a negotiation to points backed by a
-                      record, so the two are never shown as the same thing. */}
-                  {f.basis === 'self_reported' ? (
-                    <span className="ml-1.5 rounded bg-amber-50 px-1 py-0.5 text-[10px] font-normal text-amber-700">
-                      Client-reported
-                    </span>
-                  ) : null}
-                </p>
-                <p className="mt-0.5 text-[11px] text-slate-500">
-                  {f.points}/{f.max}
-                  {f.hint ? ` · ${f.hint}` : ''}
-                </p>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="text-xs text-slate-500">Open Overview for the full AI case summary.</p>
-        )}
-        {cc?.nextBestAction?.title ? (
-          <p className="mt-3 text-xs text-slate-600">
-            <span className="font-semibold text-slate-800">Suggested next:</span>{' '}
-            {cc.nextBestAction.title}
-          </p>
-        ) : null}
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50/40 px-4 py-2.5 text-xs">
+        <span className="flex items-center gap-2 text-slate-600">
+          <ClipboardCheck className="h-4 w-4 text-slate-500" />
+          Demand readiness <span className="font-semibold text-slate-900">{readinessScore}%</span>
+          {cc?.readiness?.label ? <span className="text-slate-500">· {cc.readiness.label}</span> : null}
+          {cc?.nextBestAction?.title ? <span className="text-slate-500">· Next: {cc.nextBestAction.title}</span> : null}
+        </span>
+        <button type="button" onClick={() => onGoSection('demand')} className="font-semibold text-brand-700 hover:underline">
+          See breakdown in Resolution →
+        </button>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[0.95fr_1.05fr]">
