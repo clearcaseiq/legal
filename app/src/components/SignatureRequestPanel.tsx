@@ -1,35 +1,14 @@
 /**
- * Attorney-facing panel to send a case document for e-signature and track
- * envelope status.
+ * Attorney-facing form to send one case document for e-signature.
  *
  * HIPAA authorizations and retainer agreements are rendered server-side from
  * canonical templates (and can be previewed before sending). Fee agreements are
- * the firm's own PDF, uploaded here as the source document. Outstanding
- * envelopes can be reminded, voided, or re-sent to a corrected email, and open
- * envelopes are polled so status stays live even without provider webhooks.
+ * the firm's own PDF, uploaded here as the source document. Sent envelopes are
+ * tracked in Documents > Requests (see EnvelopeList).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import {
-  PenLine,
-  RefreshCw,
-  ExternalLink,
-  Download,
-  Eye,
-  Bell,
-  Ban,
-  Link2,
-  Mail,
-  Upload,
-  Package,
-  Check,
-  X,
-  Clock,
-  Pencil,
-  Plus,
-  Trash2,
-  Lock,
-} from 'lucide-react'
+import { PenLine, ExternalLink, Eye, Upload, Check, X, Pencil, Plus } from 'lucide-react'
 import { EsignProviderPicker } from './EsignProviderPicker'
 import { EssentialFieldsForm } from './EssentialFieldsForm'
 import ModalPortal from './ModalPortal'
@@ -39,8 +18,6 @@ import {
   createHipaaAuthorization,
   createPoliceReportAuthorization,
   createRetainerAgreement,
-  correctSignerEmail,
-  downloadSignedEnvelope,
   getEsignProviders,
   getEssentialFields,
   getSigningDefaults,
@@ -50,13 +27,8 @@ import {
   listCaseFirmTemplates,
   listEnvelopes,
   previewDocument,
-  refreshEnvelopes,
-  remindEnvelope,
   sendCaseFirmTemplate,
-  sendOnboardingPacket,
   uploadFeeAgreement,
-  voidEnvelope,
-  deleteEnvelope,
   type CaseFirmTemplate,
   type DocumentEnvelope,
   type EnvelopeStatus,
@@ -92,39 +64,8 @@ const DOC_TYPES = [
 
 type RetainerSource = 'platform' | 'firm' | 'upload'
 
-const STATUS_STYLES: Record<EnvelopeStatus, string> = {
-  draft: 'bg-slate-100 text-slate-600 ring-slate-200',
-  sent: 'bg-blue-50 text-blue-700 ring-blue-200',
-  viewed: 'bg-indigo-50 text-indigo-700 ring-indigo-200',
-  signed: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
-  declined: 'bg-red-50 text-red-700 ring-red-200',
-  voided: 'bg-slate-100 text-slate-500 ring-slate-200',
-  expired: 'bg-amber-50 text-amber-800 ring-amber-200',
-}
-
 // Non-terminal statuses: an envelope in one of these is still "out for signature".
 const OPEN_STATUSES: EnvelopeStatus[] = ['draft', 'sent', 'viewed']
-
-const STATUS_LABEL: Record<EnvelopeStatus, string> = {
-  draft: 'Draft',
-  sent: 'Awaiting signature',
-  viewed: 'Viewed',
-  signed: 'Signed',
-  declined: 'Declined',
-  voided: 'Voided',
-  expired: 'Expired',
-}
-
-const POLL_MS = 20000
-// An open envelope idle this many days is flagged as overdue for a nudge.
-const OVERDUE_DAYS = 5
-
-function daysSince(dateStr?: string | null): number | null {
-  if (!dateStr) return null
-  const ms = Date.now() - new Date(dateStr).getTime()
-  if (!Number.isFinite(ms)) return null
-  return Math.floor(ms / 86400000)
-}
 
 function TemplateSourcePicker({
   name,
@@ -349,60 +290,23 @@ function FirmTemplatePicker({
   )
 }
 
-function fmtDate(dateStr?: string | null): string {
-  if (!dateStr) return ''
-  return new Date(dateStr).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-}
-
-/** Compact created → sent → viewed → signed/declined trail for an envelope. */
-function StatusTimeline({ env }: { env: DocumentEnvelope }) {
-  const steps: { label: string; at?: string | null; done: boolean; tone: string }[] = [
-    { label: 'Created', at: env.createdAt, done: true, tone: 'text-slate-500' },
-    { label: 'Sent', at: env.sentAt, done: !!env.sentAt, tone: 'text-blue-600' },
-    { label: 'Viewed', at: env.viewedAt, done: !!env.viewedAt, tone: 'text-indigo-600' },
-  ]
-  if (env.status === 'declined') {
-    steps.push({ label: 'Declined', at: env.declinedAt, done: true, tone: 'text-red-600' })
-  } else if (env.status === 'voided') {
-    steps.push({ label: 'Voided', at: env.updatedAt, done: true, tone: 'text-slate-500' })
-  } else {
-    steps.push({ label: 'Signed', at: env.signedAt, done: !!env.signedAt, tone: 'text-emerald-600' })
-  }
-
-  return (
-    <div className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px]">
-      {steps.map((s, i) => (
-        <span key={s.label} className="inline-flex items-center gap-1.5">
-          {i > 0 && <span className="text-slate-300">→</span>}
-          <span
-            className={`inline-flex h-1.5 w-1.5 rounded-full ${s.done ? 'bg-current' : 'bg-slate-300'} ${s.done ? s.tone : ''}`}
-          />
-          <span className={s.done ? s.tone : 'text-slate-400'}>
-            {s.label}
-            {s.at ? ` ${fmtDate(s.at)}` : ''}
-          </span>
-        </span>
-      ))}
-    </div>
-  )
-}
-
 export default function SignatureRequestPanel({
   leadId,
   defaultSignerName = '',
   defaultSignerEmail = '',
   initialDocumentType = 'hipaa_authorization',
+  onSent,
 }: {
   leadId: string
   defaultSignerName?: string
   defaultSignerEmail?: string
   /** Preselect the document type (e.g. 'retainer' when arriving from "Send retainer"). */
   initialDocumentType?: string
+  onSent?: (envelope: DocumentEnvelope) => void
 }) {
   const [providers, setProviders] = useState<EsignProviderMeta[]>([])
   const [envelopes, setEnvelopes] = useState<DocumentEnvelope[]>([])
   const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
 
   const [documentType, setDocumentType] = useState(initialDocumentType)
   const [retainerSource, setRetainerSource] = useState<RetainerSource>('platform')
@@ -440,12 +344,6 @@ export default function SignatureRequestPanel({
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
-  const [downloadingId, setDownloadingId] = useState<string | null>(null)
-  const [busyId, setBusyId] = useState<string | null>(null)
-  const [copiedId, setCopiedId] = useState<string | null>(null)
-  // Inline "correct email" editor per envelope.
-  const [correctingId, setCorrectingId] = useState<string | null>(null)
-  const [correctEmail, setCorrectEmail] = useState('')
   // Set after the duplicate warning is shown so a confirming second click sends anyway.
   const [confirmResend, setConfirmResend] = useState(false)
   // Preview modal.
@@ -528,8 +426,6 @@ export default function SignatureRequestPanel({
     return envelopes.find((e) => e.documentType === typeKey && OPEN_STATUSES.includes(e.status))
   }, [envelopes, documentType, usesFirmTemplate, selectedFirmTemplate, isFirmTemplate])
 
-  const hasOpen = useMemo(() => envelopes.some((e) => OPEN_STATUSES.includes(e.status)), [envelopes])
-
   // Keep the selected doc type in sync with the deep-link (e.g. navigating to the
   // documents section via "Send retainer" preselects the retainer agreement even
   // if this panel was already mounted on the Evidence tab).
@@ -548,13 +444,6 @@ export default function SignatureRequestPanel({
     () => providers.filter((p) => p.configured && (!isHipaa || p.hipaaCapable)),
     [providers, isHipaa]
   )
-  // The onboarding packet always includes a HIPAA authorization, so it needs a
-  // HIPAA-capable tool regardless of the currently selected document type.
-  const packetProvider = useMemo(
-    () => providers.find((p) => p.configured && p.hipaaCapable)?.id ?? null,
-    [providers]
-  )
-
   const load = useCallback(async () => {
     try {
       const [prov, envs, defaults, firmTpl] = await Promise.all([
@@ -619,21 +508,6 @@ export default function SignatureRequestPanel({
     load()
   }, [load])
 
-  // Live status: poll open envelopes against the provider so the panel reflects
-  // "viewed" / "signed" without waiting on webhooks (useful in local dev).
-  useEffect(() => {
-    if (!hasOpen) return
-    const t = setInterval(async () => {
-      try {
-        const envs = await refreshEnvelopes(leadId)
-        setEnvelopes(envs)
-      } catch {
-        /* transient; next tick retries */
-      }
-    }, POLL_MS)
-    return () => clearInterval(t)
-  }, [hasOpen, leadId])
-
   // Revoke any preview blob URL when it changes / on unmount.
   useEffect(() => {
     return () => {
@@ -649,18 +523,6 @@ export default function SignatureRequestPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [documentType, providers])
 
-  const handleRefresh = async () => {
-    setRefreshing(true)
-    try {
-      const envs = await refreshEnvelopes(leadId)
-      setEnvelopes(envs)
-    } catch {
-      setError('Could not refresh signature status.')
-    } finally {
-      setRefreshing(false)
-    }
-  }
-
   const parsedPct = () => {
     const pct = parseFloat(contingencyPercent)
     return Number.isFinite(pct) && pct > 0 ? pct : undefined
@@ -671,7 +533,7 @@ export default function SignatureRequestPanel({
       const label = DOC_TYPES.find((d) => d.id === documentType)?.label ?? 'document'
       const when = outstanding.createdAt ? ` (sent ${new Date(outstanding.createdAt).toLocaleDateString()})` : ''
       setNotice(
-        `A ${label} is already awaiting signature${when}. Click "Send anyway" to send another, or remind/void the open one below.`
+        `A ${label} is already awaiting signature${when}. Click "Send anyway" to send another, or remind/void the open one under Requests.`
       )
       setConfirmResend(true)
       return true
@@ -683,6 +545,7 @@ export default function SignatureRequestPanel({
     setEnvelopes((prev) => [env, ...prev])
     setNotice(msg)
     setConfirmResend(false)
+    onSent?.(env)
   }
 
   const handleSend = async () => {
@@ -806,42 +669,6 @@ export default function SignatureRequestPanel({
     }
   }
 
-  const handleSendPacket = async () => {
-    setError(null)
-    setNotice(null)
-    if (!signerName.trim() || !signerEmail.trim()) {
-      setError('Client name and email are required for the onboarding packet.')
-      return
-    }
-    if (!packetProvider) {
-      setError('The onboarding packet includes a HIPAA authorization. Configure a HIPAA-capable signature tool first.')
-      return
-    }
-    setSubmitting(true)
-    try {
-      const { retainer, hipaa } = await sendOnboardingPacket(leadId, {
-        signerName: signerName.trim(),
-        signerEmail: signerEmail.trim(),
-        provider: packetProvider,
-        firmName: firmName.trim() || undefined,
-        attorneyName: attorneyName.trim() || undefined,
-        contingencyPercent: parsedPct(),
-        costsResponsibility: costsResponsibility.trim() || undefined,
-        scope: scope.trim() || undefined,
-        clientDob: clientDob.trim() || undefined,
-        recordsCustodian: recordsCustodian.trim() || undefined,
-        recordsDateRange: recordsDateRange.trim() || undefined,
-      })
-      setEnvelopes((prev) => [hipaa, retainer, ...prev])
-      setNotice('Sent onboarding packet, retainer + HIPAA authorization, to the client.')
-      setConfirmResend(false)
-    } catch (err: any) {
-      setError(err?.response?.data?.detail || err?.response?.data?.error || 'Failed to send onboarding packet.')
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
   const handlePreview = async () => {
     setError(null)
     if (customMode && essentialType) {
@@ -904,130 +731,13 @@ export default function SignatureRequestPanel({
     }
   }
 
-  const handleDownload = async (env: DocumentEnvelope) => {
-    setError(null)
-    setDownloadingId(env.id)
-    try {
-      await downloadSignedEnvelope(env.id, `${env.title}.pdf`)
-    } catch {
-      setError('Could not download the signed document.')
-    } finally {
-      setDownloadingId(null)
-    }
-  }
-
-  const handleRemind = async (env: DocumentEnvelope) => {
-    setError(null)
-    setNotice(null)
-    setBusyId(env.id)
-    try {
-      await remindEnvelope(leadId, env.id)
-      setNotice(`Reminder sent to ${env.signerEmail}.`)
-    } catch (err: any) {
-      setError(err?.response?.data?.error || 'Could not send a reminder.')
-    } finally {
-      setBusyId(null)
-    }
-  }
-
-  const handleVoid = async (env: DocumentEnvelope) => {
-    setError(null)
-    setNotice(null)
-    if (!window.confirm(`Void "${env.title}"? The signing link will stop working.`)) return
-    setBusyId(env.id)
-    try {
-      const updated = await voidEnvelope(leadId, env.id)
-      setEnvelopes((prev) => prev.map((e) => (e.id === env.id ? updated : e)))
-      setNotice(`Voided "${env.title}".`)
-    } catch (err: any) {
-      setError(err?.response?.data?.error || 'Could not void this envelope.')
-    } finally {
-      setBusyId(null)
-    }
-  }
-
-  const handleDelete = async (env: DocumentEnvelope) => {
-    setError(null)
-    setNotice(null)
-    const open = OPEN_STATUSES.includes(env.status)
-    const message = open
-      ? `Delete "${env.title}"? It hasn't been signed yet — the request will be cancelled and the signing link will stop working.`
-      : `Delete "${env.title}" from this list?`
-    if (!window.confirm(message)) return
-    setBusyId(env.id)
-    try {
-      await deleteEnvelope(leadId, env.id)
-      if (open) {
-        // Envelopes from the same combined packet were cancelled with it.
-        setEnvelopes(await listEnvelopes(leadId))
-      } else {
-        setEnvelopes((prev) => prev.filter((e) => e.id !== env.id))
-      }
-      setNotice(`Deleted "${env.title}".`)
-    } catch (err: any) {
-      setError(err?.response?.data?.error || 'Could not delete this signature request.')
-    } finally {
-      setBusyId(null)
-    }
-  }
-
-  const startCorrect = (env: DocumentEnvelope) => {
-    setCorrectingId(env.id)
-    setCorrectEmail(env.signerEmail)
-    setError(null)
-    setNotice(null)
-  }
-
-  const handleCorrect = async (env: DocumentEnvelope) => {
-    const email = correctEmail.trim()
-    if (!email) return
-    setBusyId(env.id)
-    try {
-      const updated = await correctSignerEmail(leadId, env.id, email)
-      setEnvelopes((prev) => prev.map((e) => (e.id === env.id ? updated : e)))
-      setNotice(`Re-sent to ${email}.`)
-      setCorrectingId(null)
-    } catch (err: any) {
-      setError(err?.response?.data?.error || 'Could not update the recipient.')
-    } finally {
-      setBusyId(null)
-    }
-  }
-
-  const handleCopyLink = async (env: DocumentEnvelope) => {
-    if (!env.signingUrl) return
-    try {
-      await navigator.clipboard.writeText(env.signingUrl)
-      setCopiedId(env.id)
-      setTimeout(() => setCopiedId((v) => (v === env.id ? null : v)), 1500)
-    } catch {
-      /* clipboard unavailable */
-    }
-  }
-
   const inputCls =
     'w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-400'
   const labelCls = 'block text-xs font-medium text-slate-500 mb-1'
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mb-6">
-      <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50/60">
-        <h2 className="text-sm font-semibold text-slate-800 flex items-center gap-2">
-          <PenLine className="h-4 w-4 text-brand-600" />
-          E-signature
-        </h2>
-        <button
-          onClick={handleRefresh}
-          disabled={refreshing}
-          className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-slate-800 rounded-lg px-2 py-1 hover:bg-slate-100 disabled:opacity-50"
-          title="Poll signature status"
-        >
-          <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
-          {refreshing ? 'Refreshing…' : 'Refresh'}
-        </button>
-      </div>
-
-      <div className="p-6 space-y-4">
+    <div>
+      <div className="space-y-4">
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
             <label className={labelCls}>Document type</label>
@@ -1418,193 +1128,7 @@ export default function SignatureRequestPanel({
               {previewLoading ? 'Rendering…' : 'Preview'}
             </button>
           )}
-
-          <button
-            onClick={handleSendPacket}
-            disabled={submitting || !packetProvider}
-            title={packetProvider ? 'Send retainer + HIPAA authorization together' : 'Requires a HIPAA-capable signature tool'}
-            className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-brand-700 border border-brand-200 bg-brand-50 rounded-lg hover:bg-brand-100 disabled:opacity-50"
-          >
-            <Package className="h-4 w-4" />
-            Send onboarding packet
-          </button>
         </div>
-      </div>
-
-      <div className="px-6 py-4 border-t border-slate-200 bg-slate-50/40">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-3">
-          Signature requests ({envelopes.length})
-        </h3>
-        {loading ? (
-          <p className="text-sm text-slate-500">Loading…</p>
-        ) : envelopes.length === 0 ? (
-          <p className="text-sm text-slate-500">Nothing sent for signature yet.</p>
-        ) : (
-          <ul className="space-y-2">
-            {envelopes.map((env) => {
-              const open = OPEN_STATUSES.includes(env.status)
-              const waiting = open ? daysSince(env.sentAt || env.createdAt) : null
-              const overdue = waiting != null && waiting >= OVERDUE_DAYS
-              const isBusy = busyId === env.id
-              return (
-                <li
-                  key={env.id}
-                  className="rounded-lg border border-slate-200 bg-white px-4 py-3"
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="min-w-0">
-                      <p className="font-medium text-slate-900 truncate">{env.title}</p>
-                      <p className="text-xs text-slate-500 truncate">
-                        {env.signerName} · {env.signerEmail} · {env.provider}
-                      </p>
-                      <StatusTimeline env={env} />
-                      {env.countersignerEmail && env.status !== 'signed' && open && (
-                        <p className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px]">
-                          {env.clientSignedAt ? (
-                            <span className="font-medium text-amber-700">
-                              Client signed · awaiting countersignature by {env.countersignerName || env.countersignerEmail}
-                            </span>
-                          ) : (
-                            <span className="text-slate-400">
-                              Countersigned by {env.countersignerName || env.countersignerEmail} after the client signs
-                            </span>
-                          )}
-                          {env.clientSignedAt && env.countersignUrl && (
-                            <a
-                              href={env.countersignUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 font-semibold text-brand-600 hover:text-brand-700"
-                            >
-                              <PenLine className="h-3 w-3" /> Countersign now
-                            </a>
-                          )}
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex flex-col items-end gap-1.5 shrink-0">
-                      <span
-                        className={`text-[11px] font-medium px-2 py-0.5 rounded-full ring-1 ring-inset ${STATUS_STYLES[env.status] || 'bg-slate-100 text-slate-600 ring-slate-200'}`}
-                      >
-                        {STATUS_LABEL[env.status] || env.status}
-                      </span>
-                      {open && waiting != null && (
-                        <span
-                          className={`inline-flex items-center gap-1 text-[11px] ${overdue ? 'text-amber-700 font-medium' : 'text-slate-400'}`}
-                        >
-                          <Clock className="h-3 w-3" />
-                          {overdue ? 'Overdue · ' : 'Awaiting '}
-                          {waiting} {waiting === 1 ? 'day' : 'days'}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Actions */}
-                  <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-slate-100 pt-2.5">
-                    {env.signingUrl && env.status !== 'signed' && (
-                      <>
-                        <a
-                          href={env.signingUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:text-brand-700"
-                        >
-                          <ExternalLink className="h-3.5 w-3.5" /> Open link
-                        </a>
-                        <button
-                          onClick={() => handleCopyLink(env)}
-                          className="inline-flex items-center gap-1 text-xs font-medium text-slate-600 hover:text-slate-900"
-                        >
-                          {copiedId === env.id ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Link2 className="h-3.5 w-3.5" />}
-                          {copiedId === env.id ? 'Copied' : 'Copy link'}
-                        </button>
-                      </>
-                    )}
-                    {open && (
-                      <>
-                        <button
-                          onClick={() => handleRemind(env)}
-                          disabled={isBusy}
-                          className="inline-flex items-center gap-1 text-xs font-medium text-slate-600 hover:text-slate-900 disabled:opacity-50"
-                        >
-                          <Bell className="h-3.5 w-3.5" /> Remind
-                        </button>
-                        <button
-                          onClick={() => startCorrect(env)}
-                          disabled={isBusy}
-                          className="inline-flex items-center gap-1 text-xs font-medium text-slate-600 hover:text-slate-900 disabled:opacity-50"
-                        >
-                          <Mail className="h-3.5 w-3.5" /> Fix email
-                        </button>
-                        <button
-                          onClick={() => handleVoid(env)}
-                          disabled={isBusy}
-                          className="inline-flex items-center gap-1 text-xs font-medium text-red-600 hover:text-red-700 disabled:opacity-50"
-                        >
-                          <Ban className="h-3.5 w-3.5" /> Void
-                        </button>
-                      </>
-                    )}
-                    {env.status === 'signed' && (
-                      <button
-                        onClick={() => handleDownload(env)}
-                        disabled={downloadingId === env.id}
-                        className="inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:text-brand-700 disabled:opacity-50"
-                      >
-                        <Download className="h-3.5 w-3.5" />
-                        {downloadingId === env.id ? 'Downloading…' : 'Download signed'}
-                      </button>
-                    )}
-                    {env.status === 'signed' && (
-                      <span
-                        className="inline-flex items-center gap-1 text-[11px] text-slate-400"
-                        title="Signed documents are locked. Send a new request to change any terms."
-                      >
-                        <Lock className="h-3 w-3" /> Locked
-                      </span>
-                    )}
-                    {env.status !== 'signed' && (
-                      <button
-                        onClick={() => handleDelete(env)}
-                        disabled={isBusy}
-                        className="ml-auto inline-flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-red-600 disabled:opacity-50"
-                        title="Delete this signature request"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" /> Delete
-                      </button>
-                    )}
-                  </div>
-
-                  {correctingId === env.id && (
-                    <div className="mt-2 flex items-center gap-2">
-                      <input
-                        type="email"
-                        value={correctEmail}
-                        onChange={(e) => setCorrectEmail(e.target.value)}
-                        placeholder="corrected@example.com"
-                        className="flex-1 px-3 py-1.5 border border-slate-300 rounded-lg text-sm"
-                      />
-                      <button
-                        onClick={() => handleCorrect(env)}
-                        disabled={isBusy || !correctEmail.trim()}
-                        className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-white bg-brand-600 rounded-lg hover:bg-brand-700 disabled:opacity-50"
-                      >
-                        <Check className="h-3.5 w-3.5" /> Re-send
-                      </button>
-                      <button
-                        onClick={() => setCorrectingId(null)}
-                        className="p-1.5 text-slate-400 hover:text-slate-700"
-                      >
-                        <X className="h-4 w-4" />
-                      </button>
-                    </div>
-                  )}
-                </li>
-              )
-            })}
-          </ul>
-        )}
       </div>
 
       {previewUrl && (

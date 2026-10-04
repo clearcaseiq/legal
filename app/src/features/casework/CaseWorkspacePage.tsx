@@ -101,7 +101,9 @@ import { getApiOrigin } from '../../lib/runtimeEnv'
 import { useHeuristics } from '../../contexts/HeuristicsContext'
 import { checkEvidenceCollect, checkPoliceReportCollect, confirmRetainerSigned, sendWelcomePacket } from '../../lib/api-esign'
 import SignatureRequestPanel from '../../components/SignatureRequestPanel'
-import { ClientSuggestionsList, DocumentTemplatesSection, RequestDocumentsDialog, UploadRequestsList } from './DocumentsSections'
+import { DocumentTemplatesSection, RequestDocumentsDialog, RequestsOverview } from './DocumentsSections'
+import ModalPortal from '../../components/ModalPortal'
+import { displayTitle } from '../../components/EnvelopeList'
 import ClientContactDialog from './ClientContactDialog'
 import ClientInfoPanel from './ClientInfoPanel'
 import type { ClaimantContact } from '../../lib/api'
@@ -2319,13 +2321,47 @@ function DocumentsPanel({ lead, detail, section }: { lead: any; detail: CaseDeta
   const [requestUploads, setRequestUploads] = useState<string[] | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
   const [notice, setNotice] = useState<string | null>(null)
+  const [requestMenuOpen, setRequestMenuOpen] = useState(false)
+  const requestMenuRef = useRef<HTMLDivElement>(null)
+  const [signDocType, setSignDocType] = useState<string | null>(null)
   const canUpload = can('documents')
   const canRequest = can('request')
+  const canSign = can('documents') || can('manage')
 
   const openRequest = (uploadKeys: string[] = []) => {
     setNotice(null)
+    setRequestMenuOpen(false)
     setRequestUploads(uploadKeys)
   }
+
+  const openSingleSign = (docType: string) => {
+    setNotice(null)
+    setRequestMenuOpen(false)
+    setSignDocType(docType)
+  }
+
+  // Deep links like ?doc=retainer ("Send retainer" elsewhere) open the send form.
+  useEffect(() => {
+    if (docParam && canSign) setSignDocType(initialDoc)
+  }, [docParam, canSign, initialDoc])
+
+  const closeSingleSign = () => {
+    setSignDocType(null)
+    if (searchParams.has('doc')) {
+      const params = new URLSearchParams(searchParams)
+      params.delete('doc')
+      setSearchParams(params, { replace: true })
+    }
+  }
+
+  useEffect(() => {
+    if (!requestMenuOpen) return
+    const close = (e: MouseEvent) => {
+      if (requestMenuRef.current && !requestMenuRef.current.contains(e.target as Node)) setRequestMenuOpen(false)
+    }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [requestMenuOpen])
 
   return (
     <div className="space-y-5">
@@ -2359,14 +2395,52 @@ function DocumentsPanel({ lead, detail, section }: { lead: any; detail: CaseDeta
               <CloudUpload className="h-4 w-4 text-brand-600" /> Upload files
             </button>
           ) : null}
-          {canRequest ? (
-            <button
-              type="button"
-              onClick={() => openRequest()}
-              className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-3.5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-700"
-            >
-              <Send className="h-4 w-4" /> Request documents
-            </button>
+          {canRequest || canSign ? (
+            <div className="relative" ref={requestMenuRef}>
+              <button
+                type="button"
+                onClick={() => setRequestMenuOpen((v) => !v)}
+                aria-expanded={requestMenuOpen}
+                className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-3.5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-700"
+              >
+                <Send className="h-4 w-4" /> Request documents
+                <ChevronDown className={`h-4 w-4 transition-transform ${requestMenuOpen ? 'rotate-180' : ''}`} />
+              </button>
+              {requestMenuOpen ? (
+                <div className="absolute right-0 z-30 mt-1 w-80 overflow-hidden rounded-xl border border-slate-200 bg-white p-1 shadow-xl">
+                  {canRequest ? (
+                    <button
+                      type="button"
+                      onClick={() => openRequest()}
+                      className="flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left hover:bg-slate-50"
+                    >
+                      <Send className="mt-0.5 h-4 w-4 shrink-0 text-brand-600" />
+                      <span>
+                        <span className="block text-sm font-semibold text-slate-900">Client packet</span>
+                        <span className="block text-xs text-slate-500">
+                          Files to upload plus retainer / HIPAA to sign, in one link
+                        </span>
+                      </span>
+                    </button>
+                  ) : null}
+                  {canSign ? (
+                    <button
+                      type="button"
+                      onClick={() => openSingleSign(initialDoc)}
+                      className="flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left hover:bg-slate-50"
+                    >
+                      <PenLine className="mt-0.5 h-4 w-4 shrink-0 text-violet-600" />
+                      <span>
+                        <span className="block text-sm font-semibold text-slate-900">Single document for signature</span>
+                        <span className="block text-xs text-slate-500">
+                          Your own PDF, a firm template, or a police report authorization
+                        </span>
+                      </span>
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
           ) : null}
         </div>
       </div>
@@ -2395,44 +2469,56 @@ function DocumentsPanel({ lead, detail, section }: { lead: any; detail: CaseDeta
       </div>
 
       {view === 'requests' ? (
-        <div className="space-y-6">
-          <section>
-            <div className="mb-2 flex items-baseline justify-between gap-2">
-              <h3 className="text-base font-semibold text-slate-900">Upload requests</h3>
-              <p className="text-xs text-slate-400">Requested → Received → Reviewed</p>
+        <RequestsOverview
+          leadId={lead.id}
+          reloadKey={reloadKey}
+          canRequest={canRequest}
+          canReview={canUpload}
+          canSign={canSign}
+          onChanged={() => setReloadKey((k) => k + 1)}
+          onViewFiles={() => setView('files')}
+        />
+      ) : null}
+
+      {signDocType ? (
+        <ModalPortal>
+          <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/40 p-4" onClick={closeSingleSign}>
+            <div className="flex min-h-full items-start justify-center sm:items-center">
+              <div
+                className="flex max-h-[calc(100vh-2rem)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-5 py-4">
+                  <h3 className="flex items-center gap-2 text-base font-semibold text-slate-900">
+                    <PenLine className="h-4 w-4 text-violet-600" /> Send a document for signature
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={closeSingleSign}
+                    className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                    aria-label="Close"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+                <div className="overflow-y-auto p-5">
+                  <SignatureRequestPanel
+                    leadId={lead.id}
+                    defaultSignerName={detail.client}
+                    defaultSignerEmail={detail.clientEmail}
+                    initialDocumentType={signDocType}
+                    onSent={(env) => {
+                      closeSingleSign()
+                      setNotice(`Sent "${displayTitle(env.title)}" to ${env.signerEmail} for signature.`)
+                      setReloadKey((k) => k + 1)
+                      setView('requests')
+                    }}
+                  />
+                </div>
+              </div>
             </div>
-            <UploadRequestsList
-              leadId={lead.id}
-              reloadKey={reloadKey}
-              canRequest={canRequest}
-              canReview={canUpload}
-              onChanged={() => setReloadKey((k) => k + 1)}
-              onViewFiles={() => setView('files')}
-            />
-          </section>
-          <section className="border-t border-slate-100 pt-5">
-            <div className="mb-2 flex items-baseline justify-between gap-2">
-              <h3 className="text-base font-semibold text-slate-900">Suggested by the client</h3>
-              <p className="text-xs text-slate-400">Documents to request from the other side</p>
-            </div>
-            <ClientSuggestionsList leadId={lead.id} reloadKey={reloadKey} canRequest={canRequest} />
-          </section>
-          <section className="border-t border-slate-100 pt-5">
-            <div className="mb-2 flex items-baseline justify-between gap-2">
-              <h3 className="text-base font-semibold text-slate-900">Signature requests</h3>
-              <p className="text-xs text-slate-400">Sent → Viewed → Signed</p>
-            </div>
-            <StaffViewOnly locked={!can('documents') && !can('manage')} what="sending documents for signature">
-              <SignatureRequestPanel
-                key={reloadKey}
-                leadId={lead.id}
-                defaultSignerName={detail.client}
-                defaultSignerEmail={detail.clientEmail}
-                initialDocumentType={initialDoc}
-              />
-            </StaffViewOnly>
-          </section>
-        </div>
+          </div>
+        </ModalPortal>
       ) : null}
 
       {view === 'templates' ? <DocumentTemplatesSection leadId={lead.id} clientName={detail.client} /> : null}
@@ -3037,7 +3123,7 @@ function EvidencePanel({
                   onClick={onOpenRequests}
                   title={
                     doc.signedEnvelope?.title
-                      ? `Signed from “${doc.signedEnvelope.title}”. The executed record can’t be edited.`
+                      ? `Signed from “${displayTitle(doc.signedEnvelope.title)}”. The executed record can’t be edited.`
                       : 'The executed record can’t be edited.'
                   }
                   className="ml-1 inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 hover:bg-emerald-100"

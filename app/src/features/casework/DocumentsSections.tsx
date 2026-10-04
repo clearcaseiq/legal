@@ -3,7 +3,7 @@
  * sends the client a packet: documents to sign plus files to upload, behind a
  * single link.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   Bell,
   Check,
@@ -22,6 +22,14 @@ import {
   X,
 } from 'lucide-react'
 import ModalPortal from '../../components/ModalPortal'
+import {
+  EnvelopeRow,
+  RequestRow,
+  StepTrail,
+  isEnvelopeOpen,
+  rowButtonCls,
+  useCaseEnvelopes,
+} from '../../components/EnvelopeList'
 import { FirmTemplateForm } from '../firm/FirmTemplateForm'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -441,205 +449,11 @@ export function RequestDocumentsDialog({
 }
 
 // ---------------------------------------------------------------------------
-// Requests: uploads (Requested → Received → Reviewed)
+// Requests: client suggestions, what the client still owes, and what's done
 // ---------------------------------------------------------------------------
 
-const UPLOAD_STAGES = [
-  { id: 'requested', label: 'Requested' },
-  { id: 'received', label: 'Received' },
-  { id: 'reviewed', label: 'Reviewed' },
-] as const
-
-function StageTrail({ stage }: { stage: 'requested' | 'received' | 'reviewed' }) {
-  const at = UPLOAD_STAGES.findIndex((s) => s.id === stage)
-  return (
-    <span className="inline-flex items-center gap-1 text-[11px]">
-      {UPLOAD_STAGES.map((s, i) => (
-        <span key={s.id} className="inline-flex items-center gap-1">
-          {i > 0 ? <span className={i <= at ? 'text-slate-400' : 'text-slate-200'}>→</span> : null}
-          <span
-            className={`rounded-full px-1.5 py-0.5 font-semibold ${
-              i < at
-                ? 'text-slate-500'
-                : i === at
-                  ? s.id === 'reviewed'
-                    ? 'bg-emerald-50 text-emerald-700'
-                    : s.id === 'received'
-                      ? 'bg-brand-50 text-brand-700'
-                      : 'bg-amber-50 text-amber-700'
-                  : 'text-slate-300'
-            }`}
-          >
-            {s.label}
-          </span>
-        </span>
-      ))}
-    </span>
-  )
-}
-
-export function UploadRequestsList({
-  leadId,
-  reloadKey,
-  canRequest,
-  canReview,
-  onChanged,
-  onViewFiles,
-}: {
-  leadId: string
-  reloadKey: number
-  canRequest: boolean
-  canReview: boolean
-  onChanged: () => void
-  onViewFiles: () => void
-}) {
-  const [rows, setRows] = useState<AttorneyDocumentRequest[] | null>(null)
-  const [busy, setBusy] = useState<string | null>(null)
-  const [banner, setBanner] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null)
-  const [showClosed, setShowClosed] = useState(false)
-
-  const load = useCallback(() => {
-    getAttorneyDocumentRequests(leadId)
-      .then((list) =>
-        setRows(
-          (list || []).filter(
-            (r) => r.leadId === leadId && r.targetType !== 'opposing_party' && (r.requestedDocs || []).length > 0,
-          ),
-        ),
-      )
-      .catch(() => setRows([]))
-  }, [leadId])
-
-  useEffect(() => {
-    load()
-  }, [load, reloadKey])
-
-  const isClosed = (r: AttorneyDocumentRequest) =>
-    Boolean(r.items?.length) && r.items!.every((item) => item.stage === 'reviewed')
-  const open = (rows || []).filter((r) => !isClosed(r))
-  const closed = (rows || []).filter(isClosed)
-
-  const nudge = async (id: string) => {
-    setBusy(`nudge:${id}`)
-    try {
-      await nudgeDocumentRequest(id)
-      setBanner({ tone: 'ok', text: 'Reminder sent to the client.' })
-      load()
-    } catch (err: any) {
-      setBanner({ tone: 'err', text: apiError(err, 'Could not send the reminder.') })
-    } finally {
-      setBusy(null)
-    }
-  }
-
-  const markReviewed = async (key: string, fileIds: string[]) => {
-    setBusy(`review:${key}`)
-    try {
-      for (const id of fileIds) await reviewLeadEvidence(leadId, id, 'reviewed')
-      setBanner({ tone: 'ok', text: `Marked ${fileIds.length} file${fileIds.length === 1 ? '' : 's'} reviewed.` })
-      load()
-      onChanged()
-    } catch (err: any) {
-      setBanner({ tone: 'err', text: apiError(err, 'Could not mark the files reviewed.') })
-    } finally {
-      setBusy(null)
-    }
-  }
-
-  const renderRequest = (r: AttorneyDocumentRequest) => {
-    const items = r.items?.length
-      ? r.items
-      : (r.requestedDocs || []).map((key) => ({ key, label: key.replace(/_/g, ' '), stage: 'requested' as const, fileIds: [] }))
-    const waiting = items.some((item) => item.stage === 'requested')
-    return (
-      <li key={r.id} className="rounded-xl border border-slate-200 p-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-xs text-slate-500">
-            Requested {fmtDate(r.createdAt)}
-            {r.lastNudgeAt ? ` · reminded ${fmtDate(r.lastNudgeAt)}` : ''}
-          </p>
-          {waiting && canRequest ? (
-            <button
-              type="button"
-              onClick={() => void nudge(r.id)}
-              disabled={busy === `nudge:${r.id}`}
-              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
-            >
-              <Bell className="h-3.5 w-3.5" /> Nudge
-            </button>
-          ) : null}
-        </div>
-        <ul className="mt-2 divide-y divide-slate-100">
-          {items.map((item) => (
-            <li key={item.key} className="flex flex-wrap items-center justify-between gap-2 py-1.5">
-              <span className="text-sm font-medium capitalize text-slate-800">{item.label}</span>
-              <span className="flex flex-wrap items-center gap-2">
-                <StageTrail stage={item.stage} />
-                {item.stage === 'received' ? (
-                  <>
-                    <button
-                      type="button"
-                      onClick={onViewFiles}
-                      className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-brand-700"
-                    >
-                      <Eye className="h-3.5 w-3.5" /> {item.fileIds.length} file{item.fileIds.length === 1 ? '' : 's'}
-                    </button>
-                    {canReview ? (
-                      <button
-                        type="button"
-                        onClick={() => void markReviewed(item.key, item.fileIds)}
-                        disabled={busy === `review:${item.key}`}
-                        className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-2 py-1 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
-                      >
-                        <Check className="h-3.5 w-3.5" /> Mark reviewed
-                      </button>
-                    ) : null}
-                  </>
-                ) : null}
-              </span>
-            </li>
-          ))}
-        </ul>
-      </li>
-    )
-  }
-
-  return (
-    <div className="space-y-3">
-      {banner ? (
-        <p className={`rounded-lg px-3 py-2 text-sm ${banner.tone === 'ok' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
-          {banner.text}
-        </p>
-      ) : null}
-      {rows === null ? (
-        <p className="text-sm text-slate-400">Loading requests…</p>
-      ) : open.length === 0 ? (
-        <p className="rounded-xl border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500">
-          No open upload requests. Use Request documents to ask the client for files.
-        </p>
-      ) : (
-        <ul className="space-y-2">{open.map(renderRequest)}</ul>
-      )}
-      {closed.length > 0 ? (
-        <div>
-          <button
-            type="button"
-            onClick={() => setShowClosed((v) => !v)}
-            className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-slate-700"
-          >
-            {showClosed ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-            {closed.length} reviewed request{closed.length === 1 ? '' : 's'}
-          </button>
-          {showClosed ? <ul className="mt-2 space-y-2">{closed.map(renderRequest)}</ul> : null}
-        </div>
-      ) : null}
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Templates
-// ---------------------------------------------------------------------------
+const UPLOAD_STEPS = ['Requested', 'Received', 'Reviewed']
+const UPLOAD_STEP_INDEX = { requested: 0, received: 1, reviewed: 2 } as const
 
 const OPPOSING_DOC_LABELS: Record<string, string> = {
   insurance_policy: 'Insurance policy / declarations page',
@@ -659,80 +473,388 @@ const ROLE_LABELS: Record<string, string> = {
   insurer: 'Insurer / adjuster',
 }
 
+type UploadItem = {
+  key: string
+  label: string
+  stage: 'requested' | 'received' | 'reviewed'
+  fileIds: string[]
+}
+
+type UploadRow = { request: AttorneyDocumentRequest; item: UploadItem }
+
+function sentenceCase(value: string): string {
+  return value ? value.charAt(0).toUpperCase() + value.slice(1) : value
+}
+
+function uploadRowsOf(requests: AttorneyDocumentRequest[]): UploadRow[] {
+  return requests.flatMap((request) => {
+    const items: UploadItem[] = request.items?.length
+      ? request.items
+      : (request.requestedDocs || []).map((key) => ({ key, label: key.replace(/_/g, ' '), stage: 'requested' as const, fileIds: [] }))
+    return items.map((item) => ({ request, item }))
+  })
+}
+
+function SectionHeading({
+  id,
+  title,
+  count,
+  hint,
+  trailing,
+}: {
+  id?: string
+  title: string
+  count?: number
+  hint?: string
+  trailing?: ReactNode
+}) {
+  return (
+    <div id={id} className="mb-2 flex scroll-mt-24 items-center justify-between gap-2">
+      <div className="flex items-baseline gap-2">
+        <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
+        {count != null ? (
+          <span className="rounded-full bg-slate-100 px-1.5 text-[11px] font-semibold text-slate-500">{count}</span>
+        ) : null}
+        {hint ? <span className="hidden text-xs text-slate-400 sm:inline">{hint}</span> : null}
+      </div>
+      {trailing}
+    </div>
+  )
+}
+
+function SummaryTile({
+  label,
+  value,
+  tone,
+  onClick,
+}: {
+  label: string
+  value: number
+  tone: 'amber' | 'indigo' | 'emerald'
+  onClick: () => void
+}) {
+  const tones = {
+    amber: value ? 'border-amber-200 bg-amber-50/60 text-amber-800' : 'border-slate-200 bg-white text-slate-500',
+    indigo: value ? 'border-indigo-200 bg-indigo-50/60 text-indigo-800' : 'border-slate-200 bg-white text-slate-500',
+    emerald: 'border-slate-200 bg-white text-slate-600',
+  }
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex flex-1 items-baseline justify-between gap-2 rounded-xl border px-4 py-3 text-left transition hover:shadow-sm ${tones[tone]}`}
+    >
+      <span className="text-xs font-semibold">{label}</span>
+      <span className="text-xl font-bold tabular-nums">{value}</span>
+    </button>
+  )
+}
+
 /**
- * Documents the client thinks the other side holds. They wait here for the
- * attorney to decide; nothing is sent until the attorney sends the request.
+ * Everything the attorney has asked of the client (uploads and signatures) and
+ * everything the client has suggested asking the other side for, ordered by
+ * what needs attention.
  */
-export function ClientSuggestionsList({
+export function RequestsOverview({
   leadId,
   reloadKey,
   canRequest,
+  canReview,
+  canSign,
+  onChanged,
+  onViewFiles,
 }: {
   leadId: string
   reloadKey: number
   canRequest: boolean
+  canReview: boolean
+  canSign: boolean
+  onChanged: () => void
+  onViewFiles: () => void
 }) {
   const navigate = useNavigate()
-  const [rows, setRows] = useState<OpposingDocSuggestion[] | null>(null)
+  const [requests, setRequests] = useState<AttorneyDocumentRequest[] | null>(null)
+  const [suggestions, setSuggestions] = useState<OpposingDocSuggestion[] | null>(null)
+  const { envelopes, setEnvelopes, reload: reloadEnvelopes, refresh, refreshing } = useCaseEnvelopes(leadId, reloadKey)
+  const [busy, setBusy] = useState<string | null>(null)
+  const [banner, setBanner] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null)
+  const [showDone, setShowDone] = useState(false)
+
+  const loadRequests = useCallback(() => {
+    getAttorneyDocumentRequests(leadId)
+      .then((list) =>
+        setRequests(
+          (list || []).filter(
+            (r) => r.leadId === leadId && r.targetType !== 'opposing_party' && (r.requestedDocs || []).length > 0,
+          ),
+        ),
+      )
+      .catch(() => setRequests([]))
+  }, [leadId])
+
+  useEffect(() => {
+    loadRequests()
+  }, [loadRequests, reloadKey])
 
   useEffect(() => {
     let cancelled = false
     getLeadOpposingDocSuggestions(leadId)
       .then((list) => {
-        if (!cancelled) setRows((list || []).filter((s) => s.status === 'pending'))
+        if (!cancelled) setSuggestions((list || []).filter((s) => s.status === 'pending'))
       })
       .catch(() => {
-        if (!cancelled) setRows([])
+        if (!cancelled) setSuggestions([])
       })
     return () => {
       cancelled = true
     }
   }, [leadId, reloadKey])
 
-  if (rows === null) return <p className="text-sm text-slate-400">Loading…</p>
-  if (rows.length === 0) {
-    return <p className="text-sm text-slate-500">No suggestions from the client right now.</p>
+  const nudge = async (requestId: string) => {
+    setBusy(`nudge:${requestId}`)
+    try {
+      await nudgeDocumentRequest(requestId)
+      setBanner({ tone: 'ok', text: 'Reminder sent to the client.' })
+      loadRequests()
+    } catch (err: any) {
+      setBanner({ tone: 'err', text: apiError(err, 'Could not send the reminder.') })
+    } finally {
+      setBusy(null)
+    }
   }
 
+  const markReviewed = async (key: string, fileIds: string[]) => {
+    setBusy(`review:${key}`)
+    try {
+      for (const id of fileIds) await reviewLeadEvidence(leadId, id, 'reviewed')
+      setBanner({ tone: 'ok', text: `Marked ${fileIds.length} file${fileIds.length === 1 ? '' : 's'} reviewed.` })
+      loadRequests()
+      onChanged()
+    } catch (err: any) {
+      setBanner({ tone: 'err', text: apiError(err, 'Could not mark the files reviewed.') })
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const uploadRows = useMemo(() => uploadRowsOf(requests || []), [requests])
+  const openUploads = uploadRows.filter((r) => r.item.stage !== 'reviewed')
+  const doneUploads = uploadRows.filter((r) => r.item.stage === 'reviewed')
+  const openEnvelopes = (envelopes || []).filter(isEnvelopeOpen)
+  const doneEnvelopes = (envelopes || []).filter((e) => !isEnvelopeOpen(e))
+  const pendingSuggestions = suggestions || []
+  const loading = requests === null || envelopes === null
+
+  const scrollTo = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+
+  const renderUpload = ({ request, item }: UploadRow) => (
+    <RequestRow
+      key={`${request.id}:${item.key}`}
+      kind="upload"
+      title={sentenceCase(item.label)}
+      subtitle={`Upload · requested ${fmtDate(request.createdAt)}${request.lastNudgeAt ? ` · reminded ${fmtDate(request.lastNudgeAt)}` : ''}`}
+      trail={
+        <StepTrail
+          steps={UPLOAD_STEPS}
+          current={UPLOAD_STEP_INDEX[item.stage]}
+          tone={item.stage === 'reviewed' ? 'emerald' : item.stage === 'received' ? 'brand' : 'amber'}
+        />
+      }
+      actions={
+        <>
+          {item.fileIds.length > 0 ? (
+            <button type="button" onClick={onViewFiles} className={rowButtonCls}>
+              <Eye className="h-3.5 w-3.5" /> {item.fileIds.length} file{item.fileIds.length === 1 ? '' : 's'}
+            </button>
+          ) : null}
+          {item.stage === 'received' && canReview ? (
+            <button
+              type="button"
+              onClick={() => void markReviewed(item.key, item.fileIds)}
+              disabled={busy === `review:${item.key}`}
+              className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+            >
+              <Check className="h-3.5 w-3.5" /> Mark reviewed
+            </button>
+          ) : null}
+          {item.stage === 'requested' && canRequest ? (
+            <button
+              type="button"
+              onClick={() => void nudge(request.id)}
+              disabled={busy === `nudge:${request.id}`}
+              className={rowButtonCls}
+            >
+              <Bell className="h-3.5 w-3.5" /> Nudge
+            </button>
+          ) : null}
+        </>
+      }
+    />
+  )
+
+  const renderEnvelope = (env: DocumentEnvelope) => (
+    <EnvelopeRow
+      key={env.id}
+      leadId={leadId}
+      env={env}
+      canManage={canSign}
+      onUpdated={(next) => setEnvelopes((prev) => (prev || []).map((e) => (e.id === next.id ? next : e)))}
+      onReload={() => void reloadEnvelopes()}
+      onMessage={(tone, text) => setBanner({ tone, text })}
+    />
+  )
+
+  const byNewest = <T,>(rows: T[], at: (row: T) => string | null | undefined) =>
+    [...rows].sort((a, b) => new Date(at(b) || 0).getTime() - new Date(at(a) || 0).getTime())
+
+  const waiting = [
+    ...openUploads.map((row) => ({ at: row.request.createdAt, node: renderUpload(row) })),
+    ...openEnvelopes.map((env) => ({ at: env.sentAt || env.createdAt, node: renderEnvelope(env) })),
+  ]
+  const done = [
+    ...doneUploads.map((row) => ({ at: row.request.createdAt, node: renderUpload(row) })),
+    ...doneEnvelopes.map((env) => ({ at: env.signedAt || env.updatedAt || env.createdAt, node: renderEnvelope(env) })),
+  ]
+
   return (
-    <ul className="space-y-2">
-      {rows.map((s) => (
-        <li key={s.id} className="rounded-xl border border-indigo-100 bg-indigo-50/40 px-4 py-3">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-sm font-semibold text-slate-900">
-                {s.recipientName || 'Other side'}
-                {s.recipientRole ? (
-                  <span className="ml-2 text-xs font-medium text-slate-500">{ROLE_LABELS[s.recipientRole] || s.recipientRole}</span>
-                ) : null}
-              </p>
-              {s.requestedDocs.length > 0 ? (
-                <p className="mt-0.5 text-xs text-slate-600">
-                  {s.requestedDocs.map((d) => OPPOSING_DOC_LABELS[d] || d).join(', ')}
-                </p>
-              ) : null}
-              {s.note ? <p className="mt-1 text-xs italic text-slate-500">“{s.note}”</p> : null}
-              <p className="mt-1 text-[11px] text-slate-400">Suggested {new Date(s.createdAt).toLocaleDateString()}</p>
-            </div>
-            {canRequest ? (
-              <button
-                type="button"
-                onClick={() =>
-                  navigate(`/attorney-dashboard/request-docs/${leadId}`, {
-                    state: { applySuggestionId: s.id, source: 'documents-requests' },
-                  })
-                }
-                className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700"
-              >
-                <Send className="h-3.5 w-3.5" /> Request from other side
-              </button>
-            ) : null}
-          </div>
-        </li>
-      ))}
-    </ul>
+    <div className="space-y-6">
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <SummaryTile label="Waiting on client" value={waiting.length} tone="amber" onClick={() => scrollTo('requests-waiting')} />
+        <SummaryTile
+          label="Client suggestions"
+          value={pendingSuggestions.length}
+          tone="indigo"
+          onClick={() => scrollTo(pendingSuggestions.length ? 'requests-suggestions' : 'requests-waiting')}
+        />
+        <SummaryTile
+          label="Completed"
+          value={done.length}
+          tone="emerald"
+          onClick={() => {
+            setShowDone(true)
+            window.setTimeout(() => scrollTo('requests-done'), 0)
+          }}
+        />
+      </div>
+
+      {banner ? (
+        <p
+          className={`flex items-start justify-between gap-3 rounded-lg px-3 py-2 text-sm ${
+            banner.tone === 'ok' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'
+          }`}
+        >
+          <span>{banner.text}</span>
+          <button type="button" onClick={() => setBanner(null)} className="shrink-0 opacity-70 hover:opacity-100" aria-label="Dismiss">
+            <X className="h-4 w-4" />
+          </button>
+        </p>
+      ) : null}
+
+      {pendingSuggestions.length > 0 ? (
+        <section>
+          <SectionHeading
+            id="requests-suggestions"
+            title="Suggested by the client"
+            count={pendingSuggestions.length}
+            hint="Documents the client thinks the other side has"
+          />
+          <ul className="space-y-2">
+            {pendingSuggestions.map((s) => (
+              <li key={s.id} className="rounded-xl border border-indigo-100 bg-indigo-50/50 px-4 py-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-slate-900">
+                      {s.recipientName || 'Other side'}
+                      {s.recipientRole ? (
+                        <span className="ml-2 text-xs font-medium text-slate-500">{ROLE_LABELS[s.recipientRole] || s.recipientRole}</span>
+                      ) : null}
+                    </p>
+                    {s.requestedDocs.length > 0 ? (
+                      <p className="mt-0.5 text-xs text-slate-600">
+                        {s.requestedDocs.map((d) => OPPOSING_DOC_LABELS[d] || d).join(', ')}
+                      </p>
+                    ) : null}
+                    {s.note ? <p className="mt-1 text-xs italic text-slate-500">“{s.note}”</p> : null}
+                    <p className="mt-1 text-[11px] text-slate-400">Suggested {fmtDate(s.createdAt)}</p>
+                  </div>
+                  {canRequest ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        navigate(`/attorney-dashboard/request-docs/${leadId}`, {
+                          state: { applySuggestionId: s.id, source: 'documents-requests' },
+                        })
+                      }
+                      className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700"
+                    >
+                      <Send className="h-3.5 w-3.5" /> Request from other side
+                    </button>
+                  ) : null}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      <section>
+        <SectionHeading
+          id="requests-waiting"
+          title="Waiting on the client"
+          count={waiting.length}
+          trailing={
+            <button
+              type="button"
+              onClick={() => void refresh().catch(() => setBanner({ tone: 'err', text: 'Could not refresh signature status.' }))}
+              disabled={refreshing}
+              className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-800 disabled:opacity-50"
+              title="Check signature status with the signing provider"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+              {refreshing ? 'Checking…' : 'Refresh'}
+            </button>
+          }
+        />
+        {loading ? (
+          <p className="text-sm text-slate-400">Loading requests…</p>
+        ) : waiting.length === 0 ? (
+          <p className="rounded-xl border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500">
+            Nothing outstanding. Use Request documents to ask the client for files or signatures.
+          </p>
+        ) : (
+          <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white px-4">
+            {byNewest(waiting, (w) => w.at).map((w) => w.node)}
+          </ul>
+        )}
+      </section>
+
+      {done.length > 0 ? (
+        <section>
+          <button
+            id="requests-done"
+            type="button"
+            onClick={() => setShowDone((v) => !v)}
+            aria-expanded={showDone}
+            className="mb-2 flex scroll-mt-24 items-center gap-2 text-sm font-semibold text-slate-900"
+          >
+            {showDone ? <ChevronDown className="h-4 w-4 text-slate-400" /> : <ChevronRight className="h-4 w-4 text-slate-400" />}
+            Completed
+            <span className="rounded-full bg-slate-100 px-1.5 text-[11px] font-semibold text-slate-500">{done.length}</span>
+          </button>
+          {showDone ? (
+            <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white px-4">
+              {byNewest(done, (d) => d.at).map((d) => d.node)}
+            </ul>
+          ) : null}
+        </section>
+      ) : null}
+    </div>
   )
 }
+
+// ---------------------------------------------------------------------------
+// Templates
+// ---------------------------------------------------------------------------
 
 export function DocumentTemplatesSection({ leadId, clientName }: { leadId: string; clientName: string }) {
   const [templates, setTemplates] = useState<CaseFirmTemplate[] | null>(null)
