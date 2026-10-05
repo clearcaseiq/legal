@@ -15,6 +15,7 @@ import {
   uploadLeadEvidenceOnBehalf,
   type NegotiationEntry,
 } from '../../lib/api'
+import { useRealtimeEvent } from '../../lib/realtime'
 
 const EVENT_TYPES = [
   { id: 'offer', label: 'Offer', party: 'insurer' },
@@ -132,6 +133,40 @@ export default function NegotiationLogPanel({
     void load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leadId])
+
+  const awaitingClient = entries.some((e) => e.clientDecision === 'pending')
+  const refreshAfterClientDecision = () => {
+    void load()
+    onChanged?.()
+  }
+
+  // The plaintiff's accept/decline lands as an attorney notification; reload on it
+  // instead of leaving "Awaiting client" up until a manual refresh.
+  useRealtimeEvent(
+    'notification:new',
+    (event) => {
+      if (event.kind === 'attorney.negotiation_decision') refreshAfterClientDecision()
+    },
+    () => void load(),
+  )
+
+  // Firm members other than the assigned attorney get no push, so catch up on
+  // focus and poll lightly while a decision is outstanding.
+  useEffect(() => {
+    if (!awaitingClient) return
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') refreshAfterClientDecision()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void load()
+    }, 30_000)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible)
+      window.clearInterval(timer)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [awaitingClient, leadId])
 
   const openForm = () => {
     setForm(emptyForm())

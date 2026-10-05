@@ -9,6 +9,7 @@ import {
 import { useLanguage } from '../contexts/LanguageContext'
 import { formatCurrency } from '../lib/formatters'
 import { dateLocale } from '../i18n'
+import ConfirmDialog from './ConfirmDialog'
 
 const KNOWN_TYPES = new Set(['offer', 'counter', 'demand', 'call', 'note'])
 
@@ -22,6 +23,7 @@ export default function PlaintiffNegotiationDecisions({ assessmentId }: { assess
   const [notes, setNotes] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [confirming, setConfirming] = useState<{ entry: NegotiationEntry; decision: 'accepted' | 'declined' } | null>(null)
 
   useEffect(() => {
     if (!assessmentId) return
@@ -44,8 +46,6 @@ export default function PlaintiffNegotiationDecisions({ assessmentId }: { assess
     s ? new Date(s).toLocaleDateString(dateLocale(language), { month: 'short', day: 'numeric', year: 'numeric' }) : ''
 
   const decide = async (entry: NegotiationEntry, decision: 'accepted' | 'declined') => {
-    const what = typeLabel(entry.eventType).toLowerCase()
-    if (!window.confirm(k(decision === 'accepted' ? 'confirmAccept' : 'confirmDecline', { what }))) return
     setBusy(entry.id)
     setError(null)
     try {
@@ -55,7 +55,34 @@ export default function PlaintiffNegotiationDecisions({ assessmentId }: { assess
       setError(err?.response?.data?.error || k('failed'))
     } finally {
       setBusy(null)
+      setConfirming(null)
     }
+  }
+
+  const renderConfirmMessage = (entry: NegotiationEntry, decision: 'accepted' | 'declined') => {
+    const note = (notes[entry.id] || '').trim()
+    const from = entry.counterpartyType === 'claimant' ? k('fromFirm') : entry.insurerName || k('fromCarrier')
+    return (
+      <div className="space-y-3">
+        <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="text-sm font-semibold text-slate-800">{typeLabel(entry.eventType)}</span>
+            {typeof entry.amount === 'number' ? (
+              <span className="text-base font-bold text-slate-900">{formatCurrency(entry.amount)}</span>
+            ) : null}
+          </div>
+          <p className="text-xs text-slate-500">{from} · {fmtDate(entry.eventDate)}</p>
+        </div>
+        <p>{k(decision === 'accepted' ? 'confirmAcceptBody' : 'confirmDeclineBody')}</p>
+        {note ? (
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{k('confirmYourNote')}</p>
+            <p className="mt-0.5 whitespace-pre-line text-slate-700">{note}</p>
+          </div>
+        ) : null}
+        <p className="text-xs text-slate-500">{k('confirmFinal')}</p>
+      </div>
+    )
   }
 
   const openProof = (f: { fileUrl: string | null; originalName: string }) => {
@@ -117,7 +144,7 @@ export default function PlaintiffNegotiationDecisions({ assessmentId }: { assess
             <button
               type="button"
               disabled={busy === e.id}
-              onClick={() => void decide(e, 'accepted')}
+              onClick={() => setConfirming({ entry: e, decision: 'accepted' })}
               className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
             >
               {busy === e.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
@@ -126,7 +153,7 @@ export default function PlaintiffNegotiationDecisions({ assessmentId }: { assess
             <button
               type="button"
               disabled={busy === e.id}
-              onClick={() => void decide(e, 'declined')}
+              onClick={() => setConfirming({ entry: e, decision: 'declined' })}
               className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
             >
               <XCircle className="h-4 w-4" />
@@ -163,6 +190,23 @@ export default function PlaintiffNegotiationDecisions({ assessmentId }: { assess
         {pending.map(renderEntry)}
         {decided.map(renderEntry)}
       </ul>
+      <ConfirmDialog
+        open={!!confirming}
+        tone={confirming?.decision === 'declined' ? 'danger' : 'default'}
+        title={
+          confirming
+            ? k(confirming.decision === 'accepted' ? 'confirmAcceptTitle' : 'confirmDeclineTitle', {
+                what: typeLabel(confirming.entry.eventType).toLowerCase(),
+              })
+            : ''
+        }
+        message={confirming ? renderConfirmMessage(confirming.entry, confirming.decision) : null}
+        confirmLabel={k(confirming?.decision === 'declined' ? 'confirmDeclineCta' : 'confirmAcceptCta')}
+        cancelLabel={k('confirmCancel')}
+        busy={!!confirming && busy === confirming.entry.id}
+        onConfirm={() => confirming && void decide(confirming.entry, confirming.decision)}
+        onCancel={() => setConfirming(null)}
+      />
     </div>
   )
 }
