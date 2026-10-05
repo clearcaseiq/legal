@@ -29,9 +29,9 @@ describe('claim type labels', () => {
   })
 
   it('uses friendly names for the incident types QA compared across platforms', () => {
-    expect(formatClaimType('auto')).toBe('Motor vehicle')
-    expect(formatClaimType('medmal')).toBe('Medical malpractice')
-    expect(formatClaimType('product')).toBe('Product liability')
+    expect(formatClaimType('auto')).toBe('Vehicle accident')
+    expect(formatClaimType('medmal')).toBe('Medical error or malpractice')
+    expect(formatClaimType('product')).toBe('Defective product')
   })
 })
 
@@ -53,7 +53,7 @@ describe('leadLabel', () => {
   })
 
   it('falls back to the claim type when the case has no plaintiff', () => {
-    expect(leadLabel({ assessment: { claimType: 'auto' } })).toBe('Motor vehicle')
+    expect(leadLabel({ assessment: { claimType: 'auto' } })).toBe('Vehicle accident')
   })
 })
 

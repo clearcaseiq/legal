@@ -1,44 +1,45 @@
 /**
  * Canonical, human-readable claim/incident type labels.
  *
- * Kept byte-identical to `shared/claim-types.ts` (the web + mobile source of
- * truth). The API cannot import the repo-root `shared/` module directly: the
- * Docker build context only copies `api/`, and the API tsconfig pins
- * `rootDir` to `src`, so an out-of-tree import fails both in CI and in the
- * image. This local copy keeps the API self-contained while staying in sync
- * with the shared labels (see the mobile `formatLead.ts` parity pattern).
+ * The web app and the mobile apps each used to carry their own label map, so the
+ * same case read as "Auto" on web and "Motor vehicle" on mobile (CP-406). This
+ * module is the single source of truth for those names.
  *
  * Keys are the claim-type slugs stored on `Assessment.claimType`, plus the
  * legacy/alias slugs that older rows and attorney profiles still use.
+ *
+ * Labels must read exactly as the incident types a claimant picks in intake
+ * (`intake.injuryType_*` in the app's English locale), so the claimant, the
+ * attorney's profile and the firm roster all name a case type the same way.
  */
 export const CLAIM_TYPE_LABELS: Record<string, string> = {
-  auto: 'Motor vehicle',
-  vehicle: 'Motor vehicle',
-  motor_vehicle: 'Motor vehicle',
-  car_accident: 'Motor vehicle',
-  truck_accident: 'Motor vehicle',
-  motorcycle: 'Motor vehicle',
-  slip_and_fall: 'Slip & fall',
-  slip_fall: 'Slip & fall',
+  auto: 'Vehicle accident',
+  vehicle: 'Vehicle accident',
+  motor_vehicle: 'Vehicle accident',
+  car_accident: 'Vehicle accident',
+  truck_accident: 'Vehicle accident',
+  motorcycle: 'Vehicle accident',
+  slip_and_fall: 'Slip / trip / unsafe property',
+  slip_fall: 'Slip / trip / unsafe property',
   premises: 'Premises liability',
   premises_liability: 'Premises liability',
   workplace: 'Workplace injury',
   workplace_injury: 'Workplace injury',
   workers_comp: 'Workplace injury',
-  medmal: 'Medical malpractice',
-  medical_malpractice: 'Medical malpractice',
-  med_mal: 'Medical malpractice',
-  dog_bite: 'Dog bite',
-  product: 'Product liability',
-  product_liability: 'Product liability',
-  assault: 'Assault & negligent security',
-  intentional_tort: 'Assault & negligent security',
-  toxic: 'Toxic exposure',
-  toxic_exposure: 'Toxic exposure',
+  medmal: 'Medical error or malpractice',
+  medical_malpractice: 'Medical error or malpractice',
+  med_mal: 'Medical error or malpractice',
+  dog_bite: 'Animal bite / attack',
+  product: 'Defective product',
+  product_liability: 'Defective product',
+  assault: 'Assault or negligent security',
+  intentional_tort: 'Assault or negligent security',
+  toxic: 'Exposure to toxic substances',
+  toxic_exposure: 'Exposure to toxic substances',
   nursing_home_abuse: 'Nursing home abuse',
   nursing_home: 'Nursing home abuse',
   wrongful_death: 'Wrongful death',
-  high_severity_surgery: 'Catastrophic injury',
+  high_severity_surgery: 'Catastrophic / high-severity injury',
   other: 'Other injury',
   other_pi: 'Other injury',
 }
@@ -105,7 +106,7 @@ export function formatCaseSubtype(value: string | null | undefined): string {
 }
 
 /**
- * "Motor vehicle (Rear-end collision)" — the claim type, narrowed by the
+ * "Vehicle accident (Rear-end collision)" — the claim type, narrowed by the
  * subtype when intake captured one that says something the claim type does not.
  * A subtype that reads the same as its parent adds nothing and is dropped.
  */
@@ -122,7 +123,7 @@ export function formatCaseTypeWithSubtype(
 /**
  * The one incident type a filter should offer for each label, in the order the
  * options should appear. Several slugs share a label (auto/vehicle/car_accident
- * are all "Motor vehicle"), so listing raw slugs would show the same option
+ * are all "Vehicle accident"), so listing raw slugs would show the same option
  * several times.
  */
 export const CLAIM_TYPE_OPTIONS: ReadonlyArray<{ value: string; label: string }> = (() => {
@@ -140,6 +141,10 @@ export const CLAIM_TYPE_OPTIONS: ReadonlyArray<{ value: string; label: string }>
  * Collapses any slug onto the single value used to represent its label, so a
  * filter matches every case that reads the same to the user regardless of which
  * historical slug the row was stored with.
+ *
+ * Case-type filters used to be built from the slugs present in the loaded rows,
+ * which meant the list was short, unstable, and missing most types (CP-453).
+ * They are now built from CLAIM_TYPE_OPTIONS and compared through this.
  */
 export function canonicalClaimType(value: string | null | undefined): string {
   const raw = String(value ?? '').trim()

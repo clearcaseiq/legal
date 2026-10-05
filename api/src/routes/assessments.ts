@@ -5,6 +5,7 @@ import { prisma } from '../lib/prisma'
 import { AssessmentWrite, AssessmentUpdate, RequestCaseSubmitOtp, SubmitCaseForReview } from '../lib/validators'
 import { consumeCaseSubmitOtp, isCaseSubmitOtpRequired, issueCaseSubmitOtp, verifyCaseSubmitOtp } from '../lib/case-submit-otp'
 import { logger } from '../lib/logger'
+import { emailVerifiedByAttorneyId } from '../lib/attorney-email-verified'
 import { optionalAuthMiddleware, authMiddleware, AuthRequest } from '../lib/auth'
 import { enforceAssessmentReadAccess } from '../lib/assessment-access'
 import { serializeCaseFacts, updateCaseFacts, type CaseFacts } from '../lib/case-facts'
@@ -597,6 +598,7 @@ router.get('/:id', optionalAuthMiddleware, async (req: AuthRequest, res) => {
               select: {
                 id: true,
                 name: true,
+                email: true,
                 specialties: true,
                 responseTimeHours: true,
                 lawFirm: { select: { name: true } },
@@ -637,6 +639,7 @@ router.get('/:id', optionalAuthMiddleware, async (req: AuthRequest, res) => {
     // holding the assessment id (anonymous intake has no account to check), so
     // it carries only what the directory already publishes. The dashboard's
     // authenticated `attorneyMatched` keeps the email and phone.
+    const emailVerifiedMap = await emailVerifiedByAttorneyId(assessment.introductions.map((intro) => intro.attorney))
     const introductions = assessment.introductions.map((intro) => ({
       id: intro.id,
       status: intro.status,
@@ -648,6 +651,7 @@ router.get('/:id', optionalAuthMiddleware, async (req: AuthRequest, res) => {
         name: intro.attorney.name,
         firmName: intro.attorney.lawFirm?.name ?? null,
         photoUrl: intro.attorney.attorneyProfile?.photoUrl ?? null,
+        emailVerified: emailVerifiedMap.get(intro.attorney.id) === true,
         specialties: intro.attorney.specialties,
         yearsExperience: intro.attorney.attorneyProfile?.yearsExperience ?? null,
         responseTimeHours: intro.attorney.responseTimeHours ?? 24,

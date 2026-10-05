@@ -68,8 +68,8 @@ describe('injuryTypeToClaimType', () => {
     const labels = Object.entries(INJURY_TO_CLAIM).map(([, claimType]) => formatClaimType(claimType))
     expect(new Set(labels).size).toBe(labels.length)
     expect(formatClaimType(injuryTypeToClaimType('workplace'))).toBe('Workplace injury')
-    expect(formatClaimType(injuryTypeToClaimType('assault'))).toBe('Assault & negligent security')
-    expect(formatClaimType(injuryTypeToClaimType('toxic'))).toBe('Toxic exposure')
+    expect(formatClaimType(injuryTypeToClaimType('assault'))).toBe('Assault or negligent security')
+    expect(formatClaimType(injuryTypeToClaimType('toxic'))).toBe('Exposure to toxic substances')
   })
 
   it('resolves to a statute-of-limitations rule for every incident type', () => {
@@ -87,10 +87,10 @@ describe('claim type filter options', () => {
     const labels = CLAIM_TYPE_OPTIONS.map((o) => o.label)
     expect(new Set(labels).size).toBe(labels.length)
     expect(labels).toContain('Workplace injury')
-    expect(labels).toContain('Assault & negligent security')
-    expect(labels).toContain('Toxic exposure')
+    expect(labels).toContain('Assault or negligent security')
+    expect(labels).toContain('Exposure to toxic substances')
     expect(labels).toContain('Nursing home abuse')
-    expect(labels).toContain('Catastrophic injury')
+    expect(labels).toContain('Catastrophic / high-severity injury')
   })
 
   it('groups historical spellings so one option matches them all', () => {

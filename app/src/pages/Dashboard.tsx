@@ -944,6 +944,14 @@ export default function Dashboard() {
     return activeAssessment?.facts || {}
   })()
 
+  // Same precedence as the API's identity check: the name on the case, then the account.
+  const claimantName =
+    [parsedFacts?.plaintiffContext?.firstName, parsedFacts?.plaintiffContext?.lastName]
+      .filter((part) => typeof part === 'string' && part.trim())
+      .join(' ')
+      .trim() ||
+    [user?.firstName, user?.lastName].filter(Boolean).join(' ').trim()
+
   const venueState = activeAssessment?.venue?.state || activeAssessment?.venueState || 'California'
   const injuries = Array.isArray(parsedFacts.injuries) ? parsedFacts.injuries : []
 
@@ -2262,7 +2270,7 @@ export default function Dashboard() {
                 )}
 
                 {activeAssessment?.id && (
-                  <PlaintiffInsuranceCardPrompt assessmentId={activeAssessment.id} />
+                  <PlaintiffInsuranceCardPrompt assessmentId={activeAssessment.id} claimantName={claimantName} />
                 )}
 
                 {activeAssessment?.id && (

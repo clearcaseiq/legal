@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Clock, Filter, Gauge } from 'lucide-react'
-import { ATTORNEY_CASE_TYPES, formatSpecialty } from '../../../lib/constants'
+import { ATTORNEY_CASE_TYPES, formatSpecialty, toAttorneyCaseType } from '../../../lib/constants'
 import { formatCurrency } from '../../../lib/formatters'
 import { useAttorneyDecisionProfile } from '../useAttorneyDecisionProfile'
 import type { AttorneyProfileModel, IntakeWindow } from '../attorneyProfileModel'
@@ -45,8 +45,8 @@ const toDraft = (p: AttorneyProfileModel): Draft => ({
   minInjurySeverity: p.minInjurySeverity,
   minDamagesRange: p.minDamagesRange,
   maxDamagesRange: p.maxDamagesRange,
-  excludedCaseTypes: [...p.excludedCaseTypes],
-  specialties: [...p.specialties],
+  excludedCaseTypes: [...new Set(p.excludedCaseTypes.map(toAttorneyCaseType))],
+  specialties: [...new Set(p.specialties.map(toAttorneyCaseType))],
   maxCasesPerWeek: p.maxCasesPerWeek,
   maxCasesPerMonth: p.maxCasesPerMonth,
   intakeHours: p.intakeHours === '24/7' ? '24/7' : p.intakeHours.map((w) => ({ ...w })),

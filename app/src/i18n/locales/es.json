@@ -2271,6 +2271,7 @@
     "evidence_topItems": "Elementos que más mejorarían su puntuación:",
     "evidence_topItemTip": "Subir su {item} puede aumentar su Preparación para la Revisión del Abogado hasta {percent}. Ofrece a los abogados una prueba más sólida para evaluar su caso.",
     "evidence_nameMismatch": "Este documento indica un nombre distinto ({name}) al de sus otros registros ({other}). Confirme que le pertenece o elimínelo.",
+    "evidence_insuranceNameMismatch": "El nombre en este documento de seguro ({name}) no coincide con el suyo ({other}). No hay problema si la póliza está a nombre de un familiar. Si no, verifique que sea el documento correcto.",
     "injuredParty_label": "Esto le ocurrió a:",
     "injuredParty_heading": "Esto le ocurrió a",
     "injuredParty_helper": "Díganos quién resultó herido para adaptar el consentimiento, los plazos y la asignación de abogados.",
@@ -4388,7 +4389,8 @@
       "thanks": "Gracias. Tu equipo legal revisará tu cobertura.",
       "received": "Tu equipo legal ya tiene tu tarjeta de seguro.",
       "dismiss": "Descartar",
-      "failed": "No pudimos subir esa foto. Inténtalo de nuevo."
+      "failed": "No pudimos subir esa foto. Inténtalo de nuevo.",
+      "nameMismatch": "El nombre en esta tarjeta ({name}) no coincide con el tuyo ({claimant}). No hay problema si la póliza está a nombre de un familiar. Si no, verifica que subiste la tarjeta correcta."
     },
     "negotiationDecision": {
       "title": "Necesitamos tu decisión",
@@ -4480,19 +4482,19 @@
     },
     "claimTypes": {
       "default": "Lesiones personales",
-      "auto": "Vehículo de motor",
-      "slip_and_fall": "Resbalón y caída",
-      "slip_fall": "Resbalón y caída",
+      "auto": "Accidente vehicular",
+      "slip_and_fall": "Resbalón / tropiezo / propiedad insegura",
+      "slip_fall": "Resbalón / tropiezo / propiedad insegura",
       "premises": "Responsabilidad de locales",
       "workplace": "Lesión laboral",
-      "medmal": "Negligencia médica",
-      "dog_bite": "Mordedura de perro",
-      "product": "Responsabilidad del producto",
-      "assault": "Agresión y seguridad negligente",
-      "toxic": "Exposición tóxica",
-      "nursing_home_abuse": "Abuso en hogar de ancianos",
+      "medmal": "Error médico o negligencia médica",
+      "dog_bite": "Mordedura / ataque animal",
+      "product": "Producto defectuoso",
+      "assault": "Asalto o seguridad negligente",
+      "toxic": "Exposición a sustancias tóxicas",
+      "nursing_home_abuse": "Abuso en residencia de ancianos",
       "wrongful_death": "Muerte por negligencia",
-      "high_severity_surgery": "Lesión catastrófica",
+      "high_severity_surgery": "Lesión catastrófica / alta gravedad",
       "other": "Otra lesión"
     },
     "nextAction": {

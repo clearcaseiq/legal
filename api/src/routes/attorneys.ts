@@ -6,6 +6,7 @@ import { getHeuristics, computeAttorneyFitScore, getResponseBadge } from '../lib
 import { getFieldMappings, resolveMatchValues } from '../lib/field-mappings-config'
 import { getMatchingRules, getConfiguredWaveSize } from '../lib/matching-rules-config'
 import { coversClaimType } from '../lib/case-type-match'
+import { emailVerifiedByAttorneyId, isAttorneyEmailVerified } from '../lib/attorney-email-verified'
 
 const router: Router = Router()
 
@@ -93,6 +94,7 @@ router.get('/search', async (req: Request, res: Response) => {
     const verifiedReviewCountMap = new Map(
       verifiedReviewCounts.map((entry) => [entry.attorneyId, entry._count._all])
     )
+    const emailVerifiedMap = await emailVerifiedByAttorneyId(attorneys)
 
     // Admin-configurable scoring/labeling heuristics
     const heuristics = await getHeuristics()
@@ -149,6 +151,7 @@ router.get('/search', async (req: Request, res: Response) => {
         profile: (attorney as any).profile ?? null,
         meta: (attorney as any).meta ?? null,
         isVerified: (attorney as any).isVerified ?? false,
+        emailVerified: emailVerifiedMap.get(attorney.id) === true,
         isActive: (attorney as any).isActive ?? true,
         responseTimeHours,
         yearsExperience,
@@ -290,6 +293,7 @@ router.get('/:id', async (req, res) => {
     res.json({
       attorney_id: attorney.id,
       name: attorney.name,
+      emailVerified: await isAttorneyEmailVerified(attorney),
       specialties: specialties || [],
       venues: venues || [],
       bio: meta?.bio || '',

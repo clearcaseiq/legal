@@ -8,6 +8,7 @@ import { resolveSchedulingTimezone } from '../lib/scheduling-timezone'
 import { buildAttorneyConversionMetrics, getResponseTimeBadge, maybeVerifyAttorneyReview } from '../lib/appointment-engagement'
 import { computeAttorneyTrustMetrics } from '../lib/attorney-trust-metrics'
 import { recomputeAttorneyRatingAggregates } from '../lib/attorney-rating-aggregates'
+import { isAttorneyEmailVerified } from '../lib/attorney-email-verified'
 
 const router = Router()
 
@@ -81,9 +82,10 @@ router.get('/:attorneyId', async (req, res) => {
     const venues = JSON.parse(attorney.venues)
     const meta = attorney.meta ? JSON.parse(attorney.meta) : {}
 
-    const [responseBadge, conversionMetrics] = await Promise.all([
+    const [responseBadge, conversionMetrics, emailVerified] = await Promise.all([
       getResponseTimeBadge(attorney.id, attorney.responseTimeHours ?? 24),
       buildAttorneyConversionMetrics(attorney.id),
+      isAttorneyEmailVerified(attorney),
     ])
 
     // Calculate response metrics
@@ -107,6 +109,7 @@ router.get('/:attorneyId', async (req, res) => {
       profile,
       meta,
       isVerified: attorney.isVerified,
+      emailVerified,
       isActive: attorney.isActive,
       responseMetrics,
       reviews: attorney.reviews.map(r => ({

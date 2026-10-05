@@ -1,4 +1,5 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -644,6 +645,55 @@ export function LoadingState({ message }: { message: string }) {
       <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
       {message}
     </div>
+  )
+}
+
+/**
+ * "+N" for the chips that did not fit, listing them in a tooltip on hover or
+ * keyboard focus. The bubble is portalled with fixed positioning because these
+ * sit inside scrolling tables, which would clip an absolutely positioned one.
+ */
+export function MoreChip({ items, className = '' }: { items: string[]; className?: string }) {
+  const triggerRef = useRef<HTMLSpanElement>(null)
+  const [anchor, setAnchor] = useState<{ left: number; top: number } | null>(null)
+  if (items.length === 0) return null
+
+  const show = () => {
+    const rect = triggerRef.current?.getBoundingClientRect()
+    if (rect) setAnchor({ left: rect.left + rect.width / 2, top: rect.top })
+  }
+  const hide = () => setAnchor(null)
+
+  return (
+    <>
+      <span
+        ref={triggerRef}
+        tabIndex={0}
+        onMouseEnter={show}
+        onMouseLeave={hide}
+        onFocus={show}
+        onBlur={hide}
+        aria-label={items.join(', ')}
+        className={`cursor-default rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500 outline-none hover:bg-slate-200 focus-visible:ring-2 focus-visible:ring-brand-300 ${className}`}
+      >
+        +{items.length}
+      </span>
+      {anchor &&
+        createPortal(
+          <div
+            role="tooltip"
+            style={{ left: anchor.left, top: anchor.top - 8 }}
+            className="pointer-events-none fixed z-[1000] max-w-xs -translate-x-1/2 -translate-y-full rounded-md bg-slate-900 px-2.5 py-1.5 text-xs text-white shadow-lg"
+          >
+            <ul className="space-y-0.5">
+              {items.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          </div>,
+          document.body,
+        )}
+    </>
   )
 }
 

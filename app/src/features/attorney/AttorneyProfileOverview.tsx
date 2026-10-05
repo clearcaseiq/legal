@@ -16,7 +16,7 @@ import {
   User,
   X,
 } from 'lucide-react'
-import { ATTORNEY_CASE_TYPES, formatSpecialty, US_STATES } from '../../lib/constants'
+import { ATTORNEY_CASE_TYPES, formatSpecialty, toAttorneyCaseType, US_STATES } from '../../lib/constants'
 import { getCountiesForState } from '../../lib/usLocationData'
 import { requestEmailVerification } from '../../lib/api'
 import { computeProfileStrength } from '../../lib/profileStrength'
@@ -140,15 +140,6 @@ function EmailVerificationStatus({ email, verified }: { email: string | null; ve
   )
 }
 
-/**
- * Chip text for a case type. The canonical labels carry a parenthetical listing
- * the incidents they cover ("Vehicle Accident (car, truck, motorcycle,
- * rideshare)"), which is too long for a chip, so the parenthetical moves to the
- * tooltip. The stored value is untouched — these remain single selections that
- * routing matches on, not separate sub-types.
- */
-const chipLabel = (value: string) => formatSpecialty(value).split(' (')[0]
-
 const CHIP =
   'inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm font-medium text-slate-700'
 const ADD_CHIP =
@@ -159,7 +150,7 @@ const FIELD_LABEL = 'text-sm text-slate-500'
 const toDraft = (p: OverviewProfile): OverviewDraft => ({
   name: p.name,
   bio: p.bio,
-  specialties: [...p.specialties],
+  specialties: [...new Set(p.specialties.map(toAttorneyCaseType))],
   languages: [...p.languages],
   languageProficiency: { ...p.languageProficiency },
   yearsExperience: p.yearsExperience,
@@ -486,12 +477,12 @@ export default function AttorneyProfileOverview({ profile, onSave }: Props) {
           <p className={FIELD_LABEL}>Practice focus</p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             {draft.specialties.map((value) => (
-              <span key={value} className={CHIP} title={formatSpecialty(value)}>
+              <span key={value} className={CHIP}>
                 <Briefcase className="h-4 w-4 text-slate-400" />
-                {chipLabel(value)}
+                {formatSpecialty(value)}
                 <button
                   onClick={() => patch({ specialties: draft.specialties.filter((s) => s !== value) })}
-                  aria-label={`Remove ${chipLabel(value)}`}
+                  aria-label={`Remove ${formatSpecialty(value)}`}
                   className={CHIP_REMOVE}
                 >
                   <X className="h-3.5 w-3.5" />

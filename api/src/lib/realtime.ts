@@ -294,6 +294,32 @@ export async function emitLeadNew(attorneyId: string, event: LeadNewEvent): Prom
   }
 }
 
+export type AttorneyVerifiedEvent = {
+  attorneyId: string
+  isVerified: boolean
+  isActive: boolean
+}
+
+/**
+ * Tell an attorney and everyone on their firm that an admin changed the
+ * attorney's verification or active status, so Team & Roles and the dashboard
+ * verification banner update without a refresh.
+ */
+export async function emitAttorneyVerified(event: AttorneyVerifiedEvent): Promise<void> {
+  if (!io) return
+  try {
+    const attorney = await prisma.attorney.findUnique({
+      where: { id: event.attorneyId },
+      select: { lawFirmId: true },
+    })
+    const rooms = [`attorney:${event.attorneyId}`]
+    if (attorney?.lawFirmId) rooms.push(`firm:${attorney.lawFirmId}`)
+    io.to(rooms).emit('attorney:verified', event)
+  } catch (err) {
+    logger.warn('Realtime attorney:verified emit failed', { attorneyId: event.attorneyId, error: (err as Error).message })
+  }
+}
+
 /**
  * Tell everyone working the Case Assistance queue that a case just entered it,
  * so the new-arrival popup shows it now instead of on its next poll.

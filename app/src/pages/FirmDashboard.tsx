@@ -65,6 +65,7 @@ import {
   Badge,
   Avatar,
   EmptyState,
+  MoreChip,
   type BadgeTone,
   type DataTableColumn,
 } from '../features/shared/ui'
@@ -72,7 +73,7 @@ import { formatCurrency } from '../lib/formatters'
 import { validatePhoneField } from '../lib/phone'
 import PhoneInput from '../components/PhoneInput'
 import { formatClaimType } from '../lib/claimTypes'
-import { US_STATES } from '../lib/constants'
+import { ATTORNEY_CASE_TYPES, US_STATES, formatSpecialty, toAttorneyCaseType } from '../lib/constants'
 import { StateMultiSelect } from '../components/StateMultiSelect'
 import { CountyCoverageEditor } from '../components/CountyCoverageEditor'
 import { buildAttorneyJurisdictions, readAttorneyCounties, type CountiesByState } from '../lib/attorneyJurisdictions'
@@ -88,16 +89,7 @@ import DeclineModal, { type DeclineReasonCode } from '../components/DeclineModal
 import { FirmCaseDetail } from '../features/firm/FirmCaseDetail'
 import { FirmTimeBillingTab } from '../features/firm/FirmTimeBillingTab'
 
-const CASE_TYPES = [
-  { value: 'auto', label: 'Auto Accident' },
-  { value: 'slip_and_fall', label: 'Slip-and-Fall' },
-  { value: 'dog_bite', label: 'Dog Bite' },
-  { value: 'medmal', label: 'Medical Malpractice' },
-  { value: 'product', label: 'Product Liability' },
-  { value: 'nursing_home_abuse', label: 'Nursing Home Abuse' },
-  { value: 'wrongful_death', label: 'Wrongful Death' },
-  { value: 'high_severity_surgery', label: 'High-Severity / Surgery' },
-]
+const CASE_TYPES = ATTORNEY_CASE_TYPES
 
 const FIRM_ROLES = [
   { value: 'firm_admin', label: 'Firm Admin' },
@@ -749,7 +741,7 @@ export default function FirmDashboard() {
       firstName: nameParts[0] || '',
       middleName: nameParts.length > 2 ? nameParts.slice(1, -1).join(' ') : '',
       lastName: nameParts.length > 1 ? nameParts[nameParts.length - 1] : '',
-      specialties: Array.isArray(attorney.specialties) ? attorney.specialties : [],
+      specialties: Array.isArray(attorney.specialties) ? [...new Set(attorney.specialties.map(toAttorneyCaseType))] : [],
       jurisdictions: Array.isArray(attorney.jurisdictions) ? attorney.jurisdictions.map((j) => j.state) : [],
       counties: readAttorneyCounties(attorney.jurisdictions),
     })
@@ -2247,15 +2239,17 @@ export default function FirmDashboard() {
                   header: 'Specialties',
                   cell: (m: any) => {
                     const att = m.attorney?.id ? attorneyById.get(m.attorney.id) : null
-                    const specs = Array.isArray(att?.specialties) ? att.specialties : []
+                    const specs: string[] = Array.isArray(att?.specialties)
+                      ? [...new Set<string>(att.specialties.map((s: string) => formatSpecialty(s)))]
+                      : []
                     if (!att || specs.length === 0) return <span className="text-slate-300">—</span>
                     return (
-                      <div className="flex flex-wrap gap-1">
-                        {specs.slice(0, 3).map((s: string) => (
-                          <span key={s} className="rounded-full bg-brand-50 px-2 py-0.5 text-xs text-brand-700">{String(s).replace(/_/g, ' ')}</span>
+                      <div className="flex flex-wrap items-center gap-1">
+                        {specs.slice(0, 3).map((s) => (
+                          <span key={s} className="rounded-full bg-brand-50 px-2 py-0.5 text-xs text-brand-700">{s}</span>
                         ))}
-                        {specs.length > 3 && <span className="text-xs text-slate-400">+{specs.length - 3}</span>}
-        </div>
+                        <MoreChip items={specs.slice(3)} />
+                      </div>
                     )
                   },
                 },
@@ -2266,12 +2260,12 @@ export default function FirmDashboard() {
                     const names = teamsByMemberId.get(m.id) || []
                     if (names.length === 0) return <span className="text-slate-300">—</span>
                     return (
-                      <div className="flex flex-wrap gap-1">
+                      <div className="flex flex-wrap items-center gap-1">
                         {names.slice(0, 3).map((n: string) => (
                           <span key={n} className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">{n}</span>
                         ))}
-                        {names.length > 3 && <span className="text-xs text-slate-400">+{names.length - 3}</span>}
-          </div>
+                        <MoreChip items={names.slice(3)} />
+                      </div>
                     )
                   },
                 },

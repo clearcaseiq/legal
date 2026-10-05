@@ -10,6 +10,7 @@ import { Router } from 'express'
 import { prisma } from '../lib/prisma'
 import { logger } from '../lib/logger'
 import { computeFirmTrustMetrics } from '../lib/attorney-trust-metrics'
+import { emailVerifiedByAttorneyId } from '../lib/attorney-email-verified'
 
 const router = Router()
 
@@ -97,6 +98,7 @@ router.get('/:slug', async (req, res) => {
           select: {
             id: true,
             name: true,
+            email: true,
             specialties: true,
             averageRating: true,
             totalReviews: true,
@@ -111,7 +113,10 @@ router.get('/:slug', async (req, res) => {
       return res.status(404).json({ error: 'Firm not found' })
     }
 
-    const metrics = await computeFirmTrustMetrics(firm.id)
+    const [metrics, emailVerifiedMap] = await Promise.all([
+      computeFirmTrustMetrics(firm.id),
+      emailVerifiedByAttorneyId(firm.attorneys),
+    ])
 
     res.json({
       firm: {
@@ -139,6 +144,7 @@ router.get('/:slug', async (req, res) => {
           averageRating: a.averageRating,
           totalReviews: a.totalReviews,
           isVerified: a.isVerified,
+          emailVerified: emailVerifiedMap.get(a.id) === true,
           responseTimeHours: a.responseTimeHours,
         })),
       },

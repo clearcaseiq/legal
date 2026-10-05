@@ -105,48 +105,37 @@ export const PRACTICE_AREAS = [
 ]
 
 export const ATTORNEY_CASE_TYPES = [
-  { value: 'vehicle', label: 'Vehicle Accident (car, truck, motorcycle, rideshare)' },
-  { value: 'slip_fall', label: 'Slip / Trip / Unsafe Property' },
-  { value: 'workplace', label: 'Workplace Injury' },
-  { value: 'medmal', label: 'Medical Error or Malpractice' },
-  { value: 'dog_bite', label: 'Dog Bite / Animal Attack' },
-  { value: 'product', label: 'Defective Product' },
-  { value: 'assault', label: 'Assault or Negligent Security' },
-  { value: 'toxic', label: 'Exposure to Toxic Substances' },
-  { value: 'nursing_home_abuse', label: 'Nursing Home Abuse' },
-  { value: 'wrongful_death', label: 'Wrongful Death' },
-  { value: 'high_severity_surgery', label: 'Catastrophic / High-Severity Injury' },
-  { value: 'other', label: 'Other Injury' },
-]
+  'vehicle',
+  'slip_fall',
+  'workplace',
+  'medmal',
+  'dog_bite',
+  'product',
+  'assault',
+  'toxic',
+  'nursing_home_abuse',
+  'wrongful_death',
+  'high_severity_surgery',
+  'other',
+].map((value) => ({ value, label: formatClaimType(value) }))
 
 /**
- * Friendly labels for legacy claim-type slugs that older attorney profiles may
- * still have stored (before #49 aligned practice areas to intake incident types).
+ * Older attorney profiles and the firm roster stored claim-type slugs (`auto`,
+ * `slip_and_fall`, …) before #49 aligned practice areas to intake incident
+ * types. Maps each onto the intake slug it means so pickers show it as checked.
  */
-const LEGACY_SPECIALTY_LABELS: Record<string, string> = {
-  auto: 'Vehicle Accident (car, truck, motorcycle, rideshare)',
-  slip_and_fall: 'Slip / Trip / Unsafe Property',
-  workplace_injury: 'Workplace Injury',
-  intentional_tort: 'Assault or Negligent Security',
-  toxic_exposure: 'Exposure to Toxic Substances',
-  other_pi: 'Other Injury',
-  nursing_home_abuse: 'Nursing Home Abuse',
-  wrongful_death: 'Wrongful Death',
-  high_severity_surgery: 'Catastrophic Injury',
+export function toAttorneyCaseType(value: string): string {
+  const label = formatClaimType(value)
+  return ATTORNEY_CASE_TYPES.find((type) => type.label === label)?.value ?? value
 }
 
 /**
- * Format a stored specialty/service-type value for display. Maps known slugs to
- * friendly labels and falls back to de-underscoring + title-casing so legacy or
- * label-style values never render with raw underscores.
+ * Format a stored specialty/service-type value for display, using the same
+ * wording the claimant saw in intake. Unknown values are de-underscored rather
+ * than shown raw.
  */
 export function formatSpecialty(value: string): string {
-  const match = ATTORNEY_CASE_TYPES.find((type) => type.value === value)
-  if (match) return match.label
-  if (LEGACY_SPECIALTY_LABELS[value]) return LEGACY_SPECIALTY_LABELS[value]
-  return String(value || '')
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, (char) => char.toUpperCase())
+  return formatClaimType(value)
 }
 
 /**

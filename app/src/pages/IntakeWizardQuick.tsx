@@ -4,6 +4,7 @@
 import { Fragment, useCallback, useMemo, useState, useEffect, useLayoutEffect, useRef, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
+import { nameTokens, storedPlaintiffName } from '../lib/documentNameCheck'
 import { createAssessment, predict, uploadEvidenceFile, processEvidenceFile, extractEvidenceData, analyzeCaseWithChatGPT, calculateSOL, createIntakeLead, updateIntakeLead, getIntakeLead, getEvidenceFiles, lookupZipCounties, checkContactDuplicates, type ContactDuplicateCheck, type IntakeLeadPayload } from '../lib/api-plaintiff'
 import {
   deleteEvidenceFile,
@@ -2377,9 +2378,6 @@ export default function IntakeWizardQuick() {
   }
 
   // --- Name-only identity consistency ------------------------------------------------
-  const nameTokens = (name: string) =>
-    name.toLowerCase().replace(/[^a-z\s]/g, ' ').split(/\s+/).filter((t) => t.length >= 2)
-
   /** Records (or clears) the extracted person name for one document and re-evaluates mismatches. */
   const recordDocName = (category: string, fileName: string, name: string | null) => {
     const key = `${category}:${fileName}`
@@ -2390,22 +2388,30 @@ export default function IntakeWizardQuick() {
   }
 
   /**
-   * Flags documents whose person name shares no significant token with the first
-   * document's name (e.g. "John Doe" vs "Jane Smith"). Tolerates middle initials
+   * Flags documents whose person name shares no significant token with the
+   * reference name (e.g. "John Doe" vs "Jane Smith"). The reference is the
+   * signed-in plaintiff when they are the injured person, so even a single
+   * document is checked; otherwise it is the first document's name. Tolerates middle initials
    * and "Last, First" ordering. Non-blocking; dismissed rows stay dismissed.
    */
   const recomputeNameWarnings = () => {
     const entries = docNamesRef.current.filter((e) => e.tokens.length > 0)
     const next: Record<string, { fileName: string; message: string }[]> = {}
-    if (entries.length >= 2) {
-      const reference = entries[0]
-      for (let i = 1; i < entries.length; i++) {
-        const e = entries[i]
+    // Filing for a child or loved one, their records rightly name someone else.
+    const plaintiffName = injuredPartyRef.current === 'self' ? storedPlaintiffName() : ''
+    const reference = plaintiffName
+      ? { key: '', name: plaintiffName, tokens: nameTokens(plaintiffName) }
+      : entries[0]
+    const compared = plaintiffName ? entries : entries.slice(1)
+    if (reference && reference.tokens.length > 0) {
+      for (const e of compared) {
         const shares = e.tokens.some((t) => reference.tokens.includes(t))
         if (!shares && !dismissedNameKeysRef.current.has(e.key)) {
+          const template =
+            plaintiffName && e.category === 'insurance_letters' ? 'evidence_insuranceNameMismatch' : 'evidence_nameMismatch'
           ;(next[e.category] || (next[e.category] = [])).push({
             fileName: e.fileName,
-            message: tx('evidence_nameMismatch').replace('{name}', e.name).replace('{other}', reference.name),
+            message: tx(template).replace('{name}', e.name).replace('{other}', reference.name),
           })
         }
       }

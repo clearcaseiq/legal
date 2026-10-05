@@ -2271,6 +2271,7 @@
     "evidence_topItems": "最能提升分数的项目：",
     "evidence_topItemTip": "上传您的{item}最多可将律师审查准备度提高 {percent}。它能为律师提供更有力的证据来评估您的案件。",
     "evidence_nameMismatch": "此文件上的姓名（{name}）与您其他记录上的姓名（{other}）不一致。请确认它属于您，或将其删除。",
+    "evidence_insuranceNameMismatch": "此保险文件上的姓名（{name}）与您的姓名（{other}）不一致。如果保单在家庭成员名下，这没有问题；否则请确认文件是否正确。",
     "injuredParty_label": "受伤的是：",
     "injuredParty_heading": "受伤的是",
     "injuredParty_helper": "请告诉我们谁受伤了，以便我们据此调整授权、时限和律师匹配。",
@@ -4388,7 +4389,8 @@
       "thanks": "谢谢。您的法律团队将审核您的保障范围。",
       "received": "您的法律团队已收到您的保险卡。",
       "dismiss": "关闭",
-      "failed": "照片上传失败，请重试。"
+      "failed": "照片上传失败，请重试。",
+      "nameMismatch": "此卡上的姓名（{name}）与您的姓名（{claimant}）不一致。如果保单在家庭成员名下，这没有问题；否则请确认您上传的是正确的卡。"
     },
     "negotiationDecision": {
       "title": "需要您做出决定",
@@ -4480,19 +4482,19 @@
     },
     "claimTypes": {
       "default": "人身伤害",
-      "auto": "机动车",
-      "slip_and_fall": "滑倒摔伤",
-      "slip_fall": "滑倒摔伤",
+      "auto": "车辆事故",
+      "slip_and_fall": "滑倒/绊倒/不安全场所",
+      "slip_fall": "滑倒/绊倒/不安全场所",
       "premises": "场所责任",
       "workplace": "工伤",
-      "medmal": "医疗事故",
-      "dog_bite": "狗咬伤",
-      "product": "产品责任",
-      "assault": "袭击与疏忽安保",
-      "toxic": "有毒物质接触",
+      "medmal": "医疗错误或医疗事故",
+      "dog_bite": "动物咬伤/攻击",
+      "product": "缺陷产品",
+      "assault": "袭击或疏忽安保",
+      "toxic": "接触有毒物质",
       "nursing_home_abuse": "养老院虐待",
-      "wrongful_death": "过失致死",
-      "high_severity_surgery": "灾难性伤害",
+      "wrongful_death": "非正常死亡",
+      "high_severity_surgery": "重大/高严重性伤害",
       "other": "其他伤害"
     },
     "nextAction": {

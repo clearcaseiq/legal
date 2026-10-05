@@ -1310,6 +1310,7 @@
     "evidence_topItems": "Top items that would improve your score:",
     "evidence_topItemTip": "Uploading your {item} can raise your Attorney Review Readiness by up to {percent}. It gives attorneys stronger proof to evaluate your case.",
     "evidence_nameMismatch": "This document lists a different name ({name}) than your other records ({other}). Confirm it belongs to you, or remove it.",
+    "evidence_insuranceNameMismatch": "The name on this insurance document ({name}) doesn't match yours ({other}). That's fine if the policy is in a family member's name. Otherwise, check it's the right document.",
     "injuredParty_label": "This happened to:",
     "injuredParty_heading": "This happened to",
     "injuredParty_helper": "Tell us who was injured so we can tailor consent, deadlines, and attorney matching.",
@@ -3339,7 +3340,8 @@
       "thanks": "Thanks. Your legal team will review your coverage.",
       "received": "Your legal team has your insurance card.",
       "dismiss": "Dismiss",
-      "failed": "We couldn't upload that photo. Please try again."
+      "failed": "We couldn't upload that photo. Please try again.",
+      "nameMismatch": "The name on this card ({name}) doesn't match yours ({claimant}). That's fine if the policy is in a family member's name. Otherwise, check you uploaded the right card."
     },
     "negotiationDecision": {
       "title": "Your decision is needed",
@@ -3431,19 +3433,19 @@
     },
     "claimTypes": {
       "default": "Personal injury",
-      "auto": "Motor vehicle",
-      "slip_and_fall": "Slip & fall",
-      "slip_fall": "Slip & fall",
+      "auto": "Vehicle accident",
+      "slip_and_fall": "Slip / trip / unsafe property",
+      "slip_fall": "Slip / trip / unsafe property",
       "premises": "Premises liability",
       "workplace": "Workplace injury",
-      "medmal": "Medical malpractice",
-      "dog_bite": "Dog bite",
-      "product": "Product liability",
-      "assault": "Assault & negligent security",
-      "toxic": "Toxic exposure",
+      "medmal": "Medical error or malpractice",
+      "dog_bite": "Animal bite / attack",
+      "product": "Defective product",
+      "assault": "Assault or negligent security",
+      "toxic": "Exposure to toxic substances",
       "nursing_home_abuse": "Nursing home abuse",
       "wrongful_death": "Wrongful death",
-      "high_severity_surgery": "Catastrophic injury",
+      "high_severity_surgery": "Catastrophic / high-severity injury",
       "other": "Other injury"
     },
     "nextAction": {

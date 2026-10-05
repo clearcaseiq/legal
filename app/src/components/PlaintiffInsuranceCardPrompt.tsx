@@ -1,16 +1,37 @@
 import { useEffect, useRef, useState } from 'react'
-import { Camera, CheckCircle2, Loader2, ShieldCheck, X } from 'lucide-react'
+import { AlertTriangle, Camera, CheckCircle2, Loader2, ShieldCheck, X } from 'lucide-react'
 import { getPlaintiffInsuranceCardStatus, uploadEvidenceFile } from '../lib/api'
+import { extractEvidenceData } from '../lib/api-plaintiff'
+import { namesConflict } from '../lib/documentNameCheck'
 import { useLanguage } from '../contexts/LanguageContext'
 
 const DISMISS_KEY = (id: string) => `insuranceCardPrompt.dismissed.${id}`
+
+async function readNameOnCard(file: File): Promise<string | null> {
+  try {
+    const fd = new FormData()
+    fd.append('file', file)
+    fd.append('category', 'insurance_letters')
+    const res = await extractEvidenceData(fd)
+    return res?.extraction?.patientName || null
+  } catch {
+    return null
+  }
+}
 
 /**
  * Asks a claimant on a vehicle case for a photo of their own auto insurance
  * card, so the case team can find UM/UIM and MedPay coverage early. Hidden once
  * the firm records the client's policy, or when the claimant dismisses it.
  */
-export default function PlaintiffInsuranceCardPrompt({ assessmentId }: { assessmentId?: string }) {
+export default function PlaintiffInsuranceCardPrompt({
+  assessmentId,
+  claimantName,
+}: {
+  assessmentId?: string
+  /** Who the case belongs to; the card's name is compared against it. */
+  claimantName?: string
+}) {
   const { t } = useLanguage()
   const k = (key: string) => t(`plaintiffDashboard.insuranceCard.${key}`)
   const [show, setShow] = useState(false)
@@ -18,6 +39,7 @@ export default function PlaintiffInsuranceCardPrompt({ assessmentId }: { assessm
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [justUploaded, setJustUploaded] = useState(false)
+  const [nameOnCard, setNameOnCard] = useState<string | null>(null)
   const input = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -44,7 +66,9 @@ export default function PlaintiffInsuranceCardPrompt({ assessmentId }: { assessm
     if (!files.length) return
     setBusy(true)
     setError(null)
+    setNameOnCard(null)
     try {
+      const namesRead: Array<Promise<string | null>> = []
       for (const file of files) {
         const fd = new FormData()
         fd.append('file', file)
@@ -52,10 +76,15 @@ export default function PlaintiffInsuranceCardPrompt({ assessmentId }: { assessm
         fd.append('category', 'insurance_letters')
         fd.append('subcategory', 'insurance_card')
         fd.append('description', 'Auto insurance card')
+        if (claimantName) namesRead.push(readNameOnCard(file))
         await uploadEvidenceFile(fd)
       }
       setUploadedCount((n) => n + files.length)
       setJustUploaded(true)
+      // The back of a card usually carries no name, so one readable mismatch is
+      // enough to warn; a card OCR could not read stays silent.
+      const names = await Promise.all(namesRead)
+      setNameOnCard(names.find((name) => namesConflict(name, claimantName)) ?? null)
     } catch (err: any) {
       setError(err?.response?.data?.error || k('failed'))
     } finally {
@@ -85,6 +114,12 @@ export default function PlaintiffInsuranceCardPrompt({ assessmentId }: { assessm
           {uploadedCount > 0 ? (
             <p className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700">
               <CheckCircle2 className="h-4 w-4" /> {justUploaded ? k('thanks') : k('received')}
+            </p>
+          ) : null}
+          {nameOnCard && claimantName ? (
+            <p className="mt-2 flex items-start gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5 text-xs text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+              <span>{t('plaintiffDashboard.insuranceCard.nameMismatch', { name: nameOnCard, claimant: claimantName })}</span>
             </p>
           ) : null}
           {error ? <p className="mt-2 text-xs text-rose-600">{error}</p> : null}

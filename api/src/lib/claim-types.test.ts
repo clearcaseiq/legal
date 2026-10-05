@@ -3,7 +3,7 @@
  *
  * These are the strings claimants and staff read on every case surface, and the
  * bug they guard against is a screen printing the raw database slug — the case
- * snapshot showed "auto" where the rest of the app said "Motor vehicle".
+ * snapshot showed "auto" where the rest of the app said "Vehicle accident".
  */
 import { describe, expect, it } from 'vitest'
 
@@ -11,13 +11,13 @@ import { formatCaseSubtype, formatCaseTypeWithSubtype, formatClaimType } from '.
 
 describe('formatClaimType', () => {
   it('maps a stored slug to its curated label', () => {
-    expect(formatClaimType('auto')).toBe('Motor vehicle')
-    expect(formatClaimType('slip_and_fall')).toBe('Slip & fall')
+    expect(formatClaimType('auto')).toBe('Vehicle accident')
+    expect(formatClaimType('slip_and_fall')).toBe('Slip / trip / unsafe property')
   })
 
   it('reads the same for every legacy slug that means the same thing', () => {
     for (const slug of ['auto', 'vehicle', 'motor_vehicle', 'car_accident']) {
-      expect(formatClaimType(slug)).toBe('Motor vehicle')
+      expect(formatClaimType(slug)).toBe('Vehicle accident')
     }
   })
 
@@ -34,13 +34,13 @@ describe('formatClaimType', () => {
 describe('formatCaseTypeWithSubtype', () => {
   it('narrows the claim type with the subtype intake captured', () => {
     expect(formatCaseTypeWithSubtype('auto', 'rear_end_collision')).toBe(
-      'Motor vehicle (Rear-end collision)',
+      'Vehicle accident (Rear-end collision)',
     )
   })
 
   it('falls back to the claim type alone when there is no subtype', () => {
-    expect(formatCaseTypeWithSubtype('auto', null)).toBe('Motor vehicle')
-    expect(formatCaseTypeWithSubtype('auto', '  ')).toBe('Motor vehicle')
+    expect(formatCaseTypeWithSubtype('auto', null)).toBe('Vehicle accident')
+    expect(formatCaseTypeWithSubtype('auto', '  ')).toBe('Vehicle accident')
   })
 
   it('drops a subtype that just repeats its parent', () => {

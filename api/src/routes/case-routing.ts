@@ -17,6 +17,7 @@ import { formatAttorneyResponseDeadline, getAttorneyResponseDeadlineMinutes, get
 import { getAppointmentPreparation, seedAppointmentPrepItems } from '../lib/appointment-engagement'
 import { careFinishedOnRecord } from '../lib/workflow-signals'
 import { isEngagedLeadStatus } from '../lib/lead-status'
+import { isAttorneyEmailVerified } from '../lib/attorney-email-verified'
 const router = Router()
 
 async function getAttorneyFromRequest(req: AuthRequest): Promise<{ id: string } | null> {
@@ -700,6 +701,7 @@ router.get('/assessment/:id/status', authMiddleware, async (req: AuthRequest, re
             phone: matchedAttorney.phone,
             firmName: matchedAttorney.lawFirm?.name,
             specialties: matchedAttorney.specialties,
+            emailVerified: await isAttorneyEmailVerified(matchedAttorney),
             yearsExperience,
             responseTimeHours: matchedAttorney.responseTimeHours ?? 24,
             // The notification bell renders the acceptance from this object, so
