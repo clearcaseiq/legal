@@ -21,6 +21,7 @@ vi.mock('./case-recalculation', () => ({ runCaseRecalculation: vi.fn().mockResol
 vi.mock('./evidence-vision', () => ({
   analyzeImageRelevance: vi.fn().mockResolvedValue(null),
   shouldFlagForReview: vi.fn().mockReturnValue(false),
+  judgeDocumentText: vi.fn().mockReturnValue(null),
 }))
 
 import { prisma } from './prisma'

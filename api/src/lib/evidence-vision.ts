@@ -254,6 +254,27 @@ const DOCUMENT_CATEGORY_TERMS: Record<
   },
 }
 
+/**
+ * Re-judge a document slot from the full extracted text. The upload-time check
+ * reads a downscaled copy, which can miss what processing's OCR later reads, and
+ * Word files never get an upload-time read at all. Null when the text cannot
+ * decide, so the caller keeps whatever it had.
+ */
+export function judgeDocumentText(
+  category: string,
+  text: string,
+  prior: VisionRelevanceResult | null,
+): VisionRelevanceResult | null {
+  if (!isDocumentCategory(category) || !text) return null
+  return assessDocumentText(category, text, {
+    category,
+    topLabels: prior?.topLabels ?? [],
+    expected: CATEGORY_EXPECTATION[category] || 'evidence relevant to your case',
+    provider: 'aws_rekognition',
+    checkedAt: new Date().toISOString(),
+  })
+}
+
 /** True for categories whose evidence arrives as a page of text rather than a picture. */
 export function isDocumentCategory(category: string): boolean {
   return Object.prototype.hasOwnProperty.call(DOCUMENT_CATEGORY_TERMS, category)
@@ -350,6 +371,19 @@ async function detectDocumentText(jpegBytes: Buffer): Promise<string> {
   }
 }
 
+const SIBLING_CATEGORY_GROUPS = [
+  ['bills', 'medical_records'],
+  ['insurance_letters', 'dec_page'],
+]
+
+function areSiblingCategories(a: string, b: string): boolean {
+  return SIBLING_CATEGORY_GROUPS.some((group) => group.includes(a) && group.includes(b))
+}
+
+function withArticle(label: string): string {
+  return `${/^[aeiou]/i.test(label) ? 'an' : 'a'} ${label}`
+}
+
 function countTermHits(haystack: string, terms: string[]): number {
   let hits = 0
   for (const term of terms) {
@@ -413,6 +447,25 @@ export function assessDocumentText(
     }
   }
 
+  // A few shared words ("payment", "total", "medical bills") do not make an insurance
+  // letter a bill. When another category's vocabulary clearly dominates, say so even
+  // though this one cleared its own bar. Not between siblings whose vocabularies
+  // overlap by nature: a bill reads like a record, a Dec page like a policy letter.
+  if (
+    competitor &&
+    competitor.hits >= 6 &&
+    competitor.hits >= expectedHits * 2 &&
+    !areSiblingCategories(category, competitor.key)
+  ) {
+    return {
+      ...base,
+      status: 'mismatch',
+      score: 0.15,
+      matchedLabels: [],
+      message: `This reads like ${withArticle(competitor.label)}, not ${base.expected}. Please upload it under the right section or remove it.`,
+    }
+  }
+
   // Strong match for the expected category (two or more keywords) -> confirmed relevant.
   if (expectedHits >= 2) {
     if (target.requires && requiredHits === 0) {
@@ -434,7 +487,7 @@ export function assessDocumentText(
       status: 'mismatch',
       score: 0.15,
       matchedLabels: [],
-      message: `This reads like ${competitor.label === 'medical record' ? 'a medical record' : `a ${competitor.label}`}, not ${base.expected}. Please upload it under the right section or remove it.`,
+      message: `This reads like ${withArticle(competitor.label)}, not ${base.expected}. Please upload it under the right section or remove it.`,
     }
   }
 

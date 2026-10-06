@@ -47,6 +47,28 @@ describe('extractPatientName on insurance cards', () => {
   })
 })
 
+describe('extractPatientName on a two-column bill', () => {
+  // Textract's line order for a printed "Patient Name : John Michael Doe".
+  const bill = [
+    'PATIENT INFORMATION',
+    'VISIT INFORMATION',
+    'Patient Name',
+    ': John Michael Doe',
+    'Visit Type',
+    ': Emergency',
+    'Patient ID',
+    ': PAT-2024-001234',
+  ].join('\n')
+
+  it('reads the value off the colon-led line', () => {
+    expect(extractPatientName(bill)).toBe('John Michael Doe')
+  })
+
+  it('never takes the next label as the name', () => {
+    expect(extractPatientName(bill.replace(': John Michael Doe', ': 12345'))).not.toBe('Visit Type')
+  })
+})
+
 describe('evidence-processing', () => {
   it('builds structured medical events from extracted dates and billing data', () => {
     const events = buildStructuredMedicalEvents({

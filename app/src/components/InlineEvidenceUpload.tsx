@@ -144,6 +144,17 @@ interface EvidenceFile {
   processingJobs?: ProcessingJob[]
   /** The API's stored `IdentityCheck`, as JSON. */
   identityCheck?: string | null
+  /** The API's stored relevance verdict, as JSON. */
+  visionLabels?: string | null
+}
+
+function storedVision(file: EvidenceFile | undefined): VisionVerdict | null {
+  if (!file?.visionLabels) return null
+  try {
+    return JSON.parse(file.visionLabels) as VisionVerdict
+  } catch {
+    return null
+  }
 }
 
 const INSURANCE_NAME_CATEGORIES = new Set(['insurance_letters', 'dec_page'])
@@ -263,6 +274,8 @@ interface InlineEvidenceUploadProps {
    * `other` category, so without this each row would list every `other` file.
    */
   filterBySubcategory?: boolean
+  /** Bump to refetch the server list, e.g. after the parent moved a file between categories. */
+  reloadToken?: number
 }
 
 const EMPTY_INITIAL_FILES: EvidenceFile[] = []
@@ -274,6 +287,7 @@ export default function InlineEvidenceUpload({
   description,
   title,
   initialFiles = EMPTY_INITIAL_FILES,
+  reloadToken,
   countOverride,
   compact = false,
   onFilesUploaded,
@@ -614,7 +628,11 @@ export default function InlineEvidenceUpload({
       const refreshed = await loadFiles()
       const processed = refreshed?.find((f) => f.id === fileId)
       const mismatch = identityMismatch(processed)
-      if (processed && mismatch) {
+      const vision = String(processed?.mimetype || '').startsWith('video/') ? null : storedVision(processed)
+      const wrongDocument = vision?.status === 'mismatch' || vision?.status === 'review'
+      if (processed && vision && (wrongDocument || !mismatch)) {
+        addVisionWarning(processed.originalName || processed.filename, vision)
+      } else if (processed && mismatch) {
         const fileName = processed.originalName || processed.filename
         const key = mismatch.notNamed
           ? 'intake.evidence_claimantNotNamed'
@@ -1110,7 +1128,7 @@ export default function InlineEvidenceUpload({
     return () => {
       isMounted = false
     }
-  }, [assessmentId, category]) // Only depend on assessmentId and category
+  }, [assessmentId, category, reloadToken])
 
   if (compact) {
     const showUploadArea = alwaysShowUpload || showUpload

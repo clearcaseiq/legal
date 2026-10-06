@@ -220,19 +220,41 @@ export async function checkDocumentIdentity(params: {
   const checkedAt = new Date().toISOString()
   const claimantName = await claimantNameForAssessment(assessmentId)
   const readName = nameTokens(documentName).length > 0 ? String(documentName).trim() : ''
-  if (!readName || !claimantName) {
-    return {
-      verdict: 'unverified',
-      documentName: readName,
-      claimantName: claimantName || '',
-      reason: readName ? 'no_claimant_name' : 'no_document_name',
-      checkedAt,
+  if (!claimantName) {
+    return { verdict: 'unverified', documentName: readName, claimantName: '', reason: 'no_claimant_name', checkedAt }
+  }
+
+  // Extraction misses many layouts. The whole text still answers the question,
+  // so no extracted name falls back to it, and an extracted name that disagrees
+  // is overruled when the claimant is named elsewhere on the page (a misread
+  // label such as "Visit Type" is not a different person).
+  const inText = claimantNamedInText(documentText, claimantName)
+  if (!readName) {
+    if (inText === 'mismatch') {
+      return { verdict: 'mismatch', documentName: '', claimantName, reason: 'claimant_not_named', checkedAt }
     }
+    if (inText === 'match') return { verdict: 'match', documentName: '', claimantName, checkedAt }
+    return { verdict: 'unverified', documentName: '', claimantName, reason: 'no_document_name', checkedAt }
   }
 
   const verdict = compareToClaimant(readName, claimantName)
   if (!verdict) return null
+  if (verdict === 'mismatch' && inText === 'match') {
+    return { verdict: 'match', documentName: readName, claimantName, checkedAt }
+  }
   return { verdict, documentName: readName, claimantName, checkedAt }
+}
+
+/**
+ * True for a mismatch strong enough to hold a case or keep a file out of a
+ * demand: a document that names someone else, in a category where that is not
+ * expected. "Claimant not found in the text" is too dependent on OCR for that.
+ */
+export function isHardIdentityMismatch(
+  category: string | null | undefined,
+  check: IdentityCheck | null | undefined,
+): boolean {
+  return check?.verdict === 'mismatch' && check.reason !== 'claimant_not_named' && !isAdvisoryMismatchCategory(category)
 }
 
 /** Below this many letters OCR read too little to say who is or is not named. */

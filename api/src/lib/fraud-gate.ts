@@ -13,7 +13,7 @@
 
 import { prisma } from './prisma'
 import type { NormalizedCase } from './case-normalization'
-import { isAdvisoryMismatchCategory, parseIdentityCheck, type IdentityCheck } from './claimant-identity-check'
+import { isHardIdentityMismatch, parseIdentityCheck, type IdentityCheck } from './claimant-identity-check'
 import { isImageFile, photoForensics } from './evidence-forensics'
 
 export type FraudSeverity = 'low' | 'medium' | 'high'
@@ -117,9 +117,9 @@ export async function evaluateCaseFraud(input: FraudGateInput): Promise<FraudEva
   //    looked. That matters because extraction is not inert — bills and
   //    treatment dates off a stranger's record move this case's valuation.
   const identityMismatches = evidenceFiles
-    .filter((f) => !isAdvisoryMismatchCategory(f.category))
-    .map((f) => parseIdentityCheck(f.identityCheck))
-    .filter((check): check is IdentityCheck => check?.verdict === 'mismatch')
+    .map((f) => ({ category: f.category, check: parseIdentityCheck(f.identityCheck) }))
+    .filter(({ category, check }) => isHardIdentityMismatch(category, check))
+    .map(({ check }) => check as IdentityCheck)
 
   // Where an external identity-verification provider would report. Nothing
   // writes it today; it stays as the integration hook.

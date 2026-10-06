@@ -152,6 +152,28 @@ describe('the verdict stored against a processed document', () => {
     expect(prisma.assessment.findUnique).not.toHaveBeenCalled()
   })
 
+  it('falls back to the whole text when no name could be extracted', async () => {
+    onCase(assessment({}))
+    const result = await checkDocumentIdentity({
+      assessmentId: 'asm-1',
+      category: 'bills',
+      documentName: null,
+      documentText: 'CITYVIEW MEDICAL CENTER INVOICE. Visit type emergency. Amount due 50,000.00. Attending physician on file.',
+    })
+    expect(result).toMatchObject({ verdict: 'mismatch', reason: 'claimant_not_named', claimantName: 'Dana Reyes' })
+  })
+
+  it('overrules a misread name when the claimant is named elsewhere on the page', async () => {
+    onCase(assessment({}))
+    const result = await checkDocumentIdentity({
+      assessmentId: 'asm-1',
+      category: 'medical_records',
+      documentName: 'Visit Type',
+      documentText: 'Patient Name\n: Dana Reyes\nVisit Type\n: Emergency\nAttending physician: Dr. Robert Anderson',
+    })
+    expect(result?.verdict).toBe('match')
+  })
+
   const report = (names: string) =>
     `TRAFFIC COLLISION REPORT. Investigating officer: Peter Okafor. Driver 1: ${names}. Narrative: vehicle 1 failed to yield.`
 

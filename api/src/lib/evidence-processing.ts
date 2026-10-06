@@ -8,7 +8,7 @@ import { DetectDocumentTextCommand, TextractClient } from '@aws-sdk/client-textr
 import { prisma } from './prisma'
 import { logger } from './logger'
 import { runCaseRecalculation } from './case-recalculation'
-import { analyzeImageRelevance, shouldFlagForReview, type VisionRelevanceResult } from './evidence-vision'
+import { analyzeImageRelevance, judgeDocumentText, shouldFlagForReview, type VisionRelevanceResult } from './evidence-vision'
 import { checkDocumentIdentity } from './claimant-identity-check'
 
 type StructuredMedicalEvent = {
@@ -574,9 +574,10 @@ export function extractPatientName(ocrText: string): string | null {
     // "Patient Name: John A. Doe" / "Policyholder: John Doe"
     new RegExp(`${label}[ \\t]*[:\\-][ \\t]*${firstLast}`, 'i'),
     // Cards and OCR line output often put the label on its own line:
-    // "NAMED INSURED\nJOHN A DOE"
-    new RegExp(`^[ \\t]*${label}[ \\t]*[:\\-]?[ \\t]*\\r?\\n[ \\t]*${lastFirst}[ \\t]*$`, 'im'),
-    new RegExp(`^[ \\t]*${label}[ \\t]*[:\\-]?[ \\t]*\\r?\\n[ \\t]*${firstLast}[ \\t]*$`, 'im'),
+    // "NAMED INSURED\nJOHN A DOE". Textract also splits a printed
+    // "Patient Name : John Doe" into "Patient Name\n: John Doe".
+    new RegExp(`^[ \\t]*${label}[ \\t]*[:\\-]?[ \\t]*\\r?\\n[ \\t]*(?:[:\\-][ \\t]*)?${lastFirst}[ \\t]*$`, 'im'),
+    new RegExp(`^[ \\t]*${label}[ \\t]*[:\\-]?[ \\t]*\\r?\\n[ \\t]*(?:[:\\-][ \\t]*)?${firstLast}[ \\t]*$`, 'im'),
   ]
   for (const re of patterns) {
     const m = re.exec(ocrText)
@@ -600,9 +601,12 @@ function nameAfterStandaloneLabel(ocrText: string, label: string): string | null
   const standalone = new RegExp(`^${label}[ \\t]*[:\\-]?$`, 'i')
   const start = lines.findIndex((line) => standalone.test(line))
   if (start < 0) return null
-  for (const line of lines.slice(start + 1, start + 16)) {
+  for (let i = start + 1; i < Math.min(lines.length, start + 16); i += 1) {
+    const line = lines[i]
     if (!line || /[:\d$]/.test(line)) continue
     if (!/^[A-Za-z][A-Za-z'’.,\- ]+$/.test(line)) continue
+    // A line whose value follows as ": value" is another label ("Visit Type").
+    if (/^[:\-]/.test(lines[i + 1] || '')) continue
     const cleaned = normalizePersonName(line)
     if (cleaned) return cleaned
   }
@@ -919,6 +923,10 @@ export async function processEvidenceFileForExtraction(fileId: string) {
         filePath: resolvedPath,
         mimetype: mime,
       })
+    }
+    // A video's verdict is about the file type, which no text can overrule.
+    if (visionResult?.status !== 'mismatch' || !mime.startsWith('video/')) {
+      visionResult = judgeDocumentText(evidenceFile.category, ocrText, visionResult) ?? visionResult
     }
     const visionFlag = visionResult ? shouldFlagForReview(visionResult) : false
     const nextCategory = promotedCategory(evidenceFile.category, evidenceFile.uploadMethod, aiClassification, evidenceFile.subcategory)

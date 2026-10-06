@@ -8,6 +8,7 @@ import { nameTokens, storedPlaintiffName } from '../lib/documentNameCheck'
 import { createAssessment, predict, uploadEvidenceFile, processEvidenceFile, extractEvidenceData, analyzeCaseWithChatGPT, calculateSOL, createIntakeLead, updateIntakeLead, getIntakeLead, getEvidenceFiles, lookupZipCounties, checkContactDuplicates, type ContactDuplicateCheck, type IntakeLeadPayload } from '../lib/api-plaintiff'
 import {
   deleteEvidenceFile,
+  updateEvidenceFile,
   extractIncidentDetails,
   getPlaintiffDocumentRequests,
   type IncidentExtraction,
@@ -1124,6 +1125,7 @@ export default function IntakeWizardQuick() {
   const confirmedIntakeContactRef = useRef<string | null>(null)
   const [contactMethod, setContactMethod] = useState<'email' | 'phone'>('email')
   const [pendingEvidenceFiles, setPendingEvidenceFiles] = useState<Record<string, any[]>>({})
+  const [evidenceReloadToken, setEvidenceReloadToken] = useState(0)
   // "Send documents" flow for the plaintiff document-upload page (CP-499).
   const [docsSent, setDocsSent] = useState(false)
   // When deep-linked with ?focus=, start on that category; plaintiff can expand.
@@ -2542,6 +2544,17 @@ export default function IntakeWizardQuick() {
   /** Relocate a queued file flagged as the wrong type (e.g. a video dropped on Photos) to a better-fit category. */
   const handleMoveEvidence = (fromCategory: string, toCategory: string, fileName: string) => {
     const subcategoryByCategory: Record<string, string> = { video: 'incident_video', photos: 'injury_photos' }
+    const fromFiles = Array.isArray(pendingEvidenceFiles[fromCategory]) ? pendingEvidenceFiles[fromCategory] : []
+    const persisted = fromFiles.find((f: any) => (f?.originalName || f?.filename || f?.name) === fileName)
+    // Each row lists its category from the server, so a saved file has to move there too.
+    if (persisted?.id && !String(persisted.id).startsWith('temp_')) {
+      void updateEvidenceFile(persisted.id, {
+        category: toCategory,
+        subcategory: subcategoryByCategory[toCategory] || persisted.subcategory,
+      })
+        .then(() => setEvidenceReloadToken((n) => n + 1))
+        .catch(() => {})
+    }
     setPendingEvidenceFiles(prev => {
       const fromList = Array.isArray(prev[fromCategory]) ? prev[fromCategory] : []
       const moving = fromList.find(f => (f?.originalName || f?.filename || f?.name) === fileName)
@@ -6121,6 +6134,7 @@ export default function IntakeWizardQuick() {
                         subcategory={item.subcategory}
                         description={item.title}
                         initialFiles={pendingEvidenceFiles[item.category] || []}
+                        reloadToken={evidenceReloadToken}
                         compact
                         tightChrome
                         hideCameraButton
