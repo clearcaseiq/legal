@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { CheckCircle, ChevronDown, ChevronRight, CircleDollarSign, Clock, Download, FileText, MessageCircle, Plus, Scale, TrendingUp, Upload, Users } from 'lucide-react'
+import { AlertTriangle, CheckCircle, ChevronDown, ChevronRight, CircleDollarSign, Clock, Download, FileText, MessageCircle, Plus, Scale, TrendingUp, Upload, Users } from 'lucide-react'
 import { formatCurrency } from '../lib/formatters'
 import { linkify } from '../lib/linkify'
 import { useLanguage } from '../contexts/LanguageContext'
@@ -22,6 +22,24 @@ type PlaintiffEvidenceFile = {
   createdAt?: string
   size?: number
   processingStatus?: string
+  /** The API's stored `IdentityCheck`, as JSON. */
+  identityCheck?: string | null
+}
+
+/**
+ * Names on an insurance document that the server found share nothing with the
+ * claimant's. Shown on whichever screen the file came in through, since the
+ * check runs once on every processed upload.
+ */
+function insuranceNameMismatch(file: PlaintiffEvidenceFile): { name: string; claimant: string } | null {
+  if (file.category !== 'insurance_letters' || !file.identityCheck) return null
+  try {
+    const check = JSON.parse(file.identityCheck) as { verdict?: string; documentName?: string; claimantName?: string }
+    if (check?.verdict !== 'mismatch' || !check.documentName || !check.claimantName) return null
+    return { name: check.documentName, claimant: check.claimantName }
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -1115,6 +1133,15 @@ export default function PlaintiffDashboardDeferredTabPanel({
                               ? ` • ${new Date(file.createdAt).toLocaleDateString(locale)}`
                               : ''}
                           </p>
+                          {(() => {
+                            const mismatch = insuranceNameMismatch(file)
+                            return mismatch ? (
+                              <p className="mt-1.5 flex items-start gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5 text-xs text-amber-800">
+                                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+                                <span>{t('plaintiffDashboard.insuranceCard.nameMismatch', mismatch)}</span>
+                              </p>
+                            ) : null
+                          })()}
                           {file.fileUrl ? (
                             <button
                               type="button"

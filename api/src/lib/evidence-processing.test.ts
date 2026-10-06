@@ -21,6 +21,30 @@ describe('extractPatientName on insurance cards', () => {
     expect(extractPatientName('Patient Name: John A. Doe')).toBe('John Doe')
     expect(extractPatientName('Patient: Doe, John')).toBe('John Doe')
   })
+
+  it('finds the name when OCR emits every label before any value', () => {
+    const columnOrder = [
+      'DEMO AUTO INSURANCE',
+      'FICTIONAL INSURANCE CARD',
+      'Insured:',
+      'Policy number:',
+      'Effective date:',
+      'Expiration date:',
+      'Vehicle:',
+      'Bodily injury liability',
+      'Mike Misfit',
+      'TEST-MM-000456',
+      'October 1, 2026',
+      '2021 Honda Accord',
+    ].join('\n')
+    expect(extractPatientName(columnOrder)).toBe('Mike Misfit')
+  })
+
+  it('skips a watermark line between the label and the name', () => {
+    expect(extractPatientName('Insured:\nSAMPLE - NOT VALID\nAlex Morgan\nPolicy number:\nTEST-AUTO-000123')).toBe(
+      'Alex Morgan',
+    )
+  })
 })
 
 describe('evidence-processing', () => {

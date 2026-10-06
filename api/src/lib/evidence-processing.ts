@@ -548,6 +548,10 @@ const NAME_STOPWORDS = new Set([
   'subscriber', 'policy', 'group', 'id', 'mr', 'mrs', 'ms', 'dr', 'the', 'of', 'and',
   'named', 'primary', 'holder', 'policyholder', 'driver', 'drivers', 'vehicle', 'auto',
   'insurance', 'card', 'company', 'effective', 'expiration', 'year', 'make', 'model', 'vin',
+  'bodily', 'injury', 'liability', 'property', 'damage', 'coverage', 'claims', 'claim',
+  'agent', 'agency', 'mutual', 'casualty', 'underwriter', 'expires', 'issued',
+  // Watermark and specimen stamps that OCR reads as a free-standing line.
+  'sample', 'specimen', 'void', 'not', 'valid', 'copy', 'demo', 'fictional', 'test', 'only',
 ])
 
 /**
@@ -580,6 +584,27 @@ export function extractPatientName(ocrText: string): string | null {
       const cleaned = normalizePersonName(m[1])
       if (cleaned) return cleaned
     }
+  }
+  return nameAfterStandaloneLabel(ocrText, label)
+}
+
+/**
+ * Two-column cards defeat the patterns above when OCR emits every label before
+ * any value ("Insured:\nPolicy number:\n…\nAlex Morgan\nTEST-123"), or when a
+ * watermark line lands between label and value. The person's name is then the
+ * first name-shaped line after the label, skipping other labels, lines carrying
+ * digits (policy numbers, dates, VINs, money) and watermarks.
+ */
+function nameAfterStandaloneLabel(ocrText: string, label: string): string | null {
+  const lines = ocrText.split(/\r?\n/).map((line) => line.trim())
+  const standalone = new RegExp(`^${label}[ \\t]*[:\\-]?$`, 'i')
+  const start = lines.findIndex((line) => standalone.test(line))
+  if (start < 0) return null
+  for (const line of lines.slice(start + 1, start + 16)) {
+    if (!line || /[:\d$]/.test(line)) continue
+    if (!/^[A-Za-z][A-Za-z'’.,\- ]+$/.test(line)) continue
+    const cleaned = normalizePersonName(line)
+    if (cleaned) return cleaned
   }
   return null
 }
