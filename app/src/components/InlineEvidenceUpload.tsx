@@ -79,6 +79,13 @@ function uploadErrorMessage(error: any, fallbackPrefix: string): string {
 
 /** Hard client-side type guard so a category that expects one kind of file can't
  * accept the wrong one (e.g. a PDF/video dropped into Photos) (#21). */
+function isVideoFile(file: File): boolean {
+  return (
+    file.type.startsWith('video/') ||
+    (!file.type && /\.(mp4|mov|avi|wmv|mkv|webm|m4v|3gp|flv|mpe?g|ogv)$/i.test(file.name || ''))
+  )
+}
+
 function isAllowedForCategory(file: File, category?: string): boolean {
   const name = file.name || ''
   const isImage =
@@ -141,13 +148,22 @@ interface EvidenceFile {
 
 const INSURANCE_NAME_CATEGORIES = new Set(['insurance_letters', 'dec_page'])
 
-/** The two names behind a server `mismatch` verdict, or null when there is none. */
-function identityMismatch(file: EvidenceFile | undefined): { name: string; other: string } | null {
+/** The names behind a server `mismatch` verdict, or null when there is none. */
+function identityMismatch(
+  file: EvidenceFile | undefined,
+): { name: string; other: string; notNamed: boolean } | null {
   if (!file?.identityCheck) return null
   try {
-    const check = JSON.parse(file.identityCheck) as { verdict?: string; documentName?: string; claimantName?: string }
-    if (check?.verdict !== 'mismatch' || !check.documentName || !check.claimantName) return null
-    return { name: check.documentName, other: check.claimantName }
+    const check = JSON.parse(file.identityCheck) as {
+      verdict?: string
+      documentName?: string
+      claimantName?: string
+      reason?: string
+    }
+    if (check?.verdict !== 'mismatch' || !check.claimantName) return null
+    const notNamed = check.reason === 'claimant_not_named'
+    if (!notNamed && !check.documentName) return null
+    return { name: check.documentName || '', other: check.claimantName, notNamed }
   } catch {
     return null
   }
@@ -386,6 +402,35 @@ export default function InlineEvidenceUpload({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visionWarnings])
 
+  // A video only belongs in the dedicated "video" section. Anywhere else
+  // (police report, medical records, bills, etc.) it's almost certainly the
+  // wrong kind of file, so surface a non-blocking mismatch warning and offer
+  // a one-tap move to the Videos section when the parent supports it.
+  const warnVideoOutsideVideos = useCallback((fileName: string) => {
+    if (!category || category === 'video') return
+    const canMove = typeof onMoveMismatch === 'function'
+    setVisionWarnings((prev) => [
+      ...prev.filter((w) => w.fileName !== fileName),
+      {
+        fileName,
+        status: 'mismatch',
+        title: `${fileName} looks like a video.`,
+        message: canMove
+          ? 'Move it to Videos for the right place?'
+          : 'Videos belong in the Videos section.',
+        action: canMove
+          ? {
+              label: 'Move to Videos',
+              onClick: () => {
+                onMoveMismatch?.(fileName, 'video')
+                dismissVisionWarning(fileName)
+              },
+            }
+          : undefined,
+      },
+    ])
+  }, [category, onMoveMismatch, dismissVisionWarning])
+
   const runVisionPrecheck = useCallback(async (file: File) => {
     // Some browsers (notably on Windows) report an empty MIME type for picked
     // images, so fall back to the file extension before skipping the check.
@@ -393,38 +438,9 @@ export default function InlineEvidenceUpload({
       file.type.startsWith('image/') ||
       (!file.type && /\.(jpe?g|png|gif|bmp|webp|heic|heif|tiff?)$/i.test(file.name))
     const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name)
-    const isVideo =
-      file.type.startsWith('video/') ||
-      (!file.type && /\.(mp4|mov|avi|wmv|mkv|webm|m4v|3gp|flv|mpe?g|ogv)$/i.test(file.name))
 
-    // A video only belongs in the dedicated "video" section. Anywhere else
-    // (police report, medical records, bills, etc.) it's almost certainly the
-    // wrong kind of file, so surface a non-blocking mismatch warning and offer
-    // a one-tap move to the Videos section when the parent supports it.
-    if (isVideo) {
-      if (category && category !== 'video') {
-        const canMove = typeof onMoveMismatch === 'function'
-        setVisionWarnings((prev) => [
-          ...prev.filter((w) => w.fileName !== file.name),
-          {
-            fileName: file.name,
-            status: 'mismatch',
-            title: `${file.name} looks like a video.`,
-            message: canMove
-              ? 'Move it to Videos for the right place?'
-              : 'Videos belong in the Videos section.',
-            action: canMove
-              ? {
-                  label: 'Move to Videos',
-                  onClick: () => {
-                    onMoveMismatch?.(file.name, 'video')
-                    dismissVisionWarning(file.name)
-                  },
-                }
-              : undefined,
-          },
-        ])
-      }
+    if (isVideoFile(file)) {
+      warnVideoOutsideVideos(file.name)
       return
     }
 
@@ -438,7 +454,7 @@ export default function InlineEvidenceUpload({
     } catch {
       // Non-blocking: relevance pre-check failures never interrupt the upload.
     }
-  }, [category, addVisionWarning, dismissVisionWarning, onMoveMismatch])
+  }, [category, addVisionWarning, warnVideoOutsideVideos])
 
   useEffect(() => {
     if (files.length === 0) {
@@ -561,6 +577,7 @@ export default function InlineEvidenceUpload({
       prependFiles([uploadedFile])
       flashUploadSuccess(1)
       addVisionWarning(uploadedFile.originalName || file.name, uploadedFile.vision)
+      if (isVideoFile(file)) warnVideoOutsideVideos(uploadedFile.originalName || file.name)
       
       // Auto-process the file
       await processFile(uploadedFile.id)
@@ -599,12 +616,14 @@ export default function InlineEvidenceUpload({
       const mismatch = identityMismatch(processed)
       if (processed && mismatch) {
         const fileName = processed.originalName || processed.filename
-        const key = INSURANCE_NAME_CATEGORIES.has(processed.category)
-          ? 'intake.evidence_insuranceNameMismatch'
-          : 'intake.evidence_nameMismatch'
+        const key = mismatch.notNamed
+          ? 'intake.evidence_claimantNotNamed'
+          : INSURANCE_NAME_CATEGORIES.has(processed.category)
+            ? 'intake.evidence_insuranceNameMismatch'
+            : 'intake.evidence_nameMismatch'
         setVisionWarnings((prev) => [
           ...prev.filter((w) => w.fileName !== fileName),
-          { fileName, status: 'name_mismatch', message: t(key, mismatch) },
+          { fileName, status: 'name_mismatch', message: t(key, { name: mismatch.name, other: mismatch.other }) },
         ])
       }
     } catch (error) {
@@ -808,7 +827,9 @@ export default function InlineEvidenceUpload({
       flashUploadSuccess((result.files || []).length || fileList.length)
 
       for (const file of (result.files || [])) {
-        addVisionWarning(file.originalName || file.filename, file.vision)
+        const name = file.originalName || file.filename
+        addVisionWarning(name, file.vision)
+        if (String(file.mimetype || '').startsWith('video/')) warnVideoOutsideVideos(name)
       }
 
       for (const file of result.files) {

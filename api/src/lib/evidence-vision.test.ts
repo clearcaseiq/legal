@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { assessRelevance, isDocumentCategory, type DetectedLabel } from './evidence-vision'
+import {
+  analyzeVideoRelevance,
+  assessDocumentText,
+  assessRelevance,
+  isDocumentCategory,
+  type DetectedLabel,
+} from './evidence-vision'
 
 /**
  * The upload step offers nine tiles, and the relevance checker keeps its own idea of
@@ -65,5 +71,63 @@ describe('witness statements', () => {
     const result = assessRelevance('witness_statements', [label('dessert'), label('food')])
     expect(result.status).toBe('mismatch')
     expect(result.message).toContain('a witness statement')
+  })
+})
+
+describe('a video filed under a document section', () => {
+  it.each(DOCUMENT_UPLOAD_CATEGORIES)('is a mismatch for %s without looking at its frames', async (category) => {
+    const result = await analyzeVideoRelevance({ category, filePath: '/nonexistent/clip.mp4' })
+    expect(result.status).toBe('mismatch')
+    expect(result.message).toContain('Videos belong in the Videos section')
+  })
+})
+
+describe('medical bills', () => {
+  const base = {
+    category: 'bills',
+    topLabels: [],
+    expected: 'a medical bill or invoice',
+    provider: 'aws_rekognition' as const,
+    checkedAt: '2026-10-06T00:00:00.000Z',
+  }
+  const judge = (text: string) => assessDocumentText('bills', text, base)
+
+  it('rejects a law firm retainer invoice', () => {
+    const result = judge(
+      'Smith & Lee LLP INVOICE. Retainer for legal services. Hourly rate $350. Amount due $5,000. ' +
+        'Payment due date 10/30/2026. Deposited to client trust account.',
+    )
+    expect(result?.status).toBe('mismatch')
+    expect(result?.message).toContain('legal or attorney fee document')
+  })
+
+  it('rejects a personal injury retainer agreement even though it mentions medical bills', () => {
+    const result = judge(
+      'CONTINGENCY FEE AGREEMENT. Client retains attorney for legal representation of injury claim. ' +
+        'Attorney fees 33% of total recovery. Medical bills and liens are paid from the settlement balance.',
+    )
+    expect(result?.status).toBe('mismatch')
+  })
+
+  it('accepts a provider bill', () => {
+    const result = judge(
+      'Valley Orthopedic Clinic STATEMENT. Patient: Dana Reyes. Date of service 03/02/2026. ' +
+        'CPT 99213 office visit $180.00. Amount due $180.00.',
+    )
+    expect(result?.status).toBe('relevant')
+  })
+
+  it("accepts a lien bill that names the client's attorney", () => {
+    const result = judge(
+      'Spine Care Medical Group INVOICE. Patient: Dana Reyes. Attorney: Smith & Lee LLP, letter of protection. ' +
+        'Date of service 04/11/2026. Physical therapy. Balance due $2,400.',
+    )
+    expect(result?.status).toBe('relevant')
+  })
+
+  it('warns on an invoice with nothing medical on it', () => {
+    const result = judge('ACME ROOFING INVOICE. Account number 4471. Amount due $3,200. Due date 11/01/2026. Total $3,200.')
+    expect(result?.status).toBe('review')
+    expect(result?.message).toContain('nothing on it is medical')
   })
 })

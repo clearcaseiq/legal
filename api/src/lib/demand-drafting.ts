@@ -32,7 +32,7 @@ import {
 } from './super-demand'
 import { getLiabilityRecord } from './liability-record'
 import { getMedicalTimeline } from './medical-record'
-import { parseIdentityCheck } from './claimant-identity-check'
+import { isAdvisoryMismatchCategory, parseIdentityCheck } from './claimant-identity-check'
 import { plaintiffNameOf } from './case-name'
 import { isCustomRequestKey, requestedDocLabel } from './document-request-status'
 
@@ -175,7 +175,9 @@ export function buildDemandExhibits(
     .map((file) => ({ file, section: exhibitSectionForFile(file) }))
     // A document naming someone other than the client must not go to an adjuster.
     .filter((row): row is { file: (typeof files)[number]; section: ExhibitSection } =>
-      row.section !== null && parseIdentityCheck(row.file.identityCheck ?? null)?.verdict !== 'mismatch',
+      row.section !== null &&
+      (isAdvisoryMismatchCategory(row.file.category) ||
+        parseIdentityCheck(row.file.identityCheck ?? null)?.verdict !== 'mismatch'),
     )
     .sort((a, b) => {
       const bySection = SECTION_ORDER.indexOf(a.section) - SECTION_ORDER.indexOf(b.section)

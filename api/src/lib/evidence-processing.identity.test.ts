@@ -132,10 +132,10 @@ describe('a document naming the claimant', () => {
 })
 
 describe('a document nothing can be concluded about', () => {
-  it('stores no verdict for a category that names several people', async () => {
+  it('stores no verdict for correspondence, which names whoever wrote or received it', async () => {
     writeDocument('Peter Okafor')
     caseBelongsToDanaReyes()
-    evidenceRow({ category: 'police_report' })
+    evidenceRow({ category: 'correspondence' })
 
     await processEvidenceFileForExtraction('ev-1')
 

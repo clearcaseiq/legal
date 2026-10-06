@@ -2272,6 +2272,7 @@
     "evidence_topItemTip": "上传您的{item}最多可将律师审查准备度提高 {percent}。它能为律师提供更有力的证据来评估您的案件。",
     "evidence_nameMismatch": "此文件上的姓名（{name}）与您其他记录上的姓名（{other}）不一致。请确认它属于您，或将其删除。",
     "evidence_insuranceNameMismatch": "此保险文件上的姓名（{name}）与您的姓名（{other}）不一致。如果保单在家庭成员名下，这没有问题；否则请确认文件是否正确。",
+    "evidence_claimantNotNamed": "我们在此文件中找不到您的姓名（{other}）。请确认这是与您的事故相关的文件。",
     "injuredParty_label": "受伤的是：",
     "injuredParty_heading": "受伤的是",
     "injuredParty_helper": "请告诉我们谁受伤了，以便我们据此调整授权、时限和律师匹配。",

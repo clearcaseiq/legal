@@ -140,16 +140,52 @@ describe('the verdict stored against a processed document', () => {
     expect(result?.verdict).toBe('match')
   })
 
-  it('skips categories that legitimately name more than one person', async () => {
+  it('skips correspondence, which names whoever wrote or received it', async () => {
     onCase(assessment({}))
     await expect(
       checkDocumentIdentity({
         assessmentId: 'asm-1',
-        category: 'police_report',
+        category: 'correspondence',
         documentName: 'Peter Okafor',
       }),
     ).resolves.toBeNull()
     expect(prisma.assessment.findUnique).not.toHaveBeenCalled()
+  })
+
+  const report = (names: string) =>
+    `TRAFFIC COLLISION REPORT. Investigating officer: Peter Okafor. Driver 1: ${names}. Narrative: vehicle 1 failed to yield.`
+
+  it('passes a police report that names the claimant anywhere, among other people', async () => {
+    onCase(assessment({}))
+    const result = await checkDocumentIdentity({
+      assessmentId: 'asm-1',
+      category: 'police_report',
+      documentName: 'Peter Okafor',
+      documentText: report('REYES, DANA M'),
+    })
+    expect(result?.verdict).toBe('match')
+  })
+
+  it('flags a police report that never mentions the claimant', async () => {
+    onCase(assessment({}))
+    const result = await checkDocumentIdentity({
+      assessmentId: 'asm-1',
+      category: 'witness_statements',
+      documentName: 'John Michael Doe',
+      documentText: report('John Michael Doe'),
+    })
+    expect(result).toMatchObject({ verdict: 'mismatch', reason: 'claimant_not_named', claimantName: 'Dana Reyes' })
+  })
+
+  it('leaves a report OCR barely read as unverified', async () => {
+    onCase(assessment({}))
+    const result = await checkDocumentIdentity({
+      assessmentId: 'asm-1',
+      category: 'police_report',
+      documentName: null,
+      documentText: 'REPORT 12',
+    })
+    expect(result).toMatchObject({ verdict: 'unverified', reason: 'no_document_name' })
   })
 
   it('records a document with no readable name as unverified, not as a pass', async () => {

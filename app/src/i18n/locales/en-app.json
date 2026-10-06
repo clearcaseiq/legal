@@ -1311,6 +1311,7 @@
     "evidence_topItemTip": "Uploading your {item} can raise your Attorney Review Readiness by up to {percent}. It gives attorneys stronger proof to evaluate your case.",
     "evidence_nameMismatch": "This document lists a different name ({name}) than your other records ({other}). Confirm it belongs to you, or remove it.",
     "evidence_insuranceNameMismatch": "The name on this insurance document ({name}) doesn't match yours ({other}). That's fine if the policy is in a family member's name. Otherwise, check it's the right document.",
+    "evidence_claimantNotNamed": "We couldn't find your name ({other}) anywhere in this document. Check it's the one for your incident.",
     "injuredParty_label": "This happened to:",
     "injuredParty_heading": "This happened to",
     "injuredParty_helper": "Tell us who was injured so we can tailor consent, deadlines, and attorney matching.",

@@ -51,13 +51,16 @@ export type IdentityVerdict = 'match' | 'mismatch' | 'unverified'
 
 export type UnverifiedReason = 'no_document_name' | 'no_claimant_name'
 
+/** Set on a `mismatch` from a whole-text check: the claimant appears nowhere in it. */
+export type MismatchReason = 'claimant_not_named'
+
 export interface IdentityCheck {
   verdict: IdentityVerdict
   /** The person the document names, as OCR read them. Empty when unreadable. */
   documentName: string
   /** The claimant the case belongs to. Empty when the case has none. */
   claimantName: string
-  reason?: UnverifiedReason
+  reason?: UnverifiedReason | MismatchReason
   checkedAt: string
 }
 
@@ -68,7 +71,8 @@ export interface IdentityCheck {
  * Police reports and correspondence are excluded because they legitimately name
  * several people — the other driver, a witness, an adjuster — and
  * `extractPatientName` has no way to tell which capture is the subject. Checking
- * them would produce mismatches that are not errors.
+ * them would produce mismatches that are not errors. Police reports and witness
+ * statements get the whole-text check in `NAME_PRESENCE_CATEGORIES` instead.
  */
 export const IDENTITY_CHECKED_CATEGORIES = new Set([
   'medical_records',
@@ -84,6 +88,23 @@ export const IDENTITY_CHECKED_CATEGORIES = new Set([
  * warning but never count toward a fraud hold.
  */
 export const FAMILY_POLICY_CATEGORIES = new Set(['insurance_letters', 'dec_page'])
+
+/**
+ * Categories that name several people, so no single extracted name is the
+ * subject. Instead the whole text is searched: a report about this claimant
+ * names them somewhere, and one that never does is probably someone else's.
+ */
+export const NAME_PRESENCE_CATEGORIES = new Set(['police_report', 'witness_statements'])
+
+/**
+ * A mismatch the claimant should hear about but that is not evidence of a
+ * wrong person: a household policy, or a report OCR may simply have misread.
+ * These never hold the case or drop the file from a demand.
+ */
+export function isAdvisoryMismatchCategory(category: string | null | undefined): boolean {
+  const c = String(category || '')
+  return FAMILY_POLICY_CATEGORIES.has(c) || NAME_PRESENCE_CATEGORIES.has(c)
+}
 
 /**
  * Honorifics, credentials and generational suffixes, which are shared by
@@ -186,9 +207,14 @@ export async function checkDocumentIdentity(params: {
   assessmentId: string | null
   category: string
   documentName: string | null | undefined
+  /** Full OCR text; required for the whole-text categories. */
+  documentText?: string | null
 }): Promise<IdentityCheck | null> {
-  const { assessmentId, category, documentName } = params
+  const { assessmentId, category, documentName, documentText } = params
   if (!assessmentId) return null
+  if (NAME_PRESENCE_CATEGORIES.has(category)) {
+    return checkClaimantNamedInText(assessmentId, documentText, documentName)
+  }
   if (!IDENTITY_CHECKED_CATEGORIES.has(category)) return null
 
   const checkedAt = new Date().toISOString()
@@ -207,6 +233,44 @@ export async function checkDocumentIdentity(params: {
   const verdict = compareToClaimant(readName, claimantName)
   if (!verdict) return null
   return { verdict, documentName: readName, claimantName, checkedAt }
+}
+
+/** Below this many letters OCR read too little to say who is or is not named. */
+const MIN_PRESENCE_TEXT_CHARS = 25
+
+/**
+ * Pure core of the whole-text check. Same lax rule as `compareToClaimant`: one
+ * shared name token anywhere in the text counts as named.
+ */
+export function claimantNamedInText(
+  text: string | null | undefined,
+  claimantName: string | null | undefined,
+): IdentityVerdict | null {
+  const claimantTokens = nameTokens(claimantName)
+  if (claimantTokens.length === 0) return null
+  if (String(text ?? '').replace(/[^a-z]/gi, '').length < MIN_PRESENCE_TEXT_CHARS) return null
+  const textTokens = new Set(nameTokens(text))
+  return claimantTokens.some((token) => textTokens.has(token)) ? 'match' : 'mismatch'
+}
+
+async function checkClaimantNamedInText(
+  assessmentId: string,
+  documentText: string | null | undefined,
+  documentName: string | null | undefined,
+): Promise<IdentityCheck> {
+  const checkedAt = new Date().toISOString()
+  const claimantName = await claimantNameForAssessment(assessmentId)
+  const readName = nameTokens(documentName).length > 0 ? String(documentName).trim() : ''
+  if (!claimantName) {
+    return { verdict: 'unverified', documentName: readName, claimantName: '', reason: 'no_claimant_name', checkedAt }
+  }
+  const verdict = claimantNamedInText(documentText, claimantName)
+  if (!verdict) {
+    return { verdict: 'unverified', documentName: readName, claimantName, reason: 'no_document_name', checkedAt }
+  }
+  return verdict === 'mismatch'
+    ? { verdict, documentName: readName, claimantName, reason: 'claimant_not_named', checkedAt }
+    : { verdict, documentName: readName, claimantName, checkedAt }
 }
 
 /** Reads the column back, tolerating the null and the unparseable. */

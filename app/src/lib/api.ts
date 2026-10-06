@@ -2323,7 +2323,7 @@ export interface DocumentIdentityCheck {
   verdict: 'match' | 'mismatch' | 'unverified'
   documentName: string
   claimantName: string
-  reason?: 'no_document_name' | 'no_claimant_name'
+  reason?: 'no_document_name' | 'no_claimant_name' | 'claimant_not_named'
   checkedAt: string
 }
 

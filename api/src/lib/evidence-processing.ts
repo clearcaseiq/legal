@@ -931,6 +931,7 @@ export async function processEvidenceFileForExtraction(fileId: string) {
       assessmentId: evidenceFile.assessmentId,
       category: nextCategory || evidenceFile.category,
       documentName: extractedData.patientName,
+      documentText: ocrText,
     })
 
     const manualReview =

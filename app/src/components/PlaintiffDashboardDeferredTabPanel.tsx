@@ -31,12 +31,21 @@ type PlaintiffEvidenceFile = {
  * claimant's. Shown on whichever screen the file came in through, since the
  * check runs once on every processed upload.
  */
-function insuranceNameMismatch(file: PlaintiffEvidenceFile): { name: string; claimant: string } | null {
-  if ((file.category !== 'insurance_letters' && file.category !== 'dec_page') || !file.identityCheck) return null
+function documentNameWarning(file: PlaintiffEvidenceFile, t: (key: string, params?: Record<string, string>) => string): string | null {
+  if (!file.identityCheck) return null
   try {
-    const check = JSON.parse(file.identityCheck) as { verdict?: string; documentName?: string; claimantName?: string }
-    if (check?.verdict !== 'mismatch' || !check.documentName || !check.claimantName) return null
-    return { name: check.documentName, claimant: check.claimantName }
+    const check = JSON.parse(file.identityCheck) as {
+      verdict?: string
+      documentName?: string
+      claimantName?: string
+      reason?: string
+    }
+    if (check?.verdict !== 'mismatch' || !check.claimantName) return null
+    if (check.reason === 'claimant_not_named') {
+      return t('intake.evidence_claimantNotNamed', { other: check.claimantName })
+    }
+    if ((file.category !== 'insurance_letters' && file.category !== 'dec_page') || !check.documentName) return null
+    return t('plaintiffDashboard.insuranceCard.nameMismatch', { name: check.documentName, claimant: check.claimantName })
   } catch {
     return null
   }
@@ -1134,11 +1143,11 @@ export default function PlaintiffDashboardDeferredTabPanel({
                               : ''}
                           </p>
                           {(() => {
-                            const mismatch = insuranceNameMismatch(file)
-                            return mismatch ? (
+                            const warning = documentNameWarning(file, t)
+                            return warning ? (
                               <p className="mt-1.5 flex items-start gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5 text-xs text-amber-800">
                                 <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-                                <span>{t('plaintiffDashboard.insuranceCard.nameMismatch', mismatch)}</span>
+                                <span>{warning}</span>
                               </p>
                             ) : null
                           })()}

@@ -2272,6 +2272,7 @@
     "evidence_topItemTip": "Subir su {item} puede aumentar su Preparación para la Revisión del Abogado hasta {percent}. Ofrece a los abogados una prueba más sólida para evaluar su caso.",
     "evidence_nameMismatch": "Este documento indica un nombre distinto ({name}) al de sus otros registros ({other}). Confirme que le pertenece o elimínelo.",
     "evidence_insuranceNameMismatch": "El nombre en este documento de seguro ({name}) no coincide con el suyo ({other}). No hay problema si la póliza está a nombre de un familiar. Si no, verifique que sea el documento correcto.",
+    "evidence_claimantNotNamed": "No encontramos su nombre ({other}) en ninguna parte de este documento. Verifique que sea el de su incidente.",
     "injuredParty_label": "Esto le ocurrió a:",
     "injuredParty_heading": "Esto le ocurrió a",
     "injuredParty_helper": "Díganos quién resultó herido para adaptar el consentimiento, los plazos y la asignación de abogados.",

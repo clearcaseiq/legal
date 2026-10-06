@@ -155,7 +155,15 @@ const CATEGORY_EXPECTATION: Record<string, string> = {
 // anything specific. Such a category can still verify its own uploads, but is excluded
 // from the competitor comparison below: "dear" and "sincerely" appear in a genuine
 // insurance letter too, and that is no reason to accuse one of being the other.
-const DOCUMENT_CATEGORY_TERMS: Record<string, { label: string; terms: string[]; broad?: boolean }> = {
+//
+// `requires` is for a category whose own vocabulary is shared with documents that
+// do not belong: "invoice", "amount due" and "balance" are on a lawyer's bill too.
+// Enough `terms` alone then only says what kind of paper it is; at least one of
+// `requires` must also appear before it counts as relevant.
+const DOCUMENT_CATEGORY_TERMS: Record<
+  string,
+  { label: string; terms: string[]; broad?: boolean; requires?: { terms: string[]; missing: string } }
+> = {
   police_report: {
     label: 'police report',
     terms: [
@@ -192,6 +200,16 @@ const DOCUMENT_CATEGORY_TERMS: Record<string, { label: string; terms: string[]; 
       'payment', 'account number', 'billing', 'due date', 'subtotal', 'tax', 'patient responsibility',
       'cpt', 'hcpcs', 'amount', 'total', 'balance', 'pay this amount', 'remit',
     ],
+    requires: {
+      terms: [
+        'patient', 'cpt', 'hcpcs', 'icd', 'diagnosis', 'date of service', 'dates of service',
+        'provider', 'npi', 'physician', 'doctor', 'hospital', 'clinic', 'medical', 'health',
+        'therapy', 'chiropract', 'radiology', 'imaging', 'emergency', 'urgent care', 'ambulance',
+        'procedure', 'pharmacy', 'prescription', 'surgery', 'surgical', 'treatment', 'dental',
+        'orthopedic', 'explanation of benefits', 'copay', 'co-pay', 'office visit', 'x-ray', 'mri',
+      ],
+      missing: 'This looks like a bill, but nothing on it is medical (a provider, patient, or treatment).',
+    },
   },
   insurance_letters: {
     label: 'insurance letter',
@@ -249,6 +267,17 @@ const NON_EVIDENCE_DOC_TERMS = [
   'proficient in', 'cover letter', 'gpa', 'extracurricular', 'volunteer experience',
   'linkedin.com/in', 'portfolio', 'achievements', 'certifications', 'bachelor of', 'master of',
   'newsletter', 'unsubscribe', 'follow us', 'terms of service', 'privacy policy',
+]
+
+// A claimant's own paperwork with their lawyer: retainers, fee agreements, a firm's
+// invoice. Never case evidence, and its billing words otherwise pass as a bill.
+// "Attorney" and "law firm" alone are left out, since a provider's lien bill names
+// the client's attorney.
+const LEGAL_FEE_DOC_TERMS = [
+  'retainer', 'legal services', 'legal fees', 'attorney fees', "attorney's fees", 'attorneys fees',
+  'contingency fee', 'contingent fee', 'engagement agreement', 'engagement letter', 'fee agreement',
+  'attorney-client', 'scope of representation', 'representation agreement', 'iolta',
+  'client trust account', 'billable hours', 'hourly rate', 'legal representation',
 ]
 
 /** Labels that strongly indicate an off-topic image regardless of category. */
@@ -334,7 +363,7 @@ function countTermHits(haystack: string, terms: string[]): number {
  * check already confirmed it looks like a page of text; here we match category keywords.
  * Returns null when we can't make a confident judgment (caller keeps the label verdict).
  */
-function assessDocumentText(
+export function assessDocumentText(
   category: string,
   text: string,
   base: Pick<VisionRelevanceResult, 'category' | 'topLabels' | 'expected' | 'provider' | 'checkedAt'>
@@ -370,8 +399,31 @@ function assessDocumentText(
     }
   }
 
+  // A medical bill can mention the client's lawyer, but not three fee-agreement terms,
+  // and not more of them than anything it would need to belong here.
+  const requiredHits = target.requires ? countTermHits(normalized, target.requires.terms) : expectedHits
+  const legalFeeHits = countTermHits(normalized, LEGAL_FEE_DOC_TERMS)
+  if (legalFeeHits >= 3 || (legalFeeHits >= 2 && legalFeeHits > requiredHits)) {
+    return {
+      ...base,
+      status: 'mismatch',
+      score: 0.15,
+      matchedLabels: [],
+      message: `This looks like a legal or attorney fee document, not ${base.expected}. Please upload the right file or remove it.`,
+    }
+  }
+
   // Strong match for the expected category (two or more keywords) -> confirmed relevant.
   if (expectedHits >= 2) {
+    if (target.requires && requiredHits === 0) {
+      return {
+        ...base,
+        status: 'review',
+        score: 0.4,
+        matchedLabels: [],
+        message: `${target.requires.missing} Please double-check it's ${base.expected}.`,
+      }
+    }
     return { ...base, status: 'relevant', score: 0.9, matchedLabels: [], message: null }
   }
 
@@ -665,6 +717,22 @@ export async function analyzeVideoRelevance(args: { category: string; filePath: 
     checkedAt: new Date().toISOString(),
     reason,
   })
+
+  // A bill or a report is never footage. Frame labels cannot settle that: a phone
+  // screen or a sign reads as "Text", which is all a document slot asks of an image.
+  if (isDocumentCategory(category)) {
+    return {
+      status: 'mismatch',
+      score: 0.1,
+      category,
+      matchedLabels: [],
+      topLabels: [],
+      expected,
+      message: `This is a video. We expected ${expected}. Videos belong in the Videos section.`,
+      provider: 'aws_rekognition',
+      checkedAt: new Date().toISOString(),
+    }
+  }
 
   if (!isVisionEnabled()) return skipped('vision_disabled')
   const resolved = path.isAbsolute(args.filePath) ? args.filePath : path.resolve(process.cwd(), args.filePath)

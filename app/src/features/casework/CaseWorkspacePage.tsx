@@ -3356,9 +3356,14 @@ function EvidencePanel({
               {doc.identityCheck?.verdict === 'mismatch' ? (
                 <span
                   className="inline-flex items-center gap-0.5 rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-700"
-                  title={`Names ${doc.identityCheck.documentName}, not ${doc.identityCheck.claimantName}`}
+                  title={
+                    doc.identityCheck.reason === 'claimant_not_named'
+                      ? `Never mentions ${doc.identityCheck.claimantName}`
+                      : `Names ${doc.identityCheck.documentName}, not ${doc.identityCheck.claimantName}`
+                  }
                 >
-                  <AlertTriangle className="h-3 w-3" /> Different name
+                  <AlertTriangle className="h-3 w-3" />{' '}
+                  {doc.identityCheck.reason === 'claimant_not_named' ? 'Client not named' : 'Different name'}
                 </span>
               ) : doc.identityCheck?.verdict === 'unverified' ? (
                 <span
@@ -3960,7 +3965,15 @@ function EvidencePreviewDrawer({
                 <span className="rounded bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold text-rose-600">HIPAA</span>
               ) : null}
             </p>
-            {doc.identityCheck?.verdict === 'mismatch' ? (
+            {doc.identityCheck?.verdict === 'mismatch' && doc.identityCheck.reason === 'claimant_not_named' ? (
+              <p className="mt-2 flex items-start gap-1.5 rounded-lg bg-amber-50 px-2.5 py-2 text-xs text-amber-800">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>
+                  <span className="font-semibold">{doc.identityCheck.claimantName}</span> isn't mentioned anywhere in
+                  this document. Confirm it's the report for this client's incident.
+                </span>
+              </p>
+            ) : doc.identityCheck?.verdict === 'mismatch' ? (
               <p className="mt-2 flex items-start gap-1.5 rounded-lg bg-rose-50 px-2.5 py-2 text-xs text-rose-800">
                 <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                 <span>

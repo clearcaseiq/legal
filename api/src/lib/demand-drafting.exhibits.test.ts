@@ -41,6 +41,17 @@ describe('buildDemandExhibits', () => {
       { number: 3, section: 'other', label: 'Gym log (gym.pdf)' },
     ])
   })
+
+  it('keeps a police report whose text never names the client', () => {
+    const exhibits = buildDemandExhibits([
+      {
+        category: 'police_report',
+        originalName: 'report.pdf',
+        identityCheck: JSON.stringify({ verdict: 'mismatch', reason: 'claimant_not_named' }),
+      },
+    ])
+    expect(exhibits).toEqual([{ number: 1, section: 'liability', label: 'Police / incident report (report.pdf)' }])
+  })
 })
 
 describe('demandRecipientFor', () => {
