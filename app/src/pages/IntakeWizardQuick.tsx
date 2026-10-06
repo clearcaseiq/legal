@@ -2354,7 +2354,7 @@ export default function IntakeWizardQuick() {
   const FINANCIAL_DOC_CATEGORIES = ['bills', 'wage_verification']
   // Document categories that carry a person's name, used for the name-only
   // identity consistency check. bills/wage already OCR via the financial path.
-  const IDENTITY_DOC_CATEGORIES = ['medical_records', 'bills', 'wage_verification', 'insurance_letters']
+  const IDENTITY_DOC_CATEGORIES = ['medical_records', 'bills', 'wage_verification', 'insurance_letters', 'dec_page']
 
   const handleEvidenceFiles = (category: string, files: any[]) => {
     setPendingEvidenceFiles(prev => ({ ...prev, [category]: files }))
@@ -2408,7 +2408,9 @@ export default function IntakeWizardQuick() {
         const shares = e.tokens.some((t) => reference.tokens.includes(t))
         if (!shares && !dismissedNameKeysRef.current.has(e.key)) {
           const template =
-            plaintiffName && e.category === 'insurance_letters' ? 'evidence_insuranceNameMismatch' : 'evidence_nameMismatch'
+            plaintiffName && (e.category === 'insurance_letters' || e.category === 'dec_page')
+              ? 'evidence_insuranceNameMismatch'
+              : 'evidence_nameMismatch'
           ;(next[e.category] || (next[e.category] = [])).push({
             fileName: e.fileName,
             message: tx(template).replace('{name}', e.name).replace('{other}', reference.name),
@@ -7136,7 +7138,8 @@ export default function IntakeWizardQuick() {
   // the warning) or deletes it. Only files with no active flag are "valid".
   const flaggedEvidenceNames = (cat: string): Set<string> => {
     const items = evidenceWarnings[cat]?.items || []
-    return new Set(items.filter((w) => w.status !== 'relevant').map((w) => w.fileName))
+    // A name mismatch is a heads-up (a family policy is fine), not a wrong file.
+    return new Set(items.filter((w) => w.status !== 'relevant' && w.status !== 'name_mismatch').map((w) => w.fileName))
   }
   const validEvidenceCount = (cat: string): number => {
     const files = Array.isArray(pendingEvidenceFiles[cat]) ? pendingEvidenceFiles[cat] : []

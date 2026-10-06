@@ -75,7 +75,15 @@ export const IDENTITY_CHECKED_CATEGORIES = new Set([
   'bills',
   'wage_verification',
   'insurance_letters',
+  'dec_page',
 ])
+
+/**
+ * Checked categories where a mismatch is expected and benign: a household
+ * policy names whoever holds it, often a spouse or parent. These get the
+ * warning but never count toward a fraud hold.
+ */
+export const FAMILY_POLICY_CATEGORIES = new Set(['insurance_letters', 'dec_page'])
 
 /**
  * Honorifics, credentials and generational suffixes, which are shared by

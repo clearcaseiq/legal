@@ -40,6 +40,7 @@ const IDENTITY_CHECKED_CATEGORIES = new Set([
   'bills',
   'wage_verification',
   'insurance_letters',
+  'dec_page',
 ])
 
 const NAME_NOISE = new Set([

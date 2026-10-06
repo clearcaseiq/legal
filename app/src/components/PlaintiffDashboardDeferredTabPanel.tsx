@@ -32,7 +32,7 @@ type PlaintiffEvidenceFile = {
  * check runs once on every processed upload.
  */
 function insuranceNameMismatch(file: PlaintiffEvidenceFile): { name: string; claimant: string } | null {
-  if (file.category !== 'insurance_letters' || !file.identityCheck) return null
+  if ((file.category !== 'insurance_letters' && file.category !== 'dec_page') || !file.identityCheck) return null
   try {
     const check = JSON.parse(file.identityCheck) as { verdict?: string; documentName?: string; claimantName?: string }
     if (check?.verdict !== 'mismatch' || !check.documentName || !check.claimantName) return null

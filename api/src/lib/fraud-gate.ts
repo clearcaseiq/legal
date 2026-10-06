@@ -13,7 +13,7 @@
 
 import { prisma } from './prisma'
 import type { NormalizedCase } from './case-normalization'
-import { parseIdentityCheck, type IdentityCheck } from './claimant-identity-check'
+import { FAMILY_POLICY_CATEGORIES, parseIdentityCheck, type IdentityCheck } from './claimant-identity-check'
 import { isImageFile, photoForensics } from './evidence-forensics'
 
 export type FraudSeverity = 'low' | 'medium' | 'high'
@@ -117,6 +117,7 @@ export async function evaluateCaseFraud(input: FraudGateInput): Promise<FraudEva
   //    looked. That matters because extraction is not inert — bills and
   //    treatment dates off a stranger's record move this case's valuation.
   const identityMismatches = evidenceFiles
+    .filter((f) => !FAMILY_POLICY_CATEGORIES.has(f.category))
     .map((f) => parseIdentityCheck(f.identityCheck))
     .filter((check): check is IdentityCheck => check?.verdict === 'mismatch')
 

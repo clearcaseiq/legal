@@ -10,6 +10,7 @@ import {
 import { TrashIcon } from './TrashIcon'
 import { CameraCaptureModal } from './CameraCaptureModal'
 import { openEvidenceFile } from '../lib/evidenceFileUrl'
+import { useLanguage } from '../contexts/LanguageContext'
 import { 
   Upload, 
   Camera, 
@@ -134,6 +135,22 @@ interface EvidenceFile {
   createdAt: string
   extractedData?: ExtractedData[]
   processingJobs?: ProcessingJob[]
+  /** The API's stored `IdentityCheck`, as JSON. */
+  identityCheck?: string | null
+}
+
+const INSURANCE_NAME_CATEGORIES = new Set(['insurance_letters', 'dec_page'])
+
+/** The two names behind a server `mismatch` verdict, or null when there is none. */
+function identityMismatch(file: EvidenceFile | undefined): { name: string; other: string } | null {
+  if (!file?.identityCheck) return null
+  try {
+    const check = JSON.parse(file.identityCheck) as { verdict?: string; documentName?: string; claimantName?: string }
+    if (check?.verdict !== 'mismatch' || !check.documentName || !check.claimantName) return null
+    return { name: check.documentName, other: check.claimantName }
+  } catch {
+    return null
+  }
 }
 
 interface ExtractedData {
@@ -277,6 +294,7 @@ export default function InlineEvidenceUpload({
   const [isLoadingFiles, setIsLoadingFiles] = useState(false)
   const [showTightManage, setShowTightManage] = useState(false)
   const [visionWarnings, setVisionWarnings] = useState<VisionWarning[]>([])
+  const { t } = useLanguage()
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
   const [deletingFile, setDeletingFile] = useState(false)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
@@ -450,6 +468,7 @@ export default function InlineEvidenceUpload({
       const evidenceFiles = await getEvidenceFiles(assessmentId, category || undefined)
       console.log('Loaded evidence files:', evidenceFiles)
       setFiles(scopeFiles(evidenceFiles))
+      return evidenceFiles as EvidenceFile[]
     } catch (error: any) {
       console.error('Failed to load evidence files:', error)
       // If it's a 429 error, wait longer before retrying
@@ -575,7 +594,19 @@ export default function InlineEvidenceUpload({
       }
       setProcessingFiles(prev => new Set(prev).add(fileId))
       await processEvidenceFile(fileId)
-      await loadFiles()
+      const refreshed = await loadFiles()
+      const processed = refreshed?.find((f) => f.id === fileId)
+      const mismatch = identityMismatch(processed)
+      if (processed && mismatch) {
+        const fileName = processed.originalName || processed.filename
+        const key = INSURANCE_NAME_CATEGORIES.has(processed.category)
+          ? 'intake.evidence_insuranceNameMismatch'
+          : 'intake.evidence_nameMismatch'
+        setVisionWarnings((prev) => [
+          ...prev.filter((w) => w.fileName !== fileName),
+          { fileName, status: 'name_mismatch', message: t(key, mismatch) },
+        ])
+      }
     } catch (error) {
       console.error('Failed to process file:', error)
     } finally {
@@ -1104,7 +1135,7 @@ export default function InlineEvidenceUpload({
               <div
                 key={warning.fileName}
                 className={`flex items-start gap-2 rounded-lg border px-2.5 py-2 text-[11px] leading-snug ${
-                  warning.status === 'mismatch'
+                  warning.status === 'mismatch' || warning.status === 'name_mismatch'
                     ? 'border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200'
                     : warning.status === 'relevant'
                       ? 'border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-200'
