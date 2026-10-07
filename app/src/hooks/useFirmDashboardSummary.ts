@@ -41,10 +41,10 @@ export function useFirmDashboardSummary() {
   const [loading, setLoading] = useState(!cachedFirmDashboard)
   const [error, setError] = useState<string | null>(null)
 
-  const refresh = useCallback(async (force = false) => {
+  const refresh = useCallback(async (force = false, opts: { silent?: boolean } = {}) => {
     try {
       setError(null)
-      if (!data || force) setLoading(true)
+      if (!opts.silent && (!data || force)) setLoading(true)
       const next = await loadFirmDashboardSummary(force)
       setData(next)
       return next

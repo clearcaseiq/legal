@@ -11,6 +11,7 @@ import {
 import { US_STATES, ATTORNEY_CASE_TYPES } from '../lib/constants'
 import { getCountiesForState } from '../lib/usLocationData'
 import { useLanguage } from '../contexts/LanguageContext'
+import { useToast } from '../contexts/ToastContext'
 import {
   ATTORNEY_REGISTER_DEFAULTS,
   ATTORNEY_REGISTER_STEP_FIELDS,
@@ -64,6 +65,7 @@ export default function AttorneyRegister() {
     ATTORNEY_REGISTER_DEFAULTS.preferredCounties.length > 0 ? 'counties' : 'state',
   )
   const navigate = useNavigate()
+  const { showToast } = useToast()
 
   const firstName = form.firstName
   const lastName = form.lastName
@@ -285,6 +287,11 @@ export default function AttorneyRegister() {
         }
       }
 
+      showToast({
+        variant: 'success',
+        title: 'Check your email',
+        message: `We sent a verification link to ${form.email.trim()}. Check spam if it isn't there in a few minutes; you can resend it from My Profile.`,
+      })
       navigate('/attorney-dashboard')
     } catch (err: any) {
       const d = err.response?.data as { error?: string; details?: string | Record<string, unknown> } | undefined

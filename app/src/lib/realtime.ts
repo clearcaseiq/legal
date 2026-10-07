@@ -50,8 +50,15 @@ export type TasksUpdatedEvent = {
   leadId: string | null
 }
 
+export type AttorneyVerifiedEvent = {
+  attorneyId: string
+  isVerified: boolean
+  isActive: boolean
+}
+
 type RealtimeEvents = {
   'tasks:updated': TasksUpdatedEvent
+  'attorney:verified': AttorneyVerifiedEvent
   'assistance:new': AssistanceNewEvent
   'lead:claimed': LeadClaimedEvent
   'lead:new': LeadNewEvent

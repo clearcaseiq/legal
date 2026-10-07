@@ -79,6 +79,7 @@ import { CountyCoverageEditor } from '../components/CountyCoverageEditor'
 import { buildAttorneyJurisdictions, readAttorneyCounties, type CountiesByState } from '../lib/attorneyJurisdictions'
 import { resolveUploadedPhotoUrl } from '../lib/avatar'
 import { invalidateFirmDashboardSummary, useFirmDashboardSummary } from '../hooks/useFirmDashboardSummary'
+import { useRealtimeEvent } from '../lib/realtime'
 import { STAFF_DEFAULT_CASE_ROLE } from '../features/firm/CaseTeamDialog'
 import { FirmTemplatesTab } from '../features/firm/FirmTemplatesTab'
 import { FirmWorkflowsTab } from '../features/firm/FirmWorkflowsTab'
@@ -400,6 +401,10 @@ export default function FirmDashboard() {
     else navigate('/attorney-dashboard')
   }
   const { data, loading, error, refresh } = useFirmDashboardSummary()
+  // An admin verifying or deactivating an attorney updates Team & Roles live.
+  useRealtimeEvent('attorney:verified', () => {
+    void refresh(true, { silent: true })
+  })
 
   const [searchParams] = useSearchParams()
   const initialTab = (() => {

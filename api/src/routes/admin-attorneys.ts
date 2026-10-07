@@ -5,6 +5,7 @@ import { logger } from '../lib/logger'
 import { authMiddleware, AuthRequest } from '../lib/auth'
 import { adminMiddleware, requireAdminCapability } from '../lib/admin-access'
 import { writeAdminAudit } from '../lib/admin-audit'
+import { emitAttorneyVerified } from '../lib/realtime'
 import { parsePagination, paginated } from '../lib/pagination'
 import { CaseForRouting, AttorneyForRouting, filterEligibleAttorneys } from '../lib/routing'
 import { safeJsonParse } from './admin-shared'
@@ -567,6 +568,7 @@ router.patch('/attorneys/:id/status', authMiddleware, adminMiddleware, requireAd
         reason: parsed.data.reason || null,
       },
     })
+    void emitAttorneyVerified({ attorneyId: id, isVerified: attorney.isVerified, isActive: attorney.isActive })
 
     res.json({ success: true, attorney })
   } catch (error) {
@@ -636,6 +638,7 @@ router.patch('/attorneys/:id/verification', authMiddleware, adminMiddleware, req
         reason: parsed.data.reason || null,
       },
     })
+    void emitAttorneyVerified({ attorneyId: id, isVerified: attorney.isVerified, isActive: attorney.isActive })
 
     res.json({ success: true, attorney })
   } catch (error) {

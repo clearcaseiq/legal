@@ -15,6 +15,7 @@ import { act } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import { ATTORNEY_CASE_TYPES } from '../lib/constants'
 import AttorneyRegister from './AttorneyRegister'
+import { ToastProvider } from '../contexts/ToastContext'
 
 vi.mock('../lib/api-auth', () => ({
   registerAttorney: vi.fn(async () => ({})),
@@ -41,9 +42,11 @@ function mount() {
   root = createRoot(container)
   act(() => {
     root!.render(
-      <MemoryRouter>
-        <AttorneyRegister />
-      </MemoryRouter>,
+      <ToastProvider>
+        <MemoryRouter>
+          <AttorneyRegister />
+        </MemoryRouter>
+      </ToastProvider>,
     )
   })
 }
