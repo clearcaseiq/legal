@@ -268,6 +268,48 @@ export type PlaintiffSignedDocument = {
   attorney?: { id: string; name?: string | null } | null
 }
 
+export type SuggestedDocument = {
+  id: string
+  label: string
+  note: string | null
+  suggestedBy: 'plaintiff' | 'attorney'
+  suggestedByName: string | null
+  createdAt: string
+  /** Evidence subcategory uploads for this item are filed under. */
+  subcategory: string
+  fileCount: number
+}
+
+export const SUGGESTED_DOC_CATEGORY = 'other'
+
+export async function getPlaintiffSuggestedDocuments(assessmentId: string): Promise<SuggestedDocument[]> {
+  const { data } = await api.get(`/v1/assessments/${assessmentId}/suggested-documents`)
+  return Array.isArray(data?.documents) ? data.documents : []
+}
+
+export async function addPlaintiffSuggestedDocument(assessmentId: string, payload: { label: string; note?: string }) {
+  const { data } = await api.post(`/v1/assessments/${assessmentId}/suggested-documents`, payload)
+  return data?.document as SuggestedDocument
+}
+
+export async function removePlaintiffSuggestedDocument(assessmentId: string, docId: string) {
+  await api.delete(`/v1/assessments/${assessmentId}/suggested-documents/${docId}`)
+}
+
+export async function getLeadSuggestedDocuments(leadId: string): Promise<SuggestedDocument[]> {
+  const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/suggested-documents`)
+  return Array.isArray(data?.documents) ? data.documents : []
+}
+
+export async function addLeadSuggestedDocument(leadId: string, payload: { label: string; note?: string }) {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/suggested-documents`, payload)
+  return data?.document as SuggestedDocument
+}
+
+export async function removeLeadSuggestedDocument(leadId: string, docId: string) {
+  await api.delete(`/v1/attorney-dashboard/leads/${leadId}/suggested-documents/${docId}`)
+}
+
 export async function getPlaintiffSignedDocuments(assessmentId: string): Promise<{
   assessmentId: string
   leadId: string | null

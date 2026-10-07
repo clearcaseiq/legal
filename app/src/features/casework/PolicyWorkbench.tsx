@@ -230,17 +230,19 @@ export default function PolicyWorkbench({
           ))}
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
-          {!isClient ? (
-            <button
-              type="button"
-              onClick={() => setRequesting(true)}
-              disabled={!policy.adjusterEmail}
-              title={policy.adjusterEmail ? 'Email the adjuster a secure link to upload documents straight into this policy.' : "Add the adjuster's email first."}
-              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
-            >
-              <Link2 className="h-3.5 w-3.5" /> Request documents
-            </button>
-          ) : null}
+          <button
+            type="button"
+            onClick={() => setRequesting(true)}
+            disabled={!policy.adjusterEmail}
+            title={
+              policy.adjusterEmail
+                ? `Email ${isClient ? "your client's" : 'the'} adjuster a secure link to upload documents straight into this policy.`
+                : "Add the adjuster's email first."
+            }
+            className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+          >
+            <Link2 className="h-3.5 w-3.5" /> Request documents
+          </button>
           <button
             type="button"
             onClick={() => setComposer('entry')}

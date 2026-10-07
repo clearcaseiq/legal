@@ -5328,5 +5328,23 @@
     "body": "Es posible que el enlace esté desactualizado o que la dirección tenga un error. La información de su caso está segura: continúe desde donde lo dejó.",
     "startAssessment": "Iniciar evaluación gratuita del caso",
     "home": "Ir al inicio"
+  },
+  "suggestedDocs": {
+    "title": "Otros documentos de respaldo",
+    "helper": "Cualquier otro documento que respalde su caso, agregado por usted o sugerido por su abogado.",
+    "attorneyColumn": "Sugeridos por su abogado",
+    "clientColumn": "Agregados por usted",
+    "attorneyEmpty": "Aún no hay sugerencias. Su abogado puede agregar documentos aquí.",
+    "byAttorney": "Sugerido por su abogado",
+    "byAttorneyNamed": "Sugerido por {{name}}",
+    "byYou": "Agregado por usted",
+    "labelPlaceholder": "Nombre del documento, p. ej. recibo de auto de alquiler",
+    "notePlaceholder": "Por qué es importante (opcional)",
+    "add": "Agregar documento",
+    "adding": "Agregando…",
+    "upload": "Subir",
+    "remove": "Quitar",
+    "addFailed": "No se pudo agregar el documento.",
+    "removeFailed": "No se pudo quitar el documento."
   }
 }

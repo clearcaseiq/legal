@@ -11,6 +11,12 @@ import { canWorkCaseAssistance, isCaseAssistanceManager } from '../lib/specialis
 import { logger } from '../lib/logger'
 import { fileOutstandingOpposingUploads } from '../lib/opposing-upload-filing'
 import { syncHipaaConsentFromSignedEnvelope } from '../lib/hipaa-consent'
+import {
+  addSuggestedDocument,
+  listSuggestedDocuments,
+  notifySuggestedDocument,
+  removeSuggestedDocument,
+} from '../lib/suggested-documents'
 import { ensureLocalCopy, persistUpload } from '../lib/object-storage'
 import { recordCaseChange } from '../lib/data-authority'
 import { serializeCaseFacts } from '../lib/case-facts'
@@ -7261,6 +7267,54 @@ router.get('/document-requests/:requestId/uploads/:uploadId/download', authMiddl
   } catch (error: any) {
     logger.error('Failed to download opposing-party upload', { error: error.message })
     res.status(500).json({ error: 'Failed to download file' })
+  }
+})
+
+// Extra supporting documents suggested by the client or the firm.
+router.get('/leads/:leadId/suggested-documents', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true })
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    res.json({ documents: await listSuggestedDocuments(auth.lead.assessmentId) })
+  } catch (error: any) {
+    logger.error('Failed to load suggested documents', { error: error.message })
+    res.status(500).json({ error: 'Failed to load suggested documents' })
+  }
+})
+
+router.post('/leads/:leadId/suggested-documents', authMiddleware, firmGate('request'), async (req: any, res) => {
+  try {
+    const auth = await getAuthorizedLead(req, req.params.leadId, { staffCan: 'request' })
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const label = typeof req.body?.label === 'string' ? req.body.label : ''
+    if (!label.trim()) return res.status(400).json({ error: 'Name the document you want the client to add.' })
+    const doc = await addSuggestedDocument(auth.lead.assessmentId, {
+      label,
+      note: typeof req.body?.note === 'string' ? req.body.note : null,
+      suggestedBy: 'attorney',
+      suggestedByName: auth.attorney?.name || null,
+    })
+    if (!doc) return res.status(404).json({ error: 'Case not found' })
+    void notifySuggestedDocument(auth.lead.assessmentId, doc)
+    res.status(201).json({ document: doc })
+  } catch (error: any) {
+    logger.error('Failed to add suggested document', { error: error.message })
+    res.status(500).json({ error: 'Failed to add the document' })
+  }
+})
+
+router.delete('/leads/:leadId/suggested-documents/:docId', authMiddleware, firmGate('request'), async (req: any, res) => {
+  try {
+    const auth = await getAuthorizedLead(req, req.params.leadId, { staffCan: 'request' })
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const result = await removeSuggestedDocument(auth.lead.assessmentId, req.params.docId, 'attorney')
+    if (result === 'not_found') return res.status(404).json({ error: 'Document not found' })
+    if (result === 'forbidden') return res.status(403).json({ error: 'The client suggested this one; only they can remove it.' })
+    if (result === 'has_files') return res.status(409).json({ error: 'Files were already uploaded for this document.' })
+    res.json({ ok: true })
+  } catch (error: any) {
+    logger.error('Failed to remove suggested document', { error: error.message })
+    res.status(500).json({ error: 'Failed to remove the document' })
   }
 })
 

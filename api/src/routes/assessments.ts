@@ -5,6 +5,12 @@ import { prisma } from '../lib/prisma'
 import { AssessmentWrite, AssessmentUpdate, RequestCaseSubmitOtp, SubmitCaseForReview } from '../lib/validators'
 import { consumeCaseSubmitOtp, isCaseSubmitOtpRequired, issueCaseSubmitOtp, verifyCaseSubmitOtp } from '../lib/case-submit-otp'
 import { logger } from '../lib/logger'
+import {
+  addSuggestedDocument,
+  listSuggestedDocuments,
+  notifySuggestedDocument,
+  removeSuggestedDocument,
+} from '../lib/suggested-documents'
 import { emailVerifiedByAttorneyId } from '../lib/attorney-email-verified'
 import { optionalAuthMiddleware, authMiddleware, AuthRequest } from '../lib/auth'
 import { enforceAssessmentReadAccess } from '../lib/assessment-access'
@@ -784,6 +790,58 @@ router.get('/:id/signed-documents', authMiddleware, async (req: AuthRequest, res
       assessmentId: req.params.id,
     })
     res.status(500).json({ error: 'Failed to load signed documents' })
+  }
+})
+
+async function ownedAssessmentId(req: AuthRequest): Promise<string | null> {
+  const assessment = await prisma.assessment.findUnique({ where: { id: req.params.id }, select: { userId: true } })
+  return assessment?.userId && assessment.userId === req.user!.id ? req.params.id : null
+}
+
+// Extra supporting documents suggested by the client or their attorney.
+router.get('/:id/suggested-documents', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const assessmentId = await ownedAssessmentId(req)
+    if (!assessmentId) return res.status(403).json({ error: 'Unauthorized to view this assessment' })
+    res.json({ documents: await listSuggestedDocuments(assessmentId) })
+  } catch (error: any) {
+    logger.error('Failed to load suggested documents', { error: error?.message, assessmentId: req.params.id })
+    res.status(500).json({ error: 'Failed to load suggested documents' })
+  }
+})
+
+router.post('/:id/suggested-documents', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const assessmentId = await ownedAssessmentId(req)
+    if (!assessmentId) return res.status(403).json({ error: 'Unauthorized to update this assessment' })
+    const label = typeof req.body?.label === 'string' ? req.body.label : ''
+    if (!label.trim()) return res.status(400).json({ error: 'Name the document you want to add.' })
+    const doc = await addSuggestedDocument(assessmentId, {
+      label,
+      note: typeof req.body?.note === 'string' ? req.body.note : null,
+      suggestedBy: 'plaintiff',
+    })
+    if (!doc) return res.status(404).json({ error: 'Assessment not found' })
+    void notifySuggestedDocument(assessmentId, doc)
+    res.status(201).json({ document: doc })
+  } catch (error: any) {
+    logger.error('Failed to add suggested document', { error: error?.message, assessmentId: req.params.id })
+    res.status(500).json({ error: 'Failed to add the document' })
+  }
+})
+
+router.delete('/:id/suggested-documents/:docId', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const assessmentId = await ownedAssessmentId(req)
+    if (!assessmentId) return res.status(403).json({ error: 'Unauthorized to update this assessment' })
+    const result = await removeSuggestedDocument(assessmentId, req.params.docId, 'plaintiff')
+    if (result === 'not_found') return res.status(404).json({ error: 'Document not found' })
+    if (result === 'forbidden') return res.status(403).json({ error: 'Only your attorney can remove a document they suggested.' })
+    if (result === 'has_files') return res.status(409).json({ error: 'Delete the uploaded files first.' })
+    res.json({ ok: true })
+  } catch (error: any) {
+    logger.error('Failed to remove suggested document', { error: error?.message, assessmentId: req.params.id })
+    res.status(500).json({ error: 'Failed to remove the document' })
   }
 })
 

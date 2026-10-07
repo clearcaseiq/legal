@@ -4156,5 +4156,23 @@
         "wage": "Adding wage loss documentation could increase your estimated case value by $1,000–$5,000."
       }
     }
+  },
+  "suggestedDocs": {
+    "title": "Other supporting documents",
+    "helper": "Anything else that supports your case, added by you or suggested by your attorney.",
+    "attorneyColumn": "Suggested by your attorney",
+    "clientColumn": "Added by you",
+    "attorneyEmpty": "Nothing suggested yet. Your attorney can add documents here.",
+    "byAttorney": "Suggested by your attorney",
+    "byAttorneyNamed": "Suggested by {{name}}",
+    "byYou": "Added by you",
+    "labelPlaceholder": "Document name, e.g. Rental car receipt",
+    "notePlaceholder": "Why it matters (optional)",
+    "add": "Add document",
+    "adding": "Adding…",
+    "upload": "Upload",
+    "remove": "Remove",
+    "addFailed": "Could not add the document.",
+    "removeFailed": "Could not remove the document."
   }
 }

@@ -16,6 +16,7 @@ import {
 } from '../lib/api'
 import { ChevronRight, ChevronLeft, ChevronDown, Car, Footprints, HardHat, Stethoscope, HelpCircle, Check, X, MapPin, Building2, Camera, Video, FileText, Shield, Mail, Phone, DollarSign, Dog, Package, AlertTriangle, Droplets, CalendarDays, Hospital, Scissors, Ambulance, PersonStanding, Scan, Syringe, Pill, Lock, MessageSquare, Info, CheckCircle2, Save, ShieldCheck, Users, HeartPulse, Activity, Bone, CalendarClock, Ban, BedDouble, Moon, Dumbbell, Bike, Truck, User, Briefcase, Landmark, CornerUpLeft, Receipt, Wine, RotateCw, XCircle, Clock, UserX, Lightbulb, ClipboardCheck, Umbrella, Pencil, FolderOpen, Scale, Star, Sparkles, TrendingUp, Brain, Upload, CalendarCheck, History, Hand, CircleDot, type LucideIcon } from 'lucide-react'
 import InlineEvidenceUpload from '../components/InlineEvidenceUpload'
+import SuggestedDocumentsSection from '../components/SuggestedDocumentsSection'
 import DynamicInjuryCards from '../components/DynamicInjuryCards'
 import BodyRegionPicker from '../components/BodyRegionPicker'
 import CaseTypeIntakePanel from '../components/CaseTypeIntakePanel'
@@ -6428,6 +6429,8 @@ export default function IntakeWizardQuick() {
                   </details>
                 )
               })}
+
+              {assessmentId && !focusingOne ? <SuggestedDocumentsSection assessmentId={assessmentId} /> : null}
 
               {/* Secure footer */}
               <div className="flex items-start justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-3.5 dark:border-slate-700 dark:bg-slate-800/40">

@@ -414,8 +414,10 @@ export function promotedCategory(
   aiClassification: string,
   subcategory?: string | null,
 ): string | null {
-  // Answers an attorney's custom request item, which is only matched under `other`.
-  if ((subcategory || '').toLowerCase().startsWith('custom:')) return null
+  // Answers an attorney's custom request item or a suggested document, both
+  // only matched under `other`.
+  const sub = (subcategory || '').toLowerCase()
+  if (sub.startsWith('custom:') || sub.startsWith('suggested:')) return null
   if (!UNPROMPTED_UPLOAD_METHODS.has((uploadMethod || '').trim())) return null
   if ((current || '').trim() !== 'other') return null
   const next = (aiClassification || '').trim()

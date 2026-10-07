@@ -5328,5 +5328,23 @@
     "body": "该链接可能已失效，或者网址有误。您的案件信息是安全的——请从下方继续。",
     "startAssessment": "开始免费案件评估",
     "home": "返回首页"
+  },
+  "suggestedDocs": {
+    "title": "其他支持文件",
+    "helper": "其他任何支持您案件的文件，可由您添加或由您的律师建议。",
+    "attorneyColumn": "律师建议的文件",
+    "clientColumn": "您添加的文件",
+    "attorneyEmpty": "暂无建议。您的律师可以在此添加文件。",
+    "byAttorney": "由您的律师建议",
+    "byAttorneyNamed": "由 {{name}} 建议",
+    "byYou": "由您添加",
+    "labelPlaceholder": "文件名称，例如：租车收据",
+    "notePlaceholder": "重要原因（可选）",
+    "add": "添加文件",
+    "adding": "正在添加…",
+    "upload": "上传",
+    "remove": "移除",
+    "addFailed": "无法添加该文件。",
+    "removeFailed": "无法移除该文件。"
   }
 }
