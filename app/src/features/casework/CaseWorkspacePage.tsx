@@ -118,7 +118,7 @@ import ClientContactDialog from './ClientContactDialog'
 import ClientInfoPanel from './ClientInfoPanel'
 import type { ClaimantContact } from '../../lib/api'
 import { useRealtimeEvent } from '../../lib/realtime'
-import { resolveClaimantContact } from '../../lib/claimantContact'
+import { joinClaimantName, resolveClaimantContact } from '../../lib/claimantContact'
 import ChatDrawer from '../../components/ChatDrawer'
 import ConfirmDialog from '../../components/ConfirmDialog'
 import InsurancePanel from './InsurancePanel'
@@ -651,7 +651,7 @@ export default function CaseWorkspacePage() {
       // refreshed after an edit; the resolver is the same rule applied to the
       // lead payload for the moment before it arrives.
       client: contactOverride?.firstName
-        ? [contactOverride.firstName, contactOverride.lastName].filter(Boolean).join(' ')
+        ? joinClaimantName(contactOverride.firstName, contactOverride.lastName)
         : resolveClaimantContact({ user, facts }).fullName || 'Client',
       clientEmail: contactOverride?.email ?? resolveClaimantContact({ user, facts }).email ?? '',
       phone: contactOverride?.phone ?? resolveClaimantContact({ user, facts }).phone ?? '—',

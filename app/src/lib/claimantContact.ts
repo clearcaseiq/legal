@@ -35,6 +35,14 @@ export function isShadowEmail(email: string | null | undefined): boolean {
   return /^guest\+.*@caseiq\.local$/i.test(email || '')
 }
 
+/** First + last, without repeating a last name some intakes also put in firstName ("Apple Pie" + "Pie"). */
+export function joinClaimantName(first?: string | null, last?: string | null): string {
+  const f = (first || '').trim()
+  const l = (last || '').trim()
+  if (f && l && f.toLowerCase().split(/\s+/).pop() === l.toLowerCase()) return f
+  return [f, l].filter(Boolean).join(' ')
+}
+
 export function resolveClaimantContact(source: ContactSource): ResolvedClaimantContact {
   let context: Record<string, any> = {}
   if (source.facts) {
@@ -62,7 +70,7 @@ export function resolveClaimantContact(source: ContactSource): ResolvedClaimantC
   return {
     firstName,
     lastName,
-    fullName: [firstName, lastName].filter(Boolean).join(' ') || null,
+    fullName: joinClaimantName(firstName, lastName) || null,
     email: str(context.email) || (hasAccount ? accountEmail : null),
     phone: str(context.phone) || str(user?.phone),
     hasAccount,
