@@ -11,6 +11,7 @@ import cases from './admin-cases'
 import attorneys from './admin-attorneys'
 import caseResults from './admin-case-results'
 import blog from './admin-blog'
+import pageLinks from './admin-page-links'
 import docs from './admin-docs'
 import payments from './admin-payments'
 import invitations from './admin-invitations'
@@ -25,6 +26,7 @@ router.use(cases)
 router.use(attorneys)
 router.use(caseResults)
 router.use(blog)
+router.use(pageLinks)
 router.use(docs)
 router.use(payments)
 router.use(invitations)

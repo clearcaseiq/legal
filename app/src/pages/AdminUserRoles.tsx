@@ -99,7 +99,8 @@ const EMPTY_DRAFT = {
   firstName: '',
   lastName: '',
   role: 'specialist' as (typeof CREATABLE_ROLES)[number],
-  capabilities: [...ADMIN_CAPABILITIES] as AdminCapability[],
+  // Content is opt-in: it's usually granted on its own to an outside SEO editor.
+  capabilities: ADMIN_CAPABILITIES.filter((cap) => cap !== 'content') as AdminCapability[],
 }
 
 export default function AdminUserRoles() {

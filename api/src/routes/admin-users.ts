@@ -8,6 +8,7 @@ import {
   parseAdminCapabilities,
   hasAdminCapability,
   resolveAdminCapabilities,
+  ADMIN_CAPABILITIES,
 } from '../lib/admin-access'
 import { writeAdminAudit } from '../lib/admin-audit'
 import { parsePagination, paginated } from '../lib/pagination'
@@ -27,11 +28,11 @@ const router: ExpressRouter = Router()
 // passes the Firm Staff login and then belongs to no firm.
 const RoleUpdateSchema = z.object({
   role: z.enum(['client', 'attorney', 'admin', 'specialist']),
-  capabilities: z.array(z.enum(['ops', 'network', 'oversight', 'config', 'users'])).optional(),
+  capabilities: z.array(z.enum(ADMIN_CAPABILITIES)).optional(),
 })
 
 const CapabilitiesUpdateSchema = z.object({
-  capabilities: z.array(z.enum(['ops', 'network', 'oversight', 'config', 'users'])),
+  capabilities: z.array(z.enum(ADMIN_CAPABILITIES)),
 })
 
 // Only ClearCaseIQ's own roles can be created here. Clients arrive by signing
@@ -43,7 +44,7 @@ const UserCreateSchema = z.object({
   firstName: z.string().trim().min(1, 'First name is required'),
   lastName: z.string().trim().min(1, 'Last name is required'),
   role: z.enum(['admin', 'specialist']),
-  capabilities: z.array(z.enum(['ops', 'network', 'oversight', 'config', 'users'])).optional(),
+  capabilities: z.array(z.enum(ADMIN_CAPABILITIES)).optional(),
 })
 
 const StatusUpdateSchema = z.object({

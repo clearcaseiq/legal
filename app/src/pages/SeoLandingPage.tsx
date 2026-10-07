@@ -21,6 +21,7 @@ import { caseTypeAssessmentHref } from '../data/caseTypeHubDefs'
 import { START_ASSESSMENT_HREF } from '../data/appRoutes'
 import { type CtaLocation, trackCtaClick } from '../lib/ctaTracking'
 import SeoCiteEmbed from '../components/SeoCiteEmbed'
+import PageFurtherReading from '../components/PageFurtherReading'
 
 const categoryTone: Record<string, string> = {
   Symptoms: 'from-rose-50 to-white border-rose-100 text-rose-950',
@@ -1417,6 +1418,11 @@ export default function SeoLandingPage() {
         </div>
       </section>
       )}
+
+      <PageFurtherReading
+        path={page.slug}
+        className="mt-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
+      />
 
       <div className="mt-8">
         <SeoCiteEmbed

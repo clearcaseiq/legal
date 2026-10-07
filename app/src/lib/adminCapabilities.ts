@@ -1,7 +1,7 @@
 /**
  * Admin capability helpers shared by the console shell and role management UI.
  */
-export const ADMIN_CAPABILITIES = ['ops', 'network', 'oversight', 'config', 'users'] as const
+export const ADMIN_CAPABILITIES = ['ops', 'network', 'oversight', 'config', 'users', 'content'] as const
 export type AdminCapability = (typeof ADMIN_CAPABILITIES)[number]
 
 export const ADMIN_CAPABILITY_LABELS: Record<AdminCapability, string> = {
@@ -10,6 +10,12 @@ export const ADMIN_CAPABILITY_LABELS: Record<AdminCapability, string> = {
   oversight: 'Oversight',
   config: 'Configuration',
   users: 'User roles',
+  content: 'Content (page links)',
+}
+
+/** True when the admin can only edit site content, so the console opens on Page links. */
+export function isContentOnlyAdmin(capabilities: AdminCapability[] = getStoredAdminCapabilities()) {
+  return capabilities.length > 0 && capabilities.every((cap) => cap === 'content')
 }
 
 const CAPABILITY_STORAGE_KEY = 'admin_capabilities'
@@ -88,5 +94,6 @@ export function capabilityForAdminPath(path: string): AdminCapability | null {
     return 'config'
   }
   if (path.startsWith('/admin/users')) return 'users'
+  if (path.startsWith('/admin/page-links')) return 'content'
   return null
 }

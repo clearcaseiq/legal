@@ -246,6 +246,7 @@ const AdminSystemStatus = lazy(() => import('./pages/admin/AdminSystemStatus'))
 const AdminSettings = lazy(() => import('./pages/admin/AdminSettings'))
 const AdminBlog = lazy(() => import('./pages/admin/AdminBlog'))
 const AdminBlogEditor = lazy(() => import('./pages/admin/AdminBlogEditor'))
+const AdminPageLinks = lazy(() => import('./pages/admin/AdminPageLinks'))
 const BlogIndex = lazy(() => import('./pages/BlogIndex'))
 const BlogPostPage = lazy(() => import('./pages/BlogPost'))
 const About = dynamic(() => import('./pages/About'), { ssr: true })
@@ -580,6 +581,7 @@ function App() {
                 <Route path="blog" element={<AdminBlog />} />
                 <Route path="blog/new" element={<AdminBlogEditor />} />
                 <Route path="blog/:id" element={<AdminBlogEditor />} />
+                <Route path="page-links" element={<AdminPageLinks />} />
                 <Route path="users" element={<AdminUserRoles />} />
               <Route path="payments" element={<AdminPayments />} />
               <Route path="invitations" element={<AdminInvitations />} />

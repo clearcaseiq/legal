@@ -48,6 +48,7 @@ import adminCommunications from './routes/admin-communications'
 import supportTickets from './routes/support-tickets'
 import contact from './routes/contact'
 import blog from './routes/blog'
+import { publicPageLinksRouter } from './routes/admin-page-links'
 import supportChat from './routes/support-chat'
 import attorneyCalendar from './routes/attorney-calendar'
 import attorneyZoom from './routes/attorney-zoom'
@@ -121,6 +122,7 @@ export function buildApp(): Express {
   app.use('/v1/support-tickets', supportTickets)
   app.use('/v1/contact', contact)
   app.use('/v1/blog', blog)
+  app.use('/v1/page-links', publicPageLinksRouter)
   app.use('/v1/support/chat', supportChat)
   app.use('/v1/firm-dashboard', firmDashboard)
   app.use('/v1/firms', firms)

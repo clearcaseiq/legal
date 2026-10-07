@@ -12,7 +12,8 @@
       "operations": "运营",
       "network": "网络",
       "oversight": "监督",
-      "configuration": "配置"
+      "configuration": "配置",
+      "content": "内容"
     },
     "items": {
       "dashboard": {
@@ -92,6 +93,9 @@
       },
       "smsTools": {
         "label": "短信工具"
+      },
+      "pageLinks": {
+        "label": "页面链接"
       }
     }
   },

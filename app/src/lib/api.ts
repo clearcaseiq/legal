@@ -7533,3 +7533,56 @@ export async function updateAdminBlogPost(
 export async function deleteAdminBlogPost(id: string) {
   await api.delete(`/v1/admin/blog/${id}`)
 }
+
+export type AdminPageLink = {
+  id: string
+  path: string
+  url: string
+  anchor: string
+  kind: 'internal' | 'outbound'
+  rel: 'follow' | 'nofollow' | 'sponsored'
+  position: number
+  active: boolean
+  createdAt: string
+  updatedAt: string
+  createdBy?: { id: string; firstName: string; lastName: string; email: string } | null
+}
+
+export async function listAdminPageLinks(path?: string) {
+  const { data } = await api.get<{ success: boolean; data: AdminPageLink[] }>('/v1/admin/page-links', {
+    params: path ? { path } : undefined,
+  })
+  return data.data
+}
+
+export async function createAdminPageLink(payload: {
+  path: string
+  url: string
+  anchor: string
+  kind: AdminPageLink['kind']
+  rel?: AdminPageLink['rel']
+  active?: boolean
+}) {
+  const { data } = await api.post<{ success: boolean; data: AdminPageLink }>('/v1/admin/page-links', payload)
+  return data.data
+}
+
+export async function updateAdminPageLink(
+  id: string,
+  payload: Partial<Pick<AdminPageLink, 'url' | 'anchor' | 'kind' | 'rel' | 'active' | 'position'>>,
+) {
+  const { data } = await api.patch<{ success: boolean; data: AdminPageLink }>(`/v1/admin/page-links/${id}`, payload)
+  return data.data
+}
+
+export async function deleteAdminPageLink(id: string) {
+  await api.delete(`/v1/admin/page-links/${id}`)
+}
+
+/** Public pages that render a "Further reading" block, served by the web app itself. */
+export async function listEditablePages(): Promise<Array<{ path: string; title: string }>> {
+  const res = await fetch('/api/editable-pages', { headers: { Accept: 'application/json' } })
+  if (!res.ok) throw new Error('Failed to load page list')
+  const body = await res.json()
+  return Array.isArray(body?.pages) ? body.pages : []
+}

@@ -4,6 +4,7 @@ import { caseTypeAssessmentHref, caseTypeHubBySlug, caseTypeHubs } from '../data
 import { CASE_TYPE_HUB_DISCLAIMER, caseTypeHubContent } from '../data/caseTypeHubs'
 import { allLandingPages } from '../data/seoLandingPages'
 import { trackCtaClick } from '../lib/ctaTracking'
+import PageFurtherReading from '../components/PageFurtherReading'
 
 /**
  * A case-type hub: `/car-accident`, `/slip-and-fall`, and the other four.
@@ -127,6 +128,11 @@ export default function CaseTypeHub() {
           </section>
         )}
       </div>
+
+      <PageFurtherReading
+        path={hub.slug}
+        className="mt-12 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
+      />
 
       <section className="mt-12 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <h2 className="text-xl font-semibold tracking-tight text-slate-950">Common questions</h2>

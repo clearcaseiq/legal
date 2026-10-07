@@ -13,6 +13,7 @@ import { marketingPagesByPath } from '../src/data/marketingPages'
 import { landingPagesBySlug } from '../src/data/seoLandingPages'
 import { CASE_TYPE_HUBS_UPDATED, caseTypeHubBySlug } from '../src/data/caseTypeHubDefs'
 import { caseTypeHubContent } from '../src/data/caseTypeHubs'
+import { fetchPageLinksOnServer, type PublicPageLink } from '../src/lib/pageLinks'
 import {
   buildCaseTypeHubSchema,
   buildLandingPageSchema,
@@ -119,9 +120,11 @@ type PageProps = {
   buildTime?: string | null
   /** Short git commit of the running image, for the footer version. */
   buildCommit?: string | null
+  /** Editor-managed "Further reading" links (Admin → Page links). */
+  pageLinks?: { path: string; links: PublicPageLink[] } | null
 }
 
-export default function CatchAllPage({ seo, ssrLocation, publicPage, language, messages, embed }: PageProps) {
+export default function CatchAllPage({ seo, ssrLocation, publicPage, language, messages, embed, pageLinks }: PageProps) {
   const ogImage = seo.ogImage || OG_IMAGE
   const ogImageAlt = seo.ogImage ? seo.title : OG_IMAGE_ALT
 
@@ -162,7 +165,7 @@ export default function CatchAllPage({ seo, ssrLocation, publicPage, language, m
           double-count every marketing session. */}
       {publicPage ? <SiteAnalytics /> : null}
       {ssrLocation ? (
-        <SsrRoot location={ssrLocation} language={language} messages={messages ?? undefined} />
+        <SsrRoot location={ssrLocation} language={language} messages={messages ?? undefined} pageLinks={pageLinks} />
       ) : embed ? (
         <EmbeddedNextRoot />
       ) : (
@@ -254,12 +257,15 @@ const resolvePage: GetServerSideProps<PageProps> = async ({ params, query, res }
     // user data, so they are safe to cache at the edge.
     res.setHeader('Cache-Control', 'public, s-maxage=3600, stale-while-revalidate=86400')
 
+    const editorLinks = isEmbed || page.locale ? null : await fetchPageLinksOnServer(pathname)
+
     return {
       props: {
         ssrLocation: renderLocation,
         publicPage: !isEmbed,
         language: page.locale ?? DEFAULT_LANGUAGE,
         messages: await messagesFor(page.locale, page.namespaces),
+        pageLinks: editorLinks ? { path: pathname, links: editorLinks } : null,
         seo: {
           title: landingPageTitle(page),
           description: landingPageDescription(page),
@@ -287,12 +293,16 @@ const resolvePage: GetServerSideProps<PageProps> = async ({ params, query, res }
       res.setHeader('Cache-Control', 'public, s-maxage=3600, stale-while-revalidate=86400')
     }
 
+    const editorLinks =
+      caseHub && marketingPage.serverRender && !isEmbed ? await fetchPageLinksOnServer(pathname) : null
+
     return {
       props: {
         ssrLocation: marketingPage.serverRender ? renderLocation : null,
         publicPage: !isEmbed,
         language: marketingPage.locale ?? DEFAULT_LANGUAGE,
         messages: await messagesFor(marketingPage.locale, marketingPage.namespaces),
+        pageLinks: editorLinks ? { path: pathname, links: editorLinks } : null,
         seo: {
           title: clampTitle(marketingPage.title),
           description: clampDescription(marketingPage.description),

@@ -12,7 +12,8 @@
       "operations": "Operaciones",
       "network": "Red",
       "oversight": "Supervisión",
-      "configuration": "Configuración"
+      "configuration": "Configuración",
+      "content": "Contenido"
     },
     "items": {
       "dashboard": {
@@ -92,6 +93,9 @@
       },
       "smsTools": {
         "label": "Herramientas SMS"
+      },
+      "pageLinks": {
+        "label": "Enlaces de página"
       }
     }
   },

@@ -32,6 +32,7 @@ import {
   Receipt,
   Headphones,
   AlarmClock,
+  Link2,
 } from 'lucide-react'
 import { BrandMark } from './BrandLogo'
 import { useAdminRoutingStatus } from '../hooks/useAdminRoutingStatus'
@@ -44,6 +45,7 @@ import { verifyAdminAccess } from '../lib/api-auth'
 import {
   capabilityForAdminPath,
   getStoredAdminCapabilities,
+  isContentOnlyAdmin,
   storeAdminCapabilities,
   type AdminCapability,
 } from '../lib/adminCapabilities'
@@ -112,6 +114,11 @@ const navGroups: {
       { path: '/admin/settings', id: 'smsTools', label: 'SMS tools', icon: MessageSquareText },
     ],
   },
+  {
+    id: 'content',
+    label: 'Content',
+    items: [{ path: '/admin/page-links', id: 'pageLinks', label: 'Page links', icon: Link2 }],
+  },
 ]
 
 
@@ -147,12 +154,22 @@ export default function AdminLayout({ children }: { children?: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  const contentOnly = isContentOnlyAdmin(capabilities)
+
+  // A content-only editor has nothing to see anywhere else in the console.
+  useEffect(() => {
+    if (contentOnly && !location.pathname.startsWith('/admin/page-links')) {
+      navigate('/admin/page-links', { replace: true })
+    }
+  }, [contentOnly, location.pathname, navigate])
+
   const visibleNavGroups = navGroups
     .map((group) => ({
       ...group,
       items: group.items.filter((item) => {
         const required = capabilityForAdminPath(item.path)
-        return !required || capabilities.includes(required)
+        if (!required) return !contentOnly
+        return capabilities.includes(required)
       }),
     }))
     .filter((group) => group.items.length > 0)
@@ -178,7 +195,7 @@ export default function AdminLayout({ children }: { children?: ReactNode }) {
           </button>
           <div className="flex items-center gap-2.5">
             <BrandMark size="sm" />
-            <Link
+            {!contentOnly && <Link
               to="/admin/matching-rules"
               className={`hidden sm:inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${
                 routingStatusLoading
@@ -190,7 +207,7 @@ export default function AdminLayout({ children }: { children?: ReactNode }) {
             >
               <Power className="h-3.5 w-3.5" />
               {routingStatusLoading ? t('adminChrome.routingStatus') : routingEnabled === false ? t('adminChrome.routingOff') : t('adminChrome.routingOn')}
-            </Link>
+            </Link>}
           </div>
           <div className="flex items-center gap-1 sm:gap-2">
             {adminEmail && (
@@ -201,7 +218,7 @@ export default function AdminLayout({ children }: { children?: ReactNode }) {
                 {adminEmail}
               </span>
             )}
-            <AdminNotificationBell />
+            {!contentOnly && <AdminNotificationBell />}
             <LanguageSwitcher />
             <button
               type="button"

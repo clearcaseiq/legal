@@ -3,7 +3,7 @@ import { ENV } from '../env'
 import { logger } from './logger'
 
 /** Platform admin capability scopes. */
-export const ADMIN_CAPABILITIES = ['ops', 'network', 'oversight', 'config', 'users'] as const
+export const ADMIN_CAPABILITIES = ['ops', 'network', 'oversight', 'config', 'users', 'content'] as const
 export type AdminCapability = (typeof ADMIN_CAPABILITIES)[number]
 
 /** Emails allowed to use admin API routes and admin login (same list as ADMIN_EMAILS). */
@@ -81,6 +81,14 @@ export function resolveAdminCapabilities(user: AdminCandidate | null | undefined
   return stored
 }
 
+const CONTENT_ONLY_ALLOWED_PREFIXES = ['/v1/admin/page-links']
+
+/** An admin whose only capability is `content` (site page links). */
+export function isContentOnlyAdmin(user: AdminCandidate | null | undefined): boolean {
+  const caps = resolveAdminCapabilities(user)
+  return caps.length > 0 && caps.every((cap) => cap === 'content')
+}
+
 export function hasAdminCapability(
   user: AdminCandidate | null | undefined,
   capability: AdminCapability,
@@ -99,6 +107,18 @@ export function adminMiddleware(req: any, res: Response, next: NextFunction) {
     }
     if (!isAdminUser(req.user)) {
       return res.status(403).json({ error: 'Admin access required' })
+    }
+    // Many admin routes check only "is an admin". A content-only editor (often
+    // an outside SEO contractor) is denied all of them except page links, so a
+    // newly added ungated route can't leak case or lead data to that role.
+    if (isContentOnlyAdmin(req.user)) {
+      const path = `${req.baseUrl || ''}${req.path || ''}`
+      if (!CONTENT_ONLY_ALLOWED_PREFIXES.some((prefix) => path.startsWith(prefix))) {
+        return res.status(403).json({
+          error: 'Insufficient admin capability',
+          code: 'ADMIN_CAPABILITY_REQUIRED',
+        })
+      }
     }
     next()
   } catch (error) {

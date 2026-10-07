@@ -82,6 +82,7 @@ model User {
   passwordResetTokens        PasswordResetToken[]
   emailVerificationTokens    EmailVerificationToken[]
   blogPosts                  BlogPost[]
+  pageLinks                  PageLink[]
 
   @@map("users")
 }
@@ -102,6 +103,29 @@ model BlogPost {
 
   @@index([published, publishedAt])
   @@map("blog_posts")
+}
+
+/// Extra links a content editor attaches to a public guide page (Admin → Page links).
+/// Rendered in the page's "Further reading" block; `rel` controls nofollow/sponsored.
+model PageLink {
+  id          String   @id @default(cuid())
+  /// Site path of the page the link appears on, e.g. `/car-accident`.
+  path        String
+  url         String
+  anchor      String
+  /// internal | outbound
+  kind        String
+  /// follow | nofollow | sponsored
+  rel         String   @default("nofollow")
+  position    Int      @default(0)
+  active      Boolean  @default(true)
+  createdById String?
+  createdBy   User?    @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([path, active, position])
+  @@map("page_links")
 }
 
 // Single-use, expiring tokens for the password reset / "set password" flow.

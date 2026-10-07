@@ -12,7 +12,8 @@
       "operations": "Operations",
       "network": "Network",
       "oversight": "Oversight",
-      "configuration": "Configuration"
+      "configuration": "Configuration",
+      "content": "Content"
     },
     "items": {
       "dashboard": {
@@ -95,6 +96,9 @@
       },
       "smsTools": {
         "label": "SMS tools"
+      },
+      "pageLinks": {
+        "label": "Page links"
       }
     }
   },
