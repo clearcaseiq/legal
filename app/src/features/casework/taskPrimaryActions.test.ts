@@ -49,6 +49,41 @@ describe('resolveTaskPrimaryAction', () => {
     expect(action?.kind).toBe('send_lor_providers')
     expect(sectionForTaskAction(action!.kind)).toBe('medical?letter=1')
   })
+
+  // Every task below sits in the Demand Preparation / Demand package stage; the
+  // title, not the stage, decides where Open lands.
+  it.each([
+    ['Draft demand letter', 'demand'],
+    ['Attorney review & approve demand', 'demand'],
+    ['Review prior injuries and conditions', 'medical'],
+    ['Consult with medical expert on injury impact', 'medical'],
+    ['Schedule follow-up with medical expert', 'medical'],
+    ["Review medical expert's report", 'medical'],
+    ['Confirm treatment complete / MMI (discharge or MMI note on file)', 'medical'],
+    ['Collect daily impact statement', 'documents?view=requests'],
+    ['Draft daily impact journal template', 'medical'],
+    ['Assist client with daily impact journal', 'medical'],
+    ['Verify wage loss and gather proof', 'damages'],
+    ['Collect Medical bills', 'documents?view=requests'],
+    ["Identify all liens and request payoff figures (health, medical, gov't)", 'settlement'],
+  ])('opens "%s" on %s', (title, section) => {
+    const action = resolveTaskPrimaryAction({
+      title,
+      taskType: 'general',
+      workflowPhase: 'Demand Preparation',
+      workflowStage: 'Demand package',
+    })
+    expect(sectionForTaskAction(action!.kind)).toBe(section)
+  })
+
+  it('still sends a generic Demand package task to Demand', () => {
+    const action = resolveTaskPrimaryAction({
+      title: 'Prepare exhibits',
+      workflowPhase: 'Demand Preparation',
+      workflowStage: 'Demand package',
+    })
+    expect(sectionForTaskAction(action!.kind)).toBe('demand')
+  })
 })
 
 describe('resolveTaskHelpTooltip', () => {

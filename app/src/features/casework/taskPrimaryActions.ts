@@ -272,8 +272,43 @@ function openSection(
   }
 }
 
+const MEDICAL_RE =
+  /treatment|mmi|discharge|provider|medical timeline|treatment gap|treatment status|treatment continuity|life-care|future treatment|medical expert|expert('s)? report|prior injur|pre-existing|medical history|impact journal|daily impact/i
+const LIEN_PAYOFF_RE = /liens?\b.*payoff|payoff figures|lien payoff|final lien/i
+const DAMAGES_RE =
+  /special damages|damages summary|wage loss|lost wages|wage proof|verify wage|itemized damages|damages ledger|compile.*damages/i
+
+/**
+ * Domain rules matched on the task's own words. Run before the stage-aware
+ * rules: every task in a "Demand package" stage would otherwise open Demand,
+ * even "Verify wage loss" or "Consult with medical expert".
+ */
+function titleSectionAction(task: TaskLike): TaskPrimaryAction | null {
+  const title = String(task.title || '')
+  const type = String(task.taskType || '').toLowerCase()
+  const hay = `${title} ${type}`
+  if (['question', 'statute', 'deadline', 'filing'].includes(type) || task.deadlineType === 'sol') return null
+
+  if (type === 'medical' || MEDICAL_RE.test(hay)) {
+    return openSection('open_medical', 'Open', 'Open Medical to update treatment and providers')
+  }
+  if (LIEN_PAYOFF_RE.test(hay)) {
+    return openSection('open_settlement', 'Open', 'Open Settlement to record lien payoff figures')
+  }
+  if (DAMAGES_RE.test(hay)) {
+    return openSection('open_damages', 'Open', 'Open Damages to update the damages ledger')
+  }
+  if (/demand letter|draft demand|demand package|demand drafting|approve demand/i.test(hay)) {
+    return openSection('open_demand', 'Open', 'Open Demand to work the demand package')
+  }
+  return null
+}
+
 /** Map title / type / workflow context to a workspace section action. */
 function heuristicSectionAction(task: TaskLike): TaskPrimaryAction | null {
+  const fromTitle = titleSectionAction(task)
+  if (fromTitle) return fromTitle
+
   const title = String(task.title || '')
   const type = String(task.taskType || '').toLowerCase()
   const phase = `${task.workflowPhase || ''} ${task.workflowStage || ''}`.toLowerCase()
@@ -311,12 +346,7 @@ function heuristicSectionAction(task: TaskLike): TaskPrimaryAction | null {
     }
   }
 
-  if (
-    type === 'medical' ||
-    /treatment|mmi|discharge|provider|medical timeline|treatment gap|treatment status|treatment continuity|life-care|future treatment/i.test(
-      hay,
-    )
-  ) {
+  if (type === 'medical' || MEDICAL_RE.test(hay)) {
     return openSection('open_medical', 'Open', 'Open Medical to update treatment and providers')
   }
 
@@ -349,9 +379,7 @@ function heuristicSectionAction(task: TaskLike): TaskPrimaryAction | null {
     return openSection('open_settlement', 'Open', 'Open Settlement for release, liens, and disbursement')
   }
 
-  if (
-    /special damages|damages summary|wage loss|itemized damages|damages ledger|compile.*damages/i.test(hay)
-  ) {
+  if (DAMAGES_RE.test(hay)) {
     return openSection('open_damages', 'Open', 'Open Damages to update the damages ledger')
   }
 
