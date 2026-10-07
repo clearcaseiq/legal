@@ -45,7 +45,13 @@ export type AssistanceNewEvent = {
   assessmentId: string
 }
 
+export type TasksUpdatedEvent = {
+  assessmentId: string
+  leadId: string | null
+}
+
 type RealtimeEvents = {
+  'tasks:updated': TasksUpdatedEvent
   'assistance:new': AssistanceNewEvent
   'lead:claimed': LeadClaimedEvent
   'lead:new': LeadNewEvent

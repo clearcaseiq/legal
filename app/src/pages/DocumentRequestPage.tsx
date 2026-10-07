@@ -1,9 +1,9 @@
 /**
  * Document request page - dedicated screen for requesting docs from plaintiff (not post-acceptance).
  */
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
-import { AlertTriangle, Sparkles, UploadCloud, CheckCircle2 } from 'lucide-react'
+import { AlertTriangle, Sparkles, UploadCloud, CheckCircle2, Check } from 'lucide-react'
 import { BackButton } from '../features/shared/ui'
 import {
   getLead,
@@ -86,6 +86,8 @@ export default function DocumentRequestPage() {
   const [opposingMessage, setOpposingMessage] = useState('')
   const [suggestions, setSuggestions] = useState<OpposingDocSuggestion[]>([])
   const [appliedSuggestionId, setAppliedSuggestionId] = useState<string | null>(null)
+  const recipientNameRef = useRef<HTMLInputElement>(null)
+  const opposingDocsRef = useRef<HTMLDivElement>(null)
   const [sentRequests, setSentRequests] = useState<AttorneyDocumentRequest[]>([])
   const [expandedRequestId, setExpandedRequestId] = useState<string | null>(null)
   const [uploadsByRequest, setUploadsByRequest] = useState<Record<string, OpposingDocUpload[]>>({})
@@ -100,6 +102,8 @@ export default function DocumentRequestPage() {
     source?: string
   } | null)?.prefill
   const source = (location.state as { source?: string } | null)?.source
+  // The dashboard root opens on New Matches; this page is always about one case.
+  const caseHome = leadId ? `/attorney-dashboard/cases/${leadId}/documents?view=requests` : '/attorney-dashboard/cases/active'
 
   const applySuggestedRequest = (payload: {
     requestedDocs?: DocTypeId[]
@@ -256,6 +260,13 @@ export default function DocumentRequestPage() {
     if (s.recipientRole) setRecipientRole(s.recipientRole)
     if (s.note) setOpposingMessage(s.note)
     setAppliedSuggestionId(s.id)
+    // Most suggestions carry only document types, so the first thing still
+    // missing is usually the recipient; take the attorney there.
+    requestAnimationFrame(() => {
+      const target = !s.recipientName && !recipientName.trim() ? recipientNameRef.current : opposingDocsRef.current
+      target?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      if (target === recipientNameRef.current) recipientNameRef.current?.focus({ preventScroll: true })
+    })
   }
 
   const handleOpposingSubmit = async () => {
@@ -341,7 +352,7 @@ export default function DocumentRequestPage() {
         await createDocumentRequest(leadId, { requestedDocs: [...selected], customMessage: customMessage.trim() || undefined })
       }
       invalidateAttorneyDashboardSummary()
-      navigate('/attorney-dashboard')
+      navigate(caseHome)
     } catch (err: any) {
       setError(err?.response?.data?.error || err?.message || 'Failed to send document request')
     } finally {
@@ -365,7 +376,7 @@ export default function DocumentRequestPage() {
     return (
       <div className="max-w-2xl mx-auto px-4 py-12">
         <div className="rounded-lg bg-red-50 border border-red-200 p-4 text-red-700">{error}</div>
-        <BackButton onClick={() => navigate('/attorney-dashboard')} label="Back to dashboard" className="mt-4" />
+        <BackButton onClick={() => navigate(caseHome)} label="Back to case" className="mt-4" />
       </div>
     )
   }
@@ -373,7 +384,7 @@ export default function DocumentRequestPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-2xl mx-auto px-4 py-8">
-        <BackButton onClick={() => navigate('/attorney-dashboard')} label="Back to dashboard" className="mb-6" />
+        <BackButton onClick={() => navigate(caseHome)} label="Back to case" className="mb-6" />
 
         <div className="mb-6">
           <h1 className="text-2xl font-semibold text-gray-900">Request documents</h1>
@@ -552,7 +563,7 @@ export default function DocumentRequestPage() {
           </div>
           <div className="flex justify-end gap-3 px-6 py-4 border-t border-gray-200 bg-gray-50">
             <button
-              onClick={() => navigate('/attorney-dashboard')}
+              onClick={() => navigate(caseHome)}
               className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
             >
               Cancel
@@ -676,13 +687,24 @@ export default function DocumentRequestPage() {
                         </div>
                       )}
                       {s.note && <div className="mt-1 text-xs text-slate-500">“{s.note}”</div>}
-                      <button
-                        type="button"
-                        onClick={() => applySuggestion(s)}
-                        className="mt-2 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700"
-                      >
-                        Use this suggestion
-                      </button>
+                      {appliedSuggestionId === s.id ? (
+                        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                          <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-1 font-medium text-emerald-700">
+                            <Check className="h-3.5 w-3.5" aria-hidden /> Applied
+                          </span>
+                          {!recipientName.trim() && (
+                            <span className="text-slate-600">Add the recipient's name below to send it.</span>
+                          )}
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => applySuggestion(s)}
+                          className="mt-2 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700"
+                        >
+                          Use this suggestion
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -693,6 +715,7 @@ export default function DocumentRequestPage() {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Recipient name</label>
                 <input
+                  ref={recipientNameRef}
                   type="text"
                   value={recipientName}
                   onChange={(e) => setRecipientName(e.target.value)}
@@ -726,7 +749,7 @@ export default function DocumentRequestPage() {
               <p className="text-xs text-gray-500 mt-1">If left blank, you can copy and share the secure link from the document requests list.</p>
             </div>
 
-            <div>
+            <div ref={opposingDocsRef}>
               <p className="text-sm font-medium text-gray-700 mb-2">Documents to request:</p>
               <div className="space-y-2">
                 {OPPOSING_DOC_TYPES.map((doc) => (
@@ -756,7 +779,7 @@ export default function DocumentRequestPage() {
           </div>
           <div className="flex justify-end gap-3 px-6 py-4 border-t border-gray-200 bg-gray-50">
             <button
-              onClick={() => navigate('/attorney-dashboard')}
+              onClick={() => navigate(caseHome)}
               className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
             >
               Cancel

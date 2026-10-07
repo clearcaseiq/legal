@@ -18,6 +18,7 @@ import {
   parseRequestedDocs,
 } from '../lib/document-request-status'
 import { fileCarrierPortalUpload, POLICY_DOC_LABELS } from '../lib/insurance-workbench'
+import { fileOpposingPartyUpload } from '../lib/opposing-upload-filing'
 
 const router = Router()
 
@@ -336,6 +337,16 @@ router.post(
     const status = computeStatus(requestedDocs, uploadedDocTypes)
     if (status !== docRequest.status) {
       await prisma.documentRequest.update({ where: { id: docRequest.id }, data: { status } })
+    }
+
+    if (!docRequest.insuranceDetailId) {
+      const assessmentId = docRequest.lead?.assessmentId
+      if (assessmentId) await fileOpposingPartyUpload(assessmentId, docRequest, created).catch((error: any) =>
+        logger.warn('Failed to file opposing-party upload into case evidence', {
+          error: error?.message,
+          requestId: docRequest.id,
+        }),
+      )
     }
 
     if (docRequest.insuranceDetailId) {

@@ -1088,6 +1088,15 @@ export default function PlaintiffDashboardDeferredTabPanel({
           <p className="shrink-0 text-sm text-slate-600">
             {t('plaintiffDashboard.deferred.documents.yourFilesSubtitle')}
           </p>
+          {yourFiles.length > 0 ? (
+            <Link
+              to={documentsUploadHref}
+              className="mt-3 inline-flex w-full shrink-0 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              <Upload className="h-4 w-4" aria-hidden />
+              {t('plaintiffDashboard.deferred.documents.manageDocuments')}
+            </Link>
+          ) : null}
           <div className="mt-4 overflow-hidden rounded-xl border border-slate-200">
             <button
               type="button"
@@ -1167,13 +1176,6 @@ export default function PlaintiffDashboardDeferredTabPanel({
                         </div>
                       </div>
                     ))}
-                    <Link
-                      to={documentsUploadHref}
-                      className="mt-1 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                    >
-                      <Upload className="h-4 w-4" aria-hidden />
-                      {t('plaintiffDashboard.deferred.documents.manageDocuments')}
-                    </Link>
                   </>
                 )}
               </div>
@@ -1253,7 +1255,9 @@ export default function PlaintiffDashboardDeferredTabPanel({
                               </button>
                             ) : (
                               <p className="mt-2 text-xs font-medium text-slate-500">
-                                {t('plaintiffDashboard.deferred.documents.signedUnavailable')}
+                                {doc.awaitingCountersign
+                                  ? t('plaintiffDashboard.deferred.documents.awaitingCountersign')
+                                  : t('plaintiffDashboard.deferred.documents.signedUnavailable')}
                               </p>
                             )}
                           </div>

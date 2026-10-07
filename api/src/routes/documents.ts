@@ -742,6 +742,10 @@ router.post('/leads/:leadId/client-packet', authMiddleware, async (req: AuthRequ
     if (result.envelopes.some((e) => e.type === 'retainer')) {
       await afterRetainerEnvelopeSent(lead.id, 'Sent for signature in a client packet (Documents).')
     }
+    // A retainer + HIPAA packet is the welcome packet, whichever button sent it.
+    if (result.envelopes.some((e) => e.type === 'retainer' || e.type === 'hipaa_authorization')) {
+      await completeWelcomePacketForLead(lead.id, 'Sent as a client packet (Documents).').catch(() => undefined)
+    }
     res.status(201).json(result)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)

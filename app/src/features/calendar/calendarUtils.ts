@@ -20,6 +20,7 @@ export interface ConsultInfo {
   status?: string | null
   claimType?: string | null
   notes?: string | null
+  clientPrepNotes?: string | null
   meetingUrl?: string | null
   hostMeetingUrl?: string | null
   location?: string | null

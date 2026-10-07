@@ -924,7 +924,7 @@ export function RequestsOverview({
   const openEnvelopes = (envelopes || []).filter(isEnvelopeOpen)
   const doneEnvelopes = (envelopes || []).filter((e) => !isEnvelopeOpen(e))
   const pendingSuggestions = forSignatures ? [] : suggestions || []
-  const loading = forSignatures ? envelopes === null : requests === null
+  const loading = forSignatures ? envelopes === null : requests === null || envelopes === null
 
   const scrollTo = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 
@@ -985,12 +985,16 @@ export function RequestsOverview({
   const byNewest = <T,>(rows: T[], at: (row: T) => string | null | undefined) =>
     [...rows].sort((a, b) => new Date(at(b) || 0).getTime() - new Date(at(a) || 0).getTime())
 
+  // Requests lists everything the client owes, so documents sent for signature
+  // (e.g. a welcome packet) show here as well as under Signatures.
+  const waitingEnvelopes = openEnvelopes.map((env) => ({ at: env.sentAt || env.createdAt, node: renderEnvelope(env) }))
+  const doneEnvelopeRows = doneEnvelopes.map((env) => ({ at: env.signedAt || env.updatedAt || env.createdAt, node: renderEnvelope(env) }))
   const waiting = forSignatures
-    ? openEnvelopes.map((env) => ({ at: env.sentAt || env.createdAt, node: renderEnvelope(env) }))
-    : openUploads.map((row) => ({ at: row.request.createdAt, node: renderUpload(row) }))
+    ? waitingEnvelopes
+    : [...openUploads.map((row) => ({ at: row.request.createdAt, node: renderUpload(row) })), ...waitingEnvelopes]
   const done = forSignatures
-    ? doneEnvelopes.map((env) => ({ at: env.signedAt || env.updatedAt || env.createdAt, node: renderEnvelope(env) }))
-    : doneUploads.map((row) => ({ at: row.request.createdAt, node: renderUpload(row) }))
+    ? doneEnvelopeRows
+    : [...doneUploads.map((row) => ({ at: row.request.createdAt, node: renderUpload(row) })), ...doneEnvelopeRows]
 
   return (
     <div className="space-y-6">

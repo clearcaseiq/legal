@@ -18,8 +18,12 @@ const OUTPUT_DIR = path.join(process.cwd(), 'uploads', 'signable-documents')
 
 export type TemplateTokens = Record<string, string>
 
-function fullName(first?: string | null, last?: string | null): string {
-  return [first, last].filter(Boolean).join(' ').trim()
+export function fullName(first?: string | null, last?: string | null): string {
+  const f = (first || '').trim()
+  const l = (last || '').trim()
+  // Some intakes store the whole name in firstName ("Apple Pie" + "Pie").
+  if (f && l && f.toLowerCase().split(/\s+/).pop() === l.toLowerCase()) return f
+  return [f, l].filter(Boolean).join(' ')
 }
 
 /**

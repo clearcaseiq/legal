@@ -175,8 +175,50 @@ function pushOnWrites(): void {
         void emitMessageNew({ chatRoomId: result.chatRoomId, senderType: result.senderType ?? null })
       }
     }
+    if (params.model === 'CaseTask' && TASK_WRITE_ACTIONS.has(params.action)) {
+      const assessmentId = result?.assessmentId ?? params.args?.where?.assessmentId ?? params.args?.data?.assessmentId
+      if (typeof assessmentId === 'string') void emitTasksUpdated(assessmentId)
+    }
+    if (params.model === 'CaseWorkflowItem' && TASK_WRITE_ACTIONS.has(params.action)) {
+      const caseWorkflowId = result?.caseWorkflowId ?? params.args?.where?.caseWorkflowId
+      if (typeof caseWorkflowId === 'string') {
+        void client.caseWorkflow
+          .findUnique({ where: { id: caseWorkflowId }, select: { assessmentId: true } })
+          .then((wf: { assessmentId: string } | null) => wf && emitTasksUpdated(wf.assessmentId))
+          .catch(() => undefined)
+      }
+    }
     return result
   })
+}
+
+const TASK_WRITE_ACTIONS = new Set(['create', 'update', 'upsert', 'delete', 'createMany', 'updateMany', 'deleteMany'])
+
+export type TasksUpdatedEvent = {
+  assessmentId: string
+  leadId: string | null
+}
+
+/**
+ * A task on this case changed (a paralegal completing one, say). Pushed to the
+ * firm and the assigned attorney so open task lists refetch without a reload.
+ */
+export async function emitTasksUpdated(assessmentId: string): Promise<void> {
+  if (!io) return
+  try {
+    const lead = await prisma.leadSubmission.findFirst({
+      where: { assessmentId },
+      select: { id: true, assignedAttorneyId: true, assignedAttorney: { select: { lawFirmId: true } } },
+    })
+    if (!lead) return
+    const rooms = [
+      lead.assignedAttorneyId ? `attorney:${lead.assignedAttorneyId}` : null,
+      lead.assignedAttorney?.lawFirmId ? `firm:${lead.assignedAttorney.lawFirmId}` : null,
+    ].filter((r): r is string => Boolean(r))
+    if (rooms.length) io.to(rooms).emit('tasks:updated', { assessmentId, leadId: lead.id } satisfies TasksUpdatedEvent)
+  } catch (err) {
+    logger.warn('Realtime tasks:updated emit failed', { assessmentId, error: (err as Error).message })
+  }
 }
 
 export function emitNotificationNew(

@@ -117,6 +117,7 @@ import { ChannelButton, displayTitle, type Channel } from '../../components/Enve
 import ClientContactDialog from './ClientContactDialog'
 import ClientInfoPanel from './ClientInfoPanel'
 import type { ClaimantContact } from '../../lib/api'
+import { useRealtimeEvent } from '../../lib/realtime'
 import { resolveClaimantContact } from '../../lib/claimantContact'
 import ChatDrawer from '../../components/ChatDrawer'
 import ConfirmDialog from '../../components/ConfirmDialog'
@@ -483,6 +484,14 @@ export default function CaseWorkspacePage() {
       /* tasks are best-effort; keep whatever we already have */
     }
   }, [leadId])
+
+  useRealtimeEvent(
+    'tasks:updated',
+    (event) => {
+      if (event.leadId === leadId) void reloadTasks()
+    },
+    () => void reloadTasks(),
+  )
 
   const reloadCc = useCallback(async () => {
     if (!leadId) return

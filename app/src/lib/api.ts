@@ -262,6 +262,8 @@ export type PlaintiffSignedDocument = {
   title: string
   status: string
   signedAt?: string | null
+  /** The client signed; the attorney's countersignature is still outstanding. */
+  awaitingCountersign?: boolean
   downloadAvailable: boolean
   attorney?: { id: string; name?: string | null } | null
 }
@@ -1965,6 +1967,8 @@ export interface CalendarConsultEvent {
   duration?: number | null
   status?: string | null
   notes?: string | null
+  /** What the client wrote in their consultation prep on their dashboard. */
+  clientPrepNotes?: string | null
   meetingUrl?: string | null
   hostMeetingUrl?: string | null
   location?: string | null

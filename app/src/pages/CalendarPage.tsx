@@ -160,6 +160,7 @@ export default function CalendarPage() {
                 status: e.status,
                 claimType: e.claimType,
                 notes: e.notes,
+                clientPrepNotes: e.clientPrepNotes,
                 meetingUrl: e.meetingUrl,
                 hostMeetingUrl: e.hostMeetingUrl,
                 location: e.location,
@@ -1007,6 +1008,11 @@ function ConsultDetailPanel({
           {c.notes ? (
             <DetailRow icon={FileText} label="Notes">
               <p className="whitespace-pre-wrap leading-relaxed text-slate-600">{c.notes}</p>
+            </DetailRow>
+          ) : null}
+          {c.clientPrepNotes ? (
+            <DetailRow icon={FileText} label="Client's prep notes">
+              <p className="whitespace-pre-wrap leading-relaxed text-slate-600">{c.clientPrepNotes}</p>
             </DetailRow>
           ) : null}
         </div>

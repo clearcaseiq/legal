@@ -4928,6 +4928,7 @@
         "download": "Descargar",
         "downloading": "Descargando…",
         "signedUnavailable": "La copia firmada aún no está disponible",
+        "awaitingCountersign": "Usted firmó. Esperando la firma de su abogado; la copia final estará disponible aquí después.",
         "yourFiles": "Tus documentos",
         "yourFilesSubtitle": "Todos los archivos de tu caso: lo que subiste y los documentos compartidos para tu asunto.",
         "yourFilesEmpty": "Aún no hay archivos en tu caso. Sube registros, fotos o informes para comenzar.",

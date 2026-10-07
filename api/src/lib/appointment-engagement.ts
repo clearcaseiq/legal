@@ -817,6 +817,28 @@ export async function updateAppointmentPreparation(params: {
         checkInStatus: params.checkInStatus || 'pending',
       },
     })
+
+    const notes = (params.preparationNotes || '').trim()
+    if (notes) {
+      try {
+        const { notifyAttorneyInApp } = await import('./case-notifications')
+        const lead = appointment.assessmentId
+          ? await prisma.leadSubmission.findFirst({ where: { assessmentId: appointment.assessmentId }, select: { id: true } })
+          : null
+        await notifyAttorneyInApp({
+          attorneyId: appointment.attorneyId,
+          assessmentId: appointment.assessmentId,
+          leadId: lead?.id || null,
+          eventType: 'consult_prep_notes',
+          subject: 'Client added consultation prep notes',
+          body: notes.length > 280 ? `${notes.slice(0, 277)}…` : notes,
+          link: '/attorney-dashboard/cases/calendar',
+          payload: { appointmentId: appointment.id },
+        })
+      } catch (error: any) {
+        logger.warn('Failed to notify attorney of consultation prep notes', { appointmentId: appointment.id, error: error?.message })
+      }
+    }
   }
 
   return getAppointmentPreparation(appointment.id, params.userId)

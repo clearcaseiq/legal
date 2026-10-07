@@ -735,14 +735,17 @@ router.get('/:id/signed-documents', authMiddleware, async (req: AuthRequest, res
           select: {
             id: true,
             documentEnvelopes: {
-              where: { status: 'signed' },
-              orderBy: { signedAt: 'desc' },
+              // A countersigned agreement is only `signed` once the attorney signs;
+              // the client's part is done (and theirs to see) at clientSignedAt.
+              where: { OR: [{ status: 'signed' }, { clientSignedAt: { not: null }, status: { notIn: ['voided', 'declined'] } }] },
+              orderBy: [{ signedAt: 'desc' }, { clientSignedAt: 'desc' }],
               select: {
                 id: true,
                 documentType: true,
                 title: true,
                 status: true,
                 signedAt: true,
+                clientSignedAt: true,
                 signedFilePath: true,
                 attorney: { select: { id: true, name: true } },
               },
@@ -764,8 +767,9 @@ router.get('/:id/signed-documents', authMiddleware, async (req: AuthRequest, res
       documentType: env.documentType,
       title: env.title,
       status: env.status,
-      signedAt: env.signedAt,
-      downloadAvailable: Boolean(env.signedFilePath),
+      signedAt: env.signedAt || env.clientSignedAt,
+      awaitingCountersign: env.status !== 'signed',
+      downloadAvailable: env.status === 'signed' && Boolean(env.signedFilePath),
       attorney: env.attorney,
     }))
 

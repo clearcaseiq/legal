@@ -4928,6 +4928,7 @@
         "download": "下载",
         "downloading": "下载中…",
         "signedUnavailable": "签署副本暂不可用",
+        "awaitingCountersign": "您已签署。正在等待您的律师会签；完成后最终副本将在此处提供。",
         "yourFiles": "您的文件",
         "yourFilesSubtitle": "案件中的全部文件——您上传的材料以及为您案件共享的文件。",
         "yourFilesEmpty": "案件中还没有文件。请上传记录、照片或报告以开始。",

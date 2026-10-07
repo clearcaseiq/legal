@@ -11,6 +11,7 @@ import { prisma } from '../prisma'
 import { parseCaseFacts } from '../case-facts'
 import { readClaimantContact } from '../claimant-contact'
 import { listCaseProviders } from '../representation-letters'
+import { fullName } from './firm-template-doc'
 
 export type EssentialDocType = 'retainer' | 'hipaa_authorization'
 
@@ -209,7 +210,7 @@ export async function buildEssentialPrefill(params: {
   const assessmentId = lead?.assessmentId || ''
   const contact = assessmentId ? await readClaimantContact(assessmentId).catch(() => null) : null
   const facts: any = parseCaseFacts(lead?.assessment?.facts)
-  const clientName = [contact?.firstName, contact?.lastName].filter(Boolean).join(' ').trim()
+  const clientName = fullName(contact?.firstName, contact?.lastName)
   const clientAddress = joinAddress([
     contact?.addressLine1,
     contact?.addressLine2,

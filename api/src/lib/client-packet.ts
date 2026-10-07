@@ -20,6 +20,7 @@ import { listESignatureProviders } from './esign'
 import { createHipaaAuthorizationEnvelope, createRetainerAgreementEnvelope } from './esign/esign-service'
 import { sendFirmTemplateForLead } from './esign/send-firm-template'
 import { resolveDefaultContingency } from './esign/essential-fields'
+import { fullName } from './esign/firm-template-doc'
 
 export type PacketSignType = 'retainer' | 'hipaa_authorization'
 
@@ -125,7 +126,7 @@ export async function sendClientPacket(params: SendClientPacketParams): Promise<
   if (!uploads.length && !sign.length) return fail(400, 'Pick at least one document to sign or file to upload.')
 
   const contact = await readClaimantContact(params.assessmentId)
-  const signerName = [contact?.firstName, contact?.lastName].filter(Boolean).join(' ').trim()
+  const signerName = fullName(contact?.firstName, contact?.lastName)
   const signerEmail = (contact?.email || '').trim()
   if (sign.length && (!signerName || !signerEmail)) {
     return fail(409, 'Add the client’s name and email on Client Info before sending documents to sign.')

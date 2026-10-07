@@ -8,6 +8,7 @@ import fs from 'fs'
 import path from 'path'
 import crypto from 'crypto'
 import { prisma } from '../prisma'
+import { recordHipaaConsent } from '../hipaa-consent'
 import { logger } from '../logger'
 import { webUrl } from '../app-url'
 import { ensureReferenceCode } from '../case-reference'
@@ -474,6 +475,20 @@ async function finalizeStatusTransition(
           error: err instanceof Error ? err.message : String(err),
         })
       }
+    }
+  }
+
+  // The client's signature is the authorization; a pending countersignature
+  // must not keep medical records hidden.
+  if (updated.documentType === 'hipaa_authorization' && updated.clientSignedAt && !envelope.clientSignedAt) {
+    try {
+      const lead = await prisma.leadSubmission.findUnique({ where: { id: updated.leadId }, select: { assessmentId: true } })
+      if (lead?.assessmentId) await recordHipaaConsent(lead.assessmentId, updated.id)
+    } catch (err) {
+      logger.warn('Failed to record HIPAA consent from signed authorization', {
+        envelopeId: updated.id,
+        error: err instanceof Error ? err.message : String(err),
+      })
     }
   }
 

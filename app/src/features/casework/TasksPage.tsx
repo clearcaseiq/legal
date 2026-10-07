@@ -15,6 +15,7 @@ import {
   type MyWorkflowTask,
 } from '../../lib/api'
 import { checkEvidenceCollect, checkPoliceReportCollect, confirmRetainerSigned } from '../../lib/api-esign'
+import { useRealtimeEvent } from '../../lib/realtime'
 import { resolveTaskHelpTooltip, resolveTaskPrimaryAction, sectionForTaskAction } from './taskPrimaryActions'
 import {
   Badge,
@@ -262,6 +263,14 @@ export default function TasksPage() {
       cancelled = true
     }
   }, [])
+
+  const refreshFromPush = () => {
+    void loadTasks().catch(() => undefined)
+    getMyWorkflowTasks()
+      .then((res) => setWorkflowTasks(res?.tasks ?? []))
+      .catch(() => undefined)
+  }
+  useRealtimeEvent('tasks:updated', refreshFromPush, refreshFromPush)
 
   // Open-task buckets with the caller's reassigned workflow steps folded in, so a
   // reassigned step counts and shows under "All open tasks" — not just the

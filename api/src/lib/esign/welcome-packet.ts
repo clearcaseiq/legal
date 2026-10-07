@@ -20,6 +20,7 @@ import {
   createRetainerAgreementEnvelope,
 } from './esign-service'
 import { sendFirmTemplateForLead } from './send-firm-template'
+import { fullName } from './firm-template-doc'
 
 export type WelcomePacketErrorCode =
   | 'missing_client_contact'
@@ -48,7 +49,7 @@ export async function sendWelcomePacketForLead(params: {
   const { leadId, attorney } = params
   const lead = await prisma.leadSubmission.findUnique({ where: { id: leadId }, select: { assessmentId: true } })
   const contact = lead?.assessmentId ? await readClaimantContact(lead.assessmentId) : null
-  const signerName = [contact?.firstName, contact?.lastName].filter(Boolean).join(' ').trim()
+  const signerName = fullName(contact?.firstName, contact?.lastName)
   const signerEmail = contact?.email?.trim() || ''
   if (!signerName || !signerEmail) {
     throw new WelcomePacketError(

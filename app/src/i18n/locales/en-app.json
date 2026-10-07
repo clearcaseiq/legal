@@ -3879,6 +3879,7 @@
         "download": "Download",
         "downloading": "Downloading…",
         "signedUnavailable": "Signed copy not available yet",
+        "awaitingCountersign": "You signed. Waiting for your attorney to countersign; the final copy will be available here after that.",
         "yourFiles": "Your documents",
         "yourFilesSubtitle": "Every file on your case — uploads you added and documents shared for your matter.",
         "yourFilesEmpty": "No files on your case yet. Upload records, photos, or reports to get started.",

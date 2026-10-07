@@ -9,6 +9,8 @@ import { leadAccessOr, TERMINAL_INTRO_STATUSES } from '../lib/lead-access'
 import { authMiddleware } from '../lib/auth'
 import { canWorkCaseAssistance, isCaseAssistanceManager } from '../lib/specialist-access'
 import { logger } from '../lib/logger'
+import { fileOutstandingOpposingUploads } from '../lib/opposing-upload-filing'
+import { syncHipaaConsentFromSignedEnvelope } from '../lib/hipaa-consent'
 import { ensureLocalCopy, persistUpload } from '../lib/object-storage'
 import { recordCaseChange } from '../lib/data-authority'
 import { serializeCaseFacts } from '../lib/case-facts'
@@ -4301,6 +4303,25 @@ router.get('/appointments', authMiddleware, async (req: any, res) => {
       eventTypeNameById = Object.fromEntries(types.map((t) => [t.id, t.name]))
     }
 
+    // The client's consultation prep notes are stored as their own notification
+    // rows; take the latest per appointment so the attorney sees them here.
+    const prepNotesByAppointment = new Map<string, string>()
+    const clientEmails = [...new Set(appointments.map((a) => a.user?.email).filter(Boolean))] as string[]
+    if (clientEmails.length > 0) {
+      const appointmentIds = new Set(appointments.map((a) => a.id))
+      const prepRows = await prisma.notification.findMany({
+        where: { subject: 'Consultation prep notes', recipient: { in: clientEmails } },
+        select: { metadata: true },
+        orderBy: { createdAt: 'desc' },
+      })
+      for (const row of prepRows) {
+        const meta = safeJsonParse<{ appointmentId?: string; preparationNotes?: string }>(row.metadata || '', {})
+        if (!meta.appointmentId || !appointmentIds.has(meta.appointmentId)) continue
+        if (prepNotesByAppointment.has(meta.appointmentId)) continue
+        prepNotesByAppointment.set(meta.appointmentId, (meta.preparationNotes || '').trim())
+      }
+    }
+
     const events = appointments.map((a) => {
       const isBooking = !a.assessmentId
       const bookerName = a.user
@@ -4318,6 +4339,7 @@ router.get('/appointments', authMiddleware, async (req: any, res) => {
         status: a.status,
         assessmentId: a.assessmentId,
         notes: a.notes,
+        clientPrepNotes: prepNotesByAppointment.get(a.id) || null,
         meetingUrl: a.meetingUrl,
         hostMeetingUrl: a.hostMeetingUrl,
         location: a.location,
@@ -7924,6 +7946,10 @@ router.get('/leads/:leadId/evidence', authMiddleware, async (req: any, res) => {
     }
     const { lead, attorney } = auth
 
+    await syncHipaaConsentFromSignedEnvelope(leadId, lead.assessmentId).catch((error: any) =>
+      logger.warn('Failed to sync HIPAA consent from signed authorization', { error: error?.message, leadId }),
+    )
+
     const assessment = await prisma.assessment.findUnique({
       where: { id: lead.assessmentId },
       select: { userId: true, createdAt: true, facts: true }
@@ -7956,6 +7982,10 @@ router.get('/leads/:leadId/evidence', authMiddleware, async (req: any, res) => {
         })
       }
     }
+
+    await fileOutstandingOpposingUploads(leadId, lead.assessmentId).catch((error: any) =>
+      logger.warn('Failed to backfill opposing-party uploads', { error: error?.message, leadId }),
+    )
 
     // Scope strictly to this case. Matching on the plaintiff's userId as well
     // returned every file they had ever uploaded, across every case and every
@@ -8007,9 +8037,13 @@ router.get('/leads/:leadId/evidence', authMiddleware, async (req: any, res) => {
     // sharing status alongside lets it say "waiting on the authorization" instead.
     // `medicalFileCount` is computed before the filter, so it still reports how
     // many are being held back.
+    // Records the firm requested itself (e.g. from a provider under a HIPAA
+    // authorization) were never the client's to withhold.
     const visible = medicalSharing.canShareMedicalData
       ? evidenceFiles
-      : evidenceFiles.filter((file) => !isMedicalEvidenceFile(file))
+      : evidenceFiles.filter(
+          (file) => !isMedicalEvidenceFile(file) || String(file.provenanceSource || '').startsWith('opposing_portal:'),
+        )
 
     // Executed documents are filed as `<envelopeId>.pdf`; link each back to the
     // signature request it came from. They are the signed record, so locked.
