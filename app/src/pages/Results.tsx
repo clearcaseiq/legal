@@ -97,6 +97,7 @@ import {
   Pencil,
   Info,
   X,
+  ArrowLeft,
 } from 'lucide-react'
 
 function initialPlaintiffLoggedInState(): boolean | null {
@@ -744,6 +745,7 @@ export default function Results() {
   // case still opens the full snapshot — not the post-submit confirmation page
   // (which prominently offers Supporting Documents / evidence upload).
   const forceReportView = searchParams.get('view') === 'report'
+  const cameFromDashboard = searchParams.get('from') === 'dashboard'
   // Full Case Report section tabs can be deep-linked (?tab=liability) so liability
   // tips and Done-from-upload can return to the same Liability Analysis panel.
   const tabFromUrl = searchParams.get('tab')
@@ -3441,6 +3443,7 @@ Checklist:
   const liabReportReturnTo = evidenceUploadTargetId
     ? `/results/${evidenceUploadTargetId}?${new URLSearchParams({
         ...(forceReportView || caseSubmittedForReview ? { view: 'report' } : {}),
+        ...(cameFromDashboard ? { from: 'dashboard' } : {}),
         tab: 'liability',
       }).toString()}`
     : undefined
@@ -4115,6 +4118,14 @@ Checklist:
         <header className="border-b border-slate-200 bg-gradient-to-b from-slate-50 via-white to-white px-5 py-5 sm:px-8 sm:py-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
+              {cameFromDashboard && !isSharedReadOnly && (
+                <Link
+                  to="/dashboard"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+                >
+                  <ArrowLeft className="h-3.5 w-3.5" aria-hidden /> {t('results.chrome.backToDashboard')}
+                </Link>
+              )}
               <BrandLogo appName={t('common.appName')} size="md" />
               <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
                 {t('results.chrome.preliminaryConfidential')}

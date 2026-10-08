@@ -3978,6 +3978,7 @@
       "preliminaryConfidential": "Evaluación preliminar • Confidencial",
       "reference": "Referencia",
       "downloadSummary": "Descargar resumen",
+      "backToDashboard": "Volver al panel",
       "addDocuments": "Agregar documentos",
       "sharedReadOnly": "Está viendo una copia compartida de solo lectura de este informe del caso. La edición está deshabilitada.",
       "privateSecureBadge": "100% privado y seguro",
@@ -4261,6 +4262,14 @@
       "noCase": "Averigüemos si podrías tener un caso de lesiones personales."
     },
     "viewCaseReport": "Ver informe del caso",
+    "verifyEmail": {
+      "title": "Revise su correo para verificar su cuenta",
+      "body": "Enviamos un enlace de verificación a {email}. Ábralo para confirmar su dirección y que los abogados y nuestro equipo puedan contactarle sobre su caso.",
+      "resend": "Reenviar correo",
+      "sending": "Enviando…",
+      "sent": "Un nuevo enlace va en camino a {email}. Vence en 24 horas.",
+      "resendFailed": "No pudimos enviar el correo ahora. Inténtelo de nuevo en unos minutos."
+    },
     "reviewBanner": {
       "title": "Tu caso está en revisión",
       "reviewingOne": "{count} abogado está revisando tu caso",

@@ -35,6 +35,7 @@ import { DashboardPageSkeleton, DashboardTabPanelSkeleton } from '../components/
 import { getLoginRedirect } from '../lib/auth'
 import { loadPlaintiffSessionSummary, updateCachedPlaintiffAssessments } from '../hooks/usePlaintiffSessionSummary'
 import { useLanguage } from '../contexts/LanguageContext'
+import { EmailVerificationBanner } from '../components/EmailVerificationBanner'
 import { evidenceUploadHref, plaintiffDashboardReturnTo, rememberEvidenceReturnTo } from '../lib/evidenceUploadNav'
 import DraggableFab from '../components/DraggableFab'
 import CaseDetailsQuickEdit, { type CaseDetailsQuickEditMode } from '../components/CaseDetailsQuickEdit'
@@ -47,6 +48,7 @@ interface User {
   email: string
   firstName: string
   lastName: string
+  emailVerified?: boolean
   _count: { assessments: number; favoriteAttorneys: number }
   createdAt: string
 }
@@ -1246,7 +1248,7 @@ export default function Dashboard() {
     : !hasWageLoss
     ? { action: t('plaintiffDashboard.dynamic.action.documentWageLoss'), detail: t('plaintiffDashboard.dynamic.action.documentWageLossDetail'), cta: t('plaintiffDashboard.dynamic.action.addWageLossCta'), href: activeAssessment ? evidenceUploadHref(activeAssessment.id, { from: 'dashboard' }) : START_ASSESSMENT_HREF, isSchedule: false }
     : submittedForReview
-    ? { action: t('plaintiffDashboard.dynamic.action.submitted'), detail: t('plaintiffDashboard.dynamic.action.submittedDetail', { label: responseDeadlineLabel }), cta: t('plaintiffDashboard.dynamic.action.viewReportCta'), href: activeAssessment ? `/results/${activeAssessment.id}?view=report` : START_ASSESSMENT_HREF, isSchedule: false }
+    ? { action: t('plaintiffDashboard.dynamic.action.submitted'), detail: t('plaintiffDashboard.dynamic.action.submittedDetail', { label: responseDeadlineLabel }), cta: t('plaintiffDashboard.dynamic.action.viewReportCta'), href: activeAssessment ? `/results/${activeAssessment.id}?view=report&from=dashboard` : START_ASSESSMENT_HREF, isSchedule: false }
     : { action: t('plaintiffDashboard.dynamic.action.submitCase'), detail: t('plaintiffDashboard.dynamic.action.submitCaseDetail'), cta: t('plaintiffDashboard.dynamic.action.sendForReviewCta'), href: activeAssessment ? `/results/${activeAssessment.id}` : START_ASSESSMENT_HREF, isSchedule: false }
   const evidenceImpact = [
     { label: t('plaintiffDashboard.dynamic.evidence.medicalRecords'), done: hasMedicalRecords, impact: '+22%', requestKeys: ['medical_records'] },
@@ -2186,6 +2188,7 @@ export default function Dashboard() {
         </div>
 
       <div className="py-6">
+        {user && user.emailVerified === false && user.email && <EmailVerificationBanner email={user.email} />}
         {activeAssessment ? (
           <>
             {activeTab === 'dashboard' && (
@@ -2227,7 +2230,7 @@ export default function Dashboard() {
                         </p>
                       </div>
                       <Link
-                        to={`/results/${activeAssessment.id}?view=report`}
+                        to={`/results/${activeAssessment.id}?view=report&from=dashboard`}
                         className="shrink-0 rounded-lg bg-white px-4 py-2 text-sm font-semibold text-brand-700 hover:bg-brand-50"
                       >
                         {t('plaintiffDashboard.viewCaseReport')}
@@ -2713,7 +2716,7 @@ export default function Dashboard() {
                           <div><dt className="text-gray-400">{t('plaintiffDashboard.caseSummary.treatmentStatus')}</dt><dd className="font-semibold text-gray-800">{treatmentStatusLabel}</dd></div>
                           <div><dt className="text-gray-400">{t('plaintiffDashboard.caseSummary.jurisdiction')}</dt><dd className="font-semibold text-gray-800">{venueState}</dd></div>
                         </dl>
-                        <Link to={`/results/${activeAssessment.id}?view=report`} className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-brand-700 hover:text-brand-900">{t('plaintiffDashboard.caseSummary.viewFullDetails')} <ChevronRight className="h-3.5 w-3.5" /></Link>
+                        <Link to={`/results/${activeAssessment.id}?view=report&from=dashboard`} className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-brand-700 hover:text-brand-900">{t('plaintiffDashboard.caseSummary.viewFullDetails')} <ChevronRight className="h-3.5 w-3.5" /></Link>
                           </div>
                       <div className="rounded-xl border border-brand-100 bg-brand-50/60 p-5">
                         <div className="flex items-center gap-2">
@@ -2785,7 +2788,7 @@ export default function Dashboard() {
                           </div>
                         </div>
                         <div className="text-center sm:text-right">
-                          <Link to={submittedForReview ? `/results/${activeAssessment.id}?view=report` : `/results/${activeAssessment.id}?review=1`} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-brand-700 px-6 py-3 text-base font-semibold text-white shadow-sm hover:bg-brand-800 sm:w-auto">
+                          <Link to={submittedForReview ? `/results/${activeAssessment.id}?view=report&from=dashboard` : `/results/${activeAssessment.id}?review=1`} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-brand-700 px-6 py-3 text-base font-semibold text-white shadow-sm hover:bg-brand-800 sm:w-auto">
                             {submittedForReview ? t('plaintiffDashboard.submitCta.viewReport') : t('plaintiffDashboard.submitCta.sendForReview')}
                             <ChevronRight className="h-4 w-4" aria-hidden />
                           </Link>

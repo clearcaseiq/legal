@@ -3038,6 +3038,7 @@
       "preliminaryConfidential": "Preliminary assessment • Confidential",
       "reference": "Reference",
       "downloadSummary": "Download Summary",
+      "backToDashboard": "Back to dashboard",
       "addDocuments": "Add documents",
       "sharedReadOnly": "You're viewing a shared, read-only copy of this case report. Editing is disabled.",
       "privateSecureBadge": "100% Private & Secure",
@@ -3208,6 +3209,14 @@
       "noCase": "Let's find out if you may have a personal injury case."
     },
     "viewCaseReport": "View case report",
+    "verifyEmail": {
+      "title": "Check your email to verify your account",
+      "body": "We sent a verification link to {email}. Open it to confirm your address so attorneys and our team can reach you about your case.",
+      "resend": "Resend email",
+      "sending": "Sending…",
+      "sent": "A new link is on its way to {email}. It expires in 24 hours.",
+      "resendFailed": "We couldn't send the email right now. Please try again in a few minutes."
+    },
     "reviewBanner": {
       "title": "Your case is in review",
       "reviewingOne": "{count} attorney is reviewing your case",

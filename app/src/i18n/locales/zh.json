@@ -3978,6 +3978,7 @@
       "preliminaryConfidential": "初步评估 • 机密",
       "reference": "参考编号",
       "downloadSummary": "下载摘要",
+      "backToDashboard": "返回仪表板",
       "addDocuments": "添加文件",
       "sharedReadOnly": "您正在查看此案件报告的共享只读副本。编辑已被禁用。",
       "privateSecureBadge": "100% 私密且安全",
@@ -4261,6 +4262,14 @@
       "noCase": "让我们来了解一下您是否可能有人身伤害案件。"
     },
     "viewCaseReport": "查看案件报告",
+    "verifyEmail": {
+      "title": "请查收邮件以验证您的账户",
+      "body": "我们已向 {email} 发送验证链接。请打开链接确认您的邮箱地址，以便律师和我们的团队就您的案件与您联系。",
+      "resend": "重新发送邮件",
+      "sending": "正在发送…",
+      "sent": "新的链接已发送至 {email}，24 小时内有效。",
+      "resendFailed": "暂时无法发送邮件，请几分钟后重试。"
+    },
     "reviewBanner": {
       "title": "您的案件正在审核中",
       "reviewingOne": "有 {count} 位律师正在审核您的案件",
