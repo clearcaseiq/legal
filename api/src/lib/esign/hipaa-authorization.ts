@@ -13,6 +13,7 @@ import PDFDocument from 'pdfkit'
 import { logger } from '../logger'
 import { persistUpload } from '../object-storage'
 import { CONSENT_TEMPLATES } from '../consent-templates'
+import { drawSignatureBlock } from './signature-fields'
 
 const OUTPUT_DIR = path.join(process.cwd(), 'uploads', 'signable-documents')
 
@@ -66,7 +67,7 @@ function renderMarkdown(doc: PdfDoc, markdown: string) {
  */
 export async function renderHipaaAuthorizationPdf(
   ctx: HipaaAuthorizationContext
-): Promise<{ filePath: string; title: string }> {
+): Promise<{ filePath: string; title: string; fieldMode: 'text_tags' }> {
   ensureDir()
   const tpl = CONSENT_TEMPLATES.hipaa
   const title = `HIPAA authorization — ${ctx.clientName}`
@@ -85,7 +86,7 @@ export async function renderHipaaAuthorizationPdf(
     doc.moveDown(0.5)
     const facts: [string, string][] = [
       ['Patient / authorizing party', ctx.clientName],
-      ['Date of birth', ctx.clientDob || '—'],
+      ['Date of birth', ctx.clientDob || 'Completed by the patient when signing'],
       ['Records custodian / provider', ctx.recordsCustodian || 'As directed by counsel'],
       ['Records date range', ctx.recordsDateRange || 'All dates relevant to the claim'],
       ['Authorization version', `${tpl.version} (effective ${tpl.effectiveDate})`],
@@ -100,19 +101,19 @@ export async function renderHipaaAuthorizationPdf(
     // Canonical authorization text.
     renderMarkdown(doc, tpl.content)
 
-    // Signature area (the provider overlays the actual e-signature + timestamp).
-    doc.moveDown(1)
-    doc.font('Helvetica').fontSize(10).fillColor('#111827')
-    doc.text('Signature: ______________________________', { continued: true })
-    doc.text('        Date: ____________________')
-    doc.moveDown(0.3)
-    doc.font('Helvetica-Oblique').fontSize(8).fillColor('#6b7280')
-      .text('Executed electronically; signer identity, timestamp, and integrity are recorded in the provider audit trail.')
+    // Records custodians match the authorization to the patient by date of
+    // birth, so when intake did not capture one the patient supplies it here.
+    drawSignatureBlock(doc, [
+      ...(ctx.clientDob
+        ? []
+        : [{ label: 'Patient date of birth', role: 'client' as const, kind: 'text' as const, id: 'patient_dob' }]),
+      { label: 'Patient signature', role: 'client', printedName: ctx.clientName },
+    ])
 
     doc.end()
   })
 
   await persistUpload(filePath)
   logger.info('Rendered HIPAA authorization PDF', { leadId: ctx.leadId, filePath })
-  return { filePath, title }
+  return { filePath, title, fieldMode: 'text_tags' as const }
 }

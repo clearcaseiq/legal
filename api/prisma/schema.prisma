@@ -2304,6 +2304,11 @@ model FirmTemplate {
   fileMime    String?
   fileSize    Int?
 
+  // Where each signer signs, dates, initials and fills in on the attached PDF,
+  // placed in the field editor: JSON array of fields with page index and
+  // position as fractions of the page. Cleared whenever the file changes.
+  signatureFields String? @db.Text
+
   isActive    Boolean @default(true)
   sortOrder   Int     @default(0)
 

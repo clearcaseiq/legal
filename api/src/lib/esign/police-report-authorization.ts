@@ -11,6 +11,7 @@ import path from 'path'
 import PDFDocument from 'pdfkit'
 import { logger } from '../logger'
 import { persistUpload } from '../object-storage'
+import { drawSignatureBlock } from './signature-fields'
 
 const OUTPUT_DIR = path.join(process.cwd(), 'uploads', 'signable-documents')
 
@@ -48,7 +49,7 @@ function fact(doc: PdfDoc, label: string, value: string) {
  */
 export async function renderPoliceReportAuthorizationPdf(
   ctx: PoliceReportAuthorizationContext,
-): Promise<{ filePath: string; title: string }> {
+): Promise<{ filePath: string; title: string; fieldMode: 'text_tags' }> {
   ensureDir()
   const title = `Police / incident report authorization — ${ctx.clientName}`
   const filePath = path.join(OUTPUT_DIR, `police-auth-${ctx.leadId}-${Date.now()}.pdf`)
@@ -142,24 +143,15 @@ export async function renderPoliceReportAuthorizationPdf(
       .text(
         'I understand some agencies may still require their own forms, fees, or redactions, and that counsel cannot guarantee release of every page. I have had an opportunity to ask questions about this authorization before signing.',
       )
-    doc.moveDown(1)
-
-    doc.font('Helvetica').fontSize(10).fillColor('#111827')
-    doc.text('Client signature: ______________________________', { continued: true })
-    doc.text('        Date: ____________________')
-    doc.moveDown(0.35)
-    doc
-      .font('Helvetica-Oblique')
-      .fontSize(8)
-      .fillColor('#6b7280')
-      .text(
+    drawSignatureBlock(doc, [{ label: 'Client signature', role: 'client', printedName: ctx.clientName }], {
+      note:
         'Executed electronically; signer identity, timestamp, and integrity are recorded in the e-signature provider audit trail. This form is a client authorization for counsel and does not replace any agency-required request form or attorney declaration.',
-      )
+    })
 
     doc.end()
   })
 
   await persistUpload(filePath)
   logger.info('Rendered police report authorization PDF', { leadId: ctx.leadId, filePath })
-  return { filePath, title }
+  return { filePath, title, fieldMode: 'text_tags' as const }
 }

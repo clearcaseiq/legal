@@ -13,6 +13,7 @@ import PDFDocument from 'pdfkit'
 import { prisma } from '../prisma'
 import { logger } from '../logger'
 import { persistUpload } from '../object-storage'
+import { drawSignatureBlock } from './signature-fields'
 
 const OUTPUT_DIR = path.join(process.cwd(), 'uploads', 'signable-documents')
 
@@ -127,7 +128,9 @@ export async function renderTemplateBodyPdf(params: {
   leadId: string
   title: string
   body: string
-}): Promise<{ filePath: string; title: string }> {
+  /** Fee agreements are countersigned, so they get an attorney line too. */
+  attorneySigns?: boolean
+}): Promise<{ filePath: string; title: string; fieldMode: 'text_tags' }> {
   if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true })
   const filePath = path.join(OUTPUT_DIR, `firm-template-${params.leadId}-${Date.now()}.pdf`)
 
@@ -147,24 +150,15 @@ export async function renderTemplateBodyPdf(params: {
 
     renderMarkdown(doc, params.body)
 
-    // Signature area (the provider overlays the actual e-signature + timestamp).
-    doc.moveDown(1.5)
-    doc.font('Helvetica').fontSize(10).fillColor('#111827')
-    doc.text('Signature: ______________________________', { continued: true })
-    doc.text('        Date: ____________________')
-    doc.moveDown(0.3)
-    doc
-      .font('Helvetica-Oblique')
-      .fontSize(8)
-      .fillColor('#6b7280')
-      .text(
-        'Executed electronically; signer identity, timestamp, and integrity are recorded in the provider audit trail.'
-      )
+    drawSignatureBlock(doc, [
+      { label: 'Client signature', role: 'client' },
+      ...(params.attorneySigns ? [{ label: 'Attorney signature', role: 'attorney' as const }] : []),
+    ])
 
     doc.end()
   })
 
   await persistUpload(filePath)
   logger.info('Rendered firm template PDF', { leadId: params.leadId, filePath })
-  return { filePath, title: params.title }
+  return { filePath, title: params.title, fieldMode: 'text_tags' as const }
 }

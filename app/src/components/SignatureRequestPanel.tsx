@@ -8,7 +8,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { PenLine, ExternalLink, Eye, Upload, Check, X, Pencil, Plus } from 'lucide-react'
+import { PenLine, ExternalLink, Eye, Upload, Check, X, Pencil, Plus, AlertTriangle } from 'lucide-react'
 import { EsignProviderPicker } from './EsignProviderPicker'
 import { EssentialFieldsForm } from './EssentialFieldsForm'
 import ModalPortal from './ModalPortal'
@@ -332,8 +332,7 @@ export default function SignatureRequestPanel({
   // Retainer-specific fee terms (firm/attorney prefilled from firm defaults).
   const [firmName, setFirmName] = useState('')
   const [attorneyName, setAttorneyName] = useState('')
-  // Retainers: the attorney countersigns after the client.
-  const [countersign, setCountersign] = useState(true)
+  // Retainers and fee agreements: the attorney countersigns after the client.
   const [countersignerName, setCountersignerName] = useState('')
   const [countersignerEmail, setCountersignerEmail] = useState('')
   const [contingencyPercent, setContingencyPercent] = useState('33.33')
@@ -412,6 +411,14 @@ export default function SignatureRequestPanel({
   const selectedFirmTemplate = useMemo(
     () => selectableFirmTemplates.find((t) => t.id === firmTemplateId) || null,
     [selectableFirmTemplates, firmTemplateId],
+  )
+  const sendsAsType = usesFirmTemplate
+    ? essentialType ?? selectedFirmTemplate?.suggestedDocumentType ?? 'other'
+    : documentType
+  const needsCountersign = sendsAsType === 'retainer' || sendsAsType === 'fee_agreement'
+  /** An uploaded firm PDF with no fields placed gets the provider's signature page appended. */
+  const firmPdfWithoutFields = Boolean(
+    usesFirmTemplate && selectedFirmTemplate?.isPdf && !selectedFirmTemplate.signatureFieldCount,
   )
 
   // An already-open envelope of the same type (not yet signed/terminal) — sending
@@ -589,12 +596,11 @@ export default function SignatureRequestPanel({
       setError('The document fields are still loading.')
       return
     }
-    const countersigner =
-      isRetainer && countersign
-        ? { name: countersignerName.trim(), email: countersignerEmail.trim() }
-        : undefined
+    const countersigner = needsCountersign
+      ? { name: countersignerName.trim(), email: countersignerEmail.trim() }
+      : undefined
     if (countersigner && (!countersigner.name || !/^\S+@\S+\.\S+$/.test(countersigner.email))) {
-      setError('Enter the countersigning attorney’s name and email, or turn off attorney countersignature.')
+      setError('Enter the countersigning attorney’s name and email. Retainers and fee agreements need the attorney’s signature.')
       return
     }
     if (duplicateGuard()) return
@@ -666,6 +672,7 @@ export default function SignatureRequestPanel({
           title: feeTitle.trim() || undefined,
           provider: provider ?? undefined,
           documentType: 'fee_agreement',
+          countersigner,
         })
         setFeeFile(null)
         setFeeTitle('')
@@ -1049,46 +1056,45 @@ export default function SignatureRequestPanel({
           </div>
         )}
 
-        {isRetainer && (
+        {firmPdfWithoutFields && (
+          <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              No signature fields are placed on this template, so signers get a separate signature page after the
+              document. To have them sign on your signature lines, open the template under Firm Dashboard → Templates
+              and choose “Place signature fields”.
+            </span>
+          </div>
+        )}
+
+        {needsCountersign && (
           <div className="rounded-lg border border-slate-200 p-3">
-            <label className="flex items-start gap-2 text-sm text-slate-700">
-              <input
-                type="checkbox"
-                checked={countersign}
-                onChange={(e) => setCountersign(e.target.checked)}
-                className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-400"
-              />
-              <span>
-                <span className="font-medium">Attorney countersigns</span>
-                <span className="block text-xs text-slate-500">
-                  After the client signs, the attorney gets the signing email. The retainer counts as signed only once
-                  both have signed.
-                </span>
-              </span>
-            </label>
-            {countersign && (
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                <div>
-                  <label className={labelCls}>Countersigning attorney</label>
-                  <input
-                    value={countersignerName}
-                    onChange={(e) => setCountersignerName(e.target.value)}
-                    placeholder="Attorney name"
-                    className={inputCls}
-                  />
-                </div>
-                <div>
-                  <label className={labelCls}>Attorney email</label>
-                  <input
-                    type="email"
-                    value={countersignerEmail}
-                    onChange={(e) => setCountersignerEmail(e.target.value)}
-                    placeholder="attorney@firm.com"
-                    className={inputCls}
-                  />
-                </div>
+            <p className="text-sm font-medium text-slate-700">Attorney countersignature (required)</p>
+            <p className="text-xs text-slate-500">
+              After the client signs, this attorney gets the signing email and signs on the attorney line. The agreement
+              counts as signed only once both have signed. It must be an attorney at your firm.
+            </p>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <div>
+                <label className={labelCls}>Countersigning attorney</label>
+                <input
+                  value={countersignerName}
+                  onChange={(e) => setCountersignerName(e.target.value)}
+                  placeholder="Attorney name"
+                  className={inputCls}
+                />
               </div>
-            )}
+              <div>
+                <label className={labelCls}>Attorney email</label>
+                <input
+                  type="email"
+                  value={countersignerEmail}
+                  onChange={(e) => setCountersignerEmail(e.target.value)}
+                  placeholder="attorney@firm.com"
+                  className={inputCls}
+                />
+              </div>
+            </div>
           </div>
         )}
 

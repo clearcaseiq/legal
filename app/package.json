@@ -5,8 +5,8 @@
   "type": "module",
   "packageManager": "pnpm@8.15.6",
   "scripts": {
-    "dev": "next dev --webpack",
-    "build": "next build --webpack",
+    "dev": "node scripts/copy-pdf-worker.cjs && next dev --webpack",
+    "build": "node scripts/copy-pdf-worker.cjs && next build --webpack",
     "start": "next start",
     "test": "vitest run",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0"
@@ -17,6 +17,7 @@
     "clsx": "^2.1.1",
     "lucide-react": "^0.408.0",
     "next": "^16.2.4",
+    "pdfjs-dist": "^4.10.38",
     "react-hook-form": "^7.63.0",
     "react-router-dom": "^6.26.1",
     "socket.io-client": "^4.8.4",

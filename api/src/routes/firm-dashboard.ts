@@ -23,6 +23,9 @@ import {
 } from '../lib/intake-acquire'
 import { respondESignError } from '../lib/esign/http'
 import { resolveTemplateTokens, fillTemplateTokens, renderTemplateBodyPdf } from '../lib/esign/firm-template-doc'
+import { unchangedPdfFields } from '../lib/esign/send-firm-template'
+import { parseStoredFields, requiresCountersign, validatePlacedFields } from '../lib/esign/signature-fields'
+import { pdfPageSizes } from '../lib/esign/custom-document'
 import { applyFirmWorkflowToCase } from '../lib/case-workflow'
 import { buildCaseIntelligence } from '../lib/case-intelligence'
 import { deidentifyAssessmentForOffer } from '../lib/offer-deidentify'
@@ -3314,6 +3317,7 @@ function serializeTemplate(t: any) {
     fileSize: t.fileSize || null,
     isPdf: t.fileMime === 'application/pdf',
     documentType: t.documentType || null,
+    signatureFields: parseStoredFields(t.signatureFields),
     isActive: t.isActive,
     sortOrder: t.sortOrder,
     updatedAt: t.updatedAt,
@@ -3627,11 +3631,14 @@ router.post(
 
       const updated = await (prisma as any).firmTemplate.update({
         where: { id: existing.id },
+        // Placed fields are positions on the old file's pages; on a new file
+        // they would land on the wrong lines, so the layout starts over.
         data: {
           fileName: file.originalname,
           filePath: file.path,
           fileMime: file.mimetype,
           fileSize: file.size,
+          signatureFields: null,
         },
       })
       res.json(serializeTemplate(updated))
@@ -3661,11 +3668,45 @@ router.delete('/templates/:id/file', authMiddleware as any, async (req: any, res
     }
     const updated = await (prisma as any).firmTemplate.update({
       where: { id: existing.id },
-      data: { fileName: null, filePath: null, fileMime: null, fileSize: null },
+      data: { fileName: null, filePath: null, fileMime: null, fileSize: null, signatureFields: null },
     })
     res.json(serializeTemplate(updated))
   } catch (error) {
     logger.error('Failed to remove template file', { error })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+// PUT /v1/firm-dashboard/templates/:id/signature-fields — save where each
+// signer signs, dates, initials and fills in on the template's PDF.
+router.put('/templates/:id/signature-fields', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
+    if (!canManageTemplates(context)) {
+      return res.status(403).json({ error: 'You do not have permission to manage templates' })
+    }
+    const template = await (prisma as any).firmTemplate.findFirst({
+      where: { id: req.params.id, lawFirmId: context.lawFirmId },
+      select: { id: true, filePath: true, fileMime: true, documentType: true, name: true },
+    })
+    if (!template) return res.status(404).json({ error: 'Template not found' })
+    if (!template.filePath || template.fileMime !== 'application/pdf' || !fs.existsSync(template.filePath)) {
+      return res.status(400).json({ error: 'Attach a PDF to this template before placing signature fields.' })
+    }
+
+    const pageCount = (await pdfPageSizes(fs.readFileSync(template.filePath))).length
+    const documentType = String(req.body?.documentType || template.documentType || '') || null
+    const result = validatePlacedFields(req.body?.fields, { pageCount, documentType })
+    if ('error' in result) return res.status(400).json({ error: result.error })
+
+    const updated = await (prisma as any).firmTemplate.update({
+      where: { id: template.id },
+      data: { signatureFields: result.fields.length ? JSON.stringify(result.fields) : null },
+    })
+    res.json(serializeTemplate(updated))
+  } catch (error) {
+    logger.error('Failed to save template signature fields', { error })
     res.status(500).json({ error: 'Internal server error' })
   }
 })
@@ -3758,15 +3799,6 @@ router.post('/templates/:id/send', authMiddleware as any, async (req: any, res: 
       return res.status(400).json({ error: 'No attorney available to own this signature request' })
     }
 
-    // Prefer a firm-uploaded PDF as-is; otherwise render the (token-filled) body.
-    let filePath: string = template.filePath
-    if (!hasPdf && hasBody) {
-      const tokens = await resolveTemplateTokens(leadId)
-      const filled = fillTemplateTokens(template.body, tokens)
-      const rendered = await renderTemplateBodyPdf({ leadId, title, body: filled })
-      filePath = rendered.filePath
-    }
-
     // Retainer / fee / HIPAA templates must carry the right documentType so the
     // signed webhook files the PDF, completes opening tasks, and sets retained.
     const overrideType = String(req.body?.documentType || '').trim() as SignableDocumentType | ''
@@ -3784,6 +3816,24 @@ router.post('/templates/:id/send', authMiddleware as any, async (req: any, res: 
       documentType = 'hipaa_authorization'
     }
 
+    // Prefer a firm-uploaded PDF as-is; otherwise render the (token-filled) body.
+    let filePath: string = template.filePath
+    let fields: { fieldMode: 'text_tags' | 'placed' | null; placedFields: Awaited<ReturnType<typeof unchangedPdfFields>>['placedFields'] }
+    if (hasPdf) {
+      fields = await unchangedPdfFields(template, documentType)
+    } else {
+      const tokens = await resolveTemplateTokens(leadId)
+      const filled = fillTemplateTokens(template.body, tokens)
+      const rendered = await renderTemplateBodyPdf({
+        leadId,
+        title,
+        body: filled,
+        attorneySigns: requiresCountersign(documentType),
+      })
+      filePath = rendered.filePath
+      fields = { fieldMode: rendered.fieldMode, placedFields: [] }
+    }
+
     const envelope = await createEnvelopeForLead({
       leadId,
       attorneyId,
@@ -3793,6 +3843,11 @@ router.post('/templates/:id/send', authMiddleware as any, async (req: any, res: 
       signerName,
       signerEmail,
       filePath,
+      ...fields,
+      countersigner:
+        req.body?.countersigner?.email && req.body?.countersigner?.name
+          ? { name: String(req.body.countersigner.name), email: String(req.body.countersigner.email) }
+          : null,
     })
 
     if (documentType === 'retainer' || documentType === 'fee_agreement') {

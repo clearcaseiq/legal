@@ -12,6 +12,8 @@
  * surface, replacing the old approach of inferring "retained" from lifecycle.
  */
 
+import type { AbsoluteField } from './signature-fields'
+
 export type ESignProviderId = 'dropbox_sign' | 'documenso' | 'internal'
 
 export type EnvelopeStatus =
@@ -56,6 +58,16 @@ export interface CreateEnvelopeInput {
   filePath: string
   /** Further PDFs signed in the same envelope. Only for `multiDocument` providers. */
   additionalFilePaths?: string[]
+  /**
+   * How signers' fields are located. `text_tags`: the PDF carries hidden tags
+   * on its signature lines. `placed`: `placedFields` gives exact positions.
+   * Unset: the provider decides, which for Dropbox Sign means a signature page
+   * appended after the document.
+   */
+  fieldMode?: 'text_tags' | 'placed' | null
+  placedFields?: AbsoluteField[]
+  /** Let the signer decline this request (HIPAA must be refusable on its own). */
+  allowDecline?: boolean
   /** Where to send the signer after completion (embedded/hosted flows). */
   redirectUrl?: string
   /** Opaque reference stored with the provider for idempotency + webhook match. */

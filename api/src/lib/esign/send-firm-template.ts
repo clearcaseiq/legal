@@ -7,7 +7,8 @@ import { prisma } from '../prisma'
 import { createEnvelopeForLead } from './esign-service'
 import { fillTemplateTokens, renderTemplateBodyPdf, resolveTemplateTokens } from './firm-template-doc'
 import type { SignableDocumentType } from './types'
-import { buildCustomDocument, isDocx } from './custom-document'
+import { buildCustomDocument, isDocx, pdfPageSizes } from './custom-document'
+import { parseStoredFields, requiresCountersign, toAbsoluteFields, type AbsoluteField } from './signature-fields'
 import { buildEssentialPrefill, isEssentialDocType, sanitizeEssentialValues } from './essential-fields'
 import {
   completeWelcomePacketForLead,
@@ -31,6 +32,8 @@ export type FirmTemplateListItem = {
   /** What the firm marked the template as, or null for a generic one. */
   documentType: string | null
   suggestedDocumentType: SignableDocumentType
+  /** Fields placed on the uploaded PDF in the field editor. */
+  signatureFieldCount: number
 }
 
 function suggestDocumentType(name: string, stored?: string | null): SignableDocumentType {
@@ -56,6 +59,7 @@ export function serializeFirmTemplateForSend(t: any): FirmTemplateListItem {
     isActive: Boolean(t.isActive),
     documentType: t.documentType || null,
     suggestedDocumentType: suggestDocumentType(t.name, t.documentType),
+    signatureFieldCount: parseStoredFields(t.signatureFields).length,
   }
 }
 
@@ -109,6 +113,7 @@ export async function renderFirmTemplateForLead(params: {
     documentType = 'other'
   }
   const title = String(params.title || '').trim() || template.name
+  const placed = hasPdf ? placedFieldsForSend(parseStoredFields(template.signatureFields), documentType) : []
 
   if (isEssentialDocType(documentType)) {
     if (!hasPdf && !hasDocx && !hasBody) {
@@ -126,19 +131,67 @@ export async function renderFirmTemplateForLead(params: {
         hasPdf || hasDocx
           ? { kind: 'file', filePath: template.filePath, mime: template.fileMime, fileName: template.fileName }
           : { kind: 'body', body: template.body },
+      placedFields: hasPdf ? placed : undefined,
     })
-    return { template, title, documentType, filePath: built.filePath, fieldValues, mode: built.mode }
+    return {
+      template,
+      title,
+      documentType,
+      filePath: built.filePath,
+      fieldValues,
+      mode: built.mode,
+      fieldMode: built.fieldMode,
+      placedFields: built.placedFields,
+    }
   }
 
   if (!hasPdf && !hasBody) throw statusError('Attach a PDF or add body text before sending for signature', 400)
-  let filePath: string = template.filePath
   if (!hasPdf && hasBody) {
     const tokens = await resolveTemplateTokens(params.leadId)
     const filled = fillTemplateTokens(template.body, tokens)
-    const rendered = await renderTemplateBodyPdf({ leadId: params.leadId, title, body: filled })
-    filePath = rendered.filePath
+    const rendered = await renderTemplateBodyPdf({
+      leadId: params.leadId,
+      title,
+      body: filled,
+      attorneySigns: requiresCountersign(documentType),
+    })
+    return { template, title, documentType, filePath: rendered.filePath, fieldValues: null, mode: null, fieldMode: rendered.fieldMode, placedFields: [] as AbsoluteField[] }
   }
-  return { template, title, documentType, filePath, fieldValues: null, mode: null }
+
+  const filePath: string = template.filePath
+  return { template, title, documentType, filePath, fieldValues: null, mode: null, ...(await unchangedPdfFields(template, documentType)) }
+}
+
+/**
+ * Fields for a firm PDF that goes out unchanged: only fields placed in the
+ * editor locate the signers. Without any, the provider appends its own
+ * signature page.
+ */
+export async function unchangedPdfFields(
+  template: { filePath: string; signatureFields?: string | null },
+  documentType: SignableDocumentType,
+): Promise<{ fieldMode: 'placed' | null; placedFields: AbsoluteField[] }> {
+  const placed = placedFieldsForSend(parseStoredFields(template.signatureFields), documentType)
+  if (!placed.length) return { fieldMode: null, placedFields: [] }
+  return { fieldMode: 'placed', placedFields: toAbsoluteFields(placed, await pdfPageSizes(fs.readFileSync(template.filePath))) }
+}
+
+/**
+ * The stored layout, reconciled with what this send actually is. A template
+ * can be sent as a different document type than it was laid out for, and the
+ * provider rejects any request where a signer has no field or a field names a
+ * signer the request lacks.
+ */
+function placedFieldsForSend(fields: ReturnType<typeof parseStoredFields>, documentType: SignableDocumentType) {
+  if (!fields.length) return fields
+  if (!requiresCountersign(documentType)) return fields.filter((f) => f.signer === 'client')
+  if (!fields.some((f) => f.signer === 'attorney' && f.type === 'signature')) {
+    throw statusError(
+      'This template has no attorney signature field. Open "Place signature fields" and add one before sending it as a retainer or fee agreement.',
+      400,
+    )
+  }
+  return fields
 }
 
 export async function sendFirmTemplateForLead(params: {
@@ -155,7 +208,8 @@ export async function sendFirmTemplateForLead(params: {
   countersigner?: { name: string; email: string } | null
   packetRequestId?: string | null
 }) {
-  const { template, title, documentType, filePath, fieldValues } = await renderFirmTemplateForLead(params)
+  const { template, title, documentType, filePath, fieldValues, fieldMode, placedFields } =
+    await renderFirmTemplateForLead(params)
 
   const envelope = await createEnvelopeForLead({
     leadId: params.leadId,
@@ -166,10 +220,11 @@ export async function sendFirmTemplateForLead(params: {
     signerName: params.signerName,
     signerEmail: params.signerEmail,
     filePath,
+    fieldMode,
+    placedFields,
     templateId: template.id,
     fieldValues,
-    countersigner:
-      documentType === 'retainer' || documentType === 'fee_agreement' ? params.countersigner || null : null,
+    countersigner: requiresCountersign(documentType) ? params.countersigner || null : null,
     packetRequestId: params.packetRequestId,
   })
 

@@ -6989,10 +6989,38 @@ export interface FirmTemplate {
   fileSize: number | null
   isPdf: boolean
   documentType?: string | null
+  /** Fields placed on the attached PDF; empty until someone places them. */
+  signatureFields?: TemplateSignatureField[]
   isActive: boolean
   sortOrder: number
   updatedAt: string
   createdAt: string
+}
+
+export type TemplateFieldType = 'signature' | 'date_signed' | 'initials' | 'text' | 'checkbox'
+export type TemplateFieldSigner = 'client' | 'attorney'
+
+/** Page index from 0; position and size as fractions of the page. */
+export interface TemplateSignatureField {
+  id: string
+  page: number
+  x: number
+  y: number
+  width: number
+  height: number
+  type: TemplateFieldType
+  signer: TemplateFieldSigner
+  required: boolean
+  label?: string
+}
+
+export async function saveFirmTemplateSignatureFields(
+  id: string,
+  fields: TemplateSignatureField[],
+  documentType?: string | null,
+): Promise<FirmTemplate> {
+  const { data } = await api.put(`/v1/firm-dashboard/templates/${id}/signature-fields`, { fields, documentType })
+  return data
 }
 
 export interface FirmTemplateRecipient {

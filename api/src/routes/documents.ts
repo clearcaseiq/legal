@@ -375,6 +375,8 @@ router.post(
         signerName,
         signerEmail,
         filePath: built.filePath,
+        fieldMode: built.fieldMode,
+        placedFields: built.placedFields,
         fieldValues: values,
         countersigner: docType === 'retainer' ? countersigner : null,
       })
@@ -1131,6 +1133,7 @@ const packetSchema = z.object({
   clientDob: z.string().optional(),
   recordsCustodian: z.string().optional(),
   recordsDateRange: z.string().optional(),
+  countersigner: countersignerSchema.optional(),
 })
 
 // One-click onboarding packet: retainer + HIPAA authorization to the same client.
@@ -1231,6 +1234,16 @@ router.post(
       if (resolved.error === 404) return res.status(404).json({ error: 'Lead not found' })
       if (resolved.error === 403) return res.status(403).json({ error: 'Lead is assigned to another attorney' })
 
+      let countersigner: { name: string; email: string } | null = null
+      if (String(req.body.countersignerEmail || '').trim()) {
+        const cs = countersignerSchema.safeParse({
+          name: String(req.body.countersignerName || '').trim(),
+          email: String(req.body.countersignerEmail).trim(),
+        })
+        if (!cs.success) return res.status(400).json({ error: 'Countersigning attorney needs a name and a valid email.' })
+        countersigner = cs.data
+      }
+
       const envelope = await createEnvelopeForLead({
         leadId: req.params.leadId,
         attorneyId: attorney.id,
@@ -1240,6 +1253,7 @@ router.post(
         signerName,
         signerEmail,
         filePath: file.path,
+        countersigner,
       })
       if (documentType === 'retainer' || documentType === 'fee_agreement') {
         await afterRetainerEnvelopeSent(

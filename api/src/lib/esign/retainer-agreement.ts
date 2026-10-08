@@ -13,6 +13,7 @@ import path from 'path'
 import PDFDocument from 'pdfkit'
 import { logger } from '../logger'
 import { persistUpload } from '../object-storage'
+import { drawSignatureBlock } from './signature-fields'
 
 const OUTPUT_DIR = path.join(process.cwd(), 'uploads', 'signable-documents')
 
@@ -112,7 +113,7 @@ The Client has read this Agreement, has had the opportunity to ask questions, an
  */
 export async function renderRetainerAgreementPdf(
   ctx: RetainerAgreementContext
-): Promise<{ filePath: string; title: string }> {
+): Promise<{ filePath: string; title: string; fieldMode: 'text_tags' }> {
   ensureDir()
   const title = `Retainer agreement — ${ctx.clientName}`
   const filePath = path.join(OUTPUT_DIR, `retainer-${ctx.leadId}-${Date.now()}.pdf`)
@@ -161,19 +162,22 @@ export async function renderRetainerAgreementPdf(
     // Agreement body with the fee terms woven in.
     renderMarkdown(doc, buildBody(ctx, feeText, costsText, scopeText))
 
-    // Signature area (the provider overlays the actual e-signature + timestamp).
-    doc.moveDown(1)
-    doc.font('Helvetica').fontSize(10).fillColor('#111827')
-    doc.text('Client signature: ______________________________', { continued: true })
-    doc.text('        Date: ____________________')
-    doc.moveDown(0.3)
-    doc.font('Helvetica-Oblique').fontSize(8).fillColor('#6b7280')
-      .text('Executed electronically; signer identity, timestamp, and integrity are recorded in the provider audit trail.')
+    // California B&P §6147 requires both client and attorney to sign a
+    // contingency fee agreement, so the attorney's line is always present and
+    // every send carries the attorney as the second signer.
+    drawSignatureBlock(doc, [
+      { label: 'Client signature', role: 'client', printedName: ctx.clientName },
+      {
+        label: 'Attorney signature',
+        role: 'attorney',
+        printedName: [ctx.attorneyName, ctx.firmName].filter(Boolean).join(', ') || undefined,
+      },
+    ])
 
     doc.end()
   })
 
   await persistUpload(filePath)
   logger.info('Rendered retainer agreement PDF', { leadId: ctx.leadId, filePath })
-  return { filePath, title }
+  return { filePath, title, fieldMode: 'text_tags' as const }
 }

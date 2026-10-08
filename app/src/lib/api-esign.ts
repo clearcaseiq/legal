@@ -350,6 +350,8 @@ export interface CaseFirmTemplate {
   hasBody: boolean
   isActive: boolean
   documentType?: string | null
+  /** Fields placed on the PDF in the template's field editor. */
+  signatureFieldCount?: number
   suggestedDocumentType:
     | 'retainer'
     | 'hipaa_authorization'
@@ -495,6 +497,7 @@ export const uploadFeeAgreement = async (
     title?: string
     provider?: string
     documentType?: 'retainer' | 'fee_agreement'
+    countersigner?: Countersigner
   }
 ): Promise<DocumentEnvelope> => {
   const form = new FormData()
@@ -504,6 +507,10 @@ export const uploadFeeAgreement = async (
   form.append('documentType', opts.documentType || 'fee_agreement')
   if (opts.title) form.append('title', opts.title)
   if (opts.provider) form.append('provider', opts.provider)
+  if (opts.countersigner) {
+    form.append('countersignerName', opts.countersigner.name)
+    form.append('countersignerEmail', opts.countersigner.email)
+  }
   const res = await api.post(`/v1/documents/leads/${leadId}/fee-agreement`, form, {
     headers: { 'Content-Type': 'multipart/form-data' },
   })

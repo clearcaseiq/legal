@@ -224,3 +224,6 @@ keys/
 *.ppk
 id_rsa
 id_ed25519
+
+# Copied from pdfjs-dist by app/scripts/copy-pdf-worker.cjs
+app/public/pdf.worker.min.mjs

@@ -228,6 +228,9 @@ importers:
       next:
         specifier: ^16.2.4
         version: 16.2.4(@babel/core@7.28.4)(@playwright/test@1.59.1)(react-dom@19.1.0)(react@19.1.0)
+      pdfjs-dist:
+        specifier: ^4.10.38
+        version: 4.10.38
       react-hook-form:
         specifier: ^7.63.0
         version: 7.63.0(react@19.1.0)
@@ -11927,6 +11930,13 @@ packages:
     dependencies:
       '@napi-rs/canvas': 0.1.80
       pdfjs-dist: 5.4.296
+    dev: false
+
+  /pdfjs-dist@4.10.38:
+    resolution: {integrity: sha512-/Y3fcFrXEAsMjJXeL9J8+ZG9U01LbuWaYypvDW2ycW1jL269L3js3DVBjDJ0Up9Np1uqDXsDrRihHANhZOlwdQ==}
+    engines: {node: '>=20'}
+    optionalDependencies:
+      '@napi-rs/canvas': 0.1.80
     dev: false
 
   /pdfjs-dist@5.4.296:

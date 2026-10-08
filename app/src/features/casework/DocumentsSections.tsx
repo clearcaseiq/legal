@@ -140,7 +140,6 @@ export function RequestDocumentsDialog({
   })
   const [delivery, setDelivery] = useState<'email' | 'text'>('email')
   const [message, setMessage] = useState('')
-  const [countersign, setCountersign] = useState(true)
   const [countersignerName, setCountersignerName] = useState('')
   const [countersignerEmail, setCountersignerEmail] = useState('')
   const [contact, setContact] = useState<ClaimantContact | null>(null)
@@ -209,9 +208,9 @@ export function RequestDocumentsDialog({
       setError('Pick at least one document to sign or file to upload.')
       return
     }
-    if (sign.includes('retainer') && countersign) {
+    if (sign.includes('retainer')) {
       if (!countersignerName.trim() || !/^\S+@\S+\.\S+$/.test(countersignerEmail.trim())) {
-        setError('Enter the countersigning attorney’s name and email, or turn off countersignature.')
+        setError('Enter the countersigning attorney’s name and email. The retainer needs the attorney’s signature.')
         return
       }
     }
@@ -222,10 +221,9 @@ export function RequestDocumentsDialog({
         sign: sign.map((type) => ({ type, templateId: templateFor[type] || null })),
         delivery,
         customMessage: message.trim() || undefined,
-        countersigner:
-          sign.includes('retainer') && countersign
-            ? { name: countersignerName.trim(), email: countersignerEmail.trim() }
-            : undefined,
+        countersigner: sign.includes('retainer')
+          ? { name: countersignerName.trim(), email: countersignerEmail.trim() }
+          : undefined,
       })
       const parts: string[] = []
       if (result.envelopes.length) parts.push(`${result.envelopes.length} to sign`)
@@ -405,34 +403,35 @@ export function RequestDocumentsDialog({
                             </select>
                             {o.id === 'retainer' ? (
                               <div>
-                                <label className="flex items-center gap-2 text-xs text-slate-600">
+                                <p className="text-xs text-slate-600">
+                                  Attorney countersigns after the client (required). Must be an attorney at your firm.
+                                </p>
+                                <div className="mt-2 grid gap-2 sm:grid-cols-2">
                                   <input
-                                    type="checkbox"
-                                    checked={countersign}
-                                    onChange={(e) => setCountersign(e.target.checked)}
-                                    className="h-3.5 w-3.5 rounded border-slate-300 text-brand-600 focus:ring-brand-400"
+                                    value={countersignerName}
+                                    onChange={(e) => setCountersignerName(e.target.value)}
+                                    placeholder="Attorney name"
+                                    className={inputCls}
                                   />
-                                  Attorney countersigns after the client
-                                </label>
-                                {countersign ? (
-                                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                                    <input
-                                      value={countersignerName}
-                                      onChange={(e) => setCountersignerName(e.target.value)}
-                                      placeholder="Attorney name"
-                                      className={inputCls}
-                                    />
-                                    <input
-                                      type="email"
-                                      value={countersignerEmail}
-                                      onChange={(e) => setCountersignerEmail(e.target.value)}
-                                      placeholder="attorney@firm.com"
-                                      className={inputCls}
-                                    />
-                                  </div>
-                                ) : null}
+                                  <input
+                                    type="email"
+                                    value={countersignerEmail}
+                                    onChange={(e) => setCountersignerEmail(e.target.value)}
+                                    placeholder="attorney@firm.com"
+                                    className={inputCls}
+                                  />
+                                </div>
                               </div>
                             ) : null}
+                            {(() => {
+                              const chosen = firmOptions.find((t) => t.id === templateFor[o.id])
+                              return chosen?.isPdf && !chosen.signatureFieldCount ? (
+                                <p className="text-xs text-amber-700">
+                                  No signature fields are placed on this template, so the client gets a separate
+                                  signature page after it. Place fields under Firm Dashboard → Templates.
+                                </p>
+                              ) : null
+                            })()}
                           </div>
                         ) : null}
                       </div>

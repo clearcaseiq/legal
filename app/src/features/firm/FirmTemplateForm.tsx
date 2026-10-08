@@ -3,7 +3,8 @@
  * Used by Firm Dashboard and case Signatures.
  */
 import { useRef, useState } from 'react'
-import { Upload, X } from 'lucide-react'
+import { AlertTriangle, MousePointerSquareDashed, Upload, X } from 'lucide-react'
+import { TemplateFieldEditor } from './TemplateFieldEditor'
 import {
   createFirmTemplate,
   removeFirmTemplateFile,
@@ -55,6 +56,11 @@ export function FirmTemplateForm({
   )
   const [fileBusy, setFileBusy] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  /** The template as the server last returned it (file and placed fields). */
+  const [latest, setLatest] = useState<FirmTemplate | null>(value)
+  const [editingFields, setEditingFields] = useState(false)
+  const placedCount = latest?.signatureFields?.length ?? 0
+  const canPlaceFields = Boolean(latest?.hasFile && latest?.isPdf)
 
   const save = async () => {
     if (!name.trim()) {
@@ -87,6 +93,7 @@ export function FirmTemplateForm({
     try {
       const updated = await uploadFirmTemplateFile(value.id, f)
       setFile({ fileName: updated.fileName, fileSize: updated.fileSize, hasFile: updated.hasFile })
+      setLatest(updated)
       onUpdated?.(updated)
     } catch (e: any) {
       setError(e?.response?.data?.error || 'Failed to upload file')
@@ -102,6 +109,7 @@ export function FirmTemplateForm({
     try {
       const updated = await removeFirmTemplateFile(value.id)
       setFile({ fileName: updated.fileName, fileSize: updated.fileSize, hasFile: updated.hasFile })
+      setLatest(updated)
       onUpdated?.(updated)
     } finally {
       setFileBusy(false)
@@ -214,6 +222,20 @@ export function FirmTemplateForm({
                 ? 'PDF or Word (.docx). Fillable PDF fields named like client_name or fee_percentage, and {{tokens}} in Word files, are filled from the case. A PDF without fillable fields gets a "Key terms" page in front, and your pages are kept unchanged.'
                 : 'Only PDF files can be sent for e-signature.'}
             </span>
+            {canPlaceFields && (
+              <div className="mt-1 flex w-full flex-wrap items-center gap-2 border-t border-slate-100 pt-2">
+                <button type="button" className={btnGhost} onClick={() => setEditingFields(true)}>
+                  <MousePointerSquareDashed className="h-3.5 w-3.5" />
+                  {placedCount ? `Edit signature fields (${placedCount})` : 'Place signature fields'}
+                </button>
+                {placedCount === 0 && (
+                  <span className="inline-flex items-center gap-1 text-xs text-amber-700">
+                    <AlertTriangle className="h-3.5 w-3.5" />
+                    No fields placed yet, so signers get a separate signature page after your document.
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         ) : (
           <p className="text-xs text-slate-400">Save the template first, then re-open it to attach a PDF/Word file.</p>
@@ -228,6 +250,19 @@ export function FirmTemplateForm({
           Cancel
         </button>
       </div>
+
+      {editingFields && latest && (
+        <TemplateFieldEditor
+          template={latest}
+          documentType={documentType || null}
+          onClose={() => setEditingFields(false)}
+          onSaved={(updated) => {
+            setLatest(updated)
+            setEditingFields(false)
+            onUpdated?.(updated)
+          }}
+        />
+      )}
     </div>
   )
 }

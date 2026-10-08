@@ -24,6 +24,7 @@ import {
   type EssentialDocType,
   type EssentialValues,
 } from './essential-fields'
+import { drawSignatureBlock, toAbsoluteFields, type AbsoluteField, type PlacedField } from './signature-fields'
 
 const OUTPUT_DIR = path.join(process.cwd(), 'uploads', 'signable-documents')
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
@@ -41,6 +42,13 @@ export type BuiltCustomDocument = {
   mode: FillMode
   /** Form fields / tokens that were filled, for the attorney's confirmation. */
   filledNames: string[]
+  /**
+   * How the signers' fields are located. Null only for a firm PDF whose own
+   * form fields were filled and flattened with no fields placed in the editor:
+   * nothing marks where to sign, so the provider appends a signature page.
+   */
+  fieldMode: 'text_tags' | 'placed' | null
+  placedFields: AbsoluteField[]
 }
 
 export class CustomDocumentError extends Error {
@@ -72,24 +80,24 @@ function pdfkitToBuffer(draw: (doc: InstanceType<typeof PDFDocument>) => void): 
   })
 }
 
-function drawSignatureBlock(doc: InstanceType<typeof PDFDocument>, docType: EssentialDocType) {
-  doc.moveDown(1.5).font('Helvetica').fontSize(10).fillColor('#111827')
-  const label = docType === 'hipaa_authorization' ? 'Patient signature' : 'Client signature'
-  doc.text(`${label}: ______________________________`, { continued: true }).text('        Date: ____________________')
-  if (docType === 'retainer') {
-    doc.moveDown(0.8)
-    doc.text('Attorney signature: ____________________________', { continued: true }).text('        Date: ____________________')
-  }
-  doc
-    .moveDown(0.3)
-    .font('Helvetica-Oblique')
-    .fontSize(8)
-    .fillColor('#6b7280')
-    .text('Executed electronically; signer identity, timestamp, and integrity are recorded in the provider audit trail.')
+function drawDocSignatures(doc: InstanceType<typeof PDFDocument>, docType: EssentialDocType) {
+  drawSignatureBlock(doc, [
+    { label: docType === 'hipaa_authorization' ? 'Patient signature' : 'Client signature', role: 'client' },
+    ...(docType === 'retainer' ? [{ label: 'Attorney signature', role: 'attorney' as const }] : []),
+  ])
 }
 
-/** The filled essential fields as a cover page, grouped as on the send form. */
-function renderKeyTermsPage(docType: EssentialDocType, title: string, values: EssentialValues): Promise<Buffer> {
+/**
+ * The filled essential fields as a cover page, grouped as on the send form.
+ * Without signature lines when the firm's own pages carry placed fields, so
+ * nobody signs the same agreement twice.
+ */
+function renderKeyTermsPage(
+  docType: EssentialDocType,
+  title: string,
+  values: EssentialValues,
+  withSignatures = true,
+): Promise<Buffer> {
   return pdfkitToBuffer((doc) => {
     doc.font('Helvetica-Bold').fontSize(16).fillColor('#0b1220').text(title)
     doc
@@ -116,7 +124,7 @@ function renderKeyTermsPage(docType: EssentialDocType, title: string, values: Es
         .fillColor('#111827')
         .text(value)
     }
-    drawSignatureBlock(doc, docType)
+    if (withSignatures) drawDocSignatures(doc, docType)
   })
 }
 
@@ -173,7 +181,7 @@ async function renderBodyPdf(title: string, body: string, docType: EssentialDocT
       doc.moveDown(0.5)
     }
     renderMarkdown(doc, body)
-    drawSignatureBlock(doc, docType)
+    drawDocSignatures(doc, docType)
   })
 }
 
@@ -190,6 +198,7 @@ async function fillPdf(params: {
   docType: EssentialDocType
   title: string
   values: EssentialValues
+  hasPlacedFields: boolean
 }): Promise<{ bytes: Buffer; mode: FillMode; filledNames: string[] }> {
   let pdf: LibPdf
   try {
@@ -220,7 +229,7 @@ async function fillPdf(params: {
   }
   if (filledNames.length) return { bytes: Buffer.from(await pdf.save()), mode: 'form_fields', filledNames }
 
-  const cover = await renderKeyTermsPage(params.docType, params.title, params.values)
+  const cover = await renderKeyTermsPage(params.docType, params.title, params.values, !params.hasPlacedFields)
   return { bytes: await prependPage(cover, params.source), mode: 'key_terms_page', filledNames: [] }
 }
 
@@ -231,10 +240,14 @@ export async function buildCustomDocument(params: {
   title: string
   values: EssentialValues
   source: CustomDocumentSource
+  /** Fields placed on the firm's PDF in the field editor (PDF sources only). */
+  placedFields?: PlacedField[]
 }): Promise<BuiltCustomDocument> {
   let bytes: Buffer
   let mode: FillMode
   let filledNames: string[] = []
+  let fieldMode: BuiltCustomDocument['fieldMode'] = 'text_tags'
+  let absoluteFields: AbsoluteField[] = []
 
   const fromText = async (text: string) => {
     const lookup = await tokenLookup(params.leadId, params.docType, params.values)
@@ -257,12 +270,23 @@ export async function buildCustomDocument(params: {
       const { value: html } = await mammoth.convertToHtml({ path: local })
       ;({ bytes, mode } = await fromText(htmlToMarkdown(html)))
     } else if (params.source.mime === 'application/pdf' || /\.pdf$/i.test(local)) {
+      const source = fs.readFileSync(local)
+      const placed = params.placedFields || []
       ;({ bytes, mode, filledNames } = await fillPdf({
-        source: fs.readFileSync(local),
+        source,
         docType: params.docType,
         title: params.title,
         values: params.values,
+        hasPlacedFields: placed.length > 0,
       }))
+      if (placed.length) {
+        const sizes = await pdfPageSizes(bytes)
+        const originalPages = (await pdfPageSizes(source)).length
+        absoluteFields = toAbsoluteFields(placed, sizes, sizes.length - originalPages)
+        fieldMode = 'placed'
+      } else if (mode === 'form_fields') {
+        fieldMode = null
+      }
     } else {
       throw new CustomDocumentError('Only PDF and Word (.docx) templates can be filled. Save older .doc files as .docx.')
     }
@@ -273,6 +297,16 @@ export async function buildCustomDocument(params: {
   fs.writeFileSync(filePath, bytes)
   await persistUpload(filePath)
   const sha256 = crypto.createHash('sha256').update(bytes).digest('hex')
-  logger.info('Built custom signable document', { leadId: params.leadId, docType: params.docType, mode, filePath })
-  return { filePath, sha256, mode, filledNames }
+  logger.info('Built custom signable document', { leadId: params.leadId, docType: params.docType, mode, fieldMode, filePath })
+  return { filePath, sha256, mode, filledNames, fieldMode, placedFields: absoluteFields }
+}
+
+/** Page sizes in points, in the orientation a viewer shows them. */
+export async function pdfPageSizes(bytes: Buffer | Uint8Array): Promise<Array<{ width: number; height: number }>> {
+  const pdf = await LibPdf.load(bytes, { ignoreEncryption: true })
+  return pdf.getPages().map((page) => {
+    const { width, height } = page.getSize()
+    const quarterTurn = Math.abs(page.getRotation().angle) % 180 === 90
+    return quarterTurn ? { width: height, height: width } : { width, height }
+  })
 }

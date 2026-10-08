@@ -126,6 +126,11 @@ function statusFromEventType(eventType: string): EnvelopeStatus | null {
       return 'declined'
     case 'signature_request_canceled':
       return 'voided'
+    // Field problems (a tag naming a signer the request lacks, a field off the
+    // page) are reported after the send was accepted. The request will never
+    // be signable, so it must not sit as "sent".
+    case 'signature_request_invalid':
+      return 'voided'
     case 'signature_request_expired':
       return 'expired'
     default:
@@ -203,6 +208,29 @@ export const dropboxSignProvider: ESignatureProvider = {
         basename(extraPath)
       )
     }
+    if (input.fieldMode === 'text_tags') {
+      form.append('use_text_tags', '1')
+    } else if (input.fieldMode === 'placed' && input.placedFields?.length) {
+      form.append(
+        'form_fields_per_document',
+        JSON.stringify(
+          input.placedFields.map((field) => ({
+            document_index: 0,
+            api_id: field.id,
+            name: field.label || '',
+            type: field.type,
+            x: field.x,
+            y: field.y,
+            width: field.width,
+            height: field.height,
+            required: field.required,
+            signer: field.signer,
+            page: field.page,
+          })),
+        ),
+      )
+    }
+    if (input.allowDecline) form.append('allow_decline', '1')
     if (input.reference) form.append('metadata[reference]', input.reference)
     for (const [k, v] of Object.entries(input.metadata ?? {})) {
       form.append(`metadata[${k}]`, v)
@@ -369,6 +397,11 @@ export const dropboxSignProvider: ESignatureProvider = {
     let status = statusFromEventType(ev.event_type)
     const externalEnvelopeId = payload.signature_request?.signature_request_id
     if (!status || !externalEnvelopeId) return null
+    if (ev.event_type === 'signature_request_invalid') {
+      logger.error('Dropbox Sign rejected a sent request as invalid (check its signature fields)', {
+        externalEnvelopeId,
+      })
+    }
 
     // signature_request_signed fires per signer. Until all have signed (the
     // attorney countersigns after the client), it only records the client's part;

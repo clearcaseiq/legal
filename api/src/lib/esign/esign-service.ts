@@ -17,6 +17,7 @@ import { renderHipaaAuthorizationPdf } from './hipaa-authorization'
 import { renderPoliceReportAuthorizationPdf } from './police-report-authorization'
 import { renderRetainerAgreementPdf } from './retainer-agreement'
 import type { EnvelopeStatus, SignableDocumentType } from './types'
+import { requiresCountersign, type AbsoluteField } from './signature-fields'
 import { ensureLocalCopy, persistUpload } from '../object-storage'
 import { notifyPlaintiffSignatureRequestedSafe } from './signature-request-notify'
 import { emitCaseUpdatedForLead } from '../realtime'
@@ -62,6 +63,61 @@ export interface CreateEnvelopeParams {
    * per-envelope "please sign" message is skipped.
    */
   packetRequestId?: string | null
+  /** Where the signers' fields are; see `CreateEnvelopeInput.fieldMode`. */
+  fieldMode?: 'text_tags' | 'placed' | null
+  placedFields?: AbsoluteField[]
+  allowDecline?: boolean
+  /** False when the caller tells the client once about several envelopes. */
+  notify?: boolean
+}
+
+export class CountersignError extends Error {
+  status = 400
+}
+
+/**
+ * The attorney who signs a retainer or fee agreement after the client.
+ *
+ * Required, not optional: California B&P §6147 makes a contingency fee
+ * agreement voidable unless both parties sign. When the caller names nobody it
+ * defaults to the sending attorney. Whoever it is must be an attorney at the
+ * sending attorney's firm, which rules out the client, firm staff and
+ * ClearCaseIQ administrators signing in an attorney's place.
+ */
+export async function resolveCountersigner(params: {
+  documentType: SignableDocumentType
+  attorneyId: string
+  signerEmail: string
+  countersigner?: { name: string; email: string } | null
+}): Promise<{ name: string; email: string } | null> {
+  if (!requiresCountersign(params.documentType)) return null
+
+  const sender = await prisma.attorney.findUnique({
+    where: { id: params.attorneyId },
+    select: { name: true, email: true, lawFirmId: true },
+  })
+  const requested = params.countersigner?.email?.trim() ? params.countersigner : null
+  const email = (requested?.email || sender?.email || '').trim().toLowerCase()
+  if (!email) {
+    throw new CountersignError('Add an email to your attorney profile so you can countersign this agreement.')
+  }
+  if (email === params.signerEmail.trim().toLowerCase()) {
+    throw new CountersignError('The client cannot countersign their own agreement. Name the responsible attorney.')
+  }
+
+  const signer = await prisma.attorney.findFirst({
+    where: { email: { equals: email, mode: 'insensitive' } },
+    select: { id: true, name: true, lawFirmId: true },
+  })
+  const sameFirm =
+    signer &&
+    (signer.id === params.attorneyId || (sender?.lawFirmId && signer.lawFirmId === sender.lawFirmId))
+  if (!sameFirm) {
+    throw new CountersignError(
+      `${email} is not an attorney at your firm. The countersignature must come from the responsible attorney.`,
+    )
+  }
+  return { name: requested?.name?.trim() || signer.name, email }
 }
 
 /** Which timestamp column a given status transition should stamp. */
@@ -141,6 +197,8 @@ export async function createEnvelopeForLead(params: CreateEnvelopeParams) {
     )
   }
 
+  const countersigner = await resolveCountersigner(params)
+
   const sourceSha256 = fs.existsSync(params.filePath)
     ? crypto.createHash('sha256').update(fs.readFileSync(params.filePath)).digest('hex')
     : null
@@ -158,8 +216,8 @@ export async function createEnvelopeForLead(params: CreateEnvelopeParams) {
       fieldValues: params.fieldValues ? JSON.stringify(params.fieldValues) : null,
       sourceFilePath: params.filePath,
       sourceSha256,
-      countersignerName: params.countersigner?.name || null,
-      countersignerEmail: params.countersigner?.email || null,
+      countersignerName: countersigner?.name || null,
+      countersignerEmail: countersigner?.email || null,
       packetRequestId: params.packetRequestId || null,
     },
   })
@@ -170,8 +228,11 @@ export async function createEnvelopeForLead(params: CreateEnvelopeParams) {
       title: params.title,
       signerName: params.signerName,
       signerEmail: params.signerEmail,
-      countersigner: params.countersigner || null,
+      countersigner,
       filePath: params.filePath,
+      fieldMode: params.fieldMode ?? null,
+      placedFields: params.placedFields,
+      allowDecline: params.allowDecline ?? params.documentType === 'hipaa_authorization',
       reference: envelope.id,
       metadata: {
         leadId: params.leadId,
@@ -191,7 +252,7 @@ export async function createEnvelopeForLead(params: CreateEnvelopeParams) {
         ...timestampsFor(nextStatus),
       },
     })
-    if (!params.packetRequestId) notifyPlaintiffSignatureRequestedSafe([envelope.id])
+    if (!params.packetRequestId && params.notify !== false) notifyPlaintiffSignatureRequestedSafe([envelope.id])
     return sent
   } catch (err) {
     // Leave the row as a draft so it can be retried or cleaned up; surface the
@@ -217,15 +278,17 @@ export interface CreateHipaaAuthorizationParams {
   caseRef?: string
   providerId?: string
   packetRequestId?: string | null
+  notify?: boolean
 }
 
 /**
  * End-to-end HIPAA authorization: render the filled PDF from the canonical
  * template, then create + send a HIPAA envelope through a HIPAA-capable
- * provider. The signer is the client.
+ * provider. The signer is the client, who may decline it without declining
+ * anything else.
  */
 export async function createHipaaAuthorizationEnvelope(params: CreateHipaaAuthorizationParams) {
-  const { filePath, title } = await renderHipaaAuthorizationPdf({
+  const { filePath, title, fieldMode } = await renderHipaaAuthorizationPdf({
     leadId: params.leadId,
     clientName: params.signerName,
     clientDob: params.clientDob,
@@ -242,8 +305,11 @@ export async function createHipaaAuthorizationEnvelope(params: CreateHipaaAuthor
     signerName: params.signerName,
     signerEmail: params.signerEmail,
     filePath,
+    fieldMode,
+    allowDecline: true,
     providerId: params.providerId,
     packetRequestId: params.packetRequestId,
+    notify: params.notify,
   })
 }
 
@@ -267,7 +333,7 @@ export interface CreatePoliceReportAuthorizationParams {
 export async function createPoliceReportAuthorizationEnvelope(
   params: CreatePoliceReportAuthorizationParams,
 ) {
-  const { filePath, title } = await renderPoliceReportAuthorizationPdf({
+  const { filePath, title, fieldMode } = await renderPoliceReportAuthorizationPdf({
     leadId: params.leadId,
     clientName: params.signerName,
     clientDob: params.clientDob,
@@ -288,6 +354,7 @@ export async function createPoliceReportAuthorizationEnvelope(
     signerName: params.signerName,
     signerEmail: params.signerEmail,
     filePath,
+    fieldMode,
     providerId: params.providerId,
   })
 }
@@ -307,15 +374,17 @@ export interface CreateRetainerAgreementParams {
   providerId?: string
   countersigner?: { name: string; email: string } | null
   packetRequestId?: string | null
+  notify?: boolean
 }
 
 /**
  * End-to-end retainer agreement: render the filled contingency-fee agreement
  * PDF, then create + send an envelope of documentType 'retainer'. Unlike HIPAA,
  * there is no BAA/HIPAA-capable provider requirement (retainers aren't PHI).
+ * The client signs first, then the attorney.
  */
 export async function createRetainerAgreementEnvelope(params: CreateRetainerAgreementParams) {
-  const { filePath, title } = await renderRetainerAgreementPdf({
+  const { filePath, title, fieldMode } = await renderRetainerAgreementPdf({
     leadId: params.leadId,
     clientName: params.signerName,
     firmName: params.firmName,
@@ -334,9 +403,11 @@ export async function createRetainerAgreementEnvelope(params: CreateRetainerAgre
     signerName: params.signerName,
     signerEmail: params.signerEmail,
     filePath,
+    fieldMode,
     providerId: params.providerId,
     countersigner: params.countersigner || null,
     packetRequestId: params.packetRequestId,
+    notify: params.notify,
   })
 }
 
@@ -652,18 +723,29 @@ export interface OnboardingPacketParams {
   clientDob?: string
   recordsCustodian?: string
   recordsDateRange?: string
+  /** Defaults to the sending attorney. */
+  countersigner?: { name: string; email: string } | null
 }
 
 /**
  * Send the full onboarding packet in one action: the retainer agreement plus a
- * HIPAA authorization. Both go to the same signer (the client). The HIPAA piece
- * is only attempted with a HIPAA-capable provider; createEnvelopeForLead
- * enforces that and surfaces a clear error otherwise.
+ * HIPAA authorization, to the same client.
+ *
+ * Two signature requests, not one. In a single request the client could only
+ * decline both documents together, and the HIPAA authorization would stay
+ * incomplete until the attorney countersigned the retainer. Kept apart, the
+ * retainer runs client-then-attorney and the HIPAA authorization completes the
+ * moment the client signs it, or is declined on its own. The client still hears
+ * from us once, about both.
  */
 export async function createOnboardingPacket(params: OnboardingPacketParams) {
   const provider = getESignatureProvider(params.providerId)
-  if (provider.meta().multiDocument) {
-    return createCombinedOnboardingPacket(params, provider)
+  // Checked before anything is sent, so a non-HIPAA provider cannot leave a
+  // retainer out with the client and the authorization missing.
+  if (!provider.meta().hipaaCapable) {
+    throw new Error(
+      `Provider "${provider.id}" is not HIPAA-capable; a signed BAA or self-hosted deployment is required for HIPAA authorizations`
+    )
   }
 
   const retainer = await createRetainerAgreementEnvelope({
@@ -678,109 +760,29 @@ export async function createOnboardingPacket(params: OnboardingPacketParams) {
     scope: params.scope,
     caseRef: params.caseRef,
     providerId: params.providerId,
-  })
-
-  const hipaa = await createHipaaAuthorizationEnvelope({
-    leadId: params.leadId,
-    attorneyId: params.attorneyId,
-    signerName: params.signerName,
-    signerEmail: params.signerEmail,
-    clientDob: params.clientDob,
-    recordsCustodian: params.recordsCustodian,
-    recordsDateRange: params.recordsDateRange,
-    caseRef: params.caseRef,
-    providerId: params.providerId,
-  })
-
-  return { retainer, hipaa }
-}
-
-/**
- * One signature request carrying both the retainer and the HIPAA authorization,
- * so the client gets a single email with both documents. Each document keeps its
- * own DocumentEnvelope row (sharing the provider envelope id) so retainer- and
- * HIPAA-specific completion side effects still run per type.
- */
-async function createCombinedOnboardingPacket(
-  params: OnboardingPacketParams,
-  provider: ReturnType<typeof getESignatureProvider>,
-) {
-  if (!provider.meta().hipaaCapable) {
-    throw new Error(
-      `Provider "${provider.id}" is not HIPAA-capable; a signed BAA or self-hosted deployment is required for HIPAA authorizations`
-    )
-  }
-
-  const retainerDoc = await renderRetainerAgreementPdf({
-    leadId: params.leadId,
-    clientName: params.signerName,
-    firmName: params.firmName,
-    attorneyName: params.attorneyName,
-    contingencyPercent: params.contingencyPercent,
-    costsResponsibility: params.costsResponsibility,
-    scope: params.scope,
-    caseRef: await caseIdForLead(params.leadId, params.caseRef),
-  })
-  const hipaaDoc = await renderHipaaAuthorizationPdf({
-    leadId: params.leadId,
-    clientName: params.signerName,
-    clientDob: params.clientDob,
-    recordsCustodian: params.recordsCustodian,
-    recordsDateRange: params.recordsDateRange,
-    caseRef: await caseIdForLead(params.leadId, params.caseRef),
-  })
-
-  const base = {
-    leadId: params.leadId,
-    attorneyId: params.attorneyId,
-    signerName: params.signerName,
-    signerEmail: params.signerEmail,
-    provider: provider.id,
-    status: 'draft',
-  }
-  const retainerRow = await prisma.documentEnvelope.create({
-    data: { ...base, documentType: 'retainer', title: retainerDoc.title },
-  })
-  const hipaaRow = await prisma.documentEnvelope.create({
-    data: { ...base, documentType: 'hipaa_authorization', title: hipaaDoc.title },
+    countersigner: params.countersigner || null,
+    notify: false,
   })
 
   try {
-    const firm = params.firmName ? ` — ${params.firmName}` : ''
-    const result = await provider.createEnvelope({
-      documentType: 'retainer',
-      title: `Client onboarding packet${firm}: retainer agreement + HIPAA authorization`,
+    const hipaa = await createHipaaAuthorizationEnvelope({
+      leadId: params.leadId,
+      attorneyId: params.attorneyId,
       signerName: params.signerName,
       signerEmail: params.signerEmail,
-      filePath: retainerDoc.filePath,
-      additionalFilePaths: [hipaaDoc.filePath],
-      reference: retainerRow.id,
-      metadata: {
-        leadId: params.leadId,
-        attorneyId: params.attorneyId,
-        envelopeId: retainerRow.id,
-        hipaaEnvelopeId: hipaaRow.id,
-      },
+      clientDob: params.clientDob,
+      recordsCustodian: params.recordsCustodian,
+      recordsDateRange: params.recordsDateRange,
+      caseRef: params.caseRef,
+      providerId: params.providerId,
+      notify: false,
     })
-    const nextStatus: EnvelopeStatus = result.status === 'draft' ? 'sent' : result.status
-    const data = {
-      externalEnvelopeId: result.externalEnvelopeId,
-      signingUrl: result.signingUrl,
-      status: nextStatus,
-      ...timestampsFor(nextStatus),
-    }
-    const retainer = await prisma.documentEnvelope.update({ where: { id: retainerRow.id }, data })
-    const hipaa = await prisma.documentEnvelope.update({ where: { id: hipaaRow.id }, data })
-    notifyPlaintiffSignatureRequestedSafe([retainerRow.id, hipaaRow.id])
+    notifyPlaintiffSignatureRequestedSafe([retainer.id, hipaa.id])
     return { retainer, hipaa }
   } catch (err) {
-    logger.error('Failed to send combined onboarding packet; leaving rows as draft', {
-      retainerEnvelopeId: retainerRow.id,
-      hipaaEnvelopeId: hipaaRow.id,
-      provider: provider.id,
-      error: err instanceof Error ? err.message : String(err),
-    })
-    throw err
+    notifyPlaintiffSignatureRequestedSafe([retainer.id])
+    const reason = err instanceof Error ? err.message : String(err)
+    throw new Error(`The retainer was sent, but the HIPAA authorization could not be: ${reason}`)
   }
 }
 

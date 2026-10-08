@@ -16,6 +16,11 @@ export function respondESignError(res: Response, error: unknown) {
   if (error instanceof ESignNotConfiguredError) {
     return res.status(503).json({ error: error.message, code: 'esign_not_configured' })
   }
+  // Our own validation (a missing or ineligible countersigner, a template with
+  // no attorney field) is the attorney's to fix, not an upstream failure.
+  if (error instanceof Error && (error as { status?: unknown }).status === 400) {
+    return res.status(400).json({ error: error.message })
+  }
   const detail = error instanceof Error ? error.message : String(error)
   return res.status(502).json({ error: 'E-signature provider error', detail })
 }
