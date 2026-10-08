@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { getAllAdminCases, bulkRouteCases, getAdminAttorneys } from '../../lib/api'
+import { getAllAdminCases, bulkRouteCases, getAdminAttorneys, downloadAdminCasesExcel } from '../../lib/api'
 import { formatCurrency, formatDate } from '../../lib/formatters'
 import { formatCaseId } from '../../lib/caseId'
 import { CLAIM_TYPE_OPTIONS, claimTypeSynonyms, formatClaimType } from '../../lib/claimTypes'
@@ -13,6 +13,8 @@ import {
   ExternalLink,
   FolderOpen,
   Download,
+  FileSpreadsheet,
+  Loader2,
   Send,
   X,
 } from 'lucide-react'
@@ -359,6 +361,29 @@ export default function AdminCases() {
     URL.revokeObjectURL(url)
   }
 
+  const [exportingExcel, setExportingExcel] = useState(false)
+  const exportExcel = async () => {
+    try {
+      setExportingExcel(true)
+      setError(null)
+      await downloadAdminCasesExcel(
+        {
+          claimType: claimTypeFilter ? claimTypeSynonyms(claimTypeFilter).join(',') : undefined,
+          state: stateFilter || undefined,
+          routingStatus: routingStatusFilter || undefined,
+          createdToday: createdTodayOnly || undefined,
+          status: statusFilter || undefined,
+          search: appliedSearch || undefined,
+        },
+        `cases_${activeCaseTab}_${new Date().toISOString().split('T')[0]}.xlsx`,
+      )
+    } catch (err: any) {
+      setError(err?.response?.data?.error || 'Failed to export cases')
+    } finally {
+      setExportingExcel(false)
+    }
+  }
+
   const applyCaseTab = (tab: CaseTab) => {
     setActiveCaseTab(tab)
     // Closed is a lifecycle filter rather than a routing one, so it clears the
@@ -450,6 +475,19 @@ export default function AdminCases() {
               >
                 <Download className="h-4 w-4" />
                 Export CSV
+              </button>
+              <button
+                onClick={() => void exportExcel()}
+                disabled={exportingExcel || total === 0}
+                className="btn-outline inline-flex items-center gap-2 text-ui-sm disabled:opacity-40"
+                title={`Export all ${total.toLocaleString()} matching cases to Excel`}
+              >
+                {exportingExcel ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <FileSpreadsheet className="h-4 w-4" />
+                )}
+                {exportingExcel ? 'Exporting…' : `Export Excel (${total.toLocaleString()})`}
               </button>
               <button
                 onClick={loadCases}

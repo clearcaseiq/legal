@@ -16,6 +16,8 @@ import { getMatchingRules, getAttorneyResponseDeadlineMinutes } from '../lib/mat
 import { CLAIM_INVITE_TTL_DAYS, claimUrl, generateClaimToken, sendClaimEmail } from '../lib/claims'
 import { CLOSED_STATUSES } from '../lib/case-stage'
 import { prismaAny, safeJsonParse } from './admin-shared'
+import { formatClaimType } from '../lib/claim-types'
+import * as XLSX from 'xlsx'
 
 const router: ExpressRouter = Router()
 
@@ -579,8 +581,11 @@ router.get('/cases/queue', authMiddleware, adminMiddleware, async (req: AuthRequ
 })
 
 // Get all cases (not just queue) - with extended filters
-router.get('/cases/all', authMiddleware, adminMiddleware, async (req: AuthRequest, res) => {
-  try {
+/**
+ * Prisma `where` for the admin case list filters. Shared by the paged list and
+ * the Excel export so "export all" means exactly the cases the filters show.
+ */
+function buildAdminCasesWhere(query: Record<string, unknown>) {
     const {
       status,
       claimType,
@@ -589,11 +594,7 @@ router.get('/cases/all', authMiddleware, adminMiddleware, async (req: AuthReques
       routingStatus,
       createdToday,
       search,
-    } = req.query
-    const { take, skip } = parsePagination(req.query as Record<string, unknown>, {
-      defaultLimit: 100,
-      maxLimit: 200,
-    })
+    } = query
 
     // Collected rather than assigned so two filters that both need AND can
     // coexist; `where.AND = [...]` let whichever ran last discard the other.
@@ -652,7 +653,7 @@ router.get('/cases/all', authMiddleware, adminMiddleware, async (req: AuthReques
     }
     // Prefer the caller's explicit local start-of-day (createdAfter) so "New today"
     // reflects the admin's calendar day rather than the server's timezone (CP-324).
-    const createdAfter = req.query.createdAfter
+    const createdAfter = query.createdAfter
     if (typeof createdAfter === 'string' && createdAfter) {
       const after = new Date(createdAfter)
       if (!isNaN(after.getTime())) where.createdAt = { gte: after }
@@ -682,6 +683,16 @@ router.get('/cases/all', authMiddleware, adminMiddleware, async (req: AuthReques
     if (andConditions.length > 0) {
       where.AND = andConditions
     }
+    return where
+}
+
+router.get('/cases/all', authMiddleware, adminMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const { take, skip } = parsePagination(req.query as Record<string, unknown>, {
+      defaultLimit: 100,
+      maxLimit: 200,
+    })
+    const where = buildAdminCasesWhere(req.query as Record<string, unknown>)
 
     const assessments = await prisma.assessment.findMany({
       where,
@@ -811,6 +822,122 @@ router.get('/cases/all', authMiddleware, adminMiddleware, async (req: AuthReques
     res.status(500).json({ error: 'Internal server error' })
   }
 })
+
+const CASE_EXPORT_MAX_ROWS = 20_000
+const CASE_EXPORT_BATCH = 1_000
+
+function exportRoutingStatus(intros: Array<{ status: string }>, assignedAttorney: unknown) {
+  if (intros.some((intro) => intro.status === 'ACCEPTED')) return 'Accepted'
+  if (intros.length > 0 || assignedAttorney) return 'Waiting'
+  return 'Queue'
+}
+
+/**
+ * Every case matching the admin list filters as an .xlsx workbook. Unlike the
+ * on-screen CSV, which can only see the loaded page, this reads the whole
+ * result set server-side. Contains plaintiff contact details, so it requires
+ * the ops capability and is audited.
+ */
+router.get(
+  '/cases/export',
+  authMiddleware,
+  adminMiddleware,
+  requireAdminCapability('ops'),
+  async (req: AuthRequest, res) => {
+    try {
+      const where = buildAdminCasesWhere(req.query as Record<string, unknown>)
+      const total = await prisma.assessment.count({ where })
+      if (total > CASE_EXPORT_MAX_ROWS) {
+        return res.status(400).json({
+          error: `This export would include ${total.toLocaleString()} cases. Narrow the filters to ${CASE_EXPORT_MAX_ROWS.toLocaleString()} or fewer.`,
+        })
+      }
+
+      const rows: Record<string, string | number | Date | null>[] = []
+      for (let skip = 0; skip < total; skip += CASE_EXPORT_BATCH) {
+        const batch = await prisma.assessment.findMany({
+          where,
+          orderBy: { createdAt: 'desc' },
+          take: CASE_EXPORT_BATCH,
+          skip,
+          select: {
+            id: true,
+            referenceCode: true,
+            claimType: true,
+            venueState: true,
+            venueCounty: true,
+            status: true,
+            caseStage: true,
+            createdAt: true,
+            updatedAt: true,
+            closedAt: true,
+            user: { select: { email: true, firstName: true, lastName: true, phone: true } },
+            predictions: { orderBy: { createdAt: 'desc' }, take: 1, select: { viability: true, bands: true } },
+            introductions: { select: { status: true, attorney: { select: { name: true } } } },
+            leadSubmission: { select: { assignedAttorney: { select: { name: true } } } },
+            _count: { select: { files: true } },
+          },
+        })
+        for (const c of batch) {
+          const prediction = c.predictions[0]
+          const viability = (prediction && safeJsonParse<any>(prediction.viability)) || {}
+          const bands = (prediction && safeJsonParse<any>(prediction.bands)) || {}
+          const accepted = c.introductions.filter((intro) => intro.status === 'ACCEPTED')
+          const plaintiff = c.user ? `${c.user.firstName || ''} ${c.user.lastName || ''}`.trim() : ''
+          const num = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) ? value : null)
+          const overall = num(viability?.overall)
+          rows.push({
+            'Case ID': c.referenceCode || c.id,
+            'Claim type': formatClaimType(c.claimType),
+            Plaintiff: plaintiff || 'Anonymous',
+            Email: c.user?.email || '',
+            Phone: c.user?.phone || '',
+            County: c.venueCounty || '',
+            State: c.venueState || '',
+            Status: c.status || '',
+            'Case stage': c.caseStage || '',
+            'Routing status': exportRoutingStatus(c.introductions, c.leadSubmission?.assignedAttorney),
+            'Attorneys offered': c.introductions.length,
+            'Accepted by': accepted.map((intro) => intro.attorney?.name).filter(Boolean).join(', '),
+            'Assigned attorney': c.leadSubmission?.assignedAttorney?.name || '',
+            'Viability %': overall != null ? Math.round(overall * 100) : null,
+            'Est. value low': num(bands?.p25),
+            'Est. value median': num(bands?.median),
+            'Est. value high': num(bands?.p75),
+            Files: c._count.files,
+            Submitted: c.createdAt,
+            'Last updated': c.updatedAt,
+            Closed: c.closedAt,
+          })
+        }
+      }
+
+      const sheet = XLSX.utils.json_to_sheet(rows, { cellDates: true })
+      sheet['!cols'] = Object.keys(rows[0] ?? { 'Case ID': '' }).map((key) => ({
+        wch: Math.min(40, Math.max(key.length + 2, 12)),
+      }))
+      const workbook = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(workbook, sheet, 'Cases')
+      const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx', cellDates: true }) as Buffer
+
+      await writeAdminAudit(req, {
+        action: 'cases.export',
+        entityType: 'Assessment',
+        statusCode: 200,
+        metadata: { rows: rows.length, filters: req.query },
+      })
+
+      const day = new Date().toISOString().slice(0, 10)
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      res.setHeader('Content-Disposition', `attachment; filename="cases_${day}.xlsx"`)
+      res.setHeader('Cache-Control', 'no-store')
+      res.send(buffer)
+    } catch (error) {
+      logger.error('Failed to export admin cases', { error })
+      res.status(500).json({ error: 'Failed to export cases' })
+    }
+  },
+)
 
 // Get single case detail for admin (must be after /cases/queue and /cases/all)
 router.get('/cases/:id', authMiddleware, adminMiddleware, async (req: AuthRequest, res) => {

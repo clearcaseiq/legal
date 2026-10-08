@@ -978,6 +978,70 @@ describe('HTTP operations regressions', () => {
     expect(where.OR).toContainEqual({ id: { contains: 'pat', mode: 'insensitive' } })
   })
 
+  it('GET /v1/admin/cases/export returns every matching case as an xlsx workbook', async () => {
+    vi.mocked(prisma.assessment.count).mockResolvedValue(1 as any)
+    vi.mocked(prisma.assessment.findMany).mockResolvedValue([
+      {
+        id: 'asm-export-1',
+        referenceCode: 'CCIQ-2610-AUTO-ABC123',
+        claimType: 'auto',
+        venueState: 'CA',
+        venueCounty: 'Orange',
+        status: 'COMPLETED',
+        caseStage: 'INTAKE',
+        createdAt: new Date('2026-10-01T12:00:00Z'),
+        updatedAt: new Date('2026-10-02T12:00:00Z'),
+        closedAt: null,
+        user: { email: 'pat@example.com', firstName: 'Pat', lastName: 'Lee', phone: '5551234567' },
+        predictions: [
+          { viability: JSON.stringify({ overall: 0.72 }), bands: JSON.stringify({ p25: 20000, median: 35000, p75: 50000 }) },
+        ],
+        introductions: [{ status: 'ACCEPTED', attorney: { name: 'Alice Donald' } }],
+        leadSubmission: null,
+        _count: { files: 3 },
+      },
+    ] as any)
+
+    const res = await request(app)
+      .get('/v1/admin/cases/export?status=closed&search=pat')
+      .set('Authorization', 'Bearer admin')
+      .buffer(true)
+      .parse((response, callback) => {
+        const chunks: Buffer[] = []
+        response.on('data', (chunk: Buffer) => chunks.push(chunk))
+        response.on('end', () => callback(null, Buffer.concat(chunks)))
+      })
+      .expect(200)
+
+    expect(res.headers['content-type']).toContain('spreadsheetml')
+    // Same predicate as the on-screen list, so "export all" means what the filters show.
+    const where = vi.mocked(prisma.assessment.findMany).mock.calls[0]?.[0]?.where as any
+    expect(where.AND).toHaveLength(1)
+    expect(where.OR).toContainEqual({ id: { contains: 'pat', mode: 'insensitive' } })
+
+    const XLSX = await import('xlsx')
+    const workbook = XLSX.read(res.body as Buffer, { type: 'buffer' })
+    const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(workbook.Sheets.Cases)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({
+      'Case ID': 'CCIQ-2610-AUTO-ABC123',
+      Plaintiff: 'Pat Lee',
+      Email: 'pat@example.com',
+      'Routing status': 'Accepted',
+      'Accepted by': 'Alice Donald',
+      'Viability %': 72,
+      'Est. value median': 35000,
+      Files: 3,
+    })
+  })
+
+  it('GET /v1/admin/cases/export refuses an export larger than the cap', async () => {
+    vi.mocked(prisma.assessment.count).mockResolvedValue(25_000 as any)
+    const res = await request(app).get('/v1/admin/cases/export').set('Authorization', 'Bearer admin').expect(400)
+    expect(res.body.error).toMatch(/Narrow the filters/)
+    expect(prisma.assessment.findMany).not.toHaveBeenCalled()
+  })
+
   it('GET /v1/admin/cases/:id returns compact case detail payload', async () => {
     vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
       id: 'asm-detail-1',

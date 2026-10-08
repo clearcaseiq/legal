@@ -5407,24 +5407,11 @@ export async function getAllAdminCases(
     offset?: number
   } | string
 ) {
-  const search = new URLSearchParams()
+  let search = new URLSearchParams()
   if (typeof paramsOrStatus === 'string') {
     if (paramsOrStatus) search.append('status', paramsOrStatus)
   } else if (paramsOrStatus) {
-    if (paramsOrStatus.status) search.append('status', paramsOrStatus.status)
-    if (paramsOrStatus.claimType) search.append('claimType', paramsOrStatus.claimType)
-    if (paramsOrStatus.state) search.append('state', paramsOrStatus.state)
-    if (paramsOrStatus.county) search.append('county', paramsOrStatus.county)
-    if (paramsOrStatus.routingStatus) search.append('routingStatus', paramsOrStatus.routingStatus)
-    if (paramsOrStatus.search) search.append('search', paramsOrStatus.search)
-    if (paramsOrStatus.createdToday) {
-      search.append('createdToday', '1')
-      // Also send the caller's local start-of-day so "today" matches the admin's
-      // calendar day rather than the server's timezone (which is typically UTC) — CP-324.
-      const dayStart = new Date()
-      dayStart.setHours(0, 0, 0, 0)
-      search.append('createdAfter', dayStart.toISOString())
-    }
+    search = adminCaseFilterParams(paramsOrStatus)
     if (paramsOrStatus.limit != null) search.append('limit', paramsOrStatus.limit.toString())
     // `!= null`, not truthiness: offset 0 is the first page and must be sent.
     if (paramsOrStatus.offset != null) search.append('offset', paramsOrStatus.offset.toString())
@@ -5432,6 +5419,64 @@ export async function getAllAdminCases(
 
   const { data } = await api.get(`/v1/admin/cases/all?${search.toString()}`)
   return data
+}
+
+type AdminCaseFilters = {
+  status?: string
+  claimType?: string
+  state?: string
+  county?: string
+  routingStatus?: string
+  createdToday?: boolean
+  search?: string
+}
+
+function adminCaseFilterParams(filters: AdminCaseFilters) {
+  const search = new URLSearchParams()
+  if (filters.status) search.append('status', filters.status)
+  if (filters.claimType) search.append('claimType', filters.claimType)
+  if (filters.state) search.append('state', filters.state)
+  if (filters.county) search.append('county', filters.county)
+  if (filters.routingStatus) search.append('routingStatus', filters.routingStatus)
+  if (filters.search) search.append('search', filters.search)
+  if (filters.createdToday) {
+    search.append('createdToday', '1')
+    // Also send the caller's local start-of-day so "today" matches the admin's
+    // calendar day rather than the server's timezone (which is typically UTC) — CP-324.
+    const dayStart = new Date()
+    dayStart.setHours(0, 0, 0, 0)
+    search.append('createdAfter', dayStart.toISOString())
+  }
+  return search
+}
+
+/** Every case matching the filters (not just the loaded page) as an .xlsx download. */
+export async function downloadAdminCasesExcel(filters: AdminCaseFilters, fileName: string) {
+  try {
+    const { data } = await api.get<Blob>(`/v1/admin/cases/export?${adminCaseFilterParams(filters).toString()}`, {
+      responseType: 'blob',
+    })
+    const url = URL.createObjectURL(data)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = fileName
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  } catch (err: any) {
+    // Errors arrive as a Blob because of responseType; surface the JSON message.
+    const blob = err?.response?.data
+    if (blob instanceof Blob) {
+      try {
+        const parsed = JSON.parse(await blob.text())
+        if (parsed?.error) err.response.data = parsed
+      } catch {
+        // leave as-is
+      }
+    }
+    throw err
+  }
 }
 
 // Bulk route cases to attorney (pass attorneyId or attorneyEmail)
