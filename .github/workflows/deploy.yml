@@ -57,11 +57,13 @@ jobs:
           set -Eeuo pipefail
           missing=0
           for repo in clearcaseiq-api clearcaseiq-web; do
-            if aws ecr describe-images --repository-name "$repo" \
-                 --image-ids imageTag="${{ inputs.tag }}" >/dev/null 2>&1; then
+            # stderr is kept: an AccessDenied from the deploy role otherwise reads
+            # exactly like a missing image.
+            if out="$(aws ecr describe-images --repository-name "$repo" \
+                 --image-ids imageTag="${{ inputs.tag }}" 2>&1 >/dev/null)"; then
               echo "ok: $repo:${{ inputs.tag }}"
             else
-              echo "::error::$repo has no image tagged ${{ inputs.tag }}" >&2
+              echo "::error::$repo:${{ inputs.tag }} could not be confirmed: ${out:-no output}" >&2
               missing=1
             fi
           done
