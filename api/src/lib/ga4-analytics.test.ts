@@ -10,7 +10,7 @@ vi.mock('google-auth-library', () => ({
   },
 }))
 
-import { clearGa4Cache, fetchTrafficReport, isGa4Configured } from './ga4-analytics'
+import { clearGa4Cache, fetchTrafficReport, isGa4Configured, parseTrafficRange } from './ga4-analytics'
 
 const SERVICE_ACCOUNT = JSON.stringify({
   type: 'service_account',
@@ -307,5 +307,52 @@ describe('fetchTrafficReport', () => {
     request.mockRejectedValue(new Error('403 caller does not have permission'))
 
     await expect(fetchTrafficReport(30)).rejects.toThrow('permission')
+  })
+
+  it('sends an explicit range to GA4 and reports it back with an inclusive day count', async () => {
+    respondWithReports()
+
+    const result = await fetchTrafficReport({ startDate: '2026-09-01', endDate: '2026-09-30' })
+
+    expect(result).toMatchObject({ periodDays: 30, startDate: '2026-09-01', endDate: '2026-09-30' })
+    const sent = request.mock.calls[0][0].data.requests[0].dateRanges
+    expect(sent).toEqual([{ startDate: '2026-09-01', endDate: '2026-09-30' }])
+  })
+
+  it('caches a custom range separately from the trailing window', async () => {
+    respondWithReports()
+    await fetchTrafficReport(30)
+    respondWithReports()
+    await fetchTrafficReport({ startDate: '2026-09-01', endDate: '2026-09-30' })
+    await fetchTrafficReport(30)
+
+    expect(request).toHaveBeenCalledTimes(4)
+  })
+})
+
+describe('parseTrafficRange', () => {
+  const now = new Date('2026-10-07T12:00:00Z')
+
+  it('returns no range when neither date is given, so the trailing window applies', () => {
+    expect(parseTrafficRange({ days: '30' }, now)).toEqual({ range: null })
+  })
+
+  it('accepts a valid range, including tomorrow for admins ahead of UTC', () => {
+    expect(parseTrafficRange({ startDate: '2026-01-01', endDate: '2026-10-08' }, now)).toEqual({
+      range: { startDate: '2026-01-01', endDate: '2026-10-08' },
+    })
+  })
+
+  it.each([
+    [{ startDate: '2026-09-01' }, 'both'],
+    [{ startDate: '2026-9-1', endDate: '2026-09-30' }, 'YYYY-MM-DD'],
+    [{ startDate: '2026-02-30', endDate: '2026-03-02' }, 'YYYY-MM-DD'],
+    [{ startDate: '2026-09-30', endDate: '2026-09-01' }, 'on or before'],
+    [{ startDate: '2015-01-01', endDate: '2015-09-01' }, 'no data before'],
+    [{ startDate: '2026-10-01', endDate: '2026-10-20' }, 'future'],
+    [{ startDate: '2023-01-01', endDate: '2026-01-01' }, 'two years'],
+  ])('rejects %j', (query, message) => {
+    const result = parseTrafficRange(query, now)
+    expect('error' in result && result.error).toContain(message)
   })
 })

@@ -7,7 +7,7 @@ import { adminMiddleware } from '../lib/admin-access'
 import { writeAdminAudit } from '../lib/admin-audit'
 import { CLICK_WINDOW_DAYS, MAX_ATTEMPTS } from '../lib/ads-conversion-sweep'
 import { buildChannelReport } from '../lib/attribution-channel'
-import { fetchTrafficReport } from '../lib/ga4-analytics'
+import { fetchTrafficReport, parseTrafficRange } from '../lib/ga4-analytics'
 import { buildIntakeFunnelReport } from '../lib/intake-funnel'
 import { isGoogleAdsConfigured } from '../lib/google-ads-conversions'
 import { safeJsonParse } from './admin-shared'
@@ -537,9 +537,12 @@ router.get('/intake-funnel', authMiddleware, adminMiddleware, async (req: AuthRe
 router.get('/traffic', authMiddleware, adminMiddleware, async (req: AuthRequest, res) => {
   // Same clamp as /analytics so the two panels can share one window selector.
   const days = Math.min(90, Math.max(7, parseInt(req.query.days as string) || 30))
+  // An explicit range, when given, wins over `days` and is not clamped to 90.
+  const parsed = parseTrafficRange(req.query as Record<string, unknown>)
+  if ('error' in parsed) return res.status(400).json({ error: parsed.error })
 
   try {
-    res.json(await fetchTrafficReport(days))
+    res.json(await fetchTrafficReport(parsed.range ?? days))
   } catch (error: any) {
     logger.error('Failed to get GA4 traffic', { error: error?.message, stack: error?.stack })
     // 502, not 500: the failure is upstream at Google, and saying so is what

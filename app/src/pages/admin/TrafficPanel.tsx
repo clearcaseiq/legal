@@ -1,7 +1,99 @@
-import { useCallback, useEffect, useState } from 'react'
-import { Globe, Info, RefreshCw } from 'lucide-react'
-import { getAdminTraffic, type AdminTraffic } from '../../lib/api'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Calendar, Globe, Info, RefreshCw } from 'lucide-react'
+import { getAdminTraffic, type AdminTraffic, type AdminTrafficRange } from '../../lib/api'
 import { BarChart, SimpleLineChart } from './charts'
+
+/** Matches the API's limits: GA4's first day of data, and a two-year span. */
+const EARLIEST_DATE = '2015-08-14'
+const MAX_RANGE_DAYS = 731
+
+type PresetId =
+  | 'page'
+  | 'today'
+  | 'yesterday'
+  | 'last7'
+  | 'last28'
+  | 'last90'
+  | 'thisMonth'
+  | 'lastMonth'
+  | 'yearToDate'
+  | 'last12Months'
+  | 'custom'
+
+const PRESETS: { id: Exclude<PresetId, 'page' | 'custom'>; label: string }[] = [
+  { id: 'today', label: 'Today' },
+  { id: 'yesterday', label: 'Yesterday' },
+  { id: 'last7', label: 'Last 7 days' },
+  { id: 'last28', label: 'Last 28 days' },
+  { id: 'last90', label: 'Last 90 days' },
+  { id: 'thisMonth', label: 'This month' },
+  { id: 'lastMonth', label: 'Last month' },
+  { id: 'yearToDate', label: 'Year to date' },
+  { id: 'last12Months', label: 'Last 12 months' },
+]
+
+/** Local calendar date, not UTC — "today" should mean the admin's today. */
+function isoLocal(date: Date): string {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+function addDays(date: Date, n: number): Date {
+  const next = new Date(date)
+  next.setDate(next.getDate() + n)
+  return next
+}
+
+function presetRange(id: Exclude<PresetId, 'page' | 'custom'>, now = new Date()): AdminTrafficRange {
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const range = (start: Date, end: Date = today) => ({ startDate: isoLocal(start), endDate: isoLocal(end) })
+  switch (id) {
+    case 'today':
+      return range(today)
+    case 'yesterday':
+      return range(addDays(today, -1), addDays(today, -1))
+    case 'last7':
+      return range(addDays(today, -6))
+    case 'last28':
+      return range(addDays(today, -27))
+    case 'last90':
+      return range(addDays(today, -89))
+    case 'thisMonth':
+      return range(new Date(today.getFullYear(), today.getMonth(), 1))
+    case 'lastMonth':
+      return range(
+        new Date(today.getFullYear(), today.getMonth() - 1, 1),
+        new Date(today.getFullYear(), today.getMonth(), 0)
+      )
+    case 'yearToDate':
+      return range(new Date(today.getFullYear(), 0, 1))
+    case 'last12Months':
+      return range(addDays(new Date(today.getFullYear() - 1, today.getMonth(), today.getDate()), 1))
+  }
+}
+
+function spanDays({ startDate, endDate }: AdminTrafficRange): number {
+  return Math.round((Date.parse(endDate) - Date.parse(startDate)) / 86_400_000) + 1
+}
+
+function customRangeError(range: AdminTrafficRange): string | null {
+  if (!range.startDate || !range.endDate) return 'Choose both a start and an end date.'
+  if (range.startDate > range.endDate) return 'Start date must be on or before the end date.'
+  if (range.startDate < EARLIEST_DATE) return `Google Analytics has no data before ${EARLIEST_DATE}.`
+  if (range.endDate > isoLocal(new Date())) return 'End date cannot be in the future.'
+  if (spanDays(range) > MAX_RANGE_DAYS) return 'Ranges are limited to two years.'
+  return null
+}
+
+function formatDate(iso: string): string {
+  return new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  })
+}
 
 /**
  * Site traffic from GA4, shown next to the case funnel it feeds.
@@ -15,40 +107,148 @@ export function TrafficPanel({ days }: { days: number }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  // 'page' follows the screen-wide window selector; anything else is this
+  // panel's own range, which GA4 can serve well beyond the page's 90 days.
+  const [preset, setPreset] = useState<PresetId>('page')
+  const [draft, setDraft] = useState<AdminTrafficRange>(() => presetRange('last28'))
+  const [appliedCustom, setAppliedCustom] = useState<AdminTrafficRange | null>(null)
+  const draftError = preset === 'custom' ? customRangeError(draft) : null
+
+  const range = useMemo<number | AdminTrafficRange>(() => {
+    if (preset === 'page') return days
+    if (preset === 'custom') return appliedCustom ?? days
+    return presetRange(preset)
+  }, [preset, days, appliedCustom])
+
   const load = useCallback(async () => {
     try {
       setLoading(true)
       setError(null)
-      setData(await getAdminTraffic(days))
+      setData(await getAdminTraffic(range))
     } catch (err: any) {
       const body = err?.response?.data
       setError(body?.detail || body?.error || 'Failed to load traffic')
     } finally {
       setLoading(false)
     }
-  }, [days])
+  }, [range])
 
   useEffect(() => {
     load()
   }, [load])
 
+  const onPresetChange = (next: PresetId) => {
+    setPreset(next)
+    if (next === 'custom') {
+      // Seed the inputs from whatever is on screen, so "Custom" starts as a tweak.
+      const today = new Date()
+      setDraft(
+        typeof range === 'number'
+          ? { startDate: isoLocal(addDays(today, -(range - 1))), endDate: isoLocal(today) }
+          : range
+      )
+      setAppliedCustom(null)
+    }
+  }
+
+  const rangeLabel =
+    typeof range === 'number'
+      ? `Last ${range} days`
+      : range.startDate === range.endDate
+        ? formatDate(range.startDate)
+        : `${formatDate(range.startDate)} – ${formatDate(range.endDate)} · ${spanDays(range)} days`
+
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-700 dark:bg-slate-900">
-      <div className="mb-4 flex items-center justify-between">
-        <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-900 dark:text-white">
-          <Globe className="h-5 w-5 text-brand-600" />
-          Site traffic
-        </h2>
-        <button
-          type="button"
-          onClick={load}
-          disabled={loading}
-          className="flex items-center gap-1 text-sm text-slate-500 hover:text-slate-700 disabled:opacity-50 dark:text-slate-400 dark:hover:text-slate-200"
-        >
-          <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-          Refresh
-        </button>
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-900 dark:text-white">
+            <Globe className="h-5 w-5 text-brand-600" />
+            Site traffic
+          </h2>
+          <p className="mt-1 flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
+            <Calendar className="h-3.5 w-3.5" aria-hidden />
+            {rangeLabel}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="sr-only" htmlFor="traffic-range">
+            Date range
+          </label>
+          <select
+            id="traffic-range"
+            value={preset}
+            onChange={(e) => onPresetChange(e.target.value as PresetId)}
+            className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+          >
+            <option value="page">Match page (last {days} days)</option>
+            {PRESETS.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.label}
+              </option>
+            ))}
+            <option value="custom">Custom range…</option>
+          </select>
+          <button
+            type="button"
+            onClick={load}
+            disabled={loading}
+            className="flex items-center gap-1 text-sm text-slate-500 hover:text-slate-700 disabled:opacity-50 dark:text-slate-400 dark:hover:text-slate-200"
+          >
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        </div>
       </div>
+
+      {preset === 'custom' && (
+        <form
+          className="mb-4 flex flex-wrap items-end gap-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (!draftError) setAppliedCustom({ ...draft })
+          }}
+        >
+          <label className="text-xs text-slate-600 dark:text-slate-400">
+            Start date
+            <input
+              type="date"
+              value={draft.startDate}
+              min={EARLIEST_DATE}
+              max={draft.endDate || isoLocal(new Date())}
+              onChange={(e) => setDraft((d) => ({ ...d, startDate: e.target.value }))}
+              className="mt-1 block rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+            />
+          </label>
+          <label className="text-xs text-slate-600 dark:text-slate-400">
+            End date
+            <input
+              type="date"
+              value={draft.endDate}
+              min={draft.startDate || EARLIEST_DATE}
+              max={isoLocal(new Date())}
+              onChange={(e) => setDraft((d) => ({ ...d, endDate: e.target.value }))}
+              className="mt-1 block rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+            />
+          </label>
+          <button
+            type="submit"
+            disabled={Boolean(draftError) || loading}
+            className="rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
+          >
+            Apply
+          </button>
+          {draftError ? (
+            <p className="w-full text-xs text-red-600 dark:text-red-400">{draftError}</p>
+          ) : (
+            !appliedCustom && (
+              <p className="w-full text-xs text-slate-500 dark:text-slate-400">
+                Showing the page window until you apply a range.
+              </p>
+            )
+          )}
+        </form>
+      )}
 
       <Boundary />
 

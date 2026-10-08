@@ -65,9 +65,31 @@ export type TrafficPage = {
   averageEngagementSeconds: number
 }
 
+/** An explicit, inclusive calendar range in the GA4 property's own timezone. */
+export type TrafficDateRange = { startDate: string; endDate: string }
+
+/**
+ * Either a trailing window ("last 30 days") or an explicit range. The trailing
+ * form stays because GA4 resolves `NdaysAgo` against the property's timezone,
+ * which the API server does not know.
+ */
+export type TrafficWindow = number | TrafficDateRange
+
+/** GA4 has no data before this date for any property. */
+export const GA4_EARLIEST_DATE = '2015-08-14'
+
+/**
+ * Two years. Long enough for year-over-year reading, short enough that the
+ * daily series stays a chart rather than a smear.
+ */
+export const MAX_RANGE_DAYS = 731
+
 export type TrafficReport = {
   configured: true
   periodDays: number
+  /** Present only when the caller asked for an explicit range. */
+  startDate?: string
+  endDate?: string
   totals: TrafficTotals
   byDay: TrafficPoint[]
   byChannel: TrafficBreakdown[]
@@ -166,8 +188,59 @@ function breakdown(report: Ga4Report | undefined, withNewUsers = false): Traffic
 
 const SESSIONS_DESC = [{ metric: { metricName: 'sessions' }, desc: true }]
 
-function reportDefinitions(days: number): ReportRequest[] {
-  const dateRanges = [{ startDate: `${days}daysAgo`, endDate: 'today' }]
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
+
+function parseIsoDate(value: string): number | null {
+  if (!ISO_DATE.test(value)) return null
+  const ms = Date.parse(`${value}T00:00:00Z`)
+  // Rejects calendar impossibilities like 2026-02-30, which Date.parse rolls over.
+  if (Number.isNaN(ms) || new Date(ms).toISOString().slice(0, 10) !== value) return null
+  return ms
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000
+
+/** Inclusive day count of an already-validated range. */
+export function rangeDays(range: TrafficDateRange): number {
+  return Math.round((parseIsoDate(range.endDate)! - parseIsoDate(range.startDate)!) / DAY_MS) + 1
+}
+
+/**
+ * Reads `startDate` / `endDate` from a query string.
+ *
+ * Returns `null` when neither is present, so the caller falls back to the
+ * trailing window. "Today" is allowed a day of slack because the admin's
+ * browser may already be on tomorrow relative to UTC.
+ */
+export function parseTrafficRange(
+  query: Record<string, unknown>,
+  now: Date = new Date()
+): { range: TrafficDateRange | null } | { error: string } {
+  const start = typeof query.startDate === 'string' ? query.startDate.trim() : ''
+  const end = typeof query.endDate === 'string' ? query.endDate.trim() : ''
+  if (!start && !end) return { range: null }
+  if (!start || !end) return { error: 'Provide both startDate and endDate' }
+
+  const startMs = parseIsoDate(start)
+  const endMs = parseIsoDate(end)
+  if (startMs === null || endMs === null) return { error: 'Dates must be YYYY-MM-DD' }
+  if (startMs > endMs) return { error: 'startDate must be on or before endDate' }
+  if (startMs < parseIsoDate(GA4_EARLIEST_DATE)!) {
+    return { error: `Google Analytics has no data before ${GA4_EARLIEST_DATE}` }
+  }
+
+  const tomorrowUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) + DAY_MS
+  if (endMs > tomorrowUtc) return { error: 'endDate cannot be in the future' }
+
+  const range = { startDate: start, endDate: end }
+  if (rangeDays(range) > MAX_RANGE_DAYS) return { error: 'Date range cannot exceed two years' }
+  return { range }
+}
+
+function reportDefinitions(window: TrafficWindow): ReportRequest[] {
+  const dateRanges = [
+    typeof window === 'number' ? { startDate: `${window}daysAgo`, endDate: 'today' } : window,
+  ]
 
   return [
     // 0 — topline totals, no dimensions.
@@ -189,7 +262,7 @@ function reportDefinitions(days: number): ReportRequest[] {
       dimensions: [{ name: 'date' }],
       metrics: [{ name: 'sessions' }, { name: 'newUsers' }],
       orderBys: [{ dimension: { dimensionName: 'date' } }],
-      limit: 400,
+      limit: MAX_RANGE_DAYS + 1,
     },
     // 2 — acquisition channel: organic, paid, direct, referral, social.
     {
@@ -282,11 +355,20 @@ function isoDate(compact: string): string {
   return `${compact.slice(0, 4)}-${compact.slice(4, 6)}-${compact.slice(6, 8)}`
 }
 
-let cached: { key: number; at: number; value: TrafficReport } | null = null
+/**
+ * Several windows at once: the traffic panel can be on a custom range while the
+ * channel table on the same screen still reads the page's trailing window.
+ */
+const cache = new Map<string, { at: number; value: TrafficReport }>()
+const MAX_CACHED_WINDOWS = 20
+
+function cacheKey(window: TrafficWindow): string {
+  return typeof window === 'number' ? `days:${window}` : `${window.startDate}..${window.endDate}`
+}
 
 /** Exported for tests, which must not inherit a previous run's report. */
 export function clearGa4Cache(): void {
-  cached = null
+  cache.clear()
 }
 
 let authClient: GoogleAuth | null = null
@@ -309,15 +391,15 @@ async function runBatch(batch: ReportRequest[], property: string): Promise<Ga4Re
 }
 
 /**
- * Traffic for the last `days` days, or `{ configured: false }` when no GA4
- * property is wired up.
+ * Traffic for the last `days` days or an explicit date range, or
+ * `{ configured: false }` when no GA4 property is wired up.
  *
  * Not configured is a normal state, not an error: it is every local checkout and
  * every non-production deployment. The caller renders an explanation rather than
  * a wall of zeros, which would otherwise be indistinguishable from a site nobody
  * visited.
  */
-export async function fetchTrafficReport(days: number): Promise<TrafficResult> {
+export async function fetchTrafficReport(window: TrafficWindow): Promise<TrafficResult> {
   if (!isGa4Configured()) return { configured: false, reason: 'unset' }
 
   const property = propertyId()
@@ -340,11 +422,13 @@ export async function fetchTrafficReport(days: number): Promise<TrafficResult> {
     return { configured: false, reason: 'credentials_unparseable' }
   }
 
-  if (cached && cached.key === days && Date.now() - cached.at < CACHE_TTL_MS) {
-    return cached.value
+  const key = cacheKey(window)
+  const hit = cache.get(key)
+  if (hit && Date.now() - hit.at < CACHE_TTL_MS) {
+    return hit.value
   }
 
-  const definitions = reportDefinitions(days)
+  const definitions = reportDefinitions(window)
   const batches: ReportRequest[][] = []
   for (let i = 0; i < definitions.length; i += MAX_REPORTS_PER_BATCH) {
     batches.push(definitions.slice(i, i + MAX_REPORTS_PER_BATCH))
@@ -356,7 +440,8 @@ export async function fetchTrafficReport(days: number): Promise<TrafficResult> {
   const totalsRow = reports[0]?.rows?.[0]
   const value: TrafficReport = {
     configured: true,
-    periodDays: days,
+    periodDays: typeof window === 'number' ? window : rangeDays(window),
+    ...(typeof window === 'number' ? {} : { startDate: window.startDate, endDate: window.endDate }),
     totals: {
       sessions: totalsRow ? metric(totalsRow, 0) : 0,
       totalUsers: totalsRow ? metric(totalsRow, 1) : 0,
@@ -406,7 +491,10 @@ export async function fetchTrafficReport(days: number): Promise<TrafficResult> {
       .filter((entry) => entry.cost > 0),
   }
 
-  cached = { key: days, at: Date.now(), value }
-  logger.info('GA4 traffic report fetched', { days, sessions: value.totals.sessions })
+  cache.delete(key)
+  cache.set(key, { at: Date.now(), value })
+  // Map iteration is insertion order, so the first key is the oldest.
+  if (cache.size > MAX_CACHED_WINDOWS) cache.delete(cache.keys().next().value!)
+  logger.info('GA4 traffic report fetched', { window: key, sessions: value.totals.sessions })
   return value
 }

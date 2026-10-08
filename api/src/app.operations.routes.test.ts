@@ -508,6 +508,15 @@ describe('HTTP operations regressions', () => {
     })
   })
 
+  it('GET /v1/admin/traffic rejects a malformed date range before calling GA4', async () => {
+    const res = await request(app)
+      .get('/v1/admin/traffic?startDate=2026-09-30&endDate=2026-09-01')
+      .set('Authorization', 'Bearer admin')
+      .expect(400)
+
+    expect(res.body.error).toContain('on or before')
+  })
+
   it('GET /v1/admin/manual-review returns compact manual review queue data', async () => {
     vi.mocked(prisma.assessment.findMany).mockResolvedValue([
       {

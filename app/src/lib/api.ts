@@ -4957,6 +4957,9 @@ export type AdminTraffic =
   | {
       configured: true
       periodDays: number
+      /** Echoed back only when an explicit range was requested. */
+      startDate?: string
+      endDate?: string
       totals: {
         sessions: number
         totalUsers: number
@@ -5000,8 +5003,13 @@ export interface AdminAdCost {
   sessions: number
 }
 
-export async function getAdminTraffic(days = 30): Promise<AdminTraffic> {
-  const { data } = await api.get<AdminTraffic>('/v1/admin/traffic', { params: { days } })
+/** Inclusive calendar range, `YYYY-MM-DD` on both ends. */
+export type AdminTrafficRange = { startDate: string; endDate: string }
+
+/** A trailing window of `days`, or an explicit range (up to two years). */
+export async function getAdminTraffic(window: number | AdminTrafficRange = 30): Promise<AdminTraffic> {
+  const params = typeof window === 'number' ? { days: window } : window
+  const { data } = await api.get<AdminTraffic>('/v1/admin/traffic', { params })
   return data
 }
 
