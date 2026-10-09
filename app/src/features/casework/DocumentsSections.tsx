@@ -149,6 +149,10 @@ export function RequestDocumentsDialog({
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  useRealtimeEvent('client:updated', (event) => {
+    if (event.leadId === leadId) getClaimantContact(leadId).then(setContact).catch(() => {})
+  })
+
   useEffect(() => {
     getClaimantContact(leadId).then(setContact).catch(() => setContact(null))
     getAttorneyDocumentRequests(leadId)
@@ -550,6 +554,8 @@ type UploadItem = {
   label: string
   stage: 'requested' | 'received' | 'reviewed'
   fileIds: string[]
+  clientNote?: string | null
+  clientNoteAt?: string | null
 }
 
 type UploadRow = { request: AttorneyDocumentRequest; item: UploadItem }
@@ -878,6 +884,10 @@ export function RequestsOverview({
     loadRequests()
   }, [loadRequests, reloadKey])
 
+  useRealtimeEvent('notification:new', (event) => {
+    if (event.kind === 'attorney.document_request_note') loadRequests()
+  })
+
   useEffect(() => {
     let cancelled = false
     getLeadOpposingDocSuggestions(leadId)
@@ -971,7 +981,16 @@ export function RequestsOverview({
           ) : null}
         </>
       }
-    />
+    >
+      {item.clientNote ? (
+        <div className="ml-12 mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">
+            Client note{item.clientNoteAt ? ` · ${fmtDate(item.clientNoteAt)}` : ''}
+          </p>
+          <p className="mt-0.5 whitespace-pre-wrap break-words text-sm text-slate-800">{item.clientNote}</p>
+        </div>
+      ) : null}
+    </RequestRow>
   )
 
   const renderEnvelope = (env: DocumentEnvelope) => (

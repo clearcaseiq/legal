@@ -68,7 +68,7 @@ import {
   sendProviderLetter,
   signedHipaaEnvelope,
 } from '../lib/representation-letters'
-import { syncPlaintiffDocumentRequestStatuses, computeRequestStatus, countUploadsForRequest, parseRequestedDocs, normalizeRequestedDocKeys, DOCUMENT_REQUEST_LABELS, requestItemStages, requestedDocLabel } from '../lib/document-request-status'
+import { syncPlaintiffDocumentRequestStatuses, computeRequestStatus, countUploadsForRequest, parseRequestedDocs, normalizeRequestedDocKeys, DOCUMENT_REQUEST_LABELS, requestItemStages, requestedDocLabel, parseClientNotes } from '../lib/document-request-status'
 import { countSupportingEvidence, SUPPORTING_EVIDENCE_WHERE } from '../lib/evidence-supporting'
 import { CONTACT_REVEALED_STATUSES, deidentifyAssessmentForOffer } from '../lib/offer-deidentify'
 import { createAndNotifyPlaintiffDocumentRequest } from '../lib/document-request-create'
@@ -86,6 +86,8 @@ import crypto from 'crypto'
 import { calculateSOL, getSOLStatus, deriveSOLStatusFromFacts } from '../lib/solRules'
 import { buildMedicalChronology, buildMedicalChronologySummary, computeCasePreparation, getSettlementBenchmarks } from '../lib/case-insights'
 import { recordCaseOutcome } from '../lib/case-outcomes'
+import { emitLeadDecided } from '../lib/realtime'
+import { buildMedicalSharingStatus, isMedicalEvidenceFile } from '../lib/medical-sharing'
 import { computeMarketplacePerformance } from '../lib/marketplace-performance'
 import {
   ROUTING_CASE_ALREADY_CLAIMED,
@@ -202,6 +204,7 @@ import { SUPER_DEMAND_TEMPLATE, summarizeApprovalGate, updateApprovalGate } from
 import { extractDemandText } from '../lib/demand-import'
 import type { TaskIdentitySource } from '../lib/task-identity'
 import { askCaseAssistant } from '../services/case-assistant'
+import { buildCaseAssistantContext } from '../lib/case-assistant-context'
 import { isAiCaseManagerEnabled } from '../lib/ai-case-manager-sweep'
 import { syncQuestionTasks, syncSingleQuestionTask } from '../lib/question-tasks'
 import { narrateCaseCoach } from '../services/case-coach-narrator'
@@ -2299,34 +2302,6 @@ function extractAttorneyVenueStates(attorney: any) {
   addState(attorney?.lawFirm?.state)
 
   return Array.from(states)
-}
-
-const MEDICAL_EVIDENCE_CATEGORIES = new Set(['medical_records', 'bills', 'medical_bill'])
-const MEDICAL_SHARING_PENDING_MESSAGE =
-  'Medical records and extracted treatment details are pending plaintiff account creation and HIPAA authorization. The visible case summary is based on intake answers only until the plaintiff authorizes medical document sharing.'
-
-function isMedicalEvidenceFile(file: any) {
-  return MEDICAL_EVIDENCE_CATEGORIES.has(String(file?.category || '')) || MEDICAL_EVIDENCE_CATEGORIES.has(String(file?.subcategory || ''))
-}
-
-function buildMedicalSharingStatus(assessment: any) {
-  const facts = typeof assessment?.facts === 'string'
-    ? safeJsonParse<Record<string, any>>(assessment.facts, {})
-    : (assessment?.facts || {})
-  const hasPlaintiffAccount = Boolean(assessment?.userId || assessment?.user?.id)
-  const hasHipaaConsent = facts?.consents?.hipaa === true
-  const evidenceFiles = Array.isArray(assessment?.evidenceFiles) ? assessment.evidenceFiles : []
-  const medicalFileCount = evidenceFiles.filter(isMedicalEvidenceFile).length
-  const canShareMedicalData = hasPlaintiffAccount && hasHipaaConsent
-
-  return {
-    canShareMedicalData,
-    hasPlaintiffAccount,
-    hasHipaaConsent,
-    medicalFileCount,
-    status: canShareMedicalData ? 'authorized' : 'pending_authorization',
-    message: canShareMedicalData ? null : MEDICAL_SHARING_PENDING_MESSAGE,
-  }
 }
 
 function sanitizeAssessmentForAttorney(assessment: any) {
@@ -5780,6 +5755,7 @@ router.get('/document-requests', authMiddleware, async (req: any, res) => {
         origin: true,
         attorneyViewedAt: true,
         lastNudgeAt: true,
+        clientNotes: true,
         createdAt: true,
         lead: {
           select: {
@@ -5847,14 +5823,19 @@ router.get('/document-requests', authMiddleware, async (req: any, res) => {
       // status so a client's upload is reflected immediately (never regress).
       let status = r.status
       let uploadedCount = r._count?.externalUploads || 0
-      let items: ReturnType<typeof requestItemStages> = []
+      let items: Array<ReturnType<typeof requestItemStages>[number] & { clientNote: string | null; clientNoteAt: string | null }> = []
       if (r.targetType !== 'opposing_party' && r.lead?.assessmentId) {
         const files = evidenceByAssessment.get(r.lead.assessmentId) || []
         const docs = parseRequestedDocs(r.requestedDocs)
         const live = computeRequestStatus(docs, files, r.createdAt)
         if (live && (statusRank[live] ?? 0) > (statusRank[r.status] ?? 0)) status = live
         uploadedCount = Math.max(uploadedCount, countUploadsForRequest(docs, files, r.createdAt))
-        items = requestItemStages(docs, files, r.createdAt)
+        const clientNotes = parseClientNotes(r.clientNotes)
+        items = requestItemStages(docs, files, r.createdAt).map((item) => ({
+          ...item,
+          clientNote: clientNotes[item.key]?.note ?? null,
+          clientNoteAt: clientNotes[item.key]?.updatedAt || null,
+        }))
       }
 
       return {
@@ -16641,11 +16622,27 @@ router.post('/leads/:leadId/command-center/copilot', authMiddleware, async (req:
       return res.status(400).json({ error: 'Question is required' })
     }
 
-    const summary = await buildCaseCommandCenter({
-      assessmentId: auth.lead.assessmentId,
-      leadId: auth.lead.id,
-    })
-    const result = await askCaseAssistant(summary, question)
+    const history = Array.isArray(req.body?.history)
+      ? req.body.history
+          .filter((t: any) => typeof t?.question === 'string' && typeof t?.answer === 'string')
+          .slice(-6)
+          .map((t: any) => ({ question: t.question.slice(0, 500), answer: t.answer.slice(0, 1_200) }))
+      : []
+
+    const [summary, record] = await Promise.all([
+      buildCaseCommandCenter({
+        assessmentId: auth.lead.assessmentId,
+        leadId: auth.lead.id,
+      }),
+      buildCaseAssistantContext(auth.lead.assessmentId).catch((err: any) => {
+        logger.warn('Case assistant record load failed; answering from the summary', {
+          leadId: auth.lead.id,
+          error: err?.message,
+        })
+        return ''
+      }),
+    ])
+    const result = await askCaseAssistant(summary, question, { record, history })
 
     if (result.action?.type === 'draft_demand') {
       const writeAuth = await getAuthorizedLead(req, req.params.leadId, {
@@ -18332,6 +18329,12 @@ router.post('/leads/:leadId/decision', authMiddleware, async (req: any, res) => 
     })
     await calculateAttorneyReputationScore(attorneyId).catch((err: any) => {
       logger.warn('Failed to recalculate attorney reputation after lead decision', { error: err?.message, attorneyId })
+    })
+
+    void emitLeadDecided(attorneyId, {
+      assessmentId: existingLead.assessmentId,
+      leadId: existingLead.id,
+      decision,
     })
 
     res.json(lead)

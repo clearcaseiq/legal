@@ -5,11 +5,12 @@
  * one the platform texts. It is where "Verify client contact information" lands,
  * and closing that task from here saves a trip back to Tasks.
  */
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { BadgeCheck, Loader2 } from 'lucide-react'
 import { getClaimantContact, updateClaimantContact, updateLeadTask, type ClaimantContact } from '../../lib/api'
 import PhoneInput from '../../components/PhoneInput'
 import { validatePhoneField } from '../../lib/phone'
+import { useRealtimeEvent } from '../../lib/realtime'
 
 type Form = Record<
   'firstName' | 'lastName' | 'email' | 'phone' | 'addressLine1' | 'addressLine2' | 'city' | 'state' | 'postalCode',
@@ -74,6 +75,29 @@ export default function ClientInfoPanel({ leadId, tasks, reloadTasks, onSaved }:
   }, [leadId])
 
   const dirty = useMemo(() => (Object.keys(form) as (keyof Form)[]).some((k) => form[k] !== saved[k]), [form, saved])
+  const dirtyRef = useRef(dirty)
+  dirtyRef.current = dirty
+
+  // Someone else changed the details (the claimant, an admin, a colleague).
+  // Take them, but never over an edit the user is in the middle of.
+  const refreshFromPush = () => {
+    getClaimantContact(leadId)
+      .then((contact) => {
+        const next = toForm(contact)
+        setSaved(next)
+        if (!dirtyRef.current) setForm(next)
+      })
+      .catch(() => {
+        /* keep the details already shown */
+      })
+  }
+  useRealtimeEvent(
+    'client:updated',
+    (event) => {
+      if (event.leadId === leadId) refreshFromPush()
+    },
+    refreshFromPush,
+  )
   const verifyTask = tasks.find((t) => VERIFY_TASK.test(String(t.title || '')))
   const verified = verifyTask ? isDone(verifyTask.status) : false
 

@@ -4679,7 +4679,17 @@
       "hideCompleted": "Ocultar completados",
       "allCaughtUp": "Estás al día: no hay solicitudes de documentos pendientes.",
       "remainingOne": "1 pendiente",
-      "remainingMany": "{count} pendientes"
+      "remainingMany": "{count} pendientes",
+      "notesTitle": "Notas para su abogado",
+      "notesHint": "¿No tiene alguno de estos? Deje una nota, por ejemplo: \"No recibí facturas médicas.\"",
+      "addNote": "Agregar nota",
+      "editNote": "Editar nota",
+      "notePlaceholder": "Nota sobre {doc}",
+      "saveNote": "Guardar nota",
+      "savingNote": "Guardando…",
+      "cancelNote": "Cancelar",
+      "noteSaved": "Nota enviada a su abogado.",
+      "noteFailed": "No se pudo guardar su nota. Inténtelo de nuevo."
     },
     "schedule": {
       "bookCall": "Reserva una llamada con {name} para hablar de tu caso.",

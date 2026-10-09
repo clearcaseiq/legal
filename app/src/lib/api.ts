@@ -235,6 +235,9 @@ export type PlaintiffDocumentRequest = {
     uploadCategory?: string
     /** Tag naming the item, for custom items that share the `other` category. */
     uploadSubcategory?: string | null
+    /** The client's own note on this item, e.g. "I don't have any bills". */
+    clientNote?: string | null
+    clientNoteAt?: string | null
   }>
   fulfilledDocs: string[]
   remainingDocs: string[]
@@ -253,6 +256,20 @@ export async function getPlaintiffDocumentRequests(assessmentId: string): Promis
   requests: PlaintiffDocumentRequest[]
 }> {
   const { data } = await api.get(`/v1/assessments/${assessmentId}/document-requests`)
+  return data
+}
+
+/** Save (or, with an empty note, clear) the client's note on one requested item. */
+export async function savePlaintiffRequestItemNote(
+  assessmentId: string,
+  requestId: string,
+  itemKey: string,
+  note: string,
+): Promise<{ itemKey: string; note: string | null; updatedAt: string | null }> {
+  const { data } = await api.put(`/v1/assessments/${assessmentId}/document-requests/${requestId}/notes`, {
+    itemKey,
+    note,
+  })
   return data
 }
 
@@ -2451,7 +2468,14 @@ export type AttorneyDocumentRequest = {
   origin?: string | null
   uploadedCount?: number
   /** Per requested item: Requested → Received → Reviewed. Plaintiff requests only. */
-  items?: Array<{ key: string; label: string; stage: 'requested' | 'received' | 'reviewed'; fileIds: string[] }>
+  items?: Array<{
+    key: string
+    label: string
+    stage: 'requested' | 'received' | 'reviewed'
+    fileIds: string[]
+    clientNote?: string | null
+    clientNoteAt?: string | null
+  }>
   lastNudgeAt?: string | null
   createdAt: string
   claimType?: string | null
@@ -2625,8 +2649,14 @@ export async function getLeadCommandCenter(leadId: string) {
   return data
 }
 
-export async function askLeadCommandCenterCopilot(leadId: string, question: string) {
-  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/command-center/copilot`, { question })
+/** Earlier questions and answers in this conversation, oldest first, so follow-ups resolve. */
+export type CopilotTurn = { question: string; answer: string }
+
+export async function askLeadCommandCenterCopilot(leadId: string, question: string, history: CopilotTurn[] = []) {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/command-center/copilot`, {
+    question,
+    history: history.slice(-6),
+  })
   return data as {
     question: string
     answer: string

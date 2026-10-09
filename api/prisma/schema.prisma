@@ -3210,6 +3210,10 @@ model DocumentRequest {
   attorneyViewedAt DateTime?
   lastNudgeAt      DateTime?
 
+  // The claimant's notes on individual requested items, keyed by item key
+  // ("medical_bills": { note, updatedAt }) — e.g. "I don't have any bills".
+  clientNotes Json?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

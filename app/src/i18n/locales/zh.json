@@ -4679,7 +4679,17 @@
       "hideCompleted": "隐藏已完成",
       "allCaughtUp": "您已全部完成 — 没有未处理的文件请求。",
       "remainingOne": "还剩 1 项",
-      "remainingMany": "还剩 {count} 项"
+      "remainingMany": "还剩 {count} 项",
+      "notesTitle": "给律师的备注",
+      "notesHint": "没有其中某份文件？请留下备注，例如：“我没有收到任何医疗账单。”",
+      "addNote": "添加备注",
+      "editNote": "编辑备注",
+      "notePlaceholder": "关于{doc}的备注",
+      "saveNote": "保存备注",
+      "savingNote": "正在保存…",
+      "cancelNote": "取消",
+      "noteSaved": "备注已发送给您的律师。",
+      "noteFailed": "无法保存备注，请重试。"
     },
     "schedule": {
       "bookCall": "预约与 {name} 通话，讨论您的案件。",

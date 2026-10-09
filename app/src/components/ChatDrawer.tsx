@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useRef } from 'react'
-import { Check, Copy, Send, X } from 'lucide-react'
+import { Check, ChevronDown, ChevronRight, Copy, Send, X } from 'lucide-react'
 import {
   getOrCreateAttorneyChatRoom,
   getAttorneyChatRoomMessages,
@@ -22,6 +22,8 @@ import PresenceIndicator from './PresenceIndicator'
 import { useCounterpartPresence } from '../lib/presence'
 import { useRealtimeEvent } from '../lib/realtime'
 import { useFirmAccess } from '../hooks/useFirmAccess'
+
+const TEMPLATES_COLLAPSED_KEY = 'chatDrawer.templatesCollapsed'
 
 interface Message {
   id: string
@@ -86,6 +88,23 @@ export default function ChatDrawer({
   const [copied, setCopied] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
   const [bookingUrl, setBookingUrl] = useState<string | null>(null)
+  const [templatesOpen, setTemplatesOpen] = useState(() => {
+    try {
+      return localStorage.getItem(TEMPLATES_COLLAPSED_KEY) !== '1'
+    } catch {
+      return true
+    }
+  })
+  const toggleTemplates = () => {
+    setTemplatesOpen((open) => {
+      try {
+        localStorage.setItem(TEMPLATES_COLLAPSED_KEY, open ? '1' : '0')
+      } catch {
+        /* private mode: the choice just won't stick */
+      }
+      return !open
+    })
+  }
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messageThreadRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -494,26 +513,42 @@ export default function ChatDrawer({
               </div>
 
               <div>
-                <div className="mb-2 flex items-center justify-between">
-                  <h4 className="text-sm font-semibold text-slate-900">Message templates</h4>
-                  <span className="text-xs text-slate-500">Choose one to replace the draft</span>
-                </div>
-                <div className="grid gap-2">
-                  {[...templates, ...fallbackTemplates].slice(0, 3).map((t) => (
-                    <button
-                      key={t.id}
-                      type="button"
-                      onClick={() => applyTemplate(t)}
-                      className="group rounded-xl border border-slate-200 bg-white px-3 py-3 text-left text-sm shadow-sm hover:border-brand-200 hover:bg-brand-50"
-                    >
-                      <span className="flex items-center justify-between gap-3">
-                        <span className="font-semibold text-slate-900">{t.label}</span>
-                        <span className="text-xs font-semibold text-brand-700 opacity-0 transition-opacity group-hover:opacity-100">Use</span>
-                      </span>
-                      <span className="mt-1 block line-clamp-2 text-xs text-slate-500">{t.text}</span>
-                    </button>
-                  ))}
-                </div>
+                <button
+                  type="button"
+                  onClick={toggleTemplates}
+                  aria-expanded={templatesOpen}
+                  className="mb-2 flex w-full items-center justify-between gap-2 rounded-lg text-left"
+                >
+                  <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-slate-900">
+                    {templatesOpen ? (
+                      <ChevronDown className="h-4 w-4 text-slate-500" aria-hidden />
+                    ) : (
+                      <ChevronRight className="h-4 w-4 text-slate-500" aria-hidden />
+                    )}
+                    Message templates
+                  </span>
+                  <span className="text-xs text-slate-500">
+                    {templatesOpen ? 'Choose one to replace the draft' : 'Show'}
+                  </span>
+                </button>
+                {templatesOpen ? (
+                  <div className="grid gap-2">
+                    {[...templates, ...fallbackTemplates].slice(0, 3).map((t) => (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => applyTemplate(t)}
+                        className="group rounded-xl border border-slate-200 bg-white px-3 py-3 text-left text-sm shadow-sm hover:border-brand-200 hover:bg-brand-50"
+                      >
+                        <span className="flex items-center justify-between gap-3">
+                          <span className="font-semibold text-slate-900">{t.label}</span>
+                          <span className="text-xs font-semibold text-brand-700 opacity-0 transition-opacity group-hover:opacity-100">Use</span>
+                        </span>
+                        <span className="mt-1 block line-clamp-2 text-xs text-slate-500">{t.text}</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
               </div>
 
             </div>

@@ -5,7 +5,7 @@
 
 import { prisma } from './prisma'
 import { logger } from './logger'
-import { emitLeadClaimed } from './realtime'
+import { emitLeadClaimed, emitLeadDecided } from './realtime'
 import {
   sendPlaintiffAttorneyAccepted,
   sendPlaintiffBatchApprovalRequest,
@@ -1075,6 +1075,12 @@ export async function attorneyAcceptCase(
       attorneyId,
       error: (err as Error).message
     })
+  })
+
+  void emitLeadDecided(attorneyId, {
+    assessmentId: intro.assessmentId,
+    leadId: intro.assessment.leadSubmission?.id ?? null,
+    decision: 'accept',
   })
 
   // Acceptance is the moment the case becomes retained, so seed the attorney-side

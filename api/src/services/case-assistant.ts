@@ -47,7 +47,25 @@ export function detectDemandDraftIntent(question: string): boolean {
   return true
 }
 
-function buildPrompt(summary: CaseCommandCenter, question: string): string {
+export type CaseAssistantTurn = { question: string; answer: string }
+
+const HISTORY_TURNS = 6
+const HISTORY_ANSWER_LIMIT = 1_200
+
+function historyBlock(history: CaseAssistantTurn[]): string {
+  const turns = history
+    .filter((t) => t && typeof t.question === 'string' && typeof t.answer === 'string')
+    .slice(-HISTORY_TURNS)
+    .map((t) => `Q: ${t.question.slice(0, 500)}\nA: ${t.answer.slice(0, HISTORY_ANSWER_LIMIT)}`)
+  return turns.length ? turns.join('\n\n') : '(this is the first question)'
+}
+
+function buildPrompt(
+  summary: CaseCommandCenter,
+  question: string,
+  record: string,
+  history: CaseAssistantTurn[],
+): string {
   const facts = [
     `Stage: ${summary.stage.title} — ${summary.stage.detail}`,
     `Readiness: ${summary.readiness.score}% (${summary.readiness.label}) — ${summary.readiness.detail}`,
@@ -63,9 +81,9 @@ function buildPrompt(summary: CaseCommandCenter, question: string): string {
   const risks = summary.defenseRisks.map((s) => `- ${s.title}: ${s.detail}`).join('\n')
   const sources = summary.sources.map((s) => `- ${s.label}: ${s.detail}`).join('\n')
 
-  return `You are assisting the legal team working a personal-injury case. Answer their question using ONLY the case record below.
+  return `You are assisting the legal team working a personal-injury case. Answer their question using ONLY the case file below: the assessment summary and the full record.
 
-CASE RECORD
+ASSESSMENT SUMMARY
 ${facts.join('\n')}
 
 MISSING ITEMS:
@@ -83,20 +101,33 @@ ${risks || '(none)'}
 SUPPORTING DATA:
 ${sources || '(none)'}
 
+FULL CASE RECORD
+${record || '(no further record on file)'}
+
+EARLIER IN THIS CONVERSATION
+${historyBlock(history)}
+
 QUESTION: ${question}
 
 Rules:
-- Use only the record above. If it does not answer the question, say plainly what is missing and what would answer it.
-- Never invent a dollar amount, date, provider, deadline, or document that does not appear above.
-- Be direct and practical, as one colleague to another. Two to five sentences. No preamble, no bullet lists, no headings.
+- Use only the case file above. If it does not answer the question, say plainly what is missing and what would answer it.
+- Never invent a dollar amount, date, provider, deadline, or document that does not appear above. Quote figures and dates exactly as recorded.
+- Resolve follow-ups ("what about the second one?") against the earlier conversation.
+- Be direct and practical, as one colleague to another. Usually two to six sentences; a short list is fine when the question asks for several items (documents, dates, tasks). No preamble, no headings.
+- When the record says medical records are withheld pending authorization, say so rather than guessing at treatment.
 - Contact PII is redacted from this pack; never ask for SSN, email, phone, or street address.
 
 Respond with STRICT JSON only:
 { "answer": "..." }`
 }
 
-function buildSanitizedPrompt(summary: CaseCommandCenter, question: string): string {
-  return redactLlmPii(buildPrompt(summary, question))
+function buildSanitizedPrompt(
+  summary: CaseCommandCenter,
+  question: string,
+  record: string,
+  history: CaseAssistantTurn[],
+): string {
+  return redactLlmPii(buildPrompt(summary, question, record, history))
 }
 
 /**
@@ -109,6 +140,7 @@ function buildSanitizedPrompt(summary: CaseCommandCenter, question: string): str
 export async function askCaseAssistant(
   summary: CaseCommandCenter,
   question: string,
+  options: { record?: string; history?: CaseAssistantTurn[] } = {},
 ): Promise<CaseAssistantAnswer> {
   const deterministic = answerCommandCenterCopilot(summary, question)
 
@@ -140,10 +172,10 @@ export async function askCaseAssistant(
           content:
             'You are a senior personal-injury case manager. Always respond with valid JSON as specified. Never fabricate facts or figures.',
         },
-        { role: 'user', content: buildSanitizedPrompt(summary, question) },
+        { role: 'user', content: buildSanitizedPrompt(summary, question, options.record ?? '', options.history ?? []) },
       ],
       temperature: 0.3,
-      max_tokens: 500,
+      max_tokens: 900,
       response_format: { type: 'json_object' },
     })
 

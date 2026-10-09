@@ -1,6 +1,7 @@
 import { Router, type Response as ExpressResponse } from 'express'
 import { createHash } from 'crypto'
 import { z } from 'zod'
+import { Prisma } from '@prisma/client'
 import { prisma } from '../lib/prisma'
 import { AssessmentWrite, AssessmentUpdate, RequestCaseSubmitOtp, SubmitCaseForReview } from '../lib/validators'
 import { consumeCaseSubmitOtp, isCaseSubmitOtpRequired, issueCaseSubmitOtp, verifyCaseSubmitOtp } from '../lib/case-submit-otp'
@@ -69,11 +70,14 @@ import {
   evidenceCategoryForRequestKey,
   requestUploadSubcategory,
   parseRequestedDocs,
+  parseClientNotes,
+  CLIENT_NOTE_MAX_LENGTH,
 } from '../lib/document-request-status'
 import { loadSpecialistDocumentRequest } from '../lib/specialist-document-requests'
 import { reconcileOrphanClientDocumentTasks } from '../lib/document-request-create'
 import { deliverDirectNotification } from '../lib/platform-notifications'
 import { notifyAttorneyInApp } from '../lib/case-notifications'
+import { ATTORNEY_EVENTS } from '../lib/notification-events'
 import { plaintiffSignatureDocList } from '../lib/esign/plaintiff-doc-list'
 
 const router = Router()
@@ -877,6 +881,7 @@ router.get('/:id/document-requests', authMiddleware, async (req: AuthRequest, re
                 uploadLink: true,
                 status: true,
                 lastNudgeAt: true,
+                clientNotes: true,
                 createdAt: true,
                 attorney: {
                   select: {
@@ -957,6 +962,7 @@ router.get('/:id/document-requests', authMiddleware, async (req: AuthRequest, re
                     uploadLink: true,
                     status: true,
                     lastNudgeAt: true,
+                    clientNotes: true,
                     createdAt: true,
                     attorney: {
                       select: {
@@ -981,6 +987,7 @@ router.get('/:id/document-requests', authMiddleware, async (req: AuthRequest, re
 
     const requests = (assessment.leadSubmission?.documentRequests || []).map((request) => {
       const requestedDocs = parseRequestedDocs(request.requestedDocs)
+      const clientNotes = parseClientNotes(request.clientNotes)
       const items = requestedDocs.map((key) => {
         const match = {
           key,
@@ -995,6 +1002,8 @@ router.get('/:id/document-requests', authMiddleware, async (req: AuthRequest, re
           uploadedCount: countRequestUploads(match),
           uploadCategory: evidenceCategoryForRequestKey(key),
           uploadSubcategory: requestUploadSubcategory(key),
+          clientNote: (clientNotes[key]?.note ?? null) as string | null,
+          clientNoteAt: (clientNotes[key]?.updatedAt || null) as string | null,
         }
       })
       const fulfilledCount = items.filter((item) => item.fulfilled).length
@@ -1042,7 +1051,11 @@ router.get('/:id/document-requests', authMiddleware, async (req: AuthRequest, re
     // request so the claimant sees them under Requested Documents too.
     const specialistRequest = await loadSpecialistDocumentRequest(id, evidenceFiles)
     if (specialistRequest) {
-      const items = specialistRequest.items.map(({ askCount: _askCount, lastAskedAt: _lastAskedAt, ...item }) => item)
+      const items = specialistRequest.items.map(({ askCount: _askCount, lastAskedAt: _lastAskedAt, ...item }) => ({
+        ...item,
+        clientNote: null,
+        clientNoteAt: null,
+      }))
       const fulfilledCount = items.filter((item) => item.fulfilled).length
       requests.push({
         id: `specialist-${id}`,
@@ -1072,6 +1085,70 @@ router.get('/:id/document-requests', authMiddleware, async (req: AuthRequest, re
   } catch (error) {
     logger.error('Failed to load plaintiff document requests', { error, assessmentId: req.params.id })
     res.status(500).json({ error: 'Failed to load document requests' })
+  }
+})
+
+const RequestItemNoteSchema = z.object({
+  itemKey: z.string().min(1).max(200),
+  note: z.string().max(CLIENT_NOTE_MAX_LENGTH),
+})
+
+// The claimant's note on one requested item ("I don't have any medical bills").
+// An empty note clears it. The note doesn't complete the item: the attorney
+// reads it and decides.
+router.put('/:id/document-requests/:requestId/notes', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const parsed = RequestItemNoteSchema.safeParse(req.body)
+    if (!parsed.success) return res.status(400).json({ error: 'Notes are limited to 1000 characters.' })
+    const { itemKey } = parsed.data
+    const note = parsed.data.note.trim()
+
+    const request = await prisma.documentRequest.findFirst({
+      where: { id: req.params.requestId, targetType: 'plaintiff', lead: { assessmentId: req.params.id } },
+      select: {
+        id: true,
+        leadId: true,
+        attorneyId: true,
+        requestedDocs: true,
+        clientNotes: true,
+        lead: { select: { assessment: { select: { userId: true } } } },
+      },
+    })
+    if (!request) return res.status(404).json({ error: 'Request not found' })
+    if (request.lead?.assessment?.userId !== req.user.id) {
+      return res.status(403).json({ error: 'Unauthorized to update this request' })
+    }
+    if (!parseRequestedDocs(request.requestedDocs).includes(itemKey)) {
+      return res.status(400).json({ error: 'That document is not part of this request.' })
+    }
+
+    const notes = parseClientNotes(request.clientNotes)
+    const previous = notes[itemKey]?.note ?? ''
+    if (note) notes[itemKey] = { note, updatedAt: new Date().toISOString() }
+    else delete notes[itemKey]
+    await prisma.documentRequest.update({
+      where: { id: request.id },
+      data: { clientNotes: Object.keys(notes).length ? notes : Prisma.DbNull },
+    })
+
+    if (note && note !== previous) {
+      const label = requestedDocLabel(itemKey)
+      void notifyAttorneyInApp({
+        attorneyId: request.attorneyId,
+        assessmentId: req.params.id,
+        eventType: ATTORNEY_EVENTS.document_request_note,
+        subject: `Client note on ${label}`,
+        body: note,
+        leadId: request.leadId,
+        link: `/attorney-dashboard/cases/${request.leadId}/documents`,
+        payload: { documentRequestId: request.id, itemKey },
+      })
+    }
+
+    res.json({ itemKey, note: note || null, updatedAt: notes[itemKey]?.updatedAt ?? null })
+  } catch (error: any) {
+    logger.error('Failed to save document request note', { error: error?.message, requestId: req.params.requestId })
+    res.status(500).json({ error: 'Failed to save your note' })
   }
 })
 

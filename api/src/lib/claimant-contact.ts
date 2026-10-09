@@ -13,6 +13,7 @@
 import { prisma } from './prisma'
 import { ensureCaseOwnerUserId, guestCaseUserEmail } from './case-owner'
 import { normalizePhone, PHONE_ERROR_MESSAGE } from './phone'
+import { emitClientUpdated } from './realtime'
 
 /** The mailing address fields, which live only on the user row. */
 export const ADDRESS_FIELDS = ['addressLine1', 'addressLine2', 'city', 'state', 'postalCode'] as const
@@ -190,6 +191,7 @@ export async function updateClaimantContact(params: {
       await tx.user.update({ where: { id: user.id }, data: userData })
     }
   })
+  void emitClientUpdated(assessmentId)
 
   return {
     ok: true,
@@ -276,6 +278,7 @@ export async function syncClaimantContactForUser(
       where: { id: assessment.id },
       data: { facts: JSON.stringify({ ...facts, plaintiffContext: context }) },
     })
+    void emitClientUpdated(assessment.id)
     updated += 1
   }
 

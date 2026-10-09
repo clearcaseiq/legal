@@ -35,6 +35,12 @@ export type LeadClaimedEvent = {
   leadId: string | null
 }
 
+export type LeadDecidedEvent = {
+  assessmentId: string
+  leadId: string | null
+  decision: 'accept' | 'reject'
+}
+
 export type LeadNewEvent = {
   assessmentId: string
   leadId: string | null
@@ -286,6 +292,64 @@ export function emitLeadClaimed(
     io.to(rooms).emit('lead:claimed', event)
   } catch (err) {
     logger.warn('Realtime lead:claimed emit failed', { assessmentId: event.assessmentId, error: (err as Error).message })
+  }
+}
+
+export type ClientUpdatedEvent = {
+  assessmentId: string
+  leadId: string | null
+}
+
+/**
+ * A claimant's contact details changed (staff edit, admin edit, or the claimant
+ * correcting their own profile). Pushed to the case's attorney and firm so open
+ * case headers, contact cards and send dialogs refetch, and to the claimant so
+ * their own open dashboard does too.
+ */
+export async function emitClientUpdated(assessmentId: string): Promise<void> {
+  if (!io) return
+  try {
+    const assessment = await prisma.assessment.findUnique({
+      where: { id: assessmentId },
+      select: {
+        userId: true,
+        leadSubmission: {
+          select: { id: true, assignedAttorneyId: true, assignedAttorney: { select: { lawFirmId: true } } },
+        },
+      },
+    })
+    if (!assessment) return
+    const lead = assessment.leadSubmission
+    const rooms = [
+      lead?.assignedAttorneyId ? `attorney:${lead.assignedAttorneyId}` : null,
+      lead?.assignedAttorney?.lawFirmId ? `firm:${lead.assignedAttorney.lawFirmId}` : null,
+    ].filter((r): r is string => Boolean(r))
+    if (rooms.length) {
+      io.to(rooms).emit('client:updated', { assessmentId, leadId: lead?.id ?? null } satisfies ClientUpdatedEvent)
+    }
+    if (assessment.userId) emitCaseUpdated(assessment.userId, { assessmentId, kind: 'contact' })
+  } catch (err) {
+    logger.warn('Realtime client:updated emit failed', { assessmentId, error: (err as Error).message })
+  }
+}
+
+/**
+ * Tell the attorney who just accepted or declined a case, and their firm, so
+ * their other sessions (web after deciding on mobile, a second tab, a
+ * colleague's view) move the case without a reload.
+ */
+export async function emitLeadDecided(attorneyId: string, event: LeadDecidedEvent): Promise<void> {
+  if (!io) return
+  try {
+    const attorney = await prisma.attorney.findUnique({
+      where: { id: attorneyId },
+      select: { lawFirmId: true },
+    })
+    const rooms = [`attorney:${attorneyId}`]
+    if (attorney?.lawFirmId) rooms.push(`firm:${attorney.lawFirmId}`)
+    io.to(rooms).emit('lead:decided', event)
+  } catch (err) {
+    logger.warn('Realtime lead:decided emit failed', { attorneyId, assessmentId: event.assessmentId, error: (err as Error).message })
   }
 }
 

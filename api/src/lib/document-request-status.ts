@@ -320,6 +320,32 @@ export function computeRequestStatus(
   return fulfilledCount === requestedDocs.length ? 'completed' : 'partial'
 }
 
+export const CLIENT_NOTE_MAX_LENGTH = 1000
+
+export type ClientItemNote = { note: string; updatedAt: string }
+
+/** A request's `clientNotes` column, with anything malformed dropped. */
+export function parseClientNotes(raw: unknown): Record<string, ClientItemNote> {
+  const value = typeof raw === 'string' ? safeJson(raw) : raw
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const out: Record<string, ClientItemNote> = {}
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    const note = (entry as any)?.note
+    if (typeof note !== 'string' || !note.trim()) continue
+    const updatedAt = (entry as any)?.updatedAt
+    out[key] = { note, updatedAt: typeof updatedAt === 'string' ? updatedAt : '' }
+  }
+  return out
+}
+
+function safeJson(raw: string): unknown {
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return null
+  }
+}
+
 export type RequestItemStage = 'requested' | 'received' | 'reviewed'
 
 /**

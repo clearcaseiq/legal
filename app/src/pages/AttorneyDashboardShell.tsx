@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, lazy, Suspense } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from 'react'
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   AlertCircle,
@@ -15,7 +15,7 @@ import {
   FileText,
   X,
 } from 'lucide-react'
-import { getAttorneyDashboard, getMyAttorneyProfile, decideLead, updateLeadStatus, createDocumentRequest, textDocumentRequest, scheduleConsultation, getCaseContacts, createLeadSolTask, getAttorneyRoiAnalytics, downloadLeadCaseFile, createCaseFromLead, saveLeadDecisionOverride, getAnalyticsIntelligence, transferLeadToFirmAttorney, getLeadCommandCenter, askLeadCommandCenterCopilot, syncLeadReadinessAutomation, updateLeadReminder, getAttorneyCalendarHealth, createRoutingFeePaymentSession, type AttorneyCalendarConnection, type CaseCommandCenter } from '../lib/api'
+import { getAttorneyDashboard, getMyAttorneyProfile, decideLead, updateLeadStatus, createDocumentRequest, textDocumentRequest, scheduleConsultation, getCaseContacts, createLeadSolTask, getAttorneyRoiAnalytics, downloadLeadCaseFile, createCaseFromLead, saveLeadDecisionOverride, getAnalyticsIntelligence, transferLeadToFirmAttorney, getLeadCommandCenter, askLeadCommandCenterCopilot, syncLeadReadinessAutomation, updateLeadReminder, getAttorneyCalendarHealth, createRoutingFeePaymentSession, type AttorneyCalendarConnection, type CaseCommandCenter, type CopilotTurn } from '../lib/api'
 import Tooltip from '../components/Tooltip'
 import { formatClaimType as formatCanonicalClaimType } from '../lib/claimTypes'
 import ErrorBoundary from '../components/ErrorBoundary'
@@ -1405,15 +1405,21 @@ export default function AttorneyDashboardShell({ chromeless = false, initialView
     }
   }, [selectedLead?.id, setTaskItems])
 
+  const copilotHistoryRef = useRef<{ leadId: string; turns: CopilotTurn[] }>({ leadId: '', turns: [] })
   const handleAskCommandCenterCopilot = useCallback(async (question: string) => {
     if (!selectedLead?.id) return
+    const leadId = selectedLead.id
+    if (copilotHistoryRef.current.leadId !== leadId) copilotHistoryRef.current = { leadId, turns: [] }
     try {
       setCopilotLoading(true)
-      const response = await askLeadCommandCenterCopilot(selectedLead.id, question)
+      const response = await askLeadCommandCenterCopilot(leadId, question, copilotHistoryRef.current.turns)
       setCopilotAnswer({
         answer: response.answer,
         sources: Array.isArray(response.sources) ? response.sources : [],
       })
+      if (copilotHistoryRef.current.leadId === leadId) {
+        copilotHistoryRef.current.turns = [...copilotHistoryRef.current.turns, { question, answer: response.answer }].slice(-6)
+      }
     } catch (error) {
       console.error('Failed to ask command center copilot:', error)
     } finally {
@@ -1829,6 +1835,17 @@ export default function AttorneyDashboardShell({ chromeless = false, initialView
 
   // A case was just offered to this attorney or their firm.
   useRealtimeEvent('lead:new', () => void loadDashboardData(0, { silent: true }))
+
+  // This attorney (on another device or tab) or a firm colleague accepted or
+  // declined a case: move it out of New Matches and into the right pipeline.
+  // Client names and contact details in the lists.
+  useRealtimeEvent('client:updated', () => void loadDashboardData(0, { silent: true }))
+
+  useRealtimeEvent('lead:decided', ({ leadId, decision }) => {
+    if (leadId) updateLeadInState(leadId, { status: decision === 'accept' ? 'contacted' : 'rejected' })
+    invalidateAttorneyDashboardSummary()
+    void loadDashboardData(0, { silent: true })
+  })
 
   // Another attorney accepted a case this attorney was also offered: drop it from
   // New Matches now, then resync quietly so counts and pipeline reflect the server.

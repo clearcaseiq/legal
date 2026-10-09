@@ -2,11 +2,12 @@
  * Per-case AI Copilot — readiness snapshot + cited Case Companion Q&A.
  * Lives as a case workspace tab (not a left-nav destination).
  */
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Bot, ClipboardCheck, Send, ShieldCheck, Sparkles } from 'lucide-react'
 import {
   askLeadCommandCenterCopilot,
   type CaseCommandCenter,
+  type CopilotTurn,
 } from '../../lib/api'
 
 const FALLBACK_PROMPTS = [
@@ -30,6 +31,11 @@ export default function CaseCopilotPanel({ leadId, cc, onGoSection }: Props) {
     sources: Array<{ label: string; detail: string }>
   } | null>(null)
 
+  const historyRef = useRef<CopilotTurn[]>([])
+  useEffect(() => {
+    historyRef.current = []
+  }, [leadId])
+
   const suggested =
     cc?.copilot?.suggestedPrompts?.length ? cc.copilot.suggestedPrompts : FALLBACK_PROMPTS
 
@@ -41,11 +47,12 @@ export default function CaseCopilotPanel({ leadId, cc, onGoSection }: Props) {
     setLoading(true)
     setError(null)
     try {
-      const res = await askLeadCommandCenterCopilot(leadId, trimmed)
+      const res = await askLeadCommandCenterCopilot(leadId, trimmed, historyRef.current)
       setAnswer({
         answer: res.answer,
         sources: Array.isArray(res.sources) ? res.sources : [],
       })
+      historyRef.current = [...historyRef.current, { question: trimmed, answer: res.answer }].slice(-6)
     } catch (err: any) {
       setError(err?.response?.data?.error || 'Could not get a Copilot answer. Try again.')
     } finally {

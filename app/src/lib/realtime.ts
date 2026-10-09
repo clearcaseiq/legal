@@ -21,6 +21,12 @@ export type LeadClaimedEvent = {
   leadId: string | null
 }
 
+export type LeadDecidedEvent = {
+  assessmentId: string
+  leadId: string | null
+  decision: 'accept' | 'reject'
+}
+
 export type LeadNewEvent = {
   assessmentId: string
   leadId: string | null
@@ -56,11 +62,18 @@ export type AttorneyVerifiedEvent = {
   isActive: boolean
 }
 
+export type ClientUpdatedEvent = {
+  assessmentId: string
+  leadId: string | null
+}
+
 type RealtimeEvents = {
+  'client:updated': ClientUpdatedEvent
   'tasks:updated': TasksUpdatedEvent
   'attorney:verified': AttorneyVerifiedEvent
   'assistance:new': AssistanceNewEvent
   'lead:claimed': LeadClaimedEvent
+  'lead:decided': LeadDecidedEvent
   'lead:new': LeadNewEvent
   'case:updated': CaseUpdatedEvent
   'notification:new': NotificationNewEvent

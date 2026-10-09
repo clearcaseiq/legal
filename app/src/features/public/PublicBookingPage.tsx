@@ -5,9 +5,9 @@
  */
 
 import { useCallback, useMemo, useState, useEffect } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, CalendarClock, Check, ChevronRight, Clock, Video } from 'lucide-react'
-import { getStoredUser, hasValidAuthToken } from '../../lib/auth'
+import { getStoredRole, getStoredUser, hasValidAuthToken } from '../../lib/auth'
 import {
   getPublicBookingPage,
   createPublicBooking,
@@ -40,9 +40,22 @@ function Shell({ children }: { children: React.ReactNode }) {
 export default function PublicBookingPage() {
   const { slug = '', eventSlug } = useParams()
   const navigate = useNavigate()
+  const location = useLocation()
   const [page, setPage] = useState<BookingPageData | null>(null)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
+
+  // React Router numbers in-app history entries; idx 0 means this tab opened
+  // straight onto the booking link, so there is nowhere in the app to go back to.
+  const hasAppHistory = typeof window !== 'undefined' && (window.history.state?.idx ?? 0) > 0
+  const role = getStoredRole()
+  const dashboardPath =
+    role === 'attorney' || role === 'staff' ? '/attorney-dashboard' : role === 'plaintiff' ? '/dashboard' : null
+  const backTarget: 'history' | 'dashboard' | null = hasAppHistory ? 'history' : dashboardPath ? 'dashboard' : null
+  const goBack = () => {
+    if (backTarget === 'history') navigate(-1)
+    else if (dashboardPath) navigate(dashboardPath)
+  }
 
   useEffect(() => {
     let active = true
@@ -81,9 +94,20 @@ export default function PublicBookingPage() {
   }
 
   const activeEvent = eventSlug ? page.eventTypes.find((e) => e.slug === eventSlug) : null
+  const onEventTypeStep = !eventSlug || !activeEvent
 
   return (
     <Shell>
+      {onEventTypeStep && backTarget ? (
+        <button
+          type="button"
+          onClick={goBack}
+          className="mb-4 inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          {backTarget === 'history' ? 'Back' : 'Back to dashboard'}
+        </button>
+      ) : null}
       <header className="mb-6 text-center">
         <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-indigo-600 text-lg font-bold text-white">
           {page.attorney.name.slice(0, 1).toUpperCase()}
@@ -92,16 +116,23 @@ export default function PublicBookingPage() {
         {page.attorney.firmName && <p className="text-sm text-slate-500">{page.attorney.firmName}</p>}
       </header>
 
-      {!eventSlug || !activeEvent ? (
+      {onEventTypeStep ? (
         <EventTypePicker
           page={page}
-          onPick={(et) => navigate(`/book/${encodeURIComponent(slug)}/${encodeURIComponent(et.slug)}`)}
+          onPick={(et) =>
+            navigate(`/book/${encodeURIComponent(slug)}/${encodeURIComponent(et.slug)}`, { state: { fromPicker: true } })
+          }
         />
       ) : (
         <SlotPicker
           slug={slug}
           event={activeEvent}
-          onBack={() => navigate(`/book/${encodeURIComponent(slug)}`)}
+          onBack={() =>
+            // Pop rather than push, so Back on the meeting list still leads out of booking.
+            (location.state as { fromPicker?: boolean } | null)?.fromPicker
+              ? navigate(-1)
+              : navigate(`/book/${encodeURIComponent(slug)}`, { replace: true })
+          }
         />
       )}
     </Shell>

@@ -4,7 +4,17 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { CheckCircle, ChevronDown, ChevronRight, FileText, FolderOpen, Plus, Upload } from 'lucide-react'
+import {
+  CheckCircle,
+  ChevronDown,
+  ChevronRight,
+  FileText,
+  FolderOpen,
+  MessageSquare,
+  Pencil,
+  Plus,
+  Upload,
+} from 'lucide-react'
 import { useLanguage } from '../contexts/LanguageContext'
 import { dateLocale } from '../i18n'
 import {
@@ -19,8 +29,128 @@ import {
   localizeDocumentRequestLabel,
   localizeDocumentRequestMessage,
 } from '../lib/documentRequestI18n'
-import type { PlaintiffDocumentRequest } from '../lib/api'
+import { savePlaintiffRequestItemNote, type PlaintiffDocumentRequest } from '../lib/api'
 import InlineEvidenceUpload from './InlineEvidenceUpload'
+
+type RequestItem = PlaintiffDocumentRequest['items'][number]
+
+/**
+ * One line per outstanding item where the client can tell the attorney why it
+ * is not coming ("I never got any medical bills"). The attorney sees it on the
+ * request in their Documents tab.
+ */
+function RequestItemNotes({
+  assessmentId,
+  requestId,
+  items,
+  onSaved,
+}: {
+  assessmentId: string
+  requestId: string
+  items: RequestItem[]
+  onSaved: (message: string) => void
+}) {
+  const { t } = useLanguage()
+  const [editingKey, setEditingKey] = useState<string | null>(null)
+  const [draft, setDraft] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [saved, setSaved] = useState<Record<string, string | null>>({})
+
+  const noteFor = (item: RequestItem) => (item.key in saved ? saved[item.key] : item.clientNote || null)
+
+  const save = async (itemKey: string) => {
+    setSaving(true)
+    setError(null)
+    try {
+      const result = await savePlaintiffRequestItemNote(assessmentId, requestId, itemKey, draft.trim())
+      setSaved((prev) => ({ ...prev, [itemKey]: result.note }))
+      setEditingKey(null)
+      if (result.note) onSaved(t('plaintiffDashboard.requestedDocs.noteSaved'))
+    } catch {
+      setError(t('plaintiffDashboard.requestedDocs.noteFailed'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (items.length === 0) return null
+  return (
+    <div className="rounded-lg border border-slate-200 px-3 py-3">
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+        {t('plaintiffDashboard.requestedDocs.notesTitle')}
+      </p>
+      <p className="mt-0.5 text-xs text-slate-500">{t('plaintiffDashboard.requestedDocs.notesHint')}</p>
+      <ul className="mt-2 divide-y divide-slate-100">
+        {items.map((item) => {
+          const label = localizeDocumentRequestLabel(item.key, t, item.label)
+          const note = noteFor(item)
+          const editing = editingKey === item.key
+          return (
+            <li key={item.key} className="py-2">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-slate-800">{label}</p>
+                  {note && !editing ? (
+                    <p className="mt-0.5 whitespace-pre-wrap break-words text-sm text-slate-600">{note}</p>
+                  ) : null}
+                </div>
+                {!editing ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingKey(item.key)
+                      setDraft(note || '')
+                      setError(null)
+                    }}
+                    className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                  >
+                    {note ? <Pencil className="h-3 w-3" aria-hidden /> : <MessageSquare className="h-3 w-3" aria-hidden />}
+                    {note ? t('plaintiffDashboard.requestedDocs.editNote') : t('plaintiffDashboard.requestedDocs.addNote')}
+                  </button>
+                ) : null}
+              </div>
+              {editing ? (
+                <div className="mt-2 space-y-2">
+                  <textarea
+                    autoFocus
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    maxLength={1000}
+                    rows={3}
+                    placeholder={t('plaintiffDashboard.requestedDocs.notePlaceholder', { doc: label })}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
+                  />
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void save(item.key)}
+                      disabled={saving || (!draft.trim() && !note)}
+                      className="rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
+                    >
+                      {saving
+                        ? t('plaintiffDashboard.requestedDocs.savingNote')
+                        : t('plaintiffDashboard.requestedDocs.saveNote')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditingKey(null)}
+                      disabled={saving}
+                      className="text-xs font-semibold text-slate-500 hover:text-slate-700"
+                    >
+                      {t('plaintiffDashboard.requestedDocs.cancelNote')}
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </li>
+          )
+        })}
+      </ul>
+      {error ? <p className="mt-1 text-xs text-rose-600">{error}</p> : null}
+    </div>
+  )
+}
 
 export default function PlaintiffRequestedDocumentsSection({
   assessmentId,
@@ -299,6 +429,14 @@ export default function PlaintiffRequestedDocumentsSection({
                       <p className="text-sm text-slate-600">
                         {t('plaintiffDashboard.actionCenter.genericRequest')}
                       </p>
+                    )}
+                    {!request.id.startsWith('specialist-') && (
+                      <RequestItemNotes
+                        assessmentId={assessmentId}
+                        requestId={request.id}
+                        items={remainingItems}
+                        onSaved={showUploadFlash}
+                      />
                     )}
 
                     {singleRemaining && singleTarget ? (

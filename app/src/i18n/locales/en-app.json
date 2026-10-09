@@ -3626,7 +3626,17 @@
       "hideCompleted": "Hide completed",
       "allCaughtUp": "You're all caught up — no open document requests.",
       "remainingOne": "1 left",
-      "remainingMany": "{count} left"
+      "remainingMany": "{count} left",
+      "notesTitle": "Notes for your attorney",
+      "notesHint": "Don't have one of these? Leave a note instead, e.g. \"I didn't get any medical bills.\"",
+      "addNote": "Add note",
+      "editNote": "Edit note",
+      "notePlaceholder": "Note about {doc}",
+      "saveNote": "Save note",
+      "savingNote": "Saving…",
+      "cancelNote": "Cancel",
+      "noteSaved": "Note sent to your attorney.",
+      "noteFailed": "Could not save your note. Try again."
     },
     "schedule": {
       "bookCall": "Book a call with {name} to discuss your case.",
