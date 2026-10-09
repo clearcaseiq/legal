@@ -201,6 +201,21 @@ compose pull
 log "starting"
 compose up -d
 
+# nginx's image never changes, so `up -d` leaves it running, and its configs are
+# single-file bind mounts: git checkout replaces the file rather than editing
+# it, and the container keeps reading the copy it mounted at start. A config
+# change in a release therefore never reached nginx. Recreate it when what is
+# running differs from the checkout, after `nginx -t` passes in a throwaway
+# container, so a bad config fails the deploy instead of taking the site down.
+nginx_configs=("deploy/nginx/${ENVIRONMENT}.conf" "deploy/nginx/proxy-common.conf")
+if ! compose exec -T nginx cat /etc/nginx/conf.d/default.conf /etc/nginx/snippets/proxy-common.conf 2>/dev/null \
+  | cmp -s - <(cat "${nginx_configs[@]}"); then
+  log "nginx config changed; testing it"
+  compose run --rm --no-deps -T nginx nginx -t || die "new nginx config failed nginx -t; nginx left on the previous config"
+  log "recreating nginx"
+  compose up -d --no-deps --force-recreate nginx
+fi
+
 log "waiting for both services to report healthy"
 if wait_for_health; then
   log "deploy succeeded: $TAG"
