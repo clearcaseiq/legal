@@ -19,9 +19,11 @@ import {
   Plus,
   RefreshCw,
   Send,
+  Trash2,
   Upload,
   X,
 } from 'lucide-react'
+import ConfirmDialog from '../../components/ConfirmDialog'
 import ModalPortal from '../../components/ModalPortal'
 import {
   ChannelButton,
@@ -39,6 +41,7 @@ import { useRealtimeEvent } from '../../lib/realtime'
 import { useNavigate } from 'react-router-dom'
 import {
   addLeadSuggestedDocument,
+  deleteFirmTemplate,
   getAttorneyDocumentRequests,
   getClaimantContact,
   getFirmTemplates,
@@ -1347,6 +1350,8 @@ export function DocumentTemplatesSection({ leadId, clientName }: { leadId: strin
   const [editor, setEditor] = useState<'new' | FirmTemplate | null>(null)
   const [previewing, setPreviewing] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState<CaseFirmTemplate | null>(null)
+  const [deleteBusy, setDeleteBusy] = useState(false)
 
   const load = useCallback(() => {
     listCaseFirmTemplates(leadId)
@@ -1405,6 +1410,22 @@ export function DocumentTemplatesSection({ leadId, clientName }: { leadId: strin
       setEditor(full)
     } catch {
       setError('Could not open that template.')
+    }
+  }
+
+  const confirmDelete = async () => {
+    if (!deleting) return
+    setDeleteBusy(true)
+    setError(null)
+    try {
+      await deleteFirmTemplate(deleting.id)
+      setDeleting(null)
+      load()
+    } catch (err: any) {
+      setDeleting(null)
+      setError(apiError(err, 'Could not delete that template.'))
+    } finally {
+      setDeleteBusy(false)
     }
   }
 
@@ -1482,6 +1503,15 @@ export function DocumentTemplatesSection({ leadId, clientName }: { leadId: strin
                         <Pencil className="h-3.5 w-3.5" /> Edit
                       </button>
                     ) : null}
+                    {canManage ? (
+                      <button
+                        type="button"
+                        onClick={() => setDeleting(t)}
+                        className="inline-flex items-center gap-1 text-xs font-semibold text-rose-600 hover:text-rose-700"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" /> Delete
+                      </button>
+                    ) : null}
                   </span>
                 </li>
               ))}
@@ -1535,6 +1565,21 @@ export function DocumentTemplatesSection({ leadId, clientName }: { leadId: strin
           </div>
         </ModalPortal>
       ) : null}
+
+      <ConfirmDialog
+        open={Boolean(deleting)}
+        busy={deleteBusy}
+        title="Delete this template?"
+        message={
+          <>
+            “{deleting?.name}” will be removed for everyone at your firm. This cannot be undone.
+            {deleting && deleting.documentType ? ' It is the default for its document, so choose a new default afterwards.' : ''}
+          </>
+        }
+        confirmLabel="Delete template"
+        onConfirm={() => void confirmDelete()}
+        onCancel={() => setDeleting(null)}
+      />
     </div>
   )
 }
