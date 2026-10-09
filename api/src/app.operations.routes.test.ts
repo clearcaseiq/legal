@@ -2679,6 +2679,7 @@ describe('HTTP operations regressions', () => {
         recipientName: true,
         recipientRole: true,
         origin: true,
+        clientNotes: true,
         _count: { select: { externalUploads: true } },
         lead: {
           select: {
