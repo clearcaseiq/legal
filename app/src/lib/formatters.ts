@@ -21,6 +21,18 @@ export function formatDate(dateString: string): string {
   })
 }
 
+/** "Oct 8, 2026, 3:42 PM PDT" in the viewer's time zone. */
+export function formatDateTime(dateString: string): string {
+  return new Date(dateString).toLocaleString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  })
+}
+
 /**
  * Turns a raw enum/database value (e.g. "ACCEPTED", "slip_and_fall",
  * "in_progress") into a human, Title Case label ("Accepted", "Slip And Fall",

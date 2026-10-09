@@ -1,4 +1,4 @@
-import { formatCurrency } from '../../../lib/formatters'
+import { formatCurrency, formatDateTime } from '../../../lib/formatters'
 import { formatCaseId } from '../../../lib/caseId'
 import { formatClaimType } from '../../../lib/claimTypes'
 import { Badge } from '../../shared/ui'
@@ -14,5 +14,7 @@ export default function CaseSummaryHeader({ caseData, contactName }: { caseData:
     {item('Case ID', <><p className="font-mono text-sm">{formatCaseId({ id: caseData.id, referenceCode: caseData.referenceCode, claimType: caseData.claimType, createdAt: caseData.createdAt })}</p><p className="break-all font-mono text-[10px] text-slate-400">{caseData.id}</p></>)}
     {item('Plaintiff', <p className="font-medium">{contactName || '—'}</p>)}{item('Claim type', formatClaimType(caseData.claimType))}{item('Location', <>{caseData.venueCounty ? `${caseData.venueCounty}, ` : ''}{caseData.venueState}</>)}
     {item('Incident date', incident.date || '—')}{item('Status', <span title={status.raw && status.raw.toLowerCase() !== status.label.toLowerCase() ? `Raw status: ${status.raw}` : undefined}><Badge tone="neutral">{status.label}</Badge></span>)}{item('Case score', viability.overall != null ? `${Math.round(viability.overall * 100)}%` : '—')}{item('Estimated value', bands.median ? formatCurrency(bands.median) : '—')}
+    {item('Created', caseData.createdAt ? formatDateTime(caseData.createdAt) : '—')}
+    {item('Created from', caseData.createdIp ? <><p>{caseData.createdLocation || 'Location unknown'}</p><p className="font-mono text-[10px] text-slate-400" title="Approximate location from the plaintiff's IP address when the case was created. Unreliable for VPN and mobile users.">IP {caseData.createdIp}</p></> : '—')}
   </div></section>
 }

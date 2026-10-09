@@ -309,6 +309,14 @@ model Assessment {
   caseTierId String?
   caseTier   CaseTier? @relation(fields: [caseTierId], references: [id], onDelete: SetNull)
 
+  // Where the plaintiff was when they created the case: client IP and an
+  // approximate location looked up from it offline (lib/case-origin.ts).
+  // Null for cases created by attorneys, imports and anything before capture.
+  createdIp      String?
+  createdCity    String?
+  createdRegion  String?
+  createdCountry String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

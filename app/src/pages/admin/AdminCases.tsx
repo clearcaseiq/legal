@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { getAllAdminCases, bulkRouteCases, getAdminAttorneys, downloadAdminCasesExcel } from '../../lib/api'
-import { formatCurrency, formatDate } from '../../lib/formatters'
+import { formatCurrency, formatDateTime } from '../../lib/formatters'
 import { formatCaseId } from '../../lib/caseId'
 import { CLAIM_TYPE_OPTIONS, claimTypeSynonyms, formatClaimType } from '../../lib/claimTypes'
 import {
@@ -335,7 +335,7 @@ export default function AdminCases() {
     // Export the selection when there is one, otherwise the loaded page. This
     // cannot cover rows the server hasn't sent, so the button title says so.
     const rowsSource = selectedIds.size > 0 ? sortedCases.filter((c) => selectedIds.has(c.id)) : sortedCases
-    const headers = ['Case ID', 'Claim type', 'Plaintiff', 'Email', 'Location', 'Routing status', 'Viability', 'Est. value', 'Submitted']
+    const headers = ['Case ID', 'Claim type', 'Plaintiff', 'Email', 'Location', 'Routing status', 'Viability', 'Est. value', 'Submitted', 'Created from', 'Created IP']
     const rows = rowsSource.map((c) => [
       formatCaseId({ id: c.id, referenceCode: c.referenceCode, claimType: c.claimType, createdAt: c.createdAt }),
       formatClaimType(c.claimType),
@@ -345,7 +345,9 @@ export default function AdminCases() {
       getRoutingStatus(c),
       c.prediction?.viability?.overall != null ? `${Math.round(c.prediction.viability.overall * 100)}%` : '',
       c.prediction?.bands?.median ? formatCurrency(c.prediction.bands.median) : '',
-      formatDate(c.createdAt),
+      formatDateTime(c.createdAt),
+      c.createdLocation || '',
+      c.createdIp || '',
     ])
     const csv = [headers, ...rows]
       .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
@@ -754,7 +756,12 @@ export default function AdminCases() {
                       {c.introductions?.length ?? c.counts?.introductions ?? 0}
                     </td>
                     <td className="py-3 px-4 text-sm text-slate-600">
-                      {formatDate(c.createdAt)}
+                      <span className="whitespace-nowrap">{formatDateTime(c.createdAt)}</span>
+                      {c.createdLocation && (
+                        <span className="block text-xs text-slate-400" title={c.createdIp ? `IP ${c.createdIp}` : undefined}>
+                          {c.createdLocation}
+                        </span>
+                      )}
                     </td>
                     <td className="py-3 px-4">
                       <button

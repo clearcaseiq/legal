@@ -1,6 +1,7 @@
 import { Router, type Router as ExpressRouter } from 'express'
 import { prisma } from '../lib/prisma'
 import { logger } from '../lib/logger'
+import { formatCaseOrigin } from '../lib/case-origin'
 import { liabilityGrade } from '../lib/liability-grade'
 import { authMiddleware, AuthRequest } from '../lib/auth'
 import { adminMiddleware, requireAdminCapability } from '../lib/admin-access'
@@ -706,6 +707,10 @@ router.get('/cases/all', authMiddleware, adminMiddleware, async (req: AuthReques
         facts: true,
         createdAt: true,
         updatedAt: true,
+        createdIp: true,
+        createdCity: true,
+        createdRegion: true,
+        createdCountry: true,
         // Without these a closed case could say it matched but not when it ended
         // or how far it got, which is most of what a closed list is for.
         caseStage: true,
@@ -803,6 +808,8 @@ router.get('/cases/all', authMiddleware, adminMiddleware, async (req: AuthReques
         } : null,
         createdAt: assessment.createdAt,
         updatedAt: assessment.updatedAt,
+        createdIp: assessment.createdIp,
+        createdLocation: formatCaseOrigin(assessment),
         counts: {
           files: assessment._count.files,
           introductions: assessment._count.introductions,
@@ -959,6 +966,10 @@ router.get('/cases/:id', authMiddleware, adminMiddleware, async (req: AuthReques
         manualReviewNote: true,
         createdAt: true,
         updatedAt: true,
+        createdIp: true,
+        createdCity: true,
+        createdRegion: true,
+        createdCountry: true,
         user: {
           select: {
             id: true,
@@ -1125,7 +1136,9 @@ router.get('/cases/:id', authMiddleware, adminMiddleware, async (req: AuthReques
         createdAt: entry.createdAt,
       })),
       createdAt: assessment.createdAt,
-      updatedAt: assessment.updatedAt
+      updatedAt: assessment.updatedAt,
+      createdIp: assessment.createdIp,
+      createdLocation: formatCaseOrigin(assessment),
     })
   } catch (error) {
     logger.error('Failed to get case detail', { error })

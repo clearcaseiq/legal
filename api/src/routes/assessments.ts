@@ -5,6 +5,7 @@ import { prisma } from '../lib/prisma'
 import { AssessmentWrite, AssessmentUpdate, RequestCaseSubmitOtp, SubmitCaseForReview } from '../lib/validators'
 import { consumeCaseSubmitOtp, isCaseSubmitOtpRequired, issueCaseSubmitOtp, verifyCaseSubmitOtp } from '../lib/case-submit-otp'
 import { logger } from '../lib/logger'
+import { caseOriginFromIp } from '../lib/case-origin'
 import {
   addSuggestedDocument,
   listSuggestedDocuments,
@@ -203,7 +204,8 @@ router.post('/', optionalAuthMiddleware, async (req: AuthRequest, res) => {
         venueCounty: parsed.data.venue.county ?? null,
         status: 'DRAFT',
         facts: serializeCaseFacts(enrichedFacts),
-        lastWriteSource: 'web'
+        lastWriteSource: 'web',
+        ...caseOriginFromIp(req.ip),
       }
     })
 
