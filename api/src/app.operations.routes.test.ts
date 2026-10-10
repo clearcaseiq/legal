@@ -18,6 +18,9 @@ const { calculateAttorneyReputationScore, recordRoutingEvent, syncDecisionMemory
 const { routeCaseToAttorneys } = vi.hoisted(() => ({
   routeCaseToAttorneys: vi.fn(),
 }))
+const { textClient } = vi.hoisted(() => ({
+  textClient: vi.fn(),
+}))
 
 vi.mock('./lib/auth', () => {
   const users: Record<string, any> = {
@@ -124,6 +127,10 @@ vi.mock('./lib/auth', () => {
 })
 
 vi.mock('./lib/prisma', () => import('./test/universalPrismaMock'))
+vi.mock('./lib/client-packet', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./lib/client-packet')>()),
+  textClient,
+}))
 vi.mock('./lib/sms', () => ({
   sendCaseOfferSms,
   // createServer calls this at boot to warn when SMS is unconfigured.
@@ -7172,6 +7179,50 @@ describe('HTTP operations regressions', () => {
         createdAt: true,
       },
     })
+  })
+
+  it('POST /v1/attorney-dashboard/messaging/send with channel sms texts the client and keeps the thread copy', async () => {
+    vi.mocked(prisma.chatRoom.findFirst).mockResolvedValue({ id: 'room-1' } as any)
+    vi.mocked(prisma.chatRoom.findUnique).mockResolvedValue({ assessmentId: 'asm-1' } as any)
+    vi.mocked(prisma.message.create).mockResolvedValue({
+      id: 'msg-4',
+      content: 'Your MRI is booked',
+      senderType: 'attorney',
+      createdAt: new Date('2026-04-10T00:20:00.000Z'),
+    } as any)
+    vi.mocked(prisma.chatRoom.update).mockResolvedValue({ id: 'room-1' } as any)
+    textClient.mockResolvedValueOnce({ ok: true, deliveredTo: '•••1234' })
+
+    const res = await request(app)
+      .post('/v1/attorney-dashboard/messaging/send')
+      .set('Authorization', 'Bearer attorney')
+      .send({ chatRoomId: 'room-1', content: 'Your MRI is booked', channel: 'sms' })
+      .expect(201)
+
+    expect(res.body.sms).toEqual({ ok: true, deliveredTo: '•••1234' })
+    expect(prisma.message.create).toHaveBeenCalled()
+    expect(textClient).toHaveBeenCalledWith('asm-1', expect.stringContaining('Your MRI is booked'))
+  })
+
+  it('POST /v1/attorney-dashboard/messaging/send reports a failed text without failing the send', async () => {
+    vi.mocked(prisma.chatRoom.findFirst).mockResolvedValue({ id: 'room-1' } as any)
+    vi.mocked(prisma.chatRoom.findUnique).mockResolvedValue({ assessmentId: 'asm-1' } as any)
+    vi.mocked(prisma.message.create).mockResolvedValue({
+      id: 'msg-5',
+      content: 'Call me',
+      senderType: 'attorney',
+      createdAt: new Date('2026-04-10T00:20:00.000Z'),
+    } as any)
+    vi.mocked(prisma.chatRoom.update).mockResolvedValue({ id: 'room-1' } as any)
+    textClient.mockResolvedValueOnce({ ok: false, status: 409, error: 'No mobile number on file for this client.' })
+
+    const res = await request(app)
+      .post('/v1/attorney-dashboard/messaging/send')
+      .set('Authorization', 'Bearer attorney')
+      .send({ chatRoomId: 'room-1', content: 'Call me', channel: 'sms' })
+      .expect(201)
+
+    expect(res.body.sms).toEqual({ ok: false, error: 'No mobile number on file for this client.' })
   })
 
   it('PUT /v1/attorney-dashboard/messaging/chat-room/:chatRoomId/read uses compact ownership query', async () => {

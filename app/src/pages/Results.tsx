@@ -4118,7 +4118,7 @@ Checklist:
         <header className="border-b border-slate-200 bg-gradient-to-b from-slate-50 via-white to-white px-5 py-5 sm:px-8 sm:py-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
-              {cameFromDashboard && !isSharedReadOnly && (
+              {(cameFromDashboard || isLoggedIn === true) && !isSharedReadOnly && (
                 <Link
                   to="/dashboard"
                   className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50"

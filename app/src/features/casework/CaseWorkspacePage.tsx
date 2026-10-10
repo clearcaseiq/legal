@@ -2056,6 +2056,8 @@ function ChipGroup({
  * billed total, treatment gaps, and a documented timeline with source files) so
  * the attorney can build the damages story without leaving the case file.
  */
+const TIMELINE_COLLAPSED_KEY = 'caseMedical.timelineCollapsed'
+
 function MedicalPanel({
   leadId,
   cc,
@@ -2068,6 +2070,23 @@ function MedicalPanel({
   const [summary, setSummary] = useState<MedicalChronologySummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [timelineOpen, setTimelineOpen] = useState(() => {
+    try {
+      return localStorage.getItem(TIMELINE_COLLAPSED_KEY) !== '1'
+    } catch {
+      return true
+    }
+  })
+  const toggleTimeline = () => {
+    setTimelineOpen((open) => {
+      try {
+        localStorage.setItem(TIMELINE_COLLAPSED_KEY, open ? '1' : '0')
+      } catch {
+        /* storage unavailable: the toggle still works for this visit */
+      }
+      return !open
+    })
+  }
 
   const load = () => {
     setLoading(true)
@@ -2266,7 +2285,19 @@ function MedicalPanel({
       {/* Treatment timeline */}
       {timeline.length > 0 ? (
         <div className="rounded-xl border border-slate-200 bg-white p-4">
-          <MedSection icon={Clock} title="Treatment timeline" count={timeline.length} />
+          <button
+            type="button"
+            onClick={toggleTimeline}
+            aria-expanded={timelineOpen}
+            className="flex w-full items-center justify-between gap-2 text-left"
+          >
+            <MedSection icon={Clock} title="Treatment timeline" count={timeline.length} />
+            <span className="inline-flex items-center gap-1 text-xs font-medium text-slate-500">
+              {timelineOpen ? 'Hide' : 'Show'}
+              {timelineOpen ? <ChevronDown className="h-4 w-4" aria-hidden /> : <ChevronRight className="h-4 w-4" aria-hidden />}
+            </span>
+          </button>
+          {timelineOpen ? (
           <ol className="mt-3 space-y-0">
             {timeline.map((ev, i) => {
               const Icon = TIMELINE_SOURCE_ICON[ev.source] || Stethoscope
@@ -2310,6 +2341,7 @@ function MedicalPanel({
               )
             })}
           </ol>
+          ) : null}
         </div>
       ) : null}
 

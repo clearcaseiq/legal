@@ -526,30 +526,195 @@ export function buildWorkflowCatalog(
   )
 }
 
-function findSlot(
-  catalog: WorkflowCatalogSlot[],
-  phaseHints: RegExp[],
-  stageHints: RegExp[],
-  fallbackPhaseOrder: number,
-  fallbackPhase: string,
-  fallbackStage: string,
-): WorkflowCatalogSlot {
-  const phases = catalog.filter((s) => phaseHints.some((re) => re.test(s.phaseName)))
-  const pool = phases.length ? phases : catalog
-  const stageHit = pool.find((s) => stageHints.some((re) => re.test(s.stageName)))
-  if (stageHit) return stageHit
-  if (phases[0]) return phases[0]
-  if (catalog[0] && phaseHints.length === 0) return catalog[0]
-  return {
-    phaseName: fallbackPhase,
-    phaseOrder: fallbackPhaseOrder,
-    stageName: fallbackStage,
-    stageOrder: 0,
+/**
+ * The stage a case is currently working: the first phase→stage (in pipeline
+ * order) that still has a pending actionable step, else the last stage.
+ */
+export function activeWorkflowSlot(
+  items: Array<{
+    phaseName?: string | null
+    phaseOrder?: number | null
+    stageName?: string | null
+    stageOrder?: number | null
+    status?: string | null
+    stepType?: string | null
+  }>,
+): WorkflowCatalogSlot | null {
+  const catalog = buildWorkflowCatalog(items)
+  if (!catalog.length) return null
+  const pending = buildWorkflowCatalog(actionableItems(items).filter((it) => it.status === 'pending'))
+  return pending[0] ?? catalog[catalog.length - 1]
+}
+
+type TaskBucket =
+  | 'opening'
+  | 'records_claims'
+  | 'medical'
+  | 'evidence'
+  | 'demand'
+  | 'negotiation'
+  | 'litigation'
+  | 'settlement'
+
+/**
+ * How each task category finds its home in a case workflow. Stage hints are
+ * tried first (most specific), then phase hints. `position` (0 = start of the
+ * pipeline, 1 = end) places the task when a firm's workflow for that case type
+ * names its phases differently. The default* names apply only to cases with no
+ * workflow and mirror the standard PI blueprint.
+ */
+const BUCKETS: Record<
+  TaskBucket,
+  {
+    phase: RegExp
+    stage: RegExp
+    position: number
+    defaultPhase: string
+    defaultPhaseOrder: number
+    defaultStage: string
   }
+> = {
+  opening: {
+    phase: /\b(intake|setup|onboard|open|sign[- ]?up)/i,
+    stage: /\b(opening|intake|onboard|engagement|retain|sign[- ]?up)/i,
+    position: 0,
+    defaultPhase: 'Intake & Setup',
+    defaultPhaseOrder: 0,
+    defaultStage: 'Case Opening',
+  },
+  records_claims: {
+    phase: /\b(intake|setup|investigat|claim|insurance)/i,
+    stage: /\b(claim|insurance|coverage|records)/i,
+    position: 0.1,
+    defaultPhase: 'Intake & Setup',
+    defaultPhaseOrder: 0,
+    defaultStage: 'Records & Claims',
+  },
+  medical: {
+    phase: /\b(treatment|medical|investigat)/i,
+    stage: /\b(medical|treatment|care|mmi)\b/i,
+    position: 0.3,
+    defaultPhase: 'Treatment & Investigation',
+    defaultPhaseOrder: 1,
+    defaultStage: 'Medical Treatment',
+  },
+  evidence: {
+    phase: /\b(investigat|evidence|discovery|treatment)/i,
+    stage: /\b(evidence|records|liability|investigat|damage|document)/i,
+    position: 0.35,
+    defaultPhase: 'Treatment & Investigation',
+    defaultPhaseOrder: 1,
+    defaultStage: 'Evidence & Records',
+  },
+  demand: {
+    phase: /\b(demand|pre[- ]?lit)/i,
+    stage: /\bdemand/i,
+    position: 0.55,
+    defaultPhase: 'Demand Preparation',
+    defaultPhaseOrder: 2,
+    defaultStage: 'Demand Package',
+  },
+  negotiation: {
+    phase: /\bnegotiat/i,
+    stage: /\b(negotiat|offer)/i,
+    position: 0.7,
+    defaultPhase: 'Negotiation',
+    defaultPhaseOrder: 3,
+    defaultStage: 'Negotiation',
+  },
+  litigation: {
+    phase: /\b(litigat|suit|trial|court)/i,
+    stage: /\b(litigat|suit|complaint|discovery|deposition|mediation|trial)/i,
+    position: 0.85,
+    defaultPhase: 'Litigation',
+    defaultPhaseOrder: 35,
+    defaultStage: 'Litigation',
+  },
+  settlement: {
+    phase: /\b(settle|clos|disburse|resolution)/i,
+    stage: /\b(settle|clos|disburse|liens?\b|release)/i,
+    position: 1,
+    defaultPhase: 'Settlement & Closing',
+    defaultPhaseOrder: 4,
+    defaultStage: 'Settlement',
+  },
+}
+
+function slotForBucket(catalog: WorkflowCatalogSlot[], bucket: TaskBucket): WorkflowCatalogSlot {
+  const b = BUCKETS[bucket]
+  if (!catalog.length) {
+    return { phaseName: b.defaultPhase, phaseOrder: b.defaultPhaseOrder, stageName: b.defaultStage, stageOrder: 0 }
+  }
+  const inPhase = catalog.filter((s) => b.phase.test(s.phaseName))
+  const stageHit =
+    inPhase.find((s) => b.stage.test(s.stageName)) ?? catalog.find((s) => b.stage.test(s.stageName))
+  if (stageHit) return stageHit
+  if (inPhase[0]) return inPhase[0]
+  const phaseFirstSlots: WorkflowCatalogSlot[] = []
+  for (const s of catalog) {
+    const last = phaseFirstSlots[phaseFirstSlots.length - 1]
+    if (!last || last.phaseName !== s.phaseName || last.phaseOrder !== s.phaseOrder) phaseFirstSlots.push(s)
+  }
+  return phaseFirstSlots[Math.round(b.position * (phaseFirstSlots.length - 1))]
 }
 
 const OPENING_RECORDS_TITLE =
   /\b(insurance|claim|adjuster|police|incident report|letter of representation|\blor\b|um\/uim|medpay|\bpip\b|coverage)\b/i
+
+const SETTLEMENT_TITLE =
+  /\b(settle(ment|d)?|(settlement|signed|general) release|release of (all )?claims|disburse(ment)?|closing statement|lien (resolution|reduction|payoff)|close ?out|final accounting)\b/i
+const LITIGATION_TITLE =
+  /\b(lawsuit|file suit|complaint|summons|service of process|discovery|deposition|interrogator(y|ies)|subpoena|trial|mediation|arbitration|motion)\b/i
+const NEGOTIATION_TITLE = /\b(negotiat\w*|counter[- ]?offer|offer|adjuster call)\b/i
+const DEMAND_TITLE = /\bdemand\b/i
+const MEDICAL_TITLE =
+  /\b(treatment|medical|mmi|doctor|physician|provider|appointment|therapy|chiropract\w*|surgery|imaging|mri|x-?ray|prescription)\b/i
+const EVIDENCE_TITLE =
+  /\b(collect|records|evidence|bills?|photos?|videos?|witness(es)?|scene|dash ?cam|document(s|ation)?|upload|wage|lost (income|earnings)|property damage|receipts|liability|fault)\b/i
+const OPENING_TITLE =
+  /\b(retainer|engagement|fee agreement|hipaa|authorization|intake|contact|welcome|conflict check|consult(ation)?|onboard\w*|statute of limitations)\b/i
+
+function classifyTask(task: {
+  title?: string | null
+  taskType?: string | null
+  milestoneType?: string | null
+  checkpointType?: string | null
+  notes?: string | null
+  sourceTemplateStepId?: string | null
+}): TaskBucket | null {
+  const title = String(task.title || '')
+  const taskType = String(task.taskType || '').toLowerCase()
+  const milestone = String(task.milestoneType || '').toLowerCase()
+  const checkpoint = String(task.checkpointType || '').toLowerCase()
+  const notes = String(task.notes || '').toLowerCase()
+
+  if (milestone === 'case_opening' || notes.includes('day-1 case opening')) {
+    return OPENING_RECORDS_TITLE.test(title) ? 'records_claims' : 'opening'
+  }
+  if (milestone === 'demand_preparation' || taskType === 'demand_deadline') return 'demand'
+  if (milestone === 'settlement' || milestone === 'disbursement' || milestone === 'closeout') return 'settlement'
+  if (milestone === 'litigation') return 'litigation'
+  if (taskType === 'negotiation_deadline') return 'negotiation'
+  if (taskType === 'statute' || taskType === 'sol') return 'opening'
+  if (taskType === 'question' || String(task.sourceTemplateStepId || '').includes('plaintiff_questions')) {
+    return 'opening'
+  }
+  if (/treatment|medical|mmi|chronolog/i.test(checkpoint)) return 'medical'
+  if (/medical_records|missing|evidence|document|police|photo/i.test(checkpoint)) return 'evidence'
+
+  if (SETTLEMENT_TITLE.test(title)) return 'settlement'
+  if (LITIGATION_TITLE.test(title)) return 'litigation'
+  if (DEMAND_TITLE.test(title)) return 'demand'
+  if (NEGOTIATION_TITLE.test(title)) return 'negotiation'
+  if (MEDICAL_TITLE.test(title) || notes.includes('treatment')) return 'medical'
+  if (OPENING_RECORDS_TITLE.test(title)) return 'records_claims'
+  if (EVIDENCE_TITLE.test(title)) return 'evidence'
+  if (OPENING_TITLE.test(title) || taskType === 'signature') return 'opening'
+
+  if (taskType === 'coach') return 'medical'
+  if (taskType === 'checkpoint' || notes.includes('readiness')) return 'evidence'
+  return null
+}
 
 /**
  * Map non-workflow CaseTasks (day-1 checklist, readiness, stage checklists,
@@ -566,107 +731,14 @@ export function inferWorkflowCategoryForTask(
     sourceTemplateStepId?: string | null
   },
   catalog: WorkflowCatalogSlot[],
+  activeSlot?: WorkflowCatalogSlot | null,
 ): InferredWorkflowCategory | null {
   if (parseWorkflowItemIdFromTaskKey(task.sourceTemplateStepId)) return null
 
-  const title = String(task.title || '')
-  const taskType = String(task.taskType || '').toLowerCase()
-  const milestone = String(task.milestoneType || '').toLowerCase()
-  const checkpoint = String(task.checkpointType || '').toLowerCase()
-  const notes = String(task.notes || '').toLowerCase()
-
-  let slot: WorkflowCatalogSlot | null = null
-
-  if (milestone === 'case_opening' || notes.includes('day-1 case opening')) {
-    slot = OPENING_RECORDS_TITLE.test(title)
-      ? findSlot(
-          catalog,
-          [/intake|setup/i],
-          [/records|claims/i],
-          0,
-          'Intake & Setup',
-          'Records & Claims',
-        )
-      : findSlot(
-          catalog,
-          [/intake|setup/i],
-          [/opening|intake/i],
-          0,
-          'Intake & Setup',
-          'Case Opening',
-        )
-  } else if (milestone === 'demand_preparation' || taskType === 'demand_deadline') {
-    slot = findSlot(catalog, [/demand/i], [/demand/i], 2, 'Demand Preparation', 'Demand Package')
-  } else if (milestone === 'settlement' || milestone === 'disbursement' || milestone === 'closeout') {
-    slot = findSlot(
-      catalog,
-      [/settlement|closing/i],
-      [/settlement|closing|disburse/i],
-      4,
-      'Settlement & Closing',
-      'Settlement',
-    )
-  } else if (milestone === 'litigation') {
-    slot = findSlot(catalog, [/litigation|suit|trial/i], [/litigation|suit|trial|discovery/i], 35, 'Litigation', 'Litigation')
-  } else if (taskType === 'negotiation_deadline') {
-    slot = findSlot(catalog, [/negotiation/i], [/negotiation/i], 3, 'Negotiation', 'Negotiation')
-  } else if (taskType === 'statute' || taskType === 'sol' || /\bstatute of limitations\b/i.test(title)) {
-    slot = findSlot(catalog, [/intake|setup/i], [/opening|deadline/i], 0, 'Intake & Setup', 'Case Opening')
-  } else if (taskType === 'question' || String(task.sourceTemplateStepId || '').includes('plaintiff_questions')) {
-    slot = findSlot(catalog, [/intake|setup/i], [/opening|intake/i], 0, 'Intake & Setup', 'Case Opening')
-  } else if (
-    /treatment|medical|mmi|chronolog/i.test(checkpoint) ||
-    /treatment|medical|mmi/i.test(title) ||
-    notes.includes('treatment')
-  ) {
-    slot = findSlot(
-      catalog,
-      [/treatment|investigation/i],
-      [/medical|treatment/i],
-      1,
-      'Treatment & Investigation',
-      'Medical Treatment',
-    )
-  } else if (
-    /medical_records|missing|evidence|document|police|photo/i.test(checkpoint) ||
-    /collect |records|evidence|bills/i.test(title)
-  ) {
-    slot = findSlot(
-      catalog,
-      [/treatment|investigation|intake|setup/i],
-      [/evidence|records|claims/i],
-      1,
-      'Treatment & Investigation',
-      'Evidence & Records',
-    )
-  } else if (taskType === 'coach') {
-    slot = findSlot(
-      catalog,
-      [/treatment|investigation/i],
-      [/medical|treatment|evidence|records/i],
-      1,
-      'Treatment & Investigation',
-      'Medical Treatment',
-    )
-  } else if (taskType === 'checkpoint') {
-    slot = findSlot(
-      catalog,
-      [/treatment|investigation/i],
-      [/medical|treatment|evidence|records/i],
-      1,
-      'Treatment & Investigation',
-      'Evidence & Records',
-    )
-  } else if (notes.includes('readiness') || notes.includes('attorney readiness')) {
-    slot = findSlot(
-      catalog,
-      [/treatment|investigation/i],
-      [/evidence|records|medical|treatment/i],
-      1,
-      'Treatment & Investigation',
-      'Evidence & Records',
-    )
-  }
-
-  return slot ? { ...slot, inferred: true } : null
+  const bucket = classifyTask(task)
+  if (bucket) return { ...slotForBucket(catalog, bucket), inferred: true }
+  // Nothing in the task says where it belongs: file it with the work the case
+  // is in right now rather than an "Other tasks" bucket.
+  const fallback = activeSlot ?? catalog[0]
+  return fallback ? { ...fallback, inferred: true } : null
 }

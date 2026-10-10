@@ -11,6 +11,7 @@ import {
   updateEvidenceFile,
   extractIncidentDetails,
   getPlaintiffDocumentRequests,
+  savePlaintiffRequestItemNote,
   type IncidentExtraction,
   type PlaintiffDocumentRequest,
 } from '../lib/api'
@@ -1158,6 +1159,9 @@ export default function IntakeWizardQuick() {
       subcategory: string | null
       attorneyName: string | null
       requestedAt: string
+      /** Request the client's note is saved on; null for specialist requests, which take no notes. */
+      noteRequestId: string | null
+      clientNote: string | null
     }
     const byKey = new Map<string, Row>()
     // Newest request first, so a repeated item shows its latest ask.
@@ -1178,11 +1182,31 @@ export default function IntakeWizardQuick() {
           subcategory: item.uploadSubcategory || null,
           attorneyName: request.attorney?.name || null,
           requestedAt: request.createdAt,
+          noteRequestId: request.id.startsWith('specialist-') ? null : request.id,
+          clientNote: item.clientNote || null,
         })
       }
     }
     return [...byKey.values()].sort((a, b) => Number(a.fulfilled) - Number(b.fulfilled))
   }, [attorneyDocRequests])
+  const [requestNoteEditing, setRequestNoteEditing] = useState<string | null>(null)
+  const [requestNoteDraft, setRequestNoteDraft] = useState('')
+  const [requestNoteSaving, setRequestNoteSaving] = useState(false)
+  const [requestNoteError, setRequestNoteError] = useState<string | null>(null)
+  const saveRequestNote = async (requestId: string, itemKey: string) => {
+    if (!assessmentId) return
+    setRequestNoteSaving(true)
+    setRequestNoteError(null)
+    try {
+      await savePlaintiffRequestItemNote(assessmentId, requestId, itemKey, requestNoteDraft.trim())
+      await refreshAttorneyDocRequests()
+      setRequestNoteEditing(null)
+    } catch {
+      setRequestNoteError(t('plaintiffDashboard.requestedDocs.noteFailed'))
+    } finally {
+      setRequestNoteSaving(false)
+    }
+  }
   type EvidenceWarning = { fileName: string; status: string; message: string; title?: string; action?: { label: string; onClick: () => void } }
   const [evidenceWarnings, setEvidenceWarnings] = useState<Record<string, { items: EvidenceWarning[]; dismiss: (fileName: string) => void }>>({})
   // Per-category drop targets so the entire evidence row (not just the small upload
@@ -6050,6 +6074,54 @@ export default function IntakeWizardQuick() {
           const ringCirc = 2 * Math.PI * ringRadius
           const ringOffset = ringCirc * (1 - Math.min(100, Math.max(0, evidenceCompletenessScore)) / 100)
 
+          // Upload check results render full-width under a row; inside the narrow
+          // upload slot they squeeze the row's title and buttons out of shape.
+          const renderRowWarnings = (warningsKey: string, deleteCategory?: string) => {
+            const rowWarnings = evidenceWarnings[warningsKey]
+            if (!rowWarnings || rowWarnings.items.length === 0) return null
+            return (
+              <div className="mt-2 space-y-1.5">
+                {rowWarnings.items.map((warning) => (
+                  <div
+                    key={warning.fileName}
+                    className={`flex items-center gap-1.5 rounded-md border px-2 py-0 text-[12px] leading-none ${
+                      warning.status === 'relevant'
+                        ? 'border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-200'
+                        : 'border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200'
+                    }`}
+                  >
+                    {warning.status === 'relevant' ? (
+                      <CheckCircle2 className="h-3 w-3 shrink-0" aria-hidden />
+                    ) : (
+                      <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden />
+                    )}
+                    <p className="min-w-0 flex-1 [overflow-wrap:anywhere] leading-snug">
+                      <span className="font-semibold">{warning.title || warning.fileName}</span>
+                      <span className="opacity-90"> {warning.message}</span>
+                    </p>
+                    {warning.action && (
+                      <button type="button" onClick={warning.action.onClick} className="shrink-0 whitespace-nowrap px-1.5 py-0 !text-[12px] !leading-none font-semibold text-blue-700 underline-offset-2 hover:underline dark:text-blue-300">
+                        {warning.action.label}
+                      </button>
+                    )}
+                    <button type="button" onClick={() => rowWarnings.dismiss(warning.fileName)} className="shrink-0 rounded px-1.5 py-0 !text-[12px] !leading-none font-semibold text-slate-600 hover:text-slate-800 dark:text-slate-300">
+                      Dismiss
+                    </button>
+                    {deleteCategory && warning.status !== 'relevant' && (
+                      <button
+                        type="button"
+                        onClick={() => { handleDeleteEvidence(deleteCategory, warning.fileName); rowWarnings.dismiss(warning.fileName) }}
+                        className="shrink-0 rounded px-1.5 py-0 !text-[12px] !leading-none font-semibold text-red-600 hover:text-red-700 dark:text-red-400"
+                      >
+                        Delete
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )
+          }
+
           const renderRow = (item: EvItem) => {
             const Icon = item.icon
             const uploaded = isUploaded(item.category)
@@ -6057,7 +6129,6 @@ export default function IntakeWizardQuick() {
             const managing = !!manageEvidence[item.category]
             const setManaging = (open: boolean) => setManageEvidence((p) => ({ ...p, [item.category]: open }))
             const rel = uploaded ? relativeUploadTime(item.category) : ''
-            const rowWarnings = evidenceWarnings[item.category]
             const dropRef = getEvidenceDropRef(item.category)
             const isDragging = evidenceDragCategory === item.category
             const weight = weightFor(item.category)
@@ -6158,47 +6229,7 @@ export default function IntakeWizardQuick() {
                     <ChevronRight className="h-4 w-4 shrink-0 text-gray-300" aria-hidden />
                   </div>
                 </div>
-                {rowWarnings && rowWarnings.items.length > 0 && (
-                  <div className="mt-2 space-y-1.5">
-                    {rowWarnings.items.map((warning) => (
-                      <div
-                        key={warning.fileName}
-                        className={`flex items-center gap-1.5 rounded-md border px-2 py-0 text-[12px] leading-none ${
-                          warning.status === 'relevant'
-                            ? 'border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-200'
-                            : 'border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200'
-                        }`}
-                      >
-                        {warning.status === 'relevant' ? (
-                          <CheckCircle2 className="h-3 w-3 shrink-0" aria-hidden />
-                        ) : (
-                          <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden />
-                        )}
-                        <p className="min-w-0 flex-1 [overflow-wrap:anywhere] leading-snug">
-                          <span className="font-semibold">{warning.title || warning.fileName}</span>
-                          <span className="opacity-90"> {warning.message}</span>
-                        </p>
-                        {warning.action && (
-                          <button type="button" onClick={warning.action.onClick} className="shrink-0 whitespace-nowrap px-1.5 py-0 !text-[12px] !leading-none font-semibold text-blue-700 underline-offset-2 hover:underline dark:text-blue-300">
-                            {warning.action.label}
-                          </button>
-                        )}
-                        <button type="button" onClick={() => rowWarnings.dismiss(warning.fileName)} className="shrink-0 rounded px-1.5 py-0 !text-[12px] !leading-none font-semibold text-slate-600 hover:text-slate-800 dark:text-slate-300">
-                          Dismiss
-                        </button>
-                        {warning.status !== 'relevant' && (
-                          <button
-                            type="button"
-                            onClick={() => { handleDeleteEvidence(item.category, warning.fileName); rowWarnings.dismiss(warning.fileName) }}
-                            className="shrink-0 rounded px-1.5 py-0 !text-[12px] !leading-none font-semibold text-red-600 hover:text-red-700 dark:text-red-400"
-                          >
-                            Delete
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
+                {renderRowWarnings(item.category, item.category)}
                 {(nameWarnings[item.category]?.length ?? 0) > 0 && (
                   <div className="mt-2 space-y-1.5">
                     {nameWarnings[item.category].map((warning) => (
@@ -6387,6 +6418,8 @@ export default function IntakeWizardQuick() {
                                     onManageOpenChange={setManaging}
                                     uploadButtonLabel={tx('evidence_uploadAction')}
                                     uploadButtonColorClass="bg-amber-500 text-white hover:bg-amber-600"
+                                    hideInlineWarnings
+                                    onWarningsChange={(items, dismiss) => setEvidenceWarnings((prev) => ({ ...prev, [manageKey]: { items, dismiss } }))}
                                     onFilesUploaded={(files) => {
                                       // Preset items share their category's bucket with the rows below.
                                       if (!row.subcategory) handleEvidenceFiles(supportingDocCategory(row.category), files)
@@ -6400,6 +6433,62 @@ export default function IntakeWizardQuick() {
                               </div>
                             </div>
                           </div>
+                          {renderRowWarnings(manageKey)}
+                          {row.noteRequestId && (row.clientNote || !row.fulfilled) ? (
+                            requestNoteEditing === row.key ? (
+                              <div className="mt-2 space-y-2">
+                                <textarea
+                                  autoFocus
+                                  value={requestNoteDraft}
+                                  onChange={(e) => setRequestNoteDraft(e.target.value)}
+                                  maxLength={1000}
+                                  rows={3}
+                                  placeholder={t('plaintiffDashboard.requestedDocs.notePlaceholder', { doc: row.label })}
+                                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400 dark:border-slate-600 dark:bg-slate-900"
+                                />
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => void saveRequestNote(row.noteRequestId!, row.key)}
+                                    disabled={requestNoteSaving || (!requestNoteDraft.trim() && !row.clientNote)}
+                                    className="rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
+                                  >
+                                    {requestNoteSaving
+                                      ? t('plaintiffDashboard.requestedDocs.savingNote')
+                                      : t('plaintiffDashboard.requestedDocs.saveNote')}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setRequestNoteEditing(null)}
+                                    disabled={requestNoteSaving}
+                                    className="text-xs font-semibold text-slate-500 hover:text-slate-700"
+                                  >
+                                    {t('plaintiffDashboard.requestedDocs.cancelNote')}
+                                  </button>
+                                </div>
+                                {requestNoteError ? <p className="text-xs text-rose-600">{requestNoteError}</p> : null}
+                              </div>
+                            ) : (
+                              <div className="mt-2 flex items-start justify-between gap-3">
+                                <p className="min-w-0 whitespace-pre-wrap break-words text-xs text-gray-600 dark:text-slate-300">
+                                  {row.clientNote}
+                                </p>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setRequestNoteEditing(row.key)
+                                    setRequestNoteDraft(row.clientNote || '')
+                                    setRequestNoteError(null)
+                                  }}
+                                  className="inline-flex !min-h-0 shrink-0 items-center rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900/40 dark:text-slate-200"
+                                >
+                                  {row.clientNote
+                                    ? t('plaintiffDashboard.requestedDocs.editNote')
+                                    : t('plaintiffDashboard.requestedDocs.addNote')}
+                                </button>
+                              </div>
+                            )
+                          ) : null}
                         </div>
                       )
                     })}

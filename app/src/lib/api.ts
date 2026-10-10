@@ -1139,8 +1139,22 @@ export async function getAttorneyChatRoomMessages(chatRoomId: string, limit = 50
   return normalizeChatMessagesResponse(data)
 }
 
-export async function sendAttorneyMessage(chatRoomId: string, content: string, messageType = 'text') {
-  const { data } = await api.post('/v1/attorney-dashboard/messaging/send', { chatRoomId, content, messageType })
+export async function sendAttorneyMessage(
+  chatRoomId: string,
+  content: string,
+  messageType = 'text',
+  channel?: 'sms',
+): Promise<{
+  messageId: string
+  /** Present when sent by text: the message is in the thread either way. */
+  sms?: { ok: true; deliveredTo: string } | { ok: false; error: string }
+}> {
+  const { data } = await api.post('/v1/attorney-dashboard/messaging/send', {
+    chatRoomId,
+    content,
+    messageType,
+    ...(channel ? { channel } : {}),
+  })
   return data
 }
 

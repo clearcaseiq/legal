@@ -87,6 +87,7 @@ export default function ChatDrawer({
   const [draftSaved, setDraftSaved] = useState(false)
   const [copied, setCopied] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
+  const [sendNotice, setSendNotice] = useState<string | null>(null)
   const [bookingUrl, setBookingUrl] = useState<string | null>(null)
   const [templatesOpen, setTemplatesOpen] = useState(() => {
     try {
@@ -253,6 +254,7 @@ export default function ChatDrawer({
     }
     setSending(true)
     setSendError(null)
+    setSendNotice(null)
     try {
       // The room may not have been created yet (initial load failed or is still
       // in flight). Ensure one exists before sending so the button never no-ops.
@@ -265,12 +267,18 @@ export default function ChatDrawer({
       if (!roomId) {
         throw new Error('Could not open a chat room for this case.')
       }
-      await sendAttorneyMessage(roomId, text)
+      const sent = await sendAttorneyMessage(roomId, text, 'text', channel === 'sms' ? 'sms' : undefined)
       const { messages: updated, participants: nextParticipants } = await getAttorneyChatRoomMessages(roomId)
       setMessages(updated)
       if (nextParticipants) setParticipants(nextParticipants)
       setInput('')
       onMessageSent?.()
+      const sms = sent?.sms
+      if (sms?.ok === true) {
+        setSendNotice(`Texted to ${sms.deliveredTo} and saved in the thread.`)
+      } else if (sms?.ok === false) {
+        setSendError(`Saved in the thread, but the text was not sent: ${sms.error}`)
+      }
     } catch (err: any) {
       console.error('Failed to send:', err)
       setSendError(err?.response?.data?.error || err?.message || 'Failed to send message. Please try again.')
@@ -497,8 +505,15 @@ export default function ChatDrawer({
                     ))}
                   </div>
                 </div>
-                {channel !== 'in-app' && (
-                  <p className="mt-2 text-xs text-amber-700">This sends in-app locally; copy for {channel.toUpperCase()}.</p>
+                {channel === 'sms' && (
+                  <p className="mt-2 text-xs text-slate-600">
+                    Texts this message to the client's mobile number and saves it in the thread.
+                  </p>
+                )}
+                {channel === 'email' && (
+                  <p className="mt-2 text-xs text-slate-600">
+                    Saves the message in the thread and emails the client that it's waiting for them.
+                  </p>
                 )}
                 {bookingUrl && (
                   <button
@@ -574,6 +589,9 @@ export default function ChatDrawer({
               </div>
               {sendError && (
                 <p className="mt-2 text-center text-xs text-red-600">{sendError}</p>
+              )}
+              {sendNotice && !sendError && (
+                <p className="mt-2 text-center text-xs text-emerald-700">{sendNotice}</p>
               )}
               <p className="mt-2 text-center text-xs text-slate-500">
                 In-app messages are saved to this case activity timeline.

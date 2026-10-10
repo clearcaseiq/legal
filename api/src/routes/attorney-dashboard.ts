@@ -144,6 +144,7 @@ import {
 import {
   syncWorkflowStepTasks,
   syncWorkflowItemFromTask,
+  activeWorkflowSlot,
   buildWorkflowCatalog,
   inferWorkflowCategoryForTask,
   parseWorkflowItemIdFromTaskKey,
@@ -11635,11 +11636,21 @@ router.get('/leads/:leadId/tasks', authMiddleware, async (req: any, res) => {
       .findUnique({
         where: { assessmentId: lead.assessmentId },
         select: {
-          items: { select: { phaseName: true, phaseOrder: true, stageName: true, stageOrder: true } },
+          items: {
+            select: {
+              phaseName: true,
+              phaseOrder: true,
+              stageName: true,
+              stageOrder: true,
+              status: true,
+              stepType: true,
+            },
+          },
         },
       })
       .catch(() => null)
     const catalog = buildWorkflowCatalog((caseWf?.items || []) as any[])
+    const currentSlot = activeWorkflowSlot((caseWf?.items || []) as any[])
 
     // Subtasks are stored as a JSON string; hand clients the parsed array so
     // list views can render a grouped task's checklist without a second fetch.
@@ -11667,7 +11678,7 @@ router.get('/leads/:leadId/tasks', authMiddleware, async (req: any, res) => {
             stepOrder: null,
           }
         }
-        const inferred = meta ? null : inferWorkflowCategoryForTask(t, catalog)
+        const inferred = meta ? null : inferWorkflowCategoryForTask(t, catalog, currentSlot)
         const phase = meta?.phaseName ?? inferred?.phaseName ?? null
         const stage = meta?.stageName ?? inferred?.stageName ?? null
         return {
@@ -19147,6 +19158,13 @@ router.post('/messaging/send', authMiddleware, firmGate('message'), async (req: 
       select: chatRoomOwnershipSelect
     })
     if (!chatRoom) return res.status(404).json({ error: 'Chat room not found' })
+    const viaSms = req.body?.channel === 'sms'
+    const smsAssessmentId = viaSms
+      ? (await prisma.chatRoom.findUnique({ where: { id: chatRoomId }, select: { assessmentId: true } }))?.assessmentId ?? null
+      : null
+    if (viaSms && !smsAssessmentId) {
+      return res.status(400).json({ error: 'This conversation is not linked to a case, so it cannot be sent by text.' })
+    }
 
     const message = await prisma.message.create({
       data: {
@@ -19230,12 +19248,28 @@ router.post('/messaging/send', authMiddleware, firmGate('message'), async (req: 
       })
     }
 
+    // The message is already in the thread; the text is a copy of it. A failed
+    // text is reported alongside the saved message rather than as a failed send,
+    // or a retry would post the message to the thread twice.
+    let sms: { ok: true; deliveredTo: string } | { ok: false; error: string } | undefined
+    if (smsAssessmentId) {
+      const from = auth.staff?.name || auth.attorney.name || 'Your attorney'
+      const body = trimmedContent.length > 480 ? `${trimmedContent.slice(0, 477)}...` : trimmedContent
+      const texted = await textClient(
+        smsAssessmentId,
+        `${from}: ${body}\nReply in your ClearCaseIQ messages: ${webUrl('/messaging')} Reply STOP to opt out.`,
+      )
+      sms = texted.ok ? { ok: true, deliveredTo: texted.deliveredTo } : { ok: false, error: texted.error }
+      if (!texted.ok) logger.warn('Messenger SMS not delivered', { chatRoomId, status: texted.status })
+    }
+
     res.status(201).json({
       messageId: message.id,
       chatRoomId,
       content: message.content,
       senderType: message.senderType,
-      createdAt: message.createdAt
+      createdAt: message.createdAt,
+      ...(sms ? { sms } : {}),
     })
   } catch (error: any) {
     logger.error('Failed to send message', { error: error.message })
