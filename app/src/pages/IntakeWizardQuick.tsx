@@ -12,6 +12,9 @@ import {
   extractIncidentDetails,
   getPlaintiffDocumentRequests,
   savePlaintiffRequestItemNote,
+  getEvidenceNotes,
+  saveEvidenceNote,
+  type EvidenceCategoryNote,
   type IncidentExtraction,
   type PlaintiffDocumentRequest,
 } from '../lib/api'
@@ -1193,13 +1196,26 @@ export default function IntakeWizardQuick() {
   const [requestNoteDraft, setRequestNoteDraft] = useState('')
   const [requestNoteSaving, setRequestNoteSaving] = useState(false)
   const [requestNoteError, setRequestNoteError] = useState<string | null>(null)
-  const saveRequestNote = async (requestId: string, itemKey: string) => {
+  const [evidenceNotes, setEvidenceNotes] = useState<Record<string, EvidenceCategoryNote>>({})
+  useEffect(() => {
     if (!assessmentId) return
+    let cancelled = false
+    getEvidenceNotes(assessmentId)
+      .then((notes) => {
+        if (!cancelled) setEvidenceNotes(notes)
+      })
+      .catch(() => {
+        /* notes are optional; the rows still work without them */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [assessmentId])
+  const runNoteSave = async (save: () => Promise<void>) => {
     setRequestNoteSaving(true)
     setRequestNoteError(null)
     try {
-      await savePlaintiffRequestItemNote(assessmentId, requestId, itemKey, requestNoteDraft.trim())
-      await refreshAttorneyDocRequests()
+      await save()
       setRequestNoteEditing(null)
     } catch {
       setRequestNoteError(t('plaintiffDashboard.requestedDocs.noteFailed'))
@@ -1207,6 +1223,23 @@ export default function IntakeWizardQuick() {
       setRequestNoteSaving(false)
     }
   }
+  const saveRequestNote = (requestId: string, itemKey: string) =>
+    runNoteSave(async () => {
+      if (!assessmentId) return
+      await savePlaintiffRequestItemNote(assessmentId, requestId, itemKey, requestNoteDraft.trim())
+      await refreshAttorneyDocRequests()
+    })
+  const saveEvidenceRowNote = (category: string, label: string) =>
+    runNoteSave(async () => {
+      if (!assessmentId) return
+      const result = await saveEvidenceNote(assessmentId, category, label, requestNoteDraft.trim())
+      setEvidenceNotes((prev) => {
+        const next = { ...prev }
+        if (result.note) next[category] = { note: result.note, label, updatedAt: result.updatedAt || '' }
+        else delete next[category]
+        return next
+      })
+    })
   type EvidenceWarning = { fileName: string; status: string; message: string; title?: string; action?: { label: string; onClick: () => void } }
   const [evidenceWarnings, setEvidenceWarnings] = useState<Record<string, { items: EvidenceWarning[]; dismiss: (fileName: string) => void }>>({})
   // Per-category drop targets so the entire evidence row (not just the small upload
@@ -6122,6 +6155,72 @@ export default function IntakeWizardQuick() {
             )
           }
 
+          const renderNoteButton = (editKey: string, currentNote: string | null) =>
+            requestNoteEditing === editKey ? null : (
+              <button
+                type="button"
+                onClick={() => {
+                  setRequestNoteEditing(editKey)
+                  setRequestNoteDraft(currentNote || '')
+                  setRequestNoteError(null)
+                }}
+                className="inline-flex !min-h-0 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 transition-colors hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900/40 dark:text-slate-200"
+              >
+                {currentNote
+                  ? t('plaintiffDashboard.requestedDocs.editNote')
+                  : t('plaintiffDashboard.requestedDocs.addNote')}
+              </button>
+            )
+
+          const renderNoteArea = (
+            editKey: string,
+            currentNote: string | null,
+            label: string,
+            onSave: () => Promise<void>,
+          ) => {
+            if (requestNoteEditing !== editKey) {
+              return currentNote ? (
+                <p className="mt-1.5 whitespace-pre-wrap break-words pl-[4.5rem] text-xs text-gray-600 dark:text-slate-300">
+                  {currentNote}
+                </p>
+              ) : null
+            }
+            return (
+              <div className="mt-2 space-y-2">
+                <textarea
+                  autoFocus
+                  value={requestNoteDraft}
+                  onChange={(e) => setRequestNoteDraft(e.target.value)}
+                  maxLength={1000}
+                  rows={3}
+                  placeholder={t('plaintiffDashboard.requestedDocs.notePlaceholder', { doc: label })}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400 dark:border-slate-600 dark:bg-slate-900"
+                />
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void onSave()}
+                    disabled={requestNoteSaving || (!requestNoteDraft.trim() && !currentNote)}
+                    className="rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
+                  >
+                    {requestNoteSaving
+                      ? t('plaintiffDashboard.requestedDocs.savingNote')
+                      : t('plaintiffDashboard.requestedDocs.saveNote')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRequestNoteEditing(null)}
+                    disabled={requestNoteSaving}
+                    className="text-xs font-semibold text-slate-500 hover:text-slate-700"
+                  >
+                    {t('plaintiffDashboard.requestedDocs.cancelNote')}
+                  </button>
+                </div>
+                {requestNoteError ? <p className="text-xs text-rose-600">{requestNoteError}</p> : null}
+              </div>
+            )
+          }
+
           const renderRow = (item: EvItem) => {
             const Icon = item.icon
             const uploaded = isUploaded(item.category)
@@ -6183,6 +6282,7 @@ export default function IntakeWizardQuick() {
                     )}
                   </div>
                   <div className="flex w-full shrink-0 items-center justify-end gap-2 sm:w-auto">
+                    {assessmentId ? renderNoteButton(`evidence:${item.category}`, evidenceNotes[item.category]?.note ?? null) : null}
                     {uploaded && (
                       <button type="button" onClick={() => setManaging(true)} className="inline-flex !min-h-0 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 transition-colors hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900/40 dark:text-slate-200">
                         <FolderOpen className="h-3.5 w-3.5" aria-hidden /><span className="hidden sm:inline">{tx('evidence_manageShort')}</span>
@@ -6229,6 +6329,9 @@ export default function IntakeWizardQuick() {
                     <ChevronRight className="h-4 w-4 shrink-0 text-gray-300" aria-hidden />
                   </div>
                 </div>
+                {renderNoteArea(`evidence:${item.category}`, evidenceNotes[item.category]?.note ?? null, item.title, () =>
+                  saveEvidenceRowNote(item.category, item.title),
+                )}
                 {renderRowWarnings(item.category, item.category)}
                 {(nameWarnings[item.category]?.length ?? 0) > 0 && (
                   <div className="mt-2 space-y-1.5">
@@ -6355,6 +6458,8 @@ export default function IntakeWizardQuick() {
                         Number.isNaN(requestedOn.getTime()) ? null : requestedOn.toLocaleDateString(),
                       ].filter(Boolean).join(' · ')
                       const needsHipaa = HIPAA_UPLOAD_CATEGORIES.includes(row.category) && !hipaaAuthorized && !row.fulfilled
+                      const canNote = Boolean(row.noteRequestId) && (Boolean(row.clientNote) || !row.fulfilled)
+                      const noteKey = `request:${row.key}`
                       return (
                         <div
                           key={row.key}
@@ -6385,6 +6490,7 @@ export default function IntakeWizardQuick() {
                               )}
                             </div>
                             <div className="flex w-full shrink-0 items-center justify-end gap-2 sm:w-auto">
+                              {canNote && renderNoteButton(noteKey, row.clientNote)}
                               {row.fulfilled && (
                                 <button type="button" onClick={() => setManaging(true)} className="inline-flex !min-h-0 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 transition-colors hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900/40 dark:text-slate-200">
                                   <FolderOpen className="h-3.5 w-3.5" aria-hidden /><span className="hidden sm:inline">{tx('evidence_manageShort')}</span>
@@ -6434,61 +6540,11 @@ export default function IntakeWizardQuick() {
                             </div>
                           </div>
                           {renderRowWarnings(manageKey)}
-                          {row.noteRequestId && (row.clientNote || !row.fulfilled) ? (
-                            requestNoteEditing === row.key ? (
-                              <div className="mt-2 space-y-2">
-                                <textarea
-                                  autoFocus
-                                  value={requestNoteDraft}
-                                  onChange={(e) => setRequestNoteDraft(e.target.value)}
-                                  maxLength={1000}
-                                  rows={3}
-                                  placeholder={t('plaintiffDashboard.requestedDocs.notePlaceholder', { doc: row.label })}
-                                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400 dark:border-slate-600 dark:bg-slate-900"
-                                />
-                                <div className="flex items-center gap-2">
-                                  <button
-                                    type="button"
-                                    onClick={() => void saveRequestNote(row.noteRequestId!, row.key)}
-                                    disabled={requestNoteSaving || (!requestNoteDraft.trim() && !row.clientNote)}
-                                    className="rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
-                                  >
-                                    {requestNoteSaving
-                                      ? t('plaintiffDashboard.requestedDocs.savingNote')
-                                      : t('plaintiffDashboard.requestedDocs.saveNote')}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => setRequestNoteEditing(null)}
-                                    disabled={requestNoteSaving}
-                                    className="text-xs font-semibold text-slate-500 hover:text-slate-700"
-                                  >
-                                    {t('plaintiffDashboard.requestedDocs.cancelNote')}
-                                  </button>
-                                </div>
-                                {requestNoteError ? <p className="text-xs text-rose-600">{requestNoteError}</p> : null}
-                              </div>
-                            ) : (
-                              <div className="mt-2 flex items-start justify-between gap-3">
-                                <p className="min-w-0 whitespace-pre-wrap break-words text-xs text-gray-600 dark:text-slate-300">
-                                  {row.clientNote}
-                                </p>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setRequestNoteEditing(row.key)
-                                    setRequestNoteDraft(row.clientNote || '')
-                                    setRequestNoteError(null)
-                                  }}
-                                  className="inline-flex !min-h-0 shrink-0 items-center rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900/40 dark:text-slate-200"
-                                >
-                                  {row.clientNote
-                                    ? t('plaintiffDashboard.requestedDocs.editNote')
-                                    : t('plaintiffDashboard.requestedDocs.addNote')}
-                                </button>
-                              </div>
-                            )
-                          ) : null}
+                          {canNote
+                            ? renderNoteArea(noteKey, row.clientNote, row.label, () =>
+                                saveRequestNote(row.noteRequestId!, row.key),
+                              )
+                            : null}
                         </div>
                       )
                     })}

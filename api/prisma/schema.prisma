@@ -243,6 +243,9 @@ model Assessment {
   // cannot be assembled from stored data. Null means fall back to the derived
   // label (plaintiff name, then claim type) — see lib/case-name.ts.
   caseName    String?
+  // The claimant's note on an evidence category ("I didn't go to a doctor"),
+  // keyed by category: { [category]: { note, label, updatedAt } }.
+  evidenceNotes Json?
 
   // --- Import provenance (attorney-imported caseloads) ----------------------
   // The identity of this case in the system it came from, so re-uploading the

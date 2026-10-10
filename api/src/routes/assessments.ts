@@ -1152,6 +1152,115 @@ router.put('/:id/document-requests/:requestId/notes', authMiddleware, async (req
   }
 })
 
+type EvidenceNote = { note: string; label: string; updatedAt: string }
+
+function parseEvidenceNotes(raw: unknown): Record<string, EvidenceNote> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
+  const out: Record<string, EvidenceNote> = {}
+  for (const [category, entry] of Object.entries(raw as Record<string, unknown>)) {
+    const note = (entry as any)?.note
+    if (typeof note !== 'string' || !note.trim()) continue
+    const label = (entry as any)?.label
+    const updatedAt = (entry as any)?.updatedAt
+    out[category] = {
+      note,
+      label: typeof label === 'string' && label.trim() ? label : category,
+      updatedAt: typeof updatedAt === 'string' ? updatedAt : '',
+    }
+  }
+  return out
+}
+
+// The claimant's notes on evidence categories, readable by anyone who may read the case.
+router.get('/:id/evidence-notes', optionalAuthMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const allowed = await enforceAssessmentReadAccess({
+      assessmentId: req.params.id,
+      user: req.user,
+      res,
+      route: 'GET /assessments/:id/evidence-notes',
+    })
+    if (!allowed) return
+    const row = await prisma.assessment.findUnique({ where: { id: req.params.id }, select: { evidenceNotes: true } })
+    res.json({ notes: parseEvidenceNotes(row?.evidenceNotes) })
+  } catch (error: any) {
+    logger.error('Failed to load evidence notes', { error: error?.message, assessmentId: req.params.id })
+    res.status(500).json({ error: 'Failed to load notes' })
+  }
+})
+
+const EvidenceNoteSchema = z.object({
+  category: z.string().min(1).max(100),
+  label: z.string().max(200).optional(),
+  note: z.string().max(CLIENT_NOTE_MAX_LENGTH),
+})
+
+// The claimant's note on one evidence category ("I didn't take any photos").
+// An empty note clears it.
+router.put('/:id/evidence-notes', optionalAuthMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const parsed = EvidenceNoteSchema.safeParse(req.body)
+    if (!parsed.success) return res.status(400).json({ error: 'Notes are limited to 1000 characters.' })
+    const { category } = parsed.data
+    const note = parsed.data.note.trim()
+
+    const id = req.params.id
+    const current = await prisma.assessment.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        userId: true,
+        evidenceNotes: true,
+        leadSubmission: { select: { id: true, assignedAttorneyId: true } },
+      },
+    })
+    if (!current) return res.status(404).json({ error: 'Assessment not found' })
+    // Same ownership rule as the claimant's other intake writes, including the
+    // guest-case tolerance for a claimant who has not created an account yet.
+    if (current.userId && current.userId !== req.user?.id) {
+      const owner = await prisma.user.findUnique({ where: { id: current.userId }, select: { email: true } })
+      if (!owner || !isGuestCaseUserEmail(owner.email)) {
+        return res.status(403).json({ error: 'Unauthorized to update this assessment' })
+      }
+    }
+
+    const notes = parseEvidenceNotes(current.evidenceNotes)
+    const previous = notes[category]?.note ?? ''
+    if (note) {
+      notes[category] = {
+        note,
+        label: parsed.data.label?.trim() || notes[category]?.label || category,
+        updatedAt: new Date().toISOString(),
+      }
+    } else {
+      delete notes[category]
+    }
+    await prisma.assessment.update({
+      where: { id },
+      data: { evidenceNotes: Object.keys(notes).length ? notes : Prisma.DbNull },
+    })
+
+    const lead = current.leadSubmission
+    if (note && note !== previous && lead?.assignedAttorneyId) {
+      void notifyAttorneyInApp({
+        attorneyId: lead.assignedAttorneyId,
+        assessmentId: id,
+        eventType: ATTORNEY_EVENTS.document_request_note,
+        subject: `Client note on ${notes[category].label}`,
+        body: note,
+        leadId: lead.id,
+        link: `/attorney-dashboard/cases/${lead.id}/documents`,
+        payload: { evidenceCategory: category },
+      })
+    }
+
+    res.json({ category, note: note || null, updatedAt: notes[category]?.updatedAt ?? null })
+  } catch (error: any) {
+    logger.error('Failed to save evidence note', { error: error?.message, assessmentId: req.params.id })
+    res.status(500).json({ error: 'Failed to save your note' })
+  }
+})
+
 // Tasks the attorney assigned to the client/plaintiff for this case. Only tasks
 // explicitly assigned to the client role are surfaced — internal attorney and
 // paralegal tasks stay private to the firm (#157).

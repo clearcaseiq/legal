@@ -273,6 +273,24 @@ export async function savePlaintiffRequestItemNote(
   return data
 }
 
+export type EvidenceCategoryNote = { note: string; label: string; updatedAt: string }
+
+/** The claimant's notes on evidence categories, keyed by category. */
+export async function getEvidenceNotes(assessmentId: string): Promise<Record<string, EvidenceCategoryNote>> {
+  const { data } = await api.get(`/v1/assessments/${assessmentId}/evidence-notes`)
+  return data?.notes && typeof data.notes === 'object' ? data.notes : {}
+}
+
+export async function saveEvidenceNote(
+  assessmentId: string,
+  category: string,
+  label: string,
+  note: string,
+): Promise<{ category: string; note: string | null; updatedAt: string | null }> {
+  const { data } = await api.put(`/v1/assessments/${assessmentId}/evidence-notes`, { category, label, note })
+  return data
+}
+
 export type PlaintiffSignedDocument = {
   id: string
   documentType: string

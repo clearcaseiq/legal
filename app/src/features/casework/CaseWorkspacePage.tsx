@@ -93,8 +93,10 @@ import {
   unapproveLeadTask,
   runLeadConflictCheck,
   uploadLeadEvidenceOnBehalf,
+  getEvidenceNotes,
   type AttorneyDocumentRequest,
   type CaseCommandCenter,
+  type EvidenceCategoryNote,
   type FirmColleague,
   type MedicalChronologySummary,
 } from '../../lib/api'
@@ -2375,6 +2377,44 @@ const DOCUMENTS_VIEWS: { id: DocumentsView; label: string }[] = [
  * Documents: every file on the case, what the client still owes (uploads and
  * signatures), and the firm's retainer and HIPAA templates.
  */
+/** Notes the client left on evidence categories ("I didn't see a doctor"). */
+function EvidenceClientNotes({ assessmentId, reloadKey }: { assessmentId?: string | null; reloadKey: number }) {
+  const [notes, setNotes] = useState<Record<string, EvidenceCategoryNote>>({})
+  useEffect(() => {
+    if (!assessmentId) return
+    let cancelled = false
+    getEvidenceNotes(assessmentId)
+      .then((next) => {
+        if (!cancelled) setNotes(next)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [assessmentId, reloadKey])
+
+  const entries = Object.entries(notes).sort((a, b) => (b[1].updatedAt || '').localeCompare(a[1].updatedAt || ''))
+  if (entries.length === 0) return null
+  return (
+    <div className="rounded-xl border border-amber-200 bg-amber-50/50 px-4 py-3">
+      <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-amber-800">
+        <MessageSquare className="h-3.5 w-3.5" aria-hidden /> Client notes on evidence
+      </p>
+      <ul className="mt-2 divide-y divide-amber-100">
+        {entries.map(([category, entry]) => (
+          <li key={category} className="py-2">
+            <p className="text-xs font-semibold text-slate-700">
+              {entry.label}
+              {entry.updatedAt ? <span className="font-normal text-slate-500"> · {formatDate(entry.updatedAt)}</span> : null}
+            </p>
+            <p className="mt-0.5 whitespace-pre-wrap break-words text-sm text-slate-800">{entry.note}</p>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 function DocumentsPanel({ lead, detail, section }: { lead: any; detail: CaseDetailVM; section?: string }) {
   const [searchParams, setSearchParams] = useSearchParams()
   const { can } = useFirmAccess()
@@ -2473,7 +2513,8 @@ function DocumentsPanel({ lead, detail, section }: { lead: any; detail: CaseDeta
       ) : null}
 
       {/* Kept mounted so the Upload files button can open its picker from any section. */}
-      <div className={view === 'files' ? '' : 'hidden'}>
+      <div className={view === 'files' ? 'space-y-4' : 'hidden'}>
+        <EvidenceClientNotes assessmentId={detail.assessmentId} reloadKey={reloadKey} />
         <EvidencePanel
           leadId={lead.id}
           assessmentId={detail.assessmentId}
