@@ -11,6 +11,7 @@ import { getSystemStatus } from '../lib/ops-status'
 import { normalizeReferenceCode } from '../lib/case-reference'
 import { isGuestCaseUserEmail } from '../lib/client-consent-guard'
 import { resolveClaimantContact } from '../lib/claimant-contact'
+import { buildSuspiciousLeads, resolveWindow, suspiciousLeadsToCsv } from '../lib/suspicious-leads'
 
 const router: ExpressRouter = Router()
 
@@ -174,6 +175,32 @@ router.get('/intake-leads', authMiddleware, adminMiddleware, async (req: AuthReq
     res.json({ success: true, data: leads })
   } catch (error) {
     logger.error('Failed to list intake leads', { error })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/**
+ * Suspicious intake leads as CSV, for the Google Ads agency. No contact
+ * details or case content; see suspicious-leads.ts for what is in it and why.
+ * `from`/`to` are dates, defaulting to the last 30 days.
+ */
+router.get('/intake-leads/suspicious.csv', authMiddleware, adminMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const window = resolveWindow(req.query.from, req.query.to)
+    if ('error' in window) return res.status(400).json({ error: window.error })
+
+    const rows = await buildSuspiciousLeads(window)
+    const day = (date: Date) => date.toISOString().slice(0, 10)
+    logger.info('Suspicious intake leads exported', { adminId: req.user?.id, rows: rows.length })
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8')
+    res.setHeader('Cache-Control', 'no-store')
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="suspicious-leads-${day(window.from)}-to-${day(window.to)}.csv"`,
+    )
+    res.send(suspiciousLeadsToCsv(rows))
+  } catch (error) {
+    logger.error('Failed to export suspicious intake leads', { error })
     res.status(500).json({ error: 'Internal server error' })
   }
 })

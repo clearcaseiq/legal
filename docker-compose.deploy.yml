@@ -95,6 +95,12 @@ services:
       ENABLE_OCR: "true"
       PDF_TEXTRACT_FALLBACK: "true"
       AWS_REGION: ${AWS_REGION:-us-east-1}
+      # Cloudflare Turnstile on lead creation and the case-submit code. On only
+      # when both are set. The site key reaches the browser through the API
+      # (/v1/intake-leads/captcha-config), so the web image needs neither and
+      # stays promotable between QA and production.
+      TURNSTILE_SITE_KEY: ${TURNSTILE_SITE_KEY:-}
+      TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:-}
     volumes:
       - api_uploads:/app/uploads
     expose:

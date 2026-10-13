@@ -13,15 +13,22 @@
  * figure. No claim detail, no contact details, no diagnosis, nothing about the
  * case itself. That constraint is the reason the loop is closed this way at all
  * instead of with a conversion tag on the results page.
+ *
+ * The same sweep also reports "qualified lead" conversions — a case from an ad
+ * click that passed the one-time code and was sent to attorneys — against a
+ * separate conversion action, under the same rule: click id and timestamp only.
  */
 import { prisma } from './prisma'
 import { logger } from './logger'
 import {
+  isConversionActionConfigured,
   isGoogleAdsConfigured,
   uploadClickConversions,
   type ClickConversion,
+  type ConversionKind,
 } from './google-ads-conversions'
 import { buildRevenueProjection } from './revenue-projection'
+import { isCaseSubmitOtpRequired } from './case-submit-otp'
 
 /**
  * Ads will not accept a conversion whose click is older than the conversion
@@ -50,7 +57,7 @@ const BATCH_SIZE = 50
 export const MAX_ATTEMPTS = 5
 
 export interface AdsConversionSweepResult {
-  /** Retained cases newly found to have a click id worth reporting. */
+  /** Retained cases and qualified leads newly found to have a click id worth reporting. */
   discovered: number
   attempted: number
   uploaded: number
@@ -145,36 +152,121 @@ async function discover(): Promise<number> {
   return discovered
 }
 
+/**
+ * Find cases from an ad click that were sent to attorneys after passing the
+ * one-time code, and that have no qualified conversion recorded yet.
+ *
+ * `sourceType: 'plaintiff'` is the claimant's own submission; the submit route
+ * writes it on every successful send, including a resend of a held case. The
+ * code is consumed only once that submission lands, so a consumed code is the
+ * proof it was a person holding the contact details. With the code switched
+ * off there is no such proof to require, and the submission alone counts.
+ */
+async function discoverQualified(): Promise<number> {
+  const since = new Date(Date.now() - CLICK_WINDOW_DAYS * 24 * 60 * 60_000)
+  const submitted = await prisma.leadSubmission.findMany({
+    where: { sourceType: 'plaintiff', submittedAt: { gte: since } },
+    select: { assessmentId: true, submittedAt: true },
+    orderBy: { submittedAt: 'desc' },
+    take: BATCH_SIZE * 4,
+  })
+  if (!submitted.length) return 0
+
+  const assessmentIds = submitted.map((lead) => lead.assessmentId)
+  const otpRequired = isCaseSubmitOtpRequired()
+
+  const [leads, existing, verified] = await Promise.all([
+    prisma.intakeLead.findMany({
+      where: { assessmentId: { in: assessmentIds }, gclid: { not: null } },
+      select: { assessmentId: true, gclid: true },
+    }),
+    prisma.adsQualifiedConversionUpload.findMany({
+      where: { assessmentId: { in: assessmentIds } },
+      select: { assessmentId: true },
+    }),
+    otpRequired
+      ? prisma.caseSubmitOtp.findMany({
+          where: { assessmentId: { in: assessmentIds }, consumedAt: { not: null } },
+          select: { assessmentId: true },
+        })
+      : Promise.resolve(null),
+  ])
+
+  const alreadyRecorded = new Set(existing.map((row) => row.assessmentId))
+  const passedOtp = verified ? new Set(verified.map((row) => row.assessmentId)) : null
+  const submittedAt = new Map(submitted.map((lead) => [lead.assessmentId, lead.submittedAt]))
+
+  let discovered = 0
+  for (const lead of leads) {
+    if (!lead.assessmentId || !lead.gclid) continue
+    if (alreadyRecorded.has(lead.assessmentId)) continue
+    if (passedOtp && !passedOtp.has(lead.assessmentId)) continue
+    const converted = submittedAt.get(lead.assessmentId)
+    if (!converted) continue
+
+    try {
+      await prisma.adsQualifiedConversionUpload.create({
+        data: {
+          assessmentId: lead.assessmentId,
+          gclid: lead.gclid,
+          // No value: nothing is known about what a submitted case is worth
+          // until an attorney takes it, and the retained conversion carries that.
+          value: null,
+          convertedAt: converted,
+          status: 'pending',
+        },
+      })
+      discovered += 1
+    } catch (error) {
+      logger.debug('Qualified ads conversion already recorded for assessment', {
+        assessmentId: lead.assessmentId,
+        error,
+      })
+    }
+  }
+
+  return discovered
+}
+
 /** Whether the click is still inside the window Ads will accept. */
 function withinClickWindow(convertedAt: Date, now: number): boolean {
   return now - convertedAt.getTime() <= CLICK_WINDOW_DAYS * 24 * 60 * 60_000
 }
 
+type UploadRow = { id: string; gclid: string; convertedAt: Date; value: number | null; currencyCode: string }
+
 /**
- * Record retained cases with Google Ads. Never throws.
- *
- * A failure here must not take the background loop down with it: the loop also
- * runs sweeps that people depend on, and an advertising integration is the
- * least important thing in it.
+ * The two upload tables share their columns and lifecycle, so the upload stage
+ * is written once against the handful of calls it makes.
  */
-export async function runAdsConversionSweep(): Promise<AdsConversionSweepResult> {
-  if (!isGoogleAdsConfigured()) return EMPTY
+type UploadTable = {
+  findMany(args: { where: object; orderBy: object; take: number }): Promise<UploadRow[]>
+  updateMany(args: { where: object; data: object }): Promise<unknown>
+  update(args: { where: { id: string }; data: object }): Promise<unknown>
+}
 
-  const discovered = await discover()
+function uploadTable(kind: ConversionKind): UploadTable {
+  return (kind === 'retained' ? prisma.adsConversionUpload : prisma.adsQualifiedConversionUpload) as unknown as UploadTable
+}
 
-  const pending = await prisma.adsConversionUpload.findMany({
+/** Send what is pending for one conversion action and record the outcome of each row. */
+async function uploadPending(kind: ConversionKind): Promise<Omit<AdsConversionSweepResult, 'discovered'>> {
+  const table = uploadTable(kind)
+  const none = { attempted: 0, uploaded: 0, failed: 0, skipped: 0 }
+
+  const pending = await table.findMany({
     where: { status: 'pending', attempts: { lt: MAX_ATTEMPTS } },
     orderBy: { convertedAt: 'asc' },
     take: BATCH_SIZE,
   })
-  if (!pending.length) return { ...EMPTY, discovered }
+  if (!pending.length) return none
 
   const now = Date.now()
   const stale = pending.filter((row) => !withinClickWindow(row.convertedAt, now))
   const sendable = pending.filter((row) => withinClickWindow(row.convertedAt, now))
 
   if (stale.length) {
-    await prisma.adsConversionUpload.updateMany({
+    await table.updateMany({
       where: { id: { in: stale.map((row) => row.id) } },
       data: {
         status: 'skipped',
@@ -184,7 +276,7 @@ export async function runAdsConversionSweep(): Promise<AdsConversionSweepResult>
   }
 
   if (!sendable.length) {
-    return { ...EMPTY, discovered, skipped: stale.length }
+    return { ...none, skipped: stale.length }
   }
 
   const conversions: ClickConversion[] = sendable.map((row) => ({
@@ -196,24 +288,26 @@ export async function runAdsConversionSweep(): Promise<AdsConversionSweepResult>
 
   let result: Awaited<ReturnType<typeof uploadClickConversions>>
   try {
-    result = await uploadClickConversions(conversions)
+    result = kind === 'retained'
+      ? await uploadClickConversions(conversions)
+      : await uploadClickConversions(conversions, kind)
   } catch (error) {
     // The whole request failed — an expired refresh token, a network fault, Ads
     // being down. Nothing was accepted, so every row stays pending with its
     // attempt counted, and the next sweep tries again.
     const message = error instanceof Error ? error.message : String(error)
-    await prisma.adsConversionUpload.updateMany({
+    await table.updateMany({
       where: { id: { in: sendable.map((row) => row.id) } },
       data: { attempts: { increment: 1 }, lastError: message.slice(0, 1000) },
     })
-    logger.error('Ads conversion upload failed', { count: sendable.length, error: message })
-    return { ...EMPTY, discovered, attempted: sendable.length, failed: sendable.length, skipped: stale.length }
+    logger.error('Ads conversion upload failed', { kind, count: sendable.length, error: message })
+    return { attempted: sendable.length, uploaded: 0, failed: sendable.length, skipped: stale.length }
   }
 
   const uploadedAt = new Date()
 
   if (result.uploaded.length) {
-    await prisma.adsConversionUpload.updateMany({
+    await table.updateMany({
       where: { id: { in: result.uploaded.map((index) => sendable[index].id) } },
       data: {
         status: 'uploaded',
@@ -228,17 +322,43 @@ export async function runAdsConversionSweep(): Promise<AdsConversionSweepResult>
   // Google's partial-failure detail does not reliably distinguish "try later"
   // from "never going to work", so the attempt cap is what stops the latter.
   for (const failure of result.failures) {
-    await prisma.adsConversionUpload.update({
+    await table.update({
       where: { id: sendable[failure.index].id },
       data: { attempts: { increment: 1 }, lastError: failure.message.slice(0, 1000) },
     })
   }
 
   return {
-    discovered,
     attempted: sendable.length,
     uploaded: result.uploaded.length,
     failed: result.failures.length,
     skipped: stale.length,
   }
 }
+
+/**
+ * Record retained cases, and qualified leads, with Google Ads. Never throws.
+ *
+ * A failure here must not take the background loop down with it: the loop also
+ * runs sweeps that people depend on, and an advertising integration is the
+ * least important thing in it.
+ *
+ * Each kind runs only when its own conversion action is configured, so the
+ * qualified conversion can be switched on before or after the retained one.
+ */
+export async function runAdsConversionSweep(): Promise<AdsConversionSweepResult> {
+  if (!isGoogleAdsConfigured()) return EMPTY
+
+  const total: AdsConversionSweepResult = { ...EMPTY }
+  for (const kind of ['retained', 'qualified'] as const) {
+    if (!isConversionActionConfigured(kind)) continue
+    total.discovered += kind === 'retained' ? await discover() : await discoverQualified()
+    const result = await uploadPending(kind)
+    total.attempted += result.attempted
+    total.uploaded += result.uploaded
+    total.failed += result.failed
+    total.skipped += result.skipped
+  }
+  return total
+}
+

@@ -1,4 +1,5 @@
 import { Router } from 'express'
+import { Prisma } from '@prisma/client'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma'
 import { logger } from '../lib/logger'
@@ -9,9 +10,24 @@ import { scheduleReportReady } from '../lib/report-ready'
 import { webUrl } from '../lib/app-url'
 import { deviceTypeFromUserAgent } from '../lib/device-type'
 import { optionalAuthMiddleware, type AuthRequest } from '../lib/auth'
-import { checkContactDuplicates } from '../lib/contact-duplicates'
+import { checkContactDuplicates, contactPhoneDigits } from '../lib/contact-duplicates'
+import {
+  CAPTCHA_FAILED_RESPONSE,
+  captchaTokenFrom,
+  isTurnstileEnabled,
+  turnstileSiteKey,
+  verifyTurnstile,
+} from '../lib/turnstile'
 
 const router = Router()
+
+/**
+ * A new lead with the same email or phone as one created this recently is a
+ * repeat: recorded, counted on the original, but sent no new resume email or
+ * text. Long enough to cover someone restarting over a few weeks, short enough
+ * that a genuinely new incident months later is treated as new.
+ */
+export const REPEAT_WINDOW_DAYS = 30
 
 const MAX_SNAPSHOT_LENGTH = 100_000
 
@@ -158,6 +174,45 @@ function appendStepHistory(existing: string | null | undefined, step: string): s
   return JSON.stringify(history.slice(-MAX_STEP_HISTORY))
 }
 
+/**
+ * The earliest lead in the repeat window with this email or phone, if any.
+ *
+ * Phone is matched on its last ten digits because stored formats vary, the
+ * same way `contact-duplicates.ts` matches accounts.
+ */
+async function findRecentLeadForContact(email: string | null, phone: string | null): Promise<{ id: string } | null> {
+  const since = new Date(Date.now() - REPEAT_WINDOW_DAYS * 24 * 60 * 60_000)
+  if (email) {
+    const byEmail = await prisma.intakeLead.findFirst({
+      where: { email, createdAt: { gte: since } },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true },
+    })
+    if (byEmail) return byEmail
+  }
+  const digits = contactPhoneDigits(phone)
+  if (digits.length === 10) {
+    const rows = await prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT "id" FROM "intake_leads"
+      WHERE "phone" IS NOT NULL
+        AND "createdAt" >= ${since}
+        AND right(regexp_replace("phone", '\\D', '', 'g'), 10) = ${digits}
+      ORDER BY "createdAt" ASC
+      LIMIT 1
+    `)
+    if (rows[0]) return rows[0]
+  }
+  return null
+}
+
+// Public, unauthenticated: whether the browser should render the Turnstile
+// widget, and with which site key. Served from here rather than baked into the
+// web bundle so it always matches what the server enforces.
+router.get('/captcha-config', (_req, res) => {
+  const enabled = isTurnstileEnabled()
+  res.json({ enabled, siteKey: enabled ? turnstileSiteKey() : null })
+})
+
 const ContactCheckInput = z.object({
   email: emailField,
   phone: z.string().trim().max(40).optional().or(z.literal('')),
@@ -196,6 +251,29 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ error: 'An email or phone number is required' })
     }
 
+    // Create only: the autosave PATCH sends nothing, and gating it would make
+    // every later step of an intake depend on a token issued minutes earlier.
+    const captcha = await verifyTurnstile(captchaTokenFrom(req.body), req.ip)
+    if (!captcha.ok) {
+      logger.info('Intake lead rejected by captcha', { errorCodes: captcha.errorCodes })
+      return res.status(403).json(CAPTCHA_FAILED_RESPONSE)
+    }
+
+    // A repeat still gets its own row, so the wizard has a lead to autosave to.
+    // Handing back the earlier lead's id instead would give anyone who types a
+    // stranger's email that person's saved answers, because the id is the only
+    // credential the resume endpoints check.
+    const original = await findRecentLeadForContact(email || null, phone?.trim() || null)
+    let repeatCount = 0
+    if (original) {
+      const updated = await prisma.intakeLead.update({
+        where: { id: original.id },
+        data: { repeatCount: { increment: 1 } },
+        select: { repeatCount: true },
+      })
+      repeatCount = updated.repeatCount
+    }
+
     const lead = await prisma.intakeLead.create({
       data: {
         email: email || null,
@@ -213,14 +291,19 @@ router.post('/', async (req, res) => {
         // the attribution the client does send. The header is already here, and
         // a client-supplied device is a client-supplied anything.
         deviceType: deviceTypeFromUserAgent(req.get('user-agent')),
+        ipAddress: req.ip || null,
+        captchaPassed: captcha.outcome === 'passed' ? true : captcha.outcome === 'unavailable' ? false : null,
+        repeatCount,
       },
     })
 
-    logger.info('Intake lead captured', { leadId: lead.id, currentStep: lead.currentStep })
-    res.status(201).json({ id: lead.id })
+    logger.info('Intake lead captured', { leadId: lead.id, currentStep: lead.currentStep, repeat: Boolean(original) })
+    res.status(201).json({ id: lead.id, ...(original ? { repeat: true } : {}) })
 
-    // Fire-and-forget after responding: send the "return later" link on first contact capture.
-    if (lead.email || lead.phone) {
+    // Fire-and-forget after responding: send the "return later" link on first
+    // contact capture. Not on a repeat, which already had one: resending is
+    // exactly what a bot cycling through the form would want from us.
+    if ((lead.email || lead.phone) && !original) {
       void sendResumeLink({ id: lead.id, email: lead.email, phone: lead.phone })
     }
     // Provision a passwordless account from the captured email and link it.

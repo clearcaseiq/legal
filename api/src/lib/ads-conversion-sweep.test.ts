@@ -11,7 +11,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('./prisma', () => import('../test/universalPrismaMock'))
 vi.mock('./google-ads-conversions', () => ({
   isGoogleAdsConfigured: vi.fn().mockReturnValue(true),
+  isConversionActionConfigured: vi.fn((kind: string) => kind === 'retained'),
   uploadClickConversions: vi.fn(),
+}))
+vi.mock('./case-submit-otp', () => ({
+  isCaseSubmitOtpRequired: vi.fn().mockReturnValue(true),
 }))
 vi.mock('./revenue-projection', () => ({
   buildRevenueProjection: vi.fn().mockResolvedValue({
@@ -22,8 +26,9 @@ vi.mock('./revenue-projection', () => ({
 
 import { prisma } from './prisma'
 import { resetUniversalPrismaMock } from '../test/universalPrismaMock'
-import { isGoogleAdsConfigured, uploadClickConversions } from './google-ads-conversions'
+import { isConversionActionConfigured, isGoogleAdsConfigured, uploadClickConversions } from './google-ads-conversions'
 import { buildRevenueProjection } from './revenue-projection'
+import { isCaseSubmitOtpRequired } from './case-submit-otp'
 import { runAdsConversionSweep } from './ads-conversion-sweep'
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -70,6 +75,8 @@ const pendingQuery = () =>
 beforeEach(() => {
   resetUniversalPrismaMock()
   vi.mocked(isGoogleAdsConfigured).mockReturnValue(true)
+  vi.mocked(isConversionActionConfigured).mockImplementation((kind) => kind === 'retained')
+  vi.mocked(isCaseSubmitOtpRequired).mockReturnValue(true)
   vi.mocked(uploadClickConversions).mockReset().mockResolvedValue({ uploaded: [], failures: [] })
   vi.mocked(buildRevenueProjection)
     .mockReset()
@@ -251,5 +258,148 @@ describe('runAdsConversionSweep', () => {
 
     expect(result).toMatchObject({ attempted: 0, uploaded: 0 })
     expect(uploadClickConversions).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * "Qualified lead": a case from an ad click that passed the one-time code and
+ * was sent to attorneys. Earlier and more numerous than a retention, so bidding
+ * has something real to learn from instead of raw form submits.
+ */
+describe('qualified lead conversions', () => {
+  const qualified = () => (prisma as any).adsQualifiedConversionUpload
+
+  function givenQualified(options: {
+    submitted?: { assessmentId: string; submittedAt: Date }[]
+    leads?: { assessmentId: string; gclid: string | null }[]
+    existing?: { assessmentId: string }[]
+    otpConsumed?: { assessmentId: string }[]
+    pending?: { id: string; gclid: string; convertedAt: Date }[]
+  }) {
+    vi.mocked(isConversionActionConfigured).mockImplementation((kind) => kind === 'qualified')
+    vi.mocked(prisma.leadSubmission.findMany).mockResolvedValue((options.submitted || []) as any)
+    vi.mocked(prisma.intakeLead.findMany).mockResolvedValue((options.leads || []) as any)
+    vi.mocked(prisma.caseSubmitOtp.findMany).mockResolvedValue((options.otpConsumed || []) as any)
+    vi.mocked(qualified().findMany).mockImplementation((args: any) =>
+      Promise.resolve(
+        args?.where?.status === 'pending'
+          ? (options.pending || []).map((row) => ({ currencyCode: 'USD', value: null, ...row }))
+          : options.existing || [],
+      ),
+    )
+  }
+
+  const qualifiedCreated = () => vi.mocked(qualified().create).mock.calls.map((call: any) => call[0].data)
+
+  it('selects claimant submissions from the last 90 days', async () => {
+    givenQualified({})
+
+    await runAdsConversionSweep()
+
+    const where = (vi.mocked(prisma.leadSubmission.findMany).mock.calls[0][0] as any).where
+    expect(where.sourceType).toBe('plaintiff')
+    const ageDays = (Date.now() - where.submittedAt.gte.getTime()) / DAY_MS
+    expect(Math.round(ageDays)).toBe(90)
+  })
+
+  it('records a submitted case from an ad click whose code was used', async () => {
+    const submittedAt = daysAgo(1)
+    givenQualified({
+      submitted: [{ assessmentId: 'asm-1', submittedAt }],
+      leads: [{ assessmentId: 'asm-1', gclid: 'Cj0KCQ' }],
+      otpConsumed: [{ assessmentId: 'asm-1' }],
+    })
+
+    const result = await runAdsConversionSweep()
+
+    expect(result.discovered).toBe(1)
+    // Click id, timestamp and no value: nothing about the case leaves.
+    expect(qualifiedCreated()[0]).toEqual({
+      assessmentId: 'asm-1',
+      gclid: 'Cj0KCQ',
+      value: null,
+      convertedAt: submittedAt,
+      status: 'pending',
+    })
+    // Never priced, and never written to the retained-case table.
+    expect(buildRevenueProjection).not.toHaveBeenCalled()
+    expect(prisma.adsConversionUpload.create).not.toHaveBeenCalled()
+  })
+
+  it('skips a submission whose code was never used', async () => {
+    givenQualified({
+      submitted: [{ assessmentId: 'asm-1', submittedAt: daysAgo(1) }],
+      leads: [{ assessmentId: 'asm-1', gclid: 'Cj0KCQ' }],
+      otpConsumed: [],
+    })
+
+    const result = await runAdsConversionSweep()
+
+    expect(result.discovered).toBe(0)
+    expect(qualified().create).not.toHaveBeenCalled()
+  })
+
+  it('does not require a code when the code check is switched off', async () => {
+    vi.mocked(isCaseSubmitOtpRequired).mockReturnValue(false)
+    givenQualified({
+      submitted: [{ assessmentId: 'asm-1', submittedAt: daysAgo(1) }],
+      leads: [{ assessmentId: 'asm-1', gclid: 'Cj0KCQ' }],
+    })
+
+    const result = await runAdsConversionSweep()
+
+    expect(result.discovered).toBe(1)
+    expect(prisma.caseSubmitOtp.findMany).not.toHaveBeenCalled()
+  })
+
+  it('records each case once, however often it is resubmitted', async () => {
+    givenQualified({
+      submitted: [{ assessmentId: 'asm-1', submittedAt: daysAgo(1) }],
+      leads: [{ assessmentId: 'asm-1', gclid: 'Cj0KCQ' }],
+      otpConsumed: [{ assessmentId: 'asm-1' }],
+      existing: [{ assessmentId: 'asm-1' }],
+    })
+
+    const result = await runAdsConversionSweep()
+
+    expect(result.discovered).toBe(0)
+    expect(qualified().create).not.toHaveBeenCalled()
+  })
+
+  it('ignores a submission with no click id', async () => {
+    givenQualified({
+      submitted: [{ assessmentId: 'asm-1', submittedAt: daysAgo(1) }],
+      leads: [],
+      otpConsumed: [{ assessmentId: 'asm-1' }],
+    })
+
+    const result = await runAdsConversionSweep()
+
+    expect(result.discovered).toBe(0)
+  })
+
+  it('uploads pending qualified rows against the qualified conversion action', async () => {
+    const convertedAt = daysAgo(1)
+    givenQualified({ pending: [{ id: 'q-1', gclid: 'Cj0KCQ', convertedAt }] })
+    vi.mocked(uploadClickConversions).mockResolvedValue({ uploaded: [0], failures: [] })
+
+    const result = await runAdsConversionSweep()
+
+    expect(uploadClickConversions).toHaveBeenCalledWith(
+      [{ gclid: 'Cj0KCQ', convertedAt, value: null, currencyCode: 'USD' }],
+      'qualified',
+    )
+    expect(result).toMatchObject({ uploaded: 1 })
+    const update = vi.mocked(qualified().updateMany).mock.calls[0][0] as any
+    expect(update.data).toMatchObject({ status: 'uploaded' })
+    expect(prisma.adsConversionUpload.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('leaves the retained-case pipeline alone when only the qualified action is set', async () => {
+    givenQualified({})
+
+    await runAdsConversionSweep()
+
+    expect(prisma.adsConversionUpload.findMany).not.toHaveBeenCalled()
   })
 })

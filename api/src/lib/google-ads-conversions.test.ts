@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   clearGoogleAdsTokenCache,
   formatConversionDateTime,
+  isConversionActionConfigured,
   isGoogleAdsConfigured,
   uploadClickConversions,
 } from './google-ads-conversions'
@@ -72,6 +73,44 @@ describe('isGoogleAdsConfigured', () => {
   it('is false when any single credential is missing', () => {
     delete process.env.GOOGLE_ADS_CONVERSION_ACTION_ID
     expect(isGoogleAdsConfigured()).toBe(false)
+  })
+
+  /** Either conversion action can be switched on without the other. */
+  it('is true with only the qualified-lead action set', () => {
+    delete process.env.GOOGLE_ADS_CONVERSION_ACTION_ID
+    process.env.GOOGLE_ADS_QUALIFIED_CONVERSION_ACTION = '55443322'
+    try {
+      expect(isGoogleAdsConfigured()).toBe(true)
+      expect(isConversionActionConfigured('qualified')).toBe(true)
+      expect(isConversionActionConfigured('retained')).toBe(false)
+    } finally {
+      delete process.env.GOOGLE_ADS_QUALIFIED_CONVERSION_ACTION
+    }
+  })
+})
+
+describe('the qualified-lead conversion action', () => {
+  afterEach(() => {
+    delete process.env.GOOGLE_ADS_QUALIFIED_CONVERSION_ACTION
+  })
+
+  it('uploads against its own action id, sending only the click id and timestamp', async () => {
+    process.env.GOOGLE_ADS_QUALIFIED_CONVERSION_ACTION = '55443322'
+    fetchMock.mockResolvedValueOnce(tokenResponse()).mockResolvedValueOnce(uploadResponse([{ gclid: 'Cj0KCQ' }]))
+
+    await uploadClickConversions([{ gclid: 'Cj0KCQ', convertedAt: CONVERSION.convertedAt, value: null }], 'qualified')
+
+    const body = JSON.parse(fetchMock.mock.calls[1][1].body as string)
+    expect(body.conversions[0]).toEqual({
+      gclid: 'Cj0KCQ',
+      conversionAction: 'customers/1234567890/conversionActions/55443322',
+      conversionDateTime: '2026-09-10 14:32:05+00:00',
+    })
+  })
+
+  it('refuses to upload qualified conversions when that action is not set', async () => {
+    await expect(uploadClickConversions([CONVERSION], 'qualified')).rejects.toThrow('not configured')
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 })
 

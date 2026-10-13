@@ -100,10 +100,20 @@ export interface IntakeLeadPayload {
  * campaign that brought someone in is the one that earned the case. Doing it in
  * one place means a second call site cannot forget it.
  */
-export async function createIntakeLead(payload: IntakeLeadPayload): Promise<string> {
+export async function createIntakeLead(payload: IntakeLeadPayload, captchaToken?: string): Promise<string> {
   const attribution = getAttribution()
-  const { data } = await api.post('/v1/intake-leads', attribution ? { ...payload, attribution } : payload)
+  const { data } = await api.post('/v1/intake-leads', {
+    ...payload,
+    ...(attribution ? { attribution } : {}),
+    ...(captchaToken ? { captchaToken } : {}),
+  })
   return data.id
+}
+
+/** Whether Turnstile is on, and the public site key to render it with. */
+export async function getCaptchaConfig(): Promise<{ enabled: boolean; siteKey: string | null }> {
+  const { data } = await api.get('/v1/intake-leads/captcha-config')
+  return data
 }
 
 export async function updateIntakeLead(id: string, payload: IntakeLeadPayload) {
@@ -366,6 +376,8 @@ export async function submitCaseForReview(
     dismissedAttorneyIds?: string[]
     attorneyShareAuthorized?: boolean
     otpCode?: string
+    /** Sent after a CASE_ALREADY_SUBMITTED answer, when the claimant says this is a different incident. */
+    confirmSeparateCase?: boolean
   }
 ) {
   const { data } = await api.post(`/v1/assessments/${assessmentId}/submit-for-review`, contactInfo || {})
@@ -386,8 +398,12 @@ export interface CaseSubmitOtpChallenge {
 export async function requestCaseSubmitOtp(
   assessmentId: string,
   contact: { email?: string; phone?: string; preferredContactMethod?: 'phone' | 'text' | 'email' },
+  captchaToken?: string,
 ): Promise<CaseSubmitOtpChallenge> {
-  const { data } = await api.post(`/v1/assessments/${assessmentId}/submit-otp`, contact)
+  const { data } = await api.post(
+    `/v1/assessments/${assessmentId}/submit-otp`,
+    captchaToken ? { ...contact, captchaToken } : contact,
+  )
   return data
 }
 

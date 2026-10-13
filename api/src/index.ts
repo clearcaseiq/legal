@@ -19,6 +19,7 @@ import { runAiCaseManagerSweep, isAiCaseManagerEnabled } from './lib/ai-case-man
 import { runActivityCanarySweep, isActivityCanaryEnabled } from './lib/activity-canary-sweep'
 import { runErrorRateSweep, isErrorRateMonitorEnabled } from './lib/error-rate-monitor'
 import { runAdsConversionSweep } from './lib/ads-conversion-sweep'
+import { runIntakeLeadIpPurge } from './lib/intake-lead-ip-retention'
 import { isGoogleAdsConfigured } from './lib/google-ads-conversions'
 import { runInboundSyncSweep, SYNC_INTERVAL_MS } from './lib/cms/inbound-sync-sweep'
 import { runEvidenceProcessingSweep } from './lib/evidence-processing-sweep'
@@ -48,6 +49,7 @@ let adsConversionTimer: NodeJS.Timeout | null = null
 let inboundSyncTimer: NodeJS.Timeout | null = null
 let evidenceProcessingTimer: NodeJS.Timeout | null = null
 let insuranceFollowUpTimer: NodeJS.Timeout | null = null
+let intakeLeadIpPurgeTimer: NodeJS.Timeout | null = null
 
 async function runCalendarWebhookRenewalSweep(trigger: 'startup' | 'interval') {
   const sweep = beginSweep('calendar-webhook-renewal')
@@ -592,8 +594,33 @@ function startInsuranceFollowUpLoop() {
   }, intervalMs)
 }
 
+async function runIntakeLeadIpPurgeLoop(trigger: 'startup' | 'interval') {
+  const sweep = beginSweep('intake-lead-ip-purge')
+  try {
+    const result = await runIntakeLeadIpPurge()
+    sweep.succeed()
+    if (result.cleared > 0 || trigger === 'startup') {
+      logger.info('Intake lead IP purge completed', { trigger, ...result })
+    }
+  } catch (error) {
+    sweep.fail(error)
+    logger.error('Intake lead IP purge failed', { error, trigger })
+  }
+}
+
+function startIntakeLeadIpPurgeLoop() {
+  // Retention is counted in days, so daily is as precise as it needs to be.
+  const intervalMs = 24 * 60 * 60 * 1000
+  registerSweep('intake-lead-ip-purge', { label: 'Intake lead IP retention', enabled: true, intervalMs })
+  void runIntakeLeadIpPurgeLoop('startup')
+  intakeLeadIpPurgeTimer = setInterval(() => {
+    void runIntakeLeadIpPurgeLoop('interval')
+  }, intervalMs)
+}
+
 function startBackgroundLoops() {
   startInsuranceFollowUpLoop()
+  startIntakeLeadIpPurgeLoop()
   startCalendarWebhookRenewalLoop()
   startAppointmentEngagementLoop()
   startNotificationRetryLoop()
@@ -656,7 +683,9 @@ function stopBackgroundLoops() {
   if (inboundSyncTimer) clearInterval(inboundSyncTimer)
   if (evidenceProcessingTimer) clearInterval(evidenceProcessingTimer)
   if (insuranceFollowUpTimer) clearInterval(insuranceFollowUpTimer)
+  if (intakeLeadIpPurgeTimer) clearInterval(intakeLeadIpPurgeTimer)
   insuranceFollowUpTimer = null
+  intakeLeadIpPurgeTimer = null
   calendarWebhookRenewalTimer = null
   appointmentEngagementTimer = null
   notificationRetryTimer = null

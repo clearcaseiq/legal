@@ -5,6 +5,8 @@ import { Prisma } from '@prisma/client'
 import { prisma } from '../lib/prisma'
 import { AssessmentWrite, AssessmentUpdate, RequestCaseSubmitOtp, SubmitCaseForReview } from '../lib/validators'
 import { consumeCaseSubmitOtp, isCaseSubmitOtpRequired, issueCaseSubmitOtp, verifyCaseSubmitOtp } from '../lib/case-submit-otp'
+import { CAPTCHA_FAILED_RESPONSE, captchaTokenFrom, verifyTurnstile } from '../lib/turnstile'
+import { findRecentSubmittedCaseForContact } from '../lib/contact-duplicates'
 import { logger } from '../lib/logger'
 import { caseOriginFromIp } from '../lib/case-origin'
 import {
@@ -1582,6 +1584,14 @@ router.post('/:id/submit-otp', intakeLimiter, optionalAuthMiddleware, async (req
       return res.json({ required: false })
     }
 
+    // Each request texts or emails whatever contact was typed, so it is gated
+    // the same way lead creation is.
+    const captcha = await verifyTurnstile(captchaTokenFrom(req.body), req.ip)
+    if (!captcha.ok) {
+      logger.info('Case submit OTP rejected by captcha', { assessmentId: id, errorCodes: captcha.errorCodes })
+      return res.status(403).json(CAPTCHA_FAILED_RESPONSE)
+    }
+
     const result = await issueCaseSubmitOtp({
       assessmentId: id,
       email: parsed.data.email,
@@ -1677,6 +1687,27 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
         })
       }
       verifiedOtpId = otp.otpId
+    }
+
+    // Someone re-running intake for a case we already have. Only checked once
+    // they have proved they hold the contact, because the answer reveals that
+    // the person behind it has a claim. They can still say it is a different
+    // incident: a parent filing for themselves and a child after one crash is
+    // two cases of the same type under one email.
+    if ((verifiedOtpId || req.user) && !parsed.data.confirmSeparateCase) {
+      const earlier = await findRecentSubmittedCaseForContact({
+        email: email || req.user?.email || null,
+        phone: phone || null,
+        claimType: assessment.claimType,
+        excludeAssessmentId: id,
+      })
+      if (earlier) {
+        logger.info('Submission matched a recent case from the same contact', { assessmentId: id })
+        return res.status(409).json({
+          error: 'We already have your case.',
+          code: 'CASE_ALREADY_SUBMITTED',
+        })
+      }
     }
     // A case with a lead row is not a case anyone has necessarily seen. Manual
     // review upserts one, an admin release upserts one, and a first attempt is

@@ -232,6 +232,9 @@ export const SubmitCaseForReview = z.object({
   attorneyShareAuthorized: z.boolean().optional(),
   // The one-time code sent by POST /:id/submit-otp.
   otpCode: z.string().trim().max(12).optional(),
+  // The claimant was told we already have a recent case of this type under
+  // their contact details and said this one is a different incident.
+  confirmSeparateCase: z.boolean().optional(),
 })
 
 export const RequestCaseSubmitOtp = z.object({

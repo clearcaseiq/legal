@@ -33,6 +33,7 @@ import {
 } from '../lib/api-plaintiff'
 import ChatGPTAnalysis from '../components/ChatGPTAnalysis'
 import BrandLogo from '../components/BrandLogo'
+import TurnstileWidget, { useTurnstile } from '../components/TurnstileWidget'
 import { formatPercentage, formatCurrency } from '../lib/formatters'
 import { useHeuristics } from '../contexts/HeuristicsContext'
 import { UNDOCUMENTED_READINESS_CEILING, type HeuristicsConfig } from '../lib/heuristics'
@@ -720,7 +721,8 @@ function upsertMedicalReviewEdit(
 }
 
 type SubmitVerifyState = {
-  stage: 'duplicate' | 'otp'
+  /** 'already_submitted': the server matched a recent case of this type under the same contact. */
+  stage: 'duplicate' | 'otp' | 'already_submitted'
   attorneyIds: string[]
   duplicate?: ContactDuplicateCheck
   challenge?: CaseSubmitOtpChallenge
@@ -847,6 +849,7 @@ export default function Results() {
   const confirmedContactKeysRef = useRef<Set<string>>(new Set())
   const [submitVerify, setSubmitVerify] = useState<SubmitVerifyState | null>(null)
   const [resendTick, setResendTick] = useState(0)
+  const otpCaptcha = useTurnstile()
   // Human-friendly case reference (e.g. "CCIQ-7Q2K9F") shown after a guest sends
   // their case, so they can quote it to support and find their way back.
   const [caseReferenceCode, setCaseReferenceCode] = useState<string | null>(null)
@@ -1382,12 +1385,25 @@ export default function Results() {
       resendAt: current?.resendAt ?? 0,
       challenge: current?.challenge,
     }))
+    const captchaToken = await otpCaptcha.takeToken()
+    if (captchaToken === null) {
+      setSubmitVerify((current) => ({
+        stage: 'otp',
+        attorneyIds,
+        challenge: current?.challenge,
+        code: current?.code ?? '',
+        busy: false,
+        error: t('results.sendReview.captchaPending'),
+        resendAt: current?.resendAt ?? 0,
+      }))
+      return
+    }
     try {
       const challenge = await requestCaseSubmitOtp(resolvedAssessmentId, {
         email: email.trim(),
         phone: phone.trim(),
         preferredContactMethod,
-      })
+      }, captchaToken)
       if (!challenge.required) {
         setSubmitVerify(null)
         await finalizeSubmitForReview(attorneyIds, undefined)
@@ -1439,11 +1455,27 @@ export default function Results() {
     setSubmitVerify({ ...submitVerify, code, busy: true, error: null })
     const error = await finalizeSubmitForReview(submitVerify.attorneyIds, code)
     if (error) setSubmitVerify((current) => (current ? { ...current, busy: false, error } : current))
+    else setSubmitVerify((current) => (current?.stage === 'already_submitted' ? current : null))
+  }
+
+  /** The claimant says the matched earlier case is a different incident; send this one too. */
+  const sendSeparateCase = async () => {
+    if (!submitVerify || submitVerify.busy) return
+    setSubmitVerify({ ...submitVerify, busy: true, error: null })
+    const error = await finalizeSubmitForReview(submitVerify.attorneyIds, submitVerify.code || undefined, { confirmSeparateCase: true })
+    if (error) setSubmitVerify((current) => (current ? { ...current, busy: false, error } : current))
     else setSubmitVerify(null)
   }
 
-  /** Returns an error message for the code prompt, or null once the case is sent. */
-  const finalizeSubmitForReview = async (selectedRankedAttorneyIds: string[], otpCode: string | undefined): Promise<string | null> => {
+  /**
+   * Returns an error message for the code prompt, or null once the case is sent
+   * (or once it has been matched to a case we already have, which opens that prompt instead).
+   */
+  const finalizeSubmitForReview = async (
+    selectedRankedAttorneyIds: string[],
+    otpCode: string | undefined,
+    options: { confirmSeparateCase?: boolean } = {},
+  ): Promise<string | null> => {
     if (!resolvedAssessmentId) return null
     const { firstName, email, phone, preferredContactMethod } = contactForm
     try {
@@ -1467,6 +1499,7 @@ export default function Results() {
         dismissedAttorneyIds,
         attorneyShareAuthorized: shareAuthorized,
         ...(otpCode ? { otpCode } : {}),
+        ...(options.confirmSeparateCase ? { confirmSeparateCase: true } : {}),
       })
       if (submitResult?.reference_code) setCaseReferenceCode(submitResult.reference_code)
       setCaseSubmittedForReview(true)
@@ -1493,6 +1526,17 @@ export default function Results() {
       }
       return null
     } catch (err: any) {
+      if (err.response?.data?.code === 'CASE_ALREADY_SUBMITTED') {
+        setSubmitVerify({
+          stage: 'already_submitted',
+          attorneyIds: selectedRankedAttorneyIds,
+          code: otpCode ?? '',
+          error: null,
+          busy: false,
+          resendAt: 0,
+        })
+        return null
+      }
       console.error('Failed to submit for review:', err)
       const message = err.response?.data?.error || 'Failed to submit. Please try again.'
       const otpError = typeof err.response?.data?.code === 'string' && err.response.data.code.startsWith('OTP_')
@@ -3918,6 +3962,15 @@ Checklist:
               </div>
             <div className="mx-auto mt-5 max-w-xl text-center">
             {contactFormError && <p className="mt-2 text-sm text-red-600">{contactFormError}</p>}
+              {otpCaptcha.siteKey && (
+                <TurnstileWidget
+                  siteKey={otpCaptcha.siteKey}
+                  onToken={otpCaptcha.onToken}
+                  resetSignal={otpCaptcha.resetSignal}
+                  action="case_submit_otp"
+                  className="mt-3 flex justify-center"
+                />
+              )}
               <p className="mt-4 text-xs text-slate-500">{t('results.calc.sendFooter1')}</p>
               <p className="mt-1 text-xs text-slate-500">{t('results.calc.sendFooter2')}</p>
             <button
@@ -3941,7 +3994,27 @@ Checklist:
       {submitVerify && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/50 px-4" role="dialog" aria-modal="true" aria-labelledby="submit-verify-title">
           <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
-            {submitVerify.stage === 'duplicate' ? (
+            {submitVerify.stage === 'already_submitted' ? (
+              <>
+                <div className="flex items-start gap-3">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-700"><CheckCircle className="h-5 w-5" /></span>
+                  <div>
+                    <h3 id="submit-verify-title" className="text-base font-semibold text-slate-900">{t('results.sendReview.alreadySubmittedTitle')}</h3>
+                    <p className="mt-1 text-sm text-slate-600">{t('results.sendReview.alreadySubmittedBody')}</p>
+                  </div>
+                </div>
+                {submitVerify.error && <p className="mt-3 text-sm text-red-600" role="alert">{submitVerify.error}</p>}
+                <div className="mt-5 flex flex-col gap-2">
+                  <Link to="/dashboard" className="btn-primary w-full text-center">{t('results.sendReview.alreadySubmittedCta')}</Link>
+                  <button type="button" className="btn-ghost w-full" disabled={submitVerify.busy} onClick={() => void sendSeparateCase()}>
+                    {submitVerify.busy ? t('results.calc.sending') : t('results.sendReview.alreadySubmittedDifferent')}
+                  </button>
+                  <button type="button" className="text-sm text-slate-500 hover:text-slate-700" disabled={submitVerify.busy} onClick={() => setSubmitVerify(null)}>
+                    {t('results.chrome.cancel')}
+                  </button>
+                </div>
+              </>
+            ) : submitVerify.stage === 'duplicate' ? (
               <>
                 <div className="flex items-start gap-3">
                   <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700"><AlertTriangle className="h-5 w-5" /></span>

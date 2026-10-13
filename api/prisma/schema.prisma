@@ -3020,12 +3020,30 @@ model IntakeLead {
   /// the question is what device the funnel was entered on.
   deviceType String?
 
+  /// Client IP of the request that created the lead, from `req.ip`.
+  ///
+  /// Kept so suspicious paid traffic can be reported back to the ad agency.
+  /// Personal information under the CCPA, so the IP retention sweep clears it
+  /// after 180 days. Leads created before the load-balancer fix recorded no IP.
+  ipAddress String?
+
+  /// Turnstile outcome on create. True when the check passed; false when the
+  /// lead was let through without one because Cloudflare was unreachable; null
+  /// when Turnstile was not configured at the time.
+  captchaPassed Boolean?
+
+  /// How many times the same email or phone started another intake within 30
+  /// days of this lead. Repeats are recorded but get no new resume email or text.
+  repeatCount Int @default(0)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([email])
   @@index([status, updatedAt])
   @@index([userId])
+  /// Supports the suspicious-leads export and the IP retention sweep.
+  @@index([createdAt])
   /// Supports the sweep that drains due report-ready emails.
   @@index([reportReadyDueAt])
   /// Supports the channel breakdown on the admin analytics screen.
@@ -3088,6 +3106,43 @@ model AdsConversionUpload {
   /// Drives the sweep's "what still needs sending" query.
   @@index([status, attempts])
   @@map("ads_conversion_uploads")
+}
+
+/// "Qualified lead" conversions: a case from an ad click that passed the
+/// one-time code check and was sent to attorneys.
+///
+/// A separate table rather than a `kind` column on `AdsConversionUpload`,
+/// because that table's unique `assessmentId` is its dedup guarantee and
+/// widening it to (assessmentId, kind) is a change the deploy-time
+/// `prisma db push` refuses to apply without `--accept-data-loss`. Same
+/// columns and the same lifecycle, uploaded by the same sweep.
+model AdsQualifiedConversionUpload {
+  id String @id @default(cuid())
+
+  /// One qualified conversion per case, however many times it is resubmitted.
+  assessmentId String @unique
+
+  gclid String
+
+  /// Optional, and null today: a qualified lead has no projected value yet.
+  value        Float?
+  currencyCode String @default("USD")
+
+  /// When the case was submitted for review.
+  convertedAt DateTime
+
+  /// 'pending' | 'uploaded' | 'failed' | 'skipped', as on `AdsConversionUpload`.
+  status String @default("pending")
+
+  attempts   Int       @default(0)
+  lastError  String?   @db.Text
+  uploadedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, attempts])
+  @@map("ads_qualified_conversion_uploads")
 }
 
 model DecisionMemory {

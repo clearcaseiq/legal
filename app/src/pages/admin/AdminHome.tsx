@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
+  downloadSuspiciousIntakeLeadsCsv,
   getAdminFailedNotifications,
   getAdminIntakeLeads,
   getAdminMatchingRules,
@@ -40,6 +41,8 @@ export default function AdminHome() {
   const [routingAlerts, setRoutingAlerts] = useState<any[]>([])
   const [failedNotifications, setFailedNotifications] = useState<any[]>([])
   const [intakeLeads, setIntakeLeads] = useState<AdminIntakeLead[]>([])
+  const [suspiciousDownloading, setSuspiciousDownloading] = useState(false)
+  const [suspiciousError, setSuspiciousError] = useState<string | null>(null)
   const [routingSaving, setRoutingSaving] = useState(false)
   const [routingControlError, setRoutingControlError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -86,6 +89,27 @@ export default function AdminHome() {
       setError(msg)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const downloadSuspiciousLeads = async () => {
+    if (suspiciousDownloading) return
+    setSuspiciousDownloading(true)
+    setSuspiciousError(null)
+    try {
+      const { blob, filename } = await downloadSuspiciousIntakeLeadsCsv()
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = filename
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+    } catch (err: any) {
+      setSuspiciousError(err?.response?.status === 403 ? 'Admin access is required.' : 'Could not download the suspicious leads file.')
+    } finally {
+      setSuspiciousDownloading(false)
     }
   }
 
@@ -498,12 +522,22 @@ export default function AdminHome() {
               Front-of-funnel captures, including abandoned intakes that were re-engaged and provisional accounts.
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="chip">{intake.openLeads ?? 0} open</span>
             <span className="chip">{intake.completedLeads ?? 0} completed</span>
             <span className="chip">{intake.abandonedReengaged ?? 0} re-engaged</span>
+            <button
+              type="button"
+              onClick={() => void downloadSuspiciousLeads()}
+              disabled={suspiciousDownloading}
+              title="Last 30 days. No names, emails, phone numbers or case details, so it can be shared with the ad agency."
+              className="btn-secondary text-sm disabled:opacity-60"
+            >
+              {suspiciousDownloading ? 'Preparing…' : 'Download suspicious leads (CSV)'}
+            </button>
           </div>
         </div>
+        {suspiciousError && <p className="mt-2 text-sm text-red-600">{suspiciousError}</p>}
         <div className="mt-5 space-y-2">
           {intakeLeads.length > 0 ? (
             intakeLeads.map((lead) => (

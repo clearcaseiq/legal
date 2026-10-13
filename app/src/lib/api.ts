@@ -4995,6 +4995,17 @@ export async function getAdminIntakeLeads(params?: { status?: 'in_progress' | 'c
   return Array.isArray(data?.data) ? data.data : []
 }
 
+/**
+ * Suspicious intake leads as a CSV for the Google Ads agency (no contact
+ * details). Fetched as a blob because the download needs the auth header.
+ */
+export async function downloadSuspiciousIntakeLeadsCsv(params?: { from?: string; to?: string }): Promise<{ blob: Blob; filename: string }> {
+  const response = await api.get('/v1/admin/intake-leads/suspicious.csv', { params, responseType: 'blob' })
+  const disposition = String(response.headers?.['content-disposition'] || '')
+  const filename = /filename="([^"]+)"/.exec(disposition)?.[1] || 'suspicious-leads.csv'
+  return { blob: response.data as Blob, filename }
+}
+
 export async function getAdminAnalytics(days?: number) {
   const params = days ? { days } : {}
   const { data } = await api.get('/v1/admin/analytics', { params })

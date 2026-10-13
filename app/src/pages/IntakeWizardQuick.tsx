@@ -20,6 +20,7 @@ import {
 } from '../lib/api'
 import { ChevronRight, ChevronLeft, ChevronDown, Car, Footprints, HardHat, Stethoscope, HelpCircle, Check, X, MapPin, Building2, Camera, Video, FileText, Shield, Mail, Phone, DollarSign, Dog, Package, AlertTriangle, Droplets, CalendarDays, Hospital, Scissors, Ambulance, PersonStanding, Scan, Syringe, Pill, Lock, MessageSquare, Info, CheckCircle2, Save, ShieldCheck, Users, HeartPulse, Activity, Bone, CalendarClock, Ban, BedDouble, Moon, Dumbbell, Bike, Truck, User, Briefcase, Landmark, CornerUpLeft, Receipt, Wine, RotateCw, XCircle, Clock, UserX, Lightbulb, ClipboardCheck, Umbrella, Pencil, FolderOpen, Scale, Star, Sparkles, TrendingUp, Brain, Upload, CalendarCheck, History, Hand, CircleDot, type LucideIcon } from 'lucide-react'
 import InlineEvidenceUpload from '../components/InlineEvidenceUpload'
+import TurnstileWidget, { useTurnstile } from '../components/TurnstileWidget'
 import SuggestedDocumentsSection from '../components/SuggestedDocumentsSection'
 import DynamicInjuryCards from '../components/DynamicInjuryCards'
 import BodyRegionPicker from '../components/BodyRegionPicker'
@@ -1764,6 +1765,7 @@ export default function IntakeWizardQuick() {
   // so the team can follow up even if the intake is abandoned before final submit. ---
   const leadIdRef = useRef<string | null>(null)
   const leadSyncInFlightRef = useRef(false)
+  const leadCaptcha = useTurnstile()
 
   const buildLeadSnapshot = (): Record<string, unknown> => {
     const { consents: _consents, contact: _contact, ...answers } = formData
@@ -1791,7 +1793,10 @@ export default function IntakeWizardQuick() {
       if (leadIdRef.current) {
         await updateIntakeLead(leadIdRef.current, payload)
       } else {
-        leadIdRef.current = await createIntakeLead(payload)
+        const captchaToken = await leadCaptcha.takeToken()
+        // Turnstile is on but has not produced a token yet; the next sync retries.
+        if (captchaToken === null) return
+        leadIdRef.current = await createIntakeLead(payload, captchaToken)
       }
       // Reflect the lead id in the URL so a copied/shared link can rehydrate the
       // wizard from the server snapshot in any browser or incognito tab (#15).
@@ -3776,6 +3781,14 @@ export default function IntakeWizardQuick() {
           <span className="flex items-center gap-1"><ShieldCheck className="h-3.5 w-3.5" aria-hidden /> {tx('badge_neverShared')}</span>
           <span className="flex items-center gap-1"><Users className="h-3.5 w-3.5" aria-hidden /> {tx('badge_noObligation')}</span>
         </div>
+        {leadCaptcha.siteKey && !leadIdRef.current && (
+          <TurnstileWidget
+            siteKey={leadCaptcha.siteKey}
+            onToken={leadCaptcha.onToken}
+            resetSignal={leadCaptcha.resetSignal}
+            action="intake_lead"
+          />
+        )}
       </div>
     </div>
     )

@@ -31,7 +31,7 @@ const TOKEN_EXPIRY_MARGIN_MS = 60_000
 
 export type ClickConversion = {
   gclid: string
-  /** When the case was retained, not when we got around to uploading it. */
+  /** When the case was retained (or submitted), not when we got around to uploading it. */
   convertedAt: Date
   value?: number | null
   currencyCode?: string
@@ -54,7 +54,22 @@ function customerId(name: string): string {
 }
 
 /**
- * Whether conversion upload is switched on and fully configured.
+ * Which conversion action a conversion is reported against.
+ *
+ * 'retained' is a signed case. 'qualified' is a case from an ad click that
+ * passed the one-time code check and was sent to attorneys: weeks earlier than
+ * a retention and far more numerous, so bidding has enough signal to learn from
+ * without falling back on raw form submits, which bots produce for free.
+ */
+export type ConversionKind = 'retained' | 'qualified'
+
+const CONVERSION_ACTION_ENV: Record<ConversionKind, string> = {
+  retained: 'GOOGLE_ADS_CONVERSION_ACTION_ID',
+  qualified: 'GOOGLE_ADS_QUALIFIED_CONVERSION_ACTION',
+}
+
+/**
+ * Whether conversion upload is switched on and the account credentials are set.
  *
  * `GOOGLE_ADS_CONVERSION_ENABLED` is a separate switch from the credentials on
  * purpose, and defaults off. Credentials tend to arrive in an environment well
@@ -62,7 +77,7 @@ function customerId(name: string): string {
  * account, and a staging deployment quietly reporting conversions would corrupt
  * the bidding on real spend.
  */
-export function isGoogleAdsConfigured(): boolean {
+function hasAccountCredentials(): boolean {
   if (env('GOOGLE_ADS_CONVERSION_ENABLED') !== 'true') return false
 
   return Boolean(
@@ -70,9 +85,18 @@ export function isGoogleAdsConfigured(): boolean {
       env('GOOGLE_ADS_CLIENT_ID') &&
       env('GOOGLE_ADS_CLIENT_SECRET') &&
       env('GOOGLE_ADS_REFRESH_TOKEN') &&
-      customerId('GOOGLE_ADS_CUSTOMER_ID') &&
-      env('GOOGLE_ADS_CONVERSION_ACTION_ID'),
+      customerId('GOOGLE_ADS_CUSTOMER_ID'),
   )
+}
+
+/** Whether conversions of this kind can be uploaded: credentials plus its own action id. */
+export function isConversionActionConfigured(kind: ConversionKind): boolean {
+  return hasAccountCredentials() && Boolean(env(CONVERSION_ACTION_ENV[kind]))
+}
+
+/** Whether conversion upload is switched on for at least one conversion action. */
+export function isGoogleAdsConfigured(): boolean {
+  return isConversionActionConfigured('retained') || isConversionActionConfigured('qualified')
 }
 
 let cachedToken: { value: string; expiresAt: number } | null = null
@@ -149,14 +173,15 @@ export function formatConversionDateTime(date: Date): string {
  */
 export async function uploadClickConversions(
   conversions: ClickConversion[],
+  kind: ConversionKind = 'retained',
 ): Promise<ConversionUploadResult> {
   if (!conversions.length) return { uploaded: [], failures: [] }
-  if (!isGoogleAdsConfigured()) {
+  if (!isConversionActionConfigured(kind)) {
     throw new Error('Google Ads conversion upload is not configured')
   }
 
   const customer = customerId('GOOGLE_ADS_CUSTOMER_ID')
-  const conversionAction = `customers/${customer}/conversionActions/${env('GOOGLE_ADS_CONVERSION_ACTION_ID')}`
+  const conversionAction = `customers/${customer}/conversionActions/${env(CONVERSION_ACTION_ENV[kind])}`
   const loginCustomer = customerId('GOOGLE_ADS_LOGIN_CUSTOMER_ID')
 
   const headers: Record<string, string> = {

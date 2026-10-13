@@ -90,3 +90,47 @@ export async function checkContactDuplicates(params: {
 
   return { email: emailResult, phone: phoneResult }
 }
+
+/** How far back an earlier submission counts as the same case being sent again. */
+export const SUBMITTED_CASE_WINDOW_DAYS = 30
+
+/**
+ * A case of the same type this contact already sent to attorneys recently.
+ *
+ * Only call this once the caller has proved they hold the contact (a verified
+ * submit code, or a signed-in owner). Unlike `checkContactDuplicates` the answer
+ * says the person behind an email has an injury claim, which is not something
+ * an anonymous caller may learn.
+ *
+ * Same claim type only: one person with a car accident and a dog bite has two
+ * cases, not a duplicate.
+ */
+export async function findRecentSubmittedCaseForContact(params: {
+  email?: string | null
+  phone?: string | null
+  claimType: string
+  excludeAssessmentId: string
+}): Promise<{ assessmentId: string } | null> {
+  const userIds = new Set<string>()
+  const email = (params.email || '').trim().toLowerCase()
+  if (email) {
+    const user = await prisma.user.findUnique({ where: { email }, select: { id: true } })
+    if (user) userIds.add(user.id)
+  }
+  const digits = contactPhoneDigits(params.phone)
+  if (digits.length === 10) {
+    for (const id of await findClaimantIdsByPhone(digits)) userIds.add(id)
+  }
+  if (!userIds.size) return null
+
+  return prisma.leadSubmission.findFirst({
+    where: {
+      assessmentId: { not: params.excludeAssessmentId },
+      sourceType: 'plaintiff',
+      submittedAt: { gte: new Date(Date.now() - SUBMITTED_CASE_WINDOW_DAYS * 24 * 60 * 60_000) },
+      assessment: { userId: { in: [...userIds] }, claimType: params.claimType },
+    },
+    orderBy: { submittedAt: 'desc' },
+    select: { assessmentId: true },
+  })
+}
