@@ -113,7 +113,8 @@
     },
     "sections": {
       "leadgen": "Lead Generation",
-      "casework": "Case Management"
+      "casework": "Case Management",
+      "help": "Help"
     },
     "domain": {
       "leadGeneration": "Lead Generation",
@@ -184,6 +185,10 @@
       "intake": {
         "label": "Intake",
         "description": "Manual & imported leads"
+      },
+      "guides": {
+        "label": "Guides",
+        "description": "How-to guides for the workspace"
       }
     }
   },
@@ -643,6 +648,9 @@
     "req2": "Personal injury practice",
     "req3": "Good standing with the state bar",
     "startApp": "Start your application",
+    "guidesTitle": "See how the workspace works",
+    "guidesSub": "Step-by-step guides to receiving cases, the case workspace, e-signatures, settlement and billing.",
+    "guidesLink": "Read the attorney guides",
     "faqLabel": "FAQ",
     "faqTitle": "Frequently asked questions",
     "fq1": "How are cases matched?",
@@ -993,6 +1001,7 @@
     "receiveCases": "Receive Cases",
     "joinAttorneyNetwork": "Join Attorney Network",
     "attorneyLogin": "Attorney Login",
+    "attorneyGuides": "Attorney guides",
     "attorneyRegister": "Register Law Firm",
     "caseIntelligenceDashboard": "Case Intelligence Dashboard",
     "resources": "Resources",

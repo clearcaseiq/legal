@@ -13,6 +13,12 @@ import { marketingPagesByPath } from '../src/data/marketingPages'
 import { landingPagesBySlug } from '../src/data/seoLandingPages'
 import { CASE_TYPE_HUBS_UPDATED, caseTypeHubBySlug } from '../src/data/caseTypeHubDefs'
 import { caseTypeHubContent } from '../src/data/caseTypeHubs'
+import {
+  ATTORNEY_GUIDES_PATH,
+  attorneyGuideForPublicPath,
+  buildAttorneyGuideSchema,
+  buildAttorneyGuidesIndexSchema,
+} from '../src/data/attorneyGuidesSeo'
 import { fetchPageLinksOnServer, type PublicPageLink } from '../src/lib/pageLinks'
 import {
   buildCaseTypeHubSchema,
@@ -287,6 +293,12 @@ const resolvePage: GetServerSideProps<PageProps> = async ({ params, query, res }
 
   if (marketingPage) {
     const caseHub = caseTypeHubBySlug.get(pathname)
+    const guide = attorneyGuideForPublicPath(pathname)
+    const guideSchema = guide
+      ? buildAttorneyGuideSchema(guide, siteUrl)
+      : pathname === ATTORNEY_GUIDES_PATH
+        ? buildAttorneyGuidesIndexSchema(siteUrl)
+        : null
     if (marketingPage.serverRender) {
       // Server-rendered marketing pages show the signed-out shell to everyone,
       // so the response is identical for every visitor and safe to cache.
@@ -313,7 +325,9 @@ const resolvePage: GetServerSideProps<PageProps> = async ({ params, query, res }
               ? JSON.stringify(
                   buildCaseTypeHubSchema(caseHub, caseTypeHubContent[caseHub.caseType], CASE_TYPE_HUBS_UPDATED)
                 )
-              : marketingPage.schemaType
+              : guideSchema
+                ? JSON.stringify(guideSchema)
+                : marketingPage.schemaType
                 ? JSON.stringify(buildMarketingPageSchema(marketingPage))
                 : null,
           ogImage: ogImageUrl(marketingPage.title),

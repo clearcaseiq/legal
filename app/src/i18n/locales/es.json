@@ -110,7 +110,8 @@
     },
     "sections": {
       "leadgen": "Generación de clientes",
-      "casework": "Gestión de casos"
+      "casework": "Gestión de casos",
+      "help": "Ayuda"
     },
     "domain": {
       "leadGeneration": "Generación de clientes",
@@ -181,6 +182,10 @@
       "intake": {
         "label": "Admisión",
         "description": "Clientes manuales e importados"
+      },
+      "guides": {
+        "label": "Guías",
+        "description": "Guías prácticas del espacio de trabajo"
       }
     }
   },
@@ -640,6 +645,9 @@
     "req2": "Práctica de lesiones personales",
     "req3": "Buena reputación ante el colegio de abogados estatal",
     "startApp": "Inicie su solicitud",
+    "guidesTitle": "Vea cómo funciona el espacio de trabajo",
+    "guidesSub": "Guías paso a paso para recibir casos, el espacio de trabajo del caso, firmas electrónicas, acuerdos y facturación.",
+    "guidesLink": "Leer las guías para abogados",
     "faqLabel": "Preguntas frecuentes",
     "faqTitle": "Preguntas frecuentes",
     "fq1": "¿Cómo se asignan los casos?",
@@ -1006,6 +1014,7 @@
     "disclaimer": "ClearCaseIQ no es un despacho de abogados y no brinda asesoramiento legal. El uso de esta plataforma no crea una relación abogado-cliente. La revisión por parte de un abogado es opcional y solo ocurre con el consentimiento del usuario.",
     "findAttorney": "Buscar un abogado",
     "joinAttorneyNetwork": "Unirse a la red de abogados",
+    "attorneyGuides": "Guías para abogados",
     "caseIntelligenceDashboard": "Panel de inteligencia de casos",
     "support": "Soporte",
     "supportLabel": "Soporte:",

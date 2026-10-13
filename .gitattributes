@@ -1,3 +1,6 @@
 # Shell scripts must use LF so they run correctly inside Linux containers,
 # even when checked out on Windows (autocrlf).
 *.sh text eol=lf
+
+# Generated from app/src/data/attorneyGuides.ts; a test compares them byte for byte.
+docs/attorney-guides/*.md text eol=lf

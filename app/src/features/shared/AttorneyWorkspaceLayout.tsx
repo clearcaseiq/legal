@@ -13,6 +13,7 @@ import {
   Wallet,
   Building2,
   Bell,
+  BookOpen,
   ChevronRight,
 } from 'lucide-react'
 import { AttorneyWorkspaceProvider, useAttorneyWorkspace } from './AttorneyWorkspaceContext'
@@ -44,6 +45,16 @@ interface NavSection {
   entries: NavEntry[]
 }
 
+export const GUIDES_ROUTE = '/attorney-dashboard/guides'
+
+const HELP_SECTION: NavSection = {
+  id: 'help',
+  label: 'Help',
+  entries: [
+    { to: GUIDES_ROUTE, id: 'guides', label: 'Guides', description: 'How-to guides for the workspace', icon: BookOpen },
+  ],
+}
+
 const NAV_SECTIONS: NavSection[] = [
   {
     id: 'leadgen',
@@ -67,6 +78,7 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/attorney-dashboard/cases/billing', id: 'billing', label: 'Billing', description: 'Fees, invoices, costs', icon: Wallet },
     ],
   },
+  HELP_SECTION,
 ]
 
 export const STAFF_CASES_ROUTE = '/attorney-dashboard/cases/active'
@@ -112,6 +124,7 @@ const STAFF_NAV_SECTIONS: NavSection[] = [
       { to: '/attorney-dashboard/cases/messages', id: 'messages', label: 'Messages', description: 'Client threads', icon: MessagesSquare, staffAction: 'message' },
     ],
   },
+  HELP_SECTION,
 ]
 
 /** The sidebar sections for this user, with entries their role cannot use removed. */
@@ -130,8 +143,8 @@ function useNavSections(): NavSection[] {
 }
 
 // Per-domain color coding for the nav chips + active states. Lead Generation is
-// blue (acquisition), Case Management is emerald (delivery).
-type DomainId = 'leadgen' | 'casework'
+// blue (acquisition), Case Management is emerald (delivery), Help is neutral.
+type DomainId = 'leadgen' | 'casework' | 'help'
 
 const DOMAIN_STYLE: Record<DomainId, {
   row: string
@@ -156,6 +169,14 @@ const DOMAIN_STYLE: Record<DomainId, {
     bar: 'bg-emerald-600',
     desc: 'text-emerald-600',
     pillActive: 'border-emerald-300 bg-emerald-50 text-emerald-700',
+  },
+  help: {
+    row: 'bg-slate-100 text-slate-900',
+    chipActive: 'bg-slate-700 text-white',
+    chipIdle: 'bg-slate-100 text-slate-500 group-hover:bg-slate-200 group-hover:text-slate-700',
+    bar: 'bg-slate-700',
+    desc: 'text-slate-500',
+    pillActive: 'border-slate-300 bg-slate-100 text-slate-800',
   },
 }
 

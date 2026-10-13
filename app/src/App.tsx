@@ -84,6 +84,8 @@ const VerifyEmail = lazy(() => import('./pages/VerifyEmail'))
 const AttorneyRegister = lazy(withAppMessages(() => import('./pages/AttorneyRegister')))
 const ClaimProfile = lazy(() => import('./pages/ClaimProfile'))
 const AttorneyNetwork = dynamic(() => import('./pages/AttorneyNetwork'), { ssr: true })
+const AttorneyGuidesPage = dynamic(() => import('./pages/AttorneyGuidesPage'), { ssr: true })
+const AttorneyGuidePage = dynamic(() => import('./pages/AttorneyGuidePage'), { ssr: true })
 const AttorneyLicenseUpload = lazy(() => import('./pages/AttorneyLicenseUpload'))
 const AttorneyOnboardingPayment = lazy(() => import('./pages/AttorneyOnboardingPayment'))
 const AdminLogin = lazy(() => import('./pages/AdminLogin'))
@@ -101,6 +103,8 @@ const SmartRecommendations = lazy(() => import('./pages/SmartRecommendations'))
 // Two-domain attorney workspace (Lead Generation vs Case Management)
 const AttorneyWorkspaceLayout = lazy(() => import('./features/shared/AttorneyWorkspaceLayout'))
 const RequireFirmPermission = lazy(() => import('./features/shared/RequireFirmPermission'))
+const AttorneyGuidesIndex = lazy(() => import('./features/guides/AttorneyGuidesIndex'))
+const AttorneyGuideArticle = lazy(() => import('./features/guides/AttorneyGuideArticle'))
 const NewMatchesPage = lazy(() => import('./features/leadgen/NewMatchesPage'))
 const OfferShortLink = lazy(() => import('./pages/OfferShortLink'))
 const AttorneyAnalyticsPage = lazy(() => import('./features/leadgen/AttorneyAnalyticsPage'))
@@ -628,6 +632,10 @@ function App() {
               <Route key={page.path} path={page.path} element={<CaseAssessmentLanding />} />
             ))}
             <Route path="/attorney-network" element={<AttorneyNetwork />} />
+            {/* Public editions of the attorney user guides; the same guides render
+                inside the workspace under /attorney-dashboard/guides. */}
+            <Route path="/attorney-guides" element={<AttorneyGuidesPage />} />
+            <Route path="/attorney-guides/:slug" element={<AttorneyGuidePage />} />
             {/* Spanish editions. Enumerated beside their English twins rather than
                 generated from the registry, so the route table stays greppable and
                 an invented /es/* still 404s. `marketingPagesEs.test.ts` fails if a
@@ -1447,6 +1455,9 @@ function App() {
                     snapshot) — it must never open the Case Management case file. */}
                 <Route path="/attorney-dashboard/leadgen/matches/:leadId/:section" element={<NewMatchesPage />} />
                 <Route path="/attorney-dashboard/cases/active" element={<ActiveCasesHubPage />} />
+                {/* User guides, open to attorneys and every firm staff role. */}
+                <Route path="/attorney-dashboard/guides" element={<AttorneyGuidesIndex mode="app" />} />
+                <Route path="/attorney-dashboard/guides/:slug" element={<AttorneyGuideArticle mode="app" />} />
               </Route>
               {/* Staff book on behalf of the case's lead attorney. */}
               <Route path="/attorney-dashboard/schedule-consult/:leadId" element={<ScheduleConsultPage />} />

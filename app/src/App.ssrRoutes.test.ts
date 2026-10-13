@@ -48,6 +48,7 @@ const GENERATED_ROUTE_COMPONENTS: Record<string, string> = {
   '/topics/': 'TopicHub',
   '/es/temas': 'TopicsEs',
   '/case-assessment/': 'CaseAssessmentLanding',
+  '/attorney-guides/': 'AttorneyGuidePage',
 }
 
 function componentFor(path: string): string | undefined {

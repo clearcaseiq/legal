@@ -9,6 +9,7 @@
     "build": "node scripts/copy-pdf-worker.cjs && next build --webpack",
     "start": "next start",
     "test": "vitest run",
+    "guides:export": "tsx scripts/export-attorney-guides.ts",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0"
   },
   "dependencies": {

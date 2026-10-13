@@ -995,6 +995,7 @@ export default function Layout({ children }: LayoutProps) {
               <ul className="space-y-1.5 text-sm">
                 <li><Link to="/attorney-register" className="text-slate-400 transition-colors hover:text-white">{t('footer.joinAttorneyNetwork')}</Link></li>
                 <li><Link to="/attorney-login" className="text-slate-400 transition-colors hover:text-white">{t('footer.attorneyLogin')}</Link></li>
+                <li><Link to="/attorney-guides" className="text-slate-400 transition-colors hover:text-white">{t('footer.attorneyGuides')}</Link></li>
                 <li><Link to="/partners/badge" className="text-slate-400 transition-colors hover:text-white">Partner badge</Link></li>
               </ul>
             </div>

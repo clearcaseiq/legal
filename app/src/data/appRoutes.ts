@@ -37,6 +37,9 @@ export const KNOWN_ROUTE_PREFIXES = [
   '/admin',
   '/assistance',
   '/attorney-dashboard',
+  // Real guide slugs resolve as marketing pages first; an unknown slug falls
+  // through to the app, which sends it back to the index.
+  '/attorney-guides',
   '/book',
   '/blog',
   '/booking',

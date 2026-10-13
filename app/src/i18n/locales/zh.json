@@ -110,7 +110,8 @@
     },
     "sections": {
       "leadgen": "客户开发",
-      "casework": "案件管理"
+      "casework": "案件管理",
+      "help": "帮助"
     },
     "domain": {
       "leadGeneration": "客户开发",
@@ -181,6 +182,10 @@
       "intake": {
         "label": "接案",
         "description": "手动与导入的客户"
+      },
+      "guides": {
+        "label": "使用指南",
+        "description": "工作区操作指南"
       }
     }
   },
@@ -640,6 +645,9 @@
     "req2": "人身伤害执业领域",
     "req3": "在州律师协会信誉良好",
     "startApp": "开始申请",
+    "guidesTitle": "了解工作区如何运作",
+    "guidesSub": "分步指南：接收案件、案件工作区、电子签名、和解与账单。",
+    "guidesLink": "阅读律师使用指南",
     "faqLabel": "常见问题",
     "faqTitle": "常见问题",
     "fq1": "案件如何匹配？",
@@ -1006,6 +1014,7 @@
     "disclaimer": "ClearCaseIQ 不是律师事务所，不提供法律建议。使用本平台不构成律师与客户关系。律师审查为可选，且仅在用户同意后进行。",
     "findAttorney": "寻找律师",
     "joinAttorneyNetwork": "加入律师网络",
+    "attorneyGuides": "律师使用指南",
     "caseIntelligenceDashboard": "案件智能仪表板",
     "support": "支持",
     "supportLabel": "支持：",

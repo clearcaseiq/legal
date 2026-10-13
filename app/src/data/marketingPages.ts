@@ -12,6 +12,15 @@ import { marketingPagesEs } from './marketingPagesEs'
 import { marketingPagesZh } from './marketingPagesZh'
 import { CASE_ASSESSMENT_CONTENT_UPDATED, caseAssessmentPages } from './caseAssessmentPages'
 import { CASE_TYPE_HUBS_UPDATED, caseTypeHubs } from './caseTypeHubDefs'
+import { attorneyGuides } from './attorneyGuides'
+import {
+  ATTORNEY_GUIDES_INDEX_DESCRIPTION,
+  ATTORNEY_GUIDES_INDEX_TITLE,
+  ATTORNEY_GUIDES_PATH,
+  ATTORNEY_GUIDES_UPDATED,
+  attorneyGuideMetaTitle,
+  attorneyGuidePublicPath,
+} from './attorneyGuidesSeo'
 import {
   TOPICS_INDEX_DESCRIPTION,
   TOPICS_INDEX_SLUG,
@@ -237,10 +246,32 @@ const caseTypeHubMarketingPages: MarketingPage[] = caseTypeHubs.map((hub) => ({
   contentUpdated: CASE_TYPE_HUBS_UPDATED,
 }))
 
+/**
+ * The public attorney user guides. Their structured data is built from the
+ * guide content in `[[...slug]].tsx`, not from `schemaType`.
+ */
+const attorneyGuideMarketingPages: MarketingPage[] = [
+  {
+    path: ATTORNEY_GUIDES_PATH,
+    title: ATTORNEY_GUIDES_INDEX_TITLE,
+    description: ATTORNEY_GUIDES_INDEX_DESCRIPTION,
+    serverRender: true,
+    contentUpdated: ATTORNEY_GUIDES_UPDATED,
+  },
+  ...attorneyGuides.map((guide) => ({
+    path: attorneyGuidePublicPath(guide.slug),
+    title: attorneyGuideMetaTitle(guide),
+    description: guide.summary,
+    serverRender: true,
+    contentUpdated: guide.updated,
+  })),
+]
+
 export const allMarketingPages: MarketingPage[] = [
   ...marketingPages,
   ...topicHubMarketingPages,
   ...caseTypeHubMarketingPages,
+  ...attorneyGuideMarketingPages,
   ...caseAssessmentMarketingPages,
   ...marketingPagesEs,
   ...marketingPagesZh,
