@@ -6057,6 +6057,7 @@ export type ReleaseForRoutingOutcome =
   | 'routing_disabled'
   | 'held_for_review'
   | 'no_match'
+  | 'awaiting_plaintiff_approval'
 
 export interface ReleaseForRoutingResult {
   outcome: ReleaseForRoutingOutcome

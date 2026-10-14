@@ -17,13 +17,19 @@ import express from 'express'
 
 const startAssessmentRouting = vi.fn()
 const recordRoutingEvent = vi.fn().mockResolvedValue(undefined)
+const routeCaseReleasedFromReview = vi.fn()
 let callerIsManager = true
 
 vi.mock('../lib/prisma', () => ({
   prisma: {
     caseAssistance: { findUnique: vi.fn(), update: vi.fn() },
     caseInteraction: { create: vi.fn() },
+    assessment: { update: vi.fn() },
   },
+}))
+
+vi.mock('../lib/manual-review-release', () => ({
+  routeCaseReleasedFromReview: (...args: unknown[]) => routeCaseReleasedFromReview(...args),
 }))
 
 vi.mock('../lib/auth', () => ({
@@ -43,7 +49,9 @@ vi.mock('../lib/assessment-routing', () => ({
   startAssessmentRouting: (...args: unknown[]) => startAssessmentRouting(...args),
 }))
 
-vi.mock('../lib/routing-lifecycle', () => ({
+vi.mock('../lib/routing-lifecycle', async (importOriginal) => ({
+  getRankedAttorneyIdsFromLead: (await importOriginal<typeof import('../lib/routing-lifecycle')>())
+    .getRankedAttorneyIdsFromLead,
   recordRoutingEvent: (...args: unknown[]) => recordRoutingEvent(...args),
 }))
 
@@ -95,6 +103,92 @@ beforeEach(() => {
   recordRoutingEvent.mockResolvedValue(undefined)
   vi.mocked(prisma.caseAssistance.findUnique).mockResolvedValue(readyCase() as never)
   startAssessmentRouting.mockResolvedValue(DISABLED)
+})
+
+/** A ready case the stall sweep or the gate has already put in Manual Review. */
+function caseInReview() {
+  return readyCase({
+    assessment: { ...readyCase().assessment, manualReviewStatus: 'pending' },
+  })
+}
+
+describe('a case already in manual review', () => {
+  beforeEach(() => {
+    vi.mocked(prisma.caseAssistance.findUnique).mockResolvedValue(caseInReview() as never)
+  })
+
+  it('is released by an admin through the manual review release, not the gated entry point', async () => {
+    routeCaseReleasedFromReview.mockResolvedValue({ mode: 'ranked_routed', routedCount: 1 })
+
+    const res = await release({ override: true })
+
+    expect(res.body).toMatchObject({ outcome: 'routed', routedCount: 1 })
+    expect(routeCaseReleasedFromReview).toHaveBeenCalledWith('asm-1', { overrideRoutingDisabled: true })
+    expect(startAssessmentRouting).not.toHaveBeenCalled()
+    expect(prisma.assessment.update).toHaveBeenCalledWith({
+      where: { id: 'asm-1' },
+      data: expect.objectContaining({ manualReviewStatus: 'released', reviewedBy: 'admin-1' }),
+    })
+  })
+
+  it('stays in the queue when the release places nobody', async () => {
+    routeCaseReleasedFromReview.mockResolvedValue({ mode: 'held', routedCount: 0, error: 'Routing disabled by admin' })
+
+    const res = await release()
+
+    expect(res.body.outcome).toBe('routing_disabled')
+    expect(res.body.canOverride).toBe(true)
+    expect(prisma.assessment.update).not.toHaveBeenCalled()
+  })
+
+  it('reports a new batch waiting on the plaintiff', async () => {
+    routeCaseReleasedFromReview.mockResolvedValue({ mode: 'awaiting_approval', routedCount: 0 })
+
+    const res = await release()
+
+    expect(res.body.outcome).toBe('awaiting_plaintiff_approval')
+    expect(prisma.assessment.update).toHaveBeenCalled()
+  })
+
+  it('cannot be released by a specialist', async () => {
+    callerIsManager = false
+
+    const res = await release()
+
+    expect(res.body.outcome).toBe('held_for_review')
+    expect(routeCaseReleasedFromReview).not.toHaveBeenCalled()
+    expect(startAssessmentRouting).not.toHaveBeenCalled()
+  })
+})
+
+describe('a plaintiff who ranked attorneys', () => {
+  it('is offered to their choices one at a time, in their order', async () => {
+    vi.mocked(prisma.caseAssistance.findUnique).mockResolvedValue(
+      readyCase({
+        assessment: {
+          ...readyCase().assessment,
+          leadSubmission: {
+            id: 'ls-1',
+            status: 'submitted',
+            sourceDetails: JSON.stringify({ plaintiffAttorneyPreferences: { rankedAttorneyIds: ['att-2', 'att-1'] } }),
+          },
+        },
+      }) as never,
+    )
+    startAssessmentRouting.mockResolvedValue({ success: true, routedTo: ['att-2'] })
+
+    const res = await release()
+
+    expect(res.body).toMatchObject({ outcome: 'routed', routedCount: 1 })
+    expect(startAssessmentRouting).toHaveBeenCalledWith(
+      'asm-1',
+      expect.objectContaining({
+        maxAttorneysPerWave: 1,
+        preferTierRouting: false,
+        preferredAttorneyIds: ['att-2', 'att-1'],
+      }),
+    )
+  })
 })
 
 describe('releasing while routing is paused', () => {

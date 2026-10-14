@@ -36,7 +36,7 @@ type AiData = Awaited<ReturnType<typeof getAssistanceAi>>
  * four cases, when the case was in fact sitting exactly where it should be.
  */
 const RELEASE_FAILURE_MESSAGES: Record<
-  Exclude<ReleaseForRoutingOutcome, 'routed'>,
+  Exclude<ReleaseForRoutingOutcome, 'routed' | 'awaiting_plaintiff_approval'>,
   (reason: string | null) => string
 > = {
   already_engaged: () =>
@@ -207,6 +207,12 @@ export default function CaseAssistanceWorkspace() {
           message: override
             ? `Released past the routing pause. Offered to ${result.routedCount} attorney${result.routedCount === 1 ? '' : 's'}. Routing is still off for every other case.`
             : `Released for routing. Offered to ${result.routedCount} attorney${result.routedCount === 1 ? '' : 's'}.`,
+        })
+      } else if (result.outcome === 'awaiting_plaintiff_approval') {
+        setReleaseResult({
+          ok: true,
+          message:
+            'Released. Every attorney the plaintiff chose has already been tried, so we proposed a new set and are waiting for the plaintiff to approve it before anyone is contacted.',
         })
       } else {
         // Not an error: every one of these is a legitimate verdict from the

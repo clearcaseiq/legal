@@ -10,7 +10,8 @@ import { parsePagination, paginated } from '../lib/pagination'
 import { CaseForRouting, AttorneyForRouting, routeCaseToAttorneys, filterEligibleAttorneys } from '../lib/routing'
 import { startAssessmentRouting } from '../lib/assessment-routing'
 import { updateClaimantContact } from '../lib/claimant-contact'
-import { routeReleasedCaseRespectingConsumerSlate, recordRoutingEvent } from '../lib/routing-lifecycle'
+import { recordRoutingEvent } from '../lib/routing-lifecycle'
+import { routeCaseReleasedFromReview } from '../lib/manual-review-release'
 import { runRoutingEscalationSweep } from '../lib/routing-escalation-sweep'
 import { sendCaseOfferToAttorney } from '../lib/case-notifications'
 import { getMatchingRules, getAttorneyResponseDeadlineMinutes } from '../lib/matching-rules-config'
@@ -258,35 +259,6 @@ router.post('/manual-review/:caseId/action', authMiddleware, adminMiddleware, re
       return res.json({ ok: true, action })
     }
 
-    // Ensure case can enter routing - clear routing lock if any, create lead submission if needed
-    await prisma.leadSubmission.upsert({
-      where: { assessmentId: caseId },
-      create: {
-        assessmentId: caseId,
-        viabilityScore: 0.5,
-        liabilityScore: 0.5,
-        causationScore: 0.5,
-        damagesScore: 0.5,
-        evidenceChecklist: '{}',
-        isExclusive: false,
-        sourceType: 'admin',
-        lifecycleState: 'routing_active',
-        routingLocked: false
-      },
-      update: { lifecycleState: 'routing_active', routingLocked: false }
-    })
-
-    // Re-trigger routing now that a human has cleared the case. We skip the
-    // pre-routing (fraud) gate here — otherwise the same signals that flagged
-    // it would immediately re-hold it, creating a loop. The admin decision IS
-    // the override of the FRAUD signal.
-    //
-    // It is NOT an override of the consumer's contact decision (SB 37 /
-    // § 6155). If the consumer curated their slate — ranked some attorneys or
-    // explicitly removed some — releasing must not route to firms they never
-    // approved. Instead we advance their approved queue, or propose a fresh
-    // batch (excluding everyone they removed) and hold for their approval.
-    // Only cases with no consumer selection route straight through.
     // Written before the attempt so the record of someone electing to bypass
     // the platform-wide pause survives a release that then places nobody.
     if (override === true) {
@@ -297,40 +269,11 @@ router.post('/manual-review/:caseId/action', authMiddleware, adminMiddleware, re
       })
     }
 
-    let releaseRouting: { mode: string; error?: string } = { mode: 'no_consumer_slate' }
-    try {
-      releaseRouting = await routeReleasedCaseRespectingConsumerSlate(caseId, {
-        overrideRoutingDisabled: override === true,
-      })
-    } catch (err: any) {
-      logger.error('Consumer-slate release routing failed', { caseId, error: err?.message })
-      releaseRouting = { mode: 'held', error: err?.message }
-    }
-
     // Awaited rather than fire-and-forget, because whether the release sticks
-    // now depends on whether this placed the case.
-    if (releaseRouting.mode === 'no_consumer_slate') {
-      try {
-        const classic = await startAssessmentRouting(caseId, {
-          skipPreRoutingGate: true,
-          preferTierRouting: true,
-          fallbackToClassic: true,
-          overrideRoutingDisabled: override === true,
-        })
-        if (!classic.success) {
-          releaseRouting = {
-            mode: 'held',
-            error: classic.gateReason || classic.errors?.[0] || 'Routing placed nobody',
-          }
-        }
-      } catch (err: any) {
-        logger.error('Failed to re-route case after manual review release', {
-          caseId,
-          error: err?.message,
-        })
-        releaseRouting = { mode: 'held', error: err?.message }
-      }
-    }
+    // depends on whether this placed the case.
+    const releaseRouting = await routeCaseReleasedFromReview(caseId, {
+      overrideRoutingDisabled: override === true,
+    })
 
     // `held` is the only outcome where nothing is in flight and nobody is
     // waiting on anything. The status used to be written before any of this

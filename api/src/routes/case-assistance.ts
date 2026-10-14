@@ -39,7 +39,8 @@ import {
 } from '../lib/case-assistance'
 import { reassignCaseAssistance } from '../lib/case-assistance-assignment'
 import { startAssessmentRouting } from '../lib/assessment-routing'
-import { recordRoutingEvent } from '../lib/routing-lifecycle'
+import { getRankedAttorneyIdsFromLead, recordRoutingEvent } from '../lib/routing-lifecycle'
+import { routeCaseReleasedFromReview } from '../lib/manual-review-release'
 import { isEngagedLeadStatus } from '../lib/lead-status'
 import { parsePagination, paginated } from '../lib/pagination'
 import { plaintiffNameOf, resolveCaseName } from '../lib/case-name'
@@ -101,7 +102,7 @@ const ASSESSMENT_SELECT = {
   user: {
     select: { id: true, firstName: true, lastName: true, email: true, phone: true, preferredLanguage: true },
   },
-  leadSubmission: { select: { id: true, lifecycleState: true, status: true } },
+  leadSubmission: { select: { id: true, lifecycleState: true, status: true, sourceDetails: true } },
 } as const
 
 function parseFacts(raw: unknown): Record<string, any> {
@@ -777,6 +778,7 @@ export type HandoverOutcome =
   | 'routing_disabled'
   | 'held_for_review'
   | 'no_match'
+  | 'awaiting_plaintiff_approval'
 
 export interface HandoverResult {
   outcome: HandoverOutcome
@@ -809,9 +811,20 @@ async function handoverToAttorneys(
   assistance: {
     id: string
     assessmentId: string
-    assessment?: { leadSubmission?: { status?: string | null; lifecycleState?: string | null } | null } | null
+    assessment?: {
+      manualReviewStatus?: string | null
+      leadSubmission?: {
+        status?: string | null
+        lifecycleState?: string | null
+        sourceDetails?: string | null
+      } | null
+    } | null
   },
-  options: { overrideRoutingDisabled?: boolean } = {}
+  options: {
+    overrideRoutingDisabled?: boolean
+    /** Set only when an admin pressed Release; lets a case leave manual review. */
+    releaseFromReviewBy?: { id: string | null }
+  } = {}
 ): Promise<HandoverResult> {
   const lead = assistance.assessment?.leadSubmission
 
@@ -825,11 +838,36 @@ async function handoverToAttorneys(
     return { outcome: 'already_engaged', routedCount: 0, reason: null }
   }
 
-  const result = await startAssessmentRouting(assistance.assessmentId, {
-    preferTierRouting: true,
-    fallbackToClassic: true,
-    overrideRoutingDisabled: options.overrideRoutingDisabled,
-  })
+  // The gate inside startAssessmentRouting refuses a case pending review, so
+  // the only way out of the queue is the release itself, and that is an admin's.
+  if (assistance.assessment?.manualReviewStatus === 'pending') {
+    if (!options.releaseFromReviewBy) {
+      return {
+        outcome: 'held_for_review',
+        routedCount: 0,
+        reason: 'It is in the Manual Review queue, and only an admin can release it',
+      }
+    }
+    return releaseFromReview(assistance.assessmentId, options.releaseFromReviewBy.id, options)
+  }
+
+  const rankedAttorneyIds = getRankedAttorneyIdsFromLead(lead)
+
+  // A plaintiff who ranked attorneys is offered to them one at a time in their
+  // order, exactly as their own submit would have done.
+  const result = await startAssessmentRouting(assistance.assessmentId, rankedAttorneyIds.length > 0
+    ? {
+        maxAttorneysPerWave: 1,
+        preferTierRouting: false,
+        fallbackToClassic: true,
+        preferredAttorneyIds: rankedAttorneyIds,
+        overrideRoutingDisabled: options.overrideRoutingDisabled,
+      }
+    : {
+        preferTierRouting: true,
+        fallbackToClassic: true,
+        overrideRoutingDisabled: options.overrideRoutingDisabled,
+      })
 
   if (result.success && result.routedTo?.length) {
     logger.info('Case routed on handover from the specialist queue', {
@@ -867,6 +905,39 @@ async function handoverToAttorneys(
     routedCount: 0,
     reason: result.errors?.[0] || result.holdReason || null,
   }
+}
+
+async function releaseFromReview(
+  assessmentId: string,
+  reviewerId: string | null,
+  options: { overrideRoutingDisabled?: boolean }
+): Promise<HandoverResult> {
+  const release = await routeCaseReleasedFromReview(assessmentId, {
+    overrideRoutingDisabled: options.overrideRoutingDisabled,
+  })
+
+  // Placed nobody, so the case stays pending and the button stays usable.
+  if (release.mode === 'held') {
+    if (/disabled by admin/i.test(release.error || '')) {
+      return { outcome: 'routing_disabled', routedCount: 0, reason: release.error || null }
+    }
+    return { outcome: 'held_for_review', routedCount: 0, reason: release.error || null }
+  }
+
+  await prisma.assessment.update({
+    where: { id: assessmentId },
+    data: { manualReviewStatus: 'released', reviewedBy: reviewerId, reviewedAt: new Date() },
+  })
+  logger.info('Case released from manual review on the specialist workbench', {
+    assessmentId,
+    mode: release.mode,
+    reviewerId,
+  })
+
+  if (release.mode === 'awaiting_approval') {
+    return { outcome: 'awaiting_plaintiff_approval', routedCount: 0, reason: null }
+  }
+  return { outcome: 'routed', routedCount: release.routedCount, reason: null }
 }
 
 /**
@@ -1042,7 +1113,10 @@ router.post('/:id/release-for-routing', async (req: AuthRequest, res) => {
       })
     }
 
-    const result = await handoverToAttorneys(assistance, { overrideRoutingDisabled: override })
+    const result = await handoverToAttorneys(assistance, {
+      overrideRoutingDisabled: override,
+      ...(isCaseAssistanceManager(req.user) ? { releaseFromReviewBy: { id: req.user?.id ?? null } } : {}),
+    })
 
     logger.info('Case released for routing by a specialist', {
       assistanceId: assistance.id,
