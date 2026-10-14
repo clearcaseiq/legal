@@ -41,6 +41,16 @@ export const ORGANIZATION_STREET_ADDRESS = ''
 export const ORGANIZATION_POSTAL_CODE = ''
 export const ORGANIZATION_TELEPHONE = ''
 
+/** Official profiles: rendered as the footer icons and published as `sameAs`. */
+export const ORGANIZATION_SOCIAL_PROFILES = [
+  { id: 'facebook', label: 'Facebook', url: 'https://www.facebook.com/clearcaseiq' },
+  { id: 'instagram', label: 'Instagram', url: 'https://www.instagram.com/clearcaseiq' },
+  { id: 'tiktok', label: 'TikTok', url: 'https://www.tiktok.com/@clearcaseiq' },
+  { id: 'x', label: 'X', url: 'https://x.com/clearcaseiq' },
+] as const
+
+export type SocialProfileId = (typeof ORGANIZATION_SOCIAL_PROFILES)[number]['id']
+
 /** Drops keys with no value, so an unset field is absent rather than empty. */
 function withoutBlanks<T extends Record<string, unknown>>(value: T): Partial<T> {
   return Object.fromEntries(Object.entries(value).filter(([, v]) => v !== '' && v != null)) as Partial<T>
@@ -75,6 +85,7 @@ export function organizationSchema({ nested = false }: { nested?: boolean } = {}
       : {
           logo: `${DEFAULT_SITE_URL}/clearcaseiq-logo.png`,
           description: ORGANIZATION_DESCRIPTION,
+          sameAs: ORGANIZATION_SOCIAL_PROFILES.map((profile) => profile.url),
           areaServed: {
             '@type': 'AdministrativeArea',
             name: 'California',

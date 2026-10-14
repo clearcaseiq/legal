@@ -1,6 +1,7 @@
 import { ReactNode, Suspense, lazy, useState, useRef, useEffect, useMemo } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import BrandLogo from './BrandLogo'
+import SocialLinks from './SocialLinks'
 import RouteProgressBar from './RouteProgressBar'
 // Static, unlike the bells below. It renders in the header on every page for
 // every visitor, signed in or not, on both the desktop and mobile bars, so
@@ -967,6 +968,7 @@ export default function Layout({ children }: LayoutProps) {
                   <p className="mt-2 max-w-sm text-[11px] leading-relaxed text-slate-500">
                     {t('footer.disclaimer')}
                   </p>
+                  <SocialLinks className="mt-3" />
                 </div>
               </div>
             </div>
