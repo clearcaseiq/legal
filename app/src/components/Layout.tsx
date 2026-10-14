@@ -221,7 +221,7 @@ export default function Layout({ children }: LayoutProps) {
   // Firm staff (paralegal, intake, case manager) sign in as a User with a firm
   // membership: their home is the firm dashboard, not the claimant portal.
   const isStaff = !isAdmin && storedRole === 'staff'
-  const profileHref = isAttorney ? '/attorney-profile' : isStaff ? '/staff-profile' : '/profile'
+  const profileHref = isAttorney ? '/attorney-profile' : isStaff ? '/staff-profile' : '/dashboard?tab=profile'
   // The attorney WORKSPACE sidebar renders by route (AttorneyWorkspaceLayout is
   // mounted for /attorney-* and /firm-* paths regardless of role detection), but
   // `isAttorney` above is role-based and can lag or mismatch on a fresh session
@@ -974,7 +974,7 @@ export default function Layout({ children }: LayoutProps) {
               <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-white/90">{t('footer.forPlaintiffs')}</h3>
               <ul className="space-y-1.5 text-sm">
                 <li><Link to={navLinks.startAssessment} className="text-slate-400 transition-colors hover:text-white">{t('footer.caseAssessment')}</Link></li>
-                <li><Link to="/case-tracker" className="text-slate-400 transition-colors hover:text-white">{t('footer.caseTracker')}</Link></li>
+                <li><Link to="/dashboard?tab=cases" className="text-slate-400 transition-colors hover:text-white">{t('footer.caseTracker')}</Link></li>
               </ul>
             </div>
             {/* English-only guides; see the matching section on the home page. */}

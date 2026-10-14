@@ -1316,6 +1316,7 @@
     "documents": "Documents",
     "clientStatusDashboard": "Client Status Dashboard",
     "apptWith": "{date} with {name}",
+    "openCase": "Open case",
     "viewDetails": "View Details",
     "message": "Message",
     "viewTimeline": "View Timeline",

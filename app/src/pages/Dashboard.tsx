@@ -15,7 +15,7 @@ import { canonicalClaimType } from '../lib/claimTypes'
 import { formatCaseId } from '../lib/caseId'
 import { dateLocale } from '../i18n'
 import { localizeDocumentRequestLabel } from '../lib/documentRequestI18n'
-import { CheckCircle, Upload, FileText, FileClock, TrendingUp, MessageCircle, BarChart3, FileStack, Activity, LayoutDashboard, ChevronRight, Bell, HelpCircle, Clock, Users, Calendar, Phone, Star, Sparkles, ArrowRight, ShieldCheck, Scale, Lock, ExternalLink, Copy, Check } from 'lucide-react'
+import { CheckCircle, Upload, FileText, FileClock, TrendingUp, MessageCircle, BarChart3, FileStack, Activity, LayoutDashboard, ChevronRight, Bell, HelpCircle, Clock, Users, Calendar, Phone, Star, Sparkles, ArrowRight, ShieldCheck, Scale, Lock, ExternalLink, Copy, Check, FolderOpen, UserCircle } from 'lucide-react'
 import CaseProgressPipeline from '../components/CaseProgressPipeline'
 import { CounterpartPresence } from '../components/PresenceIndicator'
 import { saveTreatmentStatus } from '../lib/api-plaintiff'
@@ -41,7 +41,7 @@ import DraggableFab from '../components/DraggableFab'
 import CaseDetailsQuickEdit, { type CaseDetailsQuickEditMode } from '../components/CaseDetailsQuickEdit'
 import { evidenceTargetForRequestKey } from '../lib/documentRequestUpload'
 
-type TabId = 'dashboard' | 'tasks' | 'documents' | 'attorney' | 'value' | 'journal'
+type TabId = 'dashboard' | 'tasks' | 'documents' | 'attorney' | 'value' | 'journal' | 'cases' | 'profile'
 
 interface User {
   id: string
@@ -255,7 +255,17 @@ const TABS: { id: TabId; labelKey: string; icon: React.ReactNode }[] = [
   { id: 'attorney', labelKey: 'plaintiffDashboard.tabs.attorney', icon: <Users className="h-5 w-5" /> },
   { id: 'value', labelKey: 'plaintiffDashboard.tabs.value', icon: <TrendingUp className="h-5 w-5" /> },
   { id: 'journal', labelKey: 'plaintiffDashboard.tabs.journal', icon: <MessageCircle className="h-5 w-5" /> },
+  { id: 'cases', labelKey: 'plaintiffDashboard.tabs.cases', icon: <FolderOpen className="h-5 w-5" /> },
+  { id: 'profile', labelKey: 'plaintiffDashboard.tabs.profile', icon: <UserCircle className="h-5 w-5" /> },
 ]
+
+/** Account tabs: rendered here rather than in the deferred per-case panel, and Profile works with no case. */
+function isAccountTab(tab: TabId): tab is 'cases' | 'profile' {
+  return tab === 'cases' || tab === 'profile'
+}
+
+const CaseTrackerPanel = lazy(() => import('./CaseTracker'))
+const UserProfilePanel = lazy(() => import('./UserProfile'))
 
 /** Legacy deep-link tab ids that map onto the tightened nav. */
 function resolveDashboardTab(raw: string | null, opts: { attorneyMatched: boolean }): TabId | null {
@@ -454,6 +464,25 @@ export default function Dashboard() {
     [activeAssessment?.id, setSearchParams],
   )
 
+  // "Open case" on the My Cases tab: that case, on the main Dashboard tab.
+  const openCaseFromList = useCallback(
+    (assessmentId: string) => {
+      pendingTabRef.current = 'dashboard'
+      setActiveTab('dashboard')
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev)
+          next.delete('tab')
+          next.set('case', assessmentId)
+          return next
+        },
+        { replace: true },
+      )
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    },
+    [setSearchParams],
+  )
+
   const caseOptionLabel = useCallback(
     (assessment: Assessment) => {
       const typeLabel = localizeClaimType(assessment.claimType)
@@ -494,10 +523,12 @@ export default function Dashboard() {
 
   // Allow deep-linking via ?tab=. Legacy `requested-documents` → Tasks;
   // `attorney` → Dashboard once matched (Attorney Review tab is hidden then).
+  // No ?tab= means the Dashboard tab: the account menu's Dashboard link must
+  // leave My Profile even though it lands on this same mounted route.
   useEffect(() => {
-    const resolved = resolveDashboardTab(tabFromUrl, {
-      attorneyMatched: attorneyMatchedFlag,
-    })
+    const resolved = tabFromUrl
+      ? resolveDashboardTab(tabFromUrl, { attorneyMatched: attorneyMatchedFlag })
+      : 'dashboard'
     if (!resolved) return
     // Click already chose a tab; wait until the URL catches up before syncing.
     if (pendingTabRef.current && pendingTabRef.current !== resolved) return
@@ -2155,7 +2186,7 @@ export default function Dashboard() {
           return (
           <nav className="sticky top-0 z-40 -mx-4 bg-slate-50 px-4 pb-2 pt-2 dark:bg-slate-950 sm:-mx-6 sm:px-6 md:top-20">
             <div className="rounded-2xl border border-slate-200/80 bg-white p-3 shadow-[0_1px_2px_rgba(15,23,42,0.05),0_10px_30px_-16px_rgba(15,23,42,0.16)] transition-colors dark:border-slate-700/80 dark:bg-slate-900 dark:shadow-none sm:p-4">
-              <div className={`grid grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-3 ${visibleTabs.length >= 6 ? 'lg:grid-cols-6' : 'lg:grid-cols-5'}`}>
+              <div className={`grid grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-3 lg:grid-cols-4 ${visibleTabs.length >= 8 ? '2xl:grid-cols-8' : '2xl:grid-cols-7'}`}>
                 {visibleTabs.map((tab) => {
                   const badge =
                     tab.id === 'tasks'
@@ -2802,7 +2833,17 @@ export default function Dashboard() {
                         </div>
             )}
 
-            {activeAssessment && activeTab !== 'dashboard' && (
+            {isAccountTab(activeTab) && (
+              <Suspense fallback={<DashboardTabPanelSkeleton message={t('plaintiffDashboard.loadingTab', { tab: t(TABS.find((x) => x.id === activeTab)?.labelKey ?? 'plaintiffDashboard.tabs.dashboard') })} />}>
+                {activeTab === 'cases' ? (
+                  <CaseTrackerPanel embedded onOpenCase={openCaseFromList} />
+                ) : (
+                  <UserProfilePanel embedded />
+                )}
+              </Suspense>
+            )}
+
+            {activeAssessment && activeTab !== 'dashboard' && !isAccountTab(activeTab) && (
               <Suspense fallback={<DashboardTabPanelSkeleton message={t('plaintiffDashboard.loadingTab', { tab: t(TABS.find((x) => x.id === activeTab)?.labelKey ?? 'plaintiffDashboard.tabs.dashboard') })} />}>
                 <PlaintiffDashboardDeferredTabPanel
                   activeTab={activeTab}
@@ -2868,6 +2909,10 @@ export default function Dashboard() {
               </Suspense>
             )}
           </>
+        ) : activeTab === 'profile' ? (
+          <Suspense fallback={<DashboardTabPanelSkeleton message={t('plaintiffDashboard.loadingTab', { tab: t('plaintiffDashboard.tabs.profile') })} />}>
+            <UserProfilePanel embedded />
+          </Suspense>
         ) : (
           <div className="space-y-6">
             {/* Hero — the single primary call to action */}

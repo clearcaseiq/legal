@@ -3200,7 +3200,9 @@
       "requestedDocuments": "Requested Documents",
       "attorney": "Attorney Review",
       "value": "Case Value",
-      "journal": "Journal"
+      "journal": "Journal",
+      "cases": "My Cases",
+      "profile": "My Profile"
     },
     "status": {
       "inReview": "Your case is in attorney review. We'll email you the moment an attorney responds.",

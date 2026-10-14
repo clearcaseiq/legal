@@ -69,7 +69,7 @@ function syncStoredUserAvatar(avatar: string | null | undefined) {
   window.dispatchEvent(new Event('clearcaseiq:user-updated'))
 }
 
-export default function UserProfile() {
+export default function UserProfile({ embedded = false }: { embedded?: boolean } = {}) {
   const { t } = useLanguage()
   const navigate = useNavigate()
   const { data, loading: sessionLoading, error: sessionError } = usePlaintiffSessionSummary(true)
@@ -224,9 +224,13 @@ export default function UserProfile() {
     }
   }
 
+  const statusWrapperCls = embedded
+    ? 'flex items-center justify-center py-16'
+    : 'min-h-screen bg-gray-50 flex items-center justify-center'
+
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className={statusWrapperCls}>
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-600 mx-auto"></div>
           <p className="mt-4 text-gray-600">Loading profile...</p>
@@ -237,7 +241,7 @@ export default function UserProfile() {
 
   if (!profile) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className={statusWrapperCls}>
         <div className="text-center">
           <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
           <h3 className="text-lg font-medium text-gray-900 mb-2">Profile Not Found</h3>
@@ -257,20 +261,21 @@ export default function UserProfile() {
   const avatarInitial = (profile.firstName || profile.email || 'U').trim().charAt(0).toUpperCase()
 
   return (
-    <div className="max-w-[1600px] mx-auto py-8">
-      {/* Navigation Header */}
-      <div className="mb-6">
-        <BackButton to="/dashboard" label="Back to Dashboard" className="mb-4" />
-        <div className="flex items-center gap-4">
-          <Link
-            to="/case-tracker"
-            className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
-          >
-            <Activity className="h-4 w-4 mr-2" />
-            Case Tracker
-          </Link>
+    <div className={embedded ? 'max-w-[1600px] mx-auto' : 'max-w-[1600px] mx-auto py-8'}>
+      {!embedded && (
+        <div className="mb-6">
+          <BackButton to="/dashboard" label="Back to Dashboard" className="mb-4" />
+          <div className="flex items-center gap-4">
+            <Link
+              to="/dashboard?tab=cases"
+              className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+            >
+              <Activity className="h-4 w-4 mr-2" />
+              {t('common.myCases')}
+            </Link>
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="bg-white shadow rounded-lg">
         <div className="px-6 py-5 border-b border-gray-200">

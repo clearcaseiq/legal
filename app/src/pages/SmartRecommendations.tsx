@@ -602,7 +602,7 @@ export default function SmartRecommendations() {
           Use these insights to make informed decisions about your case and treatment.
         </p>
         <div className="flex justify-center space-x-4">
-          <Link to="/case-tracker" className="btn-primary">
+          <Link to="/dashboard?tab=cases" className="btn-primary">
             <BarChart3 className="h-4 w-4 mr-2" />
             Track Your Case
           </Link>

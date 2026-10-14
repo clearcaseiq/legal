@@ -97,7 +97,6 @@ const Attorneys = dynamic(() => import('./pages/Attorneys'), { ssr: true })
 const AttorneysEnhanced = lazy(() => import('./pages/AttorneysEnhanced'))
 const FirmProfile = lazy(() => import('./pages/FirmProfile'))
 const Firms = lazy(() => import('./pages/Firms'))
-const CaseTracker = lazy(() => import('./pages/CaseTracker'))
 const Messaging = lazy(() => import('./pages/Messaging'))
 const SmartRecommendations = lazy(() => import('./pages/SmartRecommendations'))
 // Two-domain attorney workspace (Lead Generation vs Case Management)
@@ -217,6 +216,17 @@ const Drafts = lazy(() => import('./pages/Drafts'))
 const Dashboard = lazy(withAppMessages(() => import('./pages/Dashboard')))
 const Assessments = lazy(() => import('./pages/Assessments'))
 const UserProfile = lazy(() => import('./pages/UserProfile'))
+
+/**
+ * My Profile lives on the Dashboard's Profile tab. The email-verification gate in
+ * lib/http.ts still lands on `/profile?verify=required`: the Dashboard's other
+ * requests are the ones being refused, so the form is shown on its own there.
+ */
+function PlaintiffProfileRoute() {
+  const [searchParams] = useSearchParams()
+  if (searchParams.get('verify') === 'required') return <UserProfile />
+  return <Navigate to="/dashboard?tab=profile" replace />
+}
 const ComplianceAdmin = lazy(() => import('./pages/ComplianceAdmin'))
 const AdminUserRoles = lazy(() => import('./pages/AdminUserRoles'))
 const AdminPayments = lazy(() => import('./pages/AdminPayments'))
@@ -527,9 +537,9 @@ function App() {
               <Route path="/auth/complete-consent" element={<CompleteConsent />} />
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/assessments" element={<Assessments />} />
-              <Route path="/profile" element={<UserProfile />} />
+              <Route path="/profile" element={<PlaintiffProfileRoute />} />
               <Route path="/consent-management" element={<ConsentManagement />} />
-              <Route path="/case-tracker" element={<CaseTracker />} />
+              <Route path="/case-tracker" element={<Navigate to="/dashboard?tab=cases" replace />} />
               {/* /ai-copilot and its `/v1/ai-copilot` router were removed. The page
                   answered legal questions with canned prose citing a "State Bar Legal
                   Database" that does not exist, reported statute-of-limitations

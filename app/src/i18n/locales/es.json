@@ -4264,7 +4264,9 @@
       "requestedDocuments": "Documentos solicitados",
       "attorney": "Revisión del abogado",
       "value": "Valor del caso",
-      "journal": "Diario"
+      "journal": "Diario",
+      "cases": "Mis casos",
+      "profile": "Mi perfil"
     },
     "status": {
       "inReview": "Tu caso está en revisión por un abogado. Te enviaremos un correo en cuanto un abogado responda.",
@@ -5297,6 +5299,7 @@
     "documents": "Documentos",
     "clientStatusDashboard": "Panel de estado del cliente",
     "apptWith": "{date} con {name}",
+    "openCase": "Abrir caso",
     "viewDetails": "Ver detalles",
     "message": "Mensaje",
     "viewTimeline": "Ver cronología",

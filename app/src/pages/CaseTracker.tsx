@@ -69,7 +69,14 @@ interface CaseData {
   updatedAt: string
 }
 
-export default function CaseTracker() {
+interface CaseTrackerProps {
+  /** Rendered as the Dashboard's My Cases tab, under the Dashboard's own header. */
+  embedded?: boolean
+  /** Switch the Dashboard to this case. */
+  onOpenCase?: (caseId: string) => void
+}
+
+export default function CaseTracker({ embedded = false, onOpenCase }: CaseTrackerProps = {}) {
   const { t } = useLanguage()
   const [summary, setSummary] = useState<CaseSummary | null>(null)
   const [cases, setCases] = useState<CaseData[]>([])
@@ -173,15 +180,16 @@ export default function CaseTracker() {
 
   return (
     <div className="max-w-[1600px] mx-auto space-y-8">
-      {/* Header */}
-      <div className="text-center">
-        <h1 className="text-4xl font-bold text-gray-900 mb-4">
-          {t('caseTracker.title')}
-        </h1>
-        <p className="text-xl text-gray-600">
-          {t('caseTracker.subtitle')}
-        </p>
-      </div>
+      {!embedded && (
+        <div className="text-center">
+          <h1 className="text-4xl font-bold text-gray-900 mb-4">
+            {t('caseTracker.title')}
+          </h1>
+          <p className="text-xl text-gray-600">
+            {t('caseTracker.subtitle')}
+          </p>
+        </div>
+      )}
 
       {/* Summary Cards */}
       {summary && (
@@ -333,7 +341,16 @@ export default function CaseTracker() {
                 )}
 
                 {/* Action Buttons */}
-                <div className="flex space-x-2">
+                <div className="flex flex-wrap gap-2">
+                  {onOpenCase && (
+                    <button
+                      type="button"
+                      onClick={() => onOpenCase(caseData.id)}
+                      className="flex-1 btn-primary text-sm"
+                    >
+                      {t('caseTracker.openCase')}
+                    </button>
+                  )}
                   <button
                     onClick={() => setSelectedCase(caseData)}
                     className="flex-1 btn-outline text-sm"

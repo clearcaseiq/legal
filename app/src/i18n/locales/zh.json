@@ -4264,7 +4264,9 @@
       "requestedDocuments": "所需文件",
       "attorney": "律师审核",
       "value": "案件价值",
-      "journal": "日志"
+      "journal": "日志",
+      "cases": "我的案件",
+      "profile": "我的资料"
     },
     "status": {
       "inReview": "您的案件正在由律师审核。一旦有律师回复，我们会立即通过电子邮件通知您。",
@@ -5297,6 +5299,7 @@
     "documents": "文件",
     "clientStatusDashboard": "客户状态面板",
     "apptWith": "{date} 与 {name}",
+    "openCase": "打开案件",
     "viewDetails": "查看详情",
     "message": "发消息",
     "viewTimeline": "查看时间线",
