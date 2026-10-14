@@ -44,7 +44,7 @@ function parseLeadSourceDetails(sourceDetails?: string | null): Record<string, u
   }
 }
 
-function getRankedAttorneyIdsFromLead(lead: { sourceDetails?: string | null } | null | undefined): string[] {
+export function getRankedAttorneyIdsFromLead(lead: { sourceDetails?: string | null } | null | undefined): string[] {
   const parsed = parseLeadSourceDetails(lead?.sourceDetails)
   const preferences = parsed.plaintiffAttorneyPreferences
   if (!preferences || typeof preferences !== 'object') return []

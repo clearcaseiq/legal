@@ -4300,6 +4300,18 @@
       "title": "Búsqueda ampliada en curso",
       "body": "Tus opciones clasificadas originales no estaban disponibles, así que ampliamos la búsqueda y contactamos a más abogados compatibles."
     },
+    "rankedAttorneys": {
+      "title": "Tus abogados, en tu orden",
+      "subtitle": "Contactamos a un abogado a la vez, empezando por tu primera opción. Si no acepta o no responde a tiempo, pasamos a tu siguiente opción.",
+      "rank": "Opción {{rank}}",
+      "status": {
+        "waiting": "Aún no contactado",
+        "reviewing": "Revisando tu caso",
+        "accepted": "Interesado en tu caso",
+        "passed": "No aceptó",
+        "no_response": "No respondió a tiempo"
+      }
+    },
     "actionCenter": {
       "title": "Acción requerida",
       "subtitle": "Este es el lugar más rápido para ver qué sigue bloqueando tu caso y qué subir a continuación.",

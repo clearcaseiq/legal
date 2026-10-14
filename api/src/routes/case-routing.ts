@@ -11,6 +11,7 @@ import { authMiddleware, AuthRequest } from '../lib/auth'
 import {
   attorneyAcceptCase,
   attorneyDeclineCase,
+  getRankedAttorneyIdsFromLead,
   recordRoutingEvent
 } from '../lib/routing-lifecycle'
 import { formatAttorneyResponseDeadline, getAttorneyResponseDeadlineMinutes, getMatchingRules } from '../lib/matching-rules-config'
@@ -179,6 +180,45 @@ const caseAttorneySelect = {
   lawFirm: { select: { name: true } },
 } satisfies Prisma.AttorneySelect
 
+type RankedAttorneyStatus = 'waiting' | 'reviewing' | 'accepted' | 'passed' | 'no_response'
+
+function rankedAttorneyStatus(introductionStatus: string | undefined): RankedAttorneyStatus {
+  switch (introductionStatus) {
+    case 'PENDING':
+    case 'REQUESTED_INFO':
+      return 'reviewing'
+    case 'ACCEPTED':
+      return 'accepted'
+    case 'DECLINED':
+      return 'passed'
+    case 'EXPIRED':
+      return 'no_response'
+    default:
+      return 'waiting'
+  }
+}
+
+/**
+ * The claimant's attorney picks, in the order routing contacts them.
+ *
+ * Read from the lead first because that is the queue routing walks, including
+ * a later batch the claimant approved; the copy on the case facts is the
+ * fallback for a lead written before preferences were stored on it.
+ */
+function rankedAttorneyIdsForCase(
+  lead: { sourceDetails?: string | null } | null | undefined,
+  facts: string | null | undefined
+): string[] {
+  const fromLead = getRankedAttorneyIdsFromLead(lead)
+  if (fromLead.length > 0) return fromLead
+  try {
+    const ids = (JSON.parse(facts || '{}') as any)?.plaintiffAttorneyPreferences?.rankedAttorneyIds
+    return Array.isArray(ids) ? ids.filter((id: unknown): id is string => typeof id === 'string' && id.length > 0) : []
+  } catch {
+    return []
+  }
+}
+
 /**
  * Step 18: Plaintiff dashboard - routing status
  * GET /v1/case-routing/assessment/:id/status
@@ -207,6 +247,7 @@ router.get('/assessment/:id/status', authMiddleware, async (req: AuthRequest, re
             id: true,
             lifecycleState: true,
             status: true,
+            sourceDetails: true,
             // A case that arrived already claimed — every imported and
             // hand-created one — was never routed and has no Introduction to
             // accept, so this is the only record of whose case it is.
@@ -233,6 +274,29 @@ router.get('/assessment/:id/status', authMiddleware, async (req: AuthRequest, re
     const intros = assessment.introductions
     const accepted = intros.find(i => i.status === 'ACCEPTED')
     const reviewingCount = intros.filter(i => i.status === 'PENDING').length
+
+    const rankedIds = rankedAttorneyIdsForCase(lead, assessment.facts)
+    const rankedAttorneyRecords = rankedIds.length
+      ? await prisma.attorney
+          .findMany({
+            where: { id: { in: rankedIds } },
+            select: { id: true, name: true, lawFirm: { select: { name: true } } },
+          })
+          .catch(() => [])
+      : []
+    const rankedAttorneyById = new Map(rankedAttorneyRecords.map((attorney) => [attorney.id, attorney]))
+    const introStatusByAttorneyId = new Map(intros.map((intro) => [intro.attorney.id, intro.status]))
+    const rankedAttorneys = rankedIds.flatMap((attorneyId, index) => {
+      const attorney = rankedAttorneyById.get(attorneyId)
+      if (!attorney) return []
+      return [{
+        id: attorney.id,
+        rank: index + 1,
+        name: attorney.name,
+        firmName: attorney.lawFirm?.name ?? null,
+        status: rankedAttorneyStatus(introStatusByAttorneyId.get(attorneyId)),
+      }]
+    })
 
     // Safety net: signed retainer must surface as retained for plaintiff Case
     // Status even if the e-sign webhook/task path missed the flip. An engaged
@@ -265,6 +329,7 @@ router.get('/assessment/:id/status', authMiddleware, async (req: AuthRequest, re
                 id: true,
                 lifecycleState: true,
                 status: true,
+                sourceDetails: true,
                 assignedAttorney: { select: caseAttorneySelect },
               },
             })
@@ -716,6 +781,7 @@ router.get('/assessment/:id/status', authMiddleware, async (req: AuthRequest, re
               : null
           }
         : null,
+      rankedAttorneys,
       attorneyActivity,
       caseMessages,
       upcomingAppointment,

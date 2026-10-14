@@ -6,11 +6,15 @@ import request from 'supertest'
 
 vi.mock('./lib/prisma', () => import('./test/universalPrismaMock'))
 
-vi.mock('./lib/routing-lifecycle', () => ({
-  attorneyAcceptCase: vi.fn(),
-  attorneyDeclineCase: vi.fn(),
-  recordRoutingEvent: vi.fn().mockResolvedValue(undefined),
-}))
+vi.mock('./lib/routing-lifecycle', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./lib/routing-lifecycle')>()
+  return {
+    attorneyAcceptCase: vi.fn(),
+    attorneyDeclineCase: vi.fn(),
+    recordRoutingEvent: vi.fn().mockResolvedValue(undefined),
+    getRankedAttorneyIdsFromLead: actual.getRankedAttorneyIdsFromLead,
+  }
+})
 
 import { buildApp } from './build-app'
 import { prisma } from './lib/prisma'
@@ -370,6 +374,76 @@ describe('GET /v1/case-routing/assessment/:id/status (plaintiff)', () => {
         },
       },
     })
+  })
+
+  it('lists the plaintiff-ranked attorneys in their order with each one’s status', async () => {
+    const attorney = (id: string, name: string) => ({
+      id,
+      name,
+      email: `${id}@test.com`,
+      phone: null,
+      specialties: '[]',
+      responseTimeHours: 24,
+      lawFirmId: null,
+      lawFirm: null,
+    })
+    vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
+      id: 'asm-1',
+      userId: plaintiffUser.id,
+      facts: '{}',
+      introductions: [
+        { status: 'DECLINED', attorney: attorney('a1', 'First Choice') },
+        { status: 'PENDING', attorney: attorney('a2', 'Second Choice') },
+      ],
+      leadSubmission: {
+        lifecycleState: 'attorney_review',
+        routingLocked: false,
+        sourceDetails: JSON.stringify({
+          plaintiffAttorneyPreferences: { rankedAttorneyIds: ['a1', 'a2', 'a3'] },
+        }),
+      },
+      user: { email: plaintiffUser.email },
+    } as any)
+    vi.mocked(prisma.attorney.findMany).mockResolvedValue([
+      { id: 'a3', name: 'Third Choice', lawFirm: { name: 'Third Firm' } },
+      { id: 'a1', name: 'First Choice', lawFirm: null },
+      { id: 'a2', name: 'Second Choice', lawFirm: null },
+    ] as any)
+    vi.mocked(prisma.routingAnalytics.findMany).mockResolvedValue([] as any)
+
+    const res = await request(app)
+      .get('/v1/case-routing/assessment/asm-1/status')
+      .set(authHeader(plaintiffUser.id))
+
+    expect(res.status).toBe(200)
+    expect(res.body.rankedAttorneys).toEqual([
+      { id: 'a1', rank: 1, name: 'First Choice', firmName: null, status: 'passed' },
+      { id: 'a2', rank: 2, name: 'Second Choice', firmName: null, status: 'reviewing' },
+      { id: 'a3', rank: 3, name: 'Third Choice', firmName: 'Third Firm', status: 'waiting' },
+    ])
+  })
+
+  it('falls back to the ranked list saved on the case facts', async () => {
+    vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
+      id: 'asm-1',
+      userId: plaintiffUser.id,
+      facts: JSON.stringify({ plaintiffAttorneyPreferences: { rankedAttorneyIds: ['a1'] } }),
+      introductions: [],
+      leadSubmission: { lifecycleState: 'routing_active', routingLocked: false, sourceDetails: '{}' },
+      user: { email: plaintiffUser.email },
+    } as any)
+    vi.mocked(prisma.attorney.findMany).mockResolvedValue([
+      { id: 'a1', name: 'First Choice', lawFirm: null },
+    ] as any)
+    vi.mocked(prisma.routingAnalytics.findMany).mockResolvedValue([] as any)
+
+    const res = await request(app)
+      .get('/v1/case-routing/assessment/asm-1/status')
+      .set(authHeader(plaintiffUser.id))
+
+    expect(res.body.rankedAttorneys).toEqual([
+      { id: 'a1', rank: 1, name: 'First Choice', firmName: null, status: 'waiting' },
+    ])
   })
 
   it('200 surfaces manual review status from lifecycle state', async () => {

@@ -3238,6 +3238,18 @@
       "title": "Expanded Search In Progress",
       "body": "Your original ranked choices were unavailable, so we expanded the search and contacted additional matching attorneys."
     },
+    "rankedAttorneys": {
+      "title": "Your attorneys, in your order",
+      "subtitle": "We contact one attorney at a time, starting with your first choice. If they pass or don't respond in time, we move to your next choice.",
+      "rank": "Choice {{rank}}",
+      "status": {
+        "waiting": "Not contacted yet",
+        "reviewing": "Reviewing your case",
+        "accepted": "Interested in your case",
+        "passed": "Passed",
+        "no_response": "Didn't respond in time"
+      }
+    },
     "actionCenter": {
       "title": "Action Required",
       "subtitle": "This is the fastest place to see what is still blocking your case and what to upload next.",

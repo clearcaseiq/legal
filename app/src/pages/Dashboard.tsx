@@ -17,6 +17,7 @@ import { dateLocale } from '../i18n'
 import { localizeDocumentRequestLabel } from '../lib/documentRequestI18n'
 import { CheckCircle, Upload, FileText, FileClock, TrendingUp, MessageCircle, BarChart3, FileStack, Activity, LayoutDashboard, ChevronRight, Bell, HelpCircle, Clock, Users, Calendar, Phone, Star, Sparkles, ArrowRight, ShieldCheck, Scale, Lock, ExternalLink, Copy, Check, FolderOpen, UserCircle } from 'lucide-react'
 import CaseProgressPipeline from '../components/CaseProgressPipeline'
+import RankedAttorneysCard, { type RankedAttorney } from '../components/RankedAttorneysCard'
 import { CounterpartPresence } from '../components/PresenceIndicator'
 import { saveTreatmentStatus } from '../lib/api-plaintiff'
 import {
@@ -359,6 +360,7 @@ export default function Dashboard() {
       claimType?: string | null
       acceptedAt?: string | null
     }
+    rankedAttorneys?: RankedAttorney[]
     attorneyActivity?: { type: string; message: string; timeAgo?: string }[]
     caseMessages?: { subject: string; message: string; createdAt: string; from?: 'attorney' | 'plaintiff'; authorName?: string }[]
     upcomingAppointment?: {
@@ -2297,6 +2299,10 @@ export default function Dashboard() {
                       </p>
                     </div>
                   </div>
+                )}
+
+                {submittedForReview && !attorneyMatched && (
+                  <RankedAttorneysCard attorneys={routingStatus?.rankedAttorneys ?? []} />
                 )}
 
                 {activeAssessment?.id && (
