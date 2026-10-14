@@ -2263,6 +2263,7 @@
     "evidence_secureNote": "Los archivos son seguros y privados",
     "evidence_manageFiles": "Administrar archivos",
     "evidence_uploadedCount": "{count} archivos subidos",
+    "evidence_uploadedCountOne": "1 archivo subido",
     "evidence_done": "Listo",
     "evidence_confidenceTitle": "Confianza en la evaluación del caso",
     "evidence_low": "Baja",

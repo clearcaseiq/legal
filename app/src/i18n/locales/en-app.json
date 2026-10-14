@@ -1289,6 +1289,7 @@
     "evidence_secureNote": "Files are secure and private",
     "evidence_manageFiles": "Manage Files",
     "evidence_uploadedCount": "{count} files uploaded",
+    "evidence_uploadedCountOne": "1 file uploaded",
     "evidence_done": "Done",
     "evidence_confidenceTitle": "Case Evaluation Confidence",
     "evidence_low": "Low",

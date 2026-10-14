@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  analyzeTextDocumentRelevance,
   analyzeVideoRelevance,
   assessDocumentText,
   assessRelevance,
@@ -129,5 +130,40 @@ describe('medical bills', () => {
     const result = judge('ACME ROOFING INVOICE. Account number 4471. Amount due $3,200. Due date 11/01/2026. Total $3,200.')
     expect(result?.status).toBe('review')
     expect(result?.message).toContain('nothing on it is medical')
+  })
+})
+
+/**
+ * Text and Word files never reach Rekognition, so this is the only check they
+ * get. Without it a git log uploaded as a medical bill counted as one.
+ */
+describe('analyzeTextDocumentRelevance', () => {
+  const GIT_LOG = [
+    'commit 18640135f4482ac76f6e9444537d7ad623840f6b',
+    'Merge: 7230d0a f1ded3a',
+    'Author: srid9833 <reddy.sridhar@gmail.com>',
+    "    Merge branch 'main' of https://github.com/clearcaseiq/legal",
+    ' api/src/lib/llm-prompt-sanitize.ts | 2 --',
+    ' 3 files changed, 4 insertions(+), 4 deletions(-)',
+  ].join('\n')
+
+  it.each(['bills', 'medical_records'])('does not accept unrelated text as %s', (category) => {
+    expect(analyzeTextDocumentRelevance(category, GIT_LOG).status).toBe('review')
+  })
+
+  it('accepts a medical bill', () => {
+    const result = analyzeTextDocumentRelevance(
+      'bills',
+      'Bay Area Orthopedics INVOICE. Patient: Dana Reyes. Date of service 04/11/2026. CPT 99213 office visit. Balance due $420.',
+    )
+    expect(result.status).toBe('relevant')
+  })
+
+  it('flags an empty file instead of letting it through', () => {
+    expect(analyzeTextDocumentRelevance('medical_records', '  ').status).toBe('review')
+  })
+
+  it('does not judge sections that are not documents', () => {
+    expect(analyzeTextDocumentRelevance('other', GIT_LOG).status).toBe('skipped')
   })
 })

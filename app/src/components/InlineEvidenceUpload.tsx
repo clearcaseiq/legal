@@ -157,6 +157,35 @@ function storedVision(file: EvidenceFile | undefined): VisionVerdict | null {
   }
 }
 
+function warningMessage(vision: VisionVerdict): string {
+  return vision.message || `This file may not match ${vision.expected || 'the selected category'}.`
+}
+
+// Files whose "wrong document" warning the claimant dismissed, by evidence id.
+// Kept across reloads because stored verdicts are re-shown whenever files load,
+// and a file someone already confirmed must not be flagged at them again.
+const DISMISSED_WARNINGS_KEY = 'evidence-warnings-dismissed'
+const MAX_DISMISSED_WARNINGS = 500
+
+function readDismissedWarnings(): Set<string> {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(DISMISSED_WARNINGS_KEY) || '[]')
+    return new Set(Array.isArray(parsed) ? parsed.filter((id) => typeof id === 'string') : [])
+  } catch {
+    return new Set()
+  }
+}
+
+function rememberDismissedWarnings(ids: string[]) {
+  if (!ids.length) return
+  try {
+    const next = [...readDismissedWarnings(), ...ids].slice(-MAX_DISMISSED_WARNINGS)
+    localStorage.setItem(DISMISSED_WARNINGS_KEY, JSON.stringify([...new Set(next)]))
+  } catch {
+    /* storage unavailable: the warning just comes back on the next load */
+  }
+}
+
 const INSURANCE_NAME_CATEGORIES = new Set(['insurance_letters', 'dec_page'])
 
 /** The names behind a server `mismatch` verdict, or null when there is none. */
@@ -403,13 +432,38 @@ export default function InlineEvidenceUpload({
       return
     }
     if (status !== 'mismatch' && status !== 'review') return
-    const message = vision.message || `This file may not match ${vision.expected || 'the selected category'}.`
-    setVisionWarnings((prev) => [...prev.filter((w) => w.fileName !== fileName), { fileName, status, message }])
+    setVisionWarnings((prev) => [...prev.filter((w) => w.fileName !== fileName), { fileName, status, message: warningMessage(vision) }])
   }, [])
+
+  const filesRef = useRef(files)
+  filesRef.current = files
 
   const dismissVisionWarning = useCallback((fileName: string) => {
     setVisionWarnings((prev) => prev.filter((w) => w.fileName !== fileName))
+    rememberDismissedWarnings(
+      filesRef.current.filter((f) => (f.originalName || f.filename) === fileName).map((f) => f.id),
+    )
   }, [])
+
+  // Warnings otherwise exist only in this component's state, set at upload, so a
+  // reload turned a flagged file back into a counted one. Re-derive them from the
+  // verdict the API stored on each file.
+  useEffect(() => {
+    const dismissed = readDismissedWarnings()
+    const restored: VisionWarning[] = []
+    for (const file of files) {
+      if (dismissed.has(file.id) || String(file.mimetype || '').startsWith('video/')) continue
+      const vision = storedVision(file)
+      if (vision?.status !== 'mismatch' && vision?.status !== 'review') continue
+      restored.push({ fileName: file.originalName || file.filename, status: vision.status, message: warningMessage(vision) })
+    }
+    if (!restored.length) return
+    setVisionWarnings((prev) => {
+      const shown = new Set(prev.map((w) => w.fileName))
+      const added = restored.filter((w) => !shown.has(w.fileName))
+      return added.length ? [...prev, ...added] : prev
+    })
+  }, [files])
 
   useEffect(() => {
     onWarningsChange?.(visionWarnings, dismissVisionWarning)
@@ -452,13 +506,17 @@ export default function InlineEvidenceUpload({
       file.type.startsWith('image/') ||
       (!file.type && /\.(jpe?g|png|gif|bmp|webp|heic|heif|tiff?)$/i.test(file.name))
     const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name)
+    const isTextDocument =
+      file.type === 'text/plain' ||
+      file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+      /\.(txt|docx)$/i.test(file.name)
 
     if (isVideoFile(file)) {
       warnVideoOutsideVideos(file.name)
       return
     }
 
-    if (!isImage && !isPdf) return
+    if (!isImage && !isPdf && !isTextDocument) return
     try {
       const fd = new FormData()
       fd.append('file', file)
@@ -618,11 +676,8 @@ export default function InlineEvidenceUpload({
   // Process evidence file
   const processFile = async (fileId: string) => {
     try {
-      const token = localStorage.getItem('auth_token')
-      if (!token || token.split('.').length !== 3) {
-        // Skip processing when not authenticated
-        return
-      }
+      // Guests too: the endpoint accepts a guest-owned file without a token, and
+      // processing is where a document's text is checked against its section.
       setProcessingFiles(prev => new Set(prev).add(fileId))
       await processEvidenceFile(fileId)
       const refreshed = await loadFiles()

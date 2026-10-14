@@ -952,6 +952,34 @@ export async function analyzePdfRelevance(args: { category: string; buffer: Buff
   return skipped('pdf_text_insufficient')
 }
 
+/**
+ * Assess relevance of a plain-text or Word file from its extracted text. These
+ * never go to Rekognition, so this keyword check is the only one they get. A
+ * PDF that yields no text may be a scan; a text file that yields none is empty,
+ * so unlike a PDF it is flagged rather than let through.
+ */
+export function analyzeTextDocumentRelevance(category: string, text: string): VisionRelevanceResult {
+  const base = {
+    category,
+    topLabels: [] as DetectedLabel[],
+    expected: CATEGORY_EXPECTATION[category] || 'evidence relevant to your case',
+    provider: 'aws_rekognition' as const,
+    checkedAt: new Date().toISOString(),
+  }
+  if (!isDocumentCategory(category)) {
+    return { ...base, status: 'skipped', score: 0, matchedLabels: [], message: null, reason: 'not_a_document_category' }
+  }
+  const verdict = assessDocumentText(category, text, base)
+  if (verdict) return verdict
+  return {
+    ...base,
+    status: 'review',
+    score: 0.4,
+    matchedLabels: [],
+    message: `This file has almost no text, so we couldn't confirm it's ${base.expected}. Please double-check it's the right file.`,
+  }
+}
+
 /** True when a verdict should flag the evidence file for manual review. */
 export function shouldFlagForReview(result: VisionRelevanceResult): boolean {
   return result.status === 'mismatch' || result.status === 'review'

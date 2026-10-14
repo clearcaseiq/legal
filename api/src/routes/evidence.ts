@@ -16,7 +16,13 @@ import { getClientConsentCompliance, isGuestCaseUserEmail } from '../lib/client-
 import { ENV } from '../env'
 import { prisma } from '../lib/prisma'
 import { recordCaseChange } from '../lib/data-authority'
-import { processEvidenceFileForExtraction, shouldAutoProcessEvidence, extractDataFromBuffer } from '../lib/evidence-processing'
+import {
+  analyzeTextFileRelevance,
+  extractDataFromBuffer,
+  processEvidenceFileForExtraction,
+  shouldAutoProcessEvidence,
+  textDocumentMime,
+} from '../lib/evidence-processing'
 import { syncCaseCoachTasks } from '../lib/case-coach-loop'
 import { analyzeImageRelevance, analyzePdfRelevance, analyzeVideoRelevance, type VisionRelevanceResult } from '../lib/evidence-vision'
 import { evidenceCategoriesForListing, syncPlaintiffDocumentRequestStatuses } from '../lib/document-request-status'
@@ -320,6 +326,11 @@ router.post('/vision-precheck', uploadLimiter, optionalAuthMiddleware, memoryUpl
       return res.status(200).json({ vision })
     }
 
+    if (textDocumentMime(mimetype, filename)) {
+      const vision = await analyzeTextFileRelevance({ category, buffer, mimetype, originalName: filename })
+      return res.status(200).json({ vision })
+    }
+
     // Browsers often send picked images with an empty/octet-stream type; allow those
     // through and let sharp validate. Only skip clearly non-image types (video, etc.).
     const genericType = !mimetype || mimetype === 'application/octet-stream'
@@ -506,6 +517,17 @@ router.post('/upload', uploadLimiter, optionalAuthMiddleware, upload.single('fil
         })
       } catch (visionError) {
         logger.warn('PDF relevance check failed', { error: visionError })
+      }
+    } else if (textDocumentMime(req.file.mimetype, req.file.originalname || '')) {
+      try {
+        visionResult = await analyzeTextFileRelevance({
+          category: category || 'other',
+          buffer: fs.readFileSync(req.file.path),
+          mimetype: req.file.mimetype,
+          originalName: req.file.originalname || '',
+        })
+      } catch (visionError) {
+        logger.warn('Text document relevance check failed', { error: visionError })
       }
     } else if (looksLikeVideo) {
       try {
@@ -706,6 +728,17 @@ router.post('/upload-multiple', uploadLimiter, optionalAuthMiddleware, upload.ar
             })
           } catch (visionError) {
             logger.warn('PDF relevance check failed (batch)', { error: visionError, filename: file.originalname })
+          }
+        } else if (textDocumentMime(file.mimetype, file.originalname || '')) {
+          try {
+            visionResult = await analyzeTextFileRelevance({
+              category: category || 'other',
+              buffer: fs.readFileSync(file.path),
+              mimetype: file.mimetype,
+              originalName: file.originalname || '',
+            })
+          } catch (visionError) {
+            logger.warn('Text document relevance check failed (batch)', { error: visionError, filename: file.originalname })
           }
         } else if (looksLikeVideo) {
           try {

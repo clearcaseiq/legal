@@ -8,7 +8,13 @@ import { DetectDocumentTextCommand, TextractClient } from '@aws-sdk/client-textr
 import { prisma } from './prisma'
 import { logger } from './logger'
 import { runCaseRecalculation } from './case-recalculation'
-import { analyzeImageRelevance, judgeDocumentText, shouldFlagForReview, type VisionRelevanceResult } from './evidence-vision'
+import {
+  analyzeImageRelevance,
+  analyzeTextDocumentRelevance,
+  judgeDocumentText,
+  shouldFlagForReview,
+  type VisionRelevanceResult,
+} from './evidence-vision'
 import { checkDocumentIdentity } from './claimant-identity-check'
 
 type StructuredMedicalEvent = {
@@ -811,6 +817,30 @@ export async function extractTextFromBuffer(
       /* best-effort temp cleanup */
     }
   }
+}
+
+/** The MIME type to read a plain-text or Word upload as, or null for anything else. */
+export function textDocumentMime(mimetype: string, originalName: string): string | null {
+  if (mimetype === 'text/plain' || /\.txt$/i.test(originalName || '')) return 'text/plain'
+  if (mimetype === DOCX_MIME || /\.docx$/i.test(originalName || '')) return DOCX_MIME
+  return null
+}
+
+/**
+ * Upload-time relevance verdict for a plain-text or Word file, or null when the
+ * file is neither. Without it these files had no verdict until processing ran,
+ * and counted as the right document in the meantime.
+ */
+export async function analyzeTextFileRelevance(args: {
+  category: string
+  buffer: Buffer
+  mimetype: string
+  originalName: string
+}): Promise<VisionRelevanceResult | null> {
+  const mime = textDocumentMime(args.mimetype, args.originalName)
+  if (!mime) return null
+  const text = await extractTextFromBuffer(args.buffer, mime, args.originalName)
+  return analyzeTextDocumentRelevance(args.category, text)
 }
 
 export async function extractDataFromBuffer(

@@ -1025,6 +1025,8 @@ export default function IntakeWizardQuick() {
 
   /** Shorthand for keys in the intake namespace. */
   const tx = (key: string) => t(`intake.${key}`)
+  const uploadedCountLabel = (count: number) =>
+    count === 1 ? tx('evidence_uploadedCountOne') : tx('evidence_uploadedCount').replace('{count}', String(count))
   /** Maps key-based option defs to localized `{ value, label }` arrays. */
   const localizeOptions = <T extends { value: string; labelKey: string }>(defs: readonly T[]) =>
     defs.map(({ labelKey, ...rest }) => ({ ...rest, label: tx(labelKey) }))
@@ -6284,7 +6286,7 @@ export default function IntakeWizardQuick() {
                       </span>
                     ) : uploaded ? (
                       <>
-                        <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">{tx('evidence_uploadedCount').replace('{count}', String(itemCount))}</p>
+                        <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">{uploadedCountLabel(itemCount)}</p>
                         <p className="text-[11px] text-gray-400">{rel ? tx('evidence_lastUpload').replace('{time}', rel) : tx('evidence_savedSecurely')}</p>
                       </>
                     ) : (
@@ -6496,7 +6498,7 @@ export default function IntakeWizardQuick() {
                             <div className="hidden w-[104px] shrink-0 text-right sm:block">
                               {row.fulfilled ? (
                                 <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">
-                                  {tx('evidence_uploadedCount').replace('{count}', String(Math.max(1, row.uploadedCount)))}
+                                  {uploadedCountLabel(Math.max(1, row.uploadedCount))}
                                 </p>
                               ) : (
                                 <p className="text-xs font-semibold text-amber-600 dark:text-amber-500">{tx('evidence_requestedPending')}</p>
@@ -6947,7 +6949,7 @@ export default function IntakeWizardQuick() {
               : formData.insuranceCoverage.medicalBillRange
                 ? { k: tx('card_medicalBills'), v: labelForValue(MEDICAL_BILL_RANGE_OPTIONS, formData.insuranceCoverage.medicalBillRange), doc: false }
                 : evCount('bills') > 0
-                  ? { k: tx('card_medicalBills'), v: tx('evidence_uploadedCount').replace('{count}', String(evCount('bills'))), doc: true }
+                  ? { k: tx('card_medicalBills'), v: uploadedCountLabel(evCount('bills')), doc: true }
                   : { k: tx('card_medicalBills'), v: tx('notAnsweredYet'), doc: false },
             { k: tx('card_futureMedical'), v: formData.insuranceCoverage.futureMedicalRange ? labelForValue(FUTURE_MEDICAL_RANGE_OPTIONS, formData.insuranceCoverage.futureMedicalRange) : tx('notAnsweredYet'), doc: false },
             // Keep this in sync with the "Employment / Income" confidence factor: an
@@ -6957,7 +6959,7 @@ export default function IntakeWizardQuick() {
             wageDocLoss > 0
               ? { k: tx('card_lostIncome'), v: fmtMoney(wageDocLoss), doc: true }
               : evCount('wage_verification') > 0
-                ? { k: tx('card_lostIncome'), v: tx('evidence_uploadedCount').replace('{count}', String(evCount('wage_verification'))), doc: true }
+                ? { k: tx('card_lostIncome'), v: uploadedCountLabel(evCount('wage_verification')), doc: true }
                 : formData.casePosture.missedWork
                   ? { k: tx('card_lostIncome'), v: labelForValue(MISSED_WORK_OPTIONS, formData.casePosture.missedWork), doc: false }
                   : formData.casePosture.lostWagesRange

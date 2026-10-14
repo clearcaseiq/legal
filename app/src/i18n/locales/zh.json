@@ -2263,6 +2263,7 @@
     "evidence_secureNote": "文件安全且私密",
     "evidence_manageFiles": "管理文件",
     "evidence_uploadedCount": "已上传 {count} 个文件",
+    "evidence_uploadedCountOne": "已上传 1 个文件",
     "evidence_done": "完成",
     "evidence_confidenceTitle": "案件评估置信度",
     "evidence_low": "低",
