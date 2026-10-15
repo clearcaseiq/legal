@@ -17,6 +17,9 @@ import {
   updateLeadMedicalEntry,
   deleteLeadMedicalEntry,
   updateLeadMedicalStatus,
+  getLeadDamages,
+  createLeadDamage,
+  updateLeadDamage,
 } from '../../lib/api'
 import ConfirmDialog from '../../components/ConfirmDialog'
 import { useFirmAccess } from '../../hooks/useFirmAccess'
@@ -115,6 +118,9 @@ function dateInput(iso: string | null) {
 
 const visitLabel = (v: string) => VISIT_TYPES.find((x) => x.value === v)?.label ?? 'Visit'
 
+/** Description of the Damages line this card adds, so it can find and update it later. */
+const FUTURE_PLAN_DAMAGE = 'Future treatment plan (Medical tab estimate)'
+
 export default function MedicalTimelinePanel({ leadId }: { leadId: string }) {
   const canEdit = useFirmAccess().can('chronology')
   const [data, setData] = useState<Timeline | null>(null)
@@ -129,6 +135,30 @@ export default function MedicalTimelinePanel({ leadId }: { leadId: string }) {
   const [deleting, setDeleting] = useState(false)
   const [symptomInput, setSymptomInput] = useState('')
   const [form, setForm] = useState(EMPTY_FORM)
+  const [planDraft, setPlanDraft] = useState<string | null>(null)
+  const [costDraft, setCostDraft] = useState<string | null>(null)
+  const [planMsg, setPlanMsg] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null)
+  const [planBusy, setPlanBusy] = useState<'save' | 'damages' | null>(null)
+  const [futureDamage, setFutureDamage] = useState<{ id: string; amount: number } | null>(null)
+
+  const loadFutureDamage = useCallback(async () => {
+    try {
+      const res = await getLeadDamages(leadId)
+      const item = (res.items || []).find(
+        (it: any) => it.category === 'future_medical' && it.description === FUTURE_PLAN_DAMAGE,
+      )
+      setFutureDamage(item ? { id: item.id, amount: Number(item.amount) } : null)
+    } catch {
+      setFutureDamage(null)
+    }
+  }, [leadId])
+
+  useEffect(() => {
+    setPlanDraft(null)
+    setCostDraft(null)
+    setPlanMsg(null)
+    void loadFutureDamage()
+  }, [loadFutureDamage])
 
   const load = useCallback(async () => {
     try {
@@ -251,6 +281,63 @@ export default function MedicalTimelinePanel({ leadId }: { leadId: string }) {
   if (!data) return null
 
   const st = data.status
+  const savedPlan = st.futureTreatment ?? ''
+  const savedCost = st.futureCostEstimate != null ? String(st.futureCostEstimate) : ''
+  const planValue = planDraft ?? savedPlan
+  const costValue = costDraft ?? savedCost
+  const planDirty = planValue !== savedPlan || costValue.trim() !== savedCost
+  const costNumber = costValue.trim() === '' ? null : Number(costValue)
+  const costValid = costNumber == null || (Number.isFinite(costNumber) && costNumber >= 0)
+
+  const savePlan = async () => {
+    if (!costValid) {
+      setPlanMsg({ tone: 'err', text: 'Enter the cost estimate as a dollar amount.' })
+      return false
+    }
+    setPlanBusy('save')
+    setPlanMsg(null)
+    try {
+      const res = await updateLeadMedicalStatus(leadId, { futureTreatment: planValue, futureCostEstimate: costNumber })
+      setData(res.timeline)
+      setPlanDraft(null)
+      setCostDraft(null)
+      setPlanMsg({ tone: 'ok', text: 'Saved.' })
+      return true
+    } catch (err: any) {
+      setPlanMsg({ tone: 'err', text: err?.response?.data?.error || 'Could not save the treatment plan.' })
+      return false
+    } finally {
+      setPlanBusy(null)
+    }
+  }
+
+  const addPlanToDamages = async () => {
+    if (costNumber == null || !costValid || costNumber <= 0) {
+      setPlanMsg({ tone: 'err', text: 'Enter a cost estimate first.' })
+      return
+    }
+    if (planDirty && !(await savePlan())) return
+    setPlanBusy('damages')
+    setPlanMsg(null)
+    try {
+      const payload = {
+        category: 'future_medical',
+        description: FUTURE_PLAN_DAMAGE,
+        amount: costNumber,
+        notes: planValue.trim() || null,
+      }
+      if (futureDamage) await updateLeadDamage(leadId, futureDamage.id, payload)
+      else await createLeadDamage(leadId, payload)
+      await loadFutureDamage()
+      setPlanMsg({ tone: 'ok', text: `${money(costNumber)} is in Damages as future medical and counts toward the case value.` })
+    } catch (err: any) {
+      setPlanMsg({ tone: 'err', text: err?.response?.data?.error || 'Could not add it to Damages.' })
+    } finally {
+      setPlanBusy(null)
+    }
+  }
+
+  const damagesInSync = futureDamage != null && costNumber != null && Math.round(futureDamage.amount) === Math.round(costNumber)
   const past = data.entries.filter((e) => !e.isFuture)
   const future = data.entries.filter((e) => e.isFuture)
   const inputCls =
@@ -570,8 +657,11 @@ export default function MedicalTimelinePanel({ leadId }: { leadId: string }) {
           <h3 className="mb-3 text-sm font-semibold text-slate-900">Future treatment plan</h3>
           <textarea
             rows={3}
-            defaultValue={st.futureTreatment ?? ''}
-            onBlur={(e) => saveStatus({ futureTreatment: e.target.value })}
+            value={planValue}
+            onChange={(e) => {
+              setPlanDraft(e.target.value)
+              setPlanMsg(null)
+            }}
             placeholder="e.g. Recommended L4-L5 microdiscectomy; 12 weeks post-op PT."
             className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
           />
@@ -579,15 +669,60 @@ export default function MedicalTimelinePanel({ leadId }: { leadId: string }) {
             <span className="text-xs font-medium text-slate-500">Future cost estimate ($)</span>
             <input
               type="number"
-              defaultValue={st.futureCostEstimate ?? ''}
-              onBlur={(e) => saveStatus({ futureCostEstimate: e.target.value === '' ? null : Number(e.target.value) })}
+              min={0}
+              value={costValue}
+              onChange={(e) => {
+                setCostDraft(e.target.value)
+                setPlanMsg(null)
+              }}
               placeholder="planning estimate"
               className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
             />
             <span className="mt-1 block text-[11px] text-slate-400">
-              Add a <span className="font-medium">future medical</span> item in Damages to include it in the case value.
+              {damagesInSync
+                ? 'In Damages as future medical, so it counts toward the case value.'
+                : futureDamage
+                  ? `Damages still has ${money(futureDamage.amount)} for this plan. Update it to match.`
+                  : 'Not in the case value until you add it to Damages.'}
             </span>
           </label>
+          <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+            {planMsg ? (
+              <span className={`mr-auto text-xs ${planMsg.tone === 'ok' ? 'text-emerald-700' : 'text-rose-600'}`}>{planMsg.text}</span>
+            ) : planDirty ? (
+              <span className="mr-auto text-xs text-amber-700">Unsaved changes</span>
+            ) : null}
+            {planDirty ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setPlanDraft(null)
+                  setCostDraft(null)
+                  setPlanMsg(null)
+                }}
+                disabled={planBusy != null}
+                className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+              >
+                Cancel
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => void addPlanToDamages()}
+              disabled={planBusy != null || costNumber == null || !costValid || costNumber <= 0 || (damagesInSync && !planDirty)}
+              className="rounded-lg border border-brand-200 px-3 py-1.5 text-sm font-semibold text-brand-700 hover:bg-brand-50 disabled:opacity-40"
+            >
+              {planBusy === 'damages' ? 'Adding…' : futureDamage ? 'Update damages' : 'Add to damages'}
+            </button>
+            <button
+              type="button"
+              onClick={() => void savePlan()}
+              disabled={!planDirty || planBusy != null}
+              className="rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-40"
+            >
+              {planBusy === 'save' ? 'Saving…' : 'Save'}
+            </button>
+          </div>
         </div>
       </div>
 
