@@ -4268,6 +4268,15 @@
       "cases": "Mis casos",
       "profile": "Mi perfil"
     },
+    "tabDescriptions": {
+      "dashboard": "Tu caso de un vistazo: en qué etapa está, qué sigue y las novedades recientes.",
+      "tasks": "Lo que debes hacer para tu caso, incluidos los documentos que pidió un abogado.",
+      "documents": "Sube y administra tus registros médicos, facturas, fotos y otras pruebas.",
+      "attorney": "Sigue tu caso durante la revisión de abogados, desde el envío hasta la consulta.",
+      "value": "El rango estimado del valor de tu caso y lo que podría aumentarlo.",
+      "journal": "Registra los salarios perdidos y cómo cambia tu dolor día a día.",
+      "cases": "Todos tus casos en un solo lugar. Abre cualquiera para ver sus detalles."
+    },
     "status": {
       "inReview": "Tu caso está en revisión por un abogado. Te enviaremos un correo en cuanto un abogado responda.",
       "inReviewLine1": "Tu caso está en revisión por un abogado.",

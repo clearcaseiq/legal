@@ -3204,6 +3204,15 @@
       "cases": "My Cases",
       "profile": "My Profile"
     },
+    "tabDescriptions": {
+      "dashboard": "Your case at a glance: where it stands, what happens next, and recent updates.",
+      "tasks": "Things to do for your case, including documents an attorney has asked for.",
+      "documents": "Upload and manage your medical records, bills, photos, and other evidence.",
+      "attorney": "Follow your case through attorney review, from submission to consultation.",
+      "value": "Your estimated case value range and what could raise it.",
+      "journal": "Log lost wages and how your pain changes day to day.",
+      "cases": "All of your cases in one place. Open any case to see its details."
+    },
     "status": {
       "inReview": "Your case is in attorney review. We'll email you the moment an attorney responds.",
       "inReviewLine1": "Your case is in attorney review.",

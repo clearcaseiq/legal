@@ -2184,22 +2184,27 @@ export default function Dashboard() {
         )}
 
         {activeAssessment && (() => {
-          const visibleTabs = TABS.filter((tab) => tab.id !== 'attorney' || !attorneyMatched)
+          // Profile stays routable (the header menu links to ?tab=profile) but has no tab of its own.
+          const visibleTabs = TABS.filter(
+            (tab) => tab.id !== 'profile' && (tab.id !== 'attorney' || !attorneyMatched)
+          )
           return (
           <nav className="sticky top-0 z-40 -mx-4 bg-slate-50 px-4 pb-2 pt-2 dark:bg-slate-950 sm:-mx-6 sm:px-6 md:top-20">
             <div className="rounded-2xl border border-slate-200/80 bg-white p-3 shadow-[0_1px_2px_rgba(15,23,42,0.05),0_10px_30px_-16px_rgba(15,23,42,0.16)] transition-colors dark:border-slate-700/80 dark:bg-slate-900 dark:shadow-none sm:p-4">
-              <div className={`grid grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-3 lg:grid-cols-4 ${visibleTabs.length >= 8 ? '2xl:grid-cols-8' : '2xl:grid-cols-7'}`}>
+              <div className={`grid grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-3 lg:grid-cols-4 ${visibleTabs.length >= 7 ? '2xl:grid-cols-7' : '2xl:grid-cols-6'}`}>
                 {visibleTabs.map((tab) => {
                   const badge =
                     tab.id === 'tasks'
                       ? actionItemsCount + pendingDocumentRequests.length
                       : 0
+                  const tooltipId = `dashboard-tab-tip-${tab.id}`
                 return (
                 <button
                   key={tab.id}
                       type="button"
                       onClick={() => selectTab(tab.id)}
-                      className={`inline-flex w-full min-h-[3.25rem] items-center justify-center gap-2.5 rounded-xl border px-4 py-3.5 text-base font-semibold transition-colors sm:min-h-[3.75rem] sm:px-5 sm:text-lg ${
+                      aria-describedby={tooltipId}
+                      className={`group relative inline-flex w-full min-h-[3.25rem] items-center justify-center gap-2.5 rounded-xl border px-4 py-3.5 text-base font-semibold transition-colors sm:min-h-[3.75rem] sm:px-5 sm:text-lg ${
                     activeTab === tab.id
                           ? 'border-brand-200 bg-brand-50 text-brand-700 dark:border-brand-900/70 dark:bg-brand-950/40 dark:text-brand-300'
                           : 'border-slate-200 bg-white text-slate-600 hover:border-brand-200 hover:text-brand-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-brand-800 dark:hover:text-brand-300'
@@ -2210,6 +2215,14 @@ export default function Dashboard() {
                   {badge > 0 && (
                         <span className="inline-flex h-5 min-w-[20px] shrink-0 items-center justify-center rounded-full bg-rose-500 px-1.5 text-xs font-bold text-white">{badge}</span>
                   )}
+                      <span
+                        id={tooltipId}
+                        role="tooltip"
+                        className="pointer-events-none invisible absolute left-1/2 top-full z-50 mt-2 w-60 -translate-x-1/2 rounded-lg bg-slate-900 px-3 py-2 text-left text-xs font-normal leading-relaxed text-white opacity-0 shadow-lg transition-[opacity,visibility] duration-150 group-hover:visible group-hover:opacity-100 group-hover:delay-300 group-focus-visible:visible group-focus-visible:opacity-100 dark:bg-slate-700"
+                      >
+                        <span className="block font-semibold">{t(tab.labelKey)}</span>
+                        {t(`plaintiffDashboard.tabDescriptions.${tab.id}`)}
+                      </span>
                 </button>
                 )
               })}
