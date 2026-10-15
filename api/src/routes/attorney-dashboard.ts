@@ -175,7 +175,8 @@ import {
 } from '../lib/attorney-activity'
 import { openCaseStage, syncCaseStage, reopenCaseStage } from '../lib/case-stage'
 import { setLitigationStatus, isLitigationStatus, LITIGATION_LABELS } from '../lib/litigation'
-import { addOpeningChecklistToWorkflow, completeHipaaOpeningTaskIfSatisfied, createCaseOpeningTasks } from '../lib/case-opening'
+import { completeHipaaOpeningTaskIfSatisfied, createCaseOpeningTasks } from '../lib/case-opening'
+import { addCaseTasksToWorkflow } from '../lib/case-tasks-to-workflow'
 import {
   acknowledgeConflictCheck,
   conflictNeedsAcknowledgment,
@@ -11563,7 +11564,7 @@ router.get('/leads/:leadId/tasks', authMiddleware, async (req: any, res) => {
     // Ensure open workflow steps (active stage) appear as Tasks-tab rows, and
     // mirror any already-completed Tasks work back onto Workflow steps.
     try {
-      await addOpeningChecklistToWorkflow(lead.assessmentId)
+      await addCaseTasksToWorkflow(lead.assessmentId)
       await syncWorkflowStepTasks(lead.assessmentId)
       await reconcileWorkflowProgress(lead.assessmentId)
     } catch (e: any) {
@@ -11756,7 +11757,7 @@ router.get('/leads/:leadId/workflow', authMiddleware, async (req: any, res) => {
     }
 
     if (cw) {
-      const checklistAdded = await addOpeningChecklistToWorkflow(lead.assessmentId).catch(() => 0)
+      const checklistAdded = await addCaseTasksToWorkflow(lead.assessmentId).catch(() => 0)
       // Tasks-tab completion + case-data proof → Workflow steps (no human needed
       // on the Workflow tab). Reload items when anything flipped.
       const reconciled = await reconcileWorkflowProgress(lead.assessmentId).catch(() => null)

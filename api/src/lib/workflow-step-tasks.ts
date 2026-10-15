@@ -470,10 +470,10 @@ export async function syncWorkflowItemFromTask(task: {
         where: { id: task.id },
         select: { id: true, title: true, notes: true, status: true, sourceTemplateStepId: true, completedAt: true },
       })
-      const items: Array<{ id: string; title: string }> = completed
+      const items: Array<{ id: string; title: string; sourceTaskId: string | null }> = completed
         ? await (prisma as any).caseWorkflowItem.findMany({
             where: { caseWorkflow: { assessmentId: task.assessmentId }, stepType: { not: 'ai_milestone' }, status: 'pending' },
-            select: { id: true, title: true },
+            select: { id: true, title: true, sourceTaskId: true },
           })
         : []
       for (const item of items) {

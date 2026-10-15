@@ -2491,6 +2491,10 @@ model CaseWorkflowItem {
   // False for steps tracked on the pipeline that must not hold their stage
   // open while pending (the statute-of-limitations deadline).
   blocksStage   Boolean @default(true)
+  // The task this step was added for, when that task's sourceTemplateStepId
+  // already carries another key (insurance follow-ups, task templates) and so
+  // cannot hold the wfitem: link.
+  sourceTaskId  String?
   templateId    String?
 
   status        String    @default("pending") // pending, done, skipped
@@ -2506,6 +2510,7 @@ model CaseWorkflowItem {
 
   @@index([caseWorkflowId])
   @@index([assignedFirmMemberId, status])
+  @@index([sourceTaskId])
   @@map("case_workflow_items")
 }
 

@@ -326,7 +326,7 @@ export async function serializeCaseWorkflow(cw: any) {
       custom: Boolean(it.custom),
       status: aiStatusFor(it),
       completedAt: it.completedAt,
-      linkedTaskId: linkedTaskByItemId.get(it.id) || null,
+      linkedTaskId: linkedTaskByItemId.get(it.id) || it.sourceTaskId || null,
     })
   }
 

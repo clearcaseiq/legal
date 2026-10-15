@@ -742,9 +742,13 @@ function StepItem({
           {step.blocksStage === false && (
             <span
               className="rounded bg-sky-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-sky-700 ring-1 ring-sky-200"
-              title="Stays open for the life of the case. It does not hold this stage open."
+              title={
+                step.stepType === 'deadline' && step.required
+                  ? 'Stays open for the life of the case. It does not hold this stage open.'
+                  : 'Tracked here from the Tasks tab. It does not hold this stage open.'
+              }
             >
-              Ongoing deadline
+              {step.stepType === 'deadline' && step.required ? 'Ongoing deadline' : 'Tracked'}
             </span>
           )}
           {step.custom && (

@@ -256,9 +256,10 @@ const DONE_TASK_STATUSES = new Set(['done', 'skipped', 'cancelled'])
 
 /** True when a Tasks-tab row is about the same work as a Workflow step. */
 export function taskBelongsToWorkflowItem(
-  item: { id: string; title: string },
+  item: { id: string; title: string; sourceTaskId?: string | null },
   task: TaskRow,
 ): boolean {
+  if (item.sourceTaskId && item.sourceTaskId === task.id) return true
   const linkedId = parseWorkflowItemIdFromTaskKey(task.sourceTemplateStepId)
   if (linkedId && linkedId === item.id) return true
   if (task.sourceTemplateStepId === workflowItemTaskKey(item.id)) return true
@@ -285,7 +286,10 @@ export function taskBelongsToWorkflowItem(
   return false
 }
 
-export function tasksRelatedToWorkflowItem(item: { id: string; title: string }, tasks: TaskRow[]): TaskRow[] {
+export function tasksRelatedToWorkflowItem(
+  item: { id: string; title: string; sourceTaskId?: string | null },
+  tasks: TaskRow[],
+): TaskRow[] {
   return tasks.filter((t) => taskBelongsToWorkflowItem(item, t))
 }
 
@@ -310,7 +314,7 @@ async function setWorkflowItemStatus(
  */
 export async function closeRelatedOpenTasksForWorkflowItem(
   assessmentId: string,
-  item: { id: string; title: string },
+  item: { id: string; title: string; sourceTaskId?: string | null },
   reason: string,
   only?: (task: TaskRow) => boolean,
 ): Promise<number> {
@@ -353,11 +357,14 @@ export async function reopenLinkedTasksForWorkflowItem(
   itemId: string,
 ): Promise<number> {
   const key = workflowItemTaskKey(itemId)
+  const item = await (prisma as any).caseWorkflowItem
+    .findUnique({ where: { id: itemId }, select: { sourceTaskId: true } })
+    .catch(() => null)
   const tasks = await prisma.caseTask.findMany({
     where: {
       assessmentId,
       mergedIntoId: null,
-      sourceTemplateStepId: key,
+      OR: [{ sourceTemplateStepId: key }, ...(item?.sourceTaskId ? [{ id: item.sourceTaskId }] : [])],
       status: { in: ['done', 'skipped'] },
     },
     select: { id: true },
