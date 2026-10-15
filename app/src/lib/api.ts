@@ -5384,6 +5384,14 @@ export async function manualReviewAction(
   return data
 }
 
+/** Offer the case to the next attorney the plaintiff chose that has not had it. */
+export async function routeCaseToPlaintiffChoice(caseId: string, options: { override?: boolean } = {}) {
+  const { data } = await api.post(`/v1/admin/cases/${caseId}/route-plaintiff-choice`, {
+    override: options.override === true,
+  })
+  return data as { ok: true; mode: string; attorneyId: string | null }
+}
+
 export async function holdCaseForManualReview(caseId: string, reason: string, note?: string) {
   const { data } = await api.post(`/v1/admin/manual-review/${caseId}/hold`, { reason, note })
   return data

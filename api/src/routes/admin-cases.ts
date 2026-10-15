@@ -10,8 +10,10 @@ import { parsePagination, paginated } from '../lib/pagination'
 import { CaseForRouting, AttorneyForRouting, routeCaseToAttorneys, filterEligibleAttorneys } from '../lib/routing'
 import { startAssessmentRouting } from '../lib/assessment-routing'
 import { updateClaimantContact } from '../lib/claimant-contact'
-import { recordRoutingEvent } from '../lib/routing-lifecycle'
+import { getRankedAttorneyIdsFromLead, recordRoutingEvent } from '../lib/routing-lifecycle'
 import { routeCaseReleasedFromReview } from '../lib/manual-review-release'
+import { loadPlaintiffAttorneyChoices } from '../lib/plaintiff-attorney-choices'
+import { isEngagedLeadStatus } from '../lib/lead-status'
 import { runRoutingEscalationSweep } from '../lib/routing-escalation-sweep'
 import { sendCaseOfferToAttorney } from '../lib/case-notifications'
 import { getMatchingRules, getAttorneyResponseDeadlineMinutes } from '../lib/matching-rules-config'
@@ -314,6 +316,88 @@ router.post('/manual-review/:caseId/action', authMiddleware, adminMiddleware, re
     return res.json({ ok: true, action, routing: releaseRouting.mode })
   } catch (error) {
     logger.error('Failed to process manual review action', { error })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/**
+ * Offer a case to the next attorney the plaintiff chose that has not had it yet.
+ *
+ * The Route case modal force-routes to whichever attorney the admin picks, so
+ * an admin trying to honour the plaintiff's ranking had to work out the next
+ * name themselves. This walks the plaintiff's own queue instead, through the
+ * same path as a manual review release, and also clears a pending review hold.
+ */
+router.post('/cases/:id/route-plaintiff-choice', authMiddleware, adminMiddleware, requireAdminCapability('ops'), async (req: AuthRequest, res) => {
+  try {
+    const caseId = req.params.id
+    const override = req.body?.override === true
+    const assessment = await prisma.assessment.findUnique({
+      where: { id: caseId },
+      select: {
+        id: true,
+        manualReviewStatus: true,
+        leadSubmission: { select: { status: true, sourceDetails: true } },
+        introductions: { select: { status: true, attorney: { select: { name: true } } } },
+      },
+    })
+    if (!assessment) return res.status(404).json({ error: 'Case not found' })
+
+    const lead = assessment.leadSubmission
+    if (isEngagedLeadStatus(lead?.status)) {
+      return res.status(409).json({ error: 'An attorney is already working this case.' })
+    }
+    // The live queue on the lead, not the facts copy: without it the release
+    // path finds no consumer slate and tier-routes to firms the plaintiff never chose.
+    if (getRankedAttorneyIdsFromLead(lead).length === 0) {
+      return res.status(400).json({ error: 'The plaintiff did not choose any attorneys for this case.' })
+    }
+    const reviewing = assessment.introductions.find((intro) => intro.status === 'PENDING' || intro.status === 'REQUESTED_INFO')
+    if (reviewing) {
+      return res.status(409).json({
+        error: `${reviewing.attorney?.name || 'An attorney'} is still reviewing this case. It moves to the plaintiff's next choice when they pass or their response window ends.`,
+      })
+    }
+
+    if (override) {
+      await recordRoutingEvent(caseId, null, null, 'routing_pause_overridden', {
+        source: 'admin_route_plaintiff_choice',
+        actorId: req.user?.id || null,
+        actorEmail: req.user?.email || null,
+      })
+    }
+
+    const result = await routeCaseReleasedFromReview(caseId, { overrideRoutingDisabled: override })
+    if (result.mode === 'held') {
+      const pausedByAdmin = /disabled by admin/i.test(result.error || '')
+      return res.status(409).json({
+        error: result.error || 'None of the plaintiff\'s remaining choices could be offered the case.',
+        pausedByAdmin,
+        canOverride: pausedByAdmin && !override,
+      })
+    }
+
+    if (assessment.manualReviewStatus === 'pending') {
+      await prisma.assessment.update({
+        where: { id: caseId },
+        data: { manualReviewStatus: 'released', reviewedBy: req.user?.id || null, reviewedAt: new Date() },
+      })
+    }
+    await writeAdminAudit(req, {
+      action: 'case_routed_plaintiff_choice',
+      entityType: 'assessment',
+      entityId: caseId,
+      metadata: {
+        mode: result.mode,
+        attorneyId: result.attorneyId ?? null,
+        releasedFromReview: assessment.manualReviewStatus === 'pending',
+        overrodeRoutingPause: override,
+      },
+    })
+
+    return res.json({ ok: true, mode: result.mode, attorneyId: result.attorneyId ?? null })
+  } catch (error) {
+    logger.error('Failed to route case to the plaintiff\'s next choice', { error })
     res.status(500).json({ error: 'Internal server error' })
   }
 })
@@ -956,6 +1040,7 @@ router.get('/cases/:id', authMiddleware, adminMiddleware, async (req: AuthReques
             sourceType: true,
             routingLocked: true,
             submittedAt: true,
+            sourceDetails: true,
             assignedAttorney: { select: { id: true, name: true, email: true } }
           }
         },
@@ -1028,6 +1113,13 @@ router.get('/cases/:id', authMiddleware, adminMiddleware, async (req: AuthReques
       diagnosticAttorneys.map((a) => [a.id, { name: a.name, firmName: a.lawFirm?.name ?? null }])
     )
 
+    const plaintiffChoices = await loadPlaintiffAttorneyChoices({
+      lead: assessment.leadSubmission,
+      facts: assessment.facts,
+      introductions: assessment.introductions.map((intro) => ({ attorneyId: intro.attorney.id, status: intro.status })),
+    })
+    const { sourceDetails: _sourceDetails, ...leadSubmission } = assessment.leadSubmission ?? { sourceDetails: null }
+
     const pred = assessment.predictions[0]
     const facts = assessment.facts ? JSON.parse(assessment.facts) : {}
     const viability = pred?.viability ? JSON.parse(pred.viability) : {}
@@ -1045,7 +1137,8 @@ router.get('/cases/:id', authMiddleware, adminMiddleware, async (req: AuthReques
       user: assessment.user,
       prediction: { viability, bands, explain },
       introductions: assessment.introductions,
-      leadSubmission: assessment.leadSubmission,
+      leadSubmission: assessment.leadSubmission ? leadSubmission : null,
+      plaintiffChoices,
       routingWaves: assessment.routingWaves,
       files: [
         ...assessment.files,

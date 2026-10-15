@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ClipboardCheck, RefreshCw, Send } from 'lucide-react'
-import { bulkRouteCases, getAdminAttorneyDebug, getAdminAttorneyRecommendations, getAdminAttorneys, getAdminCaseDetail, getAdminCaseRoutingState, holdCaseForManualReview, manualReviewAction } from '../../../lib/api'
+import { bulkRouteCases, getAdminAttorneyDebug, getAdminAttorneyRecommendations, getAdminAttorneys, getAdminCaseDetail, getAdminCaseRoutingState, holdCaseForManualReview, manualReviewAction, routeCaseToPlaintiffChoice } from '../../../lib/api'
 import { formatCaseId } from '../../../lib/caseId'
 import { resolveClaimantContact } from '../../../lib/claimantContact'
 import { BackButton, Breadcrumbs, PageHeader } from '../../shared/ui'
@@ -18,6 +18,7 @@ import CaseRoutingStatePanel from './CaseRoutingStatePanel'
 import CaseSummaryHeader from './CaseSummaryHeader'
 import HoldForReviewModal from './HoldForReviewModal'
 import RouteCaseModal from './RouteCaseModal'
+import PlaintiffChoicesPanel, { type PlaintiffChoice } from './PlaintiffChoicesPanel'
 
 type DetailSection = 'overview' | 'routing' | 'diagnostics'
 
@@ -39,7 +40,10 @@ export default function AdminCaseDetailPage() {
   const [attorneyDebug, setAttorneyDebug] = useState<any>(null)
   const [routeError, setRouteError] = useState<string | null>(null)
   const [routingTarget, setRoutingTarget] = useState<string | null>(null)
-  const [routeSuccess, setRouteSuccess] = useState<{ attorneyId: string; attorneyName: string; invitedEmail?: string } | null>(null)
+  const [routeSuccess, setRouteSuccess] = useState<{ attorneyId: string; attorneyName: string; invitedEmail?: string; stay?: boolean } | null>(null)
+  const [choiceRouting, setChoiceRouting] = useState(false)
+  const [choiceError, setChoiceError] = useState<string | null>(null)
+  const [choiceCanOverride, setChoiceCanOverride] = useState(false)
   const [invitePrompt, setInvitePrompt] = useState<{ email: string; message: string } | null>(null)
   const [recommendations, setRecommendations] = useState<any[]>([])
   const [recommendationsMeta, setRecommendationsMeta] = useState<{ eligibleCount?: number; qualifiedCount?: number; message?: string } | null>(null)
@@ -105,7 +109,25 @@ export default function AdminCaseDetailPage() {
     try { await manualReviewAction(id, action, `Admin case detail action: ${action}`); setInterventionStatus(`Action completed: ${action.replace(/_/g, ' ')}`); await loadCase() }
     catch (err: any) { setError(err.response?.data?.error || err.message || 'Action failed') } finally { setHolding(false) }
   }
-  const closeRouteModal = () => { setShowRouteModal(false); setAttorneyDebug(null); setRoutingState(null); setRouteError(null); setInvitePrompt(null) }
+  const handleRouteToPlaintiffChoice = async (override = false) => {
+    if (!id) return
+    setChoiceRouting(true); setChoiceError(null); setChoiceCanOverride(false); setRouteSuccess(null)
+    try {
+      const result = await routeCaseToPlaintiffChoice(id, { override })
+      const choices: PlaintiffChoice[] = caseData?.plaintiffChoices || []
+      const name = choices.find((choice) => choice.id === result.attorneyId)?.name
+      setRouteSuccess({
+        attorneyId: result.attorneyId || '',
+        attorneyName: name || (result.mode === 'awaiting_approval' ? "a new set, waiting for the plaintiff's approval" : "the plaintiff's next choice"),
+        stay: true,
+      })
+      setCaseData(await getAdminCaseDetail(id))
+    } catch (err: any) {
+      setChoiceError(err.response?.data?.error || err.message || "Could not route to the plaintiff's next choice")
+      setChoiceCanOverride(err.response?.data?.canOverride === true)
+    } finally { setChoiceRouting(false) }
+  }
+  const closeRouteModal = () => { setShowRouteModal(false); setChoiceError(null); setChoiceCanOverride(false); setRouteSuccess(null); setAttorneyDebug(null); setRoutingState(null); setRouteError(null); setInvitePrompt(null) }
   const debugIntroduction = async (email: string) => { setAttorneyEmail(email); setRouteSuccess(null); openRouteModal(); setAttorneyDebug(null); try { setAttorneyDebug(await getAdminAttorneyDebug(email)) } catch (err: any) { setAttorneyDebug({ error: err.response?.data?.error || err.message }) } }
   const crumbs = [{ label: 'Admin', to: '/admin' }, { label: 'Cases', to: '/admin/cases' }, { label: caseData ? formatCaseId({ id: caseData.id, referenceCode: caseData.referenceCode, claimType: caseData.claimType, createdAt: caseData.createdAt }) : 'Case' }]
   if (loading) return <div className="space-y-6"><Breadcrumbs items={crumbs} /><div className="flex justify-center py-12"><RefreshCw className="h-8 w-8 animate-spin text-brand-600" /></div></div>
@@ -122,7 +144,7 @@ export default function AdminCaseDetailPage() {
     {section === 'overview' && <div className="space-y-6"><CaseSummaryHeader caseData={caseData} contactName={contactName} /><CasePlaintiffIntakePanel caseData={caseData} hasRealAccount={hasRealAccount} plaintiffContext={plaintiffContext} /><CaseMlOutputsPanel caseData={caseData} /><CaseDocumentsPanel files={caseData.files} /><CaseInterventionActions caseData={caseData} holding={holding} routingStateLoading={routingStateLoading} interventionStatus={interventionStatus} onHold={() => setShowHoldModal(true)} onManualReviewAction={handleManualReviewAction} onSimulate={() => { setSimulationRequest((current) => current + 1); setSection('routing') }} onRoute={openRouteModal} onDiagnose={() => void checkRoutingState()} onDocuments={() => navigate(`/admin/documents?case=${caseData.id}`)} /></div>}
     {section === 'routing' && <div className="space-y-6"><CaseRecommendationsPanel recommendations={recommendations} recommendationsMeta={recommendationsMeta} routing={routing} routingTarget={routingTarget} routeSuccess={routeSuccess} onRoute={handleRoute} /><CaseRoutingSimulationPanel caseId={caseData.id} recommendations={recommendations} runRequest={simulationRequest} /><CaseRoutingAuditPanel entries={caseData.routingAudit} /><CaseRoutingHistoryPanel introductions={caseData.introductions} onDebug={debugIntroduction} /></div>}
     {section === 'diagnostics' && <div className="space-y-6"><CaseRoutingStatePanel routingState={routingState} onDismiss={() => setRoutingState(null)} /><CaseRoutingDiagnosticsPanel entries={caseData.routingDiagnostics} /></div>}
-    {showRouteModal && <RouteCaseModal attorneys={attorneys} recommendations={recommendations} selectedAttorney={selectedAttorney} attorneyEmail={attorneyEmail} setSelectedAttorney={setSelectedAttorney} setAttorneyEmail={setAttorneyEmail} routing={routing} routingTarget={routingTarget} routeSuccess={routeSuccess} routeError={routeError} invitePrompt={invitePrompt} routingState={routingState} attorneyDebug={attorneyDebug} onRoute={handleRoute} onDebug={() => void checkAttorneyDebug()} onVerify={(email?: string) => void checkRoutingState(email)} onClose={closeRouteModal} onDismissInvite={() => setInvitePrompt(null)} />}
+    {showRouteModal && <RouteCaseModal attorneys={attorneys} recommendations={recommendations} selectedAttorney={selectedAttorney} attorneyEmail={attorneyEmail} setSelectedAttorney={setSelectedAttorney} setAttorneyEmail={setAttorneyEmail} routing={routing} routingTarget={routingTarget} routeSuccess={routeSuccess} routeError={routeError} invitePrompt={invitePrompt} routingState={routingState} attorneyDebug={attorneyDebug} onRoute={handleRoute} onDebug={() => void checkAttorneyDebug()} onVerify={(email?: string) => void checkRoutingState(email)} onClose={closeRouteModal} onDismissInvite={() => setInvitePrompt(null)} plaintiffChoiceIds={(caseData.plaintiffChoices || []).map((choice: PlaintiffChoice) => choice.id)} choicesPanel={<PlaintiffChoicesPanel choices={caseData.plaintiffChoices || []} routing={choiceRouting} error={choiceError} canOverride={choiceCanOverride} onRouteNext={(override) => void handleRouteToPlaintiffChoice(override)} />} />}
     {showHoldModal && <HoldForReviewModal holding={holding} onClose={() => setShowHoldModal(false)} onHold={handleHold} />}
   </div>
 }

@@ -9,6 +9,8 @@ export interface ReviewReleaseResult {
   mode: ReviewReleaseMode
   /** Attorneys the case was offered to by this release. */
   routedCount: number
+  /** The plaintiff's choice the case went to, when it went down their ranked queue. */
+  attorneyId?: string
   error?: string
 }
 
@@ -64,7 +66,7 @@ export async function routeCaseReleasedFromReview(
     return { mode: 'held', routedCount: 0, error: err?.message }
   }
 
-  if (slate.mode === 'ranked_routed') return { mode: slate.mode, routedCount: 1 }
+  if (slate.mode === 'ranked_routed') return { mode: slate.mode, routedCount: 1, attorneyId: slate.attorneyId }
   if (slate.mode === 'awaiting_approval') return { mode: slate.mode, routedCount: 0 }
   if (slate.mode === 'held') return { mode: slate.mode, routedCount: 0, error: slate.error }
 

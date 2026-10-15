@@ -147,6 +147,7 @@ vi.mock('./lib/routing-lifecycle', () => ({
   calculateAttorneyReputationScore,
   recordRoutingEvent,
   syncDecisionMemoryForAssessment,
+  getRankedAttorneyIdsFromLead: () => [],
 }))
 vi.mock('./lib/routing', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./lib/routing')>()
