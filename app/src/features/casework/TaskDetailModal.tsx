@@ -58,7 +58,7 @@ import {
   type QuestionTaskProposal,
 } from '../../lib/api'
 import { checkEvidenceCollect, checkPoliceReportCollect, confirmRetainerSigned, sendWelcomePacket } from '../../lib/api-esign'
-import { isAiTask } from './TaskOriginBadge'
+import { isAiTask, isRoseTask } from './TaskOriginBadge'
 import {
   resolveTaskHelpTooltip,
   resolveTaskPrimaryAction,
@@ -1133,15 +1133,18 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
                       (task as any).assignedRole ||
                       task.assigneeRole ||
                       null
+                    const fromRose = isRoseTask(task as any)
                     const selectValue =
-                      roleKey === 'client' || roleKey === 'plaintiff'
+                      (roleKey === 'client' || roleKey === 'plaintiff') && !fromRose
                         ? ''
                         : task.assignedUserId || ''
                     const emptyLabel = autoIntake
                       ? 'Auto'
-                      : roleLabel && roleKey !== 'client' && roleKey !== 'plaintiff'
-                        ? `${roleLabel} (role)`
-                        : 'Unassigned'
+                      : fromRose
+                        ? 'Pick a teammate'
+                        : roleLabel && roleKey !== 'client' && roleKey !== 'plaintiff'
+                          ? `${roleLabel} (role)`
+                          : 'Unassigned'
                     return (
                       <>
                         <select
@@ -1150,6 +1153,8 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
                             const next = e.target.value || null
                             if (!next && autoIntake) {
                               patch({ assignedUserId: null, assignedTo: null, assignedRole: 'attorney' })
+                            } else if (!next && fromRose) {
+                              patch({ assignedUserId: null, assignedTo: null })
                             } else if (!next) {
                               // Keep the workflow role when clearing a person pick.
                               patch({
@@ -1181,6 +1186,10 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
                         ) : autoIntake ? (
                           <p className="mt-1 text-xs text-slate-500">
                             Defaults to Auto. You can still assign a teammate.
+                          </p>
+                        ) : fromRose && !task.assignedUserId ? (
+                          <p className="mt-1 text-xs text-slate-500">
+                            Raised by Rose. Pick the person in your firm who should do it.
                           </p>
                         ) : roleLabel && !task.assignedUserId ? (
                           <p className="mt-1 text-xs text-slate-500">

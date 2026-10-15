@@ -19,6 +19,18 @@ export function isAiTask(taskType?: string | null): boolean {
 
 export const AI_AUTHOR_SHORT_NAME = 'Rose'
 
+/** Creator name the API stamps on everything Rose writes. */
+const AI_AUTHOR_NAME = 'Rose — AI Case Manager'
+
+/**
+ * Any task Rose raised, including a suggestion someone accepted (which turns
+ * into an ordinary 'general' task but keeps Rose as its author). These are
+ * assigned to a person in the firm, never to a bare role or to the client.
+ */
+export function isRoseTask(task: { taskType?: string | null; createdByName?: string | null }): boolean {
+  return isAiTask(task.taskType) || task.taskType === 'proposed' || task.createdByName === AI_AUTHOR_NAME
+}
+
 /** Pill for a next-best-action Rose queued up. */
 function RoseTaskBadge() {
   return (

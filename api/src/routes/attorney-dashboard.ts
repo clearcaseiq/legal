@@ -5298,7 +5298,7 @@ router.post('/ai-case-manager/approve-all', authMiddleware, async (req: any, res
 
     const pending = await prisma.caseTask.findMany({
       where: { assessmentId: { in: assessmentIds }, reviewStatus: 'pending', status: { not: 'deleted' } },
-      select: { id: true, assessmentId: true, assignedRole: true, createdById: true, createdByName: true },
+      select: { id: true, assessmentId: true, assignedRole: true, assignedUserId: true, assignedTo: true, createdById: true, createdByName: true },
     })
     let approved = 0
     for (const task of pending) {
@@ -13956,12 +13956,34 @@ router.post('/leads/:leadId/tasks/merge', authMiddleware, async (req: any, res) 
 })
 
 // Approve one AI-generated task pending review: assigns it to a real person and
-// flips it live. Assignment mirrors the coach/question routing (paralegal →
+// flips it live. A teammate picked while the task was pending keeps it;
+// otherwise assignment mirrors the coach/question routing (paralegal →
 // attorney → task creator fallback).
 async function approvePendingTask(
-  task: { id: string; assessmentId: string; assignedRole: string | null; createdById: string | null; createdByName: string | null },
+  task: {
+    id: string
+    assessmentId: string
+    assignedRole: string | null
+    assignedUserId?: string | null
+    assignedTo?: string | null
+    createdById: string | null
+    createdByName: string | null
+  },
   reqUser: any,
 ) {
+  const reviewerName = `${reqUser?.firstName || ''} ${reqUser?.lastName || ''}`.trim() || reqUser?.email || null
+  if (task.assignedUserId) {
+    return prisma.caseTask.update({
+      where: { id: task.id },
+      data: {
+        reviewStatus: 'approved',
+        reviewedById: reqUser?.id || null,
+        reviewedByName: reviewerName,
+        reviewedAt: new Date(),
+      },
+      select: caseTaskSelect,
+    })
+  }
   const assignees = await resolveCaseAssignees(task.assessmentId).catch(() => null)
   const role = task.assignedRole || 'attorney'
   let assignedUserId =
@@ -13976,7 +13998,6 @@ async function approvePendingTask(
     assignedUserId = task.createdById
     assignedTo = task.createdByName || assignedTo
   }
-  const reviewerName = `${reqUser?.firstName || ''} ${reqUser?.lastName || ''}`.trim() || reqUser?.email || null
   return prisma.caseTask.update({
     where: { id: task.id },
     data: {
@@ -14001,7 +14022,16 @@ router.post('/leads/:leadId/tasks/:id/approve', authMiddleware, async (req: any,
     }
     const task = await prisma.caseTask.findUnique({
       where: { id },
-      select: { id: true, assessmentId: true, reviewStatus: true, assignedRole: true, createdById: true, createdByName: true },
+      select: {
+        id: true,
+        assessmentId: true,
+        reviewStatus: true,
+        assignedRole: true,
+        assignedUserId: true,
+        assignedTo: true,
+        createdById: true,
+        createdByName: true,
+      },
     })
     if (!task || task.assessmentId !== auth.lead.assessmentId) {
       return res.status(404).json({ error: 'Task not found' })
@@ -14100,7 +14130,7 @@ router.post('/leads/:leadId/tasks/approve-all', authMiddleware, async (req: any,
     }
     const pending = await prisma.caseTask.findMany({
       where: { assessmentId: auth.lead.assessmentId, reviewStatus: 'pending', status: { not: 'deleted' } },
-      select: { id: true, assessmentId: true, assignedRole: true, createdById: true, createdByName: true },
+      select: { id: true, assessmentId: true, assignedRole: true, assignedUserId: true, assignedTo: true, createdById: true, createdByName: true },
     })
     let approved = 0
     for (const task of pending) {

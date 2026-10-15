@@ -141,7 +141,7 @@ import CaseCopilotPanel from './CaseCopilotPanel'
 import CaseRosePanel from './CaseRosePanel'
 import ConsultSchedulerModal from './ConsultSchedulerModal'
 import TaskDetailModal from './TaskDetailModal'
-import TaskOriginBadge, { isAiTask } from './TaskOriginBadge'
+import TaskOriginBadge, { isAiTask, isRoseTask } from './TaskOriginBadge'
 import MergeTasksDialog from './MergeTasksDialog'
 import {
   resolveTaskHelpTooltip,
@@ -4434,7 +4434,9 @@ function taskAssigneeLabel(t: {
   assignedTo?: string | null
   assignedRole?: string | null
   createdByName?: string | null
+  taskType?: string | null
 }): string {
+  if (isRoseTask(t)) return t.assignedUserId && t.assignedTo ? t.assignedTo : 'Unassigned'
   // Named person always wins.
   if (t.assignedTo && t.assignedRole !== 'client' && t.assignedRole !== 'plaintiff') return t.assignedTo
   if (t.assignedRole === 'client' || t.assignedRole === 'plaintiff') {
@@ -5183,11 +5185,11 @@ function TasksPanel({
               <User className="h-3.5 w-3.5 shrink-0" />
               <select
                 value={
-                  t.assignedRole === 'client'
+                  t.assignedRole === 'client' && !isRoseTask(t)
                     ? CLIENT_ASSIGN_VALUE
                     : t.assignedUserId || ''
                 }
-                disabled={rowBusy || t.reviewStatus === 'pending' || !canManage}
+                disabled={rowBusy || (t.reviewStatus === 'pending' && !isRoseTask(t)) || !canManage}
                 onChange={(e) => void assignTask(t, e.target.value)}
                 aria-label={`Assign ${t.title}`}
                 className="min-w-0 flex-1 truncate bg-transparent text-xs focus:outline-none disabled:opacity-50"
@@ -5195,11 +5197,13 @@ function TasksPanel({
                 <option value="">
                   {isAutoIntakeMilestone(t.title)
                     ? 'Auto'
-                    : t.assignedRole && t.assignedRole !== 'client'
-                      ? `${TASK_ROLE_LABELS[String(t.assignedRole).toLowerCase()] || t.assignedRole} (role)`
-                      : 'Unassigned'}
+                    : isRoseTask(t)
+                      ? 'Pick a teammate'
+                      : t.assignedRole && t.assignedRole !== 'client'
+                        ? `${TASK_ROLE_LABELS[String(t.assignedRole).toLowerCase()] || t.assignedRole} (role)`
+                        : 'Unassigned'}
                 </option>
-                {!isAutoIntakeMilestone(t.title) ? (
+                {!isAutoIntakeMilestone(t.title) && !isRoseTask(t) ? (
                   <option value={CLIENT_ASSIGN_VALUE}>Client (Plaintiff)</option>
                 ) : null}
                 {colleagues.map((m) => (

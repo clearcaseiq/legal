@@ -475,15 +475,17 @@ export async function acceptQuestionTaskProposal(params: {
   })
   if (!task) return null
 
-  const sole = await findSoleAttorneyForAssessment(params.assessmentId)
-  const assignee = applySoleAttorneyAssignee(
-    {
-      assignedRole: task.assignedRole || 'attorney',
-      assignedTo: null,
-      assignedUserId: null,
-    },
-    sole,
-  )
+  // A teammate picked while the proposal was pending keeps it.
+  const assignee = task.assignedUserId
+    ? { assignedRole: task.assignedRole, assignedTo: task.assignedTo, assignedUserId: task.assignedUserId }
+    : applySoleAttorneyAssignee(
+        {
+          assignedRole: task.assignedRole || 'attorney',
+          assignedTo: null,
+          assignedUserId: null,
+        },
+        await findSoleAttorneyForAssessment(params.assessmentId),
+      )
 
   const updated = await prisma.caseTask.update({
     where: { id: task.id },
