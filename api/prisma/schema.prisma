@@ -2488,6 +2488,9 @@ model CaseWorkflowItem {
   dueOffsetDays Int?
   dueDate       DateTime?
   required      Boolean @default(false)
+  // False for steps tracked on the pipeline that must not hold their stage
+  // open while pending (the statute-of-limitations deadline).
+  blocksStage   Boolean @default(true)
   templateId    String?
 
   status        String    @default("pending") // pending, done, skipped

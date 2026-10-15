@@ -45,7 +45,7 @@ function mapStepTypeToTaskType(stepType: string | null | undefined): string {
 }
 
 function actionableItems(items: any[]): any[] {
-  return items.filter((it) => it && it.stepType !== 'ai_milestone')
+  return items.filter((it) => it && it.stepType !== 'ai_milestone' && it.blocksStage !== false)
 }
 
 /** Earliest stageOrder that still has a pending actionable step. */
@@ -61,7 +61,7 @@ export async function getActiveWorkflowStageOrder(assessmentId: string): Promise
   const cw = await (prisma as any).caseWorkflow
     .findUnique({
       where: { assessmentId },
-      select: { items: { select: { status: true, stageOrder: true, stepType: true } } },
+      select: { items: { select: { status: true, stageOrder: true, stepType: true, blocksStage: true } } },
     })
     .catch(() => null)
   if (!cw?.items?.length) return null
@@ -70,6 +70,9 @@ export async function getActiveWorkflowStageOrder(assessmentId: string): Promise
 
 function shouldMaterialize(item: any, activeStage: number | null): boolean {
   if (!item || item.stepType === 'ai_milestone') return false
+  // Non-blocking steps track a task created elsewhere (the SOL deadline), which
+  // keeps its own notes, priority and assignee.
+  if (item.blocksStage === false) return false
   if (item.status !== 'pending') return false
   // Only the earliest incomplete stage — avoids dumping Demand/Settlement
   // required steps onto Tasks while Case Opening is still open.

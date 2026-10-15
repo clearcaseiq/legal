@@ -321,6 +321,7 @@ export async function serializeCaseWorkflow(cw: any) {
       dueOffsetDays: it.dueOffsetDays,
       dueDate: it.dueDate,
       required: it.required,
+      blocksStage: it.blocksStage !== false,
       templateId: it.templateId,
       custom: Boolean(it.custom),
       status: aiStatusFor(it),
@@ -335,7 +336,7 @@ export async function serializeCaseWorkflow(cw: any) {
   // (CP-581). Signal-derived done still wins when the data already proves it.
   for (const phase of phaseMap.values()) {
     for (const stage of phase.stages) {
-      const manual = stage.steps.filter((st: any) => st.stepType !== 'ai_milestone')
+      const manual = stage.steps.filter((st: any) => st.stepType !== 'ai_milestone' && st.blocksStage)
       if (manual.length === 0) continue
       const allManualDone = manual.every((st: any) => st.status === 'done' || st.status === 'skipped')
       if (!allManualDone) continue
@@ -347,24 +348,27 @@ export async function serializeCaseWorkflow(cw: any) {
     }
   }
 
+  // Non-blocking steps are shown but left out of progress and the current phase,
+  // or a case-long deadline would keep its phase short of complete for years.
+  const counted = (steps: any[]) => steps.filter((st: any) => st.blocksStage)
   const phases = [...phaseMap.values()].sort((a, b) => a.order - b.order).map((p) => {
     const stages = p.stages.sort((a, b) => a.order - b.order)
-    const stepTotal = stages.reduce((n, s) => n + s.steps.length, 0)
+    const stepTotal = stages.reduce((n, s) => n + counted(s.steps).length, 0)
     const stepDone = stages.reduce(
-      (n, s) => n + s.steps.filter((st: any) => st.status === 'done' || st.status === 'skipped').length,
+      (n, s) => n + counted(s.steps).filter((st: any) => st.status === 'done' || st.status === 'skipped').length,
       0
     )
     return { name: p.name, order: p.order, totalSteps: stepTotal, completedSteps: stepDone, stages }
   })
 
-  const allSteps = phases.flatMap((p) => p.stages.flatMap((s) => s.steps))
+  const allSteps = counted(phases.flatMap((p) => p.stages.flatMap((s) => s.steps)))
   const total = allSteps.length
   const done = allSteps.filter((s: any) => s.status === 'done' || s.status === 'skipped').length
 
   // Current phase = first phase with an incomplete (pending) step.
   let currentPhaseOrder: number | null = null
   for (const ph of phases) {
-    if (ph.stages.some((s) => s.steps.some((st: any) => st.status === 'pending'))) {
+    if (ph.stages.some((s) => counted(s.steps).some((st: any) => st.status === 'pending'))) {
       currentPhaseOrder = ph.order
       break
     }

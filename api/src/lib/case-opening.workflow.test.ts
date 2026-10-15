@@ -10,6 +10,19 @@ vi.mock('./prisma', () => ({
 
 import { prisma } from './prisma'
 import { addOpeningChecklistToWorkflow } from './case-opening'
+import { activeWorkflowSlot } from './workflow-step-tasks'
+
+describe('a step that does not block its stage', () => {
+  it('leaves the case on the next stage once the rest of Case Opening is done', () => {
+    const slot = activeWorkflowSlot([
+      { phaseName: 'Intake & Setup', phaseOrder: 0, stageName: 'Case Opening', stageOrder: 0, status: 'done', stepType: 'task' },
+      { phaseName: 'Intake & Setup', phaseOrder: 0, stageName: 'Case Opening', stageOrder: 0, status: 'pending', stepType: 'deadline', blocksStage: false } as any,
+      { phaseName: 'Intake & Setup', phaseOrder: 0, stageName: 'Records & Claims', stageOrder: 1, status: 'pending', stepType: 'task' },
+    ])
+
+    expect(slot?.stageName).toBe('Records & Claims')
+  })
+})
 
 function step(id: string, title: string, stageName: string, stageOrder: number, sortOrder: number) {
   return {
@@ -116,6 +129,34 @@ describe('addOpeningChecklistToWorkflow', () => {
 
     expect(prisma.caseWorkflowItem.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ status: 'done', completedAt }),
+    })
+  })
+
+  it('adds the SOL deadline as a step that does not hold Case Opening open', async () => {
+    vi.mocked(prisma.caseTask.findMany).mockResolvedValue([
+      task('t-sol', 'Statute of limitations (CA • Assault or negligent security)', {
+        milestoneType: null,
+        taskType: 'statute',
+        deadlineType: 'sol',
+        priority: 'low',
+        assignedRole: 'attorney',
+      }),
+    ] as never)
+
+    await addOpeningChecklistToWorkflow('asm-1')
+
+    expect(prisma.caseWorkflowItem.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        stageName: 'Case Opening',
+        stepType: 'deadline',
+        blocksStage: false,
+        required: true,
+        status: 'pending',
+      }),
+    })
+    expect(prisma.caseTask.update).toHaveBeenCalledWith({
+      where: { id: 't-sol' },
+      data: { sourceTemplateStepId: 'wfitem:new-1' },
     })
   })
 

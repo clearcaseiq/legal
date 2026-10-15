@@ -7353,6 +7353,8 @@ export interface CaseWorkflowStep {
   dueOffsetDays: number | null
   dueDate: string | null
   required: boolean
+  /** False for a case-long deadline (the SOL) that does not hold its stage open. */
+  blocksStage?: boolean
   templateId: string | null
   custom: boolean
   status: 'pending' | 'done' | 'skipped'

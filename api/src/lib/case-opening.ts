@@ -312,9 +312,10 @@ export async function createCaseOpeningTasks(
  * workflow lacked ("Verify client contact information", "Confirm scope of
  * representation", …) was a task the Workflow tab never showed and finishing it
  * never moved the pipeline. Items the workflow already covers are left to the
- * existing title matching. The SOL deadline stays out: it is open for the life
- * of the case and as a pending step would hold Case Opening open forever.
- * Idempotent. Returns how many steps were added.
+ * existing title matching. The SOL deadline goes in as a step that does not
+ * block its stage: it is open for the life of the case, and as an ordinary
+ * pending step it would keep Case Opening the current stage until the claim
+ * resolved. Idempotent. Returns how many steps were added.
  */
 export async function addOpeningChecklistToWorkflow(assessmentId: string): Promise<number> {
   if (!assessmentId) return 0
@@ -327,9 +328,9 @@ export async function addOpeningChecklistToWorkflow(assessmentId: string): Promi
     where: {
       assessmentId,
       mergedIntoId: null,
-      milestoneType: OPENING_MILESTONE,
       status: { not: 'deleted' },
       sourceTemplateStepId: null,
+      OR: [{ milestoneType: OPENING_MILESTONE }, { taskType: 'statute' }, { deadlineType: 'sol' }],
     },
     select: {
       id: true,
@@ -343,6 +344,7 @@ export async function addOpeningChecklistToWorkflow(assessmentId: string): Promi
       assignedRole: true,
       milestoneType: true,
       taskType: true,
+      deadlineType: true,
     },
   })
   if (tasks.length === 0) return 0
@@ -362,6 +364,7 @@ export async function addOpeningChecklistToWorkflow(assessmentId: string): Promi
       .filter((item) => item.stageOrder === slot.stageOrder && (item.phaseOrder ?? 0) === slot.phaseOrder)
       .map((item) => item.sortOrder)
     const done = task.status === 'done' || task.status === 'skipped' || task.status === 'cancelled'
+    const isSol = task.taskType === 'statute' || task.deadlineType === 'sol'
     const item = await prisma.caseWorkflowItem.create({
       data: {
         caseWorkflowId: cw.id,
@@ -370,10 +373,11 @@ export async function addOpeningChecklistToWorkflow(assessmentId: string): Promi
         stageName: slot.stageName,
         stageOrder: slot.stageOrder,
         title: task.title,
-        stepType: 'milestone',
+        stepType: isSol ? 'deadline' : 'milestone',
+        blocksStage: !isSol,
         assigneeRole: task.assignedRole || null,
         dueDate: task.dueDate,
-        required: task.priority === 'high',
+        required: isSol || task.priority === 'high',
         status: done ? 'done' : 'pending',
         completedAt: done ? task.completedAt ?? new Date() : null,
         custom: true,

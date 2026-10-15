@@ -739,6 +739,14 @@ function StepItem({
               Required
             </span>
           )}
+          {step.blocksStage === false && (
+            <span
+              className="rounded bg-sky-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-sky-700 ring-1 ring-sky-200"
+              title="Stays open for the life of the case. It does not hold this stage open."
+            >
+              Ongoing deadline
+            </span>
+          )}
           {step.custom && (
             <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-emerald-600 ring-1 ring-emerald-200">
               Added

@@ -11645,6 +11645,7 @@ router.get('/leads/:leadId/tasks', authMiddleware, async (req: any, res) => {
               stageOrder: true,
               status: true,
               stepType: true,
+              blocksStage: true,
             },
           },
         },
