@@ -173,6 +173,8 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
 
   const [title, setTitle] = useState('')
   const [notes, setNotes] = useState('')
+  /** Unsaved Status / Due date / Priority edits; applied together by Save. */
+  const [fieldDraft, setFieldDraft] = useState<{ status?: string; dueDate?: string | null; priority?: string }>({})
   const [newSubtask, setNewSubtask] = useState('')
   /** questionKey → draft answer while editing a plaintiff question. */
   const [answerDrafts, setAnswerDrafts] = useState<Record<string, string>>({})
@@ -321,6 +323,16 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
     },
     [leadId, taskId, onChanged, tab, loadHistory],
   )
+
+  useEffect(() => {
+    setFieldDraft({})
+  }, [taskId])
+
+  const saveFieldDraft = async () => {
+    if (Object.keys(fieldDraft).length === 0) return
+    await patch(fieldDraft)
+    setFieldDraft({})
+  }
 
   const saveSubtasks = (next: TaskSubtask[]) => patch({ subtasks: next })
 
@@ -472,6 +484,13 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
   }
 
   const done = task?.status === 'done'
+  const draftStatus = fieldDraft.status ?? (done ? 'done' : 'open')
+  const draftDueDate = fieldDraft.dueDate !== undefined ? fieldDraft.dueDate || '' : toDateInput(task?.dueDate)
+  const draftPriority = fieldDraft.priority ?? (task?.priority || 'none')
+  const fieldsDirty =
+    draftStatus !== (done ? 'done' : 'open') ||
+    draftDueDate !== toDateInput(task?.dueDate) ||
+    draftPriority !== (task?.priority || 'none')
   // Server-generated tasks (the grouped "Questions for the plaintiff" task in
   // particular) can arrive without these collections. Reading them unguarded
   // threw during render and left an empty modal (CP-452).
@@ -794,8 +813,8 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
                 <div className="rounded-xl border border-slate-200 p-3">
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Status</div>
                   <select
-                    value={done ? 'done' : 'open'}
-                    onChange={(e) => patch({ status: e.target.value })}
+                    value={draftStatus}
+                    onChange={(e) => setFieldDraft((d) => ({ ...d, status: e.target.value }))}
                     className="mt-1.5 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm font-medium focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
                   >
                     <option value="open">Incomplete</option>
@@ -806,21 +825,21 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Due date</div>
                   <input
                     type="date"
-                    value={toDateInput(task.dueDate)}
+                    value={draftDueDate}
                     // An already-overdue task (an expired SOL, say) still shows
                     // its real date; this only stops it being moved further back.
                     min={todayDateKey()}
-                    onChange={(e) => patch({ dueDate: e.target.value || null })}
+                    onChange={(e) => setFieldDraft((d) => ({ ...d, dueDate: e.target.value || null }))}
                     className="mt-1.5 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
                   />
                 </div>
                 <div className="rounded-xl border border-slate-200 p-3">
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Priority</div>
                   <div className="mt-1.5 flex items-center gap-1.5">
-                    <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${PRIORITY_DOT[task.priority || 'none']}`} />
+                    <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${PRIORITY_DOT[draftPriority]}`} />
                     <select
-                      value={task.priority || 'none'}
-                      onChange={(e) => patch({ priority: e.target.value })}
+                      value={draftPriority}
+                      onChange={(e) => setFieldDraft((d) => ({ ...d, priority: e.target.value }))}
                       className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
                     >
                       {PRIORITY_OPTIONS.map((p) => (
@@ -831,6 +850,26 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
                     </select>
                   </div>
                 </div>
+              </div>
+              <div className="-mt-2 flex items-center justify-end gap-2">
+                {fieldsDirty ? <span className="mr-auto text-xs text-amber-700">Unsaved changes</span> : null}
+                <button
+                  type="button"
+                  onClick={() => setFieldDraft({})}
+                  disabled={!fieldsDirty || saving}
+                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-40"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void saveFieldDraft()}
+                  disabled={!fieldsDirty || saving}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-brand-700 disabled:opacity-40"
+                >
+                  {saving && fieldsDirty ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  Save
+                </button>
               </div>
 
               {/* Questions (plaintiff) or generic Subtasks */}
