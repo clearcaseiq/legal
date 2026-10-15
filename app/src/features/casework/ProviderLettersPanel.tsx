@@ -1,7 +1,7 @@
 /**
  * Treating providers on the case, and the letter of representation + records
  * request each one gets. Providers come from the medical timeline, the intake
- * answers and Contacts; only contacts carry an email, so an email saved here
+ * answers and Contacts; only contacts carry an email or fax, so one saved here
  * becomes a "medical provider" contact.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -41,9 +41,11 @@ export default function ProviderLettersPanel({
   const [banner, setBanner] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null)
   const [editing, setEditing] = useState<string | null>(null)
   const [draftEmail, setDraftEmail] = useState('')
+  const [draftFax, setDraftFax] = useState('')
   const [adding, setAdding] = useState(false)
   const [newName, setNewName] = useState('')
   const [newEmail, setNewEmail] = useState('')
+  const [newFax, setNewFax] = useState('')
   const [saving, setSaving] = useState(false)
   const [composing, setComposing] = useState<CaseProviderRow | null>(null)
   const [includeLop, setIncludeLop] = useState(false)
@@ -78,15 +80,20 @@ export default function ProviderLettersPanel({
     setComposing(p)
   }
 
-  const saveEmail = async (p: CaseProviderRow) => {
+  const saveContact = async (p: CaseProviderRow) => {
     setSaving(true)
     setBanner(null)
     try {
-      await saveLeadProviderContact(leadId, { name: p.name, email: draftEmail.trim(), specialty: p.specialty || undefined })
+      await saveLeadProviderContact(leadId, {
+        name: p.name,
+        email: draftEmail.trim(),
+        fax: draftFax.trim(),
+        specialty: p.specialty || undefined,
+      })
       setEditing(null)
       await load()
     } catch (err: any) {
-      setBanner({ tone: 'err', text: err?.response?.data?.error || 'Could not save the email.' })
+      setBanner({ tone: 'err', text: err?.response?.data?.error || 'Could not save the email or fax.' })
     } finally {
       setSaving(false)
     }
@@ -97,10 +104,15 @@ export default function ProviderLettersPanel({
     setSaving(true)
     setBanner(null)
     try {
-      await saveLeadProviderContact(leadId, { name: newName.trim(), email: newEmail.trim() || undefined })
+      await saveLeadProviderContact(leadId, {
+        name: newName.trim(),
+        email: newEmail.trim() || undefined,
+        fax: newFax.trim() || undefined,
+      })
       setAdding(false)
       setNewName('')
       setNewEmail('')
+      setNewFax('')
       await load()
     } catch (err: any) {
       setBanner({ tone: 'err', text: err?.response?.data?.error || 'Could not add the provider.' })
@@ -157,9 +169,10 @@ export default function ProviderLettersPanel({
       ) : null}
 
       {adding ? (
-        <div className="mt-3 grid gap-2 rounded-xl border border-slate-200 bg-slate-50/60 p-3 sm:grid-cols-[1fr_1fr_auto]">
+        <div className="mt-3 grid gap-2 rounded-xl border border-slate-200 bg-slate-50/60 p-3 sm:grid-cols-[1.2fr_1.2fr_1fr_auto]">
           <input className={inputCls} placeholder="Provider or clinic name" value={newName} onChange={(e) => setNewName(e.target.value)} />
-          <input className={inputCls} placeholder="Records email (optional)" type="email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} />
+          <input className={inputCls} placeholder="Records email (leave blank to fax)" type="email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} />
+          <input className={inputCls} placeholder="Records fax (optional)" type="tel" value={newFax} onChange={(e) => setNewFax(e.target.value)} />
           <div className="flex gap-1.5">
             <button type="button" onClick={addProvider} disabled={saving || newName.trim().length < 2} className="inline-flex items-center gap-1 rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50">
               <Check className="h-4 w-4" /> Add
@@ -194,7 +207,8 @@ export default function ProviderLettersPanel({
                   {editing === p.key ? (
                     <div className="mt-1 flex items-center gap-1.5">
                       <input className={inputCls} type="email" autoFocus placeholder="records@provider.com" value={draftEmail} onChange={(e) => setDraftEmail(e.target.value)} />
-                      <button type="button" onClick={() => saveEmail(p)} disabled={saving} className="rounded-lg bg-brand-600 p-1.5 text-white disabled:opacity-50" aria-label="Save email">
+                      <input className={inputCls} type="tel" placeholder="Fax (555) 555-0100" value={draftFax} onChange={(e) => setDraftFax(e.target.value)} />
+                      <button type="button" onClick={() => saveContact(p)} disabled={saving} className="rounded-lg bg-brand-600 p-1.5 text-white disabled:opacity-50" aria-label="Save email and fax">
                         <Check className="h-4 w-4" />
                       </button>
                       <button type="button" onClick={() => setEditing(null)} className="rounded-lg border border-slate-300 p-1.5 text-slate-500" aria-label="Cancel">
@@ -207,10 +221,14 @@ export default function ProviderLettersPanel({
                       onClick={() => {
                         setEditing(p.key)
                         setDraftEmail(p.email || '')
+                        setDraftFax(p.fax || '')
                       }}
                       className="mt-0.5 inline-flex items-center gap-1 text-xs text-slate-500 hover:text-brand-700"
                     >
-                      {p.email ? p.email : 'Add records email'} <Pencil className="h-3 w-3" />
+                      {p.email || p.fax
+                        ? [p.email, p.fax ? `Fax ${p.fax}` : null].filter(Boolean).join(' · ')
+                        : 'Add records email or fax'}{' '}
+                      <Pencil className="h-3 w-3" />
                     </button>
                   )}
                   <p className="mt-0.5 text-xs text-slate-400">

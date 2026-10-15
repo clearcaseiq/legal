@@ -3226,6 +3226,7 @@ model CaseContact {
   lastName    String
   email       String?
   phone       String?
+  fax         String?
   companyName String?
   companyUrl  String?
   title       String? // e.g. "Plaintiff", "Adjuster", "Opposing Counsel"

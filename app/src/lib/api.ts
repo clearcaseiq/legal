@@ -3291,6 +3291,7 @@ export type CaseProviderRow = {
   specialty: string | null
   contactId: string | null
   email: string | null
+  fax: string | null
   sources: Array<'timeline' | 'intake' | 'contact'>
   letters: CaseLetter[]
 }
@@ -3513,9 +3514,12 @@ export async function getLeadProviders(leadId: string) {
   return data as { hipaa: { signed: boolean; signedAt: string | null }; providers: CaseProviderRow[] }
 }
 
-export async function saveLeadProviderContact(leadId: string, payload: { name: string; email?: string; specialty?: string }) {
+export async function saveLeadProviderContact(
+  leadId: string,
+  payload: { name: string; email?: string; fax?: string; specialty?: string },
+) {
   const { data } = await api.put(`/v1/attorney-dashboard/leads/${leadId}/providers/contact`, payload)
-  return data as { contactId: string; email: string | null }
+  return data as { contactId: string; email: string | null; fax: string | null }
 }
 
 export async function getProviderLetterPreview(leadId: string, name: string, includeLop: boolean) {

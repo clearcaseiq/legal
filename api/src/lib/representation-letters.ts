@@ -144,6 +144,7 @@ export function carrierLetterBody(ctx: LetterContext, ins: CarrierLetterInput): 
 export interface ProviderLetterInput {
   providerName: string
   includeLop?: boolean
+  fax?: string | null
 }
 
 export function providerLetterBody(ctx: LetterContext, p: ProviderLetterInput): string {
@@ -152,6 +153,7 @@ export function providerLetterBody(ctx: LetterContext, p: ProviderLetterInput): 
     '',
     p.providerName,
     'Attn: Medical Records and Billing',
+    ...(p.fax ? [`Via fax: ${p.fax}`] : []),
     '',
     `RE: Our client / your patient: ${or(ctx.clientName)}`,
     `Date of birth: ${BLANK}`,
@@ -473,13 +475,14 @@ export interface CaseProvider {
   specialty: string | null
   contactId: string | null
   email: string | null
+  fax: string | null
   sources: Array<'timeline' | 'intake' | 'contact'>
 }
 
 /**
  * Every treating provider on the case: the structured medical timeline, the
  * intake treatment answers, and Contacts entries typed "medical provider",
- * merged by name. Only contacts carry an email.
+ * merged by name. Only contacts carry an email or fax.
  */
 export async function listCaseProviders(leadId: string, assessmentId: string): Promise<CaseProvider[]> {
   const [entries, assessment, contacts] = await Promise.all([
@@ -490,7 +493,7 @@ export async function listCaseProviders(leadId: string, assessmentId: string): P
     prisma.assessment.findUnique({ where: { id: assessmentId }, select: { facts: true } }),
     prisma.caseContact.findMany({
       where: { leadId, contactType: 'medical_provider' },
-      select: { id: true, firstName: true, lastName: true, companyName: true, email: true, title: true },
+      select: { id: true, firstName: true, lastName: true, companyName: true, email: true, fax: true, title: true },
     }),
   ])
 
@@ -505,6 +508,7 @@ export async function listCaseProviders(leadId: string, assessmentId: string): P
       existing.specialty = existing.specialty || extra.specialty || null
       existing.contactId = existing.contactId || extra.contactId || null
       existing.email = existing.email || extra.email || null
+      existing.fax = existing.fax || extra.fax || null
       return
     }
     byKey.set(key, {
@@ -513,13 +517,14 @@ export async function listCaseProviders(leadId: string, assessmentId: string): P
       specialty: extra.specialty || null,
       contactId: extra.contactId || null,
       email: extra.email || null,
+      fax: extra.fax || null,
       sources: [source],
     })
   }
 
   for (const c of contacts) {
     const name = c.companyName?.trim() || [c.firstName, c.lastName].filter(Boolean).join(' ')
-    add(name, 'contact', { contactId: c.id, email: c.email || null, specialty: c.title || null })
+    add(name, 'contact', { contactId: c.id, email: c.email || null, fax: c.fax || null, specialty: c.title || null })
   }
   for (const e of entries) add(e.provider, 'timeline', { specialty: e.specialty || null })
   const facts = parseFacts(assessment?.facts)

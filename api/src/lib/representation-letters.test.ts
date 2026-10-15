@@ -60,6 +60,12 @@ describe('providerLetterBody', () => {
   it('adds letter-of-protection language when asked', () => {
     expect(providerLetterBody(ctx, { providerName: 'Bay Ortho', includeLop: true })).toContain('LETTER OF PROTECTION')
   })
+
+  it('prints the records fax under the addressee when there is one', () => {
+    const lines = providerLetterBody(ctx, { providerName: 'Bay Ortho', fax: '(415) 555-0100' }).split('\n')
+    expect(lines.slice(2, 5)).toEqual(['Bay Ortho', 'Attn: Medical Records and Billing', 'Via fax: (415) 555-0100'])
+    expect(providerLetterBody(ctx, { providerName: 'Bay Ortho' })).not.toContain('Via fax')
+  })
 })
 
 describe('providerKey', () => {

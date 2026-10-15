@@ -10825,6 +10825,13 @@ router.get('/leads/:leadId/providers', authMiddleware, async (req: any, res) => 
 const providerContactSchema = z.object({
   name: z.string().trim().min(2).max(200),
   email: z.string().trim().email().optional().or(z.literal('')),
+  fax: z
+    .string()
+    .trim()
+    .max(40)
+    .regex(/^[0-9+().\-\s]*$/)
+    .refine((v) => !v || v.replace(/\D/g, '').length >= 7)
+    .optional(),
   specialty: z.string().trim().max(120).optional(),
 })
 
@@ -10833,7 +10840,9 @@ router.put('/leads/:leadId/providers/contact', authMiddleware, firmGate('request
     const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true, firmMemberWrite: true })
     if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
     const parsed = providerContactSchema.safeParse(req.body)
-    if (!parsed.success) return res.status(400).json({ error: 'Enter the provider name and a valid email.' })
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Enter the provider name, and a valid email or fax number.' })
+    }
     const attorneyId = auth.lead.assignedAttorneyId || auth.attorney?.id
     if (!attorneyId) return res.status(409).json({ error: 'Assign an attorney to this case first.' })
 
@@ -10844,8 +10853,10 @@ router.put('/leads/:leadId/providers/contact', authMiddleware, firmGate('request
     const match = contacts.find(
       (c) => providerKey(c.companyName || [c.firstName, c.lastName].filter(Boolean).join(' ')) === key,
     )
+    // Only the fields sent are changed, so saving a fax keeps the email and vice versa.
     const data = {
-      email: parsed.data.email || null,
+      ...(parsed.data.email !== undefined ? { email: parsed.data.email || null } : {}),
+      ...(parsed.data.fax !== undefined ? { fax: parsed.data.fax || null } : {}),
       ...(parsed.data.specialty ? { title: parsed.data.specialty } : {}),
     }
     const contact = match
@@ -10861,7 +10872,7 @@ router.put('/leads/:leadId/providers/contact', authMiddleware, firmGate('request
             ...data,
           },
         })
-    res.json({ contactId: contact.id, email: contact.email })
+    res.json({ contactId: contact.id, email: contact.email, fax: contact.fax })
   } catch (error: any) {
     logger.error('Failed to save provider contact', { error: error.message })
     res.status(500).json({ error: 'Failed to save the provider' })
@@ -10876,7 +10887,14 @@ router.get('/leads/:leadId/providers/lor-preview', authMiddleware, async (req: a
     if (!name) return res.status(400).json({ error: 'Provider name is required' })
     const ctx = await loadLetterContext(auth.lead.id)
     if (!ctx) return res.status(404).json({ error: 'Case not found' })
-    const body = providerLetterBody(ctx, { providerName: name, includeLop: req.query.includeLop === '1' })
+    const provider = (await listCaseProviders(auth.lead.id, auth.lead.assessmentId)).find(
+      (p) => p.key === providerKey(name),
+    )
+    const body = providerLetterBody(ctx, {
+      providerName: name,
+      includeLop: req.query.includeLop === '1',
+      fax: provider?.fax ?? null,
+    })
     res.json({ body, blanks: countBlanks(body) })
   } catch (error: any) {
     logger.error('Failed to build provider letter preview', { error: error.message })
