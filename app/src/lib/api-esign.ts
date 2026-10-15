@@ -228,6 +228,28 @@ export const confirmRetainerSigned = async (
   return res.data
 }
 
+export interface CountersignQueueItem {
+  id: string
+  leadId: string
+  title: string
+  documentType: string
+  clientName: string
+  clientSignedAt: string
+  countersignUrl: string | null
+  caseLink: string
+}
+
+/** Agreements across your cases that the client signed and that wait on your countersignature. */
+export const getCountersignQueue = async (): Promise<CountersignQueueItem[]> => {
+  const { data } = await api.get('/v1/documents/countersign-queue')
+  return data?.items ?? []
+}
+
+/** Have the e-signature provider re-send the countersigner's signing email. */
+export const resendCountersignEmail = async (envelopeId: string): Promise<void> => {
+  await api.post(`/v1/documents/envelopes/${envelopeId}/resend-countersign`)
+}
+
 /** Nudge the current signer (re-send the signing email). */
 export const remindEnvelope = async (leadId: string, envelopeId: string): Promise<void> => {
   await api.post(`/v1/documents/leads/${leadId}/envelopes/${envelopeId}/remind`)

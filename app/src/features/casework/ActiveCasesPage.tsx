@@ -8,6 +8,7 @@ import { Avatar, Badge, ClientLink, DataTable, FilterBar, FilterStat, PageHeader
 import { getPinnedCaseIds, getRecentCases, togglePinnedCase } from './recentCases'
 import { CLAIM_TYPE_OPTIONS, canonicalClaimType, formatClaimType } from '../../lib/claimTypes'
 import { resolveLeadCaseName } from '../../lib/caseName'
+import CountersignQueueCard from './CountersignQueueCard'
 
 function claimLabel(type?: string) {
   return type ? formatClaimType(type) : 'Other'
@@ -693,6 +694,8 @@ export default function ActiveCasesPage() {
   return (
     <div className="space-y-4">
       <PageHeader title="Active Cases" />
+
+      <CountersignQueueCard />
 
       {/* "Jump back in" resumes *active* work only. A matter closed today should
           not linger here as if it were still open (CP: Active cases shown in Jump

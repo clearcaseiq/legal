@@ -563,6 +563,17 @@ async function finalizeStatusTransition(
     }
   }
 
+  if (updated.clientSignedAt && !envelope.clientSignedAt && status !== 'signed' && updated.countersignerEmail) {
+    void import('./countersign')
+      .then(({ notifyCountersignerClientSignedSafe }) => notifyCountersignerClientSignedSafe(updated.id))
+      .catch((err) =>
+        logger.warn('Countersign notification failed to load', {
+          envelopeId: updated.id,
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      )
+  }
+
   void emitCaseUpdatedForLead(updated.leadId, `signature_${status}`)
   return updated
 }

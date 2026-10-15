@@ -47,6 +47,7 @@ export const ATTORNEY_EVENTS = {
   case_result_rejected: 'attorney.case_result_rejected',
   negotiation_decision: 'attorney.negotiation_decision',
   document_request_note: 'attorney.document_request_note',
+  countersign_needed: 'attorney.countersign_needed',
 } as const
 
 /** Case Assistance — ClearCaseIQ specialists working the assisted-intake queue. */

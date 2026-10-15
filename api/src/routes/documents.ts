@@ -62,6 +62,7 @@ import { readClaimantContact } from '../lib/claimant-contact'
 import { firmAllows, resolveMemberAccess } from '../lib/firm-access'
 import { checkLeadIsAccepted, getAuthorizedLead } from './attorney-dashboard'
 import { sendClientPacket, textEnvelopeToClient } from '../lib/client-packet'
+import { CountersignAccessError, listCountersignQueue, resendCountersignRequest } from '../lib/esign/countersign'
 
 async function afterRetainerEnvelopeSent(leadId: string, note: string) {
   const lead = await prisma.leadSubmission.findUnique({
@@ -931,6 +932,37 @@ router.post('/leads/:leadId/check-evidence-collect', authMiddleware, async (req:
 })
 
 // Nudge the current signer (re-send the signing email).
+// Agreements across the attorney's cases that the client signed and that are
+// waiting on this attorney's countersignature.
+router.get('/countersign-queue', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    if (!req.user?.email) return res.status(401).json({ error: 'Not signed in' })
+    const own = await prisma.attorney.findFirst({ where: { email: req.user.email }, select: { id: true } })
+    // Staff have no attorney signature, so nothing waits on them.
+    if (!own) return res.json({ items: [] })
+    res.json({ items: await listCountersignQueue(req.user.email) })
+  } catch (error) {
+    logger.error('Countersign queue failed', { message: error instanceof Error ? error.message : String(error) })
+    res.status(500).json({ error: 'Could not load agreements waiting on your countersignature' })
+  }
+})
+
+// Re-send the countersigner's signing email (the only route back to the
+// signing page on providers that do not hand out a signing link).
+router.post('/envelopes/:envelopeId/resend-countersign', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    if (!req.user?.email) return res.status(401).json({ error: 'Not signed in' })
+    const own = await prisma.attorney.findFirst({ where: { email: req.user.email }, select: { id: true, email: true } })
+    if (!own) return res.status(403).json({ error: 'Only attorneys countersign agreements' })
+    await resendCountersignRequest(req.params.envelopeId, { id: own.id, email: own.email || req.user.email })
+    res.json({ ok: true })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    logger.error('Resend countersign email failed', { message })
+    res.status(error instanceof CountersignAccessError ? 403 : 400).json({ error: message })
+  }
+})
+
 router.post('/leads/:leadId/envelopes/:envelopeId/remind', authMiddleware, async (req: AuthRequest, res) => {
   try {
     const attorney = await resolveAttorney(req, { staffWrite: true })

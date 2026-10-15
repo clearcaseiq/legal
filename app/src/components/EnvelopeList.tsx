@@ -27,6 +27,7 @@ import {
   listEnvelopes,
   refreshEnvelopes,
   remindEnvelope,
+  resendCountersignEmail,
   textEnvelope,
   voidEnvelope,
   type DocumentEnvelope,
@@ -390,6 +391,12 @@ export function EnvelopeRow({
       }
     }, channel === 'text' ? 'Could not text the reminder.' : 'Could not send a reminder.')
 
+  const resendCountersign = () =>
+    run(async () => {
+      await resendCountersignEmail(env.id)
+      onMessage('ok', `Signing email re-sent to ${env.countersignerEmail || 'the countersigning attorney'}.`)
+    }, 'Could not re-send the countersignature email.')
+
   const download = () => run(() => downloadSignedEnvelope(env.id, `${title}.pdf`), 'Could not download the signed document.')
 
   const voidIt = () => {
@@ -461,6 +468,18 @@ export function EnvelopeRow({
       <a href={env.countersignUrl} target="_blank" rel="noopener noreferrer" className={`${rowButtonCls} border-amber-200 text-amber-700`}>
         <PenLine className="h-3.5 w-3.5" /> Countersign
       </a>
+    )
+  } else if (open && env.clientSignedAt && env.countersignerEmail) {
+    primary = (
+      <button
+        type="button"
+        onClick={() => void resendCountersign()}
+        disabled={busy}
+        title="This e-signature provider signs by email only. Re-send the countersigning attorney's signing email."
+        className={`${rowButtonCls} border-amber-200 text-amber-700`}
+      >
+        <Mail className="h-3.5 w-3.5" /> {busy ? 'Sending…' : 'Resend countersign email'}
+      </button>
     )
   } else if (open && canManage && !env.clientSignedAt) {
     primary = <ChannelButton label="Remind" busy={busy} onSend={(channel) => void remind(channel)} />
