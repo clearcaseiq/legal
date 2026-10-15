@@ -12,6 +12,8 @@ import {
   mergeLeadTasks,
   getMyWorkflowTasks,
   runLeadConflictCheck,
+  getFirmColleagues,
+  type FirmColleague,
   type MyWorkflowTask,
 } from '../../lib/api'
 import { checkEvidenceCollect, checkPoliceReportCollect, confirmRetainerSigned } from '../../lib/api-esign'
@@ -185,15 +187,18 @@ function priorityBadgeTone(priority?: string | null): BadgeTone {
   return 'neutral'
 }
 
-const EMPTY_FORM = { leadId: '', title: '', dueDate: '', priority: 'medium', taskType: 'general', assignedRole: 'attorney' }
+const EMPTY_FORM = {
+  leadId: '',
+  title: '',
+  dueDate: '',
+  priority: 'medium',
+  taskType: 'general',
+  assignedRole: 'attorney',
+  assignedUserId: '',
+}
 
 // Only "client" reaches the plaintiff's Tasks list and triggers their email.
-const ASSIGNEES = [
-  { id: 'attorney', label: 'Attorney' },
-  { id: 'paralegal', label: 'Paralegal' },
-  { id: 'case_manager', label: 'Case manager' },
-  { id: 'client', label: 'Client (Plaintiff)' },
-]
+const CLIENT_ASSIGN_VALUE = '__client__'
 
 export default function TasksPage() {
   const { can } = useFirmAccess()
@@ -207,6 +212,13 @@ export default function TasksPage() {
   const [msg, setMsg] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null)
   const [formOpen, setFormOpen] = useState(false)
   const [form, setForm] = useState(EMPTY_FORM)
+  const [colleagues, setColleagues] = useState<FirmColleague[]>([])
+
+  useEffect(() => {
+    getFirmColleagues()
+      .then((res) => setColleagues(Array.isArray(res?.colleagues) ? res.colleagues : []))
+      .catch(() => setColleagues([]))
+  }, [])
   const [saving, setSaving] = useState(false)
   const [workflowTasks, setWorkflowTasks] = useState<MyWorkflowTask[]>([])
   const [detail, setDetail] = useState<{ leadId: string; taskId: string; caseLabel?: string } | null>(null)
@@ -425,6 +437,7 @@ export default function TasksPage() {
         priority: form.priority,
         taskType: form.taskType,
         assignedRole: form.assignedRole,
+        assignedUserId: form.assignedRole === 'client' ? null : form.assignedUserId || null,
         status: 'open',
       })
       setForm(EMPTY_FORM)
@@ -967,15 +980,25 @@ export default function TasksPage() {
             <div>
               <label className="mb-1 block text-xs font-semibold text-slate-600">Assign to</label>
               <select
-                value={form.assignedRole}
-                onChange={(e) => setForm((f) => ({ ...f, assignedRole: e.target.value }))}
+                value={form.assignedRole === 'client' ? CLIENT_ASSIGN_VALUE : form.assignedUserId}
+                onChange={(e) => {
+                  const next = e.target.value
+                  if (next === CLIENT_ASSIGN_VALUE) {
+                    setForm((f) => ({ ...f, assignedRole: 'client', assignedUserId: '' }))
+                  } else {
+                    const member = colleagues.find((m) => m.userId === next)
+                    setForm((f) => ({ ...f, assignedUserId: next, assignedRole: member?.role || 'attorney' }))
+                  }
+                }}
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
               >
-                {ASSIGNEES.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.label}
+                <option value="">Pick a teammate</option>
+                {colleagues.map((m) => (
+                  <option key={m.userId} value={m.userId}>
+                    {m.name}
                   </option>
                 ))}
+                <option value={CLIENT_ASSIGN_VALUE}>Client (Plaintiff)</option>
               </select>
               <p className={`mt-1 text-[11px] ${form.assignedRole === 'client' ? 'text-emerald-600' : 'text-slate-500'}`}>
                 {form.assignedRole === 'client'

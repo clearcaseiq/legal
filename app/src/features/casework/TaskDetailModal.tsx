@@ -1150,40 +1150,15 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
                       /confirm signed (retainer|representation)|conflict check|send retainer to client/i.test(
                         task.title || '',
                       )
-                    // Mirror Workflow / Tasks Assign column: person when set,
-                    // otherwise the workflow role (e.g. "Paralegal (role)").
+                    // Only named firm employees are offered; a task for the
+                    // plaintiff is the one exception.
                     const roleKey = String(
                       (task as any).assignedRole || task.assigneeRole || '',
                     ).toLowerCase()
-                    const roleLabel =
-                      task.assigneeRoleLabel ||
-                      ({
-                        attorney: 'Attorney',
-                        paralegal: 'Paralegal',
-                        case_manager: 'Case manager',
-                        intake_specialist: 'Intake',
-                        legal_assistant: 'Legal assistant',
-                        demand_writer: 'Demand writer',
-                        billing_admin: 'Billing',
-                        firm_admin: 'Firm admin',
-                        client: 'Client',
-                        plaintiff: 'Client',
-                      } as Record<string, string>)[roleKey] ||
-                      (task as any).assignedRole ||
-                      task.assigneeRole ||
-                      null
                     const fromRose = isRoseTask(task as any)
-                    const selectValue =
-                      (roleKey === 'client' || roleKey === 'plaintiff') && !fromRose
-                        ? ''
-                        : task.assignedUserId || ''
-                    const emptyLabel = autoIntake
-                      ? 'Auto'
-                      : fromRose
-                        ? 'Pick a teammate'
-                        : roleLabel && roleKey !== 'client' && roleKey !== 'plaintiff'
-                          ? `${roleLabel} (role)`
-                          : 'Unassigned'
+                    const forClient = (roleKey === 'client' || roleKey === 'plaintiff') && !fromRose
+                    const selectValue = forClient ? '' : task.assignedUserId || ''
+                    const emptyLabel = autoIntake ? 'Auto' : forClient ? 'Client (Plaintiff)' : 'Pick a teammate'
                     return (
                       <>
                         <select
@@ -1210,7 +1185,7 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
                           }}
                           className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
                         >
-                          <option value="">{emptyLabel}</option>
+                          {autoIntake || !selectValue ? <option value="">{emptyLabel}</option> : null}
                           {members.map((m) => (
                             <option key={m.userId} value={m.userId}>
                               {m.name}
@@ -1230,9 +1205,9 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
                           <p className="mt-1 text-xs text-slate-500">
                             Raised by Rose. Pick the person in your firm who should do it.
                           </p>
-                        ) : roleLabel && !task.assignedUserId ? (
+                        ) : !task.assignedUserId && !forClient ? (
                           <p className="mt-1 text-xs text-slate-500">
-                            Same role as on the Workflow tab. Pick a teammate to assign a specific person.
+                            Pick the person in your firm who should do it.
                           </p>
                         ) : null}
                       </>

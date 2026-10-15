@@ -5446,7 +5446,11 @@ describe('HTTP operations regressions', () => {
     // grouped task's checklist without a second fetch.
     expect(res.body[0].subtasks).toEqual([{ id: 'base:a', title: 'Question a?', done: true }])
 
-    const call = vi.mocked(prisma.caseTask.findMany).mock.calls[0]?.[0]
+    // The list query, not the background syncs that run before it.
+    const call = vi
+      .mocked(prisma.caseTask.findMany)
+      .mock.calls.map((c) => c[0] as any)
+      .find((args) => args?.orderBy?.createdAt === 'desc')
     expect(call).toMatchObject({
       where: { assessmentId: 'asm-1' },
       orderBy: { createdAt: 'desc' },

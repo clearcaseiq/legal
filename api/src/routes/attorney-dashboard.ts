@@ -177,6 +177,7 @@ import { openCaseStage, syncCaseStage, reopenCaseStage } from '../lib/case-stage
 import { setLitigationStatus, isLitigationStatus, LITIGATION_LABELS } from '../lib/litigation'
 import { completeHipaaOpeningTaskIfSatisfied, createCaseOpeningTasks } from '../lib/case-opening'
 import { addCaseTasksToWorkflow } from '../lib/case-tasks-to-workflow'
+import { assignRoleOnlyTasks } from '../lib/task-auto-assign'
 import {
   acknowledgeConflictCheck,
   conflictNeedsAcknowledgment,
@@ -5011,6 +5012,25 @@ router.get('/tasks/summary', authMiddleware, async (req: any, res) => {
         }),
       ),
     )
+
+    const roleOnly = await prisma.caseTask
+      .findMany({
+        where: {
+          assessmentId: { in: assessmentIds },
+          mergedIntoId: null,
+          status: { in: ['open', 'in_progress'] },
+          assignedUserId: null,
+        },
+        select: { assessmentId: true },
+        distinct: ['assessmentId'],
+        take: 50,
+      })
+      .catch(() => [] as Array<{ assessmentId: string }>)
+    for (const row of roleOnly) {
+      await assignRoleOnlyTasks(row.assessmentId).catch((e: any) =>
+        logger.warn('Assigning role-only tasks failed on summary', { assessmentId: row.assessmentId, error: e?.message }),
+      )
+    }
 
     const tasks = await prisma.caseTask.findMany({
       where: {
@@ -11567,6 +11587,7 @@ router.get('/leads/:leadId/tasks', authMiddleware, async (req: any, res) => {
       await addCaseTasksToWorkflow(lead.assessmentId)
       await syncWorkflowStepTasks(lead.assessmentId)
       await reconcileWorkflowProgress(lead.assessmentId)
+      await assignRoleOnlyTasks(lead.assessmentId)
     } catch (e: any) {
       logger.warn('Workflow step ↔ task sync failed on tasks list', {
         assessmentId: lead.assessmentId,

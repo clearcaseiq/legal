@@ -4409,15 +4409,6 @@ const EMPTY_TASK_FORM: TaskFormState = {
 
 const CLIENT_ASSIGN_VALUE = '__client__'
 
-const TASK_ROLE_LABELS: Record<string, string> = {
-  attorney: 'Attorney',
-  paralegal: 'Paralegal',
-  case_manager: 'Case manager',
-  intake_specialist: 'Intake',
-  client: 'Client',
-  plaintiff: 'Client',
-}
-
 function isAutoIntakeMilestone(title: string): boolean {
   return (
     /confirm signed (retainer|representation)/i.test(title) ||
@@ -4449,9 +4440,6 @@ function taskAssigneeLabel(t: {
     if (t.assignedUserId && t.assignedTo) return t.assignedTo
     return 'Auto'
   }
-  const role = String(t.assignedRole || '').toLowerCase()
-  if (role && TASK_ROLE_LABELS[role]) return TASK_ROLE_LABELS[role]
-  if (t.createdByName && /clearcaseiq|system|rose/i.test(t.createdByName)) return 'Auto'
   return 'Unassigned'
 }
 
@@ -5194,15 +5182,9 @@ function TasksPanel({
                 aria-label={`Assign ${t.title}`}
                 className="min-w-0 flex-1 truncate bg-transparent text-xs focus:outline-none disabled:opacity-50"
               >
-                <option value="">
-                  {isAutoIntakeMilestone(t.title)
-                    ? 'Auto'
-                    : isRoseTask(t)
-                      ? 'Pick a teammate'
-                      : t.assignedRole && t.assignedRole !== 'client'
-                        ? `${TASK_ROLE_LABELS[String(t.assignedRole).toLowerCase()] || t.assignedRole} (role)`
-                        : 'Unassigned'}
-                </option>
+                {isAutoIntakeMilestone(t.title) || !t.assignedUserId ? (
+                  <option value="">{isAutoIntakeMilestone(t.title) ? 'Auto' : 'Pick a teammate'}</option>
+                ) : null}
                 {!isAutoIntakeMilestone(t.title) && !isRoseTask(t) ? (
                   <option value={CLIENT_ASSIGN_VALUE}>Client (Plaintiff)</option>
                 ) : null}
@@ -5551,7 +5533,7 @@ function TasksPanel({
                   }}
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
                 >
-                  <option value="">Unassigned</option>
+                  <option value="">Pick a teammate</option>
                   <option value={CLIENT_ASSIGN_VALUE}>Client (Plaintiff)</option>
                   {colleagues.map((m) => (
                     <option key={m.userId} value={m.userId}>
@@ -5562,7 +5544,7 @@ function TasksPanel({
                 <p className={`mt-1 text-[11px] ${form.assignedRole === 'client' ? 'text-emerald-600' : 'text-slate-500'}`}>
                   {form.assignedRole === 'client'
                     ? 'The plaintiff will see this in their Tasks and get an email.'
-                    : 'Pick a teammate, or leave unassigned.'}
+                    : 'Left empty, it goes to the teammate who holds that role on the case.'}
                 </p>
               </div>
             </div>
