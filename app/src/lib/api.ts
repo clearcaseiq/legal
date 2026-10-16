@@ -3308,8 +3308,20 @@ export async function downloadLeadLetterPdf(leadId: string, letterId: string) {
   return data as Blob
 }
 
-export async function getCarrierLetterPreview(leadId: string, insuranceId: string) {
-  const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/insurance/${insuranceId}/lor-preview`)
+/** Which letter of representation a firm template is offered for. */
+export type LetterUse = 'provider_lor' | 'carrier_lor'
+
+export type LetterTemplateOption = { id: string; name: string; description: string | null; isDefault: boolean }
+
+export async function getLetterTemplates(leadId: string, use: LetterUse) {
+  const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/letter-templates`, { params: { use } })
+  return (data?.templates || []) as LetterTemplateOption[]
+}
+
+export async function getCarrierLetterPreview(leadId: string, insuranceId: string, templateId?: string | null) {
+  const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/insurance/${insuranceId}/lor-preview`, {
+    params: templateId ? { templateId } : undefined,
+  })
   return data as LetterPreview
 }
 
@@ -3522,9 +3534,14 @@ export async function saveLeadProviderContact(
   return data as { contactId: string; email: string | null; fax: string | null }
 }
 
-export async function getProviderLetterPreview(leadId: string, name: string, includeLop: boolean) {
+export async function getProviderLetterPreview(
+  leadId: string,
+  name: string,
+  includeLop: boolean,
+  templateId?: string | null,
+) {
   const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/providers/lor-preview`, {
-    params: { name, includeLop: includeLop ? '1' : '0' },
+    params: { name, includeLop: includeLop ? '1' : '0', ...(templateId ? { templateId } : {}) },
   })
   return data as LetterPreview
 }
@@ -7075,6 +7092,8 @@ export interface FirmTemplate {
   fileSize: number | null
   isPdf: boolean
   documentType?: string | null
+  letterUse?: LetterUse | null
+  letterDefault?: boolean
   /** Fields placed on the attached PDF; empty until someone places them. */
   signatureFields?: TemplateSignatureField[]
   isActive: boolean
@@ -7132,6 +7151,8 @@ export interface FirmTemplateInput {
   body?: string | null
   isActive?: boolean
   documentType?: string | null
+  letterUse?: LetterUse | null
+  letterDefault?: boolean
 }
 
 export async function getFirmTemplates(): Promise<FirmTemplatesResponse> {

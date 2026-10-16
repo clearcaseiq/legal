@@ -272,7 +272,8 @@ export default function ProviderLettersPanel({
           recipientLabel={composing.name}
           defaultEmail={composing.email}
           previewKey={`${composing.key}:${includeLop ? 1 : 0}`}
-          loadPreview={() => getProviderLetterPreview(leadId, composing.name, includeLop)}
+          templateUse="provider_lor"
+          loadPreview={(templateId) => getProviderLetterPreview(leadId, composing.name, includeLop, templateId)}
           onSend={(payload) => sendProviderLetter(leadId, { ...payload, name: composing.name, includeLop })}
           onSent={(_result, message) => {
             setComposing(null)

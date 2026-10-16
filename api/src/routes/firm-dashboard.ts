@@ -24,6 +24,7 @@ import {
 import { respondESignError } from '../lib/esign/http'
 import { resolveTemplateTokens, fillTemplateTokens, renderTemplateBodyPdf } from '../lib/esign/firm-template-doc'
 import { unchangedPdfFields } from '../lib/esign/send-firm-template'
+import { parseLetterUse } from '../lib/letter-templates'
 import { parseStoredFields, requiresCountersign, validatePlacedFields } from '../lib/esign/signature-fields'
 import { pdfPageSizes } from '../lib/esign/custom-document'
 import { applyFirmWorkflowToCase } from '../lib/case-workflow'
@@ -3317,6 +3318,8 @@ function serializeTemplate(t: any) {
     fileSize: t.fileSize || null,
     isPdf: t.fileMime === 'application/pdf',
     documentType: t.documentType || null,
+    letterUse: t.letterUse || null,
+    letterDefault: Boolean(t.letterDefault),
     signatureFields: parseStoredFields(t.signatureFields),
     isActive: t.isActive,
     sortOrder: t.sortOrder,
@@ -3340,7 +3343,18 @@ function parseTemplateBody(body: any) {
         : body.documentType === 'retainer' || body.documentType === 'hipaa_authorization'
           ? (body.documentType as string)
           : null,
+    letterUse: body?.letterUse === undefined ? undefined : parseLetterUse(body.letterUse),
+    letterDefault: body?.letterDefault === undefined ? undefined : body.letterDefault === true && Boolean(parseLetterUse(body.letterUse)),
   }
+}
+
+/** Only one default template per letter in a firm. */
+async function clearOtherLetterDefaults(lawFirmId: string, keepId: string, letterUse: string | null | undefined) {
+  if (!letterUse) return
+  await (prisma as any).firmTemplate.updateMany({
+    where: { lawFirmId, letterUse, letterDefault: true, id: { not: keepId } },
+    data: { letterDefault: false },
+  })
 }
 
 // Templates are firm documents, so the documents permission governs them; firm
@@ -3498,6 +3512,7 @@ router.post('/templates', authMiddleware as any, async (req: any, res: Response)
     const created = await (prisma as any).firmTemplate.create({
       data: { ...data, lawFirmId: context.lawFirmId, createdById: context.user?.id || null },
     })
+    if (created.letterDefault) await clearOtherLetterDefaults(context.lawFirmId, created.id, created.letterUse)
     res.status(201).json(serializeTemplate(created))
   } catch (error) {
     logger.error('Failed to create firm template', { error })
@@ -3571,8 +3586,11 @@ router.patch('/templates/:id', authMiddleware as any, async (req: any, res: Resp
         body: data.body,
         isActive: data.isActive,
         documentType: data.documentType,
+        letterUse: data.letterUse,
+        letterDefault: data.letterDefault,
       },
     })
+    if (updated.letterDefault) await clearOtherLetterDefaults(context.lawFirmId, updated.id, updated.letterUse)
     res.json(serializeTemplate(updated))
   } catch (error) {
     logger.error('Failed to update firm template', { error })

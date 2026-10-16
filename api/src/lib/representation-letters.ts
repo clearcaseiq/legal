@@ -141,6 +141,10 @@ export function carrierLetterBody(ctx: LetterContext, ins: CarrierLetterInput): 
   return lines.join('\n')
 }
 
+export function lopParagraph(ctx: LetterContext): string {
+  return `LETTER OF PROTECTION: ${or(ctx.firmName)} agrees to protect your reasonable and necessary charges for treatment related to this incident and to pay them from any settlement or judgment, subject to our client's authorization. Please continue treatment and withhold collection activity. This is not a personal guarantee by the firm.`
+}
+
 export interface ProviderLetterInput {
   providerName: string
   includeLop?: boolean
@@ -171,12 +175,7 @@ export function providerLetterBody(ctx: LetterContext, p: ProviderLetterInput): 
     '',
     'Please direct billing questions to our office and do not refer this account to collections while the claim is pending.',
   ]
-  if (p.includeLop) {
-    lines.push(
-      '',
-      `LETTER OF PROTECTION: ${or(ctx.firmName)} agrees to protect your reasonable and necessary charges for treatment related to this incident and to pay them from any settlement or judgment, subject to our client's authorization. Please continue treatment and withhold collection activity. This is not a personal guarantee by the firm.`,
-    )
-  }
+  if (p.includeLop) lines.push('', lopParagraph(ctx))
   lines.push('', 'Sincerely,', '', or(ctx.attorneyName), or(ctx.firmName))
   return lines.join('\n')
 }

@@ -68,6 +68,7 @@ import {
   sendProviderLetter,
   signedHipaaEnvelope,
 } from '../lib/representation-letters'
+import { lawFirmIdForLead, listLetterTemplates, parseLetterUse, renderLetterTemplate } from '../lib/letter-templates'
 import { syncPlaintiffDocumentRequestStatuses, computeRequestStatus, countUploadsForRequest, parseRequestedDocs, normalizeRequestedDocKeys, DOCUMENT_REQUEST_LABELS, requestItemStages, requestedDocLabel, parseClientNotes } from '../lib/document-request-status'
 import { countSupportingEvidence, SUPPORTING_EVIDENCE_WHERE } from '../lib/evidence-supporting'
 import { CONTACT_REVEALED_STATUSES, deidentifyAssessmentForOffer } from '../lib/offer-deidentify'
@@ -10746,6 +10747,21 @@ router.get('/leads/:leadId/letters/:letterId/pdf', authMiddleware, async (req: a
   }
 })
 
+// Firm templates tagged for a letter of representation ('provider_lor' | 'carrier_lor').
+router.get('/leads/:leadId/letter-templates', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true })
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const use = parseLetterUse(req.query.use)
+    if (!use) return res.status(400).json({ error: 'use must be provider_lor or carrier_lor' })
+    const lawFirmId = await lawFirmIdForLead(auth.lead)
+    res.json({ templates: lawFirmId ? await listLetterTemplates(lawFirmId, use) : [] })
+  } catch (error: any) {
+    logger.error('Failed to list letter templates', { error: error.message })
+    res.status(500).json({ error: 'Failed to load templates' })
+  }
+})
+
 router.get('/leads/:leadId/insurance/:id/lor-preview', authMiddleware, async (req: any, res) => {
   try {
     const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true })
@@ -10756,7 +10772,28 @@ router.get('/leads/:leadId/insurance/:id/lor-preview', authMiddleware, async (re
     if (!insurance) return res.status(404).json({ error: 'Insurance record not found' })
     const ctx = await loadLetterContext(auth.lead.id)
     if (!ctx) return res.status(404).json({ error: 'Case not found' })
-    const body = carrierLetterBody(ctx, insurance)
+    const templateId = String(req.query.templateId || '').trim()
+    let body = carrierLetterBody(ctx, insurance)
+    if (templateId) {
+      const lawFirmId = await lawFirmIdForLead(auth.lead)
+      const fromTemplate = lawFirmId
+        ? await renderLetterTemplate({
+            lawFirmId,
+            templateId,
+            use: 'carrier_lor',
+            ctx,
+            recipient: {
+              recipientName: insurance.carrierName,
+              carrierName: insurance.carrierName,
+              adjusterName: insurance.adjusterName,
+              claimNumber: insurance.claimNumber,
+              policyNumber: insurance.policyNumber,
+            },
+          })
+        : null
+      if (!fromTemplate) return res.status(404).json({ error: 'That template is no longer available.' })
+      body = fromTemplate
+    }
     res.json({ body, blanks: countBlanks(body), recipientName: insurance.carrierName, recipientEmail: insurance.adjusterEmail })
   } catch (error: any) {
     logger.error('Failed to build carrier letter preview', { error: error.message })
@@ -10890,11 +10927,24 @@ router.get('/leads/:leadId/providers/lor-preview', authMiddleware, async (req: a
     const provider = (await listCaseProviders(auth.lead.id, auth.lead.assessmentId)).find(
       (p) => p.key === providerKey(name),
     )
-    const body = providerLetterBody(ctx, {
-      providerName: name,
-      includeLop: req.query.includeLop === '1',
-      fax: provider?.fax ?? null,
-    })
+    const includeLop = req.query.includeLop === '1'
+    const templateId = String(req.query.templateId || '').trim()
+    let body = providerLetterBody(ctx, { providerName: name, includeLop, fax: provider?.fax ?? null })
+    if (templateId) {
+      const lawFirmId = await lawFirmIdForLead(auth.lead)
+      const fromTemplate = lawFirmId
+        ? await renderLetterTemplate({
+            lawFirmId,
+            templateId,
+            use: 'provider_lor',
+            ctx,
+            recipient: { recipientName: name, providerName: name, fax: provider?.fax ?? null },
+            includeLop,
+          })
+        : null
+      if (!fromTemplate) return res.status(404).json({ error: 'That template is no longer available.' })
+      body = fromTemplate
+    }
     res.json({ body, blanks: countBlanks(body) })
   } catch (error: any) {
     logger.error('Failed to build provider letter preview', { error: error.message })

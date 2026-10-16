@@ -2305,6 +2305,11 @@ model FirmTemplate {
   // What the template is signed as: 'retainer' | 'hipaa_authorization' | null
   // (generic). Retainer and HIPAA templates get the essential-fields form.
   documentType String?
+  // Offered as a starting point in the letter of representation window:
+  // 'provider_lor' (medical provider / records request) | 'carrier_lor'
+  // (insurance carrier) | null. letterDefault picks the one it opens with.
+  letterUse     String?
+  letterDefault Boolean @default(false)
 
   // Editable text/markdown body with optional merge tokens like {{client_name}}.
   body        String? @db.Text

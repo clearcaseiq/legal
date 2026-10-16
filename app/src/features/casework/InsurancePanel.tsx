@@ -694,7 +694,8 @@ export default function InsurancePanel({
           title="Letter of representation"
           recipientLabel={composing.adjusterName ? `${composing.adjusterName}, ${composing.carrierName}` : composing.carrierName}
           defaultEmail={composing.adjusterEmail}
-          loadPreview={() => getCarrierLetterPreview(leadId, composing.id)}
+          templateUse="carrier_lor"
+          loadPreview={(templateId) => getCarrierLetterPreview(leadId, composing.id, templateId)}
           onSend={(payload) => sendCarrierLetter(leadId, composing.id, payload)}
           onSent={(_result, message) => {
             setComposing(null)

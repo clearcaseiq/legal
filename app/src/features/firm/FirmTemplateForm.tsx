@@ -11,6 +11,7 @@ import {
   updateFirmTemplate,
   uploadFirmTemplateFile,
   type FirmTemplate,
+  type LetterUse,
 } from '../../lib/api'
 
 const btnPrimary =
@@ -48,6 +49,8 @@ export function FirmTemplateForm({
   const [body, setBody] = useState(value?.body ?? '')
   const [isActive, setIsActive] = useState(value?.isActive ?? true)
   const [documentType, setDocumentType] = useState<string>(value?.documentType ?? '')
+  const [letterUse, setLetterUse] = useState<LetterUse | ''>(value?.letterUse ?? '')
+  const [letterDefault, setLetterDefault] = useState(value?.letterDefault ?? false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -77,6 +80,8 @@ export function FirmTemplateForm({
         body: body || null,
         isActive,
         documentType: documentType || null,
+        letterUse: letterUse || null,
+        letterDefault: Boolean(letterUse) && letterDefault,
       }
       const saved = value ? await updateFirmTemplate(value.id, payload) : await createFirmTemplate(payload)
       onSaved(saved)
@@ -153,6 +158,31 @@ export function FirmTemplateForm({
             </p>
           )}
         </div>
+        <div>
+          <label className={labelCls}>Use for</label>
+          <select
+            className={inputCls}
+            value={letterUse}
+            onChange={(e) => setLetterUse(e.target.value as LetterUse | '')}
+          >
+            <option value="">Not a letter of representation</option>
+            <option value="provider_lor">Letter to a medical provider (records request)</option>
+            <option value="carrier_lor">Letter to an insurance carrier</option>
+          </select>
+          <p className="mt-1 text-xs text-slate-400">
+            {letterUse
+              ? 'Offered under "Start from" when an attorney writes this letter on a case. Needs body text.'
+              : 'Pick a letter to offer this template as a starting point for it.'}
+          </p>
+        </div>
+        <div className="flex items-end">
+          {letterUse ? (
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <input type="checkbox" checked={letterDefault} onChange={(e) => setLetterDefault(e.target.checked)} />
+              Open with this template by default
+            </label>
+          ) : null}
+        </div>
         <div className="flex items-end md:col-span-2">
           <label className="flex items-center gap-2 text-sm text-slate-700">
             <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
@@ -185,6 +215,19 @@ export function FirmTemplateForm({
             </code>
             . On send (text-only templates), these are filled from the case and the body is rendered to a signable PDF.
           </p>
+          {letterUse ? (
+            <p className="mt-1 text-xs text-slate-400">
+              Letter tokens:{' '}
+              <code className="text-slate-500">
+                {letterUse === 'provider_lor'
+                  ? '{{provider_name}} {{provider_fax}} {{date_of_loss}} {{attorney_email}} {{attorney_phone}} {{firm_phone}} {{firm_address}} {{records_upload_link}}'
+                  : '{{carrier_name}} {{adjuster_name}} {{claim_number}} {{policy_number}} {{date_of_loss}} {{attorney_email}} {{attorney_phone}} {{firm_phone}} {{firm_address}}'}
+              </code>
+              {letterUse === 'provider_lor'
+                ? '. Keep {{records_upload_link}}: it becomes the secure link to the signed HIPAA authorization and the records upload page.'
+                : '.'}
+            </p>
+          ) : null}
         </div>
       </div>
 

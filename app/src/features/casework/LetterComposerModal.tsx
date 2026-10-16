@@ -5,9 +5,19 @@
  */
 import { useEffect, useState, type ReactNode } from 'react'
 import { AlertTriangle, Download, Mail, X } from 'lucide-react'
-import { downloadLeadLetterPdf, type CaseLetter, type LetterDelivery, type LetterPreview } from '../../lib/api'
+import {
+  downloadLeadLetterPdf,
+  getLetterTemplates,
+  type CaseLetter,
+  type LetterDelivery,
+  type LetterPreview,
+  type LetterTemplateOption,
+  type LetterUse,
+} from '../../lib/api'
 
 type SendResult = { letter: CaseLetter; emailed: boolean; tasksCompleted: number }
+
+const UPLOAD_LINK_TOKEN = '{{records_upload_link}}'
 
 export function countBlanks(body: string): number {
   return (body.match(/_{4,}/g) || []).length
@@ -38,6 +48,7 @@ export default function LetterComposerModal({
   controls,
   footnote,
   docLabel = 'Letter of representation',
+  templateUse,
 }: {
   leadId: string
   title: string
@@ -46,27 +57,52 @@ export default function LetterComposerModal({
   defaultEmail: string | null
   /** Changing this reloads the prefilled letter (e.g. toggling lien language). */
   previewKey?: string
-  loadPreview: () => Promise<LetterPreview>
+  /** templateId is a firm template to start from; null means the built-in letter. */
+  loadPreview: (templateId: string | null) => Promise<LetterPreview>
   onSend: (payload: LetterDelivery) => Promise<SendResult>
   onSent: (result: SendResult, message: string) => void
   onClose: () => void
   controls?: ReactNode
   footnote?: ReactNode
+  /** Offer the firm's templates tagged for this letter as starting points. */
+  templateUse?: LetterUse
 }) {
   const [body, setBody] = useState('')
+  const [loadedBody, setLoadedBody] = useState('')
   const [email, setEmail] = useState(defaultEmail || '')
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<null | 'email' | 'download'>(null)
   const [error, setError] = useState<string | null>(null)
+  const [templates, setTemplates] = useState<LetterTemplateOption[]>([])
+  const [templateId, setTemplateId] = useState<string | null>(null)
+  const [templatesReady, setTemplatesReady] = useState(!templateUse)
 
   useEffect(() => {
+    if (!templateUse) return
+    let cancelled = false
+    getLetterTemplates(leadId, templateUse)
+      .then((list) => {
+        if (cancelled) return
+        setTemplates(list)
+        setTemplateId(list.find((t) => t.isDefault)?.id ?? null)
+      })
+      .catch(() => {})
+      .finally(() => !cancelled && setTemplatesReady(true))
+    return () => {
+      cancelled = true
+    }
+  }, [leadId, templateUse])
+
+  useEffect(() => {
+    if (!templatesReady) return
     let cancelled = false
     setLoading(true)
     setError(null)
-    loadPreview()
+    loadPreview(templateId)
       .then((p) => {
         if (cancelled) return
         setBody(p.body)
+        setLoadedBody(p.body)
         if (!email && p.recipientEmail) setEmail(p.recipientEmail)
       })
       .catch((err) => !cancelled && setError(err?.response?.data?.error || 'Could not build the letter.'))
@@ -74,9 +110,16 @@ export default function LetterComposerModal({
     return () => {
       cancelled = true
     }
-  }, [previewKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [previewKey, templateId, templatesReady]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const pickTemplate = (next: string | null) => {
+    if (next === templateId) return
+    if (body !== loadedBody && !window.confirm('Switching templates replaces your edits to this letter. Continue?')) return
+    setTemplateId(next)
+  }
 
   const blanks = countBlanks(body)
+  const missingUploadLink = templateUse === 'provider_lor' && !loading && body.trim() !== '' && !body.includes(UPLOAD_LINK_TOKEN)
   const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
 
   const send = async (delivery: 'email' | 'download') => {
@@ -115,6 +158,30 @@ export default function LetterComposerModal({
         </div>
 
         <div className="flex-1 space-y-3 overflow-y-auto px-5 py-4">
+          {templateUse ? (
+            <label className="block">
+              <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Start from</span>
+              <select
+                value={templateId ?? ''}
+                onChange={(e) => pickTemplate(e.target.value || null)}
+                disabled={!templatesReady || busy !== null}
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100"
+              >
+                <option value="">ClearCaseIQ standard letter</option>
+                {templates.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                    {t.isDefault ? ' (firm default)' : ''}
+                  </option>
+                ))}
+              </select>
+              <span className="mt-1 block text-xs text-slate-400">
+                {templates.length
+                  ? 'Firm templates are filled in from this case. You can still edit the letter below.'
+                  : 'Your firm can add its own version in Firm Dashboard → Templates by setting "Use for" on a template.'}
+              </span>
+            </label>
+          ) : null}
           {controls}
           {loading ? (
             <div className="rounded-xl border border-slate-200 px-4 py-10 text-center text-sm text-slate-400">Preparing the letter…</div>
@@ -130,6 +197,15 @@ export default function LetterComposerModal({
             <p className="flex items-start gap-1.5 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
               {blanks} blank{blanks === 1 ? '' : 's'} (__________) still to fill in. Replace {blanks === 1 ? 'it' : 'them'} or delete the line before sending.
+            </p>
+          ) : null}
+          {missingUploadLink ? (
+            <p className="flex items-start gap-1.5 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>
+                This letter has no <code className="font-mono text-[12px]">{UPLOAD_LINK_TOKEN}</code>, so the provider will not get the
+                secure link to the signed HIPAA authorization and the records upload page. Add it where the link should appear.
+              </span>
             </p>
           ) : null}
           {footnote}
