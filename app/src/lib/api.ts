@@ -3877,6 +3877,10 @@ export interface LiabilityEvidenceItem {
   description: string | null
   evidenceFileId: string | null
   evidenceFileName: string | null
+  witnessName?: string | null
+  summary?: string | null
+  /** Quoted in the demand letter once the statement is received. */
+  demandExcerpt?: string | null
 }
 
 export type LiabilityParties = { liability: any; defendants: LiabilityDefendant[]; evidence: LiabilityEvidenceItem[] }

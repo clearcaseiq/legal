@@ -42,7 +42,12 @@ export interface EvidenceItemView {
   description: string | null
   evidenceFileId: string | null
   evidenceFileName: string | null
+  witnessName: string | null
+  summary: string | null
+  demandExcerpt: string | null
 }
+
+export const MAX_DEMAND_EXCERPT = 600
 
 const text = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null)
 const pct = (v: unknown) => {
@@ -102,6 +107,15 @@ async function evidenceData(assessmentId: string, body: any, partial: boolean) {
     data.date = d && !Number.isNaN(d.getTime()) ? d : null
   }
   if (has('evidenceFileId')) data.evidenceFileId = await checkFileLink(assessmentId, body?.evidenceFileId)
+  if (has('witnessName')) data.witnessName = text(body?.witnessName)?.slice(0, 191) ?? null
+  if (has('summary')) data.summary = text(body?.summary)
+  if (has('demandExcerpt')) {
+    const excerpt = text(body?.demandExcerpt)
+    if (excerpt && excerpt.length > MAX_DEMAND_EXCERPT) {
+      throw new LiabilityInputError(`Keep the demand excerpt under ${MAX_DEMAND_EXCERPT} characters.`)
+    }
+    data.demandExcerpt = excerpt
+  }
   return data
 }
 
@@ -152,6 +166,9 @@ export async function listLiabilityParties(assessmentId: string): Promise<{
       description: e.description ?? null,
       evidenceFileId: fileName.has(e.evidenceFileId) ? e.evidenceFileId : null,
       evidenceFileName: fileName.get(e.evidenceFileId) ?? null,
+      witnessName: e.witnessName ?? null,
+      summary: e.summary ?? null,
+      demandExcerpt: e.demandExcerpt ?? null,
     })),
   }
 }

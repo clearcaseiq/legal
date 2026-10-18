@@ -136,7 +136,7 @@ function specificTaskHelp(task: TaskLike, title: string): string | null {
   }
 
   if (WITNESS_RE.test(title) && !/gather photos/i.test(title)) {
-    return 'Witness accounts corroborate how the incident happened. Add each witness and a summary of their statement on the Liability tab; the demand cites them in the liability section.'
+    return 'Witness accounts corroborate how the incident happened. On the Liability tab, add each witness as a Witness statement with the interview summary; an excerpt you approve is quoted in the demand once the statement is Received.'
   }
 
   if (/gather photos|witness statements|scene evidence/i.test(title)) {

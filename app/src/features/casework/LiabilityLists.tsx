@@ -214,7 +214,13 @@ const evidenceInitial = (e?: LiabilityEvidenceItem): Editable => ({
   date: e?.date ?? '',
   description: e?.description ?? '',
   evidenceFileId: e?.evidenceFileId ?? '',
+  witnessName: e?.witnessName ?? '',
+  summary: e?.summary ?? '',
+  demandExcerpt: e?.demandExcerpt ?? '',
 })
+
+const MAX_DEMAND_EXCERPT = 600
+const isWitness = (d: Editable) => d.type === 'witness_statement'
 
 export function EvidenceList({
   leadId,
@@ -255,14 +261,45 @@ export function EvidenceList({
       <Field label="Date">
         <input type="date" value={d.date} onChange={(e) => set({ date: e.target.value })} className={inputCls} />
       </Field>
+      {isWitness(d) ? (
+        <Field label="Witness name">
+          <input value={d.witnessName} onChange={(e) => set({ witnessName: e.target.value })} placeholder="e.g. Jane Ruiz" className={inputCls} />
+        </Field>
+      ) : null}
       <Field label="Description" wide>
         <input
           value={d.description}
           onChange={(e) => set({ description: e.target.value })}
-          placeholder="e.g. Witness Jane Ruiz, saw the light; camera at 5th and Main"
+          placeholder={isWitness(d) ? 'e.g. Bystander at the crosswalk, saw the light' : 'e.g. Camera at 5th and Main'}
           className={inputCls}
         />
       </Field>
+      {isWitness(d) ? (
+        <>
+          <Field label="Interview summary" wide>
+            <textarea
+              value={d.summary}
+              onChange={(e) => set({ summary: e.target.value })}
+              rows={5}
+              placeholder="Where they were, what they saw, anything bearing on fault, credibility and ties to either party. Internal only."
+              className={inputCls}
+            />
+          </Field>
+          <Field label="Excerpt to quote in the demand (optional)" wide>
+            <textarea
+              value={d.demandExcerpt}
+              onChange={(e) => set({ demandExcerpt: e.target.value })}
+              rows={2}
+              maxLength={MAX_DEMAND_EXCERPT}
+              placeholder="e.g. The truck had a red light and never slowed down."
+              className={inputCls}
+            />
+            <span className="mt-1 block text-[11px] text-slate-500">
+              Quoted word-for-word in the demand's liability section once the status is Received. Use the witness's own words.
+            </span>
+          </Field>
+        </>
+      ) : null}
       <Field label="Document on the case" wide>
         <select value={d.evidenceFileId} onChange={(e) => set({ evidenceFileId: e.target.value })} className={inputCls}>
           <option value="">None linked</option>
@@ -288,7 +325,17 @@ export function EvidenceList({
           </span>
           {details ? <span className="text-xs font-normal text-slate-500">{details}</span> : null}
         </p>
+        {e.witnessName ? <p className="mt-0.5 font-medium text-slate-800">{e.witnessName}</p> : null}
         {e.description ? <p className="mt-0.5 text-slate-600">{e.description}</p> : null}
+        {e.summary ? <p className="mt-1 whitespace-pre-line text-slate-600">{e.summary}</p> : null}
+        {e.demandExcerpt ? (
+          <p className="mt-1 border-l-2 border-brand-300 pl-2 text-xs italic text-slate-600">
+            “{e.demandExcerpt}”
+            <span className="ml-1 not-italic text-slate-400">
+              {e.status === 'received' ? '· quoted in the demand' : '· quoted once received'}
+            </span>
+          </p>
+        ) : null}
         {e.evidenceFileName ? <p className="mt-0.5 text-xs text-slate-500">Document: {e.evidenceFileName}</p> : null}
       </>
     )

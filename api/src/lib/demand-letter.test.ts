@@ -139,6 +139,28 @@ describe('buildDemandLetterSections with the case tabs', () => {
     expect(letter).toContain('2 independent witnesses corroborate')
   })
 
+  it('quotes approved witness excerpts, attributed by name', () => {
+    const withQuotes = generateDemandLetter({
+      ...baseInput,
+      targetAmount: 150000,
+      caseRecord: {
+        ...caseRecord,
+        liability: {
+          ...caseRecord.liability!,
+          witnessStatements: [
+            { name: 'Jane Ruiz', excerpt: '"The truck had a red light and   never slowed down."' },
+            { name: null, excerpt: 'Our client was stopped when she was hit.' },
+            { name: 'Blank', excerpt: '   ' },
+          ],
+        },
+      },
+    })
+    expect(withQuotes).toContain('- Witness Jane Ruiz stated: \u201cThe truck had a red light and never slowed down.\u201d')
+    expect(withQuotes).toContain('- An independent witness stated: \u201cOur client was stopped when she was hit.\u201d')
+    expect(withQuotes).not.toContain('Witness Blank')
+    expect(letter).not.toContain('stated: \u201c')
+  })
+
   it('builds the timeline from the Medical tab with MMI and complaints', () => {
     expect(letter).toContain('City ER: Er — Dx: Neck strain — $2,100')
     expect(letter).toContain('Bay Ortho (Orthopedics)')

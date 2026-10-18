@@ -226,8 +226,15 @@ function medicalChargeAmounts(item: any, measure: MedicalSpecialsMeasure) {
  */
 export async function loadDemandCaseRecord(assessment: any): Promise<DemandCaseRecord> {
   const assessmentId = String(assessment.id)
-  const [liability, medical, damageItems, policies, lead, recordConflicts] = await Promise.all([
+  const [liability, witnessItems, medical, damageItems, policies, lead, recordConflicts] = await Promise.all([
     getLiabilityRecord(assessmentId).catch(() => null),
+    (prisma as any).liabilityEvidenceItem
+      .findMany({
+        where: { assessmentId, type: 'witness_statement', status: 'received', demandExcerpt: { not: null } },
+        orderBy: [{ createdAt: 'asc' }],
+        select: { witnessName: true, demandExcerpt: true },
+      })
+      .catch(() => [] as any[]),
     getMedicalTimeline(assessmentId).catch(() => null),
     (prisma as any).damageItem
       .findMany({ where: { assessmentId }, orderBy: [{ incurredAt: 'asc' }, { createdAt: 'asc' }] })
@@ -281,7 +288,15 @@ export async function loadDemandCaseRecord(assessment: any): Promise<DemandCaseR
           adjusterEmail: claim.adjusterEmail,
         }
       : null,
-    liability: liability?.id ? liability : null,
+    liability: liability?.id
+      ? {
+          ...liability,
+          witnessStatements: (witnessItems as any[]).map((w) => ({
+            name: w.witnessName ?? null,
+            excerpt: String(w.demandExcerpt),
+          })),
+        }
+      : null,
     medical: medical && (medical.entries.length > 0 || medical.status.id) ? medical : null,
     medicalSpecialsMeasure: measure,
     damageItems: (damageItems as any[]).map((i) => ({

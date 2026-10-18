@@ -791,6 +791,12 @@ model LiabilityEvidenceItem {
   // An uploaded document on the case (EvidenceFile.id), if any.
   evidenceFileId  String?
 
+  // witness_statement only: the attorney's interview summary, and the excerpt
+  // the demand letter may quote (the summary itself is never quoted).
+  witnessName   String?
+  summary       String? @db.Text
+  demandExcerpt String? @db.Text
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

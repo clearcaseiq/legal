@@ -91,6 +91,8 @@ export interface DemandCaseRecord {
     hasWitnesses?: boolean | null
     hasPhotos?: boolean | null
     hasVideo?: boolean | null
+    /** Received witness statements with an excerpt the attorney approved for quoting. */
+    witnessStatements?: Array<{ name: string | null; excerpt: string }>
   } | null
   medical?: {
     entries: Array<{
@@ -427,6 +429,12 @@ function buildLiabilityEvidence(
     lines.push(`${witnesses} independent witness${witnesses === 1 ? '' : 'es'} corroborate${witnesses === 1 ? 's' : ''} ${ourAccount}.`)
   } else if (liability.hasWitnesses) {
     lines.push(`Independent witnesses corroborate ${ourAccount}.`)
+  }
+  for (const w of liability.witnessStatements ?? []) {
+    const quote = w.excerpt.trim().replace(/^["\u201c]+|["\u201d]+$/g, '').replace(/\s+/g, ' ')
+    if (!quote) continue
+    const who = w.name?.trim() ? `Witness ${w.name.trim()}` : 'An independent witness'
+    lines.push(`${who} stated: \u201c${quote}\u201d`)
   }
   if (liability.hasPhotos) lines.push('Photographs document the scene and the resulting damage.')
   if (liability.hasVideo) lines.push('Video footage captures the incident.')
