@@ -56,6 +56,7 @@ export interface DemandExhibit {
   label: string
   /** The EvidenceFile behind the exhibit, so an export can embed it. */
   fileId?: string
+  fileUrl?: string
 }
 
 /**
@@ -102,8 +103,10 @@ export interface DemandCaseRecord {
       diagnosis?: string | null
       billedAmount?: number | null
       isFuture?: boolean
+      diagnosisCodes?: string[]
       sourceFileId?: string | null
       sourcePage?: number | null
+      sourceQuote?: string | null
     }>
     status?: {
       treatmentStatus?: string | null
@@ -122,6 +125,7 @@ export interface DemandCaseRecord {
     billingStatus?: string | null
     sourceFileId?: string | null
     sourcePage?: number | null
+    sourceQuote?: string | null
   }>
   exhibits?: DemandExhibit[]
 }

@@ -105,6 +105,12 @@ export default function DemandLetterWorkspace({
   const [message, setMessage] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null)
   const [showHistory, setShowHistory] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
+  const [caret, setCaret] = useState(0)
+  const cursorLine = useMemo(() => {
+    const start = caret > 0 ? draftText.lastIndexOf('\n', caret - 1) + 1 : 0
+    const end = draftText.indexOf('\n', caret)
+    return draftText.slice(start, end === -1 ? undefined : end)
+  }, [draftText, caret])
 
   // Import a letter authored in another tool (Word / Google Docs / PDF).
   const [showImport, setShowImport] = useState(false)
@@ -640,6 +646,7 @@ export default function DemandLetterWorkspace({
             <textarea
               value={draftText}
               onChange={(e) => setDraftText(e.target.value)}
+              onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
               readOnly={locked}
               spellCheck
               rows={30}
@@ -657,6 +664,7 @@ export default function DemandLetterWorkspace({
             letter={active}
             readOnly={locked || !canWorkDemands}
             onLetterUpdated={applyGateUpdate}
+            cursorLine={cursorLine}
           />
           </div>
         ) : null}

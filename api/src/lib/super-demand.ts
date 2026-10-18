@@ -17,6 +17,7 @@
 import {
   describeInjuries,
   moneyMentions,
+  sourceCiter,
   type DemandCaseRecord,
   type DemandExhibit,
   type DemandLetterSections,
@@ -159,6 +160,36 @@ function diagnosesOf(ctx: SuperDemandContext): string[] {
   return [...seen.values()]
 }
 
+/**
+ * Diagnoses for section VII, each with its codes and the record page it was
+ * read from. A diagnosis recorded on several visits cites the first page that
+ * documents it.
+ */
+function citedDiagnoses(ctx: SuperDemandContext): string[] {
+  const cite = sourceCiter(ctx.caseRecord.exhibits)
+  const seen = new Map<string, string>()
+  const entries = (ctx.caseRecord.medical?.entries ?? []).slice().sort((a, b) => {
+    const ta = a.startDate ? new Date(a.startDate).getTime() : Number.MAX_SAFE_INTEGER
+    const tb = b.startDate ? new Date(b.startDate).getTime() : Number.MAX_SAFE_INTEGER
+    return ta - tb
+  })
+  for (const e of entries) {
+    const dx = e.diagnosis?.trim()
+    if (!dx) continue
+    const key = dx.toLowerCase()
+    const codes = (e.diagnosisCodes ?? []).filter(Boolean)
+    const label = `${dx}${codes.length ? ` (${codes.join(', ')})` : ''}${cite(e)}`
+    const prior = seen.get(key)
+    if (!prior || (!/\(Ex\. \d+/.test(prior) && cite(e))) seen.set(key, label)
+  }
+  for (const e of ctx.ledger.entries) {
+    const dx = e.diagnosis?.trim()
+    if (!dx || seen.has(dx.toLowerCase())) continue
+    seen.set(dx.toLowerCase(), `${dx}${e.diagnosisCode ? ` (${e.diagnosisCode})` : ''}`)
+  }
+  return [...seen.values()]
+}
+
 export function groupedEnclosures(exhibits: DemandExhibit[]): Array<{ group: EnclosureGroup; lines: string[] }> {
   const sorted = exhibits.slice().sort((a, b) => a.number - b.number)
   return ENCLOSURE_GROUP_ORDER.map((group) => ({
@@ -213,7 +244,7 @@ export function renderSuperDemand(ctx: SuperDemandContext): string {
 
   const injuryLines = [
     ...(injuries.length ? ['Injuries sustained:', ...injuries.map((i) => `- ${i}`)] : []),
-    ...(diagnoses.length ? ['', 'Diagnoses documented by treating providers:', ...diagnoses.map((d) => `- ${d}`)] : []),
+    ...(diagnoses.length ? ['', 'Diagnoses documented by treating providers:', ...citedDiagnoses(ctx).map((d) => `- ${d}`)] : []),
     ...((record.medical?.status?.symptoms ?? []).filter(Boolean).length
       ? ['', `Ongoing complaints: ${(record.medical?.status?.symptoms ?? []).filter(Boolean).join(', ')}.`]
       : []),
@@ -343,7 +374,25 @@ export interface ApprovalGateItem {
   checkedAt: string | null
 }
 
+/**
+ * Something the letter can cite, for the attorney's side-by-side check: an
+ * enclosed exhibit, or a timeline/ledger line read from a page of one.
+ */
+export interface DemandSource {
+  /** As written in the letter: "Ex. 3, p. 4", "Ex. 3", or "Exhibit 3". */
+  ref: string
+  exhibit: number
+  page: number | null
+  fileId: string | null
+  fileUrl: string | null
+  /** What the line says, e.g. "Mar 3, 2026 — City ER: ER visit". */
+  label: string
+  quote: string | null
+  kind: 'visit' | 'charge' | 'exhibit'
+}
+
 export interface DemandIntelligence {
+  sources: DemandSource[]
   readiness: { score: number; band: 'ready' | 'nearly_ready' | 'needs_work' | 'not_ready'; factors: ReadinessFactor[] }
   valuation: {
     p25: number | null
@@ -990,16 +1039,116 @@ function buildQualityCheck(ctx: SuperDemandContext, content: string): QualityChe
   return checks
 }
 
+const shortDate = (d: Date | string | null | undefined) => {
+  if (!d) return null
+  const date = typeof d === 'string' ? new Date(d) : d
+  return isNaN(date.getTime())
+    ? null
+    : date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' })
+}
+
+/** Every exhibit and every page-cited line the letter can point at. */
+export function buildDemandSources(record: DemandCaseRecord): DemandSource[] {
+  const exhibits = record.exhibits ?? []
+  const byFile = new Map(exhibits.filter((e) => e.fileId).map((e) => [e.fileId as string, e]))
+  const sources: DemandSource[] = []
+  const lineSource = (
+    row: { sourceFileId?: string | null; sourcePage?: number | null; sourceQuote?: string | null },
+    label: string,
+    kind: 'visit' | 'charge',
+  ) => {
+    const ex = row.sourceFileId ? byFile.get(row.sourceFileId) : undefined
+    if (!ex) return
+    sources.push({
+      ref: `Ex. ${ex.number}${row.sourcePage ? `, p. ${row.sourcePage}` : ''}`,
+      exhibit: ex.number,
+      page: row.sourcePage ?? null,
+      fileId: ex.fileId ?? null,
+      fileUrl: ex.fileUrl ?? null,
+      label,
+      quote: row.sourceQuote ?? null,
+      kind,
+    })
+  }
+  for (const e of record.medical?.entries ?? []) {
+    const when = shortDate(e.startDate)
+    const what = [e.diagnosis, e.visitType?.replace(/_/g, ' ')].filter(Boolean).join(' \u2014 ')
+    lineSource(e, `${when ? `${when} \u2014 ` : ''}${e.provider}${what ? `: ${what}` : ''}`, 'visit')
+  }
+  for (const i of record.damageItems ?? []) {
+    const when = shortDate(i.incurredAt)
+    lineSource(
+      i,
+      `${i.provider ? `${i.provider} \u2014 ` : ''}${i.description}${when ? ` (${when})` : ''}: ${money(Number(i.amount) || 0)}`,
+      'charge',
+    )
+  }
+  for (const ex of exhibits.slice().sort((a, b) => a.number - b.number)) {
+    sources.push({
+      ref: `Exhibit ${ex.number}`,
+      exhibit: ex.number,
+      page: null,
+      fileId: ex.fileId ?? null,
+      fileUrl: ex.fileUrl ?? null,
+      label: ex.label,
+      quote: null,
+      kind: 'exhibit',
+    })
+  }
+  return sources
+}
+
+/** "(Ex. 3, p. 4)" and "(Ex. 3)" citations written in the letter. */
+export function pinpointCitations(content: string): Array<{ exhibit: number; page: number | null; text: string }> {
+  const out: Array<{ exhibit: number; page: number | null; text: string }> = []
+  for (const m of content.matchAll(/\bEx\. (\d+)(?:, p\. (\d+))?/g)) {
+    out.push({ exhibit: Number(m[1]), page: m[2] ? Number(m[2]) : null, text: m[0] })
+  }
+  return out
+}
+
+function pinpointCheck(content: string, record: DemandCaseRecord, sources: DemandSource[]): QualityCheck {
+  const enclosed = new Set((record.exhibits ?? []).map((e) => e.number))
+  const backed = new Set(sources.filter((s) => s.kind !== 'exhibit').map((s) => `${s.exhibit}|${s.page ?? ''}`))
+  const cites = pinpointCitations(content)
+  const notEnclosed = new Set<string>()
+  const unbacked = new Set<string>()
+  for (const c of cites) {
+    if (!enclosed.has(c.exhibit)) notEnclosed.add(`${c.text} cites an exhibit that is not enclosed`)
+    else if (c.page != null && !backed.has(`${c.exhibit}|${c.page}`)) {
+      unbacked.add(`${c.text} is not the page any reviewed record line was read from`)
+    }
+  }
+  const pageCited = sources.filter((s) => s.kind !== 'exhibit').length
+  return {
+    key: 'pinpoint_citations',
+    label: 'Page citations',
+    status: notEnclosed.size ? 'fail' : unbacked.size ? 'warn' : cites.length ? 'pass' : pageCited ? 'warn' : 'pass',
+    detail: notEnclosed.size
+      ? 'The letter cites pages of exhibits that are not enclosed.'
+      : unbacked.size
+        ? 'Some page citations were typed in rather than read from the record. Check them against the page.'
+        : cites.length
+          ? `${cites.length} page citation(s), each tied to a reviewed record line.`
+          : pageCited
+            ? 'Record lines cite their pages, but the letter has no page citations. Redraft to include them.'
+            : 'No page citations yet. Accept findings on the Medical and Damages tabs to add them.',
+    items: [...notEnclosed, ...unbacked],
+  }
+}
+
 export function analyzeDemandIntelligence(
   ctx: SuperDemandContext,
   letter: { content: string; currentVersion: number; approvalChecklist?: string | null },
 ): DemandIntelligence {
+  const sources = buildDemandSources(ctx.caseRecord)
   return {
+    sources,
     readiness: buildReadiness(ctx),
     valuation: buildValuation(ctx),
     weaknesses: buildWeaknesses(ctx),
     statementConfidence: buildStatementConfidence(ctx),
-    qualityCheck: buildQualityCheck(ctx, letter.content),
+    qualityCheck: [...buildQualityCheck(ctx, letter.content), pinpointCheck(letter.content, ctx.caseRecord, sources)],
     approvalGate: summarizeApprovalGate(letter.approvalChecklist, letter.currentVersion),
   }
 }

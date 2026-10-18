@@ -2750,7 +2750,20 @@ export interface DemandApprovalGate {
 
 export type DemandConfidenceLevel = 'green' | 'yellow' | 'orange' | 'red'
 
+export interface DemandSource {
+  ref: string
+  exhibit: number
+  page: number | null
+  fileId: string | null
+  fileUrl: string | null
+  label: string
+  quote: string | null
+  kind: 'visit' | 'charge' | 'exhibit'
+}
+
 export interface DemandIntelligence {
+  /** Older API responses predate sources. */
+  sources?: DemandSource[]
   readiness: {
     score: number
     band: 'ready' | 'nearly_ready' | 'needs_work' | 'not_ready'

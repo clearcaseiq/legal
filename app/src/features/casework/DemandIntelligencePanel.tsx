@@ -4,15 +4,68 @@
  * be signed before the letter can be finalized. Nothing here goes to the
  * carrier.
  */
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { AlertTriangle, CheckCircle2, ChevronDown, Gauge, Loader2, ShieldCheck, XCircle } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { AlertTriangle, CheckCircle2, ChevronDown, ExternalLink, FileText, Gauge, Loader2, ShieldCheck, XCircle } from 'lucide-react'
 import {
   getLeadDemandIntelligence,
   updateLeadDemandApprovalGate,
   type DemandConfidenceLevel,
   type DemandIntelligence,
   type DemandLetter,
+  type DemandSource,
 } from '../../lib/api'
+import { openEvidenceFile } from '../../lib/evidenceFileUrl'
+
+/** The sources a line of the letter cites: "(Ex. 3, p. 4)", "(Ex. 3)" or "See Exhibits 1, 2". */
+export function sourcesCitedOn(line: string, sources: DemandSource[]): DemandSource[] {
+  const hits: DemandSource[] = []
+  const add = (s: DemandSource | undefined) => {
+    if (s && !hits.includes(s)) hits.push(s)
+  }
+  for (const m of line.matchAll(/\bEx\. (\d+)(?:, p\. (\d+))?/g)) {
+    const exhibit = Number(m[1])
+    const page = m[2] ? Number(m[2]) : null
+    const lines = sources.filter((s) => s.kind !== 'exhibit' && s.exhibit === exhibit && s.page === page)
+    if (lines.length) lines.forEach(add)
+    else add(sources.find((s) => s.kind === 'exhibit' && s.exhibit === exhibit))
+  }
+  for (const m of line.matchAll(/See Exhibits? ([\d,\s\u2013-]+)/g)) {
+    for (const part of m[1].split(',')) {
+      const [a, b] = part.trim().split(/[\u2013-]/).map((x) => Number(x))
+      if (!Number.isFinite(a)) continue
+      for (let n = a; n <= (Number.isFinite(b) ? b : a); n += 1) add(sources.find((s) => s.kind === 'exhibit' && s.exhibit === n))
+    }
+  }
+  return hits
+}
+
+function SourceCard({ source, highlight }: { source: DemandSource; highlight?: boolean }) {
+  return (
+    <li className={`rounded-lg border p-2 text-xs ${highlight ? 'border-brand-200 bg-brand-50/60' : 'border-slate-100'}`}>
+      <div className="flex items-start gap-2">
+        <FileText className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" />
+        <div className="min-w-0 flex-1">
+          <p className="font-semibold text-slate-800">{source.ref}</p>
+          <p className="text-slate-600">{source.label}</p>
+          {source.quote ? (
+            <blockquote className="mt-1 border-l-2 border-brand-200 pl-2 italic text-slate-500">“{source.quote}”</blockquote>
+          ) : null}
+        </div>
+        {source.fileUrl ? (
+          <button
+            type="button"
+            onClick={() => void openEvidenceFile(source.fileUrl as string, { page: source.page })}
+            className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 font-semibold text-brand-700 hover:bg-brand-100"
+            title={source.page ? `Open page ${source.page}` : 'Open the document'}
+          >
+            <ExternalLink className="h-3 w-3" />
+            {source.page ? `p. ${source.page}` : 'Open'}
+          </button>
+        ) : null}
+      </div>
+    </li>
+  )
+}
 
 const money = (n: number | null | undefined) => (n == null ? '\u2014' : `$${Math.round(n).toLocaleString('en-US')}`)
 
@@ -78,11 +131,14 @@ export default function DemandIntelligencePanel({
   letter,
   readOnly,
   onLetterUpdated,
+  cursorLine = '',
 }: {
   leadId: string
   letter: DemandLetter
   readOnly: boolean
   onLetterUpdated: (letter: DemandLetter) => void
+  /** The editor line the cursor is on, so its citations can be shown beside it. */
+  cursorLine?: string
 }) {
   const [intel, setIntel] = useState<DemandIntelligence | null>(null)
   const [loading, setLoading] = useState(true)
@@ -106,6 +162,9 @@ export default function DemandIntelligencePanel({
   }, [load, letter.currentVersion])
 
   const gate = letter.approvalGate ?? intel?.approvalGate ?? null
+  const sources = useMemo(() => intel?.sources ?? [], [intel])
+  const onLine = useMemo(() => sourcesCitedOn(cursorLine, sources), [cursorLine, sources])
+  const pageSources = sources.filter((s) => s.kind !== 'exhibit')
 
   const toggle = async (key: string, checked: boolean) => {
     setSavingKey(key)
@@ -156,6 +215,47 @@ export default function DemandIntelligencePanel({
         </div>
         {loading ? <Loader2 className="h-4 w-4 animate-spin text-slate-400" /> : null}
       </div>
+
+      <Section
+        title="Sources"
+        badge={
+          pageSources.length ? (
+            <span className="rounded-full bg-brand-50 px-1.5 text-[11px] font-semibold text-brand-700">{pageSources.length} pages</span>
+          ) : null
+        }
+      >
+        {onLine.length ? (
+          <>
+            <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-brand-700">Cited on this line</p>
+            <ul className="space-y-1.5">
+              {onLine.map((s) => (
+                <SourceCard key={`${s.kind}-${s.ref}-${s.label}`} source={s} highlight />
+              ))}
+            </ul>
+          </>
+        ) : (
+          <p className="text-xs text-slate-500">
+            Put the cursor on a line of the letter that cites a page, such as “(Ex. 3, p. 4)”, to check it against its source here.
+          </p>
+        )}
+        {pageSources.length === 0 ? (
+          <p className="mt-2 text-[11px] text-slate-400">
+            No line cites a page yet. Accept the visits and charges found in the records on the Medical and Damages tabs, then
+            redraft.
+          </p>
+        ) : (
+          <details className="mt-2">
+            <summary className="cursor-pointer text-[11px] font-medium text-slate-500 hover:text-slate-700">
+              All page citations ({pageSources.length})
+            </summary>
+            <ul className="mt-1.5 space-y-1.5">
+              {pageSources.map((s) => (
+                <SourceCard key={`${s.kind}-${s.ref}-${s.label}`} source={s} />
+              ))}
+            </ul>
+          </details>
+        )}
+      </Section>
 
       <Section
         title="Readiness score"
@@ -269,7 +369,8 @@ export default function DemandIntelligencePanel({
         }
       >
         <p className="mb-2 text-[11px] text-slate-400">
-          Green: backed by an enclosed document. Yellow: entered on the case. Orange: claimant-reported only. Red: unsupported.
+          Green: every line cites a record page, or the fact is backed by an enclosed document. Yellow: entered on the case.
+          Orange: claimant-reported only. Red: unsupported.
         </p>
         <ul className="space-y-1.5">
           {intel.statementConfidence.map((s) => (

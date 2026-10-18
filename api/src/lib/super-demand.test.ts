@@ -24,7 +24,17 @@ const caseRecord: DemandCaseRecord = {
   liability: { faultTheory: 'The insured ran the red light.', defendantName: 'John Driver', policeReportStatus: 'received', comparativeNegPct: 0 },
   medical: {
     entries: [
-      { provider: 'City ER', visitType: 'emergency', startDate: '2026-03-03', endDate: null, diagnosis: 'Cervical strain' },
+      {
+        provider: 'City ER',
+        visitType: 'emergency',
+        startDate: '2026-03-03',
+        endDate: null,
+        diagnosis: 'Cervical strain',
+        diagnosisCodes: ['S13.4XXA'],
+        sourceFileId: 'f-er',
+        sourcePage: 1,
+        sourceQuote: 'Assessment: cervical strain S13.4XXA',
+      },
       { provider: 'Rehab PT', visitType: 'physical_therapy', startDate: '2026-06-20', endDate: null },
     ],
     status: { treatmentStatus: 'completed', mmi: true },
@@ -36,7 +46,7 @@ const caseRecord: DemandCaseRecord = {
   ],
   exhibits: [
     { number: 1, section: 'liability', label: 'Police / incident report (report.pdf)' },
-    { number: 2, section: 'treatment', label: 'Medical records (er.pdf)' },
+    { number: 2, section: 'treatment', label: 'Medical records (er.pdf)', fileId: 'f-er', fileUrl: '/uploads/er.pdf' },
     { number: 3, section: 'bills', label: 'Medical bill (bill.pdf)', fileId: 'f-bill' },
   ],
 }
@@ -137,6 +147,36 @@ describe('analyzeDemandIntelligence', () => {
 
   it('cites the exhibit and page on charges read from a document', () => {
     expect(renderSuperDemand(context())).toContain('(Ex. 3, p. 2)')
+  })
+
+  it('cites the record page behind each diagnosis', () => {
+    expect(renderSuperDemand(context())).toContain('- Cervical strain (S13.4XXA) (Ex. 2, p. 1)')
+  })
+
+  it('lists each page-cited line with its passage as a source', () => {
+    const ctx = context()
+    const sources = analyzeDemandIntelligence(ctx, letterFor(ctx)).sources
+    expect(sources.find((s) => s.ref === 'Ex. 2, p. 1')).toMatchObject({
+      kind: 'visit',
+      fileUrl: '/uploads/er.pdf',
+      quote: 'Assessment: cervical strain S13.4XXA',
+    })
+    expect(sources.filter((s) => s.kind === 'exhibit').map((s) => s.ref)).toEqual(['Exhibit 1', 'Exhibit 2', 'Exhibit 3'])
+  })
+
+  it('flags page citations no reviewed record line backs', () => {
+    const ctx = context()
+    const pass = analyzeDemandIntelligence(ctx, letterFor(ctx)).qualityCheck.find((c) => c.key === 'pinpoint_citations')
+    expect(pass?.status).toBe('pass')
+    const typed = analyzeDemandIntelligence(ctx, {
+      ...letterFor(ctx),
+      content: `${letterFor(ctx).content}\nThe MRI confirmed a herniation (Ex. 2, p. 9). See also (Ex. 7, p. 1).`,
+    }).qualityCheck.find((c) => c.key === 'pinpoint_citations')
+    expect(typed?.status).toBe('fail')
+    expect(typed?.items).toEqual([
+      'Ex. 7, p. 1 cites an exhibit that is not enclosed',
+      'Ex. 2, p. 9 is not the page any reviewed record line was read from',
+    ])
   })
 
   it('scores a thin record as not ready', () => {

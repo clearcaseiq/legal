@@ -167,6 +167,7 @@ export function buildDemandExhibits(
     category?: string | null
     subcategory?: string | null
     originalName: string
+    fileUrl?: string | null
     createdAt?: Date | string | null
     identityCheck?: string | null
   }>,
@@ -191,6 +192,7 @@ export function buildDemandExhibits(
       section,
       label: `${kind} (${file.originalName})`,
       ...(file.id ? { fileId: file.id } : {}),
+      ...(file.fileUrl ? { fileUrl: file.fileUrl } : {}),
     }
   })
 }
@@ -278,6 +280,7 @@ export async function loadDemandCaseRecord(assessment: any): Promise<DemandCaseR
       billingStatus: i.billingStatus,
       sourceFileId: i.sourceFileId ?? null,
       sourcePage: i.sourcePage ?? null,
+      sourceQuote: i.sourceQuote ?? null,
     })),
     exhibits: buildDemandExhibits(assessment.evidenceFiles || []),
   }
