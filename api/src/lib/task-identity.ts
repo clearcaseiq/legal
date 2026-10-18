@@ -67,7 +67,7 @@ const TITLE_HINTS: Array<{ re: RegExp; key: string }> = [
   { re: /manufacturer|brand,? and model/i, key: 'product_manufacturer' },
   { re: /policy limits?/i, key: 'defendant_policy_limits' },
   { re: /defendant (insurance )?carrier|claim number/i, key: 'defendant_carrier' },
-  { re: /identify (the )?defendant|defendant('s)? (name|identity)/i, key: 'defendant_identity' },
+  { re: /identify (the )?defendant|defendant('s)? (name|identity|identification)/i, key: 'defendant_identity' },
   { re: /um\/uim|own coverage|medpay|pip/i, key: 'first_party_coverage' },
   { re: /prior injur/i, key: 'prior_injuries' },
   // Draft, approve and send are separate steps. Folding them into demand_ready

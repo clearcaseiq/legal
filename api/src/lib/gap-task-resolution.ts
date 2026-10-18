@@ -19,7 +19,7 @@ export const GAP_TASK_RULES: GapRule[] = [
     key: 'first_party_coverage',
     match: /\b(um\/uim|uim|medpay|pip)\b|client'?s own .*coverage|first[- ]party coverage/,
   },
-  { key: 'defendant_identity', match: /identify (the )?(defendant|at[- ]fault)|defendant identity/ },
+  { key: 'defendant_identity', match: /identify (the )?(defendant|at[- ]fault)|defendant (identity|identification)/ },
   {
     key: 'defendant_carrier',
     match: /(defendant|at[- ]fault)\b.*\b(insurance )?carrier|identify .*insurance carrier|defendant('s)? insurer/,

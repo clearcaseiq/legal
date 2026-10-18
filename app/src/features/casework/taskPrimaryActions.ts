@@ -283,11 +283,19 @@ const DAMAGES_RE =
  * rules: every task in a "Demand package" stage would otherwise open Demand,
  * even "Verify wage loss" or "Consult with medical expert".
  */
+const DEFENDANT_IDENTITY_RE =
+  /\bdefendants?('s?)? (identification|identity|identities|names?)\b|\bidentify (the |all )?(defendants?|at[- ]fault (party|parties|driver))\b(?! and (their |the )?insurance carrier)/i
+
 function titleSectionAction(task: TaskLike): TaskPrimaryAction | null {
   const title = String(task.title || '')
   const type = String(task.taskType || '').toLowerCase()
   const hay = `${title} ${type}`
   if (['question', 'statute', 'deadline', 'filing'].includes(type) || task.deadlineType === 'sol') return null
+  // Defendants are recorded on the Liability tab. Checked before the insurance
+  // keywords, which a description naming the defendant's carrier would hit.
+  if (DEFENDANT_IDENTITY_RE.test(title)) {
+    return openSection('open_liability', 'Open', 'Open Liability to add or confirm the defendants')
+  }
 
   if (type === 'medical' || MEDICAL_RE.test(hay)) {
     return openSection('open_medical', 'Open', 'Open Medical to update treatment and providers')

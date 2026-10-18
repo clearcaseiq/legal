@@ -29,6 +29,11 @@ describe('gapKeysClosedByTitles', () => {
     expect(closed.has('coverage_unconfirmed')).toBe(false)
   })
 
+  it('closes defendant identity for "Confirm defendant identification"', () => {
+    const closed = gapKeysClosedByTitles(['Confirm defendant identification'])
+    expect(closed.get('defendant_identity')).toBe('Confirm defendant identification')
+  })
+
   it('treats first-party coverage wording as first-party, not defendant coverage', () => {
     const closed = gapKeysClosedByTitles(['Verify first-party coverage details'])
     expect(closed.has('first_party_coverage')).toBe(true)

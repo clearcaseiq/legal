@@ -38,6 +38,19 @@ describe('resolveTaskPrimaryAction', () => {
     },
   )
 
+  it.each(['Confirm defendant identification', 'Identify the defendant', "Confirm defendant's name", 'Identify all defendants'])(
+    'opens Liability for "%s"',
+    (title) => {
+      const action = resolveTaskPrimaryAction({ title, notes: 'Their carrier and policy number are still unknown.' } as any)
+      expect(action?.kind).toBe('open_liability')
+      expect(sectionForTaskAction(action!.kind)).toBe('liability')
+    },
+  )
+
+  it('keeps the defendant-carrier task on Insurance', () => {
+    expect(resolveTaskPrimaryAction({ title: 'Identify defendant and insurance carrier' })?.kind).toBe('open_insurance')
+  })
+
   it('sends the carrier letter from the Insurance tab', () => {
     const action = resolveTaskPrimaryAction({ title: 'Send Letter of Representation (LOR)' })
     expect(action?.kind).toBe('send_lor')
