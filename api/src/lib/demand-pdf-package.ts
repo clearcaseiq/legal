@@ -25,7 +25,7 @@ import {
   type PDFRef,
 } from 'pdf-lib'
 import { logger } from './logger'
-import { localPathFor, planDemandExhibits, type PlannedExhibit } from './demand-docx'
+import { localPathFor, planDemandExhibitCandidates, type PlannedExhibit } from './demand-docx'
 import {
   ENCLOSURE_GROUP_ORDER,
   GROUP_FOR_SECTION,
@@ -385,8 +385,49 @@ async function bindExhibit(
   return stamps
 }
 
-function stampFooter(fonts: Fonts, page: PDFPage, index: number, total: number, stamp: string | undefined, draft: boolean) {
+export interface BatesOptions {
+  prefix: string
+  start: number
+}
+
+export const BATES_DIGITS = 6
+
+export function formatBates(prefix: string, n: number): string {
+  const p = prefix.trim()
+  const joiner = !p || /[-_ ]$/.test(p) ? '' : '-'
+  return `${p}${joiner}${String(n).padStart(BATES_DIGITS, '0')}`
+}
+
+/** "DOE" from "Jane Q. Doe": letters of the surname, upper-cased, for the default Bates prefix. */
+export function defaultBatesPrefix(clientName: string | null | undefined): string {
+  const words = String(clientName || '').trim().split(/\s+/).filter(Boolean)
+  const surname = (words[words.length - 1] || '').replace(/[^A-Za-z]/g, '').toUpperCase()
+  return surname.slice(0, 10) || 'DEMAND'
+}
+
+export function normalizeBates(raw: any): BatesOptions | null {
+  if (!raw || raw.enabled === false) return null
+  const prefix = String(raw.prefix ?? '').replace(/[^A-Za-z0-9_\- ]/g, '').trim().slice(0, 16)
+  const start = Math.floor(Number(raw.start))
+  if (!prefix) return null
+  return { prefix, start: Number.isFinite(start) && start > 0 ? Math.min(start, 10 ** BATES_DIGITS - 1) : 1 }
+}
+
+function stampFooter(
+  fonts: Fonts,
+  page: PDFPage,
+  index: number,
+  total: number,
+  stamp: string | undefined,
+  draft: boolean,
+  bates: string | null,
+) {
   const box = page.getCropBox()
+  if (bates) {
+    const bw = fonts.bold.widthOfTextAtSize(bates, 9)
+    page.drawRectangle({ x: box.x + 20, y: box.y + 13, width: bw + 8, height: 14, color: rgb(1, 1, 1) })
+    page.drawText(bates, { x: box.x + 24, y: box.y + 17, size: 9, font: fonts.bold })
+  }
   const pageText = `Page ${index + 1} of ${total}`
   const size = 8
   const pw = fonts.regular.widthOfTextAtSize(pageText, size)
@@ -439,7 +480,17 @@ function writeOutline(doc: PDFDocument, items: OutlineItem[]) {
   doc.catalog.set(PDFName.of('PageMode'), PDFName.of('UseOutlines'))
 }
 
-export async function assembleDemandPackage(letter: PackageLetter, exhibits: PackageExhibit[]): Promise<Uint8Array> {
+export interface AssembledPackage {
+  bytes: Uint8Array
+  pageCount: number
+  batesEnd: number | null
+}
+
+export async function assembleDemandPackage(
+  letter: PackageLetter,
+  exhibits: PackageExhibit[],
+  options: { bates?: BatesOptions | null } = {},
+): Promise<AssembledPackage> {
   const doc = await PDFDocument.create()
   doc.setTitle(letter.title?.trim() || 'Demand package')
   doc.setProducer('ClearCaseIQ')
@@ -470,7 +521,10 @@ export async function assembleDemandPackage(letter: PackageLetter, exhibits: Pac
 
   const draft = letter.template === SUPER_DEMAND_TEMPLATE && letter.status === 'DRAFT'
   const pages = doc.getPages()
-  pages.forEach((page, i) => stampFooter(fonts, page, i, pages.length, stamps.get(page), draft))
+  const bates = options.bates ?? null
+  pages.forEach((page, i) =>
+    stampFooter(fonts, page, i, pages.length, stamps.get(page), draft, bates ? formatBates(bates.prefix, bates.start + i) : null),
+  )
 
   const outline: OutlineItem[] = [{ title: 'Demand letter', page: letterPages[0] }]
   if (indexPages.length) {
@@ -485,7 +539,109 @@ export async function assembleDemandPackage(letter: PackageLetter, exhibits: Pac
   }
   writeOutline(doc, outline)
 
-  return doc.save()
+  return {
+    bytes: await doc.save(),
+    pageCount: pages.length,
+    batesEnd: bates ? bates.start + pages.length - 1 : null,
+  }
+}
+
+/** Exhibit numbers the letter points at: "See Exhibit(s) 1, 3–5" and pinpoints like "Ex. 2, p. 4". */
+export function citedExhibitNumbers(content: string): Set<string> {
+  const cited = new Set<string>()
+  for (const m of content.matchAll(/See Exhibits? ([\d,\s\u2013-]+)/g)) {
+    for (const part of m[1].split(',')) {
+      const [a, b] = part.trim().split(/[\u2013-]/).map((x) => Number(x))
+      if (!Number.isFinite(a)) continue
+      for (let n = a; n <= (Number.isFinite(b) ? b : a) && n - a < 500; n += 1) cited.add(String(n))
+    }
+  }
+  for (const m of content.matchAll(/\bEx\. (\d+)/g)) cited.add(m[1])
+  return cited
+}
+
+export interface ExhibitCandidate {
+  /** `ex:<number>` for an exhibit the letter encloses, `file:<id>` for another case file. */
+  key: string
+  number: string | null
+  label: string
+  group: EnclosureGroup
+  enclosed: boolean
+  cited: boolean
+  fileId: string | null
+  fileName: string | null
+  available: boolean
+}
+
+export type ExhibitChoice = { key: string; include: boolean }
+
+/**
+ * The exhibits to bind, in order. Enclosed exhibits keep the numbers the letter
+ * cites them by, wherever they are moved; added files are numbered after the
+ * highest enclosed number so they never collide with a citation. Without a
+ * selection, the letter's own enclosures are bound in their order. An enclosure
+ * the selection doesn't mention (added to the letter since) is kept, at the end.
+ */
+export function applyExhibitSelection<T extends { key: string; number: string | null; enclosed: boolean }>(
+  candidates: T[],
+  selection?: ExhibitChoice[] | null,
+): Array<T & { number: string }> {
+  const byKey = new Map(candidates.map((c) => [c.key, c]))
+  const mentioned = new Set((selection ?? []).map((s) => s.key))
+  const chosen: T[] = []
+  const seen = new Set<string>()
+  if (selection) {
+    for (const s of selection) {
+      const c = byKey.get(s.key)
+      if (!c || !s.include || seen.has(c.key)) continue
+      seen.add(c.key)
+      chosen.push(c)
+    }
+  }
+  for (const c of candidates) {
+    if (c.enclosed && !mentioned.has(c.key) && !seen.has(c.key)) chosen.push(c)
+  }
+  const numbered = candidates.filter((c) => c.enclosed).map((c) => Number(c.number))
+  let next = Math.max(0, ...numbered.filter((n) => Number.isFinite(n))) + 1
+  return chosen.map((c) => ({ ...c, number: c.number ?? String(next++) }))
+}
+
+function groupOf(section: PlannedExhibit['section']): EnclosureGroup {
+  return section ? GROUP_FOR_SECTION[section] : 'Additional Evidence'
+}
+
+export async function demandExhibitCandidates(
+  assessmentId: string,
+  content: string,
+): Promise<Array<ExhibitCandidate & { planned: PlannedExhibit }>> {
+  const { planned, extras } = await planDemandExhibitCandidates(assessmentId, content)
+  const cited = citedExhibitNumbers(content)
+  return [
+    ...planned.map((e) => ({
+      key: `ex:${e.number}`,
+      number: e.number,
+      label: e.label,
+      group: groupOf(e.section),
+      enclosed: true,
+      cited: cited.has(e.number),
+      fileId: e.file?.id ?? null,
+      fileName: e.file?.originalName ?? null,
+      available: Boolean(e.file),
+      planned: e,
+    })),
+    ...extras.map((e) => ({
+      key: `file:${e.file?.id ?? e.label}`,
+      number: null,
+      label: e.label,
+      group: groupOf(e.section),
+      enclosed: false,
+      cited: false,
+      fileId: e.file?.id ?? null,
+      fileName: e.file?.originalName ?? null,
+      available: Boolean(e.file),
+      planned: e,
+    })),
+  ]
 }
 
 async function sourceFor(exhibit: PlannedExhibit): Promise<ExhibitSource> {
@@ -515,30 +671,27 @@ async function sourceFor(exhibit: PlannedExhibit): Promise<ExhibitSource> {
   return { kind: 'missing', note: 'This file type cannot be bound into a PDF. Attach the original file separately.' }
 }
 
-export async function buildDemandPackagePdf(demand: {
-  assessmentId: string
-  content: string | null
-  template?: string | null
-  status?: string | null
-  title?: string | null
-}): Promise<Buffer> {
+export async function buildDemandPackagePdf(
+  demand: {
+    assessmentId: string
+    content: string | null
+    template?: string | null
+    status?: string | null
+    title?: string | null
+  },
+  options: { selection?: ExhibitChoice[] | null; bates?: BatesOptions | null } = {},
+): Promise<AssembledPackage & { exhibitCount: number }> {
   const content = demand.content || ''
-  const planned = await planDemandExhibits(demand.assessmentId, content).catch((error: any) => {
-    logger.warn('Demand package could not load exhibits', { assessmentId: demand.assessmentId, error: error?.message })
-    return [] as PlannedExhibit[]
-  })
+  const candidates = await demandExhibitCandidates(demand.assessmentId, content)
+  const chosen = applyExhibitSelection(candidates, options.selection)
   const exhibits: PackageExhibit[] = []
-  for (const e of planned) {
-    exhibits.push({
-      number: e.number,
-      label: e.label,
-      group: e.section ? GROUP_FOR_SECTION[e.section] : 'Additional Evidence',
-      source: await sourceFor(e),
-    })
+  for (const e of chosen) {
+    exhibits.push({ number: e.number, label: e.label, group: e.group, source: await sourceFor(e.planned) })
   }
-  const bytes = await assembleDemandPackage(
+  const assembled = await assembleDemandPackage(
     { content, template: demand.template, status: demand.status, title: demand.title },
     exhibits,
+    { bates: options.bates },
   )
-  return Buffer.from(bytes)
+  return { ...assembled, exhibitCount: exhibits.length }
 }

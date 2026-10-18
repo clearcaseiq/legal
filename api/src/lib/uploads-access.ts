@@ -50,7 +50,7 @@ const CASE_SCOPED_PREFIXES = ['/evidence/', '/scenes/']
  * Never served by the static mount. These files have their own authorized
  * download route, and a bare session is not enough to read another firm's case.
  */
-const ROUTE_ONLY_PREFIXES = ['/demand-imports/']
+const ROUTE_ONLY_PREFIXES = ['/demand-imports/', '/demand-packages/']
 
 function hasPrefix(pathname: string, prefixes: string[]) {
   return prefixes.some((prefix) => pathname.startsWith(prefix))

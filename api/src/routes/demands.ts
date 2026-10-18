@@ -1,10 +1,11 @@
+import fs from 'fs'
 import { Router } from 'express'
 import { prisma } from '../lib/prisma'
 import { logger } from '../lib/logger'
 import { recordCaseChange } from '../lib/data-authority'
 import { z } from 'zod'
 import { buildDemandLetterDocx } from '../lib/demand-docx'
-import { buildDemandPackagePdf } from '../lib/demand-pdf-package'
+import { packageFile } from '../lib/demand-package-jobs'
 import { authMiddleware, optionalAuthMiddleware, AuthRequest } from '../lib/auth'
 import { analyzeCaseWithChatGPT, CaseAnalysisRequest } from '../services/chatgpt'
 import { generateDemandLetter } from '../lib/demand-letter'
@@ -390,35 +391,30 @@ router.get('/:demandId/docx', optionalAuthMiddleware, async (req: AuthRequest, r
   }
 })
 
-// Download the demand package as one bookmarked PDF (letter, exhibit index, exhibits).
-// Same access rule as the DOCX route.
-router.get('/:demandId/package.pdf', optionalAuthMiddleware, async (req: AuthRequest, res) => {
+// A demand package sent to an adjuster as a link because it was too large to
+// attach. The unguessable, expiring token is the authorization: the recipient
+// has no ClearCaseIQ account.
+router.get('/packages/shared/:token', async (req, res) => {
   try {
-    const { demandId } = req.params
-
-    const demand = await prisma.demandLetter.findUnique({
-      where: { id: demandId }
-    })
-
-    if (!demand) {
-      return res.status(404).json({ error: 'Demand letter not found' })
+    const token = String(req.params.token || '')
+    if (token.length < 32) return res.status(404).json({ error: 'This link is not valid.' })
+    const pkg = await prisma.demandPackage.findUnique({ where: { shareToken: token } })
+    if (!pkg || pkg.status !== 'ready') return res.status(404).json({ error: 'This link is not valid.' })
+    if (!pkg.shareExpiresAt || pkg.shareExpiresAt.getTime() < Date.now()) {
+      return res.status(410).json({ error: 'This link has expired. Ask the sender for a new one.' })
     }
+    const abs = await packageFile(pkg)
+    if (!abs) return res.status(404).json({ error: 'The package is no longer available.' })
 
-    if (demand.origin !== 'pro_se') {
-      const allowed = await canAccessAssessment(demand.assessmentId, req.user?.id, req.user?.email)
-      if (!allowed) {
-        return res.status(403).json({ error: 'Not authorized to download this demand letter' })
-      }
-    }
-
-    const buffer = await buildDemandPackagePdf(demand)
-
+    await prisma.demandPackage.update({ where: { id: pkg.id }, data: { downloadCount: { increment: 1 } } }).catch(() => null)
     res.setHeader('Content-Type', 'application/pdf')
-    res.setHeader('Content-Disposition', `attachment; filename="demand-package-${demand.id}.pdf"`)
-    res.send(buffer)
+    res.setHeader('Content-Disposition', `attachment; filename="demand-package.pdf"`)
+    res.setHeader('Cache-Control', 'private, no-store')
+    res.setHeader('X-Robots-Tag', 'noindex')
+    fs.createReadStream(abs).pipe(res)
   } catch (error) {
-    logger.error('Failed to generate demand package pdf', { error, demandId: req.params.demandId })
-    res.status(500).json({ error: 'Failed to generate demand package PDF' })
+    logger.error('Failed to serve shared demand package', { error })
+    res.status(500).json({ error: 'Failed to download the package' })
   }
 })
 

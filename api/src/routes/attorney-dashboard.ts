@@ -243,6 +243,15 @@ import {
   saveDemandVersion,
 } from '../lib/demand-drafting'
 import { SUPER_DEMAND_TEMPLATE, summarizeApprovalGate, updateApprovalGate } from '../lib/super-demand'
+import { defaultBatesPrefix, demandExhibitCandidates, formatBates } from '../lib/demand-pdf-package'
+import {
+  enqueueDemandPackage,
+  ensureShareLink,
+  normalizePackageConfig,
+  packageFile,
+  packageView,
+} from '../lib/demand-package-jobs'
+import { sendTransactionalEmail } from '../lib/claims'
 import { extractDemandText } from '../lib/demand-import'
 import type { TaskIdentitySource } from '../lib/task-identity'
 import { askCaseAssistant } from '../services/case-assistant'
@@ -18109,61 +18118,359 @@ router.post('/leads/:leadId/demand-letters/:demandId/send', authMiddleware, firm
     }
 
     const sentAt = req.body?.sentAt ? new Date(req.body.sentAt) : new Date()
-    const letter = await prisma.demandLetter.update({
-      where: { id: existing.id },
-      data: { status: 'SENT', sentAt },
-      select: demandLetterSelect,
-    })
-
-    // Log the demand on the negotiation timeline (best-effort).
-    await prisma.negotiationEvent
-      .create({
-        data: {
-          assessmentId: lead.assessmentId,
-          eventType: 'demand',
-          amount: existing.targetAmount ?? null,
-          eventDate: sentAt,
-          status: 'open',
-          counterpartyType: 'insurer',
-          notes: 'Demand package sent to carrier',
-        },
-      })
-      .catch(() => null)
-
-    await writeAutomationAudit({
-      userId: req.user?.id,
-      attorneyId: attorney?.id ?? null,
-      action: 'demand_letter_sent',
-      entityType: 'demand_letter',
-      entityId: letter.id,
-      metadata: { leadId: lead.id, sentAt: sentAt.toISOString() },
-    })
-
-    void recordCaseChange({
-      assessmentId: lead.assessmentId,
-      source: 'attorney',
-      action: 'demand_sent',
-      entityType: 'demand_letter',
-      entityId: letter.id,
-      summary: 'Demand package sent to carrier',
-      actor: { type: 'user', id: req.user?.id, label: requestActorName(req.user) },
-    })
-
-    // Advance the case stage to DEMAND_SENT.
-    void syncCaseStage(lead.assessmentId, { source: 'attorney' })
-
-    void notifyPlaintiffDemandSent({
-      assessmentId: lead.assessmentId,
-      leadId: lead.id,
-      demandLetterId: letter.id,
-      attorney,
-      sentAt,
-    })
-
+    const letter = await markDemandLetterSent(req, lead, attorney, existing, sentAt, 'Demand package sent to carrier')
     res.json(serializeDemandLetter(letter))
   } catch (error: any) {
     logger.error('Failed to mark demand letter sent', { error: error.message, demandId: req.params.demandId })
     res.status(500).json({ error: 'Failed to mark demand letter sent' })
+  }
+})
+
+async function markDemandLetterSent(
+  req: any,
+  lead: { id: string; assessmentId: string },
+  attorney: any,
+  existing: { id: string; targetAmount: number | null },
+  sentAt: Date,
+  note: string,
+) {
+  const letter = await prisma.demandLetter.update({
+    where: { id: existing.id },
+    data: { status: 'SENT', sentAt },
+    select: demandLetterSelect,
+  })
+
+  // Log the demand on the negotiation timeline (best-effort).
+  await prisma.negotiationEvent
+    .create({
+      data: {
+        assessmentId: lead.assessmentId,
+        eventType: 'demand',
+        amount: existing.targetAmount ?? null,
+        eventDate: sentAt,
+        status: 'open',
+        counterpartyType: 'insurer',
+        notes: note,
+      },
+    })
+    .catch(() => null)
+
+  await writeAutomationAudit({
+    userId: req.user?.id,
+    attorneyId: attorney?.id ?? null,
+    action: 'demand_letter_sent',
+    entityType: 'demand_letter',
+    entityId: letter.id,
+    metadata: { leadId: lead.id, sentAt: sentAt.toISOString() },
+  })
+
+  void recordCaseChange({
+    assessmentId: lead.assessmentId,
+    source: 'attorney',
+    action: 'demand_sent',
+    entityType: 'demand_letter',
+    entityId: letter.id,
+    summary: note,
+    actor: { type: 'user', id: req.user?.id, label: requestActorName(req.user) },
+  })
+
+  // Advance the case stage to DEMAND_SENT.
+  void syncCaseStage(lead.assessmentId, { source: 'attorney' })
+
+  void notifyPlaintiffDemandSent({
+    assessmentId: lead.assessmentId,
+    leadId: lead.id,
+    demandLetterId: letter.id,
+    attorney,
+    sentAt,
+  })
+  return letter
+}
+
+// ---- PDF demand packages ----------------------------------------------------
+
+/** Largest package attached to an email; anything bigger goes as a download link. */
+const PACKAGE_ATTACH_LIMIT = 9 * 1024 * 1024
+const EMAIL_RE = /^[^\s@<>,;]+@[^\s@<>,;]+\.[^\s@<>,;]+$/
+
+async function loadPackageLetter(req: any, res: any, write: boolean) {
+  const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true, firmMemberWrite: write })
+  if (auth.error) {
+    res.status(auth.error.status).json({ error: auth.error.message })
+    return null
+  }
+  const letter = await prisma.demandLetter.findFirst({
+    where: { id: req.params.demandId, assessmentId: auth.lead.assessmentId },
+    select: {
+      id: true,
+      assessmentId: true,
+      content: true,
+      status: true,
+      sentAt: true,
+      targetAmount: true,
+      currentVersion: true,
+      title: true,
+      origin: true,
+      importedFilePath: true,
+    },
+  })
+  if (!letter) {
+    res.status(404).json({ error: 'Demand letter not found' })
+    return null
+  }
+  return { ...auth, letter }
+}
+
+async function listPackages(demandLetterId: string, currentVersion: number) {
+  const rows = await prisma.demandPackage.findMany({
+    where: { demandLetterId },
+    orderBy: { createdAt: 'desc' },
+    take: 10,
+  })
+  return rows.map((r) => packageView(r, currentVersion))
+}
+
+router.get('/leads/:leadId/demand-letters/:demandId/package-options', authMiddleware, firmGate('demand'), async (req: any, res) => {
+  try {
+    const ctx = await loadPackageLetter(req, res, false)
+    if (!ctx) return
+    const { lead, letter } = ctx
+
+    const [candidates, ctxLetter, insurance, lastBates, lastForLetter, packages] = await Promise.all([
+      demandExhibitCandidates(letter.assessmentId, letter.content || ''),
+      loadLetterContext(lead.id).catch(() => null),
+      prisma.insuranceDetail.findMany({
+        where: { assessmentId: letter.assessmentId },
+        select: { id: true, carrierName: true, adjusterName: true, adjusterEmail: true, claimNumber: true, insuredParty: true },
+      }),
+      prisma.demandPackage.findFirst({
+        where: { assessmentId: letter.assessmentId, status: 'ready', batesEnd: { not: null } },
+        orderBy: { completedAt: 'desc' },
+        select: { batesPrefix: true, batesEnd: true },
+      }),
+      prisma.demandPackage.findFirst({
+        where: { demandLetterId: letter.id },
+        orderBy: { createdAt: 'desc' },
+        select: { config: true },
+      }),
+      listPackages(letter.id, letter.currentVersion),
+    ])
+
+    let lastConfig: unknown = null
+    try {
+      lastConfig = lastForLetter?.config ? JSON.parse(lastForLetter.config) : null
+    } catch {
+      lastConfig = null
+    }
+
+    res.json({
+      exhibits: candidates.map(({ planned: _planned, ...c }) => c),
+      bates: {
+        prefix: lastBates?.batesPrefix || defaultBatesPrefix(ctxLetter?.clientName),
+        start: lastBates?.batesEnd != null ? lastBates.batesEnd + 1 : 1,
+        lastEnd: lastBates?.batesEnd ?? null,
+      },
+      lastConfig,
+      recipients: insurance
+        .filter((i) => i.adjusterEmail)
+        .map((i) => ({
+          insuranceId: i.id,
+          email: i.adjusterEmail,
+          name: i.adjusterName,
+          carrier: i.carrierName,
+          claimNumber: i.claimNumber,
+          defendantCarrier: i.insuredParty !== 'client',
+        })),
+      attachLimitBytes: PACKAGE_ATTACH_LIMIT,
+      letter: { status: letter.status, sent: Boolean(letter.sentAt), currentVersion: letter.currentVersion },
+      packages,
+    })
+  } catch (error: any) {
+    logger.error('Failed to load demand package options', { error: error.message, demandId: req.params.demandId })
+    res.status(500).json({ error: 'Failed to load package options' })
+  }
+})
+
+router.get('/leads/:leadId/demand-letters/:demandId/packages', authMiddleware, firmGate('demand'), async (req: any, res) => {
+  try {
+    const ctx = await loadPackageLetter(req, res, false)
+    if (!ctx) return
+    res.json({ packages: await listPackages(ctx.letter.id, ctx.letter.currentVersion) })
+  } catch (error: any) {
+    logger.error('Failed to list demand packages', { error: error.message, demandId: req.params.demandId })
+    res.status(500).json({ error: 'Failed to list demand packages' })
+  }
+})
+
+router.post('/leads/:leadId/demand-letters/:demandId/packages', authMiddleware, firmGate('demand'), async (req: any, res) => {
+  try {
+    const ctx = await loadPackageLetter(req, res, true)
+    if (!ctx) return
+    const { lead, letter, attorney } = ctx
+    if (letter.importedFilePath && !(letter.content || '').trim()) {
+      return res.status(400).json({ error: 'This imported letter has no text to build a package from. Download the original file instead.' })
+    }
+
+    const active = await prisma.demandPackage.findFirst({
+      where: { demandLetterId: letter.id, status: { in: ['queued', 'building'] } },
+      select: { id: true },
+    })
+    if (active) {
+      return res.status(409).json({ error: 'A package for this letter is already being built.' })
+    }
+
+    const created = await enqueueDemandPackage({
+      demandLetterId: letter.id,
+      assessmentId: letter.assessmentId,
+      config: normalizePackageConfig(req.body),
+      requestedById: req.user?.id ?? null,
+      requestedByName: requestActorName(req.user) || null,
+      requestedByAttorneyId: attorney?.id ?? null,
+    })
+    void writeAutomationAudit({
+      userId: req.user?.id,
+      attorneyId: attorney?.id ?? null,
+      action: 'demand_package_requested',
+      entityType: 'demand_letter',
+      entityId: letter.id,
+      metadata: { leadId: lead.id, packageId: created.id },
+    })
+    res.status(202).json(packageView(created, letter.currentVersion))
+  } catch (error: any) {
+    logger.error('Failed to queue demand package', { error: error.message, demandId: req.params.demandId })
+    res.status(500).json({ error: 'Failed to start the package build' })
+  }
+})
+
+router.get('/leads/:leadId/demand-letters/:demandId/packages/:packageId/file', authMiddleware, firmGate('demand'), async (req: any, res) => {
+  try {
+    const ctx = await loadPackageLetter(req, res, false)
+    if (!ctx) return
+    const pkg = await prisma.demandPackage.findFirst({
+      where: { id: req.params.packageId, demandLetterId: ctx.letter.id, status: 'ready' },
+    })
+    const abs = pkg ? await packageFile(pkg) : null
+    if (!pkg || !abs) return res.status(404).json({ error: 'Package not found' })
+    res.setHeader('Content-Type', 'application/pdf')
+    res.setHeader('Content-Disposition', `attachment; filename="demand-package-${ctx.letter.id}.pdf"`)
+    fs.createReadStream(abs).pipe(res)
+  } catch (error: any) {
+    logger.error('Failed to download demand package', { error: error.message, packageId: req.params.packageId })
+    res.status(500).json({ error: 'Failed to download the package' })
+  }
+})
+
+router.post('/leads/:leadId/demand-letters/:demandId/packages/:packageId/email', authMiddleware, firmGate('demand'), async (req: any, res) => {
+  try {
+    const ctx = await loadPackageLetter(req, res, true)
+    if (!ctx) return
+    const { lead, letter, attorney } = ctx
+
+    const pkg = await prisma.demandPackage.findFirst({
+      where: { id: req.params.packageId, demandLetterId: letter.id },
+    })
+    if (!pkg || pkg.status !== 'ready') return res.status(404).json({ error: 'Package not found' })
+    if (letter.status === 'DRAFT') {
+      return res.status(400).json({ error: 'Approve and finalize the letter before sending it to the adjuster.' })
+    }
+    if (pkg.draft || (pkg.letterVersion != null && pkg.letterVersion !== letter.currentVersion)) {
+      return res.status(400).json({ error: 'This package was built from an earlier draft. Build a new package from the final letter, then send that.' })
+    }
+
+    const to = String(req.body?.to || '').trim()
+    if (!EMAIL_RE.test(to)) return res.status(400).json({ error: 'Enter a valid email address for the adjuster.' })
+    const abs = await packageFile(pkg)
+    if (!abs) return res.status(404).json({ error: 'The package file could not be found. Build it again.' })
+
+    const lc = await loadLetterContext(lead.id).catch(() => null)
+    const insurance = await prisma.insuranceDetail.findFirst({
+      where: { assessmentId: letter.assessmentId, adjusterEmail: { equals: to, mode: 'insensitive' } },
+      select: { id: true, carrierName: true, adjusterName: true, claimNumber: true },
+    })
+    const client = lc?.clientName || 'our client'
+    const subject =
+      String(req.body?.subject || '').trim().slice(0, 300) ||
+      `Settlement demand — ${client}${insurance?.claimNumber ? ` — Claim ${insurance.claimNumber}` : ''}`
+    const signature = [lc?.attorneyName, lc?.firmName].filter(Boolean).join('\n')
+    const message =
+      String(req.body?.message || '').trim().slice(0, 5000) ||
+      `Hello ${insurance?.adjusterName?.trim() || 'Claims Representative'},\n\nPlease find our settlement demand package for ${client}, including the supporting exhibits. The response deadline is stated in the letter.\n\n${signature}`
+
+    const attach = (pkg.fileSize ?? Number.MAX_SAFE_INTEGER) <= PACKAGE_ATTACH_LIMIT
+    const filename = `Demand-Package-${client.replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'Client'}.pdf`
+    let linkNote = ''
+    let cta: { label: string; url: string } | null = null
+    if (!attach) {
+      const share = await ensureShareLink(pkg.id)
+      cta = { label: 'Download demand package', url: webUrl(`/v1/demands/packages/shared/${share.token}`) }
+      linkNote = `\n\nThe package (${pkg.pageCount ?? ''} pages) is too large to attach. Download it with the link below; it expires ${share.expiresAt.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}.`
+    }
+
+    const sent = await sendTransactionalEmail({
+      to,
+      subject,
+      body: `${message}${linkNote}`,
+      cta,
+      attachments: attach ? [{ filename, content: fs.readFileSync(abs), contentType: 'application/pdf' }] : undefined,
+      replyTo: lc?.attorneyEmail || undefined,
+      fromName: [lc?.attorneyName, lc?.firmName].filter(Boolean).join(', ') || undefined,
+    })
+    if (!sent) {
+      return res.status(502).json({ error: 'The email could not be sent. Try again, or download the package and send it yourself.' })
+    }
+
+    const sentAt = new Date()
+    const updatedPkg = await prisma.demandPackage.update({
+      where: { id: pkg.id },
+      data: { sentTo: to, sentAt, sentById: req.user?.id ?? null },
+    })
+    await prisma.caseLetter
+      .create({
+        data: {
+          leadId: lead.id,
+          kind: 'demand_package',
+          insuranceDetailId: insurance?.id ?? null,
+          recipientName: insurance?.carrierName || to,
+          recipientEmail: to,
+          deliveredVia: 'email',
+          subject,
+          body: message,
+          filePath: pkg.filePath || '',
+          sentByEmail: req.user?.email ?? null,
+        },
+      })
+      .catch(() => null)
+    if (insurance) {
+      await prisma.insuranceCorrespondence
+        .create({
+          data: {
+            insuranceDetailId: insurance.id,
+            assessmentId: letter.assessmentId,
+            direction: 'outbound',
+            channel: 'email',
+            subject,
+            body: `Demand package (${pkg.pageCount ?? '?'} pages${pkg.batesPrefix ? `, Bates ${formatBates(pkg.batesPrefix, pkg.batesStart ?? 1)}–${formatBates(pkg.batesPrefix, pkg.batesEnd ?? 1)}` : ''}) emailed to ${to}${attach ? ' as an attachment' : ' as a download link'}.`,
+            emailed: true,
+            createdById: req.user?.id ?? null,
+            createdByName: requestActorName(req.user) || null,
+          },
+        })
+        .catch(() => null)
+    }
+
+    let updatedLetter: any = null
+    if (req.body?.markSent !== false && !letter.sentAt) {
+      updatedLetter = await markDemandLetterSent(req, lead, attorney, letter, sentAt, `Demand package emailed to ${to}`)
+    }
+
+    res.json({
+      package: packageView(updatedPkg, letter.currentVersion),
+      letter: updatedLetter ? serializeDemandLetter(updatedLetter) : null,
+      delivery: attach ? 'attachment' : 'link',
+    })
+  } catch (error: any) {
+    logger.error('Failed to email demand package', { error: error.message, packageId: req.params.packageId })
+    res.status(500).json({ error: 'Failed to send the demand package' })
   }
 })
 

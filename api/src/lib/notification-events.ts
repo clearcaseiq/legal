@@ -48,6 +48,7 @@ export const ATTORNEY_EVENTS = {
   negotiation_decision: 'attorney.negotiation_decision',
   document_request_note: 'attorney.document_request_note',
   countersign_needed: 'attorney.countersign_needed',
+  demand_package_ready: 'attorney.demand_package_ready',
 } as const
 
 /** Case Assistance — ClearCaseIQ specialists working the assisted-intake queue. */

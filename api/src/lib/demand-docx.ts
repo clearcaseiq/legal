@@ -72,6 +72,17 @@ export function enclosuresIn(content: string): Array<{ number: string; label: st
 }
 
 export async function planDemandExhibits(assessmentId: string, content: string): Promise<PlannedExhibit[]> {
+  return (await planDemandExhibitCandidates(assessmentId, content)).planned
+}
+
+/**
+ * The exhibits the letter encloses, plus the case's other eligible files that
+ * are not enclosed (`extras`), which an attorney can add to a package.
+ */
+export async function planDemandExhibitCandidates(
+  assessmentId: string,
+  content: string,
+): Promise<{ planned: PlannedExhibit[]; extras: PlannedExhibit[] }> {
   const files = await prisma.evidenceFile.findMany({
     where: { assessmentId },
     select: {
@@ -96,14 +107,16 @@ export async function planDemandExhibits(assessmentId: string, content: string):
   }))
 
   const listed = enclosuresIn(content)
-  if (!listed.length) return current
+  if (!listed.length) return { planned: current, extras: [] }
 
   const byLabel = new Map(current.map((e) => [e.label, e]))
-  return listed.map((e) => ({
+  const planned = listed.map((e) => ({
     ...e,
     section: byLabel.get(e.label)?.section ?? null,
     file: byLabel.get(e.label)?.file ?? null,
   }))
+  const enclosedLabels = new Set(listed.map((e) => e.label))
+  return { planned, extras: current.filter((e) => !enclosedLabels.has(e.label)) }
 }
 
 export async function localPathFor(file: ExhibitFile): Promise<string | null> {

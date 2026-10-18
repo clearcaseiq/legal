@@ -717,14 +717,6 @@ export async function downloadDemandLetterDocx(demandId: string) {
   return data
 }
 
-export async function downloadDemandPackagePdf(demandId: string) {
-  const { data } = await api.get(`/v1/demands/${demandId}/package.pdf`, {
-    responseType: 'blob',
-    params: { ts: Date.now() }
-  })
-  return data as Blob
-}
-
 // Notifications API
 export async function sendNotification(type: 'email' | 'sms' | 'push', recipient: string, message: string, subject?: string, metadata?: any) {
   const { data } = await api.post('/v1/notify/send', { type, recipient, subject, message, metadata })
@@ -2856,6 +2848,94 @@ export async function updateFirmDemandStyle(id: string, body: { name?: string; c
 
 export async function deleteFirmDemandStyle(id: string) {
   await api.delete(`/v1/firm-dashboard/demand-styles/${id}`)
+}
+
+// ---- PDF demand packages ----------------------------------------------------
+export type DemandPackageStatus = 'queued' | 'building' | 'ready' | 'failed'
+
+export interface DemandPackage {
+  id: string
+  status: DemandPackageStatus
+  error: string | null
+  pageCount: number | null
+  exhibitCount: number | null
+  fileSize: number | null
+  bates: { prefix: string; start: number; end: number | null } | null
+  draft: boolean
+  stale: boolean
+  sentTo: string | null
+  sentAt: string | null
+  downloadCount: number
+  requestedByName: string | null
+  createdAt: string
+  completedAt: string | null
+}
+
+export interface DemandPackageExhibit {
+  key: string
+  number: string | null
+  label: string
+  group: 'Liability' | 'Medical Records' | 'Damages' | 'Additional Evidence'
+  enclosed: boolean
+  cited: boolean
+  fileId: string | null
+  fileName: string | null
+  available: boolean
+}
+
+export interface DemandPackageConfig {
+  exhibits: Array<{ key: string; include: boolean }> | null
+  bates: { prefix: string; start: number; enabled?: boolean } | null
+}
+
+export interface DemandPackageOptions {
+  exhibits: DemandPackageExhibit[]
+  bates: { prefix: string; start: number; lastEnd: number | null }
+  lastConfig: Partial<DemandPackageConfig> | null
+  recipients: Array<{
+    insuranceId: string
+    email: string
+    name: string | null
+    carrier: string
+    claimNumber: string | null
+    defendantCarrier: boolean
+  }>
+  attachLimitBytes: number
+  letter: { status: string; sent: boolean; currentVersion: number }
+  packages: DemandPackage[]
+}
+
+export async function getDemandPackageOptions(leadId: string, demandId: string) {
+  const { data } = await api.get(`${demandLettersPath(leadId)}/${demandId}/package-options`)
+  return data as DemandPackageOptions
+}
+
+export async function listDemandPackages(leadId: string, demandId: string) {
+  const { data } = await api.get(`${demandLettersPath(leadId)}/${demandId}/packages`)
+  return (data as { packages: DemandPackage[] }).packages
+}
+
+export async function buildDemandPackage(leadId: string, demandId: string, config: DemandPackageConfig) {
+  const { data } = await api.post(`${demandLettersPath(leadId)}/${demandId}/packages`, config)
+  return data as DemandPackage
+}
+
+export async function downloadDemandPackage(leadId: string, demandId: string, packageId: string) {
+  const { data } = await api.get(`${demandLettersPath(leadId)}/${demandId}/packages/${packageId}/file`, {
+    responseType: 'blob',
+    params: { ts: Date.now() },
+  })
+  return data as Blob
+}
+
+export async function emailDemandPackage(
+  leadId: string,
+  demandId: string,
+  packageId: string,
+  body: { to: string; subject?: string; message?: string; markSent?: boolean },
+) {
+  const { data } = await api.post(`${demandLettersPath(leadId)}/${demandId}/packages/${packageId}/email`, body)
+  return data as { package: DemandPackage; letter: DemandLetter | null; delivery: 'attachment' | 'link' }
 }
 
 export async function getLeadDemandStyles(leadId: string) {

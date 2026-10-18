@@ -23,6 +23,7 @@ import { runIntakeLeadIpPurge } from './lib/intake-lead-ip-retention'
 import { isGoogleAdsConfigured } from './lib/google-ads-conversions'
 import { runInboundSyncSweep, SYNC_INTERVAL_MS } from './lib/cms/inbound-sync-sweep'
 import { runEvidenceProcessingSweep } from './lib/evidence-processing-sweep'
+import { sweepDemandPackages } from './lib/demand-package-jobs'
 import { runInsuranceFollowUps } from './lib/insurance-workbench'
 import { reconcileAllAttorneyRatingAggregates } from './lib/attorney-rating-aggregates'
 import { beginSweep, registerSweep } from './lib/ops-status'
@@ -48,6 +49,7 @@ let errorRateTimer: NodeJS.Timeout | null = null
 let adsConversionTimer: NodeJS.Timeout | null = null
 let inboundSyncTimer: NodeJS.Timeout | null = null
 let evidenceProcessingTimer: NodeJS.Timeout | null = null
+let demandPackageTimer: NodeJS.Timeout | null = null
 let insuranceFollowUpTimer: NodeJS.Timeout | null = null
 let intakeLeadIpPurgeTimer: NodeJS.Timeout | null = null
 
@@ -554,6 +556,33 @@ async function runEvidenceProcessingLoop(trigger: 'startup' | 'interval') {
   }
 }
 
+async function runDemandPackageLoop(trigger: 'startup' | 'interval') {
+  const sweep = beginSweep('demand-package-builds')
+  try {
+    const result = await sweepDemandPackages()
+    sweep.succeed()
+    if (result.requeued > 0 || result.started > 0) {
+      logger.info('Demand package sweep completed', { trigger, ...result })
+    }
+  } catch (error) {
+    sweep.fail(error)
+    logger.error('Demand package sweep failed', { error, trigger })
+  }
+}
+
+function startDemandPackageLoop() {
+  const intervalMs = 2 * 60 * 1000
+  registerSweep('demand-package-builds', {
+    label: 'Demand package PDF builds',
+    enabled: true,
+    intervalMs,
+  })
+  void runDemandPackageLoop('startup')
+  demandPackageTimer = setInterval(() => {
+    void runDemandPackageLoop('interval')
+  }, intervalMs)
+}
+
 function startEvidenceProcessingLoop() {
   const intervalMs = 5 * 60 * 1000
   registerSweep('evidence-processing-retry', {
@@ -638,6 +667,7 @@ function startBackgroundLoops() {
   startAdsConversionLoop()
   startInboundSyncLoop()
   startEvidenceProcessingLoop()
+  startDemandPackageLoop()
 }
 
 const leadershipHandlers = {
@@ -682,6 +712,7 @@ function stopBackgroundLoops() {
   if (adsConversionTimer) clearInterval(adsConversionTimer)
   if (inboundSyncTimer) clearInterval(inboundSyncTimer)
   if (evidenceProcessingTimer) clearInterval(evidenceProcessingTimer)
+  if (demandPackageTimer) clearInterval(demandPackageTimer)
   if (insuranceFollowUpTimer) clearInterval(insuranceFollowUpTimer)
   if (intakeLeadIpPurgeTimer) clearInterval(intakeLeadIpPurgeTimer)
   insuranceFollowUpTimer = null
@@ -703,6 +734,7 @@ function stopBackgroundLoops() {
   adsConversionTimer = null
   inboundSyncTimer = null
   evidenceProcessingTimer = null
+  demandPackageTimer = null
 }
 
 function closeHttpServer() {

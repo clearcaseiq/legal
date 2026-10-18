@@ -14,6 +14,7 @@ import {
   Clock,
   Download,
   FileDown,
+  FileStack,
   FileText,
   History,
   Loader2,
@@ -28,10 +29,13 @@ import {
 import ConfirmDialog from '../../components/ConfirmDialog'
 import { useFirmAccess } from '../../hooks/useFirmAccess'
 import DemandIntelligencePanel from './DemandIntelligencePanel'
+import DemandPackageModal from './DemandPackageModal'
 import {
   approveLeadDemandLetter,
   downloadDemandLetterDocx,
-  downloadDemandPackagePdf,
+  downloadDemandPackage,
+  listDemandPackages,
+  type DemandPackage,
   downloadLeadDemandOriginal,
   draftLeadDemandLetter,
   finalizeLeadDemandLetter,
@@ -168,6 +172,40 @@ export default function DemandLetterWorkspace({
         </select>
       </label>
     ) : null
+
+  // PDF packages build in the background; poll while one is in flight and say
+  // so when it lands, wherever the attorney is in the workspace.
+  const [packages, setPackages] = useState<DemandPackage[]>([])
+  const [showPackage, setShowPackage] = useState(false)
+  const [readyPackage, setReadyPackage] = useState<DemandPackage | null>(null)
+  const pendingRef = useRef<Set<string>>(new Set())
+  const activeId = active?.id ?? null
+  useEffect(() => {
+    setPackages([])
+    setReadyPackage(null)
+    pendingRef.current = new Set()
+    if (!activeId) return
+    listDemandPackages(leadId, activeId)
+      .then(setPackages)
+      .catch(() => setPackages([]))
+  }, [leadId, activeId])
+  const hasPending = packages.some((p) => p.status === 'queued' || p.status === 'building')
+  useEffect(() => {
+    const pending = new Set(packages.filter((p) => p.status === 'queued' || p.status === 'building').map((p) => p.id))
+    const landed = packages.find((p) => pendingRef.current.has(p.id) && !pending.has(p.id))
+    if (landed?.status === 'ready') setReadyPackage(landed)
+    else if (landed?.status === 'failed') setMessage({ tone: 'err', text: landed.error || 'The PDF package could not be built.' })
+    pendingRef.current = pending
+  }, [packages])
+  useEffect(() => {
+    if (!hasPending || !activeId) return
+    const timer = window.setInterval(() => {
+      listDemandPackages(leadId, activeId)
+        .then(setPackages)
+        .catch(() => undefined)
+    }, 5000)
+    return () => window.clearInterval(timer)
+  }, [hasPending, leadId, activeId])
 
   const dirty = active != null && draftText !== active.content
   const locked = active?.status !== 'DRAFT'
@@ -321,23 +359,18 @@ export default function DemandLetterWorkspace({
     }
   }
 
-  const handleDownloadPackage = async () => {
+  const handleDownloadPackage = async (pkg: DemandPackage) => {
     if (!active) return
-    setBusy('package')
-    setMessage({ tone: 'ok', text: 'Building the PDF package. Large record sets can take a minute.' })
     try {
-      const blob = await downloadDemandPackagePdf(active.id)
+      const blob = await downloadDemandPackage(leadId, active.id, pkg.id)
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
       a.download = `demand-package-${active.id}.pdf`
       a.click()
       URL.revokeObjectURL(url)
-      setMessage(null)
     } catch {
-      setMessage({ tone: 'err', text: 'Could not build the PDF package.' })
-    } finally {
-      setBusy(null)
+      setMessage({ tone: 'err', text: 'Could not download the PDF package.' })
     }
   }
 
@@ -503,6 +536,35 @@ export default function DemandLetterWorkspace({
         </div>
       ) : null}
 
+      {readyPackage && active ? (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800">
+          <Check className="h-4 w-4 shrink-0" />
+          <span className="min-w-0 flex-1">
+            Your PDF demand package is ready{readyPackage.pageCount ? ` (${readyPackage.pageCount} pages)` : ''}.
+          </span>
+          <button
+            type="button"
+            onClick={() => void handleDownloadPackage(readyPackage)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-white px-2.5 py-1 text-xs font-semibold text-emerald-800 hover:bg-emerald-100"
+          >
+            <Download className="h-3.5 w-3.5" /> Download
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setShowPackage(true)
+              setReadyPackage(null)
+            }}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-emerald-700"
+          >
+            Send to adjuster
+          </button>
+          <button type="button" onClick={() => setReadyPackage(null)} className="rounded p-1 text-emerald-700 hover:bg-emerald-100" aria-label="Dismiss">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      ) : null}
+
       {!active ? intro : null}
 
       {!active ? (
@@ -629,8 +691,8 @@ export default function DemandLetterWorkspace({
                       <MenuItem icon={Download} onClick={() => { setMoreOpen(false); void handleDownload() }}>
                         Download Word
                       </MenuItem>
-                      <MenuItem icon={FileDown} onClick={() => { setMoreOpen(false); void handleDownloadPackage() }}>
-                        {busy === 'package' ? 'Building PDF package…' : 'Download PDF package with exhibits'}
+                      <MenuItem icon={FileStack} onClick={() => { setMoreOpen(false); setShowPackage(true) }}>
+                        PDF package and send to adjuster
                       </MenuItem>
                       {active.hasOriginalFile ? (
                         <MenuItem icon={FileDown} onClick={() => { setMoreOpen(false); void handleDownloadOriginal() }}>
@@ -784,6 +846,18 @@ export default function DemandLetterWorkspace({
             ))}
           </ul>
         </div>
+      ) : null}
+
+      {showPackage && active ? (
+        <DemandPackageModal
+          leadId={leadId}
+          letter={active}
+          packages={packages}
+          onPackagesChanged={setPackages}
+          onLetterUpdated={applyUpdated}
+          onDownload={(pkg) => void handleDownloadPackage(pkg)}
+          onClose={() => setShowPackage(false)}
+        />
       ) : null}
 
       {showImport ? (

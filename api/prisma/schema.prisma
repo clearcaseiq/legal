@@ -1887,9 +1887,60 @@ model DemandLetter {
   approvalChecklist String? @db.Text
 
   versions DemandLetterVersion[]
+  packages DemandPackage[]
 
   @@index([assessmentId])
   @@map("demand_letters")
+}
+
+// A built PDF demand package (letter + exhibit index + exhibits), produced by a
+// background job because a full record set can run to hundreds of pages.
+model DemandPackage {
+  id             String       @id @default(cuid())
+  demandLetterId String
+  demandLetter   DemandLetter @relation(fields: [demandLetterId], references: [id], onDelete: Cascade)
+  assessmentId   String
+
+  status   String  @default("queued") // queued | building | ready | failed
+  // JSON { exhibits: [{ key, include }], bates: { prefix, start } | null }: the
+  // attorney's exhibit selection/order and Bates settings for this build.
+  config   String? @db.Text
+  attempts Int     @default(0)
+  error    String? @db.Text
+
+  // The letter as it was when the package was built; a later edit makes it stale.
+  letterVersion Int?
+  draft         Boolean @default(false)
+
+  filePath     String?
+  fileSize     Int?
+  pageCount    Int?
+  exhibitCount Int?
+  batesPrefix  String?
+  batesStart   Int?
+  batesEnd     Int?
+
+  // Time-limited link for recipients when the file is too large to attach.
+  shareToken     String?   @unique
+  shareExpiresAt DateTime?
+  downloadCount  Int       @default(0)
+
+  sentTo   String?
+  sentAt   DateTime?
+  sentById String?
+
+  requestedById         String?
+  requestedByName       String?
+  requestedByAttorneyId String?
+  startedAt             DateTime?
+  completedAt           DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([demandLetterId, createdAt])
+  @@index([assessmentId])
+  @@index([status])
+  @@map("demand_packages")
 }
 
 // A point-in-time snapshot of a demand letter's text.
