@@ -84,11 +84,11 @@ I have had the opportunity to read this authorization. Information disclosed may
     `.trim(),
   },
   terms: {
-    version: '1.3',
-    documentId: 'terms-v1.3',
+    version: '1.4',
+    documentId: 'terms-v1.4',
     title: 'Terms of Service',
-    effectiveDate: '2026-07-30',
-    plainLanguageSummary: `You are contracting with ClearCaseIQ Corp., a technology company in Los Angeles, California. ClearCaseIQ is not a law firm, is not your lawyer, and does not give legal advice. These Terms are the rules for using the platform: you’ll provide accurate information, use the service lawfully, and keep your login private. Participating law firms pay ClearCaseIQ for technology and marketing services; you never do. When you pick your own firms, paying to participate does not improve a firm’s position. The Terms also explain the separate situation where a case arrives without anyone having picked firms, and how firms are ordered then. California law governs, and liability limits apply as described in the full Terms.`,
+    effectiveDate: '2026-10-17',
+    plainLanguageSummary: `You are contracting with ClearCaseIQ Corp., a technology company in Los Angeles, California. ClearCaseIQ is not a law firm, is not your lawyer, and does not give legal advice. These Terms are the rules for using the platform: you’ll provide accurate information, use the service lawfully, and keep your login private. Participating law firms pay ClearCaseIQ for technology and marketing services; you never do. When you pick your own firms, paying to participate does not improve a firm’s position. The Terms also explain the separate situation where a case arrives without anyone having picked firms, and how firms are ordered then. You keep ownership of what you upload; we may analyze it to run and improve the platform, and may use de-identified or aggregated data to develop our AI, but we do not train general models on your identifiable health information, privileged material, or confidential case files without the separate permission that use requires. California law governs, and liability limits apply as described in the full Terms.`,
     content: `
 # Terms of Service
 
@@ -122,6 +122,62 @@ If you complete an assessment and ask for attorney review, you see the participa
 
 ### How firms are identified when nobody has chosen them
 A case can also reach the platform without a consumer having named any firm, for example a case referred to us by a partner, or a case released by our team after a manual review. On those paths ClearCaseIQ decides which participating firms are offered the case and in what order, and a firm's commercial arrangement with us can affect that: a firm with an active subscription may be offered a case before other firms, and a firm's account standing is one input among several into the order. This is disclosed because it is a real difference between the two paths, not because it applies to a consumer who chose their own firms. It does not.
+
+## Artificial Intelligence Development, Data Analytics, and Platform Improvement
+
+### 1. Purpose and Scope
+ClearCaseIQ operates a technology platform that uses artificial intelligence, machine learning, data analytics, and automated processing to assist with legal claim assessment, case organization, attorney matching, and related services.
+
+ClearCaseIQ may develop additional artificial intelligence capabilities, including legal research, case analysis, document preparation, litigation support, and attorney-assistance technologies.
+
+### 2. User Ownership and Limited License
+Users retain their rights in information, documents, records, and other content they submit to the platform ("User Content").
+
+Users grant ClearCaseIQ a nonexclusive, worldwide, royalty-free license to host, store, reproduce, process, analyze, transform, and create technical derivatives of User Content to the extent reasonably necessary to provide, maintain, secure, support, and improve the services, subject to this Agreement, the Privacy Policy, applicable law, and any additional agreements or authorizations governing the information.
+
+This license does not transfer ownership of User Content to ClearCaseIQ.
+
+### 3. Platform Analytics and Improvement
+ClearCaseIQ may analyze platform usage, assessment responses, system-generated outputs, user feedback, and other lawfully processed information to:
+- Improve the accuracy and reliability of case assessments.
+- Develop and evaluate case valuation methodologies.
+- Enhance attorney matching and case-routing systems.
+- Detect fraudulent, duplicate, or inaccurate submissions.
+- Improve document extraction, classification, and analysis.
+- Measure platform performance and identify errors or bias.
+- Develop and test new platform functionality.
+
+### 4. De-Identified and Aggregated Information
+Where permitted by applicable law and contractual obligations, ClearCaseIQ may create and use aggregated or appropriately de-identified information for analytics, statistical modeling, research, algorithm development, machine learning, and artificial intelligence development.
+
+ClearCaseIQ will implement reasonable safeguards designed to prevent re-identification and will not attempt to re-identify such information except as permitted by law for appropriate compliance or validation purposes.
+
+### 5. AI Model Development and Training
+ClearCaseIQ may develop, train, fine-tune, test, validate, and improve proprietary artificial intelligence and machine learning systems using information that it is legally and contractually authorized to use for those purposes.
+
+Identifiable sensitive personal information, protected health information, attorney-client communications, privileged documents, and other confidential case materials will not be used for general or cross-customer model training unless ClearCaseIQ has obtained the permissions, authorizations, and contractual rights required for that specific use.
+
+Acceptance of these Terms alone does not constitute authorization to use information where separate consent or authorization is required.
+
+### 6. AI-Generated Outputs and Derived Technology
+Subject to applicable law and third-party rights, ClearCaseIQ retains its rights in its proprietary software, algorithms, model architecture, model parameters, improvements, and platform technology.
+
+Rights in user-specific reports, uploaded documents, and other outputs are governed by the applicable service agreement. Nothing in this section transfers ownership of a user's original information or overrides confidentiality, privacy, or privilege protections.
+
+### 7. Third-Party Technology Providers
+ClearCaseIQ may engage authorized technology and infrastructure providers to process information on its behalf, subject to appropriate contractual, confidentiality, security, and data-protection obligations.
+
+ClearCaseIQ will not permit third-party providers to use confidential case information for their independent model training unless such use is separately authorized and legally permitted.
+
+### 8. Security, Retention, and User Rights
+ClearCaseIQ will implement appropriate safeguards and maintain retention, deletion, access-control, and data-governance practices consistent with applicable law and its Privacy Policy.
+
+Users may exercise applicable privacy rights, including rights relating to access, correction, deletion, and withdrawal of consent, subject to lawful exceptions and technical limitations disclosed in the Privacy Policy.
+
+### 9. No Automatic Attorney-Client Relationship
+Unless expressly stated in a separate agreement involving an appropriately licensed legal professional, use of ClearCaseIQ does not establish an attorney-client relationship with ClearCaseIQ.
+
+Automated case assessments and other AI-generated information do not constitute legal representation or a guarantee of any legal outcome.
 
 ## Disclaimers and limitation of liability
 The service is provided “as available.” To the maximum extent permitted by law, ClearCaseIQ is not liable for indirect or consequential damages arising from use of the service.
