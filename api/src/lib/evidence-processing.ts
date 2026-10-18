@@ -1055,7 +1055,7 @@ export async function processEvidenceFileForExtraction(fileId: string) {
 
     if (evidenceFile.assessmentId) {
       void runCaseRecalculation(evidenceFile.assessmentId, 'evidence_processing')
-      if (FINDING_CATEGORIES.has(nextCategory || evidenceFile.category) && identityCheck?.verdict !== 'mismatch') {
+      if (FINDING_CATEGORIES.has(nextCategory || evidenceFile.category)) {
         void readDocumentPages(resolvedPath, mime)
           .then((pages) => generateDocumentFindings(fileId, pages))
           .catch((error: any) => logger.warn('Document findings failed', { fileId, error: error?.message || String(error) }))

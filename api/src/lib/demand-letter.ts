@@ -134,6 +134,8 @@ export interface DemandCaseRecord {
   /** How past medical is measured: billed charges, or paid plus still owed. */
   medicalSpecialsMeasure?: 'billed' | 'paid_or_owed'
   exhibits?: DemandExhibit[]
+  /** Records that disagree with the case, "file, p. N: what differs". */
+  recordConflicts?: string[]
 }
 
 type SourceCiter = (source: { sourceFileId?: string | null; sourcePage?: number | null }) => string

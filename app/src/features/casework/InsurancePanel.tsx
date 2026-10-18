@@ -21,6 +21,7 @@ import {
   Users,
 } from 'lucide-react'
 import PolicyWorkbench from './PolicyWorkbench'
+import DocumentFindingsPanel from './DocumentFindingsPanel'
 import { AdjusterDirectoryModal, CoverageStackCard, useAdjusterDirectory } from './InsuranceOverview'
 import ConfirmDialog from '../../components/ConfirmDialog'
 import PhoneInput from '../../components/PhoneInput'
@@ -405,6 +406,18 @@ export default function InsurancePanel({
       </div>
 
       {coverage && editingId === null ? <CoverageStackCard coverage={coverage} onAddClientPolicy={startAddClientPolicy} /> : null}
+      {editingId === null ? (
+        <DocumentFindingsPanel
+          leadId={leadId}
+          kinds={['insurance_policy']}
+          title="Found in insurance documents"
+          destination="the policies on this tab"
+          onAccepted={() => {
+            void load()
+            onChanged?.()
+          }}
+        />
+      ) : null}
       {directoryOpen ? (
         <AdjusterDirectoryModal
           leadId={leadId}

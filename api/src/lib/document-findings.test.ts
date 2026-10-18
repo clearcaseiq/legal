@@ -1,8 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { prismaMock, completionMock, createMedicalEntryMock, writeThroughMock } = vi.hoisted(() => ({
+const { prismaMock, completionMock, createMedicalEntryMock, writeThroughMock, partiesMock, liabilityMock } = vi.hoisted(() => ({
+  partiesMock: {
+    listLiabilityParties: vi.fn(),
+    createEvidenceItem: vi.fn(),
+    updateEvidenceItem: vi.fn(),
+    createDefendant: vi.fn(),
+  },
+  liabilityMock: { getLiabilityRecord: vi.fn(), upsertLiabilityRecord: vi.fn() },
   prismaMock: {
     evidenceFile: { findUnique: vi.fn() },
+    liabilityEvidenceItem: { findMany: vi.fn(), findFirst: vi.fn() },
+    insuranceDetail: { findMany: vi.fn(), create: vi.fn(), update: vi.fn() },
     documentFinding: {
       findMany: vi.fn(),
       findFirst: vi.fn(),
@@ -36,14 +45,18 @@ vi.mock('./damages-ledger', () => ({
   writeThroughDamages: writeThroughMock,
   recordDamageItemChanges: vi.fn(),
 }))
+vi.mock('./liability-parties', () => partiesMock)
+vi.mock('./liability-record', () => liabilityMock)
 
 import {
   acceptDocumentFinding,
   chunkPages,
   dateSpellings,
   extractChargeLines,
+  categoriesForKinds,
   findingFingerprint,
   generateDocumentFindings,
+  namesMatch,
   verifyCandidate,
 } from './document-findings'
 
@@ -170,6 +183,8 @@ describe('generateDocumentFindings', () => {
     prismaMock.documentFinding.findMany.mockResolvedValue([])
     prismaMock.medicalTreatmentEntry.findMany.mockResolvedValue([])
     prismaMock.damageItem.findMany.mockResolvedValue([])
+    prismaMock.liabilityEvidenceItem.findMany.mockResolvedValue([])
+    prismaMock.insuranceDetail.findMany.mockResolvedValue([])
     prismaMock.documentFinding.deleteMany.mockReturnValue('delete-op')
     prismaMock.documentFinding.createMany.mockReturnValue('create-op')
     prismaMock.$transaction.mockResolvedValue([])
@@ -269,5 +284,263 @@ describe('acceptDocumentFinding', () => {
   it('refuses a finding that was already reviewed', async () => {
     prismaMock.documentFinding.findFirst.mockResolvedValue({ id: 'df1', status: 'accepted', data: '{}' })
     await expect(acceptDocumentFinding('a1', 'df1', {}, { actorId: null, actorName: null })).rejects.toMatchObject({ status: 409 })
+  })
+})
+
+const reportPages = [
+  {
+    page: 1,
+    text:
+      'TRAFFIC COLLISION REPORT\nReport No. 2026-004512\nDate of collision: 03/12/2026 Time: 17:40\nOakland Police Department, Officer R. Diaz\n' +
+      'Party 1: SMITH, JOHN — Insurance: Geico Policy 4410-22-981\nParty 2: Maria Lopez\nCitation issued to Party 1 for CVC 22350.',
+  },
+]
+
+const insurancePages = [
+  {
+    page: 1,
+    text:
+      'State Farm Mutual Automobile Insurance Company\nClaim Number: 05-7731-K22\nPolicy Number: 881 2290-F14\n' +
+      'Bodily Injury Limits: $25,000 each person / $50,000 each accident\nAdjuster: Karen Wu, karen.wu@statefarm.com, (510) 555-0199',
+  },
+]
+
+describe('verifyCandidate — police reports and insurance documents', () => {
+  it('keeps the report number, parties and citation the report prints', () => {
+    const f = verifyCandidate(
+      {
+        kind: 'incident_report',
+        page: 1,
+        quote: 'Report No. 2026-004512',
+        date: '2026-03-12',
+        reportNumber: '2026-004512',
+        defendantName: 'John Smith',
+        defendantInsurer: 'Geico',
+        defendantPolicyNumber: '4410-22-981',
+        citationIssuedTo: 'defendant',
+        officer: 'R. Diaz',
+      },
+      reportPages,
+    )
+    expect(f!.data).toMatchObject({
+      date: '2026-03-12',
+      reportNumber: '2026-004512',
+      defendantName: 'John Smith',
+      defendantInsurer: 'Geico',
+      defendantPolicyNumber: '4410-22-981',
+      citationIssuedTo: 'defendant',
+    })
+  })
+
+  it('clears a report number and party the page does not print', () => {
+    const f = verifyCandidate(
+      { kind: 'incident_report', page: 1, quote: 'Report No. 2026-004512', date: '2026-03-12', reportNumber: '2026-009999', defendantName: 'Alan Brown' },
+      reportPages,
+    )
+    expect(f!.data.reportNumber).toBeNull()
+    expect(f!.data.defendantName).toBeNull()
+    expect(f!.data.date).toBe('2026-03-12')
+  })
+
+  it('drops a report with no date, number or party on the page', () => {
+    expect(
+      verifyCandidate({ kind: 'incident_report', page: 1, quote: 'TRAFFIC COLLISION REPORT Report No', reportNumber: '1234' }, reportPages),
+    ).toBeNull()
+  })
+
+  it('keeps a policy with its numbers, limits and adjuster as printed', () => {
+    const f = verifyCandidate(
+      {
+        kind: 'insurance_policy',
+        page: 1,
+        quote: 'Claim Number: 05-7731-K22',
+        carrierName: 'State Farm',
+        claimNumber: '05-7731-K22',
+        policyNumber: '881 2290-F14',
+        policyLimit: 25000,
+        perAccidentLimit: 50000,
+        adjusterName: 'Karen Wu',
+        adjusterEmail: 'Karen.Wu@statefarm.com',
+        adjusterPhone: '510-555-0199',
+        insuredParty: 'defendant',
+        coverageType: 'liability',
+      },
+      insurancePages,
+    )
+    expect(f!.data).toMatchObject({
+      carrierName: 'State Farm',
+      claimNumber: '05-7731-K22',
+      policyNumber: '881 2290-F14',
+      policyLimit: 25000,
+      perAccidentLimit: 50000,
+      adjusterEmail: 'karen.wu@statefarm.com',
+      adjusterPhone: '510-555-0199',
+    })
+  })
+
+  it('drops a policy whose carrier is not on the page and clears an unprinted limit', () => {
+    expect(verifyCandidate({ kind: 'insurance_policy', page: 1, quote: 'Claim Number: 05-7731-K22', carrierName: 'Allstate' }, insurancePages)).toBeNull()
+    const f = verifyCandidate(
+      { kind: 'insurance_policy', page: 1, quote: 'Claim Number: 05-7731-K22', carrierName: 'State Farm', policyLimit: 100000 },
+      insurancePages,
+    )
+    expect(f!.data.policyLimit).toBeNull()
+  })
+})
+
+describe('namesMatch and categoriesForKinds', () => {
+  it('matches names written in a different order and ignores carrier filler words', () => {
+    expect(namesMatch('SMITH, JOHN', 'John Smith')).toBe(true)
+    expect(namesMatch('State Farm Mutual', 'State Farm Insurance Company')).toBe(true)
+    expect(namesMatch('Geico', 'Progressive Insurance')).toBe(false)
+  })
+
+  it('reads police and insurance categories only for their own kinds', () => {
+    expect(categoriesForKinds(['incident_report'])).toEqual(['police_report', 'police'])
+    expect(categoriesForKinds(['insurance_policy'])).toContain('dec_page')
+    expect(categoriesForKinds(['medical_charge'])).not.toContain('police_report')
+  })
+})
+
+describe('generateDocumentFindings — police reports', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    prismaMock.evidenceFile.findUnique.mockResolvedValue({
+      id: 'f2',
+      assessmentId: 'a1',
+      category: 'police_report',
+      originalName: 'report.pdf',
+      identityCheck: null,
+    })
+    prismaMock.documentFinding.findMany.mockResolvedValue([])
+    prismaMock.medicalTreatmentEntry.findMany.mockResolvedValue([])
+    prismaMock.damageItem.findMany.mockResolvedValue([])
+    prismaMock.liabilityEvidenceItem.findMany.mockResolvedValue([])
+    prismaMock.insuranceDetail.findMany.mockResolvedValue([])
+    prismaMock.$transaction.mockResolvedValue([])
+  })
+
+  it('keeps only incident findings from a police report', async () => {
+    completionMock.mockResolvedValue({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              findings: [
+                { kind: 'incident_report', page: 1, quote: 'Report No. 2026-004512', reportNumber: '2026-004512', date: '2026-03-12' },
+                { kind: 'treatment_visit', page: 1, quote: 'Date of collision: 03/12/2026', date: '2026-03-12', provider: 'Oakland PD' },
+              ],
+            }),
+          },
+        },
+      ],
+    })
+    const result = await generateDocumentFindings('f2', reportPages)
+    expect(result.proposed).toBe(1)
+    expect(completionMock.mock.calls[0][0].messages[1].content).toContain('police or incident report')
+    expect(prismaMock.documentFinding.createMany.mock.calls[0][0].data[0].kind).toBe('incident_report')
+  })
+})
+
+describe('acceptDocumentFinding — police reports and policies', () => {
+  const actor = { actorId: 'u1', actorName: 'Jane' }
+  const accepted = { id: 'df2', status: 'accepted', data: '{}', sourceQuote: 'q', confidence: 0.9, extractor: 'ai', evidenceFileId: 'f2', createdAt: new Date() }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    prismaMock.documentFinding.update.mockResolvedValue(accepted)
+    liabilityMock.getLiabilityRecord.mockResolvedValue({ citationIssuedTo: null, witnessCount: 0 })
+  })
+
+  it('adds a received police report, the defendant and the citation when the Liability tab has none', async () => {
+    prismaMock.documentFinding.findFirst.mockResolvedValue({
+      id: 'df2',
+      kind: 'incident_report',
+      status: 'proposed',
+      evidenceFileId: 'f2',
+      pageNumber: 1,
+      sourceQuote: 'Report No. 2026-004512',
+      data: JSON.stringify({ date: '2026-03-12', reportNumber: '2026-004512', defendantName: 'John Smith', defendantInsurer: 'Geico', citationIssuedTo: 'defendant', witnessCount: 2 }),
+    })
+    partiesMock.listLiabilityParties.mockResolvedValue({ defendants: [], evidence: [] })
+    prismaMock.liabilityEvidenceItem.findFirst.mockResolvedValue({ id: 'ev1' })
+
+    const result = await acceptDocumentFinding('a1', 'df2', {}, actor)
+    expect(result).toMatchObject({ entityType: 'liability_evidence', entityId: 'ev1' })
+    expect(partiesMock.createEvidenceItem.mock.calls[0][1]).toMatchObject({
+      type: 'police_report',
+      status: 'received',
+      referenceNumber: '2026-004512',
+      evidenceFileId: 'f2',
+    })
+    expect(partiesMock.createDefendant.mock.calls[0][1]).toMatchObject({ name: 'John Smith', insurerName: 'Geico' })
+    expect(liabilityMock.upsertLiabilityRecord.mock.calls[0][1]).toEqual({ citationIssuedTo: 'defendant', witnessCount: 2, hasWitnesses: true })
+  })
+
+  it('keeps what the attorney entered and only marks the report received', async () => {
+    prismaMock.documentFinding.findFirst.mockResolvedValue({
+      id: 'df2',
+      kind: 'incident_report',
+      status: 'proposed',
+      evidenceFileId: 'f2',
+      pageNumber: 1,
+      sourceQuote: 'q',
+      data: JSON.stringify({ reportNumber: '2026-004512', defendantName: 'SMITH, JOHN', citationIssuedTo: 'plaintiff' }),
+    })
+    partiesMock.listLiabilityParties.mockResolvedValue({
+      defendants: [{ name: 'John Smith' }],
+      evidence: [{ id: 'ev9', type: 'police_report', referenceNumber: null, date: '2026-03-12', evidenceFileId: null, description: 'OPD' }],
+    })
+    liabilityMock.getLiabilityRecord.mockResolvedValue({ citationIssuedTo: 'defendant', witnessCount: 3 })
+
+    await acceptDocumentFinding('a1', 'df2', {}, actor)
+    expect(partiesMock.updateEvidenceItem.mock.calls[0][2]).toEqual({ status: 'received', referenceNumber: '2026-004512', evidenceFileId: 'f2' })
+    expect(partiesMock.createDefendant).not.toHaveBeenCalled()
+    expect(liabilityMock.upsertLiabilityRecord).not.toHaveBeenCalled()
+  })
+
+  it('fills the blanks of the matching policy without overwriting its numbers', async () => {
+    prismaMock.documentFinding.findFirst.mockResolvedValue({
+      id: 'df3',
+      kind: 'insurance_policy',
+      status: 'proposed',
+      evidenceFileId: 'f3',
+      pageNumber: 1,
+      sourceQuote: 'q',
+      data: JSON.stringify({ carrierName: 'State Farm', policyNumber: '881 2290-F14', claimNumber: '05-7731-K22', policyLimit: 25000 }),
+    })
+    prismaMock.insuranceDetail.findMany.mockResolvedValue([
+      { id: 'p1', carrierName: 'State Farm Insurance', policyNumber: 'OLD-1', claimNumber: null, policyLimit: null, sourceEvidenceFileId: null },
+    ])
+
+    const result = await acceptDocumentFinding('a1', 'df3', {}, actor)
+    expect(result).toMatchObject({ entityType: 'insurance_detail', entityId: 'p1' })
+    const data = prismaMock.insuranceDetail.update.mock.calls[0][0].data
+    expect(data).toMatchObject({ claimNumber: '05-7731-K22', policyLimit: 25000, sourceEvidenceFileId: 'f3' })
+    expect(data.policyNumber).toBeUndefined()
+    expect(prismaMock.insuranceDetail.create).not.toHaveBeenCalled()
+  })
+
+  it('creates a policy when none on the case matches', async () => {
+    prismaMock.documentFinding.findFirst.mockResolvedValue({
+      id: 'df3',
+      kind: 'insurance_policy',
+      status: 'proposed',
+      evidenceFileId: 'f3',
+      pageNumber: 1,
+      sourceQuote: 'q',
+      data: JSON.stringify({ carrierName: 'State Farm', claimNumber: '05-7731-K22', insuredParty: 'defendant' }),
+    })
+    prismaMock.insuranceDetail.findMany.mockResolvedValue([])
+    prismaMock.insuranceDetail.create.mockResolvedValue({ id: 'p2' })
+
+    await acceptDocumentFinding('a1', 'df3', {}, actor)
+    expect(prismaMock.insuranceDetail.create.mock.calls[0][0].data).toMatchObject({
+      assessmentId: 'a1',
+      carrierName: 'State Farm',
+      claimNumber: '05-7731-K22',
+      insuredParty: 'defendant',
+      sourceEvidenceFileId: 'f3',
+    })
   })
 })

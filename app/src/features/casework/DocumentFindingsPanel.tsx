@@ -1,14 +1,15 @@
 /**
- * Visits, charges and wage figures read from the case's uploaded records,
- * waiting for the attorney to accept them into the Medical timeline or the
- * Damages ledger.
+ * Visits, charges and wage figures read from the case's uploaded records, and
+ * the facts of police reports and insurance documents, waiting for the attorney
+ * to accept them into the Medical timeline, Damages ledger, Liability tab or
+ * Insurance tab. A record that disagrees with the case says so.
  *
  * Every finding shows the passage it was read from and links to its page, so
  * the attorney checks it against the record before it counts toward anything.
  * Backed by /v1/attorney-dashboard/leads/:leadId/document-findings.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Check, ChevronDown, ChevronUp, FileSearch, FileText, Pencil, RefreshCw, X } from 'lucide-react'
+import { AlertTriangle, Check, ChevronDown, ChevronUp, FileSearch, FileText, Pencil, RefreshCw, X } from 'lucide-react'
 import {
   acceptDocumentFinding,
   getDocumentFindings,
@@ -36,6 +37,140 @@ const KIND_LABEL: Record<DocumentFindingKind, string> = {
   treatment_visit: 'Visit',
   medical_charge: 'Charge',
   wage_loss: 'Lost wages',
+  incident_report: 'Police report',
+  insurance_policy: 'Policy',
+}
+
+const MEDICAL_KINDS: DocumentFindingKind[] = ['treatment_visit', 'medical_charge', 'wage_loss']
+
+const CITATION_LABEL: Record<string, string> = {
+  none: 'No citation',
+  defendant: 'Defendant cited',
+  plaintiff: 'Client cited',
+  both: 'Both cited',
+}
+
+type FieldSpec = {
+  key: keyof DocumentFindingData
+  label: string
+  type?: 'date' | 'number' | 'select'
+  options?: { value: string; label: string }[]
+}
+
+/** Edit fields for findings that become a police report or a policy rather than a timeline or ledger line. */
+const RECORD_FIELDS: Partial<Record<DocumentFindingKind, FieldSpec[]>> = {
+  incident_report: [
+    { key: 'date', label: 'Incident date', type: 'date' },
+    { key: 'reportNumber', label: 'Report number' },
+    { key: 'agency', label: 'Agency' },
+    { key: 'defendantName', label: 'Other party' },
+    { key: 'defendantInsurer', label: 'Their insurer' },
+    { key: 'defendantPolicyNumber', label: 'Their policy #' },
+    {
+      key: 'citationIssuedTo',
+      label: 'Citation',
+      type: 'select',
+      options: [{ value: '', label: 'Not stated' }, ...Object.entries(CITATION_LABEL).map(([value, label]) => ({ value, label }))],
+    },
+    { key: 'witnessCount', label: 'Witnesses', type: 'number' },
+  ],
+  insurance_policy: [
+    { key: 'carrierName', label: 'Carrier' },
+    { key: 'policyNumber', label: 'Policy number' },
+    { key: 'claimNumber', label: 'Claim number' },
+    {
+      key: 'insuredParty',
+      label: 'Whose policy',
+      type: 'select',
+      options: [
+        { value: '', label: 'Not stated' },
+        { value: 'defendant', label: "Defendant's" },
+        { value: 'client', label: "Client's own" },
+      ],
+    },
+    {
+      key: 'coverageType',
+      label: 'Coverage',
+      type: 'select',
+      options: [
+        { value: '', label: 'Not stated' },
+        { value: 'liability', label: 'Liability' },
+        { value: 'um', label: 'UM' },
+        { value: 'uim', label: 'UIM' },
+        { value: 'medpay', label: 'MedPay' },
+        { value: 'other', label: 'Other' },
+      ],
+    },
+    { key: 'policyLimit', label: 'Per person ($)', type: 'number' },
+    { key: 'perAccidentLimit', label: 'Per accident ($)', type: 'number' },
+    { key: 'adjusterName', label: 'Adjuster' },
+    { key: 'adjusterEmail', label: 'Adjuster email' },
+    { key: 'adjusterPhone', label: 'Adjuster phone' },
+  ],
+}
+
+function documentsLabel(kinds: DocumentFindingKind[]): string {
+  const parts: string[] = []
+  if (kinds.some((k) => MEDICAL_KINDS.includes(k))) parts.push('medical records, bills or wage documents')
+  if (kinds.includes('incident_report')) parts.push('police reports')
+  if (kinds.includes('insurance_policy')) parts.push('insurance documents')
+  return parts.join(' or ') || 'documents'
+}
+
+/** The headline and detail chips for a finding, by kind. */
+function describeFinding(f: DocumentFinding): { title: string; details: string[] } {
+  const d = f.data
+  if (f.kind === 'incident_report') {
+    return {
+      title: [d.agency, d.reportNumber ? `Report ${d.reportNumber}` : null].filter(Boolean).join(' · ') || 'Police report',
+      details: [
+        d.time ? `at ${d.time}` : null,
+        d.location,
+        d.defendantName ? `Other party: ${d.defendantName}` : null,
+        d.defendantInsurer ? `Insured by ${d.defendantInsurer}${d.defendantPolicyNumber ? ` (#${d.defendantPolicyNumber})` : ''}` : null,
+        d.citationIssuedTo ? CITATION_LABEL[d.citationIssuedTo] || d.citationIssuedTo : null,
+        d.witnessCount != null ? `${d.witnessCount} witness${d.witnessCount === 1 ? '' : 'es'}` : null,
+      ].filter(Boolean) as string[],
+    }
+  }
+  if (f.kind === 'insurance_policy') {
+    const limits = [money(d.policyLimit), money(d.perAccidentLimit)].filter(Boolean).join(' / ')
+    return {
+      title: d.carrierName || 'Insurance policy',
+      details: [
+        d.insuredParty ? (d.insuredParty === 'client' ? "Client's policy" : "Defendant's policy") : null,
+        d.coverageType ? d.coverageType.toUpperCase() : null,
+        d.policyNumber ? `Policy ${d.policyNumber}` : null,
+        d.claimNumber ? `Claim ${d.claimNumber}` : null,
+        limits ? `Limits ${limits}` : null,
+        d.insuredName ? `Insured: ${d.insuredName}` : null,
+        d.adjusterName ? `Adjuster ${d.adjusterName}` : null,
+      ].filter(Boolean) as string[],
+    }
+  }
+  const isVisit = f.kind === 'treatment_visit'
+  return {
+    title: isVisit
+      ? [d.provider, d.diagnosis].filter(Boolean).join(' · ') || 'Treatment visit'
+      : d.description || d.provider || KIND_LABEL[f.kind],
+    details: !isVisit && d.provider ? [d.provider] : [],
+  }
+}
+
+function ConflictList({ conflicts }: { conflicts?: string[] }) {
+  if (!conflicts?.length) return null
+  return (
+    <div className="mt-1.5 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+      <p className="flex items-center gap-1 font-semibold">
+        <AlertTriangle className="h-3.5 w-3.5" /> Disagrees with the case
+      </p>
+      <ul className="mt-0.5 list-disc space-y-0.5 pl-5">
+        {conflicts.map((c) => (
+          <li key={c}>{c}</li>
+        ))}
+      </ul>
+    </div>
+  )
 }
 
 const POLL_MS = 5000
@@ -119,9 +254,35 @@ function FindingRow({
 }) {
   const [quoteOpen, setQuoteOpen] = useState(false)
   const [edit, setEdit] = useState<EditState | null>(null)
+  const recordFields = RECORD_FIELDS[finding.kind]
+  const [recordEdit, setRecordEdit] = useState<Record<string, string> | null>(null)
   const d = finding.data
   const isVisit = finding.kind === 'treatment_visit'
   const badge = confidenceBadge(finding.confidence)
+  const { title, details } = describeFinding(finding)
+
+  const startEdit = () => {
+    if (!recordFields) {
+      setEdit(editStateFor(finding))
+      return
+    }
+    const initial: Record<string, string> = {}
+    for (const f of recordFields) {
+      const v = d[f.key]
+      initial[f.key] = v == null ? '' : String(v)
+    }
+    setRecordEdit(initial)
+  }
+
+  const submitRecordEdit = () => {
+    if (!recordFields || !recordEdit) return
+    const overrides: Record<string, unknown> = {}
+    for (const f of recordFields) {
+      const v = recordEdit[f.key].trim()
+      overrides[f.key] = f.type === 'number' ? (v === '' ? null : Number(v)) : v || null
+    }
+    onAccept(overrides as Partial<DocumentFindingData>)
+  }
   const inputCls =
     'mt-0.5 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500'
 
@@ -137,9 +298,11 @@ function FindingRow({
     })
   }
 
-  const title = isVisit
-    ? [d.provider, d.diagnosis].filter(Boolean).join(' · ') || 'Treatment visit'
-    : d.description || d.provider || KIND_LABEL[finding.kind]
+  const dateLine = fmtDate(d.date)
+    ? fmtDate(d.date)
+    : finding.kind === 'insurance_policy'
+      ? null
+      : <span className="text-amber-700">No date on the page — add one</span>
 
   return (
     <li className="py-3">
@@ -153,8 +316,10 @@ function FindingRow({
             {money(d.amount) ? <span className="text-sm font-semibold tabular-nums text-slate-900">{money(d.amount)}</span> : null}
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
-            <span>{fmtDate(d.date) || <span className="text-amber-700">No date on the page — add one</span>}</span>
-            {!isVisit && d.provider ? <span>· {d.provider}</span> : null}
+            {dateLine ? <span>{dateLine}</span> : null}
+            {details.map((text) => (
+              <span key={text}>· {text}</span>
+            ))}
             {[...(d.icdCodes || []), ...(d.cptCodes || [])].map((code) => (
               <span key={code} className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-600">
                 {code}
@@ -171,6 +336,7 @@ function FindingRow({
             ) : null}
             <SourceLink fileUrl={finding.fileUrl} fileName={finding.fileName} page={finding.pageNumber} quote={finding.sourceQuote} />
           </div>
+          <ConflictList conflicts={finding.conflicts} />
           <button
             type="button"
             onClick={() => setQuoteOpen((v) => !v)}
@@ -185,7 +351,7 @@ function FindingRow({
             </blockquote>
           ) : null}
         </div>
-        {!edit ? (
+        {!edit && !recordEdit ? (
           <div className="flex shrink-0 items-center gap-1.5">
             <button
               type="button"
@@ -198,7 +364,7 @@ function FindingRow({
             <button
               type="button"
               disabled={busy}
-              onClick={() => setEdit(editStateFor(finding))}
+              onClick={startEdit}
               className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
             >
               <Pencil className="h-3.5 w-3.5" /> Edit
@@ -276,6 +442,58 @@ function FindingRow({
           </div>
         </div>
       ) : null}
+      {recordFields && recordEdit ? (
+        <div className="mt-2 grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 sm:grid-cols-4">
+          {recordFields.map((f) => (
+            <label key={f.key} className="block text-xs font-medium text-slate-500">
+              {f.label}
+              {f.type === 'select' ? (
+                <select
+                  value={recordEdit[f.key]}
+                  onChange={(e) => setRecordEdit({ ...recordEdit, [f.key]: e.target.value })}
+                  className={inputCls}
+                >
+                  {f.options!.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type={f.type || 'text'}
+                  min={f.type === 'number' ? 0 : undefined}
+                  value={recordEdit[f.key]}
+                  onChange={(e) => setRecordEdit({ ...recordEdit, [f.key]: e.target.value })}
+                  className={inputCls}
+                />
+              )}
+            </label>
+          ))}
+          <p className="col-span-full text-[11px] text-slate-500">
+            Accepting fills in what the tab is missing. It never overwrites a value already entered; a difference stays flagged
+            instead.
+          </p>
+          <div className="col-span-full flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setRecordEdit(null)}
+              disabled={busy}
+              className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-white disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={submitRecordEdit}
+              disabled={busy}
+              className="rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
+            >
+              Save and accept
+            </button>
+          </div>
+        </div>
+      ) : null}
     </li>
   )
 }
@@ -327,10 +545,10 @@ export default function DocumentFindingsPanel({
     setScanning(true)
     setError(null)
     try {
-      const { queued } = await scanDocumentFindings(leadId)
+      const { queued } = await scanDocumentFindings(leadId, { kinds })
       if (queued === 0) {
         setScanning(false)
-        setError('There are no medical records, bills or wage documents on this case to read.')
+        setError(`There are no ${documentsLabel(kinds)} on this case to read.`)
         return
       }
       const before = res?.findings.filter((f) => f.status === 'proposed').length ?? 0
@@ -381,7 +599,8 @@ export default function DocumentFindingsPanel({
 
   if (!res) return error ? <p className="text-sm text-rose-600">{error}</p> : null
 
-  if (!res.medicalSharing.canShareMedicalData) {
+  const medicalOnly = kinds.every((k) => MEDICAL_KINDS.includes(k))
+  if (!res.medicalSharing.canShareMedicalData && medicalOnly) {
     return (
       <div className="rounded-2xl border border-slate-200 bg-white p-5 text-sm text-slate-500 shadow-sm">
         <h3 className="mb-1 flex items-center gap-2 text-sm font-semibold text-slate-900">
@@ -420,7 +639,9 @@ export default function DocumentFindingsPanel({
         Read from the case&apos;s uploaded records. Nothing here counts until you accept it into {destination}. Check each one against
         the page before accepting.
         {res.mode === 'rules'
-          ? ' AI reading is switched off on this deployment, so only dated charge lines on bills are picked up.'
+          ? medicalOnly
+            ? ' AI reading is switched off on this deployment, so only dated charge lines on bills are picked up.'
+            : ` AI reading is switched off on this deployment, so ${documentsLabel(kinds)} are not read.`
           : ''}
       </p>
       {error ? <p className="mt-2 text-xs text-rose-600">{error}</p> : null}
@@ -456,21 +677,24 @@ export default function DocumentFindingsPanel({
           {showReviewed ? (
             <ul className="mt-1 space-y-1">
               {reviewed.map((f) => (
-                <li key={f.id} className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                      f.status === 'accepted' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'
-                    }`}
-                  >
-                    {f.status === 'accepted' ? 'Accepted' : 'Rejected'}
-                  </span>
-                  <span>
-                    {KIND_LABEL[f.kind]} · {fmtDate(f.data.date) || 'undated'}
-                    {f.data.provider ? ` · ${f.data.provider}` : ''}
-                    {money(f.data.amount) ? ` · ${money(f.data.amount)}` : ''}
-                  </span>
-                  {f.reviewedByName ? <span>by {f.reviewedByName}</span> : null}
-                  <SourceLink fileUrl={f.fileUrl} fileName={f.fileName} page={f.pageNumber} quote={f.sourceQuote} />
+                <li key={f.id} className="text-xs text-slate-500">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                        f.status === 'accepted' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'
+                      }`}
+                    >
+                      {f.status === 'accepted' ? 'Accepted' : 'Rejected'}
+                    </span>
+                    <span>
+                      {KIND_LABEL[f.kind]} · {MEDICAL_KINDS.includes(f.kind) ? fmtDate(f.data.date) || 'undated' : describeFinding(f).title}
+                      {MEDICAL_KINDS.includes(f.kind) && f.data.provider ? ` · ${f.data.provider}` : ''}
+                      {money(f.data.amount) ? ` · ${money(f.data.amount)}` : ''}
+                    </span>
+                    {f.reviewedByName ? <span>by {f.reviewedByName}</span> : null}
+                    <SourceLink fileUrl={f.fileUrl} fileName={f.fileName} page={f.pageNumber} quote={f.sourceQuote} />
+                  </div>
+                  <ConflictList conflicts={f.conflicts} />
                 </li>
               ))}
             </ul>

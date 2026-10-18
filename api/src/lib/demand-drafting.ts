@@ -10,6 +10,7 @@ import { prisma } from './prisma'
 import { chargeBreakdown, claimedChargeAmount, medicalMeasureOf, type MedicalSpecialsMeasure } from './damages-ledger'
 import { logger } from './logger'
 import { AI_AUTHOR_NAME } from './ai-author'
+import { listRecordConflicts } from './record-conflicts'
 import {
   EMPTY_TREATMENT_LEDGER,
   buildDemandLetterSections,
@@ -224,7 +225,7 @@ function medicalChargeAmounts(item: any, measure: MedicalSpecialsMeasure) {
  */
 export async function loadDemandCaseRecord(assessment: any): Promise<DemandCaseRecord> {
   const assessmentId = String(assessment.id)
-  const [liability, medical, damageItems, policies, lead] = await Promise.all([
+  const [liability, medical, damageItems, policies, lead, recordConflicts] = await Promise.all([
     getLiabilityRecord(assessmentId).catch(() => null),
     getMedicalTimeline(assessmentId).catch(() => null),
     (prisma as any).damageItem
@@ -246,6 +247,7 @@ export async function loadDemandCaseRecord(assessment: any): Promise<DemandCaseR
         },
       })
       .catch(() => null),
+    listRecordConflicts(assessmentId).catch(() => [] as string[]),
   ])
 
   const claim = pickDemandClaim(policies as any[])
@@ -293,6 +295,7 @@ export async function loadDemandCaseRecord(assessment: any): Promise<DemandCaseR
       sourceQuote: i.sourceQuote ?? null,
     })),
     exhibits: buildDemandExhibits(assessment.evidenceFiles || []),
+    recordConflicts,
   }
 }
 

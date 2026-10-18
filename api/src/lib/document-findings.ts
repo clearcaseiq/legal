@@ -1,11 +1,13 @@
 /**
  * Document findings: visits, charges and wage figures read out of uploaded
- * records, each tied to the page and passage it came from, proposed to the
- * attorney for the Medical timeline and Damages ledger.
+ * records, and the facts of police reports and insurance documents, each tied
+ * to the page and passage it came from, proposed to the attorney for the
+ * Medical timeline, Damages ledger, Liability tab and Insurance tab.
  *
  * Nothing read here reaches the case on its own. A finding becomes a timeline
- * entry or a ledger line only when an attorney accepts it, and the accepted row
- * keeps the file, page and quote so a demand can cite where each figure came from.
+ * entry, ledger line, police report or policy only when an attorney accepts it,
+ * and the accepted row keeps the file, page and quote so a demand can cite
+ * where each figure came from.
  *
  * The model is not trusted to have read correctly. `verifyCandidate` checks
  * every finding against the page text before it is stored: a quote that is not
@@ -22,16 +24,79 @@ import { recordAiRun } from './ai-run'
 import { isHardIdentityMismatch, parseIdentityCheck } from './claimant-identity-check'
 import { createMedicalEntry, VISIT_TYPES } from './medical-record'
 import { MEDICAL_BILLING_STATUSES, recordDamageItemChanges, writeThroughDamages } from './damages-ledger'
+import { createDefendant, createEvidenceItem, listLiabilityParties, updateEvidenceItem } from './liability-parties'
+import { getLiabilityRecord, upsertLiabilityRecord } from './liability-record'
 
-export type FindingKind = 'treatment_visit' | 'medical_charge' | 'wage_loss'
-export const FINDING_KINDS: FindingKind[] = ['treatment_visit', 'medical_charge', 'wage_loss']
+export type FindingKind = 'treatment_visit' | 'medical_charge' | 'wage_loss' | 'incident_report' | 'insurance_policy'
+export const FINDING_KINDS: FindingKind[] = ['treatment_visit', 'medical_charge', 'wage_loss', 'incident_report', 'insurance_policy']
 
-/** Document categories read for findings. Photos and police reports carry no visits or charges. */
-export const FINDING_CATEGORIES = new Set(['medical_records', 'bills', 'wage_verification'])
+/** Kinds read from records covered by the client's medical-sharing authorization. */
+export const MEDICAL_FINDING_KINDS: FindingKind[] = ['treatment_visit', 'medical_charge', 'wage_loss']
+
+type CategoryGroup = 'medical' | 'police' | 'insurance'
+
+/** Upload categories by what is read from them. Insurance spellings follow DOCUMENT_REQUEST_CATEGORY_MAP. */
+const CATEGORY_GROUPS: Record<CategoryGroup, string[]> = {
+  medical: ['medical_records', 'bills', 'wage_verification'],
+  police: ['police_report', 'police'],
+  insurance: ['insurance', 'insurance_letters', 'insurance_card', 'insurance_info', 'insurance_policy', 'dec_page', 'declarations'],
+}
+
+const GROUP_KINDS: Record<CategoryGroup, FindingKind[]> = {
+  medical: MEDICAL_FINDING_KINDS,
+  police: ['incident_report'],
+  insurance: ['insurance_policy'],
+}
+
+/** Document categories read for findings. Photos carry nothing to read. */
+export const FINDING_CATEGORIES = new Set(Object.values(CATEGORY_GROUPS).flat())
+
+function groupOf(category: string): CategoryGroup | null {
+  for (const g of Object.keys(CATEGORY_GROUPS) as CategoryGroup[]) {
+    if (CATEGORY_GROUPS[g].includes(category)) return g
+  }
+  return null
+}
+
+/** The upload categories that produce these kinds; every category when no kinds are given. */
+export function categoriesForKinds(kinds?: FindingKind[]): string[] {
+  if (!kinds?.length) return [...FINDING_CATEGORIES]
+  return (Object.keys(CATEGORY_GROUPS) as CategoryGroup[])
+    .filter((g) => GROUP_KINDS[g].some((k) => kinds.includes(k)))
+    .flatMap((g) => CATEGORY_GROUPS[g])
+}
+
+export const CITATION_TARGETS = ['none', 'defendant', 'plaintiff', 'both'] as const
+export const INSURED_PARTIES = ['defendant', 'client'] as const
+export const COVERAGE_TYPES = ['liability', 'um', 'uim', 'medpay', 'other'] as const
 
 export type PageText = { page: number | null; text: string }
 
 export interface FindingData {
+  // Police / incident report
+  time?: string | null
+  location?: string | null
+  reportNumber?: string | null
+  agency?: string | null
+  officer?: string | null
+  citationIssuedTo?: string | null
+  defendantName?: string | null
+  defendantInsurer?: string | null
+  defendantPolicyNumber?: string | null
+  witnessCount?: number | null
+  // Insurance policy
+  carrierName?: string | null
+  policyNumber?: string | null
+  claimNumber?: string | null
+  insuredName?: string | null
+  insuredParty?: string | null
+  coverageType?: string | null
+  policyLimit?: number | null
+  perAccidentLimit?: number | null
+  adjusterName?: string | null
+  adjusterEmail?: string | null
+  adjusterPhone?: string | null
+  // Visits, charges, wages
   date?: string | null
   endDate?: string | null
   provider?: string | null
@@ -127,6 +192,68 @@ function codeList(value: unknown): string[] {
   return [...new Set(value.map((v) => String(v || '').trim().toUpperCase()).filter((v) => /^[A-Z0-9][A-Z0-9.]{2,9}$/.test(v)))]
 }
 
+const NAME_FILLER = new Set(['the', 'of', 'and', 'insurance', 'company', 'co', 'inc', 'llc', 'corp', 'corporation', 'group', 'mutual'])
+
+/** A name the page prints, in any order ("SMITH, JOHN" for "John Smith"). Filler words in carrier names are ignored. */
+function nameOnPage(name: string | null, pageNorm: string): string | null {
+  if (!name) return null
+  const tokens = normalizeForMatch(name).split(' ').filter((t) => t.length > 1 && !NAME_FILLER.has(t))
+  if (!tokens.length) return null
+  return tokens.every((t) => containsPhrase(pageNorm, t)) ? name : null
+}
+
+/** A report, policy or claim number the page prints. */
+function referenceOnPage(value: unknown, pageNorm: string): string | null {
+  const s = cleanText(value, 60)
+  if (!s || !/\d/.test(s)) return null
+  return containsPhrase(pageNorm, normalizeForMatch(s)) ? s : null
+}
+
+function amountOnPage(value: unknown, pageText: string): number | null {
+  const n = Number(value)
+  if (value == null || value === '' || !Number.isFinite(n) || n <= 0) return null
+  return numbersOn(pageText).some((m) => Math.abs(m - n) < 0.005) ? Math.round(n * 100) / 100 : null
+}
+
+function verifyIncidentReport(raw: any, pageText: string, pageNorm: string): FindingData {
+  const citation = String(raw?.citationIssuedTo || '')
+  const witnesses = Number(raw?.witnessCount)
+  return {
+    time: cleanText(raw?.time, 20),
+    location: cleanText(raw?.location, 200),
+    reportNumber: referenceOnPage(raw?.reportNumber, pageNorm),
+    agency: cleanText(raw?.agency, 120),
+    officer: nameOnPage(cleanText(raw?.officer, 120), pageNorm),
+    citationIssuedTo: (CITATION_TARGETS as readonly string[]).includes(citation) ? citation : null,
+    defendantName: nameOnPage(cleanText(raw?.defendantName, 120), pageNorm),
+    defendantInsurer: nameOnPage(cleanText(raw?.defendantInsurer, 120), pageNorm),
+    defendantPolicyNumber: referenceOnPage(raw?.defendantPolicyNumber, pageNorm),
+    witnessCount: Number.isInteger(witnesses) && witnesses >= 0 && witnesses <= 50 ? witnesses : null,
+    description: cleanText(raw?.description, 300),
+  }
+}
+
+function verifyInsurancePolicy(raw: any, pageText: string, pageNorm: string): FindingData {
+  const insuredParty = String(raw?.insuredParty || '')
+  const coverageType = String(raw?.coverageType || '')
+  const email = cleanText(raw?.adjusterEmail, 120)?.toLowerCase() || null
+  const phoneDigits = String(raw?.adjusterPhone || '').replace(/\D/g, '')
+  const pageDigits = pageText.replace(/\D/g, '')
+  return {
+    carrierName: nameOnPage(cleanText(raw?.carrierName, 120), pageNorm),
+    policyNumber: referenceOnPage(raw?.policyNumber, pageNorm),
+    claimNumber: referenceOnPage(raw?.claimNumber, pageNorm),
+    insuredName: nameOnPage(cleanText(raw?.insuredName, 120), pageNorm),
+    insuredParty: (INSURED_PARTIES as readonly string[]).includes(insuredParty) ? insuredParty : null,
+    coverageType: (COVERAGE_TYPES as readonly string[]).includes(coverageType) ? coverageType : null,
+    policyLimit: amountOnPage(raw?.policyLimit, pageText),
+    perAccidentLimit: amountOnPage(raw?.perAccidentLimit, pageText),
+    adjusterName: nameOnPage(cleanText(raw?.adjusterName, 120), pageNorm),
+    adjusterEmail: email && pageText.toLowerCase().includes(email) ? email : null,
+    adjusterPhone: phoneDigits.length >= 10 && pageDigits.includes(phoneDigits.slice(-10)) ? cleanText(raw?.adjusterPhone, 30) : null,
+  }
+}
+
 /**
  * Check a candidate against the page it claims to come from. Returns null when
  * the passage is not on any page; otherwise the candidate with every field the
@@ -151,6 +278,28 @@ export function verifyCandidate(raw: any, pages: PageText[]): CandidateFinding |
 
   const date = isoDate(raw?.date)
   const dateOnPage = date ? dateSpellings(date).some((form) => containsPhrase(pageNorm, form)) : false
+
+  if (kind === 'incident_report' || kind === 'insurance_policy') {
+    const fields =
+      kind === 'incident_report'
+        ? verifyIncidentReport(raw, source.text, pageNorm)
+        : verifyInsurancePolicy(raw, source.text, pageNorm)
+    // A report with no date, number or party, or a policy with no carrier, gives the attorney nothing to check.
+    if (kind === 'incident_report' && !dateOnPage && !fields.reportNumber && !fields.defendantName) return null
+    if (kind === 'insurance_policy' && !fields.carrierName) return null
+    let conf = Number(raw?.confidence)
+    if (!Number.isFinite(conf)) conf = 0.6
+    conf = Math.max(0, Math.min(1, conf))
+    if (date && !dateOnPage) conf = Math.min(conf, 0.4)
+    return {
+      kind,
+      page: source.page,
+      quote,
+      confidence: conf,
+      data: { ...fields, date: dateOnPage ? date : null, checks: { date: dateOnPage, amount: false } },
+    }
+  }
+
   const endDate = isoDate(raw?.endDate)
   const endDateOnPage = endDate ? dateSpellings(endDate).some((form) => containsPhrase(pageNorm, form)) : false
 
@@ -196,6 +345,16 @@ export function verifyCandidate(raw: any, pages: PageText[]): CandidateFinding |
 
 /** Same visit or charge read twice produces the same key. */
 export function findingFingerprint(c: Pick<CandidateFinding, 'kind' | 'data'>): string {
+  const key = (v?: string | null) => normalizeForMatch(v || '')
+  if (c.kind === 'incident_report') {
+    const parts = [c.kind, c.data.date || '', key(c.data.reportNumber), key(c.data.defendantName)]
+    return crypto.createHash('sha1').update(parts.join('|')).digest('hex')
+  }
+  if (c.kind === 'insurance_policy') {
+    const carrier = key(c.data.carrierName).split(' ')[0] || ''
+    const parts = [c.kind, carrier, key(c.data.policyNumber), key(c.data.claimNumber)]
+    return crypto.createHash('sha1').update(parts.join('|')).digest('hex')
+  }
   const providerKey = normalizeForMatch(c.data.provider || '').split(' ').slice(0, 3).join(' ')
   const parts = [
     c.kind,
@@ -227,8 +386,52 @@ export function chunkPages(pages: PageText[], maxChars = MAX_CHUNK_CHARS): PageT
   return chunks
 }
 
+const SHARED_FIELDS = `- "page": the page number the quote is on.
+- "quote": a passage copied exactly, character for character, from that page that shows the fact. At most 300 characters.`
+
+function buildPoliceReportPrompt(body: string, file: { category: string; originalName: string }): string {
+  return `Document category: ${file.category}. File name: ${file.originalName}.
+
+Read this police or incident report and record what it states about the incident.
+
+Return JSON: {"findings": [ ... ]}, normally one finding for the report. Each finding has:
+- "kind": "incident_report".
+${SHARED_FIELDS} Prefer the passage that prints the report number, date or the parties.
+- "date": date of the incident as YYYY-MM-DD, "time" as printed, "location" as printed,
+  "reportNumber": the report / case / incident number exactly as printed, "agency", "officer",
+  "citationIssuedTo": "defendant" if the other party was cited, "plaintiff" if our client was, "both", or "none" when the report says no citation was issued,
+  "defendantName": the other party (driver, owner) as printed, "defendantInsurer" and "defendantPolicyNumber" as printed,
+  "witnessCount": the number of independent witnesses listed, "description": one sentence summarising how the report says it happened, "confidence": 0 to 1.
+
+Our client is the claimant named in the case; the defendant is the other party. Only report what the page prints. Leave out a field the page does not show. Return {"findings": []} if this is not an incident report.
+
+${body}`
+}
+
+function buildInsurancePrompt(body: string, file: { category: string; originalName: string }): string {
+  return `Document category: ${file.category}. File name: ${file.originalName}.
+
+Read these insurance documents (cards, declarations pages, claim letters) and record each insurance policy they describe.
+
+Return JSON: {"findings": [ ... ]}, one finding per policy. Each finding has:
+- "kind": "insurance_policy".
+${SHARED_FIELDS} Prefer the passage that prints the carrier with the policy or claim number.
+- "carrierName", "policyNumber", "claimNumber", "insuredName" exactly as printed,
+  "insuredParty": "client" when the policy is our client's own, "defendant" when it is the other party's,
+  "coverageType": liability, um, uim, medpay or other,
+  "policyLimit": the per-person bodily injury limit in dollars as printed, "perAccidentLimit": the per-accident limit,
+  "adjusterName", "adjusterEmail", "adjusterPhone" as printed, "confidence": 0 to 1.
+
+Only report what the page prints. Do not convert "25/50" into dollars unless the page prints the dollar figures. Return {"findings": []} if no policy is described.
+
+${body}`
+}
+
 function buildPrompt(chunk: PageText[], file: { category: string; originalName: string }): string {
   const body = chunk.map((p) => `=== PAGE ${p.page ?? 1} ===\n${p.text}`).join('\n\n')
+  const group = groupOf(file.category)
+  if (group === 'police') return buildPoliceReportPrompt(body, file)
+  if (group === 'insurance') return buildInsurancePrompt(body, file)
   return `Document category: ${file.category}. File name: ${file.originalName}.
 
 Read the pages below and list what they document about the patient's injury treatment and losses.
@@ -333,17 +536,31 @@ function sameDay(a: Date | string | null | undefined, iso: string | null | undef
 /** Point at an entry the attorney already has that looks like this finding, so it is not counted twice. */
 async function flagLikelyDuplicates(assessmentId: string, findings: CandidateFinding[]) {
   if (!findings.length) return
-  const [entries, items] = await Promise.all([
+  const [entries, items, reports, policies] = await Promise.all([
     (prisma as any).medicalTreatmentEntry
       .findMany({ where: { assessmentId }, select: { id: true, provider: true, startDate: true } })
       .catch(() => [] as any[]),
     (prisma as any).damageItem
       .findMany({ where: { assessmentId }, select: { id: true, amount: true, incurredAt: true, provider: true } })
       .catch(() => [] as any[]),
+    (prisma as any).liabilityEvidenceItem
+      .findMany({ where: { assessmentId, type: 'police_report' }, select: { id: true, referenceNumber: true } })
+      .catch(() => [] as any[]),
+    (prisma as any).insuranceDetail
+      .findMany({ where: { assessmentId }, select: { id: true, policyNumber: true, claimNumber: true } })
+      .catch(() => [] as any[]),
   ])
   for (const f of findings) {
     const providerKey = normalizeForMatch(f.data.provider || '').split(' ')[0]
-    if (f.kind === 'treatment_visit') {
+    if (f.kind === 'incident_report') {
+      const hit = (reports as any[]).find((r) => sameReference(r.referenceNumber, f.data.reportNumber))
+      if (hit) f.data.possibleDuplicateOf = hit.id
+    } else if (f.kind === 'insurance_policy') {
+      const hit = (policies as any[]).find(
+        (p) => sameReference(p.policyNumber, f.data.policyNumber) || sameReference(p.claimNumber, f.data.claimNumber),
+      )
+      if (hit) f.data.possibleDuplicateOf = hit.id
+    } else if (f.kind === 'treatment_visit') {
       const hit = (entries as any[]).find(
         (e) =>
           sameDay(e.startDate, f.data.date) &&
@@ -412,7 +629,10 @@ export async function generateDocumentFindings(fileId: string, pages: PageText[]
   }
 
   const extractor: 'ai' | 'rules' = useModel ? 'ai' : 'rules'
-  const verified = raw.map((r) => verifyCandidate(r, pages)).filter((c): c is CandidateFinding => c !== null)
+  const allowedKinds = GROUP_KINDS[groupOf(file.category) || 'medical']
+  const verified = raw
+    .map((r) => verifyCandidate(r, pages))
+    .filter((c): c is CandidateFinding => c !== null && allowedKinds.includes(c.kind))
 
   const kept = await (prisma as any).documentFinding.findMany({
     where: { assessmentId, NOT: { evidenceFileId: fileId, status: 'proposed' } },
@@ -489,6 +709,8 @@ export interface FindingView {
   reviewedByName: string | null
   reviewedAt: string | null
   createdAt: string
+  /** Where this record disagrees with what the case already says. */
+  conflicts?: string[]
 }
 
 function parseData(raw: unknown): FindingData {
@@ -550,6 +772,142 @@ export class FindingReviewError extends Error {
 
 type Actor = { actorId: string | null; actorName: string | null }
 
+export type AcceptedEntityType = 'medical_entry' | 'damage_item' | 'liability_evidence' | 'insurance_detail'
+
+const OVERRIDE_TEXT_KEYS = [
+  'date', 'endDate', 'provider', 'specialty', 'visitType', 'diagnosis', 'billingStatus', 'description',
+  'time', 'location', 'reportNumber', 'agency', 'officer', 'citationIssuedTo', 'defendantName', 'defendantInsurer',
+  'defendantPolicyNumber', 'carrierName', 'policyNumber', 'claimNumber', 'insuredName', 'insuredParty', 'coverageType',
+  'adjusterName', 'adjusterEmail', 'adjusterPhone',
+] as const
+const OVERRIDE_NUMBER_KEYS = ['amount', 'witnessCount', 'policyLimit', 'perAccidentLimit'] as const
+
+/** Two names for the same person or company: they share a word of three or more letters, filler aside. */
+export function namesMatch(a?: string | null, b?: string | null): boolean {
+  const words = (v?: string | null) =>
+    new Set(normalizeForMatch(v || '').split(' ').filter((t) => t.length >= 3 && !NAME_FILLER.has(t)))
+  const left = words(a)
+  for (const t of words(b)) if (left.has(t)) return true
+  return false
+}
+
+export function sameReference(a?: string | null, b?: string | null): boolean {
+  return Boolean(a && b && normalizeForMatch(a).replace(/ /g, '') === normalizeForMatch(b).replace(/ /g, ''))
+}
+
+/**
+ * Record a police report on the Liability tab. Fills only what the tab is
+ * missing: a report number, citation or defendant the attorney already entered
+ * is kept, and a disagreement shows up as a conflict instead.
+ */
+async function acceptIncidentReport(assessmentId: string, d: FindingData, fileId: string, actor: Actor): Promise<string> {
+  const parties = await listLiabilityParties(assessmentId)
+  const report =
+    parties.evidence.find((e) => e.type === 'police_report' && e.evidenceFileId === fileId) ||
+    parties.evidence.find((e) => e.type === 'police_report' && (!e.referenceNumber || sameReference(e.referenceNumber, d.reportNumber)))
+  let reportId: string
+  if (report) {
+    await updateEvidenceItem(
+      assessmentId,
+      report.id,
+      {
+        status: 'received',
+        ...(report.referenceNumber ? {} : { referenceNumber: d.reportNumber }),
+        ...(report.date ? {} : { date: d.date }),
+        ...(report.evidenceFileId ? {} : { evidenceFileId: fileId }),
+        ...(report.description ? {} : { description: d.description || d.agency }),
+      },
+      actor,
+    )
+    reportId = report.id
+  } else {
+    await createEvidenceItem(
+      assessmentId,
+      {
+        type: 'police_report',
+        status: 'received',
+        referenceNumber: d.reportNumber,
+        date: d.date,
+        evidenceFileId: fileId,
+        description: d.description || d.agency,
+      },
+      actor,
+    )
+    const created = await (prisma as any).liabilityEvidenceItem.findFirst({
+      where: { assessmentId, type: 'police_report', evidenceFileId: fileId },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true },
+    })
+    reportId = created?.id
+  }
+
+  if (d.defendantName && !parties.defendants.some((p) => namesMatch(p.name, d.defendantName))) {
+    await createDefendant(assessmentId, { name: d.defendantName, role: 'driver', insurerName: d.defendantInsurer }, actor)
+  }
+
+  const record = await getLiabilityRecord(assessmentId)
+  const patch: Record<string, unknown> = {}
+  if (d.citationIssuedTo && (!record.citationIssuedTo || record.citationIssuedTo === 'none')) {
+    patch.citationIssuedTo = d.citationIssuedTo
+  }
+  if (d.witnessCount != null && d.witnessCount > (record.witnessCount || 0)) {
+    patch.witnessCount = d.witnessCount
+    patch.hasWitnesses = d.witnessCount > 0
+  }
+  if (Object.keys(patch).length) await upsertLiabilityRecord(assessmentId, patch, { source: 'attorney', ...actor })
+  return reportId
+}
+
+/** The policy on the case this finding describes: same policy or claim number, else same carrier with no number yet. */
+export function matchPolicy<T extends { carrierName: string; policyNumber?: string | null; claimNumber?: string | null }>(
+  policies: T[],
+  d: FindingData,
+): T | null {
+  return (
+    policies.find((p) => sameReference(p.policyNumber, d.policyNumber) || sameReference(p.claimNumber, d.claimNumber)) ||
+    policies.find((p) => namesMatch(p.carrierName, d.carrierName)) ||
+    null
+  )
+}
+
+/** Record a policy on the Insurance tab, or fill in the blanks of the matching one. */
+async function acceptInsurancePolicy(assessmentId: string, d: FindingData, fileId: string): Promise<string> {
+  const policies = await prisma.insuranceDetail.findMany({ where: { assessmentId }, orderBy: { createdAt: 'asc' } })
+  const match = matchPolicy(policies as any[], d)
+  const fields = {
+    policyNumber: d.policyNumber,
+    claimNumber: d.claimNumber,
+    policyLimit: d.policyLimit,
+    adjusterName: d.adjusterName,
+    adjusterEmail: d.adjusterEmail,
+    adjusterPhone: d.adjusterPhone,
+    insuredParty: d.insuredParty,
+    coverageType: d.coverageType,
+  }
+  if (match) {
+    const data: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(fields)) {
+      if (v != null && v !== '' && (match as any)[k] == null) data[k] = v
+    }
+    if (data.claimNumber) data.claimNumberAt = new Date()
+    if (!match.sourceEvidenceFileId) data.sourceEvidenceFileId = fileId
+    if (Object.keys(data).length) await prisma.insuranceDetail.update({ where: { id: match.id }, data })
+    return match.id
+  }
+  if (!d.carrierName) throw new FindingReviewError('Enter the carrier before accepting this policy')
+  const created = await prisma.insuranceDetail.create({
+    data: {
+      assessmentId,
+      carrierName: d.carrierName,
+      ...Object.fromEntries(Object.entries(fields).filter(([, v]) => v != null && v !== '')),
+      ...(d.claimNumber ? { claimNumberAt: new Date() } : {}),
+      sourceEvidenceFileId: fileId,
+    },
+    select: { id: true },
+  })
+  return created.id
+}
+
 /**
  * Accept a finding into the timeline or ledger, applying any corrections the
  * attorney made first. The printed amount is kept beside the accepted one so a
@@ -560,18 +918,19 @@ export async function acceptDocumentFinding(
   findingId: string,
   overrides: Partial<FindingData> & { category?: string },
   actor: Actor,
-): Promise<{ finding: FindingView; entityType: 'medical_entry' | 'damage_item'; entityId: string }> {
+): Promise<{ finding: FindingView; entityType: AcceptedEntityType; entityId: string }> {
   const row = await (prisma as any).documentFinding.findFirst({ where: { id: findingId, assessmentId } })
   if (!row) throw new FindingReviewError('Finding not found', 404)
   if (row.status !== 'proposed') throw new FindingReviewError('This finding has already been reviewed', 409)
   const original = parseData(row.data)
   const merged: FindingData = { ...original }
-  for (const key of ['date', 'endDate', 'provider', 'specialty', 'visitType', 'diagnosis', 'billingStatus', 'description'] as const) {
-    if (overrides[key] !== undefined) (merged as any)[key] = overrides[key] || null
+  for (const key of OVERRIDE_TEXT_KEYS) {
+    if (overrides[key] !== undefined) (merged as any)[key] = cleanText(overrides[key], 300)
   }
-  if (overrides.amount !== undefined) {
-    const n = Number(overrides.amount)
-    merged.amount = overrides.amount === null || !Number.isFinite(n) ? null : n
+  for (const key of OVERRIDE_NUMBER_KEYS) {
+    if (overrides[key] === undefined) continue
+    const n = Number(overrides[key])
+    ;(merged as any)[key] = overrides[key] === null || (overrides[key] as unknown) === '' || !Number.isFinite(n) ? null : n
   }
 
   const provenance = {
@@ -581,9 +940,15 @@ export async function acceptDocumentFinding(
     findingId: row.id as string,
   }
 
-  let entityType: 'medical_entry' | 'damage_item'
+  let entityType: AcceptedEntityType
   let entityId: string
-  if (row.kind === 'treatment_visit') {
+  if (row.kind === 'incident_report') {
+    entityType = 'liability_evidence'
+    entityId = await acceptIncidentReport(assessmentId, merged, row.evidenceFileId, actor)
+  } else if (row.kind === 'insurance_policy') {
+    entityType = 'insurance_detail'
+    entityId = await acceptInsurancePolicy(assessmentId, merged, row.evidenceFileId)
+  } else if (row.kind === 'treatment_visit') {
     if (!merged.provider) throw new FindingReviewError('Enter the provider before accepting this visit')
     await createMedicalEntry(
       assessmentId,

@@ -1156,6 +1156,19 @@ function pinpointCheck(content: string, record: DemandCaseRecord, sources: Deman
   }
 }
 
+function recordConflictCheck(record: DemandCaseRecord | undefined): QualityCheck {
+  const conflicts = record?.recordConflicts ?? []
+  return {
+    key: 'record_conflicts',
+    label: 'Records agree with the case',
+    status: conflicts.length ? 'warn' : 'pass',
+    detail: conflicts.length
+      ? `${conflicts.length} record(s) disagree with the case. An adjuster will find these; resolve each one, or reject the finding if the record is wrong.`
+      : 'No uploaded record contradicts the case facts, liability or insurance details.',
+    items: conflicts.slice(0, 20),
+  }
+}
+
 export function analyzeDemandIntelligence(
   ctx: SuperDemandContext,
   letter: { content: string; currentVersion: number; approvalChecklist?: string | null },
@@ -1167,7 +1180,11 @@ export function analyzeDemandIntelligence(
     valuation: buildValuation(ctx),
     weaknesses: buildWeaknesses(ctx),
     statementConfidence: buildStatementConfidence(ctx),
-    qualityCheck: [...buildQualityCheck(ctx, letter.content), pinpointCheck(letter.content, ctx.caseRecord, sources)],
+    qualityCheck: [
+      ...buildQualityCheck(ctx, letter.content),
+      pinpointCheck(letter.content, ctx.caseRecord, sources),
+      recordConflictCheck(ctx.caseRecord),
+    ],
     approvalGate: summarizeApprovalGate(letter.approvalChecklist, letter.currentVersion),
   }
 }

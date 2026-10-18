@@ -20,6 +20,7 @@ import {
   type LiabilityResponse,
 } from '../../lib/api'
 import { DefendantList, EvidenceList } from './LiabilityLists'
+import DocumentFindingsPanel from './DocumentFindingsPanel'
 
 interface Liability {
   id: string | null
@@ -264,6 +265,18 @@ export default function LiabilityPanel({ leadId, onChanged }: { leadId: string; 
       </div>
       {actions('strength')}
       </div>
+
+      <DocumentFindingsPanel
+        leadId={leadId}
+        kinds={['incident_report']}
+        title="Found in police reports"
+        destination="the defendants and evidence on this tab"
+        onAccepted={() => {
+          void getLeadLiability(leadId)
+            .then((res) => onPartiesChanged(res))
+            .catch(() => undefined)
+        }}
+      />
 
       {/* Fault theory & split */}
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">

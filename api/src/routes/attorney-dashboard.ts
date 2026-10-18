@@ -61,15 +61,17 @@ import {
 } from '../lib/evidence-processing'
 import {
   acceptDocumentFinding,
+  categoriesForKinds,
   documentReadingMode,
-  FINDING_CATEGORIES,
   FINDING_KINDS,
   FindingReviewError,
   generateDocumentFindings,
   listDocumentFindings,
+  MEDICAL_FINDING_KINDS,
   rejectDocumentFinding,
   type FindingKind,
 } from '../lib/document-findings'
+import { withConflicts } from '../lib/record-conflicts'
 import { parseIdentityCheck } from '../lib/claimant-identity-check'
 import { runCaseRecalculation } from '../lib/case-recalculation'
 import {
@@ -11826,10 +11828,18 @@ async function findingsSharing(assessmentId: string) {
   return buildMedicalSharingStatus(assessment)
 }
 
+/** The finding kinds asked for, less the medical ones when the client has not authorized sharing them. */
+function visibleFindingKinds(raw: unknown, canShareMedical: boolean): FindingKind[] {
+  const list = Array.isArray(raw) ? raw : String(raw || '').split(',')
+  const asked = list.filter((k): k is FindingKind => (FINDING_KINDS as string[]).includes(String(k)))
+  const kinds = asked.length ? asked : FINDING_KINDS
+  return canShareMedical ? kinds : kinds.filter((k) => !MEDICAL_FINDING_KINDS.includes(k))
+}
+
 /** Read every qualifying file on the case again, one at a time. */
-async function rescanCaseDocuments(assessmentId: string, fileId?: string) {
+async function rescanCaseDocuments(assessmentId: string, categories: string[], fileId?: string) {
   const files = await prisma.evidenceFile.findMany({
-    where: { assessmentId, ...(fileId ? { id: fileId } : {}), category: { in: [...FINDING_CATEGORIES] } },
+    where: { assessmentId, ...(fileId ? { id: fileId } : {}), category: { in: categories } },
     select: { id: true, filePath: true, mimetype: true },
     orderBy: { createdAt: 'asc' },
   })
@@ -11854,14 +11864,10 @@ router.get('/leads/:leadId/document-findings', authMiddleware, async (req: any, 
     if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
     const assessmentId = auth.lead.assessmentId
     const medicalSharing = await findingsSharing(assessmentId)
-    if (!medicalSharing.canShareMedicalData) {
-      return res.json({ findings: [], mode: documentReadingMode(), medicalSharing })
-    }
-    const kinds = String(req.query.kinds || '')
-      .split(',')
-      .filter((k): k is FindingKind => (FINDING_KINDS as string[]).includes(k))
+    const kinds = visibleFindingKinds(req.query.kinds, medicalSharing.canShareMedicalData)
+    if (!kinds.length) return res.json({ findings: [], mode: documentReadingMode(), medicalSharing })
     const status = typeof req.query.status === 'string' && req.query.status ? req.query.status : undefined
-    const findings = await listDocumentFindings(assessmentId, { status, kinds })
+    const findings = await withConflicts(assessmentId, await listDocumentFindings(assessmentId, { status, kinds }))
     res.json({ findings, mode: documentReadingMode(), medicalSharing })
   } catch (error: any) {
     logger.error('Failed to load document findings', { error: error.message })
@@ -11875,14 +11881,16 @@ router.post('/leads/:leadId/document-findings/scan', authMiddleware, async (req:
     if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
     const assessmentId = auth.lead.assessmentId
     const medicalSharing = await findingsSharing(assessmentId)
-    if (!medicalSharing.canShareMedicalData) {
+    const kinds = visibleFindingKinds(req.body?.kinds, medicalSharing.canShareMedicalData)
+    if (!kinds.length) {
       return res.status(403).json({ error: medicalSharing.message || 'Medical records are not shared on this case yet.' })
     }
+    const categories = categoriesForKinds(kinds)
     const fileId = typeof req.body?.fileId === 'string' ? req.body.fileId : undefined
     const count = await prisma.evidenceFile.count({
-      where: { assessmentId, ...(fileId ? { id: fileId } : {}), category: { in: [...FINDING_CATEGORIES] } },
+      where: { assessmentId, ...(fileId ? { id: fileId } : {}), category: { in: categories } },
     })
-    void rescanCaseDocuments(assessmentId, fileId)
+    void rescanCaseDocuments(assessmentId, categories, fileId)
     res.status(202).json({ queued: count, mode: documentReadingMode() })
   } catch (error: any) {
     logger.error('Failed to start document scan', { error: error.message })
@@ -11900,9 +11908,15 @@ router.post('/leads/:leadId/document-findings/:findingId/accept', authMiddleware
     const auth = await getAuthorizedLead(req, req.params.leadId, { staffCan: 'manage' })
     if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
     const assessmentId = auth.lead.assessmentId
-    const medicalSharing = await findingsSharing(assessmentId)
-    if (!medicalSharing.canShareMedicalData) {
-      return res.status(403).json({ error: medicalSharing.message || 'Medical records are not shared on this case yet.' })
+    const target = await (prisma as any).documentFinding.findFirst({
+      where: { id: req.params.findingId, assessmentId },
+      select: { kind: true },
+    })
+    if (target && MEDICAL_FINDING_KINDS.includes(target.kind)) {
+      const medicalSharing = await findingsSharing(assessmentId)
+      if (!medicalSharing.canShareMedicalData) {
+        return res.status(403).json({ error: medicalSharing.message || 'Medical records are not shared on this case yet.' })
+      }
     }
     const result = await acceptDocumentFinding(assessmentId, req.params.findingId, req.body || {}, findingActor(req))
     void runCaseRecalculation(assessmentId, 'document_finding_accepted')

@@ -3759,9 +3759,30 @@ export async function updateLeadLiability(leadId: string, payload: any) {
 }
 
 // ---- Document findings ------------------------------------------------------
-export type DocumentFindingKind = 'treatment_visit' | 'medical_charge' | 'wage_loss'
+export type DocumentFindingKind = 'treatment_visit' | 'medical_charge' | 'wage_loss' | 'incident_report' | 'insurance_policy'
 
 export interface DocumentFindingData {
+  time?: string | null
+  location?: string | null
+  reportNumber?: string | null
+  agency?: string | null
+  officer?: string | null
+  citationIssuedTo?: string | null
+  defendantName?: string | null
+  defendantInsurer?: string | null
+  defendantPolicyNumber?: string | null
+  witnessCount?: number | null
+  carrierName?: string | null
+  policyNumber?: string | null
+  claimNumber?: string | null
+  insuredName?: string | null
+  insuredParty?: string | null
+  coverageType?: string | null
+  policyLimit?: number | null
+  perAccidentLimit?: number | null
+  adjusterName?: string | null
+  adjusterEmail?: string | null
+  adjusterPhone?: string | null
   date?: string | null
   endDate?: string | null
   provider?: string | null
@@ -3794,6 +3815,8 @@ export interface DocumentFinding {
   reviewedByName: string | null
   reviewedAt: string | null
   createdAt: string
+  /** Where this record disagrees with what the case already says. */
+  conflicts?: string[]
 }
 
 export interface DocumentFindingsResponse {
@@ -3809,14 +3832,18 @@ export async function getDocumentFindings(leadId: string, kinds: DocumentFinding
   return data as DocumentFindingsResponse
 }
 
-export async function scanDocumentFindings(leadId: string, fileId?: string) {
-  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/document-findings/scan`, fileId ? { fileId } : {})
+export async function scanDocumentFindings(leadId: string, opts: { kinds?: DocumentFindingKind[]; fileId?: string } = {}) {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/document-findings/scan`, opts)
   return data as { queued: number; mode: 'ai' | 'rules' }
 }
 
 export async function acceptDocumentFinding(leadId: string, findingId: string, overrides: Partial<DocumentFindingData> = {}) {
   const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/document-findings/${findingId}/accept`, overrides)
-  return data as { finding: DocumentFinding; entityType: 'medical_entry' | 'damage_item'; entityId: string }
+  return data as {
+    finding: DocumentFinding
+    entityType: 'medical_entry' | 'damage_item' | 'liability_evidence' | 'insurance_detail'
+    entityId: string
+  }
 }
 
 export async function rejectDocumentFinding(leadId: string, findingId: string) {
