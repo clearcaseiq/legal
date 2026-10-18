@@ -717,6 +717,14 @@ export async function downloadDemandLetterDocx(demandId: string) {
   return data
 }
 
+export async function downloadDemandPackagePdf(demandId: string) {
+  const { data } = await api.get(`/v1/demands/${demandId}/package.pdf`, {
+    responseType: 'blob',
+    params: { ts: Date.now() }
+  })
+  return data as Blob
+}
+
 // Notifications API
 export async function sendNotification(type: 'email' | 'sms' | 'push', recipient: string, message: string, subject?: string, metadata?: any) {
   const { data } = await api.post('/v1/notify/send', { type, recipient, subject, message, metadata })

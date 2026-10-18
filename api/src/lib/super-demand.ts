@@ -62,9 +62,9 @@ export const SUPER_DEMAND_SECTION_HEADINGS = [
 ] as const
 
 export const ENCLOSURE_GROUP_ORDER = ['Liability', 'Medical Records', 'Damages', 'Additional Evidence'] as const
-type EnclosureGroup = (typeof ENCLOSURE_GROUP_ORDER)[number]
+export type EnclosureGroup = (typeof ENCLOSURE_GROUP_ORDER)[number]
 
-const GROUP_FOR_SECTION: Record<ExhibitSection, EnclosureGroup> = {
+export const GROUP_FOR_SECTION: Record<ExhibitSection, EnclosureGroup> = {
   liability: 'Liability',
   treatment: 'Medical Records',
   bills: 'Damages',

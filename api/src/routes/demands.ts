@@ -4,6 +4,7 @@ import { logger } from '../lib/logger'
 import { recordCaseChange } from '../lib/data-authority'
 import { z } from 'zod'
 import { buildDemandLetterDocx } from '../lib/demand-docx'
+import { buildDemandPackagePdf } from '../lib/demand-pdf-package'
 import { authMiddleware, optionalAuthMiddleware, AuthRequest } from '../lib/auth'
 import { analyzeCaseWithChatGPT, CaseAnalysisRequest } from '../services/chatgpt'
 import { generateDemandLetter } from '../lib/demand-letter'
@@ -386,6 +387,38 @@ router.get('/:demandId/docx', optionalAuthMiddleware, async (req: AuthRequest, r
   } catch (error) {
     logger.error('Failed to generate demand letter docx', { error, demandId: req.params.demandId })
     res.status(500).json({ error: 'Failed to generate demand letter docx' })
+  }
+})
+
+// Download the demand package as one bookmarked PDF (letter, exhibit index, exhibits).
+// Same access rule as the DOCX route.
+router.get('/:demandId/package.pdf', optionalAuthMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const { demandId } = req.params
+
+    const demand = await prisma.demandLetter.findUnique({
+      where: { id: demandId }
+    })
+
+    if (!demand) {
+      return res.status(404).json({ error: 'Demand letter not found' })
+    }
+
+    if (demand.origin !== 'pro_se') {
+      const allowed = await canAccessAssessment(demand.assessmentId, req.user?.id, req.user?.email)
+      if (!allowed) {
+        return res.status(403).json({ error: 'Not authorized to download this demand letter' })
+      }
+    }
+
+    const buffer = await buildDemandPackagePdf(demand)
+
+    res.setHeader('Content-Type', 'application/pdf')
+    res.setHeader('Content-Disposition', `attachment; filename="demand-package-${demand.id}.pdf"`)
+    res.send(buffer)
+  } catch (error) {
+    logger.error('Failed to generate demand package pdf', { error, demandId: req.params.demandId })
+    res.status(500).json({ error: 'Failed to generate demand package PDF' })
   }
 })
 

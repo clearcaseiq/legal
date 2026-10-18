@@ -31,6 +31,7 @@ import DemandIntelligencePanel from './DemandIntelligencePanel'
 import {
   approveLeadDemandLetter,
   downloadDemandLetterDocx,
+  downloadDemandPackagePdf,
   downloadLeadDemandOriginal,
   draftLeadDemandLetter,
   finalizeLeadDemandLetter,
@@ -315,6 +316,26 @@ export default function DemandLetterWorkspace({
       URL.revokeObjectURL(url)
     } catch {
       setMessage({ tone: 'err', text: 'Download failed.' })
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const handleDownloadPackage = async () => {
+    if (!active) return
+    setBusy('package')
+    setMessage({ tone: 'ok', text: 'Building the PDF package. Large record sets can take a minute.' })
+    try {
+      const blob = await downloadDemandPackagePdf(active.id)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `demand-package-${active.id}.pdf`
+      a.click()
+      URL.revokeObjectURL(url)
+      setMessage(null)
+    } catch {
+      setMessage({ tone: 'err', text: 'Could not build the PDF package.' })
     } finally {
       setBusy(null)
     }
@@ -607,6 +628,9 @@ export default function DemandLetterWorkspace({
                     <div className="absolute left-0 z-20 mt-1 w-56 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-lg">
                       <MenuItem icon={Download} onClick={() => { setMoreOpen(false); void handleDownload() }}>
                         Download Word
+                      </MenuItem>
+                      <MenuItem icon={FileDown} onClick={() => { setMoreOpen(false); void handleDownloadPackage() }}>
+                        {busy === 'package' ? 'Building PDF package…' : 'Download PDF package with exhibits'}
                       </MenuItem>
                       {active.hasOriginalFile ? (
                         <MenuItem icon={FileDown} onClick={() => { setMoreOpen(false); void handleDownloadOriginal() }}>

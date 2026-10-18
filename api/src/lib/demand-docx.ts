@@ -21,6 +21,7 @@ import { logger } from './logger'
 import { ensureLocalCopy } from './object-storage'
 import { loadPDFParse, type PDFParseInstance } from './pdf-parse-client'
 import { buildDemandExhibits } from './demand-drafting'
+import type { ExhibitSection } from './demand-letter'
 import { SUPER_DEMAND_CONFIDENTIAL, SUPER_DEMAND_SUBTITLE, SUPER_DEMAND_TEMPLATE } from './super-demand'
 
 /** Letter page, 1" margins, at the 96 dpi docx uses for image transforms. */
@@ -50,7 +51,7 @@ type ExhibitFile = {
   ocrText: string | null
 }
 
-type PlannedExhibit = { number: string; label: string; file: ExhibitFile | null }
+export type PlannedExhibit = { number: string; label: string; section: ExhibitSection | null; file: ExhibitFile | null }
 
 export function enclosuresIn(content: string): Array<{ number: string; label: string }> {
   const lines = content.split(/\r?\n/)
@@ -87,20 +88,25 @@ export async function planDemandExhibits(assessmentId: string, content: string):
     },
   })
   const byId = new Map(files.map((f) => [f.id, f]))
-  const current = buildDemandExhibits(files).map((e) => ({
+  const current: PlannedExhibit[] = buildDemandExhibits(files).map((e) => ({
     number: String(e.number),
     label: e.label,
+    section: e.section,
     file: (e.fileId && byId.get(e.fileId)) || null,
   }))
 
   const listed = enclosuresIn(content)
   if (!listed.length) return current
 
-  const byLabel = new Map(current.map((e) => [e.label, e.file]))
-  return listed.map((e) => ({ ...e, file: byLabel.get(e.label) ?? null }))
+  const byLabel = new Map(current.map((e) => [e.label, e]))
+  return listed.map((e) => ({
+    ...e,
+    section: byLabel.get(e.label)?.section ?? null,
+    file: byLabel.get(e.label)?.file ?? null,
+  }))
 }
 
-async function localPathFor(file: ExhibitFile): Promise<string | null> {
+export async function localPathFor(file: ExhibitFile): Promise<string | null> {
   const candidates = [
     file.fileUrl?.startsWith('/uploads/') ? path.join(process.cwd(), file.fileUrl) : null,
     file.filePath ? path.resolve(process.cwd(), file.filePath) : null,
