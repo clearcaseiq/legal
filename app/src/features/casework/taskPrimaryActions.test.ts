@@ -60,6 +60,26 @@ describe('resolveTaskPrimaryAction', () => {
     expect(resolveTaskHelpTooltip({ title })).toMatch(/Liability Evidence/)
   })
 
+  it.each([
+    'Conduct site visit to assess security measures',
+    'Schedule scene inspection',
+    'Inspect the premises for hazards',
+    'Prepare witness interview summaries',
+    'Interview witnesses',
+  ])('opens Liability for "%s" even in a demand stage', (title) => {
+    const action = resolveTaskPrimaryAction({ title, taskType: 'general', workflowPhase: 'Demand Preparation', workflowStage: 'Demand package' })
+    expect(sectionForTaskAction(action!.kind)).toBe('liability')
+    expect(resolveTaskHelpTooltip({ title })).toMatch(/Liability/)
+  })
+
+  it.each([
+    ['Confirm treatment complete / MMI (discharge or MMI note on file)', 'medical'],
+    ["Identify all liens and request payoff figures (health, medical, gov't)", 'settlement'],
+  ])('keeps "%s" on %s', (title, section) => {
+    const action = resolveTaskPrimaryAction({ title, taskType: 'milestone', workflowPhase: 'Demand Preparation' })
+    expect(sectionForTaskAction(action!.kind)).toBe(section)
+  })
+
   it('keeps the defendant-carrier task on Insurance', () => {
     expect(resolveTaskPrimaryAction({ title: 'Identify defendant and insurance carrier' })?.kind).toBe('open_insurance')
   })

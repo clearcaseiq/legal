@@ -131,6 +131,14 @@ function specificTaskHelp(task: TaskLike, title: string): string | null {
     return 'Surveillance, dashcam, or body-cam video can show exactly how the incident happened. Track the request and record what the footage shows as a Video item under Liability Evidence; businesses often overwrite footage within days, so act quickly.'
   }
 
+  if (SITE_RE.test(title)) {
+    return 'Inspect the location to document hazards and security conditions (lighting, cameras, locks, guards, signage). Record findings in the fault theory and add scene photos as Liability Evidence.'
+  }
+
+  if (WITNESS_RE.test(title) && !/gather photos/i.test(title)) {
+    return 'Witness accounts corroborate how the incident happened. Add each witness and a summary of their statement on the Liability tab; the demand cites them in the liability section.'
+  }
+
   if (/gather photos|witness statements|scene evidence/i.test(title)) {
     return 'Collect scene and damage photos, witness statements, and any video. These prove fault and are referenced in the demand’s liability section.'
   }
@@ -292,6 +300,10 @@ const DEFENDANT_IDENTITY_RE =
 
 const FOOTAGE_RE = /\b(footage|surveillance|cctv|dash ?cams?|body ?cams?|security (camera|video)|video (evidence|recording))\b/i
 
+const SITE_RE =
+  /\b(site|scene|premises|property) (visit|inspection|walk-?through)\b|\binspect (the )?(site|scene|premises|property|location)\b|\bsecurity measures\b/i
+const WITNESS_RE = /\bwitness(es)?('s?)? (interviews?|statements?|summar(y|ies)|list|contact)|\binterview (the |all |each )?witness/i
+
 function titleSectionAction(task: TaskLike): TaskPrimaryAction | null {
   const title = String(task.title || '')
   const type = String(task.taskType || '').toLowerCase()
@@ -305,6 +317,12 @@ function titleSectionAction(task: TaskLike): TaskPrimaryAction | null {
   // Video is tracked as a Liability evidence item (requested → received → reviewed).
   if (FOOTAGE_RE.test(title)) {
     return openSection('open_liability', 'Open', 'Open Liability to track and review the video evidence')
+  }
+  if (SITE_RE.test(title)) {
+    return openSection('open_liability', 'Open', 'Open Liability to record the inspection findings and scene photos')
+  }
+  if (WITNESS_RE.test(title)) {
+    return openSection('open_liability', 'Open', 'Open Liability to add witnesses and their statements')
   }
 
   if (type === 'medical' || MEDICAL_RE.test(hay)) {
