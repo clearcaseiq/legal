@@ -126,7 +126,13 @@ export interface DemandCaseRecord {
     sourceFileId?: string | null
     sourcePage?: number | null
     sourceQuote?: string | null
+    /** Medical only: the billed charge when `amount` is the paid-or-owed figure. */
+    billed?: number | null
+    /** Medical only: what was paid plus what is still owed. */
+    paidOrOwed?: number | null
   }>
+  /** How past medical is measured: billed charges, or paid plus still owed. */
+  medicalSpecialsMeasure?: 'billed' | 'paid_or_owed'
   exhibits?: DemandExhibit[]
 }
 
@@ -337,7 +343,8 @@ type DamageItemInput = NonNullable<DemandCaseRecord['damageItems']>[number]
 function itemLine(item: DamageItemInput, cite: SourceCiter = () => ''): string {
   const who = item.provider && item.provider.trim() ? `${item.provider.trim()} \u2014 ` : ''
   const when = itemDate(item.incurredAt)
-  return `- ${who}${item.description}${when ? ` (${when})` : ''}: ${money(Number(item.amount) || 0)}${cite(item)}`
+  const billed = item.billed != null && Math.abs(item.billed - (Number(item.amount) || 0)) >= 0.5 ? ` (billed ${money(item.billed)})` : ''
+  return `- ${who}${item.description}${when ? ` (${when})` : ''}: ${money(Number(item.amount) || 0)}${billed}${cite(item)}`
 }
 
 const sumItems = (items: DamageItemInput[]) => items.reduce((s, i) => s + (Number(i.amount) || 0), 0)
@@ -584,12 +591,18 @@ export function buildDemandLetterSections({
     ? buildLiabilityEvidence(record.liability, defendantSubject, isPro ? 'my account' : 'our client\u2019s account')
     : undefined
 
+  const paidOrOwedMeasure = record.medicalSpecialsMeasure === 'paid_or_owed'
+  const billedTotal = medicalItems.reduce((s, i) => s + (i.billed ?? (Number(i.amount) || 0)), 0)
   const medicalBills = medicalItems.length
     ? [
         'TOTAL MEDICAL BILLS',
-        `${isPro ? 'I have' : 'Our client has'} incurred the following medical charges as a result of this incident:`,
+        paidOrOwedMeasure
+          ? `${isPro ? 'My' : 'Our client\u2019s'} medical expenses from this incident, stated as the amounts paid and still owed for each charge:`
+          : `${isPro ? 'I have' : 'Our client has'} incurred the following medical charges as a result of this incident:`,
         ...medicalItems.map(line),
-        `Total medical charges to date: ${money(medicalTotal)}. Itemized billing statements are enclosed.`,
+        paidOrOwedMeasure
+          ? `Total medical expenses paid or owed to date: ${money(medicalTotal)}${Math.abs(billedTotal - medicalTotal) >= 0.5 ? ` (billed ${money(billedTotal)})` : ''}. Itemized billing statements are enclosed.`
+          : `Total medical charges to date: ${money(medicalTotal)}. Itemized billing statements are enclosed.`,
       ].join('\n')
     : [
         'TOTAL MEDICAL BILLS',

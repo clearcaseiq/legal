@@ -34,6 +34,7 @@ vi.mock('./medical-record', () => ({
 vi.mock('./damages-ledger', () => ({
   MEDICAL_BILLING_STATUSES: ['billed', 'paid', 'outstanding', 'reduced', 'written_off'],
   writeThroughDamages: writeThroughMock,
+  recordDamageItemChanges: vi.fn(),
 }))
 
 import {
@@ -239,7 +240,7 @@ describe('acceptDocumentFinding', () => {
       sourceQuote: '03/14/2026 99204 Office visit $425.00',
       data: JSON.stringify({ date: '2026-03-14', amount: 425, provider: 'Bay Area Orthopedics', billingStatus: 'billed' }),
     })
-    prismaMock.damageItem.create.mockResolvedValue({ id: 'd1' })
+    prismaMock.damageItem.create.mockResolvedValue({ id: 'd1', amount: 300, billingStatus: 'billed' })
     prismaMock.documentFinding.update.mockResolvedValue({
       id: 'df1',
       kind: 'medical_charge',

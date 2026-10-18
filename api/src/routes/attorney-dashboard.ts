@@ -202,7 +202,15 @@ import {
   runAndPersistConflictCheck,
 } from '../lib/conflict-check'
 import { runPostAcquireIntakeHooks } from '../lib/intake-acquire'
-import { summarizeDamages, writeThroughDamages, DAMAGE_CATEGORIES } from '../lib/damages-ledger'
+import {
+  summarizeDamages,
+  writeThroughDamages,
+  recordDamageItemChanges,
+  DAMAGE_CATEGORIES,
+  MEDICAL_PAYERS,
+  MEDICAL_SPECIALS_MEASURES,
+} from '../lib/damages-ledger'
+import { tryUpdateCaseFacts } from '../lib/case-facts'
 import { getLiabilityRecord, upsertLiabilityRecord } from '../lib/liability-record'
 import {
   LiabilityInputError,
@@ -11435,11 +11443,66 @@ const damageItemSelect = {
   sourcePage: true,
   sourceQuote: true,
   documentedAmount: true,
+  paidAmount: true,
+  adjustedAmount: true,
+  payer: true,
   createdById: true,
   createdByName: true,
   createdAt: true,
   updatedAt: true,
 } as const
+
+const optionalMoney = (v: unknown) => (v === null || v === '' ? null : Number.isFinite(Number(v)) && Number(v) >= 0 ? Number(v) : undefined)
+
+const damageActor = (req: any) => ({
+  actorId: req.user?.id ?? null,
+  actorName: `${req.user?.firstName || ''} ${req.user?.lastName || ''}`.trim() || req.user?.email || null,
+})
+
+router.put('/leads/:leadId/damages/measure', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAuthorizedLead(req, req.params.leadId, { staffCan: 'manage' })
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const measure = req.body?.measure
+    if (!(MEDICAL_SPECIALS_MEASURES as readonly string[]).includes(measure)) {
+      return res.status(400).json({ error: 'measure must be billed or paid_or_owed' })
+    }
+    const assessmentId = auth.lead.assessmentId
+    await tryUpdateCaseFacts({
+      assessmentId,
+      source: 'attorney',
+      action: 'damages_measure_changed',
+      entityType: 'damages',
+      summary: measure === 'paid_or_owed' ? 'Past medical claimed at paid plus still owed' : 'Past medical claimed at billed charges',
+      actor: { type: 'user', id: req.user?.id ?? null },
+      mutate: (facts) => ({
+        ...facts,
+        damages: { ...(facts.damages && typeof facts.damages === 'object' ? facts.damages : {}), medicalSpecialsMeasure: measure },
+      }),
+    })
+    const summary = await writeThroughDamages(assessmentId, { source: 'attorney', actorId: req.user?.id ?? null })
+    res.json({ summary })
+  } catch (error: any) {
+    logger.error('Failed to change medical specials measure', { error: error.message })
+    res.status(500).json({ error: 'Failed to change how medical specials are measured' })
+  }
+})
+
+router.get('/leads/:leadId/damages/:id/history', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true })
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const changes = await (prisma as any).damageItemChange.findMany({
+      where: { damageItemId: req.params.id, assessmentId: auth.lead.assessmentId },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    })
+    res.json({ changes })
+  } catch (error: any) {
+    logger.error('Failed to load damage item history', { error: error.message })
+    res.status(500).json({ error: 'Failed to load the history for this line' })
+  }
+})
 
 router.get('/leads/:leadId/damages', authMiddleware, async (req: any, res) => {
   try {
@@ -11474,7 +11537,7 @@ router.post('/leads/:leadId/damages', authMiddleware, async (req: any, res) => {
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
-    const { category, description, amount, billingStatus, provider, incurredAt, isFuture, notes, source } = req.body
+    const { category, description, amount, billingStatus, provider, incurredAt, isFuture, notes, source, payer } = req.body
     if (!description) return res.status(400).json({ error: 'description is required' })
     if (amount == null || amount === '' || Number.isNaN(Number(amount))) {
       return res.status(400).json({ error: 'amount is required' })
@@ -11482,12 +11545,17 @@ router.post('/leads/:leadId/damages', authMiddleware, async (req: any, res) => {
     const cat = (DAMAGE_CATEGORIES as readonly string[]).includes(category) ? category : 'other'
     const actorName = `${req.user?.firstName || ''} ${req.user?.lastName || ''}`.trim() || req.user?.email || null
     const src = source === 'evidence' || source === 'imported' ? source : 'manual'
+    const paidAmount = cat === 'medical' ? optionalMoney(req.body.paidAmount) : null
+    const adjustedAmount = cat === 'medical' ? optionalMoney(req.body.adjustedAmount) : null
     const record = await (prisma as any).damageItem.create({
       data: {
         assessmentId: auth.lead.assessmentId,
         category: cat,
         description,
         amount: Number(amount),
+        paidAmount: paidAmount ?? null,
+        adjustedAmount: adjustedAmount ?? null,
+        payer: cat === 'medical' && (MEDICAL_PAYERS as readonly string[]).includes(payer) ? payer : null,
         billingStatus: billingStatus || null,
         provider: provider || null,
         incurredAt: incurredAt ? new Date(incurredAt) : null,
@@ -11498,6 +11566,12 @@ router.post('/leads/:leadId/damages', authMiddleware, async (req: any, res) => {
         createdByName: actorName,
       },
       select: damageItemSelect,
+    })
+    await recordDamageItemChanges(null, record, {
+      damageItemId: record.id,
+      assessmentId: auth.lead.assessmentId,
+      reason: 'Entered',
+      ...damageActor(req),
     })
     const summary = await writeThroughDamages(auth.lead.assessmentId, { source: 'attorney', actorId: req.user?.id ?? null })
     res.json({ item: record, summary })
@@ -11524,12 +11598,27 @@ router.patch('/leads/:leadId/damages/:id', authMiddleware, async (req: any, res)
     if (incurredAt !== undefined) data.incurredAt = incurredAt ? new Date(incurredAt) : null
     if (isFuture !== undefined) data.isFuture = Boolean(isFuture)
     if (notes !== undefined) data.notes = notes || null
-    const owned = await (prisma as any).damageItem.findFirst({
+    for (const field of ['paidAmount', 'adjustedAmount'] as const) {
+      if (req.body[field] === undefined) continue
+      const value = optionalMoney(req.body[field])
+      if (value === undefined) return res.status(400).json({ error: `${field} must be a positive amount` })
+      data[field] = value
+    }
+    if (req.body.payer !== undefined) {
+      data.payer = (MEDICAL_PAYERS as readonly string[]).includes(req.body.payer) ? req.body.payer : null
+    }
+    const before = await (prisma as any).damageItem.findFirst({
       where: { id, assessmentId: auth.lead.assessmentId },
-      select: { id: true },
+      select: damageItemSelect,
     })
-    if (!owned) return res.status(404).json({ error: 'Damage item not found' })
+    if (!before) return res.status(404).json({ error: 'Damage item not found' })
     const record = await (prisma as any).damageItem.update({ where: { id }, data, select: damageItemSelect })
+    await recordDamageItemChanges(before, record, {
+      damageItemId: id,
+      assessmentId: auth.lead.assessmentId,
+      reason: typeof req.body.reason === 'string' ? req.body.reason : null,
+      ...damageActor(req),
+    })
     const summary = await writeThroughDamages(auth.lead.assessmentId, { source: 'attorney', actorId: req.user?.id ?? null })
     res.json({ item: record, summary })
   } catch (error: any) {

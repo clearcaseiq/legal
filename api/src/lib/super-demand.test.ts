@@ -179,6 +179,40 @@ describe('analyzeDemandIntelligence', () => {
     ])
   })
 
+  it('warns a California demand claiming billed charges above what was paid or owed', () => {
+    const billedRecord: DemandCaseRecord = {
+      ...caseRecord,
+      damageItems: [{ category: 'medical', description: 'ER visit', amount: 4000, provider: 'City ER', paidOrOwed: 2500 }],
+    }
+    const ctx = context({ caseRecord: billedRecord })
+    const weakness = analyzeDemandIntelligence(ctx, letterFor(ctx)).weaknesses.find((w) => w.key === 'billed_vs_paid')
+    expect(weakness?.title).toContain('$2,500 was paid or is owed')
+    const switched = context({ caseRecord: { ...billedRecord, medicalSpecialsMeasure: 'paid_or_owed' } })
+    expect(analyzeDemandIntelligence(switched, letterFor(switched)).weaknesses.some((w) => w.key === 'billed_vs_paid')).toBe(false)
+  })
+
+  it('states paid-or-owed specials with the billed figure beside each charge', () => {
+    const record: DemandCaseRecord = {
+      ...caseRecord,
+      medicalSpecialsMeasure: 'paid_or_owed',
+      damageItems: [{ category: 'medical', description: 'ER visit', amount: 2500, billed: 4000, paidOrOwed: 2500, provider: 'City ER' }],
+    }
+    const sections = buildDemandLetterSections({
+      assessment,
+      facts,
+      targetAmount: 50000,
+      recipient: { name: 'Sam Adjuster', address: 'Acme Mutual' },
+      caseRecord: record,
+    })
+    const ctx = context({ sections, caseRecord: record })
+    const letter = renderSuperDemand(ctx)
+    expect(letter).toContain('- City ER \u2014 ER visit: $2,500 (billed $4,000)')
+    expect(letter).toContain('Total medical expenses paid or owed to date: $2,500 (billed $4,000)')
+    const intel = analyzeDemandIntelligence(ctx, { ...letterFor(ctx), content: letter })
+    expect(intel.qualityCheck.find((c) => c.key === 'unsupported_assertions')?.status).toBe('pass')
+    expect(intel.qualityCheck.find((c) => c.key === 'reconciliation')?.status).toBe('pass')
+  })
+
   it('scores a thin record as not ready', () => {
     const thin: DemandCaseRecord = { exhibits: [] }
     const sections = buildDemandLetterSections({ assessment, facts: {}, targetAmount: 10000, recipient: { name: 'A', address: 'B' }, caseRecord: thin })

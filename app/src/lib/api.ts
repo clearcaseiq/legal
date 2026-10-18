@@ -3672,6 +3672,28 @@ export async function deleteLeadDamage(leadId: string, damageId: string) {
   return data as { ok: boolean; summary: any }
 }
 
+export type MedicalSpecialsMeasure = 'billed' | 'paid_or_owed'
+
+export async function setLeadMedicalSpecialsMeasure(leadId: string, measure: MedicalSpecialsMeasure) {
+  const { data } = await api.put(`/v1/attorney-dashboard/leads/${leadId}/damages/measure`, { measure })
+  return data as { summary: any }
+}
+
+export interface DamageItemChange {
+  id: string
+  field: string
+  fromValue: string | null
+  toValue: string | null
+  reason: string | null
+  actorName: string | null
+  createdAt: string
+}
+
+export async function getLeadDamageHistory(leadId: string, damageId: string) {
+  const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/damages/${damageId}/history`)
+  return data as { changes: DamageItemChange[] }
+}
+
 // ---- Living liability record -----------------------------------------------
 export interface LiabilityDefendant {
   id: string

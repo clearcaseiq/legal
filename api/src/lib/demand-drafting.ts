@@ -7,6 +7,7 @@
  * of who wrote what.
  */
 import { prisma } from './prisma'
+import { chargeBreakdown, claimedChargeAmount, medicalMeasureOf, type MedicalSpecialsMeasure } from './damages-ledger'
 import { logger } from './logger'
 import { AI_AUTHOR_NAME } from './ai-author'
 import {
@@ -209,6 +210,13 @@ function pickDemandClaim(policies: any[]): any | null {
   )
 }
 
+/** A medical charge's claimed figure under the case's measure, with the billed charge kept beside it. */
+function medicalChargeAmounts(item: any, measure: MedicalSpecialsMeasure) {
+  const b = chargeBreakdown(item)
+  const amount = claimedChargeAmount(item, measure)
+  return { amount, billed: amount !== b.billed ? b.billed : null, paidOrOwed: b.paidOrOwed }
+}
+
 /**
  * Everything the attorney entered on the case tabs, gathered for the letter:
  * client and attorney, the carrier claim, liability, the medical timeline, the
@@ -241,6 +249,7 @@ export async function loadDemandCaseRecord(assessment: any): Promise<DemandCaseR
   ])
 
   const claim = pickDemandClaim(policies as any[])
+  const measure = medicalMeasureOf(parseAssessmentFacts(assessment.facts))
   const attorney = lead?.assignedAttorney
   const firm = attorney?.lawFirm
   const firmAddress = firm
@@ -271,10 +280,11 @@ export async function loadDemandCaseRecord(assessment: any): Promise<DemandCaseR
       : null,
     liability: liability?.id ? liability : null,
     medical: medical && (medical.entries.length > 0 || medical.status.id) ? medical : null,
+    medicalSpecialsMeasure: measure,
     damageItems: (damageItems as any[]).map((i) => ({
       category: i.category,
       description: i.description,
-      amount: Number(i.amount) || 0,
+      ...(i.category === 'medical' ? medicalChargeAmounts(i, measure) : { amount: Number(i.amount) || 0 }),
       provider: i.provider,
       incurredAt: i.incurredAt,
       billingStatus: i.billingStatus,

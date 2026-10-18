@@ -23,9 +23,66 @@ export const DAMAGE_CATEGORIES = [
 export type DamageCategory = (typeof DAMAGE_CATEGORIES)[number]
 
 export const MEDICAL_BILLING_STATUSES = ['billed', 'paid', 'outstanding', 'reduced', 'written_off'] as const
+export const MEDICAL_PAYERS = ['health_insurance', 'medpay', 'medicare', 'medicaid', 'patient', 'lien', 'other'] as const
+
+/**
+ * How past medical specials are measured in the case totals and the demand.
+ * `billed` claims the full charges. `paid_or_owed` claims what was paid plus
+ * what is still owed, the measure California (Howell v. Hamilton Meats) and a
+ * number of other states apply to past medical expenses.
+ */
+export const MEDICAL_SPECIALS_MEASURES = ['billed', 'paid_or_owed'] as const
+export type MedicalSpecialsMeasure = (typeof MEDICAL_SPECIALS_MEASURES)[number]
+
+export function medicalMeasureOf(facts: any): MedicalSpecialsMeasure {
+  return facts?.damages?.medicalSpecialsMeasure === 'paid_or_owed' ? 'paid_or_owed' : 'billed'
+}
+
+export interface ChargeBreakdown {
+  billed: number
+  paid: number
+  adjusted: number
+  balance: number
+  paidOrOwed: number
+}
+
+/**
+ * One medical charge broken down. Lines entered before payments were tracked
+ * only have a status, so a "paid" line counts as paid in full and anything
+ * else as still owed.
+ */
+export function chargeBreakdown(item: {
+  amount?: unknown
+  paidAmount?: unknown
+  adjustedAmount?: unknown
+  billingStatus?: string | null
+}): ChargeBreakdown {
+  const billed = Math.max(0, n(item.amount))
+  const status = String(item.billingStatus || '').toLowerCase()
+  const paid = item.paidAmount != null ? Math.max(0, n(item.paidAmount)) : status === 'paid' ? billed : 0
+  const adjusted = Math.max(0, n(item.adjustedAmount))
+  const balance = Math.max(0, billed - paid - adjusted)
+  return { billed, paid, adjusted, balance, paidOrOwed: Math.min(billed, paid + balance) }
+}
+
+/** The figure a medical charge contributes to the claim under the case's measure. */
+export function claimedChargeAmount(item: Parameters<typeof chargeBreakdown>[0], measure: MedicalSpecialsMeasure): number {
+  const b = chargeBreakdown(item)
+  return measure === 'paid_or_owed' ? b.paidOrOwed : b.billed
+}
 
 export interface DamagesSummary {
-  medical: { billed: number; paid: number; outstanding: number; incurred: number }
+  medical: {
+    billed: number
+    paid: number
+    outstanding: number
+    incurred: number
+    adjusted: number
+    paidOrOwed: number
+    /** What the case claims for past medical under `measure`. */
+    claimed: number
+  }
+  measure: MedicalSpecialsMeasure
   futureMedical: number
   lostWages: number
   lostEarningCapacity: number
@@ -44,9 +101,10 @@ function n(v: unknown): number {
   return Number.isFinite(x) ? x : 0
 }
 
-function emptySummary(): DamagesSummary {
+function emptySummary(measure: MedicalSpecialsMeasure = 'billed'): DamagesSummary {
   return {
-    medical: { billed: 0, paid: 0, outstanding: 0, incurred: 0 },
+    medical: { billed: 0, paid: 0, outstanding: 0, incurred: 0, adjusted: 0, paidOrOwed: 0, claimed: 0 },
+    measure,
     futureMedical: 0,
     lostWages: 0,
     lostEarningCapacity: 0,
@@ -60,25 +118,44 @@ function emptySummary(): DamagesSummary {
   }
 }
 
+/** The measure the case has chosen for past medical specials. */
+export async function caseMedicalMeasure(assessmentId: string): Promise<MedicalSpecialsMeasure> {
+  const row = await prisma.assessment
+    .findUnique({ where: { id: assessmentId }, select: { facts: true } })
+    .catch(() => null)
+  if (!row?.facts) return 'billed'
+  try {
+    return medicalMeasureOf(typeof row.facts === 'string' ? JSON.parse(row.facts) : row.facts)
+  } catch {
+    return 'billed'
+  }
+}
+
 /** Aggregate the ledger for one case. */
 export async function summarizeDamages(assessmentId: string): Promise<DamagesSummary> {
-  const items = await (prisma as any).damageItem
-    .findMany({ where: { assessmentId } })
-    .catch(() => [] as any[])
-  const s = emptySummary()
+  const [items, measure] = await Promise.all([
+    (prisma as any).damageItem.findMany({ where: { assessmentId } }).catch(() => [] as any[]),
+    caseMedicalMeasure(assessmentId),
+  ])
+  return summarizeDamageItems(items as any[], measure)
+}
+
+export function summarizeDamageItems(items: any[], measure: MedicalSpecialsMeasure = 'billed'): DamagesSummary {
+  const s = emptySummary(measure)
   s.itemCount = items.length
   if (items.length === 0) return s
 
-  for (const it of items as any[]) {
+  for (const it of items) {
     const amt = n(it.amount)
     switch (it.category) {
       case 'medical': {
-        s.medical.incurred += amt
-        const status = String(it.billingStatus || '').toLowerCase()
-        if (status === 'paid') s.medical.paid += amt
-        else if (status === 'outstanding') s.medical.outstanding += amt
-        // 'billed' is the gross; incurred already captures it.
-        s.medical.billed += amt
+        const b = chargeBreakdown(it)
+        s.medical.incurred += b.billed
+        s.medical.billed += b.billed
+        s.medical.paid += b.paid
+        s.medical.adjusted += b.adjusted
+        s.medical.outstanding += b.balance
+        s.medical.paidOrOwed += b.paidOrOwed
         break
       }
       case 'future_medical':
@@ -105,14 +182,15 @@ export async function summarizeDamages(assessmentId: string): Promise<DamagesSum
     }
   }
 
-  const specials = s.medical.incurred + s.lostWages + s.propertyDamage + s.outOfPocket + s.other
+  s.medical.claimed = measure === 'paid_or_owed' ? s.medical.paidOrOwed : s.medical.billed
+  const specials = s.medical.claimed + s.lostWages + s.propertyDamage + s.outOfPocket + s.other
   const future = s.futureMedical + s.lostEarningCapacity + s.futureCost
   s.totals = { specials, future, grand: specials + future }
 
   // Legacy engine mapping: medical specials, future medical, wage loss, and a
   // catch-all "other" that bundles property, OOP, future costs, earning capacity.
   s.factsDamages = {
-    medical: s.medical.incurred,
+    medical: s.medical.claimed,
     futureMedical: s.futureMedical,
     lostWages: s.lostWages,
     other: s.propertyDamage + s.outOfPocket + s.futureCost + s.lostEarningCapacity + s.other,
@@ -166,4 +244,42 @@ export async function writeThroughDamages(
   })
 
   return summary
+}
+
+/** Ledger figures whose every change is kept. */
+export const TRACKED_DAMAGE_FIELDS = ['amount', 'paidAmount', 'adjustedAmount', 'billingStatus', 'payer'] as const
+
+const asText = (v: unknown) => (v === null || v === undefined || v === '' ? null : String(v))
+
+/**
+ * Record what changed between two versions of a ledger line. Values compare
+ * as text so 100 and 100.0 are the same. Never throws: a lost history row must
+ * not undo the edit it describes.
+ */
+export async function recordDamageItemChanges(
+  before: Record<string, unknown> | null,
+  after: Record<string, unknown>,
+  ctx: { damageItemId: string; assessmentId: string; reason?: string | null; actorId?: string | null; actorName?: string | null },
+): Promise<number> {
+  const rows = TRACKED_DAMAGE_FIELDS.flatMap((field) => {
+    const from = before ? asText(before[field]) : null
+    const to = asText(after[field])
+    const same = from === to || (from != null && to != null && Number(from) === Number(to) && !Number.isNaN(Number(from)))
+    if (same || (before == null && to == null)) return []
+    return [
+      {
+        damageItemId: ctx.damageItemId,
+        assessmentId: ctx.assessmentId,
+        field,
+        fromValue: from,
+        toValue: to,
+        reason: ctx.reason?.trim() || null,
+        actorId: ctx.actorId ?? null,
+        actorName: ctx.actorName ?? null,
+      },
+    ]
+  })
+  if (!rows.length) return 0
+  await (prisma as any).damageItemChange.createMany({ data: rows }).catch(() => undefined)
+  return rows.length
 }

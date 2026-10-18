@@ -21,7 +21,7 @@ import { llmAllowPhi } from './llm-prompt-sanitize'
 import { recordAiRun } from './ai-run'
 import { isHardIdentityMismatch, parseIdentityCheck } from './claimant-identity-check'
 import { createMedicalEntry, VISIT_TYPES } from './medical-record'
-import { MEDICAL_BILLING_STATUSES, writeThroughDamages } from './damages-ledger'
+import { MEDICAL_BILLING_STATUSES, recordDamageItemChanges, writeThroughDamages } from './damages-ledger'
 
 export type FindingKind = 'treatment_visit' | 'medical_charge' | 'wage_loss'
 export const FINDING_KINDS: FindingKind[] = ['treatment_visit', 'medical_charge', 'wage_loss']
@@ -633,7 +633,14 @@ export async function acceptDocumentFinding(
         createdById: actor.actorId,
         createdByName: actor.actorName,
       },
-      select: { id: true },
+      select: { id: true, amount: true, billingStatus: true },
+    })
+    const printed = original.amount != null ? `$${original.amount.toFixed(2)}` : 'no amount'
+    await recordDamageItemChanges(null, item, {
+      damageItemId: item.id,
+      assessmentId,
+      reason: `Accepted from the record (page ${row.pageNumber ?? '?'}, printed ${printed})`,
+      ...actor,
     })
     await writeThroughDamages(assessmentId, { source: 'attorney', actorId: actor.actorId })
     entityType = 'damage_item'

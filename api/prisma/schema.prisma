@@ -612,13 +612,43 @@ model DamageItem {
   sourceQuote      String? @db.Text
   documentedAmount Float?
   findingId        String?
+  // Medical charges only: `amount` is what was billed. Payments and
+  // contractual adjustments/write-offs reduce it to the balance still owed;
+  // paid + still owed is what California and similar states let a plaintiff
+  // recover for past care.
+  paidAmount     Float?
+  adjustedAmount Float?
+  // health_insurance | medpay | medicare | medicaid | patient | lien | other
+  payer          String?
   createdById  String?
   createdByName String?
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
+  changes      DamageItemChange[]
 
   @@index([assessmentId])
   @@map("damage_items")
+}
+
+// One edit to a figure on a damages ledger line, so an amount in a demand can
+// be traced back through every adjustment to what the document printed.
+model DamageItemChange {
+  id           String     @id @default(cuid())
+  damageItemId String
+  damageItem   DamageItem @relation(fields: [damageItemId], references: [id], onDelete: Cascade)
+  assessmentId String
+  // amount | paidAmount | adjustedAmount | billingStatus | payer
+  field        String
+  fromValue    String?
+  toValue      String?
+  reason       String?    @db.Text
+  actorId      String?
+  actorName    String?
+  createdAt    DateTime   @default(now())
+
+  @@index([damageItemId, createdAt])
+  @@index([assessmentId])
+  @@map("damage_item_changes")
 }
 
 // A visit, charge or wage figure read out of an uploaded document, waiting for

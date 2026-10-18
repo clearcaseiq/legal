@@ -657,6 +657,23 @@ function buildWeaknesses(ctx: SuperDemandContext): DemandWeakness[] {
       mitigation: 'Address it directly in the liability analysis with the evidence that limits the allocation.',
     })
   }
+  const charges = (record.damageItems ?? []).filter((i) => i.category === 'medical')
+  const billedMedical = charges.reduce((s, i) => s + (i.billed ?? (Number(i.amount) || 0)), 0)
+  const paidOrOwedMedical = charges.reduce((s, i) => s + (i.paidOrOwed ?? (Number(i.amount) || 0)), 0)
+  if (
+    record.medicalSpecialsMeasure !== 'paid_or_owed' &&
+    String(ctx.assessment.venueState || '').toUpperCase() === 'CA' &&
+    billedMedical - paidOrOwedMedical >= 1
+  ) {
+    out.push({
+      key: 'billed_vs_paid',
+      severity: 'high',
+      title: `Medical specials are claimed at ${money(billedMedical)} billed; ${money(paidOrOwedMedical)} was paid or is owed`,
+      detail:
+        'California limits past medical to the amounts paid or still owed (Howell v. Hamilton Meats). Expect the adjuster to cut the specials to that figure.',
+      mitigation: 'Switch the Damages tab to "Paid + still owed", or be ready to defend the billed figures.',
+    })
+  }
   if (liability && liability.policeReportStatus !== 'received' && exhibitsIn(ctx, 'liability') === 0) {
     out.push({
       key: 'no_liability_proof',
@@ -992,6 +1009,8 @@ function buildQualityCheck(ctx: SuperDemandContext, content: string): QualityChe
       totals.medical, totals.futureMedical, totals.lostWages, totals.earningCapacity, totals.otherEconomic,
       totals.specials, totals.general, totals.demand, Math.max(totals.demand, totals.specials), ctx.ledger.totalBilled,
       ...(record.damageItems ?? []).map((i) => Number(i.amount) || 0),
+      ...(record.damageItems ?? []).map((i) => Number(i.billed) || 0),
+      (record.damageItems ?? []).filter((i) => i.category === 'medical').reduce((s, i) => s + (i.billed ?? (Number(i.amount) || 0)), 0),
       ...(record.medical?.entries ?? []).map((e) => Number(e.billedAmount) || 0),
       ...ctx.ledger.entries.map((e) => Number(e.billedAmount) || 0),
     ]) {
