@@ -15,6 +15,11 @@ vi.mock('./document-request-status', () => ({
 vi.mock('./assistance-document-intake', () => ({
   recordAssistanceDocumentSubmission: vi.fn().mockResolvedValue(undefined),
 }))
+// fanOutCaseUpdates imports this router lazily and does not await it. Unmocked,
+// that import (the router and its whole dependency tree, real Prisma client
+// included) can still be loading when the next test file starts in this single
+// fork, which then reaches the real database instead of its own mock.
+vi.mock('../routes/evidence', () => ({ runAnalysisForAssessment: vi.fn().mockResolvedValue(undefined) }))
 
 import fs from 'fs'
 import { prisma } from './prisma'
