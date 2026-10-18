@@ -359,6 +359,7 @@ model Assessment {
   liabilityRecord     LiabilityRecord?
   liabilityDefendants LiabilityDefendant[]
   liabilityEvidence   LiabilityEvidenceItem[]
+  documentFindings    DocumentFinding[]
   medicalEntries      MedicalTreatmentEntry[]
   medicalRecord       MedicalCaseRecord?
   caseTasks           CaseTask[]
@@ -603,6 +604,14 @@ model DamageItem {
   // manual | evidence (OCR) | imported
   source       String     @default("manual")
   notes        String?    @db.Text
+  // The document page this figure was read from, when it came from an accepted
+  // DocumentFinding. `documentedAmount` is the figure as printed, kept so an
+  // attorney's later adjustment of `amount` stays visible against the source.
+  sourceFileId     String?
+  sourcePage       Int?
+  sourceQuote      String? @db.Text
+  documentedAmount Float?
+  findingId        String?
   createdById  String?
   createdByName String?
   createdAt    DateTime   @default(now())
@@ -610,6 +619,49 @@ model DamageItem {
 
   @@index([assessmentId])
   @@map("damage_items")
+}
+
+// A visit, charge or wage figure read out of an uploaded document, waiting for
+// an attorney to accept it into the Medical timeline or Damages ledger. Every
+// finding carries the page and the passage it was read from; one whose passage
+// cannot be found on that page is never stored.
+model DocumentFinding {
+  id             String       @id @default(cuid())
+  assessmentId   String
+  assessment     Assessment   @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  evidenceFileId String
+  evidenceFile   EvidenceFile @relation(fields: [evidenceFileId], references: [id], onDelete: Cascade)
+
+  // treatment_visit | medical_charge | wage_loss
+  kind   String
+  // proposed | accepted | rejected
+  status String @default("proposed")
+
+  // JSON of the structured fields for this kind (dates, provider, codes, amount...).
+  data        String  @db.Text
+  pageNumber  Int?
+  sourceQuote String  @db.Text
+  confidence  Float   @default(0)
+  // Same visit or charge read twice (a re-scan, or the same bill uploaded twice)
+  // produces the same fingerprint, so it is proposed once per case.
+  fingerprint String
+  // ai | rules
+  extractor   String  @default("ai")
+
+  // medical_entry | damage_item, and its id, once accepted.
+  acceptedEntityType String?
+  acceptedEntityId   String?
+  reviewedById       String?
+  reviewedByName     String?
+  reviewedAt         DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([assessmentId, status])
+  @@index([evidenceFileId])
+  @@index([assessmentId, fingerprint])
+  @@map("document_findings")
 }
 
 // Living liability analysis — one evolving record per case. Captures the
@@ -740,6 +792,13 @@ model MedicalTreatmentEntry {
   isFuture   Boolean @default(false)
   notes      String? @db.Text
   source     String  @default("manual") // manual | evidence | imported
+  diagnosisCodes String?  // JSON array of ICD-10 codes
+  procedureCodes String?  // JSON array of CPT/HCPCS codes
+  // The document page this visit was read from (see DocumentFinding).
+  sourceFileId   String?
+  sourcePage     Int?
+  sourceQuote    String?  @db.Text
+  findingId      String?
   createdById   String?
   createdByName String?
   createdAt  DateTime @default(now())
@@ -4592,6 +4651,7 @@ model EvidenceFile {
   processingJobs EvidenceProcessingJob[]
   accessLogs     EvidenceAccessLog[]
   annotations    EvidenceAnnotation[]
+  findings       DocumentFinding[]
 
   // Every read of this table is "the files on this case" or "the files this user
   // owns", newest first, and neither had an index — so each evidence list was a

@@ -276,6 +276,8 @@ export async function loadDemandCaseRecord(assessment: any): Promise<DemandCaseR
       provider: i.provider,
       incurredAt: i.incurredAt,
       billingStatus: i.billingStatus,
+      sourceFileId: i.sourceFileId ?? null,
+      sourcePage: i.sourcePage ?? null,
     })),
     exhibits: buildDemandExhibits(assessment.evidenceFiles || []),
   }

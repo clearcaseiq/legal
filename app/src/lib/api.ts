@@ -3723,6 +3723,72 @@ export async function updateLeadLiability(leadId: string, payload: any) {
   return data as { liability: any }
 }
 
+// ---- Document findings ------------------------------------------------------
+export type DocumentFindingKind = 'treatment_visit' | 'medical_charge' | 'wage_loss'
+
+export interface DocumentFindingData {
+  date?: string | null
+  endDate?: string | null
+  provider?: string | null
+  specialty?: string | null
+  visitType?: string | null
+  diagnosis?: string | null
+  icdCodes?: string[]
+  cptCodes?: string[]
+  amount?: number | null
+  billingStatus?: string | null
+  description?: string | null
+  checks?: { date: boolean; amount: boolean }
+  possibleDuplicateOf?: string | null
+}
+
+export interface DocumentFinding {
+  id: string
+  kind: DocumentFindingKind
+  status: 'proposed' | 'accepted' | 'rejected'
+  data: DocumentFindingData
+  pageNumber: number | null
+  sourceQuote: string
+  confidence: number
+  extractor: 'ai' | 'rules'
+  evidenceFileId: string
+  fileName: string
+  fileUrl: string
+  acceptedEntityType: string | null
+  acceptedEntityId: string | null
+  reviewedByName: string | null
+  reviewedAt: string | null
+  createdAt: string
+}
+
+export interface DocumentFindingsResponse {
+  findings: DocumentFinding[]
+  mode: 'ai' | 'rules'
+  medicalSharing: { canShareMedicalData: boolean; message: string | null }
+}
+
+export async function getDocumentFindings(leadId: string, kinds: DocumentFindingKind[]) {
+  const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/document-findings`, {
+    params: { kinds: kinds.join(',') },
+  })
+  return data as DocumentFindingsResponse
+}
+
+export async function scanDocumentFindings(leadId: string, fileId?: string) {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/document-findings/scan`, fileId ? { fileId } : {})
+  return data as { queued: number; mode: 'ai' | 'rules' }
+}
+
+export async function acceptDocumentFinding(leadId: string, findingId: string, overrides: Partial<DocumentFindingData> = {}) {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/document-findings/${findingId}/accept`, overrides)
+  return data as { finding: DocumentFinding; entityType: 'medical_entry' | 'damage_item'; entityId: string }
+}
+
+export async function rejectDocumentFinding(leadId: string, findingId: string) {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/document-findings/${findingId}/reject`)
+  return data as { finding: DocumentFinding }
+}
+
 // ---- Case-level medical timeline -------------------------------------------
 export async function getLeadMedicalTimeline(leadId: string) {
   const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/medical-timeline`)

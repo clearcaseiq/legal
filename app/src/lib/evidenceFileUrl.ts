@@ -41,18 +41,20 @@ function openBlobUrl(url: string) {
  * Blob and data URLs (locally selected files not yet uploaded) never touch the
  * network and are opened directly.
  */
-export async function openEvidenceFile(fileUrl?: string) {
+export async function openEvidenceFile(fileUrl?: string, opts?: { page?: number | null }) {
   if (!fileUrl) return
+  // Browser PDF viewers honour #page=N on blob URLs too; other files ignore it.
+  const fragment = opts?.page ? `#page=${opts.page}` : ''
 
   if (/^(blob:|data:)/i.test(fileUrl)) {
-    openBlobUrl(fileUrl)
+    openBlobUrl(`${fileUrl}${fragment}`)
     return
   }
 
   try {
     const { getEvidenceObjectUrl } = await import('./api')
     const objectUrl = await getEvidenceObjectUrl(fileUrl)
-    openBlobUrl(objectUrl)
+    openBlobUrl(`${objectUrl}${fragment}`)
     // The tab needs the object URL to survive its own load, and there is no
     // reliable cross-browser signal for that, so revoke on a delay rather than
     // leaking it for the lifetime of the page.

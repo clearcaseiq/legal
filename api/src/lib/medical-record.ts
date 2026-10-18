@@ -44,6 +44,13 @@ export interface MedicalTimelineView {
     billedAmount: number | null
     isFuture: boolean
     notes: string | null
+    source: string
+    diagnosisCodes: string[]
+    procedureCodes: string[]
+    sourceFileId: string | null
+    sourcePage: number | null
+    sourceQuote: string | null
+    sourceFile: { name: string; url: string } | null
   }>
   status: {
     id: string | null
@@ -89,6 +96,36 @@ function parseSymptoms(raw: any): string[] {
     }
   }
   return []
+}
+
+function parseCodeList(raw: unknown): string[] {
+  if (typeof raw !== 'string' || !raw) return []
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed.map(String).filter(Boolean) : []
+  } catch {
+    return []
+  }
+}
+
+/** Name and URL of each file the rows were read from, for their source links. */
+export async function sourceFilesById(rows: Array<{ sourceFileId?: string | null }>) {
+  const ids = [...new Set(rows.map((r) => r.sourceFileId).filter((id): id is string => Boolean(id)))]
+  if (!ids.length) return new Map<string, { name: string; url: string }>()
+  const files = await prisma.evidenceFile
+    .findMany({ where: { id: { in: ids } }, select: { id: true, originalName: true, fileUrl: true } })
+    .catch(() => [] as Array<{ id: string; originalName: string; fileUrl: string }>)
+  return new Map(files.map((f) => [f.id, { name: f.originalName, url: f.fileUrl }]))
+}
+
+/** Where an entry was read from, when it came from an accepted document finding. */
+export interface EntryProvenance {
+  sourceFileId: string
+  sourcePage: number | null
+  sourceQuote: string
+  findingId: string
+  diagnosisCodes?: string[]
+  procedureCodes?: string[]
 }
 
 function computeTimeline(entries: any[]): {
@@ -140,6 +177,7 @@ async function buildView(assessmentId: string): Promise<MedicalTimelineView> {
     (prisma as any).medicalCaseRecord.findUnique({ where: { assessmentId } }).catch(() => null),
   ])
 
+  const sourceFiles = await sourceFilesById(rawEntries as any[])
   const entries = (rawEntries as any[]).map((e) => ({
     id: e.id,
     provider: e.provider,
@@ -152,6 +190,13 @@ async function buildView(assessmentId: string): Promise<MedicalTimelineView> {
     billedAmount: e.billedAmount ?? null,
     isFuture: Boolean(e.isFuture),
     notes: e.notes ?? null,
+    source: e.source || 'manual',
+    diagnosisCodes: parseCodeList(e.diagnosisCodes),
+    procedureCodes: parseCodeList(e.procedureCodes),
+    sourceFileId: e.sourceFileId ?? null,
+    sourcePage: e.sourcePage ?? null,
+    sourceQuote: e.sourceQuote ?? null,
+    sourceFile: (e.sourceFileId && sourceFiles.get(e.sourceFileId)) || null,
   }))
 
   const providers = new Set(entries.filter((e) => !e.isFuture).map((e) => e.provider.toLowerCase()))
@@ -256,10 +301,11 @@ async function writeThroughMedical(
 export async function createMedicalEntry(
   assessmentId: string,
   payload: Record<string, any>,
-  opts?: { actorId?: string | null; actorName?: string | null },
+  opts?: { actorId?: string | null; actorName?: string | null; provenance?: EntryProvenance },
 ): Promise<MedicalTimelineView> {
   const visitType = (VISIT_TYPES as readonly string[]).includes(payload.visitType) ? payload.visitType : 'follow_up'
   const status = (ENTRY_STATUSES as readonly string[]).includes(payload.status) ? payload.status : 'ongoing'
+  const prov = opts?.provenance
   await (prisma as any).medicalTreatmentEntry.create({
     data: {
       assessmentId,
@@ -273,7 +319,17 @@ export async function createMedicalEntry(
       billedAmount: payload.billedAmount != null && payload.billedAmount !== '' ? Number(payload.billedAmount) : null,
       isFuture: Boolean(payload.isFuture),
       notes: payload.notes || null,
-      source: 'manual',
+      source: prov ? 'evidence' : 'manual',
+      ...(prov
+        ? {
+            sourceFileId: prov.sourceFileId,
+            sourcePage: prov.sourcePage,
+            sourceQuote: prov.sourceQuote,
+            findingId: prov.findingId,
+            diagnosisCodes: prov.diagnosisCodes?.length ? JSON.stringify(prov.diagnosisCodes) : null,
+            procedureCodes: prov.procedureCodes?.length ? JSON.stringify(prov.procedureCodes) : null,
+          }
+        : {}),
       createdById: opts?.actorId ?? null,
       createdByName: opts?.actorName ?? null,
     },

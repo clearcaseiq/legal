@@ -30,14 +30,14 @@ const caseRecord: DemandCaseRecord = {
     status: { treatmentStatus: 'completed', mmi: true },
   },
   damageItems: [
-    { category: 'medical', description: 'ER visit', amount: 4000, provider: 'City ER', incurredAt: '2026-03-03' },
-    { category: 'medical', description: 'ER visit', amount: 4000, provider: 'City ER', incurredAt: '2026-03-03' },
+    { category: 'medical', description: 'ER visit', amount: 4000, provider: 'City ER', incurredAt: '2026-03-03', sourceFileId: 'f-bill', sourcePage: 2 },
+    { category: 'medical', description: 'ER visit', amount: 4000, provider: 'City ER', incurredAt: '2026-03-03', sourceFileId: 'f-bill', sourcePage: 3 },
     { category: 'lost_wages', description: 'Two weeks off', amount: 2000 },
   ],
   exhibits: [
     { number: 1, section: 'liability', label: 'Police / incident report (report.pdf)' },
     { number: 2, section: 'treatment', label: 'Medical records (er.pdf)' },
-    { number: 3, section: 'bills', label: 'Medical bill (bill.pdf)' },
+    { number: 3, section: 'bills', label: 'Medical bill (bill.pdf)', fileId: 'f-bill' },
   ],
 }
 
@@ -119,6 +119,24 @@ describe('analyzeDemandIntelligence', () => {
     const unsupported = intel.qualityCheck.find((c) => c.key === 'unsupported_assertions')
     expect(unsupported?.status).toBe('warn')
     expect(unsupported?.items?.join(' ')).toContain('$99999')
+  })
+
+  it('grades entered charges yellow until each cites a record page', () => {
+    const unsourced: DemandCaseRecord = {
+      ...caseRecord,
+      damageItems: [
+        caseRecord.damageItems![0],
+        { category: 'medical', description: 'PT', amount: 900, provider: 'Rehab PT', incurredAt: '2026-06-20' },
+      ],
+    }
+    const ctx = context({ caseRecord: unsourced })
+    const specials = analyzeDemandIntelligence(ctx, letterFor(ctx)).statementConfidence.find((s) => s.key === 'specials')
+    expect(specials?.level).toBe('yellow')
+    expect(specials?.basis).toContain('1 of 2 charges cite a record page')
+  })
+
+  it('cites the exhibit and page on charges read from a document', () => {
+    expect(renderSuperDemand(context())).toContain('(Ex. 3, p. 2)')
   })
 
   it('scores a thin record as not ready', () => {

@@ -745,19 +745,54 @@ function buildStatementConfidence(ctx: SuperDemandContext): StatementConfidence[
     diagnoses.length ? `${diagnoses.length} provider diagnosis(es)${exhibitsIn(ctx, 'treatment') ? ' with records' : ', no record exhibits'}` : injuries.length ? 'Claimant-reported injuries only' : 'No injuries recorded',
   )
   const visits = treatmentVisits(ctx)
+  // Lines entered on the Medical and Damages tabs are green only when each one
+  // cites the record page it was read from; an exhibit of the right type being
+  // enclosed somewhere is not the same as the figure being on it.
+  const tabVisits = (record.medical?.entries ?? []).filter((e) => !e.isFuture)
+  const sourcedVisits = tabVisits.filter((e) => e.sourceFileId).length
+  const chargeItems = (record.damageItems ?? []).filter((i) => i.category === 'medical')
+  const sourcedCharges = chargeItems.filter((i) => i.sourceFileId).length
+  const pageNote = (sourced: number, total: number, noun: string) =>
+    sourced === total ? `every ${noun} cites a record page` : `${sourced} of ${total} ${noun}s cite a record page`
   add(
     'chronology',
     'VIII. Medical Treatment Chronology',
     'The treatment dates and providers',
-    visits.length && exhibitsIn(ctx, 'treatment') > 0 ? 'green' : visits.length ? 'yellow' : 'red',
-    visits.length ? `${visits.length} dated visit(s)` : 'No dated visits; records-on-request language used',
+    tabVisits.length
+      ? sourcedVisits === tabVisits.length
+        ? 'green'
+        : 'yellow'
+      : visits.length && exhibitsIn(ctx, 'treatment') > 0
+        ? 'green'
+        : visits.length
+          ? 'yellow'
+          : 'red',
+    tabVisits.length
+      ? `${tabVisits.length} visit(s); ${pageNote(sourcedVisits, tabVisits.length, 'visit')}`
+      : visits.length
+        ? `${visits.length} dated visit(s)`
+        : 'No dated visits; records-on-request language used',
   )
   add(
     'specials',
     'IX. Medical Specials',
     `Medical charges of ${money(totals.medical)}`,
-    totals.medical > 0 && exhibitsIn(ctx, 'bills') > 0 ? 'green' : totals.medical > 0 ? 'yellow' : 'red',
-    totals.medical > 0 ? (exhibitsIn(ctx, 'bills') > 0 ? 'Itemized and backed by bill exhibits' : 'Entered amounts, no bill exhibits') : 'No charges recorded',
+    totals.medical > 0 && chargeItems.length
+      ? sourcedCharges === chargeItems.length
+        ? 'green'
+        : 'yellow'
+      : totals.medical > 0 && exhibitsIn(ctx, 'bills') > 0
+        ? 'green'
+        : totals.medical > 0
+          ? 'yellow'
+          : 'red',
+    totals.medical > 0
+      ? chargeItems.length
+        ? `${chargeItems.length} charge(s); ${pageNote(sourcedCharges, chargeItems.length, 'charge')}`
+        : exhibitsIn(ctx, 'bills') > 0
+          ? 'Itemized and backed by bill exhibits'
+          : 'Entered amounts, no bill exhibits'
+      : 'No charges recorded',
   )
   if (totals.futureMedical > 0 || record.medical?.status?.futureTreatment) {
     add(

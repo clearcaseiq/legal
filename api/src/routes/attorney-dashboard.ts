@@ -53,7 +53,23 @@ import { isAcceptedUpload } from '../lib/upload-filter'
 import { buildMergedSurvivor, reminderMessagesFor, validateMerge } from '../lib/task-merge'
 import { runAnalysisForAssessment } from './evidence'
 import { generateSceneImageForAssessment, hasSceneDescription, SCENE_NEEDS_DESCRIPTION } from '../services/incident-scene'
-import { processEvidenceFileForExtraction, shouldAutoProcessEvidence } from '../lib/evidence-processing'
+import {
+  processEvidenceFileForExtraction,
+  readDocumentPages,
+  resolveEvidencePath,
+  shouldAutoProcessEvidence,
+} from '../lib/evidence-processing'
+import {
+  acceptDocumentFinding,
+  documentReadingMode,
+  FINDING_CATEGORIES,
+  FINDING_KINDS,
+  FindingReviewError,
+  generateDocumentFindings,
+  listDocumentFindings,
+  rejectDocumentFinding,
+  type FindingKind,
+} from '../lib/document-findings'
 import { parseIdentityCheck } from '../lib/claimant-identity-check'
 import { runCaseRecalculation } from '../lib/case-recalculation'
 import {
@@ -205,6 +221,7 @@ import {
   updateMedicalEntry,
   deleteMedicalEntry,
   upsertMedicalStatus,
+  sourceFilesById,
 } from '../lib/medical-record'
 import { isReviewGateEnabled } from '../lib/task-review'
 import { AI_AUTHOR_NAME } from '../lib/ai-author'
@@ -11414,6 +11431,10 @@ const damageItemSelect = {
   isFuture: true,
   source: true,
   notes: true,
+  sourceFileId: true,
+  sourcePage: true,
+  sourceQuote: true,
+  documentedAmount: true,
   createdById: true,
   createdByName: true,
   createdAt: true,
@@ -11435,7 +11456,11 @@ router.get('/leads/:leadId/damages', authMiddleware, async (req: any, res) => {
       }),
       summarizeDamages(auth.lead.assessmentId),
     ])
-    res.json({ items, summary })
+    const sourceFiles = await sourceFilesById(items as any[])
+    res.json({
+      items: (items as any[]).map((i) => ({ ...i, sourceFile: (i.sourceFileId && sourceFiles.get(i.sourceFileId)) || null })),
+      summary,
+    })
   } catch (error: any) {
     logger.error('Failed to load damages ledger', { error: error.message })
     res.status(500).json({ error: 'Failed to load damages ledger' })
@@ -11699,6 +11724,117 @@ router.patch('/leads/:leadId/medical-timeline/status', authMiddleware, firmGate(
   } catch (error: any) {
     logger.error('Failed to update medical status', { error: error.message })
     res.status(500).json({ error: 'Failed to update medical status' })
+  }
+})
+
+// Document findings: visits, charges and wage figures read from the case's
+// records, each with its page and passage, for the attorney to accept or reject.
+async function findingsSharing(assessmentId: string) {
+  const assessment = await prisma.assessment.findUnique({
+    where: { id: assessmentId },
+    include: { evidenceFiles: { select: { category: true, subcategory: true, mimetype: true } }, user: { select: { id: true } } },
+  })
+  return buildMedicalSharingStatus(assessment)
+}
+
+/** Read every qualifying file on the case again, one at a time. */
+async function rescanCaseDocuments(assessmentId: string, fileId?: string) {
+  const files = await prisma.evidenceFile.findMany({
+    where: { assessmentId, ...(fileId ? { id: fileId } : {}), category: { in: [...FINDING_CATEGORIES] } },
+    select: { id: true, filePath: true, mimetype: true },
+    orderBy: { createdAt: 'asc' },
+  })
+  let proposed = 0
+  for (const f of files) {
+    try {
+      const resolved = resolveEvidencePath(f.filePath)
+      if (!(await ensureLocalCopy(resolved).catch(() => false))) continue
+      const pages = await readDocumentPages(resolved, f.mimetype)
+      const result = await generateDocumentFindings(f.id, pages)
+      proposed += result.proposed
+    } catch (error: any) {
+      logger.warn('Document rescan failed for file', { fileId: f.id, error: error?.message })
+    }
+  }
+  logger.info('Document rescan finished', { assessmentId, files: files.length, proposed })
+}
+
+router.get('/leads/:leadId/document-findings', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true })
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const assessmentId = auth.lead.assessmentId
+    const medicalSharing = await findingsSharing(assessmentId)
+    if (!medicalSharing.canShareMedicalData) {
+      return res.json({ findings: [], mode: documentReadingMode(), medicalSharing })
+    }
+    const kinds = String(req.query.kinds || '')
+      .split(',')
+      .filter((k): k is FindingKind => (FINDING_KINDS as string[]).includes(k))
+    const status = typeof req.query.status === 'string' && req.query.status ? req.query.status : undefined
+    const findings = await listDocumentFindings(assessmentId, { status, kinds })
+    res.json({ findings, mode: documentReadingMode(), medicalSharing })
+  } catch (error: any) {
+    logger.error('Failed to load document findings', { error: error.message })
+    res.status(500).json({ error: 'Failed to load document findings' })
+  }
+})
+
+router.post('/leads/:leadId/document-findings/scan', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAuthorizedLead(req, req.params.leadId, { staffCan: 'manage' })
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const assessmentId = auth.lead.assessmentId
+    const medicalSharing = await findingsSharing(assessmentId)
+    if (!medicalSharing.canShareMedicalData) {
+      return res.status(403).json({ error: medicalSharing.message || 'Medical records are not shared on this case yet.' })
+    }
+    const fileId = typeof req.body?.fileId === 'string' ? req.body.fileId : undefined
+    const count = await prisma.evidenceFile.count({
+      where: { assessmentId, ...(fileId ? { id: fileId } : {}), category: { in: [...FINDING_CATEGORIES] } },
+    })
+    void rescanCaseDocuments(assessmentId, fileId)
+    res.status(202).json({ queued: count, mode: documentReadingMode() })
+  } catch (error: any) {
+    logger.error('Failed to start document scan', { error: error.message })
+    res.status(500).json({ error: 'Failed to start document scan' })
+  }
+})
+
+const findingActor = (req: any) => ({
+  actorId: req.user?.id ?? null,
+  actorName: `${req.user?.firstName || ''} ${req.user?.lastName || ''}`.trim() || req.user?.email || null,
+})
+
+router.post('/leads/:leadId/document-findings/:findingId/accept', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAuthorizedLead(req, req.params.leadId, { staffCan: 'manage' })
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const assessmentId = auth.lead.assessmentId
+    const medicalSharing = await findingsSharing(assessmentId)
+    if (!medicalSharing.canShareMedicalData) {
+      return res.status(403).json({ error: medicalSharing.message || 'Medical records are not shared on this case yet.' })
+    }
+    const result = await acceptDocumentFinding(assessmentId, req.params.findingId, req.body || {}, findingActor(req))
+    void runCaseRecalculation(assessmentId, 'document_finding_accepted')
+    res.json(result)
+  } catch (error: any) {
+    if (error instanceof FindingReviewError) return res.status(error.status).json({ error: error.message })
+    logger.error('Failed to accept document finding', { error: error.message })
+    res.status(500).json({ error: 'Failed to accept this finding' })
+  }
+})
+
+router.post('/leads/:leadId/document-findings/:findingId/reject', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAuthorizedLead(req, req.params.leadId, { staffCan: 'manage' })
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const finding = await rejectDocumentFinding(auth.lead.assessmentId, req.params.findingId, findingActor(req))
+    res.json({ finding })
+  } catch (error: any) {
+    if (error instanceof FindingReviewError) return res.status(error.status).json({ error: error.message })
+    logger.error('Failed to reject document finding', { error: error.message })
+    res.status(500).json({ error: 'Failed to reject this finding' })
   }
 })
 

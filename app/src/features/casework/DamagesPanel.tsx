@@ -13,6 +13,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Plus, Trash2, Wallet, HeartPulse, Briefcase, Car, Pencil, X } from 'lucide-react'
 import { getLeadDamages, createLeadDamage, updateLeadDamage, deleteLeadDamage } from '../../lib/api'
 import ConfirmDialog from '../../components/ConfirmDialog'
+import DocumentFindingsPanel, { SourceLink } from './DocumentFindingsPanel'
 
 interface DamageItem {
   id: string
@@ -25,6 +26,10 @@ interface DamageItem {
   isFuture: boolean
   source: string
   notes: string | null
+  sourcePage?: number | null
+  sourceQuote?: string | null
+  documentedAmount?: number | null
+  sourceFile?: { name: string; url: string } | null
 }
 
 interface DamagesSummary {
@@ -263,6 +268,14 @@ export default function DamagesPanel({ leadId }: { leadId: string }) {
         </div>
       </div>
 
+      <DocumentFindingsPanel
+        leadId={leadId}
+        kinds={['medical_charge', 'wage_loss']}
+        title="Charges and wage losses found in the documents"
+        destination="the damages ledger"
+        onAccepted={() => void load()}
+      />
+
       {/* Ledger */}
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-3 flex items-center justify-between">
@@ -379,6 +392,15 @@ export default function DamagesPanel({ leadId }: { leadId: string }) {
                           {it.isFuture ? (
                             <span className="shrink-0 rounded-full bg-sky-50 px-2 py-0.5 text-[11px] font-medium text-sky-600">
                               future
+                            </span>
+                          ) : null}
+                          <SourceLink fileUrl={it.sourceFile?.url} fileName={it.sourceFile?.name} page={it.sourcePage} quote={it.sourceQuote} />
+                          {it.documentedAmount != null && Math.abs(it.documentedAmount - it.amount) >= 0.01 ? (
+                            <span
+                              className="shrink-0 text-[11px] text-slate-400"
+                              title="The figure printed on the source document. The ledger uses your adjusted amount."
+                            >
+                              document: {money(it.documentedAmount)}
                             </span>
                           ) : null}
                         </span>

@@ -2,8 +2,8 @@
  * Demand letter drafting.
  *
  * The letter is assembled deterministically from case data so that every
- * required section is present and every figure — medical specials, wage loss,
- * the demand amount — comes from the record. An optional LLM pass then rewrites
+ * required section is present and every figure â€” medical specials, wage loss,
+ * the demand amount â€” comes from the record. An optional LLM pass then rewrites
  * only the persuasive prose.
  *
  * The split matters: a demand letter is a legal document sent to an adjuster,
@@ -102,6 +102,8 @@ export interface DemandCaseRecord {
       diagnosis?: string | null
       billedAmount?: number | null
       isFuture?: boolean
+      sourceFileId?: string | null
+      sourcePage?: number | null
     }>
     status?: {
       treatmentStatus?: string | null
@@ -118,8 +120,25 @@ export interface DemandCaseRecord {
     provider?: string | null
     incurredAt?: Date | string | null
     billingStatus?: string | null
+    sourceFileId?: string | null
+    sourcePage?: number | null
   }>
   exhibits?: DemandExhibit[]
+}
+
+type SourceCiter = (source: { sourceFileId?: string | null; sourcePage?: number | null }) => string
+
+/**
+ * Pinpoint citation for a line read from a document, e.g. " (Ex. 3, p. 4)".
+ * Empty when the line was typed in, or its file is not enclosed as an exhibit.
+ */
+export function sourceCiter(exhibits: DemandExhibit[] | undefined): SourceCiter {
+  const byFile = new Map((exhibits ?? []).filter((e) => e.fileId).map((e) => [e.fileId as string, e.number]))
+  return ({ sourceFileId, sourcePage }) => {
+    const number = sourceFileId ? byFile.get(sourceFileId) : undefined
+    if (number == null) return ''
+    return ` (Ex. ${number}${sourcePage ? `, p. ${sourcePage}` : ''})`
+  }
 }
 
 /**
@@ -135,7 +154,7 @@ export interface DemandLetterSections {
   intro: string
   accidentSummary: string
   liability: string
-  /** Built from the treatment ledger. Dates and charges — never narrated. */
+  /** Built from the treatment ledger. Dates and charges â€” never narrated. */
   treatmentTimeline: string
   /** Numeric. Never narrated. */
   medicalBills: string
@@ -155,7 +174,7 @@ export interface DemandLetterSections {
   futureMedicalCare?: string
   /** Property damage, out-of-pocket, and other itemized losses. Never narrated. */
   otherDamages?: string
-  /** "See Exhibits 1–3" lines, printed after the section they support. */
+  /** "See Exhibits 1â€“3" lines, printed after the section they support. */
   exhibitRefs?: Partial<Record<ExhibitSection, string>>
   /** The numbered exhibit list printed after the signature. */
   enclosures?: string[]
@@ -231,8 +250,8 @@ function buildTimelineFromFacts(facts: any): string | null {
       ? `Treatment spanned ${first} through ${last} across ${providers.size} provider${providers.size === 1 ? '' : 's'}.`
       : ''
   const lines = dated.map((e: any) => {
-    const parts = [`- ${longDate(e.date)} — ${e.provider}: ${labelizeVisitType(e.type)}`]
-    if (e.diagnosis) parts.push(` — Dx: ${e.diagnosis}`)
+    const parts = [`- ${longDate(e.date)} â€” ${e.provider}: ${labelizeVisitType(e.type)}`]
+    if (e.diagnosis) parts.push(` â€” Dx: ${e.diagnosis}`)
     return parts.join('')
   })
   return ['MEDICAL TREATMENT TIMELINE AND RECORDS', span, '', ...lines].filter((l) => l !== undefined).join('\n')
@@ -250,12 +269,12 @@ export function buildTreatmentTimelineSection(ledger: TreatmentLedger, analysis:
         ? `Treatment spanned ${longDate(ledger.firstVisit)} through ${longDate(ledger.lastVisit)} across ${ledger.providerCount} provider${ledger.providerCount === 1 ? '' : 's'}.`
         : ''
     const lines = ledger.entries.map((e) => {
-      const parts = [`- ${longDate(e.visitDate)} — ${e.providerName}: ${labelizeVisitType(e.visitType)}`]
+      const parts = [`- ${longDate(e.visitDate)} â€” ${e.providerName}: ${labelizeVisitType(e.visitType)}`]
       if (e.diagnosis) {
-        parts.push(` — Dx: ${e.diagnosis}${e.diagnosisCode ? ` (${e.diagnosisCode})` : ''}`)
+        parts.push(` â€” Dx: ${e.diagnosis}${e.diagnosisCode ? ` (${e.diagnosisCode})` : ''}`)
       }
       if (e.billedAmount != null) {
-        parts.push(` — ${money(e.billedAmount)}`)
+        parts.push(` â€” ${money(e.billedAmount)}`)
       }
       return parts.join('')
     })
@@ -277,7 +296,7 @@ export function buildTreatmentTimelineSection(ledger: TreatmentLedger, analysis:
   ].join('\n')
 }
 
-/** "1–3, 5" for a sorted list of exhibit numbers. */
+/** "1â€“3, 5" for a sorted list of exhibit numbers. */
 function formatExhibitNumbers(nums: number[]): string {
   const sorted = [...nums].sort((a, b) => a - b)
   const parts: string[] = []
@@ -311,10 +330,10 @@ const itemDate = (d: Date | string | null | undefined) => {
 
 type DamageItemInput = NonNullable<DemandCaseRecord['damageItems']>[number]
 
-function itemLine(item: DamageItemInput): string {
+function itemLine(item: DamageItemInput, cite: SourceCiter = () => ''): string {
   const who = item.provider && item.provider.trim() ? `${item.provider.trim()} \u2014 ` : ''
   const when = itemDate(item.incurredAt)
-  return `- ${who}${item.description}${when ? ` (${when})` : ''}: ${money(Number(item.amount) || 0)}`
+  return `- ${who}${item.description}${when ? ` (${when})` : ''}: ${money(Number(item.amount) || 0)}${cite(item)}`
 }
 
 const sumItems = (items: DamageItemInput[]) => items.reduce((s, i) => s + (Number(i.amount) || 0), 0)
@@ -323,6 +342,7 @@ const sumItems = (items: DamageItemInput[]) => items.reduce((s, i) => s + (Numbe
 function buildTimelineFromMedicalTab(
   medical: NonNullable<DemandCaseRecord['medical']>,
   clientSubject: string,
+  cite: SourceCiter = () => '',
 ): string | null {
   const past = medical.entries
     .filter((e) => !e.isFuture)
@@ -350,6 +370,7 @@ function buildTimelineFromMedicalTab(
     const parts = [`- ${when}${e.provider}${e.specialty ? ` (${e.specialty})` : ''}: ${labelizeVisitType(e.visitType)}`]
     if (e.diagnosis) parts.push(` \u2014 Dx: ${e.diagnosis}`)
     if (e.billedAmount != null && Number(e.billedAmount) > 0) parts.push(` \u2014 ${money(Number(e.billedAmount))}`)
+    parts.push(cite(e))
     return parts.join('')
   })
 
@@ -434,6 +455,8 @@ export function buildDemandLetterSections({
   const ledger: TreatmentLedger = treatmentLedger ?? EMPTY_TREATMENT_LEDGER
   const record: DemandCaseRecord = caseRecord ?? {}
   const exhibits = record.exhibits ?? []
+  const cite = sourceCiter(exhibits)
+  const line = (i: DamageItemInput) => itemLine(i, cite)
   const items = record.damageItems ?? []
   const itemsIn = (...cats: string[]) => items.filter((i) => cats.includes(i.category))
   const medicalItems = itemsIn('medical')
@@ -495,7 +518,7 @@ export function buildDemandLetterSections({
     (analysis?.liabilityModel?.reasoning && String(analysis.liabilityModel.reasoning).trim()) ||
     `The incident and resulting injuries were directly and proximately caused by the negligence of ${defendantName}. ${defendantName === 'your insured' ? 'Your insured' : defendantName} owed our client a duty of care, breached that duty, and that breach was the direct cause of the injuries and damages described below. Liability is clear.`
   // If comparative fault is on the record, address it head-on rather than letting
-  // the adjuster raise it first — but never volunteer it when it is zero.
+  // the adjuster raise it first â€” but never volunteer it when it is zero.
   const liabilityText =
     comparativePct > 0
       ? `${baseLiabilityText} We anticipate an argument that our client bears some comparative responsibility; the facts do not support a meaningful apportionment, and any such allocation would be modest and does not diminish the substantial value of this claim.`
@@ -551,7 +574,7 @@ export function buildDemandLetterSections({
   }
 
   const clientSubjectCap = voice.clientSubject.charAt(0).toUpperCase() + voice.clientSubject.slice(1)
-  const medicalTabTimeline = record.medical ? buildTimelineFromMedicalTab(record.medical, voice.clientSubject) : null
+  const medicalTabTimeline = record.medical ? buildTimelineFromMedicalTab(record.medical, voice.clientSubject, cite) : null
   const defendantSubject = defendantName === 'your insured' ? 'Your insured' : defendantName
   const liabilityEvidence = record.liability
     ? buildLiabilityEvidence(record.liability, defendantSubject, isPro ? 'my account' : 'our client\u2019s account')
@@ -561,7 +584,7 @@ export function buildDemandLetterSections({
     ? [
         'TOTAL MEDICAL BILLS',
         `${isPro ? 'I have' : 'Our client has'} incurred the following medical charges as a result of this incident:`,
-        ...medicalItems.map(itemLine),
+        ...medicalItems.map(line),
         `Total medical charges to date: ${money(medicalTotal)}. Itemized billing statements are enclosed.`,
       ].join('\n')
     : [
@@ -576,9 +599,9 @@ export function buildDemandLetterSections({
     lostWages > 0
       ? `${clientSubjectCap} incurred ${money(lostWages)} in lost earnings as a result of this incident and the resulting treatment and recovery. Wage-loss documentation (employer verification and/or pay records) is available upon request and incorporated herein by reference.`
       : `${clientSubjectCap} experienced lost time from work as a result of this incident. Supporting wage-loss documentation will be provided.`,
-    ...(wageItems.length > 1 || (wageItems.length === 1 && wageItems[0].provider) ? wageItems.map(itemLine) : []),
+    ...(wageItems.length > 1 || (wageItems.length === 1 && wageItems[0].provider) ? wageItems.map(line) : []),
     ...(capacityItems.length
-      ? [`${isPro ? 'My' : 'Our client\u2019s'} future earning capacity has also been diminished by ${money(earningCapacity)}:`, ...capacityItems.map(itemLine)]
+      ? [`${isPro ? 'My' : 'Our client\u2019s'} future earning capacity has also been diminished by ${money(earningCapacity)}:`, ...capacityItems.map(line)]
       : []),
   ].join('\n')
 
@@ -593,7 +616,7 @@ export function buildDemandLetterSections({
             (e) =>
               `- ${e.provider}${e.specialty ? ` (${e.specialty})` : ''}: ${labelizeVisitType(e.visitType)}${e.diagnosis ? ` \u2014 ${e.diagnosis}` : ''}${e.billedAmount ? ` \u2014 ${money(Number(e.billedAmount))}` : ''}`,
           ),
-          ...futureMedicalItems.map(itemLine),
+          ...futureMedicalItems.map(line),
           futureMedical > 0 ? `Projected future medical expenses: ${money(futureMedical)}.` : null,
         ]
           .filter(Boolean)
@@ -605,7 +628,7 @@ export function buildDemandLetterSections({
         'OTHER ECONOMIC DAMAGES',
         ...Object.keys(OTHER_DAMAGE_LABELS).flatMap((cat) => {
           const inCat = otherItems.filter((i) => (OTHER_DAMAGE_LABELS[i.category] ? i.category : 'other') === cat)
-          return inCat.length ? [`${OTHER_DAMAGE_LABELS[cat]}:`, ...inCat.map(itemLine)] : []
+          return inCat.length ? [`${OTHER_DAMAGE_LABELS[cat]}:`, ...inCat.map(line)] : []
         }),
       ].join('\n')
     : undefined
@@ -774,11 +797,11 @@ export function generateDemandLetter(input: BuildDemandLetterInput): string {
  * asked to write more persuasively will reach for a figure. It catches three
  * shapes:
  *
- *   - "$40,000"                      → an explicit amount
- *   - "40,000" or "12400"            → a bare figure; four digits or comma
+ *   - "$40,000"                      â†’ an explicit amount
+ *   - "40,000" or "12400"            â†’ a bare figure; four digits or comma
  *                                      grouping, so "30 days" and "3 visits"
  *                                      are not swept up
- *   - "thousand", "dollars", "figure" → an amount written as words, which no
+ *   - "thousand", "dollars", "figure" â†’ an amount written as words, which no
  *                                      deterministic section ever produces, so
  *                                      any of these is by definition new
  */
@@ -879,7 +902,7 @@ export async function narrateDemandLetter(
   context: DemandNarrationContext,
 ): Promise<NarratedDemandLetter> {
   if (!openai) return { sections, source: 'deterministic' }
-  // Demand narration is inherently clinical — require LLM_ALLOW_PHI=true (BAA).
+  // Demand narration is inherently clinical â€” require LLM_ALLOW_PHI=true (BAA).
   if (!llmAllowPhi()) return { sections, source: 'deterministic' }
 
   // Figures anywhere in the deterministic draft are fair game to restate; any

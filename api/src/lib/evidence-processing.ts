@@ -16,6 +16,7 @@ import {
   type VisionRelevanceResult,
 } from './evidence-vision'
 import { checkDocumentIdentity } from './claimant-identity-check'
+import { FINDING_CATEGORIES, generateDocumentFindings } from './document-findings'
 
 type StructuredMedicalEvent = {
   date: string | null
@@ -92,7 +93,7 @@ function findDateStrings(text: string): string[] {
 }
 
 /** Stored paths may be relative to API cwd (upload handlers often persist relative paths). */
-function resolveEvidencePath(storedPath: string): string {
+export function resolveEvidencePath(storedPath: string): string {
   if (!storedPath) return storedPath
   if (path.isAbsolute(storedPath)) return storedPath
   return path.resolve(process.cwd(), storedPath)
@@ -174,12 +175,34 @@ async function performAwsTextractOCR(filePath: string): Promise<string> {
   }
 }
 
-async function performConfiguredOCR(filePath: string): Promise<string> {
+export async function performConfiguredOCR(filePath: string): Promise<string> {
   const provider = (process.env.OCR_PROVIDER || 'tesseract').toLowerCase()
   if (provider === 'aws_textract' || provider === 'textract') {
     return performAwsTextractOCR(filePath)
   }
   return performOCR(filePath)
+}
+
+/** OCR one rendered page image, using Textract wherever the PDF path would. */
+export async function ocrImageBytes(bytes: Buffer, contextLabel: string): Promise<string> {
+  const provider = (process.env.OCR_PROVIDER || 'tesseract').toLowerCase()
+  const textract =
+    provider === 'aws_textract' || provider === 'textract' || process.env.PDF_TEXTRACT_FALLBACK !== 'false'
+  if (textract) {
+    const text = await textractDetectDocumentBytes(bytes, contextLabel)
+    if (text) return text
+  }
+  const tmpPath = path.join(os.tmpdir(), `page_${Date.now()}_${Math.random().toString(36).slice(2)}.png`)
+  writeFileSync(tmpPath, bytes)
+  try {
+    return await performOCR(tmpPath)
+  } finally {
+    try {
+      unlinkSync(tmpPath)
+    } catch {
+      /* best-effort temp cleanup */
+    }
+  }
 }
 
 /** Minimum non-whitespace chars before we skip raster OCR for PDFs */
@@ -293,7 +316,7 @@ async function extractPdfCombined(absPath: string, rasterAllowed: boolean): Prom
 const DOCX_MIME =
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
 
-async function extractDocxPlainText(filePath: string): Promise<string> {
+export async function extractDocxPlainText(filePath: string): Promise<string> {
   try {
     const result = await mammoth.extractRawText({ path: filePath })
     return (result.value || '').trim()
@@ -306,7 +329,7 @@ async function extractDocxPlainText(filePath: string): Promise<string> {
   }
 }
 
-function extractPlaintextFile(filePath: string): string {
+export function extractPlaintextFile(filePath: string): string {
   try {
     return readFileSync(filePath, 'utf8').trim()
   } catch (error: any) {
@@ -1032,6 +1055,11 @@ export async function processEvidenceFileForExtraction(fileId: string) {
 
     if (evidenceFile.assessmentId) {
       void runCaseRecalculation(evidenceFile.assessmentId, 'evidence_processing')
+      if (FINDING_CATEGORIES.has(nextCategory || evidenceFile.category) && identityCheck?.verdict !== 'mismatch') {
+        void readDocumentPages(resolvedPath, mime)
+          .then((pages) => generateDocumentFindings(fileId, pages))
+          .catch((error: any) => logger.warn('Document findings failed', { fileId, error: error?.message || String(error) }))
+      }
     }
 
     return extractedData
@@ -1052,6 +1080,74 @@ export async function processEvidenceFileForExtraction(fileId: string) {
     ])
     throw error
   }
+}
+
+export type DocumentPage = { page: number | null; text: string }
+
+/** Past this, a scanned record's remaining pages are left unread rather than OCR'd. */
+const MAX_OCR_PAGES = 60
+const MAX_TEXT_PAGES = 400
+const PAGE_TEXT_MIN_CHARS = 40
+
+/**
+ * A document's text page by page, so anything read from it can cite the page.
+ *
+ * `extractPdfCombined` returns one string and only ever OCRs page 1 of a scan,
+ * which is enough to classify a file but not to read a 40-page record. Here
+ * every page with no embedded text is rendered and OCR'd on its own. Formats
+ * without pages (DOCX, plain text, a photo) come back as one page numbered null
+ * for text, or 1 for an image.
+ */
+export async function readDocumentPages(resolvedPath: string, mimetype: string): Promise<DocumentPage[]> {
+  const rasterAllowed = process.env.ENABLE_OCR !== 'false'
+  const strength = (t: string) => (t || '').replace(/\s/g, '').length
+  if (mimetype === 'application/pdf' || /\.pdf$/i.test(resolvedPath)) {
+    let parser: PDFParseInstance | null = null
+    try {
+      const PDFParse = await loadPDFParse()
+      parser = new PDFParse({ data: readFileSync(resolvedPath) })
+      const result = await parser.getText({ last: MAX_TEXT_PAGES })
+      const pages: DocumentPage[] = (result.pages || []).map((p) => ({
+        page: p.num,
+        text: String(p.text || '').replace(/\u0000/g, ' ').trim(),
+      }))
+      if (rasterAllowed) {
+        const thin = pages.filter((p) => strength(p.text) < PAGE_TEXT_MIN_CHARS).slice(0, MAX_OCR_PAGES)
+        for (const p of thin) {
+          const shot = await parser.getScreenshot({ scale: 1.75, partial: [p.page as number] })
+          const raw = shot.pages?.[0]?.data
+          if (!raw) continue
+          const buf = Buffer.isBuffer(raw) ? raw : Buffer.from(raw as Uint8Array)
+          const text = await ocrImageBytes(buf, `${resolvedPath}#page-${p.page}`)
+          if (strength(text) > strength(p.text)) p.text = text
+        }
+      }
+      return pages.filter((p) => strength(p.text) > 0)
+    } catch (error: any) {
+      logger.warn('Page-by-page PDF read failed', { error: error?.message || String(error), resolvedPath })
+      return []
+    } finally {
+      try {
+        await parser?.destroy?.()
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  if (mimetype.startsWith('image/')) {
+    if (!rasterAllowed) return []
+    const text = await performConfiguredOCR(resolvedPath)
+    return text ? [{ page: 1, text }] : []
+  }
+  if (mimetype === DOCX_MIME) {
+    const text = await extractDocxPlainText(resolvedPath)
+    return text ? [{ page: null, text }] : []
+  }
+  if (mimetype === 'text/plain') {
+    const text = extractPlaintextFile(resolvedPath)
+    return text ? [{ page: null, text }] : []
+  }
+  return []
 }
 
 /** Debug helper: run each PDF extraction stage without Prisma (CLI / support). */

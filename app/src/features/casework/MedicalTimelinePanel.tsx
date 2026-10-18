@@ -23,6 +23,7 @@ import {
 } from '../../lib/api'
 import ConfirmDialog from '../../components/ConfirmDialog'
 import { useFirmAccess } from '../../hooks/useFirmAccess'
+import DocumentFindingsPanel, { SourceLink } from './DocumentFindingsPanel'
 
 interface Entry {
   id: string
@@ -36,6 +37,11 @@ interface Entry {
   billedAmount: number | null
   isFuture: boolean
   notes: string | null
+  diagnosisCodes?: string[]
+  procedureCodes?: string[]
+  sourcePage?: number | null
+  sourceQuote?: string | null
+  sourceFile?: { name: string; url: string } | null
 }
 
 interface Timeline {
@@ -468,6 +474,15 @@ export default function MedicalTimelinePanel({ leadId }: { leadId: string }) {
         </div>
       )}
 
+      <DocumentFindingsPanel
+        leadId={leadId}
+        kinds={['treatment_visit']}
+        title="Visits found in the records"
+        destination="the treatment timeline"
+        canEdit={canEdit}
+        onAccepted={() => void load()}
+      />
+
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-3 flex items-center justify-between">
           <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
@@ -589,6 +604,16 @@ export default function MedicalTimelinePanel({ leadId }: { leadId: string }) {
                       {e.diagnosis ? ` · ${e.diagnosis}` : ''}
                       {e.billedAmount ? ` · ${money(e.billedAmount)}` : ''}
                     </div>
+                    {e.sourceFile || e.diagnosisCodes?.length || e.procedureCodes?.length ? (
+                      <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                        {[...(e.diagnosisCodes || []), ...(e.procedureCodes || [])].map((code) => (
+                          <span key={code} className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-600">
+                            {code}
+                          </span>
+                        ))}
+                        <SourceLink fileUrl={e.sourceFile?.url} fileName={e.sourceFile?.name} page={e.sourcePage} quote={e.sourceQuote} />
+                      </div>
+                    ) : null}
                   </div>
                   <VisitActions entry={e} />
                 </div>
