@@ -78,14 +78,15 @@ function SectionActions({
   onSave: () => void
   onCancel: () => void
 }): ReactNode {
-  if (!dirty && !saving) return null
   return (
     <div className="mt-4 flex items-center justify-end gap-2 border-t border-slate-100 pt-3">
-      <span className="mr-auto text-xs text-amber-700">{saving ? 'Saving…' : 'Unsaved changes'}</span>
+      <span className={`mr-auto text-xs ${dirty || saving ? 'text-amber-700' : 'text-slate-400'}`}>
+        {saving ? 'Saving…' : dirty ? 'Unsaved changes' : 'All changes saved'}
+      </span>
       <button
         type="button"
         onClick={onCancel}
-        disabled={saving}
+        disabled={saving || !dirty}
         className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
       >
         Cancel
@@ -93,7 +94,7 @@ function SectionActions({
       <button
         type="button"
         onClick={onSave}
-        disabled={saving}
+        disabled={saving || !dirty}
         className="rounded-lg bg-brand-600 px-3.5 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-700 disabled:opacity-50"
       >
         Save
