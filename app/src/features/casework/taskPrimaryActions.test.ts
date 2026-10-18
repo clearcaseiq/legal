@@ -47,6 +47,19 @@ describe('resolveTaskPrimaryAction', () => {
     },
   )
 
+  it.each([
+    ['Review security footage request', 'evidence'],
+    ['Analyze security footage', 'general'],
+    ['Request dashcam video from witness', 'evidence'],
+    ['Obtain CCTV from the store', undefined],
+    ['Send surveillance preservation letter', 'general'],
+  ])('opens Liability for "%s"', (title, taskType) => {
+    const action = resolveTaskPrimaryAction({ title, taskType, workflowPhase: 'Investigation' })
+    expect(action?.kind).toBe('open_liability')
+    expect(sectionForTaskAction(action!.kind)).toBe('liability')
+    expect(resolveTaskHelpTooltip({ title })).toMatch(/Liability Evidence/)
+  })
+
   it('keeps the defendant-carrier task on Insurance', () => {
     expect(resolveTaskPrimaryAction({ title: 'Identify defendant and insurance carrier' })?.kind).toBe('open_insurance')
   })

@@ -127,6 +127,10 @@ function specificTaskHelp(task: TaskLike, title: string): string | null {
     return 'Identify health-insurer, Medicare/Medicaid, and provider liens. They are paid from the settlement, so they must be known and negotiated before disbursement.'
   }
 
+  if (FOOTAGE_RE.test(title)) {
+    return 'Surveillance, dashcam, or body-cam video can show exactly how the incident happened. Track the request and record what the footage shows as a Video item under Liability Evidence; businesses often overwrite footage within days, so act quickly.'
+  }
+
   if (/gather photos|witness statements|scene evidence/i.test(title)) {
     return 'Collect scene and damage photos, witness statements, and any video. These prove fault and are referenced in the demand’s liability section.'
   }
@@ -286,6 +290,8 @@ const DAMAGES_RE =
 const DEFENDANT_IDENTITY_RE =
   /\bdefendants?('s?)? (identification|identity|identities|names?)\b|\bidentify (the |all )?(defendants?|at[- ]fault (party|parties|driver))\b(?! and (their |the )?insurance carrier)/i
 
+const FOOTAGE_RE = /\b(footage|surveillance|cctv|dash ?cams?|body ?cams?|security (camera|video)|video (evidence|recording))\b/i
+
 function titleSectionAction(task: TaskLike): TaskPrimaryAction | null {
   const title = String(task.title || '')
   const type = String(task.taskType || '').toLowerCase()
@@ -295,6 +301,10 @@ function titleSectionAction(task: TaskLike): TaskPrimaryAction | null {
   // keywords, which a description naming the defendant's carrier would hit.
   if (DEFENDANT_IDENTITY_RE.test(title)) {
     return openSection('open_liability', 'Open', 'Open Liability to add or confirm the defendants')
+  }
+  // Video is tracked as a Liability evidence item (requested → received → reviewed).
+  if (FOOTAGE_RE.test(title)) {
+    return openSection('open_liability', 'Open', 'Open Liability to track and review the video evidence')
   }
 
   if (type === 'medical' || MEDICAL_RE.test(hay)) {
