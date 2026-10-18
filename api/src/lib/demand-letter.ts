@@ -868,9 +868,9 @@ function buildNarrationPrompt(sections: DemandLetterSections, context: DemandNar
 CASE TYPE: ${context.claimType || 'Personal injury'}
 JURISDICTION: ${context.venue || 'Not stated'}
 INJURIES: ${context.injuries.length ? context.injuries.join(', ') : 'Not stated'}
-${context.extraGuidance ? `\nADDITIONAL INSTRUCTIONS FROM THE ATTORNEY:\n${context.extraGuidance}\n` : ''}
-Here are four sections of the draft. Rewrite each one so it reads like a confident,
-professional demand written by an experienced plaintiff's attorney.
+${context.houseStyle ? `\nTHE FIRM'S HOUSE STYLE:\n${context.houseStyle}\n` : ''}${context.extraGuidance ? `\nADDITIONAL INSTRUCTIONS FROM THE ATTORNEY:\n${context.extraGuidance}\n` : ''}
+Here are four sections of the draft. Rewrite each one so it reads like a professional
+demand written by an experienced plaintiff's attorney. ${context.tone || "Write with the confidence of an experienced plaintiff's attorney: direct, professional and persuasive."}
 
 [intro]
 ${sections.intro}
@@ -907,6 +907,10 @@ export interface DemandNarrationContext {
   injuries: string[]
   /** Free-text steer from the person asking for the draft. */
   extraGuidance?: string | null
+  /** The voice the firm's demand template asks for. */
+  tone?: string | null
+  /** The firm's standing instructions for every demand. */
+  houseStyle?: string | null
 }
 
 /**

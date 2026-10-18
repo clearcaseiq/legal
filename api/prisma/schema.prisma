@@ -1500,6 +1500,7 @@ model LawFirm {
   cmsConnections  CmsConnection[]
   bookingLinks    FirmBookingLink[]
   templates       FirmTemplate[]
+  demandStyles    DemandStyle[]
   workflows       FirmWorkflow[]
   billingRates    BillingRate[]
   timeEntries     TimeEntry[]
@@ -1878,6 +1879,9 @@ model DemandLetter {
 
   // 'super' for a ClearCaseIQ Super Demand™ package; null for the standard letter.
   template String?
+  // The firm demand template (DemandStyle.id) the package was drafted with, so a
+  // redraft keeps the firm's letterhead, sections and tone. Null = platform default.
+  demandStyleId String?
   // Super Demand approval gate: JSON { version, items: { key: { checked, byName, at } } }.
   // Signs one version; any later edit leaves it stale and finalize refuses.
   approvalChecklist String? @db.Text
@@ -2435,6 +2439,29 @@ model FirmBookingLinkMember {
   @@unique([linkId, attorneyId])
   @@index([attorneyId])
   @@map("firm_booking_link_members")
+}
+
+// How a firm's demand packages look: letterhead, which sections appear and in
+// what order, headings, tone, response window and the firm's own opening and
+// closing paragraphs. `config` is JSON, normalized by lib/demand-style. The
+// figures and facts still come from the case record; a style only frames them.
+model DemandStyle {
+  id        String  @id @default(cuid())
+  lawFirmId String
+  lawFirm   LawFirm @relation(fields: [lawFirmId], references: [id], onDelete: Cascade)
+
+  name      String
+  // The one new demands use unless another is picked. At most one per firm.
+  isDefault Boolean @default(false)
+  config    String  @db.Text
+
+  createdById   String?
+  updatedByName String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([lawFirmId])
+  @@map("demand_styles")
 }
 
 // Firm-level reusable document templates (retainer, HIPAA, intake package,

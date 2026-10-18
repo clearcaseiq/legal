@@ -25,6 +25,14 @@ import {
   type ExhibitSection,
   type TreatmentLedger,
 } from './demand-letter'
+import {
+  DEFAULT_RESOLVED_STYLE,
+  SHOWN_WHEN_CLAIMED,
+  fillMergeTokens,
+  romanNumeral,
+  type DemandSectionKey,
+  type ResolvedDemandStyle,
+} from './demand-style'
 
 export const SUPER_DEMAND_TEMPLATE = 'super'
 
@@ -113,8 +121,37 @@ export interface SuperDemandContext {
   valuation?: SuperDemandValuation | null
   viability?: { overall?: number; liability?: number; causation?: number; damages?: number } | null
   currentOffer?: number | null
-  /** Days the carrier has to respond. */
+  /** Days the carrier has to respond. Overrides the style's response window. */
   responseDays?: number
+  /** The firm's demand template. Absent = the platform default package. */
+  style?: ResolvedDemandStyle
+}
+
+/** The sections this letter carries, in order, with their numbered headings. */
+export function letterSections(ctx: SuperDemandContext): Array<{ key: DemandSectionKey; heading: string; label: string }> {
+  const config = (ctx.style ?? DEFAULT_RESOLVED_STYLE).config
+  const totals = totalsOf(ctx)
+  const claimed: Partial<Record<DemandSectionKey, boolean>> = {
+    future_medical: totals.futureMedical > 0,
+    wages: totals.lostWages > 0 || totals.earningCapacity > 0,
+    other_economic: totals.otherEconomic > 0,
+  }
+  const shown = config.sections.filter((s) => s.include || (SHOWN_WHEN_CLAIMED.includes(s.key) && claimed[s.key]))
+  return shown.map((s, i) => ({
+    key: s.key,
+    heading: `${romanNumeral(i + 1)}. ${s.heading.toUpperCase()}`,
+    label: `${romanNumeral(i + 1)}. ${s.heading}`,
+  }))
+}
+
+function titleBlock(style: ResolvedDemandStyle): string[] {
+  const config = style.config
+  const lines =
+    config.letterhead === 'firm' && style.letterhead
+      ? [style.letterhead.name.toUpperCase(), style.letterhead.address, style.letterhead.phone, config.subtitle || 'Settlement Demand']
+      : [SUPER_DEMAND_TITLE, config.subtitle || SUPER_DEMAND_SUBTITLE]
+  if (config.confidentiality) lines.push(SUPER_DEMAND_CONFIDENTIAL)
+  return lines.filter((l): l is string => Boolean(l))
 }
 
 function totalsOf(ctx: SuperDemandContext): DemandTotals {
@@ -211,8 +248,21 @@ export function renderSuperDemand(ctx: SuperDemandContext): string {
   const visits = treatmentVisits(ctx)
   const liability = record.liability
   const comparative = liability?.comparativeNegPct != null ? Math.round(Number(liability.comparativeNegPct)) : 0
-  const responseDays = ctx.responseDays ?? 30
+  const style = ctx.style ?? DEFAULT_RESOLVED_STYLE
+  const responseDays = ctx.responseDays ?? style.config.responseDays
   const withRef = (body: string, ref?: string) => [body, ref].filter((p) => p && p.trim()).join('\n\n')
+  const merge = (template: string | null) =>
+    template
+      ? fillMergeTokens(template, {
+          client_name: record.clientName,
+          carrier: record.claim?.carrierName,
+          claim_number: record.claim?.claimNumber,
+          date_of_loss: incidentDate,
+          firm_name: record.attorney?.firmName || style.letterhead?.name,
+          attorney_name: record.attorney?.name,
+          response_days: String(responseDays),
+        })
+      : ''
 
   const claimLines = [
     record.clientName ? `Claimant: ${record.clientName}` : null,
@@ -255,63 +305,52 @@ export function renderSuperDemand(ctx: SuperDemandContext): string {
     ? groups.flatMap((g, i) => [...(i > 0 ? [''] : []), g.group, ...g.lines])
     : ['No exhibits are enclosed with this demand. Records are available upon request.']
 
-  const sectionsText: Array<[string, string]> = [
-    [SUPER_DEMAND_SECTION_HEADINGS[0], s.intro],
-    [SUPER_DEMAND_SECTION_HEADINGS[1], claimLines.join('\n')],
-    [SUPER_DEMAND_SECTION_HEADINGS[2], executive.join('\n')],
-    [SUPER_DEMAND_SECTION_HEADINGS[3], s.accidentSummary],
-    [SUPER_DEMAND_SECTION_HEADINGS[4], s.liability],
-    [
-      SUPER_DEMAND_SECTION_HEADINGS[5],
-      withRef(s.liabilityEvidence || 'The liability evidence is summarized in the Statement of Facts above.', refs.liability),
-    ],
-    [
-      SUPER_DEMAND_SECTION_HEADINGS[6],
-      withRef(injuryLines.length ? injuryLines.join('\n') : 'Our client sustained injuries requiring medical care, as documented in the enclosed records.', refs.injuries),
-    ],
-    [SUPER_DEMAND_SECTION_HEADINGS[7], withRef(sectionBody(s.treatmentTimeline), refs.treatment)],
-    [SUPER_DEMAND_SECTION_HEADINGS[8], withRef(sectionBody(s.medicalBills), refs.bills)],
-    [
-      SUPER_DEMAND_SECTION_HEADINGS[9],
-      sectionBody(s.futureMedicalCare) || 'No future medical care is claimed at this time. Our client reserves the right to supplement this demand should further treatment be recommended.',
-    ],
-    [
-      SUPER_DEMAND_SECTION_HEADINGS[10],
+  const bodies: Record<DemandSectionKey, string> = {
+    intro: withRef(s.intro, merge(style.config.openingText)),
+    claim_info: claimLines.join('\n'),
+    executive_summary: executive.join('\n'),
+    facts: s.accidentSummary,
+    liability: s.liability,
+    liability_evidence: withRef(
+      s.liabilityEvidence || 'The liability evidence is summarized in the Statement of Facts above.',
+      refs.liability,
+    ),
+    injuries: withRef(
+      injuryLines.length ? injuryLines.join('\n') : 'Our client sustained injuries requiring medical care, as documented in the enclosed records.',
+      refs.injuries,
+    ),
+    chronology: withRef(sectionBody(s.treatmentTimeline), refs.treatment),
+    specials: withRef(sectionBody(s.medicalBills), refs.bills),
+    future_medical:
+      sectionBody(s.futureMedicalCare) ||
+      'No future medical care is claimed at this time. Our client reserves the right to supplement this demand should further treatment be recommended.',
+    wages:
       totals.lostWages > 0 || totals.earningCapacity > 0
         ? withRef(sectionBody(s.lostWages), refs.wages)
         : 'No lost wages or loss of earning capacity are claimed in this demand at this time.',
-    ],
-    [
-      SUPER_DEMAND_SECTION_HEADINGS[11],
-      withRef(sectionBody(s.otherDamages) || 'No other economic damages are claimed in this demand.', refs.damages),
-    ],
-    [SUPER_DEMAND_SECTION_HEADINGS[12], s.painAndSuffering],
-    [
-      SUPER_DEMAND_SECTION_HEADINGS[13],
-      [
-        ...s.damagesSummary.filter((l) => !(totals.lostWages === 0 && /^- Lost wages: To be documented$/.test(l))),
-        '',
-        `Total damages: ${money(Math.max(totals.demand, totals.specials))}`,
-      ].join('\n'),
-    ],
-    [SUPER_DEMAND_SECTION_HEADINGS[14], s.demandParagraph],
-    [
-      SUPER_DEMAND_SECTION_HEADINGS[15],
-      [
-        s.goodFaithParagraph.replace('thirty (30) days', `${responseDays === 30 ? 'thirty (30)' : responseDays} days`),
-        'Please include with your response a copy of the declarations page for every policy that may apply to this loss.',
-        'Nothing in this letter waives any claim, right, or remedy, all of which are expressly reserved. Any lien or reimbursement claim will be resolved from the settlement proceeds as required by law.',
-        '',
-        s.closing,
-      ].join('\n\n'),
-    ],
-    [SUPER_DEMAND_SECTION_HEADINGS[16], enclosureLines.join('\n')],
-  ]
+    other_economic: withRef(sectionBody(s.otherDamages) || 'No other economic damages are claimed in this demand.', refs.damages),
+    non_economic: s.painAndSuffering,
+    damages_summary: [
+      ...s.damagesSummary.filter((l) => !(totals.lostWages === 0 && /^- Lost wages: To be documented$/.test(l))),
+      '',
+      `Total damages: ${money(Math.max(totals.demand, totals.specials))}`,
+    ].join('\n'),
+    settlement_demand: s.demandParagraph,
+    reservation: [
+      s.goodFaithParagraph.replace('thirty (30) days', `${responseDays === 30 ? 'thirty (30)' : responseDays} days`),
+      'Please include with your response a copy of the declarations page for every policy that may apply to this loss.',
+      'Nothing in this letter waives any claim, right, or remedy, all of which are expressly reserved. Any lien or reimbursement claim will be resolved from the settlement proceeds as required by law.',
+      merge(style.config.closingText),
+      s.closing,
+    ]
+      .filter(Boolean)
+      .join('\n\n'),
+    enclosures: enclosureLines.join('\n'),
+  }
+  const sectionsText: Array<[string, string]> = letterSections(ctx).map((sec) => [sec.heading, bodies[sec.key]])
 
   return [
-    SUPER_DEMAND_TITLE,
-    SUPER_DEMAND_SUBTITLE,
-    SUPER_DEMAND_CONFIDENTIAL,
+    ...titleBlock(style),
     '',
     ...s.recipientBlock,
     '',
@@ -751,15 +790,18 @@ function buildStatementConfidence(ctx: SuperDemandContext): StatementConfidence[
   const liability = record.liability
   const totals = totalsOf(ctx)
   const out: StatementConfidence[] = []
-  const add = (key: string, section: string, statement: string, level: ConfidenceLevel, basis: string) =>
-    out.push({ key, section, statement, level, basis })
+  const sec = Object.fromEntries(letterSections(ctx).map((x) => [x.key, x.label])) as Partial<Record<DemandSectionKey, string>>
+  // A statement in a section the firm's template leaves out is not in the letter to grade.
+  const add = (key: string, section: string | undefined, statement: string, level: ConfidenceLevel, basis: string) => {
+    if (section) out.push({ key, section, statement, level, basis })
+  }
 
   // Green: a document backs it. Yellow: the attorney entered it on the case.
   // Orange: only the claimant said it. Red: nothing in the record supports it.
   const narrative = String(ctx.facts?.incident?.narrative || '').trim()
   add(
     'facts',
-    'IV. Statement of Facts',
+    sec.facts,
     'How the incident happened',
     exhibitsIn(ctx, 'liability') > 0 ? 'green' : liability?.faultTheory ? 'yellow' : narrative ? 'orange' : 'red',
     exhibitsIn(ctx, 'liability') > 0
@@ -772,7 +814,7 @@ function buildStatementConfidence(ctx: SuperDemandContext): StatementConfidence[
   )
   add(
     'liability',
-    'V. Liability Analysis',
+    sec.liability,
     'Your insured was at fault',
     liability?.faultPosture === 'admitted' || liability?.policeReportStatus === 'received'
       ? 'green'
@@ -792,20 +834,20 @@ function buildStatementConfidence(ctx: SuperDemandContext): StatementConfidence[
   if (liability?.policeReportStatus) {
     add(
       'police_report',
-      'VI. Evidence Supporting Liability',
+      sec.liability_evidence,
       'The police report documents the incident',
       liability.policeReportStatus === 'received' ? (exhibitsIn(ctx, 'liability') > 0 ? 'green' : 'yellow') : 'red',
       liability.policeReportStatus === 'received' ? 'Report status: received' : `Report status: ${liability.policeReportStatus}`,
     )
   }
   if (liability?.witnessCount || liability?.hasWitnesses) {
-    add('witnesses', 'VI. Evidence Supporting Liability', 'Independent witnesses corroborate the account', exhibitsIn(ctx, 'liability') > 0 ? 'green' : 'yellow', 'Witnesses recorded on the liability tab')
+    add('witnesses', sec.liability_evidence, 'Independent witnesses corroborate the account', exhibitsIn(ctx, 'liability') > 0 ? 'green' : 'yellow', 'Witnesses recorded on the liability tab')
   }
   const diagnoses = diagnosesOf(ctx)
   const injuries = describeInjuries(ctx.facts)
   add(
     'injuries',
-    'VII. Injuries and Diagnoses',
+    sec.injuries,
     'The injuries and diagnoses listed',
     diagnoses.length && exhibitsIn(ctx, 'treatment') > 0 ? 'green' : diagnoses.length ? 'yellow' : injuries.length ? 'orange' : 'red',
     diagnoses.length ? `${diagnoses.length} provider diagnosis(es)${exhibitsIn(ctx, 'treatment') ? ' with records' : ', no record exhibits'}` : injuries.length ? 'Claimant-reported injuries only' : 'No injuries recorded',
@@ -822,7 +864,7 @@ function buildStatementConfidence(ctx: SuperDemandContext): StatementConfidence[
     sourced === total ? `every ${noun} cites a record page` : `${sourced} of ${total} ${noun}s cite a record page`
   add(
     'chronology',
-    'VIII. Medical Treatment Chronology',
+    sec.chronology,
     'The treatment dates and providers',
     tabVisits.length
       ? sourcedVisits === tabVisits.length
@@ -841,7 +883,7 @@ function buildStatementConfidence(ctx: SuperDemandContext): StatementConfidence[
   )
   add(
     'specials',
-    'IX. Medical Specials',
+    sec.specials,
     `Medical charges of ${money(totals.medical)}`,
     totals.medical > 0 && chargeItems.length
       ? sourcedCharges === chargeItems.length
@@ -863,7 +905,7 @@ function buildStatementConfidence(ctx: SuperDemandContext): StatementConfidence[
   if (totals.futureMedical > 0 || record.medical?.status?.futureTreatment) {
     add(
       'future_medical',
-      'X. Future Medical Care',
+      sec.future_medical,
       totals.futureMedical > 0 ? `Future care of ${money(totals.futureMedical)}` : 'Recommended future care',
       record.medical?.status?.futureTreatment && totals.futureMedical > 0 ? 'yellow' : 'orange',
       record.medical?.status?.futureTreatment ? 'Provider recommendation recorded' : 'Projection without a recorded recommendation',
@@ -872,19 +914,19 @@ function buildStatementConfidence(ctx: SuperDemandContext): StatementConfidence[
   if (totals.lostWages > 0) {
     add(
       'wages',
-      'XI. Lost Wages',
+      sec.wages,
       `Lost wages of ${money(totals.lostWages)}`,
       exhibitsIn(ctx, 'wages') > 0 ? 'green' : (record.damageItems ?? []).some((i) => i.category === 'lost_wages') ? 'yellow' : 'orange',
       exhibitsIn(ctx, 'wages') > 0 ? 'Wage documentation enclosed' : 'No wage documentation enclosed',
     )
   }
   if (totals.otherEconomic > 0) {
-    add('other_damages', 'XII. Other Economic Damages', `Other economic losses of ${money(totals.otherEconomic)}`, exhibitsIn(ctx, 'damages') > 0 ? 'green' : 'yellow', exhibitsIn(ctx, 'damages') > 0 ? 'Supporting exhibits enclosed' : 'Entered amounts only')
+    add('other_damages', sec.other_economic, `Other economic losses of ${money(totals.otherEconomic)}`, exhibitsIn(ctx, 'damages') > 0 ? 'green' : 'yellow', exhibitsIn(ctx, 'damages') > 0 ? 'Supporting exhibits enclosed' : 'Entered amounts only')
   }
   const status = record.medical?.status
   add(
     'non_economic',
-    'XIII. Non-Economic Damages',
+    sec.non_economic,
     'Pain, suffering and loss of enjoyment',
     (status?.symptoms ?? []).length && visits.length ? 'yellow' : visits.length ? 'orange' : 'red',
     (status?.symptoms ?? []).length ? 'Ongoing symptoms recorded' : 'General description; add specifics from the client',
@@ -892,7 +934,7 @@ function buildStatementConfidence(ctx: SuperDemandContext): StatementConfidence[
   const expected = ctx.valuation?.expected
   add(
     'demand',
-    'XV. Settlement Demand',
+    sec.settlement_demand,
     `Demand of ${money(totals.demand)}`,
     !expected ? 'orange' : totals.demand <= (ctx.valuation?.p75 ?? expected) * 2.5 ? 'green' : 'yellow',
     expected ? `Model expected value ${money(expected)}` : 'No model valuation to compare against',
@@ -908,17 +950,19 @@ function buildQualityCheck(ctx: SuperDemandContext, content: string): QualityChe
 
   {
     const lines = content.split(/\r?\n/).map((l) => l.trim())
-    const missing = SUPER_DEMAND_SECTION_HEADINGS.filter((h) => !lines.includes(h))
+    const expected = letterSections(ctx).map((sec) => sec.heading)
+    const missing = expected.filter((h) => !lines.includes(h))
     const placeholders = PLACEHOLDER_PATTERNS.filter((p) => p.test(content)).map((p) => p.source.replace(/\\/g, ''))
+    const n = expected.length
     checks.push({
       key: 'completeness',
       label: 'Section completeness',
       status: missing.length ? 'fail' : placeholders.length ? 'warn' : 'pass',
       detail: missing.length
-        ? `${missing.length} of 17 sections are missing from the letter.`
+        ? `${missing.length} of ${n} sections are missing from the letter.`
         : placeholders.length
-          ? 'All 17 sections are present, but some still contain placeholder text.'
-          : 'All 17 sections are present and filled in.',
+          ? `All ${n} sections are present, but some still contain placeholder text.`
+          : `All ${n} sections are present and filled in.`,
       items: [...missing, ...placeholders.map((p) => `Placeholder: "${p}"`)],
     })
   }

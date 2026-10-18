@@ -35,6 +35,7 @@ import {
   draftLeadDemandLetter,
   finalizeLeadDemandLetter,
   getLeadDemandLetter,
+  getLeadDemandStyles,
   importLeadDemandLetter,
   listLeadDemandLetters,
   markLeadDemandSent,
@@ -128,6 +129,45 @@ export default function DemandLetterWorkspace({
   // the buffer without a stale-edit check fighting the load.
   const loadedIdRef = useRef<string | null>(null)
 
+  // The firm's demand templates; the picker only shows when the firm has made one.
+  const [styles, setStyles] = useState<Array<{ id: string; name: string; isDefault: boolean }>>([])
+  const [styleChoice, setStyleChoice] = useState('')
+  useEffect(() => {
+    getLeadDemandStyles(leadId)
+      .then(setStyles)
+      .catch(() => setStyles([]))
+  }, [leadId])
+  // A letter whose template was since deleted redrafts with the standard package.
+  const activeStyleId = active?.id
+    ? active.demandStyleId && styles.some((s) => s.id === active.demandStyleId)
+      ? active.demandStyleId
+      : 'default'
+    : null
+  useEffect(() => {
+    if (activeStyleId) setStyleChoice(activeStyleId)
+    else setStyleChoice(styles.find((s) => s.isDefault)?.id ?? (styles.length ? 'default' : ''))
+  }, [activeStyleId, styles])
+
+  const stylePicker = (compact: boolean) =>
+    styles.length ? (
+      <label className={compact ? 'block' : 'mx-auto mt-3 block w-full max-w-xl text-left'}>
+        <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Firm template</span>
+        <select
+          value={styleChoice}
+          onChange={(e) => setStyleChoice(e.target.value)}
+          className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:border-brand-400 focus:outline-none"
+        >
+          {styles.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.name}
+              {s.isDefault ? ' (firm default)' : ''}
+            </option>
+          ))}
+          <option value="default">ClearCaseIQ standard package</option>
+        </select>
+      </label>
+    ) : null
+
   const dirty = active != null && draftText !== active.content
   const locked = active?.status !== 'DRAFT'
   const sent = active?.status === 'SENT' || !!active?.sentAt
@@ -202,12 +242,17 @@ export default function DemandLetterWorkspace({
   )
 
   const handleDraft = () =>
-    run('draft', () => draftLeadDemandLetter(leadId, { guidance: guidance.trim() || null }), 'Draft ready to review.')
+    run(
+      'draft',
+      () => draftLeadDemandLetter(leadId, { guidance: guidance.trim() || null, ...(styleChoice ? { demandStyleId: styleChoice } : {}) }),
+      'Draft ready to review.',
+    )
 
   const [pendingConfirm, setPendingConfirm] = useState<{ title: string; message: string; action: () => void } | null>(null)
 
   const handleRegenerate = (asSuper = false) => {
     if (!active) return
+    const currentStyle = activeStyleId
     const go = () =>
       run(
         'regen',
@@ -215,6 +260,7 @@ export default function DemandLetterWorkspace({
           regenerateLeadDemandLetter(leadId, active.id, {
             guidance: guidance.trim() || null,
             ...(asSuper ? { template: 'super' as const } : {}),
+            ...(styleChoice && styleChoice !== currentStyle ? { demandStyleId: styleChoice } : {}),
           }),
         asSuper
           ? 'Redrafted as a Super Demand. Your previous wording is kept in history.'
@@ -454,6 +500,7 @@ export default function DemandLetterWorkspace({
             placeholder="Anything to emphasize? e.g. lead with the delayed MRI and the three months of missed work."
             className="mx-auto mt-4 block w-full max-w-xl rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 placeholder:text-slate-400 focus:border-brand-400 focus:outline-none"
           />
+          {stylePicker(false)}
           <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
             <button
               type="button"
@@ -610,6 +657,14 @@ export default function DemandLetterWorkspace({
               <p className="mt-1 text-xs text-slate-400">
                 Used on the next redraft. Figures always come from the case record, never from the model.
               </p>
+              {isSuper && styles.length ? (
+                <div className="mt-3 max-w-sm">
+                  {stylePicker(true)}
+                  {styleChoice !== activeStyleId ? (
+                    <p className="mt-1 text-xs text-amber-700">Redraft to apply this template.</p>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           ) : null}
 

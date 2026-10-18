@@ -27,6 +27,17 @@ import { unchangedPdfFields } from '../lib/esign/send-firm-template'
 import { parseLetterUse } from '../lib/letter-templates'
 import { parseStoredFields, requiresCountersign, validatePlacedFields } from '../lib/esign/signature-fields'
 import { pdfPageSizes } from '../lib/esign/custom-document'
+import {
+  DEFAULT_SECTION_TITLES,
+  DEFAULT_STYLE_CONFIG,
+  DemandStyleError,
+  MERGE_TOKENS,
+  OPTIONAL_SECTIONS,
+  SHOWN_WHEN_CLAIMED,
+  deleteDemandStyle,
+  listDemandStyles,
+  saveDemandStyle,
+} from '../lib/demand-style'
 import { applyFirmWorkflowToCase } from '../lib/case-workflow'
 import { buildCaseIntelligence } from '../lib/case-intelligence'
 import { deidentifyAssessmentForOffer } from '../lib/offer-deidentify'
@@ -3618,6 +3629,71 @@ router.delete('/templates/:id', authMiddleware as any, async (req: any, res: Res
     res.json({ ok: true })
   } catch (error) {
     logger.error('Failed to delete firm template', { error })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+// Demand templates: letterhead, sections, headings, tone and response window
+// for the firm's demand packages. Edited by whoever manages templates.
+router.get('/demand-styles', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
+    const firm: any = context.firm || {}
+    res.json({
+      canManage: canManageTemplates(context),
+      styles: await listDemandStyles(context.lawFirmId),
+      defaults: DEFAULT_STYLE_CONFIG,
+      sectionTitles: DEFAULT_SECTION_TITLES,
+      optionalSections: OPTIONAL_SECTIONS,
+      shownWhenClaimed: SHOWN_WHEN_CLAIMED,
+      mergeTokens: MERGE_TOKENS,
+      letterhead: {
+        name: firm.name || null,
+        address: [firm.address, [firm.city, [firm.state, firm.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ')]
+          .filter(Boolean)
+          .join(', ') || null,
+        phone: firm.phone || null,
+      },
+    })
+  } catch (error) {
+    logger.error('Failed to list demand styles', { error })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+async function writeDemandStyle(req: any, res: Response, id: string | null) {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
+    if (!canManageTemplates(context)) {
+      return res.status(403).json({ error: 'You do not have permission to manage templates' })
+    }
+    const actorName = `${context.user?.firstName || ''} ${context.user?.lastName || ''}`.trim() || context.user?.email || null
+    const style = await saveDemandStyle(context.lawFirmId, id, req.body || {}, { id: context.user?.id, name: actorName })
+    res.status(id ? 200 : 201).json(style)
+  } catch (error: any) {
+    if (error instanceof DemandStyleError) return res.status(error.status).json({ error: error.message })
+    logger.error('Failed to save demand style', { error: error?.message })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+}
+
+router.post('/demand-styles', authMiddleware as any, (req: any, res: Response) => writeDemandStyle(req, res, null))
+router.patch('/demand-styles/:id', authMiddleware as any, (req: any, res: Response) => writeDemandStyle(req, res, req.params.id))
+
+router.delete('/demand-styles/:id', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
+    if (!canManageTemplates(context)) {
+      return res.status(403).json({ error: 'You do not have permission to manage templates' })
+    }
+    await deleteDemandStyle(context.lawFirmId, req.params.id)
+    res.json({ ok: true })
+  } catch (error: any) {
+    if (error instanceof DemandStyleError) return res.status(error.status).json({ error: error.message })
+    logger.error('Failed to delete demand style', { error: error?.message })
     res.status(500).json({ error: 'Internal server error' })
   }
 })

@@ -21,13 +21,7 @@ import { logger } from './logger'
 import { ensureLocalCopy } from './object-storage'
 import { loadPDFParse, type PDFParseInstance } from './pdf-parse-client'
 import { buildDemandExhibits } from './demand-drafting'
-import {
-  SUPER_DEMAND_CONFIDENTIAL,
-  SUPER_DEMAND_SECTION_HEADINGS,
-  SUPER_DEMAND_SUBTITLE,
-  SUPER_DEMAND_TEMPLATE,
-  SUPER_DEMAND_TITLE,
-} from './super-demand'
+import { SUPER_DEMAND_CONFIDENTIAL, SUPER_DEMAND_SUBTITLE, SUPER_DEMAND_TEMPLATE } from './super-demand'
 
 /** Letter page, 1" margins, at the 96 dpi docx uses for image transforms. */
 const CONTENT_WIDTH_PX = 624
@@ -42,7 +36,8 @@ const MAX_PAGES_PER_EXHIBIT = 40
 const MAX_PAGES_TOTAL = 200
 
 const ENCLOSURE_LINE = /^Exhibit (\d+|[A-Z]{1,2}) \u2014 (.+)$/
-const ENCLOSURE_HEADINGS = new Set(['ENCLOSURES', 'XVII. ENCLOSURE INDEX'])
+/** "ENCLOSURES", or the Super Demand's numbered index heading wherever a firm template puts it. */
+const ENCLOSURE_HEADING = /^(?:ENCLOSURES|[IVXL]+\. ENCLOSURE INDEX)$/
 /** Category subheadings inside the Super Demand enclosure index. */
 const ENCLOSURE_GROUPS = new Set(['Liability', 'Medical Records', 'Damages', 'Additional Evidence'])
 
@@ -59,7 +54,7 @@ type PlannedExhibit = { number: string; label: string; file: ExhibitFile | null 
 
 export function enclosuresIn(content: string): Array<{ number: string; label: string }> {
   const lines = content.split(/\r?\n/)
-  const start = lines.findIndex((l) => ENCLOSURE_HEADINGS.has(l.trim()))
+  const start = lines.findIndex((l) => ENCLOSURE_HEADING.test(l.trim()))
   if (start < 0) return []
   const out: Array<{ number: string; label: string }> = []
   for (const raw of lines.slice(start + 1)) {
@@ -221,21 +216,33 @@ async function exhibitBody(file: ExhibitFile, label: string, budget: { remaining
   return [note('This file type cannot be shown inside a Word document. Attach the original file separately.')]
 }
 
-const SUPER_HEADINGS = new Set<string>(SUPER_DEMAND_SECTION_HEADINGS)
-const SUPER_TITLE_LINES = new Set([SUPER_DEMAND_TITLE, SUPER_DEMAND_SUBTITLE, SUPER_DEMAND_CONFIDENTIAL])
+/** A numbered, upper-case section heading: the defaults, or a firm template's own. */
+const SUPER_HEADING = /^[IVXL]+\. [^a-z]+$/
 
-function superDemandParagraph(line: string): Paragraph {
+/**
+ * One line of a Super Demand. The title block is everything above the first
+ * blank line: the ClearCaseIQ title or a firm letterhead, then the subtitle
+ * and the confidentiality notice.
+ */
+function superDemandParagraph(line: string, index: number, inTitleBlock: boolean): Paragraph {
   const trimmed = line.trim()
-  if (trimmed === SUPER_DEMAND_TITLE) {
-    return new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: trimmed, bold: true, size: 32 })] })
-  }
-  if (SUPER_TITLE_LINES.has(trimmed)) {
+  if (inTitleBlock) {
+    if (index === 0) {
+      return new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: trimmed, bold: true, size: 32 })] })
+    }
     return new Paragraph({
       alignment: AlignmentType.CENTER,
-      children: [new TextRun({ text: trimmed, bold: trimmed === SUPER_DEMAND_SUBTITLE, italics: trimmed === SUPER_DEMAND_CONFIDENTIAL, size: 20 })],
+      children: [
+        new TextRun({
+          text: trimmed,
+          bold: trimmed === SUPER_DEMAND_SUBTITLE,
+          italics: trimmed === SUPER_DEMAND_CONFIDENTIAL,
+          size: 20,
+        }),
+      ],
     })
   }
-  if (SUPER_HEADINGS.has(trimmed)) {
+  if (SUPER_HEADING.test(trimmed)) {
     return new Paragraph({ spacing: { before: 240, after: 80 }, children: [new TextRun({ text: trimmed, bold: true, size: 24 })] })
   }
   if (ENCLOSURE_GROUPS.has(trimmed)) {
@@ -262,10 +269,14 @@ export async function buildDemandLetterDocx(demand: {
           }),
         ]
       : []
+  const lines = content.split(/\r?\n/)
+  const titleEnd = lines.findIndex((l) => !l.trim())
   const letter = {
     children: [
       ...draftBanner,
-      ...content.split(/\r?\n/).map((line) => (isSuper ? superDemandParagraph(line) : new Paragraph(line))),
+      ...lines.map((line, i) =>
+        isSuper ? superDemandParagraph(line, i, titleEnd > 0 && i < titleEnd) : new Paragraph(line),
+      ),
     ],
   }
 

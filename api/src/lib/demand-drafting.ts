@@ -11,6 +11,7 @@ import { chargeBreakdown, claimedChargeAmount, medicalMeasureOf, type MedicalSpe
 import { logger } from './logger'
 import { AI_AUTHOR_NAME } from './ai-author'
 import { listRecordConflicts } from './record-conflicts'
+import { resolveDemandStyle, toneInstruction, type ResolvedDemandStyle } from './demand-style'
 import {
   EMPTY_TREATMENT_LEDGER,
   buildDemandLetterSections,
@@ -324,6 +325,8 @@ export interface DraftedDemand {
   source: 'ai' | 'deterministic'
   /** Null for the standard letter. */
   template: typeof SUPER_DEMAND_TEMPLATE | null
+  /** The firm demand template used; null for the platform default or the standard letter. */
+  demandStyleId: string | null
 }
 
 function parseJson(raw: unknown): any {
@@ -392,6 +395,7 @@ async function loadDemandInputs(assessmentId: string) {
 function superDemandContext(
   inputs: NonNullable<Awaited<ReturnType<typeof loadDemandInputs>>>,
   sections: DemandLetterSections,
+  style?: ResolvedDemandStyle,
 ): SuperDemandContext {
   return {
     sections,
@@ -402,6 +406,7 @@ function superDemandContext(
     valuation: inputs.valuation,
     viability: inputs.viability,
     currentOffer: inputs.currentOffer,
+    style,
   }
 }
 
@@ -438,11 +443,16 @@ export async function analyzeDemandLetter(letter: {
   targetAmount: number
   currentVersion: number
   approvalChecklist?: string | null
+  /** The firm template the letter was drafted with; null = platform default. */
+  demandStyleId?: string | null
 }): Promise<DemandIntelligence | null> {
-  const inputs = await loadDemandInputs(letter.assessmentId)
+  const [inputs, style] = await Promise.all([
+    loadDemandInputs(letter.assessmentId),
+    resolveDemandStyle(letter.assessmentId, letter.demandStyleId ?? null),
+  ])
   if (!inputs) return null
   const { sections } = sectionsFor(inputs, { targetAmount: letter.targetAmount })
-  return analyzeDemandIntelligence(superDemandContext(inputs, sections), letter)
+  return analyzeDemandIntelligence(superDemandContext(inputs, sections, style), letter)
 }
 
 /**
@@ -462,20 +472,24 @@ export async function draftDemandForAssessment(options: {
   guidance?: string | null
   /** Represented letters default to the Super Demand; a pro se letter is always standard. */
   template?: DemandTemplate
+  /** A firm demand template id; undefined = the firm's default; null = the platform default. */
+  demandStyleId?: string | null
 }): Promise<DraftedDemand | null> {
   const inputs = await loadDemandInputs(options.assessmentId)
   if (!inputs) return null
   const { assessment, facts } = inputs
   const mode = options.mode ?? 'represented'
   const useSuper = mode === 'represented' && (options.template ?? 'super') === 'super'
+  const style = useSuper ? await resolveDemandStyle(options.assessmentId, options.demandStyleId) : undefined
 
   const { sections, targetAmount, recipient } = sectionsFor(inputs, { ...options, mode })
   const render = (s: DemandLetterSections) =>
-    useSuper ? renderSuperDemand(superDemandContext(inputs, s)) : renderDemandLetter(s)
+    useSuper ? renderSuperDemand(superDemandContext(inputs, s, style)) : renderDemandLetter(s)
   const template = useSuper ? SUPER_DEMAND_TEMPLATE : null
+  const demandStyleId = style?.id ?? null
 
   if (!options.useAi) {
-    return { content: render(sections), targetAmount, recipient, source: 'deterministic', template }
+    return { content: render(sections), targetAmount, recipient, source: 'deterministic', template, demandStyleId }
   }
 
   const narrated = await narrateDemandLetter(sections, {
@@ -484,6 +498,8 @@ export async function draftDemandForAssessment(options: {
     venue: [assessment.venueCounty, assessment.venueState].filter(Boolean).join(', ') || null,
     injuries: describeInjuries(facts),
     extraGuidance: options.guidance ?? null,
+    tone: style ? toneInstruction(style.config.tone) : null,
+    houseStyle: style?.config.houseStyle ?? null,
   })
 
   return {
@@ -492,6 +508,7 @@ export async function draftDemandForAssessment(options: {
     recipient,
     source: narrated.source,
     template,
+    demandStyleId,
   }
 }
 

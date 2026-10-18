@@ -430,6 +430,7 @@ async function autoDraftDemandOnce(
         origin: 'ai',
         contentSource: drafted.source,
         template: drafted.template,
+        demandStyleId: drafted.demandStyleId,
         reviewStatus: gate ? 'pending' : null,
         createdByName: AI_AUTHOR_NAME,
         updatedByName: AI_AUTHOR_NAME,

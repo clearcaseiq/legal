@@ -10,6 +10,7 @@ import {
   APPROVAL_GATE_ITEMS,
   type SuperDemandContext,
 } from './super-demand'
+import { normalizeStyleConfig, type ResolvedDemandStyle } from './demand-style'
 
 const assessment = { venueState: 'CA', venueCounty: 'Los Angeles', claimType: 'auto' }
 const facts = {
@@ -95,6 +96,85 @@ describe('renderSuperDemand', () => {
   it('never leaks Demand Intelligence into the carrier letter', () => {
     const letter = renderSuperDemand(context())
     expect(letter).not.toMatch(/readiness|weakness|confidence|valuation|\$15,000/i)
+  })
+})
+
+describe('renderSuperDemand with a firm demand template', () => {
+  const styled = (config: Record<string, unknown>, letterhead: ResolvedDemandStyle['letterhead'] = null): ResolvedDemandStyle => ({
+    id: 'ds1',
+    name: 'House style',
+    config: normalizeStyleConfig(config),
+    letterhead,
+  })
+
+  it('renders the default package unchanged when the template changes nothing', () => {
+    expect(renderSuperDemand(context({ style: styled({}) }))).toBe(renderSuperDemand(context()))
+  })
+
+  it('puts the firm letterhead at the top instead of the ClearCaseIQ title', () => {
+    const letter = renderSuperDemand(
+      context({
+        style: styled(
+          { letterhead: 'firm', subtitle: 'Policy Limits Demand', confidentiality: false },
+          { name: 'Counsel LLP', address: '1 Main St, Los Angeles, CA 90012', phone: '(213) 555-0100' },
+        ),
+      }),
+    )
+    expect(letter.split('\n').slice(0, 5)).toEqual(['COUNSEL LLP', '1 Main St, Los Angeles, CA 90012', '(213) 555-0100', 'Policy Limits Demand', ''])
+    expect(letter).not.toContain(SUPER_DEMAND_TITLE)
+    expect(letter).not.toContain('CONFIDENTIAL SETTLEMENT COMMUNICATION')
+  })
+
+  it('drops, reorders and renames sections, renumbering the headings', () => {
+    const sections = normalizeStyleConfig({}).sections.map((s) =>
+      s.key === 'executive_summary' ? { ...s, include: false } : s.key === 'facts' ? { ...s, heading: 'The Collision' } : s,
+    )
+    const facts = sections.find((s) => s.key === 'facts')!
+    const reordered = [facts, ...sections.filter((s) => s.key !== 'facts')]
+    const letter = renderSuperDemand(context({ style: styled({ sections: reordered }) }))
+    expect(letter).toContain('\nI. THE COLLISION\n')
+    expect(letter).toContain('\nII. INTRODUCTION\n')
+    expect(letter).not.toContain('EXECUTIVE SUMMARY')
+    // Future medical is left out when nothing is claimed; lost wages are claimed, so they stay.
+    expect(letter).toMatch(/\n[IVX]+\. LOST WAGES AND EARNING CAPACITY\n/)
+    expect(letter).toMatch(/\n[IVX]+\. ENCLOSURE INDEX\n/)
+    expect(letter.trim().indexOf('ENCLOSURE INDEX')).toBeGreaterThan(letter.indexOf('RESERVATION OF RIGHTS'))
+  })
+
+  it('keeps a hidden damages section when the case claims those damages', () => {
+    const hidden = normalizeStyleConfig({}).sections.map((s) =>
+      s.key === 'wages' || s.key === 'future_medical' ? { ...s, include: false } : s,
+    )
+    const letter = renderSuperDemand(context({ style: styled({ sections: hidden }) }))
+    expect(letter).toContain('LOST WAGES AND EARNING CAPACITY')
+    expect(letter).not.toContain('FUTURE MEDICAL CARE')
+  })
+
+  it('adds the firm opening and closing with merge fields, and its response window', () => {
+    const letter = renderSuperDemand(
+      context({
+        style: styled({
+          openingText: 'We write on behalf of {{client_name}} regarding claim {{claim_number}} with {{carrier}}.',
+          closingText: 'Please direct all communication to {{attorney_name}} at {{firm_name}} within {{response_days}} days. {{unknown}}',
+          responseDays: 45,
+        }),
+      }),
+    )
+    expect(letter).toContain('We write on behalf of Maria Lopez regarding claim CLM-1 with Acme Mutual.')
+    expect(letter).toContain('Please direct all communication to Jane Counsel at Counsel LLP within 45 days. {{unknown}}')
+    expect(letter).toContain('45 days')
+    expect(letter).not.toContain('thirty (30) days')
+  })
+
+  it('checks completeness against the template\u2019s own sections', () => {
+    const sections = normalizeStyleConfig({}).sections.map((s) => (s.key === 'executive_summary' ? { ...s, include: false } : s))
+    const ctx = context({ style: styled({ sections }) })
+    const letter = renderSuperDemand(ctx)
+    const intel = analyzeDemandIntelligence(ctx, { content: letter, currentVersion: 1 })
+    const completeness = intel.qualityCheck.find((c) => c.key === 'completeness')!
+    expect(completeness.items).toEqual([])
+    expect(completeness.detail).toContain('All 16 sections')
+    expect(intel.statementConfidence.find((s) => s.key === 'facts')!.section).toBe('III. Statement of Facts')
   })
 })
 

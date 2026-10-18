@@ -2734,6 +2734,8 @@ export interface DemandLetter {
   updatedAt: string
   /** 'super' for a ClearCaseIQ Super Demand™ package; null for the standard letter. */
   template?: 'super' | null
+  /** The firm demand template the package was drafted with; null = platform default. */
+  demandStyleId?: string | null
   approvalGate?: DemandApprovalGate | null
   versions?: DemandLetterVersion[]
 }
@@ -2791,6 +2793,68 @@ export interface DemandIntelligence {
 
 const demandLettersPath = (leadId: string) => `/v1/attorney-dashboard/leads/${leadId}/demand-letters`
 
+// ---- Firm demand templates --------------------------------------------------
+export type DemandSectionKey =
+  | 'intro' | 'claim_info' | 'executive_summary' | 'facts' | 'liability' | 'liability_evidence' | 'injuries'
+  | 'chronology' | 'specials' | 'future_medical' | 'wages' | 'other_economic' | 'non_economic'
+  | 'damages_summary' | 'settlement_demand' | 'reservation' | 'enclosures'
+
+export interface DemandStyleConfig {
+  letterhead: 'clearcaseiq' | 'firm'
+  subtitle: string | null
+  confidentiality: boolean
+  tone: 'measured' | 'firm' | 'assertive'
+  responseDays: number
+  sections: Array<{ key: DemandSectionKey; heading: string; include: boolean }>
+  openingText: string | null
+  closingText: string | null
+  houseStyle: string | null
+}
+
+export interface DemandStyle {
+  id: string
+  name: string
+  isDefault: boolean
+  config: DemandStyleConfig
+  updatedByName: string | null
+  updatedAt: string
+}
+
+export interface DemandStylesResponse {
+  canManage: boolean
+  styles: DemandStyle[]
+  defaults: DemandStyleConfig
+  sectionTitles: Record<DemandSectionKey, string>
+  optionalSections: DemandSectionKey[]
+  shownWhenClaimed: DemandSectionKey[]
+  mergeTokens: string[]
+  letterhead: { name: string | null; address: string | null; phone: string | null }
+}
+
+export async function getFirmDemandStyles() {
+  const { data } = await api.get('/v1/firm-dashboard/demand-styles')
+  return data as DemandStylesResponse
+}
+
+export async function createFirmDemandStyle(body: { name: string; config?: DemandStyleConfig; isDefault?: boolean }) {
+  const { data } = await api.post('/v1/firm-dashboard/demand-styles', body)
+  return data as DemandStyle
+}
+
+export async function updateFirmDemandStyle(id: string, body: { name?: string; config?: DemandStyleConfig; isDefault?: boolean }) {
+  const { data } = await api.patch(`/v1/firm-dashboard/demand-styles/${id}`, body)
+  return data as DemandStyle
+}
+
+export async function deleteFirmDemandStyle(id: string) {
+  await api.delete(`/v1/firm-dashboard/demand-styles/${id}`)
+}
+
+export async function getLeadDemandStyles(leadId: string) {
+  const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/demand-styles`)
+  return (data as { styles: Array<{ id: string; name: string; isDefault: boolean }> }).styles
+}
+
 export async function listLeadDemandLetters(leadId: string) {
   const { data } = await api.get(demandLettersPath(leadId))
   return (data as { letters: DemandLetter[] }).letters
@@ -2801,9 +2865,12 @@ export async function getLeadDemandLetter(leadId: string, demandId: string) {
   return data as DemandLetter
 }
 
+/** A firm demand template id, or 'default' for the platform package. Omit for the firm's default. */
+export type DemandStyleChoice = string | 'default'
+
 export async function draftLeadDemandLetter(
   leadId: string,
-  options: { guidance?: string | null; useAi?: boolean; title?: string; template?: DemandTemplate } = {},
+  options: { guidance?: string | null; useAi?: boolean; title?: string; template?: DemandTemplate; demandStyleId?: DemandStyleChoice } = {},
 ) {
   const { data } = await api.post(demandLettersPath(leadId), options)
   return data as DemandLetter
@@ -2812,7 +2879,7 @@ export async function draftLeadDemandLetter(
 export async function regenerateLeadDemandLetter(
   leadId: string,
   demandId: string,
-  options: { guidance?: string | null; useAi?: boolean; template?: DemandTemplate } = {},
+  options: { guidance?: string | null; useAi?: boolean; template?: DemandTemplate; demandStyleId?: DemandStyleChoice } = {},
 ) {
   const { data } = await api.post(`${demandLettersPath(leadId)}/${demandId}/regenerate`, options)
   return data as DemandLetter

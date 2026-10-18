@@ -72,6 +72,7 @@ import {
   type FindingKind,
 } from '../lib/document-findings'
 import { withConflicts } from '../lib/record-conflicts'
+import { firmIdForAssessment, listDemandStyles } from '../lib/demand-style'
 import { parseIdentityCheck } from '../lib/claimant-identity-check'
 import { runCaseRecalculation } from '../lib/case-recalculation'
 import {
@@ -17116,6 +17117,8 @@ router.post('/leads/:leadId/command-center/copilot', authMiddleware, async (req:
           status: 'DRAFT',
           origin: byAi ? 'ai' : 'attorney',
           contentSource: drafted.source,
+          template: drafted.template,
+          demandStyleId: drafted.demandStyleId,
           createdById: req.user?.id || null,
           createdByName: byAi ? AI_AUTHOR_NAME : actorName,
           updatedByName: byAi ? AI_AUTHOR_NAME : actorName,
@@ -17329,8 +17332,16 @@ const demandLetterSelect = {
   createdAt: true,
   updatedAt: true,
   template: true,
+  demandStyleId: true,
   approvalChecklist: true,
 } as const
+
+/** The firm demand template asked for: an id, "default" for the platform package, or undefined for the firm's default. */
+function demandStyleChoice(raw: unknown): string | null | undefined {
+  if (raw === undefined || raw === '') return undefined
+  if (raw === null || raw === 'default') return null
+  return typeof raw === 'string' ? raw.slice(0, 64) : undefined
+}
 
 function parseDemandRecipient(raw: string | null | undefined) {
   if (!raw) return DEFAULT_DEMAND_RECIPIENT
@@ -17368,6 +17379,7 @@ function serializeDemandLetter(letter: any, versions?: any[]) {
     createdAt: letter.createdAt,
     updatedAt: letter.updatedAt,
     template: letter.template || null,
+    demandStyleId: letter.demandStyleId || null,
     approvalGate:
       letter.template === SUPER_DEMAND_TEMPLATE
         ? summarizeApprovalGate(letter.approvalChecklist, letter.currentVersion)
@@ -17440,6 +17452,20 @@ router.get('/leads/:leadId/demand-letters/:demandId', authMiddleware, async (req
   }
 })
 
+/** The case firm's demand templates, for the picker when drafting a demand. */
+router.get('/leads/:leadId/demand-styles', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true })
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const lawFirmId = await firmIdForAssessment(auth.lead.assessmentId)
+    const styles = lawFirmId ? await listDemandStyles(lawFirmId) : []
+    res.json({ styles: styles.map((s) => ({ id: s.id, name: s.name, isDefault: s.isDefault })) })
+  } catch (error: any) {
+    logger.error('Failed to list demand styles for case', { error: error.message })
+    res.status(500).json({ error: 'Failed to load demand templates' })
+  }
+})
+
 /**
  * Draft a new demand letter for the case.
  *
@@ -17473,6 +17499,7 @@ router.post('/leads/:leadId/demand-letters', authMiddleware, firmGate('demand'),
       recipient,
       guidance,
       template: req.body?.template === 'standard' ? 'standard' : 'super',
+      demandStyleId: demandStyleChoice(req.body?.demandStyleId),
     })
     if (!drafted) {
       return res.status(404).json({ error: 'Case not found' })
@@ -17491,6 +17518,7 @@ router.post('/leads/:leadId/demand-letters', authMiddleware, firmGate('demand'),
         origin: byAi ? 'ai' : 'attorney',
         contentSource: drafted.source,
         template: drafted.template,
+        demandStyleId: drafted.demandStyleId,
         createdById: req.user?.id || null,
         // Rose gets the credit when she wrote the prose, so the case workspace
         // shows AI work as AI work rather than crediting whoever clicked.
@@ -17744,7 +17772,7 @@ router.post('/leads/:leadId/demand-letters/:demandId/regenerate', authMiddleware
 
     const existing = await prisma.demandLetter.findFirst({
       where: { id: req.params.demandId, assessmentId: lead.assessmentId },
-      select: { id: true, status: true, targetAmount: true, recipient: true, template: true },
+      select: { id: true, status: true, targetAmount: true, recipient: true, template: true, demandStyleId: true },
     })
     if (!existing) {
       return res.status(404).json({ error: 'Demand letter not found' })
@@ -17752,6 +17780,9 @@ router.post('/leads/:leadId/demand-letters/:demandId/regenerate', authMiddleware
     if (existing.status !== 'DRAFT') {
       return res.status(400).json({ error: 'Only a draft can be regenerated' })
     }
+    // A redraft keeps the letter's template unless a different one is picked.
+    const styleChoice =
+      req.body?.demandStyleId !== undefined ? demandStyleChoice(req.body.demandStyleId) : existing.demandStyleId ?? null
 
     const guidance = typeof req.body?.guidance === 'string' ? req.body.guidance.trim().slice(0, 2000) : null
     const template =
@@ -17767,14 +17798,18 @@ router.post('/leads/:leadId/demand-letters/:demandId/regenerate', authMiddleware
       recipient: parseDemandRecipient(existing.recipient),
       guidance,
       template,
+      demandStyleId: styleChoice,
     })
     if (!drafted) {
       return res.status(404).json({ error: 'Case not found' })
     }
 
     await saveDemandVersion({ demandLetterId: existing.id, content: drafted.content, source: drafted.source })
-    if (drafted.template !== existing.template) {
-      await prisma.demandLetter.update({ where: { id: existing.id }, data: { template: drafted.template } })
+    if (drafted.template !== existing.template || drafted.demandStyleId !== (existing.demandStyleId ?? null)) {
+      await prisma.demandLetter.update({
+        where: { id: existing.id },
+        data: { template: drafted.template, demandStyleId: drafted.demandStyleId },
+      })
     }
 
     const letter = await prisma.demandLetter.findUnique({ where: { id: existing.id }, select: demandLetterSelect })
@@ -17910,7 +17945,15 @@ router.get('/leads/:leadId/demand-letters/:demandId/intelligence', authMiddlewar
     }
     const letter = await prisma.demandLetter.findFirst({
       where: { id: req.params.demandId, assessmentId: auth.lead.assessmentId },
-      select: { id: true, assessmentId: true, content: true, targetAmount: true, currentVersion: true, approvalChecklist: true },
+      select: {
+        id: true,
+        assessmentId: true,
+        content: true,
+        targetAmount: true,
+        currentVersion: true,
+        approvalChecklist: true,
+        demandStyleId: true,
+      },
     })
     if (!letter) {
       return res.status(404).json({ error: 'Demand letter not found' })

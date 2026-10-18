@@ -37,6 +37,7 @@ import ConfirmDialog from '../../components/ConfirmDialog'
 import ModalPortal from '../../components/ModalPortal'
 import { formatClaimType } from '../../lib/claimTypes'
 import { FirmTemplateForm } from './FirmTemplateForm'
+import { DemandStylesSection } from './DemandStylesSection'
 
 const btnPrimary =
   'inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-60'
@@ -265,6 +266,8 @@ export function FirmTemplatesTab() {
           </div>
         )}
       </SectionCard>
+
+      <DemandStylesSection />
 
       {sending && data && (
         <SendModal
