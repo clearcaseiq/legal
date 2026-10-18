@@ -188,6 +188,16 @@ import {
 import { runPostAcquireIntakeHooks } from '../lib/intake-acquire'
 import { summarizeDamages, writeThroughDamages, DAMAGE_CATEGORIES } from '../lib/damages-ledger'
 import { getLiabilityRecord, upsertLiabilityRecord } from '../lib/liability-record'
+import {
+  LiabilityInputError,
+  createDefendant,
+  createEvidenceItem,
+  deleteDefendant,
+  deleteEvidenceItem,
+  listLiabilityParties,
+  updateDefendant,
+  updateEvidenceItem,
+} from '../lib/liability-parties'
 import { applyQuestionAnswerToCaseFacts } from '../lib/question-facts-sync'
 import {
   getMedicalTimeline,
@@ -11530,8 +11540,23 @@ router.get('/leads/:leadId/liability', authMiddleware, async (req: any, res) => 
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
-    const liability = await getLiabilityRecord(auth.lead.assessmentId)
-    res.json({ liability })
+    const assessmentId = auth.lead.assessmentId
+    const [liability, parties, policies, documents] = await Promise.all([
+      getLiabilityRecord(assessmentId),
+      listLiabilityParties(assessmentId),
+      prisma.insuranceDetail.findMany({
+        where: { assessmentId },
+        select: { id: true, carrierName: true, policyNumber: true, insuredParty: true },
+        orderBy: { createdAt: 'asc' },
+      }),
+      prisma.evidenceFile.findMany({
+        where: { assessmentId },
+        select: { id: true, originalName: true, category: true },
+        orderBy: { createdAt: 'desc' },
+        take: 300,
+      }),
+    ])
+    res.json({ liability, ...parties, policies, documents })
   } catch (error: any) {
     logger.error('Failed to load liability record', { error: error.message })
     res.status(500).json({ error: 'Failed to load liability record' })
@@ -11558,6 +11583,44 @@ router.patch('/leads/:leadId/liability', authMiddleware, async (req: any, res) =
     res.status(500).json({ error: 'Failed to update liability record' })
   }
 })
+
+// Defendants and liability evidence items. Each change rolls back up into the
+// liability record and returns it with the refreshed lists.
+const liabilityPartyRoutes = [
+  { path: 'defendants', create: createDefendant, update: updateDefendant, remove: deleteDefendant, label: 'defendant' },
+  { path: 'evidence', create: createEvidenceItem, update: updateEvidenceItem, remove: deleteEvidenceItem, label: 'evidence item' },
+] as const
+
+for (const r of liabilityPartyRoutes) {
+  const handle =
+    (run: (assessmentId: string, req: any, actor: { actorId: string | null; actorName: string | null }) => Promise<unknown>) =>
+    async (req: any, res: any) => {
+      try {
+        const auth = await getAuthorizedLead(req, req.params.leadId, { staffCan: 'manage' })
+        if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+        const actorName = `${req.user?.firstName || ''} ${req.user?.lastName || ''}`.trim() || req.user?.email || null
+        const liability = await run(auth.lead.assessmentId, req, { actorId: req.user?.id ?? null, actorName })
+        if (!liability) return res.status(404).json({ error: `That ${r.label} was not found` })
+        void runCaseRecalculation(auth.lead.assessmentId, 'liability_updated')
+        res.json({ liability, ...(await listLiabilityParties(auth.lead.assessmentId)) })
+      } catch (error: any) {
+        if (error instanceof LiabilityInputError) return res.status(400).json({ error: error.message })
+        logger.error(`Failed to save liability ${r.label}`, { error: error.message })
+        res.status(500).json({ error: `Failed to save the ${r.label}` })
+      }
+    }
+  router.post(`/leads/:leadId/liability/${r.path}`, authMiddleware, handle((a, req, actor) => r.create(a, req.body || {}, actor)))
+  router.patch(
+    `/leads/:leadId/liability/${r.path}/:itemId`,
+    authMiddleware,
+    handle((a, req, actor) => r.update(a, req.params.itemId, req.body || {}, actor)),
+  )
+  router.delete(
+    `/leads/:leadId/liability/${r.path}/:itemId`,
+    authMiddleware,
+    handle((a, req, actor) => r.remove(a, req.params.itemId, actor)),
+  )
+}
 
 // Case-level medical timeline — structured treatment episodes + medical status.
 router.get('/leads/:leadId/medical-timeline', authMiddleware, async (req: any, res) => {

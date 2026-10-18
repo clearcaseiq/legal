@@ -3660,9 +3660,62 @@ export async function deleteLeadDamage(leadId: string, damageId: string) {
 }
 
 // ---- Living liability record -----------------------------------------------
+export interface LiabilityDefendant {
+  id: string
+  name: string
+  role: string
+  faultPct: number | null
+  insurerName: string | null
+  insuranceDetailId: string | null
+  linkedCarrierName: string | null
+  address: string | null
+  phone: string | null
+  email: string | null
+  counselName: string | null
+  counselFirm: string | null
+  counselPhone: string | null
+  counselEmail: string | null
+}
+
+export interface LiabilityEvidenceItem {
+  id: string
+  type: string
+  status: string
+  referenceNumber: string | null
+  /** YYYY-MM-DD */
+  date: string | null
+  description: string | null
+  evidenceFileId: string | null
+  evidenceFileName: string | null
+}
+
+export type LiabilityParties = { liability: any; defendants: LiabilityDefendant[]; evidence: LiabilityEvidenceItem[] }
+
+export type LiabilityResponse = LiabilityParties & {
+  policies: Array<{ id: string; carrierName: string; policyNumber: string | null; insuredParty: string | null }>
+  documents: Array<{ id: string; originalName: string; category: string | null }>
+}
+
 export async function getLeadLiability(leadId: string) {
   const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/liability`)
-  return data as { liability: any }
+  return data as LiabilityResponse
+}
+
+type LiabilityList = 'defendants' | 'evidence'
+
+export async function createLiabilityItem(leadId: string, list: LiabilityList, payload: Record<string, unknown>) {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/liability/${list}`, payload)
+  return data as LiabilityParties
+}
+
+export async function updateLiabilityItem(leadId: string, list: LiabilityList, id: string, payload: Record<string, unknown>) {
+  const { data } = await api.patch(`/v1/attorney-dashboard/leads/${leadId}/liability/${list}/${id}`, payload)
+  return data as LiabilityParties
+}
+
+export async function deleteLiabilityItem(leadId: string, list: LiabilityList, id: string) {
+  const { data } = await api.delete(`/v1/attorney-dashboard/leads/${leadId}/liability/${list}/${id}`)
+  return data as LiabilityParties
 }
 
 export async function updateLeadLiability(leadId: string, payload: any) {

@@ -2,16 +2,24 @@
  * Living liability record for the attorney case workspace.
  *
  * A single evolving analysis of WHO is at fault and HOW PROVABLE it is:
- *   fault theory · posture · defendant/comparative split · police report ·
- *   citation · witnesses · photos · video · defendant identification
+ *   fault theory · posture · defendant/comparative split · citation ·
+ *   a list of liability evidence · a list of defendants
  *
  * A derived liability-strength score (attorney can override) summarizes it, and
  * the rollup writes through to facts.liability so the valuation and demand
  * engines reflect it. Backed by /v1/attorney-dashboard/leads/:leadId/liability.
  */
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { Gavel, FileText, Users, Camera, Video, ShieldCheck } from 'lucide-react'
-import { getLeadLiability, updateLeadLiability } from '../../lib/api'
+import { AlertTriangle, Gavel, FileText, ShieldCheck, Users } from 'lucide-react'
+import {
+  getLeadLiability,
+  updateLeadLiability,
+  type LiabilityDefendant,
+  type LiabilityEvidenceItem,
+  type LiabilityParties,
+  type LiabilityResponse,
+} from '../../lib/api'
+import { DefendantList, EvidenceList } from './LiabilityLists'
 
 interface Liability {
   id: string | null
@@ -43,13 +51,6 @@ const POSTURES = [
   { value: 'denied', label: 'Denied' },
 ]
 
-const REPORT_STATUSES = [
-  { value: 'none', label: 'Not obtained' },
-  { value: 'requested', label: 'Requested' },
-  { value: 'received', label: 'Received' },
-  { value: 'n/a', label: 'N/A' },
-]
-
 const CITATION_TARGETS = [
   { value: 'none', label: 'None issued' },
   { value: 'defendant', label: 'Defendant' },
@@ -58,13 +59,13 @@ const CITATION_TARGETS = [
 ]
 
 type Field = keyof Liability
-type Section = 'strength' | 'fault' | 'evidence' | 'defendant'
+type Section = 'strength' | 'fault' | 'evidence' | 'notes'
 
 const SECTION_FIELDS: Record<Section, Field[]> = {
   strength: ['strengthOverride'],
   fault: ['faultTheory', 'faultPosture', 'defendantFaultPct', 'comparativeNegPct'],
-  evidence: ['policeReportStatus', 'policeReportNumber', 'citationIssuedTo', 'witnessCount', 'hasWitnesses', 'hasPhotos', 'hasVideo'],
-  defendant: ['defendantName', 'defendantInsurer', 'notes'],
+  evidence: ['citationIssuedTo'],
+  notes: ['notes'],
 }
 
 function SectionActions({
@@ -115,6 +116,10 @@ export default function LiabilityPanel({ leadId, onChanged }: { leadId: string; 
   const [error, setError] = useState<string | null>(null)
   const [draft, setDraft] = useState<Liability | null>(null)
   const [saving, setSaving] = useState<Section | null>(null)
+  const [defendants, setDefendants] = useState<LiabilityDefendant[]>([])
+  const [evidence, setEvidence] = useState<LiabilityEvidenceItem[]>([])
+  const [policies, setPolicies] = useState<LiabilityResponse['policies']>([])
+  const [documents, setDocuments] = useState<LiabilityResponse['documents']>([])
 
   const load = useCallback(async () => {
     try {
@@ -122,6 +127,10 @@ export default function LiabilityPanel({ leadId, onChanged }: { leadId: string; 
       const res = await getLeadLiability(leadId)
       setData(res.liability)
       setDraft(res.liability)
+      setDefendants(res.defendants || [])
+      setEvidence(res.evidence || [])
+      setPolicies(res.policies || [])
+      setDocuments(res.documents || [])
     } catch (err: any) {
       setError(err?.response?.data?.error || 'Could not load liability record.')
     } finally {
@@ -170,6 +179,25 @@ export default function LiabilityPanel({ leadId, onChanged }: { leadId: string; 
     }
   }
 
+  /** A list changed: take the rolled-up record, keeping unsaved edits in the sections. */
+  const onPartiesChanged = (parties: LiabilityParties) => {
+    setDefendants(parties.defendants)
+    setEvidence(parties.evidence)
+    const prev = data
+    setData(parties.liability)
+    setDraft((d) => {
+      if (!d || !prev) return parties.liability
+      const next = { ...parties.liability }
+      for (const section of Object.keys(SECTION_FIELDS) as Section[]) {
+        for (const f of SECTION_FIELDS[section]) {
+          if ((d[f] ?? null) !== (prev[f] ?? null)) (next as any)[f] = d[f]
+        }
+      }
+      return next
+    })
+    onChanged?.()
+  }
+
   const cancelSection = (section: Section) => {
     if (!data) return
     const patch: Partial<Liability> = {}
@@ -192,6 +220,9 @@ export default function LiabilityPanel({ leadId, onChanged }: { leadId: string; 
 
   const tone = strengthTone(data.strength)
   const anyDirty = (Object.keys(SECTION_FIELDS) as Section[]).some(isDirty)
+  const allocated = defendants.filter((d) => d.faultPct != null)
+  const allocatedTotal = allocated.reduce((sum, d) => sum + Number(d.faultPct), 0)
+  const splitOff = allocated.length > 0 && allocatedTotal + Number(draft.comparativeNegPct || 0) !== 100
   const inputCls =
     'mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500'
 
@@ -261,15 +292,21 @@ export default function LiabilityPanel({ leadId, onChanged }: { leadId: string; 
             </select>
           </label>
           <label className="block">
-            <span className="text-xs font-medium text-slate-500">Defendant at fault (%)</span>
+            <span className="text-xs font-medium text-slate-500">
+              {allocated.length > 1 ? 'Defendants at fault (%)' : 'Defendant at fault (%)'}
+            </span>
             <input
               type="number"
               min={0}
               max={100}
-              value={draft.defendantFaultPct}
+              value={allocated.length ? allocatedTotal : draft.defendantFaultPct}
+              readOnly={allocated.length > 0}
               onChange={(e) => set({ defendantFaultPct: Number(e.target.value) })}
-              className={inputCls}
+              className={`${inputCls} ${allocated.length ? 'bg-slate-50 text-slate-600' : ''}`}
             />
+            {allocated.length ? (
+              <span className="mt-1 block text-[11px] text-slate-400">Total of the defendants' shares below.</span>
+            ) : null}
           </label>
           <label className="block">
             <span className="text-xs font-medium text-slate-500">Comparative negligence (%)</span>
@@ -284,6 +321,13 @@ export default function LiabilityPanel({ leadId, onChanged }: { leadId: string; 
             <span className="mt-1 block text-[11px] text-slate-400">Plaintiff's own share reduces recovery.</span>
           </label>
         </div>
+        {splitOff ? (
+          <p className="mt-3 flex items-start gap-1.5 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            The defendants' shares ({allocatedTotal}%) and the plaintiff's comparative negligence ({draft.comparativeNegPct}%)
+            add up to {allocatedTotal + Number(draft.comparativeNegPct || 0)}%, not 100%.
+          </p>
+        ) : null}
         {actions('fault')}
       </div>
 
@@ -292,30 +336,8 @@ export default function LiabilityPanel({ leadId, onChanged }: { leadId: string; 
         <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900">
           <FileText className="h-4 w-4 text-slate-400" /> Liability evidence
         </h3>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <label className="block">
-            <span className="text-xs font-medium text-slate-500">Police report</span>
-            <select
-              value={draft.policeReportStatus}
-              onChange={(e) => set({ policeReportStatus: e.target.value })}
-              className={inputCls}
-            >
-              {REPORT_STATUSES.map((s) => (
-                <option key={s.value} value={s.value}>
-                  {s.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block">
-            <span className="text-xs font-medium text-slate-500">Report / case number</span>
-            <input
-              value={draft.policeReportNumber ?? ''}
-              onChange={(e) => set({ policeReportNumber: e.target.value })}
-              placeholder="e.g. 24-012345"
-              className={inputCls}
-            />
-          </label>
+        <EvidenceList leadId={leadId} items={evidence} documents={documents} onChanged={onPartiesChanged} />
+        <div className="mt-4 grid gap-4 border-t border-slate-100 pt-4 sm:grid-cols-2">
           <label className="block">
             <span className="text-xs font-medium text-slate-500">Citation issued to</span>
             <select
@@ -330,71 +352,21 @@ export default function LiabilityPanel({ leadId, onChanged }: { leadId: string; 
               ))}
             </select>
           </label>
-          <label className="block">
-            <span className="text-xs font-medium text-slate-500">Independent witnesses</span>
-            <input
-              type="number"
-              min={0}
-              value={draft.witnessCount}
-              onChange={(e) => {
-                const c = Math.max(0, Number(e.target.value) || 0)
-                set({ witnessCount: c, hasWitnesses: c > 0 })
-              }}
-              className={inputCls}
-            />
-          </label>
-        </div>
-        <div className="mt-4 flex flex-wrap gap-3">
-          <label className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm">
-            <input
-              type="checkbox"
-              checked={draft.hasPhotos}
-              onChange={(e) => set({ hasPhotos: e.target.checked })}
-            />
-            <Camera className="h-4 w-4 text-slate-400" /> Scene / damage photos
-          </label>
-          <label className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm">
-            <input
-              type="checkbox"
-              checked={draft.hasVideo}
-              onChange={(e) => set({ hasVideo: e.target.checked })}
-            />
-            <Video className="h-4 w-4 text-slate-400" /> Video (dashcam / surveillance)
-          </label>
-          <label className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm">
-            <input
-              type="checkbox"
-              checked={draft.hasWitnesses}
-              onChange={(e) => set({ hasWitnesses: e.target.checked })}
-            />
-            <Users className="h-4 w-4 text-slate-400" /> Witness statements
-          </label>
         </div>
         {actions('evidence')}
       </div>
 
-      {/* Defendant */}
+      {/* Defendants */}
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <h3 className="mb-3 text-sm font-semibold text-slate-900">Defendant</h3>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <label className="block">
-            <span className="text-xs font-medium text-slate-500">Name</span>
-            <input
-              value={draft.defendantName ?? ''}
-              onChange={(e) => set({ defendantName: e.target.value })}
-              className={inputCls}
-            />
-          </label>
-          <label className="block">
-            <span className="text-xs font-medium text-slate-500">Insurer</span>
-            <input
-              value={draft.defendantInsurer ?? ''}
-              onChange={(e) => set({ defendantInsurer: e.target.value })}
-              className={inputCls}
-            />
-          </label>
-        </div>
-        <label className="mt-4 block">
+        <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900">
+          <Users className="h-4 w-4 text-slate-400" /> {defendants.length > 1 ? `Defendants (${defendants.length})` : 'Defendant'}
+        </h3>
+        <DefendantList leadId={leadId} items={defendants} policies={policies} onChanged={onPartiesChanged} />
+      </div>
+
+      {/* Notes */}
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <label className="block">
           <span className="text-xs font-medium text-slate-500">Liability notes</span>
           <textarea
             rows={3}
@@ -404,7 +376,7 @@ export default function LiabilityPanel({ leadId, onChanged }: { leadId: string; 
             className={inputCls}
           />
         </label>
-        {actions('defendant')}
+        {actions('notes')}
       </div>
 
       {error ? <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
