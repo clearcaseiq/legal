@@ -4501,7 +4501,7 @@ function TasksPanel({
   const [workflowPhases, setWorkflowPhases] = useState<{ phase: string; stages: string[] }[]>([])
 
   useEffect(() => {
-    getFirmColleagues()
+    getFirmColleagues({ includeSelf: true })
       .then((res) => setColleagues(Array.isArray(res?.colleagues) ? res.colleagues : []))
       .catch(() => setColleagues([]))
   }, [])

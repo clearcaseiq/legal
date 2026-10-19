@@ -201,7 +201,7 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
   const commentRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
-    getFirmColleagues().then((r) => setColleagues(r.colleagues || [])).catch(() => {})
+    getFirmColleagues({ includeSelf: true }).then((r) => setColleagues(r.colleagues || [])).catch(() => {})
   }, [])
 
   const filteredColleagues = mentionQuery

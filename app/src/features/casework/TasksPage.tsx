@@ -212,7 +212,7 @@ export default function TasksPage() {
   const [colleagues, setColleagues] = useState<FirmColleague[]>([])
 
   useEffect(() => {
-    getFirmColleagues()
+    getFirmColleagues({ includeSelf: true })
       .then((res) => setColleagues(Array.isArray(res?.colleagues) ? res.colleagues : []))
       .catch(() => setColleagues([]))
   }, [])

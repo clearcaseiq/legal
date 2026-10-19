@@ -3102,6 +3102,23 @@ router.get('/colleagues', authMiddleware as any, async (req: any, res: Response)
         return a.name.localeCompare(b.name)
       })
 
+    // Task assignee pickers need the caller too, so they can take a task
+    // themselves; messaging leaves them out, since nobody DMs themselves.
+    const self = String(req.query.includeSelf || '') === '1' ? members.find((m: any) => m.userId === meId) : null
+    if (self) {
+      result.unshift({
+        userId: self.userId,
+        name: `${memberDisplayName(self)} (you)`,
+        email: self.user?.email || self.attorney?.email || null,
+        role: self.role,
+        title: self.title || null,
+        isAttorney: Boolean(self.attorney),
+        lastMessage: null,
+        lastMessageAt: null,
+        unreadCount: 0,
+      })
+    }
+
     const unreadTotal = Object.values(unreadByOther).reduce((s, n) => s + n, 0)
     res.json({ colleagues: result, unreadTotal })
   } catch (error: any) {

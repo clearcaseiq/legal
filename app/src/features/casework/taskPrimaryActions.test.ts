@@ -8,6 +8,12 @@ describe('resolveTaskPrimaryAction', () => {
     expect(sectionForTaskAction(action!.kind)).toBe('client-info')
   })
 
+  it("opens Insurance, not Client Info, for verifying the client's own coverage", () => {
+    const action = resolveTaskPrimaryAction({ title: "Verify client's own coverage", taskType: 'milestone' })
+    expect(action?.kind).toBe('open_insurance')
+    expect(sectionForTaskAction(action!.kind)).toBe('insurance')
+  })
+
   it('does not read "client" as a lien', () => {
     expect(resolveTaskPrimaryAction({ title: 'Client follow-up call' })?.kind).toBe('open_overview')
     expect(resolveTaskPrimaryAction({ title: 'Resolve medical liens' })?.kind).toBe('open_insurance')

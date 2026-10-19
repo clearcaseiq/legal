@@ -286,6 +286,8 @@ function openSection(
 
 const MEDICAL_RE =
   /treatment|mmi|discharge|provider|medical timeline|treatment gap|treatment status|treatment continuity|life-care|future treatment|medical expert|expert('s)? report|prior injur|pre-existing|medical history|impact journal|daily impact/i
+const INSURANCE_RE =
+  /insurance|adjuster|coverage|carrier|claim\b|um\/uim|medpay|\bpip\b|policy|\bliens?\b|subrogation|letter of representation|\blor\b/i
 const LIEN_PAYOFF_RE = /liens?\b.*payoff|payoff figures|lien payoff|final lien/i
 const DAMAGES_RE =
   /special damages|damages summary|wage loss|lost wages|wage proof|verify wage|itemized damages|damages ledger|compile.*damages/i
@@ -350,7 +352,8 @@ function heuristicSectionAction(task: TaskLike): TaskPrimaryAction | null {
   const phase = `${task.workflowPhase || ''} ${task.workflowStage || ''}`.toLowerCase()
   const hay = `${title} ${type} ${phase}`
 
-  if (/verify client/i.test(title)) {
+  // "Verify client's own coverage" is insurance work, not contact details.
+  if (/verify client/i.test(title) && !INSURANCE_RE.test(title)) {
     return openSection('open_client_info', 'Open', 'Open Overview → Client info to confirm and correct the client’s details')
   }
 
@@ -390,9 +393,7 @@ function heuristicSectionAction(task: TaskLike): TaskPrimaryAction | null {
     return openSection('open_negotiation', 'Open', 'Open Negotiation to log the demand or offer')
   }
 
-  if (
-    /insurance|adjuster|coverage|carrier|claim\b|um\/uim|medpay|\bpip\b|policy|\bliens?\b|subrogation|letter of representation|\blor\b/i.test(hay)
-  ) {
+  if (INSURANCE_RE.test(hay)) {
     return openSection('open_insurance', 'Open', 'Open Insurance to update claims, coverage, or liens')
   }
 

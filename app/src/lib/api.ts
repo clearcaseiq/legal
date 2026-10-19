@@ -7278,8 +7278,12 @@ export interface FirmDirectMessage {
   fromMe: boolean
 }
 
-export async function getFirmColleagues(): Promise<{ colleagues: FirmColleague[]; unreadTotal: number }> {
-  const { data } = await api.get('/v1/firm-dashboard/colleagues')
+export async function getFirmColleagues(
+  opts: { includeSelf?: boolean } = {},
+): Promise<{ colleagues: FirmColleague[]; unreadTotal: number }> {
+  const { data } = await api.get('/v1/firm-dashboard/colleagues', {
+    params: opts.includeSelf ? { includeSelf: 1 } : undefined,
+  })
   return data
 }
 
