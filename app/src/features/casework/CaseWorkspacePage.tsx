@@ -110,6 +110,7 @@ import {
   TAB_TO_SECTION,
 } from './caseSections'
 import { getApiOrigin } from '../../lib/runtimeEnv'
+import { trackFeature } from '../../lib/attorneyActivity'
 import { useHeuristics } from '../../contexts/HeuristicsContext'
 import { checkEvidenceCollect, checkPoliceReportCollect, confirmRetainerSigned, sendWelcomePacket } from '../../lib/api-esign'
 import SignatureRequestPanel from '../../components/SignatureRequestPanel'
@@ -4686,6 +4687,7 @@ function TasksPanel({
   }
 
   const runPrimaryAction = async (t: TaskRow, kind: TaskPrimaryActionKind) => {
+    trackFeature('task_primary_action', leadId)
     if (kind === 'send_welcome') {
       await sendWelcomePacketForTask(t)
       return

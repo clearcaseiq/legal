@@ -67,6 +67,8 @@ export type ClaimantInviteSkipReason =
   | 'already_invited'
   | 'already_claimed'
   | 'account_exists'
+  | 'recently_invited'
+  | 'invite_limit'
 
 export interface ClaimantInviteResult {
   sent: boolean
@@ -99,12 +101,32 @@ async function alreadyInvited(assessmentId: string): Promise<boolean> {
   return Boolean(existing)
 }
 
-function inviteBody(invite: ClaimantInvite): string {
-  const greeting = invite.firstName?.trim() || 'there'
+function firmLineFor(invite: ClaimantInvite): string {
   const from = invite.attorneyName?.trim() || invite.firmName?.trim() || 'Your attorney'
-  const firmLine = invite.firmName?.trim() && invite.attorneyName?.trim()
+  return invite.firmName?.trim() && invite.attorneyName?.trim()
     ? `${invite.attorneyName.trim()} at ${invite.firmName.trim()}`
     : from
+}
+
+/** For a claimant who already has a login: sign in, and the case joins their account. */
+function signInBody(invite: ClaimantInvite): string {
+  const greeting = invite.firstName?.trim() || 'there'
+  return [
+    `Hi ${greeting},`,
+    '',
+    `${firmLineFor(invite)} is using ClearCaseIQ to work your case, and has added it to the platform.`,
+    '',
+    'You already have a ClearCaseIQ account. Sign in with the button below and the case will appear on your dashboard, where you can follow its progress, upload documents and message your legal team.',
+    '',
+    'This does not change who represents you, and it is not a new agreement of any kind.',
+    '',
+    'ClearCaseIQ',
+  ].join('\n')
+}
+
+function inviteBody(invite: ClaimantInvite): string {
+  const greeting = invite.firstName?.trim() || 'there'
+  const firmLine = firmLineFor(invite)
 
   return [
     `Hi ${greeting},`,
@@ -195,6 +217,128 @@ export async function inviteClaimantToCase(invite: ClaimantInvite): Promise<Clai
     })
     return { sent: false, skipped: null }
   }
+}
+
+/**
+ * Attorney-sent invites from an existing case may be re-sent, unlike the
+ * automatic one at import, but only so often: each is an email to a law firm's
+ * client, and a button that can be clicked repeatedly must not become spam.
+ */
+export const MANUAL_INVITE_COOLDOWN_MS = 24 * 60 * 60 * 1000
+export const MANUAL_INVITE_MAX = 5
+
+export type ClaimantPortalState = 'active' | 'invited' | 'not_invited'
+
+export interface ClaimantPortalStatus {
+  state: ClaimantPortalState
+  email: string | null
+  /** The claimant's address already has a login, so the invite asks them to sign in. */
+  hasAccount: boolean
+  inviteCount: number
+  lastInvitedAt: string | null
+  /** When the next invite may be sent; null when it may be sent now or never again. */
+  nextInviteAt: string | null
+  limitReached: boolean
+  /** A link the attorney can pass on themselves, e.g. by text. Null once the portal is active. */
+  inviteLink: string | null
+}
+
+async function inviteHistory(assessmentId: string): Promise<Date[]> {
+  const rows = await prisma.platformNotificationEvent.findMany({
+    where: { assessmentId, eventType: PLAINTIFF_EVENTS.case_invite },
+    select: { createdAt: true },
+    orderBy: { createdAt: 'desc' },
+    take: MANUAL_INVITE_MAX + 1,
+  })
+  return rows.map((r) => r.createdAt)
+}
+
+/** A login that a plaintiff case may be attached to. Firm and staff accounts are not. */
+async function clientAccountFor(email: string): Promise<{ exists: boolean; isClient: boolean }> {
+  const user = await prisma.user.findUnique({ where: { email }, select: { role: true } }).catch(() => null)
+  if (!user) return { exists: false, isClient: false }
+  return { exists: true, isClient: (user.role || 'client') === 'client' }
+}
+
+function signInUrl(assessmentId: string): string {
+  return webUrl(`/login?claim=${encodeURIComponent(createClaimToken(assessmentId))}`)
+}
+
+export async function getClaimantPortalStatus(
+  assessmentId: string,
+  rawEmail: string | null | undefined,
+  now = Date.now(),
+): Promise<ClaimantPortalStatus | null> {
+  const assessment = await prisma.assessment.findUnique({
+    where: { id: assessmentId },
+    select: { userId: true, user: { select: { email: true, passwordHash: true, provider: true } } },
+  })
+  if (!assessment) return null
+
+  const email = rawEmail?.trim().toLowerCase() || null
+  const active = !isTransferableCaseOwner(assessment.userId ? assessment.user : null)
+  const history = active ? [] : await inviteHistory(assessmentId)
+  const account = email && !active ? await clientAccountFor(email) : { exists: false, isClient: false }
+  const last = history[0] ?? null
+  const limitReached = history.length >= MANUAL_INVITE_MAX
+  const cooldownEnds = last ? last.getTime() + MANUAL_INVITE_COOLDOWN_MS : 0
+
+  return {
+    state: active ? 'active' : history.length > 0 ? 'invited' : 'not_invited',
+    email,
+    hasAccount: account.exists,
+    inviteCount: history.length,
+    lastInvitedAt: last ? last.toISOString() : null,
+    nextInviteAt: !active && !limitReached && cooldownEnds > now ? new Date(cooldownEnds).toISOString() : null,
+    limitReached,
+    inviteLink: active || (account.exists && !account.isClient)
+      ? null
+      : account.exists
+        ? signInUrl(assessmentId)
+        : claimantInviteUrl(assessmentId),
+  }
+}
+
+/**
+ * An attorney inviting the claimant from an open case.
+ *
+ * Unlike `inviteClaimantToCase` this may repeat (after a cooldown, up to a cap),
+ * and a claimant who already has a login is asked to sign in rather than
+ * skipped, since signing in through the link attaches the case. Throws on a
+ * delivery failure so the attorney is told the mail did not go.
+ */
+export async function sendClaimantInviteFromCase(
+  invite: ClaimantInvite,
+  now = Date.now(),
+): Promise<ClaimantInviteResult> {
+  const email = invite.email?.trim().toLowerCase()
+  if (!email) return { sent: false, skipped: 'no_email' }
+
+  const status = await getClaimantPortalStatus(invite.assessmentId, email, now)
+  if (!status || status.state === 'active') return { sent: false, skipped: 'already_claimed' }
+  if (status.limitReached) return { sent: false, skipped: 'invite_limit' }
+  if (status.nextInviteAt) return { sent: false, skipped: 'recently_invited' }
+  if (!status.inviteLink) return { sent: false, skipped: 'account_exists' }
+
+  await deliverDirectNotification({
+    type: 'email',
+    recipient: email,
+    subject: status.hasAccount ? 'Your case has been added to your ClearCaseIQ account' : 'Your case portal is ready',
+    message: status.hasAccount ? signInBody(invite) : inviteBody(invite),
+    role: 'plaintiff',
+    assessmentId: invite.assessmentId,
+    cta: { label: status.hasAccount ? 'Sign in to see my case' : 'Activate my case portal', url: status.inviteLink },
+    replyTo: invite.attorneyEmail || null,
+    fromName: invite.attorneyName || invite.firmName || null,
+    metadata: { eventType: PLAINTIFF_EVENTS.case_invite, assessmentId: invite.assessmentId, manual: true },
+  })
+
+  logger.info('Attorney invited claimant to case portal', {
+    assessmentId: invite.assessmentId,
+    signIn: status.hasAccount,
+    inviteNumber: status.inviteCount + 1,
+  })
+  return { sent: true, skipped: null }
 }
 
 /**

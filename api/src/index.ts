@@ -17,6 +17,7 @@ import { runSolExpirySweep } from './lib/sol-expiry-sweep'
 import { runEsignEnvelopeSweep } from './lib/esign-envelope-sweep'
 import { runAiCaseManagerSweep, isAiCaseManagerEnabled } from './lib/ai-case-manager-sweep'
 import { runActivityCanarySweep, isActivityCanaryEnabled } from './lib/activity-canary-sweep'
+import { sweepRawUsageEvents } from './lib/attorney-usage'
 import { runErrorRateSweep, isErrorRateMonitorEnabled } from './lib/error-rate-monitor'
 import { runAdsConversionSweep } from './lib/ads-conversion-sweep'
 import { runIntakeLeadIpPurge } from './lib/intake-lead-ip-retention'
@@ -45,6 +46,7 @@ let solExpiryTimer: NodeJS.Timeout | null = null
 let esignEnvelopeTimer: NodeJS.Timeout | null = null
 let aiCaseManagerTimer: NodeJS.Timeout | null = null
 let activityCanaryTimer: NodeJS.Timeout | null = null
+let usageRetentionTimer: NodeJS.Timeout | null = null
 let errorRateTimer: NodeJS.Timeout | null = null
 let adsConversionTimer: NodeJS.Timeout | null = null
 let inboundSyncTimer: NodeJS.Timeout | null = null
@@ -444,6 +446,29 @@ function startActivityCanaryLoop() {
   }, intervalMs)
 }
 
+async function runUsageRetentionLoop(trigger: 'startup' | 'interval') {
+  const sweep = beginSweep('usage-retention')
+  try {
+    const result = await sweepRawUsageEvents()
+    sweep.succeed()
+    if (result.deleted > 0 || trigger === 'startup') {
+      logger.info('Usage retention sweep completed', { trigger, ...result })
+    }
+  } catch (error) {
+    sweep.fail(error)
+    logger.error('Usage retention sweep failed', { error, trigger })
+  }
+}
+
+function startUsageRetentionLoop() {
+  const intervalMs = 24 * 60 * 60 * 1000
+  registerSweep('usage-retention', { label: 'Attorney usage retention', enabled: true, intervalMs })
+  void runUsageRetentionLoop('startup')
+  usageRetentionTimer = setInterval(() => {
+    void runUsageRetentionLoop('interval')
+  }, intervalMs)
+}
+
 async function runErrorRateLoop(trigger: 'startup' | 'interval') {
   const sweep = beginSweep('error-rate')
   try {
@@ -663,6 +688,7 @@ function startBackgroundLoops() {
   startCaseReminderLoop()
   startAiCaseManagerLoop()
   startActivityCanaryLoop()
+  startUsageRetentionLoop()
   startErrorRateLoop()
   startAdsConversionLoop()
   startInboundSyncLoop()
@@ -708,6 +734,7 @@ function stopBackgroundLoops() {
   if (caseReminderTimer) clearInterval(caseReminderTimer)
   if (aiCaseManagerTimer) clearInterval(aiCaseManagerTimer)
   if (activityCanaryTimer) clearInterval(activityCanaryTimer)
+  if (usageRetentionTimer) clearInterval(usageRetentionTimer)
   if (errorRateTimer) clearInterval(errorRateTimer)
   if (adsConversionTimer) clearInterval(adsConversionTimer)
   if (inboundSyncTimer) clearInterval(inboundSyncTimer)

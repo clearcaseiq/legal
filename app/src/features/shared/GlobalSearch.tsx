@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Contact, CornerDownLeft, FileSignature, FolderOpen, Loader2, Search, X } from 'lucide-react'
 import { globalSearch, type GlobalSearchHit, type GlobalSearchResult } from '../../lib/api'
+import { trackFeature } from '../../lib/attorneyActivity'
 
 const GROUPS = [
   { key: 'cases' as const, label: 'Cases', Icon: FolderOpen },
@@ -79,6 +80,7 @@ export default function GlobalSearch() {
   const go = useCallback(
     (hit: GlobalSearchHit) => {
       setOpen(false)
+      trackFeature('global_search')
       navigate(hit.href)
     },
     [navigate],

@@ -19,6 +19,7 @@ import { PASSWORD_RESET_TTL_MS, hashResetToken, passwordResetUrl } from '../lib/
 import { issueEmailVerification, notifyEmailAddressChanged } from '../lib/email-verification'
 import { syncClaimantContactForUser } from '../lib/claimant-contact'
 import { claimCaseWithToken } from '../lib/case-claim'
+import { recordAttorneyActivity } from '../lib/attorney-activity'
 
 // Look up a user's active firm membership (the record that makes a paralegal /
 // case manager / etc. a real firm staffer). Returns null for plaintiffs.
@@ -54,6 +55,13 @@ async function buildInviteSession(userId: string) {
   if (!membership) return null
 
   await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } })
+  recordAttorneyActivity({
+    action: 'login',
+    entityType: 'session',
+    lawFirmId: membership.lawFirmId,
+    actor: { id: user.id, role: membership.role === 'attorney' ? 'attorney' : 'staff' },
+    properties: { method: 'invite' },
+  })
   const token = generateToken(user.id)
   const userPayload = {
     id: user.id,
@@ -589,6 +597,13 @@ router.post('/attorney-login', async (req, res) => {
       where: { id: user.id },
       data: { lastLoginAt: new Date() },
     })
+    recordAttorneyActivity({
+      action: 'login',
+      entityType: 'session',
+      lawFirmId: attorney.lawFirmId,
+      actor: { id: user.id, role: 'attorney' },
+      properties: { method: 'password' },
+    })
 
     // Generate token
     const token = generateToken(user.id)
@@ -677,6 +692,13 @@ router.post('/staff-login', async (req, res) => {
     }
 
     await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } })
+    recordAttorneyActivity({
+      action: 'login',
+      entityType: 'session',
+      lawFirmId: membership.lawFirmId,
+      actor: { id: user.id, role: membership.role === 'attorney' ? 'attorney' : 'staff' },
+      properties: { method: 'password' },
+    })
     const token = generateToken(user.id)
 
     logger.info('Firm staff logged in', {

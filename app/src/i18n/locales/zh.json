@@ -61,6 +61,9 @@
       "documents": {
         "label": "文档与 OCR"
       },
+      "attorneyActivity": {
+        "label": "律师活动"
+      },
       "auditLogs": {
         "label": "审计日志"
       },

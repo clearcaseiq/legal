@@ -1,4 +1,4 @@
-import { type ComponentType } from 'react'
+import { useEffect, type ComponentType } from 'react'
 import { Link, Outlet, useLocation } from 'react-router-dom'
 import {
   Inbox,
@@ -22,6 +22,15 @@ import GlobalSearch from './GlobalSearch'
 import { isCalendarRoute, isWideAttorneyRoute } from '../../lib/layoutWidth'
 import { useLanguage } from '../../contexts/LanguageContext'
 import { useFirmAccess, type FirmAction } from '../../hooks/useFirmAccess'
+import { screenFromPath, startUsageHeartbeat, trackScreen } from '../../lib/attorneyActivity'
+
+function useWorkspaceUsage(pathname: string) {
+  useEffect(() => startUsageHeartbeat(), [])
+  useEffect(() => {
+    const screen = screenFromPath(pathname)
+    if (screen) trackScreen(screen.key, screen.leadId)
+  }, [pathname])
+}
 
 interface NavEntry {
   to: string
@@ -431,6 +440,7 @@ function WorkspaceChrome() {
   const isFullWidth = isWideAttorneyRoute(location.pathname)
   const isCalendar = isCalendarRoute(location.pathname)
   const { isStaff } = useAttorneyWorkspace()
+  useWorkspaceUsage(location.pathname)
   const firmName = useFirmAccess().access?.firm?.name
   return (
     <div className={isFullWidth ? 'w-full' : 'mx-auto w-full max-w-7xl'}>

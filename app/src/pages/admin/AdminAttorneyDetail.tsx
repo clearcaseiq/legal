@@ -10,6 +10,7 @@ import { formatSpecialty } from '../../lib/constants'
 import { formatClaimType } from '../../lib/claimTypes'
 import { BackButton, Breadcrumbs } from '../../features/shared/ui'
 import {
+  Activity,
   RefreshCw,
   User,
   Users,
@@ -116,6 +117,13 @@ export default function AdminAttorneyDetail() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <BackButton onClick={() => navigate('/admin/attorneys')} label="Back to attorneys" />
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => navigate(`/admin/attorney-activity/${attorney.id}`)}
+            className="btn-outline inline-flex items-center gap-2 text-ui-sm"
+          >
+            <Activity className="h-4 w-4" />
+            Activity
+          </button>
           <button
             onClick={() => void toggleVerified()}
             disabled={acting}

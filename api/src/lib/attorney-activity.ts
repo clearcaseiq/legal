@@ -59,6 +59,8 @@ export type AttorneyActivityInput = {
   actor?: { id?: string | null; role?: string | null } | null
   task?: TaskOriginSource | null
   properties?: Record<string, unknown>
+  /** Skip the case snapshot (screen and feature events don't need one). */
+  withoutContext?: boolean
 }
 
 function loggingEnabled(): boolean {
@@ -141,7 +143,7 @@ export async function buildCaseContext(
 
 async function writeActivity(input: AttorneyActivityInput): Promise<void> {
   try {
-    const context = input.assessmentId
+    const context = input.assessmentId && !input.withoutContext
       ? await buildCaseContext(input.assessmentId, input.leadId).catch(() => null)
       : null
     await prisma.attorneyActivityEvent.create({
@@ -167,6 +169,31 @@ async function writeActivity(input: AttorneyActivityInput): Promise<void> {
 export function recordAttorneyActivity(input: AttorneyActivityInput): void {
   if (!loggingEnabled()) return
   void writeActivity(input)
+}
+
+export const CASE_OPEN_DEDUPE_MS = 15 * 60_000
+// Per process: with several API instances a reopen can be logged once per
+// instance inside the window, which the access timeline tolerates.
+const lastCaseOpen = new Map<string, number>()
+
+/**
+ * The compliance record of who opened which case. The workspace re-fetches the
+ * case every 30 seconds while it is open, so repeat opens by the same person
+ * within the window are one visit.
+ */
+export function recordCaseOpened(input: Omit<AttorneyActivityInput, 'action' | 'entityType'>, now = Date.now()): boolean {
+  const userId = input.actor?.id
+  const assessmentId = input.assessmentId
+  if (!userId || !assessmentId) return false
+  const key = `${userId}:${assessmentId}`
+  const last = lastCaseOpen.get(key)
+  if (last !== undefined && now - last < CASE_OPEN_DEDUPE_MS) return false
+  lastCaseOpen.set(key, now)
+  if (lastCaseOpen.size > 10_000) {
+    for (const [k, at] of lastCaseOpen) if (now - at >= CASE_OPEN_DEDUPE_MS) lastCaseOpen.delete(k)
+  }
+  recordAttorneyActivity({ ...input, action: 'case_opened', entityType: 'case', entityId: assessmentId })
+  return true
 }
 
 type TaskSnapshot = {

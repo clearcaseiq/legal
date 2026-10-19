@@ -78,6 +78,7 @@ export function capabilityForAdminPath(path: string): AdminCapability | null {
     path.startsWith('/admin/payments') ||
     path.startsWith('/admin/documents') ||
     path.startsWith('/admin/audit-logs') ||
+    path.startsWith('/admin/attorney-activity') ||
     path.startsWith('/admin/system-status') ||
     path.startsWith('/admin/compliance')
   ) {

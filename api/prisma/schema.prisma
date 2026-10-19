@@ -5208,7 +5208,27 @@ model AttorneyActivityEvent {
   @@index([lawFirmId, occurredAt])
   @@index([assessmentId, occurredAt])
   @@index([action, occurredAt])
+  @@index([actorUserId, occurredAt])
   @@map("attorney_activity_events")
+}
+
+/// One row per attorney or staff user per UTC day: active minutes from the
+/// workspace heartbeat, and how often each screen and feature was used. Kept
+/// after the raw screen/feature events are swept. Counts only, never content.
+model AttorneyUsageDaily {
+  id            String   @id @default(cuid())
+  userId        String
+  lawFirmId     String?
+  day           String // YYYY-MM-DD (UTC)
+  activeMinutes Int      @default(0)
+  screens       String?  @db.Text // JSON { screenKey: count }
+  features      String?  @db.Text // JSON { featureKey: count }
+  updatedAt     DateTime @updatedAt
+
+  @@unique([userId, day])
+  @@index([lawFirmId, day])
+  @@index([day])
+  @@map("attorney_usage_daily")
 }
 
 /// Numbers that have asked not to be texted.

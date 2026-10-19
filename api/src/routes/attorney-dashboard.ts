@@ -35,8 +35,10 @@ import {
 } from '../lib/import-claimant-match'
 import {
   claimantInviteUrl,
+  getClaimantPortalStatus,
   inviteClaimants,
   inviteClaimantToCase,
+  sendClaimantInviteFromCase,
   type ClaimantInviteBatchResult,
 } from '../lib/claimant-invite'
 import {
@@ -190,9 +192,11 @@ import {
   diffTaskEdits,
   normalizeDismissReason,
   recordAttorneyActivity,
+  recordCaseOpened,
   taskOrigin,
   taskTiming,
 } from '../lib/attorney-activity'
+import { parseBeacon, recordUsage, type UsageActor } from '../lib/attorney-usage'
 import { openCaseStage, syncCaseStage, reopenCaseStage } from '../lib/case-stage'
 import { setLitigationStatus, isLitigationStatus, LITIGATION_LABELS } from '../lib/litigation'
 import { completeHipaaOpeningTaskIfSatisfied, createCaseOpeningTasks } from '../lib/case-opening'
@@ -6892,6 +6896,70 @@ router.patch('/leads/:leadId/client-contact', authMiddleware, firmGate('manage')
   } catch (error: any) {
     logger.error('Failed to update client contact', { error: error.message })
     res.status(500).json({ error: 'Failed to update client contact' })
+  }
+})
+
+// Whether the claimant is on the platform, and inviting them if not.
+router.get('/leads/:leadId/client-invite', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true })
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+
+    const contact = await readClaimantContact(auth.lead.assessmentId)
+    const status = await getClaimantPortalStatus(auth.lead.assessmentId, contact?.email)
+    if (!status) return res.status(404).json({ error: 'Case not found' })
+    res.json(status)
+  } catch (error: any) {
+    logger.error('Failed to read client invite status', { error: error.message })
+    res.status(500).json({ error: 'Failed to read client invite status' })
+  }
+})
+
+const CLIENT_INVITE_SKIP_MESSAGES: Record<string, { status: number; message: string }> = {
+  no_email: { status: 422, message: 'Add the client’s email address first.' },
+  already_claimed: { status: 409, message: 'The client already has access to this case.' },
+  account_exists: { status: 409, message: 'That email belongs to a non-client account, so the case cannot be linked to it.' },
+  recently_invited: { status: 429, message: 'An invite was sent in the last 24 hours. Try again later.' },
+  invite_limit: { status: 429, message: 'This client has already been invited the maximum number of times.' },
+}
+
+router.post('/leads/:leadId/client-invite', authMiddleware, firmGate('message'), async (req: any, res) => {
+  try {
+    const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true, firmMemberWrite: true })
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+
+    const assessmentId = auth.lead.assessmentId
+    const contact = await readClaimantContact(assessmentId)
+    const attorney = auth.lead.assignedAttorneyId
+      ? await prisma.attorney.findUnique({
+          where: { id: auth.lead.assignedAttorneyId },
+          select: { name: true, email: true, lawFirmId: true },
+        })
+      : null
+
+    const result = await sendClaimantInviteFromCase({
+      assessmentId,
+      email: contact?.email,
+      firstName: contact?.firstName,
+      attorneyName: attorney?.name,
+      attorneyEmail: attorney?.email,
+      firmName: await firmNameFor(attorney?.lawFirmId),
+    })
+    if (!result.sent) {
+      const skip = CLIENT_INVITE_SKIP_MESSAGES[result.skipped || ''] || { status: 500, message: 'Could not send the invite.' }
+      return res.status(skip.status).json({ error: skip.message, code: result.skipped })
+    }
+
+    recordAttorneyActivity({
+      ...leadActivityBase(req, auth, req.params.leadId),
+      action: 'client_invited',
+      entityType: 'case',
+      entityId: assessmentId,
+    })
+    res.json(await getClaimantPortalStatus(assessmentId, contact?.email))
+  } catch (error: any) {
+    logger.error('Failed to send client invite', { error: error.message, leadId: req.params.leadId })
+    res.status(500).json({ error: 'Could not send the invite.' })
   }
 })
 
@@ -17042,6 +17110,8 @@ router.get('/leads/:leadId/command-center', authMiddleware, async (req: any, res
       leadId: auth.lead.id,
     })
 
+    if (auth.attorney || auth.firmMember) recordCaseOpened(leadActivityBase(req, auth, auth.lead.id))
+
     res.json(summary)
   } catch (error: any) {
     logger.error('Failed to load lead command center', { error: error.message, leadId: req.params.leadId })
@@ -20275,6 +20345,44 @@ router.post('/notifications/read-all', authMiddleware, async (req: any, res) => 
   } catch (error: any) {
     logger.error('Failed to mark all notifications read', { error: error.message, userId: req.user?.id })
     res.status(500).json({ error: 'Failed to mark all read' })
+  }
+})
+
+/**
+ * Workspace usage beacon (screens, features, heartbeat) for the admin attorney
+ * activity report. Events on cases the caller cannot open are dropped.
+ */
+router.post('/usage', authMiddleware, async (req: any, res) => {
+  try {
+    const parsed = parseBeacon(req.body)
+    if ('error' in parsed) return res.status(400).json({ error: parsed.error })
+    if (!req.user?.id || !req.user?.email) return res.status(401).json({ error: 'Authentication required' })
+
+    const attorney = await prisma.attorney.findFirst({ where: { email: req.user.email }, select: { lawFirmId: true } })
+    let actor: UsageActor
+    if (attorney) {
+      actor = { userId: req.user.id, role: 'attorney', lawFirmId: attorney.lawFirmId ?? null }
+    } else {
+      const member = await (prisma as any).firmMember.findFirst({
+        where: { userId: req.user.id, status: 'active' },
+        select: { lawFirmId: true, role: true },
+      })
+      if (!member) return res.status(403).json({ error: 'Attorney or firm staff only' })
+      actor = { userId: req.user.id, role: member.role === 'attorney' ? 'attorney' : 'staff', lawFirmId: member.lawFirmId }
+    }
+
+    const leadIds = [...new Set(parsed.events.map((e) => ('leadId' in e ? e.leadId : undefined)).filter(Boolean) as string[])]
+    const leadAssessments = new Map<string, string>()
+    for (const leadId of leadIds) {
+      const auth = await getAuthorizedLead(req, leadId, { allowFirmMember: true })
+      if (!auth.error && auth.lead?.assessmentId) leadAssessments.set(leadId, auth.lead.assessmentId)
+    }
+
+    await recordUsage(actor, parsed.events, leadAssessments)
+    res.status(204).end()
+  } catch (error: any) {
+    logger.error('Failed to record workspace usage', { error: error.message, userId: req.user?.id })
+    res.status(500).json({ error: 'Failed to record usage' })
   }
 })
 

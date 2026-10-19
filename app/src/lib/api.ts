@@ -1,4 +1,5 @@
 import api from './http'
+import { trackFeature } from './attorneyActivity'
 import { clearStoredAuth } from './auth'
 import { apiDebug } from './debug'
 import { saveCaseClaimToken } from './pendingRegistration'
@@ -2400,6 +2401,27 @@ export async function updateClaimantContact(
   return data
 }
 
+export interface ClientPortalStatus {
+  state: 'active' | 'invited' | 'not_invited'
+  email: string | null
+  hasAccount: boolean
+  inviteCount: number
+  lastInvitedAt: string | null
+  nextInviteAt: string | null
+  limitReached: boolean
+  inviteLink: string | null
+}
+
+export async function getClientPortalStatus(leadId: string): Promise<ClientPortalStatus> {
+  const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/client-invite`)
+  return data
+}
+
+export async function inviteClientToPortal(leadId: string): Promise<ClientPortalStatus> {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/client-invite`)
+  return data
+}
+
 export interface DocumentInboxExtract {
   totalAmount: number | null
   confidence: number
@@ -2689,6 +2711,7 @@ export async function askLeadCommandCenterCopilot(leadId: string, question: stri
     question,
     history: history.slice(-6),
   })
+  trackFeature('copilot_ask', leadId)
   return data as {
     question: string
     answer: string
@@ -2917,6 +2940,7 @@ export async function listDemandPackages(leadId: string, demandId: string) {
 
 export async function buildDemandPackage(leadId: string, demandId: string, config: DemandPackageConfig) {
   const { data } = await api.post(`${demandLettersPath(leadId)}/${demandId}/packages`, config)
+  trackFeature('demand_package_build', leadId)
   return data as DemandPackage
 }
 
@@ -2935,6 +2959,7 @@ export async function emailDemandPackage(
   body: { to: string; subject?: string; message?: string; markSent?: boolean },
 ) {
   const { data } = await api.post(`${demandLettersPath(leadId)}/${demandId}/packages/${packageId}/email`, body)
+  trackFeature('demand_package_email', leadId)
   return data as { package: DemandPackage; letter: DemandLetter | null; delivery: 'attachment' | 'link' }
 }
 
@@ -2961,6 +2986,7 @@ export async function draftLeadDemandLetter(
   options: { guidance?: string | null; useAi?: boolean; title?: string; template?: DemandTemplate; demandStyleId?: DemandStyleChoice } = {},
 ) {
   const { data } = await api.post(demandLettersPath(leadId), options)
+  trackFeature('demand_generate', leadId)
   return data as DemandLetter
 }
 
@@ -3215,6 +3241,7 @@ export async function acceptQuestionTaskProposal(leadId: string, proposalId: str
   const { data } = await api.post<{ proposal: QuestionTaskProposal; proposals: QuestionTaskProposal[] }>(
     `/v1/attorney-dashboard/leads/${leadId}/intelligence/question-proposals/${proposalId}/accept`,
   )
+  trackFeature('ai_suggestion_accept', leadId)
   return data
 }
 
@@ -3222,6 +3249,7 @@ export async function declineQuestionTaskProposal(leadId: string, proposalId: st
   const { data } = await api.post<{ proposal: QuestionTaskProposal; proposals: QuestionTaskProposal[] }>(
     `/v1/attorney-dashboard/leads/${leadId}/intelligence/question-proposals/${proposalId}/decline`,
   )
+  trackFeature('ai_suggestion_dismiss', leadId)
   return data
 }
 
@@ -4117,6 +4145,7 @@ export async function createLeadSolTask(leadId: string) {
 // and flips it live).
 export async function approveLeadTask(leadId: string, taskId: string) {
   const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/tasks/${taskId}/approve`)
+  trackFeature('ai_suggestion_accept', leadId)
   return data
 }
 
@@ -4851,6 +4880,82 @@ export async function listAuditLogs(params?: {
 }) {
   const { data } = await api.get<AuditLogPage>('/v1/compliance/audit-logs', { params })
   return data
+}
+
+export interface AttorneyActivityMetrics {
+  attorney: {
+    attorneyId: string
+    name: string
+    email: string | null
+    lawFirmId: string | null
+    lawFirmName: string | null
+    userIds: string[]
+  }
+  engagement: {
+    lastLoginAt: string | null
+    lastSeenAt: string | null
+    activeDays7: number
+    activeDays30: number
+    activeMinutes: number
+    leadsReceived: number
+    leadsPending: number
+    medianLeadResponseHours: number | null
+    openCases: number
+    staleCases: number
+    overdueTasks: number
+  }
+  value: {
+    demandsGenerated: number
+    demandsSent: number
+    packagesBuilt: number
+    packagesEmailed: number
+    tasksCompleted: number
+    aiSuggestionsAccepted: number
+    hoursSaved: number
+  }
+}
+
+export type AttorneyTimelineKind = 'activity' | 'case_change' | 'document_access' | 'audit'
+
+export interface AttorneyTimelineEntry {
+  id: string
+  at: string
+  kind: AttorneyTimelineKind
+  action: string
+  detail: string | null
+  assessmentId: string | null
+}
+
+export interface AttorneyActivityDetail extends AttorneyActivityMetrics {
+  range: { from: string; to: string }
+  usage: {
+    screens: Array<{ key: string; count: number }>
+    features: Array<{ key: string; count: number }>
+    activeMinutesByDay: Array<{ day: string; minutes: number }>
+  }
+  timeline: { entries: AttorneyTimelineEntry[]; nextBefore: string | null }
+}
+
+export async function listAttorneyActivity(params: { from?: string; to?: string; firm?: string } = {}) {
+  const { data } = await api.get<{
+    range: { from: string; to: string }
+    firms: Array<{ id: string; name: string }>
+    attorneys: AttorneyActivityMetrics[]
+  }>('/v1/admin/attorney-activity', { params })
+  return data
+}
+
+export async function getAttorneyActivity(
+  attorneyId: string,
+  params: { from?: string; to?: string; before?: string; limit?: number; kinds?: string } = {},
+) {
+  const { data } = await api.get<AttorneyActivityDetail>(`/v1/admin/attorney-activity/${attorneyId}`, { params })
+  return data
+}
+
+export async function downloadAttorneyActivityCsv(attorneyId: string, params: { from?: string; to?: string; kinds?: string } = {}) {
+  const { data } = await api.get(`/v1/admin/attorney-activity/${attorneyId}/export.csv`, { params, responseType: 'blob' })
+  return data as Blob
 }
 
 export async function getAuditLogFacets() {

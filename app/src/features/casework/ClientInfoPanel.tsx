@@ -11,6 +11,7 @@ import { getClaimantContact, updateClaimantContact, updateLeadTask, type Claiman
 import PhoneInput from '../../components/PhoneInput'
 import { validatePhoneField } from '../../lib/phone'
 import { useRealtimeEvent } from '../../lib/realtime'
+import ClientPortalInvite from './ClientPortalInvite'
 
 type Form = Record<
   'firstName' | 'lastName' | 'email' | 'phone' | 'addressLine1' | 'addressLine2' | 'city' | 'state' | 'postalCode',
@@ -200,6 +201,8 @@ export default function ClientInfoPanel({ leadId, tasks, reloadTasks, onSaved }:
           ) : null}
         </div>
       ) : null}
+
+      <ClientPortalInvite leadId={leadId} savedEmail={saved.email} dirty={dirty} />
 
       <section>
         <h3 className="text-sm font-semibold text-slate-900">Contact</h3>

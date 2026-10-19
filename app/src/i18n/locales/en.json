@@ -64,6 +64,9 @@
       "documents": {
         "label": "Documents & OCR"
       },
+      "attorneyActivity": {
+        "label": "Attorney Activity"
+      },
       "auditLogs": {
         "label": "Audit Logs"
       },

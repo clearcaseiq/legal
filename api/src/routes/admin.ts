@@ -15,6 +15,7 @@ import pageLinks from './admin-page-links'
 import docs from './admin-docs'
 import payments from './admin-payments'
 import invitations from './admin-invitations'
+import attorneyActivity from './admin-attorney-activity'
 
 const router: ExpressRouter = Router()
 
@@ -30,5 +31,6 @@ router.use(pageLinks)
 router.use(docs)
 router.use(payments)
 router.use(invitations)
+router.use(attorneyActivity)
 
 export default router

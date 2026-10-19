@@ -18,6 +18,9 @@ import { checkSmsProviderConfig } from './lib/sms'
 import { checkStripeConfig } from './lib/stripe'
 
 const AUDITED_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
+// Successful writes that are telemetry rather than changes; a once-a-minute
+// heartbeat per attorney would otherwise bury the audit trail.
+const UNAUDITED_WRITE_PATHS = new Set(['/v1/attorney-dashboard/usage'])
 /**
  * Values that must never sign a production token or session.
  *
@@ -349,6 +352,7 @@ export function createServer(): Express {
     res.on('finish', () => {
       if (!req.originalUrl.startsWith('/v1')) return
       if (!AUDITED_METHODS.has(req.method) && res.statusCode < 400) return
+      if (res.statusCode < 400 && UNAUDITED_WRITE_PATHS.has(req.originalUrl.split('?')[0])) return
 
       const actor = (req as any).user
       const requestId = (req as any).id ?? null

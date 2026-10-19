@@ -256,6 +256,8 @@ const AdminCommunications = lazy(() => import('./pages/admin/AdminCommunications
 const AdminDocuments = lazy(() => import('./pages/admin/AdminDocuments'))
 const AdminAnalytics = lazy(() => import('./pages/admin/AdminAnalytics'))
 const AdminAuditLogs = lazy(() => import('./pages/admin/AdminAuditLogs'))
+const AdminAttorneyActivity = lazy(() => import('./pages/admin/AdminAttorneyActivity'))
+const AdminAttorneyActivityDetail = lazy(() => import('./pages/admin/AdminAttorneyActivityDetail'))
 const AdminSystemStatus = lazy(() => import('./pages/admin/AdminSystemStatus'))
 const AdminSettings = lazy(() => import('./pages/admin/AdminSettings'))
 const AdminBlog = lazy(() => import('./pages/admin/AdminBlog'))
@@ -589,6 +591,8 @@ function App() {
                 <Route path="documents" element={<AdminDocuments />} />
                 <Route path="analytics" element={<AdminAnalytics />} />
                 <Route path="audit-logs" element={<AdminAuditLogs />} />
+                <Route path="attorney-activity" element={<AdminAttorneyActivity />} />
+                <Route path="attorney-activity/:attorneyId" element={<AdminAttorneyActivityDetail />} />
                 <Route path="system-status" element={<AdminSystemStatus />} />
                 <Route path="compliance" element={<ComplianceAdmin />} />
                 <Route path="settings" element={<AdminSettings />} />
