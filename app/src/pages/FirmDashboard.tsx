@@ -251,6 +251,7 @@ interface FirmDashboardData {
     website?: string | null
     phone?: string | null
     primaryEmail?: string | null
+    logoUrl?: string | null
   }
   metrics: {
     attorneyCount: number
@@ -990,6 +991,7 @@ export default function FirmDashboard() {
 
   const dashboardData = (data || null) as FirmDashboardData | null
   const firm = (dashboardData?.firm || {}) as FirmDashboardData['firm']
+  const firmLogoUrl = resolveUploadedPhotoUrl(firm.logoUrl)
   const metrics = (dashboardData?.metrics || {}) as FirmDashboardData['metrics']
   const attorneys = dashboardData?.attorneys || []
   const members = dashboardData?.members || []
@@ -1584,9 +1586,17 @@ export default function FirmDashboard() {
       {/* Firm header */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-4">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-100">
-            <Building2 className="h-8 w-8 text-brand-600" />
-          </div>
+          {firmLogoUrl ? (
+            <img
+              src={firmLogoUrl}
+              alt={`${firm.name} logo`}
+              className="h-14 w-14 rounded-2xl border border-slate-200 bg-white object-contain p-1"
+            />
+          ) : (
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-100">
+              <Building2 className="h-8 w-8 text-brand-600" />
+            </div>
+          )}
           <div>
             <h1 className="text-2xl font-bold text-slate-900">{firm.name}</h1>
             <p className="text-sm text-slate-500">

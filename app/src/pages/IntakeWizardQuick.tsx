@@ -825,7 +825,6 @@ const LEGACY_STEP_MAP: Record<string, Step> = {
 }
 
 /** Resolves a saved or linked step name to one of the current screens. */
-const INJURY_ANCHOR_ID = 'intake-optional-injury'
 const COSTS_ANCHOR_ID = 'intake-medical-bills'
 
 function resolveStepKey(raw: string): Step | '' {
@@ -1871,17 +1870,15 @@ export default function IntakeWizardQuick() {
     return () => window.clearTimeout(timer)
   }, [currentStep])
 
-  // Review cards can ask for a section inside a collapsed optional group; the
-  // ref feeds the step-change scroll, the state opens the group.
+  // Review cards can ask for a section further down the step; read by the
+  // step-change scroll.
   const reviewJumpRef = useRef<string | null>(null)
-  const [reviewJump, setReviewJump] = useState<string | null>(null)
 
   const editReviewStep = (step: Step, anchorId?: string) => {
     // Several review categories are folded into a host screen; jump to the host
     // so currentStepIndex stays valid and "return to review" still works.
     const target = V2_MERGED_INTO[step] ?? step
     reviewJumpRef.current = anchorId ?? null
-    setReviewJump(anchorId ?? null)
     setReturnToReviewFromStep(target)
     setCurrentStep(target)
   }
@@ -1900,7 +1897,6 @@ export default function IntakeWizardQuick() {
     if (active instanceof HTMLElement && active !== document.body) active.blur()
     const jumpTo = reviewJumpRef.current
     reviewJumpRef.current = null
-    if (!jumpTo) setReviewJump(null)
     const scrollTop = () => {
       const jumpEl = jumpTo ? document.getElementById(jumpTo) : null
       if (jumpEl) {
@@ -7072,7 +7068,7 @@ export default function IntakeWizardQuick() {
               {renderCard({ title: tx('card_incident'), icon: Car, step: 'when', children: (
                 <>{incidentLines.map((l, i) => <p key={i} className="truncate">{l}</p>)}</>
               ) })}
-              {renderCard({ title: tx('card_injury'), icon: HeartPulse, step: 'injury_severity', anchorId: injuryCount > 0 ? undefined : INJURY_ANCHOR_ID, count: injuryCount > 0 ? `${tx('card_viewAllInjuries')} (${injuryCount})` : undefined, children: (
+              {renderCard({ title: tx('card_injury'), icon: HeartPulse, step: 'injury_severity', count: injuryCount > 0 ? `${tx('card_viewAllInjuries')} (${injuryCount})` : undefined, children: (
                 <>{injuryLines.length ? injuryLines.map((l, i) => <p key={i} className="flex items-center gap-1.5"><CheckCircle2 className="h-3 w-3 shrink-0 text-brand-500" aria-hidden /><span className="truncate">{l}</span></p>) : <p>{tx('notAnsweredYet')}</p>}</>
               ) })}
               {renderCard({ title: tx('card_financial'), icon: DollarSign, step: 'financial_impact', anchorId: COSTS_ANCHOR_ID, children: (
@@ -7221,14 +7217,12 @@ export default function IntakeWizardQuick() {
               title={tx('optional_estimate_title')}
               hint={tx('optional_estimate_hint')}
               optionalLabel={tx('optional_tag')}
-              defaultOpen={hasOptionalAnswers || reviewJump === INJURY_ANCHOR_ID}
+              defaultOpen={hasOptionalAnswers}
             >
               <div className="space-y-4">
                 {renderIncidentDetails()}
                 {renderStepContent('when', 'careExtras')}
-                <div id={INJURY_ANCHOR_ID} className="scroll-mt-4">
-                  {renderStepContent('injury_severity', 'optional')}
-                </div>
+                {renderStepContent('injury_severity', 'optional')}
                 {renderStepContent('financial_impact')}
                 {renderInsuranceStatus()}
               </div>

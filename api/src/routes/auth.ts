@@ -427,9 +427,10 @@ router.get('/reset-password/:token/validate', async (req, res) => {
     }
     const record = await prisma.passwordResetToken.findUnique({
       where: { tokenHash: hashResetToken(rawToken) },
-      include: { user: { select: { passwordHash: true, role: true } } },
+      include: { user: { select: { passwordHash: true, role: true, isActive: true } } },
     })
-    if (!record || record.usedAt || record.expiresAt < new Date()) {
+    // An inactive account includes a firm invite withdrawn before it was accepted.
+    if (!record || record.usedAt || record.expiresAt < new Date() || !record.user.isActive) {
       return res.status(400).json({ valid: false, error: 'This reset link is invalid or has expired.' })
     }
     return res.json({ valid: true, isNewPassword: !record.user.passwordHash, role: record.user.role })
@@ -453,10 +454,10 @@ router.post('/reset-password', async (req, res) => {
     const { token: rawToken, password } = parsed.data
     const record = await prisma.passwordResetToken.findUnique({
       where: { tokenHash: hashResetToken(rawToken) },
-      include: { user: { select: { role: true, email: true } } },
+      include: { user: { select: { role: true, email: true, isActive: true } } },
     })
 
-    if (!record || record.usedAt || record.expiresAt < new Date()) {
+    if (!record || record.usedAt || record.expiresAt < new Date() || !record.user.isActive) {
       return res.status(400).json({ error: 'This reset link is invalid or has expired. Please request a new one.' })
     }
 

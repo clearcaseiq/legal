@@ -6,6 +6,7 @@ import { US_STATES } from '../lib/constants'
 import { validatePhoneField } from '../lib/phone'
 import PhoneInput from '../components/PhoneInput'
 import { resolveUploadedPhotoUrl } from '../lib/avatar'
+import { withWebsiteProtocol } from '../lib/website'
 import {
   createFirmTemplate,
   getFirmIntakeSettings,
@@ -212,7 +213,7 @@ export default function FirmSettings() {
         name: form.name.trim(),
         primaryEmail: form.primaryEmail.trim() || null,
         phone: form.phone.trim() || null,
-        website: form.website.trim() || null,
+        website: withWebsiteProtocol(form.website) || null,
         address: form.address.trim() || null,
         city: form.city.trim() || null,
         state: form.state.trim() || null,
@@ -607,9 +608,18 @@ export default function FirmSettings() {
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">Website</label>
               <input
-                type="url"
+                type="text"
+                inputMode="url"
+                autoComplete="url"
                 value={form.website}
                 onChange={(e) => updateField('website', e.target.value)}
+                onFocus={() => {
+                  if (!form.website.trim()) updateField('website', 'https://')
+                }}
+                onBlur={() => {
+                  const next = withWebsiteProtocol(form.website)
+                  if (next !== form.website) updateField('website', next)
+                }}
                 disabled={!canEdit}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-brand-500 focus:border-brand-500 disabled:bg-gray-100 disabled:text-gray-500"
                 placeholder="https://www.firm.com"

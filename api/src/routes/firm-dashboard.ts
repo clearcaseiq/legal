@@ -99,6 +99,31 @@ function hashInviteToken(raw: string): string {
   return crypto.createHash('sha256').update(raw).digest('hex')
 }
 
+/**
+ * Removing someone who never accepted their invite withdraws it: the emailed
+ * set-password link stops working, and the passwordless account it would have
+ * activated is switched off so "forgot password" cannot finish the signup
+ * either. Left alone while another firm still has them as a member, since that
+ * firm's invite rides on the same account.
+ */
+async function revokeUnacceptedInvite(userId: string): Promise<void> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { passwordHash: true, provider: true },
+  })
+  if (!user || user.passwordHash || user.provider === 'google' || user.provider === 'apple') return
+  const remaining = await (prisma as any).firmMember.count({ where: { userId } })
+  if (remaining > 0) return
+  await prisma.passwordResetToken.deleteMany({ where: { userId, usedAt: null } })
+  await prisma.user.update({ where: { id: userId }, data: { isActive: false } })
+}
+
+/** Re-inviting a withdrawn invitee switches their account back on for the new link. */
+async function reactivateRevokedInvitee(user: { id: string; isActive: boolean; passwordHash: string | null }) {
+  if (user.isActive || user.passwordHash) return
+  await prisma.user.update({ where: { id: user.id }, data: { isActive: true } })
+}
+
 // Best-effort invite email for a firm member. Never throws so it can't fail the
 // member-creation request (#226).
 //   - needsPassword (new / passwordless account): mint a set-password token and
@@ -716,6 +741,7 @@ router.post('/members', authMiddleware as any, async (req: any, res: Response) =
         role: role === 'attorney' ? 'attorney' : 'staff'
       }
     })
+    await reactivateRevokedInvitee(user)
 
     let attorney: any = null
     if (role === 'attorney') {
@@ -1024,6 +1050,7 @@ router.delete('/members/:memberId', authMiddleware as any, async (req: any, res:
         data: { lawFirmId: null },
       })
     }
+    if (member.userId) await revokeUnacceptedInvite(member.userId)
     logger.info('Firm member removed', { memberId, lawFirmId: context.lawFirmId })
 
     res.json({ ok: true })
@@ -2028,6 +2055,7 @@ router.post('/attorneys', authMiddleware as any, async (req: any, res: Response)
         role: 'attorney'
       }
     })
+    await reactivateRevokedInvitee(memberUser)
 
     // An attorney with no password hasn't accepted yet: keep them "invited"
     // (pending) and email a set-password link. Existing accounts go active.
@@ -2233,7 +2261,10 @@ router.put('/', authMiddleware as any, async (req: any, res: Response) => {
     if (name !== undefined) data.name = name.trim()
     if (primaryEmail !== undefined) data.primaryEmail = toNullable(primaryEmail)
     if (phone !== undefined) data.phone = toNullable(phone)
-    if (website !== undefined) data.website = toNullable(website)
+    if (website !== undefined) {
+      const site = toNullable(website)
+      data.website = site && !/^https?:\/\//i.test(site) ? `https://${site.replace(/^\/+/, '')}` : site
+    }
     if (address !== undefined) data.address = toNullable(address)
     if (city !== undefined) data.city = toNullable(city)
     if (state !== undefined) data.state = toNullable(state)
