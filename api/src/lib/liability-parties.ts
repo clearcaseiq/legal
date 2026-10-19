@@ -45,6 +45,15 @@ export interface EvidenceItemView {
   witnessName: string | null
   summary: string | null
   demandExcerpt: string | null
+  /** The latest upload link sent to a witness for this item, if any. */
+  uploadRequest: {
+    recipientName: string | null
+    recipientEmail: string | null
+    recipientPhone: string | null
+    status: string
+    uploadCount: number
+    sentAt: string
+  } | null
 }
 
 export const MAX_DEMAND_EXCERPT = 600
@@ -129,16 +138,43 @@ export async function listLiabilityParties(assessmentId: string): Promise<{
   ])
   const policyIds = defendants.map((d: any) => d.insuranceDetailId).filter(Boolean)
   const fileIds = evidence.map((e: any) => e.evidenceFileId).filter(Boolean)
-  const [policies, files] = await Promise.all([
+  const [policies, files, requests] = await Promise.all([
     policyIds.length
       ? prisma.insuranceDetail.findMany({ where: { id: { in: policyIds }, assessmentId }, select: { id: true, carrierName: true } })
       : Promise.resolve([]),
     fileIds.length
       ? prisma.evidenceFile.findMany({ where: { id: { in: fileIds }, assessmentId }, select: { id: true, originalName: true } })
       : Promise.resolve([]),
+    evidence.length
+      ? prisma.documentRequest.findMany({
+          where: { liabilityEvidenceItemId: { in: evidence.map((e: any) => e.id) } },
+          orderBy: { createdAt: 'desc' },
+          select: {
+            liabilityEvidenceItemId: true,
+            recipientName: true,
+            recipientEmail: true,
+            recipientPhone: true,
+            status: true,
+            createdAt: true,
+            _count: { select: { externalUploads: true } },
+          },
+        })
+      : Promise.resolve([]),
   ])
   const carrier = new Map(policies.map((p: any) => [p.id, p.carrierName as string]))
   const fileName = new Map(files.map((f: any) => [f.id, f.originalName as string]))
+  const latestRequest = new Map<string, EvidenceItemView['uploadRequest']>()
+  for (const r of requests) {
+    if (!r.liabilityEvidenceItemId || latestRequest.has(r.liabilityEvidenceItemId)) continue
+    latestRequest.set(r.liabilityEvidenceItemId, {
+      recipientName: r.recipientName,
+      recipientEmail: r.recipientEmail,
+      recipientPhone: r.recipientPhone,
+      status: r.status,
+      uploadCount: r._count.externalUploads,
+      sentAt: r.createdAt.toISOString(),
+    })
+  }
 
   return {
     defendants: defendants.map((d: any) => ({
@@ -169,6 +205,7 @@ export async function listLiabilityParties(assessmentId: string): Promise<{
       witnessName: e.witnessName ?? null,
       summary: e.summary ?? null,
       demandExcerpt: e.demandExcerpt ?? null,
+      uploadRequest: latestRequest.get(e.id) ?? null,
     })),
   }
 }

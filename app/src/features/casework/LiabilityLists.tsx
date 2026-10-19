@@ -4,10 +4,11 @@
  * lists and the rolled-up liability record.
  */
 import { useState, type ReactNode } from 'react'
-import { Camera, FileText, Pencil, Plus, Trash2, User, Users, Video } from 'lucide-react'
+import { Camera, FileText, Pencil, Plus, Send, Trash2, User, Users, Video } from 'lucide-react'
 import {
   createLiabilityItem,
   deleteLiabilityItem,
+  requestWitnessUpload,
   updateLiabilityItem,
   type LiabilityDefendant,
   type LiabilityEvidenceItem,
@@ -222,6 +223,121 @@ const evidenceInitial = (e?: LiabilityEvidenceItem): Editable => ({
 const MAX_DEMAND_EXCERPT = 600
 const isWitness = (d: Editable) => d.type === 'witness_statement'
 
+/** Evidence a witness or bystander can send from their phone. */
+const UPLOAD_REQUEST_TYPES = new Set(['witness_statement', 'video', 'photos'])
+
+function WitnessUploadRequest({
+  leadId,
+  item,
+  onChanged,
+}: {
+  leadId: string
+  item: LiabilityEvidenceItem
+  onChanged: (parties: LiabilityParties) => void
+}) {
+  const sent = item.uploadRequest
+  const [open, setOpen] = useState(false)
+  const [name, setName] = useState(sent?.recipientName ?? item.witnessName ?? '')
+  const [email, setEmail] = useState(sent?.recipientEmail ?? '')
+  const [phone, setPhone] = useState(sent?.recipientPhone ?? '')
+  const [message, setMessage] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+
+  const send = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      const res = await requestWitnessUpload(leadId, item.id, {
+        recipientName: name.trim() || undefined,
+        email: email.trim() || undefined,
+        phone: phone.trim() || undefined,
+        message: message.trim() || undefined,
+      })
+      const via = [res.emailed && 'email', res.texted && 'text'].filter(Boolean).join(' and ')
+      setNotice(`Upload link sent by ${via}.`)
+      setOpen(false)
+      onChanged(res)
+    } catch (err: any) {
+      setError(errorOf(err, 'Could not send the upload link.'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const sentTo = sent ? [sent.recipientEmail, sent.recipientPhone].filter(Boolean).join(' · ') : ''
+
+  return (
+    <div className="mt-2">
+      {sent ? (
+        <p className="text-xs text-slate-500">
+          Upload link sent{sent.recipientName ? ` to ${sent.recipientName}` : ''}
+          {sentTo ? ` (${sentTo})` : ''} on {new Date(sent.sentAt).toLocaleDateString('en-US')}
+          {' · '}
+          {sent.uploadCount > 0
+            ? `${sent.uploadCount} file${sent.uploadCount > 1 ? 's' : ''} received`
+            : 'nothing uploaded yet'}
+        </p>
+      ) : null}
+      {notice ? <p className="mt-1 text-xs font-medium text-emerald-700">{notice}</p> : null}
+      {open ? (
+        <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+          <p className="text-xs text-slate-600">
+            They get a secure link to upload photos, video (up to 500MB) or a written statement. No account needed.
+            Uploads are added to the case and linked here.
+          </p>
+          <div className="mt-2 grid gap-2 sm:grid-cols-3">
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" className={inputCls} />
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" className={inputCls} />
+            <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Mobile number" className={inputCls} />
+          </div>
+          <textarea
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            rows={2}
+            placeholder="Message (optional). A short thank-you note is sent if left blank."
+            className={inputCls}
+          />
+          {error ? <p className="mt-2 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
+          <div className="mt-2 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false)
+                setError(null)
+              }}
+              disabled={busy}
+              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={send}
+              disabled={busy || (!email.trim() && !phone.trim())}
+              className="rounded-lg bg-brand-600 px-3.5 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-700 disabled:opacity-50"
+            >
+              {busy ? 'Sending…' : 'Send link'}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => {
+            setNotice(null)
+            setOpen(true)
+          }}
+          className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-brand-700 hover:text-brand-800"
+        >
+          <Send className="h-3.5 w-3.5" /> {sent ? 'Resend upload link' : 'Request upload link'}
+        </button>
+      )}
+    </div>
+  )
+}
+
 export function EvidenceList({
   leadId,
   items,
@@ -337,6 +453,7 @@ export function EvidenceList({
           </p>
         ) : null}
         {e.evidenceFileName ? <p className="mt-0.5 text-xs text-slate-500">Document: {e.evidenceFileName}</p> : null}
+        {UPLOAD_REQUEST_TYPES.has(e.type) ? <WitnessUploadRequest leadId={leadId} item={e} onChanged={onChanged} /> : null}
       </>
     )
   }

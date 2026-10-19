@@ -1488,6 +1488,14 @@ model LawFirm {
   // JSON object: { [role]: string[] }. Absent roles fall back to defaults.
   rolePermissions String? @db.Text
 
+  // Domain the firm has authorized us to send mail as (DKIM via SES), so
+  // attorney mail goes out from their own work address. One firm per domain.
+  sendingDomain           String?   @unique
+  sendingDomainStatus     String? // pending, verified, failed
+  sendingDomainDkimTokens String?   @db.Text // JSON array of SES DKIM tokens
+  sendingDomainVerifiedAt DateTime?
+  sendingDomainCheckedAt  DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -3498,12 +3506,16 @@ model DocumentRequest {
   targetType     String  @default("plaintiff") // 'plaintiff' | 'opposing_party'
   recipientName  String? // name of the opposing party / insurer / counsel
   recipientEmail String? // external recipient email (no platform account)
-  recipientRole  String? // 'defendant' | 'opposing_counsel' | 'insurer'
+  recipientPhone String? // external recipient mobile, when the link went by text
+  recipientRole  String? // 'defendant' | 'opposing_counsel' | 'insurer' | 'witness'
   caseContactId  String? // optional link to a CaseContact representing the recipient
   origin         String  @default("attorney") // 'attorney' | 'plaintiff_suggested'
   // Set when the request went to a carrier for one policy, so the adjuster's
   // uploads file into that policy's document slots.
   insuranceDetailId String?
+  // Set when the request went to a witness or footage holder for one liability
+  // evidence item, so their uploads link to that item and mark it received.
+  liabilityEvidenceItemId String?
 
   // Links a provider-directed medical-records request to the signed HIPAA
   // authorization (DocumentEnvelope) that legally permits the disclosure. The
@@ -3526,6 +3538,7 @@ model DocumentRequest {
 
   @@index([leadId])
   @@index([secureToken])
+  @@index([liabilityEvidenceItemId])
   @@map("document_requests")
 }
 

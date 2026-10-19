@@ -4408,8 +4408,6 @@ const EMPTY_TASK_FORM: TaskFormState = {
   notes: '',
 }
 
-const CLIENT_ASSIGN_VALUE = '__client__'
-
 function isAutoIntakeMilestone(title: string): boolean {
   return (
     /confirm signed (retainer|representation)/i.test(title) ||
@@ -4529,9 +4527,7 @@ function TasksPanel({
   const assignTask = async (t: TaskRow, value: string) => {
     setBusy(t.id)
     try {
-      if (value === CLIENT_ASSIGN_VALUE) {
-        await updateLeadTask(leadId, t.id, { assignedRole: 'client', assignedUserId: null, assignedTo: null })
-      } else if (!value) {
+      if (!value) {
         // Clearing an auto-milestone override returns it to system/Auto handling.
         await updateLeadTask(leadId, t.id, {
           assignedUserId: null,
@@ -5160,7 +5156,7 @@ function TasksPanel({
           {!taskDone || isAutoIntakeMilestone(t.title) ? (
             <span
               className={`inline-flex h-7 w-full items-center gap-1 rounded-md px-1.5 text-xs ${
-                t.assignedUserId || t.assignedRole === 'client' || t.assignedTo
+                t.assignedUserId
                   ? 'bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200'
                   : isAutoIntakeMilestone(t.title)
                     ? 'bg-slate-50 text-slate-600 ring-1 ring-slate-200'
@@ -5174,11 +5170,7 @@ function TasksPanel({
             >
               <User className="h-3.5 w-3.5 shrink-0" />
               <select
-                value={
-                  t.assignedRole === 'client' && !isRoseTask(t)
-                    ? CLIENT_ASSIGN_VALUE
-                    : t.assignedUserId || ''
-                }
+                value={t.assignedUserId || ''}
                 disabled={rowBusy || (t.reviewStatus === 'pending' && !isRoseTask(t)) || !canManage}
                 onChange={(e) => void assignTask(t, e.target.value)}
                 aria-label={`Assign ${t.title}`}
@@ -5186,11 +5178,6 @@ function TasksPanel({
               >
                 {isAutoIntakeMilestone(t.title) || !t.assignedUserId ? (
                   <option value="">{isAutoIntakeMilestone(t.title) ? 'Auto' : 'Pick a teammate'}</option>
-                ) : null}
-                {t.assignedRole === 'client' && !isRoseTask(t) ? (
-                  <option value={CLIENT_ASSIGN_VALUE} disabled>
-                    Client (Plaintiff)
-                  </option>
                 ) : null}
                 {colleagues.map((m) => (
                   <option key={m.userId} value={m.userId}>

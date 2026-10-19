@@ -230,6 +230,7 @@ import {
   updateDefendant,
   updateEvidenceItem,
 } from '../lib/liability-parties'
+import { sendWitnessUploadRequest, WitnessRequestError } from '../lib/witness-upload-request'
 import { applyQuestionAnswerToCaseFacts } from '../lib/question-facts-sync'
 import {
   getMedicalTimeline,
@@ -11906,6 +11907,38 @@ for (const r of liabilityPartyRoutes) {
     handle((a, req, actor) => r.remove(a, req.params.itemId, actor)),
   )
 }
+
+// Send a witness or footage holder a secure link to upload photos, video or a
+// written statement for one liability evidence item.
+router.post('/leads/:leadId/liability/evidence/:itemId/request-upload', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAuthorizedLead(req, req.params.leadId, { staffCan: 'manage' })
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const actingAttorney = await resolveActingAttorney(auth)
+    const attorneyId = actingAttorney?.id || auth.lead.assignedAttorneyId
+    if (!attorneyId) return res.status(400).json({ error: 'Assign an attorney to the case before sending upload links.' })
+    const actorName = `${req.user?.firstName || ''} ${req.user?.lastName || ''}`.trim() || req.user?.email || null
+    const sent = await sendWitnessUploadRequest({
+      leadId: auth.lead.id,
+      assessmentId: auth.lead.assessmentId,
+      attorneyId,
+      itemId: req.params.itemId,
+      body: req.body || {},
+      actor: { actorId: req.user?.id ?? null, actorName },
+    })
+    if (!sent) return res.status(404).json({ error: 'That evidence item was not found' })
+    void runCaseRecalculation(auth.lead.assessmentId, 'liability_updated')
+    const [liability, parties] = await Promise.all([
+      getLiabilityRecord(auth.lead.assessmentId),
+      listLiabilityParties(auth.lead.assessmentId),
+    ])
+    res.json({ ...sent, liability, ...parties })
+  } catch (error: any) {
+    if (error instanceof WitnessRequestError) return res.status(400).json({ error: error.message })
+    logger.error('Failed to send witness upload request', { error: error.message })
+    res.status(500).json({ error: 'Failed to send the upload link' })
+  }
+})
 
 // Case-level medical timeline — structured treatment episodes + medical status.
 router.get('/leads/:leadId/medical-timeline', authMiddleware, async (req: any, res) => {

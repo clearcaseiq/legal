@@ -2652,7 +2652,9 @@ export type DocumentPortalRequest = {
    */
   mode?: 'claimant' | 'opposing'
   recipientName?: string | null
-  recipientRole?: OpposingDocRole | null
+  recipientRole?: OpposingDocRole | 'witness' | null
+  /** Per-file ceiling for this link: 500 for witnesses, 50 otherwise. */
+  maxUploadMb?: number
   attorneyName?: string | null
   firmName?: string | null
   customMessage?: string | null
@@ -2687,7 +2689,8 @@ export async function uploadDocumentPortalFile(
   if (meta.docType) form.append('docType', meta.docType)
   if (meta.uploadedByName) form.append('uploadedByName', meta.uploadedByName)
   if (meta.note) form.append('note', meta.note)
-  const { data } = await api.post(`/v1/public/document-requests/${token}/upload`, form)
+  // Witnesses send phone video up to 500MB, which outlasts the default timeout.
+  const { data } = await api.post(`/v1/public/document-requests/${token}/upload`, form, { timeout: 15 * 60 * 1000 })
   return data as {
     id: string | null
     originalName: string
@@ -3909,6 +3912,15 @@ export interface LiabilityEvidenceItem {
   summary?: string | null
   /** Quoted in the demand letter once the statement is received. */
   demandExcerpt?: string | null
+  /** The latest upload link sent to a witness for this item. */
+  uploadRequest?: {
+    recipientName: string | null
+    recipientEmail: string | null
+    recipientPhone: string | null
+    status: string
+    uploadCount: number
+    sentAt: string
+  } | null
 }
 
 export type LiabilityParties = { liability: any; defendants: LiabilityDefendant[]; evidence: LiabilityEvidenceItem[] }
@@ -3933,6 +3945,15 @@ export async function createLiabilityItem(leadId: string, list: LiabilityList, p
 export async function updateLiabilityItem(leadId: string, list: LiabilityList, id: string, payload: Record<string, unknown>) {
   const { data } = await api.patch(`/v1/attorney-dashboard/leads/${leadId}/liability/${list}/${id}`, payload)
   return data as LiabilityParties
+}
+
+export async function requestWitnessUpload(
+  leadId: string,
+  itemId: string,
+  payload: { recipientName?: string; email?: string; phone?: string; message?: string },
+) {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/liability/evidence/${itemId}/request-upload`, payload)
+  return data as LiabilityParties & { emailed: boolean; texted: boolean }
 }
 
 export async function deleteLiabilityItem(leadId: string, list: LiabilityList, id: string) {

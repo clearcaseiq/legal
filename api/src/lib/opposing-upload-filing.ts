@@ -17,6 +17,17 @@ const OPPOSING_DOC_CATEGORY: Record<string, string> = {
   surveillance: 'video',
   photos: 'photos',
   correspondence: 'correspondence',
+  video_footage: 'video',
+}
+
+/**
+ * Witnesses send phone video, which runs far past the 50MB document ceiling.
+ * Only requests addressed to a witness get this limit.
+ */
+export const WITNESS_MAX_UPLOAD_BYTES = 500 * 1024 * 1024
+
+export function maxUploadBytesForRole(recipientRole: string | null | undefined): number | undefined {
+  return recipientRole === 'witness' ? WITNESS_MAX_UPLOAD_BYTES : undefined
 }
 
 export function opposingProvenance(requestId: string): string {
@@ -36,16 +47,19 @@ type OpposingUpload = {
  * Copy an opposing party's upload onto the case file. Without this it lived
  * only on the request, so the attorney's All files never showed it. Re-filing
  * the same bytes is a no-op: `fileClaimantEvidence` deduplicates on content hash.
+ * Returns the new evidence file's id, or null when nothing was filed.
  */
 export async function fileOpposingPartyUpload(
   assessmentId: string,
   docRequest: OpposingRequest,
   upload: OpposingUpload,
-): Promise<boolean> {
-  if (!(await ensureLocalCopy(upload.filePath))) return false
+  options: { maxBytes?: number } = {},
+): Promise<string | null> {
+  if (!(await ensureLocalCopy(upload.filePath))) return null
   const ownerUserId = await ensureCaseOwnerUserId(assessmentId)
-  if (!ownerUserId) return false
+  if (!ownerUserId) return null
   const result = await fileClaimantEvidence({
+    maxBytes: options.maxBytes,
     assessmentId,
     ownerUserId,
     buffer: fs.readFileSync(upload.filePath),
@@ -57,8 +71,9 @@ export async function fileOpposingPartyUpload(
     provenanceActor: 'opposing_party',
     provenanceNotes: `Uploaded by ${upload.uploadedByName || docRequest.recipientName || 'the other side'} through a secure document request.`,
   })
-  if (result.status === 'filed') fanOutCaseUpdates(assessmentId, [result.filed])
-  return result.status === 'filed'
+  if (result.status !== 'filed') return null
+  fanOutCaseUpdates(assessmentId, [result.filed])
+  return result.evidenceFileId
 }
 
 /**
@@ -69,7 +84,7 @@ export async function fileOpposingPartyUpload(
 export async function fileOutstandingOpposingUploads(leadId: string, assessmentId: string): Promise<number> {
   const requests = await prisma.documentRequest.findMany({
     where: { leadId, targetType: 'opposing_party', insuranceDetailId: null },
-    select: { id: true, recipientName: true, externalUploads: true },
+    select: { id: true, recipientName: true, recipientRole: true, externalUploads: true },
   })
   const withUploads = requests.filter((r) => r.externalUploads.length > 0)
   if (withUploads.length === 0) return 0
@@ -86,7 +101,8 @@ export async function fileOutstandingOpposingUploads(leadId: string, assessmentI
     if ((filedBySource.get(opposingProvenance(request.id)) || 0) >= request.externalUploads.length) continue
     for (const upload of request.externalUploads) {
       try {
-        if (await fileOpposingPartyUpload(assessmentId, request, upload)) filed += 1
+        const maxBytes = maxUploadBytesForRole(request.recipientRole)
+        if (await fileOpposingPartyUpload(assessmentId, request, upload, { maxBytes })) filed += 1
       } catch (error: any) {
         logger.warn('Failed to backfill opposing-party upload', { error: error?.message, requestId: request.id })
       }

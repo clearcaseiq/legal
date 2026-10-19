@@ -18,7 +18,8 @@ import {
   parseRequestedDocs,
 } from '../lib/document-request-status'
 import { fileCarrierPortalUpload, POLICY_DOC_LABELS } from '../lib/insurance-workbench'
-import { fileOpposingPartyUpload } from '../lib/opposing-upload-filing'
+import { fileOpposingPartyUpload, WITNESS_MAX_UPLOAD_BYTES } from '../lib/opposing-upload-filing'
+import { recordWitnessUpload, WITNESS_DOC_LABELS } from '../lib/witness-upload-request'
 
 const router = Router()
 
@@ -37,6 +38,7 @@ const OPPOSING_DOC_LABELS: Record<string, string> = {
   photos: 'Photographs of the scene/vehicle',
   other: 'Other documents',
   ...POLICY_DOC_LABELS,
+  ...WITNESS_DOC_LABELS,
 }
 
 const EXTERNAL_UPLOAD_DIR = path.join(process.cwd(), 'uploads', 'external-documents')
@@ -53,27 +55,28 @@ const storage = multer.diskStorage({
   },
 })
 
-const upload = multer({
-  storage,
-  limits: { fileSize: 50 * 1024 * 1024 },
-  fileFilter: (_req, file, cb: FileFilterCallback) => {
-    // Spreadsheets on top of the shared document set: carriers send ledgers as
-    // .xlsx, and this portal is how they reach us.
-    const accepted = isAcceptedUpload(file, {
-      mimetypes: SPREADSHEET_MIMETYPES,
-      extensions: SPREADSHEET_EXTENSIONS,
+const externalFileFilter = (_req: any, file: Express.Multer.File, cb: FileFilterCallback) => {
+  // Spreadsheets on top of the shared document set: carriers send ledgers as
+  // .xlsx, and this portal is how they reach us.
+  const accepted = isAcceptedUpload(file, {
+    mimetypes: SPREADSHEET_MIMETYPES,
+    extensions: SPREADSHEET_EXTENSIONS,
+  })
+  if (!accepted) {
+    // multer signals rejection by leaving req.file undefined, which reads as
+    // "no file" downstream. Without this the portal drops uploads silently.
+    logger.warn('Document portal upload rejected by file filter', {
+      originalname: file.originalname,
+      mimetype: file.mimetype,
     })
-    if (!accepted) {
-      // multer signals rejection by leaving req.file undefined, which reads as
-      // "no file" downstream. Without this the portal drops uploads silently.
-      logger.warn('Document portal upload rejected by file filter', {
-        originalname: file.originalname,
-        mimetype: file.mimetype,
-      })
-    }
-    cb(null, accepted)
-  },
-})
+  }
+  cb(null, accepted)
+}
+
+const upload = multer({ storage, limits: { fileSize: 50 * 1024 * 1024 }, fileFilter: externalFileFilter })
+
+/** Witnesses send phone video, so their requests are staged on disk with a higher ceiling. */
+const witnessUpload = multer({ storage, limits: { fileSize: WITNESS_MAX_UPLOAD_BYTES }, fileFilter: externalFileFilter })
 
 /**
  * Claimant uploads are held in memory, never staged on disk.
@@ -104,6 +107,15 @@ const claimantUpload = multer({
  */
 function forClaimant(req: any): boolean {
   return req.docRequest?.targetType === 'plaintiff'
+}
+
+function forWitness(req: any): boolean {
+  return req.docRequest?.targetType === 'opposing_party' && req.docRequest?.recipientRole === 'witness'
+}
+
+function uploadParser(req: any) {
+  if (forClaimant(req)) return claimantUpload.single('file')
+  return forWitness(req) ? witnessUpload.single('file') : upload.single('file')
 }
 
 async function attachRequest(req: any, _res: any, next: any) {
@@ -268,6 +280,7 @@ router.get('/:token', async (req, res) => {
       mode: 'opposing',
       recipientName: docRequest.recipientName,
       recipientRole: docRequest.recipientRole,
+      maxUploadMb: Math.round((docRequest.recipientRole === 'witness' ? WITNESS_MAX_UPLOAD_BYTES : 50 * 1024 * 1024) / (1024 * 1024)),
       attorneyName: docRequest.attorney?.name || null,
       firmName: docRequest.attorney?.lawFirm?.name || null,
       customMessage: docRequest.customMessage,
@@ -291,8 +304,7 @@ router.get('/:token', async (req, res) => {
 router.post(
   '/:token/upload',
   attachRequest,
-  (req: any, res, next) =>
-    forClaimant(req) ? claimantUpload.single('file')(req, res, next) : upload.single('file')(req, res, next),
+  (req: any, res, next) => uploadParser(req)(req, res, next),
   // Claimant bytes are still in memory and are persisted by the evidence filer.
   (req: any, res, next) => (forClaimant(req) ? next() : replicateUploads(req, res, next)),
   async (req: any, res) => {
@@ -304,10 +316,12 @@ router.post(
       if (req.file?.path && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path)
       return res.status(404).json({ error: 'This document request was not found or has expired.' })
     }
+    const isWitness = docRequest.recipientRole === 'witness'
     if (!req.file) {
       return res.status(400).json({
-        error:
-          'No file received. If you selected a file, its format may be unsupported. Please use a JPG, PNG, HEIC, PDF, or common Office document (max 50MB).',
+        error: isWitness
+          ? 'No file received. If you selected a file, its format may be unsupported. Please use a photo, video (MP4 or MOV, max 500MB), PDF, or common Office document.'
+          : 'No file received. If you selected a file, its format may be unsupported. Please use a JPG, PNG, HEIC, PDF, or common Office document (max 50MB).',
       })
     }
 
@@ -341,12 +355,31 @@ router.post(
 
     if (!docRequest.insuranceDetailId) {
       const assessmentId = docRequest.lead?.assessmentId
-      if (assessmentId) await fileOpposingPartyUpload(assessmentId, docRequest, created).catch((error: any) =>
-        logger.warn('Failed to file opposing-party upload into case evidence', {
-          error: error?.message,
-          requestId: docRequest.id,
-        }),
-      )
+      if (assessmentId) {
+        const evidenceFileId = await fileOpposingPartyUpload(assessmentId, docRequest, created, {
+          maxBytes: isWitness ? WITNESS_MAX_UPLOAD_BYTES : undefined,
+        }).catch((error: any) => {
+          logger.warn('Failed to file opposing-party upload into case evidence', {
+            error: error?.message,
+            requestId: docRequest.id,
+          })
+          return null
+        })
+        if (docRequest.liabilityEvidenceItemId) {
+          await recordWitnessUpload({
+            docRequest,
+            assessmentId,
+            evidenceFileId,
+            originalName: created.originalName,
+            uploadedByName,
+          }).catch((error: any) =>
+            logger.warn('Failed to link witness upload to its evidence item', {
+              error: error?.message,
+              requestId: docRequest.id,
+            }),
+          )
+        }
+      }
     }
 
     if (docRequest.insuranceDetailId) {

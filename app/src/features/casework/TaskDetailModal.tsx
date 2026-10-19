@@ -1150,15 +1150,13 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
                       /confirm signed (retainer|representation)|conflict check|send retainer to client/i.test(
                         task.title || '',
                       )
-                    // Only named firm employees are offered; a task for the
-                    // plaintiff is the one exception.
+                    // Only named firm employees are offered.
                     const roleKey = String(
                       (task as any).assignedRole || task.assigneeRole || '',
                     ).toLowerCase()
                     const fromRose = isRoseTask(task as any)
-                    const forClient = (roleKey === 'client' || roleKey === 'plaintiff') && !fromRose
-                    const selectValue = forClient ? '' : task.assignedUserId || ''
-                    const emptyLabel = autoIntake ? 'Auto' : forClient ? 'Client (Plaintiff)' : 'Pick a teammate'
+                    const selectValue = task.assignedUserId || ''
+                    const emptyLabel = autoIntake ? 'Auto' : 'Pick a teammate'
                     return (
                       <>
                         <select
@@ -1205,7 +1203,7 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
                           <p className="mt-1 text-xs text-slate-500">
                             Raised by Rose. Pick the person in your firm who should do it.
                           </p>
-                        ) : !task.assignedUserId && !forClient ? (
+                        ) : !task.assignedUserId ? (
                           <p className="mt-1 text-xs text-slate-500">
                             Pick the person in your firm who should do it.
                           </p>

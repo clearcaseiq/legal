@@ -55,6 +55,8 @@ export type FileEvidenceParams = {
   provenanceActor: string
   provenanceNotes?: string
   provenanceDate?: Date
+  /** Ceiling for this one channel. Defaults to `MAX_EVIDENCE_BYTES`. */
+  maxBytes?: number
 }
 
 export function evidenceDir(): string {
@@ -74,7 +76,7 @@ export function evidenceDir(): string {
 export async function fileClaimantEvidence(params: FileEvidenceParams): Promise<FileEvidenceResult> {
   const { assessmentId, ownerUserId, buffer, contentType, originalName } = params
 
-  if (!buffer.length || buffer.length > MAX_EVIDENCE_BYTES) {
+  if (!buffer.length || buffer.length > (params.maxBytes ?? MAX_EVIDENCE_BYTES)) {
     logger.warn('Claimant evidence rejected on size', { assessmentId, bytes: buffer.length })
     return { status: 'rejected' }
   }

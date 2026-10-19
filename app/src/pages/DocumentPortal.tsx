@@ -10,6 +10,7 @@ const ROLE_LABELS: Record<string, string> = {
   defendant: 'Defendant',
   opposing_counsel: 'Opposing Counsel',
   insurer: 'Insurer',
+  witness: 'Witness',
 }
 
 export default function DocumentPortal() {
@@ -113,6 +114,8 @@ export default function DocumentPortal() {
   // probably standing in a parking lot. They are not an "external recipient"
   // and there is nothing for them to identify themselves as.
   const isClaimant = request.mode === 'claimant'
+  const isWitness = request.recipientRole === 'witness'
+  const maxUploadMb = request.maxUploadMb ?? 50
   const signTasks = request.sign || []
   // A packet that only asks for signatures has nothing to upload.
   const showUpload = !isClaimant || request.requestedDocs.length > 0 || signTasks.length === 0
@@ -133,6 +136,11 @@ export default function DocumentPortal() {
               : signTasks.length
                 ? 'Your case team needs your signature on the documents below. You don’t need an account.'
                 : "Your case team needs the documents below. Take a photo of each one or pick a file from your phone — you don't need an account and nothing to sign in to."}
+          </p>
+        ) : isWitness ? (
+          <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+            {request.recipientName ? `Hello ${request.recipientName}, thank you` : 'Thank you'} for helping. You can send
+            photos, video or a written account of what you saw straight from your phone. You don't need an account.
           </p>
         ) : (
           <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
@@ -244,7 +252,7 @@ export default function DocumentPortal() {
                 type="text"
                 value={uploaderName}
                 onChange={(e) => setUploaderName(e.target.value)}
-                placeholder="e.g., Jane Adjuster"
+                placeholder={isWitness ? 'e.g., Jane Smith' : 'e.g., Jane Adjuster'}
                 className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-white"
               />
             </label>
@@ -297,13 +305,17 @@ export default function DocumentPortal() {
               // no change event at all.
               const picked = Array.from(e.target.files ?? [])
               e.target.value = ''
-              if (picked.length) setStagedFiles((prev) => [...prev, ...picked])
+              const fits = picked.filter((f) => f.size <= maxUploadMb * 1024 * 1024)
+              if (fits.length < picked.length) {
+                setToast(`Files over ${maxUploadMb}MB can't be sent here. Please contact the attorney's office for larger files.`)
+              }
+              if (fits.length) setStagedFiles((prev) => [...prev, ...fits])
             }}
             disabled={uploading}
             className="mt-3 block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-indigo-600 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-indigo-700 disabled:opacity-50 dark:text-slate-300"
           />
           <p className="mt-2 text-xs text-slate-400">
-            PDF, images, video, or Office documents up to 50MB each.
+            PDF, images, video, or Office documents up to {maxUploadMb}MB each.
           </p>
           {/* Always show Send so the next step is obvious before files are
               attached (CP-499). Disabled until at least one file is staged. */}
