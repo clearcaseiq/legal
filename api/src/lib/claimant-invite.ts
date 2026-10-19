@@ -69,6 +69,7 @@ export type ClaimantInviteSkipReason =
   | 'account_exists'
   | 'recently_invited'
   | 'invite_limit'
+  | 'delivery_failed'
 
 export interface ClaimantInviteResult {
   sent: boolean
@@ -243,9 +244,10 @@ export interface ClaimantPortalStatus {
   inviteLink: string | null
 }
 
+/** Invites that actually went out; a failed send neither counts nor blocks a retry. */
 async function inviteHistory(assessmentId: string): Promise<Date[]> {
   const rows = await prisma.platformNotificationEvent.findMany({
-    where: { assessmentId, eventType: PLAINTIFF_EVENTS.case_invite },
+    where: { assessmentId, eventType: PLAINTIFF_EVENTS.case_invite, status: { in: ['sent', 'delivered'] } },
     select: { createdAt: true },
     orderBy: { createdAt: 'desc' },
     take: MANUAL_INVITE_MAX + 1,
@@ -320,7 +322,7 @@ export async function sendClaimantInviteFromCase(
   if (status.nextInviteAt) return { sent: false, skipped: 'recently_invited' }
   if (!status.inviteLink) return { sent: false, skipped: 'account_exists' }
 
-  await deliverDirectNotification({
+  const delivery = await deliverDirectNotification({
     type: 'email',
     recipient: email,
     subject: status.hasAccount ? 'Your case has been added to your ClearCaseIQ account' : 'Your case portal is ready',
@@ -332,6 +334,14 @@ export async function sendClaimantInviteFromCase(
     fromName: invite.attorneyName || invite.firmName || null,
     metadata: { eventType: PLAINTIFF_EVENTS.case_invite, assessmentId: invite.assessmentId, manual: true },
   })
+
+  if (!delivery?.delivered) {
+    logger.warn('Claimant invite email was not delivered', {
+      assessmentId: invite.assessmentId,
+      platformEventId: delivery?.platformEventId,
+    })
+    return { sent: false, skipped: 'delivery_failed' }
+  }
 
   logger.info('Attorney invited claimant to case portal', {
     assessmentId: invite.assessmentId,

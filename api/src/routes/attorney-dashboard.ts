@@ -6921,6 +6921,7 @@ const CLIENT_INVITE_SKIP_MESSAGES: Record<string, { status: number; message: str
   account_exists: { status: 409, message: 'That email belongs to a non-client account, so the case cannot be linked to it.' },
   recently_invited: { status: 429, message: 'An invite was sent in the last 24 hours. Try again later.' },
   invite_limit: { status: 429, message: 'This client has already been invited the maximum number of times.' },
+  delivery_failed: { status: 502, message: 'The invite email could not be sent. Please try again in a few minutes.' },
 }
 
 router.post('/leads/:leadId/client-invite', authMiddleware, firmGate('message'), async (req: any, res) => {

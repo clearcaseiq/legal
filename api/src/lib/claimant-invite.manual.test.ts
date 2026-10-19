@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('./prisma', () => import('../test/universalPrismaMock'))
 vi.mock('./claim-token', () => ({ createClaimToken: () => 'signed-token' }))
 vi.mock('./platform-notifications', () => ({
-  deliverDirectNotification: vi.fn().mockResolvedValue(undefined),
+  deliverDirectNotification: vi.fn(),
 }))
 
 import { prisma } from './prisma'
@@ -40,6 +40,7 @@ beforeEach(() => {
   shadowOwned()
   invitedAgo()
   vi.mocked(prisma.user.findUnique).mockResolvedValue(null)
+  vi.mocked(deliverDirectNotification).mockResolvedValue({ delivered: true, platformEventId: 'ev-1' } as any)
 })
 
 describe('sendClaimantInviteFromCase', () => {
@@ -82,6 +83,18 @@ describe('sendClaimantInviteFromCase', () => {
       user: { email: 'dana@example.com', passwordHash: 'hash', provider: 'local' },
     } as any)
     expect(await sendClaimantInviteFromCase(INVITE, NOW)).toEqual({ sent: false, skipped: 'already_claimed' })
+  })
+
+  it('reports a send the email provider refused instead of claiming success', async () => {
+    vi.mocked(deliverDirectNotification).mockResolvedValue({ delivered: false, platformEventId: 'ev-2' } as any)
+    expect(await sendClaimantInviteFromCase(INVITE, NOW)).toEqual({ sent: false, skipped: 'delivery_failed' })
+  })
+
+  it('counts only invites that went out toward the cooldown', async () => {
+    await getClaimantPortalStatus('asm-1', INVITE.email, NOW)
+    expect(vi.mocked(prisma.platformNotificationEvent.findMany).mock.calls[0][0]?.where).toMatchObject({
+      status: { in: ['sent', 'delivered'] },
+    })
   })
 
   it('needs an email', async () => {
