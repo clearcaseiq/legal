@@ -955,8 +955,24 @@ router.post('/verify-email', async (req, res) => {
       where: { tokenHash: hashResetToken(rawToken) },
     })
 
-    if (!record || record.usedAt || record.expiresAt < new Date()) {
+    if (!record) {
       return res.status(400).json({ ok: false, error: 'This verification link is invalid or has expired. Please request a new one.' })
+    }
+    // A link opened twice, or an expired one, still names the account, so the
+    // page can offer that account's own sign-in screen rather than the plaintiff one.
+    if (record.usedAt || record.expiresAt < new Date()) {
+      const owner = await prisma.user.findUnique({
+        where: { id: record.userId },
+        select: { role: true, emailVerified: true },
+      })
+      if (record.usedAt && owner?.emailVerified) {
+        return res.json({ ok: true, alreadyVerified: true, role: owner.role, message: 'Your email is already verified. You can sign in.' })
+      }
+      return res.status(400).json({
+        ok: false,
+        role: owner?.role ?? null,
+        error: 'This verification link is invalid or has expired. Please request a new one.',
+      })
     }
 
     await prisma.$transaction([

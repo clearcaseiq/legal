@@ -52,6 +52,7 @@ export default function VerifyEmail() {
       })
       .catch((err: any) => {
         setStatus('error')
+        setVerifiedRole(err?.response?.data?.role ?? null)
         setMessage(
           err?.response?.data?.error ||
             'This verification link is invalid or has expired. Please request a new one from your dashboard.'
