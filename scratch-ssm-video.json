@@ -1,0 +1,5 @@
+{
+    "commands":  [
+                     "docker exec clearcaseiq-prod-api sh -lc \u0027echo Y29uc3QgeyBQcmlzbWFDbGllbnQgfSA9IHJlcXVpcmUocmVxdWlyZS5yZXNvbHZlKCJAcHJpc21hL2NsaWVudCIsIHsgcGF0aHM6IFsiL2FwcCIsICIvYXBwL2FwaSJdIH0pKTsgY29uc3QgcHJpc21hID0gbmV3IFByaXNtYUNsaWVudCgpOwooYXN5bmMgKCkgPT4gewogIGNvbnN0IGYgPSBhd2FpdCBwcmlzbWEuZXZpZGVuY2VGaWxlLmZpbmRGaXJzdCh7IHdoZXJlOiB7IGFzc2Vzc21lbnRJZDogeyBlbmRzV2l0aDogImRwdDA1aSIgfSwgY2F0ZWdvcnk6ICJiaWxscyIsIG1pbWV0eXBlOiAiaW1hZ2UvcG5nIiwgY3JlYXRlZEF0OiB7IGd0ZTogbmV3IERhdGUoIjIwMjYtMTAtMDZUMTg6MjM6NDVaIiksIGx0ZTogbmV3IERhdGUoIjIwMjYtMTAtMDZUMTg6MjM6NTlaIikgfSB9LCBzZWxlY3Q6IHsgb2NyVGV4dDogdHJ1ZSB9IH0pOwogIGNvbnNvbGUubG9nKChmICYmIGYub2NyVGV4dCkgfHwgIk5PTkUiKTsKICBwcm9jZXNzLmV4aXQoMCk7Cn0pKCkuY2F0Y2goKGUpID0+IHsgY29uc29sZS5lcnJvcigiRVJSIiwgZS5tZXNzYWdlKTsgcHJvY2Vzcy5leGl0KDEpOyB9KTs= | base64 -d \u003e /tmp/q.cjs \u0026\u0026 cd /app \u0026\u0026 node /tmp/q.cjs; rm -f /tmp/q.cjs\u0027"
+                 ]
+}

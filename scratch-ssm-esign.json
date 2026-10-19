@@ -1,0 +1,5 @@
+{
+    "commands":  [
+                     "docker logs --since 24h clearcaseiq-prod-api 2\u003e\u00261 | grep -E \u0027reconciliation sweep rather than webhook|E-sign webhook|esign/dropbox|webhooks/esign|HMAC verification|E-sign envelope sweep completed\u0027 | tail -n 40"
+                 ]
+}

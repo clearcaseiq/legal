@@ -1,0 +1,171 @@
+POLICE
+INCIDENT REPORT / POLICE REPORT
+4. WITNESSES
+DEDARTMENT
+United States
+NAME
+PHONE
+ADDRESS
+STATEMENT
+REPORT NO.
+Robert Lee
+common
+LA-2024-0012345
+(213) 555-0199
+900 S Hope St, Los Angeles, CA 90015
+Saw Party #2 run the red light.
+Agency Name:
+Los Angeles Police Department
+DATE / TIME REPORTED
+Maria Gonzalez
+(213) 555-0222
+111 W 11th St, Los Angeles, CA 90015
+Confirms collision in intersection.
+Agency Address:
+100 W 1st St, Los Angeles, CA 90012
+05/28/2024 09:15 AM
+Agency Phone:
+(213) 486-1000
+Emergency: 911
+CAD / EVENT NO.
+E240528-0890
+5. OFFICER INFORMATION
+1. INCIDENT INFORMATION
+OFFICER NAME
+BADGE NO.
+DIVISION
+INCIDENT TYPE
+DATE / TIME OF INCIDENT
+LOCATION OF INCIDENT
+Officer David Johnson
+4587
+Central Traffic Division
+Traffic Collision
+05/28/2024 08:45 AM
+1100 S Hope St, Los Angeles, CA 90015
+(Intersection with W 11th St)
+REPORTING OFFICER SIGNATURE
+DATE
+TIME
+WEATHER CONDITIONS
+David Jahnson
+05/28/2024
+09:15 AM
+Clear
+Cloudy
+Rain
+Fog
+Other:
+LIGHTING CONDITIONS
+6. DIAGRAM / SCENE
+>
+Daylight
+Dusk
+Dawn
+Dark - Street Lights On
+Dark - No Street Lights
+S Hope St
+N
+ROAD CONDITIONS
+LEGEND
+W
+E
+<
+Dry
+Wet
+Icy
+Snowy
+Other:
+Vehicle 1 (Party #1)
+S
+2. INVOLVED PARTIES
+E
+NAME
+PHONE
+Vehicle 2 (Party #2)
+PARTY #1
+ADDRESS
+John Michael Doe
+(310) 555-0148
+1234 Main St, Los Angeles, CA 90015
+Direction of Travel
+W 11th St
+W 11th St
+DRIVER'S LICENSE NO.
+STATE
+DOB
+EMAIL
+D1234567
+CA
+06/15/1985
+john.doe@email.com
+Point of Impact
+VEHICLE MAKE MODEL
+YEAR
+COLOR
+LICENSE PLATE
+STATE
+INSURANCE COMPANY
+POLICY NO.
+Toyota Camry
+2018
+Gray
+8ABC123
+CA
+State Farm
+SF1234567890
+PARTY #2
+NAME
+PHONE
+ADDRESS
+S Hope St
+Jane Marie Smith
+(323) 555-0176
+5678 Maple Ave, Los Angeles, CA 90015
+DRIVER'S LICENSE NO.
+STATE
+DOB
+EMAIL
+7. PROPERTY DAMAGE
+S7654321
+CA
+09/22/1990
+jane.smith@email.com
+PROPERTY DAMAGED
+ESTIMATED DAMAGE
+DESCRIBE DAMAGE
+VEHICLE MAKE MODEL
+YEAR
+COLOR
+LICENSE PLATE
+STATE
+INSURANCE COMPANY
+POLICY NO.
+>
+Vehicle 1
+Honda Accord
+2020
+Blue
+7XYZ890
+CA
+GEICO
+GE9876543210
+Front passenger side damage (Party #1).
+$3,500.00 (Party #1)
+>
+Vehicle 2
+Front driver side damage (Party #2).
+$2,800.00 (Party #2)
+Other
+3. INCIDENT NARRATIVE
+8. REPORT DISPOSITION
+Party #1 stated they were traveling northbound on S Hope St. Party #2 stated they were traveling westbound on W 11th St.
+DISPOSITION
+Party #1 stated when the traffic light turned green, Party #2 failed to stop at the red light and entered the intersection,
+No Citation Issued
+>
+Citation Issued
+Warning Issued
+Referred to Prosecutor
+Other:
+causing
