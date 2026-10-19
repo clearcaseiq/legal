@@ -14,6 +14,28 @@ describe('resolveTaskPrimaryAction', () => {
     expect(sectionForTaskAction(action!.kind)).toBe('insurance')
   })
 
+  it('opens Medical, where the impact journal lives, for impact statement tasks', () => {
+    const action = resolveTaskPrimaryAction({
+      title: 'Schedule Client Interview for Daily Impact Statement',
+      taskType: 'milestone',
+    })
+    expect(action?.kind).toBe('open_medical')
+    expect(sectionForTaskAction(action!.kind)).toBe('medical')
+    expect(action?.hint).toMatch(/impact journal/)
+  })
+
+  it('opens Damages for reviewing the damages ledger', () => {
+    for (const task of [
+      { title: 'Review Comprehensive Damages Ledger', taskType: 'milestone' },
+      { title: 'Review Comprehensive Damages Ledger', taskType: 'review', workflowStage: 'Demand package' },
+      { title: 'Review Comprehensive Damages Ledger', taskType: 'demand' },
+    ]) {
+      const action = resolveTaskPrimaryAction(task as any)
+      expect(action?.kind).toBe('open_damages')
+      expect(sectionForTaskAction(action!.kind)).toBe('damages')
+    }
+  })
+
   it('does not read "client" as a lien', () => {
     expect(resolveTaskPrimaryAction({ title: 'Client follow-up call' })?.kind).toBe('open_overview')
     expect(resolveTaskPrimaryAction({ title: 'Resolve medical liens' })?.kind).toBe('open_insurance')

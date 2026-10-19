@@ -6,4 +6,4 @@ ADD COLUMN "sendingDomainVerifiedAt" TIMESTAMP(3),
 ADD COLUMN "sendingDomainCheckedAt" TIMESTAMP(3);
 
 -- CreateIndex
-CREATE UNIQUE INDEX "law_firms_sendingDomain_key" ON "law_firms"("sendingDomain");
+CREATE INDEX "law_firms_sendingDomain_idx" ON "law_firms"("sendingDomain");

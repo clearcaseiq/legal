@@ -1489,8 +1489,9 @@ model LawFirm {
   rolePermissions String? @db.Text
 
   // Domain the firm has authorized us to send mail as (DKIM via SES), so
-  // attorney mail goes out from their own work address. One firm per domain.
-  sendingDomain           String?   @unique
+  // attorney mail goes out from their own work address. One firm per domain,
+  // checked when the domain is claimed.
+  sendingDomain           String?
   sendingDomainStatus     String? // pending, verified, failed
   sendingDomainDkimTokens String?   @db.Text // JSON array of SES DKIM tokens
   sendingDomainVerifiedAt DateTime?
@@ -1524,6 +1525,7 @@ model LawFirm {
   segment         AttorneySegment?
 
   @@index([nameKey, state])
+  @@index([sendingDomain])
   @@map("law_firms")
 }
 

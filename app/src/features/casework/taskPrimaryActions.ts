@@ -286,6 +286,7 @@ function openSection(
 
 const MEDICAL_RE =
   /treatment|mmi|discharge|provider|medical timeline|treatment gap|treatment status|treatment continuity|life-care|future treatment|medical expert|expert('s)? report|prior injur|pre-existing|medical history|impact journal|daily impact/i
+const IMPACT_RE = /impact journal|daily impact|impact statement/i
 const INSURANCE_RE =
   /insurance|adjuster|coverage|carrier|claim\b|um\/uim|medpay|\bpip\b|policy|\bliens?\b|subrogation|letter of representation|\blor\b/i
 const LIEN_PAYOFF_RE = /liens?\b.*payoff|payoff figures|lien payoff|final lien/i
@@ -327,6 +328,9 @@ function titleSectionAction(task: TaskLike): TaskPrimaryAction | null {
     return openSection('open_liability', 'Open', 'Open Liability to add witnesses and their statements')
   }
 
+  if (IMPACT_RE.test(title)) {
+    return openSection('open_medical', 'Open', 'Open Medical to review the client’s impact journal')
+  }
   if (type === 'medical' || MEDICAL_RE.test(hay)) {
     return openSection('open_medical', 'Open', 'Open Medical to update treatment and providers')
   }
@@ -544,9 +548,7 @@ export function resolveTaskPrimaryAction(task: TaskLike): TaskPrimaryAction | nu
     /request medical bills?/i.test(title) ||
     /secure medical bills?/i.test(title) ||
     /obtain medical bills?/i.test(title) ||
-    /collect (medical )?bills\b/i.test(title) ||
-    /itemized damages/i.test(title) ||
-    /damages ledger/i.test(title)
+    /collect (medical )?bills\b/i.test(title)
   ) {
     return {
       kind: 'collect_bills',
