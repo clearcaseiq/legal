@@ -136,7 +136,6 @@ export default function AttorneyDashboardWorkstreamTasks({
         >
           <option value="attorney">Attorney</option>
           <option value="paralegal">Paralegal</option>
-          <option value="client">Client (Plaintiff)</option>
         </select>
         <input
           value={taskForm.assignedTo}
@@ -183,9 +182,6 @@ export default function AttorneyDashboardWorkstreamTasks({
           placeholder="Notes"
         />
       </div>
-      <p className="mt-2 text-xs text-gray-500">
-        Tip: set the assignee to “Client (Plaintiff)” to make a task visible to the plaintiff in their Tasks section.
-      </p>
       <div className="mt-3 flex flex-wrap gap-2">
         <button
           onClick={handleAddTask}
@@ -311,7 +307,6 @@ export default function AttorneyDashboardWorkstreamTasks({
           >
             <option value="attorney">Attorney</option>
             <option value="paralegal">Paralegal</option>
-            <option value="client">Client (Plaintiff)</option>
           </select>
           <input
             value={workflowStepForm.reminderOffsetDays}

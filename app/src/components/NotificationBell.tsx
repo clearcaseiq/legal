@@ -4,9 +4,10 @@
  */
 
 import { useState, useEffect, useRef } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { MessageSquare } from 'lucide-react'
 import { getAttorneyUnreadSummary } from '../lib/api'
+import { conversationPath } from '../lib/notifications'
 import { formatClaimType } from '../lib/claimTypes'
 import { formatCaseId } from '../lib/caseId'
 import { MESSAGE_POLL_MS } from '../lib/notificationPolling'
@@ -23,7 +24,10 @@ interface ChatRoomPreview {
   awaitingReply?: boolean
 }
 
+const MESSAGES_ROUTE = '/attorney-dashboard/cases/messages'
+
 export default function NotificationBell() {
+  const location = useLocation()
   const [open, setOpen] = useState(false)
   const [unreadCount, setUnreadCount] = useState(0)
   const [awaitingReplyCount, setAwaitingReplyCount] = useState(0)
@@ -110,7 +114,7 @@ export default function NotificationBell() {
                 {chatRooms.slice(0, 10).map((room) => (
                   <Link
                     key={room.id}
-                    to={room.leadId ? `/attorney-dashboard/lead/${room.leadId}/overview` : '/attorney-dashboard/leadgen/matches'}
+                    to={room.leadId ? conversationPath(room.leadId, `${location.pathname}${location.search}`) : MESSAGES_ROUTE}
                     onClick={() => setOpen(false)}
                     className="block p-3 hover:bg-slate-50 text-left"
                   >
@@ -148,11 +152,11 @@ export default function NotificationBell() {
           </div>
           <div className="p-2 border-t border-slate-200">
             <Link
-              to="/attorney-dashboard/leadgen/matches"
+              to={MESSAGES_ROUTE}
               onClick={() => setOpen(false)}
               className="block text-center text-sm font-medium text-brand-600 hover:text-brand-700"
             >
-              View all cases
+              View all messages
             </Link>
           </div>
         </div>

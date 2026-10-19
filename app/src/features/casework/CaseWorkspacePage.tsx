@@ -5187,8 +5187,10 @@ function TasksPanel({
                 {isAutoIntakeMilestone(t.title) || !t.assignedUserId ? (
                   <option value="">{isAutoIntakeMilestone(t.title) ? 'Auto' : 'Pick a teammate'}</option>
                 ) : null}
-                {!isAutoIntakeMilestone(t.title) && !isRoseTask(t) ? (
-                  <option value={CLIENT_ASSIGN_VALUE}>Client (Plaintiff)</option>
+                {t.assignedRole === 'client' && !isRoseTask(t) ? (
+                  <option value={CLIENT_ASSIGN_VALUE} disabled>
+                    Client (Plaintiff)
+                  </option>
                 ) : null}
                 {colleagues.map((m) => (
                   <option key={m.userId} value={m.userId}>
@@ -5495,12 +5497,7 @@ function TasksPanel({
                   value={form.taskType}
                   onChange={(e) => {
                     const next = e.target.value
-                    setForm((f) => ({
-                      ...f,
-                      taskType: next,
-                      assignedRole: next === 'client' ? 'client' : f.assignedRole === 'client' ? 'attorney' : f.assignedRole,
-                      assignedUserId: next === 'client' ? '' : f.assignedUserId,
-                    }))
+                    setForm((f) => ({ ...f, taskType: next }))
                   }}
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
                 >
@@ -5513,16 +5510,10 @@ function TasksPanel({
               <div>
                 <label className="mb-1 block text-xs font-semibold text-slate-600">Assign</label>
                 <select
-                  value={
-                    form.assignedRole === 'client'
-                      ? CLIENT_ASSIGN_VALUE
-                      : form.assignedUserId || ''
-                  }
+                  value={form.assignedUserId || ''}
                   onChange={(e) => {
                     const next = e.target.value
-                    if (next === CLIENT_ASSIGN_VALUE) {
-                      setForm((f) => ({ ...f, assignedRole: 'client', assignedUserId: '', taskType: f.taskType === 'general' ? 'client' : f.taskType }))
-                    } else if (!next) {
+                    if (!next) {
                       setForm((f) => ({ ...f, assignedRole: 'attorney', assignedUserId: '' }))
                     } else {
                       const member = colleagues.find((m) => m.userId === next)
@@ -5536,17 +5527,14 @@ function TasksPanel({
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
                 >
                   <option value="">Pick a teammate</option>
-                  <option value={CLIENT_ASSIGN_VALUE}>Client (Plaintiff)</option>
                   {colleagues.map((m) => (
                     <option key={m.userId} value={m.userId}>
                       {m.name}
                     </option>
                   ))}
                 </select>
-                <p className={`mt-1 text-[11px] ${form.assignedRole === 'client' ? 'text-emerald-600' : 'text-slate-500'}`}>
-                  {form.assignedRole === 'client'
-                    ? 'The plaintiff will see this in their Tasks and get an email.'
-                    : 'Left empty, it goes to the teammate who holds that role on the case.'}
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Left empty, it goes to the teammate who holds that role on the case.
                 </p>
               </div>
             </div>

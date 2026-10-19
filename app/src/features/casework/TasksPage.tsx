@@ -197,9 +197,6 @@ const EMPTY_FORM = {
   assignedUserId: '',
 }
 
-// Only "client" reaches the plaintiff's Tasks list and triggers their email.
-const CLIENT_ASSIGN_VALUE = '__client__'
-
 export default function TasksPage() {
   const { can } = useFirmAccess()
   const navigate = useNavigate()
@@ -961,11 +958,7 @@ export default function TasksPage() {
                   value={form.taskType}
                   onChange={(e) => {
                     const next = e.target.value
-                    setForm((f) => ({
-                      ...f,
-                      taskType: next,
-                      assignedRole: next === 'client' ? 'client' : f.assignedRole,
-                    }))
+                    setForm((f) => ({ ...f, taskType: next }))
                   }}
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
                 >
@@ -980,15 +973,11 @@ export default function TasksPage() {
             <div>
               <label className="mb-1 block text-xs font-semibold text-slate-600">Assign to</label>
               <select
-                value={form.assignedRole === 'client' ? CLIENT_ASSIGN_VALUE : form.assignedUserId}
+                value={form.assignedUserId}
                 onChange={(e) => {
                   const next = e.target.value
-                  if (next === CLIENT_ASSIGN_VALUE) {
-                    setForm((f) => ({ ...f, assignedRole: 'client', assignedUserId: '' }))
-                  } else {
-                    const member = colleagues.find((m) => m.userId === next)
-                    setForm((f) => ({ ...f, assignedUserId: next, assignedRole: member?.role || 'attorney' }))
-                  }
+                  const member = colleagues.find((m) => m.userId === next)
+                  setForm((f) => ({ ...f, assignedUserId: next, assignedRole: member?.role || 'attorney' }))
                 }}
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
               >
@@ -998,13 +987,8 @@ export default function TasksPage() {
                     {m.name}
                   </option>
                 ))}
-                <option value={CLIENT_ASSIGN_VALUE}>Client (Plaintiff)</option>
               </select>
-              <p className={`mt-1 text-[11px] ${form.assignedRole === 'client' ? 'text-emerald-600' : 'text-slate-500'}`}>
-                {form.assignedRole === 'client'
-                  ? 'The plaintiff will see this in their Tasks and get an email.'
-                  : 'Internal: only your firm sees this.'}
-              </p>
+              <p className="mt-1 text-[11px] text-slate-500">Internal: only your firm sees this.</p>
             </div>
           </div>
           <div className="mt-3 flex justify-end gap-2">

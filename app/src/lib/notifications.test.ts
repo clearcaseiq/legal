@@ -37,10 +37,54 @@ describe('notificationDestination', () => {
     ).toBe('/attorney-dashboard/lead/L1/documents?view=requests')
   })
 
-  it('falls back to the case overview when the link points elsewhere', () => {
+  it('keeps a deep link spelled with /cases/ for the same case', () => {
+    expect(
+      notificationDestination({
+        type: 'attorney.task_assigned',
+        leadId: 'L1',
+        link: '/attorney-dashboard/cases/L1/tasks',
+      }),
+    ).toBe('/attorney-dashboard/cases/L1/tasks')
+    expect(
+      notificationDestination({
+        type: 'attorney.negotiation_decision',
+        leadId: 'L1',
+        link: '/attorney-dashboard/cases/L1/negotiation',
+      }),
+    ).toBe('/attorney-dashboard/cases/L1/negotiation')
+  })
+
+  it('opens the case tab the event is about when the link points elsewhere', () => {
     expect(notificationDestination({ type: 'attorney.doc_uploaded', leadId: 'L1', link: '/somewhere' })).toBe(
+      '/attorney-dashboard/lead/L1/documents',
+    )
+    expect(notificationDestination({ type: 'attorney.task_assigned', leadId: 'L1', link: null })).toBe(
+      '/attorney-dashboard/lead/L1/tasks',
+    )
+  })
+
+  it('ignores a link into a different case', () => {
+    expect(
+      notificationDestination({ type: 'attorney.doc_uploaded', leadId: 'L1', link: '/attorney-dashboard/cases/L2/documents' }),
+    ).toBe('/attorney-dashboard/lead/L1/documents')
+  })
+
+  it('falls back to the case overview for events without a tab', () => {
+    expect(notificationDestination({ type: 'attorney.case_reassigned', leadId: 'L1', link: null })).toBe(
       '/attorney-dashboard/lead/L1/overview',
     )
+  })
+
+  it('opens the conversation for a client message', () => {
+    expect(notificationDestination({ type: 'attorney.plaintiff_replied', leadId: 'L1', link: null })).toBe(
+      '/attorney-dashboard/draft-message/L1',
+    )
+  })
+
+  it('uses the stored link when the notification is not about a case', () => {
+    expect(
+      notificationDestination({ type: 'attorney.direct_message', leadId: null, link: '/attorney-dashboard/cases/messages?tab=team' }),
+    ).toBe('/attorney-dashboard/cases/messages?tab=team')
   })
 
   it('sends match-lifecycle events to the lead review', () => {

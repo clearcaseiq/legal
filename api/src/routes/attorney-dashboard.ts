@@ -130,6 +130,7 @@ import { createExternalCalendarEvent, deleteExternalCalendarEvent } from '../lib
 import { notifyWaitlistForFreedSlot, syncLeadStatusAfterConsultCancelled } from '../lib/appointment-engagement'
 import { createZoomMeeting } from '../lib/zoom'
 import { deliverDirectNotification, createNotificationEvent, notifyAdmins } from '../lib/platform-notifications'
+import { notifyTaskAssignee } from '../lib/task-assignment-notify'
 import {
   decorateMessagesForReader,
   MESSAGE_EMAIL_I18N,
@@ -734,7 +735,28 @@ async function firmGrantsLeadRead(
   if (firm.lawFirmId && firm.canViewAllCases && (await firmHoldsLead(lead, firm.lawFirmId))) return true
   if (firm.lawFirmId && firm.canReviewFirmMatches && (await firmHasLiveOffer(lead, firm.lawFirmId))) return true
   if (await onFirmCaseTeam(lead, attorneyId, firm)) return true
+  if (firm.lawFirmId && (await holdsOpenTaskOnLead(lead, firm.userId)) && (await firmHoldsLead(lead, firm.lawFirmId))) {
+    return true
+  }
   return !!firm.lawFirmId && firm.canViewTeamCases !== false && (await isUnassignedFirmCase(lead, firm.lawFirmId))
+}
+
+/**
+ * A colleague handed this user an open task on the case. Without this the task
+ * shows in their queue but opening it answers 403 on a staffed case.
+ */
+async function holdsOpenTaskOnLead(lead: { assessmentId: string }, userId?: string | null): Promise<boolean> {
+  if (!userId) return false
+  const task = await prisma.caseTask.findFirst({
+    where: {
+      assessmentId: lead.assessmentId,
+      assignedUserId: userId,
+      mergedIntoId: null,
+      NOT: { status: { in: ['completed', 'done', 'deleted'] } },
+    },
+    select: { id: true },
+  })
+  return !!task
 }
 
 /** Whether this lead is one of the firm's taken cases with no case team yet. */
@@ -4996,8 +5018,22 @@ router.get('/fees/ytd', authMiddleware, async (req: any, res) => {
 router.get('/tasks/summary', authMiddleware, async (req: any, res) => {
   try {
     const auth = await getAttorneyFromReq(req)
-    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
-    const { attorney } = auth
+    const myUserId: string | null = req.user?.id || null
+    // Staff (paralegals, case managers) have no Attorney row but are handed
+    // tasks too; they get just the tasks assigned to them on firm cases.
+    let staffFirmId: string | null = null
+    if (auth.error) {
+      const member = myUserId
+        ? await (prisma as any).firmMember.findFirst({
+            where: { userId: myUserId, status: 'active' },
+            select: { lawFirmId: true },
+          })
+        : null
+      if (!member?.lawFirmId) return res.status(auth.error.status).json({ error: auth.error.message })
+      staffFirmId = member.lawFirmId
+    }
+    const attorney = auth.error ? null : auth.attorney
+    const lawFirmId: string | null = attorney?.lawFirmId || staffFirmId
 
     const taskSummaryLeadSelect = {
       id: true,
@@ -5010,14 +5046,18 @@ router.get('/tasks/summary', authMiddleware, async (req: any, res) => {
         },
       },
     } as const
-    const assignedLeads = await prisma.leadSubmission.findMany({
-      where: { assignedAttorneyId: attorney.id },
-      select: taskSummaryLeadSelect,
-    })
-    const introAssessments = await prisma.introduction.findMany({
-      where: { attorneyId: attorney.id, status: { notIn: [...TERMINAL_INTRO_STATUSES] } },
-      select: { assessmentId: true },
-    })
+    const assignedLeads = attorney
+      ? await prisma.leadSubmission.findMany({
+          where: { assignedAttorneyId: attorney.id },
+          select: taskSummaryLeadSelect,
+        })
+      : []
+    const introAssessments = attorney
+      ? await prisma.introduction.findMany({
+          where: { attorneyId: attorney.id, status: { notIn: [...TERMINAL_INTRO_STATUSES] } },
+          select: { assessmentId: true },
+        })
+      : []
     const introAssessIds = [...new Set(introAssessments.map((i) => i.assessmentId))]
     const introLeads =
       introAssessIds.length > 0
@@ -5048,10 +5088,58 @@ router.get('/tasks/summary', authMiddleware, async (req: any, res) => {
       }
     }
 
+    // The caller's own caseload: every task on these cases is listed.
     const assessmentIds = [...byAssessment.keys()]
-    if (assessmentIds.length === 0) {
+
+    // Tasks a colleague assigned to the caller on a case the caller doesn't
+    // hold. Only those tasks are listed, never the rest of the case's work,
+    // and only on cases the caller's firm holds.
+    const sharedAssessmentIds: string[] = []
+    if (myUserId && lawFirmId) {
+      const handedToMe = await prisma.caseTask.findMany({
+        where: {
+          assignedUserId: myUserId,
+          assessmentId: { notIn: assessmentIds },
+          mergedIntoId: null,
+          taskType: { not: 'time_entry' },
+        },
+        select: { assessmentId: true },
+        distinct: ['assessmentId'],
+        take: 200,
+      })
+      if (handedToMe.length > 0) {
+        const firmLeads = await prisma.leadSubmission.findMany({
+          where: {
+            assessmentId: { in: handedToMe.map((t) => t.assessmentId) },
+            OR: [
+              { assignedAttorney: { lawFirmId } },
+              { assessment: { lawFirmId } },
+              { assessment: { introductions: { some: { attorney: { lawFirmId } } } } },
+            ],
+          },
+          select: taskSummaryLeadSelect,
+        })
+        for (const l of firmLeads) {
+          if (byAssessment.has(l.assessmentId)) continue
+          byAssessment.set(l.assessmentId, {
+            leadId: l.id,
+            claimType: l.assessment?.claimType,
+            caseName: l.assessment ? resolveCaseName(l.assessment, 'Case') : 'Case',
+          })
+          sharedAssessmentIds.push(l.assessmentId)
+        }
+      }
+    }
+
+    if (assessmentIds.length === 0 && sharedAssessmentIds.length === 0) {
       return res.json({ overdue: [], today: [], upcoming: [], noDueDate: [], recentlyCompleted: [] })
     }
+    const taskScope = [
+      ...(assessmentIds.length > 0 ? [{ assessmentId: { in: assessmentIds } }] : []),
+      ...(sharedAssessmentIds.length > 0
+        ? [{ assessmentId: { in: sharedAssessmentIds }, assignedUserId: myUserId }]
+        : []),
+    ]
 
     // Backfill workflow → CaseTask rows so the cross-case Tasks queue stays current.
     await Promise.all(
@@ -5086,7 +5174,7 @@ router.get('/tasks/summary', authMiddleware, async (req: any, res) => {
 
     const tasks = await prisma.caseTask.findMany({
       where: {
-        assessmentId: { in: assessmentIds },
+        OR: taskScope,
         taskType: { not: 'time_entry' },
         // Absorbed tasks are closed, so this queue already excludes them; the
         // filter is explicit so it survives any change to the status clause.
@@ -5101,7 +5189,7 @@ router.get('/tasks/summary', authMiddleware, async (req: any, res) => {
     // completed" toggle on the cross-case Tasks queue.
     const completedTasks = await prisma.caseTask.findMany({
       where: {
-        assessmentId: { in: assessmentIds },
+        OR: taskScope,
         taskType: { not: 'time_entry' },
         status: { in: ['completed', 'done'] },
       },
@@ -13817,6 +13905,13 @@ router.post('/leads/:leadId/tasks', authMiddleware, async (req: any, res) => {
         task: record,
       })
     }
+    void notifyTaskAssignee({
+      assigneeUserId: record.assignedUserId,
+      actor: { userId: req.user?.id, name: record.createdByName },
+      leadId,
+      assessmentId: lead.assessmentId,
+      task: record,
+    })
 
     res.json(record)
   } catch (error: any) {
@@ -14051,6 +14146,18 @@ router.patch('/leads/:leadId/tasks/:id', authMiddleware, async (req: any, res) =
         leadId,
         assessmentId: auth.lead.assessmentId,
         attorney: onBehalfOf,
+        task: record,
+      })
+    }
+    if (record.assignedUserId && record.assignedUserId !== (existing.assignedUserId || null)) {
+      void notifyTaskAssignee({
+        assigneeUserId: record.assignedUserId,
+        actor: {
+          userId: req.user?.id,
+          name: req.user ? `${req.user.firstName || ''} ${req.user.lastName || ''}`.trim() || req.user.email : null,
+        },
+        leadId,
+        assessmentId: auth.lead.assessmentId,
         task: record,
       })
     }

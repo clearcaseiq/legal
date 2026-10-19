@@ -28,7 +28,6 @@ const TASK_TYPES = [
 const ASSIGNEES = [
   { id: 'attorney', label: 'Attorney' },
   { id: 'paralegal', label: 'Paralegal' },
-  { id: 'client', label: 'Client (Plaintiff)' },
 ]
 
 import { formatClaimType as claimLabel } from '../lib/claimTypes'
@@ -66,7 +65,6 @@ export default function AddTaskPage() {
   // Picking type "Client follow-up" while the assignee silently stayed
   // "Attorney" produced a firm-internal task the plaintiff never saw (CP-388).
   // Mirror the intent unless the user has chosen an assignee themselves.
-  const [assigneeTouched, setAssigneeTouched] = useState(false)
   const [notes, setNotes] = useState('')
 
   useEffect(() => {
@@ -190,11 +188,7 @@ export default function AddTaskPage() {
                 </label>
                 <select
                   value={taskType}
-                  onChange={(e) => {
-                    const next = e.target.value
-                    setTaskType(next)
-                    if (!assigneeTouched) setAssignedRole(next === 'client' ? 'client' : 'attorney')
-                  }}
+                  onChange={(e) => setTaskType(e.target.value)}
                   className={fieldCls}
                 >
                   {TASK_TYPES.map((t) => (
@@ -238,10 +232,7 @@ export default function AddTaskPage() {
               </label>
               <select
                 value={assignedRole}
-                onChange={(e) => {
-                  setAssigneeTouched(true)
-                  setAssignedRole(e.target.value)
-                }}
+                onChange={(e) => setAssignedRole(e.target.value)}
                 className={fieldCls}
               >
                 {ASSIGNEES.map((a) => (
@@ -250,15 +241,7 @@ export default function AddTaskPage() {
                   </option>
                 ))}
               </select>
-              {assignedRole === 'client' ? (
-                <p className="mt-1.5 text-xs text-emerald-600">
-                  The plaintiff will see this in their Tasks and receive an email.
-                </p>
-              ) : (
-                <p className="mt-1.5 text-xs text-amber-600">
-                  Internal: only your firm sees this. Choose “Client (Plaintiff)” to send it to the client.
-                </p>
-              )}
+              <p className="mt-1.5 text-xs text-slate-500">Internal: only your firm sees this.</p>
             </div>
 
             <div>

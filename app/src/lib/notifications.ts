@@ -12,42 +12,69 @@ const LEADGEN_TYPES = new Set<string>([
   'attorney.wave2_route',
 ])
 
+/** Client conversations open the thread itself, not the case file. */
+const CONVERSATION_TYPES = new Set<string>(['attorney.new_message', 'attorney.plaintiff_replied'])
+
+/** The case tab each event is about, used when the notification carries no deep link. */
+const CASE_SECTION_BY_TYPE: Record<string, string> = {
+  'attorney.doc_uploaded': 'documents',
+  'attorney.client_suggested_documents': 'documents?view=requests',
+  'attorney.document_request_note': 'documents?view=requests',
+  'attorney.countersign_needed': 'documents?view=signatures',
+  'attorney.task_assigned': 'tasks',
+  'attorney.case_reminder': 'tasks',
+  'attorney.workflow_assignment': 'workflow',
+  'attorney.mention': 'timeline',
+  'attorney.demand_package_ready': 'demand',
+  'attorney.negotiation_decision': 'negotiation',
+  'attorney.case_result_verified': 'settlement',
+  'attorney.case_result_rejected': 'settlement',
+}
+
+function toRouterPath(link: string): string {
+  if (/^https?:\/\//i.test(link)) {
+    try {
+      const url = new URL(link)
+      if (typeof window !== 'undefined' && url.origin === window.location.origin) {
+        return url.pathname + url.search + url.hash
+      }
+    } catch {
+      /* fall through to raw link */
+    }
+  }
+  return link
+}
+
+/** Conversation with the client on a case, returning to wherever it was opened from. */
+export function conversationPath(leadId: string, returnTo?: string): string {
+  const back = returnTo ? `?returnTo=${encodeURIComponent(returnTo)}` : ''
+  return `/attorney-dashboard/draft-message/${leadId}${back}`
+}
+
 /**
  * Resolve where clicking a notification should take the attorney.
  *
- * Priority:
- *  1. A specific lead (leadId) — deep-link to the right surface based on the
- *     notification type so "open that up" lands on the actual case/match, not a
- *     generic list. Match-lifecycle events open the Lead Generation review;
- *     everything else opens the case file.
- *  2. An explicit link stored on the notification (normalized to a router path
- *     when it's an absolute same-origin URL).
+ * Priority for a notification about a case (leadId):
+ *  1. Match-lifecycle events open the Lead Generation review.
+ *  2. Client messages open that conversation.
+ *  3. A stored link into the same case is kept as is. Case URLs come in two
+ *     spellings, `/lead/:id/` and `/cases/:id/`, and both open the case file.
+ *  4. Otherwise the case tab the event is about, else the case overview.
+ * Without a case, the stored link is used (same-origin absolute URLs are
+ * reduced to a router path).
  */
 export function notificationDestination(
   n: Pick<AttorneyNotification, 'type' | 'link' | 'leadId'>,
 ): string | null {
+  const link = n.link ? toRouterPath(n.link) : null
   if (n.leadId) {
     if (LEADGEN_TYPES.has(n.type)) return `/attorney-dashboard/leadgen/matches/${n.leadId}/overview`
-    const caseFilePrefix = `/attorney-dashboard/lead/${n.leadId}/`
-    if (n.link?.startsWith(caseFilePrefix)) return n.link
-    return `${caseFilePrefix}overview`
+    if (CONVERSATION_TYPES.has(n.type)) return conversationPath(n.leadId)
+    const caseFilePrefixes = [`/attorney-dashboard/lead/${n.leadId}/`, `/attorney-dashboard/cases/${n.leadId}/`]
+    if (link && caseFilePrefixes.some((p) => link.startsWith(p))) return link
+    return `/attorney-dashboard/lead/${n.leadId}/${CASE_SECTION_BY_TYPE[n.type] ?? 'overview'}`
   }
-
-  if (n.link) {
-    if (/^https?:\/\//i.test(n.link)) {
-      try {
-        const url = new URL(n.link)
-        if (typeof window !== 'undefined' && url.origin === window.location.origin) {
-          return url.pathname + url.search + url.hash
-        }
-      } catch {
-        /* fall through to raw link */
-      }
-    }
-    return n.link
-  }
-
-  return null
+  return link
 }
 
 export type NotificationCaseGroup<T> = {
