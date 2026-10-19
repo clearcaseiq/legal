@@ -286,8 +286,15 @@ interface DeliveryInput {
   sentByEmail?: string | null
 }
 
+/** What the adjuster is asked to upload alongside the letter of representation. */
+const CARRIER_LOR_REQUESTED_DOCS = ['dec_page', 'recorded_statement', 'property_damage_estimate', 'other']
+
 export async function sendCarrierLetter(
-  input: DeliveryInput & { insurance: CarrierLetterInput & { id: string } },
+  input: DeliveryInput & {
+    insurance: CarrierLetterInput & { id: string; decPageRequestId?: string | null }
+    /** The attorney the upload request belongs to; without one no upload link is offered. */
+    attorneyId?: string | null
+  },
 ): Promise<SendLetterResult> {
   const { ctx, insurance } = input
   const subject = [
@@ -300,16 +307,52 @@ export async function sendCarrierLetter(
 
   let emailed = false
   if (input.delivery === 'email' && input.recipientEmail) {
+    const secureToken = crypto.randomUUID()
+    const uploadLink = input.attorneyId ? webUrl(`/respond/documents/${secureToken}`) : null
+    const request = input.attorneyId
+      ? await prisma.documentRequest.create({
+          data: {
+            leadId: ctx.leadId,
+            attorneyId: input.attorneyId,
+            requestedDocs: JSON.stringify(CARRIER_LOR_REQUESTED_DOCS),
+            customMessage: `Please upload the declarations page and any recorded statements, property damage estimates, photos, or other claim documents for ${ctx.clientName || 'our client'}.`,
+            secureToken,
+            uploadLink: webUrl(`/respond/documents/${secureToken}`),
+            status: 'pending',
+            targetType: 'opposing_party',
+            recipientName: insurance.adjusterName || insurance.carrierName,
+            recipientEmail: input.recipientEmail,
+            recipientRole: 'insurer',
+            origin: 'attorney',
+            insuranceDetailId: insurance.id,
+          },
+        })
+      : null
+
     const pdf = fs.readFileSync(filePath)
+    const claimRef = insurance.claimNumber ? ` (claim ${insurance.claimNumber})` : ''
+    const uploadAsk = uploadLink
+      ? `\n\nPlease upload the declarations page and any recorded statements, property damage estimates or photos for this claim through the secure link below.`
+      : ''
     emailed = await sendTransactionalEmail({
       to: input.recipientEmail,
       subject,
-      body: `Hello ${insurance.adjusterName?.trim() || 'Claims Representative'},\n\nPlease find attached our letter of representation for ${ctx.clientName || 'our client'}${insurance.claimNumber ? ` (claim ${insurance.claimNumber})` : ''}. Please direct all communication about this claim to our office.\n\n${ctx.attorneyName}\n${ctx.firmName}`,
+      body: `Hello ${insurance.adjusterName?.trim() || 'Claims Representative'},\n\nPlease find attached our letter of representation for ${ctx.clientName || 'our client'}${claimRef}. Please direct all communication about this claim to our office.${uploadAsk}\n\n${ctx.attorneyName}\n${ctx.firmName}`,
+      ...(uploadLink ? { cta: { label: 'Upload documents securely', url: uploadLink } } : {}),
       attachments: [{ filename: `Letter-of-Representation-${safeFileName(ctx.clientName)}.pdf`, content: pdf, contentType: 'application/pdf' }],
       replyTo: ctx.attorneyEmail || undefined,
       fromName: [ctx.attorneyName, ctx.firmName].filter(Boolean).join(', ') || undefined,
+      fromEmail: ctx.attorneyEmail || undefined,
     })
-    if (!emailed) throw new Error('The email could not be sent. Try again, or download the letter to fax it.')
+    if (!emailed) {
+      if (request) await prisma.documentRequest.delete({ where: { id: request.id } }).catch(() => undefined)
+      throw new Error('The email could not be sent. Try again, or download the letter to fax it.')
+    }
+    if (request && !insurance.decPageRequestId) {
+      await prisma.insuranceDetail
+        .update({ where: { id: insurance.id }, data: { decPageRequestId: request.id } })
+        .catch(() => undefined)
+    }
   }
 
   const letter = await prisma.caseLetter.create({

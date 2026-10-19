@@ -11025,9 +11025,11 @@ router.post('/leads/:leadId/insurance/:id/lor', authMiddleware, firmGate('reques
     const ctx = await loadLetterContext(auth.lead.id)
     if (!ctx) return res.status(404).json({ error: 'Case not found' })
 
+    const actingAttorney = await resolveActingAttorney(auth)
     const result = await sendCarrierLetter({
       ctx,
       insurance,
+      attorneyId: actingAttorney?.id ?? null,
       body: parsed.data.body,
       delivery: parsed.data.delivery,
       recipientEmail,

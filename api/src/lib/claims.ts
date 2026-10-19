@@ -341,6 +341,15 @@ function bodyToHtml(body: string, cta?: EmailCta | null | EmailCta[]): string {
 }
 
 /**
+ * The official logo, served by the web app. Mail clients fetch it from the
+ * recipient's machine, so it has to be a public absolute URL; images blocked
+ * by the client fall back to the alt text, styled like the old wordmark.
+ */
+function emailLogoUrl(): string {
+  return process.env.EMAIL_LOGO_URL?.trim() || webUrl('/clearcaseiq-logo-transparent.png')
+}
+
+/**
  * Wrap rendered content in a branded, responsive, email-client-safe shell so all
  * transactional mail looks professional (header wordmark, white card, footer with
  * confidentiality note) instead of bare <p> tags (CP-296, CP-316, CP-366).
@@ -360,7 +369,7 @@ function wrapBrandedEmail(contentHtml: string): string {
         <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
           <tr>
             <td style="padding:8px 8px 16px;">
-              <span style="font-size:20px;font-weight:700;letter-spacing:-0.02em;color:#1e3a8a;">ClearCase<span style="color:#2563eb;">IQ</span></span>
+              <img src="${escapeAttr(emailLogoUrl())}" width="180" height="55" alt="ClearCaseIQ" style="display:block;width:180px;height:auto;max-width:180px;border:0;outline:none;text-decoration:none;font-size:20px;font-weight:700;color:#1e3a8a;" />
             </td>
           </tr>
           <tr>
