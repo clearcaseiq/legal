@@ -24,6 +24,11 @@ describe('resolveTaskPrimaryAction', () => {
     expect(action?.hint).toMatch(/daily-impact statement/)
   })
 
+  it('explains that the pain and suffering narrative is the daily-impact statement', () => {
+    expect(resolveTaskHelpTooltip({ title: 'Draft pain and suffering narrative' })).toMatch(/daily-impact statement/)
+    expect(resolveTaskHelpTooltip({ title: 'Collect Additional Witness Statements' })).toMatch(/Liability tab/)
+  })
+
   it('opens Medical for preparing the daily-impact statement', () => {
     const action = resolveTaskPrimaryAction({ title: 'Prepare daily-impact statement', taskType: 'milestone' })
     expect(action?.kind).toBe('open_medical')
@@ -144,6 +149,10 @@ describe('resolveTaskPrimaryAction', () => {
     ['Assist client with daily impact journal', 'medical'],
     ['Verify wage loss and gather proof', 'damages'],
     ['Collect Medical bills', 'documents?view=requests'],
+    ['Draft pain and suffering narrative', 'medical'],
+    ['Calculate pain and suffering multiplier', 'demand'],
+    ['Collect Additional Witness Statements', 'liability'],
+    ['Collect surveillance footage', 'liability'],
     ["Identify all liens and request payoff figures (health, medical, gov't)", 'settlement'],
   ])('opens "%s" on %s', (title, section) => {
     const action = resolveTaskPrimaryAction({

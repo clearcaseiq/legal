@@ -103,7 +103,17 @@ function specificTaskHelp(task: TaskLike, title: string): string | null {
     return 'Identify the at-fault party’s insurer and record the claim number on the Insurance tab. The letter of representation and the demand both go to this carrier.'
   }
 
-  if (/^collect\s+/i.test(title) && !/collect medical|collect police|collect bills/i.test(title)) {
+  if (IMPACT_RE.test(title) && !/impact journal|daily impact|impact statement/i.test(title)) {
+    return 'The demand’s pain and suffering section quotes the approved daily-impact statement word for word. Write it on the Medical tab from the client’s journal and interview, then approve it.'
+  }
+
+  if (
+    /^collect\s+/i.test(title) &&
+    !/collect medical|collect police|collect bills/i.test(title) &&
+    !FOOTAGE_RE.test(title) &&
+    !SITE_RE.test(title) &&
+    !WITNESS_RE.test(title)
+  ) {
     return `The case is missing ${title.replace(/^collect\s+/i, '').trim()}. Upload it under Evidence or request it from the client — it counts toward demand readiness.`
   }
 
@@ -286,7 +296,8 @@ function openSection(
 
 const MEDICAL_RE =
   /treatment|mmi|discharge|provider|medical timeline|treatment gap|treatment status|treatment continuity|life-care|future treatment|medical expert|expert('s)? report|prior injur|pre-existing|medical history|impact journal|daily impact/i
-const IMPACT_RE = /impact journal|daily impact|impact statement/i
+const IMPACT_RE =
+  /impact journal|daily impact|impact statement|(pain (and|&) suffering|non-?economic( damages)?|general damages) (narrative|statement|section|story)/i
 const INSURANCE_RE =
   /insurance|adjuster|coverage|carrier|claim\b|um\/uim|medpay|\bpip\b|policy|\bliens?\b|subrogation|letter of representation|\blor\b/i
 const LIEN_PAYOFF_RE = /liens?\b.*payoff|payoff figures|lien payoff|final lien/i
@@ -307,6 +318,25 @@ const SITE_RE =
   /\b(site|scene|premises|property) (visit|inspection|walk-?through)\b|\binspect (the )?(site|scene|premises|property|location)\b|\bsecurity measures\b/i
 const WITNESS_RE = /\bwitness(es)?('s?)? (interviews?|statements?|summar(y|ies)|list|contact)|\binterview (the |all |each )?witness/i
 
+/**
+ * Witness, video and scene evidence is tracked item by item on the Liability
+ * tab (with a witness upload link), so "Collect witness statements" belongs
+ * there rather than on the generic document request list.
+ */
+function liabilityEvidenceAction(title: string): TaskPrimaryAction | null {
+  // Video is tracked as a Liability evidence item (requested → received → reviewed).
+  if (FOOTAGE_RE.test(title)) {
+    return openSection('open_liability', 'Open', 'Open Liability to track and review the video evidence')
+  }
+  if (SITE_RE.test(title)) {
+    return openSection('open_liability', 'Open', 'Open Liability to record the inspection findings and scene photos')
+  }
+  if (WITNESS_RE.test(title)) {
+    return openSection('open_liability', 'Open', 'Open Liability to add witnesses and their statements, or send a witness an upload link')
+  }
+  return null
+}
+
 function titleSectionAction(task: TaskLike): TaskPrimaryAction | null {
   const title = String(task.title || '')
   const type = String(task.taskType || '').toLowerCase()
@@ -317,19 +347,15 @@ function titleSectionAction(task: TaskLike): TaskPrimaryAction | null {
   if (DEFENDANT_IDENTITY_RE.test(title)) {
     return openSection('open_liability', 'Open', 'Open Liability to add or confirm the defendants')
   }
-  // Video is tracked as a Liability evidence item (requested → received → reviewed).
-  if (FOOTAGE_RE.test(title)) {
-    return openSection('open_liability', 'Open', 'Open Liability to track and review the video evidence')
-  }
-  if (SITE_RE.test(title)) {
-    return openSection('open_liability', 'Open', 'Open Liability to record the inspection findings and scene photos')
-  }
-  if (WITNESS_RE.test(title)) {
-    return openSection('open_liability', 'Open', 'Open Liability to add witnesses and their statements')
-  }
+  const liability = liabilityEvidenceAction(title)
+  if (liability) return liability
 
   if (IMPACT_RE.test(title)) {
-    return openSection('open_medical', 'Open', 'Open Medical to write the daily-impact statement from the client’s journal')
+    return openSection(
+      'open_medical',
+      'Open',
+      'Open Medical to write the daily-impact statement from the client’s journal; it becomes the demand’s pain and suffering section',
+    )
   }
   if (type === 'medical' || MEDICAL_RE.test(hay)) {
     return openSection('open_medical', 'Open', 'Open Medical to update treatment and providers')
@@ -592,6 +618,9 @@ export function resolveTaskPrimaryAction(task: TaskLike): TaskPrimaryAction | nu
       doneHint: 'Open Signatures to review packet status',
     }
   }
+
+  const liability = liabilityEvidenceAction(title)
+  if (liability) return liability
 
   // Readiness automation titles like "Collect {label}"
   if (/^collect\s+/i.test(title) && !/collect medical|collect police|collect bills/i.test(title)) {
