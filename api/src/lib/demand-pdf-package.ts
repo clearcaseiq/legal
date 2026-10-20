@@ -25,7 +25,7 @@ import {
   type PDFRef,
 } from 'pdf-lib'
 import { logger } from './logger'
-import { localPathFor, planDemandExhibitCandidates, type PlannedExhibit } from './demand-docx'
+import { EXHIBIT_NOT_ON_CASE, localPathFor, planDemandExhibitCandidates, type PlannedExhibit } from './demand-docx'
 import {
   ENCLOSURE_GROUP_ORDER,
   GROUP_FOR_SECTION,
@@ -646,7 +646,7 @@ export async function demandExhibitCandidates(
 
 async function sourceFor(exhibit: PlannedExhibit): Promise<ExhibitSource> {
   const file = exhibit.file
-  if (!file) return { kind: 'missing', note: 'This exhibit is no longer on the case. Attach it separately.' }
+  if (!file) return { kind: 'missing', note: exhibit.missing ?? EXHIBIT_NOT_ON_CASE }
   const abs = await localPathFor(file)
   if (!abs) return { kind: 'missing', note: 'The file for this exhibit could not be found on the case. Attach it separately.' }
 

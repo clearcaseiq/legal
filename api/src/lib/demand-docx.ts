@@ -21,6 +21,7 @@ import { logger } from './logger'
 import { ensureLocalCopy } from './object-storage'
 import { loadPDFParse, type PDFParseInstance } from './pdf-parse-client'
 import { buildDemandExhibits } from './demand-drafting'
+import { isHardIdentityMismatch, parseIdentityCheck } from './claimant-identity-check'
 import type { ExhibitSection } from './demand-letter'
 import { SUPER_DEMAND_CONFIDENTIAL, SUPER_DEMAND_SUBTITLE, SUPER_DEMAND_TEMPLATE } from './super-demand'
 
@@ -51,7 +52,18 @@ type ExhibitFile = {
   ocrText: string | null
 }
 
-export type PlannedExhibit = { number: string; label: string; section: ExhibitSection | null; file: ExhibitFile | null }
+export type PlannedExhibit = {
+  number: string
+  label: string
+  section: ExhibitSection | null
+  file: ExhibitFile | null
+  /** Why `file` is null, for the note printed in its place. */
+  missing?: string
+}
+
+export const EXHIBIT_NOT_ON_CASE = 'This exhibit is no longer on the case. Attach it separately.'
+export const EXHIBIT_IDENTITY_HELD =
+  'Held back: this file names someone other than the client. Confirm it on the Documents tab, then download again.'
 
 export function enclosuresIn(content: string): Array<{ number: string; label: string }> {
   const lines = content.split(/\r?\n/)
@@ -69,6 +81,12 @@ export function enclosuresIn(content: string): Array<{ number: string; label: st
     break
   }
   return out
+}
+
+/** "Medical bill (05_Bills.pdf)" -> "05_Bills.pdf". */
+export function enclosedFileName(label: string): string | null {
+  const m = /^[^(]*\((.+)\)\s*$/.exec(label)
+  return m ? m[1].trim() : null
 }
 
 export async function planDemandExhibits(assessmentId: string, content: string): Promise<PlannedExhibit[]> {
@@ -109,14 +127,24 @@ export async function planDemandExhibitCandidates(
   const listed = enclosuresIn(content)
   if (!listed.length) return { planned: current, extras: [] }
 
-  const byLabel = new Map(current.map((e) => [e.label, e]))
-  const planned = listed.map((e) => ({
-    ...e,
-    section: byLabel.get(e.label)?.section ?? null,
-    file: byLabel.get(e.label)?.file ?? null,
-  }))
-  const enclosedLabels = new Set(listed.map((e) => e.label))
-  return { planned, extras: current.filter((e) => !enclosedLabels.has(e.label)) }
+  // A file recategorized after the letter was written keeps its name but not its
+  // label, so fall back to the filename in the enclosure line's parentheses.
+  const used = new Set<PlannedExhibit>()
+  const take = (match: PlannedExhibit | undefined) => (match && !used.has(match) ? (used.add(match), match) : undefined)
+  const planned = listed.map((e) => {
+    const name = enclosedFileName(e.label)
+    const match =
+      take(current.find((c) => c.label === e.label && !used.has(c))) ??
+      (name ? take(current.find((c) => c.file?.originalName === name && !used.has(c))) : undefined)
+    if (match) return { ...e, section: match.section, file: match.file }
+    const held = name
+      ? files.some(
+          (f) => f.originalName === name && isHardIdentityMismatch(f.category, parseIdentityCheck(f.identityCheck ?? null)),
+        )
+      : false
+    return { ...e, section: null, file: null, missing: held ? EXHIBIT_IDENTITY_HELD : EXHIBIT_NOT_ON_CASE }
+  })
+  return { planned, extras: current.filter((e) => !used.has(e)) }
 }
 
 export async function localPathFor(file: ExhibitFile): Promise<string | null> {
@@ -320,7 +348,7 @@ export async function buildDemandLetterDocx(demand: {
     ]
     const body = exhibit.file
       ? await exhibitBody(exhibit.file, `Exhibit ${exhibit.number}`, budget)
-      : [note('This exhibit is no longer on the case. Attach it separately.')]
+      : [note(exhibit.missing ?? EXHIBIT_NOT_ON_CASE)]
     exhibitSections.push({ children: [...heading, ...body] })
   }
 

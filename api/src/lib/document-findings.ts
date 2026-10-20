@@ -100,6 +100,12 @@ export interface FindingData {
   date?: string | null
   endDate?: string | null
   provider?: string | null
+  /** 'document' when the provider came from the letterhead rather than the encounter's own lines. */
+  providerSource?: 'line' | 'document' | null
+  providerAddress?: string | null
+  providerPhone?: string | null
+  providerFax?: string | null
+  providerNpi?: string | null
   specialty?: string | null
   visitType?: string | null
   diagnosis?: string | null
@@ -343,6 +349,84 @@ export function verifyCandidate(raw: any, pages: PageText[]): CandidateFinding |
   return { kind, page: source.page, quote, confidence, data }
 }
 
+export type DocumentProvider = {
+  name: string
+  address: string | null
+  phone: string | null
+  fax: string | null
+  npi: string | null
+}
+
+/**
+ * The practice or facility a record comes from, as its letterhead prints it.
+ * Held to the same rule as findings: the name has to be printed in the
+ * document, and an address, phone, fax or NPI the pages do not show is dropped.
+ */
+export function verifyDocumentProvider(raw: any, pages: PageText[]): DocumentProvider | null {
+  const allText = pages.map((p) => p.text).join('\n')
+  const allNorm = normalizeForMatch(allText)
+  const name = nameOnPage(cleanText(raw?.name, 160), allNorm)
+  if (!name) return null
+  const digits = allText.replace(/\D/g, '')
+  const number = (value: unknown) => {
+    const d = String(value ?? '').replace(/\D/g, '')
+    return d.length >= 10 && digits.includes(d.slice(-10)) ? cleanText(value, 30) : null
+  }
+  const address = cleanText(raw?.address, 200)
+  const npi = String(raw?.npi ?? '').replace(/\D/g, '')
+  return {
+    name,
+    address: address && containsPhrase(allNorm, normalizeForMatch(address)) ? address : null,
+    phone: number(raw?.phone),
+    fax: number(raw?.fax),
+    npi: npi.length === 10 && digits.includes(npi) ? npi : null,
+  }
+}
+
+const PROVIDER_KINDS: FindingKind[] = ['treatment_visit', 'medical_charge']
+
+/** "Bay Area Orthopedics" and "Bay Area Orthopedics Medical Group" are one practice; "City Medical" and "Valley Medical" are not. */
+function sameProviderName(a: string, b: string): boolean {
+  const left = normalizeForMatch(a)
+  const right = normalizeForMatch(b)
+  return Boolean(left && right) && (containsPhrase(left, right) || containsPhrase(right, left))
+}
+
+/**
+ * Give visits and charges the provider their record names. An encounter line
+ * often leaves the practice out because the letterhead already says it, so a
+ * blank provider takes the letterhead's, or failing that the one the rest of
+ * the file names most. Findings at the letterhead provider carry its contact
+ * details, which become the provider's contact when one is accepted.
+ */
+export function fillProviders(findings: CandidateFinding[], docProvider: DocumentProvider | null): CandidateFinding[] {
+  const counts = new Map<string, number>()
+  for (const f of findings) {
+    if (!PROVIDER_KINDS.includes(f.kind) || !f.data.provider) continue
+    counts.set(f.data.provider, (counts.get(f.data.provider) || 0) + 1)
+  }
+  const common = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
+  const fallback = docProvider?.name ?? common
+
+  return findings.map((f) => {
+    if (!PROVIDER_KINDS.includes(f.kind)) return f
+    const data = { ...f.data }
+    if (data.provider) {
+      data.providerSource = 'line'
+    } else if (fallback) {
+      data.provider = fallback
+      data.providerSource = 'document'
+    }
+    if (docProvider && data.provider && sameProviderName(data.provider, docProvider.name)) {
+      data.providerAddress = docProvider.address
+      data.providerPhone = docProvider.phone
+      data.providerFax = docProvider.fax
+      data.providerNpi = docProvider.npi
+    }
+    return { ...f, data }
+  })
+}
+
 /** Same visit or charge read twice produces the same key. */
 export function findingFingerprint(c: Pick<CandidateFinding, 'kind' | 'data'>): string {
   const key = (v?: string | null) => normalizeForMatch(v || '')
@@ -436,11 +520,15 @@ function buildPrompt(chunk: PageText[], file: { category: string; originalName: 
 
 Read the pages below and list what they document about the patient's injury treatment and losses.
 
-Return JSON: {"findings": [ ... ]}. Each finding has:
+Return JSON: {"documentProvider": { ... }, "findings": [ ... ]}.
+
+"documentProvider" is the practice, hospital or facility these records or bills come from, as printed in the letterhead, header, footer, remit-to block or signature: "name", "address" (street, city, state, zip on one line), "phone", "fax", "npi" (the 10-digit NPI). Copy each exactly as printed and leave out what is not printed. Omit "documentProvider" when no practice is named.
+
+Each finding has:
 - "kind": "treatment_visit" for one encounter (office visit, ER visit, imaging study, therapy session, procedure, surgery); "medical_charge" for one billed charge, preferring one per date of service and never listing both a total and the line items it adds up; "wage_loss" for a stated amount of lost wages or pay.
 - "page": the page number the quote is on.
 - "quote": a passage copied exactly, character for character, from that page that shows the fact. Include the date and the amount when the page prints them. At most 300 characters.
-- "date": date of service as YYYY-MM-DD, "endDate" for a course of care, "provider", "specialty",
+- "date": date of service as YYYY-MM-DD, "endDate" for a course of care, "provider" (the clinician or facility named for that encounter; leave it out when only the letterhead names the practice), "specialty",
   "visitType": one of initial_eval, follow_up, procedure, surgery, imaging, therapy, er, other,
   "diagnosis": the diagnosis in plain words, "icdCodes": ICD-10 codes printed on the page, "cptCodes": CPT/HCPCS codes printed on the page,
   "amount": the dollar figure exactly as printed, "billingStatus": billed, paid, outstanding, reduced or written_off,
@@ -454,11 +542,12 @@ ${body}`
 async function extractWithModel(
   pages: PageText[],
   file: { id: string; assessmentId: string; category: string; originalName: string },
-): Promise<{ candidates: unknown[]; chunks: number }> {
+): Promise<{ candidates: unknown[]; chunks: number; documentProviders: unknown[] }> {
   const client = getLlmChatClient()
-  if (!client) return { candidates: [], chunks: 0 }
+  if (!client) return { candidates: [], chunks: 0, documentProviders: [] }
   const chunks = chunkPages(pages).slice(0, MAX_CHUNKS_PER_FILE)
   const candidates: unknown[] = []
+  const documentProviders: unknown[] = []
   for (const chunk of chunks) {
     const completion = await client.chat.completions.create({
       model: LLM_CHAT_MODEL,
@@ -479,11 +568,14 @@ async function extractWithModel(
     try {
       const parsed = JSON.parse(text)
       if (Array.isArray(parsed?.findings)) candidates.push(...parsed.findings)
+      if (parsed?.documentProvider && typeof parsed.documentProvider === 'object') {
+        documentProviders.push(parsed.documentProvider)
+      }
     } catch {
       logger.warn('Document findings: unparseable model response', { fileId: file.id })
     }
   }
-  return { candidates, chunks: chunks.length }
+  return { candidates, chunks: chunks.length, documentProviders }
 }
 
 const DATE_IN_LINE =
@@ -609,9 +701,10 @@ export async function generateDocumentFindings(fileId: string, pages: PageText[]
   const started = Date.now()
   let raw: unknown[] = []
   let chunks = 0
+  let documentProviders: unknown[] = []
   try {
     if (useModel) {
-      ;({ candidates: raw, chunks } = await extractWithModel(pages, target))
+      ;({ candidates: raw, chunks, documentProviders } = await extractWithModel(pages, target))
     } else if (file.category === 'bills') {
       raw = extractChargeLines(pages)
     }
@@ -630,9 +723,14 @@ export async function generateDocumentFindings(fileId: string, pages: PageText[]
 
   const extractor: 'ai' | 'rules' = useModel ? 'ai' : 'rules'
   const allowedKinds = GROUP_KINDS[groupOf(file.category) || 'medical']
-  const verified = raw
-    .map((r) => verifyCandidate(r, pages))
-    .filter((c): c is CandidateFinding => c !== null && allowedKinds.includes(c.kind))
+  const docProvider =
+    documentProviders.map((p) => verifyDocumentProvider(p, pages)).find((p): p is DocumentProvider => p !== null) ?? null
+  const verified = fillProviders(
+    raw
+      .map((r) => verifyCandidate(r, pages))
+      .filter((c): c is CandidateFinding => c !== null && allowedKinds.includes(c.kind)),
+    docProvider,
+  )
 
   const kept = await (prisma as any).documentFinding.findMany({
     where: { assessmentId, NOT: { evidenceFileId: fileId, status: 'proposed' } },
