@@ -82,7 +82,10 @@ export default function AttorneyDashboardWorkstreamDemand({
 
         {selectedLead?.id ? (
           <div className="mt-4">
-            <DemandLetterWorkspace leadId={selectedLead.id} />
+            <DemandLetterWorkspace
+              leadId={selectedLead.id}
+              clientName={[selectedLead.assessment?.user?.firstName, selectedLead.assessment?.user?.lastName].filter(Boolean).join(' ')}
+            />
           </div>
         ) : null}
         {leadCommandCenter ? (

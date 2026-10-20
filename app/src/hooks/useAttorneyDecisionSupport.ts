@@ -146,7 +146,7 @@ export function useAttorneyDecisionSupport(
       const url = window.URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url
-      link.download = `demand-letter-${demandDraftId}.docx`
+      link.download = `Demand Letter (Draft) - ${new Date().toISOString().slice(0, 10)}.docx`
       document.body.appendChild(link)
       link.click()
       link.remove()

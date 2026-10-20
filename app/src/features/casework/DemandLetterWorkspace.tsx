@@ -90,12 +90,28 @@ function MenuItem({ icon: Icon, onClick, children }: { icon: typeof Download; on
 const PRIMARY_BTN =
   'inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-semibold text-white transition disabled:opacity-50'
 
+/** "Stephen Hawking - Demand Letter (Draft) - 2026-10-20.docx" */
+export function demandDownloadName(
+  letter: Pick<DemandLetter, 'status' | 'template' | 'sentAt' | 'finalizedAt' | 'updatedAt'>,
+  clientName: string | null | undefined,
+  kind: 'letter' | 'package',
+  ext: string,
+): string {
+  const what = kind === 'package' ? 'Demand Package' : letter.template === 'super' ? 'Super Demand' : 'Demand Letter'
+  const draft = letter.status === 'DRAFT' ? ' (Draft)' : ''
+  const date = (letter.sentAt || letter.finalizedAt || letter.updatedAt || '').slice(0, 10)
+  const name = (clientName || '').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim()
+  return [name, `${what}${draft}`, date].filter(Boolean).join(' - ') + `.${ext}`
+}
+
 export default function DemandLetterWorkspace({
   leadId,
+  clientName,
   intro,
   below,
 }: {
   leadId: string
+  clientName?: string | null
   /** Shown only while the case has no letter yet. */
   intro?: ReactNode
   /** Rendered under the letter; told whether the Super Demand panel is showing. */
@@ -349,7 +365,7 @@ export default function DemandLetterWorkspace({
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `demand-letter-${active.id}.docx`
+      a.download = demandDownloadName(active, clientName, 'letter', 'docx')
       a.click()
       URL.revokeObjectURL(url)
     } catch {
@@ -366,7 +382,7 @@ export default function DemandLetterWorkspace({
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `demand-package-${active.id}.pdf`
+      a.download = demandDownloadName(active, clientName, 'package', 'pdf')
       a.click()
       URL.revokeObjectURL(url)
     } catch {
@@ -382,7 +398,7 @@ export default function DemandLetterWorkspace({
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = active.importedFileName || `demand-letter-${active.id}`
+      a.download = active.importedFileName || demandDownloadName(active, clientName, 'letter', 'docx')
       a.click()
       URL.revokeObjectURL(url)
     } catch {

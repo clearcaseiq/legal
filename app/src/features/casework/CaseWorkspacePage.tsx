@@ -1277,7 +1277,7 @@ function WorkstreamPanel({
       return (
         <div className="space-y-4">
           <Note>Demand not started. A demand package is prepared once treatment stabilizes and evidence is complete.</Note>
-          <DemandLetterWorkspace leadId={lead.id} />
+          <DemandLetterWorkspace leadId={lead.id} clientName={detail.client} />
         </div>
       )
     }
@@ -1296,6 +1296,7 @@ function WorkstreamPanel({
       <div className="space-y-4">
         <DemandLetterWorkspace
           leadId={lead.id}
+          clientName={detail.client}
           // Case readiness only until a letter exists; after that the Demand
           // Intelligence panel carries the one readiness score for the letter.
           intro={
