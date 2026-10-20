@@ -48,6 +48,7 @@ describe('saveImpactStatement', () => {
       { id: 't1', title: 'Prepare daily-impact statement', notes: null },
       { id: 't2', title: 'Schedule Client Interview for Daily Impact Statement', notes: null },
       { id: 't3', title: 'Request police report', notes: null },
+      { id: 't4', title: 'Draft pain and suffering narrative', notes: null },
     ])
     prismaMock.caseTask.update.mockImplementation(async ({ where }: any) => ({ id: where.id }))
   })
@@ -56,8 +57,8 @@ describe('saveImpactStatement', () => {
     const res = await saveImpactStatement('a-1', { statement: 'Text', interviewNotes: 'Notes', approved: true }, 'Ann')
     expect(res.statement?.status).toBe('approved')
     expect(res.statement?.approvedByName).toBe('Ann')
-    expect(prismaMock.caseTask.update.mock.calls.map((c: any) => c[0].where.id).sort()).toEqual(['t1', 't2'])
-    expect(res.tasksCompleted).toBe(2)
+    expect(prismaMock.caseTask.update.mock.calls.map((c: any) => c[0].where.id).sort()).toEqual(['t1', 't2', 't4'])
+    expect(res.tasksCompleted).toBe(3)
   })
 
   it('a draft completes nothing without notes', async () => {

@@ -20,8 +20,12 @@ const MAX_STATEMENT = 8000
 const MAX_NOTES = 8000
 const QUOTES = 3
 
-/** "Prepare daily-impact statement" and its variants. */
-const PREPARE_TASK = /\b(prepare|draft|write|finali[sz]e|complete)\b.*impact statement/i
+/**
+ * "Prepare daily-impact statement" and its variants, including "Draft pain and
+ * suffering narrative": the approved statement is the demand's pain and suffering section.
+ */
+const PREPARE_TASK =
+  /\b(prepare|draft|write|finali[sz]e|complete)\b.*(impact statement|(pain (and|&) suffering|non-?economic( damages)?|general damages) (narrative|statement|section|story))/i
 /** "Schedule client interview for daily impact statement" and its variants. */
 const INTERVIEW_TASK = /interview.*impact statement|impact statement.*interview/i
 
