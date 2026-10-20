@@ -327,6 +327,28 @@ describe('narrateDemandLetter', () => {
     expect(renderDemandLetter(result.sections)).not.toContain('$250,000')
   })
 
+  it('uses the approved impact statement word for word, even through narration', async () => {
+    const statement = 'Jane can no longer pick up her daughter or sleep through the night.'
+    const sections = buildDemandLetterSections({ ...baseInput, caseRecord: { impactStatement: statement } })
+    expect(sections.painAndSuffering).toContain(statement)
+    expect(sections.painAndSuffering).not.toContain('substantial physical pain')
+
+    createCompletion.mockResolvedValue({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              liability: 'Your insured ran the light and struck our client, and liability is not in question here.',
+              painAndSuffering: 'A rewritten account of her suffering that the attorney never approved.',
+            }),
+          },
+        },
+      ],
+    })
+    const result = await narrateDemandLetter(sections, { ...context, keepSections: ['painAndSuffering'] })
+    expect(result.sections.painAndSuffering).toBe(sections.painAndSuffering)
+  })
+
   it('falls back to the deterministic letter when the model fails', async () => {
     createCompletion.mockRejectedValue(new Error('upstream down'))
 

@@ -37,6 +37,7 @@ import { getLiabilityRecord } from './liability-record'
 import { getMedicalTimeline } from './medical-record'
 import { isHardIdentityMismatch, parseIdentityCheck } from './claimant-identity-check'
 import { plaintiffNameOf } from './case-name'
+import { approvedImpactStatement } from './impact-statement'
 import { isCustomRequestKey, requestedDocLabel } from './document-request-status'
 
 export type { TreatmentLedger, TreatmentLedgerEntry }
@@ -226,7 +227,7 @@ function medicalChargeAmounts(item: any, measure: MedicalSpecialsMeasure) {
  */
 export async function loadDemandCaseRecord(assessment: any): Promise<DemandCaseRecord> {
   const assessmentId = String(assessment.id)
-  const [liability, witnessItems, medical, damageItems, policies, lead, recordConflicts] = await Promise.all([
+  const [liability, witnessItems, medical, damageItems, policies, lead, recordConflicts, impactStatement] = await Promise.all([
     getLiabilityRecord(assessmentId).catch(() => null),
     (prisma as any).liabilityEvidenceItem
       .findMany({
@@ -256,6 +257,7 @@ export async function loadDemandCaseRecord(assessment: any): Promise<DemandCaseR
       })
       .catch(() => null),
     listRecordConflicts(assessmentId).catch(() => [] as string[]),
+    approvedImpactStatement(assessmentId).catch(() => null),
   ])
 
   const claim = pickDemandClaim(policies as any[])
@@ -270,6 +272,7 @@ export async function loadDemandCaseRecord(assessment: any): Promise<DemandCaseR
 
   return {
     clientName: plaintiffNameOf({ user: assessment.user }),
+    impactStatement,
     attorney: attorney
       ? {
           name: attorney.name,
@@ -515,6 +518,7 @@ export async function draftDemandForAssessment(options: {
     extraGuidance: options.guidance ?? null,
     tone: style ? toneInstruction(style.config.tone) : null,
     houseStyle: style?.config.houseStyle ?? null,
+    keepSections: inputs.caseRecord.impactStatement ? ['painAndSuffering'] : [],
   })
 
   return {

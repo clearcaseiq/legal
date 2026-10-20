@@ -775,6 +775,25 @@ model LiabilityDefendant {
 
 // One piece of liability evidence. The LiabilityRecord's police report,
 // photo, video and witness fields are rolled up from these.
+// The attorney's daily-impact statement: how the injuries changed the client's
+// everyday life, drafted from the client's journal and the interview. Once
+// approved it is the demand's pain and suffering section, word for word.
+model ImpactStatement {
+  id             String    @id @default(cuid())
+  assessmentId   String    @unique
+  statement      String    @db.Text
+  interviewNotes String?   @db.Text
+  // draft | approved
+  status         String    @default("draft")
+  approvedAt     DateTime?
+  approvedByName String?
+  updatedByName  String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@map("impact_statements")
+}
+
 model LiabilityEvidenceItem {
   id           String     @id @default(cuid())
   assessmentId String

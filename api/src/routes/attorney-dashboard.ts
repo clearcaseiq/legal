@@ -231,6 +231,12 @@ import {
   updateEvidenceItem,
 } from '../lib/liability-parties'
 import { sendWitnessUploadRequest, WitnessRequestError } from '../lib/witness-upload-request'
+import {
+  draftImpactStatement,
+  getImpactStatement,
+  ImpactStatementError,
+  saveImpactStatement,
+} from '../lib/impact-statement'
 import { applyQuestionAnswerToCaseFacts } from '../lib/question-facts-sync'
 import {
   getMedicalTimeline,
@@ -11937,6 +11943,44 @@ router.post('/leads/:leadId/liability/evidence/:itemId/request-upload', authMidd
     if (error instanceof WitnessRequestError) return res.status(400).json({ error: error.message })
     logger.error('Failed to send witness upload request', { error: error.message })
     res.status(500).json({ error: 'Failed to send the upload link' })
+  }
+})
+
+// The daily-impact statement: drafted from the client's journal and interview
+// notes, edited and approved by the attorney, then used in the demand.
+router.get('/leads/:leadId/impact-statement', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true })
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    res.json({ statement: await getImpactStatement(auth.lead.assessmentId) })
+  } catch (error: any) {
+    logger.error('Failed to load impact statement', { error: error.message })
+    res.status(500).json({ error: 'Failed to load the impact statement' })
+  }
+})
+
+router.post('/leads/:leadId/impact-statement/draft', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAuthorizedLead(req, req.params.leadId, { staffCan: 'manage' })
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    res.json({ draft: await draftImpactStatement(auth.lead.assessmentId, req.body?.interviewNotes) })
+  } catch (error: any) {
+    if (error instanceof ImpactStatementError) return res.status(400).json({ error: error.message })
+    logger.error('Failed to draft impact statement', { error: error.message })
+    res.status(500).json({ error: 'Failed to draft the impact statement' })
+  }
+})
+
+router.put('/leads/:leadId/impact-statement', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAuthorizedLead(req, req.params.leadId, { staffCan: 'manage' })
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const actorName = `${req.user?.firstName || ''} ${req.user?.lastName || ''}`.trim() || req.user?.email || null
+    res.json(await saveImpactStatement(auth.lead.assessmentId, req.body || {}, actorName))
+  } catch (error: any) {
+    if (error instanceof ImpactStatementError) return res.status(400).json({ error: error.message })
+    logger.error('Failed to save impact statement', { error: error.message })
+    res.status(500).json({ error: 'Failed to save the impact statement' })
   }
 })
 

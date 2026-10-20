@@ -65,6 +65,8 @@ export interface DemandExhibit {
  */
 export interface DemandCaseRecord {
   clientName?: string | null
+  /** The attorney-approved daily-impact statement, quoted as written. */
+  impactStatement?: string | null
   attorney?: {
     name: string
     firmName?: string | null
@@ -721,12 +723,14 @@ export function buildDemandLetterSections({
     treatmentTimeline: medicalTabTimeline ?? buildTreatmentTimelineSection(ledger, analysis, facts),
     medicalBills,
     lostWages: lostWagesSection,
-    painAndSuffering: [
-      `${injuryClause}${treatmentSpanClause} These injuries caused our client substantial physical pain, emotional distress, and disruption to daily activities, work, and quality of life. The course of treatment, the nature of the injuries, and their ongoing effects fully justify a meaningful award for non-economic damages.`,
-      painSufferingNarrative,
-    ]
-      .filter((s) => s && s.trim())
-      .join('\n\n'),
+    painAndSuffering: record.impactStatement?.trim()
+      ? [`${injuryClause}${treatmentSpanClause}`, record.impactStatement.trim()].join('\n\n')
+      : [
+          `${injuryClause}${treatmentSpanClause} These injuries caused our client substantial physical pain, emotional distress, and disruption to daily activities, work, and quality of life. The course of treatment, the nature of the injuries, and their ongoing effects fully justify a meaningful award for non-economic damages.`,
+          painSufferingNarrative,
+        ]
+          .filter((s) => s && s.trim())
+          .join('\n\n'),
     damagesSummary: damagesLines,
     demandParagraph: `Based on the liability of your insured and the nature and extent of ${voice.ourMy} injuries and damages, ${voice.weI} demand the sum of ${money(targetAmount)} to resolve this matter in full.`,
     goodFaithParagraph: `This demand is made in good faith and represents a reasonable assessment of the damages. Please respond within thirty (30) days of receipt of this letter. If this matter cannot be resolved through negotiation, ${voice.weI} ${isPro ? 'reserve' : 'are prepared to pursue'} all available legal remedies.`,
@@ -919,6 +923,8 @@ export interface DemandNarrationContext {
   tone?: string | null
   /** The firm's standing instructions for every demand. */
   houseStyle?: string | null
+  /** Sections the attorney approved word for word; they are never rewritten. */
+  keepSections?: NarrativeSection[]
 }
 
 /**
@@ -963,6 +969,7 @@ export async function narrateDemandLetter(
     const narrated = { ...sections }
     let rewritten = 0
     for (const key of NARRATIVE_SECTIONS) {
+      if (context.keepSections?.includes(key)) continue
       const next = acceptNarratedSection(sections[key], parsed[key], allowedAmounts)
       if (next !== sections[key]) rewritten += 1
       narrated[key] = next

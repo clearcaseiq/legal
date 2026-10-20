@@ -133,6 +133,7 @@ import NegotiationLogPanel from './NegotiationLogPanel'
 import LiabilityPanel from './LiabilityPanel'
 import MedicalTimelinePanel from './MedicalTimelinePanel'
 import PlaintiffImpactJournalPanel from './PlaintiffImpactJournalPanel'
+import ImpactStatementPanel from './ImpactStatementPanel'
 import CaseWorkflowPanel from './CaseWorkflowPanel'
 import CaseTimePanel from './CaseTimePanel'
 import CaseBillingPanel from './CaseBillingPanel'
@@ -1108,6 +1109,13 @@ function WorkstreamPanel({
     return (
       <div className="space-y-6">
         <PlaintiffImpactJournalPanel entries={detail.painJournal || []} />
+        <StaffViewOnly locked={staffLacks('chronology')} what="editing the daily-impact statement">
+          <ImpactStatementPanel
+            leadId={lead.id}
+            journalCount={(detail.painJournal || []).length}
+            onChanged={() => void reloadTasks()}
+          />
+        </StaffViewOnly>
         <StaffViewOnly locked={staffLacks('chronology')} what="editing the medical chronology">
           <MedicalTimelinePanel leadId={lead.id} />
         </StaffViewOnly>

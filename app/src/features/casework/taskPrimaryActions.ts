@@ -329,7 +329,7 @@ function titleSectionAction(task: TaskLike): TaskPrimaryAction | null {
   }
 
   if (IMPACT_RE.test(title)) {
-    return openSection('open_medical', 'Open', 'Open Medical to review the client’s impact journal')
+    return openSection('open_medical', 'Open', 'Open Medical to write the daily-impact statement from the client’s journal')
   }
   if (type === 'medical' || MEDICAL_RE.test(hay)) {
     return openSection('open_medical', 'Open', 'Open Medical to update treatment and providers')

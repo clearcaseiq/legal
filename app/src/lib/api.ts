@@ -3947,6 +3947,34 @@ export async function updateLiabilityItem(leadId: string, list: LiabilityList, i
   return data as LiabilityParties
 }
 
+export type ImpactStatement = {
+  statement: string
+  interviewNotes: string | null
+  status: 'draft' | 'approved'
+  approvedAt: string | null
+  approvedByName: string | null
+  updatedByName: string | null
+  updatedAt: string
+} | null
+
+export async function getImpactStatement(leadId: string) {
+  const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/impact-statement`)
+  return data.statement as ImpactStatement
+}
+
+export async function draftImpactStatement(leadId: string, interviewNotes: string) {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/impact-statement/draft`, { interviewNotes })
+  return data.draft as string
+}
+
+export async function saveImpactStatement(
+  leadId: string,
+  payload: { statement: string; interviewNotes: string; approved: boolean },
+) {
+  const { data } = await api.put(`/v1/attorney-dashboard/leads/${leadId}/impact-statement`, payload)
+  return data as { statement: ImpactStatement; tasksCompleted: number }
+}
+
 export async function requestWitnessUpload(
   leadId: string,
   itemId: string,

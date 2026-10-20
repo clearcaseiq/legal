@@ -21,7 +21,12 @@ describe('resolveTaskPrimaryAction', () => {
     })
     expect(action?.kind).toBe('open_medical')
     expect(sectionForTaskAction(action!.kind)).toBe('medical')
-    expect(action?.hint).toMatch(/impact journal/)
+    expect(action?.hint).toMatch(/daily-impact statement/)
+  })
+
+  it('opens Medical for preparing the daily-impact statement', () => {
+    const action = resolveTaskPrimaryAction({ title: 'Prepare daily-impact statement', taskType: 'milestone' })
+    expect(action?.kind).toBe('open_medical')
   })
 
   it('opens Damages for reviewing the damages ledger', () => {
