@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
 import { getAttorneyFeesYtd } from '../../lib/api'
 import { formatClaimType } from '../../lib/claimTypes'
 import { Avatar, Badge, ClientLink, DataTable, EmptyState, PageHeader, SectionCard, type DataTableColumn } from '../shared/ui'
@@ -70,14 +69,6 @@ export default function BillingPage() {
       <PageHeader
         title="Billing"
         description="Fees collected year-to-date, rolled up from every case's payments. Open a case to raise invoices and record payments."
-        actions={
-          <Link
-            to="/attorney-billing"
-            className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-          >
-            Subscription &amp; payouts
-          </Link>
-        }
       />
 
       {loading ? (
