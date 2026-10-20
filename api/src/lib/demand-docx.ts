@@ -303,11 +303,13 @@ export async function buildDemandLetterDocx(demand: {
   content: string | null
   template?: string | null
   status?: string | null
+  /** A claimant's own self-help letter is theirs to send; it carries no attorney watermark. */
+  origin?: string | null
 }): Promise<Buffer> {
   const content = demand.content || ''
   const isSuper = demand.template === SUPER_DEMAND_TEMPLATE
   const draftBanner =
-    isSuper && demand.status === 'DRAFT'
+    demand.status === 'DRAFT' && demand.origin !== 'pro_se'
       ? [
           new Paragraph({
             alignment: AlignmentType.CENTER,

@@ -75,7 +75,7 @@ export const GROUP_FOR_SECTION: Record<ExhibitSection, EnclosureGroup> = {
 }
 
 /** Text that means a section is still waiting on the record. */
-const PLACEHOLDER_PATTERNS = [
+export const PLACEHOLDER_PATTERNS = [
   /to be documented/i,
   /being compiled/i,
   /\[attorney name\]/i,
@@ -154,7 +154,7 @@ function titleBlock(style: ResolvedDemandStyle): string[] {
   return lines.filter((l): l is string => Boolean(l))
 }
 
-function totalsOf(ctx: SuperDemandContext): DemandTotals {
+export function totalsOf(ctx: SuperDemandContext): DemandTotals {
   return (
     ctx.sections.totals ?? {
       medical: 0,
@@ -173,7 +173,7 @@ function venueOf(ctx: SuperDemandContext): string | null {
   return [ctx.assessment.venueCounty, ctx.assessment.venueState].filter(Boolean).join(', ') || null
 }
 
-function treatmentVisits(ctx: SuperDemandContext): Array<{ date: Date; provider: string }> {
+export function treatmentVisits(ctx: SuperDemandContext): Array<{ date: Date; provider: string }> {
   const fromTab = (ctx.caseRecord.medical?.entries ?? [])
     .filter((e) => !e.isFuture && e.startDate)
     .map((e) => ({ date: new Date(e.startDate as string), provider: e.provider }))
@@ -183,7 +183,7 @@ function treatmentVisits(ctx: SuperDemandContext): Array<{ date: Date; provider:
     .sort((a, b) => a.date.getTime() - b.date.getTime())
 }
 
-function diagnosesOf(ctx: SuperDemandContext): string[] {
+export function diagnosesOf(ctx: SuperDemandContext): string[] {
   const seen = new Map<string, string>()
   for (const e of ctx.caseRecord.medical?.entries ?? []) {
     if (e.diagnosis?.trim()) seen.set(e.diagnosis.trim().toLowerCase(), e.diagnosis.trim())
@@ -525,7 +525,7 @@ function exhibitsIn(ctx: SuperDemandContext, ...sections: ExhibitSection[]): num
   return (ctx.caseRecord.exhibits ?? []).filter((e) => sections.includes(e.section)).length
 }
 
-function treatmentGaps(visits: Array<{ date: Date; provider: string }>, thresholdDays = 30) {
+export function treatmentGaps(visits: Array<{ date: Date; provider: string }>, thresholdDays = 30) {
   const gaps: Array<{ from: Date; to: Date; days: number }> = []
   for (let i = 1; i < visits.length; i += 1) {
     const days = Math.round((visits[i].date.getTime() - visits[i - 1].date.getTime()) / DAY)
@@ -534,7 +534,7 @@ function treatmentGaps(visits: Array<{ date: Date; provider: string }>, threshol
   return gaps
 }
 
-function incidentDateOf(ctx: SuperDemandContext): Date | null {
+export function incidentDateOf(ctx: SuperDemandContext): Date | null {
   const raw = ctx.facts?.incident?.date
   if (!raw) return null
   const d = new Date(raw)

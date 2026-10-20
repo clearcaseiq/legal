@@ -9,29 +9,29 @@ datasource db {
 }
 
 model User {
-  id            String    @id @default(cuid())
-  email         String    @unique
-  passwordHash  String?
-  firstName     String
-  lastName      String
-  phone         String?
+  id                String    @id @default(cuid())
+  email             String    @unique
+  passwordHash      String?
+  firstName         String
+  lastName          String
+  phone             String?
   /// Mailing address, for demand letters and settlement checks.
   ///
   /// Deliberately kept only here, with no copy in `Assessment.facts`: the phone
   /// number is stored in both and the two drifted, so a claimant who corrected
   /// their number still had documents texted to the old one (CP-848).
-  addressLine1  String?
-  addressLine2  String?
-  city          String?
-  state         String?
-  postalCode    String?
-  isActive      Boolean   @default(true)
-  emailVerified Boolean   @default(false)
+  addressLine1      String?
+  addressLine2      String?
+  city              String?
+  state             String?
+  postalCode        String?
+  isActive          Boolean   @default(true)
+  emailVerified     Boolean   @default(false)
   // client, attorney, staff, admin, specialist.
   // `staff` is law-firm staff (paralegals, firm case managers) and is scoped to a
   // LawFirm; `specialist` is a ClearCaseIQ employee working the assisted-intake
   // queue. The two are easy to confuse and mean opposite sides of the platform.
-  role          String    @default("client")
+  role              String    @default("client")
   /// Preferred UI + communication language for plaintiffs (`en` | `es` | `zh`).
   /// Used for chat translation and localized notification chrome. Null = English.
   preferredLanguage String?
@@ -39,12 +39,12 @@ model User {
   /// Null/empty means full access for role=admin (backward compatible).
   /// ADMIN_EMAILS allowlist always receives every capability.
   adminCapabilities String?
-  lastLoginAt   DateTime?
+  lastLoginAt       DateTime?
   /// Last heartbeat from an open, visible web session. Drives the "online" dot a
   /// plaintiff and their attorney see of each other.
-  lastSeenAt    DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  lastSeenAt        DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   // OAuth fields
   googleId    String? @unique
@@ -71,7 +71,7 @@ model User {
   evidenceFiles              EvidenceFile[]
   evidenceAnnotations        EvidenceAnnotation[]
   auditLogs                  AuditLog[]
-  reviewedCaseResults        AttorneyCaseResult[] @relation("CaseResultReviewer")
+  reviewedCaseResults        AttorneyCaseResult[]        @relation("CaseResultReviewer")
   featureToggles             FeatureToggle[]
   attorneyPushDevices        AttorneyPushDevice[]
   firmMemberships            FirmMember[]
@@ -225,14 +225,14 @@ model Consent {
 }
 
 model Assessment {
-  id          String  @id @default(cuid())
-  userId      String?
-  user        User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  claimType   String
-  venueState  String
-  venueCounty String?
-  status      String  @default("DRAFT")
-  facts       String  @db.Text
+  id            String  @id @default(cuid())
+  userId        String?
+  user          User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  claimType     String
+  venueState    String
+  venueCounty   String?
+  status        String  @default("DRAFT")
+  facts         String  @db.Text
   // Short, human-friendly case reference (e.g. "CCIQ-7Q2K9F") shown to the
   // plaintiff after they send a case and used by phone support to identify a
   // caller (always paired with a contact fact — the code alone is not proof of
@@ -242,7 +242,7 @@ model Assessment {
   // because no defendant name is captured anywhere in intake, so the caption
   // cannot be assembled from stored data. Null means fall back to the derived
   // label (plaintiff name, then claim type) — see lib/case-name.ts.
-  caseName    String?
+  caseName      String?
   // The claimant's note on an evidence category ("I didn't go to a doctor"),
   // keyed by category: { [category]: { note, label, updatedAt } }.
   evidenceNotes Json?
@@ -283,17 +283,17 @@ model Assessment {
   // lib/case-stage.ts and never moves backwards. This is the "Case" spine — the
   // Assessment IS the case-of-record; sub-objects (insurance, liens, tasks,
   // negotiation, demand, medical) already hang off assessmentId.
-  caseStage       String?
-  caseStageAt     DateTime?
+  caseStage   String?
+  caseStageAt DateTime?
   // When the matter was formally closed (funds disbursed / declined / lost).
-  closedAt        DateTime?
+  closedAt    DateTime?
 
   // --- Litigation sub-track -------------------------------------------------
   // A parallel track for cases that file suit rather than resolving pre-suit.
   // Runs alongside caseStage (a case can be "in negotiation" and "in discovery"
   // at once). Null/"none" = pre-litigation. Values: none | pre_suit | filed |
   // discovery | mediation | trial | resolved. Set via lib/litigation.ts.
-  litigationStatus String?
+  litigationStatus  String?
   litigationFiledAt DateTime?
 
   // ChatGPT Analysis
@@ -323,19 +323,19 @@ model Assessment {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  predictions   Prediction[]
-  caseOutcomes  CaseOutcome[]
-  files         File[]
-  introductions Introduction[]
+  predictions         Prediction[]
+  caseOutcomes        CaseOutcome[]
+  files               File[]
+  introductions       Introduction[]
   attorneyCaseReviews AttorneyCaseReview[]
-  attorneyReviews AttorneyReview[]
-  demandLetters DemandLetter[]
-  appointments  Appointment[]
-  chatRooms     ChatRoom[]
-  evidenceFiles EvidenceFile[]
-  phoneBindings CasePhoneBinding[]
-  ethicalWalls  EthicalWall[]
-  consents      Consent[]
+  attorneyReviews     AttorneyReview[]
+  demandLetters       DemandLetter[]
+  appointments        Appointment[]
+  chatRooms           ChatRoom[]
+  evidenceFiles       EvidenceFile[]
+  phoneBindings       CasePhoneBinding[]
+  ethicalWalls        EthicalWall[]
+  consents            Consent[]
 
   // Lead Management
   leadSubmission LeadSubmission?
@@ -405,16 +405,16 @@ model Assessment {
   reviewedBy         String? // admin/reviewer user id who made the last review decision
   reviewedAt         DateTime?
 
+  // One case per external record per firm. All three columns are null for
+  // cases that did not come from an import, and Postgres does not enforce
+  // uniqueness across NULLs, so ordinary cases are unaffected by this.
+  @@unique([importOwnerKey, importSource, importExternalId])
   @@index([lawFirmId])
   @@index([officeId])
   @@index([teamId])
   // "My cases, newest first" is the first query of every plaintiff session and
   // ran without an index on the owning user.
   @@index([userId, createdAt])
-  // One case per external record per firm. All three columns are null for
-  // cases that did not come from an import, and Postgres does not enforce
-  // uniqueness across NULLs, so ordinary cases are unaffected by this.
-  @@unique([importOwnerKey, importSource, importExternalId])
   @@map("assessments")
 }
 
@@ -537,26 +537,26 @@ model LienHolder {
 // Persisted settlement waterfall inputs (one per case). Net to client =
 // gross − attorney fee − case costs − (negotiated) liens.
 model SettlementScenario {
-  id             String     @id @default(cuid())
-  assessmentId   String     @unique
-  assessment     Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
-  grossAmount    Float? // attorney override of the gross recovery; null = use predicted median
-  contingencyPct Float      @default(33.33)
-  feeBasis       String     @default("gross") // gross | net_of_costs (fee computed after costs)
+  id               String     @id @default(cuid())
+  assessmentId     String     @unique
+  assessment       Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  grossAmount      Float? // attorney override of the gross recovery; null = use predicted median
+  contingencyPct   Float      @default(33.33)
+  feeBasis         String     @default("gross") // gross | net_of_costs (fee computed after costs)
   // When true, approved billable non-attorney (staff/paralegal) time is added to
   // case costs in the waterfall. Attorney time is covered by the contingency fee.
-  includeStaffTime Boolean  @default(false)
-  notes          String?    @db.Text
+  includeStaffTime Boolean    @default(false)
+  notes            String?    @db.Text
   // Settlement lifecycle: draft → finalized (agreement reached, funds pending) →
   // disbursed (client paid, liens/costs settled). Drives the case stage engine's
   // SETTLEMENT_PENDING → DISBURSEMENT transition.
-  status          String    @default("draft") // draft | finalized | disbursed
-  finalizedAt     DateTime?
-  finalizedByName String?
-  disbursedAt     DateTime?
-  disbursedByName String?
-  createdAt      DateTime   @default(now())
-  updatedAt      DateTime   @updatedAt
+  status           String     @default("draft") // draft | finalized | disbursed
+  finalizedAt      DateTime?
+  finalizedByName  String?
+  disbursedAt      DateTime?
+  disbursedByName  String?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
 
   @@map("settlement_scenarios")
 }
@@ -584,47 +584,47 @@ model CaseExpense {
 // ledger. Rollups are written through to facts.damages by lib/damages-ledger.ts
 // so the existing valuation/demand/settlement engines pick them up unchanged.
 model DamageItem {
-  id           String     @id @default(cuid())
-  assessmentId String
-  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  id               String             @id @default(cuid())
+  assessmentId     String
+  assessment       Assessment         @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
   // Economic bucket this item rolls up into:
   //   medical | future_medical | lost_wages | lost_earning_capacity |
   //   property_damage | out_of_pocket | future_cost | other
-  category     String     @default("other")
-  description  String
-  amount       Float      @default(0)
+  category         String             @default("other")
+  description      String
+  amount           Float              @default(0)
   // Medical-bill lifecycle (only meaningful for medical items):
   //   billed | paid | outstanding | reduced | written_off
-  billingStatus String?
-  provider     String? // provider / payee / employer
-  incurredAt   DateTime?
+  billingStatus    String?
+  provider         String? // provider / payee / employer
+  incurredAt       DateTime?
   // True for projected/future amounts (future_medical, lost_earning_capacity,
   // future_cost) vs. already-incurred specials.
-  isFuture     Boolean    @default(false)
+  isFuture         Boolean            @default(false)
   // manual | evidence (OCR) | imported
-  source       String     @default("manual")
-  notes        String?    @db.Text
+  source           String             @default("manual")
+  notes            String?            @db.Text
   // The document page this figure was read from, when it came from an accepted
   // DocumentFinding. `documentedAmount` is the figure as printed, kept so an
   // attorney's later adjustment of `amount` stays visible against the source.
   sourceFileId     String?
   sourcePage       Int?
-  sourceQuote      String? @db.Text
+  sourceQuote      String?            @db.Text
   documentedAmount Float?
   findingId        String?
   // Medical charges only: `amount` is what was billed. Payments and
   // contractual adjustments/write-offs reduce it to the balance still owed;
   // paid + still owed is what California and similar states let a plaintiff
   // recover for past care.
-  paidAmount     Float?
-  adjustedAmount Float?
+  paidAmount       Float?
+  adjustedAmount   Float?
   // health_insurance | medpay | medicare | medicaid | patient | lien | other
-  payer          String?
-  createdById  String?
-  createdByName String?
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
-  changes      DamageItemChange[]
+  payer            String?
+  createdById      String?
+  createdByName    String?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  changes          DamageItemChange[]
 
   @@index([assessmentId])
   @@map("damage_items")
@@ -668,15 +668,15 @@ model DocumentFinding {
   status String @default("proposed")
 
   // JSON of the structured fields for this kind (dates, provider, codes, amount...).
-  data        String  @db.Text
+  data        String @db.Text
   pageNumber  Int?
-  sourceQuote String  @db.Text
-  confidence  Float   @default(0)
+  sourceQuote String @db.Text
+  confidence  Float  @default(0)
   // Same visit or charge read twice (a re-scan, or the same bill uploaded twice)
   // produces the same fingerprint, so it is proposed once per case.
   fingerprint String
   // ai | rules
-  extractor   String  @default("ai")
+  extractor   String @default("ai")
 
   // medical_entry | damage_item, and its id, once accepted.
   acceptedEntityType String?
@@ -747,13 +747,13 @@ model LiabilityDefendant {
   assessmentId String
   assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
 
-  name String
+  name     String
   // driver | vehicle_owner | employer | property_owner | other
-  role String @default("driver")
+  role     String @default("driver")
   // This defendant's share of fault, 0-100. Null = not yet allocated.
   faultPct Int?
 
-  insurerName String?
+  insurerName       String?
   // The matching policy on the Insurance tab (InsuranceDetail.id), if any.
   insuranceDetailId String?
 
@@ -800,7 +800,7 @@ model LiabilityEvidenceItem {
   assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
 
   // police_report | photos | video | witness_statement | expert_report | other
-  type String
+  type   String
   // needed | requested | received
   status String @default("needed")
 
@@ -833,31 +833,31 @@ model MedicalTreatmentEntry {
   assessmentId String
   assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
 
-  provider   String
-  specialty  String?
+  provider       String
+  specialty      String?
   // initial_eval | follow_up | procedure | surgery | imaging | therapy | er | other
-  visitType  String  @default("follow_up")
-  startDate  DateTime?
-  endDate    DateTime?
+  visitType      String    @default("follow_up")
+  startDate      DateTime?
+  endDate        DateTime?
   // ongoing | completed | discharged | referred_out | no_show
-  status     String  @default("ongoing")
-  diagnosis  String?
-  billedAmount Float?
+  status         String    @default("ongoing")
+  diagnosis      String?
+  billedAmount   Float?
   // True for planned/recommended future care (feeds future-medical planning).
-  isFuture   Boolean @default(false)
-  notes      String? @db.Text
-  source     String  @default("manual") // manual | evidence | imported
-  diagnosisCodes String?  // JSON array of ICD-10 codes
-  procedureCodes String?  // JSON array of CPT/HCPCS codes
+  isFuture       Boolean   @default(false)
+  notes          String?   @db.Text
+  source         String    @default("manual") // manual | evidence | imported
+  diagnosisCodes String? // JSON array of ICD-10 codes
+  procedureCodes String? // JSON array of CPT/HCPCS codes
   // The document page this visit was read from (see DocumentFinding).
   sourceFileId   String?
   sourcePage     Int?
-  sourceQuote    String?  @db.Text
+  sourceQuote    String?   @db.Text
   findingId      String?
-  createdById   String?
-  createdByName String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdById    String?
+  createdByName  String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   @@index([assessmentId])
   @@map("medical_treatment_entries")
@@ -873,22 +873,22 @@ model MedicalCaseRecord {
   assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
 
   // treating | completed | mmi | discharged | unknown
-  treatmentStatus String  @default("treating")
-  mmi             Boolean @default(false)
-  mmiDate         DateTime?
-  stillTreating   Boolean @default(true)
+  treatmentStatus    String    @default("treating")
+  mmi                Boolean   @default(false)
+  mmiDate            DateTime?
+  stillTreating      Boolean   @default(true)
   // JSON string array of current symptoms/complaints.
-  symptoms        String? @db.Text
+  symptoms           String?   @db.Text
   // Narrative of recommended future treatment.
-  futureTreatment String? @db.Text
+  futureTreatment    String?   @db.Text
   // Planning estimate of future medical cost (informational; enter as a
   // future_medical DamageItem to flow into the valuation).
   futureCostEstimate Float?
-  notes         String?  @db.Text
-  updatedById   String?
-  updatedByName String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  notes              String?   @db.Text
+  updatedById        String?
+  updatedByName      String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   @@map("medical_case_records")
 }
@@ -1348,25 +1348,25 @@ model Prediction {
 /// Historical resolution of a case, used to backtest and calibrate the valuation engine
 /// against real-world settlement/verdict outcomes (see lib/valuation-calibration.ts).
 model CaseOutcome {
-  id           String     @id @default(cuid())
-  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
-  assessmentId String
-  outcomeType  String     // settlement | verdict | dismissed | withdrawn
-  grossAmount  Float? // total resolution amount (gross, pre-fee)
-  netToClient  Float?
-  resolvedAt   DateTime?
+  id                   String     @id @default(cuid())
+  assessment           Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  assessmentId         String
+  outcomeType          String // settlement | verdict | dismissed | withdrawn
+  grossAmount          Float? // total resolution amount (gross, pre-fee)
+  netToClient          Float?
+  resolvedAt           DateTime?
   // Snapshot of the prediction + features at the time of resolution, so calibration can
   // replay the exact inputs that produced the prediction being evaluated.
-  predictedMedian  Float?
-  featuresSnapshot String? @db.Text // JSON feature vector (computeFeatures output)
+  predictedMedian      Float?
+  featuresSnapshot     String?    @db.Text // JSON feature vector (computeFeatures output)
   // Inputs to the underwriting engine, which is what actually produces the
   // claimant-facing number. Held separately from featuresSnapshot because the
   // two engines take different inputs and only this one is worth calibrating.
-  underwritingSnapshot String? @db.Text // JSON UnderwritingInput
-  source       String     @default("manual") // manual | attorney_reported | docket_import
-  notes        String?    @db.Text
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  underwritingSnapshot String?    @db.Text // JSON UnderwritingInput
+  source               String     @default("manual") // manual | attorney_reported | docket_import
+  notes                String?    @db.Text
+  createdAt            DateTime   @default(now())
+  updatedAt            DateTime   @updatedAt
 
   @@index([assessmentId])
   @@index([outcomeType])
@@ -1375,41 +1375,41 @@ model CaseOutcome {
 }
 
 model Attorney {
-  id                String   @id @default(cuid())
-  name              String
-  email             String?  @unique
-  phone             String?
+  id                 String    @id @default(cuid())
+  name               String
+  email              String?   @unique
+  phone              String?
   // State bar licence number, digits only. Issued once per person and never
   // reused, so this is the dedup key for bulk imports — email and phone both
   // collide across attorneys who share a firm.
-  barNumber         String?  @unique
-  barState          String? // Two-letter state that issued barNumber, e.g. "CA"
-  specialties       String
-  venues            String
-  meta              String?  @db.Text
-  profile           String?  @db.Text // Enhanced profile data (JSON)
-  isActive          Boolean  @default(true)
+  barNumber          String?   @unique
+  barState           String? // Two-letter state that issued barNumber, e.g. "CA"
+  specialties        String
+  venues             String
+  meta               String?   @db.Text
+  profile            String?   @db.Text // Enhanced profile data (JSON)
+  isActive           Boolean   @default(true)
   // Hard routing gate: an unverified attorney is never eligible for a lead.
   // This is a vetting decision, not a data-quality flag — bulk importers must
   // leave it false and let a human or a bar-status lookup flip it.
-  isVerified        Boolean  @default(false)
+  isVerified         Boolean   @default(false)
   // Yelp-style profile claiming: unclaimed | pending | claimed | declined.
   // "declined" is sticky and operator-facing only: it stops the next invite
   // pass re-inviting someone who already said no, and is never shown publicly.
-  claimStatus       String   @default("unclaimed")
-  claimedByUserId   String?
-  claimedAt         DateTime?
-  responseTimeHours Int      @default(24)
-  averageRating     Float    @default(0.0)
-  totalReviews      Int      @default(0)
+  claimStatus        String    @default("unclaimed")
+  claimedByUserId    String?
+  claimedAt          DateTime?
+  responseTimeHours  Int       @default(24)
+  averageRating      Float     @default(0.0)
+  totalReviews       Int       @default(0)
   // Public "Calendly-style" booking: shareable slug + the timezone the attorney's
   // weekly availability windows are expressed in.
-  bookingSlug       String?  @unique
+  bookingSlug        String?   @unique
   schedulingTimezone String? // IANA tz, e.g. "America/Los_Angeles"
-  lawFirmId         String?
-  lawFirm           LawFirm? @relation(fields: [lawFirmId], references: [id], onDelete: SetNull)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  lawFirmId          String?
+  lawFirm            LawFirm?  @relation(fields: [lawFirmId], references: [id], onDelete: SetNull)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   introductions               Introduction[]
   attorneyCaseReviews         AttorneyCaseReview[]
@@ -1468,8 +1468,8 @@ model Attorney {
   supportTickets             SupportTicket[]
 
   // Personal-injury segmentation
-  segmentSignals             SegmentSignal[]
-  segment                    AttorneySegment?
+  segmentSignals SegmentSignal[]
+  segment        AttorneySegment?
 
   @@index([phone])
   @@map("attorneys")
@@ -1540,8 +1540,8 @@ model LawFirm {
   timeEntries     TimeEntry[]
 
   // Personal-injury segmentation
-  segmentSignals  SegmentSignal[]
-  segment         AttorneySegment?
+  segmentSignals SegmentSignal[]
+  segment        AttorneySegment?
 
   @@index([nameKey, state])
   @@index([sendingDomain])
@@ -1873,7 +1873,7 @@ model DemandLetter {
   // How this letter came to exist. 'ai' letters are drafted by Rose and may be
   // held for review; 'pro_se' letters are generated by a claimant with no
   // account, which is why the DOCX download stays reachable without a login.
-  origin String @default("attorney") // attorney | ai | pro_se
+  origin        String  @default("attorney") // attorney | ai | pro_se
   // Whether the prose in the current content came from the LLM or the
   // deterministic template, mirroring CaseCoach.narrationSource.
   contentSource String? // ai | deterministic
@@ -1913,16 +1913,33 @@ model DemandLetter {
   autoDraftKey String? @unique
 
   // 'super' for a ClearCaseIQ Super Demand™ package; null for the standard letter.
-  template String?
+  template          String?
   // The firm demand template (DemandStyle.id) the package was drafted with, so a
   // redraft keeps the firm's letterhead, sections and tone. Null = platform default.
-  demandStyleId String?
+  demandStyleId     String?
   // Super Demand approval gate: JSON { version, items: { key: { checked, byName, at } } }.
   // Signs one version; any later edit leaves it stale and finalize refuses.
   approvalChecklist String? @db.Text
 
-  versions DemandLetterVersion[]
-  packages DemandPackage[]
+  // The demand figure an attorney signed off on. Never inferred from a modeled
+  // settlement range; the quality audit blocks release until it matches the letter.
+  approvedDemandAmount       Float?
+  demandAmountApprovedById   String?
+  demandAmountApprovedByName String?
+  demandAmountApprovedAt     DateTime?
+  demandAmountRationale      String?   @db.Text
+
+  // What the finalizing attorney approved: the audit it passed and the draft and
+  // source fingerprints at that moment. A later source change makes it stale.
+  approvedAuditId    String?
+  approvedDraftHash  String?
+  approvedSourceHash String?
+  approvedById       String?
+
+  versions    DemandLetterVersion[]
+  packages    DemandPackage[]
+  audits      DemandAudit[]
+  resolutions DemandAuditResolution[]
 
   @@index([assessmentId])
   @@map("demand_letters")
@@ -1976,6 +1993,91 @@ model DemandPackage {
   @@index([assessmentId])
   @@index([status])
   @@map("demand_packages")
+}
+
+// One run of the Demand Quality Audit over one version of a letter. Bound to
+// the draft and source fingerprints it read, so an edit or new evidence makes
+// it stale, and an older run can never release a newer draft.
+model DemandAudit {
+  id             String       @id @default(cuid())
+  demandLetterId String
+  demandLetter   DemandLetter @relation(fields: [demandLetterId], references: [id], onDelete: Cascade)
+  assessmentId   String
+
+  letterVersion  Int
+  draftHash      String
+  sourceHash     String
+  ruleVersion    String
+  modelVersion   String?
+  promptVersion  String?
+  // Latest upload the audit read; anything newer makes it stale.
+  evidenceCutoff DateTime?
+
+  status   String  @default("running") // running | complete | failed
+  // Claim verification: ok | skipped | timeout | error. Anything but ok leaves a blocking finding.
+  aiStatus String?
+  aiError  String? @db.Text
+  // JSON { critical, high, medium, low, open, claims, supported, ... }
+  summary  String? @db.Text
+
+  requestedById   String?
+  requestedByName String?
+  startedAt       DateTime  @default(now())
+  completedAt     DateTime?
+
+  findings DemandAuditFinding[]
+
+  @@index([demandLetterId, startedAt])
+  @@index([assessmentId])
+  @@map("demand_audits")
+}
+
+model DemandAuditFinding {
+  id      String      @id @default(cuid())
+  auditId String
+  audit   DemandAudit @relation(fields: [auditId], references: [id], onDelete: Cascade)
+
+  ruleId         String // DQA-001 ...
+  severity       String // critical | high | medium | low
+  source         String // deterministic | ai
+  title          String
+  detail         String  @db.Text
+  // The letter sentence the finding is about, when there is one.
+  claim          String? @db.Text
+  // supported | partially_supported | contradicted | unsupported | unverifiable | not_applicable
+  support        String?
+  // JSON [{ role: support|conflict, fileId, fileName, exhibit, page, quote }]
+  evidence       String? @db.Text
+  recommendation String? @db.Text
+  // Stable across runs, so a reviewed resolution carries to the next audit.
+  fingerprint    String
+
+  status       String  @default("open") // open | resolved
+  resolutionId String?
+
+  @@index([auditId])
+  @@map("demand_audit_findings")
+}
+
+// A reviewer's documented disposition of a finding, keyed by its fingerprint.
+model DemandAuditResolution {
+  id              String       @id @default(cuid())
+  demandLetterId  String
+  demandLetter    DemandLetter @relation(fields: [demandLetterId], references: [id], onDelete: Cascade)
+  fingerprint     String
+  ruleId          String
+  // attorney_judgment | verified_authority | manual_verification | not_applicable | acknowledged
+  disposition     String
+  reason          String       @db.Text
+  actorId         String?
+  actorName       String?
+  actorIsAttorney Boolean      @default(false)
+  letterVersion   Int
+  auditId         String?
+  createdAt       DateTime     @default(now())
+
+  @@index([demandLetterId, fingerprint])
+  @@map("demand_audit_resolutions")
 }
 
 // A point-in-time snapshot of a demand letter's text.
@@ -2202,17 +2304,17 @@ model Appointment {
   assessmentId String?
   assessment   Assessment? @relation(fields: [assessmentId], references: [id], onDelete: SetNull)
 
-  type        String // 'in_person', 'phone', 'video'
-  status      String   @default("SCHEDULED") // 'SCHEDULED', 'CONFIRMED', 'COMPLETED', 'CANCELLED', 'NO_SHOW'
-  scheduledAt DateTime
-  duration    Int      @default(30) // minutes
-  notes       String?
+  type               String // 'in_person', 'phone', 'video'
+  status             String   @default("SCHEDULED") // 'SCHEDULED', 'CONFIRMED', 'COMPLETED', 'CANCELLED', 'NO_SHOW'
+  scheduledAt        DateTime
+  duration           Int      @default(30) // minutes
+  notes              String?
   /// Why the meeting was cancelled (required when plaintiff or attorney cancels).
-  cancellationReason String? @db.Text
+  cancellationReason String?  @db.Text
 
   // Public ("Calendly-style") self-service management: opaque token the booker
   // uses to reschedule/cancel without an account, plus the source event type.
-  manageToken String?  @unique
+  manageToken String? @unique
   eventTypeId String?
 
   // Meeting details
@@ -2387,7 +2489,7 @@ model AttorneyAvailability {
 // attorney/assessment/lawFirm are stored without FK relations to keep the
 // change surface small; they are resolved manually in the route.
 model CalendarEvent {
-  id           String @id @default(cuid())
+  id           String  @id @default(cuid())
   attorneyId   String // owning/creating attorney
   lawFirmId    String?
   assessmentId String? // optional case link (null => not linked to a case)
@@ -2447,22 +2549,22 @@ model CalendarEventAttendee {
 // A bookable "event type" for the attorney's public scheduling page (Calendly's
 // core concept), e.g. "15-min intro call" or "30-min case consultation".
 model AttorneyEventType {
-  id                  String   @id @default(cuid())
-  attorneyId          String
-  attorney            Attorney @relation(fields: [attorneyId], references: [id], onDelete: Cascade)
+  id         String   @id @default(cuid())
+  attorneyId String
+  attorney   Attorney @relation(fields: [attorneyId], references: [id], onDelete: Cascade)
 
   name                String
   slug                String
-  description         String?  @db.Text
-  durationMinutes     Int      @default(30)
-  locationType        String   @default("video") // video, phone, in_person
+  description         String? @db.Text
+  durationMinutes     Int     @default(30)
+  locationType        String  @default("video") // video, phone, in_person
   location            String? // address / dial-in note for in_person / phone
   color               String? // hex accent for the public page
-  bufferBeforeMinutes Int      @default(0)
-  bufferAfterMinutes  Int      @default(0)
-  minNoticeMinutes    Int      @default(120) // earliest a slot can be booked from "now"
-  isActive            Boolean  @default(true)
-  sortOrder           Int      @default(0)
+  bufferBeforeMinutes Int     @default(0)
+  bufferAfterMinutes  Int     @default(0)
+  minNoticeMinutes    Int     @default(120) // earliest a slot can be booked from "now"
+  isActive            Boolean @default(true)
+  sortOrder           Int     @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2486,22 +2588,22 @@ model AttorneyEventType {
 // booking links are a separate mechanism and are still live: see
 // Attorney.bookingSlug and AttorneyEventType.
 model FirmBookingLink {
-  id                  String  @id @default(cuid())
-  lawFirmId           String
-  lawFirm             LawFirm @relation(fields: [lawFirmId], references: [id], onDelete: Cascade)
+  id        String  @id @default(cuid())
+  lawFirmId String
+  lawFirm   LawFirm @relation(fields: [lawFirmId], references: [id], onDelete: Cascade)
 
-  slug                String
-  name                String
-  description         String? @db.Text
-  durationMinutes     Int     @default(30)
-  locationType        String  @default("video") // video, phone, in_person
-  location            String?
-  bufferBeforeMinutes Int     @default(0)
-  bufferAfterMinutes  Int     @default(0)
-  minNoticeMinutes    Int     @default(120)
-  assignmentStrategy  String  @default("round_robin") // round_robin, first_available
+  slug                   String
+  name                   String
+  description            String? @db.Text
+  durationMinutes        Int     @default(30)
+  locationType           String  @default("video") // video, phone, in_person
+  location               String?
+  bufferBeforeMinutes    Int     @default(0)
+  bufferAfterMinutes     Int     @default(0)
+  minNoticeMinutes       Int     @default(120)
+  assignmentStrategy     String  @default("round_robin") // round_robin, first_available
   lastAssignedAttorneyId String? // round-robin cursor
-  isActive            Boolean @default(true)
+  isActive               Boolean @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2555,18 +2657,18 @@ model DemandStyle {
 // uploaded source file (PDF/DOCX). PDF-backed templates can be sent for
 // signature against a specific case via the e-signature service.
 model FirmTemplate {
-  id          String  @id @default(cuid())
-  lawFirmId   String
-  lawFirm     LawFirm @relation(fields: [lawFirmId], references: [id], onDelete: Cascade)
+  id        String  @id @default(cuid())
+  lawFirmId String
+  lawFirm   LawFirm @relation(fields: [lawFirmId], references: [id], onDelete: Cascade)
 
-  name        String
+  name          String
   // Category bucket for grouping in the UI, e.g. onboarding, medical,
   // insurance, disclosure, closing, other.
-  category    String  @default("other")
-  description String? @db.Text
+  category      String  @default("other")
+  description   String? @db.Text
   // What the template is signed as: 'retainer' | 'hipaa_authorization' | null
   // (generic). Retainer and HIPAA templates get the essential-fields form.
-  documentType String?
+  documentType  String?
   // Offered as a starting point in the letter of representation window:
   // 'provider_lor' (medical provider / records request) | 'carrier_lor'
   // (insurance carrier) | null. letterDefault picks the one it opens with.
@@ -2574,21 +2676,21 @@ model FirmTemplate {
   letterDefault Boolean @default(false)
 
   // Editable text/markdown body with optional merge tokens like {{client_name}}.
-  body        String? @db.Text
+  body String? @db.Text
 
   // Optional uploaded source document.
-  fileName    String?
-  filePath    String?
-  fileMime    String?
-  fileSize    Int?
+  fileName String?
+  filePath String?
+  fileMime String?
+  fileSize Int?
 
   // Where each signer signs, dates, initials and fills in on the attached PDF,
   // placed in the field editor: JSON array of fields with page index and
   // position as fractions of the page. Cleared whenever the file changes.
   signatureFields String? @db.Text
 
-  isActive    Boolean @default(true)
-  sortOrder   Int     @default(0)
+  isActive  Boolean @default(true)
+  sortOrder Int     @default(0)
 
   createdById String?
   createdAt   DateTime @default(now())
@@ -2603,24 +2705,24 @@ model FirmTemplate {
 // mark one as the default. This pass defines/customizes templates only; applying
 // a workflow to an individual case + progress tracking comes later.
 model FirmWorkflow {
-  id           String  @id @default(cuid())
-  lawFirmId    String
-  lawFirm      LawFirm @relation(fields: [lawFirmId], references: [id], onDelete: Cascade)
+  id        String  @id @default(cuid())
+  lawFirmId String
+  lawFirm   LawFirm @relation(fields: [lawFirmId], references: [id], onDelete: Cascade)
 
   name         String
   description  String? @db.Text
   practiceArea String?
 
-  isDefault    Boolean @default(false)
-  isActive     Boolean @default(true)
-  sortOrder    Int     @default(0)
+  isDefault Boolean @default(false)
+  isActive  Boolean @default(true)
+  sortOrder Int     @default(0)
 
-  phases       FirmWorkflowPhase[]
-  stages       FirmWorkflowStage[]
+  phases FirmWorkflowPhase[]
+  stages FirmWorkflowStage[]
 
-  createdById  String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   @@index([lawFirmId])
   @@map("firm_workflows")
@@ -2630,35 +2732,35 @@ model FirmWorkflow {
 // Settlement, Litigation, Closing). Groups one or more stages. `key` is a
 // stable slug used for pipeline rendering/matching.
 model FirmWorkflowPhase {
-  id          String       @id @default(cuid())
-  workflowId  String
-  workflow    FirmWorkflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  id         String       @id @default(cuid())
+  workflowId String
+  workflow   FirmWorkflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
 
   name        String
   key         String?
-  description String?      @db.Text
-  sortOrder   Int          @default(0)
+  description String? @db.Text
+  sortOrder   Int     @default(0)
 
-  stages      FirmWorkflowStage[]
+  stages FirmWorkflowStage[]
 
   @@index([workflowId])
   @@map("firm_workflow_phases")
 }
 
 model FirmWorkflowStage {
-  id          String       @id @default(cuid())
-  workflowId  String
-  workflow    FirmWorkflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  id         String       @id @default(cuid())
+  workflowId String
+  workflow   FirmWorkflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
 
   // Optional parent phase (null for legacy/flat workflows).
-  phaseId     String?
-  phase       FirmWorkflowPhase? @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+  phaseId String?
+  phase   FirmWorkflowPhase? @relation(fields: [phaseId], references: [id], onDelete: Cascade)
 
   name        String
-  description String?      @db.Text
-  sortOrder   Int          @default(0)
+  description String? @db.Text
+  sortOrder   Int     @default(0)
 
-  steps       FirmWorkflowStep[]
+  steps FirmWorkflowStep[]
 
   @@index([workflowId])
   @@index([phaseId])
@@ -2666,25 +2768,25 @@ model FirmWorkflowStage {
 }
 
 model FirmWorkflowStep {
-  id            String            @id @default(cuid())
-  stageId       String
-  stage         FirmWorkflowStage @relation(fields: [stageId], references: [id], onDelete: Cascade)
+  id      String            @id @default(cuid())
+  stageId String
+  stage   FirmWorkflowStage @relation(fields: [stageId], references: [id], onDelete: Cascade)
 
-  title         String
-  description   String?           @db.Text
+  title                String
+  description          String? @db.Text
   // Step type: task | milestone | checkpoint | deadline | document | ai_milestone.
-  stepType      String            @default("task")
+  stepType             String  @default("task")
   // For ai_milestone steps: a signal key that derives read-only completion.
-  aiSignal      String?
+  aiSignal             String?
   // Suggested role responsible, e.g. attorney, paralegal, case_manager, intake_specialist.
-  assigneeRole  String?
+  assigneeRole         String?
   // Optional default assignee (FirmMember.id) auto-applied to new cases.
   assigneeFirmMemberId String?
   // Due offset in days relative to when the stage starts (null = no target).
-  dueOffsetDays Int?
-  required      Boolean           @default(false)
+  dueOffsetDays        Int?
+  required             Boolean @default(false)
   // Optional link to a firm template/document used at this step.
-  templateId    String?
+  templateId           String?
 
   // Optional apply-time condition: only snapshot this step onto a case when the
   // resolved case field matches. op in (eq, neq, in, notin).
@@ -2692,7 +2794,7 @@ model FirmWorkflowStep {
   conditionOp    String?
   conditionValue String?
 
-  sortOrder     Int               @default(0)
+  sortOrder Int @default(0)
 
   @@index([stageId])
   @@map("firm_workflow_steps")
@@ -2713,19 +2815,19 @@ model CaseWorkflow {
   description      String? @db.Text
 
   // Basis for computing step due dates (appliedAt + step.dueOffsetDays).
-  startDate    DateTime @default(now())
-  status       String   @default("active") // active, archived
+  startDate DateTime @default(now())
+  status    String   @default("active") // active, archived
 
-  appliedById  String?
-  appliedAt    DateTime @default(now())
+  appliedById String?
+  appliedAt   DateTime @default(now())
 
   // Set when GPT planning adapted this case's snapshot (apply-time or manual).
   aiAdaptedAt      DateTime?
   aiAdaptRationale String?   @db.Text
   aiAdaptRunId     String?
 
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   items CaseWorkflowItem[]
 
@@ -2743,33 +2845,33 @@ model CaseWorkflowItem {
   phaseName  String?
   phaseOrder Int?
   stageName  String
-  stageOrder Int    @default(0)
+  stageOrder Int     @default(0)
 
-  title         String
-  description   String? @db.Text
-  stepType      String  @default("task")
-  aiSignal      String?
-  assigneeRole  String?
+  title                String
+  description          String?   @db.Text
+  stepType             String    @default("task")
+  aiSignal             String?
+  assigneeRole         String?
   // Specific person responsible for this step on this case (FirmMember.id).
   assignedFirmMemberId String?
-  dueOffsetDays Int?
-  dueDate       DateTime?
-  required      Boolean @default(false)
+  dueOffsetDays        Int?
+  dueDate              DateTime?
+  required             Boolean   @default(false)
   // False for steps tracked on the pipeline that must not hold their stage
   // open while pending (the statute-of-limitations deadline).
-  blocksStage   Boolean @default(true)
+  blocksStage          Boolean   @default(true)
   // The task this step was added for, when that task's sourceTemplateStepId
   // already carries another key (insurance follow-ups, task templates) and so
   // cannot hold the wfitem: link.
-  sourceTaskId  String?
-  templateId    String?
+  sourceTaskId         String?
+  templateId           String?
 
   status        String    @default("pending") // pending, done, skipped
   completedAt   DateTime?
   completedById String?
 
   // Ad-hoc task added on the case itself (not part of the firm template snapshot).
-  custom    Boolean  @default(false)
+  custom Boolean @default(false)
 
   sortOrder Int      @default(0)
   createdAt DateTime @default(now())
@@ -2826,9 +2928,9 @@ model TimeEntry {
 
   workDate     DateTime
   minutes      Int
-  activityType String  @default("general") // intake, drafting, comms, court, research, travel, admin, general
-  description  String? @db.Text
-  billable     Boolean @default(true)
+  activityType String   @default("general") // intake, drafting, comms, court, research, travel, admin, general
+  description  String?  @db.Text
+  billable     Boolean  @default(true)
 
   hourlyRate Float? // snapshot rate applied
   amount     Float? // minutes/60 * hourlyRate (when billable + rate known)
@@ -2903,31 +3005,31 @@ model Call {
 
   // Who pressed "call" and the numbers actually dialed (E.164). Stored for the
   // audit trail; masked in API responses.
-  initiatedBy      String? // 'plaintiff' | 'attorney' | 'staff'
+  initiatedBy       String? // 'plaintiff' | 'attorney' | 'staff'
   initiatedByUserId String?
-  plaintiffPhone   String?
-  attorneyPhone    String?
+  plaintiffPhone    String?
+  attorneyPhone     String?
 
   // Amazon Connect linkage.
-  provider        String  @default("amazon_connect")
-  connectContactId String? @unique // ContactId returned by StartOutboundVoiceContact
+  provider          String  @default("amazon_connect")
+  connectContactId  String? @unique // ContactId returned by StartOutboundVoiceContact
   connectInstanceId String?
 
   // Lifecycle: queued -> ringing -> in_progress -> completed | failed | no_answer | canceled
-  status       String    @default("queued")
-  direction    String    @default("outbound")
+  status        String    @default("queued")
+  direction     String    @default("outbound")
   failureReason String?
-  startedAt    DateTime?
-  answeredAt   DateTime?
-  endedAt      DateTime?
-  durationSec  Int?
+  startedAt     DateTime?
+  answeredAt    DateTime?
+  endedAt       DateTime?
+  durationSec   Int?
 
   // Two-party recording consent captured before the call is placed. The Connect
   // contact flow also plays a spoken disclosure to both parties at connect time.
-  recordingConsent      Boolean   @default(false)
-  recordingConsentAt    DateTime?
-  recordingConsentBy    String? // user/attorney id who acknowledged
-  recordingConsentNote  String?   @db.Text
+  recordingConsent     Boolean   @default(false)
+  recordingConsentAt   DateTime?
+  recordingConsentBy   String? // user/attorney id who acknowledged
+  recordingConsentNote String?   @db.Text
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2950,11 +3052,11 @@ model CallRecording {
 
   // Where Amazon Connect wrote the recording (S3). We keep bucket/key so we can
   // generate short-lived signed URLs on demand rather than storing public links.
-  s3Bucket   String?
-  s3Key      String?
-  mediaType  String  @default("audio/wav")
+  s3Bucket    String?
+  s3Key       String?
+  mediaType   String  @default("audio/wav")
   durationSec Int?
-  sizeBytes  Int?
+  sizeBytes   Int?
 
   status    String   @default("pending") // pending | available | failed
   createdAt DateTime @default(now())
@@ -2973,17 +3075,17 @@ model CallTranscript {
   source   String @default("contact_lens")
   language String @default("en-US")
 
-  status    String  @default("pending") // pending | processing | ready | failed
-  fullText  String? @db.Text
-  segments  String? @db.Text // JSON: [{ speaker, startMs, endMs, text }]
+  status   String  @default("pending") // pending | processing | ready | failed
+  fullText String? @db.Text
+  segments String? @db.Text // JSON: [{ speaker, startMs, endMs, text }]
 
   // LLM-derived extraction (summary + action items + sentiment) built from the
   // transcript. Kept separate from raw text so re-summarization is cheap.
-  summary      String? @db.Text
-  actionItems  String? @db.Text // JSON string[]
-  keyFacts     String? @db.Text // JSON string[]
-  sentiment    String? // positive | neutral | negative
-  processedAt  DateTime?
+  summary     String?   @db.Text
+  actionItems String?   @db.Text // JSON string[]
+  keyFacts    String?   @db.Text // JSON string[]
+  sentiment   String? // positive | neutral | negative
+  processedAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -3076,7 +3178,7 @@ model LeadSubmission {
   evidenceChecklist String? @db.Text // JSON checklist of uploaded/missing documents
 
   // Exclusivity & Source
-  isExclusive Boolean @default(false)
+  isExclusive   Boolean @default(false)
   /// Which internal code path created this lead, NOT a marketing channel.
   /// Written as 'plaintiff' (claimant intake), 'admin', 'routing_engine' or
   /// 'tier_auto'. This comment previously advertised 'organic_search',
@@ -3151,9 +3253,9 @@ model CaseAssistance {
   nextAction String?
   priority   String  @default("normal") // low | normal | high
 
-  assignedAt    DateTime?
-  reviewDueAt   DateTime?
-  lastContactAt DateTime?
+  assignedAt     DateTime?
+  reviewDueAt    DateTime?
+  lastContactAt  DateTime?
   /// Set the first time a specialist reaches the plaintiff, so time-to-first-
   /// contact stays measurable after later contacts overwrite lastContactAt.
   firstContactAt DateTime?
@@ -3181,24 +3283,24 @@ model CaseInteraction {
   assistance   CaseAssistance @relation(fields: [assistanceId], references: [id], onDelete: Cascade)
   assessmentId String
 
-  specialistId String?
-  specialist   User?   @relation("SpecialistInteractions", fields: [specialistId], references: [id], onDelete: SetNull)
+  specialistId   String?
+  specialist     User?   @relation("SpecialistInteractions", fields: [specialistId], references: [id], onDelete: SetNull)
   /// Kept alongside the relation so the timeline still names who made contact
   /// after an employee account is deactivated and the FK nulls out.
   specialistName String?
 
   channel   String // call | sms | email | in_app | other
-  direction String @default("outbound") // outbound | inbound
+  direction String  @default("outbound") // outbound | inbound
   /// What came of it: reached | voicemail | no_answer | callback_requested |
   /// wrong_number | sent | received. Drives contact-success reporting.
-  outcome String?
-  notes   String? @db.Text
+  outcome   String?
+  notes     String? @db.Text
 
   /// Set when the interaction came from a system action rather than being typed
   /// in by hand, so a document request appears on the timeline without a
   /// specialist logging it twice.
-  documentRequestId    String?
-  notificationEventId  String?
+  documentRequestId   String?
+  notificationEventId String?
 
   occurredAt DateTime @default(now())
   createdAt  DateTime @default(now())
@@ -3265,15 +3367,15 @@ model IntakeLead {
   /// First touch, not last: an internal navigation must not overwrite the
   /// campaign that actually brought someone in. Null for organic and direct
   /// arrivals, which is most of them.
-  utmSource   String?
-  utmMedium   String?
-  utmCampaign String?
+  utmSource        String?
+  utmMedium        String?
+  utmCampaign      String?
   /// Google Ads click id. Kept so conversions can later be uploaded back to Ads
   /// from the server, which is the only way to close that loop without putting
   /// a tag on a page that carries claim detail.
-  gclid       String?
-  referrer    String?
-  landingPath String?
+  gclid            String?
+  referrer         String?
+  landingPath      String?
   /// utm_term, utm_content, and other click ids, as JSON. Rarely queried, so
   /// they stay out of the column list rather than widening the table.
   attributionExtra String? @db.Text
@@ -3443,17 +3545,17 @@ model DecisionMemory {
   outcomeAt             DateTime?
 
   // Case resolution + satisfaction tracking (attorney- and plaintiff-reported).
-  retained                   Boolean?  // whether the attorney was retained on this case
+  retained                   Boolean? // whether the attorney was retained on this case
   settlementAmount           Float? // gross resolution amount (settlement or verdict)
-  wentToTrial                Boolean?  // true when the case was resolved at trial (verdict)
+  wentToTrial                Boolean? // true when the case was resolved at trial (verdict)
   attorneySatisfaction       Int? // attorney-reported satisfaction, 1-5
   attorneySatisfactionNotes  String?   @db.Text
   plaintiffSatisfaction      Int? // plaintiff-reported satisfaction, 1-5
   plaintiffSatisfactionNotes String?   @db.Text
   plaintiffSatisfactionAt    DateTime?
 
-  createdAt             DateTime       @default(now())
-  updatedAt             DateTime       @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([lawFirmId])
   @@index([attorneyId])
@@ -3524,16 +3626,16 @@ model DocumentRequest {
   // Who the request is addressed to. Default flow is the claimant ('plaintiff').
   // 'opposing_party' is a defendant / opposing counsel / insurer with no platform account,
   // served through a tokenized external upload portal.
-  targetType     String  @default("plaintiff") // 'plaintiff' | 'opposing_party'
-  recipientName  String? // name of the opposing party / insurer / counsel
-  recipientEmail String? // external recipient email (no platform account)
-  recipientPhone String? // external recipient mobile, when the link went by text
-  recipientRole  String? // 'defendant' | 'opposing_counsel' | 'insurer' | 'witness'
-  caseContactId  String? // optional link to a CaseContact representing the recipient
-  origin         String  @default("attorney") // 'attorney' | 'plaintiff_suggested'
+  targetType              String  @default("plaintiff") // 'plaintiff' | 'opposing_party'
+  recipientName           String? // name of the opposing party / insurer / counsel
+  recipientEmail          String? // external recipient email (no platform account)
+  recipientPhone          String? // external recipient mobile, when the link went by text
+  recipientRole           String? // 'defendant' | 'opposing_counsel' | 'insurer' | 'witness'
+  caseContactId           String? // optional link to a CaseContact representing the recipient
+  origin                  String  @default("attorney") // 'attorney' | 'plaintiff_suggested'
   // Set when the request went to a carrier for one policy, so the adjuster's
   // uploads file into that policy's document slots.
-  insuranceDetailId String?
+  insuranceDetailId       String?
   // Set when the request went to a witness or footage holder for one liability
   // evidence item, so their uploads link to that item and mark it received.
   liabilityEvidenceItemId String?
@@ -3714,10 +3816,10 @@ model AttorneyProfile {
   attorney   Attorney @relation("AttorneyProfile", fields: [attorneyId], references: [id], onDelete: Cascade)
 
   // Profile Details
-  bio         String?
-  photoUrl    String?
-  specialties String? // JSON array of specialties
-  languages   String? // JSON array of languages
+  bio                 String?
+  photoUrl            String?
+  specialties         String? // JSON array of specialties
+  languages           String? // JSON array of languages
   // Fluency per language, as a JSON object keyed by the language name:
   // {"Spanish":"professional"}. Deliberately kept separate from `languages`
   // rather than folded into it, because routing matches on the plain name and
@@ -3877,12 +3979,12 @@ model AttorneyImportSource {
 /// (e.g. lawyers.com). Kept separate from the live `Attorney` table so scraped
 /// data can be reviewed and promoted without polluting production records.
 model ProductionAttorney {
-  id            String  @id @default(cuid())
-  source        String  @default("lawyers.com")
+  id         String  @id @default(cuid())
+  source     String  @default("lawyers.com")
   // Stable dedupe key: hash of barNumber when present, else profileUrl, else
   // normalized name+location. See `buildAttorneyDedupeHash()`.
-  dedupeHash    String  @db.VarChar(64)
-  externalId    String?
+  dedupeHash String  @db.VarChar(64)
+  externalId String?
 
   name          String
   firmName      String?
@@ -3896,52 +3998,52 @@ model ProductionAttorney {
   barState      String?
   licenseStatus String? // Source's licence status, e.g. "Active", "Inactive"
 
-  street        String?
-  city          String?
-  state         String?
-  zip           String?
-  county        String?
+  street          String?
+  city            String?
+  state           String?
+  zip             String?
+  county          String?
   // How `county` was determined: "county" (given by the source), "city"
   // (derived from a city lookup), or "none" (unresolved — needs follow-up
   // before this row can produce a routable attorney).
-  countySource  String?
-  practiceAreas String? @db.Text // JSON array of practice areas
-  specialties   String? @db.Text // JSON array of board-certified specialties
-  claSections   String? @db.Text // JSON array of CLA section memberships
-  discipline    String? @db.Text // JSON array of disciplinary records
-  lawSchool     String?
+  countySource    String?
+  practiceAreas   String?   @db.Text // JSON array of practice areas
+  specialties     String?   @db.Text // JSON array of board-certified specialties
+  claSections     String?   @db.Text // JSON array of CLA section memberships
+  discipline      String?   @db.Text // JSON array of disciplinary records
+  lawSchool       String?
   dateOfAdmission DateTime?
-  district      Int?
+  district        Int?
 
   // Enrichment fields (populated by website scraping)
-  headshotUrl   String?  @db.VarChar(1024)
-  bio           String?  @db.Text
-  languages     String?  @db.Text  // JSON array of languages spoken
-  caseResults   String?  @db.Text  // JSON array of notable case results/verdicts
-  awards        String?  @db.Text  // JSON array of awards/recognitions
-  freeConsult   Boolean? // Whether they offer free consultations
+  headshotUrl    String?  @db.VarChar(1024)
+  bio            String?  @db.Text
+  languages      String?  @db.Text // JSON array of languages spoken
+  caseResults    String?  @db.Text // JSON array of notable case results/verdicts
+  awards         String?  @db.Text // JSON array of awards/recognitions
+  freeConsult    Boolean? // Whether they offer free consultations
   contingencyFee String? // e.g. "33%", "33-40%"
-  associations  String?  @db.Text  // JSON array of bar association memberships
-  socialLinks   String?  @db.Text  // JSON object of social media URLs
+  associations   String?  @db.Text // JSON array of bar association memberships
+  socialLinks    String?  @db.Text // JSON object of social media URLs
 
   // Attorney count at the firm, where the source reports it.
-  firmSize      Int?
+  firmSize Int?
 
-  rating        Float?
-  reviewCount   Int?
+  rating      Float?
+  reviewCount Int?
 
   // Pipeline state: scraped -> reviewed -> promoted | rejected
-  status        String  @default("scraped")
+  status             String  @default("scraped")
   /// Whether this attorney likely practises PI, derived from practiceAreas/specialties.
-  piRelevant    Boolean @default(false)
+  piRelevant         Boolean @default(false)
   // When promoted into the live `Attorney` table, the resulting attorney id.
   promotedAttorneyId String?
 
-  sourcePage    Int?
-  rawPayload    String? @db.Text // Original parsed record as JSON
-  scrapedAt     DateTime @default(now())
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  sourcePage Int?
+  rawPayload String?  @db.Text // Original parsed record as JSON
+  scrapedAt  DateTime @default(now())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   @@unique([source, dedupeHash])
   @@index([source, status])
@@ -3996,44 +4098,44 @@ model DiscoveredFirmLocation {
   websiteDomain String?
 
   // ===== Cached Google content, purged after cacheExpiresAt =====
-  cachedName            String?
+  cachedName             String?
   cachedFormattedAddress String?
-  cachedCity            String?
+  cachedCity             String?
   /// Google returns county as administrative_area_level_2, which is the field the
   /// routing engine needs and the hardest one to derive from a city name alone.
-  cachedCounty          String?
-  cachedState           String?
-  cachedPostalCode      String?
-  cachedPhone           String?
-  cachedWebsiteUri      String? @db.VarChar(1024)
-  cachedRating          Float?
-  cachedReviewCount     Int?
-  cachedOpeningHours    String? @db.Text
-  cachedLatitude        Float?
-  cachedLongitude       Float?
-  cachedPrimaryType     String?
-  cachedTypes           String? @db.Text
-  cachedGoogleMapsUri   String? @db.VarChar(1024)
-  cachedAt              DateTime?
+  cachedCounty           String?
+  cachedState            String?
+  cachedPostalCode       String?
+  cachedPhone            String?
+  cachedWebsiteUri       String?   @db.VarChar(1024)
+  cachedRating           Float?
+  cachedReviewCount      Int?
+  cachedOpeningHours     String?   @db.Text
+  cachedLatitude         Float?
+  cachedLongitude        Float?
+  cachedPrimaryType      String?
+  cachedTypes            String?   @db.Text
+  cachedGoogleMapsUri    String?   @db.VarChar(1024)
+  cachedAt               DateTime?
   /// When the cached columns must be cleared or refreshed.
-  cacheExpiresAt        DateTime?
+  cacheExpiresAt         DateTime?
 
   /// Pipeline state: discovered -> verified -> promoted | rejected.
   /// `verified` means we have read the firm's own website and hold an
   /// independently sourced record, which is the point at which it may be promoted.
-  status String @default("discovered")
+  status                 String    @default("discovered")
   /// Why the filter rejected it, for tuning discovery quality.
-  rejectionReason String?
+  rejectionReason        String?
   /// Set when the firm's own site has been read, making the record independent of
   /// Google's cache.
   independentlySourcedAt DateTime?
   /// The live firm this became, if promoted.
-  promotedLawFirmId String?
+  promotedLawFirmId      String?
 
-  firstSeenAt DateTime  @default(now())
-  lastSeenAt  DateTime  @default(now())
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  firstSeenAt DateTime @default(now())
+  lastSeenAt  DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   @@index([status])
   @@index([websiteDomain])
@@ -4055,7 +4157,7 @@ model DiscoveredFirmLocation {
 /// website describes a firm — and firm-level evidence is inherited down to
 /// attorneys at that firm at a discount when scoring.
 model SegmentSignal {
-  id         String   @id @default(cuid())
+  id         String    @id @default(cuid())
   attorneyId String?
   attorney   Attorney? @relation(fields: [attorneyId], references: [id], onDelete: Cascade)
   lawFirmId  String?
@@ -4073,19 +4175,19 @@ model SegmentSignal {
   subtype    String?
   /// How many times observed, e.g. number of PI complaints filed. Adds weight
   /// with diminishing returns.
-  count      Int      @default(1)
+  count      Int       @default(1)
   /// Per-signal weight override. Normally null so SIGNAL_WEIGHTS applies.
   weight     Float?
   /// Raw observed value, kept verbatim for auditing.
-  value      String?  @db.Text
+  value      String?   @db.Text
   /// URL, docket number or similar, so a human can verify the claim.
-  sourceRef  String?  @db.VarChar(1024)
+  sourceRef  String?   @db.VarChar(1024)
   /// When the evidence was dated. Signals decay with age, and an undated signal
   /// is treated as one half-life old rather than as fresh.
   observedAt DateTime?
 
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   /// Re-deriving a source must update rows rather than pile up duplicates.
   @@unique([attorneyId, source, kind])
@@ -4110,26 +4212,26 @@ model AttorneySegment {
   lawFirm    LawFirm?  @relation(fields: [lawFirmId], references: [id], onDelete: Cascade)
 
   /// 0-1 confidence that this entity practises personal injury at all.
-  piScore         Float   @default(0)
+  piScore           Float   @default(0)
   /// plaintiff | defense | both | unknown. The routing-critical field: defense
   /// firms score high on PI and must never receive claimant leads.
-  piSide          String  @default("unknown")
+  piSide            String  @default("unknown")
   /// 0-1 confidence in `piSide` specifically, which is not the same as piScore.
-  sideConfidence  Float   @default(0)
+  sideConfidence    Float   @default(0)
   /// JSON array of incident types, most-supported first.
-  piSubtypes      String? @db.Text
+  piSubtypes        String? @db.Text
   /// none | low | medium | high. High requires corroboration from at least two
   /// sources that are not the firm describing itself.
-  confidence      String  @default("none")
+  confidence        String  @default("none")
   /// Whether this entity may receive claimant (plaintiff-side) PI leads, with
   /// the reason. Denormalized from the score so routing need not re-derive it.
-  claimantEligible Boolean @default(false)
+  claimantEligible  Boolean @default(false)
   eligibilityReason String? @db.Text
   /// Human-readable explanation of the score, one line per factor (JSON array).
-  rationale       String? @db.Text
+  rationale         String? @db.Text
   /// Scoring diagnostics as JSON: weights per side, source counts, newest evidence.
-  breakdown       String? @db.Text
-  signalCount     Int     @default(0)
+  breakdown         String? @db.Text
+  signalCount       Int     @default(0)
   /// Set when the score came from the firm rather than this attorney's own evidence.
   inheritedFromFirm Boolean @default(false)
 
@@ -4629,10 +4731,10 @@ model SweepRun {
 }
 
 model ZipCentroid {
-  zipCode   String  @id
+  zipCode   String @id
   latitude  Float?
   longitude Float?
-  source    String  @default("google")
+  source    String @default("google")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -5113,12 +5215,12 @@ model SettlementRecord {
 // Mirrors the AttorneyCalendarConnection pattern; tokens are stored encrypted.
 // ---------------------------------------------------------------------------
 model CmsConnection {
-  id        String   @id @default(cuid())
-  lawFirmId String
-  lawFirm   LawFirm  @relation(fields: [lawFirmId], references: [id], onDelete: Cascade)
+  id              String    @id @default(cuid())
+  lawFirmId       String
+  lawFirm         LawFirm   @relation(fields: [lawFirmId], references: [id], onDelete: Cascade)
   // Optional owning attorney (a firm may have one shared connection or per-attorney).
-  attorneyId String?
-  attorney   Attorney? @relation(fields: [attorneyId], references: [id], onDelete: SetNull)
+  attorneyId      String?
+  attorney        Attorney? @relation(fields: [attorneyId], references: [id], onDelete: SetNull)
   createdByUserId String?
 
   provider String // clio, filevine, smartadvocate, casepeer, zapier
@@ -5207,8 +5309,8 @@ model CaseChangeEvent {
   action       String // status_changed | assigned | demand_generated | task_created | evidence_added | ...
   entityType   String? // assessment | task | demand | evidence | ...
   entityId     String?
-  summary      String?  @db.Text
-  createdAt    DateTime @default(now())
+  summary      String?    @db.Text
+  createdAt    DateTime   @default(now())
 
   @@index([assessmentId, revision])
   @@index([lawFirmId, seq])
@@ -5278,17 +5380,17 @@ model AttorneyUsageDaily {
 /// opt-out is worthless if the number written on the way in does not match the
 /// number read on the way out.
 model SmsOptOut {
-  id String @id @default(cuid())
+  id         String    @id @default(cuid())
   /// E.164, via optOutKey().
-  phone String @unique
+  phone      String    @unique
   /// The keyword that caused the most recent change, for the audit trail.
-  keyword String?
-  source  String  @default("inbound_sms")
-  optedOutAt DateTime @default(now())
+  keyword    String?
+  source     String    @default("inbound_sms")
+  optedOutAt DateTime  @default(now())
   /// Set when they text START. Null means the opt-out stands.
   optedInAt  DateTime?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
   @@index([optedInAt])
   @@map("sms_opt_outs")
@@ -5330,20 +5432,20 @@ model CaseSubmitOtp {
 /// Numbers get reassigned between people, so bindings are revoked rather than
 /// deleted and only one may be `active` for a number at a time.
 model CasePhoneBinding {
-  id           String     @id @default(cuid())
-  assessmentId String
-  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  id            String     @id @default(cuid())
+  assessmentId  String
+  assessment    Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
   /// E.164, via optOutKey().
-  phoneE164    String
-  status       String     @default("active") // active, revoked
+  phoneE164     String
+  status        String     @default("active") // active, revoked
   /// The attorney or staff user who sent the invite that created this binding.
   boundByUserId String?
-  boundAt       DateTime  @default(now())
+  boundAt       DateTime   @default(now())
   /// Last time documents actually arrived on this binding, for the audit trail.
   lastInboundAt DateTime?
   revokedAt     DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
 
   @@index([phoneE164, status])
   @@index([assessmentId, status])
@@ -5360,26 +5462,26 @@ model CasePhoneBinding {
 /// Written only by `lib/case-facts.ts`, in the same transaction as the facts
 /// write it describes.
 model CaseFactChange {
-  id           String     @id @default(cuid())
-  assessmentId String
-  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  id            String     @id @default(cuid())
+  assessmentId  String
+  assessment    Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
   /// Dotted path into the facts document, e.g. `damages.med_charges`.
-  path         String
+  path          String
   /// added | removed | changed. A field nobody answered is not a field answered
   /// "no", so an absent value is distinguished from a null one.
-  kind         String
+  kind          String
   /// JSON-encoded, null when the field did not exist on that side.
-  previousValue String? @db.Text
-  nextValue     String? @db.Text
+  previousValue String?    @db.Text
+  nextValue     String?    @db.Text
   /// Case revision AFTER this change was applied, matching CaseChangeEvent.
-  revision     Int
-  source       String // web | mobile | rose_ai | attorney | admin | cms_inbound | reconcile | api | system
-  actorType    String? // user | attorney | ai | system | external
-  actorId      String?
-  actorLabel   String?
+  revision      Int
+  source        String // web | mobile | rose_ai | attorney | admin | cms_inbound | reconcile | api | system
+  actorType     String? // user | attorney | ai | system | external
+  actorId       String?
+  actorLabel    String?
   /// The verb from the write that produced this, e.g. `damages_updated`.
-  action       String
-  createdAt    DateTime @default(now())
+  action        String
+  createdAt     DateTime   @default(now())
 
   // Answers "who last touched this field", the lookup on-behalf editing needs.
   @@index([assessmentId, path, createdAt])
@@ -5388,24 +5490,24 @@ model CaseFactChange {
 }
 
 model ExternalWriteProposal {
-  id            String     @id @default(cuid())
-  assessmentId  String
-  assessment    Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
-  lawFirmId     String?
-  connectionId  String?
-  provider      String?
-  field         String // canonical field name (see RECONCILABLE_FIELDS)
-  currentValue  String?    @db.Text
-  proposedValue String?    @db.Text
+  id               String     @id @default(cuid())
+  assessmentId     String
+  assessment       Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  lawFirmId        String?
+  connectionId     String?
+  provider         String?
+  field            String // canonical field name (see RECONCILABLE_FIELDS)
+  currentValue     String?    @db.Text
+  proposedValue    String?    @db.Text
   // Case revision the external system based its write on (optimistic concurrency).
   baseRevision     Int?
-  source           String    @default("cms_inbound")
-  status           String    @default("pending") // pending | approved | rejected | superseded
-  note             String?   @db.Text
+  source           String     @default("cms_inbound")
+  status           String     @default("pending") // pending | approved | rejected | superseded
+  note             String?    @db.Text
   reviewedByUserId String?
   reviewedAt       DateTime?
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
 
   @@index([assessmentId])
   @@index([status])
@@ -5414,11 +5516,11 @@ model ExternalWriteProposal {
 }
 
 model SyncApiKey {
-  id        String @id @default(cuid())
-  lawFirmId String
-  name      String
+  id              String    @id @default(cuid())
+  lawFirmId       String
+  name            String
   // Visible, non-secret prefix for identifying the key in the UI/logs.
-  prefix    String @unique
+  prefix          String    @unique
   // sha256 of the full token; the plaintext is shown once, at creation.
   tokenHash       String    @unique
   scopes          String? // JSON array; reserved for future scoping

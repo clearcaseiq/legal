@@ -6,7 +6,30 @@ vi.mock('./logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.f
 vi.mock('./object-storage', () => ({ ensureLocalCopy: vi.fn() }))
 vi.mock('./pdf-parse-client', () => ({ loadPDFParse: vi.fn() }))
 
-import { EXHIBIT_NOT_ON_CASE, enclosedFileName, enclosuresIn, planDemandExhibitCandidates } from './demand-docx'
+import JSZip from 'jszip'
+import { EXHIBIT_NOT_ON_CASE, buildDemandLetterDocx, enclosedFileName, enclosuresIn, planDemandExhibitCandidates } from './demand-docx'
+
+async function documentText(buffer: Buffer) {
+  return (await JSZip.loadAsync(buffer)).file('word/document.xml')!.async('string')
+}
+
+describe('buildDemandLetterDocx watermark', () => {
+  const WATERMARK = 'NOT YET ATTORNEY APPROVED'
+
+  it('AT-029: stamps every attorney working draft, not only a Super Demand', async () => {
+    findMany.mockResolvedValue([])
+    const draft = await buildDemandLetterDocx({ assessmentId: 'a1', content: 'Dear Adjuster,\nWe demand $25,000.', status: 'DRAFT', origin: 'attorney' })
+    expect(await documentText(draft)).toContain(WATERMARK)
+  })
+
+  it('leaves the finalized letter and a claimant\u2019s own letter unstamped', async () => {
+    findMany.mockResolvedValue([])
+    const final = await buildDemandLetterDocx({ assessmentId: 'a1', content: 'Dear Adjuster,', status: 'FINAL', origin: 'attorney' })
+    const proSe = await buildDemandLetterDocx({ assessmentId: 'a1', content: 'Dear Adjuster,', status: 'DRAFT', origin: 'pro_se' })
+    expect(await documentText(final)).not.toContain(WATERMARK)
+    expect(await documentText(proSe)).not.toContain(WATERMARK)
+  })
+})
 
 const file = (id: string, originalName: string, category: string, identityCheck: string | null = null) => ({
   id,

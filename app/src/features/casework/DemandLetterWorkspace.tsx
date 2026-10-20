@@ -21,6 +21,8 @@ import {
   Lock,
   RefreshCw,
   Send,
+  ShieldAlert,
+  ShieldCheck,
   Sparkles,
   Upload,
   User,
@@ -29,6 +31,7 @@ import {
 import ConfirmDialog from '../../components/ConfirmDialog'
 import { useFirmAccess } from '../../hooks/useFirmAccess'
 import DemandIntelligencePanel from './DemandIntelligencePanel'
+import DemandQualityAuditPanel from './DemandQualityAuditPanel'
 import DemandPackageModal from './DemandPackageModal'
 import {
   approveLeadDemandLetter,
@@ -44,9 +47,11 @@ import {
   importLeadDemandLetter,
   listLeadDemandLetters,
   markLeadDemandSent,
+  reapproveDemandLetter,
   regenerateLeadDemandLetter,
   saveLeadDemandLetter,
   type DemandLetter,
+  type DemandRelease,
 } from '../../lib/api'
 
 const AI_AUTHOR = 'Rose'
@@ -128,6 +133,9 @@ export default function DemandLetterWorkspace({
   const [showHistory, setShowHistory] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
   const [caret, setCaret] = useState(0)
+  const editorRef = useRef<HTMLTextAreaElement>(null)
+  // What the Demand Quality Audit says about finalizing or sending this letter.
+  const [release, setRelease] = useState<DemandRelease | null>(null)
   const cursorLine = useMemo(() => {
     const start = caret > 0 ? draftText.lastIndexOf('\n', caret - 1) + 1 : 0
     const end = draftText.indexOf('\n', caret)
@@ -348,6 +356,52 @@ export default function DemandLetterWorkspace({
     }
   }
 
+  const handleReapprove = async () => {
+    if (!active) return
+    setBusy('reapprove')
+    setMessage(null)
+    try {
+      setRelease((await reapproveDemandLetter(leadId, active.id)).release)
+      setMessage({ tone: 'ok', text: 'Approved against the latest audit.' })
+    } catch (err: any) {
+      setMessage({ tone: 'err', text: err?.response?.data?.error || 'Could not approve the letter.' })
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const applyAuditPatch = useCallback((patch: Partial<DemandLetter>) => {
+    setActive((prev) => (prev ? { ...prev, ...patch } : prev))
+    setLetters((prev) => prev.map((l) => (l.id === active?.id ? { ...l, ...patch } : l)))
+  }, [active?.id])
+
+  /** Select a sentence the audit points at, so it can be fixed in place. */
+  const showInLetter = useCallback(
+    (text: string) => {
+      const ta = editorRef.current
+      if (!ta) return
+      let at = draftText.indexOf(text)
+      let length = text.length
+      if (at === -1) {
+        const head = text.slice(0, 60)
+        at = draftText.indexOf(head)
+        length = head.length
+      }
+      if (at === -1) {
+        setMessage({ tone: 'err', text: 'That sentence is no longer in the letter. Rerun the audit.' })
+        return
+      }
+      ta.focus()
+      ta.setSelectionRange(at, at + length)
+      ta.scrollTop = Math.max(0, (at / Math.max(draftText.length, 1)) * ta.scrollHeight - ta.clientHeight / 3)
+      ta.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      setCaret(at)
+    },
+    [draftText],
+  )
+
+  useEffect(() => setRelease(null), [active?.id])
+
   const handleMarkSent = () => {
     if (!active) return
     setPendingConfirm({
@@ -467,6 +521,7 @@ export default function DemandLetterWorkspace({
         ...(isSuper
           ? [{ key: 'gate', label: gateTotal ? `Approval gate ${gateSigned}/${gateTotal}` : 'Approval gate', done: locked || !gateIncomplete }]
           : []),
+        { key: 'audit', label: release?.ok ? 'Audit passed' : 'Quality audit', done: locked || !!release?.ok },
         { key: 'final', label: 'Finalized', done: locked },
         { key: 'sent', label: 'Sent', done: sent },
       ]
@@ -474,6 +529,10 @@ export default function DemandLetterWorkspace({
   const nextStepKey = steps.find((step) => !step.done)?.key
   const scrollToGate = () =>
     document.getElementById('demand-approval-gate')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  const scrollToAudit = () =>
+    document.getElementById('demand-quality-audit')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  const auditReason = release?.reasons[0] ?? 'Run the Demand Quality Audit (right panel) first.'
+  const onlyNeedsReapproval = !!release && !release.ok && release.reasons.every((r) => /approve/i.test(r))
 
   let primary: ReactNode = null
   let blockedReason: string | null = null
@@ -484,13 +543,29 @@ export default function DemandLetterWorkspace({
         Sent {formatWhen(active.sentAt)}
       </span>
     )
-  } else if (active && locked) {
+  } else if (active && locked && release?.ok) {
     primary = (
       <button type="button" onClick={handleMarkSent} disabled={busy != null} className={`${PRIMARY_BTN} bg-brand-600 hover:bg-brand-700`}>
         {busy === 'send' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
         Mark as sent
       </button>
     )
+  } else if (active && locked && onlyNeedsReapproval) {
+    primary = (
+      <button type="button" onClick={handleReapprove} disabled={busy != null} className={`${PRIMARY_BTN} bg-emerald-600 hover:bg-emerald-700`}>
+        {busy === 'reapprove' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5" />}
+        Approve for sending
+      </button>
+    )
+    blockedReason = auditReason
+  } else if (active && locked) {
+    primary = (
+      <button type="button" onClick={scrollToAudit} className={`${PRIMARY_BTN} bg-brand-600 hover:bg-brand-700`}>
+        <ShieldAlert className="h-3.5 w-3.5" />
+        Resolve audit
+      </button>
+    )
+    blockedReason = `Sending unlocks once the Demand Quality Audit passes. ${auditReason}`
   } else if (active && dirty) {
     primary = (
       <button type="button" onClick={handleSave} disabled={busy != null} className={`${PRIMARY_BTN} bg-brand-600 hover:bg-brand-700`}>
@@ -514,6 +589,14 @@ export default function DemandLetterWorkspace({
       </button>
     )
     blockedReason = 'Finalize unlocks once every item in the attorney approval gate (right panel) is signed.'
+  } else if (active && !release?.ok) {
+    primary = (
+      <button type="button" onClick={scrollToAudit} className={`${PRIMARY_BTN} bg-brand-600 hover:bg-brand-700`}>
+        <ShieldAlert className="h-3.5 w-3.5" />
+        Resolve audit
+      </button>
+    )
+    blockedReason = `Finalize unlocks once the Demand Quality Audit passes. ${auditReason}`
   } else if (active) {
     primary = (
       <button type="button" onClick={handleFinalize} disabled={busy != null} className={`${PRIMARY_BTN} bg-emerald-600 hover:bg-emerald-700`}>
@@ -626,7 +709,7 @@ export default function DemandLetterWorkspace({
           </p>
         </div>
       ) : (
-        <div className={isSuper ? 'grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_360px]' : ''}>
+        <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
         <div className="min-w-0 rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-100 px-5 pb-3 pt-4">
             <div className="flex flex-wrap items-center gap-2">
@@ -801,6 +884,7 @@ export default function DemandLetterWorkspace({
 
           <div className="rounded-b-2xl bg-slate-100/70 px-3 py-5 sm:px-6">
             <textarea
+              ref={editorRef}
               value={draftText}
               onChange={(e) => setDraftText(e.target.value)}
               onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
@@ -814,17 +898,28 @@ export default function DemandLetterWorkspace({
             />
           </div>
         </div>
-        {isSuper ? (
-          <div className="xl:sticky xl:top-24 xl:max-h-[calc(100vh-7rem)] xl:overflow-y-auto">
-          <DemandIntelligencePanel
-            leadId={leadId}
-            letter={active}
-            readOnly={locked || !canWorkDemands}
-            onLetterUpdated={applyGateUpdate}
-            cursorLine={cursorLine}
-          />
+        <div className="space-y-4 xl:sticky xl:top-24 xl:max-h-[calc(100vh-7rem)] xl:overflow-y-auto">
+          <div id="demand-quality-audit">
+            <DemandQualityAuditPanel
+              leadId={leadId}
+              letter={active}
+              readOnly={!canWorkDemands}
+              onLetterUpdated={applyAuditPatch}
+              onShowInLetter={showInLetter}
+              onRelease={setRelease}
+              onRegenerate={locked ? undefined : () => handleRegenerate(isSuper)}
+            />
           </div>
-        ) : null}
+          {isSuper ? (
+            <DemandIntelligencePanel
+              leadId={leadId}
+              letter={active}
+              readOnly={locked || !canWorkDemands}
+              onLetterUpdated={applyGateUpdate}
+              cursorLine={cursorLine}
+            />
+          ) : null}
+        </div>
         </div>
       )}
 

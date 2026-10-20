@@ -473,6 +473,21 @@ export async function analyzeDemandLetter(letter: {
   return analyzeDemandIntelligence(superDemandContext(inputs, sections, style), letter)
 }
 
+/** The case as the letter was drafted from it, for the Demand Quality Audit. */
+export async function loadDemandAuditContext(letter: {
+  assessmentId: string
+  targetAmount: number
+  demandStyleId?: string | null
+}) {
+  const [inputs, style] = await Promise.all([
+    loadDemandInputs(letter.assessmentId),
+    resolveDemandStyle(letter.assessmentId, letter.demandStyleId ?? null),
+  ])
+  if (!inputs) return null
+  const { sections } = sectionsFor(inputs, { targetAmount: letter.targetAmount })
+  return { ctx: superDemandContext(inputs, sections, style), assessment: inputs.assessment }
+}
+
 /**
  * Compose a demand letter for a case.
  *

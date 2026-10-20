@@ -2764,6 +2764,11 @@ export interface DemandLetter {
   demandStyleId?: string | null
   approvalGate?: DemandApprovalGate | null
   versions?: DemandLetterVersion[]
+  /** The demand figure an attorney approved; null until one does. */
+  approvedDemandAmount?: number | null
+  demandAmountApprovedByName?: string | null
+  demandAmountApprovedAt?: string | null
+  demandAmountRationale?: string | null
 }
 
 export type DemandTemplate = 'super' | 'standard'
@@ -3024,6 +3029,132 @@ export async function getLeadDemandIntelligence(leadId: string, demandId: string
 export async function updateLeadDemandApprovalGate(leadId: string, demandId: string, items: Record<string, boolean>) {
   const { data } = await api.put(`${demandLettersPath(leadId)}/${demandId}/approval-gate`, { items })
   return data as DemandLetter
+}
+
+// ---- Demand Quality Audit ----------------------------------------------------
+export type DemandAuditSeverity = 'critical' | 'high' | 'medium' | 'low'
+export type DemandAuditSupport =
+  | 'supported'
+  | 'partially_supported'
+  | 'contradicted'
+  | 'unsupported'
+  | 'unverifiable'
+  | 'not_applicable'
+export type DemandAuditDisposition = 'attorney_judgment' | 'verified_authority' | 'manual_verification' | 'not_applicable' | 'acknowledged'
+
+export interface DemandAuditEvidence {
+  role: 'support' | 'conflict'
+  fileId: string | null
+  fileName: string | null
+  exhibit: number | null
+  page: number | null
+  quote: string
+  fileUrl: string | null
+}
+
+export interface DemandAuditFinding {
+  id: string
+  ruleId: string
+  ruleTitle: string
+  group: 'identity' | 'liability' | 'medical' | 'damages' | 'exhibits' | 'process'
+  /** fix: correct and rerun; attorney / reviewer: close with reasoning; acknowledge: one click. */
+  resolve: 'fix' | 'attorney' | 'reviewer' | 'acknowledge'
+  severity: DemandAuditSeverity
+  source: 'deterministic' | 'ai'
+  title: string
+  detail: string
+  claim: string | null
+  support: DemandAuditSupport | null
+  evidence: DemandAuditEvidence[]
+  recommendation: string | null
+  status: 'open' | 'resolved'
+  resolution: {
+    id: string
+    disposition: DemandAuditDisposition
+    reason: string
+    actorName: string | null
+    actorIsAttorney: boolean
+    createdAt: string
+  } | null
+}
+
+export interface DemandRelease {
+  ok: boolean
+  reasons: string[]
+  auditId: string | null
+  stale: { draft: boolean; sources: boolean; version: boolean }
+  openBySeverity: Record<DemandAuditSeverity, number>
+}
+
+export interface DemandAuditView {
+  audit: {
+    id: string
+    letterVersion: number
+    status: 'running' | 'complete' | 'failed'
+    aiStatus: 'ok' | 'skipped' | 'timeout' | 'error' | null
+    aiError: string | null
+    ruleVersion: string
+    modelVersion: string | null
+    evidenceCutoff: string | null
+    requestedByName: string | null
+    startedAt: string
+    completedAt: string | null
+    summary: {
+      critical: number
+      high: number
+      medium: number
+      low: number
+      open: number
+      resolved: number
+      claims: number
+      bySupport: Record<string, number>
+      sourcePages: number
+    } | null
+  } | null
+  findings: DemandAuditFinding[]
+  release: DemandRelease
+}
+
+export async function startDemandAudit(leadId: string, demandId: string) {
+  const { data } = await api.post(`${demandLettersPath(leadId)}/${demandId}/audits`)
+  return data as DemandAuditView
+}
+
+export async function getLatestDemandAudit(leadId: string, demandId: string) {
+  const { data } = await api.get(`${demandLettersPath(leadId)}/${demandId}/audits/latest`)
+  return data as DemandAuditView
+}
+
+export async function resolveDemandAuditFinding(
+  leadId: string,
+  auditId: string,
+  findingId: string,
+  body: { disposition: DemandAuditDisposition; reason: string },
+) {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/demand-audits/${auditId}/findings/${findingId}/resolutions`, body)
+  return data as DemandAuditView
+}
+
+export async function approveDemandAmount(leadId: string, demandId: string, body: { amount: number; rationale: string }) {
+  const { data } = await api.post(`${demandLettersPath(leadId)}/${demandId}/demand-amount-approval`, body)
+  return data as {
+    approvedDemandAmount: number
+    demandAmountApprovedByName: string | null
+    demandAmountApprovedAt: string
+    demandAmountRationale: string
+    changedFromLetter: boolean
+  }
+}
+
+/** Re-approve a finalized letter against a fresh passing audit. */
+export async function reapproveDemandLetter(leadId: string, demandId: string) {
+  const { data } = await api.post(`${demandLettersPath(leadId)}/${demandId}/approvals`)
+  return data as { release: DemandRelease }
+}
+
+export async function downloadDemandAuditReport(leadId: string, auditId: string) {
+  const res = await api.get(`/v1/attorney-dashboard/leads/${leadId}/demand-audits/${auditId}/report`, { responseType: 'blob' })
+  return res.data as Blob
 }
 
 export async function finalizeLeadDemandLetter(leadId: string, demandId: string) {

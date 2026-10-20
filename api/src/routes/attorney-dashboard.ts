@@ -255,6 +255,7 @@ import {
   saveDemandVersion,
 } from '../lib/demand-drafting'
 import { SUPER_DEMAND_TEMPLATE, summarizeApprovalGate, updateApprovalGate } from '../lib/super-demand'
+import { releaseDecision } from '../lib/demand-audit/service'
 import { defaultBatesPrefix, demandExhibitCandidates, formatBates } from '../lib/demand-pdf-package'
 import {
   enqueueDemandPackage,
@@ -2099,7 +2100,7 @@ function parseAuditMetadata(raw: string | null | undefined): Record<string, unkn
   }
 }
 
-async function writeAutomationAudit(args: {
+export async function writeAutomationAudit(args: {
   userId?: string | null
   attorneyId?: string | null
   action: string
@@ -17600,6 +17601,10 @@ const demandLetterSelect = {
   template: true,
   demandStyleId: true,
   approvalChecklist: true,
+  approvedDemandAmount: true,
+  demandAmountApprovedByName: true,
+  demandAmountApprovedAt: true,
+  demandAmountRationale: true,
 } as const
 
 /** The firm demand template asked for: an id, "default" for the platform package, or undefined for the firm's default. */
@@ -17646,6 +17651,10 @@ function serializeDemandLetter(letter: any, versions?: any[]) {
     updatedAt: letter.updatedAt,
     template: letter.template || null,
     demandStyleId: letter.demandStyleId || null,
+    approvedDemandAmount: letter.approvedDemandAmount ?? null,
+    demandAmountApprovedByName: letter.demandAmountApprovedByName || null,
+    demandAmountApprovedAt: letter.demandAmountApprovedAt || null,
+    demandAmountRationale: letter.demandAmountRationale || null,
     approvalGate:
       letter.template === SUPER_DEMAND_TEMPLATE
         ? summarizeApprovalGate(letter.approvalChecklist, letter.currentVersion)
@@ -17665,7 +17674,7 @@ function serializeDemandLetter(letter: any, versions?: any[]) {
   }
 }
 
-function requestActorName(reqUser: any): string | null {
+export function requestActorName(reqUser: any): string | null {
   return `${reqUser?.firstName || ''} ${reqUser?.lastName || ''}`.trim() || reqUser?.email || null
 }
 
@@ -18321,10 +18330,26 @@ router.post('/leads/:leadId/demand-letters/:demandId/finalize', authMiddleware, 
         })
       }
     }
+    // Finalizing is the attorney's approval of the letter; staff can prepare it but not approve it.
+    if (!attorney) {
+      return res.status(403).json({ error: 'Only an attorney can approve and finalize a demand.' })
+    }
+    const release = await releaseDecision(existing.id, 'finalize')
+    if (!release.ok) {
+      return res.status(409).json({ error: release.reasons[0], reasons: release.reasons, code: 'DEMAND_AUDIT_BLOCKED' })
+    }
 
     const letter = await prisma.demandLetter.update({
       where: { id: existing.id },
-      data: { status: 'FINAL', finalizedAt: new Date(), finalizedByName: requestActorName(req.user) },
+      data: {
+        status: 'FINAL',
+        finalizedAt: new Date(),
+        finalizedByName: requestActorName(req.user),
+        approvedAuditId: release.auditId,
+        approvedDraftHash: release.draftHash,
+        approvedSourceHash: release.sourceHash,
+        approvedById: req.user?.id ?? null,
+      },
       select: demandLetterSelect,
     })
 
@@ -18334,7 +18359,7 @@ router.post('/leads/:leadId/demand-letters/:demandId/finalize', authMiddleware, 
       action: 'demand_letter_finalized',
       entityType: 'demand_letter',
       entityId: letter.id,
-      metadata: { leadId: lead.id },
+      metadata: { leadId: lead.id, auditId: release.auditId, draftHash: release.draftHash, sourceHash: release.sourceHash },
     })
 
     res.json(serializeDemandLetter(letter))
@@ -18372,6 +18397,13 @@ router.post('/leads/:leadId/demand-letters/:demandId/send', authMiddleware, firm
     }
     if (existing.sentAt) {
       return res.status(400).json({ error: 'This demand has already been marked sent' })
+    }
+    if (!attorney) {
+      return res.status(403).json({ error: 'Only an attorney can send a demand.' })
+    }
+    const release = await releaseDecision(existing.id, 'send')
+    if (!release.ok) {
+      return res.status(409).json({ error: release.reasons[0], reasons: release.reasons, code: 'DEMAND_AUDIT_BLOCKED' })
     }
 
     const sentAt = req.body?.sentAt ? new Date(req.body.sentAt) : new Date()
@@ -18632,6 +18664,13 @@ router.post('/leads/:leadId/demand-letters/:demandId/packages/:packageId/email',
     }
     if (pkg.draft || (pkg.letterVersion != null && pkg.letterVersion !== letter.currentVersion)) {
       return res.status(400).json({ error: 'This package was built from an earlier draft. Build a new package from the final letter, then send that.' })
+    }
+    if (!attorney) {
+      return res.status(403).json({ error: 'Only an attorney can send a demand.' })
+    }
+    const release = await releaseDecision(letter.id, 'send')
+    if (!release.ok) {
+      return res.status(409).json({ error: release.reasons[0], reasons: release.reasons, code: 'DEMAND_AUDIT_BLOCKED' })
     }
 
     const to = String(req.body?.to || '').trim()

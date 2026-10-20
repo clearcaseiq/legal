@@ -1098,8 +1098,12 @@ const PAGE_TEXT_MIN_CHARS = 40
  * without pages (DOCX, plain text, a photo) come back as one page numbered null
  * for text, or 1 for an image.
  */
-export async function readDocumentPages(resolvedPath: string, mimetype: string): Promise<DocumentPage[]> {
-  const rasterAllowed = process.env.ENABLE_OCR !== 'false'
+export async function readDocumentPages(
+  resolvedPath: string,
+  mimetype: string,
+  options: { ocr?: boolean } = {},
+): Promise<DocumentPage[]> {
+  const rasterAllowed = options.ocr !== false && process.env.ENABLE_OCR !== 'false'
   const strength = (t: string) => (t || '').replace(/\s/g, '').length
   if (mimetype === 'application/pdf' || /\.pdf$/i.test(resolvedPath)) {
     let parser: PDFParseInstance | null = null
