@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { logger } from '../lib/logger'
-import { verifyZoomWebhookSignature, zoomUrlValidationResponse } from '../lib/zoom'
+import { handleZoomAppDeauthorized, verifyZoomWebhookSignature, zoomUrlValidationResponse } from '../lib/zoom'
 import { handleZoomMeetingEnded, handleZoomMeetingStarted } from '../lib/video-meetings'
 
 const router = Router()
@@ -32,6 +32,9 @@ router.post('/', async (req, res) => {
         break
       case 'meeting.ended':
         await handleZoomMeetingEnded(event.payload?.object || {})
+        break
+      case 'app_deauthorized':
+        await handleZoomAppDeauthorized(event.payload)
         break
       default:
         break

@@ -714,6 +714,89 @@ export const attorneyGuides: AttorneyGuide[] = [
       },
     ],
   },
+  {
+    slug: 'zoom-integration',
+    title: 'Zoom video calls',
+    summary:
+      'Connect your Zoom account, start video calls and schedule Zoom consultations from a case, and disconnect or remove the Zoom app at any time.',
+    readMinutes: 4,
+    updated: '2026-10-21',
+    sections: [
+      {
+        heading: 'What the Zoom integration does',
+        body:
+          'Connecting Zoom lets ClearCaseIQ create meetings on your own Zoom account. You can start an instant video call from a case or schedule a Zoom consultation, and the client gets the join link automatically. When a call ends, ClearCaseIQ adds a note to the case and drafts a time entry for you to review. Each attorney connects their own Zoom account; nothing is shared between attorneys.',
+      },
+      {
+        heading: 'Connect your Zoom account',
+        steps: [
+          'Open Case Management \u2192 Calendar and choose the Booking link tab.',
+          'Find the Zoom card and click Connect.',
+          'Sign in to Zoom if asked, review the permissions and click Allow.',
+          'You return to ClearCaseIQ and the Zoom card shows Connected with your Zoom email address.',
+        ],
+        tips: [
+          'You can also connect from a case: if Zoom is not connected yet, clicking "Start video call" shows a "Connect Zoom" link.',
+          'ClearCaseIQ asks Zoom only for what it needs: your basic profile, permission to create meetings, and the tokens used to start and join those meetings.',
+        ],
+        appLink: { label: 'Open Calendar settings', to: '/attorney-dashboard/cases/calendar?tab=booking' },
+      },
+      {
+        heading: 'Start a video call from a case',
+        steps: [
+          'Open the case and click "Start video call" in the case header.',
+          'A Zoom meeting is created on your account and opens in Zoom in a new tab, with you as the host.',
+          'The client is sent the join link as a message on the case, an in-app notification and an email.',
+        ],
+        tips: [
+          'If the client has no email on file, ClearCaseIQ tells you so. Click "Copy link" and send the link another way.',
+          'If nothing opens, allow pop-ups for ClearCaseIQ in your browser and click the button again.',
+        ],
+      },
+      {
+        heading: 'Schedule a Zoom consultation',
+        steps: [
+          'Book a consultation from a case or from your calendar and choose "Video (Zoom)" as the meeting type.',
+          'ClearCaseIQ creates the Zoom meeting when the consultation is booked and adds the link to the appointment.',
+          'The client sees a "Join video call" button on their dashboard for the upcoming consultation.',
+        ],
+      },
+      {
+        heading: 'After the call',
+        body:
+          'When a meeting on a case ends, ClearCaseIQ adds an internal note to the case, such as "Video call with client (Zoom), 18 min", and creates a draft, billable time entry for the call length at your hourly rate. Review and confirm the draft under Time & Billing before it can go on an invoice.',
+      },
+      {
+        heading: 'Disconnect Zoom in ClearCaseIQ',
+        steps: [
+          'Open Case Management \u2192 Calendar \u2192 Booking link.',
+          'On the Zoom card, click Disconnect.',
+        ],
+        tips: [
+          'Disconnecting revokes ClearCaseIQ\u2019s access at Zoom and deletes the Zoom tokens we stored for you.',
+          'Meetings already created stay on your Zoom account, and past call notes and time entries stay on their cases. Click Connect any time to reconnect.',
+        ],
+        appLink: { label: 'Open Calendar settings', to: '/attorney-dashboard/cases/calendar?tab=booking' },
+      },
+      {
+        heading: 'Remove the ClearCaseIQ app from Zoom',
+        steps: [
+          'Sign in at marketplace.zoom.us.',
+          'Click Manage, then Added Apps.',
+          'Find ClearCaseIQ and click Remove.',
+        ],
+        tips: [
+          'When you remove the app, Zoom notifies ClearCaseIQ and we delete the Zoom tokens and account details stored for you.',
+          'Starting a video call afterwards asks you to connect Zoom again.',
+        ],
+      },
+      {
+        heading: 'What ClearCaseIQ stores',
+        body:
+          'Your Zoom user ID, email address and display name; the access tokens that let us create meetings for you, encrypted at rest; and, for each meeting, its ID, join link, passcode, start and end times and duration. We do not store recordings, chat or anything said in the meeting. Questions: support@clearcaseiq.com.',
+      },
+    ],
+  },
 ]
 
 export function getAttorneyGuide(slug: string): AttorneyGuide | undefined {

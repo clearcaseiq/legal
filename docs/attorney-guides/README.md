@@ -16,3 +16,4 @@ Step-by-step guides for attorneys and firm staff using ClearCaseIQ. The same gui
 6. [E-signatures and firm templates](./e-signatures-and-templates.md): Build a library of firm documents, place signature fields on them, send them from a case for e-signature, and automate the retainer and welcome packet.
 7. [Demand, negotiation and settlement](./demand-negotiation-settlement.md): Know when a case is demand-ready, draft and finalize the demand letter, log negotiations and get the client’s decision, and model the settlement through to disbursement.
 8. [Billing, time and invoices](./billing-time-invoices.md): Track time on each case, set firm billing rates and approve time, invoice clients and record payments, and manage your own ClearCaseIQ account billing.
+9. [Zoom video calls](./zoom-integration.md): Connect your Zoom account, start video calls and schedule Zoom consultations from a case, and disconnect or remove the Zoom app at any time.

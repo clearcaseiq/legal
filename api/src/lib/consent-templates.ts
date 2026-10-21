@@ -192,10 +192,10 @@ Nothing in this section waives any right you have under California law that cann
     `.trim(),
   },
   privacy: {
-    version: '1.3',
-    documentId: 'privacy-v1.3',
+    version: '1.4',
+    documentId: 'privacy-v1.4',
     title: 'Privacy Policy',
-    effectiveDate: '2026-07-30',
+    effectiveDate: '2026-10-21',
     plainLanguageSummary: `ClearCaseIQ Corp., in Los Angeles, California, operates this platform. We collect what you give us (contact, case details, files you upload) and some technical data to run and secure the service. We use it to deliver the features you ask for. Your case information reaches a law firm only when you choose to send it, and only the firms you selected or authorized us to contact. The policy also describes the separate situation where a case arrives without anyone having selected firms, and how firms are ordered then. Participating law firms have commercial agreements with ClearCaseIQ for technology and platform services; you never pay us. California residents have specific rights under the CCPA/CPRA, including the right to opt out of the sale or sharing of personal information, described in full below.`,
     content: `
 # Privacy Policy
@@ -245,6 +245,15 @@ If you are a California resident, the California Consumer Privacy Act as amended
 **Exercising a right.** We verify your identity before acting on a request about your own information, respond within the time the statute allows, and accept requests from an authorized agent. Exercising these rights does not change the price or quality of anything we provide, because consumers never pay ClearCaseIQ.
 
 The section above describes how information actually moves through the platform, when it moves, and the role your authorization plays, so that you can evaluate those flows directly rather than relying on a summary label.
+
+## Zoom integration
+Attorneys and firm staff can connect their own Zoom account to start and schedule video calls with clients. When they do:
+
+- **What we receive from Zoom.** The connected user's Zoom user ID, email address and display name, and the OAuth tokens that let us create and start meetings on their behalf. For each meeting we create, we keep its meeting ID, join and start links, passcode, start and end times and duration.
+- **How we use it.** Only to create, start and join meetings the user asks for, to send the client the join link, and, when a meeting on a case ends, to add a call note and a draft time entry to that case.
+- **What we do not collect.** We do not access or store meeting recordings, chat, transcripts or anything said in a meeting.
+- **Storage and sharing.** Zoom tokens are stored on our servers in a database encrypted at rest, never sent to the browser, and not shared with or sold to anyone. Clients joining a call receive only the meeting link.
+- **Removal.** A user can disconnect Zoom in ClearCaseIQ or remove the ClearCaseIQ app from their Zoom account at any time. Either way we revoke or discard the tokens and delete the Zoom account details we stored. Meeting records, call notes and time entries already on a case remain part of that case file.
 
 ## Security
 We implement administrative, technical, and organizational measures designed to protect personal data, including encryption in transit where appropriate and access controls.

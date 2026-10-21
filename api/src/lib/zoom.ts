@@ -14,6 +14,7 @@ import { webBaseUrl } from './app-url'
 
 const ZOOM_OAUTH_AUTHORIZE_URL = 'https://zoom.us/oauth/authorize'
 const ZOOM_OAUTH_TOKEN_URL = 'https://zoom.us/oauth/token'
+const ZOOM_OAUTH_REVOKE_URL = 'https://zoom.us/oauth/revoke'
 const ZOOM_API_BASE = 'https://api.zoom.us/v2'
 
 // Scopes requested from Zoom. For user-managed apps Zoom ultimately enforces
@@ -220,8 +221,32 @@ export function serializeZoomConnection(connection: {
 }
 
 export async function disconnectAttorneyZoom(attorneyId: string) {
+  const connection = await prisma.attorneyZoomConnection.findFirst({
+    where: { attorneyId },
+    select: { accessToken: true },
+  })
+  // Revoking the access token ends the whole grant on Zoom's side. Best effort:
+  // our copy is deleted either way, so a Zoom outage cannot block a disconnect.
+  if (connection?.accessToken && isZoomConfigured()) {
+    await fetch(`${ZOOM_OAUTH_REVOKE_URL}?${new URLSearchParams({ token: connection.accessToken })}`, {
+      method: 'POST',
+      headers: { Authorization: basicAuthHeader() },
+    }).catch((error: any) => logger.warn('Zoom token revoke failed', { attorneyId, error: error?.message }))
+  }
   await prisma.attorneyZoomConnection.deleteMany({ where: { attorneyId } })
   return { disconnected: true }
+}
+
+/**
+ * Zoom's `app_deauthorized` event: the user removed ClearCaseIQ from their Zoom
+ * account, so the tokens we hold for them are dead and must be deleted.
+ */
+export async function handleZoomAppDeauthorized(payload: { user_id?: string } | undefined) {
+  const zoomUserId = String(payload?.user_id || '')
+  if (!zoomUserId) return 0
+  const { count } = await prisma.attorneyZoomConnection.deleteMany({ where: { externalAccountId: zoomUserId } })
+  logger.info('Zoom app deauthorized; connection removed', { zoomUserId, removed: count })
+  return count
 }
 
 export type ZoomMeeting = {
