@@ -61,6 +61,7 @@ export type WorkflowItemDraft = {
   custom?: boolean
   id?: string
   status?: string
+  blocksStage?: boolean | null
 }
 
 export type AdaptOp =
@@ -142,6 +143,25 @@ function normTitle(t: string): string {
 function findByTitle(items: WorkflowItemDraft[], title: string): number {
   const key = normTitle(title)
   return items.findIndex((it) => normTitle(it.title) === key)
+}
+
+type StageSlot = Pick<WorkflowItemDraft, 'phaseName' | 'phaseOrder' | 'stageName' | 'stageOrder'>
+
+function compareStage(a: StageSlot, b: StageSlot): number {
+  return (a.phaseOrder ?? 0) - (b.phaseOrder ?? 0) || a.stageOrder - b.stageOrder
+}
+
+/**
+ * Earliest stage still being worked on a live case workflow, else its last
+ * stage. Null for apply-time drafts that carry no status yet.
+ */
+function currentStageFloor(items: WorkflowItemDraft[]): StageSlot | null {
+  if (!items.some((it) => it.status)) return null
+  const ordered = [...items].sort(compareStage)
+  const working = ordered.find(
+    (it) => it.status === 'pending' && it.stepType !== 'ai_milestone' && it.blocksStage !== false,
+  )
+  return working ?? ordered[ordered.length - 1] ?? null
 }
 
 function sanitizeOp(raw: any): AdaptOp | null {
@@ -233,6 +253,7 @@ export function applyWorkflowAdaptPlan(
   const applied: AdaptOp[] = []
   const rejected: Array<{ op: AdaptOp; reason: string }> = []
   let addCount = 0
+  const floor = currentStageFloor(items)
 
   const ops = (plan.ops || []).slice(0, maxOps())
   for (const op of ops) {
@@ -381,6 +402,20 @@ export function applyWorkflowAdaptPlan(
         if (insertAt < 0) insertAt = items.length
       }
 
+      // A finished stage never reopens: new work lands in the stage the case is
+      // in now, otherwise it drags the case's active stage backwards.
+      if (floor && compareStage({ phaseName, phaseOrder, stageName, stageOrder }, floor) < 0) {
+        phaseName = floor.phaseName
+        phaseOrder = floor.phaseOrder
+        stageName = floor.stageName
+        stageOrder = floor.stageOrder
+        let lastInStage = -1
+        items.forEach((it, i) => {
+          if (compareStage(it, floor) === 0) lastInStage = i
+        })
+        insertAt = lastInStage >= 0 ? lastInStage + 1 : items.length
+      }
+
       const dueOffsetDays = op.step.dueOffsetDays ?? null
       const draft: WorkflowItemDraft = {
         phaseName,
@@ -482,6 +517,7 @@ ${steps || '(none)'}
 Rules:
 - Cover high-impact open gaps with add / annotate / retarget / reschedule when useful.
 - Prefer enriching existing steps (annotate description, retarget role, reschedule) before adding duplicates.
+- Stages whose steps are all done or skipped are closed. Add new steps only to the earliest stage that still has pending steps, or a later one (use a pending step there as afterTitle).
 - At most ${maxOps()} ops and at most ${maxAdds()} add ops.
 - NEVER skip or remove: conflict check, retainer / representation agreement, HIPAA / consent, SOL / statute of limitations, required steps, or ai_milestone steps.
 - When adding a step, ALWAYS include a short actionable description (what to do + why for this case) and a sensible assigneeRole + dueOffsetDays.
@@ -726,6 +762,7 @@ export async function adaptExistingCaseWorkflow(params: {
     sortOrder: it.sortOrder,
     custom: Boolean(it.custom),
     status: it.status,
+    blocksStage: it.blocksStage,
   }))
 
   const { plan, runId } = await requestAdaptPlan({

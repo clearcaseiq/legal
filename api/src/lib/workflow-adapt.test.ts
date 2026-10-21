@@ -169,6 +169,51 @@ describe('applyWorkflowAdaptPlan', () => {
     expect(result.applied).toHaveLength(0)
     expect(result.rejected[0]?.reason).toBe('protected_step')
   })
+
+  describe('on a live case past earlier stages', () => {
+    const demand = { phaseName: 'Demand Preparation', phaseOrder: 2, stageName: 'Demand Package', stageOrder: 3 }
+    const negotiation = { phaseName: 'Negotiation', phaseOrder: 3, stageName: 'Negotiation', stageOrder: 4 }
+    const live: WorkflowItemDraft[] = [
+      draft({ id: 'sol', title: 'Calendar statute of limitations', stepType: 'deadline', status: 'pending', blocksStage: false }),
+      draft({ id: 'open', title: 'Send client welcome packet', status: 'done' }),
+      draft({ id: 'dp', title: 'Prepare daily-impact statement', status: 'done', ...demand }),
+      draft({ id: 'neg1', title: 'Evaluate offer vs. case value', status: 'pending', ...negotiation }),
+      draft({ id: 'neg2', title: 'Client approval of settlement terms', status: 'pending', ...negotiation }),
+    ]
+
+    it('moves a step anchored in a finished stage into the current stage', () => {
+      const result = applyWorkflowAdaptPlan(live, {
+        rationale: 'impact gap',
+        ops: [
+          {
+            op: 'add',
+            afterTitle: 'Prepare daily-impact statement',
+            step: { title: 'Conduct Follow-up Interview on Daily Impact' },
+          },
+        ],
+      })
+      const added = result.items.find((i) => i.title === 'Conduct Follow-up Interview on Daily Impact')
+      expect(added).toMatchObject({ stageName: 'Negotiation', stageOrder: 4, phaseOrder: 3 })
+      expect(result.items[result.items.length - 1]).toBe(added)
+    })
+
+    it('does not drop unanchored steps into Case Opening', () => {
+      const result = applyWorkflowAdaptPlan(live, {
+        rationale: 'x',
+        ops: [{ op: 'add', step: { title: 'Request wage verification' } }],
+      })
+      expect(result.items.find((i) => i.title === 'Request wage verification')?.stageName).toBe('Negotiation')
+    })
+
+    it('keeps steps anchored in the current or a later stage where the model put them', () => {
+      const result = applyWorkflowAdaptPlan(live, {
+        rationale: 'x',
+        ops: [{ op: 'add', afterTitle: 'Evaluate offer vs. case value', step: { title: 'Pull comparable verdicts' } }],
+      })
+      const titles = result.items.map((i) => i.title)
+      expect(titles.indexOf('Pull comparable verdicts')).toBe(titles.indexOf('Evaluate offer vs. case value') + 1)
+    })
+  })
 })
 
 describe('openGapFingerprint', () => {
