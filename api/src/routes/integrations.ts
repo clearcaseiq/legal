@@ -38,40 +38,27 @@ import {
   verifyCmsState,
 } from '../lib/cms'
 import { createSyncApiKey } from '../lib/sync-auth'
+import { resolveFirmAccess } from '../lib/firm-access'
 
 const router = Router()
 
-/** Resolve the acting user's firm + attorney identity. */
+/**
+ * Resolve the acting user's firm + attorney identity.
+ *
+ * The firm must come from `resolveFirmAccess`, the same resolver the firm
+ * dashboard uses: imported cases are stamped with this firm, and any other
+ * answer files them under a firm whose caseload the importer never sees.
+ */
 async function getActorContext(req: AuthRequest): Promise<{
   lawFirmId: string | null
   attorneyId: string | null
 }> {
+  const access = await resolveFirmAccess(prisma as any, req.user).catch(() => null)
   const email = req.user?.email
-  const userId = req.user?.id
-  let attorneyId: string | null = null
-  let lawFirmId: string | null = null
-
-  if (email) {
-    const attorney = await prisma.attorney.findFirst({
-      where: { email },
-      select: { id: true, lawFirmId: true },
-    })
-    if (attorney) {
-      attorneyId = attorney.id
-      lawFirmId = attorney.lawFirmId
-    }
-  }
-  if (!lawFirmId && userId) {
-    const member = await prisma.firmMember.findFirst({
-      where: { userId, status: 'active' },
-      select: { lawFirmId: true, attorneyId: true },
-    })
-    if (member) {
-      lawFirmId = member.lawFirmId
-      attorneyId = attorneyId ?? member.attorneyId
-    }
-  }
-  return { lawFirmId, attorneyId }
+  const attorney = email
+    ? await prisma.attorney.findFirst({ where: { email }, select: { id: true } })
+    : null
+  return { lawFirmId: access?.lawFirmId ?? null, attorneyId: attorney?.id ?? access?.attorneyId ?? null }
 }
 
 function frontendRedirect(provider: string, status: 'success' | 'error', error?: string) {

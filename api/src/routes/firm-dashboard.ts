@@ -88,6 +88,19 @@ function isActiveFirmCase(assessment: any): boolean {
   return true
 }
 
+/**
+ * Whether the attorney a case's lead is assigned to is an active member of the
+ * firm. `Attorney.lawFirmId` can name another firm, so the firm roster also
+ * claims cases through membership.
+ */
+async function ownedByActiveMember(attorneyId: string | null | undefined, lawFirmId: string): Promise<boolean> {
+  if (!attorneyId) return false
+  const member = await (prisma as any).firmMember
+    .findFirst({ where: { lawFirmId, attorneyId, status: 'active' }, select: { id: true } })
+    .catch(() => null)
+  return Boolean(member)
+}
+
 const router: Router = Router()
 
 // Firm invites are single-use, expiring "set password" links. We reuse the
@@ -1152,7 +1165,8 @@ router.post('/cases/:assessmentId/assignments', authMiddleware as any, async (re
     const belongsToFirm =
       assessment.lawFirmId === context.lawFirmId ||
       assessment.leadSubmission?.assignedAttorney?.lawFirmId === context.lawFirmId ||
-      assessment.introductions?.some((intro: any) => intro.attorney?.lawFirmId === context.lawFirmId)
+      assessment.introductions?.some((intro: any) => intro.attorney?.lawFirmId === context.lawFirmId) ||
+      (await ownedByActiveMember(assessment.leadSubmission?.assignedAttorneyId, context.lawFirmId))
 
     if (!belongsToFirm) {
       return res.status(403).json({ error: 'This case does not belong to your firm' })
@@ -1304,7 +1318,8 @@ router.patch('/cases/:assessmentId/office', authMiddleware as any, async (req: a
     const belongsToFirm =
       assessment.lawFirmId === context.lawFirmId ||
       assessment.leadSubmission?.assignedAttorney?.lawFirmId === context.lawFirmId ||
-      assessment.introductions?.some((intro: any) => intro.attorney?.lawFirmId === context.lawFirmId)
+      assessment.introductions?.some((intro: any) => intro.attorney?.lawFirmId === context.lawFirmId) ||
+      (await ownedByActiveMember(assessment.leadSubmission?.assignedAttorneyId, context.lawFirmId))
     if (!belongsToFirm) return res.status(403).json({ error: 'This case does not belong to your firm' })
 
     let resolvedOfficeId: string | null = null
@@ -1738,6 +1753,11 @@ router.get('/cases/:assessmentId', authMiddleware as any, async (req: any, res: 
         OR: [
           { lawFirmId: context.lawFirmId },
           { leadSubmission: { assignedAttorney: { lawFirmId: context.lawFirmId } } },
+          {
+            leadSubmission: {
+              assignedAttorney: { firmMemberships: { some: { lawFirmId: context.lawFirmId, status: 'active' } } },
+            },
+          },
           { introductions: { some: { attorney: { lawFirmId: context.lawFirmId } } } },
         ],
       },
@@ -2484,24 +2504,37 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
       }).catch(() => []),
       (prisma as any).assessment.findMany({
         where: {
-          OR: [
-            { lawFirmId: firm.id },
+          // Everything below drops non-active cases, so filter them here: the
+          // `take` cap otherwise fills with unaccepted marketplace leads and
+          // closed matters and pushes live cases off the roster.
+          AND: [
             {
-              leadSubmission: {
-                assignedAttorney: {
-                  lawFirmId: firm.id
-                }
-              }
-            },
-            {
-              introductions: {
-                some: {
-                  attorney: {
-                    lawFirmId: firm.id
+              OR: [
+                { lawFirmId: firm.id },
+                {
+                  leadSubmission: {
+                    assignedAttorney: {
+                      OR: [
+                        { lawFirmId: firm.id },
+                        // `Attorney.lawFirmId` can name another firm (an old solo
+                        // firm, a stale invite); active membership is what counts.
+                        { firmMemberships: { some: { lawFirmId: firm.id, status: 'active' } } },
+                      ],
+                    }
+                  }
+                },
+                {
+                  introductions: {
+                    some: {
+                      attorney: {
+                        lawFirmId: firm.id
+                      }
+                    }
                   }
                 }
-              }
-            }
+              ]
+            },
+            { leadSubmission: { status: { in: ACTIVE_LEAD_STATUSES } } },
           ]
         },
         include: {
