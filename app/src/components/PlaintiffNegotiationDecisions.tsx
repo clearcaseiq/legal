@@ -8,6 +8,7 @@ import {
 } from '../lib/api'
 import { useLanguage } from '../contexts/LanguageContext'
 import { formatCurrency } from '../lib/formatters'
+import { useRealtimeEvent } from '../lib/realtime'
 import { dateLocale } from '../i18n'
 import ConfirmDialog from './ConfirmDialog'
 
@@ -25,6 +26,9 @@ export default function PlaintiffNegotiationDecisions({ assessmentId }: { assess
   const [error, setError] = useState<string | null>(null)
   const [confirming, setConfirming] = useState<{ entry: NegotiationEntry; decision: 'accepted' | 'declined' } | null>(null)
 
+  const [reloadKey, setReloadKey] = useState(0)
+  const reload = () => setReloadKey((n) => n + 1)
+
   useEffect(() => {
     if (!assessmentId) return
     let cancelled = false
@@ -36,7 +40,16 @@ export default function PlaintiffNegotiationDecisions({ assessmentId }: { assess
     return () => {
       cancelled = true
     }
-  }, [assessmentId])
+  }, [assessmentId, reloadKey])
+
+  // The attorney sharing (or withdrawing) an offer shows up without a refresh.
+  useRealtimeEvent(
+    'negotiation:updated',
+    (event) => {
+      if (event.assessmentId === assessmentId) reload()
+    },
+    reload,
+  )
 
   if (!assessmentId || entries.length === 0) return null
 

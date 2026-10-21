@@ -604,6 +604,10 @@ export default function Dashboard() {
   // other update) — pull the Tasks and Documents lists without a manual refresh.
   const refreshCaseActivity = (assessmentId: string) => {
     void refreshCaseDocuments(assessmentId)
+    // The case stage (progress pipeline) moves with offers, demands and settlement.
+    getAssessment(assessmentId)
+      .then((detail) => setActiveAssessment((current) => (current?.id === assessmentId ? detail : current)))
+      .catch(() => undefined)
     getPlaintiffSignedDocuments(assessmentId)
       .then((data) => setSignedDocuments(Array.isArray(data?.documents) ? data.documents : []))
       .catch(() => undefined)

@@ -8,7 +8,9 @@ const users: Record<string, { id: string; email: string; isActive: boolean }> = 
   'tok-loser': { id: 'u-loser', email: 'loser@firm-b.test', isActive: true },
   'tok-staff': { id: 'u-staff', email: 'staff@firm-b.test', isActive: true },
   'tok-mixed': { id: 'u-mixed', email: 'Mixed@Firm-C.test', isActive: true },
+  'tok-plaintiff': { id: 'u-plaintiff', email: 'claimant@example.test', isActive: true },
 }
+const hooks = vi.hoisted(() => ({ middleware: null as null | ((params: any, next: (p: any) => Promise<any>) => Promise<any>) }))
 const attorneys: Record<string, { id: string; lawFirmId: string | null }> = {
   'winner@firm-a.test': { id: 'att-winner', lawFirmId: 'firm-a' },
   'loser@firm-b.test': { id: 'att-loser', lawFirmId: 'firm-b' },
@@ -34,6 +36,18 @@ vi.mock('./prisma', () => ({
     },
     firmMember: {
       findFirst: async ({ where }: any) => (where.userId === 'u-staff' ? { lawFirmId: 'firm-b' } : null),
+    },
+    assessment: {
+      findUnique: async ({ where }: any) =>
+        where.id === 'asm-9'
+          ? {
+              userId: 'u-plaintiff',
+              leadSubmission: { id: 'lead-9', assignedAttorneyId: 'att-loser', assignedAttorney: { lawFirmId: 'firm-b' } },
+            }
+          : null,
+    },
+    $use: (fn: any) => {
+      hooks.middleware = fn
     },
   },
 }))
@@ -101,6 +115,41 @@ describe('realtime lead:claimed', () => {
     const pending = nextEvent(mixed)
     emitLeadClaimed({ assessmentId: 'asm-2', leadId: 'lead-2' }, { attorneyIds: ['att-mixed'], lawFirmIds: [] })
     expect(await pending).toEqual({ assessmentId: 'asm-2', leadId: 'lead-2' })
+  })
+})
+
+describe('realtime negotiation:updated', () => {
+  it('reaches the claimant, the assigned attorney and their firm when an offer is written', async () => {
+    const [plaintiff, winner, loser, staff] = await Promise.all([
+      open('tok-plaintiff'),
+      open('tok-winner'),
+      open('tok-loser'),
+      open('tok-staff'),
+    ])
+    const pending = [plaintiff, winner, loser, staff].map((s) => nextEvent(s, 'negotiation:updated'))
+
+    // The attorney sharing an offer: the write itself raises the push.
+    await hooks.middleware!(
+      { model: 'NegotiationEvent', action: 'create', args: { data: { assessmentId: 'asm-9' } } },
+      async () => ({ id: 'neg-1', assessmentId: 'asm-9' }),
+    )
+
+    const [toPlaintiff, toWinner, toLoser, toStaff] = await Promise.all(pending)
+    const event = { assessmentId: 'asm-9', leadId: 'lead-9' }
+    expect(toPlaintiff).toEqual(event)
+    expect(toLoser).toEqual(event)
+    expect(toStaff).toEqual(event)
+    expect(toWinner).toBeNull()
+  })
+
+  it('fires on the claimant decision, which writes with updateMany', async () => {
+    const loser = await open('tok-loser')
+    const pending = nextEvent(loser, 'negotiation:updated')
+    await hooks.middleware!(
+      { model: 'NegotiationEvent', action: 'updateMany', args: { where: { id: 'neg-1', assessmentId: 'asm-9' } } },
+      async () => ({ count: 1 }),
+    )
+    expect(await pending).toEqual({ assessmentId: 'asm-9', leadId: 'lead-9' })
   })
 })
 

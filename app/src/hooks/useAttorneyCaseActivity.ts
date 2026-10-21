@@ -14,6 +14,7 @@ import {
   getLeadPayments,
   updateLeadNegotiation,
 } from '../lib/api'
+import { useRealtimeEvent } from '../lib/realtime'
 import { invalidateAttorneyDashboardSummary } from './useAttorneyDashboardSummary'
 
 const DEFAULT_NEGOTIATION_FORM = {
@@ -238,6 +239,21 @@ export function useAttorneyCaseActivity(selectedLeadId?: string) {
     void loadInvoices()
     void loadPayments()
   }, [selectedLeadId])
+
+  const reloadNegotiations = useCallback(() => {
+    if (!selectedLeadId) return
+    getLeadNegotiations(selectedLeadId)
+      .then((records) => setNegotiationItems(Array.isArray(records) ? records : []))
+      .catch(() => undefined)
+  }, [selectedLeadId])
+
+  useRealtimeEvent(
+    'negotiation:updated',
+    (event) => {
+      if (event.leadId && event.leadId === selectedLeadId) reloadNegotiations()
+    },
+    reloadNegotiations,
+  )
 
   return {
     handleAddInvoice,

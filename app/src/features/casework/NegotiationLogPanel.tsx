@@ -140,31 +140,24 @@ export default function NegotiationLogPanel({
     onChanged?.()
   }
 
-  // The plaintiff's accept/decline lands as an attorney notification; reload on it
-  // instead of leaving "Awaiting client" up until a manual refresh.
+  // The client's accept/decline, and entries a colleague logs, reach the
+  // assigned attorney and the whole firm, so "Awaiting client" clears live.
   useRealtimeEvent(
-    'notification:new',
+    'negotiation:updated',
     (event) => {
-      if (event.kind === 'attorney.negotiation_decision') refreshAfterClientDecision()
+      if (event.leadId === leadId) refreshAfterClientDecision()
     },
     () => void load(),
   )
 
-  // Firm members other than the assigned attorney get no push, so catch up on
-  // focus and poll lightly while a decision is outstanding.
+  // Catch up when the tab comes back, in case the socket was down meanwhile.
   useEffect(() => {
     if (!awaitingClient) return
     const onVisible = () => {
       if (document.visibilityState === 'visible') refreshAfterClientDecision()
     }
     document.addEventListener('visibilitychange', onVisible)
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === 'visible') void load()
-    }, 30_000)
-    return () => {
-      document.removeEventListener('visibilitychange', onVisible)
-      window.clearInterval(timer)
-    }
+    return () => document.removeEventListener('visibilitychange', onVisible)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [awaitingClient, leadId])
 

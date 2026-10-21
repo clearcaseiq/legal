@@ -181,6 +181,10 @@ function pushOnWrites(): void {
         void emitMessageNew({ chatRoomId: result.chatRoomId, senderType: result.senderType ?? null })
       }
     }
+    if (params.model === 'NegotiationEvent' && TASK_WRITE_ACTIONS.has(params.action)) {
+      const assessmentId = result?.assessmentId ?? params.args?.where?.assessmentId ?? params.args?.data?.assessmentId
+      if (typeof assessmentId === 'string') void emitNegotiationUpdated(assessmentId)
+    }
     if (params.model === 'CaseTask' && TASK_WRITE_ACTIONS.has(params.action)) {
       const assessmentId = result?.assessmentId ?? params.args?.where?.assessmentId ?? params.args?.data?.assessmentId
       if (typeof assessmentId === 'string') void emitTasksUpdated(assessmentId)
@@ -224,6 +228,42 @@ export async function emitTasksUpdated(assessmentId: string): Promise<void> {
     if (rooms.length) io.to(rooms).emit('tasks:updated', { assessmentId, leadId: lead.id } satisfies TasksUpdatedEvent)
   } catch (err) {
     logger.warn('Realtime tasks:updated emit failed', { assessmentId, error: (err as Error).message })
+  }
+}
+
+export type NegotiationUpdatedEvent = {
+  assessmentId: string
+  leadId: string | null
+}
+
+/**
+ * An offer, counter or the client's decision on one changed. Pushed to both
+ * sides: the attorney's Negotiation tab and the claimant's decision card.
+ */
+export async function emitNegotiationUpdated(assessmentId: string): Promise<void> {
+  if (!io) return
+  try {
+    const assessment = await prisma.assessment.findUnique({
+      where: { id: assessmentId },
+      select: {
+        userId: true,
+        leadSubmission: {
+          select: { id: true, assignedAttorneyId: true, assignedAttorney: { select: { lawFirmId: true } } },
+        },
+      },
+    })
+    if (!assessment) return
+    const lead = assessment.leadSubmission
+    const rooms = [
+      assessment.userId ? `user:${assessment.userId}` : null,
+      lead?.assignedAttorneyId ? `attorney:${lead.assignedAttorneyId}` : null,
+      lead?.assignedAttorney?.lawFirmId ? `firm:${lead.assignedAttorney.lawFirmId}` : null,
+    ].filter((r): r is string => Boolean(r))
+    if (rooms.length) {
+      io.to(rooms).emit('negotiation:updated', { assessmentId, leadId: lead?.id ?? null } satisfies NegotiationUpdatedEvent)
+    }
+  } catch (err) {
+    logger.warn('Realtime negotiation:updated emit failed', { assessmentId, error: (err as Error).message })
   }
 }
 

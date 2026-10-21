@@ -67,7 +67,13 @@ export type ClientUpdatedEvent = {
   leadId: string | null
 }
 
+export type NegotiationUpdatedEvent = {
+  assessmentId: string
+  leadId: string | null
+}
+
 type RealtimeEvents = {
+  'negotiation:updated': NegotiationUpdatedEvent
   'client:updated': ClientUpdatedEvent
   'tasks:updated': TasksUpdatedEvent
   'attorney:verified': AttorneyVerifiedEvent
