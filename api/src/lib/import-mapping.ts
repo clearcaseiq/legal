@@ -152,7 +152,10 @@ export function normalizeClaimType(value: string) {
   if (text.includes('premise') || text.includes('slip') || text.includes('fall')) return 'slip_and_fall'
   if (text.includes('medical') || text.includes('malpractice') || text.includes('med mal')) return 'medmal'
   if (text.includes('dog')) return 'dog_bite'
-  if (text.includes('auto') || text.includes('motor') || text.includes('vehicle') || text.includes('mva')) return 'auto'
+  if (
+    text.includes('auto') || text.includes('motor') || text.includes('vehicle') || text.includes('mva') ||
+    /\b(car|truck|bus|rideshare|uber|lyft|collision|rear.?end)\b/.test(text)
+  ) return 'auto'
   return value ? value.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') : 'auto'
 }
 

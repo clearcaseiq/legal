@@ -24,8 +24,10 @@ import {
   type ImportInviteResult,
   type ImportPreview,
   type ImportResult,
+  type MatterPackageSummary,
 } from '../lib/api'
 import AttorneyDashboardCaseloadSync from './AttorneyDashboardCaseloadSync'
+import MatterMigrationPanel from './MatterMigrationPanel'
 
 type AttorneyDashboardIntakeTabProps = {
   onGoToLeads: () => void
@@ -65,7 +67,15 @@ const MAP_FIELDS: Array<{ key: string; label: string; synonyms: string[] }> = [
 
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '')
 
-type ParsedPreview = { fileName: string; headers: string[]; rows: Record<string, string>[]; unsupported?: string }
+type ParsedPreview = {
+  fileName: string
+  headers: string[]
+  rows: Record<string, string>[]
+  unsupported?: string
+  matterPackage?: MatterPackageSummary | null
+}
+
+type ImportMode = 'basic' | 'matter'
 
 /** The last segment of a dotted path: `case.incident_date` -> `incident_date`. */
 const headerLeaf = (header: string) => header.slice(header.lastIndexOf('.') + 1)
@@ -211,6 +221,7 @@ export default function AttorneyDashboardIntakeTab({ onGoToLeads }: AttorneyDash
   // where it has a file but no columns for it yet.
   const [previewLoading, setPreviewLoading] = useState(false)
   const [mapping, setMapping] = useState<Record<string, string>>({})
+  const [importMode, setImportMode] = useState<ImportMode>('basic')
   const [importForm, setImportForm] = useState({
     source: 'clio',
     includeHistory: true,
@@ -253,6 +264,8 @@ export default function AttorneyDashboardIntakeTab({ onGoToLeads }: AttorneyDash
       const parsed = await parseImportFilePreview(firstFile)
       setPreview(parsed)
       setMapping(parsed.headers.length ? guessMapping(parsed.headers) : {})
+      // A matter package flattened into the mapping screen reads as one junk row.
+      if (parsed.matterPackage) setImportMode('matter')
     } catch (err: any) {
       setPreview({
         fileName: firstFile.name,
@@ -598,6 +611,29 @@ export default function AttorneyDashboardIntakeTab({ onGoToLeads }: AttorneyDash
           })}
         </div>
 
+        <label className="mb-2 mt-4 block text-xs font-semibold uppercase tracking-wide text-slate-400">Import type</label>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          {(
+            [
+              { value: 'basic', label: 'Basic case import', desc: 'CSV, Excel or JSON with one row per case: client details and accident facts.' },
+              { value: 'matter', label: 'Complete matter migration', desc: 'A whole matter with its contacts, insurance, medical visits and bills, notes, tasks and history.' },
+            ] as const
+          ).map((m) => {
+            const active = importMode === m.value
+            return (
+              <button
+                key={m.value}
+                type="button"
+                onClick={() => setImportMode(m.value)}
+                className={`rounded-xl border px-3 py-2.5 text-left transition ${active ? 'border-brand-400 bg-brand-50 ring-1 ring-inset ring-brand-200' : 'border-slate-200 bg-white hover:border-slate-300'}`}
+              >
+                <div className={`text-sm font-semibold ${active ? 'text-brand-700' : 'text-slate-800'}`}>{m.label}</div>
+                <div className="text-[11px] text-slate-500">{m.desc}</div>
+              </button>
+            )
+          })}
+        </div>
+
         {/* Drag & drop upload */}
         <div className="mt-4">
           <div
@@ -657,6 +693,36 @@ export default function AttorneyDashboardIntakeTab({ onGoToLeads }: AttorneyDash
           </div>
         )}
 
+        {importMode === 'matter' && importForm.files.length > 0 && !previewLoading && (
+          preview && !preview.matterPackage && !preview.unsupported ? (
+            <div className="mt-4 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>
+                This file has one row per case, not related tables. Use Basic case import for it, or export the matter
+                with its tables (for example tables.Matters, tables.Contacts, tables.Medical_Visits), or a workbook
+                with one sheet per table.
+              </span>
+            </div>
+          ) : (
+            <MatterMigrationPanel source={importForm.source} files={importForm.files} />
+          )
+        )}
+
+        {importMode === 'basic' && preview?.matterPackage && (
+          <div className="mt-4 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              This file is a complete matter package ({preview.matterPackage.tablesFound.map((t) => t.label).join(', ')}).
+              Basic import would read it as a single row and lose its related records.{' '}
+              <button type="button" onClick={() => setImportMode('matter')} className="font-semibold underline">
+                Switch to Complete matter migration
+              </button>
+            </span>
+          </div>
+        )}
+
+        {importMode === 'basic' && (
+        <>
         {/* Preview & column mapping */}
         {preview && (
           <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/60 p-4">
@@ -944,6 +1010,8 @@ export default function AttorneyDashboardIntakeTab({ onGoToLeads }: AttorneyDash
               </button>
             </div>
           </div>
+        )}
+        </>
         )}
 
         {importMessage && <Banner message={importMessage} />}

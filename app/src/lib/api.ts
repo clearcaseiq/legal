@@ -5282,6 +5282,96 @@ export interface ImportFilePreview {
   rowCount: number
   /** Why the file could not be read, in words worth showing as-is. */
   unsupportedReason: string | null
+  /** Set when the file is a relational matter package rather than one row per case. */
+  matterPackage: MatterPackageSummary | null
+}
+
+export type MatterRecordCounts = {
+  contacts: number
+  medicalVisits: number
+  medicalBills: number
+  insurance: number
+  liens: number
+  expenses: number
+  negotiations: number
+  tasks: number
+  notes: number
+  timeline: number
+  documents: number
+}
+
+export type MatterPackageIssue = {
+  severity: 'error' | 'warning'
+  table: string
+  recordId: string | null
+  message: string
+}
+
+export interface MatterPackageSummary {
+  matterCount: number
+  tablesFound: Array<{ kind: string; label: string; rows: number }>
+  unrecognizedTables: string[]
+  matters: Array<{ externalId: string; label: string; counts: MatterRecordCounts }>
+}
+
+export interface MatterPackagePreviewMatter {
+  externalId: string
+  label: string
+  claimType: string
+  incidentDate: string | null
+  incidentDateAmbiguous: boolean
+  venueState: string | null
+  venueCounty: string | null
+  clientName: string | null
+  clientEmail: string | null
+  counts: MatterRecordCounts
+  issues: MatterPackageIssue[]
+  importable: boolean
+  existingAssessmentId: string | null
+  action: 'create' | 'merge' | 'skip' | 'blocked'
+}
+
+export interface MatterImportReportRow {
+  externalId: string
+  label: string
+  outcome: 'created' | 'merged' | 'unchanged' | 'skipped' | 'failed'
+  assessmentId: string | null
+  leadId?: string | null
+  imported: MatterRecordCounts
+  alreadyImported: number
+  reason?: string
+}
+
+export interface MatterPackageImportResponse {
+  dryRun: boolean
+  source: string
+  duplicateMode: 'skip' | 'merge'
+  tablesFound: Array<{ kind: string; label: string; rows: number }>
+  unrecognizedTables: string[]
+  unreadableFiles: string[]
+  issues: MatterPackageIssue[]
+  matters: MatterPackagePreviewMatter[]
+  skippedRecordCount: number
+  importId?: string
+  report?: MatterImportReportRow[]
+}
+
+/** Complete matter migration: preview with `dryRun`, then commit. */
+export async function importMatterPackage(payload: {
+  source: string
+  files: File[]
+  dryRun?: boolean
+  duplicateMode?: 'skip' | 'merge'
+}): Promise<MatterPackageImportResponse> {
+  const formData = new FormData()
+  formData.append('source', payload.source)
+  if (payload.dryRun) formData.append('dryRun', 'true')
+  if (payload.duplicateMode) formData.append('duplicateMode', payload.duplicateMode)
+  payload.files.forEach((file) => formData.append('files', file))
+  const { data } = await api.post('/v1/attorney-dashboard/intake/import-matter', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+  return data
 }
 
 /**
@@ -5304,6 +5394,7 @@ export async function parseImportFilePreview(file: File) {
     headers: parsed?.headers ?? [],
     rows: parsed?.rows ?? [],
     unsupported: parsed?.unsupportedReason ?? undefined,
+    matterPackage: parsed?.matterPackage ?? null,
   }
 }
 

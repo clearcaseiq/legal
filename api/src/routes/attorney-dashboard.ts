@@ -103,6 +103,17 @@ import { z } from 'zod'
 import { Document, Packer, Paragraph, TextRun } from 'docx'
 import * as XLSX from 'xlsx'
 import { TabularParseError, flattenRow, parseTabularText } from '../lib/tabular-import'
+import {
+  buildMatterPackagePlan,
+  bundleCounts,
+  detectMatterPackage,
+  detectMatterPackageFromSheets,
+  matterIsImportable,
+  stateCode,
+  type MatterPackagePlan,
+  type MatterPackageTables,
+} from '../lib/matter-package'
+import { EMPTY_BUNDLE_COUNTS, importMatterBundle, type MatterImportReport } from '../lib/matter-package-import'
 import PDFDocument from 'pdfkit'
 import crypto from 'crypto'
 import { calculateSOL, getSOLStatus, deriveSOLStatusFromFacts } from '../lib/solRules'
@@ -8848,6 +8859,189 @@ router.post('/intake/clone-template', authMiddleware, async (req: any, res) => {
 })
 
 /**
+ * The related tables in an upload, when it is a whole-matter package rather
+ * than a flat list of cases. Null for anything the basic importer should read.
+ */
+function readMatterPackage(file: Express.Multer.File): MatterPackageTables | null {
+  try {
+    const extension = path.extname(file.originalname).toLowerCase()
+    if (['.xlsx', '.xls'].includes(extension)) {
+      const workbook = XLSX.read(file.buffer, { type: 'buffer', cellDates: true })
+      const sheets = Object.fromEntries(
+        workbook.SheetNames.map((name) => [
+          name,
+          XLSX.utils.sheet_to_json<Record<string, unknown>>(workbook.Sheets[name], { defval: '', raw: false }),
+        ]),
+      )
+      return detectMatterPackageFromSheets(sheets)
+    }
+    const text = file.buffer.toString('utf8')
+    const trimmed = text.replace(/^\uFEFF/, '').trimStart()
+    if (!trimmed.startsWith('{')) return null
+    return detectMatterPackage(JSON.parse(trimmed))
+  } catch {
+    return null
+  }
+}
+
+function matterPackageSummary(plan: MatterPackagePlan) {
+  return {
+    matterCount: plan.matters.length,
+    tablesFound: plan.tablesFound,
+    unrecognizedTables: plan.unrecognizedTables,
+    matters: plan.matters.map((m) => ({
+      externalId: m.externalId,
+      label: m.label,
+      counts: bundleCounts(m),
+    })),
+  }
+}
+
+const matterImportSchema = z.object({
+  source: z.enum(INTAKE_IMPORT_SOURCES),
+  dryRun: z.coerce.boolean().optional(),
+  // What to do with a matter already imported from the same export: leave it,
+  // or add only the related records that were not imported before.
+  duplicateMode: z.enum(['skip', 'merge']).optional(),
+})
+
+/**
+ * Complete matter migration: a relational package (JSON `tables.*`, or a
+ * workbook with one sheet per table) imported as cases with their contacts,
+ * insurance, medical visits and bills, liens, expenses, negotiations, tasks,
+ * notes, timeline and document metadata attached.
+ *
+ * `dryRun` returns the relational preview with validation; the commit returns a
+ * per-matter report. Matters with blocking errors are never written.
+ */
+router.post('/intake/import-matter', authMiddleware, intakeImportUpload.array('files', 10), async (req: any, res) => {
+  try {
+    const auth = await getAttorneyFromReq(req)
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const payload = matterImportSchema.parse({
+      source: req.body?.source,
+      dryRun: parseBoolean(req.body?.dryRun, false),
+      duplicateMode: req.body?.duplicateMode || undefined,
+    })
+    const uploadedFiles = (req.files || []) as Express.Multer.File[]
+    if (uploadedFiles.length === 0) return res.status(400).json({ error: 'No file was uploaded.' })
+
+    const tables: MatterPackageTables = {}
+    const unreadable: string[] = []
+    for (const file of uploadedFiles) {
+      const found = readMatterPackage(file)
+      if (!found) {
+        unreadable.push(file.originalname)
+        continue
+      }
+      for (const [kind, rows] of Object.entries(found) as Array<[keyof MatterPackageTables, any]>) {
+        if (kind === 'unrecognized') tables.unrecognized = [...(tables.unrecognized ?? []), ...rows]
+        else (tables as any)[kind] = [...((tables as any)[kind] ?? []), ...rows]
+      }
+    }
+    if (unreadable.length === uploadedFiles.length) {
+      return res.status(400).json({
+        error:
+          'No matter package found. A complete migration needs related tables (for example tables.Matters and tables.Contacts, or one sheet per table). Use Basic case import for one row per case.',
+      })
+    }
+
+    const fallbackState = stateCode(auth.attorney.barState) ?? null
+    const plan = buildMatterPackagePlan(tables, { fallbackState })
+    const owner = {
+      attorneyId: auth.attorney.id,
+      lawFirmId: auth.firm.lawFirmId ?? auth.attorney.lawFirmId ?? null,
+      createdByUserId: req.user?.id ?? null,
+    }
+    const duplicateMode = payload.duplicateMode ?? 'skip'
+
+    const existing = new Map<string, string>()
+    for (const m of plan.matters) {
+      const found = await findExistingImportedCase({ importSource: payload.source, externalId: m.externalId }, owner)
+      if (found) existing.set(m.externalId, found.id)
+    }
+
+    const matters = plan.matters.map((m) => {
+      const importable = matterIsImportable(m)
+      const existingAssessmentId = existing.get(m.externalId) ?? null
+      return {
+        externalId: m.externalId,
+        label: m.label,
+        claimType: m.claimType,
+        incidentDate: m.incidentDate,
+        incidentDateAmbiguous: m.incidentDateAmbiguous,
+        venueState: m.venueState,
+        venueCounty: m.venueCounty,
+        clientName: m.client ? [m.client.firstName, m.client.lastName].filter(Boolean).join(' ') : null,
+        clientEmail: m.client?.email ?? null,
+        counts: bundleCounts(m),
+        issues: m.issues,
+        importable,
+        existingAssessmentId,
+        action: !importable ? 'blocked' : existingAssessmentId ? (duplicateMode === 'merge' ? 'merge' : 'skip') : 'create',
+      }
+    })
+    const recordErrors = plan.issues.filter((i) => i.severity === 'error')
+
+    const base = {
+      dryRun: Boolean(payload.dryRun),
+      source: payload.source,
+      duplicateMode,
+      tablesFound: plan.tablesFound,
+      unrecognizedTables: plan.unrecognizedTables,
+      unreadableFiles: unreadable,
+      issues: plan.issues,
+      matters,
+      skippedRecordCount: recordErrors.length,
+    }
+    if (payload.dryRun) return res.json(base)
+
+    const importId = crypto.randomUUID()
+    const actorName = auth.attorney.name || [req.user?.firstName, req.user?.lastName].filter(Boolean).join(' ') || null
+    const report: MatterImportReport[] = []
+    for (const bundle of plan.matters) {
+      if (!matterIsImportable(bundle)) {
+        report.push({
+          externalId: bundle.externalId,
+          label: bundle.label,
+          outcome: 'failed',
+          assessmentId: null,
+          imported: EMPTY_BUNDLE_COUNTS,
+          alreadyImported: 0,
+          reason: bundle.issues.filter((i) => i.severity === 'error').map((i) => i.message).join(' '),
+        })
+        continue
+      }
+      report.push(
+        await importMatterBundle({
+          bundle,
+          source: payload.source,
+          owner,
+          attorneyId: auth.attorney.id,
+          importId,
+          actor: { userId: req.user?.id ?? null, name: actorName, email: auth.attorney.email ?? null },
+          existingAssessmentId: existing.get(bundle.externalId) ?? null,
+          mode: duplicateMode,
+        }),
+      )
+    }
+
+    logger.info('Matter package import finished', {
+      importId,
+      attorneyId: auth.attorney.id,
+      outcomes: report.map((r) => r.outcome),
+    })
+    res.json({ ...base, importId, report })
+  } catch (error: any) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Invalid import request', details: error.flatten() })
+    }
+    logger.error('Matter package import failed', { error: error.message, stack: error.stack })
+    res.status(500).json({ error: 'Could not import the matter package' })
+  }
+})
+
+/**
  * Column names and a few rows, so the mapping screen has something to show.
  *
  * This exists because the browser used to parse the file itself, with a second
@@ -8870,8 +9064,10 @@ router.post('/intake/parse-preview', authMiddleware, intakeImportUpload.array('f
       return res.status(400).json({ error: 'No file was uploaded.' })
     }
 
+    const fallbackState = stateCode(auth.attorney.barState) ?? null
     const files = uploadedFiles.map((file) => {
       const parsed = parseImportFile(file)
+      const pkg = readMatterPackage(file)
       return {
         fileName: parsed.fileName,
         headers: parsed.headers,
@@ -8880,6 +9076,9 @@ router.post('/intake/parse-preview', authMiddleware, intakeImportUpload.array('f
         rows: parsed.rows.slice(0, 25),
         rowCount: parsed.rows.length,
         unsupportedReason: parsed.unsupportedReason ?? null,
+        // A relational package flattened above reads as one meaningless row;
+        // this tells the screen to offer the complete migration instead.
+        matterPackage: pkg ? matterPackageSummary(buildMatterPackagePlan(pkg, { fallbackState })) : null,
       }
     })
 
@@ -8988,7 +9187,8 @@ router.post('/intake/import', authMiddleware, intakeImportUpload.array('files', 
     }> = []
     const owner = {
       attorneyId: auth.attorney.id,
-      lawFirmId: auth.attorney.lawFirmId ?? null,
+      // The firm whose caseload the importer sees; `Attorney.lawFirmId` can name another.
+      lawFirmId: auth.firm.lawFirmId ?? auth.attorney.lawFirmId ?? null,
       createdByUserId: req.user?.id ?? null,
     }
     /**
