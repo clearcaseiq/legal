@@ -7,7 +7,7 @@ import { prisma } from '../lib/prisma'
 /** In-app guided tour progress for the signed-in user. */
 const router = Router()
 
-export const TOUR_IDS = ['workspace', 'case_lifecycle'] as const
+export const TOUR_IDS = ['workspace', 'case_lifecycle', 'client_portal'] as const
 
 const progressSchema = z.object({
   status: z.enum(['started', 'completed', 'dismissed']),

@@ -1,21 +1,39 @@
 import { describe, expect, it } from 'vitest'
 import en from '../../i18n/locales/en.json'
-import { TOURS, TOUR_ORDER, copyKey, resolveRoute, samePage, stepsFor, type TourAudience } from './tours'
+import enApp from '../../i18n/locales/en-app.json'
+import es from '../../i18n/locales/es.json'
+import zh from '../../i18n/locales/zh.json'
+import {
+  TOURS,
+  TOURS_BY_SCOPE,
+  chromeKey,
+  copyKey,
+  resolveRoute,
+  samePage,
+  stepsFor,
+  withKeptQuery,
+  type TourAudience,
+  type TourId,
+} from './tours'
 
 const attorney: TourAudience = { isStaff: false, isFirmAdmin: false, staffActions: {}, staffPermissions: [] }
 const admin: TourAudience = { ...attorney, isFirmAdmin: true }
 const staff: TourAudience = { isStaff: true, isFirmAdmin: false, staffActions: {}, staffPermissions: [] }
 
-function lookup(key: string): unknown {
-  return key.split('.').reduce<any>((node, part) => (node == null ? undefined : node[part]), en)
+function lookup(key: string, messages: unknown = key.startsWith('clientTour.') ? enApp : en): unknown {
+  return key.split('.').reduce<any>((node, part) => (node == null ? undefined : node[part]), messages)
 }
+
+const ALL_TOURS = Object.keys(TOURS) as TourId[]
+const CHROME = ['progress', 'next', 'back', 'done', 'offer.title', 'offer.body', 'offer.start', 'offer.later', 'offer.never']
 
 describe('tour definitions', () => {
   it('every step has a target, a resolvable route and English copy', () => {
-    for (const tourId of TOUR_ORDER) {
+    for (const tourId of ALL_TOURS) {
       const tour = TOURS[tourId]
-      expect(lookup(`attorneyTour.${tourId}.name`)).toBeTypeOf('string')
-      expect(lookup(`attorneyTour.${tourId}.summary`)).toBeTypeOf('string')
+      expect(lookup(chromeKey(tourId, `${tourId}.name`))).toBeTypeOf('string')
+      expect(lookup(chromeKey(tourId, `${tourId}.summary`))).toBeTypeOf('string')
+      for (const key of CHROME) expect(lookup(chromeKey(tourId, key)), chromeKey(tourId, key)).toBeTypeOf('string')
       const ids = new Set<string>()
       for (const step of tour.steps) {
         expect(ids.has(step.id), `${tourId}.${step.id} duplicated`).toBe(false)
@@ -25,6 +43,30 @@ describe('tour definitions', () => {
         expect(lookup(copyKey(tourId, step.id, 'title')), copyKey(tourId, step.id, 'title')).toBeTypeOf('string')
         expect(lookup(copyKey(tourId, step.id, 'body')), copyKey(tourId, step.id, 'body')).toBeTypeOf('string')
       }
+    }
+  })
+
+  it('every tour is listed in exactly the scope it runs in', () => {
+    for (const tourId of ALL_TOURS) {
+      const scopes = (Object.keys(TOURS_BY_SCOPE) as Array<keyof typeof TOURS_BY_SCOPE>).filter((s) =>
+        TOURS_BY_SCOPE[s].includes(tourId),
+      )
+      expect(scopes).toEqual([TOURS[tourId].scope])
+    }
+  })
+
+  it('translates the client tour into every portal language', () => {
+    const tour = TOURS.client_portal
+    const keys = [
+      ...CHROME.map((k) => chromeKey('client_portal', k)),
+      'clientTour.take',
+      'clientTour.replay',
+      'clientTour.client_portal.name',
+      'clientTour.client_portal.summary',
+      ...tour.steps.flatMap((s) => [copyKey('client_portal', s.id, 'title'), copyKey('client_portal', s.id, 'body')]),
+    ]
+    for (const messages of [enApp, es, zh]) {
+      for (const key of keys) expect(lookup(key, messages), key).toBeTypeOf('string')
     }
   })
 
@@ -78,5 +120,16 @@ describe('samePage', () => {
     expect(samePage('/attorney-dashboard/cases/calendar', '', route)).toBe(false)
     expect(samePage('/attorney-dashboard/cases/calendar', '?tab=booking&x=1', route)).toBe(true)
     expect(samePage('/attorney-dashboard/cases/calendar', '?tab=booking', '/attorney-dashboard/cases/calendar')).toBe(true)
+  })
+})
+
+describe('withKeptQuery', () => {
+  it("keeps the claimant's selected case when a step switches tabs", () => {
+    expect(withKeptQuery('/dashboard?tab=tasks', '?tab=documents&case=a1', ['case'])).toBe('/dashboard?tab=tasks&case=a1')
+  })
+
+  it('leaves routes alone when there is nothing to keep', () => {
+    expect(withKeptQuery('/messaging', '?tab=tasks', ['case'])).toBe('/messaging')
+    expect(withKeptQuery('/dashboard?tab=tasks', '?case=a1', undefined)).toBe('/dashboard?tab=tasks')
   })
 })

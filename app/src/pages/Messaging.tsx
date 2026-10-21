@@ -368,7 +368,7 @@ export default function Messaging() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl">
+    <div className="mx-auto max-w-6xl" data-tour="client-messages">
       <div className="mb-3">
         <Link
           to="/dashboard"

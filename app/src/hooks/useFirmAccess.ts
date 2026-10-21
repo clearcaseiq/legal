@@ -57,11 +57,12 @@ export async function loadFirmAccess(): Promise<FirmAccess | null> {
  * still refuses what the role does not grant, so this only decides what is
  * shown.
  */
-export function useFirmAccess() {
+export function useFirmAccess(enabled = true) {
   const token = currentToken()
   const [access, setAccess] = useState<FirmAccess | null>(cached && cachedForToken === token ? cached : null)
 
   useEffect(() => {
+    if (!enabled) return
     let cancelled = false
     void loadFirmAccess().then((next) => {
       if (!cancelled) setAccess(next)
@@ -69,7 +70,7 @@ export function useFirmAccess() {
     return () => {
       cancelled = true
     }
-  }, [token])
+  }, [token, enabled])
 
   const can = (action: FirmAction) => access?.actions?.[action] !== false
   return { access, can, loaded: access !== null }

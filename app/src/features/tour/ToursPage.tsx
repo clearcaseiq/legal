@@ -1,19 +1,19 @@
 import { CheckCircle2, Compass, PlayCircle } from 'lucide-react'
 import { useLanguage } from '../../contexts/LanguageContext'
 import { PageHeader } from '../shared/ui'
-import { TOUR_ORDER } from './tours'
+import { chromeKey } from './tours'
 import { useTours } from './TourProvider'
 
 /** Help → Tours: start or replay a guided walkthrough. */
 export default function ToursPage() {
   const { t } = useLanguage()
-  const { progress, startTour, stepCount, activeTourId } = useTours()
+  const { progress, startTour, stepCount, activeTourId, tourIds } = useTours()
 
   return (
     <div className="space-y-4">
       <PageHeader title={t('attorneyTour.page.title')} description={t('attorneyTour.page.description')} />
       <div className="grid gap-4 md:grid-cols-2">
-        {TOUR_ORDER.map((tourId) => {
+        {tourIds.map((tourId) => {
           const done = progress[tourId]?.status === 'completed'
           const steps = stepCount(tourId)
           return (
@@ -24,7 +24,7 @@ export default function ToursPage() {
                 </span>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="text-base font-semibold text-slate-900">{t(`attorneyTour.${tourId}.name`)}</h2>
+                    <h2 className="text-base font-semibold text-slate-900">{t(chromeKey(tourId, `${tourId}.name`))}</h2>
                     {done ? (
                       <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
                         <CheckCircle2 className="h-3.5 w-3.5" />
@@ -32,7 +32,7 @@ export default function ToursPage() {
                       </span>
                     ) : null}
                   </div>
-                  <p className="mt-1 text-sm leading-6 text-slate-600">{t(`attorneyTour.${tourId}.summary`)}</p>
+                  <p className="mt-1 text-sm leading-6 text-slate-600">{t(chromeKey(tourId, `${tourId}.summary`))}</p>
                   <p className="mt-2 text-xs text-slate-500">{t('attorneyTour.page.steps', { count: steps })}</p>
                 </div>
               </div>

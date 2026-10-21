@@ -1,6 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import ClientTourButton from '../features/tour/ClientTourButton'
 import { useRealtimeEvent } from '../lib/realtime'
 import { listAssessments, getAssessment, getEvidenceFiles, associateAssessments, getRoutingStatus, createAppointment, getAttorneyAvailability, updateAppointment, cancelAppointment, joinAppointmentWaitlist, updateAppointmentPreparation, getPlaintiffConsentCompliance, getPlaintiffDocumentRequests, getPlaintiffSignedDocuments, getPlaintiffCaseTasks, createAttorneyReview, getMedicalChronology, updateAssessment, getCasePreparation, type PlaintiffDocumentRequest, type PlaintiffSignedDocument, type PlaintiffCaseTask } from '../lib/api'
 import { useHeuristics } from '../contexts/HeuristicsContext'
@@ -2198,7 +2199,7 @@ export default function Dashboard() {
           return (
           <nav className="sticky top-0 z-40 -mx-4 bg-slate-50 px-4 pb-2 pt-2 dark:bg-slate-950 sm:-mx-6 sm:px-6 md:top-20">
             <div className="rounded-2xl border border-slate-200/80 bg-white p-3 shadow-[0_1px_2px_rgba(15,23,42,0.05),0_10px_30px_-16px_rgba(15,23,42,0.16)] transition-colors dark:border-slate-700/80 dark:bg-slate-900 dark:shadow-none sm:p-4">
-              <div className={`grid grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-3 lg:grid-cols-4 ${visibleTabs.length >= 7 ? '2xl:grid-cols-7' : '2xl:grid-cols-6'}`}>
+              <div data-tour="client-tabs" className={`grid grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-3 lg:grid-cols-4 ${visibleTabs.length >= 7 ? '2xl:grid-cols-7' : '2xl:grid-cols-6'}`}>
                 {visibleTabs.map((tab) => {
                   const badge =
                     tab.id === 'tasks'
@@ -2211,6 +2212,7 @@ export default function Dashboard() {
                       type="button"
                       onClick={() => selectTab(tab.id)}
                       aria-describedby={tooltipId}
+                      data-tour={`client-tab-${tab.id}`}
                       className={`group relative inline-flex w-full min-h-[3.25rem] items-center justify-center gap-2.5 rounded-xl border px-4 py-3.5 text-base font-semibold transition-colors sm:min-h-[3.75rem] sm:px-5 sm:text-lg ${
                     activeTab === tab.id
                           ? 'border-brand-200 bg-brand-50 text-brand-700 dark:border-brand-900/70 dark:bg-brand-950/40 dark:text-brand-300'
@@ -2234,6 +2236,7 @@ export default function Dashboard() {
                 )
               })}
               </div>
+              <ClientTourButton />
             </div>
             </nav>
           )
@@ -2246,6 +2249,7 @@ export default function Dashboard() {
           <>
             {activeTab === 'dashboard' && (
               <div className="space-y-4">
+                <div data-tour="client-progress">
                 <CaseProgressPipeline
                   submittedForReview={submittedForReview}
                   attorneyMatched={attorneyMatched}
@@ -2262,6 +2266,7 @@ export default function Dashboard() {
                     showCheck: plaintiffCaseStatusKey === 'completed' || plaintiffCaseStatusKey === 'closed',
                   }}
                 />
+                </div>
                 {askTreatmentFinished && (
                   <TreatmentStatusPrompt
                     assessmentId={activeAssessment.id}
@@ -2363,7 +2368,7 @@ export default function Dashboard() {
                 {/* ATTORNEY ACCEPTED LAYOUT — 3 sections: attorney | consult/task | experience */}
                 {attorneyMatched ? (
                   <>
-                    <div className="grid grid-cols-1 gap-4 lg:grid-cols-3 lg:items-stretch">
+                    <div data-tour="client-attorney" className="grid grid-cols-1 gap-4 lg:grid-cols-3 lg:items-stretch">
                       {/* 1. Attorney Match — Call / Message under name */}
                       <div className="rounded-xl border-2 border-emerald-200 bg-white p-5 shadow-sm">
                         <h3 className="mb-3 flex items-center gap-2 text-lg font-bold text-gray-900">

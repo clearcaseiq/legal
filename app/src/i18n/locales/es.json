@@ -4229,6 +4229,69 @@
     "asideBody": "¿No encuentra la respuesta que busca? Nuestro equipo estará encantado de ayudarle. Escríbanos y le responderemos, normalmente dentro de un día hábil.",
     "contactCta": "Contáctenos"
   },
+  "clientTour": {
+    "progress": "Paso {current} de {total}",
+    "next": "Siguiente",
+    "back": "Atrás",
+    "done": "Terminar",
+    "take": "Hacer un recorrido",
+    "replay": "Repetir el recorrido",
+    "offer": {
+      "title": "¿Es nuevo? Haga un recorrido rápido",
+      "body": "Le mostraremos dónde seguir su caso, qué hacer a continuación y cómo comunicarse con su abogado. Toma alrededor de un minuto.",
+      "start": "Mostrarme",
+      "later": "Más tarde",
+      "never": "No volver a mostrar"
+    },
+    "client_portal": {
+      "name": "Su portal del caso",
+      "summary": "Dónde seguir su caso, qué necesita su abogado de usted y cómo mantenerse en contacto.",
+      "welcome": {
+        "title": "En qué etapa está su caso",
+        "body": "Aquí se muestra cada etapa de su caso, desde la revisión hasta el trabajo con un abogado. El paso resaltado es donde se encuentra ahora."
+      },
+      "attorney": {
+        "title": "Su abogado",
+        "body": "Cuando un abogado acepte su caso, lo encontrará aquí con opciones para llamar o enviar mensajes, además de la hora de su consulta y un botón para unirse a videollamadas."
+      },
+      "tabs": {
+        "title": "Todo sobre su caso",
+        "body": "Estas pestañas organizan su caso. Un número rojo significa que algo necesita su atención."
+      },
+      "tasks": {
+        "title": "Tareas",
+        "body": "Lo que su abogado necesita de usted, como documentos para subir o formularios para firmar. Revise aquí primero."
+      },
+      "documents": {
+        "title": "Documentos",
+        "body": "Suba fotos, expedientes médicos, facturas e informes policiales, y vea todo lo que ya ha compartido."
+      },
+      "attorneyReview": {
+        "title": "Revisión de abogados",
+        "body": "Mientras los abogados revisan su caso, puede seguir el progreso aquí. Esta pestaña desaparece cuando un abogado acepta su caso."
+      },
+      "value": {
+        "title": "Valor del caso",
+        "body": "Una estimación de lo que podría valer su caso, que se actualiza al recibir nuevos registros. Es una estimación, no una promesa."
+      },
+      "journal": {
+        "title": "Diario",
+        "body": "Anote sus niveles de dolor, citas y cómo la lesión afecta su día. Estas notas ayudan a su abogado a mostrar el impacto completo."
+      },
+      "cases": {
+        "title": "Mis casos",
+        "body": "Si tiene más de un caso, cambie entre ellos aquí."
+      },
+      "messages": {
+        "title": "Mensajes",
+        "body": "Hable con su abogado de forma segura. Las respuestas nuevas también aparecen en sus notificaciones."
+      },
+      "help": {
+        "title": "Repítalo cuando quiera",
+        "body": "Use Hacer un recorrido para volver a verlo cuando necesite un repaso."
+      }
+    }
+  },
   "plaintiffDashboard": {
     "quickEdit": {
       "narrativeTitle": "¿Qué pasó?",

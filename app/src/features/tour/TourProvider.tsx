@@ -9,7 +9,21 @@ import { useLanguage } from '../../contexts/LanguageContext'
 import { useFirmAccess } from '../../hooks/useFirmAccess'
 import { getStoredRole } from '../../lib/auth'
 import { useOptionalAttorneyWorkspace } from '../shared/AttorneyWorkspaceContext'
-import { TOURS, copyKey, resolveRoute, samePage, stepsFor, type TourId, type TourStep } from './tours'
+import {
+  OFFER_READY_TARGET,
+  OFFER_TOUR,
+  TOURS,
+  TOURS_BY_SCOPE,
+  chromeKey,
+  copyKey,
+  resolveRoute,
+  samePage,
+  stepsFor,
+  withKeptQuery,
+  type TourId,
+  type TourScope,
+  type TourStep,
+} from './tours'
 
 export type TourStatus = 'started' | 'completed' | 'dismissed'
 export type TourProgress = Partial<Record<TourId, { status: TourStatus; lastStep: number }>>
@@ -19,6 +33,8 @@ type ActiveRun = { tourId: TourId; steps: TourStep[]; index: number; leadId: str
 type TourContextValue = {
   progress: TourProgress
   loaded: boolean
+  /** Tours offered here, in display order. */
+  tourIds: TourId[]
   activeTourId: TourId | null
   startTour: (tourId: TourId) => Promise<void>
   /** Steps this user would see; role-filtered. */
@@ -32,13 +48,13 @@ const OFFER_SNOOZED_KEY = 'cciq.tour.offerSnoozed'
 const TARGET_WAIT_MS = 4000
 const ACCEPTED_STATUSES = ['contacted', 'consulted', 'retained']
 
-function readRun(): ActiveRun | null {
+function readRun(scope: TourScope): ActiveRun | null {
   try {
     const raw = sessionStorage.getItem(RUN_KEY)
     if (!raw) return null
     const saved = JSON.parse(raw) as { tourId: TourId; stepIds: string[]; index: number; leadId: string | null }
     const tour = TOURS[saved.tourId]
-    if (!tour) return null
+    if (!tour || tour.scope !== scope) return null
     const steps = saved.stepIds
       .map((id) => tour.steps.find((s) => s.id === id))
       .filter((s): s is TourStep => Boolean(s))
@@ -62,7 +78,7 @@ function writeRun(run: ActiveRun | null) {
 }
 
 /** Resolves when `[data-tour=target]` is on the page, or null after the timeout. */
-function waitForTarget(target: string, signal: { cancelled: boolean }): Promise<Element | null> {
+function waitForTarget(target: string, signal: { cancelled: boolean }, timeoutMs = TARGET_WAIT_MS): Promise<Element | null> {
   const selector = `[data-tour="${target}"]`
   // Visible only: the sidebar is in the DOM but display:none on small screens.
   const find = () =>
@@ -82,7 +98,7 @@ function waitForTarget(target: string, signal: { cancelled: boolean }): Promise<
     const timer = window.setTimeout(() => {
       observer.disconnect()
       resolve(null)
-    }, TARGET_WAIT_MS)
+    }, timeoutMs)
   })
 }
 
@@ -93,23 +109,33 @@ function leadIdFromPath(pathname: string): string | null {
 }
 
 /**
- * Mounted by the workspace layout and by pages outside it that a tour visits
- * (Firm Settings). The run lives in sessionStorage, so each mount picks it up.
- * `offer` is off on those outside pages so the welcome card shows in one place.
+ * Mounted by the workspace layout, by pages outside it that a tour visits
+ * (Firm Settings), and around the claimant portal (`scope="client"`). The run
+ * lives in sessionStorage, so each mount picks it up. `offer` is off on those
+ * outside pages so the welcome card shows in one place.
  */
-export function TourProvider({ children, offer = true }: { children: ReactNode; offer?: boolean }) {
+export function TourProvider({
+  children,
+  offer = true,
+  scope = 'workspace',
+}: {
+  children: ReactNode
+  offer?: boolean
+  scope?: TourScope
+}) {
   const { t } = useLanguage()
   const navigate = useNavigate()
   const location = useLocation()
   const workspace = useOptionalAttorneyWorkspace()
-  const isStaff = workspace?.isStaff ?? getStoredRole() === 'staff'
+  const isStaff = scope === 'workspace' && (workspace?.isStaff ?? getStoredRole() === 'staff')
   const isFirmAdmin = workspace?.isFirmAdmin ?? false
   const workspaceLoading = workspace?.loading ?? false
-  const { access } = useFirmAccess()
+  const { access } = useFirmAccess(scope === 'workspace')
+  const offerTourId = OFFER_TOUR[scope]
 
   const [progress, setProgress] = useState<TourProgress>({})
   const [loaded, setLoaded] = useState(false)
-  const [run, setRun] = useState<ActiveRun | null>(() => readRun())
+  const [run, setRun] = useState<ActiveRun | null>(() => readRun(scope))
   const [offerOpen, setOfferOpen] = useState(false)
   const [noCaseOpen, setNoCaseOpen] = useState(false)
   const driverRef = useRef<Driver | null>(null)
@@ -137,7 +163,8 @@ export function TourProvider({ children, offer = true }: { children: ReactNode; 
     api.put(`/v1/tours/${tourId}`, { status, lastStep }).catch(() => undefined)
   }, [])
 
-  // First login: offer the workspace tour once, unless snoozed for this session.
+  // First visit: offer this scope's tour once, unless snoozed for this session.
+  // Where the tour needs page content (the client's case), wait until it shows.
   useEffect(() => {
     if (!offer || !loaded || workspaceLoading || run) return
     let snoozed = false
@@ -146,8 +173,20 @@ export function TourProvider({ children, offer = true }: { children: ReactNode; 
     } catch {
       /* ignore */
     }
-    if (!progress.workspace && !snoozed) setOfferOpen(true)
-  }, [offer, loaded, workspaceLoading, run, progress.workspace])
+    if (progress[offerTourId] || snoozed) return
+    const readyTarget = OFFER_READY_TARGET[scope]
+    if (!readyTarget) {
+      setOfferOpen(true)
+      return
+    }
+    const signal = { cancelled: false }
+    void waitForTarget(readyTarget, signal, 30_000).then((el) => {
+      if (el && !signal.cancelled) setOfferOpen(true)
+    })
+    return () => {
+      signal.cancelled = true
+    }
+  }, [offer, loaded, workspaceLoading, run, progress, offerTourId, scope])
 
   const audience = useMemo(
     () => ({
@@ -232,12 +271,12 @@ export function TourProvider({ children, offer = true }: { children: ReactNode; 
       navigatedForRef.current = stepKey
       driverRef.current?.destroy()
       driverRef.current = null
-      navigate(route)
+      navigate(withKeptQuery(route, location.search, TOURS[run.tourId].keepQuery))
       return
     }
 
     const signal = { cancelled: false }
-    void waitForTarget(step.target, signal).then((element) => {
+    void waitForTarget(step.target, signal, step.waitMs).then((element) => {
       if (signal.cancelled) return
       if (!element) {
         // Not on this page for this user (empty state, permission): skip it.
@@ -270,9 +309,9 @@ export function TourProvider({ children, offer = true }: { children: ReactNode; 
           description: t(copyKey(run.tourId, step.id, 'body')),
           showButtons: run.index > 0 ? ['next', 'previous', 'close'] : ['next', 'close'],
           showProgress: true,
-          progressText: t('attorneyTour.progress', { current: run.index + 1, total: run.steps.length }),
-          nextBtnText: isLast ? t('attorneyTour.done') : t('attorneyTour.next'),
-          prevBtnText: t('attorneyTour.back'),
+          progressText: t(chromeKey(run.tourId, 'progress'), { current: run.index + 1, total: run.steps.length }),
+          nextBtnText: isLast ? t(chromeKey(run.tourId, 'done')) : t(chromeKey(run.tourId, 'next')),
+          prevBtnText: t(chromeKey(run.tourId, 'back')),
           onNextClick: () => goTo(run.index + 1),
           onPrevClick: () => goTo(run.index - 1),
           onCloseClick: () => finish('dismissed'),
@@ -305,11 +344,12 @@ export function TourProvider({ children, offer = true }: { children: ReactNode; 
     () => ({
       progress,
       loaded,
+      tourIds: TOURS_BY_SCOPE[scope],
       activeTourId: run?.tourId ?? null,
       startTour,
       stepCount: (tourId: TourId) => stepsFor(TOURS[tourId], audience).length,
     }),
-    [progress, loaded, run, startTour, audience],
+    [progress, loaded, scope, run, startTour, audience],
   )
 
   return (
@@ -317,34 +357,34 @@ export function TourProvider({ children, offer = true }: { children: ReactNode; 
       {children}
       {offerOpen && !run ? (
         <TourCard
-          title={t('attorneyTour.offer.title')}
-          body={t('attorneyTour.offer.body')}
+          title={t(chromeKey(offerTourId, 'offer.title'))}
+          body={t(chromeKey(offerTourId, 'offer.body'))}
           onClose={snoozeOffer}
           actions={
             <>
               <button
                 type="button"
-                onClick={() => void startTour('workspace')}
+                onClick={() => void startTour(offerTourId)}
                 className="rounded-lg bg-brand-600 px-3 py-2 text-sm font-semibold text-white hover:bg-brand-700"
               >
-                {t('attorneyTour.offer.start')}
+                {t(chromeKey(offerTourId, 'offer.start'))}
               </button>
               <button
                 type="button"
                 onClick={snoozeOffer}
                 className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
               >
-                {t('attorneyTour.offer.later')}
+                {t(chromeKey(offerTourId, 'offer.later'))}
               </button>
               <button
                 type="button"
                 onClick={() => {
                   setOfferOpen(false)
-                  saveProgress('workspace', 'dismissed', 0)
+                  saveProgress(offerTourId, 'dismissed', 0)
                 }}
                 className="px-2 py-2 text-xs font-medium text-slate-500 hover:text-slate-700"
               >
-                {t('attorneyTour.offer.never')}
+                {t(chromeKey(offerTourId, 'offer.never'))}
               </button>
             </>
           }
@@ -420,4 +460,9 @@ export function useTours(): TourContextValue {
   const ctx = useContext(TourContext)
   if (!ctx) throw new Error('useTours must be used within a TourProvider')
   return ctx
+}
+
+/** For components that also render outside a TourProvider. */
+export function useOptionalTours(): TourContextValue | null {
+  return useContext(TourContext)
 }

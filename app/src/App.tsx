@@ -151,6 +151,7 @@ const FirmSettings = lazy(async () => {
   }
 })
 const ToursPage = lazy(() => import('./features/tour/ToursPage'))
+const ClientTourLayout = lazy(() => import('./features/tour/ClientTourLayout'))
 const VideoRoomPage = lazy(() => import('./features/video/VideoRoomPage'))
 const AttorneyBilling = lazy(() => import('./pages/AttorneyBilling'))
 const AttorneyProfile = lazy(() => import('./pages/AttorneyProfile'))
@@ -558,7 +559,11 @@ function App() {
             </Route>
             <Route element={<ProtectedRoute role="plaintiff" />}>
               <Route path="/auth/complete-consent" element={<CompleteConsent />} />
-              <Route path="/dashboard" element={<Dashboard />} />
+              {/* One provider across the pages the client tour visits, so a run survives the hop. */}
+              <Route element={<ClientTourLayout />}>
+                <Route path="/dashboard" element={<Dashboard />} />
+                <Route path="/messaging" element={<Messaging />} />
+              </Route>
               <Route path="/assessments" element={<Assessments />} />
               <Route path="/profile" element={<PlaintiffProfileRoute />} />
               <Route path="/consent-management" element={<ConsentManagement />} />
@@ -577,7 +582,6 @@ function App() {
                   rates and ratings that were invented placeholders, which is not
                   something to show injury claimants. Restore the route once
                   /v1/financing/partners returns real partners. */}
-              <Route path="/messaging" element={<Messaging />} />
               {/* /recovery-hub and its `/v1/recovery-hub` router were removed. No
                   recovery tables were ever added to the schema, so none of the seven
                   endpoints touched the database: the dashboard reported a fixed 68%

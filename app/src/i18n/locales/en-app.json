@@ -3162,6 +3162,69 @@
       "next": "Next steps"
     }
   },
+  "clientTour": {
+    "progress": "Step {current} of {total}",
+    "next": "Next",
+    "back": "Back",
+    "done": "Finish",
+    "take": "Take a tour",
+    "replay": "Replay the tour",
+    "offer": {
+      "title": "New here? Take a quick tour",
+      "body": "We'll show you where to follow your case, what to do next, and how to reach your attorney. It takes about a minute.",
+      "start": "Show me around",
+      "later": "Later",
+      "never": "Don't show again"
+    },
+    "client_portal": {
+      "name": "Your case portal",
+      "summary": "Where to follow your case, what your attorney needs from you, and how to stay in touch.",
+      "welcome": {
+        "title": "Where your case stands",
+        "body": "This shows each stage of your case, from review to working with an attorney. The highlighted step is where you are now."
+      },
+      "attorney": {
+        "title": "Your attorney",
+        "body": "Once an attorney takes your case, you'll find them here with ways to call or message, plus your consultation time and a Join button for video calls."
+      },
+      "tabs": {
+        "title": "Everything about your case",
+        "body": "These tabs organize your case. A red number means something needs your attention."
+      },
+      "tasks": {
+        "title": "Tasks",
+        "body": "Things your attorney needs from you, like documents to upload or forms to sign. Check here first."
+      },
+      "documents": {
+        "title": "Documents",
+        "body": "Upload photos, medical records, bills and police reports, and see everything you've already shared."
+      },
+      "attorneyReview": {
+        "title": "Attorney review",
+        "body": "While attorneys review your case, you can follow along here. This tab goes away once an attorney takes your case."
+      },
+      "value": {
+        "title": "Case value",
+        "body": "An estimate of what your case may be worth, updated as new records come in. It's an estimate, not a promise."
+      },
+      "journal": {
+        "title": "Journal",
+        "body": "Note your pain levels, appointments and how the injury affects your day. These notes help your attorney show the full impact."
+      },
+      "cases": {
+        "title": "My cases",
+        "body": "If you have more than one case, switch between them here."
+      },
+      "messages": {
+        "title": "Messages",
+        "body": "Talk with your attorney securely. New replies also show up in your notifications."
+      },
+      "help": {
+        "title": "Replay any time",
+        "body": "Use Take a tour to see this again whenever you need a refresher."
+      }
+    }
+  },
   "plaintiffDashboard": {
     "quickEdit": {
       "narrativeTitle": "What happened?",
