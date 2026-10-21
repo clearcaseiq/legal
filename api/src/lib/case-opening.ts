@@ -363,7 +363,11 @@ export async function assessmentHasHipaaOnFile(assessmentId: string): Promise<bo
 export async function completeHipaaOpeningTaskIfSatisfied(assessmentId: string): Promise<number> {
   if (!assessmentId) return 0
   if (!(await assessmentHasHipaaOnFile(assessmentId))) return 0
+  return completeHipaaOpeningTasks(assessmentId, 'Auto-completed — HIPAA authorization already on file.')
+}
 
+/** Close open "Obtain signed HIPAA authorization" tasks. Callers decide HIPAA is satisfied. */
+export async function completeHipaaOpeningTasks(assessmentId: string, note: string): Promise<number> {
   const open = await prisma.caseTask.findMany({
     where: {
       assessmentId,
@@ -374,7 +378,6 @@ export async function completeHipaaOpeningTaskIfSatisfied(assessmentId: string):
   })
 
   let completed = 0
-  const note = 'Auto-completed — HIPAA authorization already on file.'
   for (const task of open) {
     if (!HIPAA_OPENING_TITLE_MATCHERS.some((re) => re.test(String(task.title || '')))) continue
     await prisma.caseTask.update({

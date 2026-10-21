@@ -15,7 +15,9 @@ import {
   Bell,
   BookOpen,
   ChevronRight,
+  Compass,
 } from 'lucide-react'
+import { TourProvider } from '../tour/TourProvider'
 import { AttorneyWorkspaceProvider, useAttorneyWorkspace } from './AttorneyWorkspaceContext'
 import { initials } from './ui'
 import GlobalSearch from './GlobalSearch'
@@ -55,12 +57,14 @@ interface NavSection {
 }
 
 export const GUIDES_ROUTE = '/attorney-dashboard/guides'
+export const TOURS_ROUTE = '/attorney-dashboard/tours'
 
 const HELP_SECTION: NavSection = {
   id: 'help',
   label: 'Help',
   entries: [
     { to: GUIDES_ROUTE, id: 'guides', label: 'Guides', description: 'How-to guides for the workspace', icon: BookOpen },
+    { to: TOURS_ROUTE, id: 'tours', label: 'Tours', description: 'Step-by-step walkthroughs', icon: Compass },
   ],
 }
 
@@ -248,7 +252,7 @@ function Sidebar() {
 
   return (
     <aside className="hidden w-64 shrink-0 lg:block">
-      <div className="sticky top-24 space-y-5 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+      <div data-tour="sidebar" className="sticky top-24 space-y-5 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
         <Link
           to={isStaff ? '/staff-profile' : '/attorney-profile'}
           title={isStaff ? 'View your profile' : 'View your attorney profile'}
@@ -269,6 +273,7 @@ function Sidebar() {
           return (
             <Link
               to={NOTIFICATIONS_ROUTE}
+              data-tour="nav-notifications"
               title={t('attorneyWorkspace.notifications.description')}
               className={`group relative flex items-center gap-3 rounded-xl px-2.5 py-1.5 text-sm transition ${
                 active ? 'bg-brand-50 text-brand-900' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
@@ -292,7 +297,7 @@ function Sidebar() {
           const entries = section.entries
           const style = domainStyle(section.id)
           return (
-            <div key={section.id}>
+            <div key={section.id} data-tour={`nav-${section.id}`}>
               <p className="mb-1.5 px-2 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">
                 {t(`attorneyWorkspace.sections.${section.id}`)}
               </p>
@@ -320,6 +325,7 @@ function Sidebar() {
                     <Link
                       key={entry.to}
                       to={entry.to}
+                      data-tour={`nav-${entry.id}`}
                       title={entry.description ? t(`attorneyWorkspace.nav.${entry.id}.description`) : undefined}
                       className={`group relative flex items-center gap-3 rounded-xl px-2.5 py-1.5 text-sm transition ${
                         active ? style.row : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
@@ -476,7 +482,9 @@ function WorkspaceChrome() {
 export default function AttorneyWorkspaceLayout() {
   return (
     <AttorneyWorkspaceProvider>
-      <WorkspaceChrome />
+      <TourProvider>
+        <WorkspaceChrome />
+      </TourProvider>
     </AttorneyWorkspaceProvider>
   )
 }

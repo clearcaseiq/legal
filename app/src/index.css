@@ -468,3 +468,24 @@
 .claimant-screen textarea {
   font-size: 16px;
 }
+
+/* Guided tour popover (driver.js), matched to the workspace cards. */
+.driver-popover.cciq-tour-popover {
+  @apply max-w-sm rounded-2xl border border-slate-200 bg-white p-5 text-slate-700 shadow-2xl;
+}
+.driver-popover.cciq-tour-popover .driver-popover-title {
+  @apply text-base font-bold text-slate-900;
+}
+.driver-popover.cciq-tour-popover .driver-popover-description {
+  @apply mt-1 text-sm leading-6 text-slate-600;
+}
+.driver-popover.cciq-tour-popover .driver-popover-progress-text {
+  @apply text-xs font-medium text-slate-500;
+}
+.driver-popover.cciq-tour-popover .driver-popover-navigation-btns button {
+  @apply rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-none;
+  text-shadow: none;
+}
+.driver-popover.cciq-tour-popover .driver-popover-navigation-btns .driver-popover-next-btn {
+  @apply border-brand-600 bg-brand-600 text-white;
+}

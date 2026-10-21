@@ -7356,6 +7356,8 @@ export type WelcomePacketContents = { retainer: boolean; hipaa: boolean; templat
 export type FirmIntakeSettings = {
   autoSendRetainerOnAcquire: boolean
   autoSendWelcomePacketOnAcquire: boolean
+  /** Send retainer/HIPAA to imported cases that don't already have them. Off by default. */
+  autoSendOnboardingOnImport: boolean
   welcomePacket: WelcomePacketContents
   /** Firm default fee prefilled on retainers; null = platform default (33.33%). */
   defaultContingencyPercent?: number | null
@@ -7369,6 +7371,7 @@ export async function getFirmIntakeSettings() {
 export async function updateFirmIntakeSettings(payload: {
   autoSendRetainerOnAcquire?: boolean
   autoSendWelcomePacketOnAcquire?: boolean
+  autoSendOnboardingOnImport?: boolean
   welcomePacket?: WelcomePacketContents
   defaultContingencyPercent?: number | null
 }) {

@@ -30,6 +30,7 @@ import {
   type AttorneyCaseInput,
   type AttorneyCaseOwner,
 } from '../attorney-case-factory'
+import { runImportedCaseIntakeHooksForBatch } from '../intake-acquire'
 import { buildAuthContext, getConnection, getValidAccessToken } from './connections'
 import { getConnector } from './registry'
 import { supportsInboundSync, type CmsInboundMatter } from './types'
@@ -280,6 +281,15 @@ export async function syncConnectionInbound(options: InboundSyncOptions): Promis
       // Reference codes and valuations are self-healing and slow, so they run
       // once for the whole batch after the reads are done.
       await finalizeAttorneyCases(result.assessmentIds)
+
+      // Sends retainer/HIPAA only if the firm admin turned on auto-send for
+      // imports. The CMS API carries no documents, so a retainer signed in
+      // Clio is invisible here; the setting's description says so.
+      void runImportedCaseIntakeHooksForBatch(result.assessmentIds, {
+        attorneyId: owner.attorneyId,
+        lawFirmId: owner.lawFirmId,
+        actorName: 'ClearCaseIQ',
+      })
 
       // No claimant invites here, unlike the spreadsheet import. This runs
       // unattended on a six-hour sweep, and the first pass over a connected

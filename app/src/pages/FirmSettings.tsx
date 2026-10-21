@@ -58,6 +58,7 @@ export default function FirmSettings() {
   const [packetTemplates, setPacketTemplates] = useState<FirmTemplate[]>([])
   const [packetSaving, setPacketSaving] = useState(false)
   const [autoSendWelcome, setAutoSendWelcome] = useState(true)
+  const [autoSendOnImport, setAutoSendOnImport] = useState(false)
   const [packetMsg, setPacketMsg] = useState<string | null>(null)
   const [defaultFee, setDefaultFee] = useState('')
   const [feeSaving, setFeeSaving] = useState(false)
@@ -95,6 +96,7 @@ export default function FirmSettings() {
       .then((s) => {
         setAutoSendRetainer(Boolean(s.autoSendRetainerOnAcquire))
         setAutoSendWelcome(s.autoSendWelcomePacketOnAcquire !== false)
+        setAutoSendOnImport(Boolean(s.autoSendOnboardingOnImport))
         if (s.welcomePacket) setPacket(s.welcomePacket)
         setDefaultFee(s.defaultContingencyPercent != null ? String(s.defaultContingencyPercent) : '')
       })
@@ -438,7 +440,7 @@ export default function FirmSettings() {
           {feeMsg ? <p className="mt-2 text-xs text-slate-600">{feeMsg}</p> : null}
         </div>
 
-        <div className="mt-6 border-t border-slate-100 pt-5">
+        <div data-tour="welcome-packet" className="mt-6 border-t border-slate-100 pt-5">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h4 className="text-sm font-semibold text-gray-900">Welcome packet</h4>
@@ -501,6 +503,40 @@ export default function FirmSettings() {
               <span className="block text-xs text-gray-500">
                 The client gets the signing link by email, text and on their dashboard. If it can’t be sent (no client
                 email or signature tool), the task stays open for your team.
+              </span>
+            </span>
+          </label>
+
+          <label className="mt-3 flex items-start gap-3 text-sm text-gray-800">
+            <input
+              type="checkbox"
+              checked={autoSendOnImport}
+              disabled={!canEdit || packetSaving}
+              onChange={async (e) => {
+                const next = e.target.checked
+                setAutoSendOnImport(next)
+                setPacketMsg(null)
+                setPacketSaving(true)
+                try {
+                  const res = await updateFirmIntakeSettings({ autoSendOnboardingOnImport: next })
+                  setAutoSendOnImport(Boolean(res.autoSendOnboardingOnImport))
+                  setPacketMsg('Imported-case setting saved.')
+                } catch (err: any) {
+                  setAutoSendOnImport(!next)
+                  setPacketMsg(err?.response?.data?.error || 'Failed to save the imported-case setting.')
+                } finally {
+                  setPacketSaving(false)
+                }
+              }}
+              className="mt-0.5 h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+            />
+            <span>
+              <span className="font-semibold">Send the retainer and HIPAA authorization to imported cases</span>
+              <span className="block text-xs text-gray-500">
+                Applies to cases imported from a file, a matter export, or a connected CMS. Each document is skipped
+                if it was already sent, signed, uploaded, listed in the export, or the case is already in
+                negotiation. A connected CMS sync brings no documents across, so a retainer signed there can’t be
+                detected and would be sent again.
               </span>
             </span>
           </label>

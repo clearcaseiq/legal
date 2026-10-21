@@ -192,6 +192,128 @@
       "guides": {
         "label": "Guides",
         "description": "How-to guides for the workspace"
+      },
+      "tours": {
+        "label": "Tours",
+        "description": "Step-by-step walkthroughs"
+      }
+    }
+  },
+  "attorneyTour": {
+    "progress": "Step {current} of {total}",
+    "next": "Next",
+    "back": "Back",
+    "done": "Finish",
+    "offer": {
+      "title": "Take a 2-minute tour",
+      "body": "We'll walk you through the workspace page by page so you know where everything is.",
+      "start": "Start the tour",
+      "later": "Later",
+      "never": "Don't show again"
+    },
+    "noCase": {
+      "title": "You need a case first",
+      "body": "The case tour walks through a real case file. Accept a match, or create or import a case in Intake, then start it again from Help → Tours.",
+      "goToIntake": "Go to Intake"
+    },
+    "page": {
+      "title": "Tours",
+      "description": "Guided walkthroughs that take you to each page and point out what matters. Replay them any time.",
+      "steps": "{count} steps",
+      "start": "Start tour",
+      "replay": "Replay tour",
+      "completed": "Completed"
+    },
+    "workspace": {
+      "name": "Workspace overview",
+      "summary": "Every page in the sidebar, in the order you'll use them: from new matches and intake to tasks, documents, messages, billing and firm settings.",
+      "welcome": {
+        "title": "Welcome to your workspace",
+        "body": "Everything lives in this sidebar. Lead Generation is how cases reach you; Case Management is where you work them. Let's go through it in order."
+      },
+      "notifications": {
+        "title": "Notifications",
+        "body": "New matches, approaching deadlines, client replies and signed documents land here. The red badge shows how many you haven't read."
+      },
+      "matches": {
+        "title": "New Matches",
+        "body": "Cases matched to your practice areas and venue. Open one to see the assessment, evidence and estimated value, then accept or decline before the timer runs out."
+      },
+      "intake": {
+        "title": "Intake: bring your own cases",
+        "body": "Create a case by hand, or import from your old system. Basic import reads one row per case; Complete matter migration brings in contacts, treatment, bills, insurance, tasks and notes together."
+      },
+      "activeCases": {
+        "title": "Active Cases",
+        "body": "Your caseload. Filter by stage, pin the cases you're working on, and click any row to open its case file. Jump back in returns you to the cases you had open."
+      },
+      "tasks": {
+        "title": "Tasks across every case",
+        "body": "One queue for all your cases. Tasks marked Auto are created and closed by the system as work happens; buttons like Run and Send do the work in one click."
+      },
+      "documents": {
+        "title": "Documents & E-sign",
+        "body": "Every document request and signature in one feed: what the client has sent, what's still outstanding, and which retainers and HIPAA authorizations are signed."
+      },
+      "messages": {
+        "title": "Messages",
+        "body": "Client conversations, team chat and @mentions. Clients see your replies in their portal and by text or email."
+      },
+      "calendar": {
+        "title": "Calendar & Consults",
+        "body": "Upcoming consults and meetings, plus your booking link so clients can schedule time with you."
+      },
+      "billing": {
+        "title": "Billing",
+        "body": "Time, costs, invoices and settlement disbursements across your cases."
+      },
+      "firmSettings": {
+        "title": "Firm settings: what clients receive",
+        "body": "As firm admin you choose the welcome packet (retainer, HIPAA and your own documents), whether it goes out automatically, and whether imported cases get it too."
+      },
+      "help": {
+        "title": "Help is always here",
+        "body": "Guides explain each area in depth, and Tours lets you replay this walkthrough or take the case tour any time."
+      }
+    },
+    "case_lifecycle": {
+      "name": "Case lifecycle",
+      "summary": "Follow one of your cases from opening through evidence, demand and negotiation to settlement, section by section.",
+      "tabs": {
+        "title": "The case file",
+        "body": "Each case has these tabs, roughly in the order a case moves: overview, tasks, documents, medical, the claim, resolution and billing."
+      },
+      "overview": {
+        "title": "1. Overview",
+        "body": "Where the case stands: its stage, key dates including the statute of limitations, the client, and what needs attention next."
+      },
+      "tasks": {
+        "title": "2. Tasks",
+        "body": "The case's work queue, grouped by stage. Opening tasks such as the conflict check and retainer come first; Rose, the AI case manager, suggests more as the case develops, and you approve them."
+      },
+      "documents": {
+        "title": "3. Documents & signatures",
+        "body": "Send the retainer and HIPAA authorization for e-signature, request records from the client, and review everything uploaded to the case."
+      },
+      "medical": {
+        "title": "4. Medical",
+        "body": "The treatment timeline built from the records. Check each extracted visit against the page before accepting it; bills and providers feed the damages."
+      },
+      "demand": {
+        "title": "5. Demand",
+        "body": "Draft the demand letter from the case record, run the quality audit, approve the amount, then download or send the package with its exhibits."
+      },
+      "negotiation": {
+        "title": "6. Negotiation",
+        "body": "Log offers and counteroffers. When an offer needs the client's decision, they can accept or reject it from their portal and you see it live."
+      },
+      "settlement": {
+        "title": "7. Settlement",
+        "body": "Record the settlement, liens and fees so the client's net is clear before you close the case."
+      },
+      "billing": {
+        "title": "8. Billing",
+        "body": "Time, costs and invoices for this case, ready for the settlement statement."
       }
     }
   },

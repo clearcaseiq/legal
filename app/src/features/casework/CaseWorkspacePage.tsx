@@ -886,7 +886,7 @@ export default function CaseWorkspacePage() {
           ) : null}
 
           {/* Tab strip: one button per group; a group's sections show as subtabs in the body */}
-          <div className="flex flex-wrap items-center gap-1.5 rounded-2xl border border-slate-200 bg-slate-50 p-1.5 shadow-sm">
+          <div data-tour="case-tabs" className="flex flex-wrap items-center gap-1.5 rounded-2xl border border-slate-200 bg-slate-50 p-1.5 shadow-sm">
             {visibleGroups.map((g) => {
               const active = g.id === activeGroup.id
               const TabIcon = GROUP_ICON[g.id] ?? TAB_META[g.sections[0]].icon
@@ -929,7 +929,7 @@ export default function CaseWorkspacePage() {
           </div>
 
           {/* Tab body */}
-          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <section data-tour="case-section" className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
             {activeSubtabs.length > 1 ? (
               <nav aria-label={`${activeGroup.label} sections`} className="flex flex-wrap gap-1 border-b border-slate-100 bg-white px-4 pt-3">
                 {activeSubtabs.map((s) => {

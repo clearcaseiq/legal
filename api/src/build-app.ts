@@ -18,6 +18,7 @@ import attorneyProfiles from './routes/attorney-profiles'
 import messaging from './routes/messaging'
 import presence from './routes/presence'
 import caseTracker from './routes/case-tracker'
+import tours from './routes/tours'
 import financing from './routes/financing'
 import smartRecommendations from './routes/smart-recommendations'
 import attorneyDashboard from './routes/attorney-dashboard'
@@ -127,6 +128,7 @@ export function buildApp(): Express {
   app.use('/v1/page-links', publicPageLinksRouter)
   app.use('/v1/support/chat', supportChat)
   app.use('/v1/firm-dashboard', firmDashboard)
+  app.use('/v1/tours', tours)
   app.use('/v1/firms', firms)
   app.use('/v1/tier-routing', tierRouting)
   app.use('/v1/feature-toggles', featureToggles)

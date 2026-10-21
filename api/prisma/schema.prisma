@@ -73,6 +73,7 @@ model User {
   auditLogs                  AuditLog[]
   reviewedCaseResults        AttorneyCaseResult[]        @relation("CaseResultReviewer")
   featureToggles             FeatureToggle[]
+  tourProgress               UserTourProgress[]
   attorneyPushDevices        AttorneyPushDevice[]
   firmMemberships            FirmMember[]
   firmTeamMemberships        FirmTeamMember[]
@@ -1714,6 +1715,21 @@ model FeatureToggle {
   @@index([lawFirmId])
   @@index([userId])
   @@map("feature_toggles")
+}
+
+/// Where a user is in each in-app guided tour. No row means never offered.
+model UserTourProgress {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tourId    String
+  status    String // started | completed | dismissed
+  lastStep  Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, tourId])
+  @@map("user_tour_progress")
 }
 
 model AttorneyDecisionProfile {

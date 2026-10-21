@@ -216,7 +216,7 @@ export default function DocumentsPage() {
   ]
 
   return (
-    <div className="space-y-4">
+    <div data-tour="documents-hub" className="space-y-4">
       <PageHeader
         title="Documents & E-sign"
         description="Records requests, e-signature envelopes, and client uploads across every case flow through the document portal."

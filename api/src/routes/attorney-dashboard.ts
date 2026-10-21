@@ -220,7 +220,7 @@ import {
   getLatestConflictCheck,
   runAndPersistConflictCheck,
 } from '../lib/conflict-check'
-import { runPostAcquireIntakeHooks } from '../lib/intake-acquire'
+import { runImportedCaseIntakeHooksForBatch, runPostAcquireIntakeHooks } from '../lib/intake-acquire'
 import {
   summarizeDamages,
   writeThroughDamages,
@@ -9032,6 +9032,18 @@ router.post('/intake/import-matter', authMiddleware, intakeImportUpload.array('f
       outcomes: report.map((r) => r.outcome),
     })
     res.json({ ...base, importId, report })
+
+    // After the response: e-sign sends are slow, and a merge is a case that
+    // already went through this on its first import.
+    void runImportedCaseIntakeHooksForBatch(
+      report.filter((r) => r.outcome === 'created' && r.assessmentId).map((r) => r.assessmentId!),
+      {
+        attorneyId: auth.attorney.id,
+        lawFirmId: auth.attorney.lawFirmId ?? null,
+        actorUserId: req.user?.id ?? null,
+        actorName,
+      },
+    )
   } catch (error: any) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: 'Invalid import request', details: error.flatten() })
@@ -9479,6 +9491,16 @@ router.post('/intake/import', authMiddleware, intakeImportUpload.array('files', 
       // self-healing on read, so they must not extend the transaction or
       // strand a code on a case that rolled away.
       await finalizeAttorneyCases(createdAssessments.map((entry) => entry.id))
+
+      void runImportedCaseIntakeHooksForBatch(
+        createdAssessments.map((entry) => entry.id),
+        {
+          attorneyId: auth.attorney.id,
+          lawFirmId: auth.attorney.lawFirmId ?? null,
+          actorUserId: req.user?.id ?? null,
+          actorName: auth.attorney.name || null,
+        },
+      )
 
       // Also after the commit, and for the same reason: mail must not be sent
       // for cases a rollback would have taken away. Every outcome is a count

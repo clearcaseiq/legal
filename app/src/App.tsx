@@ -134,7 +134,23 @@ const DocumentRequestPage = lazy(() => import('./pages/DocumentRequestPage'))
 const DraftMessagePage = lazy(() => import('./pages/DraftMessagePage'))
 const FirmDashboard = lazy(() => import('./pages/FirmDashboard'))
 const StaffProfile = lazy(() => import('./pages/StaffProfile'))
-const FirmSettings = lazy(() => import('./pages/FirmSettings'))
+// Wrapped in the tour provider because the workspace tour has a Firm Settings
+// step and this page sits outside the workspace layout.
+const FirmSettings = lazy(async () => {
+  const [{ TourProvider }, page] = await Promise.all([
+    import('./features/tour/TourProvider'),
+    import('./pages/FirmSettings'),
+  ])
+  const Page = page.default
+  return {
+    default: () => (
+      <TourProvider offer={false}>
+        <Page />
+      </TourProvider>
+    ),
+  }
+})
+const ToursPage = lazy(() => import('./features/tour/ToursPage'))
 const AttorneyBilling = lazy(() => import('./pages/AttorneyBilling'))
 const AttorneyProfile = lazy(() => import('./pages/AttorneyProfile'))
 const Integrations = lazy(() => import('./pages/Integrations'))
@@ -1472,6 +1488,7 @@ function App() {
                 {/* User guides, open to attorneys and every firm staff role. */}
                 <Route path="/attorney-dashboard/guides" element={<AttorneyGuidesIndex mode="app" />} />
                 <Route path="/attorney-dashboard/guides/:slug" element={<AttorneyGuideArticle mode="app" />} />
+                <Route path="/attorney-dashboard/tours" element={<ToursPage />} />
               </Route>
               {/* Staff book on behalf of the case's lead attorney. */}
               <Route path="/attorney-dashboard/schedule-consult/:leadId" element={<ScheduleConsultPage />} />

@@ -692,7 +692,7 @@ export default function ActiveCasesPage() {
   const toggleView = (next: CaseView) => setView((prev) => (prev === next ? 'all' : next))
 
   return (
-    <div className="space-y-4">
+    <div data-tour="active-cases" className="space-y-4">
       <PageHeader title="Active Cases" />
 
       <CountersignQueueCard />

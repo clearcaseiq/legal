@@ -4988,8 +4988,12 @@ router.put('/intake-settings', authMiddleware as any, async (req: any, res: Resp
       normalizeWelcomePacketContents,
       FIRM_SETTING_AUTO_SEND_RETAINER,
       FIRM_SETTING_AUTO_SEND_WELCOME,
+      FIRM_SETTING_AUTO_SEND_ON_IMPORT,
       FIRM_SETTING_WELCOME_PACKET,
     } = await import('../lib/intake-acquire')
+    if (typeof req.body?.autoSendOnboardingOnImport === 'boolean') {
+      await setFirmSetting(context.lawFirmId, FIRM_SETTING_AUTO_SEND_ON_IMPORT, req.body.autoSendOnboardingOnImport)
+    }
     if (typeof req.body?.autoSendRetainerOnAcquire === 'boolean') {
       await setFirmSetting(
         context.lawFirmId,

@@ -11,7 +11,13 @@ import {
   createEnvelopeForLead,
   createRetainerAgreementEnvelope,
 } from './esign/esign-service'
-import { createCaseOpeningTasks } from './case-opening'
+import {
+  assessmentHasHipaaOnFile,
+  completeHipaaOpeningTasks,
+  createCaseOpeningTasks,
+} from './case-opening'
+import { readClaimantContact } from './claimant-contact'
+import { recordCaseChange } from './data-authority'
 import { notifyAttorneyInApp } from './case-notifications'
 import { ATTORNEY_EVENTS } from './notification-events'
 import { syncWorkflowItemFromTask } from './workflow-step-tasks'
@@ -26,6 +32,8 @@ export const FIRM_SETTING_AUTO_SEND_RETAINER = 'autoSendRetainerOnAcquire'
 /** On unless the firm turns it off: the client gets the packet link the moment the case is bought. */
 export const FIRM_SETTING_AUTO_SEND_WELCOME = 'autoSendWelcomePacketOnAcquire'
 export const AUTO_SEND_WELCOME_DEFAULT = true
+/** Off unless the firm admin turns it on: an imported client has often signed both already. */
+export const FIRM_SETTING_AUTO_SEND_ON_IMPORT = 'autoSendOnboardingOnImport'
 
 const RETAINER_DONE_TITLE_MATCHERS = [
   /^send retainer to client$/i,
@@ -196,20 +204,14 @@ async function tryAutoSendRetainer(params: {
 
     const lead = await prisma.leadSubmission.findUnique({
       where: { id: params.leadId },
-      include: {
-        assessment: {
-          select: {
-            id: true,
-            caseName: true,
-            user: { select: { firstName: true, lastName: true, email: true } },
-          },
-        },
-      },
+      include: { assessment: { select: { id: true, caseName: true } } },
     })
-    const user = lead?.assessment?.user
-    const signerEmail = String(user?.email || '').trim()
+    // Not the case's user row: an imported case is owned by a placeholder
+    // guest+…@caseiq.local account, and that address must never get a retainer.
+    const contact = await readClaimantContact(params.assessmentId)
+    const signerEmail = String(contact?.email || '').trim()
     const signerName =
-      [user?.firstName, user?.lastName].filter(Boolean).join(' ').trim() || 'Client'
+      [contact?.firstName, contact?.lastName].filter(Boolean).join(' ').trim() || 'Client'
     if (!signerEmail) {
       logger.warn('Auto-send retainer skipped: client email missing', { leadId: params.leadId })
       return false
@@ -280,7 +282,8 @@ async function tryAutoSendWelcomePacket(params: {
   leadId: string
   attorneyId: string
   lawFirmId?: string | null
-}): Promise<{ includedRetainer: boolean } | null> {
+  limitTo?: { retainer: boolean; hipaa: boolean; templates: boolean }
+}): Promise<{ includedRetainer: boolean; includedHipaa: boolean } | null> {
   try {
     const attorney = await prisma.attorney.findUnique({
       where: { id: params.attorneyId },
@@ -292,13 +295,14 @@ async function tryAutoSendWelcomePacket(params: {
     const result = await sendWelcomePacketForLead({
       leadId: params.leadId,
       attorney: { ...attorney, lawFirmId: attorney.lawFirmId ?? params.lawFirmId ?? null },
+      limitTo: params.limitTo,
     })
     logger.info('Auto-sent welcome packet on acquire', {
       leadId: params.leadId,
       documents: (result.retainer ? 1 : 0) + (result.hipaa ? 1 : 0) + result.templates.length,
       failed: result.failed.length,
     })
-    return { includedRetainer: Boolean(result.retainer) }
+    return { includedRetainer: Boolean(result.retainer), includedHipaa: Boolean(result.hipaa) }
   } catch (error: any) {
     // Missing client email, no signature tool, empty packet: the open
     // "Send client welcome packet" task is the attorney's fallback.
@@ -380,6 +384,234 @@ export async function runPostAcquireIntakeHooks(params: {
   }
 }
 
+/** Where the client stands on one onboarding document. Anything but `missing` means do not send. */
+export type OnboardingDocState = 'missing' | 'sent' | 'signed' | 'on_file'
+export type OnboardingDocStatus = { state: OnboardingDocState; reason: string | null }
+
+export type OnboardingSignals = {
+  envelopes: Array<{ documentType: string; title: string | null; status: string }>
+  /** Names, categories and descriptions of files on the case. */
+  fileLabels: string[]
+  /** Lines from a CMS export's document listing (the files themselves were not in it). */
+  listedDocuments: string[]
+  doneTaskTitles: string[]
+  /** Offers or demands already exchanged: the firm was representing the client before import. */
+  hasNegotiationHistory: boolean
+  hipaaConsentOnFile: boolean
+}
+
+// [\s_-] because these also run against file names like Signed_Fee_Agreement.pdf.
+const RETAINER_DOC_RE =
+  /retainer|fee[\s_-]*agreement|contingen[a-z]*[\s_-]*fee|engagement[\s_-]*(letter|agreement)|representation[\s_-]*agreement/i
+const HIPAA_DOC_RE =
+  /hipaa|medical[\s_-]*(records?[\s_-]*)?(authori[sz]ation|release)|release[\s_-]+of[\s_-]+(medical[\s_-]+)?(records|information)/i
+
+function resolveOneDocument(
+  signals: OnboardingSignals,
+  kind: 'retainer' | 'hipaa',
+): OnboardingDocStatus {
+  const re = kind === 'retainer' ? RETAINER_DOC_RE : HIPAA_DOC_RE
+  const types = kind === 'retainer' ? ['retainer', 'fee_agreement'] : ['hipaa_authorization']
+  const label = kind === 'retainer' ? 'Retainer' : 'HIPAA authorization'
+  const envelopes = signals.envelopes.filter(
+    (e) => types.includes(String(e.documentType)) || re.test(String(e.title || '')),
+  )
+  const status = (e: { status: string }) => String(e.status || '').toLowerCase()
+
+  if (envelopes.some((e) => status(e) === 'signed')) {
+    return { state: 'signed', reason: `${label} signed through ClearCaseIQ.` }
+  }
+  if (kind === 'hipaa' && signals.hipaaConsentOnFile) {
+    return { state: 'signed', reason: 'HIPAA authorization already on file.' }
+  }
+  const file = signals.fileLabels.find((l) => re.test(l))
+  if (file) return { state: 'on_file', reason: `${label} already uploaded to the case (${file}).` }
+  const listed = signals.listedDocuments.find((l) => re.test(l))
+  if (listed) return { state: 'on_file', reason: `${label} listed in the imported documents (${listed}).` }
+  // A finished "send …" task proves it went out, not that it came back signed.
+  const doneTasks = signals.doneTaskTitles.filter((t) => re.test(t))
+  const signedTask = doneTasks.find((t) => !/\bsend\b/i.test(t))
+  if (signedTask) return { state: 'on_file', reason: `Task already completed: "${signedTask}".` }
+  if (signals.hasNegotiationHistory) {
+    return {
+      state: 'on_file',
+      reason: 'Case was already in negotiation before import, so the firm already represents this client.',
+    }
+  }
+  if (envelopes.some((e) => ['sent', 'viewed'].includes(status(e)))) {
+    return { state: 'sent', reason: `${label} already out for signature.` }
+  }
+  const sentTask = doneTasks[0]
+  if (sentTask) return { state: 'sent', reason: `Task already completed: "${sentTask}".` }
+  return { state: 'missing', reason: null }
+}
+
+export function resolveOnboardingDocuments(signals: OnboardingSignals): {
+  retainer: OnboardingDocStatus
+  hipaa: OnboardingDocStatus
+} {
+  return {
+    retainer: resolveOneDocument(signals, 'retainer'),
+    hipaa: resolveOneDocument(signals, 'hipaa'),
+  }
+}
+
+const CMS_DOCUMENT_LISTING_PREFIX = 'Documents listed in the'
+
+export async function readOnboardingDocuments(assessmentId: string, leadId: string) {
+  const [envelopes, files, listingNotes, doneTasks, negotiationCount, hipaaConsentOnFile] = await Promise.all([
+    prisma.documentEnvelope.findMany({
+      where: { leadId },
+      select: { documentType: true, title: true, status: true },
+    }),
+    prisma.evidenceFile.findMany({
+      where: { assessmentId },
+      select: { originalName: true, category: true, subcategory: true, description: true },
+    }),
+    prisma.caseNote.findMany({
+      where: { assessmentId, noteType: 'evidence', message: { startsWith: CMS_DOCUMENT_LISTING_PREFIX } },
+      select: { message: true },
+    }),
+    prisma.caseTask.findMany({
+      where: { assessmentId, mergedIntoId: null, status: 'done' },
+      select: { title: true },
+    }),
+    prisma.negotiationEvent.count({ where: { assessmentId } }),
+    assessmentHasHipaaOnFile(assessmentId),
+  ])
+  return resolveOnboardingDocuments({
+    envelopes,
+    fileLabels: files.map((f) =>
+      [f.originalName, f.category, f.subcategory, f.description].filter(Boolean).join(' · '),
+    ),
+    listedDocuments: listingNotes.flatMap((n) =>
+      String(n.message || '')
+        .split('\n')
+        .filter((line) => line.startsWith('•'))
+        .map((line) => line.replace(/^•\s*/, '')),
+    ),
+    doneTaskTitles: doneTasks.map((t) => String(t.title || '')),
+    hasNegotiationHistory: negotiationCount > 0,
+    hipaaConsentOnFile,
+  })
+}
+
+export type ImportedCaseIntakeResult = {
+  assessmentId: string
+  retainer: OnboardingDocStatus & { sentNow: boolean }
+  hipaa: OnboardingDocStatus & { sentNow: boolean }
+}
+
+/**
+ * The accept step for a case the firm brought in themselves (CMS or file
+ * import): conflict screen, Day-1 retainer tasks, then the welcome packet —
+ * but only the retainer / HIPAA documents the client has not already been
+ * sent, signed, or has on file. An imported matter is usually months old, and
+ * a second retainer to a client the firm already represents is worse than none.
+ *
+ * Sending at all is the firm admin's call (FIRM_SETTING_AUTO_SEND_ON_IMPORT);
+ * with it off, everything but the send still runs.
+ */
+export async function runImportedCaseIntakeHooks(params: {
+  assessmentId: string
+  attorneyId: string
+  lawFirmId?: string | null
+  actorUserId?: string | null
+  actorName?: string | null
+}): Promise<ImportedCaseIntakeResult | null> {
+  const { assessmentId, attorneyId, lawFirmId } = params
+  const lead = await prisma.leadSubmission.findFirst({ where: { assessmentId }, select: { id: true } })
+  if (!lead) return null
+  const createdByName = params.actorName || 'ClearCaseIQ'
+
+  try {
+    await runAndPersistConflictCheck({ attorneyId, leadId: lead.id, phase: 'post_acquire' })
+    await completeConflictRelatedTasks(assessmentId)
+  } catch (error: any) {
+    logger.warn('Imported-case conflict check failed', { assessmentId, error: error?.message })
+  }
+
+  try {
+    await ensureSendRetainerTask(assessmentId, { createdById: params.actorUserId, createdByName })
+    await ensureConfirmSignedRetainerTask(assessmentId, { createdById: params.actorUserId, createdByName })
+    await ensureWelcomePacketTask(assessmentId, { lawFirmId, createdById: params.actorUserId, createdByName })
+  } catch (error: any) {
+    logger.warn('Imported-case intake tasks failed', { assessmentId, error: error?.message })
+  }
+
+  const docs = await readOnboardingDocuments(assessmentId, lead.id)
+
+  if (docs.retainer.state === 'signed' || docs.retainer.state === 'on_file') {
+    await completeRetainerRelatedTasks(assessmentId)
+  } else if (docs.retainer.state === 'sent') {
+    await markSendRetainerTaskDone(assessmentId, docs.retainer.reason || undefined)
+  }
+  if (docs.hipaa.state === 'signed' || docs.hipaa.state === 'on_file') {
+    await completeHipaaOpeningTasks(assessmentId, `Auto-completed — ${docs.hipaa.reason}`)
+  }
+
+  const sentNow = { retainer: false, hipaa: false }
+  const need = { retainer: docs.retainer.state === 'missing', hipaa: docs.hipaa.state === 'missing' }
+  const sendDocuments = await getFirmSettingBool(lawFirmId, FIRM_SETTING_AUTO_SEND_ON_IMPORT)
+  if (sendDocuments && (need.retainer || need.hipaa)) {
+    // Firm templates stay with the welcome packet task: an imported client
+    // may well have signed them already, and we cannot check templates by kind.
+    const packet = await tryAutoSendWelcomePacket({
+      leadId: lead.id,
+      attorneyId,
+      lawFirmId,
+      limitTo: { ...need, templates: false },
+    })
+    sentNow.retainer = Boolean(packet?.includedRetainer)
+    sentNow.hipaa = Boolean(packet?.includedHipaa)
+  }
+
+  const describe = (label: string, doc: OnboardingDocStatus, sent: boolean) =>
+    sent
+      ? `${label} sent for signature`
+      : doc.state !== 'missing'
+        ? `${label} skipped — ${doc.reason}`
+        : sendDocuments
+          ? `${label} not sent — not in the welcome packet, or no client email / signature tool`
+          : `${label} not sent — auto-send for imported cases is off`
+  void recordCaseChange({
+    assessmentId,
+    source: 'system',
+    action: 'imported_case_intake',
+    entityType: 'task',
+    summary: [describe('Retainer', docs.retainer, sentNow.retainer), describe('HIPAA', docs.hipaa, sentNow.hipaa)].join('; '),
+    actor: { type: 'system', label: 'ClearCaseIQ' },
+  })
+  logger.info('Imported-case intake hooks ran', {
+    assessmentId,
+    retainer: docs.retainer.state,
+    hipaa: docs.hipaa.state,
+    sentNow,
+    sendDocuments,
+  })
+
+  return {
+    assessmentId,
+    retainer: { ...docs.retainer, sentNow: sentNow.retainer },
+    hipaa: { ...docs.hipaa, sentNow: sentNow.hipaa },
+  }
+}
+
+/**
+ * Run the imported-case hooks for a batch, one case at a time so a large import
+ * does not open dozens of e-sign requests at once. Never throws.
+ */
+export async function runImportedCaseIntakeHooksForBatch(
+  assessmentIds: string[],
+  ctx: Omit<Parameters<typeof runImportedCaseIntakeHooks>[0], 'assessmentId'>,
+): Promise<void> {
+  for (const assessmentId of assessmentIds) {
+    await runImportedCaseIntakeHooks({ ...ctx, assessmentId }).catch((error: any) =>
+      logger.warn('Imported-case intake hooks failed', { assessmentId, error: error?.message }),
+    )
+  }
+}
+
 export const FIRM_SETTING_WELCOME_PACKET = 'welcomePacketContents'
 export const WELCOME_PACKET_TASK_TITLE = 'Send client welcome packet'
 
@@ -415,12 +647,14 @@ export async function getWelcomePacketContents(lawFirmId: string | null | undefi
 }
 
 export async function readIntakeSettings(lawFirmId: string | null | undefined) {
-  const [autoSendRetainerOnAcquire, autoSendWelcomePacketOnAcquire, welcomePacket] = await Promise.all([
-    getFirmSettingBool(lawFirmId, FIRM_SETTING_AUTO_SEND_RETAINER),
-    getFirmSettingBool(lawFirmId, FIRM_SETTING_AUTO_SEND_WELCOME, AUTO_SEND_WELCOME_DEFAULT),
-    getWelcomePacketContents(lawFirmId),
-  ])
-  return { autoSendRetainerOnAcquire, autoSendWelcomePacketOnAcquire, welcomePacket }
+  const [autoSendRetainerOnAcquire, autoSendWelcomePacketOnAcquire, autoSendOnboardingOnImport, welcomePacket] =
+    await Promise.all([
+      getFirmSettingBool(lawFirmId, FIRM_SETTING_AUTO_SEND_RETAINER),
+      getFirmSettingBool(lawFirmId, FIRM_SETTING_AUTO_SEND_WELCOME, AUTO_SEND_WELCOME_DEFAULT),
+      getFirmSettingBool(lawFirmId, FIRM_SETTING_AUTO_SEND_ON_IMPORT),
+      getWelcomePacketContents(lawFirmId),
+    ])
+  return { autoSendRetainerOnAcquire, autoSendWelcomePacketOnAcquire, autoSendOnboardingOnImport, welcomePacket }
 }
 
 /** Human-readable packet items, in send order; deleted/inactive templates drop out. */

@@ -16,6 +16,7 @@
     "@hookform/resolvers": "^5.2.2",
     "@tanstack/react-query": "^5.101.0",
     "clsx": "^2.1.1",
+    "driver.js": "^1.10.2",
     "lucide-react": "^0.408.0",
     "next": "^16.2.4",
     "pdfjs-dist": "^4.10.38",

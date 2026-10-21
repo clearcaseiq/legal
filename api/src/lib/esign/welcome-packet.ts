@@ -45,8 +45,10 @@ export async function sendWelcomePacketForLead(params: {
   leadId: string
   attorney: { id: string; name?: string | null; lawFirmId?: string | null }
   force?: boolean
+  /** Narrow the firm's packet, e.g. to leave out a document the client already signed. */
+  limitTo?: { retainer: boolean; hipaa: boolean; templates: boolean }
 }) {
-  const { leadId, attorney } = params
+  const { leadId, attorney, limitTo } = params
   const lead = await prisma.leadSubmission.findUnique({ where: { id: leadId }, select: { assessmentId: true } })
   const contact = lead?.assessmentId ? await readClaimantContact(lead.assessmentId) : null
   const signerName = fullName(contact?.firstName, contact?.lastName)
@@ -59,7 +61,14 @@ export async function sendWelcomePacketForLead(params: {
     )
   }
 
-  const contents = await getWelcomePacketContents(attorney.lawFirmId)
+  const firmContents = await getWelcomePacketContents(attorney.lawFirmId)
+  const contents = limitTo
+    ? {
+        retainer: firmContents.retainer && limitTo.retainer,
+        hipaa: firmContents.hipaa && limitTo.hipaa,
+        templateIds: limitTo.templates ? firmContents.templateIds : [],
+      }
+    : firmContents
   if (!contents.retainer && !contents.hipaa && contents.templateIds.length === 0) {
     throw new WelcomePacketError(
       'empty_packet',

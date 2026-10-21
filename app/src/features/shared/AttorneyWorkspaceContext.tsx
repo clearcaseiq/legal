@@ -128,6 +128,11 @@ export function AttorneyWorkspaceProvider({ children }: { children: ReactNode })
   return <AttorneyWorkspaceContext.Provider value={value}>{children}</AttorneyWorkspaceContext.Provider>
 }
 
+/** Null outside the workspace layout, e.g. on /firm-settings. */
+export function useOptionalAttorneyWorkspace(): AttorneyWorkspaceValue | null {
+  return useContext(AttorneyWorkspaceContext)
+}
+
 export function useAttorneyWorkspace(): AttorneyWorkspaceValue {
   const ctx = useContext(AttorneyWorkspaceContext)
   if (!ctx) {

@@ -612,7 +612,7 @@ export default function AttorneyDashboardIntakeTab({ onGoToLeads }: AttorneyDash
         </div>
 
         <label className="mb-2 mt-4 block text-xs font-semibold uppercase tracking-wide text-slate-400">Import type</label>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <div data-tour="intake-import-type" className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {(
             [
               { value: 'basic', label: 'Basic case import', desc: 'CSV, Excel or JSON with one row per case: client details and accident facts.' },
