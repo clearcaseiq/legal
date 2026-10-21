@@ -104,26 +104,53 @@ async function resolveMemberAssignee(firmMemberId: string | null | undefined): P
   }
 }
 
+const STEP_TASK_SELECT = {
+  id: true,
+  status: true,
+  title: true,
+  dueDate: true,
+  assignedRole: true,
+  assignedTo: true,
+  assignedUserId: true,
+  priority: true,
+  notes: true,
+  createdAt: true,
+} as const
+
+const STATUS_RANK: Record<string, number> = { done: 0, in_progress: 1, open: 2, skipped: 3, cancelled: 3, deleted: 4 }
+
+/**
+ * The one live task for a workflow step. Concurrent syncs used to create a
+ * task each for the same step; the extras are merged into the survivor (the
+ * one furthest along, then the oldest) the same way a manual merge closes them.
+ */
+async function dedupeStepTasks(assessmentId: string, key: string) {
+  const rows = await prisma.caseTask.findMany({
+    where: { assessmentId, sourceTemplateStepId: key, mergedIntoId: null },
+    select: STEP_TASK_SELECT,
+  })
+  if (rows.length <= 1) return rows[0] ?? null
+  const [survivor, ...extras] = [...rows].sort(
+    (a, b) =>
+      (STATUS_RANK[a.status] ?? 2) - (STATUS_RANK[b.status] ?? 2) ||
+      new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime() ||
+      a.id.localeCompare(b.id),
+  )
+  await prisma.caseTask.updateMany({
+    where: { id: { in: extras.map((t) => t.id) } },
+    data: { status: 'done', completedAt: new Date(), mergedIntoId: survivor.id, reviewStatus: null },
+  })
+  logger.info('Merged duplicate workflow step tasks', { assessmentId, key, survivorId: survivor.id, merged: extras.length })
+  return survivor
+}
+
 async function upsertTaskForItem(
   assessmentId: string,
   item: any,
   soleAttorney: Awaited<ReturnType<typeof findSoleAttorneyForAssessment>>,
 ): Promise<'created' | 'updated' | 'noop'> {
   const key = workflowItemTaskKey(item.id)
-  const existing = await prisma.caseTask.findFirst({
-    where: { assessmentId, sourceTemplateStepId: key, mergedIntoId: null },
-    select: {
-      id: true,
-      status: true,
-      title: true,
-      dueDate: true,
-      assignedRole: true,
-      assignedTo: true,
-      assignedUserId: true,
-      priority: true,
-      notes: true,
-    },
-  })
+  const existing = await dedupeStepTasks(assessmentId, key)
 
   const member = await resolveMemberAssignee(item.assignedFirmMemberId)
   const title = String(item.title || '')
@@ -254,6 +281,8 @@ async function upsertTaskForItem(
         sourceTemplateId: item.caseWorkflowId || null,
       },
     })
+    // Another API instance may have created the same step's task at the same moment.
+    await dedupeStepTasks(assessmentId, key)
     return 'created'
   }
 
@@ -311,11 +340,30 @@ export type WorkflowStepTaskSyncResult = {
   stageUnlock: { newTasks: number; stageOrder: number } | null
 }
 
+const syncInFlight = new Map<string, Promise<unknown>>()
+
 /**
  * Ensure Tasks-tab CaseTasks exist for the active/required workflow steps on a case.
  * Safe to call on workflow apply, workflow GET, and tasks GET (idempotent).
+ * Calls for the same case run one after another: the case page loads tasks and
+ * the workflow in parallel, and two overlapping syncs each created the task.
  */
-export async function syncWorkflowStepTasks(
+export function syncWorkflowStepTasks(
+  assessmentId: string,
+  opts?: { priorActiveStageOrder?: number | null },
+): Promise<WorkflowStepTaskSyncResult> {
+  const prior = syncInFlight.get(assessmentId) ?? Promise.resolve()
+  const run = prior.catch(() => undefined).then(() => runWorkflowStepTaskSync(assessmentId, opts))
+  syncInFlight.set(assessmentId, run)
+  void run
+    .catch(() => undefined)
+    .finally(() => {
+      if (syncInFlight.get(assessmentId) === run) syncInFlight.delete(assessmentId)
+    })
+  return run
+}
+
+async function runWorkflowStepTaskSync(
   assessmentId: string,
   opts?: { priorActiveStageOrder?: number | null },
 ): Promise<WorkflowStepTaskSyncResult> {
