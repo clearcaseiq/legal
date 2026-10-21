@@ -7,7 +7,7 @@
  * offering a firm's own client to a competitor.
  */
 import { describe, expect, it } from 'vitest'
-import { ATTORNEY_SELF_SOURCE, isAttorneyOwnedCase } from './attorney-case-origin'
+import { ATTORNEY_SELF_SOURCE, isAttorneyOwnedCase, isManualIntakeCase } from './attorney-case-origin'
 
 describe('isAttorneyOwnedCase', () => {
   it('recognises a case the attorney created by hand', () => {
@@ -36,5 +36,15 @@ describe('isAttorneyOwnedCase', () => {
     expect(isAttorneyOwnedCase({})).toBe(false)
     expect(isAttorneyOwnedCase({ origin: null })).toBe(false)
     expect(isAttorneyOwnedCase({ origin: 'attorney_self' })).toBe(false)
+  })
+})
+
+describe('isManualIntakeCase', () => {
+  it('is true only for a hand-created attorney case', () => {
+    expect(isManualIntakeCase({ origin: { kind: ATTORNEY_SELF_SOURCE, origin: 'manual' } })).toBe(true)
+    expect(isManualIntakeCase({ origin: { kind: ATTORNEY_SELF_SOURCE, origin: 'import' } })).toBe(false)
+    expect(isManualIntakeCase({ origin: { kind: 'plaintiff', origin: 'manual' } })).toBe(false)
+    expect(isManualIntakeCase({})).toBe(false)
+    expect(isManualIntakeCase(null)).toBe(false)
   })
 })

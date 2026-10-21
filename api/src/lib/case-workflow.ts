@@ -25,6 +25,22 @@ import {
   WORKFLOW_ITEM_TASK_PREFIX,
 } from './workflow-step-tasks'
 import { adaptWorkflowDraftForCase, type WorkflowItemDraft } from './workflow-adapt'
+import { isManualIntakeCase } from './attorney-case-origin'
+import { resolveTaskWorkKey } from './task-identity'
+
+/** Steps a manual intake case never gets: the attorney onboarded that client. */
+export function isStepExcludedForManualIntake(title: string): boolean {
+  return resolveTaskWorkKey({ title }) === 'welcome_packet'
+}
+
+function parseFacts(raw: string | null | undefined): unknown {
+  if (!raw) return null
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return null
+  }
+}
 
 function addDays(date: Date, days: number): Date {
   const d = new Date(date)
@@ -112,9 +128,11 @@ export async function applyFirmWorkflowToCase(params: {
   // Resolve case fields for apply-time conditional evaluation.
   const assessment = await prisma.assessment.findUnique({
     where: { id: assessmentId },
-    select: { id: true, claimType: true, venueState: true, status: true },
+    select: { id: true, claimType: true, venueState: true, status: true, facts: true },
   })
   const conditionCtx = resolveConditionContext(assessment)
+  const manualIntake = isManualIntakeCase(parseFacts(assessment?.facts))
+  const keepStep = (title: string) => !(manualIntake && isStepExcludedForManualIntake(title))
 
   // Default assignees are only carried over if the member is still in the firm.
   let validMemberIds = new Set<string>()
@@ -136,6 +154,7 @@ export async function applyFirmWorkflowToCase(params: {
     for (const step of steps) {
       // Skip conditional steps whose condition doesn't match this case.
       if (!evaluateStepCondition(step, conditionCtx)) continue
+      if (!keepStep(step.title)) continue
       draftItems.push({
         phaseName: group.phaseName,
         phaseOrder: group.phaseOrder,
@@ -180,10 +199,12 @@ export async function applyFirmWorkflowToCase(params: {
       appliedCount: 0,
     }
   })
-  const items = adapted.items.map(({ id: _id, status: _status, custom, ...rest }) => ({
-    ...rest,
-    custom: Boolean(custom),
-  }))
+  const items = adapted.items
+    .filter((it) => keepStep(it.title))
+    .map(({ id: _id, status: _status, custom, ...rest }) => ({
+      ...rest,
+      custom: Boolean(custom),
+    }))
 
   try {
     const created = await (prisma as any).caseWorkflow.create({

@@ -21,6 +21,7 @@ import { recordCaseChange } from './data-authority'
 import { notifyAttorneyInApp } from './case-notifications'
 import { ATTORNEY_EVENTS } from './notification-events'
 import { syncWorkflowItemFromTask } from './workflow-step-tasks'
+import { isManualIntakeCase } from './attorney-case-origin'
 
 /** True when a firm template name looks like a retainer / fee agreement. */
 export function isRetainerTemplateName(name: string): boolean {
@@ -701,6 +702,15 @@ export async function ensureWelcomePacketTask(assessmentId: string, opts: {
     select: { id: true },
   })
   if (existing) return 'exists'
+
+  const assessment = await prisma.assessment.findUnique({ where: { id: assessmentId }, select: { facts: true } })
+  let facts: unknown = null
+  try {
+    facts = assessment?.facts ? JSON.parse(assessment.facts) : null
+  } catch {
+    facts = null
+  }
+  if (isManualIntakeCase(facts)) return 'noop'
 
   const contents = await getWelcomePacketContents(opts.lawFirmId)
   const items = await describeWelcomePacket(opts.lawFirmId, contents)

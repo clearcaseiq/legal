@@ -18,6 +18,8 @@ import {
 } from './workflow-step-tasks'
 import { assessmentHasHipaaOnFile } from './case-opening'
 import { normalizeTaskTitle, resolveTaskWorkKey } from './task-identity'
+import { isManualIntakeCase } from './attorney-case-origin'
+import { isStepExcludedForManualIntake } from './case-workflow'
 
 type ReconcileCtx = {
   assessmentId: string
@@ -507,6 +509,44 @@ export async function reconcileWorkflowItemsFromCaseData(
 }
 
 /**
+ * Take the welcome packet step off a manual intake case whose workflow was
+ * applied before such cases stopped getting it. Pending steps and their open
+ * tasks only: a packet someone already sent stays on the record.
+ */
+export async function dropManualIntakeExcludedSteps(assessmentId: string): Promise<number> {
+  if (!assessmentId) return 0
+  const assessment = await prisma.assessment
+    .findUnique({ where: { id: assessmentId }, select: { facts: true } })
+    .catch(() => null)
+  let facts: unknown = null
+  try {
+    facts = assessment?.facts ? JSON.parse(assessment.facts) : null
+  } catch {
+    facts = null
+  }
+  if (!isManualIntakeCase(facts)) return 0
+
+  const items: Array<{ id: string; title: string }> = await (prisma as any).caseWorkflowItem.findMany({
+    where: { caseWorkflow: { assessmentId }, status: 'pending' },
+    select: { id: true, title: true },
+  })
+  const excluded = items.filter((it) => isStepExcludedForManualIntake(it.title))
+  if (!excluded.length) return 0
+
+  await prisma.caseTask.updateMany({
+    where: {
+      assessmentId,
+      status: { in: ['open', 'in_progress'] },
+      sourceTemplateStepId: { in: excluded.map((it) => workflowItemTaskKey(it.id)) },
+    },
+    data: { status: 'deleted' },
+  })
+  await (prisma as any).caseWorkflowItem.deleteMany({ where: { id: { in: excluded.map((it) => it.id) } } })
+  logger.info('Dropped manual-intake-excluded workflow steps', { assessmentId, count: excluded.length })
+  return excluded.length
+}
+
+/**
  * Full Workflow sync: Tasks-tab state first, then case-data proof.
  * Call on Workflow GET, Tasks GET, and after any task status change.
  */
@@ -514,6 +554,9 @@ export async function reconcileWorkflowProgress(assessmentId: string): Promise<{
   fromTasks: { completed: number; reopened: number }
   fromCaseData: { completed: number; keys: string[] }
 }> {
+  await dropManualIntakeExcludedSteps(assessmentId).catch((error: any) =>
+    logger.warn('Dropping manual-intake workflow steps failed', { assessmentId, error: error?.message }),
+  )
   const fromTasks = await reconcileWorkflowItemsFromTasks(assessmentId)
   const fromCaseData = await reconcileWorkflowItemsFromCaseData(assessmentId)
   return { fromTasks, fromCaseData }

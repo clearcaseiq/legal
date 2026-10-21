@@ -42,3 +42,14 @@ export function isAttorneyOwnedCase(facts: unknown): boolean {
   const origin = (facts as { origin?: { kind?: unknown } }).origin
   return Boolean(origin && typeof origin === 'object' && origin.kind === ATTORNEY_SELF_SOURCE)
 }
+
+/**
+ * True for a case the attorney typed in through "New case (manual)".
+ *
+ * The attorney signed that client up before the case reached us, so the
+ * onboarding we would otherwise send them (the welcome packet) does not apply.
+ */
+export function isManualIntakeCase(facts: unknown): boolean {
+  if (!isAttorneyOwnedCase(facts)) return false
+  return (facts as { origin: { origin?: unknown } }).origin.origin === 'manual'
+}
