@@ -150,6 +150,24 @@ away. The permission used to be a list of instance ARNs on the role, which had
 the same "remember to update this" problem as `INSTANCE_IDS` and no equivalent
 of the target group to make the omission visible.
 
+### Live updates reach both hosts
+
+The API pushes live updates over socket.io (a new offer on the claimant's
+dashboard, a task a colleague completed). Each browser holds its socket on
+whichever host the ALB picked, so an event raised on the other host has to be
+relayed, or live updates silently work about half the time.
+
+The relay runs over the database both hosts already share: Postgres
+`LISTEN/NOTIFY` through `@socket.io/postgres-adapter`, set up in
+`api/src/lib/realtime.ts`. Events too large for a notification go through the
+`socket_io_attachments` table, which is in `schema.prisma` so the boot-time
+`db push` keeps it. Nothing needs provisioning. Setting `REDIS_URL` switches the
+relay to Redis instead, and `REALTIME_BACKPLANE=none` turns it off.
+
+Each API logs which it got at startup. Expect `Realtime Postgres adapter
+connected`; `failed to connect; events stay instance-local` means the hosts are
+back to the half-the-time behaviour.
+
 ### What failover actually looks like
 
 Measured by stopping the leaseholder in production while probing the site every

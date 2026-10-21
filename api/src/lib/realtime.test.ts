@@ -52,7 +52,14 @@ vi.mock('./prisma', () => ({
   },
 }))
 
-import { closeRealtime, emitLeadClaimed, emitLeadNew, initRealtime, REALTIME_PATH } from './realtime'
+import {
+  closeRealtime,
+  emitLeadClaimed,
+  emitLeadNew,
+  initRealtime,
+  pgConfigFromPrismaUrl,
+  REALTIME_PATH,
+} from './realtime'
 
 let httpServer: HttpServer
 let url: string
@@ -150,6 +157,31 @@ describe('realtime negotiation:updated', () => {
       async () => ({ count: 1 }),
     )
     expect(await pending).toEqual({ assessmentId: 'asm-9', leadId: 'lead-9' })
+  })
+})
+
+describe('pgConfigFromPrismaUrl', () => {
+  it('drops Prisma-only parameters and negotiates TLS without CA checks, as Prisma does, for RDS', () => {
+    const cfg = pgConfigFromPrismaUrl(
+      'postgresql://app:p%40ss@db.abc.us-east-1.rds.amazonaws.com:5432/caseiq?schema=public&sslmode=require&connection_limit=5',
+    )
+    expect(cfg.connectionString).toBe('postgresql://app:p%40ss@db.abc.us-east-1.rds.amazonaws.com:5432/caseiq')
+    expect(cfg.ssl).toEqual({ rejectUnauthorized: false })
+    expect(cfg.options).toBeUndefined()
+  })
+
+  it('still uses TLS for a remote host when the URL names no sslmode', () => {
+    expect(pgConfigFromPrismaUrl('postgresql://app:x@db.internal:5432/caseiq').ssl).toEqual({ rejectUnauthorized: false })
+  })
+
+  it('connects in plaintext to a local database and honours sslmode=disable and verify-full', () => {
+    expect(pgConfigFromPrismaUrl('postgresql://u:p@localhost:5432/caseiq_local?schema=public').ssl).toBe(false)
+    expect(pgConfigFromPrismaUrl('postgresql://u:p@db.internal/x?sslmode=disable').ssl).toBe(false)
+    expect(pgConfigFromPrismaUrl('postgresql://u:p@db.internal/x?sslmode=verify-full').ssl).toBe(true)
+  })
+
+  it('keeps a non-public Prisma schema on the search path, where the attachments table lives', () => {
+    expect(pgConfigFromPrismaUrl('postgresql://u:p@db.internal/x?schema=tenant').options).toBe('-c search_path=tenant')
   })
 })
 

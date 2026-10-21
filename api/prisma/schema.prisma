@@ -4677,6 +4677,19 @@ model SchedulerLease {
   @@map("scheduler_leases")
 }
 
+/// Overflow storage for the socket.io Postgres adapter (api/src/lib/realtime.ts),
+/// which relays push events between API instances over NOTIFY. Events too large
+/// for a NOTIFY payload are written here and fetched by id; the adapter prunes
+/// old rows itself. Declared so `prisma db push` keeps the table instead of
+/// treating it as drift to drop. Column names and types are the adapter's.
+model SocketIoAttachment {
+  id        BigInt   @id @default(autoincrement())
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  payload   Bytes?
+
+  @@map("socket_io_attachments")
+}
+
 /// Geocoded centre point of a 5-digit US ZIP, cached so provider radius search
 /// does not pay for a geocode on every request. A row with null coordinates
 /// records a ZIP the geocoder could not resolve, which stops an unresolvable

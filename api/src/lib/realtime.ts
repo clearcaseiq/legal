@@ -9,16 +9,18 @@
  *   - `firm:<lawFirmId>` for attorneys and active firm members alike
  *
  * With more than one API instance behind the load balancer, an event raised on
- * one instance must reach sockets held by the other, so `REDIS_URL` enables the
- * Redis adapter as the shared backplane. Without it, events only reach sockets
- * on the emitting instance — fine for a single instance and for local dev.
+ * one instance must reach sockets held by the other. In production that relay
+ * runs over the shared Postgres database (LISTEN/NOTIFY), or over Redis when
+ * `REDIS_URL` is set; see `connectBackplane`. Local dev stays instance-local.
  *
  * Emitting is fire-and-forget: a push is a hint to refresh, never the source of
  * truth, so a failure here must never fail the request that triggered it.
  */
 import type { Server as HttpServer } from 'http'
 import { Server } from 'socket.io'
-import { createAdapter } from '@socket.io/redis-adapter'
+import { createAdapter as createRedisAdapter } from '@socket.io/redis-adapter'
+import { createAdapter as createPostgresAdapter } from '@socket.io/postgres-adapter'
+import { Pool, type PoolConfig } from 'pg'
 import { createClient } from 'redis'
 import { verifyToken } from './auth'
 import { prisma } from './prisma'
@@ -136,6 +138,28 @@ export function initRealtime(httpServer: HttpServer): Server {
     }
   })
 
+  connectBackplane(isProduction)
+  pushOnWrites()
+  logger.info(`Realtime socket server listening on ${REALTIME_PATH}`)
+  return io
+}
+
+let pgPool: Pool | null = null
+
+/**
+ * Relay events between API instances. Production runs two hosts behind the
+ * load balancer, so without a backplane a push raised on one host never reaches
+ * a browser connected to the other, and live updates work about half the time.
+ *
+ * Redis when `REDIS_URL` is set; otherwise Postgres LISTEN/NOTIFY over the
+ * database every instance already shares. `REALTIME_BACKPLANE=none` turns it
+ * off, and `=postgres` turns it on outside production. A backplane that cannot
+ * connect leaves events instance-local rather than failing startup.
+ */
+function connectBackplane(isProduction: boolean): void {
+  const mode = String(process.env.REALTIME_BACKPLANE || '').trim().toLowerCase()
+  if (mode === 'none') return
+
   const redisUrl = process.env.REDIS_URL?.trim()
   if (redisUrl) {
     const pub = createClient({ url: redisUrl })
@@ -144,19 +168,77 @@ export function initRealtime(httpServer: HttpServer): Server {
     sub.on('error', (err) => logger.warn('Realtime Redis subscriber error', { error: err.message }))
     Promise.all([pub.connect(), sub.connect()])
       .then(() => {
-        io?.adapter(createAdapter(pub, sub))
+        io?.adapter(createRedisAdapter(pub, sub))
         logger.info('Realtime Redis adapter connected')
       })
       .catch((err: Error) => {
         logger.error('Realtime Redis adapter failed to connect; events stay instance-local', { error: err.message })
       })
-  } else if (isProduction) {
-    logger.warn('REDIS_URL not set; realtime events only reach sockets on this instance')
+    return
   }
 
-  pushOnWrites()
-  logger.info(`Realtime socket server listening on ${REALTIME_PATH}`)
-  return io
+  const databaseUrl = process.env.DATABASE_URL?.trim() || ''
+  if (!/^postgres(ql)?:\/\//i.test(databaseUrl) || (!isProduction && mode !== 'postgres')) return
+
+  const pool = new Pool({ ...pgConfigFromPrismaUrl(databaseUrl), max: 3 })
+  pool.on('error', (err) => logger.warn('Realtime Postgres pool error', { error: err.message }))
+  pool
+    .query('SELECT 1')
+    .then(() => {
+      if (!io) return pool.end()
+      pgPool = pool
+      io.adapter(
+        createPostgresAdapter(pool, {
+          errorHandler: (err) => logger.warn('Realtime Postgres adapter error', { error: err.message }),
+        }),
+      )
+      logger.info('Realtime Postgres adapter connected')
+    })
+    .catch((err: Error) => {
+      logger.error('Realtime Postgres adapter failed to connect; events stay instance-local', { error: err.message })
+      void pool.end().catch(() => undefined)
+    })
+}
+
+/** Prisma-only URL parameters that `pg` would otherwise pass to the server. */
+const PRISMA_URL_PARAMS = [
+  'schema',
+  'connection_limit',
+  'pool_timeout',
+  'pgbouncer',
+  'statement_cache_size',
+  'socket_timeout',
+  'connect_timeout',
+  'sslmode',
+  'sslaccept',
+  'sslcert',
+  'sslidentity',
+  'sslpassword',
+]
+
+/**
+ * `pg` settings equivalent to how Prisma reads the same `DATABASE_URL`. TLS
+ * follows Prisma's defaults: RDS enforces it and Prisma negotiates it without
+ * checking the CA unless `sslmode=verify-full`, whereas `pg` would connect in
+ * plaintext (refused) or verify against a CA bundle it does not carry.
+ */
+export function pgConfigFromPrismaUrl(databaseUrl: string): PoolConfig {
+  const url = new URL(databaseUrl)
+  const sslmode = (url.searchParams.get('sslmode') || '').toLowerCase()
+  const schema = url.searchParams.get('schema')
+  for (const key of PRISMA_URL_PARAMS) url.searchParams.delete(key)
+  const local = ['localhost', '127.0.0.1', '::1', '[::1]'].includes(url.hostname)
+  const ssl =
+    sslmode === 'disable' || (local && !sslmode)
+      ? false
+      : sslmode === 'verify-full'
+        ? true
+        : { rejectUnauthorized: false }
+  return {
+    connectionString: url.toString(),
+    ssl,
+    ...(schema && schema !== 'public' ? { options: `-c search_path=${schema}` } : {}),
+  }
 }
 
 /**
@@ -310,6 +392,16 @@ export async function closeRealtime(): Promise<void> {
   const server = io
   io = null
   server.disconnectSockets(true)
+  const pool = pgPool
+  pgPool = null
+  if (pool) {
+    // The Postgres adapter holds a pooled client for LISTEN until its namespace
+    // adapter closes, and pool.end() waits for it, so close them first.
+    for (const nsp of ((server as any)._nsps?.values?.() ?? []) as Iterable<{ adapter: { close: () => unknown } }>) {
+      await Promise.resolve(nsp.adapter.close()).catch(() => undefined)
+    }
+    await pool.end().catch(() => undefined)
+  }
 }
 
 /**
