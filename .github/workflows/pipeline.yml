@@ -45,14 +45,14 @@ jobs:
     name: Test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # No `version:` here on purpose. Setting one alongside the `packageManager`
-      # field in package.json makes action-setup@v4 abort with "Multiple versions
+      # field in package.json makes action-setup abort with "Multiple versions
       # of pnpm specified", which is why every CI run failed within ten seconds.
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '20'
           cache: 'pnpm'
@@ -113,10 +113,10 @@ jobs:
             repository: clearcaseiq-web
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           # Assumed via OIDC, so there are no long-lived AWS keys in GitHub
           # secrets to leak or rotate. The trust policy restricts
@@ -172,10 +172,10 @@ jobs:
       name: qa
       url: https://qa.clearcaseiq.com
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
@@ -282,10 +282,10 @@ jobs:
       group: deploy-production
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
