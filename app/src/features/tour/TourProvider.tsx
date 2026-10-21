@@ -9,7 +9,7 @@ import { useLanguage } from '../../contexts/LanguageContext'
 import { useFirmAccess } from '../../hooks/useFirmAccess'
 import { getStoredRole } from '../../lib/auth'
 import { useOptionalAttorneyWorkspace } from '../shared/AttorneyWorkspaceContext'
-import { TOURS, copyKey, resolveRoute, stepsFor, type TourId, type TourStep } from './tours'
+import { TOURS, copyKey, resolveRoute, samePage, stepsFor, type TourId, type TourStep } from './tours'
 
 export type TourStatus = 'started' | 'completed' | 'dismissed'
 export type TourProgress = Partial<Record<TourId, { status: TourStatus; lastStep: number }>>
@@ -84,12 +84,6 @@ function waitForTarget(target: string, signal: { cancelled: boolean }): Promise<
       resolve(null)
     }, TARGET_WAIT_MS)
   })
-}
-
-/** `/lead/:id/...` and `/cases/:id/...` open the same case page. */
-function samePage(pathname: string, route: string): boolean {
-  const norm = (p: string) => p.replace(/\/+$/, '').replace('/attorney-dashboard/lead/', '/attorney-dashboard/cases/')
-  return norm(pathname) === norm(route.split('?')[0])
 }
 
 function leadIdFromPath(pathname: string): string | null {
@@ -232,7 +226,7 @@ export function TourProvider({ children, offer = true }: { children: ReactNode; 
       return
     }
     const stepKey = `${run.tourId}:${run.index}`
-    if (!samePage(location.pathname, route) && navigatedForRef.current !== stepKey) {
+    if (!samePage(location.pathname, location.search, route) && navigatedForRef.current !== stepKey) {
       // Once per step: if the page redirects (permissions), fall through to the
       // target wait, which skips the step instead of bouncing forever.
       navigatedForRef.current = stepKey
@@ -289,7 +283,7 @@ export function TourProvider({ children, offer = true }: { children: ReactNode; 
       signal.cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [run, location.pathname])
+  }, [run, location.pathname, location.search])
 
   useEffect(
     () => () => {

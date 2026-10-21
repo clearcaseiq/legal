@@ -367,6 +367,9 @@ export default function Dashboard() {
       id: string
       scheduledAt: string
       type: string
+      duration?: number
+      meetingUrl?: string | null
+      videoRoom?: boolean
       attorney: { id?: string; name: string }
       preparation?: {
         checkInStatus?: string
@@ -2521,7 +2524,23 @@ export default function Dashboard() {
                             <p className="mt-2 text-xs text-emerald-700">{scheduleSuccess}</p>
                           )}
                           <div className="mt-auto flex flex-wrap gap-2 pt-4">
-                            {routingStatus?.attorneyMatched?.phone && (
+                            {routingStatus.upcomingAppointment.type === 'video' && routingStatus.upcomingAppointment.videoRoom ? (
+                              <Link
+                                to={`/video/appointment/${routingStatus.upcomingAppointment.id}`}
+                                className="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+                              >
+                                {t('plaintiffDashboard.consultation.joinVideo')}
+                              </Link>
+                            ) : routingStatus.upcomingAppointment.type === 'video' && routingStatus.upcomingAppointment.meetingUrl ? (
+                              <a
+                                href={routingStatus.upcomingAppointment.meetingUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+                              >
+                                {t('plaintiffDashboard.consultation.joinVideo')}
+                              </a>
+                            ) : routingStatus?.attorneyMatched?.phone && (
                               <a
                                 href={`tel:${routingStatus.attorneyMatched.phone}`}
                                 className="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-emerald-700"

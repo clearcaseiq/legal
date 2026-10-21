@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import en from '../../i18n/locales/en.json'
-import { TOURS, TOUR_ORDER, copyKey, resolveRoute, stepsFor, type TourAudience } from './tours'
+import { TOURS, TOUR_ORDER, copyKey, resolveRoute, samePage, stepsFor, type TourAudience } from './tours'
 
 const attorney: TourAudience = { isStaff: false, isFirmAdmin: false, staffActions: {}, staffPermissions: [] }
 const admin: TourAudience = { ...attorney, isFirmAdmin: true }
@@ -65,5 +65,18 @@ describe('stepsFor', () => {
 
   it('hides case billing from staff', () => {
     expect(stepsFor(TOURS.case_lifecycle, staff).map((s) => s.id)).not.toContain('billing')
+  })
+})
+
+describe('samePage', () => {
+  it('treats lead and cases paths as the same case page', () => {
+    expect(samePage('/attorney-dashboard/lead/abc/tasks/', '', '/attorney-dashboard/cases/abc/tasks')).toBe(true)
+  })
+
+  it('requires the route query to match so hub tabs actually open', () => {
+    const route = '/attorney-dashboard/cases/calendar?tab=booking'
+    expect(samePage('/attorney-dashboard/cases/calendar', '', route)).toBe(false)
+    expect(samePage('/attorney-dashboard/cases/calendar', '?tab=booking&x=1', route)).toBe(true)
+    expect(samePage('/attorney-dashboard/cases/calendar', '?tab=booking', '/attorney-dashboard/cases/calendar')).toBe(true)
   })
 })

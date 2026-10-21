@@ -157,6 +157,7 @@ import { formatClaimType } from '../../lib/claimTypes'
 import { resolveCaseName, suggestedCaseName } from '../../lib/caseName'
 import { todayDateKey } from '../../lib/taskDueDate'
 import CaseNameEditor from './CaseNameEditor'
+import StartVideoCallButton from './StartVideoCallButton'
 import DemandLetterWorkspace from './DemandLetterWorkspace'
 import { getStoredRole } from '../../lib/auth'
 import { useFirmAccess, type FirmAction } from '../../hooks/useFirmAccess'
@@ -806,6 +807,7 @@ export default function CaseWorkspacePage() {
                     Message client
                   </button>
                 )}
+                {!isStaff && <StartVideoCallButton leadId={leadId} />}
               </div>
             </div>
 

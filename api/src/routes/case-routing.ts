@@ -19,6 +19,7 @@ import { getAppointmentPreparation, seedAppointmentPrepItems } from '../lib/appo
 import { careFinishedOnRecord } from '../lib/workflow-signals'
 import { isEngagedLeadStatus } from '../lib/lead-status'
 import { isAttorneyEmailVerified } from '../lib/attorney-email-verified'
+import { isZoomEmbedEnabled } from '../lib/zoom'
 const router = Router()
 
 async function getAttorneyFromRequest(req: AuthRequest): Promise<{ id: string } | null> {
@@ -316,6 +317,9 @@ router.get('/assessment/:id/status', authMiddleware, async (req: AuthRequest, re
       id: true,
       scheduledAt: true,
       type: true,
+      duration: true,
+      meetingUrl: true,
+      externalCalendarProvider: true,
       attorney: { select: { name: true } },
     } satisfies Prisma.AppointmentSelect
     const loadAppointment = async () => {
@@ -483,6 +487,16 @@ router.get('/assessment/:id/status', authMiddleware, async (req: AuthRequest, re
           id: appointmentRecord.id,
           scheduledAt: appointmentRecord.scheduledAt.toISOString(),
           type: appointmentRecord.type,
+          duration: appointmentRecord.duration,
+          meetingUrl:
+            appointmentRecord.type === 'video' && assessment.userId && req.user?.id === assessment.userId
+              ? appointmentRecord.meetingUrl
+              : null,
+          // In-platform video room (Zoom Meeting SDK); only Zoom meetings can be embedded.
+          videoRoom:
+            appointmentRecord.type === 'video'
+            && appointmentRecord.externalCalendarProvider === 'zoom'
+            && isZoomEmbedEnabled(),
           attorney: {
             id: matchedAttorney?.id,
             name: appointmentRecord.attorney.name

@@ -153,13 +153,15 @@ export default function SchedulingSettingsPage() {
         </div>
       </div>
       {!isScheduler && (
-        <SectionCard title="Calendar & video connections">
-          <p className="mb-4 text-xs text-slate-500">
-            Connect your calendar so bookings only offer times you're actually free, and connect Zoom so video
-            consultations get a real meeting link automatically.
-          </p>
-          <AttorneyCalendarZoomSettings />
-        </SectionCard>
+        <div id="video-connections" data-tour="video-connections" className="scroll-mt-6">
+          <SectionCard title="Calendar & video connections">
+            <p className="mb-4 text-xs text-slate-500">
+              Connect your calendar so bookings only offer times you're actually free, and connect Zoom so video
+              consultations get a real meeting link automatically.
+            </p>
+            <AttorneyCalendarZoomSettings />
+          </SectionCard>
+        </div>
       )}
     </div>
   )

@@ -139,7 +139,7 @@ import {
 } from '../lib/negotiation-client'
 import { createExternalCalendarEvent, deleteExternalCalendarEvent } from '../lib/calendar-sync'
 import { notifyWaitlistForFreedSlot, syncLeadStatusAfterConsultCancelled } from '../lib/appointment-engagement'
-import { createZoomMeeting } from '../lib/zoom'
+import { createZoomMeeting, getAttorneyZoomConnection, isZoomEmbedEnabled } from '../lib/zoom'
 import { deliverDirectNotification, createNotificationEvent, notifyAdmins } from '../lib/platform-notifications'
 import { notifyTaskAssignee } from '../lib/task-assignment-notify'
 import {
@@ -4796,6 +4796,7 @@ router.post('/appointments/:appointmentId/ensure-meeting-link', authMiddleware, 
         scheduledAt: true,
         duration: true,
         assessmentId: true,
+        userId: true,
         meetingUrl: true,
         hostMeetingUrl: true,
         status: true,
@@ -4826,6 +4827,12 @@ router.post('/appointments/:appointmentId/ensure-meeting-link', authMiddleware, 
         agenda: appointment.assessmentId
           ? `Video consultation booked in ClearCaseIQ for assessment ${appointment.assessmentId}.`
           : 'Video consultation booked in ClearCaseIQ.',
+        link: {
+          appointmentId: appointment.id,
+          assessmentId: appointment.assessmentId,
+          userId: appointment.userId,
+          createdByUserId: req.user?.id || null,
+        },
       })
       if (zoomMeeting) {
         meetingUrl = zoomMeeting.joinUrl
@@ -4891,6 +4898,137 @@ router.post('/appointments/:appointmentId/ensure-meeting-link', authMiddleware, 
   } catch (error: any) {
     logger.error('Failed to ensure meeting link', { error: error.message, appointmentId: req.params.appointmentId })
     res.status(500).json({ error: 'Failed to create meeting link' })
+  }
+})
+
+// Start an ad-hoc video call on a case: an instant Zoom meeting on the
+// attorney's own account, with the join link sent to the client. Attorney-only
+// because the start link signs in as the Zoom host.
+router.post('/leads/:leadId/video-call', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAuthorizedLead(req, String(req.params.leadId || ''))
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const { lead, attorney } = auth
+    if (!attorney) {
+      return res.status(403).json({ error: 'Only attorneys can start a video call from their Zoom account.' })
+    }
+    const notAccepted = checkLeadIsAccepted(lead, 'starting a video call')
+    if (notAccepted) return res.status(notAccepted.status).json({ error: notAccepted.message })
+
+    const connection = await getAttorneyZoomConnection(attorney.id)
+    if (!connection || connection.syncStatus !== 'connected') {
+      return res.status(409).json({ error: 'Connect your Zoom account first.', code: 'zoom_not_connected' })
+    }
+
+    const assessment = await prisma.assessment.findUnique({
+      where: { id: lead.assessmentId },
+      select: {
+        userId: true,
+        facts: true,
+        user: { select: { email: true, firstName: true } },
+      },
+    })
+    let plaintiffEmail = assessment?.user?.email || null
+    if (!plaintiffEmail && assessment?.facts) {
+      try {
+        const facts = typeof assessment.facts === 'string' ? JSON.parse(assessment.facts) : assessment.facts
+        plaintiffEmail = (facts as any)?.plaintiffContext?.email || null
+      } catch {}
+    }
+
+    const meeting = await createZoomMeeting({
+      attorneyId: attorney.id,
+      topic: `Video call with ${attorney.name || 'your attorney'}`,
+      start: new Date(),
+      durationMinutes: 30,
+      instant: true,
+      link: {
+        kind: 'instant',
+        assessmentId: lead.assessmentId,
+        userId: assessment?.userId || null,
+        createdByUserId: req.user?.id || null,
+      },
+    })
+    if (!meeting) {
+      return res.status(502).json({ error: 'Zoom could not create the meeting. Try reconnecting Zoom.' })
+    }
+    const record = await prisma.videoMeeting.findUnique({
+      where: { externalMeetingId: meeting.meetingId },
+      select: { id: true },
+    })
+    const embed = isZoomEmbedEnabled() && Boolean(record)
+    // Clients with an account join inside the portal when embedding is on.
+    const clientLink = embed && assessment?.userId ? webUrl(`/video/meeting/${record!.id}`) : meeting.joinUrl
+
+    const attorneyName = attorney.name || 'Your attorney'
+    const subject = `${attorneyName} started a video call`
+    const body = `Hi${assessment?.user?.firstName ? ` ${assessment.user.firstName}` : ''},\n\n${attorneyName} started a video call about your case and is waiting for you.\n\nJoin: ${clientLink}\n\nClearCaseIQ`
+    let notified = false
+
+    if (assessment?.userId) {
+      try {
+        const room =
+          (await prisma.chatRoom.findUnique({
+            where: { userId_attorneyId: { userId: assessment.userId, attorneyId: attorney.id } },
+            select: { id: true },
+          })) ||
+          (await prisma.chatRoom.create({
+            data: { userId: assessment.userId, attorneyId: attorney.id, assessmentId: lead.assessmentId },
+            select: { id: true },
+          }))
+        await prisma.message.create({
+          data: {
+            chatRoomId: room.id,
+            senderId: attorney.id,
+            senderType: 'attorney',
+            content: `I started a video call. Join here: ${clientLink}`,
+            messageType: 'text',
+            metadata: JSON.stringify({ kind: 'video_call', videoMeetingId: record?.id || null, joinUrl: clientLink }),
+          },
+        })
+        await prisma.chatRoom.update({ where: { id: room.id }, data: { lastMessageAt: new Date() } })
+        notified = true
+      } catch (chatErr: any) {
+        logger.warn('Video call chat message failed', { error: chatErr?.message, leadId: lead.id })
+      }
+      await notifyPlaintiffInApp({
+        userId: assessment.userId,
+        recipientEmail: plaintiffEmail,
+        attorneyId: attorney.id,
+        assessmentId: lead.assessmentId,
+        eventType: 'video_call_started',
+        subject,
+        body,
+        link: embed && record ? `/video/meeting/${record.id}` : '/dashboard',
+        payload: { leadId: lead.id, videoMeetingId: record?.id || null },
+      }).catch(() => {})
+    }
+    if (plaintiffEmail) {
+      await createNotification(plaintiffEmail, subject, body, { leadId: lead.id, assessmentId: lead.assessmentId }, {
+        replyTo: attorney.email || null,
+        fromName: attorney.name || null,
+        attorneyId: attorney.id,
+        userId: assessment?.userId || null,
+        assessmentId: lead.assessmentId,
+        role: 'plaintiff',
+      })
+      notified = true
+    }
+
+    await prisma.leadSubmission
+      .update({ where: { id: lead.id }, data: { lastContactAt: new Date() } })
+      .catch(() => {})
+
+    res.status(201).json({
+      videoMeetingId: record?.id || null,
+      joinUrl: meeting.joinUrl,
+      startUrl: meeting.startUrl,
+      embed,
+      clientNotified: notified,
+    })
+  } catch (error: any) {
+    logger.error('Failed to start video call', { error: error.message, leadId: req.params.leadId })
+    res.status(500).json({ error: 'Failed to start the video call' })
   }
 })
 
@@ -7741,6 +7879,12 @@ router.post('/leads/:leadId/schedule-consult', authMiddleware, firmGate('schedul
           start: scheduledAt,
           durationMinutes: appointment.duration,
           agenda: `Video consultation booked in ClearCaseIQ for assessment ${lead.assessmentId}.`,
+          link: {
+            appointmentId: appointment.id,
+            assessmentId: lead.assessmentId,
+            userId: appointment.userId,
+            createdByUserId: req.user?.id || null,
+          },
         })
         if (zoomMeeting) {
           meetingUrl = zoomMeeting.joinUrl

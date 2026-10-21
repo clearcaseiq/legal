@@ -3344,7 +3344,7 @@
       "scheduled": "Consultation Scheduled",
       "typeConsultation": "{type} consultation",
       "joinCall": "Join Call",
-      "reschedule": "Reschedule",
+      "joinVideo": "Join video call",      "reschedule": "Reschedule",
       "cancel": "Cancel",
       "schedule": "Schedule Consultation",
       "scheduleCta": "Schedule",

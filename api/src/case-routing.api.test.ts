@@ -600,6 +600,9 @@ describe('GET /v1/case-routing/assessment/:id/status (plaintiff)', () => {
         id: true,
         scheduledAt: true,
         type: true,
+        duration: true,
+        meetingUrl: true,
+        externalCalendarProvider: true,
         attorney: { select: { name: true } },
       },
     })

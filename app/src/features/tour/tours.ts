@@ -61,6 +61,7 @@ export const TOURS: Record<TourId, TourDefinition> = {
       { id: 'documents', route: '/attorney-dashboard/cases/documents', target: 'documents-hub', only: 'attorney' },
       { id: 'messages', route: '/attorney-dashboard/cases/messages', target: 'nav-messages', staffAction: 'message' },
       { id: 'calendar', route: '/attorney-dashboard/cases/calendar', target: 'nav-calendar', staffAction: 'schedule' },
+      { id: 'video', route: '/attorney-dashboard/cases/calendar?tab=booking', target: 'video-connections', only: 'attorney' },
       { id: 'billing', route: '/attorney-dashboard/cases/billing', target: 'nav-billing', only: 'attorney' },
       { id: 'firmSettings', route: '/firm-settings', target: 'welcome-packet', only: 'firm_admin' },
       { id: 'help', route: '/attorney-dashboard/tours', target: 'nav-help' },
@@ -108,4 +109,16 @@ export function resolveRoute(step: TourStep, leadId: string | null): string | nu
 
 export function copyKey(tourId: TourId, stepId: string, field: 'title' | 'body'): string {
   return `attorneyTour.${tourId}.${stepId}.${field}`
+}
+
+/** `/lead/:id/...` and `/cases/:id/...` open the same case page; query params on the route (e.g. `?tab=`) must match too. */
+export function samePage(pathname: string, search: string, route: string): boolean {
+  const norm = (p: string) => p.replace(/\/+$/, '').replace('/attorney-dashboard/lead/', '/attorney-dashboard/cases/')
+  const [routePath, routeQuery] = route.split('?')
+  if (norm(pathname) !== norm(routePath)) return false
+  const current = new URLSearchParams(search)
+  for (const [key, value] of new URLSearchParams(routeQuery || '')) {
+    if (current.get(key) !== value) return false
+  }
+  return true
 }

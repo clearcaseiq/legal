@@ -148,6 +148,13 @@ export const ENV = {
   ZOOM_CLIENT_SECRET: process.env.ZOOM_CLIENT_SECRET,
   /** Defaults to `${API_URL}/v1/attorney-zoom/callback` when unset. */
   ZOOM_REDIRECT_URI: process.env.ZOOM_REDIRECT_URI,
+  /** Secret token from the Marketplace app's Event Subscriptions (meeting.started/ended). */
+  ZOOM_WEBHOOK_SECRET_TOKEN: process.env.ZOOM_WEBHOOK_SECRET_TOKEN,
+  /** 'true' runs video calls inside the platform via the Zoom Meeting SDK. */
+  ZOOM_EMBED_ENABLED: process.env.ZOOM_EMBED_ENABLED,
+  /** Meeting SDK credentials; default to the OAuth client id/secret (General app). */
+  ZOOM_SDK_KEY: process.env.ZOOM_SDK_KEY,
+  ZOOM_SDK_SECRET: process.env.ZOOM_SDK_SECRET,
   APPLE_CLIENT_ID: process.env.APPLE_CLIENT_ID,
   APPLE_TEAM_ID: process.env.APPLE_TEAM_ID,
   APPLE_KEY_ID: process.env.APPLE_KEY_ID,

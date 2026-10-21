@@ -309,6 +309,7 @@ router.post('/:slug/:eventSlug', optionalAuthMiddleware, async (req: AuthRequest
           start: appointment.scheduledAt,
           durationMinutes: appointment.duration,
           agenda: `Booked via public scheduling link by ${name}.`,
+          link: { appointmentId: appointment.id, userId: user.id },
         })
         if (zoom) {
           resolvedMeetingUrl = zoom.joinUrl

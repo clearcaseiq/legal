@@ -2401,6 +2401,39 @@ model AttorneyZoomConnection {
   @@map("attorney_zoom_connections")
 }
 
+// One row per video meeting we create on an attorney's Zoom account, whether
+// for a booked consult (appointmentId set) or an ad-hoc call started from a
+// case. Zoom webhooks are matched back to this row by externalMeetingId so the
+// call can be logged against the case once it ends. Loose scalar ids (like
+// Call) keep the feature self-contained.
+model VideoMeeting {
+  id                String    @id @default(cuid())
+  provider          String    @default("zoom")
+  externalMeetingId String    @unique
+  kind              String    @default("scheduled") // scheduled, instant
+  attorneyId        String
+  assessmentId      String?
+  appointmentId     String?
+  userId            String? // plaintiff, when the case has an account
+  createdByUserId   String?
+  topic             String?
+  joinUrl           String    @db.Text
+  startUrl          String    @db.Text
+  password          String?
+  status            String    @default("scheduled") // scheduled, started, ended
+  startedAt         DateTime?
+  endedAt           DateTime?
+  durationMinutes   Int?
+  timeEntryId       String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([attorneyId])
+  @@index([assessmentId])
+  @@index([appointmentId])
+  @@map("video_meetings")
+}
+
 model AttorneyCalendarBusyBlock {
   id              String                      @id @default(cuid())
   attorneyId      String

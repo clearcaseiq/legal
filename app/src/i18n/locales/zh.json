@@ -4409,7 +4409,7 @@
       "scheduled": "咨询已安排",
       "typeConsultation": "{type} 咨询",
       "joinCall": "加入通话",
-      "reschedule": "重新安排",
+      "joinVideo": "加入视频通话",      "reschedule": "重新安排",
       "cancel": "取消",
       "schedule": "安排咨询",
       "scheduleCta": "安排",

@@ -54,6 +54,7 @@ import { publicPageLinksRouter } from './routes/admin-page-links'
 import supportChat from './routes/support-chat'
 import attorneyCalendar from './routes/attorney-calendar'
 import attorneyZoom from './routes/attorney-zoom'
+import video from './routes/video'
 import payments from './routes/payments'
 import intakeLeads from './routes/intake-leads'
 import heuristics from './routes/heuristics'
@@ -63,6 +64,7 @@ import sync from './routes/sync'
 import documentPortal from './routes/document-portal'
 import documents from './routes/documents'
 import esignWebhook from './routes/esign-webhook'
+import zoomWebhook from './routes/zoom-webhook'
 import scheduling from './routes/scheduling'
 import publicBooking from './routes/public-booking'
 import calendarEvents from './routes/calendar-events'
@@ -135,6 +137,7 @@ export function buildApp(): Express {
   app.use('/v1/compliance', compliance)
   app.use('/v1/attorney-calendar', attorneyCalendar)
   app.use('/v1/attorney-zoom', attorneyZoom)
+  app.use('/v1/video', video)
   app.use('/v1/payments', payments)
   app.use('/v1/heuristics', heuristics)
   app.use('/v1/integrations', integrations)
@@ -150,6 +153,7 @@ export function buildApp(): Express {
   app.use('/v1/calls/connect', connectWebhook)
   app.use('/v1/calls', calls)
   app.use('/v1/webhooks/esign', esignWebhook)
+  app.use('/v1/webhooks/zoom', zoomWebhook)
 
   app.get('/', (req, res) => {
     res.json({

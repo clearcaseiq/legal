@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Video call</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #0f172a; font-family: system-ui, sans-serif; }
+      #zoom-root { width: 100%; height: 100%; }
+    </style>
+    <!--
+      Zoom's Meeting SDK (component view) is built on React 18 while the app runs
+      React 19, so it lives in this same-origin frame with Zoom's own vendor
+      bundles. The parent page posts the join config; nothing secret is in the URL.
+    -->
+    <script src="https://source.zoom.us/6.5.0/lib/vendor/react.min.js"></script>
+    <script src="https://source.zoom.us/6.5.0/lib/vendor/react-dom.min.js"></script>
+    <script src="https://source.zoom.us/6.5.0/lib/vendor/redux.min.js"></script>
+    <script src="https://source.zoom.us/6.5.0/lib/vendor/redux-thunk.min.js"></script>
+    <script src="https://source.zoom.us/6.5.0/lib/vendor/lodash.min.js"></script>
+    <script src="https://source.zoom.us/zoom-meeting-embedded-6.5.0.min.js"></script>
+  </head>
+  <body>
+    <div id="zoom-root"></div>
+    <script>
+      ;(function () {
+        var started = false
+        function report(status, message) {
+          window.parent.postMessage({ type: 'cciq-zoom-status', status: status, message: message || null }, window.location.origin)
+        }
+
+        window.addEventListener('message', function (event) {
+          if (event.origin !== window.location.origin) return
+          var data = event.data || {}
+          if (data.type !== 'cciq-zoom-join' || started) return
+          started = true
+          var cfg = data.config || {}
+          if (!window.ZoomMtgEmbedded) {
+            report('error', 'The video component could not load.')
+            return
+          }
+          var client = window.ZoomMtgEmbedded.createClient()
+          var root = document.getElementById('zoom-root')
+          client
+            .init({
+              zoomAppRoot: root,
+              language: 'en-US',
+              patchJsMedia: true,
+              leaveOnPageUnload: true,
+              customize: {
+                video: {
+                  isResizable: false,
+                  viewSizes: { default: { width: root.clientWidth, height: Math.max(360, root.clientHeight - 60) } },
+                },
+              },
+            })
+            .then(function () {
+              var join = {
+                signature: cfg.signature,
+                meetingNumber: cfg.meetingNumber,
+                password: cfg.password || '',
+                userName: cfg.userName,
+              }
+              if (cfg.userEmail) join.userEmail = cfg.userEmail
+              if (cfg.zak) join.zak = cfg.zak
+              else if (cfg.obfToken) join.obfToken = cfg.obfToken
+              return client.join(join)
+            })
+            .then(function () {
+              report('joined')
+              client.on('connection-change', function (payload) {
+                if (payload && payload.state === 'Closed') report('ended')
+              })
+            })
+            .catch(function (error) {
+              report('error', (error && (error.reason || error.message)) || 'Could not join the call.')
+            })
+        })
+
+        report('ready')
+      })()
+    </script>
+  </body>
+</html>

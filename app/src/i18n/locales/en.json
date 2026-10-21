@@ -263,6 +263,10 @@
         "title": "Calendar & Consults",
         "body": "Upcoming consults and meetings, plus your booking link so clients can schedule time with you."
       },
+      "video": {
+        "title": "Connect Zoom for video calls",
+        "body": "Connect your Zoom account once. Every video consult then gets its own meeting automatically, clients see a Join button in their portal, and you can start a call from any case."
+      },
       "billing": {
         "title": "Billing",
         "body": "Time, costs, invoices and settlement disbursements across your cases."

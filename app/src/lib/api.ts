@@ -1666,6 +1666,38 @@ export async function getAttorneyZoomConnectUrl() {
   return data as { authorizeUrl: string }
 }
 
+export type CaseVideoCall = {
+  videoMeetingId: string | null
+  joinUrl: string
+  startUrl: string
+  embed: boolean
+  clientNotified: boolean
+}
+
+export async function startCaseVideoCall(leadId: string) {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${encodeURIComponent(leadId)}/video-call`)
+  return data as CaseVideoCall
+}
+
+export type VideoRoomJoin = {
+  sdkKey: string
+  signature: string
+  meetingNumber: string
+  password: string | null
+  userName: string
+  userEmail: string | null
+  role: 0 | 1
+  zak: string | null
+  obfToken: string | null
+  fallbackUrl: string
+}
+
+/** Credentials to join a meeting inside the platform (Zoom Meeting SDK). */
+export async function getVideoRoomJoin(kind: 'appointment' | 'meeting', id: string) {
+  const { data } = await api.get(`/v1/video/${kind}/${encodeURIComponent(id)}/join`)
+  return data as VideoRoomJoin
+}
+
 export async function disconnectAttorneyZoom() {
   const { data } = await api.delete('/v1/attorney-zoom')
   return data as { disconnected: boolean }

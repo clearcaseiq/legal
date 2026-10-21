@@ -1,3 +1,4 @@
+import crypto from 'crypto'
 import jwt from 'jsonwebtoken'
 import { ENV } from '../env'
 import { prisma } from './prisma'
@@ -18,7 +19,9 @@ const ZOOM_API_BASE = 'https://api.zoom.us/v2'
 // Scopes requested from Zoom. For user-managed apps Zoom ultimately enforces
 // whatever scopes are enabled in the Marketplace app config; we still advertise
 // the ones we rely on so consent screens are explicit.
-const ZOOM_SCOPES = ['user:read', 'meeting:write']
+// user:read:zak and user:read:token back the embedded (Meeting SDK) join: the
+// host needs a ZAK and attendees need an on-behalf-of token from the host.
+const ZOOM_SCOPES = ['user:read', 'meeting:write', 'user:read:zak', 'user:read:token']
 
 type ZoomConnectionRecord = {
   id: string
@@ -228,8 +231,18 @@ export type ZoomMeeting = {
   password: string | null
 }
 
+/** What a Zoom meeting belongs to on our side, persisted as a VideoMeeting. */
+export type ZoomMeetingLink = {
+  kind?: 'scheduled' | 'instant'
+  assessmentId?: string | null
+  appointmentId?: string | null
+  userId?: string | null
+  createdByUserId?: string | null
+}
+
 /**
- * Create a scheduled Zoom meeting on the attorney's connected account.
+ * Create a Zoom meeting on the attorney's connected account. Scheduled by
+ * default; `instant: true` creates a meeting that can be started right away.
  * Returns `null` when the attorney has no (healthy) Zoom connection so callers
  * can gracefully fall back to a calendar-generated Meet/Teams link.
  */
@@ -240,6 +253,8 @@ export async function createZoomMeeting(params: {
   durationMinutes: number
   timezone?: string
   agenda?: string
+  instant?: boolean
+  link?: ZoomMeetingLink
 }): Promise<ZoomMeeting | null> {
   if (!isZoomConfigured()) return null
 
@@ -260,8 +275,8 @@ export async function createZoomMeeting(params: {
       },
       body: JSON.stringify({
         topic: params.topic,
-        type: 2, // scheduled meeting
-        start_time: params.start.toISOString(),
+        type: params.instant ? 1 : 2,
+        ...(params.instant ? {} : { start_time: params.start.toISOString() }),
         duration: Math.max(15, Math.round(params.durationMinutes)),
         timezone: params.timezone || 'UTC',
         agenda: params.agenda?.slice(0, 2000) || undefined,
@@ -277,12 +292,21 @@ export async function createZoomMeeting(params: {
       return null
     }
 
-    return {
+    const meeting: ZoomMeeting = {
       meetingId: String(payload.id ?? ''),
       joinUrl: payload.join_url,
       startUrl: payload.start_url,
       password: payload.password || null,
     }
+
+    if (meeting.meetingId) {
+      await recordVideoMeeting(params.attorneyId, params.topic, meeting, {
+        kind: params.instant ? 'instant' : 'scheduled',
+        ...params.link,
+      })
+    }
+
+    return meeting
   } catch (error: any) {
     logger.warn('Zoom meeting creation failed', {
       attorneyId: params.attorneyId,
@@ -294,6 +318,116 @@ export async function createZoomMeeting(params: {
         data: { syncStatus: 'sync_error', lastError: error?.message?.slice(0, 500) || 'Zoom meeting creation failed' },
       })
       .catch(() => {})
+    return null
+  }
+}
+
+async function recordVideoMeeting(attorneyId: string, topic: string, meeting: ZoomMeeting, link: ZoomMeetingLink) {
+  const data = {
+    kind: link.kind || 'scheduled',
+    attorneyId,
+    assessmentId: link.assessmentId || null,
+    appointmentId: link.appointmentId || null,
+    userId: link.userId || null,
+    createdByUserId: link.createdByUserId || null,
+    topic,
+    joinUrl: meeting.joinUrl,
+    startUrl: meeting.startUrl,
+    password: meeting.password,
+  }
+  await prisma.videoMeeting
+    .upsert({
+      where: { externalMeetingId: meeting.meetingId },
+      update: data,
+      create: { ...data, provider: 'zoom', externalMeetingId: meeting.meetingId },
+    })
+    .catch((error: any) => {
+      logger.warn('Failed to record video meeting', { attorneyId, error: error?.message })
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Webhooks (meeting.started / meeting.ended)
+// ---------------------------------------------------------------------------
+
+export function isZoomWebhookConfigured() {
+  return Boolean(ENV.ZOOM_WEBHOOK_SECRET_TOKEN)
+}
+
+function hmacHex(message: string) {
+  return crypto.createHmac('sha256', ENV.ZOOM_WEBHOOK_SECRET_TOKEN as string).update(message).digest('hex')
+}
+
+/** Zoom signs `v0:{timestamp}:{rawBody}`; reject stale or mismatched requests. */
+export function verifyZoomWebhookSignature(params: {
+  rawBody: string
+  signature: string | undefined
+  timestamp: string | undefined
+  nowMs?: number
+}) {
+  if (!isZoomWebhookConfigured() || !params.signature || !params.timestamp) return false
+  const ts = Number(params.timestamp)
+  const now = params.nowMs ?? Date.now()
+  if (!Number.isFinite(ts) || Math.abs(now - ts * 1000) > 5 * 60_000) return false
+  const expected = `v0=${hmacHex(`v0:${params.timestamp}:${params.rawBody}`)}`
+  const a = Buffer.from(expected)
+  const b = Buffer.from(params.signature)
+  return a.length === b.length && crypto.timingSafeEqual(a, b)
+}
+
+/** Response to Zoom's `endpoint.url_validation` challenge. */
+export function zoomUrlValidationResponse(plainToken: string) {
+  return { plainToken, encryptedToken: hmacHex(plainToken) }
+}
+
+// ---------------------------------------------------------------------------
+// Embedded meetings (Zoom Meeting SDK, component view)
+// ---------------------------------------------------------------------------
+
+function sdkCredentials() {
+  const key = ENV.ZOOM_SDK_KEY || ENV.ZOOM_CLIENT_ID
+  const secret = ENV.ZOOM_SDK_SECRET || ENV.ZOOM_CLIENT_SECRET
+  return key && secret ? { key, secret } : null
+}
+
+export function isZoomEmbedEnabled() {
+  return ENV.ZOOM_EMBED_ENABLED === 'true' && Boolean(sdkCredentials())
+}
+
+/** Meeting SDK join signature. role 1 = host, 0 = attendee. */
+export function signZoomSdkJoin(meetingNumber: string, role: 0 | 1) {
+  const creds = sdkCredentials()
+  if (!creds) throw new Error('Zoom Meeting SDK is not configured')
+  const iat = Math.floor(Date.now() / 1000) - 30
+  const exp = iat + 2 * 60 * 60
+  const signature = jwt.sign(
+    { appKey: creds.key, sdkKey: creds.key, mn: meetingNumber, role, iat, exp, tokenExp: exp },
+    creds.secret,
+    { algorithm: 'HS256' },
+  )
+  return { signature, sdkKey: creds.key }
+}
+
+/**
+ * ZAK (host) or on-behalf-of (attendee) token minted from the attorney's Zoom
+ * account. Zoom requires an OBF token for SDK joins to meetings outside the
+ * app owner's account, which is every attorney-hosted meeting here.
+ */
+export async function getZoomUserToken(attorneyId: string, type: 'zak' | 'onbehalf', meetingId?: string) {
+  const connection = await getAttorneyZoomConnection(attorneyId)
+  if (!connection || connection.syncStatus !== 'connected') return null
+  const accessToken = await ensureFreshAccessToken(connection)
+  if (!accessToken) return null
+  const url = new URL(`${ZOOM_API_BASE}/users/me/token`)
+  url.searchParams.set('type', type)
+  if (meetingId) url.searchParams.set('meeting_id', meetingId)
+  try {
+    const payload = (await readJson(await fetch(url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    }))) as { token?: string }
+    return payload.token || null
+  } catch (error: any) {
+    logger.warn('Zoom user token request failed', { attorneyId, type, error: error?.message })
     return null
   }
 }

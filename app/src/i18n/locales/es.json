@@ -4409,7 +4409,7 @@
       "scheduled": "Consulta programada",
       "typeConsultation": "Consulta {type}",
       "joinCall": "Unirse a la llamada",
-      "reschedule": "Reprogramar",
+      "joinVideo": "Unirse a la videollamada",      "reschedule": "Reprogramar",
       "cancel": "Cancelar",
       "schedule": "Programar consulta",
       "scheduleCta": "Programar",

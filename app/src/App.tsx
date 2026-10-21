@@ -151,6 +151,7 @@ const FirmSettings = lazy(async () => {
   }
 })
 const ToursPage = lazy(() => import('./features/tour/ToursPage'))
+const VideoRoomPage = lazy(() => import('./features/video/VideoRoomPage'))
 const AttorneyBilling = lazy(() => import('./pages/AttorneyBilling'))
 const AttorneyProfile = lazy(() => import('./pages/AttorneyProfile'))
 const Integrations = lazy(() => import('./pages/Integrations'))
@@ -550,6 +551,10 @@ function App() {
                 <Route index element={<CaseAssistanceQueue />} />
                 <Route path=":id" element={<CaseAssistanceWorkspace />} />
               </Route>
+            </Route>
+            {/* The API decides who may join: the hosting attorney or the case's client. */}
+            <Route element={<ProtectedRoute role={['plaintiff', 'attorney']} />}>
+              <Route path="/video/:kind/:id" element={<VideoRoomPage />} />
             </Route>
             <Route element={<ProtectedRoute role="plaintiff" />}>
               <Route path="/auth/complete-consent" element={<CompleteConsent />} />
