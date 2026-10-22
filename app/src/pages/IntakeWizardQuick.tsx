@@ -6077,14 +6077,32 @@ export default function IntakeWizardQuick() {
           const focusSet = new Set(focusCategories)
           const focusingOne =
             isDocumentsMode && focusSet.size > 0 && !expandAllEvidenceCategories
-          const evGroups = focusingOne
-            ? allEvGroups
-                .map((g) => ({
-                  ...g,
-                  items: g.items.filter((it) => focusSet.has(it.category)),
-                }))
-                .filter((g) => g.items.length > 0)
-            : allEvGroups
+          // Preset attorney requests upload into a standard row's bucket, so they are
+          // shown on that row instead of as a second row listing the same files.
+          const standardCategories = new Set(allEvGroups.flatMap((g) => g.items.map((it) => it.category)))
+          const requestsByCategory = new Map<string, typeof requestedDocRows>()
+          const separateRequestRows: typeof requestedDocRows = []
+          for (const row of requestedDocRows) {
+            const cat = supportingDocCategory(row.category)
+            if (!row.subcategory && standardCategories.has(cat)) {
+              requestsByCategory.set(cat, [...(requestsByCategory.get(cat) || []), row])
+            } else {
+              separateRequestRows.push(row)
+            }
+          }
+          const requestRank = (cat: string) => {
+            const rows = requestsByCategory.get(cat)
+            if (!rows) return 2
+            return rows.some((r) => !r.fulfilled) ? 0 : 1
+          }
+          const evGroups = allEvGroups
+            .map((g) => ({
+              ...g,
+              items: g.items
+                .filter((it) => !focusingOne || focusSet.has(it.category) || requestsByCategory.has(it.category))
+                .sort((a, b) => requestRank(a.category) - requestRank(b.category)),
+            }))
+            .filter((g) => g.items.length > 0)
           const focusedItemTitle = focusingOne
             ? focusCategories.map((cat) => itemDefs[cat]?.title).filter(Boolean).join(', ')
             : ''
@@ -6243,6 +6261,14 @@ export default function IntakeWizardQuick() {
             const isDragging = evidenceDragCategory === item.category
             const weight = weightFor(item.category)
             const stepNo = stepNumberFor(item.category)
+            const requests = requestsByCategory.get(item.category) || []
+            const requestPending = requests.some((r) => !r.fulfilled)
+            const requestMeta = requests.length
+              ? [
+                  requests[0].attorneyName ? tx('evidence_requestedBy').replace('{name}', requests[0].attorneyName) : null,
+                  Number.isNaN(new Date(requests[0].requestedAt).getTime()) ? null : new Date(requests[0].requestedAt).toLocaleDateString(),
+                ].filter(Boolean).join(' · ')
+              : ''
             return (
               <div
                 key={item.category}
@@ -6271,8 +6297,18 @@ export default function IntakeWizardQuick() {
                           +{weight}%
                         </span>
                       )}
+                      {requestPending && (
+                        <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold leading-none text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
+                          {tx('evidence_requestedPending')}
+                        </span>
+                      )}
                     </div>
                     <p className="break-words text-xs text-gray-500">{item.helper}</p>
+                    {requests.length > 0 && (
+                      <p className="break-words text-xs text-gray-500">
+                        {[requestMeta, requests.map((r) => r.label).join(', ')].filter(Boolean).join(': ')}
+                      </p>
+                    )}
                   </div>
                   <div className="hidden w-[104px] shrink-0 text-right sm:block">
                     {isDragging ? (
@@ -6328,7 +6364,14 @@ export default function IntakeWizardQuick() {
                         onManageOpenChange={setManaging}
                         uploadButtonLabel={tx('evidence_uploadAction')}
                         uploadButtonColorClass="bg-amber-500 text-white hover:bg-amber-600"
-                        onFilesUploaded={(f) => handleEvidenceFiles(item.category, f)}
+                        onFilesUploaded={(f) => {
+                          handleEvidenceFiles(item.category, f)
+                          if (requests.length === 0) return
+                          const countKey = `category:${item.category}`
+                          const previous = requestedDocUploadCounts.current[countKey]
+                          requestedDocUploadCounts.current[countKey] = f.length
+                          if (previous !== undefined && previous !== f.length) void refreshAttorneyDocRequests()
+                        }}
                         onMoveMismatch={(fileName, target) => handleMoveEvidence(item.category, target, fileName)}
                         hideInlineWarnings
                         onWarningsChange={(items, dismiss) => setEvidenceWarnings((prev) => ({ ...prev, [item.category]: { items, dismiss } }))}
@@ -6443,7 +6486,7 @@ export default function IntakeWizardQuick() {
                 </div>
               ) : null}
 
-              {requestedDocRows.length > 0 && (
+              {separateRequestRows.length > 0 && (
                 <details open className="group rounded-2xl border border-brand-200 bg-white dark:border-brand-500/30 dark:bg-slate-900/40">
                   <summary className="flex cursor-pointer list-none items-center gap-3 px-3 py-3 [&::-webkit-details-marker]:hidden">
                     <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-500/10"><ClipboardCheck className="h-4 w-4" aria-hidden /></span>
@@ -6453,13 +6496,13 @@ export default function IntakeWizardQuick() {
                     </div>
                     <span className="hidden shrink-0 text-xs font-medium text-gray-500 sm:inline">
                       {tx('evidence_xOfYUploaded')
-                        .replace('{done}', String(requestedDocRows.filter((r) => r.fulfilled).length))
-                        .replace('{total}', String(requestedDocRows.length))}
+                        .replace('{done}', String(separateRequestRows.filter((r) => r.fulfilled).length))
+                        .replace('{total}', String(separateRequestRows.length))}
                     </span>
                     <ChevronDown className="h-4 w-4 shrink-0 text-gray-400 transition-transform group-open:rotate-180" aria-hidden />
                   </summary>
                   <div className="space-y-2 border-t border-slate-200 p-3 dark:border-slate-700">
-                    {requestedDocRows.map((row) => {
+                    {separateRequestRows.map((row) => {
                       const manageKey = `request:${row.key}`
                       const managing = !!manageEvidence[manageKey]
                       const setManaging = (open: boolean) => setManageEvidence((p) => ({ ...p, [manageKey]: open }))
