@@ -27,9 +27,10 @@ import {
 } from 'lucide-react'
 
 /** The <input accept> value for a given evidence category so the OS file picker
- * pre-filters to the right kind of file (e.g. only images for the Photos row). */
+ * pre-filters to the right kind of file (e.g. only images or PDFs of photos for
+ * the Photos row). */
 function acceptForCategory(category?: string): string {
-  if (category === 'photos') return 'image/*'
+  if (category === 'photos') return 'image/*,application/pdf'
   if (category === 'video') return 'video/*'
   return 'image/*,video/*,application/pdf,.doc,.docx,.txt'
 }
@@ -94,7 +95,8 @@ function isAllowedForCategory(file: File, category?: string): boolean {
   const isVideo =
     file.type.startsWith('video/') ||
     (!file.type && /\.(mp4|mov|avi|wmv|mkv|webm|m4v|3gp|flv|mpe?g|ogv)$/i.test(name))
-  if (category === 'photos') return isImage
+  const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(name)
+  if (category === 'photos') return isImage || isPdf
   if (category === 'video') return isVideo
   return true
 }
@@ -580,7 +582,7 @@ export default function InlineEvidenceUpload({
       return
     }
     if (!isAllowedForCategory(file, category)) {
-      const expected = category === 'photos' ? 'a photo (image)' : category === 'video' ? 'a video' : 'a supported file'
+      const expected = category === 'photos' ? 'photos (images or a PDF of photos)' : category === 'video' ? 'a video' : 'a supported file'
       setVisionWarnings((prev) => [
         ...prev.filter((w) => w.fileName !== file.name),
         { fileName: file.name, status: 'mismatch', title: `${file.name} can’t be added here.`, message: `This section only accepts ${expected}. Please choose a different file.` },
@@ -809,7 +811,7 @@ export default function InlineEvidenceUpload({
     }
     const rejected = [...unsupported, ...wrongCategory]
     if (rejected.length > 0) {
-      const expected = category === 'photos' ? 'a photo (image)' : category === 'video' ? 'a video' : 'a supported file'
+      const expected = category === 'photos' ? 'photos (images or a PDF of photos)' : category === 'video' ? 'a video' : 'a supported file'
       setVisionWarnings((prev) => [
         ...prev.filter((w) => !rejected.some((r) => r.name === w.fileName)),
         ...unsupported.map((r) => ({

@@ -902,6 +902,27 @@ async function extractPdfText(buffer: Buffer): Promise<string> {
   return embedded
 }
 
+async function renderPdfFirstPage(buffer: Buffer): Promise<Buffer | null> {
+  let parser: PDFParseInstance | null = null
+  try {
+    const PDFParse = await loadPDFParse()
+    parser = new PDFParse({ data: buffer })
+    const shot = await parser.getScreenshot({ scale: 1.75, first: 1 })
+    const raw = shot.pages?.[0]?.data
+    if (!raw) return null
+    return Buffer.isBuffer(raw) ? raw : Buffer.from(raw as Uint8Array)
+  } catch (error: any) {
+    logger.warn('Vision: PDF page render failed', { error: error?.message || String(error) })
+    return null
+  } finally {
+    try {
+      await parser?.destroy?.()
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
 /** Assess relevance of a PDF (document) to the evidence category by reading its text. */
 export async function analyzePdfRelevance(args: { category: string; buffer: Buffer }): Promise<VisionRelevanceResult> {
   const { category, buffer } = args
@@ -923,7 +944,15 @@ export async function analyzePdfRelevance(args: { category: string; buffer: Buff
 
   if (!isVisionEnabled()) return skipped('vision_disabled')
 
-  // A PDF in a photo/video slot is the wrong kind of file.
+  // Clients often send photos exported or scanned into a PDF; judge the first
+  // page as a picture.
+  if (category === 'photos') {
+    const page = await renderPdfFirstPage(buffer)
+    if (!page) return skipped('pdf_render_failed')
+    return analyzeImageRelevance({ category, buffer: page, mimetype: 'image/png' })
+  }
+
+  // A PDF in a video slot is the wrong kind of file.
   if (!isDocumentCategory(category)) {
     return {
       ...base,
