@@ -9,7 +9,7 @@
  * Rendered ABOVE the read-only, evidence-derived chronology on the Medical tab.
  * Backed by /v1/attorney-dashboard/leads/:leadId/medical-timeline.
  */
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Stethoscope, Plus, Trash2, Activity, CalendarClock, AlertTriangle, Pencil, X } from 'lucide-react'
 import {
   getLeadMedicalTimeline,
@@ -127,7 +127,16 @@ const visitLabel = (v: string) => VISIT_TYPES.find((x) => x.value === v)?.label 
 /** Description of the Damages line this card adds, so it can find and update it later. */
 const FUTURE_PLAN_DAMAGE = 'Future treatment plan (Medical tab estimate)'
 
-export default function MedicalTimelinePanel({ leadId }: { leadId: string }) {
+export default function MedicalTimelinePanel({
+  leadId,
+  showFindings = true,
+  onChanged,
+}: {
+  leadId: string
+  /** The visits review queue; off when the page shows it elsewhere. */
+  showFindings?: boolean
+  onChanged?: () => void
+}) {
   const canEdit = useFirmAccess().can('chronology')
   const [data, setData] = useState<Timeline | null>(null)
   const [loading, setLoading] = useState(true)
@@ -181,6 +190,15 @@ export default function MedicalTimelinePanel({ leadId }: { leadId: string }) {
   useEffect(() => {
     void load()
   }, [load])
+
+  const onChangedRef = useRef(onChanged)
+  onChangedRef.current = onChanged
+  const loadedOnce = useRef(false)
+  useEffect(() => {
+    if (!data) return
+    if (loadedOnce.current) onChangedRef.current?.()
+    else loadedOnce.current = true
+  }, [data])
 
   const saveStatus = async (patch: Record<string, unknown>) => {
     setSaving(true)
@@ -442,7 +460,7 @@ export default function MedicalTimelinePanel({ leadId }: { leadId: string }) {
           <p className="mt-2 text-[11px] text-slate-400">Demand-readiness needs MMI or treatment complete.</p>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Visits · providers</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Confirmed visits · providers</p>
           <p className="mt-1 text-2xl font-bold tabular-nums text-slate-900">
             {data.visitCount} <span className="text-base font-medium text-slate-400">· {data.providerCount}</span>
           </p>
@@ -451,9 +469,9 @@ export default function MedicalTimelinePanel({ leadId }: { leadId: string }) {
           </p>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Billed (timeline)</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Billed on confirmed visits</p>
           <p className="mt-1 text-2xl font-bold tabular-nums text-slate-900">{money(data.billedTotal)}</p>
-          <p className="mt-1 text-[11px] text-slate-400">Enter bills in Damages for valuation.</p>
+          <p className="mt-1 text-[11px] text-slate-400">Medical specials come from the damages ledger.</p>
         </div>
       </div>
 
@@ -474,14 +492,16 @@ export default function MedicalTimelinePanel({ leadId }: { leadId: string }) {
         </div>
       )}
 
-      <DocumentFindingsPanel
-        leadId={leadId}
-        kinds={['treatment_visit']}
-        title="Visits found in the records"
-        destination="the treatment timeline"
-        canEdit={canEdit}
-        onAccepted={() => void load()}
-      />
+      {showFindings ? (
+        <DocumentFindingsPanel
+          leadId={leadId}
+          kinds={['treatment_visit']}
+          title="Visits found in the records"
+          destination="the treatment timeline"
+          canEdit={canEdit}
+          onAccepted={() => void load()}
+        />
+      ) : null}
 
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-3 flex items-center justify-between">

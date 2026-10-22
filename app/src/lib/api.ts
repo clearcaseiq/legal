@@ -3048,8 +3048,8 @@ export async function saveLeadDemandLetter(
   return data as DemandLetter
 }
 
-export async function approveLeadDemandLetter(leadId: string, demandId: string) {
-  const { data } = await api.post(`${demandLettersPath(leadId)}/${demandId}/approve`)
+export async function approveLeadDemandLetter(leadId: string, demandId: string, overrideReason?: string) {
+  const { data } = await api.post(`${demandLettersPath(leadId)}/${demandId}/approve`, overrideReason ? { overrideReason } : {})
   return data as DemandLetter
 }
 
@@ -3589,6 +3589,32 @@ export interface MedicalChronologySummary {
   lastTreatmentDate: string | null
   eventCount: number
   timeline: any[]
+}
+
+export type MedicalReadinessState = 'ready' | 'needs_review' | 'missing'
+export type MedicalOverviewTab = 'overview' | 'treatment' | 'bills' | 'evidence' | 'impact'
+export interface MedicalOverview {
+  visits: { found: number; pending: number; confirmed: number }
+  charges: { found: number; pendingCount: number; confirmed: number }
+  providers: { found: string[]; confirmed: string[]; unconfirmed: string[] }
+  firstVisit: string | null
+  lastVisit: string | null
+  largestGapDays: number | null
+  gaps: { key: string; label: string; severity: 'high' | 'medium' | 'low'; tab: MedicalOverviewTab }[]
+  testDocuments: { fileId: string; fileName: string; category: string; markers: string[] }[]
+  readiness: {
+    evidenceExtracted: MedicalReadinessState
+    treatmentReconciled: MedicalReadinessState
+    providersVerified: MedicalReadinessState
+    demandReady: MedicalReadinessState
+  }
+  /** Records are being read for findings in the background; reload shortly. */
+  scanning: boolean
+}
+
+export async function getLeadMedicalOverview(leadId: string): Promise<MedicalOverview> {
+  const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/medical-overview`)
+  return data as MedicalOverview
 }
 
 export async function getLeadMedicalChronologySummary(leadId: string): Promise<MedicalChronologySummary | null> {

@@ -26,6 +26,16 @@ import { createMedicalEntry, VISIT_TYPES } from './medical-record'
 import { MEDICAL_BILLING_STATUSES, recordDamageItemChanges, writeThroughDamages } from './damages-ledger'
 import { createDefendant, createEvidenceItem, listLiabilityParties, updateEvidenceItem } from './liability-parties'
 import { getLiabilityRecord, upsertLiabilityRecord } from './liability-record'
+import {
+  careDates,
+  cleanProviderName,
+  extractLineItems,
+  extractProviderName,
+  isBoilerplate,
+  visitKindFor,
+  visitsFromLineItems,
+  VISIT_KIND_LABELS,
+} from './medical-text-hygiene'
 
 export type FindingKind = 'treatment_visit' | 'medical_charge' | 'wage_loss' | 'incident_report' | 'insurance_policy'
 export const FINDING_KINDS: FindingKind[] = ['treatment_visit', 'medical_charge', 'wage_loss', 'incident_report', 'insurance_policy']
@@ -309,6 +319,9 @@ export function verifyCandidate(raw: any, pages: PageText[]): CandidateFinding |
   const endDate = isoDate(raw?.endDate)
   const endDateOnPage = endDate ? dateSpellings(endDate).some((form) => containsPhrase(pageNorm, form)) : false
 
+  // A disclaimer or watermark ("example codes for QA extraction") is not care.
+  if (isBoilerplate(quote)) return null
+
   const rawAmount = Number(raw?.amount)
   const amountGiven = raw?.amount != null && raw?.amount !== '' && Number.isFinite(rawAmount) && rawAmount > 0
   const amountOnPage = amountGiven && numbersOn(source.text).some((n) => Math.abs(n - rawAmount) < 0.005)
@@ -322,7 +335,7 @@ export function verifyCandidate(raw: any, pages: PageText[]): CandidateFinding |
   const data: FindingData = {
     date: dateOnPage ? date : null,
     endDate: endDateOnPage ? endDate : null,
-    provider: cleanText(raw?.provider, 160),
+    provider: cleanProviderName(cleanText(raw?.provider, 160)),
     specialty: cleanText(raw?.specialty, 80),
     diagnosis: cleanText(raw?.diagnosis, 300),
     icdCodes: codeList(raw?.icdCodes).filter(onPage),
@@ -365,7 +378,7 @@ export type DocumentProvider = {
 export function verifyDocumentProvider(raw: any, pages: PageText[]): DocumentProvider | null {
   const allText = pages.map((p) => p.text).join('\n')
   const allNorm = normalizeForMatch(allText)
-  const name = nameOnPage(cleanText(raw?.name, 160), allNorm)
+  const name = nameOnPage(cleanProviderName(cleanText(raw?.name, 160)), allNorm)
   if (!name) return null
   const digits = allText.replace(/\D/g, '')
   const number = (value: unknown) => {
@@ -534,7 +547,7 @@ Each finding has:
   "amount": the dollar figure exactly as printed, "billingStatus": billed, paid, outstanding, reduced or written_off,
   "description": a few words naming the service, "confidence": 0 to 1.
 
-Rules: only report what the page prints. Do not calculate, total, estimate or infer. Leave out a field the page does not show. Skip pages about anyone other than the patient, and skip insurance correspondence that documents no treatment or charge. Return {"findings": []} if nothing qualifies.
+Rules: only report what the page prints. Do not calculate, total, estimate or infer. Leave out a field the page does not show. Skip pages about anyone other than the patient, and skip insurance correspondence that documents no treatment or charge. Ignore watermarks, banners, page headers and footers, disclaimers, and any text calling the document a sample, test, demo, simulated, synthetic or fictional: never use them as a provider, diagnosis, date of service or quote. Return {"findings": []} if nothing qualifies.
 
 ${body}`
 }
@@ -617,6 +630,81 @@ export function extractChargeLines(pages: PageText[]): unknown[] {
     }
   }
   return out
+}
+
+/** A passage of at most ~200 characters around `index`, cut at word boundaries. */
+function passageAround(text: string, index: number, length: number): string {
+  const start = Math.max(0, text.lastIndexOf(' ', Math.max(0, index - 80)) + 1)
+  const endSpace = text.indexOf(' ', Math.min(text.length, index + length + 100))
+  return text.slice(start, endSpace === -1 ? text.length : endSpace).replace(/\s+/g, ' ').trim()
+}
+
+/**
+ * Without a model, propose what the text states plainly: every itemized row
+ * (as a charge on bills) and one visit per provider per day of service. A
+ * record with no itemized rows proposes a visit for each date of care it
+ * prints, quoting the passage around the date, at low confidence.
+ */
+export function extractRuleFindings(pages: PageText[], category: string): unknown[] {
+  if (category !== 'bills' && category !== 'medical_records') return []
+  const out: unknown[] = []
+  for (const p of pages) {
+    const items = extractLineItems(p.text)
+    if (category === 'bills') {
+      for (const item of items) {
+        out.push({
+          kind: 'medical_charge',
+          page: p.page,
+          quote: item.quote,
+          date: item.date,
+          amount: item.amount,
+          provider: item.provider,
+          cptCodes: item.code ? [item.code] : [],
+          description: VISIT_KIND_LABELS[visitKindFor(item.provider, item.code ? [item.code] : [])],
+          billingStatus: 'billed',
+          confidence: 0.6,
+        })
+      }
+    }
+    const visits = visitsFromLineItems(items)
+    for (const v of visits) {
+      out.push({
+        kind: 'treatment_visit',
+        page: p.page,
+        quote: v.quotes[0],
+        date: v.date,
+        provider: v.provider,
+        visitType: v.kind,
+        cptCodes: v.codes,
+        description: VISIT_KIND_LABELS[v.kind],
+        confidence: 0.6,
+      })
+    }
+    if (visits.length === 0 && category === 'medical_records') {
+      const provider = extractProviderName(p.text) || null
+      for (const iso of careDates(p.text)) {
+        const spelled = dateSpellings(iso)
+        const flat = p.text.replace(/\s+/g, ' ')
+        const flatNorm = normalizeForMatch(flat)
+        if (!spelled.some((form) => containsPhrase(flatNorm, form))) continue
+        const [y, m, d] = iso.split('-')
+        const literal = [iso, `${m}/${d}/${y}`, `${Number(m)}/${Number(d)}/${y}`].find((s) => flat.includes(s))
+        const at = literal ? flat.indexOf(literal) : -1
+        if (at < 0) continue
+        out.push({
+          kind: 'treatment_visit',
+          page: p.page,
+          quote: passageAround(flat, at, literal!.length).slice(0, MAX_QUOTE_CHARS),
+          date: iso,
+          provider,
+          visitType: 'other',
+          description: 'Visit in the records',
+          confidence: 0.45,
+        })
+      }
+    }
+  }
+  return out.length || category !== 'bills' ? out : extractChargeLines(pages)
 }
 
 function sameDay(a: Date | string | null | undefined, iso: string | null | undefined): boolean {
@@ -705,8 +793,8 @@ export async function generateDocumentFindings(fileId: string, pages: PageText[]
   try {
     if (useModel) {
       ;({ candidates: raw, chunks, documentProviders } = await extractWithModel(pages, target))
-    } else if (file.category === 'bills') {
-      raw = extractChargeLines(pages)
+    } else if (groupOf(file.category) === 'medical') {
+      raw = extractRuleFindings(pages, file.category)
     }
   } catch (error: any) {
     await recordAiRun({

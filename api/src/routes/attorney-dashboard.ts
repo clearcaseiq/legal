@@ -118,6 +118,7 @@ import PDFDocument from 'pdfkit'
 import crypto from 'crypto'
 import { calculateSOL, getSOLStatus, deriveSOLStatusFromFacts } from '../lib/solRules'
 import { buildMedicalChronology, buildMedicalChronologySummary, computeCasePreparation, getSettlementBenchmarks } from '../lib/case-insights'
+import { buildMedicalOverview, findTestDocuments } from '../lib/medical-overview'
 import { recordCaseOutcome } from '../lib/case-outcomes'
 import { emitLeadDecided } from '../lib/realtime'
 import { buildMedicalSharingStatus, isMedicalEvidenceFile } from '../lib/medical-sharing'
@@ -8791,6 +8792,47 @@ router.get('/leads/:leadId/medical-chronology', authMiddleware, async (req: any,
   } catch (error: any) {
     logger.error('Failed to get medical chronology', { error: error.message, leadId: req.params.leadId })
     res.status(500).json({ error: 'Failed to get medical chronology' })
+  }
+})
+
+/** Cases whose records have been read for findings since this process started. */
+const medicalFindingsBackfilled = new Set<string>()
+
+router.get('/leads/:leadId/medical-overview', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true })
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const assessmentId = auth.lead.assessmentId
+    const medicalSharing = await findingsSharing(assessmentId)
+    const overview = await buildMedicalOverview(assessmentId, { canShareMedical: medicalSharing.canShareMedicalData })
+
+    // Records uploaded before rule-based findings existed were never read for
+    // them, so the review queue would sit empty beside a full chronology.
+    let scanning = false
+    if (medicalSharing.canShareMedicalData && !medicalFindingsBackfilled.has(assessmentId)) {
+      medicalFindingsBackfilled.add(assessmentId)
+      const categories = categoriesForKinds(['treatment_visit', 'medical_charge'])
+      const [files, read] = await Promise.all([
+        prisma.evidenceFile.findMany({ where: { assessmentId, category: { in: categories } }, select: { id: true } }),
+        (prisma as any).documentFinding.findMany({
+          where: { assessmentId, kind: { in: ['treatment_visit', 'medical_charge'] } },
+          select: { evidenceFileId: true },
+          distinct: ['evidenceFileId'],
+        }),
+      ])
+      const readIds = new Set((read as any[]).map((r) => r.evidenceFileId))
+      const unread = files.filter((f) => !readIds.has(f.id))
+      if (unread.length) {
+        scanning = true
+        void (async () => {
+          for (const f of unread) await rescanCaseDocuments(assessmentId, categories, f.id)
+        })().catch((error: any) => logger.warn('Medical findings backfill failed', { assessmentId, error: error?.message }))
+      }
+    }
+    res.json({ ...overview, scanning, medicalSharing })
+  } catch (error: any) {
+    logger.error('Failed to build medical overview', { error: error.message, leadId: req.params.leadId })
+    res.status(500).json({ error: 'Failed to build medical overview' })
   }
 })
 
@@ -18546,6 +18588,27 @@ router.post('/leads/:leadId/demand-letters/:demandId/approve', authMiddleware, f
       return res.status(400).json({ error: 'This letter is not awaiting review' })
     }
 
+    // Synthetic or test documents can never support a real demand; no override.
+    const testDocuments = await findTestDocuments(lead.assessmentId)
+    if (testDocuments.length) {
+      return res.status(409).json({
+        error: 'This case contains documents labelled synthetic or test material. Remove them before approving a demand.',
+        code: 'test_documents',
+        testDocuments,
+      })
+    }
+    // Medical assertions the attorney has not confirmed need an explicit, recorded override.
+    const overview = await buildMedicalOverview(lead.assessmentId)
+    const medicalWarnings = overview.gaps.filter((g) => g.severity === 'high').map((g) => g.label)
+    const overrideReason = typeof req.body?.overrideReason === 'string' ? req.body.overrideReason.trim() : ''
+    if (medicalWarnings.length && overrideReason.length < 10) {
+      return res.status(409).json({
+        error: 'Some medical facts in this demand are not confirmed yet.',
+        code: 'medical_unconfirmed',
+        warnings: medicalWarnings,
+      })
+    }
+
     const letter = await prisma.demandLetter.update({
       where: { id: existing.id },
       data: {
@@ -18563,7 +18626,7 @@ router.post('/leads/:leadId/demand-letters/:demandId/approve', authMiddleware, f
       action: 'demand_letter_review_approved',
       entityType: 'demand_letter',
       entityId: letter.id,
-      metadata: { leadId: lead.id },
+      metadata: { leadId: lead.id, ...(medicalWarnings.length ? { medicalWarnings, overrideReason } : {}) },
     })
 
     res.json(serializeDemandLetter(letter))
@@ -18766,6 +18829,14 @@ router.post('/leads/:leadId/demand-letters/:demandId/send', authMiddleware, firm
     }
     if (!attorney) {
       return res.status(403).json({ error: 'Only an attorney can send a demand.' })
+    }
+    const testDocuments = await findTestDocuments(lead.assessmentId)
+    if (testDocuments.length) {
+      return res.status(409).json({
+        error: 'This case contains documents labelled synthetic or test material and cannot be sent as a real demand.',
+        code: 'test_documents',
+        testDocuments,
+      })
     }
     const release = await releaseDecision(existing.id, 'send')
     if (!release.ok) {

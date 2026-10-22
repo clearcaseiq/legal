@@ -53,6 +53,7 @@ import {
   chunkPages,
   dateSpellings,
   extractChargeLines,
+  extractRuleFindings,
   categoriesForKinds,
   findingFingerprint,
   generateDocumentFindings,
@@ -153,6 +154,37 @@ describe('extractChargeLines', () => {
     const found = extractChargeLines(pages) as any[]
     expect(found).toHaveLength(1)
     expect(found[0]).toMatchObject({ kind: 'medical_charge', page: 2, date: '2026-03-14', amount: 425 })
+  })
+})
+
+describe('extractRuleFindings', () => {
+  const bill = [
+    {
+      page: 1,
+      text: 'FICTIONAL QA MATERIAL - NOT AUTHENTIC EVIDENCE Page 1 SYNTHETIC TEST DATA - NOT A REAL RECORD Billing summary Provider (fictional) Date CPT Charge Harborview Demo Urgent Care 2026-10-12 99284 $1,850.00 Cedar Demo Clinic 2026-10-14 99213 $310.00 Cedar Demo Clinic 2026-10-14 99000 $40.00 Total billed: $2,200.00. Example codes for QA extraction: S16.1XXA.',
+    },
+  ]
+
+  it('proposes each bill row as a charge and one visit per provider per day, all verifiable', () => {
+    const verified = (extractRuleFindings(bill, 'bills') as any[]).map((r) => verifyCandidate(r, bill)).filter(Boolean) as any[]
+    const charges = verified.filter((f) => f.kind === 'medical_charge')
+    const visits = verified.filter((f) => f.kind === 'treatment_visit')
+    expect(charges.map((c) => c.data.amount)).toEqual([1850, 310, 40])
+    expect(visits).toHaveLength(2)
+    expect(visits[0].data).toMatchObject({ date: '2026-10-12', provider: 'Harborview Demo Urgent Care', visitType: 'er' })
+    expect(verified.every((f) => !/FICTIONAL|SYNTHETIC|QA/.test(f.data.provider || ''))).toBe(true)
+  })
+
+  it('proposes a visit per date of care in an unitemized record, not the incident date', () => {
+    const record = [{ page: 2, text: 'Bay Area Orthopedics\nIncident: 03/01/2026\nOffice visit 03/14/2026. Neck pain improving with therapy.' }]
+    const verified = (extractRuleFindings(record, 'medical_records') as any[]).map((r) => verifyCandidate(r, record)).filter(Boolean) as any[]
+    expect(verified).toHaveLength(1)
+    expect(verified[0]).toMatchObject({ kind: 'treatment_visit', page: 2, data: { date: '2026-03-14', provider: 'Bay Area Orthopedics' } })
+  })
+
+  it('drops an AI finding quoting a disclaimer', () => {
+    const raw = { kind: 'treatment_visit', page: 1, quote: 'Example codes for QA extraction: S16.1XXA.', date: null }
+    expect(verifyCandidate(raw, bill)).toBeNull()
   })
 })
 

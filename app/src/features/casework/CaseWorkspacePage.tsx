@@ -87,6 +87,7 @@ import {
   getLeadEvidenceFiles,
   type MedicalSharingStatus,
   getLeadMedicalChronologySummary,
+  getLeadMedicalTimeline,
   getLeadTasks,
   updateLeadTask,
   approveLeadTask,
@@ -132,6 +133,7 @@ import DamagesPanel from './DamagesPanel'
 import NegotiationLogPanel from './NegotiationLogPanel'
 import LiabilityPanel from './LiabilityPanel'
 import MedicalTimelinePanel from './MedicalTimelinePanel'
+import MedicalWorkspace from './MedicalWorkspace'
 import PlaintiffImpactJournalPanel from './PlaintiffImpactJournalPanel'
 import ImpactStatementPanel from './ImpactStatementPanel'
 import CaseWorkflowPanel from './CaseWorkflowPanel'
@@ -1109,32 +1111,38 @@ function WorkstreamPanel({
 
   if (tab === 'Medical') {
     return (
-      <div className="space-y-6">
-        <PlaintiffImpactJournalPanel entries={detail.painJournal || []} />
-        <StaffViewOnly locked={staffLacks('chronology')} what="editing the daily-impact statement">
-          <ImpactStatementPanel
-            leadId={lead.id}
-            journalCount={(detail.painJournal || []).length}
-            onChanged={() => void reloadTasks()}
-          />
-        </StaffViewOnly>
-        <StaffViewOnly locked={staffLacks('chronology')} what="editing the medical chronology">
-          <MedicalTimelinePanel leadId={lead.id} />
-        </StaffViewOnly>
-        <StaffViewOnly locked={staffLacks('request')} what="sending provider letters">
-          <ProviderLettersPanel
-            leadId={lead.id}
-            onOpenSection={goToSection}
-            openLetter={searchParams.get('letter') === '1'}
-          />
-        </StaffViewOnly>
-        <div className="border-t border-slate-100 pt-6">
-          <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">
-            Evidence-derived chronology
-          </p>
-          <MedicalPanel leadId={lead.id} cc={cc} onOpenSection={goToSection} />
-        </div>
-      </div>
+      <MedicalWorkspace
+        leadId={lead.id}
+        canEdit={!staffLacks('chronology')}
+        onOpenSection={goToSection}
+        treatment={(onChanged) => (
+          <StaffViewOnly locked={staffLacks('chronology')} what="editing the medical chronology">
+            <MedicalTimelinePanel leadId={lead.id} showFindings={false} onChanged={onChanged} />
+          </StaffViewOnly>
+        )}
+        chronology={(reloadKey) => <MedicalPanel leadId={lead.id} cc={cc} onOpenSection={goToSection} reloadKey={reloadKey} />}
+        providerLetters={
+          <StaffViewOnly locked={staffLacks('request')} what="sending provider letters">
+            <ProviderLettersPanel
+              leadId={lead.id}
+              onOpenSection={goToSection}
+              openLetter={searchParams.get('letter') === '1'}
+            />
+          </StaffViewOnly>
+        }
+        impact={
+          <>
+            <PlaintiffImpactJournalPanel entries={detail.painJournal || []} />
+            <StaffViewOnly locked={staffLacks('chronology')} what="editing the daily-impact statement">
+              <ImpactStatementPanel
+                leadId={lead.id}
+                journalCount={(detail.painJournal || []).length}
+                onChanged={() => void reloadTasks()}
+              />
+            </StaffViewOnly>
+          </>
+        }
+      />
     )
   }
 
@@ -2076,12 +2084,15 @@ function MedicalPanel({
   leadId,
   cc,
   onOpenSection,
+  reloadKey = 0,
 }: {
   leadId: string
   cc: CaseCommandCenter | null
   onOpenSection: (section: string) => void
+  reloadKey?: number
 }) {
   const [summary, setSummary] = useState<MedicalChronologySummary | null>(null)
+  const [confirmed, setConfirmed] = useState<Array<{ date: string | null; provider: string }>>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [timelineOpen, setTimelineOpen] = useState(() => {
@@ -2125,10 +2136,28 @@ function MedicalPanel({
       .finally(() => {
         if (!cancelled) setLoading(false)
       })
+    getLeadMedicalTimeline(leadId)
+      .then((res) => {
+        if (cancelled) return
+        const entries = (res.timeline?.entries || []) as Array<{ startDate: string | null; provider: string; isFuture: boolean }>
+        setConfirmed(entries.filter((e) => !e.isFuture).map((e) => ({ date: e.startDate, provider: e.provider })))
+      })
+      .catch(() => {
+        /* confirmation tags are optional */
+      })
     return () => {
       cancelled = true
     }
-  }, [leadId])
+  }, [leadId, reloadKey])
+
+  const isConfirmedEvent = (ev: MedicalTimelineEvent) => {
+    if (!ev.date) return false
+    const day = String(ev.date).slice(0, 10)
+    const firstWord = (ev.provider || '').toLowerCase().split(/\s+/)[0] || ''
+    return confirmed.some(
+      (c) => c.date?.slice(0, 10) === day && (!firstWord || c.provider.toLowerCase().includes(firstWord)),
+    )
+  }
 
   const tm = cc?.treatmentMonitor
   const bench = cc?.medicalCostBenchmark
@@ -2193,9 +2222,9 @@ function MedicalPanel({
     <div className="space-y-5">
       {/* Snapshot */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-        <Metric label="Providers" value={String(providerCount)} />
-        <Metric label="Treatment events" value={String(eventCount)} />
-        <Metric label="Billed to date" value={billed > 0 ? money(billed) : '—'} accent={billed > 0} />
+        <Metric label="Providers named" value={String(providerCount)} />
+        <Metric label="Events found" value={String(eventCount)} />
+        <Metric label="Read from bills (unverified)" value={billed > 0 ? money(billed) : '—'} accent={false} />
         <Metric
           label="Treatment span"
           value={
@@ -2334,6 +2363,17 @@ function MedicalPanel({
                       </div>
                       <div className="flex shrink-0 flex-col items-end gap-1">
                         {ev.amount ? <span className="text-sm font-semibold tabular-nums text-slate-800">{money(ev.amount)}</span> : null}
+                        {ev.source === 'medical_record' ? (
+                          isConfirmedEvent(ev) ? (
+                            <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-200">
+                              Confirmed
+                            </span>
+                          ) : (
+                            <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-inset ring-amber-200">
+                              Not confirmed
+                            </span>
+                          )
+                        ) : null}
                         {conf ? (
                           <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset ${conf.cls}`}>
                             {conf.label}
@@ -2362,7 +2402,7 @@ function MedicalPanel({
       {/* Providers */}
       {providers.length ? (
         <div className="rounded-xl border border-slate-200 bg-white p-4">
-          <MedSection icon={MapPin} title="Providers on file" count={providers.length} />
+          <MedSection icon={MapPin} title="Providers named in the records" count={providers.length} />
           <div className="mt-3 flex flex-wrap gap-1.5">
             {providers.map((p, i) => (
               <span key={`${p}-${i}`} className="rounded-full bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-700 ring-1 ring-inset ring-slate-200">

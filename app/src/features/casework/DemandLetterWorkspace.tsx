@@ -341,9 +341,28 @@ export default function DemandLetterWorkspace({
     return run('save', () => saveLeadDemandLetter(leadId, active.id, { content: draftText }), 'Saved.')
   }
 
-  const handleApprove = () => {
+  const [medicalWarnings, setMedicalWarnings] = useState<string[] | null>(null)
+  const [overrideReason, setOverrideReason] = useState('')
+
+  const handleApprove = async (reason?: string) => {
     if (!active) return
-    return run('approve', () => approveLeadDemandLetter(leadId, active.id), 'Approved.')
+    setBusy('approve')
+    setMessage(null)
+    try {
+      applyUpdated(await approveLeadDemandLetter(leadId, active.id, reason))
+      setMedicalWarnings(null)
+      setOverrideReason('')
+      setMessage({ tone: 'ok', text: reason ? 'Approved with your override recorded.' : 'Approved.' })
+    } catch (err: any) {
+      const data = err?.response?.data
+      if (data?.code === 'medical_unconfirmed' && Array.isArray(data.warnings)) {
+        setMedicalWarnings(data.warnings)
+      } else {
+        setMessage({ tone: 'err', text: data?.error || 'Something went wrong.' })
+      }
+    } finally {
+      setBusy(null)
+    }
   }
 
   const handleFinalize = () => {
@@ -575,7 +594,7 @@ export default function DemandLetterWorkspace({
     )
   } else if (active && awaitingReview) {
     primary = (
-      <button type="button" onClick={handleApprove} disabled={busy != null} className={`${PRIMARY_BTN} bg-violet-600 hover:bg-violet-700`}>
+      <button type="button" onClick={() => void handleApprove()} disabled={busy != null} className={`${PRIMARY_BTN} bg-violet-600 hover:bg-violet-700`}>
         {busy === 'approve' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
         {busy === 'approve' ? 'Approving…' : `Approve ${AI_AUTHOR}'s draft`}
       </button>
@@ -924,6 +943,49 @@ export default function DemandLetterWorkspace({
       )}
 
       {below?.({ isSuper: !!active && isSuper })}
+
+      {medicalWarnings ? (
+        <div className="space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          <p className="flex items-center gap-2 font-semibold">
+            <AlertTriangle className="h-4 w-4" /> Medical readiness check
+          </p>
+          <p>These medical facts aren't confirmed yet, so the demand may assert things the records don't support:</p>
+          <ul className="list-disc space-y-0.5 pl-5">
+            {medicalWarnings.map((w) => (
+              <li key={w}>{w}</li>
+            ))}
+          </ul>
+          <p>Resolve them on the Medical tab, or approve anyway with a reason. The reason is saved to the audit log.</p>
+          <textarea
+            value={overrideReason}
+            onChange={(e) => setOverrideReason(e.target.value)}
+            rows={2}
+            maxLength={500}
+            placeholder="Why it's safe to approve now (at least 10 characters)"
+            className="w-full rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+          />
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={busy != null || overrideReason.trim().length < 10}
+              onClick={() => void handleApprove(overrideReason.trim())}
+              className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
+            >
+              Approve anyway
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMedicalWarnings(null)
+                setOverrideReason('')
+              }}
+              className="text-xs font-semibold text-amber-800 hover:text-amber-950"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {message ? (
         <div

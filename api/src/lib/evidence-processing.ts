@@ -17,6 +17,16 @@ import {
 } from './evidence-vision'
 import { checkDocumentIdentity } from './claimant-identity-check'
 import { FINDING_CATEGORIES, generateDocumentFindings } from './document-findings'
+import {
+  careDates,
+  detectSyntheticMarkers,
+  extractLineItems,
+  extractProviderName,
+  stripBoilerplate,
+  summarizeClinicalText,
+  visitsFromLineItems,
+  VISIT_KIND_LABELS,
+} from './medical-text-hygiene'
 
 type StructuredMedicalEvent = {
   date: string | null
@@ -339,14 +349,7 @@ export function extractPlaintextFile(filePath: string): string {
 }
 
 function extractProvider(ocrText: string): string | undefined {
-  const lines = ocrText
-    .split(/\r?\n/)
-    .map((line) => line.replace(/\s+/g, ' ').trim())
-    .filter(Boolean)
-  const providerLine = lines.find((line) =>
-    /\b(hospital|clinic|medical center|urgent care|orthopedic|radiology|imaging|therapy|rehab|doctor|dr\.?)\b/i.test(line)
-  )
-  return providerLine?.slice(0, 120)
+  return extractProviderName(ocrText)
 }
 
 function inferVisitType(ocrText: string, category: string) {
@@ -362,10 +365,7 @@ function inferVisitType(ocrText: string, category: string) {
 }
 
 function summarizeText(ocrText: string) {
-  const text = ocrText.replace(/\s+/g, ' ').trim()
-  if (!text) return ''
-  const sentences = text.split(/[.!?]\s+/).filter(Boolean)
-  return sentences.slice(0, 2).join('. ').slice(0, 500)
+  return summarizeClinicalText(ocrText)
 }
 
 // Common PI-relevant medications (generic + brand). Kept deterministic and
@@ -464,9 +464,26 @@ export function buildStructuredMedicalEvents(params: {
   const { category, originalName, ocrText, dates, totalAmount } = params
   if (!['medical_records', 'bills'].includes(category)) return []
 
-  const normalizedDates = [...new Set(dates.map(normalizeDate).filter((date): date is string => Boolean(date)))]
+  // Itemized rows name their own provider, date and charge; one event per
+  // provider per day beats stamping the document total on every date found.
+  const visits = visitsFromLineItems(extractLineItems(ocrText))
+  if (visits.length > 0) {
+    return visits.map((v) => ({
+      date: v.date,
+      provider: v.provider || undefined,
+      visitType: VISIT_KIND_LABELS[v.kind],
+      details: v.codes.length ? `CPT ${v.codes.join(', ')}` : undefined,
+      amount: v.amount,
+      confidence: 'documented' as const,
+      source: 'ocr' as const,
+    }))
+  }
+
+  const normalizedDates = ocrText
+    ? careDates(ocrText)
+    : [...new Set(dates.map(normalizeDate).filter((date): date is string => Boolean(date)))]
   const provider = extractProvider(ocrText)
-  const visitType = inferVisitType(ocrText, category)
+  const visitType = inferVisitType(stripBoilerplate(ocrText), category)
   const details = summarizeText(ocrText) || originalName
 
   if (normalizedDates.length === 0) {
@@ -481,12 +498,13 @@ export function buildStructuredMedicalEvents(params: {
     }]
   }
 
-  return normalizedDates.map((date) => ({
+  return normalizedDates.map((date, i) => ({
     date,
     provider,
     visitType,
     details,
-    amount: totalAmount,
+    // The document total belongs to the document, not to each date it prints.
+    amount: i === 0 ? totalAmount : undefined,
     confidence: ocrText ? 'documented' : 'estimated',
     source: 'ocr',
   }))
@@ -759,9 +777,10 @@ async function processExtractedData(ocrText: string, category: string, originalN
       entities: {
         provider: extractProvider(ocrText),
         patientName: patientName || undefined,
-        visitType: inferVisitType(ocrText, category),
+        visitType: inferVisitType(stripBoilerplate(ocrText), category),
         medications: extractMedications(ocrText),
         ...(wage ? { wage } : {}),
+        syntheticMarkers: detectSyntheticMarkers(ocrText),
       },
       confidence: ocrText ? (medicalEvents.some((event) => event.confidence === 'needs_review') ? 0.45 : 0.82) : 0.2,
       keywords: ocrText.toLowerCase().split(/\s+/).filter(word =>

@@ -12,6 +12,16 @@ import {
   isPlausibleTreatmentDate,
   OPEN_TREATMENT_GAP_DAYS,
 } from './demand-readiness'
+import {
+  careDates,
+  cleanProviderName,
+  extractLineItems,
+  extractProviderName,
+  isBoilerplate,
+  summarizeClinicalText,
+  visitsFromLineItems,
+  VISIT_KIND_LABELS,
+} from './medical-text-hygiene'
 
 export interface MedicalChronologyEvent {
   id: string
@@ -169,6 +179,46 @@ type StructuredMedicalTimelineEvent = {
   details?: string
   amount?: number
   confidence?: 'documented' | 'estimated' | 'needs_review'
+}
+
+/**
+ * The file's timeline, re-read from its OCR text with the boilerplate rules
+ * when the text is on hand. Files processed before those rules stored banner
+ * text as providers and summaries; re-deriving here cleans them without a
+ * reprocessing run.
+ */
+function cleanedFileTimeline(
+  ocrText: string | null | undefined,
+  stored: StructuredMedicalTimelineEvent[],
+): StructuredMedicalTimelineEvent[] {
+  if (!ocrText) return stored
+  const visits = visitsFromLineItems(extractLineItems(ocrText))
+  if (visits.length) {
+    return visits.map((v) => ({
+      date: v.date,
+      provider: v.provider || undefined,
+      visitType: VISIT_KIND_LABELS[v.kind],
+      details: v.codes.length ? `CPT ${v.codes.join(', ')}` : undefined,
+      amount: v.amount,
+      confidence: 'documented' as const,
+    }))
+  }
+  const care = new Set(careDates(ocrText))
+  const provider = extractProviderName(ocrText)
+  const summary = summarizeClinicalText(ocrText) || undefined
+  return stored
+    .filter((e) => !e.date || care.has(String(e.date).slice(0, 10)))
+    .map((e) => ({
+      ...e,
+      provider: cleanProviderName(e.provider) || provider,
+      details: e.details && isBoilerplate(e.details) ? summary : e.details,
+    }))
+}
+
+function cleanSummaryText(aiSummary: string | null | undefined, ocrText: string | null | undefined): string | undefined {
+  if (!aiSummary) return undefined
+  if (!isBoilerplate(aiSummary)) return aiSummary
+  return summarizeClinicalText(ocrText || aiSummary) || undefined
 }
 
 function parseExtractedMedicalData(input: unknown): ExtractedMedicalData {
@@ -347,6 +397,7 @@ export async function buildMedicalChronology(assessmentId: string): Promise<Medi
           originalName: true,
           createdAt: true,
           aiSummary: true,
+          ocrText: true,
           extractedData: {
             take: 1,
             select: {
@@ -464,9 +515,16 @@ export async function buildMedicalChronology(assessmentId: string): Promise<Medi
     if (isNonTreatmentFinancialSummary(file)) continue
 
     const extracted = parseExtractedMedicalData(file.extractedData?.[0])
-    const structuredTimeline = parseStructuredTimeline(extracted.timeline)
-    const dates = toStringArray(extracted.dates)
+    const structuredTimeline = cleanedFileTimeline(file.ocrText, parseStructuredTimeline(extracted.timeline))
+    const careDateSet = file.ocrText ? new Set(careDates(file.ocrText)) : null
+    const dates = toStringArray(extracted.dates).filter((d) => {
+      if (!careDateSet) return true
+      const parsed = new Date(d)
+      return !Number.isNaN(parsed.getTime()) && careDateSet.has(parsed.toISOString().slice(0, 10))
+    })
     const amount = typeof extracted?.totalAmount === 'number' ? extracted.totalAmount : undefined
+    const fileSummary = cleanSummaryText(file.aiSummary, file.ocrText)
+    const eventsBefore = events.length
 
     if (structuredTimeline.length > 0) {
       const repeatsDocumentAmount =
@@ -488,7 +546,7 @@ export async function buildMedicalChronology(assessmentId: string): Promise<Medi
           date: eventDate,
           label,
           source: 'medical_record',
-          details: event.details || file.aiSummary || undefined,
+          details: event.details || fileSummary,
           provider: event.provider,
           amount: eventAmount,
           sourceFileId: file.id,
@@ -505,20 +563,22 @@ export async function buildMedicalChronology(assessmentId: string): Promise<Medi
           date: eventDate,
           label: file.originalName || 'Medical record',
           source: 'medical_record',
-          details: file.aiSummary || undefined,
+          details: fileSummary,
           amount: i === 0 ? amount ?? undefined : undefined,
           sourceFileId: file.id,
           sourceFileName: file.originalName || undefined,
           extractionConfidence: 'documented',
         })
       })
-    } else if (file.createdAt) {
+    }
+    // A record with no date of care still belongs on the chronology, undated, for review.
+    if (events.length === eventsBefore && file.createdAt) {
       events.push({
         id: `evidence-${file.id}`,
         date: null,
         label: file.originalName || 'Medical record',
         source: 'evidence',
-        details: file.aiSummary || undefined,
+        details: fileSummary,
         amount: undefined,
         sourceFileId: file.id,
         sourceFileName: file.originalName || undefined,
@@ -622,7 +682,8 @@ export async function buildMedicalChronologySummary(
         .filter((m): m is string => typeof m === 'string' && m.trim().length > 0)
         .forEach((m) => medications.add(m.trim()))
     }
-    if (hasText(entities.provider)) providers.add(entities.provider.trim())
+    const entityProvider = cleanProviderName(entities.provider)
+    if (entityProvider) providers.add(entityProvider)
     // Imaging documents surfaced by their inferred visit type or filename.
     const label = `${entities.visitType || ''} ${file.originalName || ''}`.toLowerCase()
     if (/imaging|mri|ct scan|x-ray|xray|radiolog|ultrasound/.test(label)) {
@@ -635,7 +696,8 @@ export async function buildMedicalChronologySummary(
 
   // Providers from the timeline and intake facts.
   timeline.forEach((event) => {
-    if (hasText(event.provider)) providers.add(event.provider.trim())
+    const eventProvider = cleanProviderName(event.provider)
+    if (eventProvider) providers.add(eventProvider)
     if (/imaging|mri|ct|x-ray|xray|radiolog|ultrasound/i.test(event.label || '')) {
       imaging.add(event.label)
     }
