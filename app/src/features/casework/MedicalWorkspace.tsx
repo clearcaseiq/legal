@@ -91,10 +91,12 @@ export default function MedicalWorkspace({
   /** The confirmed treatment timeline; `onChanged` refreshes the header. */
   treatment: (onChanged: () => void) => ReactNode
   /** The evidence-derived chronology; re-reads when `reloadKey` changes. */
-  chronology: (reloadKey: number) => ReactNode
-  providerLetters: ReactNode
+  chronology: (reloadKey: number, onProvidersChanged: () => void) => ReactNode
+  /** Remounted when `reloadKey` changes so a provider added elsewhere shows up. */
+  providerLetters: (reloadKey: number) => ReactNode
   impact: ReactNode
 }) {
+  const [lettersKey, setLettersKey] = useState(0)
   const [searchParams, setSearchParams] = useSearchParams()
   const tabParam = searchParams.get('medTab') as MedicalOverviewTab | null
   const tab: MedicalOverviewTab = TABS.some((t) => t.id === tabParam) ? (tabParam as MedicalOverviewTab) : 'overview'
@@ -364,9 +366,12 @@ export default function MedicalWorkspace({
           />
           <div>
             <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">Chronology from the documents</p>
-            {chronology(reloadKey)}
+            {chronology(reloadKey, () => {
+              setLettersKey((k) => k + 1)
+              void load()
+            })}
           </div>
-          {providerLetters}
+          {providerLetters(lettersKey)}
         </div>
       ) : null}
 

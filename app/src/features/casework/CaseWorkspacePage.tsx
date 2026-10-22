@@ -88,6 +88,7 @@ import {
   type MedicalSharingStatus,
   getLeadMedicalChronologySummary,
   getLeadMedicalTimeline,
+  saveLeadProviderContact,
   getLeadTasks,
   updateLeadTask,
   approveLeadTask,
@@ -289,7 +290,8 @@ function money(n?: number | null) {
 
 function formatDate(value?: string | null) {
   if (!value) return '—'
-  const d = new Date(value)
+  // A bare YYYY-MM-DD is a calendar day; parsed as UTC it shows a day early west of Greenwich.
+  const d = /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T00:00:00`) : new Date(value)
   return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 
@@ -1120,16 +1122,25 @@ function WorkstreamPanel({
             <MedicalTimelinePanel leadId={lead.id} showFindings={false} onChanged={onChanged} />
           </StaffViewOnly>
         )}
-        chronology={(reloadKey) => <MedicalPanel leadId={lead.id} cc={cc} onOpenSection={goToSection} reloadKey={reloadKey} />}
-        providerLetters={
+        chronology={(reloadKey, onProvidersChanged) => (
+          <MedicalPanel
+            leadId={lead.id}
+            cc={cc}
+            onOpenSection={goToSection}
+            reloadKey={reloadKey}
+            onProvidersChanged={onProvidersChanged}
+          />
+        )}
+        providerLetters={(reloadKey) => (
           <StaffViewOnly locked={staffLacks('request')} what="sending provider letters">
             <ProviderLettersPanel
+              key={reloadKey}
               leadId={lead.id}
               onOpenSection={goToSection}
               openLetter={searchParams.get('letter') === '1'}
             />
           </StaffViewOnly>
-        }
+        )}
         impact={
           <>
             <PlaintiffImpactJournalPanel entries={detail.painJournal || []} />
@@ -2080,18 +2091,165 @@ function ChipGroup({
  */
 const TIMELINE_COLLAPSED_KEY = 'caseMedical.timelineCollapsed'
 
+function sameProviderName(a: string | null | undefined, b: string | null | undefined) {
+  const norm = (s: string | null | undefined) => (s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+  const x = norm(a)
+  const y = norm(b)
+  return Boolean(x && y) && (x === y || x.includes(y) || y.includes(x))
+}
+
+/** What the records show for one provider: visits, codes, charges and the documents they came from. */
+function ProviderDetail({
+  leadId,
+  name,
+  events,
+  confirmedCount,
+  onClose,
+  onOpenSection,
+  onProviderAdded,
+}: {
+  leadId: string
+  name: string
+  events: MedicalTimelineEvent[]
+  confirmedCount: number
+  onClose: () => void
+  onOpenSection: (section: string) => void
+  onProviderAdded?: () => void
+}) {
+  const [adding, setAdding] = useState(false)
+  const [added, setAdded] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const dated = events.filter((e) => e.date).map((e) => String(e.date).slice(0, 10)).sort()
+  const charges = events.reduce((s, e) => s + (typeof e.amount === 'number' ? e.amount : 0), 0)
+  const files = [...new Map(events.filter((e) => e.sourceFileName).map((e) => [e.sourceFileId || e.sourceFileName, e.sourceFileName!])).values()]
+
+  const addToLetters = async () => {
+    setAdding(true)
+    setError(null)
+    try {
+      await saveLeadProviderContact(leadId, { name })
+      setAdded(true)
+      onProviderAdded?.()
+    } catch (err: any) {
+      setError(err?.response?.data?.error || 'Could not add the provider.')
+    } finally {
+      setAdding(false)
+    }
+  }
+
+  return (
+    <div className="mt-4 rounded-xl border border-brand-100 bg-brand-50/30 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-slate-900">{name}</p>
+          <p className="mt-0.5 text-xs">
+            {confirmedCount > 0 ? (
+              <span className="font-medium text-emerald-700">
+                {confirmedCount} confirmed visit{confirmedCount === 1 ? '' : 's'} on the timeline
+              </span>
+            ) : (
+              <span className="font-medium text-amber-700">Not confirmed: no visits with this provider on the timeline yet</span>
+            )}
+          </p>
+        </div>
+        <button type="button" onClick={onClose} className="rounded p-1 text-slate-400 hover:bg-white hover:text-slate-600" aria-label="Close provider details">
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      <dl className="mt-3 grid grid-cols-2 gap-3 text-xs sm:grid-cols-4">
+        <div>
+          <dt className="text-slate-500">Visits found</dt>
+          <dd className="mt-0.5 font-semibold text-slate-800">{events.length}</dd>
+        </div>
+        <div>
+          <dt className="text-slate-500">First visit</dt>
+          <dd className="mt-0.5 font-semibold text-slate-800">{formatDate(dated[0] || null)}</dd>
+        </div>
+        <div>
+          <dt className="text-slate-500">Last visit</dt>
+          <dd className="mt-0.5 font-semibold text-slate-800">{formatDate(dated[dated.length - 1] || null)}</dd>
+        </div>
+        <div>
+          <dt className="text-slate-500">Charges read (unverified)</dt>
+          <dd className="mt-0.5 font-semibold text-slate-800">{charges > 0 ? money(charges) : '—'}</dd>
+        </div>
+      </dl>
+
+      {events.length ? (
+        <ul className="mt-3 divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white">
+          {events.map((ev, i) => (
+            <li key={ev.id || i} className="flex items-start justify-between gap-3 px-3 py-2 text-sm">
+              <div className="min-w-0">
+                <p className="font-medium text-slate-800">
+                  {formatDate(ev.date)} · {ev.label}
+                </p>
+                {ev.details ? <p className="mt-0.5 text-xs text-slate-500">{ev.details}</p> : null}
+                {ev.sourceFileName ? (
+                  <button
+                    type="button"
+                    onClick={() => onOpenSection('documents')}
+                    className="mt-0.5 inline-flex items-center gap-1 text-[11px] font-medium text-brand-600 hover:text-brand-700"
+                  >
+                    <FileText className="h-3 w-3" /> {ev.sourceFileName}
+                  </button>
+                ) : null}
+              </div>
+              {ev.amount ? <span className="shrink-0 font-semibold tabular-nums text-slate-800">{money(ev.amount)}</span> : null}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-3 text-xs text-slate-500">
+          This provider is named in the records{files.length ? '' : ' or intake answers'}, but no dated visit was read for them.
+        </p>
+      )}
+
+      {error ? <p className="mt-2 text-xs text-rose-700">{error}</p> : null}
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        {added ? (
+          <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700">
+            <Check className="h-3.5 w-3.5" /> Added to letters of representation below
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={() => void addToLetters()}
+            disabled={adding}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
+          >
+            <Plus className="h-3.5 w-3.5" /> {adding ? 'Adding…' : 'Add to letters of representation'}
+          </button>
+        )}
+        <span className="text-[11px] text-slate-500">
+          Confirm visits in "Visits found in the records" above to put them on the treatment timeline.
+        </span>
+      </div>
+    </div>
+  )
+}
+
 function MedicalPanel({
   leadId,
   cc,
   onOpenSection,
   reloadKey = 0,
+  onProvidersChanged,
 }: {
   leadId: string
   cc: CaseCommandCenter | null
   onOpenSection: (section: string) => void
   reloadKey?: number
+  onProvidersChanged?: () => void
 }) {
   const [summary, setSummary] = useState<MedicalChronologySummary | null>(null)
+  const [selectedProvider, setSelectedProvider] = useState<string | null>(null)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const providersRef = useRef<HTMLDivElement>(null)
+  const timelineRef = useRef<HTMLDivElement>(null)
+  const gapsRef = useRef<HTMLDivElement>(null)
+  const jumpTo = (ref: { current: HTMLElement | null }) =>
+    window.setTimeout(() => ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0)
   const [confirmed, setConfirmed] = useState<Array<{ date: string | null; provider: string }>>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -2111,6 +2269,10 @@ function MedicalPanel({
       }
       return !open
     })
+  }
+  const showTimeline = () => {
+    if (!timelineOpen) toggleTimeline()
+    jumpTo(timelineRef)
   }
 
   const load = () => {
@@ -2222,10 +2384,31 @@ function MedicalPanel({
     <div className="space-y-5">
       {/* Snapshot */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-        <Metric label="Providers named" value={String(providerCount)} />
-        <Metric label="Events found" value={String(eventCount)} />
-        <Metric label="Read from bills (unverified)" value={billed > 0 ? money(billed) : '—'} accent={false} />
         <Metric
+          label="Providers named"
+          value={String(providerCount)}
+          title="Show the providers"
+          onClick={() => {
+            if (providers.length && !selectedProvider) setSelectedProvider(providers[0])
+            jumpTo(providersRef)
+          }}
+        />
+        <Metric label="Events found" value={String(eventCount)} title="Show the timeline" onClick={showTimeline} />
+        <Metric
+          label="Read from bills (unverified)"
+          value={billed > 0 ? money(billed) : '—'}
+          accent={false}
+          title="Review the charges on the bills"
+          onClick={() => {
+            const params = new URLSearchParams(searchParams)
+            params.set('medTab', 'bills')
+            setSearchParams(params, { replace: true })
+            window.scrollTo({ top: 0, behavior: 'smooth' })
+          }}
+        />
+        <Metric
+          title="Show the timeline"
+          onClick={showTimeline}
           label="Treatment span"
           value={
             firstDate && lastDate ? (
@@ -2242,6 +2425,8 @@ function MedicalPanel({
           label="Largest gap"
           value={largestGap > 0 ? `${largestGap}d` : 'None'}
           accent={false}
+          title={gaps.length ? 'Show the treatment gaps' : 'Show the timeline'}
+          onClick={() => (gaps.length ? jumpTo(gapsRef) : showTimeline())}
         />
       </div>
 
@@ -2258,7 +2443,7 @@ function MedicalPanel({
 
       {/* Treatment gaps */}
       {gaps.length > 0 ? (
-        <div className="rounded-xl border border-slate-200 bg-white p-4">
+        <div ref={gapsRef} className="scroll-mt-4 rounded-xl border border-slate-200 bg-white p-4">
           <MedSection icon={AlertTriangle} title="Treatment gaps" count={gaps.length} />
           <p className="mt-1 text-xs text-slate-500">
             Unexplained gaps let the defense argue you recovered or the injury was unrelated. Document the reason for each.
@@ -2327,7 +2512,7 @@ function MedicalPanel({
 
       {/* Treatment timeline */}
       {timeline.length > 0 ? (
-        <div className="rounded-xl border border-slate-200 bg-white p-4">
+        <div ref={timelineRef} className="scroll-mt-4 rounded-xl border border-slate-200 bg-white p-4">
           <button
             type="button"
             onClick={toggleTimeline}
@@ -2401,15 +2586,40 @@ function MedicalPanel({
 
       {/* Providers */}
       {providers.length ? (
-        <div className="rounded-xl border border-slate-200 bg-white p-4">
+        <div ref={providersRef} className="scroll-mt-4 rounded-xl border border-slate-200 bg-white p-4">
           <MedSection icon={MapPin} title="Providers named in the records" count={providers.length} />
+          <p className="mt-1 text-xs text-slate-500">Click a provider to see what the records show for them.</p>
           <div className="mt-3 flex flex-wrap gap-1.5">
-            {providers.map((p, i) => (
-              <span key={`${p}-${i}`} className="rounded-full bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-700 ring-1 ring-inset ring-slate-200">
-                {p}
-              </span>
-            ))}
+            {providers.map((p, i) => {
+              const selected = selectedProvider === p
+              return (
+                <button
+                  type="button"
+                  key={`${p}-${i}`}
+                  onClick={() => setSelectedProvider(selected ? null : p)}
+                  aria-expanded={selected}
+                  className={`rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset transition ${
+                    selected
+                      ? 'bg-brand-600 text-white ring-brand-600'
+                      : 'bg-slate-50 text-slate-700 ring-slate-200 hover:bg-brand-50 hover:text-brand-700 hover:ring-brand-200'
+                  }`}
+                >
+                  {p}
+                </button>
+              )
+            })}
           </div>
+          {selectedProvider ? (
+            <ProviderDetail
+              leadId={leadId}
+              name={selectedProvider}
+              events={timeline.filter((ev) => sameProviderName(ev.provider, selectedProvider))}
+              confirmedCount={confirmed.filter((c) => sameProviderName(c.provider, selectedProvider)).length}
+              onClose={() => setSelectedProvider(null)}
+              onOpenSection={onOpenSection}
+              onProviderAdded={onProvidersChanged}
+            />
+          ) : null}
         </div>
       ) : null}
     </div>
@@ -4344,16 +4554,40 @@ function OverviewCollapsible({
   )
 }
 
-function Metric({ label, value, accent = false }: { label: string; value: ReactNode; accent?: boolean }) {
-  return (
-    <div
-      className={`min-w-0 overflow-hidden rounded-xl border px-4 py-3 ${
-        accent ? 'border-brand-100 bg-brand-50/50' : 'border-slate-200 bg-slate-50/60'
-      }`}
-    >
-      <p className="truncate text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+function Metric({
+  label,
+  value,
+  accent = false,
+  onClick,
+  title,
+}: {
+  label: string
+  value: ReactNode
+  accent?: boolean
+  onClick?: () => void
+  title?: string
+}) {
+  const cls = `min-w-0 overflow-hidden rounded-xl border px-4 py-3 text-left ${
+    accent ? 'border-brand-100 bg-brand-50/50' : 'border-slate-200 bg-slate-50/60'
+  }`
+  const body = (
+    <>
+      <p className="truncate text-[11px] font-semibold uppercase tracking-wide text-slate-500" title={label}>
+        {label}
+      </p>
       <p className={`mt-1 truncate text-lg font-bold leading-tight ${accent ? 'text-brand-700' : 'text-slate-900'}`}>{value}</p>
-    </div>
+    </>
+  )
+  if (!onClick) return <div className={cls}>{body}</div>
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      className={`${cls} transition hover:border-brand-300 hover:bg-white hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400`}
+    >
+      {body}
+    </button>
   )
 }
 
