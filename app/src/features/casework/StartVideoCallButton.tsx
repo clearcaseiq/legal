@@ -7,6 +7,7 @@ import { getAttorneyZoomConnectUrl, getAttorneyZoomStatus, startCaseVideoCall, t
 export default function StartVideoCallButton({ leadId }: { leadId: string }) {
   const navigate = useNavigate()
   const [available, setAvailable] = useState(false)
+  const [connected, setConnected] = useState(false)
   const [busy, setBusy] = useState(false)
   const [needsZoom, setNeedsZoom] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -18,7 +19,9 @@ export default function StartVideoCallButton({ leadId }: { leadId: string }) {
     let cancelled = false
     getAttorneyZoomStatus()
       .then((status) => {
-        if (!cancelled) setAvailable(Boolean(status?.configured))
+        if (cancelled) return
+        setAvailable(Boolean(status?.configured))
+        setConnected(Boolean(status?.connected))
       })
       .catch(() => {})
     return () => {
@@ -27,8 +30,14 @@ export default function StartVideoCallButton({ leadId }: { leadId: string }) {
   }, [])
 
   const start = async () => {
-    setBusy(true)
     setError(null)
+    // Without a connection the request can only fail, and the pre-opened tab
+    // would flash open and shut.
+    if (!connected) {
+      setNeedsZoom(true)
+      return
+    }
+    setBusy(true)
     setNeedsZoom(false)
     // Opened before the request so popup blockers treat it as user-initiated.
     const win = window.open('', '_blank')
@@ -45,8 +54,10 @@ export default function StartVideoCallButton({ leadId }: { leadId: string }) {
       }
     } catch (err: any) {
       win?.close()
-      if (err?.response?.data?.code === 'zoom_not_connected') setNeedsZoom(true)
-      else setError(err?.response?.data?.error || 'Could not start the video call.')
+      if (err?.response?.data?.code === 'zoom_not_connected') {
+        setConnected(false)
+        setNeedsZoom(true)
+      } else setError(err?.response?.data?.error || 'Could not start the video call.')
     } finally {
       setBusy(false)
     }
@@ -83,7 +94,7 @@ export default function StartVideoCallButton({ leadId }: { leadId: string }) {
         {busy ? 'Starting call…' : 'Start video call'}
       </button>
       {needsZoom && (
-        <p className="max-w-xs text-right text-xs text-slate-600">
+        <p className="max-w-xs text-right text-xs text-amber-700">
           Connect your Zoom account to start calls.{' '}
           <button type="button" onClick={() => void connectZoom()} className="font-semibold text-brand-700 hover:underline">
             Connect Zoom
