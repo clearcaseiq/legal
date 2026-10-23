@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { applyMetaBoundary, metaGuardSnippet } from './metaPixelGuard'
 import { applyAnalyticsBoundary } from './analyticsBoundary'
+import { gtmHeadSnippet } from './tagManager'
 
 const PIXEL = '1594082249036343'
 
@@ -24,17 +25,17 @@ function fakePage() {
 }
 
 describe('metaGuardSnippet', () => {
-  it('keeps Meta’s script off a sensitive landing route even though the tag fires', () => {
+  it('keeps Meta’s script off a page that is not allowed, even though the tag fires', () => {
     const page = fakePage()
-    page.run(metaGuardSnippet(true, PIXEL))
+    page.run(metaGuardSnippet(false, PIXEL))
     page.run(GTM_TAG)
     expect(page.injected).toEqual([])
     expect(page.window.__cciqMetaBlocked).toBe(true)
   })
 
-  it('loads the pixel on a public route with automatic events and history PageViews off before init', () => {
+  it('loads the pixel on an allowed page with automatic events and history PageViews off before init', () => {
     const page = fakePage()
-    page.run(metaGuardSnippet(false, PIXEL))
+    page.run(metaGuardSnippet(true, PIXEL))
     page.run(GTM_TAG)
     expect(page.injected).toEqual(['https://connect.facebook.net/en_US/fbevents.js'])
     expect(page.window.fbq.disablePushState).toBe(true)
@@ -46,26 +47,45 @@ describe('metaGuardSnippet', () => {
     ])
   })
 
-  it('adds nothing on a public route when no pixel is configured', () => {
-    expect(metaGuardSnippet(false, null)).toBe('')
+  it('blocks rather than leaving the tag unguarded when no pixel id is configured', () => {
+    const page = fakePage()
+    page.run(metaGuardSnippet(true, null))
+    page.run(GTM_TAG)
+    expect(page.injected).toEqual([])
+  })
+})
+
+describe('gtmHeadSnippet', () => {
+  it('fails closed: Meta is blocked unless the page is explicitly allowed', () => {
+    expect(gtmHeadSnippet('GTM-X', false)).toContain('__cciqMetaBlocked')
+    expect(gtmHeadSnippet('GTM-X', true, true)).toContain('__cciqMetaBlocked')
+    expect(gtmHeadSnippet('GTM-X', false, true)).toContain('fbevents.js')
+  })
+
+  it('installs the guard before the container loads', () => {
+    const snippet = gtmHeadSnippet('GTM-X', false, true)
+    expect(snippet.indexOf('fbq')).toBeLessThan(snippet.indexOf('gtm.js'))
   })
 })
 
 describe('applyMetaBoundary', () => {
-  it('revokes consent on entering a sensitive route and never re-grants', () => {
+  it('revokes consent on the first move away from the landing page, wherever it goes, and never re-grants', () => {
     const fbq = vi.fn()
     const scope: Record<string, unknown> = { fbq }
-    applyAnalyticsBoundary('/how-it-works', undefined, scope)
+    applyAnalyticsBoundary('/car-accident-lawyer', undefined, scope)
+    applyAnalyticsBoundary('/car-accident-lawyer', undefined, scope)
     expect(fbq).not.toHaveBeenCalled()
+    applyAnalyticsBoundary('/some-unclassified-route', undefined, scope)
     applyAnalyticsBoundary('/assess', undefined, scope)
-    applyAnalyticsBoundary('/how-it-works', undefined, scope)
-    applyAnalyticsBoundary('/dashboard', undefined, scope)
+    applyAnalyticsBoundary('/car-accident-lawyer', undefined, scope)
     expect(fbq.mock.calls).toEqual([['consent', 'revoke']])
   })
 
   it('leaves the inert stub alone', () => {
     const fbq = vi.fn()
-    applyMetaBoundary(true, { fbq, __cciqMetaBlocked: true })
+    const scope = { fbq, __cciqMetaBlocked: true }
+    applyMetaBoundary('/a', scope)
+    applyMetaBoundary('/b', scope)
     expect(fbq).not.toHaveBeenCalled()
   })
 })

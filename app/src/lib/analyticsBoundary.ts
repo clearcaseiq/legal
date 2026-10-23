@@ -133,7 +133,7 @@ export function applyAnalyticsBoundary(
   const blocked = isSensitivePath(pathname)
 
   if (measurementId) scope[`ga-disable-${measurementId}`] = blocked
-  applyMetaBoundary(blocked, scope)
+  applyMetaBoundary(pathname, scope)
 
   // Only when GTM is actually on the page: the array is created by its snippet,
   // so its absence means there is no container to signal.

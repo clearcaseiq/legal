@@ -1,4 +1,11 @@
-import Document, { Head, Html, Main, NextScript, type DocumentContext } from 'next/document'
+import Document, {
+  Head,
+  Html,
+  Main,
+  NextScript,
+  type DocumentContext,
+  type DocumentProps as NextDocumentProps,
+} from 'next/document'
 import { DEFAULT_LANGUAGE } from '../src/i18n'
 import { hreflangFor, localeFromPath } from '../src/i18n/routing'
 import { isSensitivePath } from '../src/lib/analyticsBoundary'
@@ -26,7 +33,16 @@ type DocumentProps = {
   analyticsBlocked: boolean
 }
 
-export default function CaseIQDocument({ locale, gtmContainer, analyticsBlocked }: DocumentProps) {
+export default function CaseIQDocument({
+  locale,
+  gtmContainer,
+  analyticsBlocked,
+  __NEXT_DATA__,
+}: DocumentProps & Pick<NextDocumentProps, '__NEXT_DATA__'>) {
+  // The Meta Pixel is held to the server's allow list of marketing pages, not
+  // to the deny list: an app screen, error page or route nobody classified
+  // loads no Meta script.
+  const metaAllowed = __NEXT_DATA__?.props?.pageProps?.publicPage === true && !analyticsBlocked
   return (
     <Html lang={locale}>
       <Head>
@@ -39,7 +55,7 @@ export default function CaseIQDocument({ locale, gtmContainer, analyticsBlocked 
         {gtmContainer ? (
           <script
             id="gtm-init"
-            dangerouslySetInnerHTML={{ __html: gtmHeadSnippet(gtmContainer, analyticsBlocked) }}
+            dangerouslySetInnerHTML={{ __html: gtmHeadSnippet(gtmContainer, analyticsBlocked, metaAllowed) }}
           />
         ) : null}
         {GOOGLE_SITE_VERIFICATION ? (

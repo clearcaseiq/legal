@@ -71,10 +71,11 @@ export function gtmContainerId(): string | null {
 export function gtmHeadSnippet(
   containerId: string,
   analyticsBlocked: boolean,
+  metaAllowed = false,
   pixelId: string | null = metaPixelId(),
 ): string {
   return (
-    metaGuardSnippet(analyticsBlocked, pixelId) +
+    metaGuardSnippet(metaAllowed && !analyticsBlocked, pixelId) +
     `window.dataLayer=window.dataLayer||[];` +
     `window.dataLayer.push({analytics_blocked:${analyticsBlocked ? 'true' : 'false'}});` +
     `(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':` +
