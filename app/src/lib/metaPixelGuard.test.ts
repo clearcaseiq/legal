@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { applyMetaBoundary, metaGuardSnippet } from './metaPixelGuard'
+import { applyLandingOnlyTracking, metaGuardSnippet } from './metaPixelGuard'
 import { applyAnalyticsBoundary } from './analyticsBoundary'
 import { gtmHeadSnippet } from './tagManager'
 
@@ -68,10 +68,10 @@ describe('gtmHeadSnippet', () => {
   })
 })
 
-describe('applyMetaBoundary', () => {
-  it('revokes consent on the first move away from the landing page, wherever it goes, and never re-grants', () => {
+describe('applyLandingOnlyTracking', () => {
+  it('revokes Meta consent on the first move away from the landing page, wherever it goes, and never re-grants', () => {
     const fbq = vi.fn()
-    const scope: Record<string, unknown> = { fbq }
+    const scope: Record<string, unknown> = { fbq, dataLayer: [] }
     applyAnalyticsBoundary('/car-accident-lawyer', undefined, scope)
     applyAnalyticsBoundary('/car-accident-lawyer', undefined, scope)
     expect(fbq).not.toHaveBeenCalled()
@@ -81,11 +81,50 @@ describe('applyMetaBoundary', () => {
     expect(fbq.mock.calls).toEqual([['consent', 'revoke']])
   })
 
-  it('leaves the inert stub alone', () => {
+  it('stops Clarity once the visitor leaves the landing page, even if Clarity loads late', () => {
+    const scope: Record<string, unknown> = { dataLayer: [] }
+    applyLandingOnlyTracking('/', scope)
+    applyLandingOnlyTracking('/assess', scope)
+    const clarity = vi.fn()
+    scope.clarity = clarity
+    applyLandingOnlyTracking('/assess/step-2', scope)
+    applyLandingOnlyTracking('/assess/step-3', scope)
+    expect(clarity.mock.calls).toEqual([['stop']])
+  })
+
+  it('keeps stopping a late Clarity even after returning to the landing path', () => {
+    const scope: Record<string, unknown> = { dataLayer: [] }
+    applyLandingOnlyTracking('/', scope)
+    applyLandingOnlyTracking('/assess', scope)
+    const clarity = vi.fn()
+    scope.clarity = clarity
+    applyLandingOnlyTracking('/', scope)
+    expect(clarity.mock.calls).toEqual([['stop']])
+  })
+
+  it('stops Clarity when the router changes the URL, before the new screen renders', () => {
+    const pushed: unknown[] = []
+    const history = { pushState: (...a: unknown[]) => pushed.push(a), replaceState: () => undefined }
+    const clarity = vi.fn()
+    const scope: Record<string, unknown> = {
+      dataLayer: [],
+      clarity,
+      history,
+      location: { href: 'https://www.clearcaseiq.com/' },
+    }
+    applyLandingOnlyTracking('/', scope)
+    ;(history as unknown as History).pushState({}, '', '/?utm=x')
+    expect(clarity).not.toHaveBeenCalled()
+    ;(history as unknown as History).pushState({}, '', '/assess')
+    expect(clarity.mock.calls).toEqual([['stop']])
+    expect(pushed).toHaveLength(2)
+  })
+
+  it('leaves the inert Meta stub alone', () => {
     const fbq = vi.fn()
     const scope = { fbq, __cciqMetaBlocked: true }
-    applyMetaBoundary('/a', scope)
-    applyMetaBoundary('/b', scope)
+    applyLandingOnlyTracking('/a', scope)
+    applyLandingOnlyTracking('/b', scope)
     expect(fbq).not.toHaveBeenCalled()
   })
 })

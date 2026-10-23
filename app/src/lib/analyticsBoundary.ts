@@ -28,7 +28,7 @@
  * than it should. The trade is that a new private route has to be added here;
  * the test alongside this file is what catches the common ones going missing.
  */
-import { applyMetaBoundary } from './metaPixelGuard'
+import { applyLandingOnlyTracking } from './metaPixelGuard'
 
 /**
  * Route prefixes where no analytics may run.
@@ -133,7 +133,7 @@ export function applyAnalyticsBoundary(
   const blocked = isSensitivePath(pathname)
 
   if (measurementId) scope[`ga-disable-${measurementId}`] = blocked
-  applyMetaBoundary(pathname, scope)
+  applyLandingOnlyTracking(pathname, scope)
 
   // Only when GTM is actually on the page: the array is created by its snippet,
   // so its absence means there is no container to signal.

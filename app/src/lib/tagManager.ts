@@ -1,7 +1,15 @@
 /**
- * Google Tag Manager, loaded on every page of the site.
+ * Google Tag Manager, loaded only on pages the server classifies as public
+ * marketing content (`publicPage`; the gate is in _document).
  *
- * This deliberately reverses an earlier boundary. GTM used to render only where
+ * History: it was loaded on every route for screen-level funnel tracking, and a
+ * browser audit then found Google Ads remarketing, GA4 and Clarity recording
+ * the intake wizard, dashboards and evidence-upload links (token included)
+ * through All Pages triggers. The notes below describe that period; the
+ * container is still resident after a visitor clicks from a marketing page into
+ * the app, so they apply to SPA navigation.
+ *
+ * Earlier still, it had the same marketing-only boundary. GTM used to render only where
  * the server had already decided the page was public marketing content, so a
  * claimant working through intake loaded no container at all. Screen-level
  * tracking of the claimant funnel was asked for, and it cannot work from behind

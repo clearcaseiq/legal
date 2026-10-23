@@ -1,8 +1,10 @@
 /**
- * Keeps the Meta Pixel off the screens that carry health information.
+ * Keeps the Meta Pixel (and, after the landing page, Clarity) off the screens
+ * that carry health information.
  *
- * The Pixel is a Custom HTML tag in the GTM container, firing on every page
- * load. A container trigger is not enough on its own: once `fbevents.js` is
+ * The GTM container is only loaded on server-classified marketing pages (see
+ * _document), and the Pixel is a Custom HTML tag in it. That is not enough on
+ * its own for Meta: once `fbevents.js` is
  * loaded it sends a PageView, with the full URL, on every client-side route
  * change by itself, and it attaches automatic button and form listeners. So the
  * app takes the decision itself, and fails closed:
@@ -59,17 +61,55 @@ export function metaGuardSnippet(allowed: boolean, pixelId: string | null): stri
 }
 
 /**
- * Called on every route the app renders. Remembers the landing path, and
- * revokes Meta consent the first time the visitor leaves it.
+ * Called on every route the app renders. Remembers the landing path and, once
+ * the visitor leaves it, revokes Meta consent and stops the Clarity recording.
+ *
+ * The container only loads on marketing pages, but its tags stay resident for
+ * the rest of the single-page session. Clarity records everything on screen,
+ * so it has to stop before the intake wizard renders. It is asked again on
+ * every later route change, because its script loads asynchronously and may
+ * not have arrived by the first one.
  */
-export function applyMetaBoundary(pathname: string, scope: Record<string, unknown>): void {
-  const fbq = scope.fbq
-  if (typeof fbq !== 'function' || scope.__cciqMetaBlocked || scope.__cciqMetaRevoked) return
-  if (scope.__cciqMetaLanding === undefined) {
-    scope.__cciqMetaLanding = pathname
+export function applyLandingOnlyTracking(pathname: string, scope: Record<string, unknown>): void {
+  if (!Array.isArray(scope.dataLayer) && typeof scope.fbq !== 'function') return
+  if (scope.__cciqLanding === undefined) {
+    scope.__cciqLanding = pathname
+    stopOnHistoryChange(scope)
     return
   }
-  if (pathname === scope.__cciqMetaLanding) return
-  fbq('consent', 'revoke')
-  scope.__cciqMetaRevoked = true
+  if (pathname === scope.__cciqLanding && !scope.__cciqLeftLanding) return
+  leaveLanding(scope)
+}
+
+/**
+ * The route effect runs after the new screen has rendered, by which time
+ * Clarity's mutation observer has already captured it. The router changes the
+ * URL before it renders, so stopping there keeps the first app screen out too.
+ */
+function stopOnHistoryChange(scope: Record<string, unknown>): void {
+  const history = scope.history as History | undefined
+  const location = scope.location as Location | undefined
+  if (!history || !location) return
+  for (const method of ['pushState', 'replaceState'] as const) {
+    const original = history[method]
+    history[method] = function (this: History, ...args: Parameters<History['pushState']>) {
+      const url = args[2]
+      if (url != null && new URL(String(url), location.href).pathname !== scope.__cciqLanding) leaveLanding(scope)
+      return original.apply(this, args)
+    }
+  }
+}
+
+function leaveLanding(scope: Record<string, unknown>): void {
+  scope.__cciqLeftLanding = true
+  const fbq = scope.fbq
+  if (typeof fbq === 'function' && !scope.__cciqMetaBlocked && !scope.__cciqMetaRevoked) {
+    fbq('consent', 'revoke')
+    scope.__cciqMetaRevoked = true
+  }
+  const clarity = scope.clarity
+  if (typeof clarity === 'function' && !scope.__cciqClarityStopped) {
+    clarity('stop')
+    scope.__cciqClarityStopped = true
+  }
 }

@@ -39,23 +39,22 @@ export default function CaseIQDocument({
   analyticsBlocked,
   __NEXT_DATA__,
 }: DocumentProps & Pick<NextDocumentProps, '__NEXT_DATA__'>) {
-  // The Meta Pixel is held to the server's allow list of marketing pages, not
-  // to the deny list: an app screen, error page or route nobody classified
-  // loads no Meta script.
-  const metaAllowed = __NEXT_DATA__?.props?.pageProps?.publicPage === true && !analyticsBlocked
+  // The container is held to the server's allow list of marketing pages, not to
+  // the deny list: an app screen, error page or route nobody classified loads
+  // no third-party tag at all. Google Ads, GA4, Clarity and the Meta Pixel all
+  // fire on page load from the container, with the full URL.
+  const marketingPage = __NEXT_DATA__?.props?.pageProps?.publicPage === true && !analyticsBlocked
+  const container = marketingPage ? gtmContainer : null
   return (
     <Html lang={locale}>
       <Head>
         {/* First in the head, ahead of the verification tags and the font
             preloads, so the container is evaluating by the time anything else
-            has parsed. This is also the reason it lives here rather than in a
-            component rendered by the catch-all page: the document is the only
-            place that covers every route, which is what the tracking needs and
-            what the previous marketing-only placement could not give. */}
-        {gtmContainer ? (
+            has parsed. */}
+        {container ? (
           <script
             id="gtm-init"
-            dangerouslySetInnerHTML={{ __html: gtmHeadSnippet(gtmContainer, analyticsBlocked, metaAllowed) }}
+            dangerouslySetInnerHTML={{ __html: gtmHeadSnippet(container, false, true) }}
           />
         ) : null}
         {GOOGLE_SITE_VERIFICATION ? (
@@ -70,10 +69,10 @@ export default function CaseIQDocument({
             the first paint on two round trips to Google. */}
       </Head>
       <body>
-        {gtmContainer ? (
+        {container ? (
           <noscript>
             <iframe
-              src={gtmNoscriptSrc(gtmContainer)}
+              src={gtmNoscriptSrc(container)}
               height="0"
               width="0"
               style={{ display: 'none', visibility: 'hidden' }}
