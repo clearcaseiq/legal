@@ -120,6 +120,18 @@ describe('applyLandingOnlyTracking', () => {
     expect(pushed).toHaveLength(2)
   })
 
+  it('switches off every GA4 property the container loaded once the visitor leaves the landing page', () => {
+    const scope: Record<string, unknown> = {
+      dataLayer: [],
+      google_tag_manager: { 'GTM-PBTSJLC5': {}, 'G-8F3T9DFK8Q': {}, 'AW-18422074186': {}, dataLayer: {} },
+    }
+    applyLandingOnlyTracking('/', scope)
+    expect(scope['ga-disable-G-8F3T9DFK8Q']).toBeUndefined()
+    applyLandingOnlyTracking('/assess', scope)
+    expect(scope['ga-disable-G-8F3T9DFK8Q']).toBe(true)
+    expect(Object.keys(scope).filter((key) => key.startsWith('ga-disable-'))).toEqual(['ga-disable-G-8F3T9DFK8Q'])
+  })
+
   it('leaves the inert Meta stub alone', () => {
     const fbq = vi.fn()
     const scope = { fbq, __cciqMetaBlocked: true }

@@ -53,6 +53,21 @@ const nextConfig = {
    */
   async headers() {
     return [
+      /**
+       * Referrer policy, site-wide rather than on the sensitive routes alone.
+       *
+       * The browser default sends the full URL as the referrer to same-origin
+       * pages, so a full page load from /evidence-upload/<id>?token=... (or an
+       * assessment) to a marketing page left that URL in `document.referrer`,
+       * and the marketing page's Meta, Google and Clarity tags report it.
+       * `strict-origin` reduces it to the origin. It has to apply everywhere:
+       * a document that loaded on a marketing page and moved into the app by
+       * client-side navigation keeps the policy it was served with.
+       */
+      {
+        source: '/:path*',
+        headers: [{ key: 'Referrer-Policy', value: 'strict-origin' }],
+      },
       {
         source: '/tools/:path*',
         headers: [{ key: 'Content-Security-Policy', value: 'frame-ancestors *' }],

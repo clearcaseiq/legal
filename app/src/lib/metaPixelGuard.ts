@@ -62,7 +62,8 @@ export function metaGuardSnippet(allowed: boolean, pixelId: string | null): stri
 
 /**
  * Called on every route the app renders. Remembers the landing path and, once
- * the visitor leaves it, revokes Meta consent and stops the Clarity recording.
+ * the visitor leaves it, revokes Meta consent, stops the Clarity recording and
+ * switches off Google Analytics.
  *
  * The container only loads on marketing pages, but its tags stay resident for
  * the rest of the single-page session. Clarity records everything on screen,
@@ -112,4 +113,19 @@ function leaveLanding(scope: Record<string, unknown>): void {
     clarity('stop')
     scope.__cciqClarityStopped = true
   }
+  for (const id of googleAnalyticsIds(scope)) scope[`ga-disable-${id}`] = true
+}
+
+/**
+ * Every GA4 property loaded on the page, including the ones the container
+ * brings in, which the app is not configured with.
+ *
+ * GA4's enhanced measurement sends a page_view with the full URL on each
+ * history change, so a property that is not switched off reports the intake
+ * wizard's URL the moment the router enters it.
+ */
+function googleAnalyticsIds(scope: Record<string, unknown>): string[] {
+  const loaded = scope.google_tag_manager
+  const ids = loaded && typeof loaded === 'object' ? Object.keys(loaded) : []
+  return ids.filter((id) => /^G-[A-Z0-9]+$/.test(id))
 }

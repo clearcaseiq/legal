@@ -75,11 +75,13 @@ describe('analytics boundary', () => {
     expect(scope['ga-disable-G-TEST123']).toBe(true)
   })
 
-  it('turns analytics back on when the visitor returns to a public page', () => {
-    const scope: Record<string, unknown> = {}
-    applyAnalyticsBoundary('/assess', 'G-TEST123', scope)
+  it('leaves analytics on for the landing page and off after the visitor moves on, even back to a public page', () => {
+    const scope: Record<string, unknown> = { dataLayer: [] }
     applyAnalyticsBoundary('/how-it-works', 'G-TEST123', scope)
     expect(scope['ga-disable-G-TEST123']).toBe(false)
+    applyAnalyticsBoundary('/assess', 'G-TEST123', scope)
+    applyAnalyticsBoundary('/how-it-works', 'G-TEST123', scope)
+    expect(scope['ga-disable-G-TEST123']).toBe(true)
   })
 
   it('does nothing when no measurement id is configured', () => {

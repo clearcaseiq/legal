@@ -18,9 +18,11 @@
  * a claim token, which is precisely what must not reach an analytics vendor.
  *
  * Setting `ga-disable-<id>` is GA's own kill switch and stops all of it,
- * including anything enhanced measurement would have sent by itself. It is
- * re-enabled on the way back out to public pages, so marketing attribution
- * still works for a visitor who wanders in and back out again.
+ * including anything enhanced measurement would have sent by itself. Like the
+ * Meta Pixel and Clarity, it stays off for the life of the document once the
+ * visitor leaves the landing page (see metaPixelGuard.ts): GA4 sends a
+ * page_view with the full URL on every history change, and the landing page is
+ * the only one marketing attribution needs.
  *
  * A deny list rather than an allow list, deliberately. Deciding "is this page
  * public?" on the client means shipping the landing page corpus - hundreds of
@@ -132,8 +134,8 @@ export function applyAnalyticsBoundary(
 
   const blocked = isSensitivePath(pathname)
 
-  if (measurementId) scope[`ga-disable-${measurementId}`] = blocked
   applyLandingOnlyTracking(pathname, scope)
+  if (measurementId) scope[`ga-disable-${measurementId}`] = blocked || scope.__cciqLeftLanding === true
 
   // Only when GTM is actually on the page: the array is created by its snippet,
   // so its absence means there is no container to signal.
