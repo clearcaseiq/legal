@@ -23,11 +23,13 @@
  *    the URL directly — that has to be configured in the container, by
  *    overriding the GA4 tag's `page_location` with the redacted variable.
  *
- * 3. `analytics_blocked` from `analyticsBoundary.ts` is now the only lever the
- *    app has over what runs on sensitive routes, and it stays inert until a
- *    blocking trigger on it exists in the container.
+ * 3. `analytics_blocked` from `analyticsBoundary.ts` is the app's lever over
+ *    what runs on sensitive routes, and it stays inert until a blocking trigger
+ *    on it exists in the container. The Meta Pixel is the exception: the app
+ *    keeps it off those routes itself (`metaPixelGuard.ts`).
  */
 import { indexingEnabled } from './siteConfig'
+import { metaGuardSnippet, metaPixelId } from './metaPixelGuard'
 
 /**
  * The container id, hardcoded as the default rather than required from the
@@ -66,8 +68,13 @@ export function gtmContainerId(): string | null {
  * sensitive one. Pushing it afterwards would leave a window in which tags see
  * no value and treat the route as permitted.
  */
-export function gtmHeadSnippet(containerId: string, analyticsBlocked: boolean): string {
+export function gtmHeadSnippet(
+  containerId: string,
+  analyticsBlocked: boolean,
+  pixelId: string | null = metaPixelId(),
+): string {
   return (
+    metaGuardSnippet(analyticsBlocked, pixelId) +
     `window.dataLayer=window.dataLayer||[];` +
     `window.dataLayer.push({analytics_blocked:${analyticsBlocked ? 'true' : 'false'}});` +
     `(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':` +
