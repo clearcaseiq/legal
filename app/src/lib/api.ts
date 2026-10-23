@@ -3657,7 +3657,7 @@ export async function requestLeadDecPage(leadId: string, insuranceId: string, pa
 
 export type CaseLetter = {
   id: string
-  kind: 'carrier_lor' | 'provider_lor' | 'limits_demand'
+  kind: 'carrier_lor' | 'provider_lor' | 'provider_lop' | 'limits_demand'
   insuranceDetailId: string | null
   caseContactId: string | null
   providerName: string | null
@@ -3665,13 +3665,45 @@ export type CaseLetter = {
   recipientEmail: string | null
   deliveredVia: 'email' | 'download'
   includesLop: boolean
+  subject?: string
   createdAt: string
   recordsStatus: string | null
+  requestType?: RecordsRequestType | null
+  recordTypes?: string[]
+  recordsFrom?: string | null
+  recordsTo?: string | null
+  representationBasis?: 'signed_retainer' | 'attested' | 'omitted' | null
+  approvedByEmail?: string | null
+  approvedByRole?: 'attorney' | 'staff' | null
+  acknowledgedWarnings?: boolean
+  signedByName?: string | null
+  followUpCount?: number
+  lastFollowUpAt?: string | null
+  tracking?: { uploads: number; lastUploadAt: string | null; filed: number; processed: number } | null
 }
 
-export type LetterPreview = { body: string; blanks: number; recipientName?: string; recipientEmail?: string | null }
+export type LetterCheck = { key: string; label: string; status: 'ok' | 'warn' | 'block'; detail: string }
 
-export type LetterDelivery = { body: string; delivery: 'email' | 'download'; recipientEmail?: string }
+export type RepresentationStatus = {
+  verified: boolean
+  basis: 'signed_retainer' | 'attested' | null
+  signedAt: string | null
+  attestation: { id: string; attorneyName: string; engagementDate: string; attestedByEmail: string | null; createdAt: string } | null
+}
+
+export type LetterPreview = {
+  body: string
+  blanks: number
+  recipientName?: string
+  recipientEmail?: string | null
+  checks?: LetterCheck[]
+  representation?: RepresentationStatus
+  isTest?: boolean
+}
+
+export type LetterDelivery = { body: string; delivery: 'email' | 'download'; recipientEmail?: string; acknowledgeWarnings?: boolean }
+
+export type HipaaCoverageStatus = 'ok' | 'missing' | 'expired' | 'other_provider'
 
 export type CaseProviderRow = {
   key: string
@@ -3680,8 +3712,50 @@ export type CaseProviderRow = {
   contactId: string | null
   email: string | null
   fax: string | null
+  address: string | null
   sources: Array<'timeline' | 'intake' | 'contact'>
+  hipaaStatus: HipaaCoverageStatus
   letters: CaseLetter[]
+  lops: CaseLetter[]
+}
+
+export type RecordsRequestType = 'records_and_billing' | 'records' | 'billing'
+
+export type RecordsRequestScope = {
+  requestType: RecordsRequestType
+  recordTypes: string[]
+  from: string | null
+  to: string | null
+}
+
+export type RecordsRequestPreview = {
+  body: string
+  blanks: number
+  subject: string
+  scope: RecordsRequestScope
+  recordTypeOptions: Record<string, string>
+  checks: LetterCheck[]
+  representation: RepresentationStatus
+  hipaa: { status: HipaaCoverageStatus; signedAt: string | null; expiresAt: string | null; custodian: string | null }
+  patient: { name: string; dob: string | null; dobSource: 'case' | 'authorization' | null; dateOfInjury: string }
+  provider: { name: string; email: string | null; fax: string | null; address: string | null; specialty: string | null }
+  isTest: boolean
+  testDocuments: string[]
+  recipientEmail: string | null
+}
+
+export type LopPreview = {
+  body: string
+  from: string | null
+  to: string | null
+  checks: LetterCheck[]
+  representation: RepresentationStatus
+  canSign: boolean
+  signerName: string
+  alreadyIssued: number
+  provider: { name: string; email: string | null; fax: string | null; address: string | null }
+  isTest: boolean
+  recipientEmail: string | null
 }
 
 export async function getLeadLetters(leadId: string) {
@@ -3696,8 +3770,8 @@ export async function downloadLeadLetterPdf(leadId: string, letterId: string) {
   return data as Blob
 }
 
-/** Which letter of representation a firm template is offered for. */
-export type LetterUse = 'provider_lor' | 'carrier_lor'
+/** Which case letter a firm template is offered for. */
+export type LetterUse = 'provider_lor' | 'carrier_lor' | 'provider_lop'
 
 export type LetterTemplateOption = { id: string; name: string; description: string | null; isDefault: boolean }
 
@@ -3911,35 +3985,113 @@ export async function getPlaintiffInsuranceCardStatus(caseId: string) {
 
 export async function getLeadProviders(leadId: string) {
   const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/providers`)
-  return data as { hipaa: { signed: boolean; signedAt: string | null }; providers: CaseProviderRow[] }
+  return data as {
+    hipaa: { signed: boolean; signedAt: string | null }
+    representation: RepresentationStatus
+    isTest: boolean
+    testDocuments: string[]
+    canSignLop: boolean
+    providers: CaseProviderRow[]
+  }
 }
 
 export async function saveLeadProviderContact(
   leadId: string,
-  payload: { name: string; email?: string; fax?: string; specialty?: string },
+  payload: { name: string; email?: string; fax?: string; address?: string; specialty?: string },
 ) {
   const { data } = await api.put(`/v1/attorney-dashboard/leads/${leadId}/providers/contact`, payload)
-  return data as { contactId: string; email: string | null; fax: string | null }
+  return data as { contactId: string; email: string | null; fax: string | null; address: string | null }
 }
 
-export async function getProviderLetterPreview(
+type ScopeInput = { name: string; templateId?: string | null } & Partial<RecordsRequestScope>
+
+function scopePayload(s: ScopeInput) {
+  return {
+    name: s.name,
+    ...(s.requestType ? { requestType: s.requestType } : {}),
+    ...(s.recordTypes ? { recordTypes: s.recordTypes } : {}),
+    ...(s.from !== undefined ? { from: s.from } : {}),
+    ...(s.to !== undefined ? { to: s.to } : {}),
+    ...(s.templateId ? { templateId: s.templateId } : {}),
+  }
+}
+
+export async function getRecordsRequestPreview(leadId: string, scope: ScopeInput) {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/providers/request-preview`, scopePayload(scope))
+  return data as RecordsRequestPreview
+}
+
+export async function checkRecordsRequest(
   leadId: string,
-  name: string,
-  includeLop: boolean,
-  templateId?: string | null,
+  scope: ScopeInput & { body: string; delivery: 'email' | 'download'; recipientEmail?: string },
 ) {
-  const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/providers/lor-preview`, {
-    params: { name, includeLop: includeLop ? '1' : '0', ...(templateId ? { templateId } : {}) },
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/providers/request-checks`, {
+    ...scopePayload(scope),
+    body: scope.body,
+    delivery: scope.delivery,
+    recipientEmail: scope.recipientEmail || '',
   })
-  return data as LetterPreview
+  return (data?.checks || []) as LetterCheck[]
 }
 
-export async function sendProviderLetter(
-  leadId: string,
-  payload: LetterDelivery & { name: string; includeLop: boolean },
-) {
-  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/providers/lor`, payload)
+export async function sendRecordsRequest(leadId: string, payload: LetterDelivery & ScopeInput) {
+  const { templateId: _t, ...rest } = payload
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/providers/lor`, { ...rest, ...scopePayload(payload) })
   return data as { letter: CaseLetter; emailed: boolean; tasksCompleted: number }
+}
+
+export async function downloadDraftLetterPdf(leadId: string, kind: 'provider_lor' | 'provider_lop' | 'carrier_lor', body: string) {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/letters/draft-pdf`, { kind, body }, { responseType: 'blob' })
+  return data as Blob
+}
+
+export async function getLopPreview(
+  leadId: string,
+  payload: { name: string; from?: string | null; to?: string | null; reductionTerms?: string; templateId?: string | null },
+) {
+  const { templateId, ...rest } = payload
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/providers/lop-preview`, {
+    ...rest,
+    ...(templateId ? { templateId } : {}),
+  })
+  return data as LopPreview
+}
+
+export async function issueProviderLetterOfProtection(
+  leadId: string,
+  payload: LetterDelivery & {
+    name: string
+    from?: string | null
+    to?: string | null
+    confirmTermsReviewed: boolean
+    confirmClientAuthorized: boolean
+    signatureName: string
+  },
+) {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/providers/lop`, payload)
+  return data as { letter: CaseLetter; emailed: boolean; tasksCompleted: number }
+}
+
+export async function sendRecordsFollowUp(leadId: string, letterId: string, recipientEmail?: string) {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/letters/${letterId}/follow-up`, {
+    ...(recipientEmail ? { recipientEmail } : {}),
+  })
+  return data as { followUpCount: number; lastFollowUpAt: string; recipientEmail: string }
+}
+
+export async function getRepresentationStatus(leadId: string) {
+  const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/representation`)
+  return data as RepresentationStatus
+}
+
+export async function attestRepresentation(leadId: string, payload: { engagementDate: string; note?: string }) {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/representation/attest`, { ...payload, confirm: true })
+  return data as RepresentationStatus
+}
+
+export async function withdrawRepresentationAttestation(leadId: string, id: string) {
+  const { data } = await api.delete(`/v1/attorney-dashboard/leads/${leadId}/representation/attest/${id}`)
+  return data as RepresentationStatus
 }
 
 export async function getLeadInsuranceSuggestion(leadId: string) {

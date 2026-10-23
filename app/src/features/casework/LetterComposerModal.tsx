@@ -4,16 +4,19 @@
  * from case data; anything still unknown shows as a "__________" blank.
  */
 import { useEffect, useState, type ReactNode } from 'react'
-import { AlertTriangle, Download, Mail, X } from 'lucide-react'
+import { AlertTriangle, Download, FlaskConical, Mail, X } from 'lucide-react'
 import {
+  downloadDraftLetterPdf,
   downloadLeadLetterPdf,
   getLetterTemplates,
   type CaseLetter,
+  type LetterCheck,
   type LetterDelivery,
   type LetterPreview,
   type LetterTemplateOption,
   type LetterUse,
 } from '../../lib/api'
+import { LetterChecklist, openPdfBlob } from './LetterSafeguards'
 
 type SendResult = { letter: CaseLetter; emailed: boolean; tasksCompleted: number }
 
@@ -76,6 +79,9 @@ export default function LetterComposerModal({
   const [templates, setTemplates] = useState<LetterTemplateOption[]>([])
   const [templateId, setTemplateId] = useState<string | null>(null)
   const [templatesReady, setTemplatesReady] = useState(!templateUse)
+  const [checks, setChecks] = useState<LetterCheck[]>([])
+  const [isTest, setIsTest] = useState(false)
+  const [ack, setAck] = useState(false)
 
   useEffect(() => {
     if (!templateUse) return
@@ -103,6 +109,8 @@ export default function LetterComposerModal({
         if (cancelled) return
         setBody(p.body)
         setLoadedBody(p.body)
+        setChecks(p.checks || [])
+        setIsTest(Boolean(p.isTest))
         if (!email && p.recipientEmail) setEmail(p.recipientEmail)
       })
       .catch((err) => !cancelled && setError(err?.response?.data?.error || 'Could not build the letter.'))
@@ -121,12 +129,32 @@ export default function LetterComposerModal({
   const blanks = countBlanks(body)
   const missingUploadLink = templateUse === 'provider_lor' && !loading && body.trim() !== '' && !body.includes(UPLOAD_LINK_TOKEN)
   const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
+  // Blanks and the delivery address are re-checked from the edited text on send; these depend on the case.
+  const caseBlocks = checks.filter((c) => c.status === 'block' && ['representation', 'signature', 'hipaa'].includes(c.key))
+  const warnings = checks.filter((c) => c.status === 'warn')
+  const blocked = isTest || caseBlocks.length > 0 || blanks > 0 || (warnings.length > 0 && !ack)
+
+  const testCopy = async () => {
+    setBusy('download')
+    try {
+      await openPdfBlob(await downloadDraftLetterPdf(leadId, templateUse === 'provider_lop' ? 'provider_lop' : templateUse === 'provider_lor' ? 'provider_lor' : 'carrier_lor', body))
+    } catch {
+      setError('Could not render the test copy.')
+    } finally {
+      setBusy(null)
+    }
+  }
 
   const send = async (delivery: 'email' | 'download') => {
     setBusy(delivery)
     setError(null)
     try {
-      const result = await onSend({ body, delivery, ...(delivery === 'email' ? { recipientEmail: email.trim() } : {}) })
+      const result = await onSend({
+        body,
+        delivery,
+        ...(warnings.length ? { acknowledgeWarnings: ack } : {}),
+        ...(delivery === 'email' ? { recipientEmail: email.trim() } : {}),
+      })
       if (delivery === 'download') {
         await saveLetterPdf(leadId, result.letter.id, `${docLabel.replace(/[^a-z0-9]+/gi, '-')}-${recipientLabel.replace(/[^a-z0-9]+/gi, '-')}.pdf`)
       }
@@ -138,7 +166,9 @@ export default function LetterComposerModal({
           : `${docLabel} downloaded for ${recipientLabel} and logged as sent.${closed}`,
       )
     } catch (err: any) {
-      setError(err?.response?.data?.error || err?.message || 'Could not send the letter.')
+      const data = err?.response?.data
+      if (Array.isArray(data?.checks)) setChecks(data.checks)
+      setError(data?.error || err?.message || 'Could not send the letter.')
     } finally {
       setBusy(null)
     }
@@ -196,7 +226,8 @@ export default function LetterComposerModal({
           {!loading && blanks > 0 ? (
             <p className="flex items-start gap-1.5 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-              {blanks} blank{blanks === 1 ? '' : 's'} (__________) still to fill in. Replace {blanks === 1 ? 'it' : 'them'} or delete the line before sending.
+              {blanks} blank{blanks === 1 ? '' : 's'} (__________) still to fill in. Replace {blanks === 1 ? 'it' : 'them'} or delete the line; the letter
+              cannot be sent with blanks.
             </p>
           ) : null}
           {missingUploadLink ? (
@@ -209,6 +240,24 @@ export default function LetterComposerModal({
             </p>
           ) : null}
           {footnote}
+          {isTest ? (
+            <p className="flex items-start gap-1.5 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-800">
+              <FlaskConical className="mt-0.5 h-4 w-4 shrink-0" />
+              This case contains synthetic or test documents, so nothing can be sent to a third party. Download a watermarked test copy instead.
+            </p>
+          ) : null}
+          {checks.length ? (
+            <div className="space-y-2">
+              <span className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Pre-send checklist</span>
+              <LetterChecklist checks={checks} compact />
+              {warnings.length && !isTest ? (
+                <label className="flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                  <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} className="mt-0.5 h-4 w-4 rounded border-amber-300" />
+                  I reviewed the warnings above and want to send anyway.
+                </label>
+              ) : null}
+            </div>
+          ) : null}
           <label className="block">
             <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Email to</span>
             <input
@@ -223,23 +272,36 @@ export default function LetterComposerModal({
         </div>
 
         <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-100 px-5 py-3">
-          <button
-            type="button"
-            onClick={() => send('download')}
-            disabled={loading || busy !== null || !body.trim()}
-            title="Download the PDF to fax or mail yourself. It is logged as sent."
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
-          >
-            <Download className="h-4 w-4" /> {busy === 'download' ? 'Preparing…' : 'Download PDF to fax'}
-          </button>
-          <button
-            type="button"
-            onClick={() => send('email')}
-            disabled={loading || busy !== null || !body.trim() || !emailValid}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3.5 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700 disabled:opacity-50"
-          >
-            <Mail className="h-4 w-4" /> {busy === 'email' ? 'Sending…' : 'Email letter'}
-          </button>
+          {isTest ? (
+            <button
+              type="button"
+              onClick={testCopy}
+              disabled={loading || busy !== null || !body.trim()}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-rose-600 px-3.5 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-rose-700 disabled:opacity-50"
+            >
+              <FlaskConical className="h-4 w-4" /> {busy ? 'Rendering…' : 'Download test copy'}
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => send('download')}
+                disabled={loading || busy !== null || !body.trim() || blocked}
+                title="Download the PDF to fax or mail yourself. It is logged as sent."
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+              >
+                <Download className="h-4 w-4" /> {busy === 'download' ? 'Preparing…' : 'Download PDF to fax'}
+              </button>
+              <button
+                type="button"
+                onClick={() => send('email')}
+                disabled={loading || busy !== null || !body.trim() || !emailValid || blocked}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3.5 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700 disabled:opacity-50"
+              >
+                <Mail className="h-4 w-4" /> {busy === 'email' ? 'Sending…' : 'Email letter'}
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>

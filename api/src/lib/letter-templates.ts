@@ -6,9 +6,9 @@
  */
 import { prisma } from './prisma'
 import { fillTemplateTokens, resolveTemplateTokens, type TemplateTokens } from './esign/firm-template-doc'
-import { lopParagraph, UPLOAD_LINK_TOKEN, type LetterContext, type LetterKind } from './representation-letters'
+import { UPLOAD_LINK_TOKEN, type LetterContext, type LetterKind } from './representation-letters'
 
-export const LETTER_USES: LetterKind[] = ['provider_lor', 'carrier_lor']
+export const LETTER_USES: LetterKind[] = ['provider_lor', 'carrier_lor', 'provider_lop']
 
 export function parseLetterUse(value: unknown): LetterKind | null {
   return LETTER_USES.includes(value as LetterKind) ? (value as LetterKind) : null
@@ -69,16 +69,6 @@ async function letterTokens(ctx: LetterContext, r: LetterRecipient): Promise<Tem
   }
 }
 
-/** Insert the LOP paragraph before the sign-off, or at the end if there is none. */
-function withLop(body: string, ctx: LetterContext): string {
-  const lines = body.split('\n')
-  const signOff = lines.findIndex((l) => /^\s*(sincerely|very truly yours|regards|respectfully)/i.test(l))
-  const lop = lopParagraph(ctx)
-  if (signOff < 0) return `${body.trimEnd()}\n\n${lop}`
-  lines.splice(signOff, 0, lop, '')
-  return lines.join('\n')
-}
-
 /** The template body filled for this case and recipient, or null if it isn't offered for this letter. */
 export async function renderLetterTemplate(params: {
   lawFirmId: string
@@ -86,13 +76,13 @@ export async function renderLetterTemplate(params: {
   use: LetterKind
   ctx: LetterContext
   recipient: LetterRecipient
-  includeLop?: boolean
+  /** Request-specific tokens (patient_dob, records_from, records_requested, …). */
+  extraTokens?: Record<string, string>
 }): Promise<string | null> {
   const template = await (prisma as any).firmTemplate.findFirst({
     where: { id: params.templateId, lawFirmId: params.lawFirmId, letterUse: params.use, isActive: true },
     select: { body: true },
   })
   if (!template?.body || !String(template.body).trim()) return null
-  const filled = fillTemplateTokens(template.body, await letterTokens(params.ctx, params.recipient))
-  return params.includeLop ? withLop(filled, params.ctx) : filled
+  return fillTemplateTokens(template.body, { ...(await letterTokens(params.ctx, params.recipient)), ...(params.extraTokens || {}) })
 }

@@ -10,12 +10,10 @@ vi.mock('./workflow-step-tasks', () => ({ syncWorkflowItemFromTask: vi.fn(async 
 import { prisma } from './prisma'
 import {
   BLANK,
-  UPLOAD_LINK_TOKEN,
   carrierLetterBody,
   completeLetterTasks,
   countBlanks,
   providerKey,
-  providerLetterBody,
   type LetterContext,
 } from './representation-letters'
 
@@ -47,24 +45,6 @@ describe('carrierLetterBody', () => {
     const body = carrierLetterBody(ctx, { carrierName: 'Geico', insuredParty: 'client' })
     expect(body).toMatch(/uninsured\/underinsured motorist/)
     expect(body).toContain('Attn: Claims Department')
-  })
-})
-
-describe('providerLetterBody', () => {
-  it('carries the upload link placeholder and leaves lien language out by default', () => {
-    const body = providerLetterBody(ctx, { providerName: 'Bay Ortho' })
-    expect(body).toContain(UPLOAD_LINK_TOKEN)
-    expect(body).not.toContain('LETTER OF PROTECTION')
-  })
-
-  it('adds letter-of-protection language when asked', () => {
-    expect(providerLetterBody(ctx, { providerName: 'Bay Ortho', includeLop: true })).toContain('LETTER OF PROTECTION')
-  })
-
-  it('prints the records fax under the addressee when there is one', () => {
-    const lines = providerLetterBody(ctx, { providerName: 'Bay Ortho', fax: '(415) 555-0100' }).split('\n')
-    expect(lines.slice(2, 5)).toEqual(['Bay Ortho', 'Attn: Medical Records and Billing', 'Via fax: (415) 555-0100'])
-    expect(providerLetterBody(ctx, { providerName: 'Bay Ortho' })).not.toContain('Via fax')
   })
 })
 

@@ -15,6 +15,7 @@ import { webUrl } from '../lib/app-url'
 import { ensureLocalCopy } from '../lib/object-storage'
 import { sendTransactionalEmail } from '../lib/claims'
 import { loadLetterContext, countBlanks } from '../lib/representation-letters'
+import { isTestCase } from '../lib/records-request'
 import {
   buildAdjusterDirectory,
   adjusterKey,
@@ -376,6 +377,9 @@ router.post('/leads/:leadId/insurance/:id/correspondence', authMiddleware, async
       if (!d.subject || !d.body) return res.status(400).json({ error: 'Add a subject and message to send the email.' })
       const notAccepted = checkLeadIsAccepted(auth.lead, 'emailing the carrier')
       if (notAccepted) return res.status(notAccepted.status).json({ error: notAccepted.message })
+      if ((await isTestCase(auth.lead.assessmentId)).isTest) {
+        return res.status(409).json({ error: 'This case contains test documents, so nothing can be sent to the carrier.', code: 'TEST_CASE' })
+      }
       const ctx = await loadLetterContext(auth.lead.id)
       emailed = await sendTransactionalEmail({
         to,
@@ -605,7 +609,8 @@ router.get('/leads/:leadId/insurance/:id/limits-demand/preview', authMiddleware,
     const coverage = await computeCoverageStack(auth.lead.assessmentId)
     const deadline = demandDeadline(req.query.days)
     const body = limitsDemandBody(ctx, insurance, { deadline, specials: coverage.specials })
-    res.json({ body, blanks: countBlanks(body), deadline, recipientName: insurance.carrierName, recipientEmail: insurance.adjusterEmail })
+    const { isTest } = await isTestCase(auth.lead.assessmentId)
+    res.json({ body, blanks: countBlanks(body), deadline, recipientName: insurance.carrierName, recipientEmail: insurance.adjusterEmail, isTest })
   } catch (error: any) {
     logger.error('Failed to build limits demand preview', { error: error.message })
     res.status(500).json({ error: 'Failed to build the demand' })
@@ -627,6 +632,12 @@ router.post('/leads/:leadId/insurance/:id/limits-demand', authMiddleware, firmGa
     if (notAccepted) return res.status(notAccepted.status).json({ error: notAccepted.message })
     const parsed = limitsDemandSchema.safeParse(req.body)
     if (!parsed.success) return res.status(400).json({ error: 'The demand is empty, the deadline is out of range, or the email is invalid.' })
+    if ((await isTestCase(auth.lead.assessmentId)).isTest) {
+      return res.status(409).json({ error: 'This case contains test documents, so the demand cannot be sent to the carrier.', code: 'TEST_CASE' })
+    }
+    if (/_{4,}/.test(parsed.data.body)) {
+      return res.status(409).json({ error: 'The demand still has blanks (__________). Fill them in or remove them before sending.' })
+    }
     const insurance = await loadPolicy(auth.lead.assessmentId, req.params.id)
     if (!insurance) return res.status(404).json({ error: 'Insurance record not found' })
     const recipientEmail = (parsed.data.recipientEmail || insurance.adjusterEmail || '').trim() || null

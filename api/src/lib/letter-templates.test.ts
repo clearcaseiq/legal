@@ -53,18 +53,19 @@ describe('renderLetterTemplate', () => {
     expect(findFirst.mock.calls[0][0].where).toMatchObject({ id: 't1', lawFirmId: 'f1', letterUse: 'provider_lor', isActive: true })
   })
 
-  it('puts the letter of protection before the sign-off', async () => {
-    findFirst.mockResolvedValue({ body: 'Please send records.\n\nSincerely,\n{{attorney_name}}' })
+  it('fills request-specific tokens and never adds letter-of-protection language', async () => {
+    findFirst.mockResolvedValue({ body: 'DOB {{patient_dob}}\nFrom {{records_from}}\n{{records_requested}}\n\nSincerely,\n{{attorney_name}}' })
     const body = (await renderLetterTemplate({
       lawFirmId: 'f1',
       templateId: 't1',
       use: 'provider_lor',
       ctx,
       recipient: { recipientName: 'Valley Ortho' },
-      includeLop: true,
+      extraTokens: { patient_dob: 'May 1, 1990', records_from: 'March 3, 2026', records_requested: '- Imaging reports' },
     }))!
-    expect(body.indexOf('LETTER OF PROTECTION')).toBeGreaterThan(-1)
-    expect(body.indexOf('LETTER OF PROTECTION')).toBeLessThan(body.indexOf('Sincerely,'))
+    expect(body).toContain('DOB May 1, 1990')
+    expect(body).toContain('- Imaging reports')
+    expect(body).not.toContain('LETTER OF PROTECTION')
   })
 
   it('returns null when the template is missing or has no body', async () => {
@@ -92,9 +93,10 @@ describe('listLetterTemplates', () => {
 })
 
 describe('parseLetterUse', () => {
-  it('accepts only the two letter kinds', () => {
+  it('accepts only the case letter kinds', () => {
     expect(parseLetterUse('provider_lor')).toBe('provider_lor')
     expect(parseLetterUse('carrier_lor')).toBe('carrier_lor')
+    expect(parseLetterUse('provider_lop')).toBe('provider_lop')
     expect(parseLetterUse('retainer')).toBeNull()
     expect(parseLetterUse(undefined)).toBeNull()
   })

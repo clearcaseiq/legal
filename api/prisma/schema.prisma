@@ -3645,6 +3645,8 @@ model CaseContact {
   email       String?
   phone       String?
   fax         String?
+  // Mailing address on one line (records requests sent by mail).
+  address     String?
   companyName String?
   companyUrl  String?
   title       String? // e.g. "Plaintiff", "Adjuster", "Opposing Counsel"
@@ -3740,10 +3742,47 @@ model CaseLetter {
   filePath       String
   sentByEmail    String?
 
+  // Provider requests: what was asked for. 'records_and_billing' | 'records' | 'billing'
+  // ('provider_lop' letters leave these empty).
+  requestType String?
+  recordTypes String?   @db.Text // JSON string[]
+  recordsFrom DateTime?
+  recordsTo   DateTime?
+  // How the letter's statement of representation was backed when it went out:
+  // 'signed_retainer' | 'attested' | 'omitted'.
+  representationBasis  String?
+  // Pre-send checklist as it stood at send time (JSON), and whether the sender
+  // acknowledged its warnings.
+  checks               String?   @db.Text
+  acknowledgedWarnings Boolean   @default(false)
+  approvedByEmail      String?
+  approvedByRole       String? // 'attorney' | 'staff'
+  // Letters of protection: the attorney's typed signature.
+  signedByName         String?
+  followUpCount        Int       @default(0)
+  lastFollowUpAt       DateTime?
+
   createdAt DateTime @default(now())
 
   @@index([leadId])
   @@map("case_letters")
+}
+
+// An attorney's statement that the client engaged the firm outside ClearCaseIQ,
+// so letters may state representation without a retainer signed in the app.
+model RepresentationAttestation {
+  id               String    @id @default(cuid())
+  leadId           String
+  attorneyName     String
+  attestedByUserId String?
+  attestedByEmail  String?
+  engagementDate   DateTime
+  note             String?   @db.Text
+  revokedAt        DateTime?
+  createdAt        DateTime  @default(now())
+
+  @@index([leadId])
+  @@map("representation_attestations")
 }
 
 // Files produced by an external recipient (defendant / opposing counsel / insurer)
