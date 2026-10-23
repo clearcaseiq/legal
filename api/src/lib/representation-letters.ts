@@ -20,6 +20,7 @@ import { persistUpload, ensureLocalCopy } from './object-storage'
 import { sendTransactionalEmail, type EmailAttachment } from './claims'
 import { webUrl } from './app-url'
 import { syncWorkflowItemFromTask } from './workflow-step-tasks'
+import { caseLetterProfile, joinList } from './case-type-letters'
 
 const OUTPUT_DIR = path.join(process.cwd(), 'uploads', 'case-letters')
 
@@ -40,6 +41,9 @@ export interface LetterContext {
   firmAddressLines: string[]
   firmPhone: string | null
   today: string
+  /** Assessment.claimType and facts.caseSubtype; shape the case-type wording (lib/case-type-letters). */
+  claimType?: string | null
+  caseSubtype?: string | null
 }
 
 function longDate(value: unknown): string {
@@ -74,7 +78,7 @@ export async function loadLetterContext(leadId: string): Promise<LetterContext |
         },
       },
       assessment: {
-        select: { facts: true, user: { select: { firstName: true, lastName: true } } },
+        select: { facts: true, claimType: true, user: { select: { firstName: true, lastName: true } } },
       },
     },
   })
@@ -95,6 +99,8 @@ export async function loadLetterContext(leadId: string): Promise<LetterContext |
     firmAddressLines: [firm?.address, cityLine].filter((s): s is string => Boolean(s && s.trim())),
     firmPhone: firm?.phone || lead.assignedAttorney?.phone || null,
     today: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
+    claimType: lead.assessment?.claimType ?? null,
+    caseSubtype: typeof facts?.caseSubtype === 'string' ? facts.caseSubtype : null,
   }
 }
 
@@ -110,6 +116,7 @@ export interface CarrierLetterInput {
 
 export function carrierLetterBody(ctx: LetterContext, ins: CarrierLetterInput): string {
   const ownPolicy = ins.insuredParty === 'client'
+  const profile = caseLetterProfile(ctx.claimType, ctx.caseSubtype)
   const lines = [
     ctx.today,
     '',
@@ -123,13 +130,14 @@ export function carrierLetterBody(ctx: LetterContext, ins: CarrierLetterInput): 
     '',
     `Dear ${ins.adjusterName?.trim() || 'Claims Representative'}:`,
     '',
-    `Please be advised that ${or(ctx.firmName)} represents ${or(ctx.clientName)} for injuries and damages arising from the incident on ${or(ctx.dateOfLoss)}. Please direct all communication about this claim to our office, and do not contact our client directly.`,
+    `Please be advised that ${or(ctx.firmName)} represents ${or(ctx.clientName)} for ${profile.harm} and damages arising from the incident on ${or(ctx.dateOfLoss)}. Please direct all communication about this claim to our office, and do not contact our client directly.`,
     '',
     'Please:',
     ownPolicy
-      ? '- Confirm in writing all coverage available to our client under this policy, including uninsured/underinsured motorist, medical payments, and personal injury protection benefits and their limits.'
+      ? profile.ownPolicyCoverage
       : '- Confirm in writing the coverage available for this loss, including all applicable policy limits.',
-    '- Preserve all evidence related to this incident, including photographs, recorded statements, vehicle and telematics data, and video.',
+    `- Preserve all evidence related to this incident, including ${joinList(profile.preserve)}.`,
+    ...profile.carrierAsks,
     '- Send us a copy of any statement our client has given.',
     '',
     "Our client does not consent to a recorded statement, and no medical information about our client may be obtained except through our office.",

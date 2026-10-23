@@ -3738,6 +3738,7 @@ export type RecordsRequestPreview = {
   representation: RepresentationStatus
   hipaa: { status: HipaaCoverageStatus; signedAt: string | null; expiresAt: string | null; custodian: string | null }
   patient: { name: string; dob: string | null; dobSource: 'case' | 'authorization' | null; dateOfInjury: string }
+  caseType?: { label: string; family: string }
   provider: { name: string; email: string | null; fax: string | null; address: string | null; specialty: string | null }
   isTest: boolean
   testDocuments: string[]

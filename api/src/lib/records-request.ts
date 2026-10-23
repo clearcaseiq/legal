@@ -19,6 +19,7 @@
 import { prisma } from './prisma'
 import { BLANK, UPLOAD_LINK_TOKEN, type LetterContext } from './representation-letters'
 import { findTestDocuments } from './medical-overview'
+import { CASE_RECORD_TYPES, caseLetterProfile } from './case-type-letters'
 
 export const REQUEST_TYPES = ['records_and_billing', 'records', 'billing'] as const
 export type RequestType = (typeof REQUEST_TYPES)[number]
@@ -33,6 +34,7 @@ export const RECORD_TYPES = {
   operative_reports: 'Operative and procedure reports',
   medication_records: 'Prescription and medication records',
   referrals: 'Referrals, orders and correspondence with other providers',
+  ...CASE_RECORD_TYPES,
 } as const
 export type RecordType = keyof typeof RECORD_TYPES
 export const RECORD_TYPE_KEYS = Object.keys(RECORD_TYPES) as RecordType[]
@@ -43,8 +45,7 @@ const BILLING_LINE =
 /** HIPAA authorizations rendered by ClearCaseIQ expire two years after signature. */
 const HIPAA_VALID_DAYS = 730
 
-/** Record types that fit the kind of provider, from its name or specialty. */
-export function defaultRecordTypes(providerName: string, specialty?: string | null): RecordType[] {
+function specialtyRecordTypes(providerName: string, specialty?: string | null): RecordType[] {
   const s = `${providerName} ${specialty || ''}`.toLowerCase()
   if (/imaging|radiolog|mri|x-?ray|\bct\b/.test(s)) return ['imaging_reports', 'imaging_files']
   if (/urgent care|emergency|\ber\b|hospital/.test(s)) return ['er_records', 'imaging_reports', 'diagnostic_results']
@@ -52,6 +53,18 @@ export function defaultRecordTypes(providerName: string, specialty?: string | nu
   if (/\blab\b|laborator/.test(s)) return ['diagnostic_results']
   if (/surg|ortho/.test(s)) return ['clinical_notes', 'imaging_reports', 'operative_reports']
   return ['clinical_notes', 'diagnostic_results', 'imaging_reports']
+}
+
+/** Record types that fit the kind of provider (name or specialty), plus what the kind of case calls for. */
+export function defaultRecordTypes(
+  providerName: string,
+  specialty?: string | null,
+  claimType?: string | null,
+  caseSubtype?: string | null,
+): RecordType[] {
+  const base = specialtyRecordTypes(providerName, specialty)
+  const extra = caseLetterProfile(claimType, caseSubtype).extraRecordTypes
+  return [...new Set<RecordType>([...base, ...extra])]
 }
 
 export function sameProvider(a: string | null | undefined, b: string | null | undefined): boolean {
@@ -264,18 +277,17 @@ export function providerRequestBody(ctx: LetterContext, o: ProviderRequestOption
     `Dear ${dept}:`,
     '',
   )
+  const profile = caseLetterProfile(ctx.claimType, ctx.caseSubtype)
   if (o.representationVerified) {
     lines.push(
-      `${or(ctx.firmName)} represents ${or(ctx.clientName)} in connection with injuries sustained on ${or(ctx.dateOfLoss)}.`,
+      `${or(ctx.firmName)} represents ${or(ctx.clientName)} in connection with ${profile.harm} arising from the incident on ${or(ctx.dateOfLoss)}.`,
       '',
     )
   }
-  const authRef = o.hipaaSignedAt
-    ? `the enclosed HIPAA-compliant authorization signed by the patient on ${longDay(o.hipaaSignedAt)}`
-    : 'the enclosed HIPAA-compliant authorization signed by the patient'
+  const authRef = `the enclosed HIPAA-compliant authorization signed by ${profile.authorizationSigner}${o.hipaaSignedAt ? ` on ${longDay(o.hipaaSignedAt)}` : ''}`
   lines.push(`Pursuant to ${authRef}, please provide the following for dates of service from ${range}:`, '')
   if (wantsRecords) for (const t of o.recordTypes) lines.push(`- ${RECORD_TYPES[t]}`)
-  if (wantsBilling) lines.push(`- ${BILLING_LINE}`)
+  if (wantsBilling) lines.push(`- ${BILLING_LINE}${profile.billingNote ? `. ${profile.billingNote}` : ''}`)
   lines.push(
     '',
     'Please upload the records through our secure link, where the signed authorization can also be viewed:',
@@ -376,6 +388,8 @@ export interface CheckInput {
   recordTypes?: RecordType[]
   from?: string | null
   to?: string | null
+  claimType?: string | null
+  caseSubtype?: string | null
 }
 
 export function requestChecks(i: CheckInput): RequestCheck[] {
@@ -490,6 +504,11 @@ export function requestChecks(i: CheckInput): RequestCheck[] {
         ? `Signed by ${signer}.`
         : `The letter does not name ${signer} as the signer.`,
   )
+
+  const profile = caseLetterProfile(i.claimType, i.caseSubtype)
+  const cautions =
+    i.kind === 'provider_request' ? profile.requestCautions : i.kind === 'provider_lop' ? profile.lopCautions : []
+  cautions.forEach((detail, n) => add(`case_type_${n}`, 'Case-type requirement', 'warn', detail))
   return checks
 }
 

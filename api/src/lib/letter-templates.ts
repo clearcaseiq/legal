@@ -7,6 +7,7 @@
 import { prisma } from './prisma'
 import { fillTemplateTokens, resolveTemplateTokens, type TemplateTokens } from './esign/firm-template-doc'
 import { UPLOAD_LINK_TOKEN, type LetterContext, type LetterKind } from './representation-letters'
+import { caseLetterProfile, caseTypeLabel, joinList } from './case-type-letters'
 
 export const LETTER_USES: LetterKind[] = ['provider_lor', 'carrier_lor', 'provider_lop']
 
@@ -57,6 +58,8 @@ async function letterTokens(ctx: LetterContext, r: LetterRecipient): Promise<Tem
     firm_address: ctx.firmAddressLines.join(', '),
     date: ctx.today,
     date_of_loss: ctx.dateOfLoss,
+    case_type: caseTypeLabel(ctx.claimType, ctx.caseSubtype),
+    evidence_to_preserve: joinList(caseLetterProfile(ctx.claimType, ctx.caseSubtype).preserve),
     recipient_name: r.recipientName,
     provider_name: r.providerName || '',
     provider_fax: r.fax || '',

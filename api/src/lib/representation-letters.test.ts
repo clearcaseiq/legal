@@ -41,10 +41,34 @@ describe('carrierLetterBody', () => {
     expect(countBlanks(body)).toBe(1)
   })
 
-  it("asks the client's own carrier about first-party coverage", () => {
-    const body = carrierLetterBody(ctx, { carrierName: 'Geico', insuredParty: 'client' })
+  it("asks the client's own auto carrier about first-party motorist coverage", () => {
+    const body = carrierLetterBody({ ...ctx, claimType: 'auto' }, { carrierName: 'Geico', insuredParty: 'client' })
     expect(body).toMatch(/uninsured\/underinsured motorist/)
     expect(body).toContain('Attn: Claims Department')
+  })
+
+  it('asks for evidence that fits the kind of case', () => {
+    const auto = carrierLetterBody({ ...ctx, claimType: 'auto' }, { carrierName: 'Geico' })
+    expect(auto).toMatch(/event data recorder/)
+    expect(auto).toMatch(/property damage estimate/)
+
+    const fall = carrierLetterBody({ ...ctx, claimType: 'slip_and_fall' }, { carrierName: 'Travelers' })
+    expect(fall).toMatch(/surveillance and security video/)
+    expect(fall).toMatch(/sweep and maintenance logs/)
+    expect(fall).not.toMatch(/telematics|vehicle/i)
+
+    const own = carrierLetterBody({ ...ctx, claimType: 'premises' }, { carrierName: 'Allstate', insuredParty: 'client' })
+    expect(own).not.toMatch(/motorist/)
+
+    expect(carrierLetterBody({ ...ctx, claimType: 'dog_bite' }, { carrierName: 'X' })).toMatch(/animal control/)
+    expect(carrierLetterBody({ ...ctx, claimType: 'product_liability' }, { carrierName: 'X' })).toMatch(/do not repair, test, or discard/)
+    expect(carrierLetterBody({ ...ctx, claimType: 'medmal' }, { carrierName: 'X' })).toMatch(/audit trail/)
+    expect(carrierLetterBody({ ...ctx, claimType: 'wrongful_death' }, { carrierName: 'X' })).toContain('for injuries and death and damages')
+  })
+
+  it('lets a subtype narrow the claim type', () => {
+    const body = carrierLetterBody({ ...ctx, claimType: 'premises', caseSubtype: 'negligent_security' }, { carrierName: 'X' })
+    expect(body).toMatch(/security staffing, patrol and guard logs/)
   })
 })
 

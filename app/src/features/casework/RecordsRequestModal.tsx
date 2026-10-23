@@ -304,7 +304,8 @@ export default function RecordsRequestModal({
                     ))}
                   </div>
                   <p className="mt-1 text-xs text-slate-400">
-                    Preselected for {preview.provider.specialty || 'this kind of provider'}. Imaging providers are asked for the DICOM studies, not just the reports.
+                    Preselected for {preview.provider.specialty || 'this kind of provider'}
+                    {preview.caseType ? ` on a ${preview.caseType.label.toLowerCase()} case` : ''}. Imaging providers are asked for the DICOM studies, not just the reports.
                   </p>
                 </section>
 
@@ -359,6 +360,7 @@ export default function RecordsRequestModal({
                   <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Patient</h3>
                   <p className="mt-1 text-sm font-semibold text-slate-900">{preview.patient.name || '—'}</p>
                   <p className="text-xs text-slate-500">Date of injury: {preview.patient.dateOfInjury || '—'}</p>
+                  {preview.caseType ? <p className="text-xs text-slate-500">Case type: {preview.caseType.label}</p> : null}
                   {preview.patient.dob ? (
                     <p className="text-xs text-slate-500">
                       Date of birth: {preview.patient.dob}

@@ -23,6 +23,8 @@ import {
   type HipaaCoverage,
   type RepresentationStatus,
 } from './records-request'
+import { caseFamily } from './case-type-letters'
+import { CLAIM_TYPE_LABELS } from './claim-types'
 
 const ctx: LetterContext = {
   leadId: 'lead1',
@@ -85,6 +87,66 @@ describe('defaultRecordTypes', () => {
   it('asks imaging providers for the DICOM studies, not just reports', () => {
     expect(defaultRecordTypes('Harborview Demo Imaging')).toEqual(['imaging_reports', 'imaging_files'])
     expect(defaultRecordTypes('Bay Physical Therapy')).toEqual(['therapy_notes'])
+  })
+
+  it('adds what the kind of case calls for', () => {
+    expect(defaultRecordTypes('Bay Physical Therapy', null, 'auto')).toEqual(['therapy_notes'])
+    expect(defaultRecordTypes('Bay Physical Therapy', null, 'workers_comp')).toEqual(['therapy_notes', 'work_status'])
+    expect(defaultRecordTypes('Mercy Hospital', null, 'medical_malpractice')).toContain('complete_chart')
+    expect(defaultRecordTypes('Mercy Hospital', null, 'dog_bite')).toContain('wound_care')
+    expect(defaultRecordTypes('Mercy Hospital', null, 'toxic_exposure')).toContain('toxicology')
+    expect(defaultRecordTypes('Mercy Hospital', null, 'wrongful_death')).toContain('final_treatment')
+    expect(defaultRecordTypes('Sunrise Care Center', null, 'nursing_home_abuse')).toContain('facility_care')
+    expect(defaultRecordTypes('Mercy Hospital', null, 'high_severity_surgery')).toContain('future_care')
+    expect(defaultRecordTypes('Mercy Hospital', null, 'assault')).toContain('forensic_exam')
+  })
+})
+
+describe('case-type coverage', () => {
+  it('maps every claim type the app knows to a specific profile', () => {
+    const generic = new Set(['other', 'other_pi'])
+    for (const slug of Object.keys(CLAIM_TYPE_LABELS).filter((s) => !generic.has(s))) {
+      expect(caseFamily(slug), slug).not.toBe('general')
+    }
+  })
+
+  it('names the personal representative on a wrongful death request and warns about authority', () => {
+    const wd = { ...ctx, claimType: 'wrongful_death' }
+    const body = providerRequestBody(wd, { ...baseRequest, representationVerified: true })
+    expect(body).toContain("signed by the decedent's personal representative")
+    expect(body).toContain('injuries and death arising from the incident')
+    const checks = requestChecks({
+      kind: 'provider_request',
+      body,
+      delivery: 'email',
+      recipientEmail: 'records@harborview.org',
+      attorneyName: ctx.attorneyName,
+      representation: verified,
+      hipaa: hipaaOk,
+      dob: 'May 1, 1990',
+      isTest: false,
+      claimType: 'wrongful_death',
+    })
+    expect(checks.find((c) => c.key === 'case_type_0')?.status).toBe('warn')
+  })
+
+  it('asks auto providers to break out PIP and med-pay payments', () => {
+    const body = providerRequestBody({ ...ctx, claimType: 'auto' }, { ...baseRequest, representationVerified: true })
+    expect(body).toMatch(/personal injury protection \(PIP\)/)
+  })
+
+  it("warns before a letter of protection on a workers' comp case", () => {
+    const lop = letterOfProtectionBody(ctx, { providerName: 'Bay Ortho', from: '2026-03-03', to: null })
+    const checks = requestChecks({
+      kind: 'provider_lop',
+      body: lop,
+      delivery: 'download',
+      attorneyName: ctx.attorneyName,
+      representation: verified,
+      isTest: false,
+      claimType: 'workers_comp',
+    })
+    expect(checks.find((c) => c.key === 'case_type_0')?.detail).toMatch(/workers' compensation usually pays/)
   })
 })
 

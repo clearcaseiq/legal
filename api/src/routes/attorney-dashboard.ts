@@ -111,6 +111,7 @@ import {
   type RecordType,
   type RequestCheck,
 } from '../lib/records-request'
+import { caseFamily, caseTypeLabel } from '../lib/case-type-letters'
 import { opposingProvenance } from '../lib/opposing-upload-filing'
 import { lawFirmIdForLead, listLetterTemplates, parseLetterUse, renderLetterTemplate } from '../lib/letter-templates'
 import { syncPlaintiffDocumentRequestStatuses, computeRequestStatus, countUploadsForRequest, parseRequestedDocs, normalizeRequestedDocKeys, DOCUMENT_REQUEST_LABELS, requestItemStages, requestedDocLabel, parseClientNotes } from '../lib/document-request-status'
@@ -11776,7 +11777,9 @@ async function resolveRequestScope(input: RequestScopeInput, loaded: LoadedProvi
   const requestType = input.requestType ?? 'records_and_billing'
   return {
     requestType,
-    recordTypes: input.recordTypes ?? defaultRecordTypes(loaded.providerName, loaded.provider?.specialty),
+    recordTypes:
+      input.recordTypes ??
+      defaultRecordTypes(loaded.providerName, loaded.provider?.specialty, loaded.ctx.claimType, loaded.ctx.caseSubtype),
     from: input.from !== undefined ? input.from : defaults.from,
     to: input.to !== undefined ? input.to : defaults.to,
   }
@@ -11856,6 +11859,8 @@ function providerRequestChecks(
     recordTypes: scope.recordTypes,
     from: scope.from,
     to: scope.to,
+    claimType: loaded.ctx.claimType,
+    caseSubtype: loaded.ctx.caseSubtype,
   })
 }
 
@@ -11882,6 +11887,10 @@ router.post('/leads/:leadId/providers/request-preview', authMiddleware, async (r
       representation: loaded.safety.representation,
       hipaa: { status: hipaa.status, signedAt: hipaa.signedAt, expiresAt: hipaa.expiresAt, custodian: hipaa.custodian },
       patient: { name: loaded.ctx.clientName, dob: loaded.dob, dobSource: loaded.dobSource, dateOfInjury: loaded.ctx.dateOfLoss },
+      caseType: {
+        label: caseTypeLabel(loaded.ctx.claimType, loaded.ctx.caseSubtype),
+        family: caseFamily(loaded.ctx.claimType, loaded.ctx.caseSubtype),
+      },
       provider: {
         name: loaded.providerName,
         email,
@@ -12056,6 +12065,8 @@ function lopChecks(loaded: LoadedProviderRequest, ctx: LetterContext, body: stri
     attorneyName: signer || ctx.attorneyName,
     representation: loaded.safety.representation,
     isTest: loaded.safety.isTest,
+    claimType: ctx.claimType,
+    caseSubtype: ctx.caseSubtype,
   })
 }
 

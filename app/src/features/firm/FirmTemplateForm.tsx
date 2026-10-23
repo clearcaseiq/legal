@@ -221,10 +221,10 @@ export function FirmTemplateForm({
               Letter tokens:{' '}
               <code className="text-slate-500">
                 {letterUse === 'provider_lor'
-                  ? '{{provider_name}} {{provider_fax}} {{provider_address}} {{patient_dob}} {{date_of_loss}} {{records_from}} {{records_to}} {{records_requested}} {{hipaa_signed_date}} {{attorney_email}} {{attorney_phone}} {{firm_phone}} {{firm_address}} {{records_upload_link}}'
+                  ? '{{provider_name}} {{provider_fax}} {{provider_address}} {{patient_dob}} {{date_of_loss}} {{case_type}} {{records_from}} {{records_to}} {{records_requested}} {{hipaa_signed_date}} {{attorney_email}} {{attorney_phone}} {{firm_phone}} {{firm_address}} {{records_upload_link}}'
                   : letterUse === 'provider_lop'
                     ? '{{provider_name}} {{provider_fax}} {{provider_address}} {{date_of_loss}} {{records_from}} {{records_to}} {{attorney_email}} {{firm_phone}} {{firm_address}}'
-                    : '{{carrier_name}} {{adjuster_name}} {{claim_number}} {{policy_number}} {{date_of_loss}} {{attorney_email}} {{attorney_phone}} {{firm_phone}} {{firm_address}}'}
+                    : '{{carrier_name}} {{adjuster_name}} {{claim_number}} {{policy_number}} {{date_of_loss}} {{case_type}} {{evidence_to_preserve}} {{attorney_email}} {{attorney_phone}} {{firm_phone}} {{firm_address}}'}
               </code>
               {letterUse === 'provider_lor'
                 ? '. Keep {{records_upload_link}}: it becomes the secure link to the signed HIPAA authorization and the records upload page. Statements that the firm represents the client are blocked until representation is verified on the case.'
