@@ -227,3 +227,6 @@ id_ed25519
 
 # Copied from pdfjs-dist by app/scripts/copy-pdf-worker.cjs
 app/public/pdf.worker.min.mjs
+
+# Live sessions minted by api/scripts/e2e-tracker-sessions.ts
+e2e/.sessions*.json

@@ -29,6 +29,14 @@
  *   fired while consent is revoked until it is granted, so granting on the way
  *   back out could release them.
  *
+ * - That move is then made a full page load rather than a client-side one.
+ *   Switching vendors off one by one does not cover them all: a browser test
+ *   caught a Google Ads click conversion in the container reporting
+ *   `/assess?step=consent&lead=<id>`, and Ads reads neither `ga-disable` nor
+ *   Meta's consent. A new document for the next route is answered by the
+ *   server's allow list, which loads no container on app screens, so nothing
+ *   the container installed survives into them.
+ *
  * The site's conversion measurement for intake stays in ClearCaseIQ's own
  * reporting and in Google Ads; none of it depends on Meta.
  */
@@ -86,6 +94,10 @@ export function applyLandingOnlyTracking(pathname: string, scope: Record<string,
  * The route effect runs after the new screen has rendered, by which time
  * Clarity's mutation observer has already captured it. The router changes the
  * URL before it renders, so stopping there keeps the first app screen out too.
+ *
+ * The URL is deliberately left as it is while the next document loads: tags
+ * that fire in that gap (on the click that started it, or on a history-change
+ * trigger) read `location.href`, and it still names the landing page.
  */
 function stopOnHistoryChange(scope: Record<string, unknown>): void {
   const history = scope.history as History | undefined
@@ -94,9 +106,15 @@ function stopOnHistoryChange(scope: Record<string, unknown>): void {
   for (const method of ['pushState', 'replaceState'] as const) {
     const original = history[method]
     history[method] = function (this: History, ...args: Parameters<History['pushState']>) {
+      if (scope.__cciqReloading) return
       const url = args[2]
-      if (url != null && new URL(String(url), location.href).pathname !== scope.__cciqLanding) leaveLanding(scope)
-      return original.apply(this, args)
+      if (url == null) return original.apply(this, args)
+      const target = new URL(String(url), location.href)
+      if (target.pathname === scope.__cciqLanding) return original.apply(this, args)
+      leaveLanding(scope)
+      scope.__cciqReloading = true
+      if (method === 'replaceState') location.replace(target.href)
+      else location.assign(target.href)
     }
   }
 }

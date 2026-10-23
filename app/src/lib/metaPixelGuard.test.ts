@@ -110,14 +110,46 @@ describe('applyLandingOnlyTracking', () => {
       dataLayer: [],
       clarity,
       history,
-      location: { href: 'https://www.clearcaseiq.com/' },
+      location: { href: 'https://www.clearcaseiq.com/', assign: vi.fn(), replace: vi.fn() },
     }
     applyLandingOnlyTracking('/', scope)
     ;(history as unknown as History).pushState({}, '', '/?utm=x')
     expect(clarity).not.toHaveBeenCalled()
     ;(history as unknown as History).pushState({}, '', '/assess')
     expect(clarity.mock.calls).toEqual([['stop']])
-    expect(pushed).toHaveLength(2)
+    expect(pushed).toHaveLength(1)
+  })
+
+  it('leaves the landing page by loading a new document, with the URL unchanged until it arrives', () => {
+    const pushed: unknown[] = []
+    const replaced: unknown[] = []
+    const history = {
+      pushState: (...a: unknown[]) => pushed.push(a),
+      replaceState: (...a: unknown[]) => replaced.push(a),
+    }
+    const location = { href: 'https://www.clearcaseiq.com/', assign: vi.fn(), replace: vi.fn() }
+    const scope: Record<string, unknown> = { dataLayer: [], history, location }
+    applyLandingOnlyTracking('/', scope)
+
+    ;(history as unknown as History).pushState({}, '', '/assess')
+    expect(location.assign.mock.calls).toEqual([['https://www.clearcaseiq.com/assess']])
+    ;(history as unknown as History).replaceState({}, '', '/assess?step=injury_type')
+    ;(history as unknown as History).pushState({}, '', '/dashboard')
+    expect(pushed).toEqual([])
+    expect(replaced).toEqual([])
+    expect(location.assign).toHaveBeenCalledTimes(1)
+    expect(location.replace).not.toHaveBeenCalled()
+  })
+
+  it('uses a replace navigation when the router redirects off the landing page', () => {
+    const originalReplace = vi.fn()
+    const history = { pushState: vi.fn(), replaceState: originalReplace }
+    const location = { href: 'https://www.clearcaseiq.com/assessment/start', assign: vi.fn(), replace: vi.fn() }
+    const scope: Record<string, unknown> = { dataLayer: [], history, location }
+    applyLandingOnlyTracking('/assessment/start', scope)
+    ;(history as unknown as History).replaceState({}, '', '/assess?fresh=1')
+    expect(location.replace.mock.calls).toEqual([['https://www.clearcaseiq.com/assess?fresh=1']])
+    expect(originalReplace).not.toHaveBeenCalled()
   })
 
   it('switches off every GA4 property the container loaded once the visitor leaves the landing page', () => {

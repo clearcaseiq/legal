@@ -76,4 +76,10 @@ describe('pushScreenView', () => {
     expect(() => pushScreenView('/assess', scope)).not.toThrow()
     expect(scope.dataLayer).toBeUndefined()
   })
+
+  it('stays quiet once the visitor has left the landing page', () => {
+    const dataLayer: unknown[] = []
+    pushScreenView('/assess', { dataLayer, __cciqLeftLanding: true })
+    expect(dataLayer).toEqual([])
+  })
 })

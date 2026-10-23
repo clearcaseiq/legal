@@ -81,7 +81,9 @@ export function screenPath(url: string): string {
  *
  * Silent when no container has loaded: the array is created by the GTM
  * snippet, so its absence means there is nothing listening. That is the normal
- * state in tests and on hosts where the container is switched off.
+ * state in tests and on hosts where the container is switched off. Silent too
+ * once the visitor has left the landing page: that document is being replaced
+ * (see metaPixelGuard.ts), and an event pushed meanwhile could fire a tag.
  */
 export function pushScreenView(
   url: string,
@@ -90,7 +92,7 @@ export function pushScreenView(
     : (window as unknown as Record<string, unknown>),
 ): void {
   const dataLayer = scope?.dataLayer
-  if (!Array.isArray(dataLayer)) return
+  if (!Array.isArray(dataLayer) || scope?.__cciqLeftLanding) return
 
   dataLayer.push({ event: 'screen_view', screen_path: screenPath(url) })
 }

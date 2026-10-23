@@ -70,6 +70,15 @@ export const SENSITIVE_ROUTE_PREFIXES = [
   '/intake',
   '/intake2',
   '/messaging',
+  // The routed-case short link; the code identifies a case.
+  '/o',
+  // Sign-in and account screens: claim tokens and reset tokens arrive in their
+  // query strings.
+  '/login',
+  '/register',
+  '/reset-password',
+  '/set-password',
+  '/verify-email',
   '/payment',
   '/profile',
   '/respond',

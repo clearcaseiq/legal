@@ -84,6 +84,19 @@ jobs:
           JWT_SECRET: ci-only-not-a-real-secret
         run: pnpm --filter caseiq-api test
 
+      # Not the whole web suite, which is not green in CI yet: the tests that keep
+      # Google Ads, GA4, Clarity and the Meta Pixel off claimant, attorney and
+      # admin screens. trackerExposure fails when a new route is added without
+      # being classified. See docs/tracking-architecture.md.
+      - name: Tracker isolation (web)
+        run: >-
+          pnpm --filter caseiq-web exec vitest run
+          src/lib/trackerExposure.test.ts
+          src/lib/metaPixelGuard.test.ts
+          src/lib/analyticsBoundary.test.ts
+          src/lib/tagManager.test.ts
+          src/lib/screenView.test.ts
+
       # The mobile app is not covered by `pnpm build`, which skips it for having
       # no build script, so nothing else in this pipeline would notice it break.
       # It is the one client we cannot fix with a deploy - a broken build sits in
@@ -302,3 +315,40 @@ jobs:
           # the ALB needs three failed checks to notice a host is down, so every
           # deploy would serve 502s for around 45 seconds.
           target-group-arn: ${{ needs.approve-production.outputs.target-group-arn }}
+
+  # What Meta, Google and Clarity actually receive from the site just deployed,
+  # in a real browser. After the rollout rather than before it, because
+  # production is the only host the tag manager loads on (QA has indexing, and
+  # so the container, switched off), and its contents are edited in the GTM
+  # console rather than here. A failure means a tracker is reaching a claimant,
+  # attorney or admin screen: treat it as an incident, not a flaky test.
+  #
+  # Collection requests are recorded and then aborted, so the run sends nothing
+  # to the vendors. It stops at the first assessment screen, which saves nothing.
+  verify-production-tracking:
+    name: Verify third-party tracking (production)
+    needs: deploy-production
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Network isolation
+        env:
+          E2E_BASE_URL: https://www.clearcaseiq.com
+        run: pnpm exec playwright test e2e/third-party-network.e2e.spec.ts --reporter=list
+      - name: Keep the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: third-party-network-report
+          path: playwright-report
+          retention-days: 30
