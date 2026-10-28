@@ -1142,12 +1142,13 @@ export default function IntakeWizardQuick() {
   // "Additional Requested Documents" section.
   const [attorneyDocRequests, setAttorneyDocRequests] = useState<PlaintiffDocumentRequest[]>([])
   const refreshAttorneyDocRequests = useCallback(async () => {
-    if (!assessmentId) return
+    // A guest has no attorney requests to see, and the endpoint is signed-in only.
+    if (!assessmentId || !hasValidAuthToken()) return
     try {
       const res = await getPlaintiffDocumentRequests(assessmentId)
       setAttorneyDocRequests(Array.isArray(res?.requests) ? res.requests : [])
     } catch {
-      /* not signed in, or no attorney yet — the section simply stays hidden */
+      /* no attorney yet — the section simply stays hidden */
     }
   }, [assessmentId])
   useEffect(() => {
@@ -6629,7 +6630,11 @@ export default function IntakeWizardQuick() {
                 )
               })}
 
-              {assessmentId && !focusingOne ? <SuggestedDocumentsSection assessmentId={assessmentId} /> : null}
+              {/* Signed-in only: its endpoints sit behind authMiddleware, so for a
+                  guest the list 401s and adding a document cannot work. */}
+              {assessmentId && !focusingOne && hasValidAuthToken() ? (
+                <SuggestedDocumentsSection assessmentId={assessmentId} />
+              ) : null}
 
               {/* Secure footer */}
               <div className="flex items-start justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-3.5 dark:border-slate-700 dark:bg-slate-800/40">
