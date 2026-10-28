@@ -57,6 +57,7 @@ import attorneyZoom from './routes/attorney-zoom'
 import video from './routes/video'
 import payments from './routes/payments'
 import intakeLeads from './routes/intake-leads'
+import intakeVisits from './routes/intake-visits'
 import heuristics from './routes/heuristics'
 import integrations from './routes/integrations'
 import cases from './routes/cases'
@@ -108,6 +109,7 @@ export function buildApp(): Express {
   app.use('/v1/auth', authLimiter, oauth)
   app.use('/v1/assessments', assessments)
   app.use('/v1/intake-leads', intakeLimiter, intakeLeads)
+  app.use('/v1/intake-visits', intakeLimiter, intakeVisits)
   app.use('/v1/geo', geo)
   app.use('/v1/case-insights', caseInsights)
   app.use('/v1/case-assistance', caseAssistance)

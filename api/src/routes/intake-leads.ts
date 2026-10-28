@@ -111,6 +111,8 @@ const IntakeLeadCreate = z.object({
   currentStep: z.string().trim().max(60).optional(),
   formSnapshot: z.record(z.any()).optional(),
   attribution: AttributionInput.optional(),
+  /** The `IntakeVisit` this lead grew out of. Applied on create only. */
+  visitId: z.string().uuid().optional(),
 })
 
 /**
@@ -246,7 +248,7 @@ router.post('/', async (req, res) => {
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() })
     }
-    const { email, phone, injuryType, venueState, venueCounty, currentStep, formSnapshot, assessmentId, status, attribution } = parsed.data
+    const { email, phone, injuryType, venueState, venueCounty, currentStep, formSnapshot, assessmentId, status, attribution, visitId } = parsed.data
     if (!email && !phone?.trim()) {
       return res.status(400).json({ error: 'An email or phone number is required' })
     }
@@ -294,6 +296,7 @@ router.post('/', async (req, res) => {
         ipAddress: req.ip || null,
         captchaPassed: captcha.outcome === 'passed' ? true : captcha.outcome === 'unavailable' ? false : null,
         repeatCount,
+        visitId: visitId || null,
       },
     })
 

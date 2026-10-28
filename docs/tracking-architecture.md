@@ -17,8 +17,23 @@ a case, a dashboard, a sign-in, or any route nobody has classified.
 
 Measurement of the funnel (assessment progress, completion, qualified leads,
 valuation, routing) belongs in ClearCaseIQ's own analytics, not in vendor tags.
-Ad platforms receive landing-page views and the "start assessment" click
-conversion, nothing more.
+Ad platforms receive landing-page views and the "start assessment" click from
+the browser, nothing more.
+
+## First-party funnel and server-side conversions
+
+- **Funnel.** Opening a fresh assessment posts an anonymous `IntakeVisit` to
+  `POST /v1/intake-visits` (`lib/intakeVisit.ts`): a random id kept for the
+  tab, the entry page and campaign tags, nothing else. The intake lead carries
+  the visit id, so the admin Intake funnel panel shows five stages per visit
+  (started, injuries and costs, review, report generated, sent to attorneys)
+  by entry page and device. The request goes to our API only.
+- **Conversions.** The Primary Google Ads conversion, "Assessment submitted",
+  is uploaded by the API's hourly sweep (`lib/ads-conversion-sweep.ts`) once a
+  case from an ad click has been created. It sends the `gclid` and a
+  timestamp, once per case. "Qualified lead" and "Retained case" work the same
+  way. No tag on the intake or results pages is needed for any of them. See
+  `docs/google-ads-lead-quality.md`.
 
 ## Four layers, each enforced in this repository
 
@@ -80,7 +95,7 @@ Review container changes against this list.
 |---|---|---|
 | `lib/trackerExposure.test.ts` | CI, before images are built | a marketing or landing page sits on a sensitive or app route; an app route is added without being classified |
 | `lib/metaPixelGuard.test.ts`, `analyticsBoundary.test.ts`, `tagManager.test.ts`, `screenView.test.ts` | CI, before images are built | the guard's ordering, fail-closed stub, landing-only switches or reload change |
-| `e2e/third-party-network.e2e.spec.ts` | CI, after each production rollout; locally on demand | any vendor request after the landing page; any request carrying an app route, record id, token, contact detail, case fact or user-data parameter; a container on an app screen |
+| `e2e/third-party-network.e2e.spec.ts` | CI, after each production rollout; locally on demand | any vendor request after the landing page; any request carrying an app route, record id, token, contact detail, case fact or user-data parameter; a container on an app screen; the intake visit call going anywhere but our own API or carrying more than the entry page and campaign tags |
 
 The browser test records each vendor request (URL, body, headers) and then
 aborts it, so nothing reaches the vendors.
@@ -113,3 +128,7 @@ E2E_SESSIONS=e2e/.sessions.local.json E2E_SUBMIT_ASSESSMENT=1 pnpm test:e2e e2e/
   would reduce that exposure.
 - GA4 and the Meta Pixel see only the landing page. A visitor who goes into the
   app and comes back out starts a new page view on a new document.
+- The intake wizard checks whether an email's domain receives mail by querying
+  Google Public DNS (`dns.google`) from the browser. Only the domain is sent,
+  not the address, but it is a Google request from an assessment screen.
+  Moving the lookup to the API would remove it.

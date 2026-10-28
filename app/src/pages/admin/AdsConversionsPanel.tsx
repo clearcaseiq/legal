@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Info, RefreshCw, Upload } from 'lucide-react'
-import { getAdminAdsConversions, type AdminAdsConversions, type AdminAdsConversionRow } from '../../lib/api'
+import {
+  getAdminAdsConversions,
+  type AdminAdsConversionKind,
+  type AdminAdsConversions,
+  type AdminAdsConversionRow,
+} from '../../lib/api'
 import { formatClaimType } from '../../lib/claimTypes'
 import { formatCurrency } from '../../lib/formatters'
 
@@ -53,8 +58,9 @@ export function AdsConversionsPanel({ days }: { days: number }) {
         </button>
       </div>
       <p className="mb-4 text-xs text-slate-500 dark:text-slate-400">
-        Retained cases reported back to Ads so it can bid toward signed cases rather than clicks. Only
-        a click id, a timestamp and a projected revenue figure are sent — never case content.
+        Submitted assessments, qualified leads and retained cases reported back to Ads from our own
+        database. Only a click id, a timestamp and, for retained cases, a projected revenue figure are
+        sent — never case content.
       </p>
 
       {loading && !data ? (
@@ -79,6 +85,9 @@ function Report({ data }: { data: AdminAdsConversions }) {
     <div className="space-y-4">
       {!data.configured && <NotConfigured />}
 
+      <ConversionActions kinds={data.byKind ?? []} />
+
+      <h3 className="pt-2 text-sm font-semibold text-slate-700 dark:text-slate-300">Retained cases</h3>
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         <Tile label="Uploaded" value={counts.uploaded} tone="good" />
         <Tile label="Pending" value={counts.pending} />
@@ -131,6 +140,58 @@ function Report({ data }: { data: AdminAdsConversions }) {
           </table>
         </div>
       )}
+    </div>
+  )
+}
+
+const KIND_LABELS: Record<AdminAdsConversionKind['kind'], { label: string; role: string; env: string }> = {
+  submitted: {
+    label: 'Assessment submitted',
+    role: 'Primary',
+    env: 'GOOGLE_ADS_SUBMITTED_CONVERSION_ACTION',
+  },
+  qualified: {
+    label: 'Qualified lead',
+    role: 'Secondary',
+    env: 'GOOGLE_ADS_QUALIFIED_CONVERSION_ACTION',
+  },
+  retained: { label: 'Retained case', role: 'Secondary', env: 'GOOGLE_ADS_CONVERSION_ACTION_ID' },
+}
+
+function ConversionActions({ kinds }: { kinds: AdminAdsConversionKind[] }) {
+  if (!kinds.length) return null
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-slate-200 text-left text-slate-500 dark:border-slate-700 dark:text-slate-400">
+            <th className="py-2 pr-4 font-medium">Conversion action</th>
+            <th className="py-2 pr-4 text-right font-medium">Uploaded</th>
+            <th className="py-2 pr-4 text-right font-medium">Pending</th>
+            <th className="py-2 pr-4 text-right font-medium">Outside window</th>
+            <th className="py-2 text-right font-medium">Out of retries</th>
+          </tr>
+        </thead>
+        <tbody>
+          {kinds.map(({ kind, configured, counts }) => (
+            <tr key={kind} className="border-b border-slate-100 last:border-0 dark:border-slate-800">
+              <td className="py-2 pr-4">
+                <span className="text-slate-900 dark:text-slate-100">{KIND_LABELS[kind].label}</span>
+                <span className="ml-2 text-xs text-slate-500 dark:text-slate-400">{KIND_LABELS[kind].role}</span>
+                {!configured && (
+                  <span className="ml-2 text-xs text-amber-700 dark:text-amber-400" title={KIND_LABELS[kind].env}>
+                    not uploading ({KIND_LABELS[kind].env} unset)
+                  </span>
+                )}
+              </td>
+              <td className="py-2 pr-4 text-right">{counts.uploaded}</td>
+              <td className="py-2 pr-4 text-right">{counts.pending}</td>
+              <td className="py-2 pr-4 text-right">{counts.skipped}</td>
+              <td className="py-2 text-right">{counts.exhausted}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   )
 }

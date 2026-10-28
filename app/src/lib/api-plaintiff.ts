@@ -1,6 +1,7 @@
 import api from './http'
 import { apiDebug } from './debug'
 import { getAttribution } from './attribution'
+import { currentIntakeVisitId } from './intakeVisit'
 import { saveCaseClaimToken } from './pendingRegistration'
 
 const freshParams = () => ({ _: Date.now() })
@@ -102,9 +103,11 @@ export interface IntakeLeadPayload {
  */
 export async function createIntakeLead(payload: IntakeLeadPayload, captchaToken?: string): Promise<string> {
   const attribution = getAttribution()
+  const visitId = currentIntakeVisitId()
   const { data } = await api.post('/v1/intake-leads', {
     ...payload,
     ...(attribution ? { attribution } : {}),
+    ...(visitId ? { visitId } : {}),
     ...(captchaToken ? { captchaToken } : {}),
   })
   return data.id

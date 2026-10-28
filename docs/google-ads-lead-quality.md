@@ -6,7 +6,9 @@ use that, and what the suspicious-leads file we share with you contains.
 
 ## The short version
 
-- Optimize bidding for **Qualified lead** or **Retained case**, not form submits.
+- Make **Assessment submitted** the Primary conversion. Keep **Qualified lead**
+  and **Retained case** as Secondary quality signals, and move every tag-based
+  form or page conversion to Secondary.
 - Turn off **Search Partners** and the **Display Network** on search campaigns.
 - Target people **located in** our service area, not people **interested in** it.
 - Review the search terms report every week and add negative keywords.
@@ -15,28 +17,38 @@ use that, and what the suspicious-leads file we share with you contains.
 
 ## What we send to Google
 
-We upload two offline conversions. Both are matched to the ad click by its click
-ID (the `gclid`). Nothing else about the person is sent: no name, email, phone
-number, address, or case details. Each upload is just the click ID, the time,
-and, for retained cases, an optional value.
+We upload three offline conversions from our own database. All are matched to
+the ad click by its click ID (the `gclid`). Nothing else about the person is
+sent: no name, email, phone number, address, page URL or case details. Each
+upload is just the click ID, the time, and, for retained cases, an optional
+value.
 
-| Conversion | When it fires |
-| --- | --- |
-| Qualified lead | The person confirmed their phone or email with a one-time code and sent their case to attorneys. |
-| Retained case | An attorney signed the person as a client. |
+| Conversion | Role | When it fires |
+| --- | --- | --- |
+| Assessment submitted | Primary | The person pressed "Generate My Free Report" and the case was created on our server. |
+| Qualified lead | Secondary | The person confirmed their phone or email with a one-time code and sent their case to attorneys. |
+| Retained case | Secondary | An attorney signed the person as a client. |
 
-Each case is uploaded at most once per conversion. Uploads run daily, so a
-conversion can show up in Google Ads a day or two after it happens.
+Each case is uploaded at most once per conversion. Reloading or reopening the
+results page never counts again, because the conversion is recorded when the
+case is created, not when a page is viewed. Uploads run hourly, so a conversion
+can show up in Google Ads a few hours after it happens.
 
-**Qualified lead** is the better bidding target to start with. It happens within
-minutes of the click, so Google gets plenty of signal, and a bot or a person
-typing someone else's number can't get past the one-time code. **Retained case**
-is the signal that matters most to the business, but it can take weeks and is
-much rarer. Once it has steady volume (roughly 30 or more a month), consider
-switching to it or adding it as a secondary goal.
+**Why a server-side Primary conversion.** Since October 23 the assessment and
+results pages load no Google tag at all, because their URLs can carry a case or
+lead ID and the pages describe an injury. Tag-based conversions on those pages,
+such as "Submit lead form (Result Page)" and "Assessment lead form 4", can no
+longer fire. "Assessment submitted" replaces them without any tag on those pages.
 
-Please stop optimizing for raw form submits or page visits. Those count every
-bot and every accidental click the same as a real person with a real injury.
+**Qualified lead** is a stronger quality signal: a bot or a person typing someone
+else's number can't get past the one-time code. **Retained case** matters most
+to the business but can take weeks and is much rarer. Once either has steady
+volume (roughly 30 or more a month), consider bidding toward it.
+
+Please don't optimize for homepage button clicks or page visits. Those count
+every bot and every accidental click the same as a real person with a real
+injury. A homepage CTA click conversion is fine to keep as Secondary, for
+diagnosis only.
 
 ## Campaign settings
 
@@ -96,10 +108,12 @@ Use the bidding and network settings above for everything else.
 
 This part is for our engineers, not the agency.
 
-1. In Google Ads, under Goals, then Conversions, create two conversion actions
+1. In Google Ads, under Goals, then Conversions, create three conversion actions
    with source "Import" and "Other data sources or CRMs", "Track conversions from
-   clicks": **Qualified lead** and **Retained case**. Note each action's numeric
-   ID.
+   clicks": **Assessment submitted** (set as Primary), **Qualified lead** and
+   **Retained case** (both Secondary). Note each action's numeric ID. Move
+   "Submit lead form (Result Page)" and "Assessment lead form 4" to Secondary;
+   they no longer fire.
 2. Set these on the API (`.env.prod` on the production host; leave them unset on
    QA so test conversions never reach the live account):
    - `GOOGLE_ADS_CONVERSION_ENABLED=true`
@@ -108,8 +122,10 @@ This part is for our engineers, not the agency.
      `GOOGLE_ADS_LOGIN_CUSTOMER_ID` if the account sits under a manager account
    - `GOOGLE_ADS_CONVERSION_ACTION_ID`: the Retained case action
    - `GOOGLE_ADS_QUALIFIED_CONVERSION_ACTION`: the Qualified lead action
-3. Each conversion uploads only when its own action ID is set, so either can be
-   turned on by itself. Check the results in the "Google Ads conversion uploads" panel on the admin
+   - `GOOGLE_ADS_SUBMITTED_CONVERSION_ACTION`: the Assessment submitted action
+3. Each conversion uploads only when its own action ID is set, so each can be
+   turned on by itself. Cases are queued whether or not upload is on, but only
+   for clicks inside Google's 90-day window. Check the results in the "Google Ads conversion uploads" panel on the admin
    Analytics page, and
    in the conversion action's "Uploads" history in Google Ads.
 4. The bot check needs `TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY` from

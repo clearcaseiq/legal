@@ -30,7 +30,8 @@ import { expect, test, type Page, type Request } from '@playwright/test'
 
 const SECRET_TOKEN = 'e2eSecretToken9f3c2a7b'
 const FAKE_ASSESSMENT_ID = 'cm9e2etestassessment000001'
-const TEST_EMAIL = 'e2e-tracker-test@caseiq-seed.local'
+// A domain with MX records: the wizard refuses one it cannot deliver to.
+const TEST_EMAIL = 'e2e-tracker-test@clearcaseiq.com'
 const TEST_PHONE = '8185550123'
 
 type Session = {
@@ -375,6 +376,13 @@ test.describe('third-party network isolation', () => {
   test('marketing page, then client-side through the whole assessment', async ({ page }) => {
     test.skip(!containerOnHost, 'No GTM container on this host; tracker behaviour cannot be observed')
     const tp = await recordThirdParties(page)
+    const visitCalls: Array<{ origin: string; body: Record<string, unknown> }> = []
+    page.on('request', (request) => {
+      const url = new URL(request.url())
+      if (url.pathname === '/v1/intake-visits') {
+        visitCalls.push({ origin: url.origin, body: JSON.parse(request.postData() || '{}') })
+      }
+    })
     await page.goto('/')
     await settle(page)
     const landing = tp.mark()
@@ -391,6 +399,16 @@ test.describe('third-party network isolation', () => {
     console.log(JSON.stringify({ visited, landing: summarise(tp.beacons.slice(0, landing)), afterLeaving: summarise(after) }, null, 2))
 
     if (beyondFirstScreen) expect(visited.some((url) => url.includes('step=consent')), 'reached the review screen').toBe(true)
+
+    // The funnel's "started" stage: one call, to our own API, carrying only the
+    // entry page and campaign tags.
+    const ownOrigin = new URL(page.url()).origin
+    expect(visitCalls.length, 'one intake visit recorded').toBe(1)
+    expect(visitCalls[0].origin).toBe(ownOrigin)
+    for (const key of Object.keys(visitCalls[0].body)) {
+      expect(['id', 'landingPath', 'utmSource', 'utmMedium', 'utmCampaign']).toContain(key)
+    }
+    expect(visitCalls[0].body.landingPath).toBe('/')
     expect(after.filter((b) => b.vendor === 'meta').map((b) => b.url), 'Meta requests after leaving the landing page').toEqual([])
     expect(after.filter((b) => b.vendor === 'clarity').length, 'Clarity uploads after leaving the landing page').toBe(0)
     expect(violations(after), 'a vendor receiving a sensitive URL, identifier, case fact or user data').toEqual([])

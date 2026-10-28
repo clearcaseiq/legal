@@ -10,6 +10,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('./prisma', () => import('../test/universalPrismaMock'))
 vi.mock('./google-ads-conversions', () => ({
+  CONVERSION_KINDS: ['retained', 'qualified', 'submitted'],
   isGoogleAdsConfigured: vi.fn().mockReturnValue(true),
   isConversionActionConfigured: vi.fn((kind: string) => kind === 'retained'),
   uploadClickConversions: vi.fn(),
@@ -401,5 +402,96 @@ describe('qualified lead conversions', () => {
     await runAdsConversionSweep()
 
     expect(prisma.adsConversionUpload.findMany).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * The Primary conversion. What it must get right is what a results-page tag got
+ * wrong: count a case when its assessment is created, and never again, however
+ * often the results page is opened.
+ */
+describe('assessment submitted conversions', () => {
+  const submittedTable = () => (prisma as any).adsSubmittedConversionUpload
+
+  function givenSubmitted(options: {
+    leads?: { assessmentId: string | null; gclid: string | null }[]
+    assessments?: { id: string; createdAt: Date }[]
+    existing?: { assessmentId: string }[]
+    pending?: { id: string; gclid: string; convertedAt: Date }[]
+  }) {
+    vi.mocked(isConversionActionConfigured).mockImplementation((kind) => kind === 'submitted')
+    vi.mocked(prisma.intakeLead.findMany).mockResolvedValue((options.leads || []) as any)
+    vi.mocked(prisma.assessment.findMany).mockResolvedValue((options.assessments || []) as any)
+    vi.mocked(submittedTable().findMany).mockImplementation((args: any) =>
+      Promise.resolve(
+        args?.where?.status === 'pending'
+          ? (options.pending || []).map((row) => ({ currencyCode: 'USD', value: null, ...row }))
+          : options.existing || [],
+      ),
+    )
+  }
+
+  const submittedCreated = () => vi.mocked(submittedTable().create).mock.calls.map((call: any) => call[0].data)
+
+  it('looks only at leads from an ad click whose assessment exists, within the click window', async () => {
+    givenSubmitted({})
+
+    await runAdsConversionSweep()
+
+    const where = (vi.mocked(prisma.intakeLead.findMany).mock.calls[0][0] as any).where
+    expect(where.assessmentId).toEqual({ not: null })
+    expect(where.gclid).toEqual({ not: null })
+    expect(Math.round((Date.now() - where.createdAt.gte.getTime()) / DAY_MS)).toBe(90)
+  })
+
+  it('records a case from an ad click at the moment its assessment was created', async () => {
+    const createdAt = daysAgo(1)
+    givenSubmitted({
+      leads: [{ assessmentId: 'asm-1', gclid: 'Cj0KCQ' }],
+      assessments: [{ id: 'asm-1', createdAt }],
+    })
+
+    const result = await runAdsConversionSweep()
+
+    expect(result.discovered).toBe(1)
+    expect(submittedCreated()).toEqual([
+      { assessmentId: 'asm-1', gclid: 'Cj0KCQ', value: null, convertedAt: createdAt, status: 'pending' },
+    ])
+  })
+
+  it('records a case once, however many times the sweep runs or the results page is opened', async () => {
+    givenSubmitted({
+      leads: [{ assessmentId: 'asm-1', gclid: 'Cj0KCQ' }],
+      assessments: [{ id: 'asm-1', createdAt: daysAgo(1) }],
+      existing: [{ assessmentId: 'asm-1' }],
+    })
+
+    const result = await runAdsConversionSweep()
+
+    expect(result.discovered).toBe(0)
+    expect(submittedTable().create).not.toHaveBeenCalled()
+  })
+
+  it('skips a lead whose assessment no longer exists', async () => {
+    givenSubmitted({ leads: [{ assessmentId: 'gone', gclid: 'Cj0KCQ' }], assessments: [] })
+
+    await runAdsConversionSweep()
+
+    expect(submittedTable().create).not.toHaveBeenCalled()
+  })
+
+  it('uploads pending rows against the submitted conversion action', async () => {
+    const convertedAt = daysAgo(1)
+    givenSubmitted({ pending: [{ id: 's-1', gclid: 'Cj0KCQ', convertedAt }] })
+    vi.mocked(uploadClickConversions).mockResolvedValue({ uploaded: [0], failures: [] })
+
+    const result = await runAdsConversionSweep()
+
+    expect(uploadClickConversions).toHaveBeenCalledWith(
+      [{ gclid: 'Cj0KCQ', convertedAt, value: null, currencyCode: 'USD' }],
+      'submitted',
+    )
+    expect(result).toMatchObject({ uploaded: 1 })
+    expect(prisma.adsConversionUpload.updateMany).not.toHaveBeenCalled()
   })
 })

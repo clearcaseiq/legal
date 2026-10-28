@@ -9,10 +9,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const findMany = vi.fn()
 
-vi.mock('./prisma', () => ({ prisma: { intakeLead: { findMany: () => findMany() } } }))
+vi.mock('./prisma', () => ({
+  prisma: {
+    intakeLead: { findMany: () => findMany(), count: () => Promise.resolve(0) },
+    intakeVisit: { findMany: () => Promise.resolve([]) },
+    leadSubmission: { findMany: () => Promise.resolve([]) },
+  },
+}))
 vi.mock('./logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }))
 
-import { buildIntakeFunnelReport } from './intake-funnel'
+import { buildIntakeFunnelReport, computeStages, stageCounts, type VisitOutcome } from './intake-funnel'
 
 const T0 = Date.parse('2026-09-01T10:00:00.000Z')
 
@@ -283,5 +289,90 @@ describe('abandonment by device', () => {
     const report = await buildIntakeFunnelReport(30)
 
     expect(report.byDevice).toEqual([])
+  })
+})
+
+/**
+ * The five-stage funnel, per visit. The property that matters most is that
+ * each stage is a subset of the one before: otherwise "left between" can go
+ * negative and the table stops meaning anything.
+ */
+describe('stage funnel', () => {
+  const outcome = (steps: string[], extra: Partial<VisitOutcome> = {}): VisitOutcome => ({
+    steps: new Set(steps),
+    submitted: false,
+    qualified: false,
+    ...extra,
+  })
+
+  const counts = (stages: ReturnType<typeof stageCounts>) =>
+    Object.fromEntries(stages.map((stage) => [stage.key, stage.count]))
+
+  it('counts a visit that left on Step 1 as started and nothing more', () => {
+    expect(counts(stageCounts([null]))).toEqual({ started: 1, injuries: 0, review: 0, submitted: 0, qualified: 0 })
+  })
+
+  it('places each visit at the furthest screen it reached', () => {
+    const stages = stageCounts([
+      null,
+      outcome(['injury_type']),
+      outcome(['injury_type', 'injury_severity']),
+      outcome(['injury_type', 'injury_severity', 'consent']),
+      outcome(['injury_type', 'injury_severity', 'consent'], { submitted: true }),
+    ])
+    expect(counts(stages)).toEqual({ started: 5, injuries: 3, review: 2, submitted: 1, qualified: 0 })
+  })
+
+  it('credits the earlier screens when a progress ping was dropped', () => {
+    // Saves can be skipped while another is in flight, so a submitted case may
+    // have no injury_severity entry. It still passed that screen.
+    expect(counts(stageCounts([outcome(['injury_type'], { submitted: true })]))).toEqual({
+      started: 1,
+      injuries: 1,
+      review: 1,
+      submitted: 1,
+      qualified: 0,
+    })
+  })
+
+  it('reads sections folded into a screen, and older step names, as that screen', () => {
+    expect(counts(stageCounts([outcome(['financial_impact'])])).injuries).toBe(1)
+    expect(counts(stageCounts([outcome(['review'])])).review).toBe(1)
+  })
+
+  it('reports the rate from the previous stage and how many left between', () => {
+    const stages = stageCounts([null, null, outcome(['injury_severity']), outcome(['consent'])])
+    const injuries = stages.find((stage) => stage.key === 'injuries')!
+    expect(injuries).toMatchObject({ count: 2, fromPrevious: 0.5, abandoned: 2 })
+    expect(stages[0]).toMatchObject({ fromPrevious: null, abandoned: 0 })
+    const qualified = stages.find((stage) => stage.key === 'qualified')!
+    expect(qualified.fromPrevious).toBeNull()
+  })
+
+  it('breaks the funnel down by entry page and device, busiest first', () => {
+    const funnel = computeStages(
+      [
+        { landingPath: '/', deviceType: 'mobile', outcome: null },
+        { landingPath: '/', deviceType: 'desktop', outcome: outcome(['consent'], { submitted: true }) },
+        { landingPath: '/car-accident-lawyer', deviceType: 'mobile', outcome: null },
+        { landingPath: null, deviceType: null, outcome: null },
+      ],
+      3,
+    )
+    expect(funnel.byEntry.map((row) => [row.group, row.started])).toEqual([
+      ['Homepage', 2],
+      ['/car-accident-lawyer', 1],
+      ['Unknown', 1],
+    ])
+    expect(funnel.byDevice[0]).toMatchObject({ group: 'mobile', started: 2 })
+    expect(funnel.byEntry[0].stages.find((stage) => stage.key === 'submitted')!.count).toBe(1)
+    expect(funnel.unlinkedLeads).toBe(3)
+  })
+
+  it('folds the long tail of entry pages into one row', () => {
+    const visits = Array.from({ length: 12 }, (_, i) => ({ landingPath: `/page-${i}`, deviceType: 'desktop', outcome: null }))
+    const funnel = computeStages(visits, 0)
+    expect(funnel.byEntry).toHaveLength(8)
+    expect(funnel.byEntry[7]).toMatchObject({ group: 'Other pages', started: 5 })
   })
 })

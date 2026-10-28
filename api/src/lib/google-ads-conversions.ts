@@ -60,12 +60,18 @@ function customerId(name: string): string {
  * passed the one-time code check and was sent to attorneys: weeks earlier than
  * a retention and far more numerous, so bidding has enough signal to learn from
  * without falling back on raw form submits, which bots produce for free.
+ * 'submitted' is a case from an ad click whose assessment was created: the
+ * moment "Generate My Free Report" succeeds, recorded from the database so a
+ * reload of the results page can never count twice.
  */
-export type ConversionKind = 'retained' | 'qualified'
+export type ConversionKind = 'retained' | 'qualified' | 'submitted'
+
+export const CONVERSION_KINDS: readonly ConversionKind[] = ['retained', 'qualified', 'submitted']
 
 const CONVERSION_ACTION_ENV: Record<ConversionKind, string> = {
   retained: 'GOOGLE_ADS_CONVERSION_ACTION_ID',
   qualified: 'GOOGLE_ADS_QUALIFIED_CONVERSION_ACTION',
+  submitted: 'GOOGLE_ADS_SUBMITTED_CONVERSION_ACTION',
 }
 
 /**
@@ -96,7 +102,7 @@ export function isConversionActionConfigured(kind: ConversionKind): boolean {
 
 /** Whether conversion upload is switched on for at least one conversion action. */
 export function isGoogleAdsConfigured(): boolean {
-  return isConversionActionConfigured('retained') || isConversionActionConfigured('qualified')
+  return CONVERSION_KINDS.some((kind) => isConversionActionConfigured(kind))
 }
 
 let cachedToken: { value: string; expiresAt: number } | null = null

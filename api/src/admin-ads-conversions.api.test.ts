@@ -9,7 +9,9 @@ import request from 'supertest'
 
 vi.mock('./lib/prisma', () => import('./test/universalPrismaMock'))
 vi.mock('./lib/google-ads-conversions', () => ({
+  CONVERSION_KINDS: ['retained', 'qualified', 'submitted'],
   isGoogleAdsConfigured: vi.fn().mockReturnValue(true),
+  isConversionActionConfigured: vi.fn((kind: string) => kind === 'submitted'),
   uploadClickConversions: vi.fn(),
 }))
 
@@ -321,6 +323,26 @@ describe('the reporting window', () => {
     const res = await request(app).get('/v1/admin/ads-conversions?days=lots').set(adminAuth)
 
     expect(res.body.periodDays).toBe(30)
+  })
+})
+
+describe('every conversion action', () => {
+  it('reports submitted, qualified and retained, Primary first, with whether each uploads', async () => {
+    vi.mocked((prisma as any).adsSubmittedConversionUpload.groupBy).mockResolvedValue([
+      { status: 'uploaded', _count: { _all: 4 } },
+      { status: 'pending', _count: { _all: 2 } },
+    ])
+    vi.mocked((prisma as any).adsSubmittedConversionUpload.count).mockResolvedValue(1)
+
+    const res = await request(app).get('/v1/admin/ads-conversions').set(adminAuth)
+
+    expect(res.status).toBe(200)
+    expect(res.body.byKind.map((row: any) => [row.kind, row.configured])).toEqual([
+      ['submitted', true],
+      ['qualified', false],
+      ['retained', false],
+    ])
+    expect(res.body.byKind[0].counts).toEqual({ uploaded: 4, pending: 1, skipped: 0, failed: 0, exhausted: 1 })
   })
 })
 

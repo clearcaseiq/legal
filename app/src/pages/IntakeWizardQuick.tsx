@@ -40,6 +40,7 @@ import { supportingDocCategory } from '../lib/documentRequestUpload'
 import { trackAssessmentSubmitted } from '../lib/assessmentTracking'
 import { createConsent, fetchPublicConsentTemplate } from '../lib/api-consent'
 import { hasValidAuthToken } from '../lib/auth'
+import { recordIntakeVisit } from '../lib/intakeVisit'
 import {
   clearEvidenceReturnTo,
   plaintiffDashboardReturnTo,
@@ -1567,6 +1568,7 @@ export default function IntakeWizardQuick() {
       setCurrentStep('injury_type')
       setFurthestReachedStepIndex(0)
       draftLoadedRef.current = true
+      recordIntakeVisit()
       // A case-type link from the home page answers the first question already.
       const preset = caseTypePreset(new URLSearchParams(window.location.search).get('type'))
       if (preset) {
@@ -1590,11 +1592,13 @@ export default function IntakeWizardQuick() {
       return
     }
 
+    let resumedDraft = false
     try {
       const raw = localStorage.getItem(draftKey)
       if (raw) {
         const draft = JSON.parse(raw)
         if (draft && typeof draft === 'object' && draft.formData?.injuryType) {
+          resumedDraft = true
           setFormData(prev => ({
             ...prev,
             ...draft.formData,
@@ -1635,6 +1639,8 @@ export default function IntakeWizardQuick() {
     } finally {
       draftLoadedRef.current = true
     }
+    // A plain /assess with nothing to resume is a fresh start too.
+    if (!resumedDraft) recordIntakeVisit()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 

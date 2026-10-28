@@ -105,6 +105,22 @@ function isInternal(referrer: string): boolean {
 }
 
 /**
+ * The page the visit entered the site on, whatever brought it.
+ *
+ * Unlike `getAttribution`, also for direct arrivals: which page sends people
+ * into the assessment is worth knowing even when no campaign is involved.
+ */
+export function getLandingPath(): string | undefined {
+  const raw = storage()?.getItem(STORAGE_KEY)
+  if (!raw) return undefined
+  try {
+    return (JSON.parse(raw) as Attribution).landingPath || undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
  * The captured attribution, or undefined when there is nothing worth sending.
  *
  * A visit with no campaign, no click id and no external referrer is a direct

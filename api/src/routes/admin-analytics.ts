@@ -9,7 +9,7 @@ import { CLICK_WINDOW_DAYS, MAX_ATTEMPTS } from '../lib/ads-conversion-sweep'
 import { buildChannelReport } from '../lib/attribution-channel'
 import { fetchTrafficReport, parseTrafficRange } from '../lib/ga4-analytics'
 import { buildIntakeFunnelReport } from '../lib/intake-funnel'
-import { isGoogleAdsConfigured } from '../lib/google-ads-conversions'
+import { isConversionActionConfigured, isGoogleAdsConfigured } from '../lib/google-ads-conversions'
 import { safeJsonParse } from './admin-shared'
 
 const router: ExpressRouter = Router()
@@ -609,8 +609,30 @@ router.get('/ads-conversions', authMiddleware, adminMiddleware, async (req: Auth
       : []
     const caseDetail = new Map(assessments.map((a) => [a.id, a]))
 
+    // Every conversion action, so the Primary one (submitted) can be checked
+    // alongside the two that predate it.
+    const tables = {
+      submitted: prisma.adsSubmittedConversionUpload,
+      qualified: prisma.adsQualifiedConversionUpload,
+      retained: prisma.adsConversionUpload,
+    } as const
+    const byKind = await Promise.all(
+      (Object.keys(tables) as Array<keyof typeof tables>).map(async (kind) => {
+        const table = tables[kind] as unknown as typeof prisma.adsConversionUpload
+        const [rows, kindExhausted] = await Promise.all([
+          table.groupBy({ by: ['status'], where: { convertedAt: { gte: since } }, _count: { _all: true } }),
+          table.count({ where: { convertedAt: { gte: since }, status: 'pending', attempts: { gte: MAX_ATTEMPTS } } }),
+        ])
+        const kindCounts: Record<string, number> = { uploaded: 0, pending: 0, skipped: 0, failed: 0 }
+        for (const row of rows) kindCounts[row.status] = row._count._all
+        kindCounts.pending = Math.max(0, kindCounts.pending - kindExhausted)
+        return { kind, configured: isConversionActionConfigured(kind), counts: { ...kindCounts, exhausted: kindExhausted } }
+      }),
+    )
+
     res.json({
       configured,
+      byKind,
       periodDays: days,
       clickWindowDays: CLICK_WINDOW_DAYS,
       maxAttempts: MAX_ATTEMPTS,

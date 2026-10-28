@@ -17,10 +17,13 @@
  * The same sweep also reports "qualified lead" conversions — a case from an ad
  * click that passed the one-time code and was sent to attorneys — against a
  * separate conversion action, under the same rule: click id and timestamp only.
+ * And "assessment submitted" — the Primary conversion — once a case from an ad
+ * click has had its assessment created.
  */
 import { prisma } from './prisma'
 import { logger } from './logger'
 import {
+  CONVERSION_KINDS,
   isConversionActionConfigured,
   isGoogleAdsConfigured,
   uploadClickConversions,
@@ -228,6 +231,72 @@ async function discoverQualified(): Promise<number> {
   return discovered
 }
 
+/**
+ * Find cases from an ad click whose assessment was created, with no submitted
+ * conversion recorded yet: the Primary "Assessment submitted" conversion.
+ *
+ * An intake lead gains its `assessmentId` only when the server creates the
+ * assessment, which is what "Generate My Free Report" succeeding means. That is
+ * the whole condition. Opening, refreshing or sharing `/results/<id>` changes
+ * nothing here, and the unique `assessmentId` keeps it to one row per case.
+ */
+async function discoverSubmitted(): Promise<number> {
+  const since = new Date(Date.now() - CLICK_WINDOW_DAYS * 24 * 60 * 60_000)
+  const leads = await prisma.intakeLead.findMany({
+    where: { assessmentId: { not: null }, gclid: { not: null }, createdAt: { gte: since } },
+    select: { assessmentId: true, gclid: true },
+    orderBy: { createdAt: 'desc' },
+    take: BATCH_SIZE * 4,
+  })
+  const withIds = leads.filter((lead): lead is { assessmentId: string; gclid: string } =>
+    Boolean(lead.assessmentId && lead.gclid),
+  )
+  if (!withIds.length) return 0
+
+  const assessmentIds = withIds.map((lead) => lead.assessmentId)
+  const [existing, assessments] = await Promise.all([
+    prisma.adsSubmittedConversionUpload.findMany({
+      where: { assessmentId: { in: assessmentIds } },
+      select: { assessmentId: true },
+    }),
+    prisma.assessment.findMany({
+      where: { id: { in: assessmentIds } },
+      select: { id: true, createdAt: true },
+    }),
+  ])
+
+  const alreadyRecorded = new Set(existing.map((row) => row.assessmentId))
+  const createdAt = new Map(assessments.map((assessment) => [assessment.id, assessment.createdAt]))
+
+  let discovered = 0
+  for (const lead of withIds) {
+    if (alreadyRecorded.has(lead.assessmentId)) continue
+    // A lead pointing at an assessment that no longer exists was deleted, not submitted.
+    const converted = createdAt.get(lead.assessmentId)
+    if (!converted) continue
+
+    try {
+      await prisma.adsSubmittedConversionUpload.create({
+        data: {
+          assessmentId: lead.assessmentId,
+          gclid: lead.gclid,
+          value: null,
+          convertedAt: converted,
+          status: 'pending',
+        },
+      })
+      discovered += 1
+    } catch (error) {
+      logger.debug('Submitted ads conversion already recorded for assessment', {
+        assessmentId: lead.assessmentId,
+        error,
+      })
+    }
+  }
+
+  return discovered
+}
+
 /** Whether the click is still inside the window Ads will accept. */
 function withinClickWindow(convertedAt: Date, now: number): boolean {
   return now - convertedAt.getTime() <= CLICK_WINDOW_DAYS * 24 * 60 * 60_000
@@ -236,8 +305,8 @@ function withinClickWindow(convertedAt: Date, now: number): boolean {
 type UploadRow = { id: string; gclid: string; convertedAt: Date; value: number | null; currencyCode: string }
 
 /**
- * The two upload tables share their columns and lifecycle, so the upload stage
- * is written once against the handful of calls it makes.
+ * The upload tables share their columns and lifecycle, so the upload stage is
+ * written once against the handful of calls it makes.
  */
 type UploadTable = {
   findMany(args: { where: object; orderBy: object; take: number }): Promise<UploadRow[]>
@@ -246,7 +315,18 @@ type UploadTable = {
 }
 
 function uploadTable(kind: ConversionKind): UploadTable {
-  return (kind === 'retained' ? prisma.adsConversionUpload : prisma.adsQualifiedConversionUpload) as unknown as UploadTable
+  const tables = {
+    retained: prisma.adsConversionUpload,
+    qualified: prisma.adsQualifiedConversionUpload,
+    submitted: prisma.adsSubmittedConversionUpload,
+  }
+  return tables[kind] as unknown as UploadTable
+}
+
+const DISCOVER: Record<ConversionKind, () => Promise<number>> = {
+  retained: discover,
+  qualified: discoverQualified,
+  submitted: discoverSubmitted,
 }
 
 /** Send what is pending for one conversion action and record the outcome of each row. */
@@ -350,9 +430,9 @@ export async function runAdsConversionSweep(): Promise<AdsConversionSweepResult>
   if (!isGoogleAdsConfigured()) return EMPTY
 
   const total: AdsConversionSweepResult = { ...EMPTY }
-  for (const kind of ['retained', 'qualified'] as const) {
+  for (const kind of CONVERSION_KINDS) {
     if (!isConversionActionConfigured(kind)) continue
-    total.discovered += kind === 'retained' ? await discover() : await discoverQualified()
+    total.discovered += await DISCOVER[kind]()
     const result = await uploadPending(kind)
     total.attempted += result.attempted
     total.uploaded += result.uploaded

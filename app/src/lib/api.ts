@@ -6073,6 +6073,30 @@ export interface AdminIntakeFunnel {
    * which cannot be backfilled — the header it derives from is not kept.
    */
   byDevice: AdminIntakeFunnelDevice[]
+  stages: AdminIntakeStageFunnel
+}
+
+export interface AdminIntakeFunnelStage {
+  key: 'started' | 'injuries' | 'review' | 'submitted' | 'qualified'
+  label: string
+  count: number
+  /** Share of the previous stage that reached this one; null for the first. */
+  fromPrevious: number | null
+  abandoned: number
+}
+
+export interface AdminIntakeStageBreakdown {
+  group: string
+  started: number
+  stages: AdminIntakeFunnelStage[]
+}
+
+export interface AdminIntakeStageFunnel {
+  stages: AdminIntakeFunnelStage[]
+  byEntry: AdminIntakeStageBreakdown[]
+  byDevice: AdminIntakeStageBreakdown[]
+  /** Leads with no recorded visit (resumed drafts, or from before visits were recorded). */
+  unlinkedLeads: number
 }
 
 export async function getAdminIntakeFunnel(days = 30): Promise<AdminIntakeFunnel> {
@@ -6095,8 +6119,17 @@ export interface AdminAdsConversionRow {
   lastError: string | null
 }
 
+export interface AdminAdsConversionKind {
+  /** 'submitted' is the Primary conversion; 'qualified' and 'retained' are quality signals. */
+  kind: 'submitted' | 'qualified' | 'retained'
+  /** Credentials plus this action's own id are set, so it uploads. */
+  configured: boolean
+  counts: AdminAdsConversions['counts']
+}
+
 export interface AdminAdsConversions {
   configured: boolean
+  byKind: AdminAdsConversionKind[]
   periodDays: number
   clickWindowDays: number
   maxAttempts: number

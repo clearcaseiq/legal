@@ -93,6 +93,196 @@ export type IntakeFunnelReport = {
    * from is not kept.
    */
   byDevice: DeviceFunnel[]
+  /**
+   * The assessment as five stages, from opening it to sent-to-attorneys, for
+   * visits that started in the window. See `computeStages`.
+   */
+  stages: StageFunnel
+}
+
+export type StageKey = 'started' | 'injuries' | 'review' | 'submitted' | 'qualified'
+
+export type FunnelStage = {
+  key: StageKey
+  label: string
+  count: number
+  /** Share of the previous stage that reached this one, 0–1. Null for the first stage or an empty previous one. */
+  fromPrevious: number | null
+  /** Left between the previous stage and this one. */
+  abandoned: number
+}
+
+export type StageBreakdown = { group: string; started: number; stages: FunnelStage[] }
+
+export type StageFunnel = {
+  stages: FunnelStage[]
+  /** By the public page the visit entered the site on, busiest first. */
+  byEntry: StageBreakdown[]
+  byDevice: StageBreakdown[]
+  /**
+   * Leads created in the window with no visit to join to: resumed drafts, and
+   * everything before visits were recorded. Counted, not folded in, so they
+   * cannot inflate a stage beyond the visits that started it.
+   */
+  unlinkedLeads: number
+}
+
+const STAGE_LABELS: Record<StageKey, string> = {
+  started: 'Started the assessment',
+  injuries: 'Reached injuries and costs',
+  review: 'Reached review',
+  submitted: 'Generated their report',
+  qualified: 'Sent to attorneys',
+}
+
+const STAGE_ORDER: StageKey[] = ['started', 'injuries', 'review', 'submitted', 'qualified']
+
+/** Steps recorded on the injuries-and-costs screen, including sections folded into it and older names. */
+const INJURIES_STEPS = new Set(['injury_severity', 'injury_details', 'financial_impact', 'legal_status', 'medical_treatment'])
+/** The review screen, under its current and its older name. */
+const REVIEW_STEPS = new Set(['consent', 'review'])
+
+export type VisitInput = { landingPath: string | null; deviceType: string | null }
+export type VisitOutcome = {
+  steps: Set<string>
+  submitted: boolean
+  qualified: boolean
+}
+
+/**
+ * Count each visit at the furthest stage it reached, and every stage before.
+ *
+ * Later stages imply earlier ones: a report cannot be generated without passing
+ * review, so a visit whose step history missed a ping is still counted at every
+ * stage up to where it demonstrably got. That keeps each stage a subset of the
+ * one before, which is what makes the abandonment between them meaningful.
+ */
+export function stageCounts(outcomes: Array<VisitOutcome | null>): FunnelStage[] {
+  const counts: Record<StageKey, number> = { started: 0, injuries: 0, review: 0, submitted: 0, qualified: 0 }
+  for (const outcome of outcomes) {
+    counts.started += 1
+    if (!outcome) continue
+    const qualified = outcome.qualified
+    const submitted = qualified || outcome.submitted
+    const review = submitted || [...outcome.steps].some((step) => REVIEW_STEPS.has(step))
+    const injuries = review || [...outcome.steps].some((step) => INJURIES_STEPS.has(step))
+    if (injuries) counts.injuries += 1
+    if (review) counts.review += 1
+    if (submitted) counts.submitted += 1
+    if (qualified) counts.qualified += 1
+  }
+
+  return STAGE_ORDER.map((key, index) => {
+    const previous = index === 0 ? null : counts[STAGE_ORDER[index - 1]]
+    return {
+      key,
+      label: STAGE_LABELS[key],
+      count: counts[key],
+      fromPrevious: previous ? counts[key] / previous : null,
+      abandoned: previous == null ? 0 : previous - counts[key],
+    }
+  })
+}
+
+/** Most entry pages see a handful of visits; beyond this many they are grouped. */
+const MAX_ENTRY_GROUPS = 8
+
+function entryGroup(landingPath: string | null): string {
+  if (!landingPath) return 'Unknown'
+  return landingPath === '/' ? 'Homepage' : landingPath
+}
+
+/** The stage funnel, overall and broken down by entry page and by device. */
+export function computeStages(
+  visits: Array<VisitInput & { outcome: VisitOutcome | null }>,
+  unlinkedLeads: number,
+): StageFunnel {
+  const breakdown = (keyOf: (visit: VisitInput) => string) => {
+    const groups = new Map<string, Array<VisitOutcome | null>>()
+    for (const visit of visits) {
+      const key = keyOf(visit)
+      const list = groups.get(key) ?? []
+      list.push(visit.outcome)
+      groups.set(key, list)
+    }
+    return [...groups.entries()]
+      .map(([group, outcomes]) => ({ group, started: outcomes.length, stages: stageCounts(outcomes) }))
+      .sort((a, b) => b.started - a.started)
+  }
+
+  const byEntry = breakdown((visit) => entryGroup(visit.landingPath))
+  // The long tail of SEO pages each send a few visits; one row for all of them
+  // keeps the table about the pages that matter.
+  if (byEntry.length > MAX_ENTRY_GROUPS) {
+    const kept = byEntry.slice(0, MAX_ENTRY_GROUPS - 1)
+    const rest = new Set(byEntry.slice(MAX_ENTRY_GROUPS - 1).map((row) => row.group))
+    const restOutcomes = visits.filter((visit) => rest.has(entryGroup(visit.landingPath))).map((visit) => visit.outcome)
+    kept.push({ group: 'Other pages', started: restOutcomes.length, stages: stageCounts(restOutcomes) })
+    byEntry.splice(0, byEntry.length, ...kept)
+  }
+
+  return {
+    stages: stageCounts(visits.map((visit) => visit.outcome)),
+    byEntry,
+    byDevice: breakdown((visit) => visit.deviceType || 'unknown'),
+    unlinkedLeads,
+  }
+}
+
+/** Postgres caps bind parameters, so long `IN` lists are read in slices. */
+const IN_CHUNK = 5_000
+
+async function buildStageFunnel(since: Date): Promise<StageFunnel> {
+  const visits = await prisma.intakeVisit.findMany({
+    where: { createdAt: { gte: since } },
+    select: { id: true, landingPath: true, deviceType: true },
+    orderBy: { createdAt: 'desc' },
+    take: MAX_LEADS,
+  })
+
+  const leadByVisit = new Map<string, { stepHistory: string | null; assessmentId: string | null }>()
+  for (let i = 0; i < visits.length; i += IN_CHUNK) {
+    const ids = visits.slice(i, i + IN_CHUNK).map((visit) => visit.id)
+    const leads = await prisma.intakeLead.findMany({
+      where: { visitId: { in: ids } },
+      select: { visitId: true, stepHistory: true, assessmentId: true },
+      orderBy: { createdAt: 'asc' },
+    })
+    // One lead per visit; the first one created is the visit's own.
+    for (const lead of leads) {
+      if (lead.visitId && !leadByVisit.has(lead.visitId)) leadByVisit.set(lead.visitId, lead)
+    }
+  }
+
+  const assessmentIds = [...leadByVisit.values()].map((lead) => lead.assessmentId).filter((id): id is string => Boolean(id))
+  const sent = new Set<string>()
+  for (let i = 0; i < assessmentIds.length; i += IN_CHUNK) {
+    const rows = await prisma.leadSubmission.findMany({
+      where: { assessmentId: { in: assessmentIds.slice(i, i + IN_CHUNK) }, sourceType: 'plaintiff' },
+      select: { assessmentId: true },
+    })
+    for (const row of rows) sent.add(row.assessmentId)
+  }
+
+  const unlinkedLeads = await prisma.intakeLead.count({ where: { createdAt: { gte: since }, visitId: null } })
+
+  return computeStages(
+    visits.map((visit) => {
+      const lead = leadByVisit.get(visit.id)
+      return {
+        landingPath: visit.landingPath,
+        deviceType: visit.deviceType,
+        outcome: lead
+          ? {
+              steps: new Set(parseHistory(lead.stepHistory).map((entry) => entry.step)),
+              submitted: Boolean(lead.assessmentId),
+              qualified: Boolean(lead.assessmentId && sent.has(lead.assessmentId)),
+            }
+          : null,
+      }
+    }),
+    unlinkedLeads,
+  )
 }
 
 /**
@@ -281,6 +471,7 @@ export async function buildIntakeFunnelReport(days: number): Promise<IntakeFunne
     steps,
     worstDropOff,
     byDevice: summariseDevices(devices),
+    stages: await buildStageFunnel(since),
   }
 }
 

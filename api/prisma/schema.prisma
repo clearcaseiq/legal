@@ -3462,12 +3462,18 @@ model IntakeLead {
   /// days of this lead. Repeats are recorded but get no new resume email or text.
   repeatCount Int @default(0)
 
+  /// The `IntakeVisit` this lead grew out of, so the funnel can count visitors
+  /// who opened the assessment and left before a lead existed. Null for leads
+  /// created before visits were recorded, and for resumed drafts.
+  visitId String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([email])
   @@index([status, updatedAt])
   @@index([userId])
+  @@index([visitId])
   /// Supports the suspicious-leads export and the IP retention sweep.
   @@index([createdAt])
   /// Supports the sweep that drains due report-ready emails.
@@ -3477,6 +3483,35 @@ model IntakeLead {
   /// Supports the sweep that finds retained cases with a click id to upload.
   @@index([gclid])
   @@map("intake_leads")
+}
+
+/// Someone opened a fresh assessment: the first stage of the intake funnel.
+///
+/// An `IntakeLead` exists only once Step 1 is answered, so without this the
+/// visitors who look at the first screen and leave are invisible, and so is
+/// how many people each entry page sends into the assessment. Anonymous by
+/// construction: a random id generated in the browser, the page they entered
+/// the site on, campaign tags and a device class. No contact details, case
+/// facts, click id or IP address.
+model IntakeVisit {
+  /// A UUID minted by the browser and kept for the tab's session, so a reload
+  /// of Step 1 is the same visit rather than a new one.
+  id String @id
+
+  /// The public page the visit entered the site on (`/` for the homepage CTA).
+  landingPath String?
+
+  utmSource   String?
+  utmMedium   String?
+  utmCampaign String?
+
+  /// 'mobile' | 'tablet' | 'desktop' | 'unknown', from the User-Agent, as on IntakeLead.
+  deviceType String?
+
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@map("intake_visits")
 }
 
 /// A conversion reported back to Google Ads when a case was retained.
@@ -3569,6 +3604,43 @@ model AdsQualifiedConversionUpload {
 
   @@index([status, attempts])
   @@map("ads_qualified_conversion_uploads")
+}
+
+/// "Assessment submitted" conversions: a case from an ad click whose assessment
+/// was actually created, i.e. "Generate My Free Report" succeeded on the server.
+///
+/// The Primary conversion in Ads. Recorded from the database rather than from a
+/// tag on the results page, so it counts submissions rather than page views: a
+/// refreshed or reopened `/results/<id>` cannot add a second row, and no tag
+/// runs on a page whose URL names a case. Separate table for the same reason as
+/// the qualified one above.
+model AdsSubmittedConversionUpload {
+  id String @id @default(cuid())
+
+  /// One submitted conversion per case.
+  assessmentId String @unique
+
+  gclid String
+
+  /// Always null: nothing is known about a case's value when it is submitted.
+  value        Float?
+  currencyCode String @default("USD")
+
+  /// When the assessment was created.
+  convertedAt DateTime
+
+  /// 'pending' | 'uploaded' | 'failed' | 'skipped', as on `AdsConversionUpload`.
+  status String @default("pending")
+
+  attempts   Int       @default(0)
+  lastError  String?   @db.Text
+  uploadedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, attempts])
+  @@map("ads_submitted_conversion_uploads")
 }
 
 model DecisionMemory {

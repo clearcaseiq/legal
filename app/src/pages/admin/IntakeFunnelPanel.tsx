@@ -5,6 +5,8 @@ import {
   type AdminIntakeFunnel,
   type AdminIntakeFunnelDevice,
   type AdminIntakeFunnelStep,
+  type AdminIntakeStageBreakdown,
+  type AdminIntakeStageFunnel,
 } from '../../lib/api'
 
 /**
@@ -73,7 +75,7 @@ export function IntakeFunnelPanel({ days }: { days: number }) {
         <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
           {error}
         </div>
-      ) : data && data.totalLeads === 0 ? (
+      ) : data && data.totalLeads === 0 && !data.stages?.stages[0]?.count ? (
         <div className="rounded-lg border border-dashed border-slate-300 p-6 text-center dark:border-slate-700">
           <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
             No intake activity in this window
@@ -110,6 +112,8 @@ function Report({ data }: { data: AdminIntakeFunnel }) {
 
   return (
     <div className="space-y-6">
+      {data.stages && <StageFunnel funnel={data.stages} />}
+
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Tile label="Leads started" value={data.totalLeads.toLocaleString()} />
         <Tile label="Completed" value={data.completedLeads.toLocaleString()} />
@@ -146,6 +150,141 @@ function Report({ data }: { data: AdminIntakeFunnel }) {
       </div>
 
       <DeviceSplit rows={data.byDevice} overall={data.completionRate} />
+    </div>
+  )
+}
+
+/**
+ * The assessment as five stages, from opening it to being sent to attorneys.
+ *
+ * Counted per visit rather than per lead, so the people who open Step 1 and
+ * leave before typing anything are in the first number. Each stage is a subset
+ * of the one before, which is what makes "left between" meaningful.
+ */
+function StageFunnel({ funnel }: { funnel: AdminIntakeStageFunnel }) {
+  const started = funnel.stages[0]?.count ?? 0
+  if (started === 0) {
+    return (
+      <p className="rounded-lg border border-dashed border-slate-300 p-4 text-xs text-slate-500 dark:border-slate-700 dark:text-slate-400">
+        No assessment visits recorded in this window yet. Visits are counted from the moment someone
+        opens a fresh assessment.
+      </p>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h3 className="mb-2 text-sm font-semibold text-slate-900 dark:text-white">Where plaintiffs leave</h3>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[560px] text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                <th className="pb-2 pr-3 font-medium">Stage</th>
+                <th className="pb-2 pr-3 text-right font-medium">Visitors</th>
+                <th className="pb-2 pr-3 text-right font-medium">Of started</th>
+                <th className="pb-2 pr-3 text-right font-medium">From previous</th>
+                <th className="pb-2 text-right font-medium">Left between</th>
+              </tr>
+            </thead>
+            <tbody>
+              {funnel.stages.map((stage) => {
+                const share = started > 0 ? stage.count / started : 0
+                const heavy = stage.fromPrevious != null && stage.fromPrevious < 0.5
+                return (
+                  <tr key={stage.key} className="border-b border-slate-100 last:border-0 dark:border-slate-800">
+                    <td className="py-2 pr-3">
+                      <div className="font-medium text-slate-900 dark:text-slate-100">{stage.label}</div>
+                      <div className="mt-1 h-1.5 w-32 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                        <div className="h-full rounded-full bg-brand-500" style={{ width: `${Math.round(share * 100)}%` }} />
+                      </div>
+                    </td>
+                    <td className="py-2 pr-3 text-right tabular-nums text-slate-700 dark:text-slate-300">
+                      {stage.count.toLocaleString()}
+                    </td>
+                    <td className="py-2 pr-3 text-right tabular-nums text-slate-500 dark:text-slate-400">
+                      {formatPercent(share)}
+                    </td>
+                    <td
+                      className={`py-2 pr-3 text-right tabular-nums font-medium ${
+                        heavy ? 'text-red-600 dark:text-red-400' : 'text-slate-700 dark:text-slate-300'
+                      }`}
+                    >
+                      {formatPercent(stage.fromPrevious)}
+                    </td>
+                    <td className="py-2 text-right tabular-nums text-slate-700 dark:text-slate-300">
+                      {stage.key === 'started' ? '—' : stage.abandoned.toLocaleString()}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+        <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+          Recorded in ClearCaseIQ's own database; nothing here is sent to Google or Meta. A visit is one
+          browser tab opening a fresh assessment.
+          {funnel.unlinkedLeads > 0 &&
+            ` ${funnel.unlinkedLeads.toLocaleString()} lead${funnel.unlinkedLeads === 1 ? '' : 's'} in this window had no recorded visit (resumed drafts, or from before visits were recorded) and are not counted here.`}
+        </p>
+      </div>
+
+      <StageBreakdownTable title="By entry page" rows={funnel.byEntry} />
+      <StageBreakdownTable title="By device" rows={funnel.byDevice} capitalize />
+    </div>
+  )
+}
+
+/** Each group's stage counts in one row, so the pages or devices that leak most stand out. */
+function StageBreakdownTable({
+  title,
+  rows,
+  capitalize,
+}: {
+  title: string
+  rows: AdminIntakeStageBreakdown[]
+  capitalize?: boolean
+}) {
+  if (rows.length === 0) return null
+  const headers = rows[0].stages.slice(1)
+  return (
+    <div>
+      <h3 className="mb-2 text-sm font-semibold text-slate-900 dark:text-white">{title}</h3>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[640px] text-sm">
+          <thead>
+            <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:text-slate-400">
+              <th className="pb-2 pr-3 font-medium">{capitalize ? 'Device' : 'Entry page'}</th>
+              <th className="pb-2 pr-3 text-right font-medium">Started</th>
+              {headers.map((stage) => (
+                <th key={stage.key} className="pb-2 pr-3 text-right font-medium">
+                  {stage.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.group} className="border-b border-slate-100 last:border-0 dark:border-slate-800">
+                <td className={`py-2 pr-3 font-medium text-slate-900 dark:text-slate-100 ${capitalize ? 'capitalize' : ''}`}>
+                  {row.group}
+                </td>
+                <td className="py-2 pr-3 text-right tabular-nums text-slate-700 dark:text-slate-300">
+                  {row.started.toLocaleString()}
+                </td>
+                {row.stages.slice(1).map((stage) => (
+                  <td key={stage.key} className="py-2 pr-3 text-right tabular-nums text-slate-700 dark:text-slate-300">
+                    {stage.count.toLocaleString()}
+                    <span className="ml-1 text-xs text-slate-500 dark:text-slate-400">
+                      {formatPercent(row.started > 0 ? stage.count / row.started : null)}
+                    </span>
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }
