@@ -28,6 +28,7 @@ vi.mock('./lib/auth', () => {
       next()
     },
     requireRole: () => (_req: any, _res: any, next: any) => next(),
+    authMiddlewareAllowPendingMfa: (_req: any, _res: any, next: any) => next(),
     AuthRequest: {},
   }
 })

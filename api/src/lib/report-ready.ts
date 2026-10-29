@@ -19,6 +19,7 @@ import { prisma } from './prisma'
 import { logger } from './logger'
 import { sendClaimEmail } from './claims'
 import { sendSms } from './sms'
+import { hasSmsConsent } from './sms-consent'
 import { webUrl } from './app-url'
 import {
   DEFAULT_NOTIFICATION_TIMING,
@@ -65,7 +66,7 @@ export async function sendReportReady(lead: {
         cta: { label: 'View your case report', url: link },
       })
     }
-    if (lead.phone) {
+    if (lead.phone && (await hasSmsConsent(lead.phone))) {
       await sendSms(lead.phone, `ClearCaseIQ: your case report is ready. View it here: ${link}`)
     }
   } catch (error) {

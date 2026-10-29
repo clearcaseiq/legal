@@ -9,6 +9,7 @@ import type { CreateNotificationEventInput } from './notification-events'
 import { sendSms } from './sms'
 import { sendExpoPushNotifications } from './expo-push'
 import { sendTransactionalEmail, type EmailCta } from './claims'
+import { adminEmailList } from './admin-access'
 
 const MAX_RESENDS_PER_24H = 3
 
@@ -437,10 +438,7 @@ export async function notifyAdmins(input: {
   assessmentId?: string | null
 }): Promise<number> {
   try {
-    const envEmails = (process.env.ADMIN_EMAILS || 'admin@caseiq.com')
-      .split(',')
-      .map((e) => e.trim().toLowerCase())
-      .filter(Boolean)
+    const envEmails = adminEmailList()
 
     const adminUsers = await prisma.user.findMany({
       where: { role: 'admin' },

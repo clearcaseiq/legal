@@ -7,15 +7,10 @@ import {
   getCurrentVersionsMap,
 } from './consent-templates'
 import { AuthRequest } from './auth'
+import { adminEmailList } from './admin-access'
 
 function adminEmailSet(): Set<string> {
-  const raw = ENV.ADMIN_EMAILS || 'admin@caseiq.com'
-  return new Set(
-    raw
-      .split(',')
-      .map((s) => s.trim().toLowerCase())
-      .filter(Boolean)
-  )
+  return new Set(adminEmailList())
 }
 
 export function isGuestCaseUserEmail(email: string): boolean {

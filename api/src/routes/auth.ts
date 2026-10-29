@@ -9,8 +9,8 @@ import { prisma } from '../lib/prisma'
 import { logger } from '../lib/logger'
 import { replicateUploads } from '../lib/object-storage'
 import { UserRegister, UserLogin, UserUpdate, PasswordResetRequest, PasswordReset } from '../lib/validators'
-import { generateToken, authMiddleware, AuthRequest } from '../lib/auth'
-import { isAdminUser, resolveAdminCapabilities } from '../lib/admin-access'
+import { issueSessionToken, requiresMfa, authMiddleware, AuthRequest } from '../lib/auth'
+import { isAdminEmail, isAdminUser, resolveAdminCapabilities } from '../lib/admin-access'
 import { canWorkCaseAssistance, isCaseAssistanceManager, isSpecialistRole } from '../lib/specialist-access'
 import { adoptGuestCasesByEmail } from '../lib/guest-case-adoption'
 import { sendClaimEmail } from '../lib/claims'
@@ -34,6 +34,32 @@ async function findActiveFirmMembership(userId: string) {
 }
 
 const router = Router()
+
+/**
+ * An address on the ADMIN_EMAILS allowlist cannot be claimed by self-service
+ * signup or an email change. Admin rights follow the address, so whoever set
+ * the password on it would hold them once the real owner clicked a verification
+ * link. The owner gets in through "Forgot your password?", which proves the
+ * inbox and sets the password in the same step.
+ */
+const RESERVED_EMAIL_RESPONSE = {
+  error: 'This email address is reserved. If it is yours, use "Forgot your password?" to set up access.',
+  code: 'EMAIL_RESERVED',
+}
+
+/**
+ * Privileged accounts (admin, attorney, firm staff, specialist) may not sign in
+ * on an unproven address. A fresh link goes out with the refusal so the person
+ * locked out can fix it themselves.
+ */
+function rejectUnverifiedEmail(res: any, user: { id: string; email: string; firstName?: string | null }) {
+  void issueEmailVerification({ id: user.id, email: user.email, firstName: user.firstName ?? null })
+  logger.warn('Sign-in refused: email not verified', { userId: user.id })
+  return res.status(403).json({
+    error: `Please verify your email address before signing in. We just sent a new verification link to ${user.email}.`,
+    code: 'EMAIL_NOT_VERIFIED',
+  })
+}
 
 function parseStringArrayField(raw: string | null | undefined): string[] {
   if (!raw?.trim()) return []
@@ -62,7 +88,7 @@ async function buildInviteSession(userId: string) {
     actor: { id: user.id, role: membership.role === 'attorney' ? 'attorney' : 'staff' },
     properties: { method: 'invite' },
   })
-  const token = generateToken(user.id)
+  const token = issueSessionToken(user)
   const userPayload = {
     id: user.id,
     email: user.email,
@@ -119,6 +145,11 @@ router.post('/register', async (req, res) => {
 
     const { email, password, firstName, lastName, phone, claimTokens } = parsed.data
 
+    if (isAdminEmail(email)) {
+      logger.warn('Registration refused: reserved admin email', { email })
+      return res.status(403).json(RESERVED_EMAIL_RESPONSE)
+    }
+
     // Check if user already exists
     const existingUser = await prisma.user.findUnique({
       where: { email }
@@ -170,8 +201,13 @@ router.post('/register', async (req, res) => {
           select: userSelect,
         })
 
-    // Generate token
-    const token = generateToken(user.id)
+    const token = issueSessionToken({
+      id: user.id,
+      email: user.email,
+      role: existingUser?.role ?? 'client',
+      emailVerified: existingUser?.emailVerified ?? false,
+      sessionVersion: existingUser?.sessionVersion ?? 0,
+    })
 
     logger.info(existingUser ? 'Provisional account upgraded via registration' : 'User registered', { userId: user.id, email: user.email })
 
@@ -278,6 +314,12 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials' })
     }
 
+    // Unverified, an allowlisted address is not an admin (see isAdminUser), and
+    // letting it through would land the owner on an empty plaintiff dashboard.
+    if (isAdminEmail(user.email) && !user.emailVerified) {
+      return rejectUnverifiedEmail(res, user)
+    }
+
     // Check if user is an attorney — they should use attorney login unless this is an admin email (admin UI uses the same /login endpoint)
     const attorney = await prisma.attorney.findUnique({
       where: { email: user.email }
@@ -327,8 +369,7 @@ router.post('/login', async (req, res) => {
       await adoptGuestCasesByEmail(user.id, user.email)
     }
 
-    // Generate token
-    const token = generateToken(user.id)
+    const token = issueSessionToken(user)
 
     logger.info('User logged in', { userId: user.id, email: user.email })
 
@@ -345,6 +386,7 @@ router.post('/login', async (req, res) => {
         createdAt: user.createdAt
       },
       token,
+      mfaRequired: requiresMfa(user),
       isAttorney: false
     })
   } catch (error) {
@@ -368,7 +410,17 @@ router.post('/request-password-reset', async (req, res) => {
     }
 
     const { email } = parsed.data
-    const user = await prisma.user.findUnique({ where: { email } })
+    let user = await prisma.user.findUnique({ where: { email } })
+
+    // The only way into an allowlisted address that has no account yet, since
+    // registration refuses it. The link goes to that inbox, so only its owner
+    // can finish.
+    if (!user && isAdminEmail(email)) {
+      user = await prisma.user.create({
+        data: { email, firstName: '', lastName: '', emailVerified: false },
+      })
+      logger.info('Created account shell for allowlisted admin email', { userId: user.id })
+    }
 
     // No user, inactive user, or OAuth-only account (google/apple) → silently no-op.
     // Intake-provisional accounts (provider === 'intake', no password yet) ARE
@@ -466,10 +518,12 @@ router.post('/reset-password', async (req, res) => {
 
     // Set the password and consume the token atomically. Proving control of the
     // inbox also verifies the email, and upgrades a provider to 'local' login.
+    // Bumping the session version signs out every device: a reset is usually
+    // the response to a password someone else may know.
     await prisma.$transaction([
       prisma.user.update({
         where: { id: record.userId },
-        data: { passwordHash, provider: 'local', emailVerified: true },
+        data: { passwordHash, provider: 'local', emailVerified: true, sessionVersion: { increment: 1 } },
       }),
       prisma.passwordResetToken.update({
         where: { id: record.id },
@@ -591,12 +645,18 @@ router.post('/attorney-login', async (req, res) => {
       })
     }
 
+    if (!user.emailVerified) {
+      return rejectUnverifiedEmail(res, user)
+    }
+
     await activateAcceptedInvites(prisma as any, { userId: user.id })
 
-    // Update last login
+    // MFA is enforced on the stored role, and attorneys created before signup
+    // set it still carry the default 'client'.
+    const role = !user.role || user.role === 'client' ? 'attorney' : user.role
     await prisma.user.update({
       where: { id: user.id },
-      data: { lastLoginAt: new Date() },
+      data: { lastLoginAt: new Date(), ...(role !== user.role ? { role } : {}) },
     })
     recordAttorneyActivity({
       action: 'login',
@@ -606,8 +666,7 @@ router.post('/attorney-login', async (req, res) => {
       properties: { method: 'password' },
     })
 
-    // Generate token
-    const token = generateToken(user.id)
+    const token = issueSessionToken({ ...user, role })
 
     logger.info('Attorney logged in', { userId: user.id, attorneyId: attorney.id, email: user.email })
 
@@ -628,6 +687,7 @@ router.post('/attorney-login', async (req, res) => {
         venues: parseStringArrayField(attorney.venues),
       },
       token,
+      mfaRequired: requiresMfa({ ...user, role }),
       isAttorney: true
     })
   } catch (error) {
@@ -672,6 +732,10 @@ router.post('/staff-login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials' })
     }
 
+    if (!user.emailVerified) {
+      return rejectUnverifiedEmail(res, user)
+    }
+
     await activateAcceptedInvites(prisma as any, { userId: user.id })
     const membership = await findActiveFirmMembership(user.id)
     if (!membership) {
@@ -700,7 +764,7 @@ router.post('/staff-login', async (req, res) => {
       actor: { id: user.id, role: membership.role === 'attorney' ? 'attorney' : 'staff' },
       properties: { method: 'password' },
     })
-    const token = generateToken(user.id)
+    const token = issueSessionToken(user)
 
     logger.info('Firm staff logged in', {
       userId: user.id,
@@ -725,6 +789,7 @@ router.post('/staff-login', async (req, res) => {
         permissions: permissionsForMember(membership.role, membership.lawFirm?.rolePermissions, membership.permissions),
       },
       token,
+      mfaRequired: requiresMfa(user),
       role: 'staff',
     })
   } catch (error) {
@@ -770,8 +835,12 @@ router.post('/specialist-login', async (req, res) => {
       })
     }
 
+    if (!user.emailVerified) {
+      return rejectUnverifiedEmail(res, user)
+    }
+
     await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } })
-    const token = generateToken(user.id)
+    const token = issueSessionToken(user)
 
     logger.info('Specialist logged in', { userId: user.id, role: user.role })
 
@@ -785,6 +854,7 @@ router.post('/specialist-login', async (req, res) => {
         createdAt: user.createdAt,
       },
       token,
+      mfaRequired: requiresMfa(user),
       role: 'specialist',
     })
   } catch (error) {
@@ -1047,6 +1117,10 @@ router.put('/me', authMiddleware, async (req: AuthRequest, res) => {
     })
     const movingEmail = Boolean(requestedEmail && current && requestedEmail !== current.email)
     if (movingEmail) {
+      if (isAdminEmail(requestedEmail!)) {
+        logger.warn('Email change refused: reserved admin email', { userId: req.user!.id })
+        return res.status(403).json(RESERVED_EMAIL_RESPONSE)
+      }
       const taken = await prisma.user.findUnique({ where: { email: requestedEmail! }, select: { id: true } })
       if (taken && taken.id !== req.user!.id) {
         return res.status(409).json({ error: 'Another account already uses that email address.' })
@@ -1222,15 +1296,17 @@ router.put('/change-password', authMiddleware, async (req: AuthRequest, res) => 
     // Hash new password
     const passwordHash = await bcrypt.hash(newPassword, 12)
 
-    // Update password
-    await prisma.user.update({
+    // Every other device is signed out; this one gets a fresh token so the
+    // person who just changed it is not.
+    const updated = await prisma.user.update({
       where: { id: user.id },
-      data: { passwordHash }
+      data: { passwordHash, sessionVersion: { increment: 1 } },
     })
+    const token = issueSessionToken(updated, { mfaVerified: Boolean((req as any).authSession?.mfaVerified) })
 
     logger.info('Password changed', { userId: user.id })
 
-    res.json({ message: 'Password changed successfully' })
+    res.json({ message: 'Password changed successfully', token })
   } catch (error) {
     logger.error('Change password failed', { error })
     res.status(500).json({ error: 'Failed to change password' })

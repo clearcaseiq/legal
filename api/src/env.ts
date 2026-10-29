@@ -197,9 +197,25 @@ export const ENV = {
   /** Optional SES configuration set for engagement/bounce tracking. */
   SES_CONFIGURATION_SET: process.env.SES_CONFIGURATION_SET,
   /** Comma-separated emails treated as admin in JWT role resolution */
-  ADMIN_EMAILS: process.env.ADMIN_EMAILS ?? 'admin@caseiq.com',
-  /** When true, sensitive plaintiff routes require user.emailVerified */
-  REQUIRE_EMAIL_VERIFICATION: process.env.REQUIRE_EMAIL_VERIFICATION === 'true',
+  /**
+   * No default in production: the dev fallback is on a domain we do not own, and
+   * whoever controls an allowlisted inbox controls admin.
+   */
+  ADMIN_EMAILS: process.env.ADMIN_EMAILS ?? (process.env.NODE_ENV === 'production' ? '' : 'admin@caseiq.com'),
+  /**
+   * When true, sensitive plaintiff routes require user.emailVerified. On unless
+   * explicitly 'false'. Admin, attorney, staff and specialist sign-in requires a
+   * verified email regardless of this flag.
+   */
+  REQUIRE_EMAIL_VERIFICATION: process.env.REQUIRE_EMAIL_VERIFICATION !== 'false',
+  /**
+   * Roles (as resolved by `resolveUserRole`) that must complete TOTP MFA before
+   * their session token reaches anything but the MFA endpoints.
+   */
+  MFA_REQUIRED_ROLES: (process.env.MFA_REQUIRED_ROLES ?? 'admin,attorney')
+    .split(',')
+    .map((role) => role.trim().toLowerCase())
+    .filter(Boolean),
   // ---- Recorded calls (Amazon Connect + Contact Lens + Transcribe) ----
   /**
    * Region the Amazon Connect instance lives in. This is often different from

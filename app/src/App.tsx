@@ -2,6 +2,7 @@ import { Suspense, lazy, useEffect, type ReactNode } from 'react'
 import dynamic from 'next/dynamic'
 import { Routes, Route, Navigate, Link, useLocation, useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import Layout from './components/Layout'
+import MfaPrompt from './components/MfaPrompt'
 import ErrorBoundary from './components/ErrorBoundary'
 import { RedirectToHubTab } from './features/shared/HubTabs'
 import { GuestRoute, ProtectedRoute } from './components/AuthRoute'
@@ -510,6 +511,7 @@ function App() {
   return (
     <ErrorBoundary>
       <AnalyticsBoundary />
+      <MfaPrompt />
       <RouteTitleSync />
       <Layout>
         <RouteErrorBoundary>

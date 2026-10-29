@@ -11,6 +11,7 @@ import {
   ADMIN_CAPABILITIES,
 } from '../lib/admin-access'
 import { writeAdminAudit } from '../lib/admin-audit'
+import { resetMfa } from '../lib/mfa'
 import { parsePagination, paginated } from '../lib/pagination'
 import { prismaAny } from './admin-shared'
 import { sendClaimEmail } from '../lib/claims'
@@ -90,6 +91,7 @@ router.get('/users', authMiddleware, adminMiddleware, requireAdminCapability('us
           role: true,
           isActive: true,
           adminCapabilities: true,
+          mfaEnabledAt: true,
           createdAt: true,
           updatedAt: true,
         },
@@ -100,8 +102,9 @@ router.get('/users', authMiddleware, adminMiddleware, requireAdminCapability('us
       prismaAny.user.count({ where }),
     ])
 
-    const data = users.map((user: any) => ({
+    const data = users.map(({ mfaEnabledAt, ...user }: any) => ({
       ...user,
+      mfaEnrolled: Boolean(mfaEnabledAt),
       capabilities:
         user.role === 'admin'
           ? resolveAdminCapabilities(user)
@@ -184,6 +187,29 @@ router.patch('/users/:userId/role', authMiddleware, adminMiddleware, requireAdmi
     })
   } catch (error) {
     logger.error('Failed to update user role', { error, userId: req.params.userId })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+// Clear a user's two-step verification so they enroll again at next sign-in
+// (lost phone and no recovery codes). Signs them out everywhere.
+router.post('/users/:userId/mfa/reset', authMiddleware, adminMiddleware, requireAdminCapability('users'), async (req: AuthRequest, res) => {
+  try {
+    const { userId } = req.params
+    const target = await prismaAny.user.findUnique({ where: { id: userId }, select: { id: true, email: true } })
+    if (!target) {
+      return res.status(404).json({ error: 'User not found' })
+    }
+    await resetMfa(userId, req.user!.id, req.ip)
+    await writeAdminAudit(req, {
+      action: 'user_mfa_reset',
+      entityType: 'user',
+      entityId: userId,
+      metadata: { targetEmail: target.email },
+    })
+    res.json({ success: true })
+  } catch (error) {
+    logger.error('Failed to reset user MFA', { error, userId: req.params.userId })
     res.status(500).json({ error: 'Internal server error' })
   }
 })

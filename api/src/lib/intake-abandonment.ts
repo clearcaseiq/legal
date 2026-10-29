@@ -2,6 +2,7 @@ import { prisma } from './prisma'
 import { logger } from './logger'
 import { sendClaimEmail } from './claims'
 import { sendSms } from './sms'
+import { hasSmsConsent } from './sms-consent'
 import { webUrl } from './app-url'
 import {
   getIntakeAbandonmentAfterMinutes,
@@ -95,7 +96,7 @@ export async function sweepAbandonedIntakeLeads(): Promise<{ scanned: number; se
           cta: { label: 'Finish your assessment', url: link },
         })
       }
-      if (lead.phone) {
+      if (lead.phone && (await hasSmsConsent(lead.phone))) {
         await sendSms(lead.phone, `ClearCaseIQ: your case assessment is unfinished. Your answers are saved: ${link}`)
       }
       await prisma.intakeLead.update({

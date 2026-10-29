@@ -27,6 +27,7 @@ vi.mock('./lib/auth', () => {
     requireRole: () => (_req: any, _res: any, next: any) => next(),
     generateToken: vi.fn(),
     verifyToken: vi.fn(),
+    authMiddlewareAllowPendingMfa: (_req: any, _res: any, next: any) => next(),
   }
 })
 

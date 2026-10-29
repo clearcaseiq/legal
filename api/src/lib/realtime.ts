@@ -22,7 +22,7 @@ import { createAdapter as createRedisAdapter } from '@socket.io/redis-adapter'
 import { createAdapter as createPostgresAdapter } from '@socket.io/postgres-adapter'
 import { Pool, type PoolConfig } from 'pg'
 import { createClient } from 'redis'
-import { verifyToken } from './auth'
+import { resolveSession } from './auth'
 import { prisma } from './prisma'
 import { logger } from './logger'
 import { canWorkCaseAssistance } from './specialist-access'
@@ -96,12 +96,9 @@ export function initRealtime(httpServer: HttpServer): Server {
     try {
       const token = typeof socket.handshake.auth?.token === 'string' ? socket.handshake.auth.token : ''
       if (!token) return next(new Error('unauthorized'))
-      const { userId } = verifyToken(token)
-      const user = await prisma.user.findUnique({
-        where: { id: userId },
-        select: { id: true, email: true, isActive: true, role: true },
-      })
-      if (!user || !user.isActive) return next(new Error('unauthorized'))
+      const session = await resolveSession(token)
+      if (!session.ok) return next(new Error('unauthorized'))
+      const user = session.user
       socket.data.userId = user.id
       socket.data.email = user.email
       socket.data.caseAssistance = canWorkCaseAssistance(user)

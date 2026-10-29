@@ -39,6 +39,20 @@ model User {
   /// Null/empty means full access for role=admin (backward compatible).
   /// ADMIN_EMAILS allowlist always receives every capability.
   adminCapabilities String?
+  /// Embedded in every session token. Incrementing it invalidates all
+  /// outstanding tokens (password reset/change, MFA reset).
+  sessionVersion    Int       @default(0)
+  /// TOTP secret, encrypted at rest (`encryptSecret`). Set once enrollment is confirmed.
+  mfaSecret         String?
+  /// Secret issued by /mfa/setup and not yet confirmed with a code.
+  mfaPendingSecret  String?
+  mfaEnabledAt      DateTime?
+  /// JSON array of SHA-256 hashes of unused recovery codes.
+  mfaRecoveryCodes  String?   @db.Text
+  /// Last accepted TOTP time step, so a code cannot be replayed within its window.
+  mfaLastUsedStep   Int?
+  mfaFailedAttempts Int       @default(0)
+  mfaLockedUntil    DateTime?
   lastLoginAt       DateTime?
   /// Last heartbeat from an open, visible web session. Drives the "online" dot a
   /// plaintiff and their attorney see of each other.
@@ -216,12 +230,17 @@ model Consent {
   // authorization to disclose to three firms is not one to disclose to any firm.
   metadata String? @db.Text
 
+  // E.164 (`optOutKey`). Set for 'sms' consents, which attach to a number that
+  // often has no User or Assessment yet.
+  phone String?
+
   // Audit trail
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([userId])
   @@index([assessmentId, consentType])
+  @@index([phone, consentType])
   @@map("consents")
 }
 

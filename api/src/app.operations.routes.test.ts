@@ -78,6 +78,7 @@ vi.mock('./lib/auth', () => {
     },
     generateToken: vi.fn(),
     verifyToken: vi.fn(),
+    authMiddlewareAllowPendingMfa: (_req: any, _res: any, next: any) => next(),
   }
   it('GET /v1/assessments/:id/document-requests returns plaintiff task inbox payload', async () => {
     vi.mocked(prisma.assessment.findUnique).mockResolvedValue({

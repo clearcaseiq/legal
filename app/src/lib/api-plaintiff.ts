@@ -92,6 +92,8 @@ export interface IntakeLeadPayload {
   formSnapshot?: Record<string, unknown>
   assessmentId?: string
   status?: 'in_progress' | 'completed'
+  /** Which SMS disclosure version and language were shown beside the phone field. */
+  smsConsent?: { version: string; locale: string }
 }
 
 /**

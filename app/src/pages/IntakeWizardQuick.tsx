@@ -53,6 +53,8 @@ import {
 // (CONSENT_TEMPLATES.hipaa) so the recorded authorization is traceable.
 // Fallback only — prefer the live template version from fetchPublicConsentTemplate.
 const HIPAA_CONSENT_VERSION = '1.1'
+/** Version of the `contact_smsConsent` disclosure; must exist in api/src/lib/sms-consent.ts. */
+const SMS_CONSENT_VERSION = '1.0'
 // PHI-bearing document types gated behind health-info authorization. Medical bills
 // reveal treatment/diagnosis, so they carry PHI just like medical records.
 const HIPAA_UPLOAD_CATEGORIES = ['medical_records', 'bills']
@@ -1796,6 +1798,9 @@ export default function IntakeWizardQuick() {
         venueCounty: formData.venue.county,
         currentStep,
         formSnapshot: buildLeadSnapshot(),
+        // The SMS disclosure renders unconditionally beside the phone field, so
+        // any number sent from here was entered under it.
+        ...(phone ? { smsConsent: { version: SMS_CONSENT_VERSION, locale: language } } : {}),
         ...overrides,
       }
       if (leadIdRef.current) {
@@ -3773,7 +3778,9 @@ export default function IntakeWizardQuick() {
           {errors.contactPhone && (
             <p className="text-xs text-red-600">{errors.contactPhone}</p>
           )}
-        {/* SMS consent — documents opt-in for A2P/toll-free compliance. */}
+        {/* SMS consent — documents opt-in for A2P/toll-free compliance. Changing
+            this wording means bumping SMS_CONSENT_VERSION and adding the new
+            text to api/src/lib/sms-consent.ts. */}
         <p className="mt-1 whitespace-pre-line text-[11px] leading-snug text-gray-400 sm:max-w-3xl">
           {tx('contact_smsConsent')}{' '}
           <a href="/terms-of-service" target="_blank" rel="noopener noreferrer" className="font-semibold underline underline-offset-2 hover:text-gray-600">{tx('contact_smsConsentTerms')}</a>

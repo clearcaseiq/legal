@@ -99,12 +99,22 @@ describe('runReportReadySweep', () => {
     expect(updateFor('lead-1').data).toEqual({ reportReadyDueAt: null })
   })
 
-  it('texts the link too when a phone number was captured', async () => {
+  it('texts the link too when the captured number consented to texts', async () => {
     givenDue([{ id: 'lead-1', phone: '+15551234567', assessmentId: 'asm-1' }])
+    vi.mocked(prisma.consent.findFirst).mockResolvedValue({ id: 'sms-consent-1' })
 
     await runReportReadySweep()
 
     expect(sendSms).toHaveBeenCalledWith('+15551234567', expect.stringContaining('/results/asm-1'))
+  })
+
+  it('does not text a captured number with no SMS consent on record', async () => {
+    givenDue([{ id: 'lead-1', phone: '+15551234567', assessmentId: 'asm-1' }])
+
+    await runReportReadySweep()
+
+    expect(sendSms).not.toHaveBeenCalled()
+    expect(sendClaimEmail).toHaveBeenCalled()
   })
 
   it('drops a queued email whose lead never got an assessment', async () => {

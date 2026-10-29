@@ -20,7 +20,9 @@ import bcrypt from 'bcryptjs'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma'
 import { logger } from '../lib/logger'
-import { authMiddleware, requireRole, generateToken } from '../lib/auth'
+import { authMiddleware, requireRole, issueSessionToken } from '../lib/auth'
+import { isAdminEmail } from '../lib/admin-access'
+import { issueEmailVerification } from '../lib/email-verification'
 import { sendSms } from '../lib/sms'
 import {
   CLAIM_CODE_TTL_MINUTES,
@@ -405,6 +407,11 @@ router.post('/complete', async (req, res) => {
     return res.status(422).json({ error: 'An email address is required to create your login.', code: 'EMAIL_REQUIRED' })
   }
 
+  if (isAdminEmail(email)) {
+    logger.warn('Profile claim refused: reserved admin email', { attorneyId: attorney.id })
+    return res.status(403).json({ error: 'This email address is reserved.', code: 'EMAIL_RESERVED' })
+  }
+
   const existingUser = await prisma.user.findUnique({ where: { email } })
   if (existingUser) {
     return res.status(409).json({
@@ -412,6 +419,11 @@ router.post('/complete', async (req, res) => {
       code: 'ACCOUNT_EXISTS',
     })
   }
+
+  // The claim proves this inbox only when its code was emailed to this very
+  // address. An SMS or bar-number claim, or an email typed in at this step,
+  // proves nothing about the inbox.
+  const emailProven = claim.method === 'email' && (attorney.email || '').trim().toLowerCase() === email
 
   const passwordHash = await bcrypt.hash(parsed.data.password, 12)
 
@@ -423,7 +435,7 @@ router.post('/complete', async (req, res) => {
         firstName: parsed.data.firstName,
         lastName: parsed.data.lastName,
         phone: attorney.phone ?? null,
-        emailVerified: true, // ownership proven via the claim flow
+        emailVerified: emailProven,
         isActive: true,
         role: 'attorney',
       },
@@ -484,7 +496,8 @@ router.post('/complete', async (req, res) => {
     return { user }
   })
 
-  const token = generateToken(result.user.id)
+  if (!emailProven) void issueEmailVerification(result.user, { welcome: true })
+  const token = issueSessionToken(result.user)
   logger.info('Attorney profile claimed', { attorneyId: attorney.id, userId: result.user.id })
 
   return res.status(201).json({

@@ -53,13 +53,27 @@ afterEach(() => {
 })
 
 const created = () => vi.mocked(prisma.intakeLead.create).mock.calls.map((call) => (call[0] as any).data)
+const consentsCreated = () => vi.mocked(prisma.consent.create).mock.calls.map((call) => (call[0] as any).data)
+
+/** Consent lookups see whatever this test has recorded so far. */
+function consentTableReflectsWrites() {
+  vi.mocked(prisma.consent.findFirst).mockImplementation(async () =>
+    consentsCreated().length ? { id: 'consent-1', metadata: consentsCreated()[0].metadata } : null
+  )
+}
 
 describe('a first-time contact', () => {
   it('creates the lead with the client IP and sends the resume link', async () => {
+    consentTableReflectsWrites()
     const res = await request(app)
       .post('/v1/intake-leads')
       .set('X-Forwarded-For', '203.0.113.7')
-      .send({ email: 'New@Example.com', phone: '(415) 555-0100', currentStep: 'contact' })
+      .send({
+        email: 'New@Example.com',
+        phone: '(415) 555-0100',
+        currentStep: 'contact',
+        smsConsent: { version: '1.0', locale: 'en' },
+      })
     await settle()
 
     expect(res.status).toBe(201)
@@ -73,6 +87,55 @@ describe('a first-time contact', () => {
     })
     expect(sendClaimEmailMock).toHaveBeenCalledTimes(1)
     expect(sendSmsMock).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('SMS consent', () => {
+  it('records the exact disclosure, number, IP and browser before the first text', async () => {
+    consentTableReflectsWrites()
+    await request(app)
+      .post('/v1/intake-leads')
+      .set('X-Forwarded-For', '203.0.113.7')
+      .set('User-Agent', 'Mozilla/5.0 test')
+      .send({ phone: '(415) 555-0100', currentStep: 'contact', smsConsent: { version: '1.0', locale: 'es' } })
+    await settle()
+
+    expect(consentsCreated()).toHaveLength(1)
+    const consent = consentsCreated()[0]
+    expect(consent).toMatchObject({
+      consentType: 'sms',
+      phone: '+14155550100',
+      version: '1.0',
+      granted: true,
+      ipAddress: '203.0.113.7',
+      userAgent: 'Mozilla/5.0 test',
+    })
+    expect(consent.consentText).toContain('Al agregar su teléfono')
+    expect(consent.grantedAt).toBeInstanceOf(Date)
+    expect(JSON.parse(consent.metadata)).toMatchObject({ locale: 'es', source: 'intake_quick', intakeLeadId: 'mock-id' })
+    expect(sendSmsMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('sends no text to a number with no recorded consent', async () => {
+    const res = await request(app)
+      .post('/v1/intake-leads')
+      .send({ email: 'someone@example.com', phone: '(415) 555-0100', currentStep: 'contact' })
+    await settle()
+
+    expect(res.status).toBe(201)
+    expect(consentsCreated()).toHaveLength(0)
+    expect(sendClaimEmailMock).toHaveBeenCalledTimes(1)
+    expect(sendSmsMock).not.toHaveBeenCalled()
+  })
+
+  it('does not record a consent for a disclosure version the server does not know', async () => {
+    await request(app)
+      .post('/v1/intake-leads')
+      .send({ phone: '(415) 555-0100', currentStep: 'contact', smsConsent: { version: '9.9', locale: 'en' } })
+    await settle()
+
+    expect(consentsCreated()).toHaveLength(0)
+    expect(sendSmsMock).not.toHaveBeenCalled()
   })
 })
 

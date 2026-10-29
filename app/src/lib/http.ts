@@ -1,5 +1,6 @@
 import { clearStoredAuth, getLoginRedirect } from './auth'
 import { apiDebug } from './debug'
+import { requestMfa } from './mfa-prompt'
 import { getApiOrigin } from './runtimeEnv'
 
 // Resolve per request (same-origin proxy on local/LAN). Keep a `baseURL`
@@ -293,6 +294,18 @@ async function request<T = any>(method: string, url: string, data?: unknown, con
         attemptNumber += 1
         await delay(backoff)
         continue
+      }
+
+      const errBody = error.response?.data as { code?: string; mfaEnrolled?: boolean } | undefined
+      if (
+        error.response?.status === 401 &&
+        errBody?.code === 'MFA_REQUIRED' &&
+        !url.includes('/v1/auth/mfa/') &&
+        typeof window !== 'undefined'
+      ) {
+        if (await requestMfa({ enrolled: Boolean(errBody.mfaEnrolled) })) {
+          return request<T>(method, url, data, config)
+        }
       }
 
       return handleRequestError(error, { method, url })

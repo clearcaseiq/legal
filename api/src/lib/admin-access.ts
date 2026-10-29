@@ -14,7 +14,7 @@ export function isAdminEmail(email: string): boolean {
 
 /** Parsed ADMIN_EMAILS, trimmed + lowercased so callers can't disagree on the same env value. */
 export function adminEmailList(): string[] {
-  return (ENV.ADMIN_EMAILS ?? 'admin@caseiq.com')
+  return (ENV.ADMIN_EMAILS ?? '')
     .split(',')
     .map((e) => e.trim().toLowerCase())
     .filter(Boolean)
@@ -25,20 +25,32 @@ type AdminCandidate = {
   email?: string | null
   role?: string | null
   adminCapabilities?: string | string[] | null
+  emailVerified?: boolean | null
+}
+
+/**
+ * An allowlisted address only confers admin once its owner has proven control
+ * of the inbox. Otherwise anyone who registers an address before its owner does
+ * (or one added to ADMIN_EMAILS ahead of signup) becomes an admin.
+ * Every authentication path loads `emailVerified`; only display-only callers
+ * omit it.
+ */
+function hasVerifiedAllowlistEmail(user: AdminCandidate): boolean {
+  const email = (user.email || '').trim()
+  return Boolean(email) && isAdminEmail(email) && user.emailVerified !== false
 }
 
 /**
  * Single source of truth for "is this user an admin".
  *
  * Two paths grant access, in this order:
- *  1. `ADMIN_EMAILS` env allowlist — bootstrap / break-glass access that works even
- *     when no DB row has the role yet.
+ *  1. `ADMIN_EMAILS` env allowlist (verified email only) — bootstrap /
+ *     break-glass access that works even when no DB row has the role yet.
  *  2. `User.role === 'admin'` — the role granted through Admin → User Roles.
  */
 export function isAdminUser(user: AdminCandidate | null | undefined): boolean {
   if (!user) return false
-  const email = (user.email || '').trim()
-  if (email && isAdminEmail(email)) return true
+  if (hasVerifiedAllowlistEmail(user)) return true
   return (user.role || '').trim().toLowerCase() === 'admin'
 }
 
@@ -73,9 +85,8 @@ export function parseAdminCapabilities(raw: string | string[] | null | undefined
  * - Otherwise the stored list is honored.
  */
 export function resolveAdminCapabilities(user: AdminCandidate | null | undefined): AdminCapability[] {
-  if (!isAdminUser(user)) return []
-  const email = (user?.email || '').trim()
-  if (email && isAdminEmail(email)) return [...ADMIN_CAPABILITIES]
+  if (!user || !isAdminUser(user)) return []
+  if (hasVerifiedAllowlistEmail(user)) return [...ADMIN_CAPABILITIES]
   const stored = parseAdminCapabilities(user?.adminCapabilities)
   if (stored.length === 0) return [...ADMIN_CAPABILITIES]
   return stored

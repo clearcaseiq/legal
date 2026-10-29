@@ -18,10 +18,10 @@ const attorneys: Record<string, { id: string; lawFirmId: string | null }> = {
 }
 
 vi.mock('./auth', () => ({
-  verifyToken: (token: string) => {
+  resolveSession: async (token: string) => {
     const user = users[token]
     if (!user) throw new Error('bad token')
-    return { userId: user.id }
+    return { ok: true, user: { ...user, role: 'user' }, mfaVerified: false, mfaPending: false }
   },
 }))
 

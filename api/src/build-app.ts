@@ -71,6 +71,7 @@ import calendarEvents from './routes/calendar-events'
 import calls from './routes/calls'
 import connectWebhook from './routes/connect-webhook'
 import { authLimiter, intakeLimiter } from './lib/rate-limits'
+import mfa from './routes/mfa'
 
 /**
  * Fully configured Express app (no listen). Used by index.ts and integration tests.
@@ -78,6 +79,7 @@ import { authLimiter, intakeLimiter } from './lib/rate-limits'
 export function buildApp(): Express {
   const app = createServer()
 
+  app.use('/v1/auth/mfa', authLimiter, mfa)
   app.use('/v1/auth', authLimiter, auth)
   app.use('/v1/favorites', favorites)
   app.use('/v1/appointments', appointments)

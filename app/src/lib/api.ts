@@ -775,6 +775,9 @@ export async function deletePlaintiffAvatar() {
 
 export async function changePassword(payload: any) {
   const { data } = await api.put('/v1/auth/change-password', payload)
+  // The change signs out every session, this one included; the reply carries
+  // its replacement.
+  if (typeof data?.token === 'string') localStorage.setItem('auth_token', data.token)
   return data
 }
 

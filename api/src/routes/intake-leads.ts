@@ -5,6 +5,7 @@ import { prisma } from '../lib/prisma'
 import { logger } from '../lib/logger'
 import { sendClaimEmail } from '../lib/claims'
 import { sendSms } from '../lib/sms'
+import { hasSmsConsent, normalizeSmsConsentLocale, recordSmsConsent } from '../lib/sms-consent'
 import { provisionAndLinkIntakeAccount } from '../lib/intake-account'
 import { scheduleReportReady } from '../lib/report-ready'
 import { webUrl } from '../lib/app-url'
@@ -73,7 +74,7 @@ async function sendResumeLink(lead: { id: string; email: string | null; phone: s
         cta: { label: 'Continue your assessment', url: link },
       })
     }
-    if (lead.phone) {
+    if (lead.phone && (await hasSmsConsent(lead.phone))) {
       await sendSms(lead.phone, `ClearCaseIQ: your case assessment is saved. Finish it any time: ${link}`)
     }
   } catch (error) {
@@ -113,7 +114,33 @@ const IntakeLeadCreate = z.object({
   attribution: AttributionInput.optional(),
   /** The `IntakeVisit` this lead grew out of. Applied on create only. */
   visitId: z.string().uuid().optional(),
+  /**
+   * Sent with a phone number: which version of the SMS disclosure was on screen
+   * beside the phone field, and in which language. The stored wording comes
+   * from the server's copy of that version.
+   */
+  smsConsent: z
+    .object({ version: z.string().trim().max(20), locale: z.string().trim().max(10).optional() })
+    .optional(),
 })
+
+async function recordLeadSmsConsent(
+  req: { ip?: string; get(name: string): string | undefined },
+  lead: { id: string; phone: string | null; userId?: string | null },
+  smsConsent: { version: string; locale?: string } | undefined
+): Promise<void> {
+  if (!lead.phone || !smsConsent) return
+  await recordSmsConsent({
+    phone: lead.phone,
+    version: smsConsent.version,
+    locale: normalizeSmsConsentLocale(smsConsent.locale),
+    source: 'intake_quick',
+    intakeLeadId: lead.id,
+    userId: lead.userId ?? null,
+    ipAddress: req.ip || null,
+    userAgent: req.get('user-agent') || null,
+  })
+}
 
 /**
  * Attribution columns for a new lead.
@@ -248,7 +275,7 @@ router.post('/', async (req, res) => {
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() })
     }
-    const { email, phone, injuryType, venueState, venueCounty, currentStep, formSnapshot, assessmentId, status, attribution, visitId } = parsed.data
+    const { email, phone, injuryType, venueState, venueCounty, currentStep, formSnapshot, assessmentId, status, attribution, visitId, smsConsent } = parsed.data
     if (!email && !phone?.trim()) {
       return res.status(400).json({ error: 'An email or phone number is required' })
     }
@@ -300,6 +327,9 @@ router.post('/', async (req, res) => {
       },
     })
 
+    // Before responding and before the resume text, which is gated on it.
+    await recordLeadSmsConsent(req, lead, smsConsent)
+
     logger.info('Intake lead captured', { leadId: lead.id, currentStep: lead.currentStep, repeat: Boolean(original) })
     res.status(201).json({ id: lead.id, ...(original ? { repeat: true } : {}) })
 
@@ -335,7 +365,7 @@ router.patch('/:id', async (req, res) => {
       return res.status(410).json({ error: 'This resume link has expired. Please start a new assessment.' })
     }
 
-    const { email, phone, injuryType, venueState, venueCounty, currentStep, formSnapshot, assessmentId, status } = parsed.data
+    const { email, phone, injuryType, venueState, venueCounty, currentStep, formSnapshot, assessmentId, status, smsConsent } = parsed.data
     const snapshot = serializeSnapshot(formSnapshot)
 
     // The assessment link is write-once. Re-pointing it would let a caller graft
@@ -365,6 +395,10 @@ router.patch('/:id', async (req, res) => {
         ...(status !== undefined ? { status } : {}),
       },
     })
+
+    if (phone !== undefined) {
+      await recordLeadSmsConsent(req, lead, smsConsent)
+    }
 
     res.json({ id: lead.id, status: lead.status })
 

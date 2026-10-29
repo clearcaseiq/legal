@@ -3,7 +3,8 @@ import passport from 'passport'
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20'
 import AppleStrategy from 'passport-apple'
 import { oauthConfig, frontendUrl } from '../config/oauth'
-import { generateToken } from '../lib/auth'
+import { issueSessionToken } from '../lib/auth'
+import { isAdminEmail } from '../lib/admin-access'
 import { logger } from '../lib/logger'
 import { prisma } from '../lib/prisma'
 
@@ -33,6 +34,10 @@ if (oauthConfig.google.clientId && oauthConfig.google.clientSecret) {
 
     if (!email) {
       return done(new Error('No email found in Google profile'), undefined)
+    }
+    if (isAdminEmail(email)) {
+      logger.warn('Google sign-in refused for reserved admin email')
+      return done(null, false)
     }
 
     // Check if user exists with this Google ID
@@ -113,6 +118,10 @@ if (oauthConfig.apple.clientId && oauthConfig.apple.teamId && oauthConfig.apple.
 
     if (!email) {
       return done(new Error('No email found in Apple profile'), undefined)
+    }
+    if (isAdminEmail(email)) {
+      logger.warn('Apple sign-in refused for reserved admin email')
+      return done(null, false)
     }
 
     // Check if user exists with this Apple ID
@@ -212,7 +221,7 @@ if (oauthConfig.google.clientId && oauthConfig.google.clientSecret) {
           return res.redirect(`${frontendUrl}/login?error=oauth_failed`)
         }
 
-        const token = generateToken(user.id)
+        const token = issueSessionToken(user)
 
         const role = getOAuthRole(req.query.state)
         res.redirect(`${frontendUrl}/auth/callback?token=${token}&provider=${user.provider}&role=${role}`)
@@ -241,7 +250,7 @@ if (oauthConfig.apple.clientId && oauthConfig.apple.teamId && oauthConfig.apple.
           return res.redirect(`${frontendUrl}/login?error=oauth_failed`)
         }
 
-        const token = generateToken(user.id)
+        const token = issueSessionToken(user)
 
         const role = getOAuthRole(req.query.state)
         res.redirect(`${frontendUrl}/auth/callback?token=${token}&provider=${user.provider}&role=${role}`)
@@ -283,13 +292,12 @@ async function findOrCreateMicrosoftUser(profile: {
     await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } })
     return user
   }
-  user = await prisma.user.findUnique({ where: { email: profile.email } })
-  if (user) {
-    return prisma.user.update({
-      where: { id: user.id },
-      data: { microsoftId: profile.id, provider: 'microsoft', lastLoginAt: new Date() },
-    })
-  }
+  // Graph's `mail` / `userPrincipalName` is whatever the signing-in tenant's
+  // admin set it to, on a multi-tenant app. It is not proof of the inbox, so it
+  // neither links to an existing account (any tenant could take over any
+  // account by naming its address) nor counts as a verified email.
+  const existing = await prisma.user.findUnique({ where: { email: profile.email }, select: { id: true } })
+  if (existing) return null
   return prisma.user.create({
     data: {
       email: profile.email,
@@ -297,7 +305,7 @@ async function findOrCreateMicrosoftUser(profile: {
       lastName: profile.lastName,
       microsoftId: profile.id,
       provider: 'microsoft',
-      emailVerified: true,
+      emailVerified: false,
       isActive: true,
       lastLoginAt: new Date(),
     },
@@ -347,8 +355,12 @@ if (microsoftConfigured) {
         return res.redirect(failRedirect)
       }
       const me: any = await meRes.json()
-      const email = me.mail || me.userPrincipalName
+      const email = String(me.mail || me.userPrincipalName || '').trim().toLowerCase()
       if (!email) return res.redirect(failRedirect)
+      if (isAdminEmail(email)) {
+        logger.warn('Microsoft sign-in refused for reserved admin email')
+        return res.redirect(failRedirect)
+      }
 
       const user = await findOrCreateMicrosoftUser({
         id: me.id,
@@ -356,8 +368,12 @@ if (microsoftConfigured) {
         firstName: me.givenName || '',
         lastName: me.surname || '',
       })
+      if (!user) {
+        logger.warn('Microsoft sign-in refused: email belongs to an account not linked to Microsoft')
+        return res.redirect(`${failRedirect.split('?')[0]}?error=oauth_account_exists`)
+      }
 
-      const token = generateToken(user.id)
+      const token = issueSessionToken(user)
       res.redirect(`${frontendUrl}/auth/callback?token=${token}&provider=microsoft&role=${role}`)
     } catch (error: any) {
       logger.error('Microsoft OAuth callback error', { error: error?.message })

@@ -3,7 +3,8 @@ import bcrypt from 'bcryptjs'
 import { prisma } from '../lib/prisma'
 import { logger } from '../lib/logger'
 import { z } from 'zod'
-import { generateToken } from '../lib/auth'
+import { issueSessionToken } from '../lib/auth'
+import { isAdminEmail } from '../lib/admin-access'
 import { optionalPhone } from '../lib/phone'
 import { issueEmailVerification } from '../lib/email-verification'
 
@@ -157,6 +158,11 @@ router.post('/register', async (req, res) => {
       cities: [] as string[]
     }))
 
+    if (isAdminEmail(email)) {
+      logger.warn('Attorney registration refused: reserved admin email', { email })
+      return res.status(403).json({ error: 'This email address is reserved.', code: 'EMAIL_RESERVED' })
+    }
+
     // Check if user/attorney already exists
     const existingUser = await prisma.user.findUnique({ where: { email } })
     if (existingUser) {
@@ -304,7 +310,7 @@ router.post('/register', async (req, res) => {
     // state and offers a re-send if this never lands.
     void issueEmailVerification(user, { welcome: true })
 
-    const token = generateToken(user.id)
+    const token = issueSessionToken(user)
 
     logger.info('Attorney registered', { attorneyId: attorney.id, userId: user.id, email: attorney.email })
 
