@@ -56,6 +56,16 @@ export function zoomFrontendRedirect(status: 'success' | 'error', error?: string
   return url.toString()
 }
 
+/**
+ * Where a Marketplace install lands: the web app's connect page, which signs
+ * the attorney in if needed and then completes the install with this code.
+ */
+export function zoomMarketplaceInstallRedirect(code: string) {
+  const url = new URL('/connect/zoom', webBaseUrl())
+  url.searchParams.set('code', code)
+  return url.toString()
+}
+
 export function isZoomConfigured() {
   return Boolean(ENV.ZOOM_CLIENT_ID && ENV.ZOOM_CLIENT_SECRET)
 }

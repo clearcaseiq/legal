@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { loginAttorney } from '../lib/api-auth'
 import { getStoredRole, hasValidAuthToken } from '../lib/auth'
+import { safeInternalReturnTo } from '../lib/evidenceUploadNav'
 import BrandLogo from '../components/BrandLogo'
 import OAuthButtons from '../components/OAuthButtons'
 import { PasswordInputWithReveal } from '../components/PasswordInputWithReveal'
@@ -15,11 +16,16 @@ export default function AttorneyLogin() {
   const [form, setForm] = useState<LoginInput>({ email: '', password: '' })
   const [fieldErrors, setFieldErrors] = useState<LoginFieldErrors>({})
 
+  const destination = safeInternalReturnTo(
+    new URLSearchParams(typeof window === 'undefined' ? '' : window.location.search).get('redirect'),
+    '/attorney-dashboard',
+  )
+
   useEffect(() => {
     if (hasValidAuthToken() && getStoredRole() === 'attorney') {
-      window.location.assign('/attorney-dashboard')
+      window.location.assign(destination)
     }
-  }, [])
+  }, [destination])
 
   const onSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -44,7 +50,7 @@ export default function AttorneyLogin() {
       if (response.user) localStorage.setItem('user', JSON.stringify(response.user))
       if (response.attorney) localStorage.setItem('attorney', JSON.stringify(response.attorney))
       localStorage.setItem('auth_role', 'attorney')
-      window.location.assign('/attorney-dashboard')
+      window.location.assign(destination)
     } catch (err: any) {
       setError(err.response?.data?.error || err.message || t('auth.errLoginFailed'))
     } finally {

@@ -11,6 +11,7 @@ import {
   upsertZoomConnectionFromCode,
   verifyZoomStateToken,
   zoomFrontendRedirect,
+  zoomMarketplaceInstallRedirect,
 } from '../lib/zoom'
 
 const router = Router()
@@ -32,8 +33,15 @@ router.get('/callback', async (req, res) => {
   const code = typeof req.query.code === 'string' ? req.query.code : ''
   const state = typeof req.query.state === 'string' ? req.query.state : ''
 
-  if (!code || !state) {
+  if (!code) {
     return res.redirect(zoomFrontendRedirect('error', 'missing_callback_params'))
+  }
+
+  // Installed from the Zoom Marketplace rather than from our Connect button:
+  // Zoom sends no state, so there is no attorney to attach the code to here.
+  // The web app finishes it once the attorney is signed in (POST /install).
+  if (!state) {
+    return res.redirect(zoomMarketplaceInstallRedirect(code))
   }
 
   try {
@@ -83,6 +91,28 @@ router.post('/connect', async (req: AuthRequest, res) => {
     logger.error('Failed to build Zoom authorize url', { error, userId: req.user?.id })
     const message = error instanceof Error ? error.message : 'Zoom is not configured'
     res.status(503).json({ error: message })
+  }
+})
+
+// Finish a Marketplace install: the signed-in attorney hands over the code
+// Zoom sent to the callback. Zoom codes are single-use and short-lived, so a
+// replayed or stale one simply fails the exchange.
+router.post('/install', async (req: AuthRequest, res) => {
+  const code = typeof req.body?.code === 'string' ? req.body.code.trim() : ''
+  if (!code || code.length > 2048) {
+    return res.status(400).json({ error: 'Missing Zoom authorization code' })
+  }
+  try {
+    const attorney = await getAttorneyByUser(req)
+    if (!attorney) {
+      return res.status(403).json({ error: 'Attorney profile not found' })
+    }
+    await upsertZoomConnectionFromCode({ attorneyId: attorney.id, code })
+    const connection = await getAttorneyZoomConnection(attorney.id)
+    res.json({ configured: isZoomConfigured(), ...serializeZoomConnection(connection) })
+  } catch (error) {
+    logger.error('Zoom Marketplace install failed', { error, userId: req.user?.id })
+    res.status(400).json({ error: 'Zoom did not accept the authorization. Please connect again.' })
   }
 })
 

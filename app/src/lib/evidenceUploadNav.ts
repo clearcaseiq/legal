@@ -59,7 +59,7 @@ export function unauthenticatedEvidenceUploadDestination(token: string | null | 
 /** Only allow same-origin relative paths (block open redirects). */
 export function safeInternalReturnTo(raw: string | null | undefined, fallback: string): string {
   if (!raw) return fallback
-  if (!raw.startsWith('/') || raw.startsWith('//') || raw.includes('://')) return fallback
+  if (!raw.startsWith('/') || raw.startsWith('//') || raw.includes('://') || raw.includes('\\')) return fallback
   return raw
 }
 

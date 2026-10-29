@@ -56,6 +56,8 @@ export const SENSITIVE_ROUTE_PREFIXES = [
   '/booking',
   '/case-tracker',
   '/claim',
+  // Zoom's one-time authorization code arrives in the query string.
+  '/connect',
   '/consent-management',
   '/dashboard',
   '/demand',
@@ -70,6 +72,7 @@ export const SENSITIVE_ROUTE_PREFIXES = [
   '/intake',
   '/intake2',
   '/messaging',
+  '/oauth',
   // The routed-case short link; the code identifies a case.
   '/o',
   // Sign-in and account screens: claim tokens and reset tokens arrive in their

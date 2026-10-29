@@ -100,6 +100,7 @@ export const KNOWN_ROUTE_PATHS = new Set([
   '/help',
   '/hipaa-authorization',
   '/how-it-works',
+  '/connect/zoom',
   '/integrations',
   '/intake',
   '/intake2',

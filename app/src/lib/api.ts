@@ -1666,6 +1666,12 @@ export async function getAttorneyZoomConnectUrl() {
   return data as { authorizeUrl: string }
 }
 
+/** Finish a Zoom Marketplace install with the code Zoom sent back. */
+export async function installAttorneyZoom(code: string) {
+  const { data } = await api.post('/v1/attorney-zoom/install', { code })
+  return data as AttorneyZoomStatus
+}
+
 export type CaseVideoCall = {
   videoMeetingId: string | null
   joinUrl: string

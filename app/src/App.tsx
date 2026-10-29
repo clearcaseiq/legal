@@ -73,6 +73,7 @@ function withAppMessages<T>(loader: () => Promise<T>): () => Promise<T> {
 const Home = dynamic(() => import('./pages/Home'), { ssr: true })
 const Login = lazy(() => import('./pages/Login'))
 const AttorneyLogin = lazy(() => import('./pages/AttorneyLogin'))
+const ZoomConnect = lazy(() => import('./pages/ZoomConnect'))
 const StaffLogin = lazy(() => import('./pages/StaffLogin'))
 const SpecialistLogin = lazy(() => import('./pages/SpecialistLogin'))
 const Register = lazy(() => import('./pages/Register'))
@@ -364,8 +365,8 @@ function HomeRoute() {
 
 // Lightweight landing for the Zoom OAuth redirect. When opened as a popup (the
 // Schedule Consultation "Connect Zoom" flow) it notifies the opener and closes
-// itself; otherwise it forwards to the dashboard so the settings-card connect
-// flow behaves exactly as before.
+// itself; otherwise it forwards to the Zoom connect page, which says whether
+// the connection worked.
 function ZoomOAuthComplete() {
   const [params] = useSearchParams()
   const navigate = useNavigate()
@@ -385,7 +386,7 @@ function ZoomOAuthComplete() {
     const to = new URLSearchParams()
     to.set('zoom_sync', status)
     if (error) to.set('zoom_error', error)
-    navigate(`/attorney-dashboard?${to.toString()}`, { replace: true })
+    navigate(`/connect/zoom?${to.toString()}`, { replace: true })
   }, [status, error, navigate])
 
   return (
@@ -517,6 +518,7 @@ function App() {
             <Route path="/" element={<HomeRoute />} />
             <Route path="/auth/callback" element={<OAuthCallback />} />
             <Route path="/oauth/zoom/complete" element={<ZoomOAuthComplete />} />
+            <Route path="/connect/zoom" element={<ZoomConnect />} />
             {/* Public so a reset link works even if the user happens to be logged in. */}
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/reset-password" element={<ResetPassword />} />
