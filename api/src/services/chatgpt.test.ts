@@ -4,11 +4,11 @@ const { createCompletion } = vi.hoisted(() => ({
   createCompletion: vi.fn(),
 }))
 
-vi.mock('../env', () => ({
-  ENV: {
-    OPENAI_API_KEY: 'test-openai-key',
-  },
+const { ENV } = vi.hoisted(() => ({
+  ENV: { OPENAI_API_KEY: 'test-openai-key', LLM_ALLOW_PHI: true },
 }))
+
+vi.mock('../env', () => ({ ENV }))
 
 vi.mock('openai', () => ({
   default: class OpenAI {
@@ -25,6 +25,33 @@ import { analyzeCaseWithChatGPT } from './chatgpt'
 describe('analyzeCaseWithChatGPT', () => {
   beforeEach(() => {
     createCompletion.mockReset()
+    ENV.LLM_ALLOW_PHI = true
+  })
+
+  it('withholds the narrative and medical bill amounts while LLM_ALLOW_PHI is false', async () => {
+    ENV.LLM_ALLOW_PHI = false
+    createCompletion.mockResolvedValue({
+      choices: [{ message: { content: JSON.stringify({ ok: true }) } }],
+      usage: { total_tokens: 10 },
+    })
+
+    await analyzeCaseWithChatGPT({
+      assessmentId: 'asm-chatgpt-phi',
+      caseData: {
+        claimType: 'auto',
+        venue: { state: 'CA' },
+        incident: { narrative: 'Rear-ended on the 405; herniated disc at L4-L5, two epidural injections.' },
+        damages: { med_charges: 18450, med_paid: 3200 },
+        evidence: [],
+      },
+    })
+
+    const prompt = createCompletion.mock.calls[0][0].messages[1].content as string
+    expect(prompt).not.toContain('herniated')
+    expect(prompt).not.toContain('18450')
+    expect(prompt).not.toContain('3200')
+    expect(prompt).toContain('LLM_ALLOW_PHI=false')
+    expect(prompt).toContain('Medical Bills: provided (amounts withheld)')
   })
 
   it('normalizes partial incident data before building the LLM prompt', async () => {

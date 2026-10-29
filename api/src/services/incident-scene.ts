@@ -4,7 +4,7 @@ import { randomUUID } from 'crypto'
 import { prisma } from '../lib/prisma'
 import { logger } from '../lib/logger'
 import { getLlmChatClient, openaiImageClient, getLlmChatModel } from '../lib/llm-client'
-import { redactLlmPii } from '../lib/llm-prompt-sanitize'
+import { llmAllowPhi, redactLlmPii } from '../lib/llm-prompt-sanitize'
 
 // Chat goes through the shared (PII-sanitizing) client; images stay on native OpenAI.
 const openai = getLlmChatClient()
@@ -145,6 +145,14 @@ function extractFacts(factsRaw: string | null | undefined) {
 /** Status stored when there is no incident description to reconstruct from. */
 export const SCENE_NEEDS_DESCRIPTION = 'needs_description'
 
+/**
+ * Status stored while LLM_ALLOW_PHI=false. The diagram is drawn from the
+ * claimant's narrative, which is health information, so there is nothing to
+ * send until a BAA is in place. Not sticky: the backfill regenerates once the
+ * flag is on.
+ */
+export const SCENE_DISABLED = 'disabled'
+
 const MIN_SCENE_DESCRIPTION_CHARS = 15
 
 /**
@@ -193,6 +201,14 @@ export async function generateSceneImageForAssessment(
       if (assessment.sceneImageUrl && assessment.sceneImageStatus === 'ready') {
         return { ok: true, url: assessment.sceneImageUrl, status: 'ready' }
       }
+    }
+
+    if (!llmAllowPhi()) {
+      await prisma.assessment.update({
+        where: { id: assessmentId },
+        data: { sceneImageStatus: SCENE_DISABLED },
+      }).catch(() => {})
+      return { ok: false, status: SCENE_DISABLED, reason: 'phi_sharing_disabled' }
     }
 
     if (!hasSceneDescription(assessment.facts)) {

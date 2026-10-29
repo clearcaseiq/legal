@@ -669,8 +669,15 @@ export interface IncidentExtraction {
   confidence: number
 }
 
-export async function extractIncidentDetails(narrative: string, injuryType?: string): Promise<IncidentExtraction | null> {
+/** The server has detection switched off; stop asking for this session. */
+export const INCIDENT_DETECTION_OFF = 'off' as const
+
+export async function extractIncidentDetails(
+  narrative: string,
+  injuryType?: string,
+): Promise<IncidentExtraction | null | typeof INCIDENT_DETECTION_OFF> {
   const { data } = await api.post('/v1/incident-extraction', { narrative, injuryType })
+  if (data?.disabled) return INCIDENT_DETECTION_OFF
   return (data?.extraction ?? null) as IncidentExtraction | null
 }
 

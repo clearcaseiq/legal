@@ -2,6 +2,7 @@ import { logger } from '../lib/logger'
 import { ENV } from '../env'
 import { searchGroundedLegalContext } from '../lib/ml-service'
 import { getLlmChatClient, LLM_CHAT_MODEL } from '../lib/llm-client'
+import { llmAllowPhi } from '../lib/llm-prompt-sanitize'
 
 const openai = getLlmChatClient()
 const CHAT_MODEL = LLM_CHAT_MODEL
@@ -241,6 +242,17 @@ Use the grounded legal context above before making assumptions. Reference its ve
 `
     : ''
 
+  // The narrative and medical bills are the claimant's health information;
+  // until LLM_ALLOW_PHI=true (BAA) the model sees only their presence.
+  const allowPhi = llmAllowPhi()
+  const narrativeLine = allowPhi
+    ? caseData.incident.narrative
+    : '[omitted — LLM_ALLOW_PHI=false; assess from the structured fields only]'
+  const medicalLines = allowPhi
+    ? `- Medical Charges: $${caseData.damages?.med_charges || 0}
+- Medical Paid: $${caseData.damages?.med_paid || 0}`
+    : `- Medical Bills: ${caseData.damages?.med_charges || caseData.damages?.med_paid ? 'provided (amounts withheld)' : 'not provided'}`
+
   return `
 Analyze the following personal injury case data and provide a comprehensive legal assessment. Respond with ONLY a valid JSON object in the following format:
 
@@ -327,12 +339,11 @@ Case Data:
 - Venue: ${caseData.venue.state}${caseData.venue.county ? `, ${caseData.venue.county}` : ''}
 - Incident Date: ${caseData.incident.date}
 - Location: ${caseData.incident.location || 'Not specified'}
-- Narrative: ${caseData.incident.narrative}
+- Narrative: ${narrativeLine}
 - Parties Involved: ${caseData.incident.parties?.join(', ') || 'Not specified'}
 - Injuries: ${caseData.injuries?.length ? caseData.injuries.length + ' injuries reported' : 'No injuries specified'}
 - Treatment: ${caseData.treatment?.length ? caseData.treatment.length + ' treatment records' : 'No treatment records'}
-- Medical Charges: $${caseData.damages?.med_charges || 0}
-- Medical Paid: $${caseData.damages?.med_paid || 0}
+${medicalLines}
 - Wage Loss: $${caseData.damages?.wage_loss || 0}
 - Other Services: $${caseData.damages?.services || 0}
 - Evidence Files: ${caseData.evidence?.length || 0} files

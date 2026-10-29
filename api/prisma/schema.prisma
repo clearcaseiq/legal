@@ -325,7 +325,7 @@ model Assessment {
   // AI incident scene schematic (generated at intake)
   sceneImageUrl    String? // relative /uploads/scenes/<file>.png
   sceneImagePrompt String?   @db.Text
-  sceneImageStatus String? // null | pending | ready | failed
+  sceneImageStatus String? // null | pending | ready | failed | needs_description | disabled
   sceneImageDate   DateTime?
 
   // Case Tier Classification

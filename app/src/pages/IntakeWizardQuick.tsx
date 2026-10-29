@@ -10,6 +10,7 @@ import {
   deleteEvidenceFile,
   updateEvidenceFile,
   extractIncidentDetails,
+  INCIDENT_DETECTION_OFF,
   getPlaintiffDocumentRequests,
   savePlaintiffRequestItemNote,
   getEvidenceNotes,
@@ -1319,6 +1320,8 @@ export default function IntakeWizardQuick() {
   // types, and without this every re-render of the same text would spend
   // another model call.
   const detectionAttemptRef = useRef('')
+  // Set once the server says detection is switched off; the manual form is the whole flow then.
+  const detectionOffRef = useRef(false)
   // Increments per request so a slow earlier response cannot overwrite the
   // result for text the claimant has since replaced.
   const detectionRunIdRef = useRef(0)
@@ -3169,7 +3172,7 @@ export default function IntakeWizardQuick() {
   // untouched.
   const runIncidentDetection = async (rawText?: string) => {
     const text = (rawText ?? formDataRef.current.narrative).trim()
-    if (text.length < NARRATIVE_DETECT_MIN) return
+    if (detectionOffRef.current || text.length < NARRATIVE_DETECT_MIN) return
     // Re-sending text we already tried would repeat the charge and, on a
     // failing endpoint, retry it on every keystroke.
     if (text === detectionAttemptRef.current) return
@@ -3185,7 +3188,10 @@ export default function IntakeWizardQuick() {
       // A response for a narrative the claimant has already rewritten is stale;
       // applying it would fill the form from a story that no longer exists.
       if (detectionRunIdRef.current !== runId) return
-      if (result) {
+      if (result === INCIDENT_DETECTION_OFF) {
+        detectionOffRef.current = true
+        setDetection(null)
+      } else if (result) {
         setDetection(result)
         applyDetection(result)
       } else {

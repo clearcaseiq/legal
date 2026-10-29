@@ -21,6 +21,7 @@ import { prisma } from './prisma'
 import { logger } from './logger'
 import { ENV } from '../env'
 import { getLlmChatClient, LLM_CHAT_MODEL } from './llm-client'
+import { llmAllowPhi } from './llm-prompt-sanitize'
 
 // Recordings + Contact Lens output + Transcribe jobs all live in the Connect
 // instance region, which can differ from AWS_REGION (Textract/SES).
@@ -284,6 +285,11 @@ export async function enrichTranscriptWithLlm(callId: string): Promise<void> {
   const llm = getLlmChatClient()
   if (!llm) {
     logger.info('call-extraction: no LLM configured; skipping summary', { callId })
+    return
+  }
+  // A client-attorney call is mostly about injuries and treatment.
+  if (!llmAllowPhi()) {
+    logger.info('call-extraction: LLM_ALLOW_PHI=false; skipping summary', { callId })
     return
   }
 
