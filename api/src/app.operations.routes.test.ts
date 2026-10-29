@@ -1555,7 +1555,47 @@ describe('HTTP operations regressions', () => {
     })
   })
 
+  function plaintiffChose(...attorneyIds: string[]) {
+    vi.mocked(prisma.consent.findMany).mockResolvedValue([
+      {
+        id: 'consent-share',
+        granted: true,
+        grantedAt: new Date('2026-10-01T10:00:00Z'),
+        revokedAt: null,
+        expiresAt: null,
+        createdAt: new Date('2026-10-01T10:00:00Z'),
+        metadata: JSON.stringify({ authorizedAttorneyIds: attorneyIds }),
+      },
+    ] as any)
+  }
+
+  it('POST /v1/admin/cases/route refuses an attorney the plaintiff did not choose', async () => {
+    plaintiffChose('attorney-someone-else')
+    vi.mocked(prisma.attorney.findUnique).mockResolvedValue({
+      id: 'attorney-record-1',
+      isActive: true,
+      isVerified: true,
+      specialties: JSON.stringify(['auto']),
+      attorneyProfile: {},
+    } as any)
+    vi.mocked(prisma.assessment.findMany).mockResolvedValue([
+      { id: 'asm-new', predictions: [{ viability: JSON.stringify({ overall: 0.81 }) }] },
+    ] as any)
+    vi.mocked(prisma.introduction.findMany).mockResolvedValue([] as any)
+
+    const res = await request(app)
+      .post('/v1/admin/cases/route')
+      .set('Authorization', 'Bearer admin')
+      .send({ caseIds: ['asm-new'], attorneyId: 'attorney-record-1' })
+      .expect(200)
+
+    expect(res.body).toMatchObject({ routed: 0, failed: 1 })
+    expect(res.body.errors[0].error).toMatch(/has not authorized/i)
+    expect(prisma.introduction.create).not.toHaveBeenCalled()
+  })
+
   it('POST /v1/admin/cases/route batches assessment and intro lookups for manual routing', async () => {
+    plaintiffChose('attorney-record-1')
     vi.mocked(prisma.attorney.findUnique).mockResolvedValue({
       id: 'attorney-record-1',
       isActive: true,
@@ -1645,6 +1685,7 @@ describe('HTTP operations regressions', () => {
   // a case wants re-offering. The exclusion has to happen in the query: filtering
   // after the fact would still load the row and is easy to drop later.
   it('POST /v1/admin/cases/route ignores an expired offer when checking for a duplicate', async () => {
+    plaintiffChose('attorney-record-1')
     vi.mocked(prisma.attorney.findUnique).mockResolvedValue({
       id: 'attorney-record-1',
       isActive: true,
@@ -1682,6 +1723,7 @@ describe('HTTP operations regressions', () => {
   // other attorney the admin routed to that the case was already assigned, while
   // still showing them a running clock and an Accept button.
   it('POST /v1/admin/cases/route offers the case without claiming it', async () => {
+    plaintiffChose('attorney-record-1')
     vi.mocked(prisma.attorney.findUnique).mockResolvedValue({
       id: 'attorney-record-1',
       isActive: true,
@@ -1713,6 +1755,7 @@ describe('HTTP operations regressions', () => {
   })
 
   it('POST /v1/admin/cases/route leaves an accepted case with the attorney holding it', async () => {
+    plaintiffChose('attorney-record-2')
     vi.mocked(prisma.attorney.findUnique).mockResolvedValue({
       id: 'attorney-record-2',
       isActive: true,

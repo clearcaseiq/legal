@@ -251,7 +251,7 @@ export const productLiabilityGuidePages: LandingPage[] = [
         'The injury date and when the cause was discovered, for the deadline',
       ],
       howClearCaseHelps:
-        `ClearCaseIQ helps you judge whether a defective-product claim is viable before you commit — it weighs the injury against the provability of the defect and whether the product still exists, and identifies the chain of sellers who could be defendants. When it makes sense, it matches you with California product-liability attorneys who work on contingency and advance the expert costs these cases require. ${NOT_ADVICE}`,
+        `ClearCaseIQ helps you judge whether a defective-product claim is viable before you commit — it weighs the injury against the provability of the defect and whether the product still exists, and identifies the chain of sellers who could be defendants. When it makes sense, it shows you participating California product-liability attorneys who work on contingency and advance the expert costs these cases require. ${NOT_ADVICE}`,
     },
     faqs: [
       {

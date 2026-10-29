@@ -11,6 +11,7 @@ import { CaseForRouting, AttorneyForRouting, routeCaseToAttorneys, filterEligibl
 import { startAssessmentRouting } from '../lib/assessment-routing'
 import { updateClaimantContact } from '../lib/claimant-contact'
 import { getRankedAttorneyIdsFromLead, recordRoutingEvent } from '../lib/routing-lifecycle'
+import { assertShareAuthorization } from '../lib/share-authorization'
 import { routeCaseReleasedFromReview } from '../lib/manual-review-release'
 import { loadPlaintiffAttorneyChoices } from '../lib/plaintiff-attorney-choices'
 import { isEngagedLeadStatus } from '../lib/lead-status'
@@ -1480,6 +1481,14 @@ router.post('/cases/route', authMiddleware, adminMiddleware, requireAdminCapabil
         // Check if introduction already exists
         if (existingIntroCaseIds.has(caseId)) {
           errors.push({ caseId, error: 'Already routed to this attorney' })
+          continue
+        }
+
+        // Skipping eligibility does not skip the plaintiff's choice: an admin may
+        // only send a case to a firm the plaintiff authorized.
+        const authorized = await assertShareAuthorization(caseId, [attorneyId])
+        if (!authorized.ok) {
+          errors.push({ caseId, error: `${authorized.reason}. Ask the plaintiff to choose this firm first.` })
           continue
         }
 

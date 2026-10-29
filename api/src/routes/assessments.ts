@@ -2053,8 +2053,6 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
     // Trigger unified routing orchestration against the attorneys the plaintiff chose.
     void startAssessmentRouting(id, {
       maxAttorneysPerWave: 1,
-      preferTierRouting: false,
-      fallbackToClassic: true,
       preferredAttorneyIds: rankedAttorneyIds
     }).then(async result => {
       if (result.success && result.routedTo?.length) {

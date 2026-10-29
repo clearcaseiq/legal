@@ -59,7 +59,6 @@ export interface AttorneyForRouting {
   } | null
   // Additional data for scoring (loaded separately)
   conversionRate?: number // From introductions to retained
-  platformRevenue?: number // Historical platform revenue
   complaints?: number // Number of complaints (future)
   currentCasesWeek?: number
   currentCasesMonth?: number
@@ -680,8 +679,6 @@ export interface MatchScore {
       verified: number
     }
     value: {
-      subscriptionTier: number
-      historicalRevenue: number
       caseValuePotential: number
     }
   }
@@ -766,7 +763,8 @@ function calculateFitScore(
   }
 
   // 3. Tier Appetite (0-1)
-  // Based on how well the case tier matches attorney's preferences and subscription tier
+  // Based on how well the case matches the attorney's own damage and severity
+  // preferences. Their subscription plan is not an input.
   const estimatedValue = caseData.prediction?.bands?.median ||
                         caseData.facts?.damages?.med_charges ||
                         0
@@ -787,48 +785,7 @@ function calculateFitScore(
     caseTier = 1
   }
 
-  // Check if attorney's subscription tier matches case tier
-  const attorneyTier = attorney.subscriptionTier?.toLowerCase()
-  let tierMatchScore = 0.5 // Default
-
-  // Enterprise attorneys prefer Tier 3-4 cases
-  if (attorneyTier === 'enterprise') {
-    if (caseTier >= 3) {
-      tierMatchScore = 1.0
-    } else if (caseTier === 2) {
-      tierMatchScore = 0.7
-    } else {
-      tierMatchScore = 0.3
-    }
-  }
-  // Premium attorneys prefer Tier 2-3 cases
-  else if (attorneyTier === 'premium') {
-    if (caseTier === 2 || caseTier === 3) {
-      tierMatchScore = 1.0
-    } else if (caseTier === 1) {
-      tierMatchScore = 0.8
-    } else {
-      tierMatchScore = 0.6 // Tier 4 might be too high
-    }
-  }
-  // Basic attorneys prefer Tier 1-2 cases
-  else if (attorneyTier === 'basic') {
-    if (caseTier <= 2) {
-      tierMatchScore = 1.0
-    } else if (caseTier === 3) {
-      tierMatchScore = 0.6
-    } else {
-      tierMatchScore = 0.3 // Tier 4 too high
-    }
-  }
-  // No subscription tier = pay-per-case, accepts all but prefers mid-range
-  else {
-    if (caseTier === 2 || caseTier === 3) {
-      tierMatchScore = 1.0
-    } else {
-      tierMatchScore = 0.7
-    }
-  }
+  let tierMatchScore = caseTier === 2 || caseTier === 3 ? 1.0 : 0.7
 
   // Adjust based on attorney's damage/severity preferences
   if (attorney.attorneyProfile) {
@@ -978,46 +935,15 @@ function calculateOutcomeScore(
 
 /**
  * Calculate ValueScore (0-1)
- * Based on: expected platform revenue contribution
+ *
+ * Depends only on the case, so it is the same for every attorney and never
+ * changes their order. What a firm pays ClearCaseIQ, by subscription or past
+ * spend, deliberately has no input into who is proposed to a plaintiff.
  */
 function calculateValueScore(
-  attorney: AttorneyForRouting,
+  _attorney: AttorneyForRouting,
   caseData: CaseForRouting
-): { score: number; breakdown: { subscriptionTier: number; historicalRevenue: number; caseValuePotential: number } } {
-  // 1. Subscription Tier (0-1)
-  let subscriptionTier = 0.5 // Default
-
-  const tier = attorney.subscriptionTier?.toLowerCase()
-  if (tier === 'enterprise') {
-    subscriptionTier = 1.0
-  } else if (tier === 'premium') {
-    subscriptionTier = 0.8
-  } else if (tier === 'basic') {
-    subscriptionTier = 0.5
-  } else {
-    // No subscription = pay-per-case, which can be valuable
-    subscriptionTier = 0.6
-  }
-
-  // 2. Historical Revenue (0-1)
-  // Normalize historical platform revenue
-  let historicalRevenue = 0.5 // Default
-
-  if (attorney.platformRevenue !== undefined) {
-    // Normalize: $10k+ = 1.0, $5k = 0.7, $1k = 0.4, $0 = 0.2
-    if (attorney.platformRevenue >= 10000) {
-      historicalRevenue = 1.0
-    } else if (attorney.platformRevenue >= 5000) {
-      historicalRevenue = 0.7
-    } else if (attorney.platformRevenue >= 1000) {
-      historicalRevenue = 0.4
-    } else {
-      historicalRevenue = 0.2
-    }
-  }
-
-  // 3. Case Value Potential (0-1)
-  // Higher case value = more potential revenue
+): { score: number; breakdown: { caseValuePotential: number } } {
   const estimatedValue = caseData.prediction?.bands?.median ||
                         caseData.facts?.damages?.med_charges ||
                         0
@@ -1035,14 +961,9 @@ function calculateValueScore(
     caseValuePotential = 0.2
   }
 
-  // Weighted average: subscription tier 30%, historical revenue 40%, case value 30%
-  const valueScore = (subscriptionTier * 0.3) + (historicalRevenue * 0.4) + (caseValuePotential * 0.3)
-
   return {
-    score: Math.min(1.0, Math.max(0.0, valueScore)),
+    score: caseValuePotential,
     breakdown: {
-      subscriptionTier,
-      historicalRevenue,
       caseValuePotential
     }
   }
@@ -1214,15 +1135,11 @@ export async function scoreAndRankAttorneys(
   }
 
   const attorneyIds = eligibleAttorneys.map((attorney) => attorney.id)
-  const [introStatusCounts, dashboards, complaintRates] = await Promise.all([
+  const [introStatusCounts, complaintRates] = await Promise.all([
     prisma.introduction.groupBy({
       by: ['attorneyId', 'status'],
       where: { attorneyId: { in: attorneyIds } },
       _count: { _all: true },
-    }),
-    prisma.attorneyDashboard.findMany({
-      where: { attorneyId: { in: attorneyIds } },
-      select: { attorneyId: true, totalPlatformSpend: true },
     }),
     Promise.all(attorneyIds.map(async (attorneyId) => [attorneyId, await getComplaintRate(attorneyId)] as const)),
   ])
@@ -1238,9 +1155,6 @@ export async function scoreAndRankAttorneys(
     introStats.set(row.attorneyId, stats)
   }
 
-  const revenueByAttorneyId = new Map(
-    dashboards.map((dashboard) => [dashboard.attorneyId, dashboard.totalPlatformSpend || 0])
-  )
   const complaintRateByAttorneyId = new Map(complaintRates)
 
   const attorneysWithData = eligibleAttorneys.map((attorney) => {
@@ -1252,7 +1166,6 @@ export async function scoreAndRankAttorneys(
     return {
       ...attorney,
       conversionRate,
-      platformRevenue: revenueByAttorneyId.get(attorney.id) || 0,
       complaints: Math.round((complaintRateByAttorneyId.get(attorney.id) || 0) * 10)
     }
   })

@@ -252,7 +252,7 @@ export const slipAndFallGuidePages: LandingPage[] = [
         'The date of the fall, so the deadline is not quietly running out',
       ],
       howClearCaseHelps:
-        `ClearCaseIQ helps you judge whether a slip-and-fall claim is the kind that needs an attorney before you commit — it weighs the injury against the strength of the notice evidence and flags what is at risk of being lost. When representation makes sense, it matches you with California premises-liability attorneys who work on contingency and know how to preserve footage and prove notice. ${NOT_ADVICE}`,
+        `ClearCaseIQ helps you judge whether a slip-and-fall claim is the kind that needs an attorney before you commit — it weighs the injury against the strength of the notice evidence and flags what is at risk of being lost. When representation makes sense, it shows you participating California premises-liability attorneys who work on contingency and know how to preserve footage and prove notice. ${NOT_ADVICE}`,
     },
     faqs: [
       {

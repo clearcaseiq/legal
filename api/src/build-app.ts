@@ -37,7 +37,6 @@ import incidentExtraction from './routes/incident-extraction'
 import admin from './routes/admin'
 import firmDashboard from './routes/firm-dashboard'
 import firms from './routes/firms'
-import tierRouting from './routes/tier-routing'
 import featureToggles from './routes/feature-toggles'
 import compliance from './routes/compliance'
 import smsWebhook from './routes/sms-webhook'
@@ -134,7 +133,6 @@ export function buildApp(): Express {
   app.use('/v1/firm-dashboard', firmDashboard)
   app.use('/v1/tours', tours)
   app.use('/v1/firms', firms)
-  app.use('/v1/tier-routing', tierRouting)
   app.use('/v1/feature-toggles', featureToggles)
   app.use('/v1/compliance', compliance)
   app.use('/v1/attorney-calendar', attorneyCalendar)

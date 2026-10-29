@@ -252,7 +252,7 @@ export const bicycleGuidePages: LandingPage[] = [
         'The crash date, so the deadline is not quietly running out',
       ],
       howClearCaseHelps:
-        `ClearCaseIQ helps you judge whether a bicycle claim needs an attorney before you commit — it weighs the injury against disputed right-of-way and flags the evidence and coverage that have to be secured quickly. When representation makes sense, it matches you with California bicycle attorneys who work on contingency and know how to counter anti-cyclist framing with the right-of-way rules. ${NOT_ADVICE}`,
+        `ClearCaseIQ helps you judge whether a bicycle claim needs an attorney before you commit — it weighs the injury against disputed right-of-way and flags the evidence and coverage that have to be secured quickly. When representation makes sense, it shows you participating California bicycle attorneys who work on contingency and know how to counter anti-cyclist framing with the right-of-way rules. ${NOT_ADVICE}`,
     },
     faqs: [
       {

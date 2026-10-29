@@ -31,6 +31,16 @@ export interface AttorneyContactOrderProps {
   onEditFirstChoice: () => void
 }
 
+/** Shown wherever the claimant chooses or orders firms, not only in the Terms. */
+function ParticipationNotice({ t }: { t: TFn }) {
+  return (
+    <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3" data-testid="participation-notice">
+      <p className="text-xs font-semibold text-slate-700">{t('disclosures.participationTitle')}</p>
+      <p className="mt-1 text-xs leading-relaxed text-slate-600">{t('disclosures.participationBody')}</p>
+    </div>
+  )
+}
+
 const RANK_LABEL_KEYS = [
   'results.contactOrder.rankFirst',
   'results.contactOrder.rankSecond',
@@ -243,6 +253,7 @@ export function AttorneyContactOrder({
           <h3 className="text-base font-semibold text-slate-900">{t('results.contactOrder.title')}</h3>
           <p className="mt-1 text-sm leading-relaxed text-slate-600">{t('results.contactOrder.intro')}</p>
           <p className="mt-2 text-xs text-slate-500">{t('results.contactOrder.orderingNote')}</p>
+          <ParticipationNotice t={t} />
         </header>
         <ul className="space-y-3">
           {attorneys.map((attorney) => (
@@ -286,6 +297,7 @@ export function AttorneyContactOrder({
           {single ? t('results.calc.contactThisAttorney') : t('results.contactOrder.yourOrder')}
         </h3>
         {!single && <p className="mt-1 text-sm leading-relaxed text-slate-600">{t('results.contactOrder.intro')}</p>}
+        {!readOnly && <ParticipationNotice t={t} />}
       </header>
 
       <ul className="space-y-2">

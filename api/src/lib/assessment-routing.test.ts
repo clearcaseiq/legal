@@ -6,29 +6,10 @@ vi.mock('./routing-engine', () => ({
   runRoutingEngine: vi.fn(),
 }))
 
-vi.mock('./case-tier-classifier', () => ({
-  assignCaseTier: vi.fn(),
-}))
-
-vi.mock('./tier1-routing', () => ({
-  routeTier1Case: vi.fn(),
-}))
-
-vi.mock('./tier2-routing', () => ({
-  routeTier2Case: vi.fn(),
-}))
-
-vi.mock('./tier3-routing', () => ({
-  routeTier3Case: vi.fn(),
-}))
-
-vi.mock('./tier4-routing', () => ({
-  routeTier4Case: vi.fn(),
-}))
-
 vi.mock('./routing-lifecycle', () => ({
   recordRoutingEvent: vi.fn().mockResolvedValue(undefined),
   placeAssessmentInManualReview: vi.fn().mockResolvedValue(undefined),
+  proposeInitialBatchForApproval: vi.fn(),
 }))
 
 vi.mock('./share-authorization', () => ({
@@ -37,17 +18,19 @@ vi.mock('./share-authorization', () => ({
 
 import { prisma } from './prisma'
 import { resetUniversalPrismaMock } from '../test/universalPrismaMock'
-import { startAssessmentRouting } from './assessment-routing'
+import { PLAINTIFF_SELECTION_REQUIRED, startAssessmentRouting } from './assessment-routing'
 import { runRoutingEngine } from './routing-engine'
-import { assignCaseTier } from './case-tier-classifier'
-import { routeTier1Case } from './tier1-routing'
-import { recordRoutingEvent, placeAssessmentInManualReview } from './routing-lifecycle'
+import {
+  proposeInitialBatchForApproval,
+  recordRoutingEvent,
+  placeAssessmentInManualReview,
+} from './routing-lifecycle'
 import { assertShareAuthorization } from './share-authorization'
 
 /**
  * The gate runs for real in this suite (only the authorization check is mocked),
- * so a fixture without facts fails on case score and never reaches the tier
- * engine the test is about.
+ * so a fixture without facts fails on case score and never reaches the engine
+ * the test is about.
  */
 function routableAssessment(id: string, extra: Record<string, unknown> = {}) {
   return {
@@ -74,16 +57,31 @@ function routableAssessment(id: string, extra: Record<string, unknown> = {}) {
   }
 }
 
-function authorizeShare() {
+function authorizeShare(authorizedAttorneyIds: string[] = ['att-1', 'att-2']) {
   vi.mocked(assertShareAuthorization).mockResolvedValue({
     ok: true,
     authorization: {
       authorized: true,
       reason: 'authorized',
       basis: 'consent_record',
-      authorizedAttorneyIds: [],
+      authorizedAttorneyIds,
       authorizedAt: new Date(),
       withdrawnAt: null,
+    },
+  })
+}
+
+function withdrawShare() {
+  vi.mocked(assertShareAuthorization).mockResolvedValue({
+    ok: false,
+    reason: 'The plaintiff withdrew authorization to share this case with law firms',
+    authorization: {
+      authorized: false,
+      reason: 'The plaintiff withdrew authorization to share this case with law firms',
+      basis: 'consent_record',
+      authorizedAttorneyIds: [],
+      authorizedAt: null,
+      withdrawnAt: new Date(),
     },
   })
 }
@@ -95,79 +93,63 @@ describe('startAssessmentRouting', () => {
     authorizeShare()
   })
 
-  it('routes through the tier engine when classification succeeds', async () => {
-    vi.mocked(prisma.assessment.findUnique).mockResolvedValue(
-      routableAssessment('asm-1', { caseTier: null }) as any
-    )
-    vi.mocked(assignCaseTier).mockResolvedValue({ tierNumber: 1 } as any)
-    vi.mocked(routeTier1Case).mockResolvedValue({
-      routed: true,
-      routedToFirmId: 'att-tier-1',
-      introductionId: 'intro-tier-1',
-      method: 'subscription',
-      attempts: { subscription: 1, fixedPrice: 0 },
-    })
-
-    const result = await startAssessmentRouting('asm-1')
-
-    expect(result).toMatchObject({
-      success: true,
-      strategy: 'tier',
-      tierNumber: 1,
-      routedTo: ['att-tier-1'],
-      introductionIds: ['intro-tier-1'],
-    })
-    expect(prisma.leadSubmission.upsert).toHaveBeenCalledWith(expect.objectContaining({
-      where: { assessmentId: 'asm-1' },
-      update: expect.objectContaining({
-        sourceType: 'tier_auto',
-        assignedAttorneyId: 'att-tier-1',
-      }),
-    }))
-    expect(recordRoutingEvent).toHaveBeenCalledWith(
-      'asm-1',
-      'intro-tier-1',
-      'att-tier-1',
-      'tier_routed',
-      expect.objectContaining({ tierNumber: 1 })
-    )
-    expect(runRoutingEngine).not.toHaveBeenCalled()
-  })
-
-  it('falls back to classic routing when tier routing does not place the case', async () => {
-    vi.mocked(prisma.assessment.findUnique).mockResolvedValue(
-      routableAssessment('asm-2', { caseTier: { tierNumber: 1 } }) as any
-    )
-    vi.mocked(routeTier1Case).mockResolvedValue({
-      routed: false,
-      holdReason: 'No subscription inventory',
-    })
+  it('routes only to the firms the plaintiff named, in their order', async () => {
+    vi.mocked(prisma.assessment.findUnique).mockResolvedValue(routableAssessment('asm-1') as any)
     vi.mocked(runRoutingEngine).mockResolvedValue({
       success: true,
       gatePassed: true,
-      routedTo: ['att-classic-1'],
-      introductionIds: ['intro-classic-1'],
-      candidatesEligible: 5,
-      candidatesQualified: 3,
+      routedTo: ['att-1'],
+      introductionIds: ['intro-1'],
     } as any)
 
-    const result = await startAssessmentRouting('asm-2')
+    const result = await startAssessmentRouting('asm-1')
+
+    expect(result).toMatchObject({ success: true, strategy: 'classic', tierAttempted: false, routedTo: ['att-1'] })
+    expect(runRoutingEngine).toHaveBeenCalledWith(
+      'asm-1',
+      expect.objectContaining({ preferredAttorneyIds: ['att-1', 'att-2'], skipPreRoutingGate: true })
+    )
+    expect(proposeInitialBatchForApproval).not.toHaveBeenCalled()
+  })
+
+  // Partner-referred and admin-created cases arrive with nobody named. Those
+  // used to be tier-routed, where subscriptions bought earlier offers; now the
+  // plaintiff is asked to choose before anyone is contacted.
+  it('holds a case whose authorization names no firms for the plaintiff to choose', async () => {
+    authorizeShare([])
+    vi.mocked(proposeInitialBatchForApproval).mockResolvedValue({ proposed: true, attorneyIds: ['att-7', 'att-8'] })
+
+    const result = await startAssessmentRouting('asm-unnamed')
 
     expect(result).toMatchObject({
-      success: true,
-      strategy: 'classic',
-      tierAttempted: true,
-      tierNumber: 1,
-      routedTo: ['att-classic-1'],
+      success: false,
+      awaitingPlaintiffSelection: true,
+      proposedAttorneyIds: ['att-7', 'att-8'],
+      holdReason: PLAINTIFF_SELECTION_REQUIRED,
+      routedTo: [],
     })
-    expect(recordRoutingEvent).toHaveBeenCalledWith(
-      'asm-2',
-      null,
-      null,
-      'tier_fallback_to_classic',
-      expect.objectContaining({ tierNumber: 1, holdReason: 'No subscription inventory' })
+    expect(proposeInitialBatchForApproval).toHaveBeenCalledWith('asm-unnamed')
+    expect(prisma.leadSubmission.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { assessmentId: 'asm-unnamed' }, update: {} })
     )
-    expect(runRoutingEngine).toHaveBeenCalledWith('asm-2', expect.objectContaining({ skipPreRoutingGate: true }))
+    expect(runRoutingEngine).not.toHaveBeenCalled()
+    expect(placeAssessmentInManualReview).not.toHaveBeenCalled()
+  })
+
+  it('sends a case with no named firms to a human when there is nobody to propose', async () => {
+    authorizeShare([])
+    vi.mocked(proposeInitialBatchForApproval).mockResolvedValue({ proposed: false, error: 'No eligible attorneys' })
+
+    const result = await startAssessmentRouting('asm-unnamed-empty')
+
+    expect(result.success).toBe(false)
+    expect(result.awaitingPlaintiffSelection).toBe(false)
+    expect(runRoutingEngine).not.toHaveBeenCalled()
+    expect(placeAssessmentInManualReview).toHaveBeenCalledWith(
+      'asm-unnamed-empty',
+      'no_attorney_match',
+      expect.stringContaining('No eligible attorneys')
+    )
   })
 
   /**
@@ -177,11 +159,8 @@ describe('startAssessmentRouting', () => {
    * admin release and bulk-route paths call this fire-and-forget, so those cases
    * were simply lost.
    */
-  it('holds the case when classic routing matches nobody', async () => {
-    vi.mocked(prisma.assessment.findUnique).mockResolvedValue(
-      routableAssessment('asm-nomatch', { caseTier: null }) as any
-    )
-    vi.mocked(assignCaseTier).mockResolvedValue({ tierNumber: null } as any)
+  it('holds the case when routing matches nobody', async () => {
+    vi.mocked(prisma.assessment.findUnique).mockResolvedValue(routableAssessment('asm-nomatch') as any)
     vi.mocked(runRoutingEngine).mockResolvedValue({
       success: false,
       gatePassed: true,
@@ -203,10 +182,7 @@ describe('startAssessmentRouting', () => {
   })
 
   it('records the funnel so a reviewer can see where the candidates went', async () => {
-    vi.mocked(prisma.assessment.findUnique).mockResolvedValue(
-      routableAssessment('asm-funnel', { caseTier: null }) as any
-    )
-    vi.mocked(assignCaseTier).mockResolvedValue({ tierNumber: null } as any)
+    vi.mocked(prisma.assessment.findUnique).mockResolvedValue(routableAssessment('asm-funnel') as any)
     vi.mocked(runRoutingEngine).mockResolvedValue({
       success: false,
       gatePassed: true,
@@ -226,10 +202,7 @@ describe('startAssessmentRouting', () => {
   })
 
   it('does not double-hold a case the gate already stopped', async () => {
-    vi.mocked(prisma.assessment.findUnique).mockResolvedValue(
-      routableAssessment('asm-gated', { caseTier: null }) as any
-    )
-    vi.mocked(assignCaseTier).mockResolvedValue({ tierNumber: null } as any)
+    vi.mocked(prisma.assessment.findUnique).mockResolvedValue(routableAssessment('asm-gated') as any)
     // The gate persists its own hold and tells the plaintiff why; re-holding here
     // would overwrite that reason with a vaguer one.
     vi.mocked(runRoutingEngine).mockResolvedValue({
@@ -245,29 +218,8 @@ describe('startAssessmentRouting', () => {
     expect(placeAssessmentInManualReview).not.toHaveBeenCalled()
   })
 
-  it('holds the case when tier routing is the only attempt and it places nobody', async () => {
-    vi.mocked(prisma.assessment.findUnique).mockResolvedValue(
-      routableAssessment('asm-tier-only', { caseTier: { tierNumber: 1 } }) as any
-    )
-    vi.mocked(routeTier1Case).mockResolvedValue({ routed: false, holdReason: 'No subscription inventory' })
-
-    const result = await startAssessmentRouting('asm-tier-only', { fallbackToClassic: false })
-
-    expect(result.success).toBe(false)
-    // The tier hold statuses are read by nothing, so without this the case stops
-    // here with no attorney and no queue.
-    expect(placeAssessmentInManualReview).toHaveBeenCalledWith(
-      'asm-tier-only',
-      'no_attorney_match',
-      expect.stringContaining('No subscription inventory')
-    )
-  })
-
   it('leaves a successful route alone', async () => {
-    vi.mocked(prisma.assessment.findUnique).mockResolvedValue(
-      routableAssessment('asm-ok', { caseTier: null }) as any
-    )
-    vi.mocked(assignCaseTier).mockResolvedValue({ tierNumber: null } as any)
+    vi.mocked(prisma.assessment.findUnique).mockResolvedValue(routableAssessment('asm-ok') as any)
     vi.mocked(runRoutingEngine).mockResolvedValue({
       success: true,
       gatePassed: true,
@@ -284,23 +236,9 @@ describe('startAssessmentRouting', () => {
   // re-flagged. It used to carry the disclosure check out with it, which is not
   // an admin's to skip.
   it('holds the case when there is no authorization to share it, even with the gate skipped', async () => {
-    vi.mocked(assertShareAuthorization).mockResolvedValue({
-      ok: false,
-      reason: 'The plaintiff withdrew authorization to share this case with law firms',
-      authorization: {
-        authorized: false,
-        reason: 'The plaintiff withdrew authorization to share this case with law firms',
-        basis: 'consent_record',
-        authorizedAttorneyIds: [],
-        authorizedAt: null,
-        withdrawnAt: new Date(),
-      },
-    })
+    withdrawShare()
 
-    const result = await startAssessmentRouting('asm-withdrawn', {
-      skipPreRoutingGate: true,
-      preferTierRouting: true,
-    })
+    const result = await startAssessmentRouting('asm-withdrawn', { skipPreRoutingGate: true })
 
     expect(result).toMatchObject({
       success: false,
@@ -308,8 +246,8 @@ describe('startAssessmentRouting', () => {
       gateStatus: 'needs_more_info',
     })
     expect(result.gateReason).toMatch(/withdrew authorization/i)
-    expect(routeTier1Case).not.toHaveBeenCalled()
     expect(runRoutingEngine).not.toHaveBeenCalled()
+    expect(proposeInitialBatchForApproval).not.toHaveBeenCalled()
     expect(recordRoutingEvent).toHaveBeenCalledWith(
       'asm-withdrawn',
       null,
@@ -319,49 +257,43 @@ describe('startAssessmentRouting', () => {
     )
   })
 
-  // Releasing a case from manual review asked for tier routing and named nobody,
-  // so a consumer's case could be tier-routed to a firm outside the three they
-  // authorized — the § 6155(g)(2) exposure the selection path exists to avoid.
-  it('confines a case with a named authorization to those firms instead of tier routing it', async () => {
-    vi.mocked(assertShareAuthorization).mockResolvedValue({
-      ok: true,
-      authorization: {
-        authorized: true,
-        reason: 'authorized',
-        basis: 'consent_record',
-        authorizedAttorneyIds: ['att-1', 'att-2'],
-        authorizedAt: new Date(),
-        withdrawnAt: null,
-      },
-    })
-    vi.mocked(runRoutingEngine).mockResolvedValue({ success: true, routedTo: ['att-1'] } as any)
+  it('narrows the authorization question to the attorneys actually being contacted', async () => {
+    vi.mocked(prisma.assessment.findUnique).mockResolvedValue(routableAssessment('asm-3') as any)
+    vi.mocked(runRoutingEngine).mockResolvedValue({ success: true, routedTo: ['att-2'] } as any)
 
-    const result = await startAssessmentRouting('asm-released', {
-      skipPreRoutingGate: true,
-      preferTierRouting: true,
-    })
+    await startAssessmentRouting('asm-3', { preferredAttorneyIds: ['att-2'] })
 
-    expect(result.strategy).toBe('classic')
-    expect(result.tierAttempted).toBe(false)
-    expect(routeTier1Case).not.toHaveBeenCalled()
-    expect(assignCaseTier).not.toHaveBeenCalled()
+    expect(assertShareAuthorization).toHaveBeenCalledWith('asm-3', ['att-2'])
     expect(runRoutingEngine).toHaveBeenCalledWith(
-      'asm-released',
-      expect.objectContaining({ preferredAttorneyIds: ['att-1', 'att-2'] })
+      'asm-3',
+      expect.objectContaining({ preferredAttorneyIds: ['att-2'] })
     )
   })
 
-  it('narrows the authorization question to the attorneys actually being contacted', async () => {
-    vi.mocked(prisma.assessment.findUnique).mockResolvedValue({ id: 'asm-3', caseTier: null } as any)
-    vi.mocked(assignCaseTier).mockResolvedValue({ tierNumber: null } as any)
-    vi.mocked(runRoutingEngine).mockResolvedValue({ success: true, routedTo: ['att-9'] } as any)
+  it('refuses a caller-named attorney the plaintiff did not authorize', async () => {
+    vi.mocked(assertShareAuthorization).mockImplementation(async (_id, attorneyIds) => {
+      const authorization = {
+        authorized: true,
+        reason: 'authorized',
+        basis: 'consent_record' as const,
+        authorizedAttorneyIds: ['att-1'],
+        authorizedAt: new Date(),
+        withdrawnAt: null,
+      }
+      if (attorneyIds?.includes('att-outsider')) {
+        return { ok: false, reason: 'Plaintiff has not authorized sharing this case with 1 of the attorneys being contacted', authorization }
+      }
+      return { ok: true, authorization }
+    })
 
-    await startAssessmentRouting('asm-3', { preferredAttorneyIds: ['att-9'] })
+    const result = await startAssessmentRouting('asm-outsider', { preferredAttorneyIds: ['att-outsider'] })
 
-    expect(assertShareAuthorization).toHaveBeenCalledWith('asm-3', ['att-9'])
+    expect(result.success).toBe(false)
+    expect(result.gateStatus).toBe('needs_more_info')
+    expect(runRoutingEngine).not.toHaveBeenCalled()
   })
 
-  it('uses classic routing directly during dry runs', async () => {
+  it('uses the engine directly during dry runs', async () => {
     vi.mocked(runRoutingEngine).mockResolvedValue({
       success: true,
       gatePassed: true,
@@ -376,7 +308,7 @@ describe('startAssessmentRouting', () => {
       tierAttempted: false,
       routedTo: ['att-dry-1'],
     })
-    expect(assignCaseTier).not.toHaveBeenCalled()
+    expect(assertShareAuthorization).not.toHaveBeenCalled()
   })
 
   it('returns a disabled response when routing is turned off by admin', async () => {
@@ -393,7 +325,6 @@ describe('startAssessmentRouting', () => {
       gatePassed: false,
       gateReason: 'Routing disabled by admin',
     })
-    expect(routeTier1Case).not.toHaveBeenCalled()
     expect(runRoutingEngine).not.toHaveBeenCalled()
     expect(recordRoutingEvent).toHaveBeenCalledWith(
       'asm-off',
@@ -428,10 +359,7 @@ describe('overriding the routing pause for one case', () => {
   })
 
   it('routes the case even though routing is switched off', async () => {
-    vi.mocked(prisma.assessment.findUnique).mockResolvedValue(
-      routableAssessment('asm-ov', { caseTier: null }) as any
-    )
-    vi.mocked(assignCaseTier).mockResolvedValue({ tierNumber: null } as any)
+    vi.mocked(prisma.assessment.findUnique).mockResolvedValue(routableAssessment('asm-ov') as any)
     vi.mocked(runRoutingEngine).mockResolvedValue({ success: true, routedTo: ['att-1'] } as any)
 
     const result = await startAssessmentRouting('asm-ov', { overrideRoutingDisabled: true })
@@ -441,13 +369,10 @@ describe('overriding the routing pause for one case', () => {
     expect(runRoutingEngine).toHaveBeenCalled()
   })
 
-  it('carries the override into the classic engine, which checks the switch too', async () => {
+  it('carries the override into the engine, which checks the switch too', async () => {
     // Both layers read the switch independently, so lifting it in only one of
     // them leaves the case stopped one call further down with the same message.
-    vi.mocked(prisma.assessment.findUnique).mockResolvedValue(
-      routableAssessment('asm-ov2', { caseTier: null }) as any
-    )
-    vi.mocked(assignCaseTier).mockResolvedValue({ tierNumber: null } as any)
+    vi.mocked(prisma.assessment.findUnique).mockResolvedValue(routableAssessment('asm-ov2') as any)
     vi.mocked(runRoutingEngine).mockResolvedValue({ success: true, routedTo: ['att-1'] } as any)
 
     await startAssessmentRouting('asm-ov2', { overrideRoutingDisabled: true })
@@ -461,18 +386,7 @@ describe('overriding the routing pause for one case', () => {
   it('still refuses a case the plaintiff authorized nobody to see', async () => {
     // The pause is an operational control; the authorization is the plaintiff's
     // decision. Lifting the first must never lift the second.
-    vi.mocked(assertShareAuthorization).mockResolvedValue({
-      ok: false,
-      reason: 'The plaintiff withdrew authorization to share this case with law firms',
-      authorization: {
-        authorized: false,
-        reason: 'The plaintiff withdrew authorization to share this case with law firms',
-        basis: 'consent_record',
-        authorizedAttorneyIds: [],
-        authorizedAt: null,
-        withdrawnAt: new Date(),
-      },
-    })
+    withdrawShare()
 
     const result = await startAssessmentRouting('asm-ov-withdrawn', {
       overrideRoutingDisabled: true,
@@ -481,33 +395,16 @@ describe('overriding the routing pause for one case', () => {
     expect(result.success).toBe(false)
     expect(result.gateReason).toMatch(/withdrew authorization/i)
     expect(runRoutingEngine).not.toHaveBeenCalled()
-    expect(routeTier1Case).not.toHaveBeenCalled()
   })
 
-  it('still confines the case to the firms the plaintiff chose', async () => {
-    vi.mocked(assertShareAuthorization).mockResolvedValue({
-      ok: true,
-      authorization: {
-        authorized: true,
-        reason: 'authorized',
-        basis: 'consent_record',
-        authorizedAttorneyIds: ['att-1', 'att-2'],
-        authorizedAt: new Date(),
-        withdrawnAt: null,
-      },
-    })
-    vi.mocked(runRoutingEngine).mockResolvedValue({ success: true, routedTo: ['att-1'] } as any)
+  it('still asks the plaintiff to choose when no firms are named', async () => {
+    authorizeShare([])
+    vi.mocked(proposeInitialBatchForApproval).mockResolvedValue({ proposed: true, attorneyIds: ['att-7'] })
 
-    await startAssessmentRouting('asm-ov-ranked', {
-      overrideRoutingDisabled: true,
-      preferTierRouting: true,
-    })
+    const result = await startAssessmentRouting('asm-ov-unnamed', { overrideRoutingDisabled: true })
 
-    expect(routeTier1Case).not.toHaveBeenCalled()
-    expect(runRoutingEngine).toHaveBeenCalledWith(
-      'asm-ov-ranked',
-      expect.objectContaining({ preferredAttorneyIds: ['att-1', 'att-2'] })
-    )
+    expect(result.awaitingPlaintiffSelection).toBe(true)
+    expect(runRoutingEngine).not.toHaveBeenCalled()
   })
 
   it('leaves the pause in force for every case that did not ask', async () => {

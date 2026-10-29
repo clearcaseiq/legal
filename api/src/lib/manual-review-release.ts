@@ -28,8 +28,8 @@ export interface ReviewReleaseResult {
  * an override of the consumer's contact decision (SB 37 / § 6155). If the
  * consumer ranked or removed attorneys, their approved queue is advanced one
  * attorney at a time, or a fresh batch excluding everyone they removed is
- * proposed for their approval. Only cases with no consumer selection route
- * straight through.
+ * proposed for their approval. Cases with no consumer selection are routed to
+ * the firms their authorization names, or held for the plaintiff to choose.
  *
  * Does not record the review decision; the caller does that once it knows the
  * release placed the case, so a release that routes nobody leaves the case in
@@ -73,10 +73,9 @@ export async function routeCaseReleasedFromReview(
   try {
     const classic = await startAssessmentRouting(caseId, {
       skipPreRoutingGate: true,
-      preferTierRouting: true,
-      fallbackToClassic: true,
       overrideRoutingDisabled: options.overrideRoutingDisabled === true,
     })
+    if (classic.awaitingPlaintiffSelection) return { mode: 'awaiting_approval', routedCount: 0 }
     if (!classic.success) {
       return {
         mode: 'held',

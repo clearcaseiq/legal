@@ -383,7 +383,43 @@ describe('runEscalationWave', () => {
   beforeEach(() => {
     resetUniversalPrismaMock()
     vi.clearAllMocks()
-    authorizeShare()
+    authorizeShare(['att-new-1', 'att-new-2'])
+  })
+
+  it('draws the next wave only from firms the plaintiff named and has not been contacted', async () => {
+    vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValue({ routingLocked: false } as any)
+    vi.mocked(prisma.routingWave.findFirst).mockResolvedValue({ waveNumber: 1 } as any)
+    vi.mocked(prisma.introduction.findMany).mockResolvedValue([{ attorneyId: 'att-new-1' }] as any)
+    vi.mocked(runRoutingEngine).mockResolvedValue({ success: true, routedTo: ['att-new-2'] } as any)
+
+    await runEscalationWave('asm-1')
+
+    expect(runRoutingEngine).toHaveBeenCalledWith(
+      'asm-1',
+      expect.objectContaining({ preferredAttorneyIds: ['att-new-2'], dryRun: false })
+    )
+  })
+
+  it('asks the plaintiff to approve new firms once every named firm has been contacted', async () => {
+    vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValue({ routingLocked: false, sourceDetails: null } as any)
+    vi.mocked(prisma.routingWave.findFirst).mockResolvedValue({ waveNumber: 1 } as any)
+    vi.mocked(prisma.introduction.findMany).mockResolvedValue([
+      { attorneyId: 'att-new-1' },
+      { attorneyId: 'att-new-2' },
+    ] as any)
+    vi.mocked(runRoutingEngine).mockResolvedValue({ success: true, routedTo: ['att-other'] } as any)
+
+    const r = await runEscalationWave('asm-1')
+
+    expect(r.escalated).toBe(false)
+    // Only the dry run that builds the proposal; nobody is contacted.
+    expect(runRoutingEngine).toHaveBeenCalledTimes(1)
+    expect(runRoutingEngine).toHaveBeenCalledWith('asm-1', expect.objectContaining({ dryRun: true }))
+    expect(prisma.leadSubmission.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ lifecycleState: 'awaiting_plaintiff_batch_approval' }),
+      })
+    )
   })
 
   it('returns error when no lead', async () => {

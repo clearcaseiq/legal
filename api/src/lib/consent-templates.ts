@@ -84,11 +84,11 @@ I have had the opportunity to read this authorization. Information disclosed may
     `.trim(),
   },
   terms: {
-    version: '1.4',
-    documentId: 'terms-v1.4',
+    version: '1.5',
+    documentId: 'terms-v1.5',
     title: 'Terms of Service',
-    effectiveDate: '2026-10-17',
-    plainLanguageSummary: `You are contracting with ClearCaseIQ Corp., a technology company in Los Angeles, California. ClearCaseIQ is not a law firm, is not your lawyer, and does not give legal advice. These Terms are the rules for using the platform: you’ll provide accurate information, use the service lawfully, and keep your login private. Participating law firms pay ClearCaseIQ for technology and marketing services; you never do. When you pick your own firms, paying to participate does not improve a firm’s position. The Terms also explain the separate situation where a case arrives without anyone having picked firms, and how firms are ordered then. You keep ownership of what you upload; we may analyze it to run and improve the platform, and may use de-identified or aggregated data to develop our AI, but we do not train general models on your identifiable health information, privileged material, or confidential case files without the separate permission that use requires. California law governs, and liability limits apply as described in the full Terms.`,
+    effectiveDate: '2026-10-29',
+    plainLanguageSummary: `You are contracting with ClearCaseIQ Corp., a technology company in Los Angeles, California. ClearCaseIQ is not a law firm, is not your lawyer, and does not give legal advice. These Terms are the rules for using the platform: you’ll provide accurate information, use the service lawfully, and keep your login private. Participating law firms pay ClearCaseIQ for technology and marketing services; you never do. Your case goes only to firms you choose or approve, and what a firm pays never affects whether it is shown or its position. You keep ownership of what you upload; we may analyze it to run and improve the platform, and may use de-identified or aggregated data to develop our AI, but we do not train general models on your identifiable health information, privileged material, or confidential case files without the separate permission that use requires. California law governs, and liability limits apply as described in the full Terms.`,
     content: `
 # Terms of Service
 
@@ -118,10 +118,10 @@ Some attorneys and law firms participate in the ClearCaseIQ platform under comme
 ClearCaseIQ does not guarantee representation and does not recommend or endorse any attorney. You are free to choose any attorney, whether or not they participate on the platform.
 
 ### How firms are identified when you choose them
-If you complete an assessment and ask for attorney review, you see the participating firms before any of them is contacted. They are identified using objective criteria: the state and county of your matter, the type of claim, whether the firm handles that claim type, and how quickly the firm typically responds. You set the order, you may remove any of them, and firms are contacted one at a time in the order you set. Paying to participate does not improve a firm's position in that list. If the firms you chose cannot take your case, we ask you to approve a new set before contacting anyone else.
+If you complete an assessment and ask for attorney review, you see the participating firms before any of them is contacted. They are identified using objective criteria: the state and county of your matter, the type of claim, whether the firm handles that claim type, and how quickly the firm typically responds. You set the order, you may remove any of them, and firms are contacted one at a time in the order you set. What a firm pays, including any subscription, does not affect whether it is shown or its position in that list. If the firms you chose cannot take your case, we ask you to approve a new set before contacting anyone else.
 
-### How firms are identified when nobody has chosen them
-A case can also reach the platform without a consumer having named any firm, for example a case referred to us by a partner, or a case released by our team after a manual review. On those paths ClearCaseIQ decides which participating firms are offered the case and in what order, and a firm's commercial arrangement with us can affect that: a firm with an active subscription may be offered a case before other firms, and a firm's account standing is one input among several into the order. This is disclosed because it is a real difference between the two paths, not because it applies to a consumer who chose their own firms. It does not.
+### Every case goes only to firms the consumer chose
+A case can also reach the platform without a consumer having named any firm, for example a case referred to us by a partner, or a case released by our team after a manual review. No firm is contacted about such a case until the consumer has chosen or approved the firms, using the same list and the same objective criteria described above. ClearCaseIQ does not decide on a consumer's behalf which firms receive their case.
 
 ## Artificial Intelligence Development, Data Analytics, and Platform Improvement
 
@@ -192,11 +192,11 @@ Nothing in this section waives any right you have under California law that cann
     `.trim(),
   },
   privacy: {
-    version: '1.4',
-    documentId: 'privacy-v1.4',
+    version: '1.5',
+    documentId: 'privacy-v1.5',
     title: 'Privacy Policy',
-    effectiveDate: '2026-10-21',
-    plainLanguageSummary: `ClearCaseIQ Corp., in Los Angeles, California, operates this platform. We collect what you give us (contact, case details, files you upload) and some technical data to run and secure the service. We use it to deliver the features you ask for. Your case information reaches a law firm only when you choose to send it, and only the firms you selected or authorized us to contact. The policy also describes the separate situation where a case arrives without anyone having selected firms, and how firms are ordered then. Participating law firms have commercial agreements with ClearCaseIQ for technology and platform services; you never pay us. California residents have specific rights under the CCPA/CPRA, including the right to opt out of the sale or sharing of personal information, described in full below.`,
+    effectiveDate: '2026-10-29',
+    plainLanguageSummary: `ClearCaseIQ Corp., in Los Angeles, California, operates this platform. We collect what you give us (contact, case details, files you upload) and some technical data to run and secure the service. We use it to deliver the features you ask for. Your case information reaches a law firm only when you choose to send it, and only the firms you selected or authorized us to contact. Participating law firms have commercial agreements with ClearCaseIQ for technology and platform services; you never pay us. California residents have specific rights under the CCPA/CPRA, including the right to opt out of the sale or sharing of personal information, described in full below.`,
     content: `
 # Privacy Policy
 
@@ -213,7 +213,7 @@ This policy describes how **ClearCaseIQ Corp.**, a technology company with its p
 - Meet legal and security obligations
 
 ## Sharing
-- With participating law firms, as described in the next section, which also explains the one situation in which the firms are not ones you named
+- With participating law firms you chose or approved, as described in the next section
 - With service providers under contract who assist our operations
 - When required by law or to protect rights and safety
 
@@ -225,11 +225,11 @@ This policy describes how **ClearCaseIQ Corp.**, a technology company with its p
 
 **With whom.** Only the participating law firms you selected, or firms you separately approved after we proposed them to you. Before sending, you can reorder that list and remove any firm from it. We contact firms one at a time, in the order you set. If the firms you chose cannot take your case, we ask you to approve a new set before contacting anyone else.
 
-**When the firms are not ones you named.** A case can reach the platform without a consumer having selected any firm, for example a case referred to us by a partner, or one released by our team after a manual review. On those paths ClearCaseIQ decides which participating firms are offered the case and in what order, and a firm's commercial arrangement with us can affect that order: a firm with an active subscription may be offered a case before other firms, and a firm's account standing is one input among several. We describe this so that the two paths are not conflated. It does not apply to a case where you chose the firms yourself.
+**When a case arrives without firms named.** A case can reach the platform without a consumer having selected any firm, for example a case referred to us by a partner, or one released by our team after a manual review. We do not share it with any firm until the consumer has chosen or approved the firms.
 
 **Why.** So that a firm can review your case and decide whether to offer to represent you. You decide whether to speak with any of them and whether to retain anyone.
 
-**Commercial relationship.** Participating law firms have commercial agreements with ClearCaseIQ for technology and platform services. Those agreements may include payments for technology, marketing, or lead-generation services. What a firm pays is a flat fee per case: the same for every case, regardless of claim type, injury severity, or what the case may be worth, and never a share of any recovery. You never pay ClearCaseIQ to use the platform. Participating does not improve a firm's position in the list you are shown.
+**Commercial relationship.** Participating law firms have commercial agreements with ClearCaseIQ for technology and platform services. Those agreements may include payments for technology, marketing, or lead-generation services. What a firm pays is a flat fee per case: the same for every case, regardless of claim type, injury severity, or what the case may be worth, and never a share of any recovery. You never pay ClearCaseIQ to use the platform. What a firm pays does not affect whether it is shown or its position in the list you are shown.
 
 **Your control.** We do not disclose your information to participating law firms unless you authorize us to do so. You may decline to send your case, remove firms before sending, or contact any attorney directly outside the platform, whether or not that attorney participates here.
 

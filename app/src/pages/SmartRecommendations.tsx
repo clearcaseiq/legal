@@ -188,10 +188,10 @@ export default function SmartRecommendations() {
       {/* Header */}
       <div className="text-center">
         <h1 className="text-4xl font-bold text-gray-900 mb-4">
-          Smart Recommendations
+          Your Case Insights
         </h1>
         <p className="text-xl text-gray-600">
-          AI-powered insights and personalized recommendations for your case
+          Information about your case and the participating attorneys who handle cases like it. You choose who, if anyone, to contact.
         </p>
       </div>
 
@@ -199,7 +199,7 @@ export default function SmartRecommendations() {
       <div className="border-b border-gray-200">
         <nav className="-mb-px flex space-x-8">
           {[
-            { id: 'attorneys', label: 'Attorney Matches', icon: Users, count: recommendations.length },
+            { id: 'attorneys', label: 'Participating Attorneys', icon: Users, count: recommendations.length },
             { id: 'insights', label: 'Case Insights', icon: Lightbulb, count: insights.length },
             { id: 'treatment', label: 'Treatment', icon: Target, count: treatmentRecs.length },
             { id: 'similar', label: 'Similar Cases', icon: BarChart3, count: similarCases.length }
@@ -238,7 +238,7 @@ export default function SmartRecommendations() {
                   onChange={(e) => setSortBy(e.target.value as any)}
                   className="input text-sm"
                 >
-                  <option value="score">Best Match</option>
+                  <option value="score">Case Fit</option>
                   <option value="rating">Highest Rated</option>
                   <option value="response">Fastest Response</option>
                 </select>
@@ -310,7 +310,7 @@ export default function SmartRecommendations() {
             {sortedRecommendations.length === 0 ? (
               <div className="card text-center py-12">
                 <Users className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                <h3 className="text-lg font-semibold text-gray-900 mb-2">No matches found</h3>
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">No attorneys found</h3>
                 <p className="text-gray-600">Try adjusting your filters to see more results.</p>
               </div>
             ) : (
@@ -361,7 +361,7 @@ export default function SmartRecommendations() {
                           <div className={`text-2xl font-bold ${getMatchPercentageColor(rec.matchPercentage)}`}>
                             {rec.matchPercentage.toFixed(0)}%
                           </div>
-                          <div className="text-sm text-gray-600">Match Score</div>
+                          <div className="text-sm text-gray-600">Case Fit</div>
                         </div>
                       </div>
 

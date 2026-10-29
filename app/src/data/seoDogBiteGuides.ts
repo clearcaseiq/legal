@@ -259,7 +259,7 @@ export const dogBiteGuidePages: LandingPage[] = [
         'The date of the bite, so the filing deadline is not quietly running out',
       ],
       howClearCaseHelps:
-        `ClearCaseIQ helps you see whether a dog-bite claim is the kind that needs an attorney before you commit to anyone — it assembles the facts that drive value and flags the ones (scarring, a child victim, a coverage dispute) that usually justify representation. When it does make sense, it matches you with California attorneys who handle dog-bite claims on contingency. ${NOT_ADVICE}`,
+        `ClearCaseIQ helps you see whether a dog-bite claim is the kind that needs an attorney before you commit to anyone — it assembles the facts that drive value and flags the ones (scarring, a child victim, a coverage dispute) that usually justify representation. When it does make sense, it shows you participating California attorneys who handle dog-bite claims on contingency. ${NOT_ADVICE}`,
     },
     faqs: [
       {

@@ -218,17 +218,6 @@ export default function AttorneyProfile() {
               {/* Read-only here. Name and bio are edited on the Profile tab
                   below, so there is one place to change them and one save. */}
               <h2 className="text-2xl font-bold text-gray-900">{profile.attorney?.name || 'Your Profile'}</h2>
-              {profile.isFeatured && (
-                <div className="flex items-center space-x-1">
-                  <Star className="h-5 w-5 text-yellow-500" />
-                  <span className="text-sm font-medium text-yellow-600">Featured</span>
-                </div>
-              )}
-              {profile.boostLevel > 0 ? (
-                <span className="px-2 py-1 text-xs font-semibold rounded-full bg-purple-100 text-purple-800">
-                  Boost Level {profile.boostLevel}
-                </span>
-              ) : null}
             </div>
             <p className="whitespace-pre-line text-gray-600">{profile.bio}</p>
 

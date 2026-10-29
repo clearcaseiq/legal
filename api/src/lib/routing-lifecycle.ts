@@ -1430,16 +1430,35 @@ export async function runEscalationWave(assessmentId: string): Promise<{
     return { escalated: false, waveNumber: 3 }
   }
 
-  // Reached only by cases with no plaintiff-ranked queue, so there is no named
-  // firm set to check against — but there must still be a live authorization to
-  // disclose the case at all, and a withdrawal has to stop the next wave.
+  // Reached by cases with no plaintiff-ranked queue on the lead. There must
+  // still be a live authorization (a withdrawal has to stop the next wave), and
+  // the wave may only reach firms that authorization names. Once every named
+  // firm has been contacted, the plaintiff is asked to approve a new slate
+  // rather than the engine choosing firms for them.
   const waveAuthorization = await assertShareAuthorization(assessmentId)
   if (!waveAuthorization.ok) {
     await moveEscalationToManualReview(waveAuthorization.reason, nextWave)
     return { escalated: false, waveNumber: nextWave, error: waveAuthorization.reason }
   }
+  const contacted = new Set(excludeAttorneyIds)
+  const remainingNamedIds = waveAuthorization.authorization.authorizedAttorneyIds.filter((id) => !contacted.has(id))
+  if (remainingNamedIds.length === 0) {
+    const proposal = await proposeNextRankedBatch(assessmentId, lead)
+    if (!proposal.proposed) {
+      const reason = proposal.error || 'No further firms to propose to the plaintiff'
+      await moveEscalationToManualReview(reason, nextWave)
+      return { escalated: false, waveNumber: nextWave, error: reason }
+    }
+    if (latestWave) {
+      await markWaveEscalated(assessmentId, latestWave.waveNumber, { clearNextEscalation: true })
+    }
+    logger.info('Holding routing for plaintiff approval; every chosen firm has been contacted', {
+      assessmentId,
+      proposedAttorneyIds: proposal.attorneyIds,
+    })
+    return { escalated: false, waveNumber: latestWave?.waveNumber }
+  }
 
-  // Run routing engine for next wave (will add more attorneys, excluding already-routed).
   // The gate itself was cleared on wave 1; the disclosure check above is not part
   // of what "already passed" covers, because consent can be withdrawn.
   const { runRoutingEngine } = await import('./routing-engine')
@@ -1448,6 +1467,7 @@ export async function runEscalationWave(assessmentId: string): Promise<{
     skipPreRoutingGate: true, // Already passed
     dryRun: false,
     excludeAttorneyIds,
+    preferredAttorneyIds: remainingNamedIds,
     waveNumber: nextWave
   })
 

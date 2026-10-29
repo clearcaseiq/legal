@@ -423,11 +423,16 @@ export async function assertShareAuthorization(
   const requested = uniqueIds(attorneyIds || [])
   if (requested.length === 0) return { ok: true, authorization }
 
-  // An older authorization may predate the metadata column. Treat an empty
-  // covered set as "the case may be shared" rather than blocking, since the
-  // consumer did authorize disclosure; the firm-level check applies as soon as
-  // any authorization on the case names firms.
-  if (authorization.authorizedAttorneyIds.length === 0) return { ok: true, authorization }
+  // An authorization that names no firms permits disclosure in principle but
+  // covers no particular firm: contacting anyone needs the plaintiff to choose
+  // them first.
+  if (authorization.authorizedAttorneyIds.length === 0) {
+    return {
+      ok: false,
+      reason: 'The plaintiff has not chosen which firms may receive this case',
+      authorization,
+    }
+  }
 
   const covered = new Set(authorization.authorizedAttorneyIds)
   const uncovered = requested.filter((id) => !covered.has(id))

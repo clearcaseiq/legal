@@ -4,8 +4,6 @@ import {
   fromCents,
   toStripeMetadataValue,
   parseJsonMaybe,
-  getFeaturedBoost,
-  FEATURED_BOOST_PRICES,
   webUrl,
 } from './stripe'
 
@@ -57,27 +55,6 @@ describe('parseJsonMaybe', () => {
     expect(parseJsonMaybe(obj)).toBe(obj)
     expect(parseJsonMaybe(null)).toBeNull()
     expect(parseJsonMaybe(undefined)).toBeUndefined()
-  })
-})
-
-describe('featured boost pricing', () => {
-  it('exposes the five expected boost levels', () => {
-    expect(Object.keys(FEATURED_BOOST_PRICES)).toEqual(['1', '2', '3', '4', '5'])
-  })
-
-  it('returns pricing for a valid level and null for an invalid one', () => {
-    expect(getFeaturedBoost(1)).toEqual({ price: 99, name: 'Basic Boost' })
-    expect(getFeaturedBoost(5)).toEqual({ price: 999, name: 'Champion Boost' })
-    expect(getFeaturedBoost(0)).toBeNull()
-    expect(getFeaturedBoost(6)).toBeNull()
-    expect(getFeaturedBoost(NaN)).toBeNull()
-  })
-
-  it('has strictly increasing prices by level', () => {
-    const prices = [1, 2, 3, 4, 5].map((level) => FEATURED_BOOST_PRICES[level].price)
-    for (let i = 1; i < prices.length; i += 1) {
-      expect(prices[i]).toBeGreaterThan(prices[i - 1])
-    }
   })
 })
 

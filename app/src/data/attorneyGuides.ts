@@ -704,7 +704,7 @@ export const attorneyGuides: AttorneyGuide[] = [
           'Payment Method: add or update the card used for routing fees, subscriptions and lead credits.',
           'Subscription: choose a plan that includes a number of accepted cases each month. Billing Status shows your current plan and how many included cases remain.',
           'Use "Manage Subscription & Cards" to change your plan or cards in Stripe.',
-          'Fees & Payments lists everything you have paid: routing fees, subscriptions, lead credits and featured placement.',
+          'Fees & Payments lists everything you have paid: routing fees, subscriptions and lead credits.',
         ],
         tips: [
           'Accepting a case charges the routing fee shown on the case review screen, and all sales are final.',

@@ -1015,169 +1015,6 @@ router.post('/photo', authMiddleware, runAvatarUpload, replicateUploads, async (
   }
 })
 
-// Featured Placement Management
-
-// Get featured placement options
-router.get('/featured-options', authMiddleware, async (req: any, res) => {
-  try {
-    if (!req.user || !req.user.email) {
-      return res.status(401).json({ error: 'Authentication required' })
-    }
-
-    const attorney = await prisma.attorney.findUnique({
-      where: { email: req.user.email }
-    })
-
-    if (!attorney) {
-      return res.status(404).json({ error: 'Attorney not found' })
-    }
-
-    const attorneyId = attorney.id
-
-    const profile = await prisma.attorneyProfile.findUnique({
-      where: { attorneyId }
-    })
-
-    const featuredOptions = [
-      {
-        level: 1,
-        name: 'Basic Boost',
-        price: 99,
-        duration: 30, // days
-        description: 'Slight increase in visibility for 30 days',
-        features: ['10% visibility boost', 'Priority in search results', 'Featured badge']
-      },
-      {
-        level: 2,
-        name: 'Standard Boost',
-        price: 199,
-        duration: 30,
-        description: 'Moderate increase in visibility for 30 days',
-        features: ['25% visibility boost', 'Top placement in results', 'Featured badge', 'Profile highlighting']
-      },
-      {
-        level: 3,
-        name: 'Premium Boost',
-        price: 399,
-        duration: 30,
-        description: 'Maximum visibility boost for 30 days',
-        features: ['50% visibility boost', 'Exclusive top placement', 'Premium badge', 'Profile highlighting', 'Email marketing inclusion']
-      },
-      {
-        level: 4,
-        name: 'Elite Boost',
-        price: 699,
-        duration: 30,
-        description: 'Elite placement with exclusive benefits',
-        features: ['75% visibility boost', 'Exclusive elite placement', 'Elite badge', 'Full profile highlighting', 'Email marketing inclusion', 'Direct lead routing']
-      },
-      {
-        level: 5,
-        name: 'Champion Boost',
-        price: 999,
-        duration: 30,
-        description: 'Ultimate visibility with all premium features',
-        features: ['100% visibility boost', 'Champion placement', 'Champion badge', 'Full profile highlighting', 'Email marketing inclusion', 'Direct lead routing', 'Priority support']
-      }
-    ]
-
-    res.json({
-      currentLevel: profile?.boostLevel || 0,
-      featuredUntil: profile?.featuredUntil,
-      options: featuredOptions
-    })
-  } catch (error: any) {
-    logger.error('Failed to get featured options', { error: error.message })
-    res.status(500).json({ error: 'Failed to get featured options' })
-  }
-})
-
-// Purchase featured placement
-router.post('/featured-purchase', authMiddleware, async (req: any, res) => {
-  try {
-    if (!req.user || !req.user.email) {
-      return res.status(401).json({ error: 'Authentication required' })
-    }
-
-    const attorney = await prisma.attorney.findUnique({
-      where: { email: req.user.email }
-    })
-
-    if (!attorney) {
-      return res.status(404).json({ error: 'Attorney not found' })
-    }
-
-    const attorneyId = attorney.id
-    const { boostLevel, duration = 30 } = req.body
-
-    const boostPrices = {
-      1: 99,
-      2: 199,
-      3: 399,
-      4: 699,
-      5: 999
-    }
-
-    const price = boostPrices[boostLevel as keyof typeof boostPrices]
-    if (!price) {
-      return res.status(400).json({ error: 'Invalid boost level' })
-    }
-
-    // When Stripe is configured, featured placement must be paid for through the
-    // Checkout flow (POST /v1/payments/platform/featured-checkout-session), which
-    // grants the boost from the webhook after payment succeeds. This endpoint only
-    // grants directly when Stripe is not configured (local/dev), so boosts are
-    // never handed out for free in production.
-    if (ENV.STRIPE_SECRET_KEY) {
-      return res.status(402).json({
-        error: 'Payment required',
-        paymentRequired: true,
-        checkoutEndpoint: '/v1/payments/platform/featured-checkout-session',
-      })
-    }
-
-    // Calculate featured until date
-    const featuredUntil = new Date()
-    featuredUntil.setDate(featuredUntil.getDate() + duration)
-
-    const profile = await prisma.attorneyProfile.update({
-      where: { attorneyId },
-      data: {
-        isFeatured: true,
-        boostLevel,
-        featuredUntil
-      }
-    })
-
-    // Update attorney dashboard spending
-    await prisma.attorneyDashboard.upsert({
-      where: { attorneyId },
-      update: {
-        totalPlatformSpend: {
-          increment: price
-        }
-      },
-      create: {
-        attorneyId,
-        totalPlatformSpend: price
-      }
-    })
-
-    res.json({
-      profile,
-      purchase: {
-        boostLevel,
-        price,
-        duration,
-        featuredUntil
-      }
-    })
-  } catch (error: any) {
-    logger.error('Failed to purchase featured placement', { error: error.message })
-    res.status(500).json({ error: 'Failed to purchase featured placement' })
-  }
-})
-
 // Verified Verdicts Management
 
 /**
@@ -1999,7 +1836,6 @@ router.get('/public-profiles', async (req: any, res) => {
       minRating, 
       maxDistance,
       zipCode,
-      isFeatured,
       page = 1,
       limit = 20
     } = req.query
@@ -2009,11 +1845,6 @@ router.get('/public-profiles', async (req: any, res) => {
         isActive: true,
         isVerified: true
       }
-    }
-
-    if (isFeatured === 'true') {
-      whereClause.isFeatured = true
-      whereClause.featuredUntil = { gte: new Date() }
     }
 
     if (minRating) {
@@ -2039,9 +1870,8 @@ router.get('/public-profiles', async (req: any, res) => {
         }
       },
       orderBy: [
-        { isFeatured: 'desc' },
-        { boostLevel: 'desc' },
-        { averageRating: 'desc' }
+        { averageRating: 'desc' },
+        { id: 'asc' }
       ],
       skip: (parseInt(page as string) - 1) * parseInt(limit as string),
       take: parseInt(limit as string)

@@ -257,7 +257,7 @@ export const truckAccidentGuidePages: LandingPage[] = [
         'The crash date and any six-month government deadline',
       ],
       howClearCaseHelps:
-        `ClearCaseIQ helps you see why a truck claim rarely fits self-representation — the mobilized defense, the disappearing federal evidence, and the layered coverage — before you commit to anyone. When representation makes sense, which is nearly always for a serious truck injury, it matches you with California truck attorneys who work on contingency and know how to preserve federal records and reach every carrier. ${NOT_ADVICE}`,
+        `ClearCaseIQ helps you see why a truck claim rarely fits self-representation — the mobilized defense, the disappearing federal evidence, and the layered coverage — before you commit to anyone. When representation makes sense, which is nearly always for a serious truck injury, it shows you participating California truck attorneys who work on contingency and know how to preserve federal records and reach every carrier. ${NOT_ADVICE}`,
     },
     faqs: [
       {

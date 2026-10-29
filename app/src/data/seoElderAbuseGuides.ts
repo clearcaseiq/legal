@@ -255,7 +255,7 @@ export const elderAbuseGuidePages: LandingPage[] = [
         'The relevant dates, since malpractice and government deadlines can be short',
       ],
       howClearCaseHelps:
-        `ClearCaseIQ helps you see whether a nursing-home claim reaches the Elder Abuse Act\u2019s recklessness standard — the thing that unlocks fee-shifting and the resident\u2019s pre-death suffering — before you commit to anyone. It flags the malpractice-recharacterisation risk and the records that will have to be compelled, and matches you with California elder-abuse attorneys who work on contingency. ${NOT_ADVICE}`,
+        `ClearCaseIQ helps you see whether a nursing-home claim reaches the Elder Abuse Act\u2019s recklessness standard — the thing that unlocks fee-shifting and the resident\u2019s pre-death suffering — before you commit to anyone. It flags the malpractice-recharacterisation risk and the records that will have to be compelled, and shows you participating California elder-abuse attorneys who work on contingency. ${NOT_ADVICE}`,
     },
     faqs: [
       {

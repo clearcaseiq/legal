@@ -192,7 +192,7 @@ export const rideshareGuidePages: LandingPage[] = [
         'The crash date, so the deadline is not quietly running out',
       ],
       howClearCaseHelps:
-        `ClearCaseIQ helps you judge whether a rideshare claim needs an attorney before you commit — it flags a disputed app period, layered policies, and insurers pointing at each other, which are the signals that representation changes the outcome. When it makes sense, it matches you with California rideshare attorneys who work on contingency and know how to force the right policy to respond. ${NOT_ADVICE}`,
+        `ClearCaseIQ helps you judge whether a rideshare claim needs an attorney before you commit — it flags a disputed app period, layered policies, and insurers pointing at each other, which are the signals that representation changes the outcome. When it makes sense, it shows you participating California rideshare attorneys who work on contingency and know how to force the right policy to respond. ${NOT_ADVICE}`,
     },
     faqs: [
       {

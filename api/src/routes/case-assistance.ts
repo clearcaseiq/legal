@@ -855,17 +855,14 @@ async function handoverToAttorneys(
 
   // A plaintiff who ranked attorneys is offered to them one at a time in their
   // order, exactly as their own submit would have done.
+  // A case with no ranked firms is held for the plaintiff to choose some.
   const result = await startAssessmentRouting(assistance.assessmentId, rankedAttorneyIds.length > 0
     ? {
         maxAttorneysPerWave: 1,
-        preferTierRouting: false,
-        fallbackToClassic: true,
         preferredAttorneyIds: rankedAttorneyIds,
         overrideRoutingDisabled: options.overrideRoutingDisabled,
       }
     : {
-        preferTierRouting: true,
-        fallbackToClassic: true,
         overrideRoutingDisabled: options.overrideRoutingDisabled,
       })
 
@@ -892,6 +889,9 @@ async function handoverToAttorneys(
   // nobody covers yet. Reported as a bare "not routed" they all read as a bug.
   if (result.disabledByAdmin) {
     return { outcome: 'routing_disabled', routedCount: 0, reason: result.gateReason || null }
+  }
+  if (result.awaitingPlaintiffSelection) {
+    return { outcome: 'awaiting_plaintiff_approval', routedCount: 0, reason: null }
   }
   if (result.gatePassed === false) {
     return {

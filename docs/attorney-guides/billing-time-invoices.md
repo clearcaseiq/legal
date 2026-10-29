@@ -75,7 +75,7 @@ The account billing page is where you manage what you pay ClearCaseIQ. All charg
 1. Payment Method: add or update the card used for routing fees, subscriptions and lead credits.
 2. Subscription: choose a plan that includes a number of accepted cases each month. Billing Status shows your current plan and how many included cases remain.
 3. Use "Manage Subscription & Cards" to change your plan or cards in Stripe.
-4. Fees & Payments lists everything you have paid: routing fees, subscriptions, lead credits and featured placement.
+4. Fees & Payments lists everything you have paid: routing fees, subscriptions and lead credits.
 
 > **Tip:** Accepting a case charges the routing fee shown on the case review screen, and all sales are final.
 

@@ -252,4 +252,22 @@ describe('runRoutingEngine', () => {
     }))
     expect(r.routedTo).toEqual(['att-plaintiff-choice'])
   })
+
+  it('offers the case to nobody else when none of the plaintiff-named firms qualify', async () => {
+    vi.mocked(prisma.assessment.findUnique).mockResolvedValue(assessmentRow as any)
+    vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValue(null as any)
+    vi.mocked(prisma.attorney.findMany).mockResolvedValue([
+      attorneyRow({ id: 'att-engine-favourite', responseTimeHours: 2 }),
+    ] as any)
+    vi.mocked(prisma.introduction.findMany).mockResolvedValue([] as any)
+
+    const r = await runRoutingEngine('asm-eng-1', {
+      maxAttorneysPerWave: 1,
+      preferredAttorneyIds: ['att-not-available'],
+    })
+
+    expect(r.success).toBe(false)
+    expect(r.errors?.[0]).toMatch(/none of the firms the plaintiff chose/i)
+    expect(prisma.introduction.create).not.toHaveBeenCalled()
+  })
 })

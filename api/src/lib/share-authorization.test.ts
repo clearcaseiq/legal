@@ -246,10 +246,19 @@ describe('assertShareAuthorization', () => {
     expect(result.ok).toBe(true)
   })
 
-  it('does not block a case whose authorization predates the covered-firm metadata', async () => {
+  it('refuses every firm when the authorization names none, so the plaintiff chooses first', async () => {
     vi.mocked(prisma.consent.findMany).mockResolvedValue([grantedRow({ metadata: null })] as any)
 
     const result = await assertShareAuthorization('asm-1', ['att-42'])
+
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.reason).toMatch(/has not chosen which firms/i)
+  })
+
+  it('still allows the case to be shared in principle when the authorization names no firm', async () => {
+    vi.mocked(prisma.consent.findMany).mockResolvedValue([grantedRow({ metadata: null })] as any)
+
+    const result = await assertShareAuthorization('asm-1')
 
     expect(result.ok).toBe(true)
   })

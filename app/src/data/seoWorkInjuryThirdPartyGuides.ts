@@ -194,7 +194,7 @@ export const workInjuryThirdPartyGuidePages: LandingPage[] = [
         'Any early third-party offer and its adequacy',
       ],
       howClearCaseHelps:
-        `ClearCaseIQ helps you judge whether a third-party work-injury claim is worth pursuing alongside comp, and flags the two things that most often erode these recoveries: an unmanaged comp lien and a missed two-year deadline. When a third party was at fault, it matches you with California attorneys who work on contingency and coordinate the third-party claim with your comp case. ${NOT_ADVICE}`,
+        `ClearCaseIQ helps you judge whether a third-party work-injury claim is worth pursuing alongside comp, and flags the two things that most often erode these recoveries: an unmanaged comp lien and a missed two-year deadline. When a third party was at fault, it shows you participating California attorneys who work on contingency and coordinate the third-party claim with your comp case. ${NOT_ADVICE}`,
     },
     faqs: [
       {

@@ -302,7 +302,9 @@ function computeRoutingScore(
   const conversion_score = existingScores.breakdown?.outcome?.signRate ?? 0.5
   const capacity_score = deriveCapacityScore(attorney)
   const plaintiff_fit = derivePlaintiffFit(attorney, caseData, normalizedCase)
-  const strategic_priority = existingScores.breakdown?.value?.subscriptionTier ?? 0.5
+  // Neutral for every attorney: what a firm pays has no input into the order
+  // firms are proposed in.
+  const strategic_priority = 0.5
   const acceptance_probability = deriveAcceptanceProbability(attorney, feedback)
   const feedback_score = deriveFeedbackScore(feedback)
   const baseScore =
@@ -663,13 +665,33 @@ export async function runRoutingEngine(
       }
     }
 
-    // 9. Controlled wave: optionally honor the plaintiff's ranked attorney order first.
+    // 9. Controlled wave. When the plaintiff named firms, the wave is drawn only
+    // from them, in their order; if none of them qualify the case is not offered
+    // to anyone else. Only a dry run with no named firms (proposing a slate for
+    // the plaintiff to approve) draws from the full ranking.
     const preferredAttorneyIds = (options?.preferredAttorneyIds || []).filter(Boolean)
     const rerankedByAttorneyId = new Map(reranked.map((entry) => [entry.attorney.id, entry]))
     const preferredOrdered = preferredAttorneyIds
       .map((attorneyId) => rerankedByAttorneyId.get(attorneyId))
       .filter((entry): entry is NonNullable<typeof entry> => !!entry)
-    const waveAttorneys = (preferredOrdered.length > 0 ? preferredOrdered : reranked).slice(0, maxPerWave)
+    const waveAttorneys = (preferredAttorneyIds.length > 0 ? preferredOrdered : reranked).slice(0, maxPerWave)
+    if (waveAttorneys.length === 0) {
+      return {
+        success: false,
+        gatePassed: true,
+        normalizedCase,
+        candidatesTotal: attorneysForRouting.length,
+        candidatesEligible: eligible.length,
+        candidatesQualified: qualified.length,
+        diagnostics: {
+          ...diagnosticsBase,
+          selected: [],
+          rankedPreview: reranked.slice(0, 10).map((entry) => entry.routingScore),
+          excludedPreview: qualityExcludedPreview,
+        },
+        errors: ['None of the firms the plaintiff chose can take this case'],
+      }
+    }
     const diagnostics: RoutingDiagnostics = {
       ...diagnosticsBase,
       selected: waveAttorneys.map((entry) => entry.routingScore),

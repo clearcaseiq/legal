@@ -1,35 +1,24 @@
 import { prisma } from './prisma'
 import { logger } from './logger'
 import { runRoutingEngine, type RoutingEngineOptions, type RoutingEngineResult } from './routing-engine'
-import { assignCaseTier } from './case-tier-classifier'
-import { routeTier1Case } from './tier1-routing'
-import { routeTier2Case } from './tier2-routing'
-import { routeTier3Case } from './tier3-routing'
-import { routeTier4Case } from './tier4-routing'
-import { recordRoutingEvent, placeAssessmentInManualReview } from './routing-lifecycle'
+import { recordRoutingEvent, placeAssessmentInManualReview, proposeInitialBatchForApproval } from './routing-lifecycle'
 import { isRoutingEnabled, getMatchingRules, getPreRoutingGateOptions } from './matching-rules-config'
 import { normalizeCaseForRouting } from './case-normalization'
 import { runPreRoutingGate } from './pre-routing-gate'
 import { assertShareAuthorization } from './share-authorization'
 
-type TierRouteResult = {
-  routed: boolean
-  routedToFirmId?: string
-  introductionId?: string
-  method?: string
-  price?: number
-  attempts?: Record<string, number>
-  holdReason?: string
-  error?: string
-}
+export const PLAINTIFF_SELECTION_REQUIRED =
+  'Waiting for the plaintiff to choose which firms may receive this case'
 
 export type AssessmentRoutingStartResult = Partial<RoutingEngineResult> & {
   success: boolean
-  strategy: 'tier' | 'classic'
+  strategy: 'classic'
   tierNumber?: number | null
   tierAttempted: boolean
-  tierOutcome?: 'fallback_to_classic'
   disabledByAdmin?: boolean
+  /** The plaintiff has been sent a proposed slate and nobody is contacted until they approve it. */
+  awaitingPlaintiffSelection?: boolean
+  proposedAttorneyIds?: string[]
   gatePassed: boolean
   routedTo?: string[]
   introductionIds?: string[]
@@ -38,89 +27,6 @@ export type AssessmentRoutingStartResult = Partial<RoutingEngineResult> & {
   method?: string
   attempts?: Record<string, number>
   price?: number
-}
-
-async function getAssessmentTierNumber(assessmentId: string): Promise<number | null> {
-  const assessment = await prisma.assessment.findUnique({
-    where: { id: assessmentId },
-    select: {
-      id: true,
-      caseTier: {
-        select: {
-          tierNumber: true,
-        },
-      },
-    },
-  })
-
-  if (!assessment) {
-    return null
-  }
-
-  if (assessment.caseTier?.tierNumber != null) {
-    return assessment.caseTier.tierNumber
-  }
-
-  try {
-    const classified = await assignCaseTier(assessmentId)
-    return classified.tierNumber
-  } catch (error: unknown) {
-    logger.warn('Tier classification failed, falling back to classic routing', {
-      assessmentId,
-      error: (error as Error).message,
-    })
-    return null
-  }
-}
-
-async function runTierRoute(assessmentId: string, tierNumber: number): Promise<TierRouteResult | null> {
-  if (tierNumber === 1) return routeTier1Case(assessmentId)
-  if (tierNumber === 2) return routeTier2Case(assessmentId)
-  if (tierNumber === 3) return routeTier3Case(assessmentId)
-  if (tierNumber === 4) return routeTier4Case(assessmentId)
-  return null
-}
-
-async function upsertTierLeadSubmission(assessmentId: string, routedAttorneyId: string) {
-  const assessment = await prisma.assessment.findUnique({
-    where: { id: assessmentId },
-    select: {
-      predictions: {
-        orderBy: { createdAt: 'desc' },
-        take: 1,
-        select: { viability: true },
-      },
-    },
-  })
-
-  const viability = assessment?.predictions?.[0]?.viability
-    ? JSON.parse(assessment.predictions[0].viability) as Record<string, number>
-    : {}
-
-  await prisma.leadSubmission.upsert({
-    where: { assessmentId },
-    create: {
-      assessmentId,
-      viabilityScore: viability.overall ?? 0.5,
-      liabilityScore: viability.liability ?? 0.5,
-      causationScore: viability.causation ?? 0.5,
-      damagesScore: viability.damages ?? 0.5,
-      evidenceChecklist: JSON.stringify({ required: [] }),
-      isExclusive: false,
-      sourceType: 'tier_auto',
-      assignedAttorneyId: routedAttorneyId,
-      assignmentType: 'shared',
-      status: 'submitted',
-      lifecycleState: 'routing_active',
-    },
-    update: {
-      sourceType: 'tier_auto',
-      assignedAttorneyId: routedAttorneyId,
-      assignmentType: 'shared',
-      status: 'submitted',
-      lifecycleState: 'routing_active',
-    },
-  })
 }
 
 /**
@@ -281,16 +187,51 @@ async function parkUnroutableCase(
   )
 }
 
+/**
+ * Ask the plaintiff to choose firms for a case whose authorization names none.
+ * Nobody is contacted until they approve; a case with nobody to propose goes to
+ * a human.
+ */
+async function holdForPlaintiffSelection(assessmentId: string): Promise<AssessmentRoutingStartResult> {
+  await prisma.leadSubmission.upsert({
+    where: { assessmentId },
+    create: {
+      assessmentId,
+      viabilityScore: 0.5,
+      liabilityScore: 0.5,
+      causationScore: 0.5,
+      damagesScore: 0.5,
+      evidenceChecklist: JSON.stringify({ required: [] }),
+      isExclusive: false,
+      sourceType: 'routing_engine',
+      lifecycleState: 'routing_active',
+      routingLocked: false,
+    },
+    update: {},
+  })
+
+  const proposal = await proposeInitialBatchForApproval(assessmentId)
+  const held: AssessmentRoutingStartResult = {
+    success: false,
+    strategy: 'classic',
+    tierNumber: null,
+    tierAttempted: false,
+    gatePassed: true,
+    awaitingPlaintiffSelection: proposal.proposed,
+    proposedAttorneyIds: proposal.attorneyIds,
+    holdReason: PLAINTIFF_SELECTION_REQUIRED,
+    routedTo: [],
+    introductionIds: [],
+    errors: [proposal.proposed ? PLAINTIFF_SELECTION_REQUIRED : proposal.error || 'No firms available to propose to the plaintiff'],
+  }
+  if (!proposal.proposed) await parkUnroutableCase(assessmentId, held)
+  return held
+}
+
 export async function startAssessmentRouting(
   assessmentId: string,
-  options?: RoutingEngineOptions & {
-    preferTierRouting?: boolean
-    fallbackToClassic?: boolean
-  }
+  options?: RoutingEngineOptions
 ): Promise<AssessmentRoutingStartResult> {
-  let preferTierRouting = options?.preferTierRouting ?? true
-  const fallbackToClassic = options?.fallbackToClassic ?? true
-
   if (options?.dryRun) {
     const classic = await runRoutingEngine(assessmentId, options)
     return {
@@ -329,106 +270,48 @@ export async function startAssessmentRouting(
   // that skip the rest of the gate. An admin releasing a case from review is
   // overriding a fraud signal, which is theirs to override; they are not
   // overriding the plaintiff's decision about who may see their injury facts.
-  const authorization = await enforceShareAuthorization(assessmentId, options?.preferredAttorneyIds)
+  const authorization = await enforceShareAuthorization(assessmentId)
   if (authorization.held) return authorization.held
 
-  // A case whose authorization names particular firms is confined to them, even
-  // when the caller asked for tier routing and named nobody. Otherwise releasing
-  // a consumer's case from manual review would tier-route it to a firm they never
-  // saw, which is the § 6155(g)(2) exposure the consumer-selection path exists to
-  // avoid. Tier routing is left alone for cases that carry no named set.
-  let preferredAttorneyIds = options?.preferredAttorneyIds
-  if (!preferredAttorneyIds?.length && authorization.authorizedAttorneyIds.length > 0) {
-    preferredAttorneyIds = authorization.authorizedAttorneyIds
-    if (preferTierRouting) {
-      logger.info('Confining routing to the firms the plaintiff authorized', {
-        assessmentId,
-        authorizedAttorneyIds: preferredAttorneyIds,
-      })
-    }
-    preferTierRouting = false
+  // Every firm contacted must be one the plaintiff chose. A case whose
+  // authorization names nobody (partner-referred, admin-created, or authorized
+  // before firms were recorded) is never routed to firms ClearCaseIQ picks; the
+  // plaintiff is shown a proposed slate and nobody is contacted until they
+  // approve it. That approval records a named authorization, and the next call
+  // routes within it.
+  if (authorization.authorizedAttorneyIds.length === 0) {
+    return await holdForPlaintiffSelection(assessmentId)
+  }
+  let preferredAttorneyIds = authorization.authorizedAttorneyIds
+  if (options?.preferredAttorneyIds?.length) {
+    const covered = await enforceShareAuthorization(assessmentId, options.preferredAttorneyIds)
+    if (covered.held) return covered.held
+    preferredAttorneyIds = options.preferredAttorneyIds
   }
 
-  // Suspicious-case review gate — held cases never reach an attorney (tier or
-  // classic). Skipped when the caller explicitly bypasses (e.g. an admin
-  // releasing a case after review, which must not be instantly re-flagged).
+  // Suspicious-case review gate — held cases never reach an attorney. Skipped
+  // when the caller explicitly bypasses (e.g. an admin releasing a case after
+  // review, which must not be instantly re-flagged).
   let gateAlreadyRun = false
   if (!options?.skipPreRoutingGate) {
     const held = await enforcePreRoutingGate(assessmentId)
     if (held) return held
     gateAlreadyRun = true
   }
-  // Avoid re-running the gate inside the classic engine when we've already run it,
-  // and carry the authorized firm set through so the engine ranks within it.
+  // Avoid re-running the gate inside the engine when we've already run it, and
+  // carry the plaintiff's firms through so the engine contacts them in their order.
   const engineOptions = {
     ...options,
-    ...(preferredAttorneyIds?.length ? { preferredAttorneyIds } : {}),
+    preferredAttorneyIds,
     ...(gateAlreadyRun ? { skipPreRoutingGate: true } : {}),
-  }
-
-  let tierNumber: number | null = null
-  if (preferTierRouting) {
-    tierNumber = await getAssessmentTierNumber(assessmentId)
-    if (tierNumber != null) {
-      const tierResult = await runTierRoute(assessmentId, tierNumber)
-      if (tierResult?.routed && tierResult.routedToFirmId) {
-        await upsertTierLeadSubmission(assessmentId, tierResult.routedToFirmId)
-        await recordRoutingEvent(assessmentId, tierResult.introductionId ?? null, tierResult.routedToFirmId, 'tier_routed', {
-          tierNumber,
-          method: tierResult.method,
-        })
-        return {
-          success: true,
-          strategy: 'tier',
-          tierNumber,
-          tierAttempted: true,
-          gatePassed: true,
-          routedTo: [tierResult.routedToFirmId],
-          introductionIds: tierResult.introductionId ? [tierResult.introductionId] : [],
-          method: tierResult.method,
-          attempts: tierResult.attempts,
-          price: tierResult.price,
-          errors: [],
-        }
-      }
-
-      if (!fallbackToClassic) {
-        const held: AssessmentRoutingStartResult = {
-          success: false,
-          strategy: 'tier',
-          tierNumber,
-          tierAttempted: true,
-          gatePassed: true,
-          routedTo: [],
-          introductionIds: [],
-          holdReason: tierResult?.holdReason,
-          method: tierResult?.method,
-          attempts: tierResult?.attempts,
-          price: tierResult?.price,
-          errors: [tierResult?.error || tierResult?.holdReason || `Tier ${tierNumber} routing did not place the case`],
-        }
-        // Tier routing is the whole attempt when there is no classic fallback,
-        // and its hold statuses are read by nothing, so without this the case
-        // ends here with no attorney and no queue.
-        await parkUnroutableCase(assessmentId, held)
-        return held
-      }
-
-      await recordRoutingEvent(assessmentId, null, null, 'tier_fallback_to_classic', {
-        tierNumber,
-        holdReason: tierResult?.holdReason,
-        error: tierResult?.error,
-      })
-    }
   }
 
   const classic = await runRoutingEngine(assessmentId, engineOptions)
   const outcome: AssessmentRoutingStartResult = {
     ...classic,
     strategy: 'classic',
-    tierAttempted: preferTierRouting,
-    tierNumber,
-    tierOutcome: preferTierRouting ? 'fallback_to_classic' : undefined,
+    tierAttempted: false,
+    tierNumber: null,
   }
 
   // A gate hold has already persisted its own state and told the plaintiff why;

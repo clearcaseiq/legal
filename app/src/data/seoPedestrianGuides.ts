@@ -188,7 +188,7 @@ export const pedestrianGuidePages: LandingPage[] = [
         'The crash date, so the deadline is not quietly running out',
       ],
       howClearCaseHelps:
-        `ClearCaseIQ helps you judge whether a pedestrian claim needs an attorney before you commit — it weighs the severity against disputed fault and, crucially, against whether the available coverage matches the harm. When representation makes sense, it matches you with California pedestrian attorneys who work on contingency and know how to find and stack the coverage these claims depend on. ${NOT_ADVICE}`,
+        `ClearCaseIQ helps you judge whether a pedestrian claim needs an attorney before you commit — it weighs the severity against disputed fault and, crucially, against whether the available coverage matches the harm. When representation makes sense, it shows you participating California pedestrian attorneys who work on contingency and know how to find and stack the coverage these claims depend on. ${NOT_ADVICE}`,
     },
     faqs: [
       {

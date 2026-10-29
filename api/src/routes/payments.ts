@@ -18,7 +18,6 @@ import {
   fromCents,
   toStripeMetadataValue,
   parseJsonMaybe,
-  FEATURED_BOOST_PRICES,
 } from '../lib/stripe'
 
 const router = Router()
@@ -998,65 +997,6 @@ router.get('/platform/history', authMiddleware, async (req: AuthRequest, res) =>
     })
   } catch (error: any) {
     return stripeError(res, error, 'Failed to load payment history')
-  }
-})
-
-// Featured-placement / visibility boost purchase via Stripe Checkout.
-router.post('/platform/featured-checkout-session', authMiddleware, async (req: AuthRequest, res) => {
-  try {
-    const stripe = getStripe()
-    const attorney = await getAttorneyForUser(req)
-    if (!attorney) return res.status(403).json({ error: 'Attorney profile not found' })
-
-    const boostLevel = Number(req.body?.boostLevel)
-    const duration = Number(req.body?.duration || 30)
-    const boost = FEATURED_BOOST_PRICES[boostLevel]
-    if (!boost) return res.status(400).json({ error: 'Invalid boost level' })
-
-    const customerId = await getOrCreateStripeCustomer(attorney, stripe)
-    const metadata = {
-      kind: 'featured_placement',
-      attorneyId: attorney.id,
-      boostLevel: toStripeMetadataValue(boostLevel),
-      duration: toStripeMetadataValue(duration),
-    }
-    const session = await stripe.checkout.sessions.create({
-      mode: 'payment',
-      customer: customerId,
-      success_url: req.body?.successUrl || webUrl('/payment/success?type=featured&session_id={CHECKOUT_SESSION_ID}'),
-      cancel_url: req.body?.cancelUrl || webUrl('/payment/cancel?type=featured'),
-      metadata,
-      payment_intent_data: { metadata },
-      line_items: [
-        {
-          quantity: 1,
-          price_data: {
-            currency: 'usd',
-            unit_amount: toCents(boost.price),
-            product_data: {
-              name: `CaseIQ ${boost.name}`,
-              description: `${duration}-day featured placement (level ${boostLevel})`,
-            },
-          },
-        },
-      ],
-    })
-
-    await db.platformPayment.create({
-      data: {
-        attorneyId: attorney.id,
-        type: 'featured_placement',
-        amount: boost.price,
-        status: 'checkout_created',
-        stripeCustomerId: customerId,
-        stripeCheckoutSessionId: session.id,
-        metadata: JSON.stringify(metadata),
-      },
-    })
-
-    res.json({ checkoutUrl: session.url, sessionId: session.id })
-  } catch (error: any) {
-    return stripeError(res, error, 'Failed to create featured placement checkout session')
   }
 })
 

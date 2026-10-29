@@ -29,7 +29,7 @@ const APP_SCREEN_TITLES: Array<[prefix: string, label: string]> = [
   ['/messaging', 'Messages'],
   ['/profile', 'My Profile'],
   ['/consent-management', 'Consents'],
-  ['/smart-recommendations', 'Recommended Attorneys'],
+  ['/smart-recommendations', 'Your Case Insights'],
   ['/demand', 'Demand Letter'],
   ['/drafts', 'Drafts'],
 ]

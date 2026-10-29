@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
   createAttorneyPaymentMethodSetupSession,
-  createFeaturedPlacementCheckoutSession,
   createLeadCreditCheckoutSession,
   createPlatformSubscriptionCheckoutSession,
   createStripePortalSession,
@@ -36,14 +35,6 @@ const statusLabel = (record: PlatformPaymentRecord) => {
   if (s === 'checkout_created' || s === 'requires_payment_method' || s === 'processing') return 'Pending'
   return record.status || 'Unknown'
 }
-
-const featuredTiers = [
-  { level: 1, name: 'Basic Boost', price: 99, blurb: 'Priority in search results' },
-  { level: 2, name: 'Standard Boost', price: 199, blurb: 'Top placement + profile highlighting' },
-  { level: 3, name: 'Premium Boost', price: 399, blurb: 'Exclusive top placement + email marketing' },
-  { level: 4, name: 'Elite Boost', price: 699, blurb: 'Elite placement + direct lead routing' },
-  { level: 5, name: 'Champion Boost', price: 999, blurb: 'Max visibility + priority support' },
-]
 
 const billingCards = [
   {
@@ -154,27 +145,15 @@ export default function AttorneyBilling() {
     }))
   }
 
-  const buyFeaturedPlacement = (boostLevel: number) => {
-    const origin = window.location.origin
-    return redirectToStripe(`featured-${boostLevel}`, () => createFeaturedPlacementCheckoutSession({
-      boostLevel,
-      duration: 30,
-      successUrl: `${origin}/attorney-billing?status=featured_started&session_id={CHECKOUT_SESSION_ID}`,
-      cancelUrl: `${origin}/attorney-billing?status=featured_cancelled`,
-    }))
-  }
-
   const statusMessage = status === 'payment_method_saved'
     ? 'Payment method saved. Stripe will use this card for future CaseIQ charges.'
     : status === 'subscription_started'
       ? 'Subscription started. Your CaseIQ plan is now being processed by Stripe.'
       : status === 'lead_credits_added'
         ? 'Lead credits checkout completed.'
-        : status === 'featured_started'
-          ? 'Featured placement purchased. Your boost activates once Stripe confirms the payment.'
-          : status?.includes('cancelled')
-            ? 'Stripe checkout was cancelled. No billing changes were made.'
-            : null
+        : status?.includes('cancelled')
+          ? 'Stripe checkout was cancelled. No billing changes were made.'
+          : null
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
@@ -398,44 +377,6 @@ export default function AttorneyBilling() {
                 </tbody>
               </table>
             )}
-          </div>
-        </section>
-
-        <section className="mt-5 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <h2 className="text-xl font-semibold text-gray-900">Featured Placement</h2>
-              <p className="mt-2 max-w-2xl text-sm text-gray-600">
-                Boost your visibility in search results and the attorney directory for 30 days. Purchases are processed through Stripe.
-              </p>
-            </div>
-            {profile?.isFeatured ? (
-              <span className="rounded-full bg-yellow-100 px-3 py-1 text-xs font-semibold text-yellow-700">
-                Active boost{profile?.boostLevel ? ` · Level ${profile.boostLevel}` : ''}
-              </span>
-            ) : null}
-          </div>
-
-          <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {featuredTiers.map((tier) => (
-              <div key={tier.level} className="flex flex-col justify-between rounded-xl border border-gray-200 bg-gray-50 p-4">
-                <div>
-                  <div className="flex items-baseline justify-between">
-                    <p className="text-sm font-semibold text-gray-900">{tier.name}</p>
-                    <p className="text-sm font-bold text-gray-900">${tier.price}</p>
-                  </div>
-                  <p className="mt-2 text-xs text-gray-600">{tier.blurb}</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => buyFeaturedPlacement(tier.level)}
-                  disabled={actionLoading !== null}
-                  className="mt-4 rounded-lg bg-brand-700 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-800 disabled:opacity-60"
-                >
-                  {actionLoading === `featured-${tier.level}` ? 'Opening Stripe...' : '30-day Boost'}
-                </button>
-              </div>
-            ))}
           </div>
         </section>
       </div>

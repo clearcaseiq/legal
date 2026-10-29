@@ -171,7 +171,7 @@ export const DEFAULT_MATCHING_RULES: MatchingRulesConfig = {
       monthlyPriceCents: 29900,
       includedCasesPerMonth: 1,
       description: 'For solo attorneys testing CaseIQ with predictable monthly access.',
-      features: ['1 accepted case included monthly', 'Standard routing visibility', 'Saved payment method for overages'],
+      features: ['1 accepted case included monthly', 'Saved payment method for overages'],
       enabled: true,
     },
     {
@@ -180,7 +180,7 @@ export const DEFAULT_MATCHING_RULES: MatchingRulesConfig = {
       monthlyPriceCents: 99900,
       includedCasesPerMonth: 5,
       description: 'For active PI practices that want a steady flow of attorney-ready cases.',
-      features: ['5 accepted cases included monthly', 'Priority routing eligibility', 'Reduced need for per-case checkout'],
+      features: ['5 accepted cases included monthly', 'Reduced need for per-case checkout'],
       enabled: true,
     },
     {
@@ -189,7 +189,7 @@ export const DEFAULT_MATCHING_RULES: MatchingRulesConfig = {
       monthlyPriceCents: 249900,
       includedCasesPerMonth: 15,
       description: 'For firms scaling intake volume across multiple attorneys.',
-      features: ['15 accepted cases included monthly', 'Premium routing eligibility', 'Best fit for multi-attorney firms'],
+      features: ['15 accepted cases included monthly', 'Best fit for multi-attorney firms'],
       enabled: true,
     },
     {
@@ -340,15 +340,6 @@ export function getAttorneyResponseDeadlineMinutes(config: MatchingRulesConfig):
       )
     )
   )
-}
-
-/**
- * The flat case fee in whole dollars, for the tier-routing modules that quote a
- * price to firms in dollars rather than cents.
- */
-export async function getCaseRoutingFeeDollars(): Promise<number> {
-  const config = await getMatchingRules()
-  return Math.round(getCaseRoutingFeeCents(config) / 100)
 }
 
 export function getCaseRoutingFeeCents(config: MatchingRulesConfig): number {

@@ -1400,7 +1400,7 @@ export default function IntakeWizard() {
                 placeholder="Describe any injuries you sustained..."
               />
               <p className="mt-2 text-xs text-gray-500">
-                Why we ask: describing injuries helps us match your case to the right attorney and estimate value.
+                Why we ask: describing injuries helps us estimate value and helps the attorneys you choose understand your case.
               </p>
             </div>
 

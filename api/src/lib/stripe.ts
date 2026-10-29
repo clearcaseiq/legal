@@ -111,16 +111,3 @@ export function parseJsonMaybe(value: unknown) {
     return null
   }
 }
-
-// Featured-placement (visibility boost) pricing, in whole dollars, by boost level.
-export const FEATURED_BOOST_PRICES: Record<number, { price: number; name: string }> = {
-  1: { price: 99, name: 'Basic Boost' },
-  2: { price: 199, name: 'Standard Boost' },
-  3: { price: 399, name: 'Premium Boost' },
-  4: { price: 699, name: 'Elite Boost' },
-  5: { price: 999, name: 'Champion Boost' },
-}
-
-export function getFeaturedBoost(level: number) {
-  return FEATURED_BOOST_PRICES[level] || null
-}

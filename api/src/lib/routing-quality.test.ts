@@ -169,25 +169,36 @@ describe('scoreAndRankAttorneys', () => {
     gateDefaults()
   })
 
-  it('batches intro conversion and dashboard revenue data', async () => {
+  it('batches intro conversion data', async () => {
     vi.mocked(prisma.introduction.groupBy).mockResolvedValue([
       { attorneyId: 'a1', status: 'ACCEPTED', _count: { _all: 2 } },
       { attorneyId: 'a1', status: 'REJECTED', _count: { _all: 2 } },
       { attorneyId: 'a2', status: 'RETAINED', _count: { _all: 1 } },
     ] as any)
-    vi.mocked(prisma.attorneyDashboard.findMany).mockResolvedValue([
-      { attorneyId: 'a1', totalPlatformSpend: 5000 },
-      { attorneyId: 'a2', totalPlatformSpend: 500 },
-    ] as any)
 
     const scored = await scoreAndRankAttorneys([att('a1'), att('a2')], caAuto)
 
     expect(prisma.introduction.groupBy).toHaveBeenCalledTimes(1)
-    expect(prisma.attorneyDashboard.findMany).toHaveBeenCalledTimes(1)
     expect(scored).toHaveLength(2)
     expect(scored.find((entry) => entry.attorney.id === 'a1')?.attorney.conversionRate).toBe(50)
-    expect(scored.find((entry) => entry.attorney.id === 'a1')?.attorney.platformRevenue).toBe(5000)
     expect(scored.find((entry) => entry.attorney.id === 'a2')?.attorney.conversionRate).toBe(100)
-    expect(scored.find((entry) => entry.attorney.id === 'a2')?.attorney.platformRevenue).toBe(500)
+  })
+
+  it('scores identical attorneys identically whatever they pay or subscribe to', async () => {
+    vi.mocked(prisma.attorneyDashboard.findMany).mockResolvedValue([
+      { attorneyId: 'big-spender', totalPlatformSpend: 50000 },
+    ] as any)
+
+    const scored = await scoreAndRankAttorneys(
+      [
+        { ...att('big-spender'), subscriptionTier: 'enterprise' },
+        { ...att('no-plan'), subscriptionTier: null },
+      ],
+      caAuto
+    )
+
+    const overall = (id: string) => scored.find((entry) => entry.attorney.id === id)?.score.overall
+    expect(overall('big-spender')).toBe(overall('no-plan'))
+    expect(prisma.attorneyDashboard.findMany).not.toHaveBeenCalled()
   })
 })

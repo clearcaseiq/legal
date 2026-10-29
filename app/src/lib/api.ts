@@ -4873,17 +4873,6 @@ export async function createStripePortalSession(payload?: { returnUrl?: string }
   return data as { url: string }
 }
 
-// Featured-placement / visibility boost purchase.
-export async function createFeaturedPlacementCheckoutSession(payload: {
-  boostLevel: number
-  duration?: number
-  successUrl?: string
-  cancelUrl?: string
-}) {
-  const { data } = await api.post('/v1/payments/platform/featured-checkout-session', payload)
-  return data as { checkoutUrl: string; sessionId: string }
-}
-
 export async function updateLeadInvoice(leadId: string, invoiceId: string, payload: any) {
   const { data } = await api.patch(`/v1/attorney-dashboard/leads/${leadId}/invoices/${invoiceId}`, payload)
   return data

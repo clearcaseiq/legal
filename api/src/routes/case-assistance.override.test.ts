@@ -184,7 +184,6 @@ describe('a plaintiff who ranked attorneys', () => {
       'asm-1',
       expect.objectContaining({
         maxAttorneysPerWave: 1,
-        preferTierRouting: false,
         preferredAttorneyIds: ['att-2', 'att-1'],
       }),
     )
