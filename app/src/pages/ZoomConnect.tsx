@@ -54,7 +54,15 @@ export default function ZoomConnect() {
     }
 
     if (zoomSync === 'success') setMessage({ kind: 'ok', text: 'Zoom is connected.' })
-    if (zoomSync === 'error') setMessage({ kind: 'error', text: 'Zoom was not connected. Please try again.' })
+    if (zoomSync === 'error') {
+      // The reason is what tells a misconfigured app (wrong secret, missing
+      // scope) apart from a stale attempt, so it is shown rather than hidden.
+      const reason = (params.get('zoom_error') || '').slice(0, 200)
+      setMessage({
+        kind: 'error',
+        text: `Zoom was not connected. Please try again.${reason ? ` (Zoom said: ${reason})` : ''}`,
+      })
+    }
 
     void (async () => {
       let pending = code
