@@ -11,7 +11,6 @@ import crypto from 'crypto'
 import { prisma } from '../prisma'
 import { logger } from '../logger'
 import { getLlmChatClient, LLM_CHAT_MODEL } from '../llm-client'
-import { llmAllowPhi } from '../llm-prompt-sanitize'
 import { recordAiRun } from '../ai-run'
 import { ensureLocalCopy } from '../object-storage'
 import { resolveEvidencePath, readDocumentPages } from '../evidence-processing'
@@ -21,6 +20,8 @@ import { deriveSOLStatusFromFacts } from '../solRules'
 import { runDeterministicRules, type AuditFile, type DeterministicInput } from './deterministic'
 import { CLAIMS_PROMPT_VERSION, verifyDemandClaims, type ExhibitDigest, type SourcePage } from './claims'
 import { DQA_RULES, DQA_RULE_VERSION, SEVERITY_ORDER, resolutionRefusal, severityOf, type DraftFinding, type Severity } from './rules'
+import { withLlmSubject } from '../llm-deidentify'
+import { loadLlmSubject } from '../llm-subject'
 
 const RUNNING_TIMEOUT_MS = 15 * 60 * 1000
 const AI_BUDGET_MS = Number(process.env.DEMAND_AUDIT_AI_BUDGET_MS) || 150_000
@@ -251,7 +252,8 @@ async function executeAudit(auditId: string, prepared: Prepared) {
     let aiError: string | null = null
     const bySupport: Record<string, number> = {}
     let claimCount = 0
-    if (client && llmAllowPhi()) {
+    if (client) {
+      const subject = await loadLlmSubject(prepared.letter.assessmentId)
       const run = await verifyDemandClaims({
         letter: prepared.input.content,
         pages,
@@ -259,7 +261,7 @@ async function executeAudit(auditId: string, prepared: Prepared) {
         today: prepared.input.now.toISOString().slice(0, 10),
         budgetMs: AI_BUDGET_MS,
         complete: async (system, user) => {
-          const completion = await client.chat.completions.create({
+          const completion = await client.chat.completions.create(withLlmSubject({
             model: LLM_CHAT_MODEL,
             messages: [
               { role: 'system', content: system },
@@ -268,7 +270,7 @@ async function executeAudit(auditId: string, prepared: Prepared) {
             temperature: 0,
             max_tokens: 4000,
             response_format: { type: 'json_object' },
-          })
+          }, subject))
           return completion.choices[0]?.message?.content ?? null
         },
       })

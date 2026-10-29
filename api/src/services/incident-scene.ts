@@ -5,6 +5,8 @@ import { prisma } from '../lib/prisma'
 import { logger } from '../lib/logger'
 import { getLlmChatClient, openaiImageClient, getLlmChatModel } from '../lib/llm-client'
 import { llmAllowPhi, redactLlmPii } from '../lib/llm-prompt-sanitize'
+import { deidentifyForLlm, withLlmSubject, type LlmSubject } from '../lib/llm-deidentify'
+import { loadLlmSubject } from '../lib/llm-subject'
 
 // Chat goes through the shared (PII-sanitizing) client; images stay on native OpenAI.
 const openai = getLlmChatClient()
@@ -22,12 +24,22 @@ function titleCase(s: string) {
  * redactor handles SSN/email/phone/street address; titled names are collapsed
  * to a generic role for the image brief.
  */
-function redactIdentifiers(text: string): string {
+function redactIdentifiers(text: string, subject: LlmSubject = {}): string {
   if (!text) return ''
-  return redactLlmPii(text)
+  const scrubbed = llmAllowPhi() ? redactLlmPii(text) : genericPlaceholders(deidentifyForLlm(text, subject))
+  return scrubbed
     .replace(/\b(?:Mr|Mrs|Ms|Dr|Miss)\.?\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?/g, 'the party')
     .replace(/\s{2,}/g, ' ')
     .trim()
+}
+
+/** Image models draw whatever text they are given, so placeholders become plain words. */
+function genericPlaceholders(text: string): string {
+  return text
+    .replace(/\[NAME#\d+[^\]]*\]/g, 'a person')
+    .replace(/\[PLACE#\d+[^\]]*\]/g, 'the area')
+    .replace(/\[DATE#\d+[^\]]*\]/g, 'that day')
+    .replace(/\[(?:ZIP|ID|EMAIL|PHONE|SSN|ADDRESS|URL|IP|VIN)#\d+[^\]]*\]/g, '')
 }
 
 /**
@@ -42,12 +54,13 @@ export function buildScenePrompt(input: {
   narrative?: string | null
   fault?: string | null
   parties?: string[] | null
+  subject?: LlmSubject
 }): string {
   const claim = input.claimType ? titleCase(input.claimType) : 'Personal injury'
   // Location is used only as loose context; drop anything that looks like a full
   // street address so we don't leak identifying details into the diagram.
-  const location = redactIdentifiers(input.location?.trim() || '') || 'unspecified location'
-  const narrative = redactIdentifiers((input.narrative || '').trim()).slice(0, 900)
+  const location = redactIdentifiers(input.location?.trim() || '', input.subject) || 'unspecified location'
+  const narrative = redactIdentifiers((input.narrative || '').trim(), input.subject).slice(0, 900)
   const fault = input.fault ? titleCase(input.fault) : null
   const partyCount = (input.parties || []).filter(Boolean).length
 
@@ -88,10 +101,12 @@ async function anonymizeIncidentBrief(input: {
   narrative: string | null
   fault: string | null
   partyCount: number
+  subject: LlmSubject
 }): Promise<string | null> {
   if (!openai || !input.narrative) return null
   try {
-    const completion = await openai.chat.completions.create({
+    // The brief is fed to the image model, so its placeholders are left in place.
+    const completion = await openai.chat.completions.create(withLlmSubject({
       model: SCENE_BRIEF_MODEL,
       temperature: 0.2,
       max_tokens: 220,
@@ -114,9 +129,9 @@ async function anonymizeIncidentBrief(input: {
             `Description: ${input.narrative}`,
         },
       ],
-    })
+    }, { ...input.subject, restore: false }))
     const brief = completion.choices?.[0]?.message?.content?.trim()
-    return brief ? redactIdentifiers(brief) : null
+    return brief ? redactIdentifiers(brief, input.subject) : null
   } catch (err: any) {
     logger.warn('Scene brief anonymization failed; falling back to redacted narrative', {
       error: err?.message,
@@ -144,14 +159,6 @@ function extractFacts(factsRaw: string | null | undefined) {
 
 /** Status stored when there is no incident description to reconstruct from. */
 export const SCENE_NEEDS_DESCRIPTION = 'needs_description'
-
-/**
- * Status stored while LLM_ALLOW_PHI=false. The diagram is drawn from the
- * claimant's narrative, which is health information, so there is nothing to
- * send until a BAA is in place. Not sticky: the backfill regenerates once the
- * flag is on.
- */
-export const SCENE_DISABLED = 'disabled'
 
 const MIN_SCENE_DESCRIPTION_CHARS = 15
 
@@ -203,14 +210,6 @@ export async function generateSceneImageForAssessment(
       }
     }
 
-    if (!llmAllowPhi()) {
-      await prisma.assessment.update({
-        where: { id: assessmentId },
-        data: { sceneImageStatus: SCENE_DISABLED },
-      }).catch(() => {})
-      return { ok: false, status: SCENE_DISABLED, reason: 'phi_sharing_disabled' }
-    }
-
     if (!hasSceneDescription(assessment.facts)) {
       await prisma.assessment.update({
         where: { id: assessmentId },
@@ -242,6 +241,7 @@ export async function generateSceneImageForAssessment(
     // Anonymize the narrative with the text model first (image models leak names),
     // falling back to a regex-redacted narrative if that call is unavailable.
     const partyCount = (parsed.parties || []).filter(Boolean).length
+    const subject = await loadLlmSubject(assessmentId)
     const brief =
       (await anonymizeIncidentBrief({
         claimType: parsed.validatedClaimType || assessment.claimType,
@@ -249,7 +249,8 @@ export async function generateSceneImageForAssessment(
         narrative: parsed.narrative,
         fault: parsed.fault,
         partyCount,
-      })) || redactIdentifiers(parsed.narrative || '')
+        subject,
+      })) || redactIdentifiers(parsed.narrative || '', subject)
 
     const prompt = buildScenePrompt({
       claimType: parsed.validatedClaimType || assessment.claimType,
@@ -257,6 +258,7 @@ export async function generateSceneImageForAssessment(
       narrative: brief,
       fault: parsed.fault,
       parties: parsed.parties,
+      subject,
     })
 
     if (!imageClient) {

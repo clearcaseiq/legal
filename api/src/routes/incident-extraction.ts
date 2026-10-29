@@ -3,8 +3,6 @@ import { z } from 'zod'
 import { optionalAuthMiddleware } from '../lib/auth'
 import { logger } from '../lib/logger'
 import { extractIncidentDetails } from '../lib/incident-extraction'
-import { llmChatDisabled } from '../lib/llm-client'
-import { llmAllowPhi } from '../lib/llm-prompt-sanitize'
 
 const router = Router()
 
@@ -16,16 +14,11 @@ const ExtractRequest = z.object({
 // POST /v1/incident-extraction
 // Best-effort: turns a free-text narrative into structured incident facts the
 // claimant can confirm. Returns { extraction: null } when unavailable so the
-// client can silently fall back to the manual form, and adds `disabled: true`
-// when it is switched off, so the client stops asking rather than reporting a
-// failure on every narrative.
+// client can silently fall back to the manual form.
 router.post('/', optionalAuthMiddleware, async (req, res) => {
   const parsed = ExtractRequest.safeParse(req.body)
   if (!parsed.success) {
     return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() })
-  }
-  if (llmChatDisabled() || !llmAllowPhi()) {
-    return res.json({ extraction: null, disabled: true })
   }
   try {
     const extraction = await extractIncidentDetails(parsed.data)

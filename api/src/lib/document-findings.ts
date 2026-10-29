@@ -19,7 +19,6 @@ import crypto from 'crypto'
 import { prisma } from './prisma'
 import { logger } from './logger'
 import { getLlmChatClient, LLM_CHAT_MODEL } from './llm-client'
-import { llmAllowPhi } from './llm-prompt-sanitize'
 import { recordAiRun } from './ai-run'
 import { isHardIdentityMismatch, parseIdentityCheck } from './claimant-identity-check'
 import { createMedicalEntry, VISIT_TYPES } from './medical-record'
@@ -36,6 +35,8 @@ import {
   visitsFromLineItems,
   VISIT_KIND_LABELS,
 } from './medical-text-hygiene'
+import { withLlmSubject } from './llm-deidentify'
+import { loadLlmSubject } from './llm-subject'
 
 export type FindingKind = 'treatment_visit' | 'medical_charge' | 'wage_loss' | 'incident_report' | 'insurance_policy'
 export const FINDING_KINDS: FindingKind[] = ['treatment_visit', 'medical_charge', 'wage_loss', 'incident_report', 'insurance_policy']
@@ -561,8 +562,9 @@ async function extractWithModel(
   const chunks = chunkPages(pages).slice(0, MAX_CHUNKS_PER_FILE)
   const candidates: unknown[] = []
   const documentProviders: unknown[] = []
+  const subject = await loadLlmSubject(file.assessmentId)
   for (const chunk of chunks) {
-    const completion = await client.chat.completions.create({
+    const completion = await client.chat.completions.create(withLlmSubject({
       model: LLM_CHAT_MODEL,
       messages: [
         {
@@ -575,7 +577,7 @@ async function extractWithModel(
       temperature: 0,
       max_tokens: 4000,
       response_format: { type: 'json_object' },
-    })
+    }, subject))
     const text = completion.choices[0]?.message?.content
     if (!text) continue
     try {
@@ -785,7 +787,7 @@ export async function generateDocumentFindings(fileId: string, pages: PageText[]
 
   const assessmentId = file.assessmentId
   const target = { id: file.id, assessmentId, category: file.category, originalName: file.originalName }
-  const useModel = Boolean(getLlmChatClient()) && llmAllowPhi()
+  const useModel = Boolean(getLlmChatClient())
   const started = Date.now()
   let raw: unknown[] = []
   let chunks = 0
@@ -1228,5 +1230,5 @@ export async function rejectDocumentFinding(assessmentId: string, findingId: str
 
 /** Whether the model may read records on this deployment, for the panel's empty state. */
 export function documentReadingMode(): 'ai' | 'rules' {
-  return getLlmChatClient() && llmAllowPhi() ? 'ai' : 'rules'
+  return getLlmChatClient() ? 'ai' : 'rules'
 }

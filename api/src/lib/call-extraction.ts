@@ -21,7 +21,8 @@ import { prisma } from './prisma'
 import { logger } from './logger'
 import { ENV } from '../env'
 import { getLlmChatClient, LLM_CHAT_MODEL } from './llm-client'
-import { llmAllowPhi } from './llm-prompt-sanitize'
+import { withLlmSubject } from './llm-deidentify'
+import { loadLlmSubject } from './llm-subject'
 
 // Recordings + Contact Lens output + Transcribe jobs all live in the Connect
 // instance region, which can differ from AWS_REGION (Textract/SES).
@@ -279,22 +280,21 @@ function parseTranscribeOutput(doc: any): { segments: TranscriptSegment[]; fullT
  * LLM is configured — the raw transcript is still available.
  */
 export async function enrichTranscriptWithLlm(callId: string): Promise<void> {
-  const transcript = await prisma.callTranscript.findUnique({ where: { callId } })
+  const transcript = await prisma.callTranscript.findUnique({
+    where: { callId },
+    include: { call: { select: { assessmentId: true } } },
+  })
   if (!transcript?.fullText) return
+  const subject = await loadLlmSubject(transcript.call?.assessmentId)
 
   const llm = getLlmChatClient()
   if (!llm) {
     logger.info('call-extraction: no LLM configured; skipping summary', { callId })
     return
   }
-  // A client-attorney call is mostly about injuries and treatment.
-  if (!llmAllowPhi()) {
-    logger.info('call-extraction: LLM_ALLOW_PHI=false; skipping summary', { callId })
-    return
-  }
 
   try {
-    const completion = await llm.chat.completions.create({
+    const completion = await llm.chat.completions.create(withLlmSubject({
       model: LLM_CHAT_MODEL,
       messages: [
         {
@@ -310,7 +310,7 @@ export async function enrichTranscriptWithLlm(callId: string): Promise<void> {
       temperature: 0.3,
       max_tokens: 900,
       response_format: { type: 'json_object' },
-    })
+    }, subject))
     const raw = completion.choices?.[0]?.message?.content
     if (!raw) return
     const parsed = JSON.parse(raw)

@@ -4,7 +4,6 @@
  */
 import { logger } from './logger'
 import { getLlmChatClient, LLM_CHAT_MODEL } from './llm-client'
-import { llmAllowPhi } from './llm-prompt-sanitize'
 
 const openai = getLlmChatClient()
 const TRANSLATE_MODEL = LLM_CHAT_MODEL
@@ -58,11 +57,6 @@ export async function translateText(
 
   if (!openai) {
     logger.debug('LLM not configured, skipping translation', { target, source })
-    return text
-  }
-  // Client-attorney messages routinely discuss injuries and treatment.
-  if (!llmAllowPhi()) {
-    logger.debug('LLM_ALLOW_PHI=false, skipping translation', { target, source })
     return text
   }
 

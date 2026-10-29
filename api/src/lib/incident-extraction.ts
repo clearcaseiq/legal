@@ -1,6 +1,6 @@
 import { logger } from './logger'
 import { llmChatDisabled, resolveLlmChat } from './llm-client'
-import { llmAllowPhi, redactLlmPii } from './llm-prompt-sanitize'
+import { redactLlmPii } from './llm-prompt-sanitize'
 
 /**
  * Structured details extracted from a claimant's free-text incident narrative.
@@ -188,17 +188,12 @@ export const __testables = { coerce, coerceIncidentDate }
 
 /**
  * Extract structured incident details from a narrative via the shared LLM
- * client. Returns null when OpenAI is not configured, when the PHI gate is
- * closed, or when the call fails — callers should degrade gracefully.
+ * client. Returns null when OpenAI is not configured or when the call fails —
+ * callers should degrade gracefully.
  */
 export async function extractIncidentDetails({ narrative, injuryType }: ExtractInput): Promise<IncidentExtraction | null> {
   if (llmChatDisabled()) {
     logger.warn('No LLM chat provider configured — skipping incident extraction')
-    return null
-  }
-  // Narratives are medical/incident PHI — do not send until LLM_ALLOW_PHI=true.
-  if (!llmAllowPhi()) {
-    logger.info('Skipping incident extraction — LLM_ALLOW_PHI=false (keys-only mode)')
     return null
   }
   const resolved = resolveLlmChat()

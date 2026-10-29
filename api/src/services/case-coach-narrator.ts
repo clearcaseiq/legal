@@ -15,6 +15,8 @@ import type { CaseCoachResult } from '../lib/case-coach'
 import { resolveLlmWritingCandidates, llmChatCompleteWithFallback } from '../lib/llm-client'
 import { prepareCaseIntelligenceForLlm, llmPhiMode } from '../lib/llm-prompt-sanitize'
 import { recordAiRun } from '../lib/ai-run'
+import { withLlmSubject } from '../lib/llm-deidentify'
+import { loadLlmSubject } from '../lib/llm-subject'
 
 const COACH_CANDIDATES = resolveLlmWritingCandidates()
 
@@ -23,27 +25,18 @@ export interface NarratedCoachResult extends CaseCoachResult {
 }
 
 function buildPrompt(intelIn: CaseIntelligence, coach: CaseCoachResult): string {
-  const { intel, phiMode } = prepareCaseIntelligenceForLlm(intelIn)
+  const { intel } = prepareCaseIntelligenceForLlm(intelIn)
   const known = intel.known.map((k) => `- ${k.label}: ${k.value}`).join('\n')
   const items = coach.insights
-    .map((i) => {
-      // In keys-only mode, drop engine "why" text — it may contain clinical detail.
-      const why = phiMode === 'keys_only' ? '(use gap keys / title only)' : i.why
-      return `- [${i.key}] (${i.priority}) ${i.title} | impact: ${i.impact} | why: ${why}`
-    })
+    .map((i) => `- [${i.key}] (${i.priority}) ${i.title} | impact: ${i.impact} | why: ${i.why}`)
     .join('\n')
-
-  const narrativeLine =
-    phiMode === 'keys_only'
-      ? 'INCIDENT NARRATIVE: [omitted — LLM_ALLOW_PHI=false]'
-      : `INCIDENT NARRATIVE: ${intel.narrative || 'Not provided.'}`
 
   return `You are a senior personal-injury attorney coaching a colleague on a retained case.
 Below is the case and a RANKED list of next-best actions produced by a deterministic engine.
-PHI_MODE: ${phiMode}. Contact PII is always removed. Medical detail is omitted unless PHI_MODE=phi_allowed.
+Contact PII is always removed.
 
 CASE TYPE: ${intel.claimType}
-${narrativeLine}
+INCIDENT NARRATIVE: ${intel.narrative || 'Not provided.'}
 
 ALREADY KNOWN:
 ${known || '(none)'}
@@ -55,7 +48,6 @@ Your job: rewrite ONLY the prose so it reads like sharp, practical coaching.
 - Keep every key exactly as given.
 - Do NOT change any numbers, dates, dollar amounts, or deadlines.
 - Each "why" must be one or two tight sentences, concrete and specific to this case.
-- When PHI_MODE=keys_only, do not invent injuries, treatment, or clinical facts — coach from action titles and gap keys only.
 - Also write a single "headline": the one most important thing to do next (<= 90 chars).
 
 Respond with STRICT JSON only:
@@ -75,12 +67,13 @@ export async function narrateCaseCoach(
 
   const started = Date.now()
   const primary = COACH_CANDIDATES[0]
+  const subject = await loadLlmSubject(intel.assessmentId)
   try {
     const { result: completion, resolved, attempted } = await llmChatCompleteWithFallback({
       kind: 'coach_narrate',
       candidates: COACH_CANDIDATES,
       run: (candidate) =>
-        candidate.client.chat.completions.create({
+        candidate.client.chat.completions.create(withLlmSubject({
           model: candidate.model,
           messages: [
             {
@@ -93,7 +86,7 @@ export async function narrateCaseCoach(
             temperature: 0.4,
             max_tokens: 900,
           response_format: { type: 'json_object' },
-        }),
+        }, subject)),
     })
 
     const responseText = completion.choices[0]?.message?.content

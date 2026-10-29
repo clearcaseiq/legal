@@ -13,7 +13,6 @@ import {
   redactLlmPii,
   sanitizeCaseIntelligenceForLlm,
   sanitizeLlmMessages,
-  toGapKeysOnlyCaseIntelligence,
 } from './llm-prompt-sanitize'
 
 describe('redactLlmPii', () => {
@@ -64,7 +63,7 @@ describe('sanitizeCaseIntelligenceForLlm', () => {
   })
 })
 
-describe('toGapKeysOnlyCaseIntelligence / prepareCaseIntelligenceForLlm', () => {
+describe('prepareCaseIntelligenceForLlm', () => {
   const sample = {
     claimType: 'auto',
     narrative: 'Client has cervical herniation after rear-end; ER at Cedars; PT ongoing.',
@@ -88,22 +87,12 @@ describe('toGapKeysOnlyCaseIntelligence / prepareCaseIntelligenceForLlm', () => 
     ],
   }
 
-  it('strips narrative and clinical known facts; keeps gap keys', () => {
-    const out = toGapKeysOnlyCaseIntelligence(sample)
-    expect(out.narrative).toBeUndefined()
-    expect(out.known.find((k) => k.key === 'injuries')).toBeUndefined()
-    expect(out.known.find((k) => k.key === 'treatment')).toBeUndefined()
-    expect(out.known.find((k) => k.key === 'venue')?.value).toBe('Los Angeles, CA')
-    expect(out.gaps[0].label).toBe('gap_medical_records')
-    expect(out.gaps[0].rationale).toBeUndefined()
-    expect(out.known.some((k) => k.key === 'flags' && String(k.value).includes('gap_medical_records'))).toBe(true)
-  })
-
-  it('prepare defaults to keys_only when LLM_ALLOW_PHI is false', () => {
+  it('prepare keeps the medical pack in deidentified mode when LLM_ALLOW_PHI is false', () => {
     ;(ENV as { LLM_ALLOW_PHI: boolean }).LLM_ALLOW_PHI = false
     const { intel, phiMode } = prepareCaseIntelligenceForLlm(sample)
-    expect(phiMode).toBe('keys_only')
-    expect(intel.narrative).toBeUndefined()
+    expect(phiMode).toBe('deidentified')
+    expect(intel.narrative).toContain('cervical herniation')
+    expect(intel.gaps[0].rationale).toContain('MRI')
   })
 
   it('prepare allows redacted medical pack when LLM_ALLOW_PHI is true', () => {

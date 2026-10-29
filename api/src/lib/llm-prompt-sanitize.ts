@@ -9,13 +9,14 @@
  * - DOB lines when explicitly labeled
  *
  * PHI gate (LLM_ALLOW_PHI):
- * - false (default): Case Intelligence packs are reduced to gap keys + non-clinical
- *   flags — no narrative, injuries, treatment, or medical free text.
- * - true: medical case detail may be included (still contact-PII redacted). Enable
- *   only after a vendor BAA and legal approval.
+ * - false (default): medical detail is sent de-identified. The client wrapper in
+ *   llm-client.ts swaps every identifier for a placeholder before the request
+ *   leaves the process and restores it in the answer (see llm-deidentify.ts).
+ * - true: identified medical detail may be sent (still contact-PII redacted).
+ *   Enable only after a vendor BAA and legal approval.
  *
- * Applied both at the Case Intelligence → prompt boundary and as a last-line
- * defense on every chat.completions call (see llm-client.ts).
+ * Contact redaction here is applied at the Case Intelligence → prompt boundary
+ * and as a last-line defense on every chat.completions call.
  */
 import { ENV } from '../env'
 
@@ -140,20 +141,11 @@ export function llmAllowPhi(): boolean {
   return Boolean(ENV.LLM_ALLOW_PHI)
 }
 
-export type LlmPhiMode = 'keys_only' | 'phi_allowed'
+export type LlmPhiMode = 'deidentified' | 'phi_allowed'
 
 export function llmPhiMode(): LlmPhiMode {
-  return llmAllowPhi() ? 'phi_allowed' : 'keys_only'
+  return llmAllowPhi() ? 'phi_allowed' : 'deidentified'
 }
-
-/** Non-clinical known-fact keys safe to keep when LLM_ALLOW_PHI=false. */
-const KEYS_ONLY_KNOWN_ALLOW = new Set([
-  'claim_type',
-  'venue',
-  'evidence',
-  'sol',
-  'um_uim',
-])
 
 /**
  * Strip contact-PII known facts and redact remaining free text before any
@@ -184,78 +176,15 @@ export function sanitizeCaseIntelligenceForLlm<T extends IntelLike>(intel: T): T
 }
 
 /**
- * Gap-keys-only pack: no narrative, no medical free text, no clinical known facts.
- * Gaps are reduced to key + category + impact (no rationale / long labels).
- */
-export function toGapKeysOnlyCaseIntelligence<T extends IntelLike>(intel: T): T {
-  const claimType = String(intel.claimType || 'unknown')
-    .replace(/_/g, ' ')
-    .trim()
-
-  const known = (intel.known || [])
-    .filter((k) => KEYS_ONLY_KNOWN_ALLOW.has(String(k.key || '').toLowerCase()))
-    .filter((k) => !isBlockedKnownFact(k.key, k.label))
-    .map((k) => ({
-      key: k.key,
-      label: k.label,
-      // Evidence is already category labels ("Police report + Photos"); still redact.
-      value: redactLlmPii(k.value),
-      detail: undefined,
-    }))
-
-  // Always include claim type even if missing from known[].
-  if (!known.some((k) => k.key === 'claim_type')) {
-    known.unshift({ key: 'claim_type', label: 'Case type', value: claimType, detail: undefined })
-  }
-
-  const openGaps = (intel.gaps || []).filter((g) => !g.resolved)
-  const gapKeys = openGaps
-    .map((g) => String(g.key || '').trim())
-    .filter(Boolean)
-  const flags = [
-    `open_gap_count=${openGaps.length}`,
-    gapKeys.length ? `open_gap_keys=${gapKeys.join(',')}` : 'open_gap_keys=(none)',
-  ]
-
-  const gaps = openGaps.map((g) => {
-    const key = String(g.key || 'gap').trim() || 'gap'
-    return {
-      ...g,
-      key,
-      label: key,
-      category: String(g.category || 'case_strategy'),
-      valueImpact: g.valueImpact || 'medium',
-      severity: typeof g.severity === 'number' ? g.severity : undefined,
-      rationale: undefined,
-      resolved: false,
-    }
-  })
-
-  return {
-    ...intel,
-    claimType,
-    narrative: undefined,
-    known: [
-      ...known,
-      { key: 'phi_mode', label: 'PHI mode', value: 'keys_only', detail: undefined },
-      { key: 'flags', label: 'Flags', value: flags.join('; '), detail: undefined },
-    ],
-    gaps,
-  }
-}
-
-/**
- * Prepare Case Intelligence for any LLM prompt: contact redaction always;
- * medical detail only when LLM_ALLOW_PHI=true.
+ * Prepare Case Intelligence for any LLM prompt. Contact PII is always redacted;
+ * with LLM_ALLOW_PHI=false the client wrapper also de-identifies the medical
+ * detail before it is sent.
  */
 export function prepareCaseIntelligenceForLlm<T extends IntelLike>(intel: T): {
   intel: T
   phiMode: LlmPhiMode
 } {
-  if (!llmAllowPhi()) {
-    return { intel: toGapKeysOnlyCaseIntelligence(intel), phiMode: 'keys_only' }
-  }
-  return { intel: sanitizeCaseIntelligenceForLlm(intel), phiMode: 'phi_allowed' }
+  return { intel: sanitizeCaseIntelligenceForLlm(intel), phiMode: llmPhiMode() }
 }
 
 /** Deep-redact string fields on OpenAI-style chat messages. */

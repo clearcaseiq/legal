@@ -894,7 +894,6 @@ export default function PreAcceptanceView({
 }
 
 const SCENE_NEEDS_DESCRIPTION = 'needs_description'
-const SCENE_DISABLED = 'disabled'
 
 /**
  * Scene tab — shows the AI-generated incident-scene schematic for the lead.
@@ -973,7 +972,7 @@ function SceneTab({
           setFileUrl(url)
           setStatus('ready')
           window.clearInterval(intervalId)
-        } else if (st === 'failed' || st === SCENE_NEEDS_DESCRIPTION || st === SCENE_DISABLED) {
+        } else if (st === 'failed' || st === SCENE_NEEDS_DESCRIPTION) {
           setStatus(st)
           window.clearInterval(intervalId)
         }
@@ -1002,7 +1001,7 @@ function SceneTab({
     setObjectUrl(null)
     try {
       const res = await regenerateLeadSceneImage(leadId)
-      if (res?.status === SCENE_NEEDS_DESCRIPTION || res?.status === SCENE_DISABLED) setStatus(res.status)
+      if (res?.status === SCENE_NEEDS_DESCRIPTION) setStatus(SCENE_NEEDS_DESCRIPTION)
     } catch {
       setStatus('failed')
     }
@@ -1018,7 +1017,7 @@ function SceneTab({
         <button
           type="button"
           onClick={handleRegenerate}
-          disabled={status === 'pending' || status === SCENE_DISABLED || !leadId}
+          disabled={status === 'pending' || !leadId}
           className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <RefreshCw className={`h-3.5 w-3.5 ${status === 'pending' ? 'animate-spin' : ''}`} />
@@ -1040,15 +1039,6 @@ function SceneTab({
             <p className="max-w-md text-xs text-slate-500">
               The reconstruction is drawn from how the incident happened — where it took place, which way each party was
               moving, and the point of impact. Once a description is added to the case, click Regenerate.
-            </p>
-          </div>
-        ) : status === SCENE_DISABLED ? (
-          <div className="flex flex-col items-center justify-center gap-2 px-6 py-16 text-center">
-            <ImageOff className="h-8 w-8 text-slate-400" aria-hidden />
-            <p className="text-sm font-medium text-slate-600">Scene reconstruction is turned off.</p>
-            <p className="max-w-md text-xs text-slate-500">
-              The diagram is drawn from the claimant&apos;s own description, which we don&apos;t share with our AI provider
-              yet. The written incident description in this case is unaffected.
             </p>
           </div>
         ) : status === 'failed' ? (

@@ -15,8 +15,8 @@
  */
 import { logger } from './logger'
 import { getLlmChatClient, LLM_CHAT_MODEL } from './llm-client'
-import { llmAllowPhi } from './llm-prompt-sanitize'
-
+import { withLlmSubject } from './llm-deidentify'
+import { loadLlmSubject } from './llm-subject'
 const openai = getLlmChatClient()
 
 export type DemandMode = 'represented' | 'pro_se'
@@ -939,15 +939,14 @@ export async function narrateDemandLetter(
   context: DemandNarrationContext,
 ): Promise<NarratedDemandLetter> {
   if (!openai) return { sections, source: 'deterministic' }
-  // Demand narration is inherently clinical â€” require LLM_ALLOW_PHI=true (BAA).
-  if (!llmAllowPhi()) return { sections, source: 'deterministic' }
 
   // Figures anywhere in the deterministic draft are fair game to restate; any
   // other amount is fabricated.
   const allowedAmounts = new Set(moneyMentions(renderDemandLetter(sections)))
+  const subject = await loadLlmSubject(context.assessmentId)
 
   try {
-    const completion = await openai.chat.completions.create({
+    const completion = await openai.chat.completions.create(withLlmSubject({
       model: LLM_CHAT_MODEL,
       messages: [
         {
@@ -960,7 +959,7 @@ export async function narrateDemandLetter(
       temperature: 0.4,
       max_tokens: 1600,
       response_format: { type: 'json_object' },
-    })
+    }, subject))
 
     const responseText = completion.choices[0]?.message?.content
     if (!responseText) throw new Error('Empty response')

@@ -54,8 +54,7 @@ import { parseTaskDueDate } from '../lib/task-due-date'
 import { isAcceptedUpload } from '../lib/upload-filter'
 import { buildMergedSurvivor, reminderMessagesFor, validateMerge } from '../lib/task-merge'
 import { runAnalysisForAssessment } from './evidence'
-import { generateSceneImageForAssessment, hasSceneDescription, SCENE_DISABLED, SCENE_NEEDS_DESCRIPTION } from '../services/incident-scene'
-import { llmAllowPhi } from '../lib/llm-prompt-sanitize'
+import { generateSceneImageForAssessment, hasSceneDescription, SCENE_NEEDS_DESCRIPTION } from '../services/incident-scene'
 import {
   processEvidenceFileForExtraction,
   readDocumentPages,
@@ -18430,9 +18429,7 @@ router.get('/leads/:leadId', authMiddleware, async (req: any, res) => {
     // get one generated on first open (non-blocking). Reflect that as "pending".
     let sceneImageStatus = (assessment as any)?.sceneImageStatus ?? null
     if (assessment && !assessment.sceneImageUrl && sceneImageStatus !== 'pending' && sceneImageStatus !== 'failed') {
-      if (!llmAllowPhi()) {
-        sceneImageStatus = SCENE_DISABLED
-      } else if (!hasSceneDescription(assessment.facts)) {
+      if (!hasSceneDescription(assessment.facts)) {
         sceneImageStatus = SCENE_NEEDS_DESCRIPTION
       } else {
         sceneImageStatus = 'pending'
@@ -19921,7 +19918,6 @@ router.post('/leads/:leadId/scene/regenerate', authMiddleware, async (req: any, 
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
     const { lead } = auth
-    if (!llmAllowPhi()) return res.json({ status: SCENE_DISABLED })
     const target = await prisma.assessment.findUnique({ where: { id: lead.assessmentId }, select: { facts: true } })
     if (!hasSceneDescription(target?.facts)) {
       await prisma.assessment

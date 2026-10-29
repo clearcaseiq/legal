@@ -15,6 +15,8 @@ import { resolveLlmWritingCandidates, llmChatCompleteWithFallback } from '../lib
 import { prepareCaseIntelligenceForLlm, llmPhiMode } from '../lib/llm-prompt-sanitize'
 import { recordAiRun } from '../lib/ai-run'
 import { normalizeQuestionText } from '../lib/task-identity'
+import { withLlmSubject } from '../lib/llm-deidentify'
+import { loadLlmSubject } from '../lib/llm-subject'
 
 function dedupeQuestions(questions: IntelligentQuestion[]): IntelligentQuestion[] {
   const seen = new Set<string>()
@@ -76,7 +78,7 @@ function buildPrompt(
   baseline: IntelligentQuestion[],
   voice: QuestionVoice = 'client',
 ): string {
-  const { intel, phiMode } = prepareCaseIntelligenceForLlm(intelIn)
+  const { intel } = prepareCaseIntelligenceForLlm(intelIn)
   const known = intel.known.map((k) => `- ${k.label}: ${k.value}`).join('\n')
   const gaps = intel.gaps
     .filter((g) => !g.resolved)
@@ -87,17 +89,12 @@ function buildPrompt(
     .join('\n')
   const baselineList = baseline.map((q) => `- [${q.id}] (${q.section}) ${q.text}`).join('\n')
 
-  const narrativeLine =
-    phiMode === 'keys_only'
-      ? 'INCIDENT NARRATIVE: [omitted — LLM_ALLOW_PHI=false; use gap keys only]'
-      : `INCIDENT NARRATIVE: ${intel.narrative || 'Not provided.'}`
-
   return `You are an experienced personal-injury intake attorney preparing for a first consultation.
 The AI has ALREADY collected the facts below — do NOT ask about anything already known.
-PHI_MODE: ${phiMode}. Contact PII is always removed. Never ask for SSN, email, phone, or full street address.
+Contact PII is always removed. Never ask for SSN, email, phone, or full street address.
 
 CASE TYPE: ${intel.claimType}
-${narrativeLine}
+INCIDENT NARRATIVE: ${intel.narrative || 'Not provided.'}
 
 ALREADY KNOWN:
 ${known || '(none)'}
@@ -111,7 +108,6 @@ ${baselineList || '(none)'}
 Your job:
 1. From the candidate baseline questions, list the ids that should be PRUNED because they are redundant with what's already known or irrelevant to this specific case.
 2. Add up to ${MAX_AI_QUESTIONS} NEW, case-specific questions that a great attorney would ask given the narrative and gaps. Each must be a question the client can answer (not a task). Do NOT ask for any value/settlement numbers. Never ask for SSN, email, phone, or full street address.
-3. When PHI_MODE=keys_only, do not invent clinical facts; prefer questions tied to open gap keys.
 ${voice === 'employee' ? EMPLOYEE_VOICE_INSTRUCTION : ''}
 
 Respond with STRICT JSON only, in this shape:
@@ -146,12 +142,13 @@ export async function generateIntelligentQuestions(
 
   const started = Date.now()
   const primary = QUESTIONS_CANDIDATES[0]
+  const subject = await loadLlmSubject(intel.assessmentId)
   try {
     const { result: completion, resolved, attempted } = await llmChatCompleteWithFallback({
       kind: 'intelligent_questions',
       candidates: QUESTIONS_CANDIDATES,
       run: (candidate) =>
-        candidate.client.chat.completions.create({
+        candidate.client.chat.completions.create(withLlmSubject({
           model: candidate.model,
           messages: [
             {
@@ -164,7 +161,7 @@ export async function generateIntelligentQuestions(
             temperature: 0.4,
             max_tokens: 1200,
           response_format: { type: 'json_object' },
-        }),
+        }, subject)),
     })
 
     const responseText = completion.choices[0]?.message?.content

@@ -8,11 +8,13 @@
 import { ENV } from '../env'
 import { logger } from './logger'
 import { buildCaseIntelligence } from './case-intelligence'
-import { prepareCaseIntelligenceForLlm, llmPhiMode } from './llm-prompt-sanitize'
+import { prepareCaseIntelligenceForLlm } from './llm-prompt-sanitize'
 import { resolveLlmPlanningCandidates, llmChatCompleteWithFallback } from './llm-client'
 import { recordAiRun } from './ai-run'
 import { prisma } from './prisma'
 import { syncWorkflowStepTasks } from './workflow-step-tasks'
+import { withLlmSubject } from './llm-deidentify'
+import { loadLlmSubject } from './llm-subject'
 
 function maxOps() {
   return ENV.WORKFLOW_AI_ADAPT_MAX_OPS
@@ -492,18 +494,11 @@ export function buildAdaptPrompt(
     })
     .join('\n')
 
-  const phiMode = llmPhiMode()
-  const narrativeLine =
-    phiMode === 'keys_only'
-      ? 'INCIDENT NARRATIVE: [omitted — LLM_ALLOW_PHI=false; use gap keys only]'
-      : `INCIDENT NARRATIVE: ${(intel.narrative || 'Not provided.').slice(0, 1200)}`
-
   return `You adapt a STANDARD personal-injury firm workflow to ONE specific case.
 You propose a focused patch list. The firm blueprint stays the base — enrich it for THIS case.
-PHI_MODE: ${phiMode}${phiMode === 'keys_only' ? ' — no medical narrative/injuries/treatment; decide from gap keys and step list only.' : ''}
 
 CASE TYPE: ${intel.claimType}
-${narrativeLine}
+INCIDENT NARRATIVE: ${(intel.narrative || 'Not provided.').slice(0, 1200)}
 
 ALREADY KNOWN:
 ${known || '(none)'}
@@ -578,9 +573,10 @@ async function requestAdaptPlan(params: {
     })
     return { plan: null, runId: null, model: candidates[0].model, provider: candidates[0].provider }
   }
-  // Contact PII always redacted; medical detail only when LLM_ALLOW_PHI=true.
+  // Contact PII always redacted; medical detail de-identified until LLM_ALLOW_PHI=true.
   const { intel, phiMode } = prepareCaseIntelligenceForLlm(intelRaw)
   const gapFingerprint = openGapFingerprint(intel.gaps)
+  const subject = await loadLlmSubject(params.assessmentId)
 
   const started = Date.now()
   const messages = [
@@ -597,13 +593,13 @@ async function requestAdaptPlan(params: {
       kind: 'workflow_adapt',
       candidates,
       run: (candidate) =>
-        candidate.client.chat.completions.create({
+        candidate.client.chat.completions.create(withLlmSubject({
           model: candidate.model,
           messages,
           temperature: 0.3,
           max_tokens: 2400,
           response_format: { type: 'json_object' },
-        }),
+        }, subject)),
     })
 
     const text = completion.choices[0]?.message?.content

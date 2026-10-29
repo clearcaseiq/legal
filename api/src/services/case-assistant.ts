@@ -15,9 +15,11 @@
  */
 import { logger } from '../lib/logger'
 import { getLlmChatClient, LLM_CHAT_MODEL } from '../lib/llm-client'
-import { llmAllowPhi, redactLlmPii } from '../lib/llm-prompt-sanitize'
+import { redactLlmPii } from '../lib/llm-prompt-sanitize'
 import { answerCommandCenterCopilot } from '../lib/case-command-center'
 import type { CaseCommandCenter } from '../lib/case-command-center'
+import { withLlmSubject } from '../lib/llm-deidentify'
+import { loadLlmSubject } from '../lib/llm-subject'
 
 const openai = getLlmChatClient()
 
@@ -157,14 +159,9 @@ export async function askCaseAssistant(
     return { ...deterministic, source: 'deterministic' }
   }
 
-  // Command-center packs include treatment/value/medical detail — do not send to
-  // the LLM until LLM_ALLOW_PHI=true (BAA approved).
-  if (!llmAllowPhi()) {
-    return { ...deterministic, source: 'deterministic' }
-  }
-
   try {
-    const completion = await openai.chat.completions.create({
+    const subject = await loadLlmSubject(summary.assessmentId)
+    const completion = await openai.chat.completions.create(withLlmSubject({
       model: LLM_CHAT_MODEL,
       messages: [
         {
@@ -177,7 +174,7 @@ export async function askCaseAssistant(
       temperature: 0.3,
       max_tokens: 900,
       response_format: { type: 'json_object' },
-    })
+    }, subject))
 
     const responseText = completion.choices[0]?.message?.content
     if (!responseText) throw new Error('Empty response')

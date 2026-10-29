@@ -1,7 +1,8 @@
 import OpenAI from 'openai'
 import { ENV } from '../env'
 import { logger } from './logger'
-import { sanitizeLlmMessages } from './llm-prompt-sanitize'
+import { llmAllowPhi, sanitizeLlmMessages } from './llm-prompt-sanitize'
+import { createLlmDeidentifier, LLM_SUBJECT, restoreLlmAnswer, type LlmSubject } from './llm-deidentify'
 
 /**
  * The app's single text-completion provider: OpenAI.
@@ -22,22 +23,63 @@ import { sanitizeLlmMessages } from './llm-prompt-sanitize'
  * chat path.
  *
  * Privacy: every chat.completions payload is PII-redacted (SSN, email, phone,
- * street address) before it leaves the process — see llm-prompt-sanitize.ts.
+ * street address) before it leaves the process — see llm-prompt-sanitize.ts —
+ * and, until a BAA is signed, fully de-identified — see llm-deidentify.ts. The
+ * image client is not wrapped; its prompts must be de-identified by the caller.
  */
+
+const PLACEHOLDER_INSTRUCTION =
+  'Bracketed placeholders such as [NAME#1], [DATE#2 2026 +45d] or [PLACE#1] stand in for identifying details that were removed. ' +
+  'A DATE placeholder gives the year and the number of days from the earliest date in this request. ' +
+  'Copy a placeholder exactly as written wherever you refer to what it stands for; never guess or invent what it hides.'
+
+function messageTexts(messages: any[]): string[] {
+  const out: string[] = []
+  for (const m of messages) {
+    if (typeof m?.content === 'string') out.push(m.content)
+    else if (Array.isArray(m?.content)) for (const part of m.content) if (typeof part?.text === 'string') out.push(part.text)
+  }
+  return out
+}
+
+function mapMessageTexts(messages: any[], fn: (text: string) => string): any[] {
+  return messages.map((m) => {
+    if (typeof m?.content === 'string') return { ...m, content: fn(m.content) }
+    if (Array.isArray(m?.content)) {
+      return { ...m, content: m.content.map((part: any) => (typeof part?.text === 'string' ? { ...part, text: fn(part.text) } : part)) }
+    }
+    return m
+  })
+}
 
 /**
  * Wrap chat.completions.create so contact/identity PII can never ride along
- * in prompts, regardless of which call site built the messages.
+ * in prompts, regardless of which call site built the messages. Without a BAA
+ * (LLM_ALLOW_PHI=false) every identifier is also swapped for a placeholder on
+ * the way out and restored in the answer, so callers see real names and dates
+ * while the vendor never does.
  */
 function withPromptSanitizer(client: OpenAI): OpenAI {
   const completions = client.chat.completions as any
   if (completions.__cciPiiWrapped) return client
   const originalCreate = completions.create.bind(completions)
   completions.create = (body: any, options?: any) => {
-    if (body && typeof body === 'object' && Array.isArray(body.messages)) {
-      body = { ...body, messages: sanitizeLlmMessages(body.messages) }
-    }
-    return originalCreate(body, options)
+    if (!body || typeof body !== 'object' || !Array.isArray(body.messages)) return originalCreate(body, options)
+    if (llmAllowPhi()) return originalCreate({ ...body, messages: sanitizeLlmMessages(body.messages) }, options)
+
+    const subject: LlmSubject = body[LLM_SUBJECT] || {}
+    const deid = createLlmDeidentifier(subject, messageTexts(body.messages))
+    const masked = mapMessageTexts(body.messages, deid.mask)
+    const messages = deid.count() > 0 ? [{ role: 'system', content: PLACEHOLDER_INSTRUCTION }, ...masked] : masked
+    return Promise.resolve(originalCreate({ ...body, messages }, options)).then((completion: any) => {
+      if (subject.restore === false || !Array.isArray(completion?.choices)) return completion
+      for (const choice of completion.choices) {
+        if (typeof choice?.message?.content === 'string') {
+          choice.message.content = restoreLlmAnswer(deid, choice.message.content)
+        }
+      }
+      return completion
+    })
   }
   completions.__cciPiiWrapped = true
   return client
