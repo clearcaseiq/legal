@@ -4360,7 +4360,9 @@
       "resend": "Reenviar correo",
       "sending": "Enviando…",
       "sent": "Un nuevo enlace va en camino a {email}. Vence en 24 horas.",
-      "resendFailed": "No pudimos enviar el correo ahora. Inténtelo de nuevo en unos minutos."
+      "resendFailed": "No pudimos enviar el correo ahora. Inténtelo de nuevo en unos minutos.",
+      "required": "Verifique su correo para continuar. Podrá enviar mensajes a su abogado, actualizar su caso y subir documentos en cuanto abra el enlace.",
+      "back": "Volver a donde estaba"
     },
     "reviewBanner": {
       "title": "Tu caso está en revisión",

@@ -235,7 +235,7 @@ const Demand = lazy(() => import('./pages/Demand'))
 const Drafts = lazy(() => import('./pages/Drafts'))
 const Dashboard = lazy(withAppMessages(() => import('./pages/Dashboard')))
 const Assessments = lazy(() => import('./pages/Assessments'))
-const UserProfile = lazy(() => import('./pages/UserProfile'))
+const UserProfile = lazy(withAppMessages(() => import('./pages/UserProfile')))
 
 /**
  * My Profile lives on the Dashboard's Profile tab. The email-verification gate in

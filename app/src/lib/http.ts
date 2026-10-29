@@ -369,7 +369,7 @@ function handleRequestError(
 
       if (status === 403 && errCode === 'EMAIL_VERIFICATION_REQUIRED') {
         if (!pathname.startsWith('/profile')) {
-          window.location.assign(`/profile?verify=required`)
+          window.location.assign(`/profile?verify=required&from=${encodeURIComponent(fullPath)}`)
         }
         throw error
       }

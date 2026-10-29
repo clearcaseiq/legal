@@ -3,8 +3,12 @@ import { Mail } from 'lucide-react'
 import { requestEmailVerification } from '../lib/api'
 import { useLanguage } from '../contexts/LanguageContext'
 
-/** Asks a plaintiff with an unconfirmed address to open the link we emailed. */
-export function EmailVerificationBanner({ email }: { email: string }) {
+/**
+ * Asks a plaintiff with an unconfirmed address to open the link we emailed.
+ * `required` is set when an action was just refused for want of it, so the
+ * banner says why they were sent here.
+ */
+export function EmailVerificationBanner({ email, required = false }: { email: string; required?: boolean }) {
   const { t } = useLanguage()
   const [state, setState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
   const [error, setError] = useState<string | null>(null)
@@ -30,6 +34,7 @@ export function EmailVerificationBanner({ email }: { email: string }) {
         <Mail className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" aria-hidden />
         <div className="min-w-0">
           <p className="text-sm font-semibold">{t('plaintiffDashboard.verifyEmail.title')}</p>
+          {required && <p className="mt-0.5 text-sm font-medium">{t('plaintiffDashboard.verifyEmail.required')}</p>}
           <p className="mt-0.5 text-sm">
             {t('plaintiffDashboard.verifyEmail.body', { email })}
           </p>

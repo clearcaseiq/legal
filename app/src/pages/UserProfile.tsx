@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate, Link, useSearchParams } from 'react-router-dom'
+import { EmailVerificationBanner } from '../components/EmailVerificationBanner'
 import { updateProfile, uploadPlaintiffAvatar, deletePlaintiffAvatar } from '../lib/api'
 import { User, Save, AlertCircle, CheckCircle, Activity, Upload, Trash2 } from 'lucide-react'
 import { getStoredUser } from '../lib/auth'
@@ -71,6 +72,9 @@ function syncStoredUserAvatar(avatar: string | null | undefined) {
 
 export default function UserProfile({ embedded = false }: { embedded?: boolean } = {}) {
   const { t } = useLanguage()
+  const [searchParams] = useSearchParams()
+  const verificationRequired = searchParams.get('verify') === 'required'
+  const blockedFrom = searchParams.get('from')
   const navigate = useNavigate()
   const { data, loading: sessionLoading, error: sessionError } = usePlaintiffSessionSummary(true)
   const [profile, setProfile] = useState<UserProfile | null>(null)
@@ -259,12 +263,21 @@ export default function UserProfile({ embedded = false }: { embedded?: boolean }
 
   const avatarUrl = resolveAvatarUrl(profile.avatar)
   const avatarInitial = (profile.firstName || profile.email || 'U').trim().charAt(0).toUpperCase()
+  // Same-origin paths only: the parameter is user-controllable.
+  const returnTo = blockedFrom?.startsWith('/') && !blockedFrom.startsWith('//') ? blockedFrom : null
 
   return (
     <div className={embedded ? 'max-w-[1600px] mx-auto' : 'max-w-[1600px] mx-auto py-8'}>
+      {!embedded && !profile.emailVerified && profile.email && (
+        <EmailVerificationBanner email={profile.email} required={verificationRequired} />
+      )}
       {!embedded && (
         <div className="mb-6">
-          <BackButton to="/dashboard" label="Back to Dashboard" className="mb-4" />
+          {returnTo ? (
+            <BackButton to={returnTo} label={t('plaintiffDashboard.verifyEmail.back')} className="mb-4" />
+          ) : (
+            <BackButton to="/dashboard" label="Back to Dashboard" className="mb-4" />
+          )}
           <div className="flex items-center gap-4">
             <Link
               to="/dashboard?tab=cases"

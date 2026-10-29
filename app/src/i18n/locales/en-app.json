@@ -3295,7 +3295,9 @@
       "resend": "Resend email",
       "sending": "Sending…",
       "sent": "A new link is on its way to {email}. It expires in 24 hours.",
-      "resendFailed": "We couldn't send the email right now. Please try again in a few minutes."
+      "resendFailed": "We couldn't send the email right now. Please try again in a few minutes.",
+      "required": "Please verify your email to continue. Messaging your attorney, updating your case and uploading documents unlock as soon as you open the link.",
+      "back": "Back to where I was"
     },
     "reviewBanner": {
       "title": "Your case is in review",
