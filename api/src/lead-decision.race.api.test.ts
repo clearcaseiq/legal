@@ -18,6 +18,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import request from 'supertest'
 
 vi.mock('./lib/prisma', () => import('./test/universalPrismaMock'))
+vi.mock('./lib/attorney-agreement', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./lib/attorney-agreement')>()),
+  hasAttorneyAcceptedAgreement: vi.fn(async () => true),
+}))
 
 import { buildApp } from './build-app'
 import { prisma } from './lib/prisma'

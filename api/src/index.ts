@@ -1,5 +1,6 @@
 import './lib/node-dom-polyfills'
 import './load-env'
+import { flushErrorReporting, initErrorReporting } from './lib/error-reporting'
 import { buildApp } from './build-app'
 import { ENV } from './env'
 import { logger } from './lib/logger'
@@ -30,6 +31,12 @@ import { reconcileAllAttorneyRatingAggregates } from './lib/attorney-rating-aggr
 import { beginSweep, registerSweep } from './lib/ops-status'
 import { startSchedulerLeadership, stopSchedulerLeadership } from './lib/scheduler-leader'
 import { closeRealtime, initRealtime } from './lib/realtime'
+
+if (initErrorReporting()) {
+  logger.info('Error reporting enabled (Sentry)')
+} else {
+  logger.warn('Error reporting disabled: SENTRY_DSN is not set')
+}
 
 const app = buildApp()
 
@@ -787,12 +794,22 @@ async function shutdown(signal: 'SIGTERM' | 'SIGINT') {
     await closeHttpServer()
     await prisma.$disconnect()
     logger.info('Server closed')
+    await flushErrorReporting()
     process.exit(0)
   } catch (error) {
     logger.error('Graceful shutdown failed', { error })
+    await flushErrorReporting()
     process.exit(1)
   }
 }
+
+// Node raises an unhandled rejection here too while no 'unhandledRejection'
+// listener exists, so this keeps the crash-and-restart behaviour for both and
+// only adds a report on the way out.
+process.on('uncaughtException', (error) => {
+  logger.fatal('Uncaught exception; exiting', { error })
+  void flushErrorReporting().finally(() => process.exit(1))
+})
 
 process.on('SIGTERM', () => {
   void shutdown('SIGTERM')

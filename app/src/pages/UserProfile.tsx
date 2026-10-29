@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, Link, useSearchParams } from 'react-router-dom'
 import { EmailVerificationBanner } from '../components/EmailVerificationBanner'
+import PrivacyDataSection from '../components/PrivacyDataSection'
 import { updateProfile, uploadPlaintiffAvatar, deletePlaintiffAvatar } from '../lib/api'
 import { User, Save, AlertCircle, CheckCircle, Activity, Upload, Trash2 } from 'lucide-react'
 import { getStoredUser } from '../lib/auth'
@@ -578,6 +579,8 @@ export default function UserProfile({ embedded = false }: { embedded?: boolean }
                 </div>
               </div>
             </div>
+
+            {!editing && <PrivacyDataSection />}
 
             {/* Action Buttons */}
             {editing && (

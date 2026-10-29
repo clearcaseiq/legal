@@ -25,6 +25,7 @@ import AttorneyRegisterBenefits from '../components/AttorneyRegisterBenefits'
 import BrandLogo from '../components/BrandLogo'
 import { PasswordInputWithReveal } from '../components/PasswordInputWithReveal'
 import StateBarPreviewResult from '../components/StateBarPreviewResult'
+import { AttorneyAgreementCheckbox } from '../components/AttorneyAgreement'
 import { formatPhoneInput } from '../lib/phone'
 import { CheckCircle, FileText, Globe, CreditCard, Info } from 'lucide-react'
 
@@ -57,6 +58,8 @@ export default function AttorneyRegister() {
   const [govIdFile, setGovIdFile] = useState<File | null>(null)
   const [showFirmWebsite, setShowFirmWebsite] = useState(false)
   const [form, setForm] = useState<AttorneyRegisterFormInput>(ATTORNEY_REGISTER_DEFAULTS)
+  const [agreementVersion, setAgreementVersion] = useState<string | null>(null)
+  const [agreementError, setAgreementError] = useState<string | null>(null)
   // Explicit service-area choice. Previously the "Entire State" vs "Selected
   // Counties" selection was inferred from whether any counties were picked,
   // which made the "Selected Counties" button unresponsive (clicking it with no
@@ -237,7 +240,8 @@ export default function AttorneyRegister() {
         intakeStatus: data.intakeStatus || undefined,
         preferredConsultationMethod: data.preferredConsultationMethod || undefined,
         pricingModel: data.pricingModel || undefined,
-        paymentModel: data.paymentModel || undefined
+        paymentModel: data.paymentModel || undefined,
+        agreementVersion: agreementVersion || undefined
       }
 
       const maxWeek = typeof data.maxCasesPerWeek === 'number' ? data.maxCasesPerWeek : undefined
@@ -337,8 +341,24 @@ export default function AttorneyRegister() {
       return
     }
 
+    if (!agreementVersion) {
+      setAgreementError(t('attorneyReg.agreementRequired'))
+      return
+    }
+
     await onSubmit(validation.data)
   }
+
+  const agreementCheckbox = (
+    <AttorneyAgreementCheckbox
+      checked={!!agreementVersion}
+      error={agreementError}
+      onChange={(version) => {
+        setAgreementVersion(version)
+        if (version) setAgreementError(null)
+      }}
+    />
+  )
 
   const handleFormSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -784,6 +804,7 @@ export default function AttorneyRegister() {
                       registrants default to "accepting" and can change it later. */}
                   <p className="mt-2 text-xs text-gray-500">{t('attorneyReg.capacityNote')}</p>
                 </div>
+                {agreementCheckbox}
                 <div className="flex flex-col gap-3 pt-2 sm:flex-row sm:items-center sm:justify-between">
                   <button type="button" onClick={() => setCurrentStep(2)} className="btn-secondary">
                     {t('attorneyReg.back')}
@@ -910,6 +931,8 @@ export default function AttorneyRegister() {
                     {t('attorneyReg.jurisdictionLabel')} {venues.join(', ') || '—'}
                   </p>
                 </div>
+
+                {agreementCheckbox}
 
                 <div className="flex flex-col gap-3 pt-2 sm:flex-row sm:items-center sm:justify-between">
                   <button type="button" onClick={() => setCurrentStep(3)} className="btn-secondary">

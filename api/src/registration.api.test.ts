@@ -20,6 +20,7 @@ import { prisma } from './lib/prisma'
 import { issueEmailVerification } from './lib/email-verification'
 import { resetUniversalPrismaMock } from './test/universalPrismaMock'
 import { createClaimToken } from './lib/claim-token'
+import { CURRENT_ATTORNEY_AGREEMENT_VERSION } from './lib/attorney-agreement'
 
 const plaintiffValid = {
   email: 'plaintiff.integration@test.local',
@@ -36,6 +37,7 @@ const attorneyValidMinimal = {
   lastName: 'Advocate',
   specialties: ['auto'],
   venues: ['CA'],
+  agreementVersion: CURRENT_ATTORNEY_AGREEMENT_VERSION,
 }
 
 describe('Plaintiff registration POST /v1/auth/register', () => {
@@ -248,6 +250,46 @@ describe('Attorney registration POST /v1/attorney-register/register', () => {
     expect(prisma.attorneyProfile.create).toHaveBeenCalledOnce()
   })
 
+  it('400 AGREEMENT_REQUIRED without the current agreement, before creating anything', async () => {
+    const { agreementVersion: _omit, ...withoutAgreement } = attorneyValidMinimal
+    for (const body of [withoutAgreement, { ...attorneyValidMinimal, agreementVersion: '2020-01-01' }]) {
+      const res = await request(app).post('/v1/attorney-register/register').send(body)
+      expect(res.status).toBe(400)
+      expect(res.body.code).toBe('AGREEMENT_REQUIRED')
+    }
+    expect(prisma.user.create).not.toHaveBeenCalled()
+  })
+
+  it('records the accepted agreement text, version and source', async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue(null as any)
+    vi.mocked(prisma.attorney.findUnique).mockResolvedValue(null as any)
+    vi.mocked(prisma.user.create).mockResolvedValue({ id: 'u-att-agree', email: attorneyValidMinimal.email } as any)
+    vi.mocked(prisma.attorney.create).mockResolvedValue({
+      id: 'att-agree',
+      email: attorneyValidMinimal.email,
+      specialties: JSON.stringify(['auto']),
+      venues: JSON.stringify(['CA']),
+    } as any)
+    vi.mocked(prisma.attorneyProfile.create).mockResolvedValue({ id: 'prof-agree' } as any)
+    vi.mocked(prisma.consent.findFirst).mockResolvedValue(null as any)
+    vi.mocked(prisma.consent.create).mockResolvedValue({ id: 'consent-1' } as any)
+
+    const res = await request(app).post('/v1/attorney-register/register').send(attorneyValidMinimal)
+
+    expect(res.status).toBe(201)
+    const data = vi.mocked(prisma.consent.create).mock.calls[0][0].data as any
+    expect(data).toMatchObject({
+      userId: 'u-att-agree',
+      consentType: 'attorney_agreement',
+      version: CURRENT_ATTORNEY_AGREEMENT_VERSION,
+      granted: true,
+      signatureMethod: 'clicked',
+    })
+    expect(data.consentText).toContain('Attorney Participation Agreement')
+    expect(data.consentHash).toMatch(/^[0-9a-f]{64}$/)
+    expect(JSON.parse(data.metadata)).toMatchObject({ source: 'registration', attorneyId: 'att-agree' })
+  })
+
   // Attorneys used to be created with an unconfirmed address and never told
   // about it, so the profile could only ever read "Pending".
   it('emails a verification link and reports the address as unconfirmed', async () => {
@@ -358,6 +400,7 @@ describe('Attorney registration POST /v1/attorney-register/register', () => {
         subscriptionTier: 'premium',
         insuranceRequired: true,
         mustHaveMedicalTreatment: true,
+        agreementVersion: CURRENT_ATTORNEY_AGREEMENT_VERSION,
       })
 
     expect(res.status).toBe(201)

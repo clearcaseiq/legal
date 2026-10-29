@@ -1,5 +1,6 @@
 import { Component, type ReactNode } from 'react'
 import { isChunkLoadError, shouldReloadForChunkError } from '../lib/chunkReload'
+import { reportUiError } from '../lib/errorReporting'
 
 interface ErrorBoundaryProps {
   children: ReactNode
@@ -38,6 +39,10 @@ export default class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBo
       componentStack: errorInfo.componentStack,
       context: this.props.context,
     })
+
+    if (!isChunkLoadError(error)) {
+      reportUiError(error, { boundary: this.props.name || 'UI' })
+    }
 
     // A deploy deleted the chunk this tab asked for. Reloading is the only fix,
     // and doing it here spares the user a dead end whose message names a

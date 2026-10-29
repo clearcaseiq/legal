@@ -323,6 +323,7 @@ import {
 } from '../lib/matching-rules-config'
 import { triggerOfferExpirySweepSoon } from '../lib/offer-expiry-sweep'
 import { buildRevenueProjection } from '../lib/revenue-projection'
+import { hasAttorneyAcceptedAgreement } from '../lib/attorney-agreement'
 
 const router = Router()
 
@@ -20035,6 +20036,19 @@ router.post('/leads/:leadId/decision', authMiddleware, async (req: any, res) => 
       existingLead.assignedAttorneyId !== attorneyId
     if (decision === 'accept' && claimedByOther) {
       return res.status(409).json({ error: 'This case has already been assigned to another attorney.' })
+    }
+
+    // Checked on the attorney who takes the case, not whoever clicked: firm
+    // staff can accept on an attorney's behalf, but the attorney is the party
+    // bound by the participation agreement.
+    if (decision === 'accept' && !(await hasAttorneyAcceptedAgreement(attorney.email))) {
+      return res.status(403).json({
+        error:
+          attorney.email === req.user.email
+            ? 'Please accept the Attorney Participation Agreement before accepting cases.'
+            : `${attorney.name} must accept the Attorney Participation Agreement before cases can be accepted for them.`,
+        code: 'AGREEMENT_REQUIRED',
+      })
     }
 
     // Soft conflict gate: run/reuse pre-acquire screen; require acknowledgment when flagged.

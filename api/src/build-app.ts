@@ -27,6 +27,7 @@ import insuranceWorkbench from './routes/insurance-workbench'
 import leadQuality from './routes/lead-quality'
 import attorneyProfile from './routes/attorney-profile'
 import attorneyRegister from './routes/attorney-register'
+import attorneyAgreement from './routes/attorney-agreement'
 import attorneyClaim from './routes/attorney-claim'
 import medicalProviders from './routes/medical-providers'
 import evidence from './routes/evidence'
@@ -72,6 +73,7 @@ import calls from './routes/calls'
 import connectWebhook from './routes/connect-webhook'
 import { authLimiter, intakeLimiter } from './lib/rate-limits'
 import mfa from './routes/mfa'
+import account from './routes/account'
 
 /**
  * Fully configured Express app (no listen). Used by index.ts and integration tests.
@@ -81,6 +83,7 @@ export function buildApp(): Express {
 
   app.use('/v1/auth/mfa', authLimiter, mfa)
   app.use('/v1/auth', authLimiter, auth)
+  app.use('/v1/account', authLimiter, account)
   app.use('/v1/favorites', favorites)
   app.use('/v1/appointments', appointments)
   app.use('/v1/attorney-profiles', attorneyProfiles)
@@ -95,6 +98,7 @@ export function buildApp(): Express {
   app.use('/v1/lead-quality', leadQuality)
   app.use('/v1/attorney-profile', attorneyProfile)
   app.use('/v1/attorney-register', attorneyRegister)
+  app.use('/v1/attorney-agreement', attorneyAgreement)
   app.use('/v1/attorney-claim', attorneyClaim)
   app.use('/v1/medical-providers', medicalProviders)
   // The tight upload limiter is applied per-route inside the evidence router to
@@ -157,6 +161,23 @@ export function buildApp(): Express {
   app.use('/v1/webhooks/esign', esignWebhook)
   app.use('/v1/webhooks/zoom', zoomWebhook)
 
+  // Browser settings read at runtime rather than compiled into the web bundle,
+  // so one web image still serves QA and production. A Sentry DSN only allows
+  // sending events, so it is safe to publish.
+  app.get('/v1/client-config', (_req, res) => {
+    res.set('Cache-Control', 'public, max-age=300')
+    const dsn = process.env.SENTRY_WEB_DSN?.trim()
+    res.json({
+      sentry: dsn
+        ? {
+            dsn,
+            environment: process.env.DEPLOY_ENV || process.env.NODE_ENV || 'development',
+            release: process.env.GIT_COMMIT || null,
+          }
+        : null,
+    })
+  })
+
   app.get('/', (req, res) => {
     res.json({
       name: 'ClearCaseIQ API',
@@ -190,16 +211,17 @@ export function buildApp(): Express {
 
   app.use((error: unknown, req: any, res: any, _next: any) => {
     const err = error instanceof Error ? error : new Error(String(error))
+    const route = `${req.method} ${req.route?.path ?? req.baseUrl ?? 'unknown'}`
     logger.error('Unhandled error', {
-      error: err.message,
-      stack: err.stack,
+      error: err,
       requestId: req.id,
+      route,
     })
 
     // Feeds the error-rate tripwire. The label is the error type plus the route
     // pattern rather than the message or URL, so a spike can be named in the
     // alert without putting request data or PII into an email.
-    recordServerError(`${err.name} at ${req.method} ${req.route?.path ?? req.baseUrl ?? 'unknown'}`)
+    recordServerError(`${err.name} at ${route}`)
 
     res.status(500).json({
       error: 'Internal server error',

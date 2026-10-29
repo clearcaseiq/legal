@@ -1,0 +1,59 @@
+name: Uptime check
+
+# An outside view of production. Everything else that watches this platform
+# (the activity canary, the error-rate tripwire, container healthchecks) runs
+# on the hosts it is watching, so none of it can report the hosts being
+# unreachable.
+#
+# A failed run is the alert: GitHub emails the workflow's owner, and the
+# Actions tab keeps the history. GitHub can delay scheduled runs under load,
+# so treat this as a floor; the Route 53 health check created by
+# deploy/monitoring/setup-aws-monitoring.ps1 checks every 30 seconds.
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: uptime
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check production endpoints
+        env:
+          # /health/ready runs real database queries, so a reachable API that
+          # cannot serve cases still fails here.
+          ENDPOINTS: >-
+            https://api.clearcaseiq.com/health/ready
+            https://www.clearcaseiq.com/
+        run: |
+          set -uo pipefail
+          failed=0
+          for url in $ENDPOINTS; do
+            ok=false
+            # Three tries a few seconds apart, so one dropped connection is
+            # not an alert but a real outage still is within the run.
+            for attempt in 1 2 3; do
+              code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "$url" || echo 000)"
+              if [ "$code" -ge 200 ] && [ "$code" -lt 400 ]; then
+                ok=true
+                break
+              fi
+              sleep 10
+            done
+            if [ "$ok" = true ]; then
+              echo "up:   $url ($code)"
+            else
+              echo "::error::DOWN: $url returned $code after 3 attempts"
+              failed=1
+            fi
+          done
+          exit "$failed"

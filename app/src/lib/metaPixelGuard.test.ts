@@ -42,9 +42,20 @@ describe('metaGuardSnippet', () => {
     const calls = page.window.fbq.queue.map((args: IArguments) => Array.from(args))
     expect(calls).toEqual([
       ['set', 'autoConfig', false, PIXEL],
+      // No cookie consent yet, so Meta holds events until the visitor accepts.
+      ['consent', 'revoke'],
       ['init', PIXEL],
       ['track', 'PageView'],
     ])
+  })
+
+  it('does not revoke when the visitor already accepted advertising cookies', () => {
+    const page = fakePage()
+    page.window.__cciqAdsGranted = true
+    page.run(metaGuardSnippet(true, PIXEL))
+    page.run(GTM_TAG)
+    const calls = page.window.fbq.queue.map((args: IArguments) => Array.from(args))
+    expect(calls).not.toContainEqual(['consent', 'revoke'])
   })
 
   it('blocks rather than leaving the tag unguarded when no pixel id is configured', () => {

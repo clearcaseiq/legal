@@ -1,4 +1,5 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
+import { readConsent, saveConsent } from '../lib/cookieConsent'
 import { Link, useLocation } from 'react-router-dom'
 import LocaleLink from '../components/LocaleLink'
 import { useLanguage } from '../contexts/LanguageContext'
@@ -11,6 +12,7 @@ import { useLanguage } from '../contexts/LanguageContext'
 export default function Disclosures() {
   const { t } = useLanguage()
   const { hash } = useLocation()
+  const [adOptOutDone, setAdOptOutDone] = useState(false)
 
   useEffect(() => {
     if (!hash) return
@@ -104,6 +106,22 @@ export default function Disclosures() {
               >
                 {section.action.label}
               </a>
+            )}
+            {section.id === 'california' && (
+              <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const current = readConsent()
+                    saveConsent(current === 'all' || current === 'analytics' ? 'analytics' : 'none')
+                    setAdOptOutDone(true)
+                  }}
+                  className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-2 font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                >
+                  {t('cookieBanner.optOutAds')}
+                </button>
+                {adOptOutDone && <span className="text-slate-500 dark:text-slate-400">{t('cookieBanner.optOutAdsDone')}</span>}
+              </div>
             )}
           </section>
         ))}

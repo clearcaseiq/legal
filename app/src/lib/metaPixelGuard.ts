@@ -64,7 +64,10 @@ export function metaGuardSnippet(allowed: boolean, pixelId: string | null): stri
     `n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;` +
     `t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}` +
     `(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');` +
-    `window.fbq.disablePushState=!0;window.fbq('set','autoConfig',false,'${pixelId}');`
+    `window.fbq.disablePushState=!0;window.fbq('set','autoConfig',false,'${pixelId}');` +
+    // Set by the consent snippet ahead of this one. Revoked consent makes Meta
+    // hold events until the visitor accepts (see cookieConsent.ts).
+    `if(!window.__cciqAdsGranted)window.fbq('consent','revoke');`
   )
 }
 

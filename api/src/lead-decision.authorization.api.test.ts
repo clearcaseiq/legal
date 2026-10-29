@@ -17,6 +17,12 @@ import request from 'supertest'
 
 vi.mock('./lib/prisma', () => import('./test/universalPrismaMock'))
 
+const agreement = vi.hoisted(() => ({ accepted: true }))
+vi.mock('./lib/attorney-agreement', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./lib/attorney-agreement')>()),
+  hasAttorneyAcceptedAgreement: vi.fn(async () => agreement.accepted),
+}))
+
 import { buildApp } from './build-app'
 import { prisma } from './lib/prisma'
 import { resetUniversalPrismaMock } from './test/universalPrismaMock'
@@ -51,6 +57,7 @@ const introCreates = () => vi.mocked((prisma as any).introduction.create).mock.c
 
 beforeEach(() => {
   resetUniversalPrismaMock()
+  agreement.accepted = true
   vi.mocked(prisma.user.findUnique).mockResolvedValue(attorneyUser as any)
   vi.mocked((prisma as any).attorney.findFirst).mockResolvedValue({
     id: 'att-outsider',
@@ -105,6 +112,40 @@ describe('POST /leads/:leadId/decision authorization', () => {
 
     expect(res.status).toBe(200)
     expect(leadWrites()).toHaveLength(1)
+  })
+
+  it('refuses an accept until the attorney has accepted the participation agreement', async () => {
+    agreement.accepted = false
+    vi.mocked((prisma as any).introduction.findFirst).mockResolvedValue({
+      id: 'intro-9',
+      status: 'PENDING',
+      requestedAt: new Date(Date.now() - 60 * 1000),
+    } as any)
+
+    const res = await request(app)
+      .post('/v1/attorney-dashboard/leads/lead-9/decision')
+      .set(auth)
+      .send({ decision: 'accept', conflictAcknowledged: true })
+
+    expect(res.status).toBe(403)
+    expect(res.body.code).toBe('AGREEMENT_REQUIRED')
+    expect(leadWrites()).toHaveLength(0)
+  })
+
+  it('still lets an attorney decline without the agreement', async () => {
+    agreement.accepted = false
+    vi.mocked((prisma as any).introduction.findFirst).mockResolvedValue({
+      id: 'intro-9',
+      status: 'PENDING',
+      requestedAt: new Date(Date.now() - 60 * 1000),
+    } as any)
+
+    const res = await request(app)
+      .post('/v1/attorney-dashboard/leads/lead-9/decision')
+      .set(auth)
+      .send({ decision: 'reject', declineReason: 'capacity' })
+
+    expect(res.body.code).not.toBe('AGREEMENT_REQUIRED')
   })
 
   it('allows the attorney the case is already assigned to', async () => {

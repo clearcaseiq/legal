@@ -70,7 +70,14 @@ else
   die "neither 'docker compose' nor 'docker-compose' is available on this host"
 fi
 
-compose() { "${COMPOSE_BIN[@]}" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" "$@"; }
+# Off-host logs are opt-in per environment; see docker-compose.cloudwatch.yml
+# for why they cannot simply be on everywhere.
+COMPOSE_FILES=(-f "$COMPOSE_FILE")
+if grep -Eq '^CLOUDWATCH_LOG_GROUP=.+' "$ENV_FILE"; then
+  COMPOSE_FILES+=(-f docker-compose.cloudwatch.yml)
+fi
+
+compose() { "${COMPOSE_BIN[@]}" "${COMPOSE_FILES[@]}" --env-file "$ENV_FILE" "$@"; }
 
 # Read back what is deployed now, so a failed rollout has somewhere to return to.
 # Empty on a host that has only ever built locally, in which case there is no
@@ -158,6 +165,7 @@ wait_for_health() {
 PREVIOUS_TAG="$(current_tag)"
 
 log "environment: $ENVIRONMENT"
+log "logs:        $([ "${#COMPOSE_FILES[@]}" -gt 2 ] && echo "CloudWatch + local" || echo "local only")"
 log "deploying:   $TAG"
 log "previous:    ${PREVIOUS_TAG:-<none recorded>}"
 

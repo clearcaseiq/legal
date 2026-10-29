@@ -19,6 +19,7 @@ import { getAttorneyDashboard, getMyAttorneyProfile, decideLead, updateLeadStatu
 import Tooltip from '../components/Tooltip'
 import { formatClaimType as formatCanonicalClaimType } from '../lib/claimTypes'
 import ErrorBoundary from '../components/ErrorBoundary'
+import { AttorneyAgreementGate } from '../components/AttorneyAgreement'
 import { AttorneyDashboardPanelSkeleton, AttorneyDashboardSkeleton } from '../components/PageSkeletons'
 import { clearStoredAuth, getLoginRedirect, hasValidAuthToken } from '../lib/auth'
 import { getAttorneyCaseStatusKey, caseStatusLabel, caseStatusColor } from '../lib/caseStatus'
@@ -3069,6 +3070,7 @@ export default function AttorneyDashboardShell({ chromeless = false, initialView
 
   return (
     <div className="space-y-8">
+      <AttorneyAgreementGate />
       {/* A rejected accept/decline (e.g. a firm admin acting on another
           associate's lead) must be visible wherever it was triggered — the
           pre-acceptance card alone left the overview table silent (CP-393). */}

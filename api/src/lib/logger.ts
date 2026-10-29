@@ -1,4 +1,5 @@
 import pino from 'pino'
+import { isErrorReportingEnabled, reportError } from './error-reporting'
 
 /**
  * Production writes structured JSON to stdout with no transport, which is what
@@ -90,10 +91,44 @@ function adaptArgumentOrder<T extends pino.Logger>(instance: T): T {
  * the file descriptor, so a spy on `process.stdout.write` never sees a line and
  * the behaviour above cannot be asserted without injecting a stream.
  */
+/**
+ * Most routes catch their own failure and return 500 without throwing, so the
+ * Express error handler never sees them. Everything at error level is the one
+ * place they all pass through.
+ */
+const ERROR_LEVEL = 50
+
+function forwardToErrorReporting(args: unknown[], levelValue: number) {
+  if (levelValue < ERROR_LEVEL || !isErrorReportingEnabled()) return
+  const [first, second] = args
+  if (first instanceof Error) {
+    reportError(first, typeof second === 'string' ? second : undefined)
+    return
+  }
+  if (typeof first === 'string') {
+    reportError(new Error(first), first)
+    return
+  }
+  if (first && typeof first === 'object') {
+    const context = first as Record<string, unknown>
+    const message = typeof second === 'string' ? second : undefined
+    const cause = context.error ?? context.err
+    const error =
+      cause instanceof Error ? cause : new Error(message ?? (typeof cause === 'string' ? cause : 'Logged error'))
+    reportError(error, message, context)
+  }
+}
+
 export function createLogger(destination?: pino.DestinationStream): any {
   const options: pino.LoggerOptions = {
     level,
     serializers: { err: errSerializer, error: errSerializer },
+    hooks: {
+      logMethod(args, method, levelValue) {
+        forwardToErrorReporting(args, levelValue)
+        return method.apply(this, args)
+      },
+    },
   }
 
   if (!destination && process.env.NODE_ENV === 'development') {

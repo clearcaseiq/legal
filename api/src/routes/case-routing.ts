@@ -20,6 +20,7 @@ import { careFinishedOnRecord } from '../lib/workflow-signals'
 import { isEngagedLeadStatus } from '../lib/lead-status'
 import { isAttorneyEmailVerified } from '../lib/attorney-email-verified'
 import { isZoomEmbedEnabled } from '../lib/zoom'
+import { hasAttorneyAcceptedAgreement } from '../lib/attorney-agreement'
 const router = Router()
 
 async function getAttorneyFromRequest(req: AuthRequest): Promise<{ id: string } | null> {
@@ -129,6 +130,12 @@ router.post('/introductions/:id/accept', authMiddleware, async (req: AuthRequest
   try {
     const attorney = await getAttorneyFromRequest(req)
     if (!attorney) return res.status(403).json({ error: 'Attorney access required' })
+    if (!(await hasAttorneyAcceptedAgreement(req.user?.email))) {
+      return res.status(403).json({
+        error: 'Please accept the Attorney Participation Agreement before accepting cases.',
+        code: 'AGREEMENT_REQUIRED',
+      })
+    }
 
     const result = await attorneyAcceptCase(req.params.id, attorney.id)
     if (!result.success) {

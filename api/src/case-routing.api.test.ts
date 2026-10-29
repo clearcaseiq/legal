@@ -211,7 +211,20 @@ describe('POST /v1/case-routing/introductions/:id/accept', () => {
     resetUniversalPrismaMock()
     vi.mocked(prisma.user.findUnique).mockResolvedValue(attorneyUser as any)
     vi.mocked(prisma.attorney.findFirst).mockResolvedValue({ id: 'att-1' } as any)
+    vi.mocked(prisma.consent.findFirst).mockResolvedValue({ grantedAt: new Date(), createdAt: new Date() } as any)
     vi.mocked(lifecycle.attorneyAcceptCase).mockReset()
+  })
+
+  it('403 AGREEMENT_REQUIRED before the participation agreement is accepted', async () => {
+    vi.mocked(prisma.consent.findFirst).mockResolvedValue(null as any)
+
+    const res = await request(app)
+      .post('/v1/case-routing/introductions/intro-1/accept')
+      .set(authHeader(attorneyUser.id))
+
+    expect(res.status).toBe(403)
+    expect(res.body.code).toBe('AGREEMENT_REQUIRED')
+    expect(lifecycle.attorneyAcceptCase).not.toHaveBeenCalled()
   })
 
   it('200 when lifecycle succeeds', async () => {

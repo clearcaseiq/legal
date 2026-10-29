@@ -1,0 +1,35 @@
+# Ships container logs to CloudWatch Logs, so they survive the host being
+# replaced and both production hosts can be searched in one place.
+#
+# Layered over docker-compose.deploy.yml by deploy/deploy.sh only when the env
+# file sets CLOUDWATCH_LOG_GROUP. It is opt-in because the awslogs driver
+# refuses to start a container it cannot log for: a host whose instance role
+# lacks logs:PutLogEvents would fail the deploy, and the rollback with it.
+# deploy/monitoring/setup-aws-monitoring.ps1 creates the group and the policy.
+#
+# `docker logs` and `compose logs` keep working: Docker 20.10+ keeps a local
+# copy alongside any remote driver ("dual logging").
+#
+# A different driver replaces the base file's json-file options rather than
+# merging with them, which matters because awslogs rejects max-size/max-file.
+
+x-cloudwatch-logging: &cloudwatch-logging
+  driver: awslogs
+  options:
+    awslogs-region: ${AWS_REGION:-us-east-1}
+    awslogs-group: ${CLOUDWATCH_LOG_GROUP:?CLOUDWATCH_LOG_GROUP is required when this file is used}
+    # The container ID keeps the two production hosts' streams apart even
+    # though their containers share a name.
+    tag: "{{.Name}}/{{.ID}}"
+    # Buffer instead of blocking. In the default blocking mode a CloudWatch
+    # slowdown stalls every write to stdout, which stalls the API.
+    mode: non-blocking
+    max-buffer-size: 25m
+
+services:
+  api:
+    logging: *cloudwatch-logging
+  web:
+    logging: *cloudwatch-logging
+  nginx:
+    logging: *cloudwatch-logging

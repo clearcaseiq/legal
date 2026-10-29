@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useEffect, type ReactNode } from 'react'
 import type { LanguageCode } from './i18n'
 import { BrowserRouter } from 'react-router-dom'
 import { StaticRouter } from 'react-router-dom/server'
@@ -9,9 +9,18 @@ import { ToastProvider } from './contexts/ToastContext'
 import { HeuristicsProvider } from './contexts/HeuristicsContext'
 import { ServerRenderedProvider } from './contexts/ServerRenderContext'
 import { usePresenceHeartbeat } from './lib/presence'
+import { initErrorReporting } from './lib/errorReporting'
+import CookieBanner from './components/CookieBanner'
 
 function PresenceHeartbeat() {
   usePresenceHeartbeat()
+  return null
+}
+
+function ErrorReportingStarter() {
+  useEffect(() => {
+    void initErrorReporting()
+  }, [])
   return null
 }
 
@@ -56,6 +65,7 @@ export default function AppProviders({
     <ServerRenderedProvider value={serverRendered}>
       <QueryClientProvider client={queryClient}>
         <PresenceHeartbeat />
+        <ErrorReportingStarter />
         <LanguageProvider
           deferStoredLanguage={serverRendered}
           urlLanguage={language}
@@ -67,6 +77,7 @@ export default function AppProviders({
               <HeuristicsProvider>
                 <App />
               </HeuristicsProvider>
+              <CookieBanner />
             </ToastProvider>
           </Router>
         </LanguageProvider>

@@ -19,6 +19,7 @@ import {
 } from './StartupIcons'
 import { useLanguage } from '../contexts/LanguageContext'
 import { currentBuildVersion } from '../lib/buildVersion'
+import { openCookiePreferences } from '../lib/cookieConsent'
 import { useBrowserStateReady } from '../contexts/ServerRenderContext'
 import { clearStoredAuth, getStoredRole, getStoredUser, hasValidAuthToken, staffHomeRoute } from '../lib/auth'
 import { DEFAULT_LANGUAGE, LANGUAGES } from '../i18n'
@@ -921,6 +922,7 @@ export default function Layout({ children }: LayoutProps) {
               <Link to="/privacy-policy" className="hover:text-slate-900">{t('footer.privacyPolicy')}</Link>
               <Link to={navLinks.disclosures} className="hover:text-slate-900">{t('footer.disclosures')}</Link>
               <Link to={navLinks.disclosuresCalifornia} className="hover:text-slate-900">{t('footer.doNotSell')}</Link>
+              <button type="button" onClick={openCookiePreferences} className="hover:text-slate-900">{t('cookieBanner.preferences')}</button>
             </div>
           </div>
           <p className="mt-2 w-full text-[11px] leading-relaxed text-slate-400 sm:text-justify">
@@ -1027,6 +1029,7 @@ export default function Layout({ children }: LayoutProps) {
                 <li><Link to={navLinks.disclosures} className="text-slate-400 transition-colors hover:text-white">{t('footer.disclosures')}</Link></li>
                 <li><Link to={navLinks.disclosuresAi} className="text-slate-400 transition-colors hover:text-white">{t('footer.aiDisclosure')}</Link></li>
                 <li><Link to={navLinks.disclosuresCalifornia} className="text-slate-400 transition-colors hover:text-white">{t('footer.doNotSell')}</Link></li>
+                <li><button type="button" onClick={openCookiePreferences} className="text-slate-400 transition-colors hover:text-white">{t('cookieBanner.preferences')}</button></li>
                 <li><Link to={navLinks.contact} className="text-slate-400 transition-colors hover:text-white">{t('footer.contact')}</Link></li>
               </ul>
             </div>

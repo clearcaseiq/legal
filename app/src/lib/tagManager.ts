@@ -38,6 +38,7 @@
  */
 import { indexingEnabled } from './siteConfig'
 import { metaGuardSnippet, metaPixelId } from './metaPixelGuard'
+import { consentHeadSnippet } from './cookieConsent'
 
 /**
  * The container id, hardcoded as the default rather than required from the
@@ -83,6 +84,7 @@ export function gtmHeadSnippet(
   pixelId: string | null = metaPixelId(),
 ): string {
   return (
+    consentHeadSnippet() +
     metaGuardSnippet(metaAllowed && !analyticsBlocked, pixelId) +
     `window.dataLayer=window.dataLayer||[];` +
     `window.dataLayer.push({analytics_blocked:${analyticsBlocked ? 'true' : 'false'}});` +

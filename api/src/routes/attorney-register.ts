@@ -7,6 +7,7 @@ import { issueSessionToken } from '../lib/auth'
 import { isAdminEmail } from '../lib/admin-access'
 import { optionalPhone } from '../lib/phone'
 import { issueEmailVerification } from '../lib/email-verification'
+import { CURRENT_ATTORNEY_AGREEMENT_VERSION, recordAttorneyAgreementAcceptance } from '../lib/attorney-agreement'
 
 const router = Router()
 
@@ -82,7 +83,9 @@ export const AttorneyRegisterSchema = z.object({
   preferredConsultationMethod: z.enum(['phone', 'zoom', 'in_person']).optional(),
   pricingModel: z.enum(['fixed_price', 'auction', 'both']).optional(),
   paymentModel: z.enum(['subscription', 'pay_per_case', 'both']).optional(),
-  subscriptionTier: z.enum(['basic', 'premium', 'enterprise']).optional()
+  subscriptionTier: z.enum(['basic', 'premium', 'enterprise']).optional(),
+  // The version of the Attorney Participation Agreement the registrant ticked.
+  agreementVersion: z.string().optional()
 })
 
 // Lightweight email availability check so the registration form can warn the
@@ -146,8 +149,19 @@ router.post('/register', async (req, res) => {
       preferredConsultationMethod,
       pricingModel,
       paymentModel,
-      subscriptionTier
+      subscriptionTier,
+      agreementVersion
     } = parsed.data
+
+    if (agreementVersion !== CURRENT_ATTORNEY_AGREEMENT_VERSION) {
+      return res.status(400).json({
+        error: agreementVersion
+          ? 'The Attorney Participation Agreement has been updated. Please review and accept the current version.'
+          : 'You must accept the Attorney Participation Agreement to register.',
+        code: 'AGREEMENT_REQUIRED',
+        version: CURRENT_ATTORNEY_AGREEMENT_VERSION,
+      })
+    }
 
     const name = providedName || `${firstName} ${lastName}, Esq.`
 
@@ -303,6 +317,23 @@ router.post('/register', async (req, res) => {
           joinedAt: new Date()
         }
       })
+    }
+
+    // A failure here must not fail a registration whose account already exists:
+    // the retry would be refused as a duplicate email. Without a record the
+    // dashboard asks for acceptance again, and accepting cases stays blocked.
+    try {
+      await recordAttorneyAgreementAcceptance({
+        userId: user.id,
+        version: agreementVersion,
+        attorneyId: attorney.id,
+        lawFirmId: lawFirm?.id ?? null,
+        source: 'registration',
+        ipAddress: req.ip || null,
+        userAgent: req.get('user-agent') || null,
+      })
+    } catch (error) {
+      logger.error('Failed to record attorney agreement at registration', { error, userId: user.id })
     }
 
     // Fire-and-forget, as on plaintiff signup: a mail outage must not turn a
