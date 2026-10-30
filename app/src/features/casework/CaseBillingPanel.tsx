@@ -8,7 +8,7 @@ import { useRecurringInvoices } from '../../hooks/useRecurringInvoices'
  * This work was already built against live endpoints but was only reachable
  * from the legacy dashboard workstream, whose deep-links resolve to this
  * workspace and fell through to Overview. Account-level Stripe billing
- * (subscription, lead credits, payouts) stays on /attorney-billing.
+ * (subscription, lead credits) stays on /attorney-billing.
  */
 export default function CaseBillingPanel({ leadId }: { leadId: string }) {
   const activity = useAttorneyCaseActivity(leadId)

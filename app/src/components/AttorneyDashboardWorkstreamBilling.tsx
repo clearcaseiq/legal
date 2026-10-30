@@ -1,10 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import {
   createAttorneyPaymentMethodSetupSession,
   createLeadCreditCheckoutSession,
   createPlatformSubscriptionCheckoutSession,
-  createStripeConnectAccountLink,
-  getStripeConnectStatus,
 } from '../lib/api'
 import CaseInvoicingSections from './CaseInvoicingSections'
 
@@ -80,15 +78,8 @@ export default function AttorneyDashboardWorkstreamBilling({
   handleAddRecurringInvoice,
   recurringInvoices,
 }: AttorneyDashboardWorkstreamBillingProps) {
-  const [connectStatus, setConnectStatus] = useState<any>(null)
   const [stripeActionLoading, setStripeActionLoading] = useState<string | null>(null)
   const activeSubscriptionPlan = SUBSCRIPTION_PLANS.find(plan => plan.id === profile?.subscriptionTier)
-
-  useEffect(() => {
-    getStripeConnectStatus()
-      .then(setConnectStatus)
-      .catch(() => setConnectStatus(null))
-  }, [])
 
   const redirectToStripe = async (action: string, fn: () => Promise<{ checkoutUrl?: string; url?: string }>) => {
     try {
@@ -110,7 +101,7 @@ export default function AttorneyDashboardWorkstreamBilling({
       <div className="rounded-md border border-emerald-200 bg-emerald-50 p-4">
         <h4 className="text-sm font-semibold text-emerald-950 mb-2">Stripe Platform Billing</h4>
         <p className="text-xs text-emerald-800">
-          Use Stripe Checkout for CaseIQ subscriptions, saved payment methods, lead credits, and Connect onboarding for payouts.
+          Use Stripe Checkout for CaseIQ subscriptions, saved payment methods, and lead credits.
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
           <button
@@ -137,21 +128,7 @@ export default function AttorneyDashboardWorkstreamBilling({
           >
             Buy $500 Lead Credits
           </button>
-          <button
-            type="button"
-            onClick={() => redirectToStripe('Connect onboarding', () => createStripeConnectAccountLink())}
-            disabled={stripeActionLoading !== null}
-            className="px-3 py-1.5 text-sm font-medium text-emerald-800 bg-white border border-emerald-300 rounded-md hover:bg-emerald-100 disabled:opacity-60"
-          >
-            {connectStatus?.connected ? 'Update Payout Setup' : 'Set Up Payouts'}
-          </button>
         </div>
-        {connectStatus?.connected && (
-          <p className="mt-2 text-xs text-emerald-800">
-            Connect status: charges {connectStatus.chargesEnabled ? 'enabled' : 'pending'}, payouts{' '}
-            {connectStatus.payoutsEnabled ? 'enabled' : 'pending'}.
-          </p>
-        )}
       </div>
 
       <div className="rounded-md border border-slate-200 bg-white p-4">

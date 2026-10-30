@@ -4821,16 +4821,6 @@ export async function getPlatformPaymentHistory() {
   }
 }
 
-export async function createStripeConnectAccountLink(payload?: { refreshUrl?: string; returnUrl?: string }) {
-  const { data } = await api.post('/v1/payments/connect/account-link', payload || {})
-  return data as { url: string; accountId: string }
-}
-
-export async function getStripeConnectStatus() {
-  const { data } = await api.get('/v1/payments/connect/status')
-  return data
-}
-
 export async function getStripeConfig() {
   const { data } = await api.get('/v1/payments/config')
   return data as { publishableKey: string | null; enabled: boolean }
