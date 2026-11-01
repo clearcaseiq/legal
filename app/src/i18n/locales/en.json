@@ -271,6 +271,10 @@
         "title": "Billing",
         "body": "Time, costs, invoices and settlement disbursements across your cases."
       },
+      "accountMenu": {
+        "title": "Set up your firm",
+        "body": "Your name in the top bar opens the account menu. Firm Settings is where you set up your firm: your team, the welcome packet clients receive, and how cases are handled. Firm Dashboard and Billing are here too."
+      },
       "firmSettings": {
         "title": "Firm settings: what clients receive",
         "body": "As firm admin you choose the welcome packet (retainer, HIPAA and your own documents), whether it goes out automatically, and whether imported cases get it too."

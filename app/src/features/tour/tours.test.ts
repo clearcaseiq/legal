@@ -86,6 +86,13 @@ describe('stepsFor', () => {
     expect(ids({ ...staff, isFirmAdmin: true })).not.toContain('firmSettings')
   })
 
+  it('points attorneys to the account menu right before Firm Settings', () => {
+    expect(ids(attorney)).toContain('accountMenu')
+    expect(ids(staff)).not.toContain('accountMenu')
+    const adminIds = ids(admin)
+    expect(adminIds.indexOf('firmSettings')).toBe(adminIds.indexOf('accountMenu') + 1)
+  })
+
   it('drops attorney-only pages for staff and gates the rest on their permissions', () => {
     const bare = ids(staff)
     for (const id of ['notifications', 'intake', 'tasks', 'documents', 'billing', 'matches', 'activeCases', 'messages', 'calendar']) {

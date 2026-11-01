@@ -579,6 +579,7 @@ export default function Layout({ children }: LayoutProps) {
                   {/* User profile dropdown - hidden on mobile, menu in hamburger */}
                   <div className="relative hidden lg:block" ref={userMenuRef}>
                     <button
+                      data-tour="account-menu"
                       onClick={() => setUserMenuOpen(!userMenuOpen)}
                       aria-haspopup="menu"
                       aria-expanded={userMenuOpen}

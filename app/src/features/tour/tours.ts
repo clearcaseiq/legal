@@ -76,6 +76,8 @@ export const TOURS: Record<TourId, TourDefinition> = {
       { id: 'calendar', route: '/attorney-dashboard/cases/calendar', target: 'nav-calendar', staffAction: 'schedule' },
       { id: 'video', route: '/attorney-dashboard/cases/calendar?tab=booking', target: 'video-connections', only: 'attorney' },
       { id: 'billing', route: '/attorney-dashboard/cases/billing', target: 'nav-billing', only: 'attorney' },
+      // The account menu in the top bar is the only way into Firm Settings and Firm Dashboard.
+      { id: 'accountMenu', route: '/attorney-dashboard/cases/billing', target: 'account-menu', only: 'attorney' },
       { id: 'firmSettings', route: '/firm-settings', target: 'welcome-packet', only: 'firm_admin' },
       { id: 'help', route: '/attorney-dashboard/tours', target: 'nav-help' },
     ],
