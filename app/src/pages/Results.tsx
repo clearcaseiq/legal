@@ -4199,6 +4199,14 @@ Checklist:
                   <ArrowLeft className="h-3.5 w-3.5" aria-hidden /> {t('results.chrome.backToDashboard')}
                 </Link>
               )}
+              {caseSubmittedForReview && !(cameFromDashboard || isLoggedIn === true) && !isSharedReadOnly && resolvedAssessmentId && (
+                <Link
+                  to={`/results/${resolvedAssessmentId}`}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+                >
+                  <ArrowLeft className="h-3.5 w-3.5" aria-hidden /> {t('results.chrome.backToConfirmation')}
+                </Link>
+              )}
               <BrandLogo appName={t('common.appName')} size="md" />
               <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
                 {t('results.chrome.preliminaryConfidential')}
