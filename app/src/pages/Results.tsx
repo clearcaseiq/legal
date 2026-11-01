@@ -4202,9 +4202,9 @@ Checklist:
               {caseSubmittedForReview && !(cameFromDashboard || isLoggedIn === true) && !isSharedReadOnly && resolvedAssessmentId && (
                 <Link
                   to={`/results/${resolvedAssessmentId}`}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+                  className="inline-flex items-center gap-2 rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-bold text-white shadow-md shadow-brand-600/25 transition-colors hover:bg-brand-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2"
                 >
-                  <ArrowLeft className="h-3.5 w-3.5" aria-hidden /> {t('results.chrome.backToConfirmation')}
+                  <ArrowLeft className="h-4 w-4" aria-hidden /> {t('results.chrome.backToConfirmation')}
                 </Link>
               )}
               <BrandLogo appName={t('common.appName')} size="md" />
