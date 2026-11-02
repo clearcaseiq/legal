@@ -3557,7 +3557,12 @@ model AdsConversionUpload {
 
   /// Copied at upload time rather than read through `IntakeLead`, so the record
   /// still says what was actually sent even if the lead row is later changed.
+  /// Holds whichever click id the ad carried; `clickIdType` says which.
   gclid String
+
+  /// 'gclid' | 'gbraid' | 'wbraid'. iOS app and web clicks often carry only a
+  /// gbraid or wbraid, and Ads matches each against its own upload field.
+  clickIdType String @default("gclid")
 
   /// Conversion value in `currencyCode`, from `buildRevenueProjection`. This is
   /// projected fee revenue, not a settlement — no money has changed hands when
@@ -3602,7 +3607,8 @@ model AdsQualifiedConversionUpload {
   /// One qualified conversion per case, however many times it is resubmitted.
   assessmentId String @unique
 
-  gclid String
+  gclid       String
+  clickIdType String @default("gclid")
 
   /// Optional, and null today: a qualified lead has no projected value yet.
   value        Float?
@@ -3639,7 +3645,8 @@ model AdsSubmittedConversionUpload {
   /// One submitted conversion per case.
   assessmentId String @unique
 
-  gclid String
+  gclid       String
+  clickIdType String @default("gclid")
 
   /// Always null: nothing is known about a case's value when it is submitted.
   value        Float?

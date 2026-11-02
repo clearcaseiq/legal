@@ -24,10 +24,13 @@ import { prisma } from './prisma'
 import { logger } from './logger'
 import {
   CONVERSION_KINDS,
+  HAS_CLICK_ID_WHERE,
+  clickIdForLead,
   isConversionActionConfigured,
   isGoogleAdsConfigured,
   uploadClickConversions,
   type ClickConversion,
+  type ClickIdType,
   type ConversionKind,
 } from './google-ads-conversions'
 import { buildRevenueProjection } from './revenue-projection'
@@ -99,8 +102,8 @@ async function discover(): Promise<number> {
 
   const [leads, existing] = await Promise.all([
     prisma.intakeLead.findMany({
-      where: { assessmentId: { in: assessmentIds }, gclid: { not: null } },
-      select: { assessmentId: true, gclid: true },
+      where: { assessmentId: { in: assessmentIds }, ...HAS_CLICK_ID_WHERE },
+      select: { assessmentId: true, gclid: true, attributionExtra: true },
     }),
     prisma.adsConversionUpload.findMany({
       where: { assessmentId: { in: assessmentIds } },
@@ -111,17 +114,11 @@ async function discover(): Promise<number> {
   const alreadyRecorded = new Set(existing.map((row) => row.assessmentId))
   const convertedAt = new Map(retained.map((lead) => [lead.assessmentId, lead.convertedAt as Date]))
 
-  // `assessmentId` and `gclid` are both nullable on IntakeLead, and the query
-  // above already excludes rows where either is null. Narrowing here rather
-  // than asserting keeps that guarantee checked instead of assumed.
-  const clickIds = new Map<string, string>()
-  for (const lead of leads) {
-    if (lead.assessmentId && lead.gclid) clickIds.set(lead.assessmentId, lead.gclid)
-  }
+  const clickIds = leadClickIds(leads)
 
   let discovered = 0
 
-  for (const [assessmentId, gclid] of clickIds) {
+  for (const { assessmentId, clickId: gclid, clickIdType } of clickIds) {
     if (alreadyRecorded.has(assessmentId)) continue
 
     const converted = convertedAt.get(assessmentId)
@@ -138,6 +135,7 @@ async function discover(): Promise<number> {
         data: {
           assessmentId,
           gclid,
+          clickIdType,
           value: projection?.projectedFeeRevenue ?? null,
           convertedAt: converted,
           status: 'pending',
@@ -180,8 +178,8 @@ async function discoverQualified(): Promise<number> {
 
   const [leads, existing, verified] = await Promise.all([
     prisma.intakeLead.findMany({
-      where: { assessmentId: { in: assessmentIds }, gclid: { not: null } },
-      select: { assessmentId: true, gclid: true },
+      where: { assessmentId: { in: assessmentIds }, ...HAS_CLICK_ID_WHERE },
+      select: { assessmentId: true, gclid: true, attributionExtra: true },
     }),
     prisma.adsQualifiedConversionUpload.findMany({
       where: { assessmentId: { in: assessmentIds } },
@@ -200,8 +198,7 @@ async function discoverQualified(): Promise<number> {
   const submittedAt = new Map(submitted.map((lead) => [lead.assessmentId, lead.submittedAt]))
 
   let discovered = 0
-  for (const lead of leads) {
-    if (!lead.assessmentId || !lead.gclid) continue
+  for (const lead of leadClickIds(leads)) {
     if (alreadyRecorded.has(lead.assessmentId)) continue
     if (passedOtp && !passedOtp.has(lead.assessmentId)) continue
     const converted = submittedAt.get(lead.assessmentId)
@@ -211,7 +208,8 @@ async function discoverQualified(): Promise<number> {
       await prisma.adsQualifiedConversionUpload.create({
         data: {
           assessmentId: lead.assessmentId,
-          gclid: lead.gclid,
+          gclid: lead.clickId,
+          clickIdType: lead.clickIdType,
           // No value: nothing is known about what a submitted case is worth
           // until an attorney takes it, and the retained conversion carries that.
           value: null,
@@ -243,14 +241,12 @@ async function discoverQualified(): Promise<number> {
 async function discoverSubmitted(): Promise<number> {
   const since = new Date(Date.now() - CLICK_WINDOW_DAYS * 24 * 60 * 60_000)
   const leads = await prisma.intakeLead.findMany({
-    where: { assessmentId: { not: null }, gclid: { not: null }, createdAt: { gte: since } },
-    select: { assessmentId: true, gclid: true },
+    where: { assessmentId: { not: null }, createdAt: { gte: since }, ...HAS_CLICK_ID_WHERE },
+    select: { assessmentId: true, gclid: true, attributionExtra: true },
     orderBy: { createdAt: 'desc' },
     take: BATCH_SIZE * 4,
   })
-  const withIds = leads.filter((lead): lead is { assessmentId: string; gclid: string } =>
-    Boolean(lead.assessmentId && lead.gclid),
-  )
+  const withIds = leadClickIds(leads)
   if (!withIds.length) return 0
 
   const assessmentIds = withIds.map((lead) => lead.assessmentId)
@@ -279,7 +275,8 @@ async function discoverSubmitted(): Promise<number> {
       await prisma.adsSubmittedConversionUpload.create({
         data: {
           assessmentId: lead.assessmentId,
-          gclid: lead.gclid,
+          gclid: lead.clickId,
+          clickIdType: lead.clickIdType,
           value: null,
           convertedAt: converted,
           status: 'pending',
@@ -297,12 +294,34 @@ async function discoverSubmitted(): Promise<number> {
   return discovered
 }
 
+type LeadClickId = { assessmentId: string; clickId: string; clickIdType: ClickIdType }
+
+/** Leads with an assessment and a usable click id of any type. */
+function leadClickIds(
+  leads: { assessmentId: string | null; gclid: string | null; attributionExtra?: string | null }[],
+): LeadClickId[] {
+  const out: LeadClickId[] = []
+  for (const lead of leads) {
+    if (!lead.assessmentId) continue
+    const click = clickIdForLead(lead)
+    if (click) out.push({ assessmentId: lead.assessmentId, ...click })
+  }
+  return out
+}
+
 /** Whether the click is still inside the window Ads will accept. */
 function withinClickWindow(convertedAt: Date, now: number): boolean {
   return now - convertedAt.getTime() <= CLICK_WINDOW_DAYS * 24 * 60 * 60_000
 }
 
-type UploadRow = { id: string; gclid: string; convertedAt: Date; value: number | null; currencyCode: string }
+type UploadRow = {
+  id: string
+  gclid: string
+  clickIdType?: string | null
+  convertedAt: Date
+  value: number | null
+  currencyCode: string
+}
 
 /**
  * The upload tables share their columns and lifecycle, so the upload stage is
@@ -361,6 +380,7 @@ async function uploadPending(kind: ConversionKind): Promise<Omit<AdsConversionSw
 
   const conversions: ClickConversion[] = sendable.map((row) => ({
     gclid: row.gclid,
+    clickIdType: (row.clickIdType || 'gclid') as ClickIdType,
     convertedAt: row.convertedAt,
     value: row.value,
     currencyCode: row.currencyCode,

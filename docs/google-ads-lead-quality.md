@@ -18,7 +18,8 @@ use that, and what the suspicious-leads file we share with you contains.
 ## What we send to Google
 
 We upload three offline conversions from our own database. All are matched to
-the ad click by its click ID (the `gclid`). Nothing else about the person is
+the ad click by its click ID: the `gclid`, or for iPhone clicks that carry no
+`gclid`, the `gbraid` or `wbraid`. Nothing else about the person is
 sent: no name, email, phone number, address, page URL or case details. Each
 upload is just the click ID, the time, and, for retained cases, an optional
 value.

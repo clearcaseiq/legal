@@ -9,7 +9,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('./prisma', () => import('../test/universalPrismaMock'))
-vi.mock('./google-ads-conversions', () => ({
+vi.mock('./google-ads-conversions', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./google-ads-conversions')>()),
   CONVERSION_KINDS: ['retained', 'qualified', 'submitted'],
   isGoogleAdsConfigured: vi.fn().mockReturnValue(true),
   isConversionActionConfigured: vi.fn((kind: string) => kind === 'retained'),
@@ -168,7 +169,7 @@ describe('runAdsConversionSweep', () => {
     const result = await runAdsConversionSweep()
 
     expect(uploadClickConversions).toHaveBeenCalledWith([
-      { gclid: 'Cj0KCQ', convertedAt, value: 3_960, currencyCode: 'USD' },
+      { gclid: 'Cj0KCQ', clickIdType: 'gclid', convertedAt, value: 3_960, currencyCode: 'USD' },
     ])
     expect(result).toMatchObject({ attempted: 1, uploaded: 1, failed: 0 })
     expect(updatedMany()[0].data).toMatchObject({ status: 'uploaded' })
@@ -318,6 +319,7 @@ describe('qualified lead conversions', () => {
     expect(qualifiedCreated()[0]).toEqual({
       assessmentId: 'asm-1',
       gclid: 'Cj0KCQ',
+      clickIdType: 'gclid',
       value: null,
       convertedAt: submittedAt,
       status: 'pending',
@@ -387,7 +389,7 @@ describe('qualified lead conversions', () => {
     const result = await runAdsConversionSweep()
 
     expect(uploadClickConversions).toHaveBeenCalledWith(
-      [{ gclid: 'Cj0KCQ', convertedAt, value: null, currencyCode: 'USD' }],
+      [{ gclid: 'Cj0KCQ', clickIdType: 'gclid', convertedAt, value: null, currencyCode: 'USD' }],
       'qualified',
     )
     expect(result).toMatchObject({ uploaded: 1 })
@@ -414,10 +416,10 @@ describe('assessment submitted conversions', () => {
   const submittedTable = () => (prisma as any).adsSubmittedConversionUpload
 
   function givenSubmitted(options: {
-    leads?: { assessmentId: string | null; gclid: string | null }[]
+    leads?: { assessmentId: string | null; gclid: string | null; attributionExtra?: string | null }[]
     assessments?: { id: string; createdAt: Date }[]
     existing?: { assessmentId: string }[]
-    pending?: { id: string; gclid: string; convertedAt: Date }[]
+    pending?: { id: string; gclid: string; clickIdType?: string; convertedAt: Date }[]
   }) {
     vi.mocked(isConversionActionConfigured).mockImplementation((kind) => kind === 'submitted')
     vi.mocked(prisma.intakeLead.findMany).mockResolvedValue((options.leads || []) as any)
@@ -440,7 +442,7 @@ describe('assessment submitted conversions', () => {
 
     const where = (vi.mocked(prisma.intakeLead.findMany).mock.calls[0][0] as any).where
     expect(where.assessmentId).toEqual({ not: null })
-    expect(where.gclid).toEqual({ not: null })
+    expect(where.OR).toEqual([{ gclid: { not: null } }, { attributionExtra: { contains: 'braid' } }])
     expect(Math.round((Date.now() - where.createdAt.gte.getTime()) / DAY_MS)).toBe(90)
   })
 
@@ -455,8 +457,46 @@ describe('assessment submitted conversions', () => {
 
     expect(result.discovered).toBe(1)
     expect(submittedCreated()).toEqual([
-      { assessmentId: 'asm-1', gclid: 'Cj0KCQ', value: null, convertedAt: createdAt, status: 'pending' },
+      { assessmentId: 'asm-1', gclid: 'Cj0KCQ', clickIdType: 'gclid', value: null, convertedAt: createdAt, status: 'pending' },
     ])
+  })
+
+  it('records an iOS click that carried only a wbraid', async () => {
+    const createdAt = daysAgo(1)
+    givenSubmitted({
+      leads: [{ assessmentId: 'asm-1', gclid: null, attributionExtra: JSON.stringify({ wbraid: 'WB123' }) }],
+      assessments: [{ id: 'asm-1', createdAt }],
+    })
+
+    await runAdsConversionSweep()
+
+    expect(submittedCreated()).toEqual([
+      { assessmentId: 'asm-1', gclid: 'WB123', clickIdType: 'wbraid', value: null, convertedAt: createdAt, status: 'pending' },
+    ])
+  })
+
+  it('prefers the gclid when a lead carries both', async () => {
+    givenSubmitted({
+      leads: [{ assessmentId: 'asm-1', gclid: 'Cj0KCQ', attributionExtra: JSON.stringify({ gbraid: 'GB1' }) }],
+      assessments: [{ id: 'asm-1', createdAt: daysAgo(1) }],
+    })
+
+    await runAdsConversionSweep()
+
+    expect(submittedCreated()[0]).toMatchObject({ gclid: 'Cj0KCQ', clickIdType: 'gclid' })
+  })
+
+  it('uploads a gbraid row under its own click id type', async () => {
+    const convertedAt = daysAgo(1)
+    givenSubmitted({ pending: [{ id: 's-1', gclid: 'GB1', clickIdType: 'gbraid', convertedAt }] })
+    vi.mocked(uploadClickConversions).mockResolvedValue({ uploaded: [0], failures: [] })
+
+    await runAdsConversionSweep()
+
+    expect(uploadClickConversions).toHaveBeenCalledWith(
+      [{ gclid: 'GB1', clickIdType: 'gbraid', convertedAt, value: null, currencyCode: 'USD' }],
+      'submitted',
+    )
   })
 
   it('records a case once, however many times the sweep runs or the results page is opened', async () => {
@@ -488,7 +528,7 @@ describe('assessment submitted conversions', () => {
     const result = await runAdsConversionSweep()
 
     expect(uploadClickConversions).toHaveBeenCalledWith(
-      [{ gclid: 'Cj0KCQ', convertedAt, value: null, currencyCode: 'USD' }],
+      [{ gclid: 'Cj0KCQ', clickIdType: 'gclid', convertedAt, value: null, currencyCode: 'USD' }],
       'submitted',
     )
     expect(result).toMatchObject({ uploaded: 1 })

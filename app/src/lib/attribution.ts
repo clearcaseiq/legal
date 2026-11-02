@@ -136,7 +136,13 @@ export function getAttribution(): Attribution | undefined {
   try {
     const parsed = JSON.parse(raw) as Attribution
     const meaningful =
-      parsed.utmSource || parsed.utmMedium || parsed.utmCampaign || parsed.gclid || parsed.referrer
+      parsed.utmSource ||
+      parsed.utmMedium ||
+      parsed.utmCampaign ||
+      parsed.gclid ||
+      parsed.extra?.gbraid ||
+      parsed.extra?.wbraid ||
+      parsed.referrer
     return meaningful ? parsed : undefined
   } catch {
     return undefined

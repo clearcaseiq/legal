@@ -29,8 +29,48 @@ const ADS_API_VERSION = 'v21'
  */
 const TOKEN_EXPIRY_MARGIN_MS = 60_000
 
+/**
+ * The field an ad click's id travels in. Clicks from iOS often carry only a
+ * gbraid (app) or wbraid (web) in place of a gclid, and Ads matches each one
+ * only against its own upload field.
+ */
+export type ClickIdType = 'gclid' | 'gbraid' | 'wbraid'
+
+/**
+ * The click id an intake lead can be reported against, or null.
+ *
+ * gbraid and wbraid are kept in the lead's `attributionExtra` JSON rather than
+ * a column. A gclid wins when both are present, since it matches most precisely.
+ */
+export function clickIdForLead(lead: {
+  gclid: string | null
+  attributionExtra?: string | null
+}): { clickId: string; clickIdType: ClickIdType } | null {
+  if (lead.gclid) return { clickId: lead.gclid, clickIdType: 'gclid' }
+  if (!lead.attributionExtra) return null
+  let extra: Record<string, unknown>
+  try {
+    extra = JSON.parse(lead.attributionExtra)
+  } catch {
+    return null
+  }
+  for (const type of ['gbraid', 'wbraid'] as const) {
+    const value = extra?.[type]
+    if (typeof value === 'string' && value.trim()) return { clickId: value.trim(), clickIdType: type }
+  }
+  return null
+}
+
+/** Narrows the lead query to rows that might carry any click id; `clickIdForLead` decides. */
+export const HAS_CLICK_ID_WHERE = {
+  OR: [{ gclid: { not: null } }, { attributionExtra: { contains: 'braid' } }],
+}
+
 export type ClickConversion = {
+  /** The click id, of whichever type `clickIdType` names. */
   gclid: string
+  /** Defaults to 'gclid'. */
+  clickIdType?: ClickIdType
   /** When the case was retained (or submitted), not when we got around to uploading it. */
   convertedAt: Date
   value?: number | null
@@ -207,7 +247,7 @@ export async function uploadClickConversions(
       body: JSON.stringify({
         partialFailure: true,
         conversions: conversions.map((conversion) => ({
-          gclid: conversion.gclid,
+          [conversion.clickIdType || 'gclid']: conversion.gclid,
           conversionAction,
           conversionDateTime: formatConversionDateTime(conversion.convertedAt),
           ...(conversion.value
@@ -222,7 +262,7 @@ export async function uploadClickConversions(
   )
 
   const body = (await response.json().catch(() => ({}))) as {
-    results?: ({ gclid?: string } | null)[]
+    results?: ClickResult[]
     partialFailureError?: { message?: string; details?: unknown[] }
     error?: { message?: string }
   }
@@ -245,9 +285,11 @@ export async function uploadClickConversions(
  * only thing tying a result back to the conversion that produced it, and an
  * empty entry is a rejection, not a success with no detail.
  */
+type ClickResult = { gclid?: string; gbraid?: string; wbraid?: string } | null
+
 function readResults(
   count: number,
-  body: { results?: ({ gclid?: string } | null)[]; partialFailureError?: { message?: string } },
+  body: { results?: ClickResult[]; partialFailureError?: { message?: string } },
 ): ConversionUploadResult {
   const uploaded: number[] = []
   const failures: { index: number; message: string }[] = []
@@ -260,7 +302,8 @@ function readResults(
   const reason = body.partialFailureError?.message || 'rejected by Google Ads'
 
   for (let index = 0; index < count; index += 1) {
-    if (results[index]?.gclid) uploaded.push(index)
+    const result = results[index]
+    if (result?.gclid || result?.gbraid || result?.wbraid) uploaded.push(index)
     else failures.push({ index, message: reason })
   }
 

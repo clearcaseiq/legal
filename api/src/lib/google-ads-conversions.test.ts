@@ -192,6 +192,16 @@ describe('uploadClickConversions', () => {
     expect(body.conversions[0]).not.toHaveProperty('currencyCode')
   })
 
+  it('sends an iOS click id in its own field and counts it as uploaded', async () => {
+    fetchMock.mockResolvedValueOnce(tokenResponse()).mockResolvedValueOnce(uploadResponse([{ wbraid: 'WB123' }]))
+    const result = await uploadClickConversions([{ gclid: 'WB123', clickIdType: 'wbraid', convertedAt: new Date() }])
+
+    const body = JSON.parse(fetchMock.mock.calls[1][1].body as string)
+    expect(body.conversions[0].wbraid).toBe('WB123')
+    expect(body.conversions[0]).not.toHaveProperty('gclid')
+    expect(result.uploaded).toEqual([0])
+  })
+
   /**
    * With partialFailure the response is a 200 whether or not anything
    * succeeded, and a rejected row comes back as an empty object at its original
