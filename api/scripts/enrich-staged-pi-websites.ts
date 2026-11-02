@@ -52,6 +52,10 @@ type Args = {
   withWebsite: boolean
   timeoutMs: number
   maxSubpages: number
+  county: string | null
+  requirePiArea: boolean
+  noDiscipline: boolean
+  markReviewed: boolean
 }
 
 // Fetch tuning, set from CLI args in main() and read by the fetch helpers.
@@ -62,6 +66,7 @@ function parseArgs(argv: string[]): Args {
     dryRun: false, limit: null, source: 'cpra-ca-bar-2026', concurrency: 5,
     skipKnown: true, piOnly: false, withWebsite: false,
     timeoutMs: 8000, maxSubpages: 3,
+    county: null, requirePiArea: false, noDiscipline: false, markReviewed: false,
   }
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i]
@@ -81,6 +86,14 @@ function parseArgs(argv: string[]): Args {
       // Only visit rows that already have a website on file — the highest-yield,
       // zero-guessing subset. Pairs well with --pi-only.
       case '--with-website': args.withWebsite = true; break
+      // Pilot selection: one county, an explicit PI practice area on the Bar
+      // record, and no discipline history.
+      case '--county': args.county = next() ?? null; break
+      case '--require-pi-area': args.requirePiArea = true; break
+      case '--no-discipline': args.noDiscipline = true; break
+      // Marks a row 'reviewed' (what promote-production-attorneys.ts picks up)
+      // only when its site reads as plaintiff-side PI.
+      case '--mark-reviewed': args.markReviewed = true; break
       default: if (flag.startsWith('--')) throw new Error(`Unknown flag: ${flag}`)
     }
   }
@@ -112,6 +125,17 @@ const DEFENSE_KEYWORDS = [
   'defense counsel', 'defending', 'defense firm',
 ]
 
+/**
+ * Fee and intake language only a plaintiff-side firm uses. Defense firms' sites
+ * describe injury work too ("product liability", "wrongful death") but never
+ * offer a free consultation or a contingency fee.
+ */
+const PLAINTIFF_KEYWORDS = [
+  'free consultation', 'free case evaluation', 'free case review', 'no fee unless',
+  'no fees unless', 'no win no fee', 'no recovery no fee', 'contingency', 'you pay nothing',
+  "don't pay unless", 'do not pay unless', 'injury victims', 'accident victims',
+]
+
 const STRONG_PI_KEYWORDS = [
   'personal injury', 'car accident', 'auto accident', 'truck accident',
   'motorcycle accident', 'pedestrian accident', 'bicycle accident',
@@ -123,7 +147,13 @@ const STRONG_PI_KEYWORDS = [
   'bodily injury', 'rideshare accident', 'uber accident', 'mass tort',
 ]
 
-function detectPiFromText(text: string): { isPi: boolean; isDefense: boolean; matchedKeywords: string[] } {
+function detectPiFromText(text: string): {
+  isPi: boolean
+  isDefense: boolean
+  isPlaintiff: boolean
+  matchedKeywords: string[]
+  defenseKeywords: string[]
+} {
   const lower = text.toLowerCase()
   const matched = PI_KEYWORDS.filter((kw) => lower.includes(kw))
   const strongMatched = STRONG_PI_KEYWORDS.filter((kw) => lower.includes(kw))
@@ -131,7 +161,9 @@ function detectPiFromText(text: string): { isPi: boolean; isDefense: boolean; ma
   return {
     isPi: strongMatched.length >= 1 && matched.length >= 2,
     isDefense: defenseMatched.length > 0,
+    isPlaintiff: PLAINTIFF_KEYWORDS.some((kw) => lower.includes(kw)),
     matchedKeywords: matched,
+    defenseKeywords: defenseMatched,
   }
 }
 
@@ -611,6 +643,20 @@ async function main() {
         source: args.source,
         ...(args.piOnly ? { piRelevant: true } : args.skipKnown ? { piRelevant: false } : {}),
         ...(args.withWebsite ? { website: { not: null } } : {}),
+        ...(args.county ? { county: { startsWith: args.county, mode: 'insensitive' as const } } : {}),
+        ...(args.markReviewed ? { status: 'scraped' } : {}),
+        AND: [
+          ...(args.requirePiArea
+            ? [{
+                OR: ['personal injury', 'wrongful death', 'auto accident'].map((area) => ({
+                  practiceAreas: { contains: area, mode: 'insensitive' as const },
+                })),
+              }]
+            : []),
+          ...(args.noDiscipline
+            ? [{ OR: [{ discipline: null }, { discipline: '' }, { discipline: '[]' }] }]
+            : []),
+        ],
       },
       select: {
         id: true,
@@ -659,7 +705,7 @@ async function main() {
 
         stats.urlsReachable += 1
         const text = stripHtml(html)
-        const { isPi, isDefense, matchedKeywords } = detectPiFromText(text)
+        const { isPi, isDefense, isPlaintiff, matchedKeywords, defenseKeywords } = detectPiFromText(text)
         const professionalEmails = extractProfessionalEmails(html, attorney.firmName)
 
         // Extract all enrichment data
@@ -675,7 +721,7 @@ async function main() {
 
         if (isDefense) {
           stats.defenseDetected += 1
-          console.log(`  DEFENSE: ${attorney.name} (${attorney.firmName}) — ${url}`)
+          console.log(`  DEFENSE: ${attorney.name} (${attorney.firmName}) — ${url} [${defenseKeywords.join(', ')}]`)
         }
 
         const hasNewEmail = professionalEmails.length > 0
@@ -693,7 +739,7 @@ async function main() {
         if (hasAnyData) {
           if (isPi && !isDefense) {
             stats.newPiDetected += 1
-            console.log(`  PI:       ${attorney.name} — ${matchedKeywords.slice(0, 4).join(', ')}`)
+            console.log(`  PI:       ${attorney.name}${isPlaintiff ? ' [plaintiff]' : ''} (${attorney.firmName}) — ${matchedKeywords.slice(0, 4).join(', ')}`)
           }
           if (hasNewEmail) console.log(`  EMAIL:    ${attorney.name} — ${professionalEmails[0]}`)
           if (languages.length > 0) console.log(`  LANG:     ${attorney.name} — ${languages.join(', ')}`)
@@ -708,11 +754,15 @@ async function main() {
             if (isPi && !isDefense) {
               updateData.piRelevant = true
               updateData.practiceAreas = JSON.stringify(enrichedAreas)
+              if (args.markReviewed && isPlaintiff) updateData.status = 'reviewed'
             }
             // Persist defense classification so the cleanup sweep can drop these
             // from the routable pool without re-fetching the site. A defense firm
             // is never a plaintiff-side PI referral target.
-            if (isDefense) {
+            // Not under --mark-reviewed: there a defense hit is left as it was
+            // for a person to look at, because the keywords also appear on
+            // plaintiff sites ("defending victims", "former insurance defense").
+            if (isDefense && !args.markReviewed) {
               updateData.piRelevant = false
               updateData.status = 'rejected'
             }

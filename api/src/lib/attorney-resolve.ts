@@ -182,7 +182,10 @@ export async function resolveExistingAttorney(
   const email = String(input.email ?? '').trim()
   if (email) {
     const byEmail = await prisma.attorney.findUnique({ where: { email } })
-    if (byEmail) return { id: byEmail.id, via: 'email' }
+    // A firm inbox (intake@, info@) is listed by every attorney at the firm, so
+    // an email match with a different bar number is a colleague, not this person.
+    const otherBar = barNumber && byEmail?.barNumber && normalizeBarNumber(byEmail.barNumber) !== barNumber
+    if (byEmail && !otherBar) return { id: byEmail.id, via: 'email' }
   }
 
   const nameKey = normalizePersonName(input.name)

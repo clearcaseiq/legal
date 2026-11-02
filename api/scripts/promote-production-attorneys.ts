@@ -184,10 +184,16 @@ async function main() {
       if (existing) {
         attorneyId = existing.id
       } else {
+        // `email` is unique, and a shared firm inbox may already belong to a
+        // colleague promoted earlier. The colleague keeps it; this attorney is
+        // created without one rather than merged into them.
+        const emailTaken = row.email
+          ? Boolean(await tx.attorney.findUnique({ where: { email: row.email }, select: { id: true } }))
+          : false
         const attorney = await tx.attorney.create({
           data: {
             name: row.name,
-            email: row.email ?? null,
+            email: emailTaken ? null : row.email ?? null,
             phone: row.phone ?? null,
             barNumber: row.barNumber ?? null,
             barState: row.barState ?? null,
