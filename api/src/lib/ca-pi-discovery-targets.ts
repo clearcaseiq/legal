@@ -244,6 +244,24 @@ export const LA_COUNTY_DISCOVERY_AREAS: readonly string[] = [
   'Hacienda Heights', 'Rowland Heights', 'La Crescenta', 'Ladera Heights', 'Topanga',
 ]
 
+/** All 34 Orange County cities plus its larger unincorporated communities. */
+export const ORANGE_COUNTY_DISCOVERY_AREAS: readonly string[] = [
+  'Anaheim', 'Santa Ana', 'Irvine', 'Huntington Beach', 'Garden Grove', 'Orange', 'Fullerton',
+  'Costa Mesa', 'Mission Viejo', 'Westminster', 'Newport Beach', 'Buena Park', 'Lake Forest',
+  'Tustin', 'Yorba Linda', 'San Clemente', 'Laguna Niguel', 'La Habra', 'Fountain Valley',
+  'Placentia', 'Rancho Santa Margarita', 'Aliso Viejo', 'Cypress', 'Brea', 'Stanton',
+  'San Juan Capistrano', 'Dana Point', 'Laguna Hills', 'Seal Beach', 'Laguna Beach',
+  'Los Alamitos', 'La Palma', 'Laguna Woods', 'Villa Park',
+  // Unincorporated communities
+  'Ladera Ranch', 'Rossmoor', 'Coto de Caza', 'Midway City', 'Trabuco Canyon', 'Foothill Ranch',
+]
+
+/** Named area presets for `discover-firms-google-places.ts --area`. */
+export const DISCOVERY_AREA_PRESETS: Readonly<Record<string, readonly string[]>> = {
+  'la-county': LA_COUNTY_DISCOVERY_AREAS,
+  'orange-county': ORANGE_COUNTY_DISCOVERY_AREAS,
+}
+
 /**
  * Search phrases, ordered by expected marginal yield.
  *

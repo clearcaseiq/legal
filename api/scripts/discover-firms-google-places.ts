@@ -37,7 +37,7 @@
  *   --keywords <n>       Use the n highest-yield keywords (default 3).
  *   --pages <n>          Pages per query, 1-3 (default 1). Each page is billed.
  *   --city <name>        Search one named city instead of the ranked list. Repeatable.
- *   --area la-county     Search every Los Angeles County city and neighborhood.
+ *   --area <preset>      Search every city in a county: la-county, orange-county.
  *   --keyword <phrase>   Add a search phrase after the top --keywords. Repeatable.
  *   --used-this-month <n> Enterprise requests already spent, for accurate pricing.
  *   --cache-days <n>     How long cached Google content stays valid (default 30).
@@ -48,7 +48,7 @@ import {
   buildDiscoveryQueries,
   CA_DISCOVERY_CITIES,
   CA_DISCOVERY_KEYWORDS,
-  LA_COUNTY_DISCOVERY_AREAS,
+  DISCOVERY_AREA_PRESETS,
 } from '../src/lib/ca-pi-discovery-targets'
 import {
   DISCOVERY_FIELD_MASK,
@@ -134,8 +134,9 @@ function parseArgs(argv: string[]): Args {
       args.namedCities.push(value)
     } else if (flag === '--area') {
       const value = (next() ?? '').trim().toLowerCase()
-      if (value !== 'la-county') throw new Error('--area supports: la-county')
-      args.namedCities.push(...LA_COUNTY_DISCOVERY_AREAS)
+      const preset = DISCOVERY_AREA_PRESETS[value]
+      if (!preset) throw new Error(`--area supports: ${Object.keys(DISCOVERY_AREA_PRESETS).join(', ')}`)
+      args.namedCities.push(...preset)
     } else if (flag === '--keyword') {
       const value = (next() ?? '').trim()
       if (!value) throw new Error('--keyword expects a phrase')
