@@ -33,6 +33,7 @@
  *   --include-known  Also visit already-PI attorneys (enrich them too).
  *   --pi-only        Enrichment mode: only visit already-PI attorneys.
  *   --with-website   Only visit rows that already have a website (highest yield).
+ *   --updated-since <iso>  Only visit rows changed since then (follow-up passes).
  *
  * Examples:
  *   # Enrich known PI attorneys that already have a website (best first run):
@@ -56,6 +57,7 @@ type Args = {
   requirePiArea: boolean
   noDiscipline: boolean
   markReviewed: boolean
+  updatedSince: Date | null
 }
 
 // Fetch tuning, set from CLI args in main() and read by the fetch helpers.
@@ -67,6 +69,7 @@ function parseArgs(argv: string[]): Args {
     skipKnown: true, piOnly: false, withWebsite: false,
     timeoutMs: 8000, maxSubpages: 3,
     county: null, requirePiArea: false, noDiscipline: false, markReviewed: false,
+    updatedSince: null,
   }
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i]
@@ -94,6 +97,14 @@ function parseArgs(argv: string[]): Args {
       // Marks a row 'reviewed' (what promote-production-attorneys.ts picks up)
       // only when its site reads as plaintiff-side PI.
       case '--mark-reviewed': args.markReviewed = true; break
+      // Only rows changed since this time, e.g. just given a website by
+      // link-discovered-firms.ts, so a follow-up pass skips rows already scanned.
+      case '--updated-since': {
+        const d = new Date(next() ?? '')
+        if (Number.isNaN(d.getTime())) throw new Error('--updated-since expects a date/time')
+        args.updatedSince = d
+        break
+      }
       default: if (flag.startsWith('--')) throw new Error(`Unknown flag: ${flag}`)
     }
   }
@@ -676,6 +687,7 @@ async function main() {
         ...(args.withWebsite ? { website: { not: null } } : {}),
         ...(args.county ? { county: { startsWith: args.county, mode: 'insensitive' as const } } : {}),
         ...(args.markReviewed ? { status: 'scraped' } : {}),
+        ...(args.updatedSince ? { updatedAt: { gte: args.updatedSince } } : {}),
         AND: [
           ...(args.requirePiArea
             ? [{

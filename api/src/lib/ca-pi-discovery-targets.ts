@@ -208,6 +208,43 @@ export const CA_DISCOVERY_CITIES: readonly string[] = [
 ]
 
 /**
+ * Every place a Los Angeles County firm might pin its Google listing to: all 88
+ * incorporated cities, then City of Los Angeles neighborhoods and unincorporated
+ * communities. A firm in Encino or Koreatown is listed under that name, not under
+ * "Los Angeles", and a single city query caps out at 60 results anyway.
+ */
+export const LA_COUNTY_DISCOVERY_AREAS: readonly string[] = [
+  'Los Angeles', 'Long Beach', 'Glendale', 'Santa Clarita', 'Lancaster', 'Palmdale', 'Pomona',
+  'Torrance', 'Pasadena', 'Burbank', 'West Covina', 'El Monte', 'Downey', 'Inglewood', 'Norwalk',
+  'Compton', 'Carson', 'Whittier', 'Alhambra', 'Lakewood', 'Bellflower', 'Redondo Beach',
+  'Culver City', 'Hawthorne', 'Monterey Park', 'Arcadia', 'Cerritos', 'Manhattan Beach',
+  'Beverly Hills', 'Santa Monica', 'West Hollywood', 'Calabasas', 'Covina', 'Diamond Bar',
+  'Agoura Hills', 'Artesia', 'Avalon', 'Azusa', 'Baldwin Park', 'Bell', 'Bell Gardens', 'Bradbury',
+  'Claremont', 'Commerce', 'Cudahy', 'Duarte', 'El Segundo', 'Gardena', 'Glendora',
+  'Hawaiian Gardens', 'Hermosa Beach', 'Hidden Hills', 'Huntington Park', 'Industry', 'Irwindale',
+  'La Canada Flintridge', 'La Habra Heights', 'La Mirada', 'La Puente', 'La Verne', 'Lawndale',
+  'Lomita', 'Lynwood', 'Malibu', 'Maywood', 'Monrovia', 'Montebello', 'Palos Verdes Estates',
+  'Paramount', 'Pico Rivera', 'Rancho Palos Verdes', 'Rolling Hills', 'Rolling Hills Estates',
+  'Rosemead', 'San Dimas', 'San Fernando', 'San Gabriel', 'San Marino', 'Santa Fe Springs',
+  'Sierra Madre', 'Signal Hill', 'South El Monte', 'South Gate', 'South Pasadena', 'Temple City',
+  'Vernon', 'Walnut', 'Westlake Village',
+  // City of Los Angeles neighborhoods
+  'Downtown Los Angeles', 'Koreatown', 'Mid-Wilshire', 'Hancock Park', 'Fairfax', 'Hollywood',
+  'Los Feliz', 'Silver Lake', 'Echo Park', 'Westlake', 'Pico-Union', 'Chinatown', 'Little Tokyo',
+  'Boyle Heights', 'Lincoln Heights', 'El Sereno', 'Eagle Rock', 'Highland Park', 'Atwater Village',
+  'Westwood', 'Century City', 'Brentwood', 'West Los Angeles', 'Palms', 'Mar Vista', 'Venice',
+  'Playa Vista', 'Westchester', 'Crenshaw', 'Baldwin Hills', 'Leimert Park', 'South Los Angeles',
+  'Watts', 'San Pedro', 'Wilmington', 'Harbor City', 'Sherman Oaks', 'Encino', 'Woodland Hills',
+  'Tarzana', 'Van Nuys', 'North Hollywood', 'Studio City', 'Valley Village', 'Toluca Lake',
+  'Universal City', 'Northridge', 'Reseda', 'Canoga Park', 'Winnetka', 'West Hills', 'Chatsworth',
+  'Porter Ranch', 'Granada Hills', 'Mission Hills', 'Panorama City', 'Pacoima', 'Sylmar',
+  'Sun Valley', 'Lake Balboa',
+  // Unincorporated communities
+  'East Los Angeles', 'Marina del Rey', 'Altadena', 'Valencia', 'Stevenson Ranch',
+  'Hacienda Heights', 'Rowland Heights', 'La Crescenta', 'Ladera Heights', 'Topanga',
+]
+
+/**
  * Search phrases, ordered by expected marginal yield.
  *
  * The first few are the broad terms most PI firms optimize for and will surface

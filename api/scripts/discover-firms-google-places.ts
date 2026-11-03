@@ -37,6 +37,8 @@
  *   --keywords <n>       Use the n highest-yield keywords (default 3).
  *   --pages <n>          Pages per query, 1-3 (default 1). Each page is billed.
  *   --city <name>        Search one named city instead of the ranked list. Repeatable.
+ *   --area la-county     Search every Los Angeles County city and neighborhood.
+ *   --keyword <phrase>   Add a search phrase after the top --keywords. Repeatable.
  *   --used-this-month <n> Enterprise requests already spent, for accurate pricing.
  *   --cache-days <n>     How long cached Google content stays valid (default 30).
  *   --no-signals         Skip writing gbp segmentation signals.
@@ -46,6 +48,7 @@ import {
   buildDiscoveryQueries,
   CA_DISCOVERY_CITIES,
   CA_DISCOVERY_KEYWORDS,
+  LA_COUNTY_DISCOVERY_AREAS,
 } from '../src/lib/ca-pi-discovery-targets'
 import {
   DISCOVERY_FIELD_MASK,
@@ -89,6 +92,7 @@ type Args = {
   keywords: number
   pages: number
   namedCities: string[]
+  extraKeywords: string[]
   usedThisMonth: number
   cacheDays: number
   writeSignals: boolean
@@ -102,6 +106,7 @@ function parseArgs(argv: string[]): Args {
     keywords: 3,
     pages: 1,
     namedCities: [],
+    extraKeywords: [],
     usedThisMonth: 0,
     cacheDays: 30,
     writeSignals: true,
@@ -127,6 +132,14 @@ function parseArgs(argv: string[]): Args {
       const value = (next() ?? '').trim()
       if (!value) throw new Error('--city expects a city name')
       args.namedCities.push(value)
+    } else if (flag === '--area') {
+      const value = (next() ?? '').trim().toLowerCase()
+      if (value !== 'la-county') throw new Error('--area supports: la-county')
+      args.namedCities.push(...LA_COUNTY_DISCOVERY_AREAS)
+    } else if (flag === '--keyword') {
+      const value = (next() ?? '').trim()
+      if (!value) throw new Error('--keyword expects a phrase')
+      args.extraKeywords.push(value)
     } else if (flag === '--used-this-month') {
       const value = Number(next())
       if (!Number.isFinite(value) || value < 0) throw new Error('--used-this-month expects a number')
@@ -247,8 +260,8 @@ async function main() {
   const args = parseArgs(process.argv.slice(2))
 
   const cities =
-    args.namedCities.length > 0 ? args.namedCities : CA_DISCOVERY_CITIES.slice(0, args.cities)
-  const keywords = CA_DISCOVERY_KEYWORDS.slice(0, args.keywords)
+    args.namedCities.length > 0 ? [...new Set(args.namedCities)] : CA_DISCOVERY_CITIES.slice(0, args.cities)
+  const keywords = [...new Set([...CA_DISCOVERY_KEYWORDS.slice(0, args.keywords), ...args.extraKeywords])]
   const queries = buildDiscoveryQueries({ cities, keywords })
 
   const tier = tierForFields(DISCOVERY_FIELD_MASK)
@@ -387,6 +400,7 @@ async function main() {
           `\n  Daily Google quota exhausted after ${queriesRun} queries. Everything found` +
             '\n  so far is already staged. The quota resets at midnight Pacific.'
         )
+        console.log(`  Google said: ${error.detail}`)
         quotaExhausted = true
         break
       }
