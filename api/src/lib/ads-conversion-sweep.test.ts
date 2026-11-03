@@ -169,7 +169,7 @@ describe('runAdsConversionSweep', () => {
     const result = await runAdsConversionSweep()
 
     expect(uploadClickConversions).toHaveBeenCalledWith([
-      { gclid: 'Cj0KCQ', clickIdType: 'gclid', convertedAt, value: 3_960, currencyCode: 'USD' },
+      { gclid: 'Cj0KCQ', clickIdType: 'gclid', convertedAt, value: 3_960, currencyCode: 'USD', transactionId: 'up-1' },
     ])
     expect(result).toMatchObject({ attempted: 1, uploaded: 1, failed: 0 })
     expect(updatedMany()[0].data).toMatchObject({ status: 'uploaded' })
@@ -389,7 +389,7 @@ describe('qualified lead conversions', () => {
     const result = await runAdsConversionSweep()
 
     expect(uploadClickConversions).toHaveBeenCalledWith(
-      [{ gclid: 'Cj0KCQ', clickIdType: 'gclid', convertedAt, value: null, currencyCode: 'USD' }],
+      [{ gclid: 'Cj0KCQ', clickIdType: 'gclid', convertedAt, value: null, currencyCode: 'USD', transactionId: 'q-1' }],
       'qualified',
     )
     expect(result).toMatchObject({ uploaded: 1 })
@@ -494,7 +494,7 @@ describe('assessment submitted conversions', () => {
     await runAdsConversionSweep()
 
     expect(uploadClickConversions).toHaveBeenCalledWith(
-      [{ gclid: 'GB1', clickIdType: 'gbraid', convertedAt, value: null, currencyCode: 'USD' }],
+      [{ gclid: 'GB1', clickIdType: 'gbraid', convertedAt, value: null, currencyCode: 'USD', transactionId: 's-1' }],
       'submitted',
     )
   })
@@ -528,7 +528,7 @@ describe('assessment submitted conversions', () => {
     const result = await runAdsConversionSweep()
 
     expect(uploadClickConversions).toHaveBeenCalledWith(
-      [{ gclid: 'Cj0KCQ', clickIdType: 'gclid', convertedAt, value: null, currencyCode: 'USD' }],
+      [{ gclid: 'Cj0KCQ', clickIdType: 'gclid', convertedAt, value: null, currencyCode: 'USD', transactionId: 's-1' }],
       'submitted',
     )
     expect(result).toMatchObject({ uploaded: 1 })

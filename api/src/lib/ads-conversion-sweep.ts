@@ -384,6 +384,7 @@ async function uploadPending(kind: ConversionKind): Promise<Omit<AdsConversionSw
     convertedAt: row.convertedAt,
     value: row.value,
     currencyCode: row.currencyCode,
+    transactionId: row.id,
   }))
 
   let result: Awaited<ReturnType<typeof uploadClickConversions>>

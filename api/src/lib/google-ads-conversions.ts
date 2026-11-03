@@ -13,14 +13,19 @@
  * figure leave this process — no claim detail, no contact details, no case
  * content of any kind.
  *
- * Spoken over REST rather than through `google-ads-api`, matching how the GA4
- * Data API is handled next door: the client library exists to wrap protobufs we
- * do not otherwise use, for one endpoint.
+ * Sent through the Data Manager API, not the Google Ads API's
+ * `uploadClickConversions`: Google closed that method to new integrations and
+ * answers it with CUSTOMER_NOT_ALLOWLISTED_FOR_THIS_FEATURE. The refresh token
+ * therefore needs the `datamanager` scope; `adwords` alone is refused.
+ *
+ * Spoken over REST rather than through a client library, matching how the GA4
+ * Data API is handled next door: the library exists to wrap protobufs we do not
+ * otherwise use, for one endpoint.
  */
 import { logger } from './logger'
 
 const TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token'
-const ADS_API_VERSION = 'v21'
+const INGEST_ENDPOINT = 'https://datamanager.googleapis.com/v1/events:ingest'
 
 /**
  * Refreshed a minute early. An access token that expires between the check and
@@ -75,12 +80,17 @@ export type ClickConversion = {
   convertedAt: Date
   value?: number | null
   currencyCode?: string
+  /**
+   * Stable across retries. Ads keeps the first event per transaction id within
+   * a conversion action, so a batch resent after a timeout cannot double count.
+   */
+  transactionId?: string
 }
 
 export type ConversionUploadResult = {
   /** Indexes into the conversions array that Ads accepted. */
   uploaded: number[]
-  /** Per-conversion rejections from a partial failure, by index. */
+  /** Per-conversion rejections, by index. */
   failures: { index: number; message: string }[]
 }
 
@@ -127,8 +137,7 @@ function hasAccountCredentials(): boolean {
   if (env('GOOGLE_ADS_CONVERSION_ENABLED') !== 'true') return false
 
   return Boolean(
-    env('GOOGLE_ADS_DEVELOPER_TOKEN') &&
-      env('GOOGLE_ADS_CLIENT_ID') &&
+    env('GOOGLE_ADS_CLIENT_ID') &&
       env('GOOGLE_ADS_CLIENT_SECRET') &&
       env('GOOGLE_ADS_REFRESH_TOKEN') &&
       customerId('GOOGLE_ADS_CUSTOMER_ID'),
@@ -198,7 +207,7 @@ async function accessToken(): Promise<string> {
 }
 
 /**
- * `2026-09-10 14:32:05+00:00`, the only format the Ads API accepts here.
+ * `2026-09-10T14:32:05Z`: ISO 8601, always in UTC.
  *
  * An explicit offset is required. Without one Ads interprets the timestamp in
  * the account's own time zone, which silently shifts every conversion by however
@@ -206,16 +215,88 @@ async function accessToken(): Promise<string> {
  * conversion outside the click's attribution window and have it rejected.
  */
 export function formatConversionDateTime(date: Date): string {
-  return `${date.toISOString().slice(0, 19).replace('T', ' ')}+00:00`
+  return date.toISOString().replace(/\.\d{3}Z$/, 'Z')
+}
+
+function toEvent(conversion: ClickConversion): Record<string, unknown> {
+  return {
+    adIdentifiers: { [conversion.clickIdType || 'gclid']: conversion.gclid },
+    eventTimestamp: formatConversionDateTime(conversion.convertedAt),
+    eventSource: 'WEB',
+    ...(conversion.transactionId ? { transactionId: conversion.transactionId } : {}),
+    ...(conversion.value
+      ? { conversionValue: conversion.value, currency: conversion.currencyCode || 'USD' }
+      : {}),
+  }
+}
+
+type IngestOutcome =
+  | { ok: true; requestId?: string }
+  | { ok: false; status: number; message: string; rejected: Map<number, string> }
+
+type IngestErrorBody = {
+  requestId?: string
+  error?: {
+    message?: string
+    details?: { fieldViolations?: { field?: string; description?: string; reason?: string }[] }[]
+  }
+}
+
+/** `events.events[3].ad_identifiers` names the event at index 3. */
+const EVENT_FIELD = /^events(?:\.events)?\[(\d+)\]/
+
+async function ingest(events: Record<string, unknown>[], kind: ConversionKind): Promise<IngestOutcome> {
+  const customer = customerId('GOOGLE_ADS_CUSTOMER_ID')
+  // The account the credential's Google user belongs to: the manager when the
+  // user reaches the advertiser through one, otherwise the advertiser itself.
+  const loginCustomer = customerId('GOOGLE_ADS_LOGIN_CUSTOMER_ID') || customer
+
+  const response = await fetch(INGEST_ENDPOINT, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${await accessToken()}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      destinations: [
+        {
+          operatingAccount: { accountType: 'GOOGLE_ADS', accountId: customer },
+          loginAccount: { accountType: 'GOOGLE_ADS', accountId: loginCustomer },
+          productDestinationId: env(CONVERSION_ACTION_ENV[kind]),
+        },
+      ],
+      events,
+    }),
+  })
+
+  const body = (await response.json().catch(() => ({}))) as IngestErrorBody
+  if (response.ok) return { ok: true, requestId: body.requestId }
+
+  const rejected = new Map<number, string>()
+  for (const detail of body.error?.details || []) {
+    for (const violation of detail.fieldViolations || []) {
+      const match = EVENT_FIELD.exec(violation.field || '')
+      if (!match) continue
+      const index = Number(match[1])
+      if (index < events.length && !rejected.has(index)) {
+        rejected.set(index, violation.description || violation.reason || 'rejected by Google Ads')
+      }
+    }
+  }
+  return { ok: false, status: response.status, message: body.error?.message || 'unknown error', rejected }
 }
 
 /**
  * Upload click conversions.
  *
- * Sent with `partialFailure`, so one bad row does not reject the batch. That
- * matters more than it sounds: the usual rejection is a click id outside its
- * conversion window, and without partial failure a single stale case would
- * block every good conversion behind it, indefinitely, on every sweep.
+ * The Data Manager API is fast-fail: one invalid event rejects the whole
+ * request. Left alone, a single bad row would block every good conversion
+ * behind it on every sweep until its attempts ran out, and take theirs with it.
+ * So when the rejection names the offending events, those are failed and the
+ * rest are sent again once on their own.
+ *
+ * Acceptance means queued, not attributed. Ads matches clicks asynchronously,
+ * and a click outside its window is dropped later rather than refused here.
  */
 export async function uploadClickConversions(
   conversions: ClickConversion[],
@@ -226,90 +307,32 @@ export async function uploadClickConversions(
     throw new Error('Google Ads conversion upload is not configured')
   }
 
-  const customer = customerId('GOOGLE_ADS_CUSTOMER_ID')
-  const conversionAction = `customers/${customer}/conversionActions/${env(CONVERSION_ACTION_ENV[kind])}`
-  const loginCustomer = customerId('GOOGLE_ADS_LOGIN_CUSTOMER_ID')
-
-  const headers: Record<string, string> = {
-    Authorization: `Bearer ${await accessToken()}`,
-    'developer-token': env('GOOGLE_ADS_DEVELOPER_TOKEN'),
-    'Content-Type': 'application/json',
-  }
-  // Only when the credentials belong to a manager account acting on behalf of
-  // the advertiser. Sending it otherwise is itself an error.
-  if (loginCustomer) headers['login-customer-id'] = loginCustomer
-
-  const response = await fetch(
-    `https://googleads.googleapis.com/${ADS_API_VERSION}/customers/${customer}:uploadClickConversions`,
-    {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        partialFailure: true,
-        conversions: conversions.map((conversion) => ({
-          [conversion.clickIdType || 'gclid']: conversion.gclid,
-          conversionAction,
-          conversionDateTime: formatConversionDateTime(conversion.convertedAt),
-          ...(conversion.value
-            ? {
-                conversionValue: conversion.value,
-                currencyCode: conversion.currencyCode || 'USD',
-              }
-            : {}),
-        })),
-      }),
-    },
-  )
-
-  const body = (await response.json().catch(() => ({}))) as {
-    results?: ClickResult[]
-    partialFailureError?: { message?: string; details?: unknown[] }
-    error?: { message?: string }
+  const all = conversions.map((_, index) => index)
+  const first = await ingest(conversions.map(toEvent), kind)
+  if (first.ok) {
+    logger.info('Google Ads conversions accepted', { kind, count: all.length, requestId: first.requestId })
+    return { uploaded: all, failures: [] }
   }
 
-  if (!response.ok) {
-    throw new Error(
-      `Google Ads conversion upload failed (${response.status}): ${body.error?.message || 'unknown error'}`,
-    )
+  if (!first.rejected.size) {
+    throw new Error(`Google Ads conversion upload failed (${first.status}): ${first.message}`)
   }
 
-  return readResults(conversions.length, body)
+  const failures = [...first.rejected].map(([index, message]) => ({ index, message }))
+  const remaining = all.filter((index) => !first.rejected.has(index))
+  logger.warn('Google Ads rejected some conversions', {
+    kind,
+    count: all.length,
+    rejected: failures.length,
+    reason: failures[0].message,
+  })
+  if (!remaining.length) return { uploaded: [], failures }
+
+  const second = await ingest(remaining.map((index) => toEvent(conversions[index])), kind)
+  if (!second.ok) {
+    throw new Error(`Google Ads conversion upload failed (${second.status}): ${second.message}`)
+  }
+  logger.info('Google Ads conversions accepted', { kind, count: remaining.length, requestId: second.requestId })
+  return { uploaded: remaining, failures }
 }
 
-/**
- * Work out which rows Ads actually took.
- *
- * With `partialFailure` the response is a 200 whether or not anything
- * succeeded, and rejected rows come back as an empty object in `results` at
- * their original index — the array stays the same length. So the index is the
- * only thing tying a result back to the conversion that produced it, and an
- * empty entry is a rejection, not a success with no detail.
- */
-type ClickResult = { gclid?: string; gbraid?: string; wbraid?: string } | null
-
-function readResults(
-  count: number,
-  body: { results?: ClickResult[]; partialFailureError?: { message?: string } },
-): ConversionUploadResult {
-  const uploaded: number[] = []
-  const failures: { index: number; message: string }[] = []
-  const results = body.results || []
-
-  // Google returns the rejection reasons in a packed error detail that needs the
-  // protobuf definitions to unpack properly. Rather than half-decode it, the
-  // whole message is attached to each rejected row: imprecise per row, but it
-  // names the actual problem, which is what someone debugging needs.
-  const reason = body.partialFailureError?.message || 'rejected by Google Ads'
-
-  for (let index = 0; index < count; index += 1) {
-    const result = results[index]
-    if (result?.gclid || result?.gbraid || result?.wbraid) uploaded.push(index)
-    else failures.push({ index, message: reason })
-  }
-
-  if (failures.length) {
-    logger.warn('Google Ads rejected some conversions', { count, rejected: failures.length, reason })
-  }
-
-  return { uploaded, failures }
-}

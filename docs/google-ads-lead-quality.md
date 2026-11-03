@@ -118,9 +118,14 @@ This part is for our engineers, not the agency.
 2. Set these on the API (`.env.prod` on the production host; leave them unset on
    QA so test conversions never reach the live account):
    - `GOOGLE_ADS_CONVERSION_ENABLED=true`
-   - `GOOGLE_ADS_DEVELOPER_TOKEN`, `GOOGLE_ADS_CLIENT_ID`, `GOOGLE_ADS_CLIENT_SECRET`,
+   - `GOOGLE_ADS_CLIENT_ID`, `GOOGLE_ADS_CLIENT_SECRET`,
      `GOOGLE_ADS_REFRESH_TOKEN`, `GOOGLE_ADS_CUSTOMER_ID`, and
-     `GOOGLE_ADS_LOGIN_CUSTOMER_ID` if the account sits under a manager account
+     `GOOGLE_ADS_LOGIN_CUSTOMER_ID` if the account sits under a manager account.
+     Uploads go through the Data Manager API (Google closed the Ads API's
+     `uploadClickConversions` to new integrations), so the Data Manager API must
+     be enabled on the Cloud project and the refresh token must carry the
+     `https://www.googleapis.com/auth/datamanager` scope. No developer token is
+     needed for uploads.
    - `GOOGLE_ADS_CONVERSION_ACTION_ID`: the Retained case action
    - `GOOGLE_ADS_QUALIFIED_CONVERSION_ACTION`: the Qualified lead action
    - `GOOGLE_ADS_SUBMITTED_CONVERSION_ACTION`: the Assessment submitted action

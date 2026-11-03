@@ -9,7 +9,6 @@ import {
 
 const CONFIG = {
   GOOGLE_ADS_CONVERSION_ENABLED: 'true',
-  GOOGLE_ADS_DEVELOPER_TOKEN: 'dev-token',
   GOOGLE_ADS_CLIENT_ID: 'client-id',
   GOOGLE_ADS_CLIENT_SECRET: 'client-secret',
   GOOGLE_ADS_REFRESH_TOKEN: 'refresh-token',
@@ -27,12 +26,30 @@ function tokenResponse() {
   }
 }
 
-function uploadResponse(results: unknown[], partialFailureError?: { message: string }) {
+function ingestOk(requestId = 'req-1') {
+  return { ok: true, status: 200, json: async () => ({ requestId }) }
+}
+
+function ingestRejected(violations: { field: string; description?: string; reason?: string }[]) {
   return {
-    ok: true,
-    status: 200,
-    json: async () => ({ results, ...(partialFailureError ? { partialFailureError } : {}) }),
+    ok: false,
+    status: 400,
+    json: async () => ({
+      error: {
+        code: 400,
+        message: 'There was a problem with the request.',
+        status: 'INVALID_ARGUMENT',
+        details: [
+          { '@type': 'type.googleapis.com/google.rpc.ErrorInfo', reason: 'INVALID_ARGUMENT' },
+          { '@type': 'type.googleapis.com/google.rpc.BadRequest', fieldViolations: violations },
+        ],
+      },
+    }),
   }
+}
+
+function sentBody(call: number) {
+  return JSON.parse(fetchMock.mock.calls[call][1].body as string)
 }
 
 const CONVERSION = {
@@ -75,6 +92,12 @@ describe('isGoogleAdsConfigured', () => {
     expect(isGoogleAdsConfigured()).toBe(false)
   })
 
+  /** The Data Manager API does not use a developer token. */
+  it('does not require a developer token', () => {
+    delete process.env.GOOGLE_ADS_DEVELOPER_TOKEN
+    expect(isGoogleAdsConfigured()).toBe(true)
+  })
+
   /** Either conversion action can be switched on without the other. */
   it('is true with only the qualified-lead action set', () => {
     delete process.env.GOOGLE_ADS_CONVERSION_ACTION_ID
@@ -96,15 +119,16 @@ describe('the qualified-lead conversion action', () => {
 
   it('uploads against its own action id, sending only the click id and timestamp', async () => {
     process.env.GOOGLE_ADS_QUALIFIED_CONVERSION_ACTION = '55443322'
-    fetchMock.mockResolvedValueOnce(tokenResponse()).mockResolvedValueOnce(uploadResponse([{ gclid: 'Cj0KCQ' }]))
+    fetchMock.mockResolvedValueOnce(tokenResponse()).mockResolvedValueOnce(ingestOk())
 
     await uploadClickConversions([{ gclid: 'Cj0KCQ', convertedAt: CONVERSION.convertedAt, value: null }], 'qualified')
 
-    const body = JSON.parse(fetchMock.mock.calls[1][1].body as string)
-    expect(body.conversions[0]).toEqual({
-      gclid: 'Cj0KCQ',
-      conversionAction: 'customers/1234567890/conversionActions/55443322',
-      conversionDateTime: '2026-09-10 14:32:05+00:00',
+    const body = sentBody(1)
+    expect(body.destinations[0].productDestinationId).toBe('55443322')
+    expect(body.events[0]).toEqual({
+      adIdentifiers: { gclid: 'Cj0KCQ' },
+      eventTimestamp: '2026-09-10T14:32:05Z',
+      eventSource: 'WEB',
     })
   })
 
@@ -120,10 +144,8 @@ describe('formatConversionDateTime', () => {
    * time zone, shifting every conversion by however many hours that is — enough
    * near a day boundary to push one outside its attribution window.
    */
-  it('emits the space-separated format with an explicit UTC offset', () => {
-    expect(formatConversionDateTime(new Date('2026-09-10T14:32:05.000Z'))).toBe(
-      '2026-09-10 14:32:05+00:00',
-    )
+  it('emits ISO 8601 in UTC with an explicit zone', () => {
+    expect(formatConversionDateTime(new Date('2026-09-10T14:32:05.123Z'))).toBe('2026-09-10T14:32:05Z')
   })
 })
 
@@ -138,45 +160,46 @@ describe('uploadClickConversions', () => {
     await expect(uploadClickConversions([CONVERSION])).rejects.toThrow('not configured')
   })
 
-  it('sends the conversion with the resolved action and a bearer token', async () => {
-    fetchMock.mockResolvedValueOnce(tokenResponse()).mockResolvedValueOnce(uploadResponse([{ gclid: 'Cj0KCQ' }]))
+  it('sends the event to the configured destination with a bearer token', async () => {
+    fetchMock.mockResolvedValueOnce(tokenResponse()).mockResolvedValueOnce(ingestOk())
 
-    const result = await uploadClickConversions([CONVERSION])
+    const result = await uploadClickConversions([{ ...CONVERSION, transactionId: 'row-1' }])
 
     expect(result).toEqual({ uploaded: [0], failures: [] })
 
     const [url, init] = fetchMock.mock.calls[1]
-    // Dashes are how the UI writes a customer id and are rejected by the API.
-    expect(url).toBe('https://googleads.googleapis.com/v21/customers/1234567890:uploadClickConversions')
+    expect(url).toBe('https://datamanager.googleapis.com/v1/events:ingest')
     const headers = init.headers as Record<string, string>
     expect(headers.Authorization).toBe('Bearer access-token')
-    expect(headers['developer-token']).toBe('dev-token')
+    expect(headers).not.toHaveProperty('developer-token')
 
-    const body = JSON.parse(init.body as string)
-    expect(body.partialFailure).toBe(true)
-    expect(body.conversions[0]).toEqual({
-      gclid: 'Cj0KCQ',
-      conversionAction: 'customers/1234567890/conversionActions/99887766',
-      conversionDateTime: '2026-09-10 14:32:05+00:00',
+    const body = sentBody(1)
+    // Dashes are how the UI writes a customer id and are rejected by the API.
+    expect(body.destinations).toEqual([
+      {
+        operatingAccount: { accountType: 'GOOGLE_ADS', accountId: '1234567890' },
+        loginAccount: { accountType: 'GOOGLE_ADS', accountId: '1234567890' },
+        productDestinationId: '99887766',
+      },
+    ])
+    expect(body.events[0]).toEqual({
+      adIdentifiers: { gclid: 'Cj0KCQ' },
+      eventTimestamp: '2026-09-10T14:32:05Z',
+      eventSource: 'WEB',
+      transactionId: 'row-1',
       conversionValue: 4000,
-      currencyCode: 'USD',
+      currency: 'USD',
     })
   })
 
-  /** Sending it when the credentials are not a manager account is an error. */
-  it('omits the login customer header unless a manager account is configured', async () => {
-    fetchMock.mockResolvedValueOnce(tokenResponse()).mockResolvedValueOnce(uploadResponse([{ gclid: 'Cj0KCQ' }]))
-    await uploadClickConversions([CONVERSION])
-
-    expect(fetchMock.mock.calls[1][1].headers).not.toHaveProperty('login-customer-id')
-  })
-
-  it('sends the login customer header when a manager account is configured', async () => {
+  it('logs in through the manager account when one is configured', async () => {
     process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID = '111-222-3333'
-    fetchMock.mockResolvedValueOnce(tokenResponse()).mockResolvedValueOnce(uploadResponse([{ gclid: 'Cj0KCQ' }]))
+    fetchMock.mockResolvedValueOnce(tokenResponse()).mockResolvedValueOnce(ingestOk())
     await uploadClickConversions([CONVERSION])
 
-    expect(fetchMock.mock.calls[1][1].headers['login-customer-id']).toBe('1112223333')
+    const destination = sentBody(1).destinations[0]
+    expect(destination.loginAccount.accountId).toBe('1112223333')
+    expect(destination.operatingAccount.accountId).toBe('1234567890')
   })
 
   /**
@@ -184,33 +207,33 @@ describe('uploadClickConversions', () => {
    * different from one worth nothing.
    */
   it('leaves the value off entirely when there is none', async () => {
-    fetchMock.mockResolvedValueOnce(tokenResponse()).mockResolvedValueOnce(uploadResponse([{ gclid: 'Cj0KCQ' }]))
+    fetchMock.mockResolvedValueOnce(tokenResponse()).mockResolvedValueOnce(ingestOk())
     await uploadClickConversions([{ gclid: 'Cj0KCQ', convertedAt: new Date(), value: null }])
 
-    const body = JSON.parse(fetchMock.mock.calls[1][1].body as string)
-    expect(body.conversions[0]).not.toHaveProperty('conversionValue')
-    expect(body.conversions[0]).not.toHaveProperty('currencyCode')
+    const event = sentBody(1).events[0]
+    expect(event).not.toHaveProperty('conversionValue')
+    expect(event).not.toHaveProperty('currency')
   })
 
-  it('sends an iOS click id in its own field and counts it as uploaded', async () => {
-    fetchMock.mockResolvedValueOnce(tokenResponse()).mockResolvedValueOnce(uploadResponse([{ wbraid: 'WB123' }]))
+  it('sends an iOS click id in its own field', async () => {
+    fetchMock.mockResolvedValueOnce(tokenResponse()).mockResolvedValueOnce(ingestOk())
     const result = await uploadClickConversions([{ gclid: 'WB123', clickIdType: 'wbraid', convertedAt: new Date() }])
 
-    const body = JSON.parse(fetchMock.mock.calls[1][1].body as string)
-    expect(body.conversions[0].wbraid).toBe('WB123')
-    expect(body.conversions[0]).not.toHaveProperty('gclid')
+    expect(sentBody(1).events[0].adIdentifiers).toEqual({ wbraid: 'WB123' })
     expect(result.uploaded).toEqual([0])
   })
 
   /**
-   * With partialFailure the response is a 200 whether or not anything
-   * succeeded, and a rejected row comes back as an empty object at its original
-   * index. Index is the only thing tying a result to its conversion.
+   * One invalid event rejects the whole request. The named events are failed
+   * and the rest resent, so a bad row cannot hold good ones hostage.
    */
-  it('reads a partial failure by index rather than by position in results', async () => {
-    fetchMock.mockResolvedValueOnce(tokenResponse()).mockResolvedValueOnce(
-      uploadResponse([{ gclid: 'a' }, {}, { gclid: 'c' }], { message: 'click too old' }),
-    )
+  it('fails the events a rejection names and resends the others', async () => {
+    fetchMock
+      .mockResolvedValueOnce(tokenResponse())
+      .mockResolvedValueOnce(
+        ingestRejected([{ field: 'events.events[1].ad_identifiers', description: 'Invalid click id.' }]),
+      )
+      .mockResolvedValueOnce(ingestOk())
 
     const result = await uploadClickConversions([
       { gclid: 'a', convertedAt: new Date() },
@@ -219,23 +242,29 @@ describe('uploadClickConversions', () => {
     ])
 
     expect(result.uploaded).toEqual([0, 2])
-    expect(result.failures).toEqual([{ index: 1, message: 'click too old' }])
+    expect(result.failures).toEqual([{ index: 1, message: 'Invalid click id.' }])
+    expect(sentBody(2).events.map((event: { adIdentifiers: { gclid: string } }) => event.adIdentifiers.gclid)).toEqual([
+      'a',
+      'c',
+    ])
   })
 
-  it('treats a wholly empty results array as every row rejected', async () => {
-    fetchMock.mockResolvedValueOnce(tokenResponse()).mockResolvedValueOnce(uploadResponse([]))
+  it('does not resend when every event was rejected', async () => {
+    fetchMock
+      .mockResolvedValueOnce(tokenResponse())
+      .mockResolvedValueOnce(ingestRejected([{ field: 'events.events[0]', reason: 'INVALID_GCLID' }]))
 
     const result = await uploadClickConversions([CONVERSION])
 
-    expect(result.uploaded).toEqual([])
-    expect(result.failures).toHaveLength(1)
+    expect(result).toEqual({ uploaded: [], failures: [{ index: 0, message: 'INVALID_GCLID' }] })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
   it('reuses the access token across uploads rather than re-minting it', async () => {
     fetchMock
       .mockResolvedValueOnce(tokenResponse())
-      .mockResolvedValueOnce(uploadResponse([{ gclid: 'Cj0KCQ' }]))
-      .mockResolvedValueOnce(uploadResponse([{ gclid: 'Cj0KCQ' }]))
+      .mockResolvedValueOnce(ingestOk())
+      .mockResolvedValueOnce(ingestOk())
 
     await uploadClickConversions([CONVERSION])
     await uploadClickConversions([CONVERSION])
@@ -257,13 +286,13 @@ describe('uploadClickConversions', () => {
     await expect(uploadClickConversions([CONVERSION])).rejects.toThrow('Token has been expired or revoked.')
   })
 
-  it('surfaces an outright upload rejection', async () => {
+  it('surfaces a rejection that names no event', async () => {
     fetchMock.mockResolvedValueOnce(tokenResponse()).mockResolvedValueOnce({
       ok: false,
       status: 403,
-      json: async () => ({ error: { message: 'The caller does not have permission' } }),
+      json: async () => ({ error: { message: 'Request had insufficient authentication scopes.' } }),
     })
 
-    await expect(uploadClickConversions([CONVERSION])).rejects.toThrow('does not have permission')
+    await expect(uploadClickConversions([CONVERSION])).rejects.toThrow('insufficient authentication scopes')
   })
 })
