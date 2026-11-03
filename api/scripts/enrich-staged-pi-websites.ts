@@ -120,20 +120,46 @@ const PI_KEYWORDS = [
   'mass tort', 'class action injury',
 ]
 
+// Only phrases a defense firm uses about itself. Plaintiff sites routinely say
+// "defending victims' rights" or mention "defense counsel" on the other side.
 const DEFENSE_KEYWORDS = [
-  'insurance defense', 'defense litigation', 'defend insurers',
-  'defense counsel', 'defending', 'defense firm',
+  'insurance defense', 'defense litigation', 'defend insurers', 'represent insurers',
+  'representing insurers', 'defense of insurance', 'civil defense', 'defense of claims',
+  'defending businesses', 'self-insured', 'third-party administrators', 'we represent employers',
+  'claims professionals', 'risk managers', 'on behalf of insurers', 'defense of employers',
+  'defense firm',
 ]
+
+/** Bios often say "began her career at an insurance defense firm"; that is history, not the firm's side. */
+const CAREER_CONTEXT = /(former|formerly|previously|prior to|worked|working as|began|career|years (at|with|as|of)|followed by|before (joining|founding|starting|opening)|started (at|as|with)|spent)/
+
+function hasCurrentPhrase(text: string, phrase: string): boolean {
+  let from = 0
+  for (;;) {
+    const i = text.indexOf(phrase, from)
+    if (i < 0) return false
+    if (!CAREER_CONTEXT.test(text.slice(Math.max(0, i - 90), i))) return true
+    from = i + phrase.length
+  }
+}
 
 /**
  * Fee and intake language only a plaintiff-side firm uses. Defense firms' sites
  * describe injury work too ("product liability", "wrongful death") but never
- * offer a free consultation or a contingency fee.
+ * offer a free consultation or a contingency fee. CAALA admits only attorneys
+ * who primarily represent plaintiffs, so membership counts too.
  */
 const PLAINTIFF_KEYWORDS = [
-  'free consultation', 'free case evaluation', 'free case review', 'no fee unless',
-  'no fees unless', 'no win no fee', 'no recovery no fee', 'contingency', 'you pay nothing',
-  "don't pay unless", 'do not pay unless', 'injury victims', 'accident victims',
+  'free consultation', 'free consult', 'free case evaluation', 'free case review', 'free case assessment',
+  'free evaluation', 'no fee unless', 'no fees unless', 'no win no fee', 'no win, no fee',
+  'no recovery no fee', 'no recovery, no fee', 'contingency', 'you pay nothing', 'no upfront',
+  'no up-front', "don't pay unless", 'do not pay unless', "you don't pay", 'we only get paid',
+  "we don't get paid unless", 'injury victims', 'accident victims', 'have you been injured',
+  'were you injured', "if you've been injured", 'if you have been injured', 'injured in an accident',
+  'compensation you deserve', 'fight the insurance compan', 'fight insurance compan',
+  'take on the insurance compan', 'recovered for our clients', 'million recovered',
+  'millions recovered', 'billion recovered', 'consumer attorneys association of los angeles',
+  'caala member', 'member of caala', 'consumer attorneys of california',
 ]
 
 const STRONG_PI_KEYWORDS = [
@@ -157,7 +183,7 @@ function detectPiFromText(text: string): {
   const lower = text.toLowerCase()
   const matched = PI_KEYWORDS.filter((kw) => lower.includes(kw))
   const strongMatched = STRONG_PI_KEYWORDS.filter((kw) => lower.includes(kw))
-  const defenseMatched = DEFENSE_KEYWORDS.filter((kw) => lower.includes(kw))
+  const defenseMatched = DEFENSE_KEYWORDS.filter((kw) => hasCurrentPhrase(lower, kw))
   return {
     isPi: strongMatched.length >= 1 && matched.length >= 2,
     isDefense: defenseMatched.length > 0,
@@ -240,7 +266,12 @@ async function fetchPageText(url: string, timeoutMs = runtimeConfig.timeoutMs): 
   try {
     const res = await fetch(url, {
       signal: controller.signal,
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; CaseIQ-PI-Enrichment/0.1)' },
+      // Several firm sites sit behind bot filters that refuse non-browser agents.
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36',
+        Accept: 'text/html,application/xhtml+xml',
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
       redirect: 'follow',
     })
     if (!res.ok) return null
