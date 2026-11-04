@@ -47,21 +47,76 @@ export type InviteCandidate = {
   county: string | null
 }
 
+export const MAX_DAILY_CAP = 5000
+const SETTINGS_KEY = 'claim_invite_settings'
+
 export type InviteConfig = {
   dailyCap: number
+  /** Stops the sweep without touching the queue. */
+  paused: boolean
   postalAddress: string | null
   fromEmail: string | null
   replyTo: string | null
 }
 
-export function getInviteConfig(): InviteConfig {
+function envDefaults(): InviteConfig {
   const rawCap = Number.parseInt(process.env.INVITE_DAILY_CAP || '', 10)
   return {
     dailyCap: Number.isFinite(rawCap) && rawCap >= 0 ? rawCap : DEFAULT_DAILY_CAP,
+    paused: false,
     postalAddress: process.env.INVITE_POSTAL_ADDRESS?.trim() || null,
     fromEmail: process.env.INVITE_FROM_EMAIL?.trim() || null,
     replyTo: process.env.INVITE_REPLY_TO?.trim() || null,
   }
+}
+
+const EMAIL_RE = /^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/
+
+function cleanText(value: unknown, max: number): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.replace(/[\r\n]+/g, ' ').trim()
+  return trimmed ? trimmed.slice(0, max) : null
+}
+
+function cleanEmail(value: unknown): string | null {
+  const text = cleanText(value, 254)
+  return text && EMAIL_RE.test(text) ? text.toLowerCase() : null
+}
+
+/**
+ * Stored settings are operator input, so each field is re-validated on read:
+ * a bad value degrades to the environment default rather than reaching SES.
+ */
+function normalizeInviteConfig(raw: Partial<Record<keyof InviteConfig, unknown>>, base: InviteConfig): InviteConfig {
+  const cap = Number(raw.dailyCap)
+  return {
+    dailyCap: Number.isFinite(cap) ? Math.min(MAX_DAILY_CAP, Math.max(0, Math.round(cap))) : base.dailyCap,
+    paused: typeof raw.paused === 'boolean' ? raw.paused : base.paused,
+    postalAddress: 'postalAddress' in raw ? cleanText(raw.postalAddress, 300) : base.postalAddress,
+    fromEmail: 'fromEmail' in raw ? cleanEmail(raw.fromEmail) : base.fromEmail,
+    replyTo: 'replyTo' in raw ? cleanEmail(raw.replyTo) : base.replyTo,
+  }
+}
+
+export async function getInviteConfig(): Promise<InviteConfig> {
+  const base = envDefaults()
+  try {
+    const row = await db.routingConfig.findUnique({ where: { key: SETTINGS_KEY } })
+    if (!row?.value) return base
+    return normalizeInviteConfig(JSON.parse(row.value), base)
+  } catch {
+    return base
+  }
+}
+
+export async function saveInviteConfig(update: Partial<Record<keyof InviteConfig, unknown>>): Promise<InviteConfig> {
+  const merged = normalizeInviteConfig(update, await getInviteConfig())
+  await db.routingConfig.upsert({
+    where: { key: SETTINGS_KEY },
+    create: { key: SETTINGS_KEY, value: JSON.stringify(merged) },
+    update: { value: JSON.stringify(merged) },
+  })
+  return merged
 }
 
 export function normalizeEmail(email: string | null | undefined): string {
@@ -249,7 +304,7 @@ export type InviteSweepResult = {
   failed: number
   skipped: number
   remainingQueued: number
-  blockedReason?: 'no_postal_address' | 'daily_cap_reached'
+  blockedReason?: 'paused' | 'no_postal_address' | 'daily_cap_reached'
 }
 
 /**
@@ -260,12 +315,13 @@ export type InviteSweepResult = {
  * an admin may have changed their address.
  */
 export async function runClaimInviteSweep(): Promise<InviteSweepResult> {
-  const config = getInviteConfig()
+  const config = await getInviteConfig()
   const remainingQueued = async () => db.profileClaim.count({ where: { status: 'queued' } })
   const result: InviteSweepResult = { sent: 0, failed: 0, skipped: 0, remainingQueued: 0 }
 
   const queuedCount = await remainingQueued()
   if (!queuedCount) return result
+  if (config.paused) return { ...result, remainingQueued: queuedCount, blockedReason: 'paused' }
   if (!config.postalAddress) {
     return { ...result, remainingQueued: queuedCount, blockedReason: 'no_postal_address' }
   }
@@ -310,7 +366,7 @@ export async function runClaimInviteSweep(): Promise<InviteSweepResult> {
         attorneyName: attorney.name,
         firmName: attorney.lawFirm?.name ?? null,
         token: row.token,
-        postalAddress: config.postalAddress,
+        postalAddress: config.postalAddress as string,
         fromEmail: config.fromEmail,
         replyTo: config.replyTo,
       }),

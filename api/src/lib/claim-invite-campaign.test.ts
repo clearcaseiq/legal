@@ -9,7 +9,12 @@ vi.mock('./claims', async (importOriginal) => {
 import { prisma } from './prisma'
 import { resetUniversalPrismaMock } from '../test/universalPrismaMock'
 import { sendClaimEmail } from './claims'
-import { findInviteCandidates, queueInviteBatch, runClaimInviteSweep } from './claim-invite-campaign'
+import {
+  findInviteCandidates,
+  getInviteConfig,
+  queueInviteBatch,
+  runClaimInviteSweep,
+} from './claim-invite-campaign'
 
 const db = prisma as any
 
@@ -26,6 +31,32 @@ beforeEach(() => {
   vi.mocked(sendClaimEmail).mockResolvedValue(true)
   process.env.INVITE_POSTAL_ADDRESS = '1 Test Way, Irvine, CA 92618'
   delete process.env.INVITE_DAILY_CAP
+})
+
+describe('getInviteConfig', () => {
+  it('lets admin settings override the environment', async () => {
+    db.routingConfig.findUnique.mockResolvedValue({
+      value: JSON.stringify({ dailyCap: 120, fromEmail: 'Invites@ClearCaseIQ.com', postalAddress: 'PO Box 1, LA, CA' }),
+    })
+
+    expect(await getInviteConfig()).toMatchObject({
+      dailyCap: 120,
+      fromEmail: 'invites@clearcaseiq.com',
+      postalAddress: 'PO Box 1, LA, CA',
+    })
+  })
+
+  it('degrades bad stored values instead of passing them to the mailer', async () => {
+    db.routingConfig.findUnique.mockResolvedValue({
+      value: JSON.stringify({ dailyCap: -5, replyTo: 'not an email', postalAddress: 'Line 1\r\nBcc: x@y.z' }),
+    })
+
+    const config = await getInviteConfig()
+
+    expect(config.dailyCap).toBe(0)
+    expect(config.replyTo).toBeNull()
+    expect(config.postalAddress).not.toMatch(/[\r\n]/)
+  })
 })
 
 describe('findInviteCandidates', () => {
@@ -93,6 +124,16 @@ describe('runClaimInviteSweep', () => {
       lawFirm: { name: 'Firm LLP' },
     },
     ...overrides,
+  })
+
+  it('holds the queue while paused', async () => {
+    db.routingConfig.findUnique.mockResolvedValue({ value: JSON.stringify({ paused: true }) })
+    db.profileClaim.count.mockResolvedValue(5)
+
+    const result = await runClaimInviteSweep()
+
+    expect(result.blockedReason).toBe('paused')
+    expect(sendClaimEmail).not.toHaveBeenCalled()
   })
 
   it('sends nothing without a postal address', async () => {

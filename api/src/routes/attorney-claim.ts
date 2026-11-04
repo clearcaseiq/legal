@@ -119,10 +119,11 @@ router.post('/invite', authMiddleware, requireRole(['admin']), async (req, res) 
       code: 'EMAIL_SUPPRESSED',
     })
   }
-  const inviteConfig = getInviteConfig()
-  if (!inviteConfig.postalAddress) {
+  const inviteConfig = await getInviteConfig()
+  const postalAddress = inviteConfig.postalAddress
+  if (!postalAddress) {
     return res.status(503).json({
-      error: 'Invitations are disabled until INVITE_POSTAL_ADDRESS is configured (required by CAN-SPAM).',
+      error: 'Invitations are disabled until a postal address is set in Admin > Invitations (required by CAN-SPAM).',
       code: 'INVITE_NOT_CONFIGURED',
     })
   }
@@ -172,7 +173,7 @@ router.post('/invite', authMiddleware, requireRole(['admin']), async (req, res) 
       attorneyName: attorney.name,
       firmName: firm?.name ?? null,
       token,
-      postalAddress: inviteConfig.postalAddress,
+      postalAddress,
       fromEmail: inviteConfig.fromEmail,
       replyTo: inviteConfig.replyTo,
     }),

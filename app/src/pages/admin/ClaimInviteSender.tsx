@@ -4,6 +4,7 @@ import {
   getInviteBatches,
   getInviteCandidates,
   queueInviteBatch,
+  saveInviteSettings,
   type InviteBatch,
   type InviteCandidate,
   type InviteFilters,
@@ -34,6 +35,101 @@ function describeFilters(filters: InviteFilters | null): string {
   return parts.length ? parts.join(', ') : 'All eligible'
 }
 
+function SenderSettings({
+  sending,
+  onSaved,
+}: {
+  sending: InviteSendingStatus
+  onSaved: (next: InviteSendingStatus) => void
+}) {
+  const [dailyCap, setDailyCap] = useState(String(sending.dailyCap))
+  const [postalAddress, setPostalAddress] = useState(sending.postalAddress || '')
+  const [fromEmail, setFromEmail] = useState(sending.fromEmail || '')
+  const [replyTo, setReplyTo] = useState(sending.replyTo || '')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const save = async (extra: { paused?: boolean } = {}) => {
+    setSaving(true)
+    setError(null)
+    try {
+      const result = await saveInviteSettings({
+        dailyCap: Number.parseInt(dailyCap, 10) || 0,
+        postalAddress: postalAddress.trim() || null,
+        fromEmail: fromEmail.trim() || null,
+        replyTo: replyTo.trim() || null,
+        ...extra,
+      })
+      onSaved(result.sending)
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to save settings')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="space-y-3 rounded-lg border border-slate-200 p-4 dark:border-slate-800">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm font-medium text-slate-900 dark:text-slate-100">Sender settings</p>
+        <button
+          type="button"
+          disabled={saving}
+          onClick={() => void save({ paused: !sending.paused })}
+          className="btn-outline text-ui-xs"
+        >
+          {sending.paused ? 'Resume sending' : 'Pause sending'}
+        </button>
+      </div>
+      {error && <p className="text-sm text-rose-600 dark:text-rose-400">{error}</p>}
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="text-xs text-slate-500 dark:text-slate-400">
+          Daily limit (per rolling 24 hours)
+          <input
+            type="number"
+            min={0}
+            className="input mt-1 block w-full"
+            value={dailyCap}
+            onChange={(e) => setDailyCap(e.target.value)}
+          />
+        </label>
+        <label className="text-xs text-slate-500 dark:text-slate-400">
+          Postal address (required by CAN-SPAM)
+          <input
+            className="input mt-1 block w-full"
+            placeholder="Street or PO box, city, state ZIP"
+            value={postalAddress}
+            onChange={(e) => setPostalAddress(e.target.value)}
+          />
+        </label>
+        <label className="text-xs text-slate-500 dark:text-slate-400">
+          From address (must be on clearcaseiq.com)
+          <input
+            type="email"
+            className="input mt-1 block w-full"
+            placeholder="invites@clearcaseiq.com"
+            value={fromEmail}
+            onChange={(e) => setFromEmail(e.target.value)}
+          />
+        </label>
+        <label className="text-xs text-slate-500 dark:text-slate-400">
+          Reply-to address
+          <input
+            type="email"
+            className="input mt-1 block w-full"
+            placeholder="support@clearcaseiq.com"
+            value={replyTo}
+            onChange={(e) => setReplyTo(e.target.value)}
+          />
+        </label>
+      </div>
+      <button type="button" disabled={saving} onClick={() => void save()} className="btn-primary text-ui-sm">
+        {saving ? 'Saving…' : 'Save settings'}
+      </button>
+    </div>
+  )
+}
+
 const formatDateTime = (value: string) =>
   new Date(value).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
 
@@ -57,6 +153,7 @@ export default function ClaimInviteSender({ onQueued }: { onQueued: () => void }
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [showSettings, setShowSettings] = useState(false)
 
   const filters = useMemo<InviteFilters>(
     () => ({
@@ -110,6 +207,7 @@ export default function ClaimInviteSender({ onQueued }: { onQueued: () => void }
     const days = sending.dailyCap > 0 ? Math.ceil((sending.queued + size) / sending.dailyCap) : null
     const ok = window.confirm(
       `Queue ${size} invitation${size === 1 ? '' : 's'} (${describeFilters(filters)})?\n\n` +
+        (sending.paused ? 'Sending is currently paused; they will wait until you resume.\n\n' : '') +
         `They send automatically at up to ${sending.dailyCap} per 24 hours` +
         (days ? `, so the queue will take about ${days} day${days === 1 ? '' : 's'} to clear.` : '.') +
         '\n\nYou can cancel the unsent part of a batch at any time.',
@@ -171,14 +269,39 @@ export default function ClaimInviteSender({ onQueued }: { onQueued: () => void }
             </span>
             <span>From: {sending.fromEmail || 'platform default address'}</span>
             {sending.replyTo && <span>Replies to: {sending.replyTo}</span>}
+            {sending.paused && <Badge tone="warning">Paused</Badge>}
+            {!blocked && (
+              <button
+                type="button"
+                onClick={() => setShowSettings((value) => !value)}
+                className="text-sm font-medium text-brand-600 hover:underline"
+              >
+                {showSettings ? 'Hide settings' : 'Edit settings'}
+              </button>
+            )}
           </div>
         )}
 
         {blocked && sending && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
-            Sending is disabled until a postal address is configured (INVITE_POSTAL_ADDRESS). CAN-SPAM requires a
-            physical mailing address in every invitation. You can still preview who would be invited.
+            Sending is disabled until a postal address is set below. CAN-SPAM requires a physical mailing address
+            in every invitation. You can still preview who would be invited.
           </div>
+        )}
+        {sending?.paused && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+            Sending is paused. Queued invitations stay in the queue until you resume.
+          </div>
+        )}
+        {sending && (showSettings || blocked) && (
+          <SenderSettings
+            key={`${sending.dailyCap}-${sending.postalAddress}-${sending.fromEmail}-${sending.replyTo}-${sending.paused}`}
+            sending={sending}
+            onSaved={(next) => {
+              setSending(next)
+              setNotice('Settings saved.')
+            }}
+          />
         )}
         {error && (
           <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">

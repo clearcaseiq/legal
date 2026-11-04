@@ -544,7 +544,7 @@ async function runClaimInviteLoop(trigger: 'startup' | 'interval') {
     const result = await runClaimInviteSweep()
     sweep.succeed()
     if (result.blockedReason === 'no_postal_address' && trigger === 'startup') {
-      logger.warn('Claim invites are queued but INVITE_POSTAL_ADDRESS is not set; nothing will send', result)
+      logger.warn('Claim invites are queued but no postal address is configured; nothing will send', result)
     }
   } catch (error) {
     sweep.fail(error)

@@ -13,12 +13,15 @@ import { z } from 'zod'
 import { logger } from '../lib/logger'
 import {
   MAX_BATCH_SIZE,
+  MAX_DAILY_CAP,
   cancelInviteBatch,
   countSentInLast24Hours,
   findInviteCandidates,
   getInviteConfig,
   listInviteBatches,
   queueInviteBatch,
+  saveInviteConfig,
+  type InviteConfig,
 } from '../lib/claim-invite-campaign'
 import { authMiddleware, AuthRequest } from '../lib/auth'
 import { adminMiddleware, requireAdminCapability } from '../lib/admin-access'
@@ -239,16 +242,58 @@ const FiltersSchema = z.object({
   firm: z.string().trim().max(120).optional().nullable(),
 })
 
-function sendingStatus(config: ReturnType<typeof getInviteConfig>, sentLast24h: number, queued: number) {
+function sendingStatus(config: InviteConfig, sentLast24h: number, queued: number) {
   return {
     dailyCap: config.dailyCap,
+    paused: config.paused,
     sentLast24h,
     queued,
     postalAddressConfigured: Boolean(config.postalAddress),
+    postalAddress: config.postalAddress,
     fromEmail: config.fromEmail,
     replyTo: config.replyTo,
   }
 }
+
+const SettingsSchema = z.object({
+  dailyCap: z.number().int().min(0).max(MAX_DAILY_CAP).optional(),
+  paused: z.boolean().optional(),
+  postalAddress: z.string().trim().max(300).nullable().optional(),
+  fromEmail: z.union([z.string().trim().email().max(254), z.literal(''), z.null()]).optional(),
+  replyTo: z.union([z.string().trim().email().max(254), z.literal(''), z.null()]).optional(),
+})
+
+/** Sender settings and the daily cap, editable without a deploy. */
+router.put(
+  '/attorney-invitations/settings',
+  authMiddleware,
+  adminMiddleware,
+  requireAdminCapability('network'),
+  async (req: AuthRequest, res) => {
+    try {
+      const parsed = SettingsSchema.safeParse(req.body)
+      if (!parsed.success) {
+        return res.status(400).json({ error: 'Invalid settings', details: parsed.error.flatten() })
+      }
+      const before = await getInviteConfig()
+      const saved = await saveInviteConfig(parsed.data)
+      await writeAdminAudit(req, {
+        action: 'attorney_invitation_settings_updated',
+        entityType: 'routing_config',
+        entityId: 'claim_invite_settings',
+        metadata: { before, after: saved },
+      })
+      const [sentLast24h, queued] = await Promise.all([
+        countSentInLast24Hours(),
+        prismaAny.profileClaim.count({ where: { status: 'queued' } }),
+      ])
+      res.json({ success: true, sending: sendingStatus(saved, sentLast24h, queued) })
+    } catch (error) {
+      logger.error('Failed to save invite settings', { error })
+      res.status(500).json({ error: 'Internal server error' })
+    }
+  },
+)
 
 /**
  * Who a bulk pass would reach. Read-only: lets an operator see the list,
@@ -283,7 +328,7 @@ router.get(
         sample: candidates.slice(0, 25),
         byCounty,
         maxBatchSize: MAX_BATCH_SIZE,
-        sending: sendingStatus(getInviteConfig(), sentLast24h, queued),
+        sending: sendingStatus(await getInviteConfig(), sentLast24h, queued),
       })
     } catch (error) {
       logger.error('Failed to list invite candidates', { error })
@@ -310,9 +355,9 @@ router.post(
       }
       // Refused up front: queued rows would otherwise sit unsent with no
       // visible reason.
-      if (!getInviteConfig().postalAddress) {
+      if (!(await getInviteConfig()).postalAddress) {
         return res.status(503).json({
-          error: 'Invitations are disabled until INVITE_POSTAL_ADDRESS is configured (required by CAN-SPAM).',
+          error: 'Set a postal address in the sender settings first. CAN-SPAM requires one in every invitation.',
           code: 'INVITE_NOT_CONFIGURED',
         })
       }
@@ -345,7 +390,7 @@ router.get(
         countSentInLast24Hours(),
         prismaAny.profileClaim.count({ where: { status: 'queued' } }),
       ])
-      res.json({ success: true, data: batches, sending: sendingStatus(getInviteConfig(), sentLast24h, queued) })
+      res.json({ success: true, data: batches, sending: sendingStatus(await getInviteConfig(), sentLast24h, queued) })
     } catch (error) {
       logger.error('Failed to list invite batches', { error })
       res.status(500).json({ error: 'Internal server error' })

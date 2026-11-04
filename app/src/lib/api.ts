@@ -7273,11 +7273,26 @@ export interface InviteCandidate {
 
 export interface InviteSendingStatus {
   dailyCap: number
+  paused: boolean
   sentLast24h: number
   queued: number
   postalAddressConfigured: boolean
+  postalAddress: string | null
   fromEmail: string | null
   replyTo: string | null
+}
+
+export interface InviteSettingsUpdate {
+  dailyCap?: number
+  paused?: boolean
+  postalAddress?: string | null
+  fromEmail?: string | null
+  replyTo?: string | null
+}
+
+export async function saveInviteSettings(update: InviteSettingsUpdate): Promise<{ sending: InviteSendingStatus }> {
+  const { data } = await api.put('/v1/admin/attorney-invitations/settings', update)
+  return data
 }
 
 export interface InviteBatch {
