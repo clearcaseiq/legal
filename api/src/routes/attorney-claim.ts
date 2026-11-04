@@ -41,6 +41,7 @@ import {
 } from '../lib/claims'
 import {
   buildClaimInviteEmail,
+  firmNameForInvite,
   getInviteConfig,
   isEmailSuppressed,
   suppressEmail,
@@ -165,13 +166,13 @@ router.post('/invite', authMiddleware, requireRole(['admin']), async (req, res) 
 
   const url = claimUrl(token)
   const firm = attorney.lawFirmId
-    ? await prisma.lawFirm.findUnique({ where: { id: attorney.lawFirmId }, select: { name: true } })
+    ? await prisma.lawFirm.findUnique({ where: { id: attorney.lawFirmId }, select: { name: true, firmDomain: true } })
     : null
   const sent = await sendClaimEmail(
     buildClaimInviteEmail({
       to: attorney.email,
       attorneyName: attorney.name,
-      firmName: firm?.name ?? null,
+      firmName: firmNameForInvite(attorney.email, firm),
       token,
       postalAddress,
       fromEmail: inviteConfig.fromEmail,

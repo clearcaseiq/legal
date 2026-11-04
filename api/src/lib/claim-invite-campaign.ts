@@ -36,6 +36,8 @@ export type InviteFilters = {
   county?: string | null
   city?: string | null
   firm?: string | null
+  /** Shared front-desk inboxes are held back unless an admin opts in. */
+  includeRoleInboxes?: boolean | null
 }
 
 export type InviteCandidate = {
@@ -45,6 +47,42 @@ export type InviteCandidate = {
   firmName: string | null
   city: string | null
   county: string | null
+  roleInbox: boolean
+}
+
+/**
+ * Local parts that reach a front desk rather than the named attorney. An
+ * invite greeting someone by name in a shared inbox reads as spam, and these
+ * inboxes are the likeliest to report it.
+ */
+const ROLE_LOCAL_PARTS = new Set([
+  'info', 'office', 'contact', 'admin', 'intake', 'reception', 'frontdesk', 'hello', 'help',
+  'support', 'mail', 'law', 'legal', 'team', 'inquiries', 'inquiry', 'clients', 'cases', 'staff',
+])
+
+export function isRoleInbox(email: string | null | undefined): boolean {
+  const local = normalizeEmail(email).split('@')[0] || ''
+  return ROLE_LOCAL_PARTS.has(local)
+}
+
+function emailDomain(email: string | null | undefined): string {
+  return normalizeEmail(email).split('@')[1] || ''
+}
+
+/**
+ * The firm to name in an invite, or null to leave it out.
+ *
+ * Bar emails are often years stale, so the attorney may have moved on from the
+ * firm their profile was matched to. Naming the firm is only safe when the
+ * address itself is on that firm's domain; otherwise the invite would tell
+ * someone they work somewhere they may not.
+ */
+export function firmNameForInvite(
+  email: string | null | undefined,
+  firm: { name?: string | null; firmDomain?: string | null } | null | undefined,
+): string | null {
+  if (!firm?.name || !firm.firmDomain) return null
+  return emailDomain(email) === firm.firmDomain.toLowerCase() ? firm.name : null
 }
 
 export const MAX_DAILY_CAP = 5000
@@ -148,7 +186,10 @@ function contains(value: string | null | undefined, needle: string): boolean {
 
 /**
  * Attorneys who can be invited now: never contacted, active, with an address
- * on file, no invite in flight, and not suppressed.
+ * on file, no invite in flight, not suppressed, and at a firm located in
+ * California. An out-of-state firm location on an imported CA attorney is
+ * usually a mismatched branch office, and inviting them to a California
+ * directory from it would misdescribe them.
  *
  * County is derived from the firm's city because imports do not store it. The
  * whole unclaimed directory is a few thousand rows, so filtering in memory is
@@ -186,9 +227,11 @@ export async function findInviteCandidates(filters: InviteFilters = {}): Promise
   for (const attorney of attorneys) {
     const email = normalizeEmail(attorney.email)
     if (!email || inFlight.has(attorney.id) || suppressedSet.has(email)) continue
+    if ((attorney.lawFirm?.state || '').toUpperCase() !== 'CA') continue
+    const roleInbox = isRoleInbox(email)
+    if (roleInbox && !filters.includeRoleInboxes) continue
     const firmCity = attorney.lawFirm?.city ?? null
-    const firmCounty =
-      (attorney.lawFirm?.state || '').toUpperCase() === 'CA' ? countyForCaCity(firmCity) : null
+    const firmCounty = countyForCaCity(firmCity)
     if (county && firmCounty !== county) continue
     if (city && !contains(firmCity, city)) continue
     if (firm && !contains(attorney.lawFirm?.name, firm)) continue
@@ -199,6 +242,7 @@ export async function findInviteCandidates(filters: InviteFilters = {}): Promise
       firmName: attorney.lawFirm?.name ?? null,
       city: firmCity,
       county: firmCounty,
+      roleInbox,
     })
   }
   return candidates
@@ -340,7 +384,14 @@ export async function runClaimInviteSweep(): Promise<InviteSweepResult> {
       email: true,
       sendAttempts: true,
       attorney: {
-        select: { id: true, name: true, email: true, claimStatus: true, isActive: true, lawFirm: { select: { name: true } } },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          claimStatus: true,
+          isActive: true,
+          lawFirm: { select: { name: true, firmDomain: true } },
+        },
       },
     },
   })
@@ -364,7 +415,7 @@ export async function runClaimInviteSweep(): Promise<InviteSweepResult> {
       buildClaimInviteEmail({
         to: row.email,
         attorneyName: attorney.name,
-        firmName: attorney.lawFirm?.name ?? null,
+        firmName: firmNameForInvite(row.email, attorney.lawFirm),
         token: row.token,
         postalAddress: config.postalAddress as string,
         fromEmail: config.fromEmail,

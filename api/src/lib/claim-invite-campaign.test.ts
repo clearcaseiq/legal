@@ -11,6 +11,7 @@ import { resetUniversalPrismaMock } from '../test/universalPrismaMock'
 import { sendClaimEmail } from './claims'
 import {
   findInviteCandidates,
+  firmNameForInvite,
   getInviteConfig,
   queueInviteBatch,
   runClaimInviteSweep,
@@ -31,6 +32,16 @@ beforeEach(() => {
   vi.mocked(sendClaimEmail).mockResolvedValue(true)
   process.env.INVITE_POSTAL_ADDRESS = '1 Test Way, Irvine, CA 92618'
   delete process.env.INVITE_DAILY_CAP
+})
+
+describe('firmNameForInvite', () => {
+  it('names the firm only when the address is on its domain', () => {
+    const firm = { name: 'Wilshire Law Firm', firmDomain: 'wilshirelawfirm.com' }
+    expect(firmNameForInvite('Jane@WilshireLawFirm.com', firm)).toBe('Wilshire Law Firm')
+    expect(firmNameForInvite('jane@oldfirm.com', firm)).toBeNull()
+    expect(firmNameForInvite('jane@gmail.com', firm)).toBeNull()
+    expect(firmNameForInvite('jane@wilshirelawfirm.com', { name: 'X', firmDomain: null })).toBeNull()
+  })
 })
 
 describe('getInviteConfig', () => {
@@ -84,6 +95,27 @@ describe('findInviteCandidates', () => {
 
     expect(result.map((row) => row.id)).toEqual(['oc'])
     expect(result[0].county).toBe('Orange')
+  })
+
+  it('holds back shared office inboxes unless asked to include them', async () => {
+    db.attorney.findMany.mockResolvedValue([
+      attorneyRow('person', 'jane@firm.test', 'Los Angeles'),
+      attorneyRow('desk', 'Info@firm2.test', 'Los Angeles'),
+    ])
+
+    expect((await findInviteCandidates({})).map((row) => row.id)).toEqual(['person'])
+    const all = await findInviteCandidates({ includeRoleInboxes: true })
+    expect(all.map((row) => row.id)).toEqual(['person', 'desk'])
+    expect(all[1].roleInbox).toBe(true)
+  })
+
+  it('never includes attorneys whose firm is located outside California', async () => {
+    db.attorney.findMany.mockResolvedValue([
+      attorneyRow('ca', 'ca@x.test', 'Los Angeles'),
+      { ...attorneyRow('ma', 'ma@x.test', 'Boston'), lawFirm: { name: 'Firm', city: 'Boston', state: 'MA' } },
+    ])
+
+    expect((await findInviteCandidates({})).map((row) => row.id)).toEqual(['ca'])
   })
 
   it('returns nobody for a county name it cannot recognise, rather than everyone', async () => {

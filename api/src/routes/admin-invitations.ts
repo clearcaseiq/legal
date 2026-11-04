@@ -240,6 +240,8 @@ const FiltersSchema = z.object({
   county: z.string().trim().max(60).optional().nullable(),
   city: z.string().trim().max(80).optional().nullable(),
   firm: z.string().trim().max(120).optional().nullable(),
+  // Arrives as a query-string "true" on preview and a boolean on queue.
+  includeRoleInboxes: z.preprocess((v) => v === true || v === 'true', z.boolean()).optional(),
 })
 
 function sendingStatus(config: InviteConfig, sentLast24h: number, queued: number) {

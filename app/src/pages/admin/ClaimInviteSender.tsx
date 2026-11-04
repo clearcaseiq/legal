@@ -31,6 +31,7 @@ function describeFilters(filters: InviteFilters | null): string {
     filters.county && `${filters.county} County`,
     filters.city && `city "${filters.city}"`,
     filters.firm && `firm "${filters.firm}"`,
+    filters.includeRoleInboxes && 'including shared inboxes',
   ].filter(Boolean)
   return parts.length ? parts.join(', ') : 'All eligible'
 }
@@ -142,6 +143,7 @@ export default function ClaimInviteSender({ onQueued }: { onQueued: () => void }
   const [county, setCounty] = useState('')
   const [city, setCity] = useState('')
   const [firm, setFirm] = useState('')
+  const [includeRoleInboxes, setIncludeRoleInboxes] = useState(false)
   const [total, setTotal] = useState<number | null>(null)
   const [sample, setSample] = useState<InviteCandidate[]>([])
   const [byCounty, setByCounty] = useState<Record<string, number>>({})
@@ -160,8 +162,9 @@ export default function ClaimInviteSender({ onQueued }: { onQueued: () => void }
       county: county || undefined,
       city: city.trim() || undefined,
       firm: firm.trim() || undefined,
+      includeRoleInboxes: includeRoleInboxes || undefined,
     }),
-    [county, city, firm],
+    [county, city, firm, includeRoleInboxes],
   )
 
   const loadBatches = useCallback(async () => {
@@ -346,10 +349,24 @@ export default function ClaimInviteSender({ onQueued }: { onQueued: () => void }
               onChange={(e) => setFirm(e.target.value)}
             />
           </label>
+          <label
+            className="flex items-center gap-2 pb-2 text-sm text-slate-700 dark:text-slate-300"
+            title="Addresses like info@, contact@ and office@ reach a front desk, not the named attorney."
+          >
+            <input
+              type="checkbox"
+              checked={includeRoleInboxes}
+              onChange={(e) => setIncludeRoleInboxes(e.target.checked)}
+            />
+            Include shared office inboxes
+          </label>
           <button type="button" onClick={() => void preview()} disabled={loading} className="btn-outline text-ui-sm">
             {loading ? 'Loading…' : 'Preview'}
           </button>
         </div>
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          Attorneys whose firm is located outside California are never included.
+        </p>
 
         {total !== null && (
           <div className="space-y-3">
@@ -377,7 +394,10 @@ export default function ClaimInviteSender({ onQueued }: { onQueued: () => void }
                           {row.city || '—'}
                           {row.county ? <span className="text-xs text-slate-400"> · {row.county}</span> : null}
                         </td>
-                        <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{row.email}</td>
+                        <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
+                          {row.email}
+                          {row.roleInbox && <span className="ml-1 text-xs text-amber-600">(shared inbox)</span>}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
