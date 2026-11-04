@@ -297,6 +297,42 @@ export const VENTURA_COUNTY_DISCOVERY_AREAS: readonly string[] = [
   'Newbury Park', 'Oak Park', 'El Rio',
 ]
 
+/** San Francisco is one city and county; its downtown districts hold most of the firms. */
+export const SAN_FRANCISCO_DISCOVERY_AREAS: readonly string[] = [
+  'San Francisco', 'Financial District San Francisco', 'SoMa San Francisco', 'Mission District San Francisco',
+]
+
+/** Alameda County cities by population, plus Castro Valley. */
+export const ALAMEDA_COUNTY_DISCOVERY_AREAS: readonly string[] = [
+  'Oakland', 'Fremont', 'Hayward', 'Berkeley', 'San Leandro', 'Livermore', 'Pleasanton', 'Alameda',
+  'Union City', 'Dublin', 'Newark', 'Emeryville', 'Albany', 'Piedmont',
+  // Unincorporated communities
+  'Castro Valley',
+]
+
+/** Santa Clara County cities by population, plus downtown San Jose. */
+export const SANTA_CLARA_COUNTY_DISCOVERY_AREAS: readonly string[] = [
+  'San Jose', 'Sunnyvale', 'Santa Clara', 'Mountain View', 'Milpitas', 'Palo Alto', 'Cupertino', 'Gilroy',
+  'Morgan Hill', 'Campbell', 'Los Gatos', 'Saratoga', 'Los Altos',
+  // City of San Jose neighborhoods
+  'Downtown San Jose',
+]
+
+/** Sacramento County cities, city districts and larger unincorporated communities. */
+export const SACRAMENTO_COUNTY_DISCOVERY_AREAS: readonly string[] = [
+  'Sacramento', 'Elk Grove', 'Citrus Heights', 'Folsom', 'Rancho Cordova',
+  // City of Sacramento neighborhoods
+  'Downtown Sacramento', 'Natomas',
+  // Unincorporated communities
+  'Carmichael', 'Arden-Arcade', 'Fair Oaks',
+]
+
+/** Contra Costa County cities by population. */
+export const CONTRA_COSTA_COUNTY_DISCOVERY_AREAS: readonly string[] = [
+  'Concord', 'Walnut Creek', 'Richmond', 'Antioch', 'San Ramon', 'Pittsburg', 'Brentwood', 'Danville',
+  'Martinez', 'Pleasant Hill', 'Lafayette', 'Orinda', 'El Cerrito', 'Hercules',
+]
+
 /** Named area presets for `discover-firms-google-places.ts --area`. */
 export const DISCOVERY_AREA_PRESETS: Readonly<Record<string, readonly string[]>> = {
   'la-county': LA_COUNTY_DISCOVERY_AREAS,
@@ -305,6 +341,11 @@ export const DISCOVERY_AREA_PRESETS: Readonly<Record<string, readonly string[]>>
   'riverside-county': RIVERSIDE_COUNTY_DISCOVERY_AREAS,
   'san-bernardino-county': SAN_BERNARDINO_COUNTY_DISCOVERY_AREAS,
   'ventura-county': VENTURA_COUNTY_DISCOVERY_AREAS,
+  'san-francisco': SAN_FRANCISCO_DISCOVERY_AREAS,
+  'alameda-county': ALAMEDA_COUNTY_DISCOVERY_AREAS,
+  'santa-clara-county': SANTA_CLARA_COUNTY_DISCOVERY_AREAS,
+  'sacramento-county': SACRAMENTO_COUNTY_DISCOVERY_AREAS,
+  'contra-costa-county': CONTRA_COSTA_COUNTY_DISCOVERY_AREAS,
 }
 
 /**
