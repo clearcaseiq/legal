@@ -256,10 +256,55 @@ export const ORANGE_COUNTY_DISCOVERY_AREAS: readonly string[] = [
   'Ladera Ranch', 'Rossmoor', 'Coto de Caza', 'Midway City', 'Trabuco Canyon', 'Foothill Ranch',
 ]
 
+/** All 18 San Diego County cities, then city neighborhoods and unincorporated communities. */
+export const SAN_DIEGO_COUNTY_DISCOVERY_AREAS: readonly string[] = [
+  'San Diego', 'Chula Vista', 'Oceanside', 'Escondido', 'Carlsbad', 'El Cajon', 'Vista', 'San Marcos',
+  'Encinitas', 'National City', 'La Mesa', 'Santee', 'Poway', 'Imperial Beach', 'Lemon Grove',
+  'Coronado', 'Solana Beach', 'Del Mar',
+  // City of San Diego neighborhoods
+  'Downtown San Diego', 'La Jolla', 'Mission Valley', 'Kearny Mesa', 'Rancho Bernardo', 'Carmel Valley',
+  'Mira Mesa', 'Pacific Beach', 'Point Loma', 'Hillcrest', 'North Park', 'Sorrento Valley',
+  'University City', 'Rancho Penasquitos', 'Otay Mesa', 'San Ysidro',
+  // Unincorporated communities
+  'Spring Valley', 'Fallbrook', 'Ramona', 'Rancho Santa Fe', 'Alpine', 'Lakeside', 'Bonita',
+]
+
+/** All 28 Riverside County cities plus its larger unincorporated communities. */
+export const RIVERSIDE_COUNTY_DISCOVERY_AREAS: readonly string[] = [
+  'Riverside', 'Moreno Valley', 'Corona', 'Murrieta', 'Temecula', 'Menifee', 'Jurupa Valley', 'Indio',
+  'Hemet', 'Perris', 'Eastvale', 'Lake Elsinore', 'Palm Desert', 'Cathedral City', 'Palm Springs',
+  'San Jacinto', 'Beaumont', 'Wildomar', 'Coachella', 'La Quinta', 'Banning', 'Norco',
+  'Desert Hot Springs', 'Rancho Mirage', 'Blythe', 'Canyon Lake', 'Indian Wells', 'Calimesa',
+  // Unincorporated communities
+  'Temescal Valley', 'French Valley', 'Mead Valley', 'Thousand Palms', 'Winchester',
+]
+
+/** All 24 San Bernardino County cities and towns plus its larger unincorporated communities. */
+export const SAN_BERNARDINO_COUNTY_DISCOVERY_AREAS: readonly string[] = [
+  'San Bernardino', 'Fontana', 'Rancho Cucamonga', 'Ontario', 'Victorville', 'Rialto', 'Hesperia',
+  'Chino', 'Chino Hills', 'Upland', 'Apple Valley', 'Redlands', 'Highland', 'Colton', 'Yucaipa',
+  'Montclair', 'Adelanto', 'Barstow', 'Loma Linda', 'Grand Terrace', 'Twentynine Palms',
+  'Big Bear Lake', 'Needles', 'Yucca Valley',
+  // Unincorporated communities
+  'Bloomington', 'Lake Arrowhead', 'Phelan', 'Mentone', 'Running Springs',
+]
+
+/** All 10 Ventura County cities plus its larger unincorporated communities. */
+export const VENTURA_COUNTY_DISCOVERY_AREAS: readonly string[] = [
+  'Oxnard', 'Thousand Oaks', 'Simi Valley', 'Ventura', 'Camarillo', 'Moorpark', 'Santa Paula',
+  'Port Hueneme', 'Fillmore', 'Ojai',
+  // Unincorporated communities
+  'Newbury Park', 'Oak Park', 'El Rio',
+]
+
 /** Named area presets for `discover-firms-google-places.ts --area`. */
 export const DISCOVERY_AREA_PRESETS: Readonly<Record<string, readonly string[]>> = {
   'la-county': LA_COUNTY_DISCOVERY_AREAS,
   'orange-county': ORANGE_COUNTY_DISCOVERY_AREAS,
+  'san-diego-county': SAN_DIEGO_COUNTY_DISCOVERY_AREAS,
+  'riverside-county': RIVERSIDE_COUNTY_DISCOVERY_AREAS,
+  'san-bernardino-county': SAN_BERNARDINO_COUNTY_DISCOVERY_AREAS,
+  'ventura-county': VENTURA_COUNTY_DISCOVERY_AREAS,
 }
 
 /**
