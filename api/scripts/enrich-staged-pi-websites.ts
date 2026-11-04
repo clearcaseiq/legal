@@ -42,6 +42,7 @@
 
 import '../src/env'
 import { prisma } from '../src/lib/prisma'
+import { cleanScrapedEmail, emailMatchesAttorneyName, isSharedInboxEmail } from '../src/lib/attorney-email-match'
 
 type Args = {
   dryRun: boolean
@@ -707,6 +708,7 @@ async function main() {
         firmName: true,
         city: true,
         barNumber: true,
+        email: true,
         piRelevant: true,
         practiceAreas: true,
         website: true,
@@ -809,7 +811,17 @@ async function main() {
               updateData.piRelevant = false
               updateData.status = 'rejected'
             }
-            if (hasNewEmail) updateData.email = professionalEmails[0]
+            // Never replace an address we already hold — it came from the bar
+            // record or an earlier, stricter pass. A missing one is filled only
+            // with an address that carries this attorney's name; a firm page
+            // lists everyone's, and the first was often a colleague's.
+            if (!attorney.email) {
+              const own = professionalEmails
+                .map((email) => cleanScrapedEmail(email))
+                .find((email): email is string =>
+                  Boolean(email) && !isSharedInboxEmail(email) && emailMatchesAttorneyName(attorney.name, email))
+              if (own) updateData.email = own
+            }
             if (headshot) updateData.headshotUrl = headshot
             if (bio) updateData.bio = bio
             if (languages.length > 0) updateData.languages = JSON.stringify(languages)
