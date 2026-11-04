@@ -85,6 +85,7 @@ const VerifyEmail = lazy(() => import('./pages/VerifyEmail'))
 // wording claimants saw during intake.
 const AttorneyRegister = lazy(withAppMessages(() => import('./pages/AttorneyRegister')))
 const ClaimProfile = lazy(() => import('./pages/ClaimProfile'))
+const ClaimUnsubscribe = lazy(() => import('./pages/ClaimUnsubscribe'))
 const AttorneyNetwork = dynamic(() => import('./pages/AttorneyNetwork'), { ssr: true })
 const AttorneyGuidesPage = dynamic(() => import('./pages/AttorneyGuidesPage'), { ssr: true })
 const AttorneyGuidePage = dynamic(() => import('./pages/AttorneyGuidePage'), { ssr: true })
@@ -718,6 +719,7 @@ function App() {
             {/* Consolidated: the old marketing page now points at the single attorney landing page. */}
             <Route path="/for-attorneys" element={<Navigate to="/attorney-network" replace />} />
             <Route path="/claim/:token" element={<ClaimProfile />} />
+            <Route path="/claim/:token/unsubscribe" element={<ClaimUnsubscribe />} />
             <Route path="/assessment/start" element={<Navigate to="/assess?fresh=1" replace />} />
             <Route path="/ai-ml-consent" element={<AiMlConsent />} />
             <Route path="/hipaa-authorization" element={<HipaaAuthorization />} />

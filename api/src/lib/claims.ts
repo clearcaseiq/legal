@@ -87,6 +87,22 @@ type EmailParams = {
    */
   fromEmail?: string
   attachments?: EmailAttachment[]
+  /** Extra RFC 5322 headers, e.g. List-Unsubscribe. */
+  headers?: Record<string, string>
+  /**
+   * Required on outreach mail: CAN-SPAM wants the sender's postal address and a
+   * working opt-out in every commercial message. Rendered in the footer, and in
+   * the plain-text part, rather than in `body`, where a labelled link would be
+   * turned into a call-to-action button.
+   */
+  compliance?: EmailCompliance
+}
+
+export type EmailCompliance = {
+  /** Why the recipient is getting this, in one sentence. */
+  reason: string
+  unsubscribeUrl: string
+  postalAddress: string
 }
 
 export type EmailAttachment = {
@@ -256,11 +272,36 @@ function ctasToHtml(ctas: EmailCta[]): string {
  * The plain-text alternative has to carry the actions too: some clients show
  * only that part, and link scanners generally read nothing else.
  */
-function bodyToText(body: string, cta?: EmailCta | null | EmailCta[]): string {
+function bodyToText(body: string, cta?: EmailCta | null | EmailCta[], compliance?: EmailCompliance): string {
   const ctas = ctaList(cta)
-  if (!ctas.length) return body
-  const lines = ctas.map((entry) => `${entry.label}: ${safeHttpUrl(entry.url)}`).join('\n\n')
-  return `${body}\n\n${lines}`
+  let text = body
+  if (ctas.length) {
+    const lines = ctas.map((entry) => `${entry.label}: ${safeHttpUrl(entry.url)}`).join('\n\n')
+    text = `${text}\n\n${lines}`
+  }
+  if (compliance) {
+    text = [
+      text,
+      '',
+      '--',
+      compliance.reason,
+      `Unsubscribe: ${compliance.unsubscribeUrl}`,
+      `ClearCaseIQ, ${compliance.postalAddress}`,
+    ].join('\n')
+  }
+  return text
+}
+
+function complianceFooterHtml(compliance?: EmailCompliance): string {
+  if (!compliance) return ''
+  const url = safeHttpUrl(compliance.unsubscribeUrl)
+  const unsubscribe = url
+    ? ` <a href="${escapeAttr(url)}" style="color:#64748b;text-decoration:underline;">Unsubscribe</a>`
+    : ''
+  return (
+    `<p style="margin:0 0 6px;font-size:12px;line-height:1.5;color:#94a3b8;">${escapeHtml(compliance.reason)}${unsubscribe}</p>` +
+    `<p style="margin:0 0 6px;font-size:12px;line-height:1.5;color:#94a3b8;">ClearCaseIQ, ${escapeHtml(compliance.postalAddress)}</p>`
+  )
 }
 
 /** Button text for a link that arrived as a bare URL, judged by where it goes. */
@@ -314,7 +355,7 @@ function standaloneLinkToButton(line: string, ctaUrls: Set<string>): string | nu
   return ctaButtonHtml(cta, true) + ctaFallbackHtml([cta])
 }
 
-function bodyToHtml(body: string, cta?: EmailCta | null | EmailCta[]): string {
+function bodyToHtml(body: string, cta?: EmailCta | null | EmailCta[], compliance?: EmailCompliance): string {
   // Turn bare http(s) URLs into clickable links. We escape first, then match on
   // the escaped text (query separators become `&amp;`, which is still valid
   // inside an href), so reset/verification links are actually clickable in mail
@@ -337,7 +378,7 @@ function bodyToHtml(body: string, cta?: EmailCta | null | EmailCta[]): string {
       return `<p style="margin:0 0 12px;font-size:15px;line-height:1.6;color:#1f2937">${linked}</p>`
     })
     .join('')
-  return wrapBrandedEmail(paragraphs + ctasToHtml(ctas))
+  return wrapBrandedEmail(paragraphs + ctasToHtml(ctas), complianceFooterHtml(compliance))
 }
 
 /**
@@ -354,7 +395,7 @@ function emailLogoUrl(): string {
  * transactional mail looks professional (header wordmark, white card, footer with
  * confidentiality note) instead of bare <p> tags (CP-296, CP-316, CP-366).
  */
-function wrapBrandedEmail(contentHtml: string): string {
+function wrapBrandedEmail(contentHtml: string, footerExtraHtml = ''): string {
   const year = new Date().getFullYear()
   return `<!DOCTYPE html>
 <html lang="en">
@@ -379,6 +420,7 @@ function wrapBrandedEmail(contentHtml: string): string {
           </tr>
           <tr>
             <td style="padding:18px 12px 8px;">
+              ${footerExtraHtml}
               <p style="margin:0 0 6px;font-size:12px;line-height:1.5;color:#94a3b8;">
                 This message was sent by ClearCaseIQ. It may contain confidential information intended only for the recipient. ClearCaseIQ is not a law firm and does not provide legal advice.
               </p>
@@ -448,9 +490,12 @@ async function sendViaSes(params: EmailParams): Promise<boolean> {
           Simple: {
             Subject: { Data: params.subject, Charset: 'UTF-8' },
             Body: {
-              Text: { Data: bodyToText(params.body, params.cta), Charset: 'UTF-8' },
-              Html: { Data: bodyToHtml(params.body, params.cta), Charset: 'UTF-8' },
+              Text: { Data: bodyToText(params.body, params.cta, params.compliance), Charset: 'UTF-8' },
+              Html: { Data: bodyToHtml(params.body, params.cta, params.compliance), Charset: 'UTF-8' },
             },
+            ...(params.headers && Object.keys(params.headers).length
+              ? { Headers: Object.entries(params.headers).map(([Name, Value]) => ({ Name, Value })) }
+              : {}),
             ...(params.attachments?.length
               ? {
                   Attachments: params.attachments.map((a) => ({
@@ -520,9 +565,10 @@ async function sendViaResend(params: EmailParams): Promise<boolean> {
         from: formatFromAddress(fromAddress, params.fromName),
         to: [params.to],
         subject: params.subject,
-        text: bodyToText(params.body, params.cta),
-        html: bodyToHtml(params.body, params.cta),
+        text: bodyToText(params.body, params.cta, params.compliance),
+        html: bodyToHtml(params.body, params.cta, params.compliance),
         ...(params.replyTo ? { reply_to: params.replyTo } : {}),
+        ...(params.headers && Object.keys(params.headers).length ? { headers: params.headers } : {}),
         ...(params.attachments?.length
           ? {
               attachments: params.attachments.map((a) => ({

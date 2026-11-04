@@ -73,6 +73,98 @@ beforeEach(() => {
   resetUniversalPrismaMock()
   vi.mocked(sendClaimEmail).mockClear()
   vi.mocked(prisma.user.findUnique).mockResolvedValue(adminUser as any)
+  process.env.INVITE_POSTAL_ADDRESS = '1 Test Way, Irvine, CA 92618'
+})
+
+describe('invite compliance', () => {
+  it('carries a one-click unsubscribe and the postal address', async () => {
+    vi.mocked(prisma.attorney.findUnique).mockResolvedValue(attorney() as any)
+
+    await request(app).post('/v1/attorney-claim/invite').set(adminAuth).send({ attorneyId: 'att-1' })
+
+    const sent = vi.mocked(sendClaimEmail).mock.calls[0][0] as any
+    expect(sent.headers['List-Unsubscribe-Post']).toBe('List-Unsubscribe=One-Click')
+    expect(sent.headers['List-Unsubscribe']).toMatch(/\/v1\/attorney-claim\/unsubscribe\?token=/)
+    expect(sent.compliance.postalAddress).toBe('1 Test Way, Irvine, CA 92618')
+    expect(sent.compliance.unsubscribeUrl).toMatch(/\/claim\/[a-f0-9]+\/unsubscribe$/)
+  })
+
+  it('refuses to send without a postal address', async () => {
+    delete process.env.INVITE_POSTAL_ADDRESS
+    vi.mocked(prisma.attorney.findUnique).mockResolvedValue(attorney() as any)
+
+    const res = await request(app).post('/v1/attorney-claim/invite').set(adminAuth).send({ attorneyId: 'att-1' })
+
+    expect(res.status).toBe(503)
+    expect(res.body.code).toBe('INVITE_NOT_CONFIGURED')
+    expect(sendClaimEmail).not.toHaveBeenCalled()
+  })
+
+  // Unlike a decline, force must not override an unsubscribe.
+  it('never emails an address that unsubscribed, even when forced', async () => {
+    vi.mocked(prisma.attorney.findUnique).mockResolvedValue(attorney() as any)
+    vi.mocked((prisma as any).emailSuppression.findUnique).mockResolvedValue({ id: 'sup-1' })
+
+    const res = await request(app)
+      .post('/v1/attorney-claim/invite')
+      .set(adminAuth)
+      .send({ attorneyId: 'att-1', force: true })
+
+    expect(res.status).toBe(409)
+    expect(res.body.code).toBe('EMAIL_SUPPRESSED')
+    expect(sendClaimEmail).not.toHaveBeenCalled()
+  })
+
+  it('cancels a queued bulk invite so it does not go out as a duplicate', async () => {
+    vi.mocked(prisma.attorney.findUnique).mockResolvedValue(attorney() as any)
+
+    await request(app).post('/v1/attorney-claim/invite').set(adminAuth).send({ attorneyId: 'att-1' })
+
+    expect((prisma as any).profileClaim.updateMany).toHaveBeenCalledWith({
+      where: { attorneyId: 'att-1', status: 'queued' },
+      data: { status: 'cancelled' },
+    })
+  })
+})
+
+describe('POST /v1/attorney-claim/unsubscribe', () => {
+  it('accepts an RFC 8058 one-click POST and suppresses the address', async () => {
+    vi.mocked((prisma as any).profileClaim.findUnique).mockResolvedValue(claim() as any)
+    vi.mocked(prisma.attorney.findUnique).mockResolvedValue({ email: 'Avery@Firm.test' } as any)
+
+    const res = await request(app)
+      .post('/v1/attorney-claim/unsubscribe?token=tok-1')
+      .type('form')
+      .send('List-Unsubscribe=One-Click')
+
+    expect(res.status).toBe(200)
+    expect((prisma as any).emailSuppression.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { email: 'avery@firm.test' },
+        create: expect.objectContaining({ reason: 'unsubscribe' }),
+      }),
+    )
+    expect((prisma as any).profileClaim.updateMany).toHaveBeenCalledWith({
+      where: { attorneyId: 'att-1', status: 'queued' },
+      data: { status: 'cancelled' },
+    })
+  })
+
+  it('rejects an unknown token', async () => {
+    const res = await request(app).post('/v1/attorney-claim/unsubscribe').send({ token: 'nope' })
+    expect(res.status).toBe(404)
+  })
+})
+
+describe('undelivered claim tokens', () => {
+  it('cannot be used while the invite is still queued', async () => {
+    vi.mocked((prisma as any).profileClaim.findUnique).mockResolvedValue(claim({ status: 'queued' }) as any)
+    vi.mocked(prisma.attorney.findUnique).mockResolvedValue(attorney() as any)
+
+    const res = await request(app).post('/v1/attorney-claim/start').send({ token: 'tok-1' })
+
+    expect(res.status).toBe(404)
+  })
 })
 
 describe('POST /v1/attorney-claim/invite', () => {

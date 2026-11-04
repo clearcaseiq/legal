@@ -9,7 +9,17 @@
  * Nothing here is ever shown to attorneys or on the public directory.
  */
 import { Router, type Router as ExpressRouter } from 'express'
+import { z } from 'zod'
 import { logger } from '../lib/logger'
+import {
+  MAX_BATCH_SIZE,
+  cancelInviteBatch,
+  countSentInLast24Hours,
+  findInviteCandidates,
+  getInviteConfig,
+  listInviteBatches,
+  queueInviteBatch,
+} from '../lib/claim-invite-campaign'
 import { authMiddleware, AuthRequest } from '../lib/auth'
 import { adminMiddleware, requireAdminCapability } from '../lib/admin-access'
 import { parsePagination, paginated } from '../lib/pagination'
@@ -25,13 +35,24 @@ const router: ExpressRouter = Router()
  * yet — the existing flow only marks a claim expired when someone tries to use
  * it, so the stored value lags reality.
  */
-export type InvitationOutcome = 'pending' | 'accepted' | 'declined' | 'expired'
+export type InvitationOutcome =
+  | 'queued'
+  | 'pending'
+  | 'accepted'
+  | 'declined'
+  | 'expired'
+  | 'cancelled'
+  | 'failed'
 
 export function classifyInvitation(
   status: string | null | undefined,
   expiresAt: Date | string | null | undefined,
 ): InvitationOutcome {
   const value = String(status || '').toLowerCase()
+  // Not yet emailed, so its provisional expiry means nothing.
+  if (value === 'queued') return 'queued'
+  if (value === 'cancelled') return 'cancelled'
+  if (value === 'failed') return 'failed'
   if (value === 'completed') return 'accepted'
   if (value === 'rejected') return 'declined'
   if (value === 'expired') return 'expired'
@@ -77,6 +98,9 @@ router.get(
           email: true,
           expiresAt: true,
           createdAt: true,
+          sentAt: true,
+          batchId: true,
+          sendError: true,
           verifiedAt: true,
           completedAt: true,
           attorney: {
@@ -84,25 +108,42 @@ router.get(
           },
         },
         orderBy: { createdAt: 'desc' },
-        take: 1000,
+        // A full bulk pass is a couple of thousand rows; the outcome filter
+        // runs in memory, so the window has to cover all of them.
+        take: 5000,
       })
 
-      const classified: Array<{ outcome: InvitationOutcome; [key: string]: unknown }> = rows.map((row: any) => ({
-        id: row.id,
-        outcome: classifyInvitation(row.status, row.expiresAt),
-        status: row.status,
-        email: row.email || row.attorney?.email || null,
-        sentAt: row.createdAt,
-        expiresAt: row.expiresAt,
-        respondedAt: row.completedAt || row.verifiedAt || null,
-        attorney: row.attorney,
-      }))
+      const suppressedRows = await prismaAny.emailSuppression.findMany({ select: { email: true } })
+      const suppressed = new Set<string>(suppressedRows.map((row: { email: string }) => row.email))
+
+      const classified: Array<{ outcome: InvitationOutcome; [key: string]: unknown }> = rows.map((row: any) => {
+        const email = row.email || row.attorney?.email || null
+        const queued = row.status === 'queued'
+        return {
+          id: row.id,
+          outcome: classifyInvitation(row.status, row.expiresAt),
+          status: row.status,
+          email,
+          // Claims older than the sentAt column were sent when created.
+          sentAt: queued ? null : row.sentAt || row.createdAt,
+          queuedAt: row.createdAt,
+          expiresAt: queued ? null : row.expiresAt,
+          respondedAt: row.completedAt || row.verifiedAt || null,
+          batchId: row.batchId || null,
+          sendError: row.sendError || null,
+          unsubscribed: email ? suppressed.has(String(email).trim().toLowerCase()) : false,
+          attorney: row.attorney,
+        }
+      })
 
       const summary: Record<InvitationOutcome | 'totalCount', number> = {
+        queued: 0,
         pending: 0,
         accepted: 0,
         declined: 0,
         expired: 0,
+        cancelled: 0,
+        failed: 0,
         totalCount: classified.length,
       }
       for (const row of classified) summary[row.outcome] += 1
@@ -147,6 +188,16 @@ router.post(
       if (claim.status === 'completed') {
         return res.status(409).json({ error: 'This invitation was already accepted.' })
       }
+      if (claim.status === 'queued') {
+        await prismaAny.profileClaim.update({ where: { id: claim.id }, data: { status: 'cancelled' } })
+        await writeAdminAudit(req, {
+          action: 'attorney_invitation_cancelled',
+          entityType: 'profile_claim',
+          entityId: claim.id,
+          metadata: { attorneyId: claim.attorneyId },
+        })
+        return res.json({ success: true })
+      }
 
       await prismaAny.$transaction(async (tx: any) => {
         await tx.profileClaim.update({
@@ -177,6 +228,149 @@ router.post(
       res.json({ success: true })
     } catch (error) {
       logger.error('Failed to revoke attorney invitation', { error })
+      res.status(500).json({ error: 'Internal server error' })
+    }
+  },
+)
+
+const FiltersSchema = z.object({
+  county: z.string().trim().max(60).optional().nullable(),
+  city: z.string().trim().max(80).optional().nullable(),
+  firm: z.string().trim().max(120).optional().nullable(),
+})
+
+function sendingStatus(config: ReturnType<typeof getInviteConfig>, sentLast24h: number, queued: number) {
+  return {
+    dailyCap: config.dailyCap,
+    sentLast24h,
+    queued,
+    postalAddressConfigured: Boolean(config.postalAddress),
+    fromEmail: config.fromEmail,
+    replyTo: config.replyTo,
+  }
+}
+
+/**
+ * Who a bulk pass would reach. Read-only: lets an operator see the list,
+ * and how it splits by county, before anything is queued.
+ */
+router.get(
+  '/attorney-invitations/eligible',
+  authMiddleware,
+  adminMiddleware,
+  requireAdminCapability('network'),
+  async (req: AuthRequest, res) => {
+    try {
+      const parsed = FiltersSchema.safeParse(req.query)
+      if (!parsed.success) return res.status(400).json({ error: 'Invalid filters' })
+
+      const [candidates, everyone, sentLast24h, queued] = await Promise.all([
+        findInviteCandidates(parsed.data),
+        findInviteCandidates({}),
+        countSentInLast24Hours(),
+        prismaAny.profileClaim.count({ where: { status: 'queued' } }),
+      ])
+
+      const byCounty: Record<string, number> = {}
+      for (const row of everyone) {
+        const key = row.county || 'Unknown'
+        byCounty[key] = (byCounty[key] || 0) + 1
+      }
+
+      res.json({
+        success: true,
+        total: candidates.length,
+        sample: candidates.slice(0, 25),
+        byCounty,
+        maxBatchSize: MAX_BATCH_SIZE,
+        sending: sendingStatus(getInviteConfig(), sentLast24h, queued),
+      })
+    } catch (error) {
+      logger.error('Failed to list invite candidates', { error })
+      res.status(500).json({ error: 'Internal server error' })
+    }
+  },
+)
+
+const QueueSchema = FiltersSchema.extend({
+  limit: z.number().int().min(1).max(MAX_BATCH_SIZE),
+})
+
+/** Queue a batch. Nothing is emailed here; the sender sweep works through it. */
+router.post(
+  '/attorney-invitations/batches',
+  authMiddleware,
+  adminMiddleware,
+  requireAdminCapability('network'),
+  async (req: AuthRequest, res) => {
+    try {
+      const parsed = QueueSchema.safeParse(req.body)
+      if (!parsed.success) {
+        return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() })
+      }
+      // Refused up front: queued rows would otherwise sit unsent with no
+      // visible reason.
+      if (!getInviteConfig().postalAddress) {
+        return res.status(503).json({
+          error: 'Invitations are disabled until INVITE_POSTAL_ADDRESS is configured (required by CAN-SPAM).',
+          code: 'INVITE_NOT_CONFIGURED',
+        })
+      }
+
+      const { limit, ...filters } = parsed.data
+      const result = await queueInviteBatch(filters, limit)
+      await writeAdminAudit(req, {
+        action: 'attorney_invitation_batch_queued',
+        entityType: 'profile_claim_batch',
+        entityId: result.batchId,
+        metadata: { filters, limit, queued: result.queued },
+      })
+      res.json({ success: true, ...result })
+    } catch (error) {
+      logger.error('Failed to queue invite batch', { error })
+      res.status(500).json({ error: 'Internal server error' })
+    }
+  },
+)
+
+router.get(
+  '/attorney-invitations/batches',
+  authMiddleware,
+  adminMiddleware,
+  requireAdminCapability('network'),
+  async (_req: AuthRequest, res) => {
+    try {
+      const [batches, sentLast24h, queued] = await Promise.all([
+        listInviteBatches(),
+        countSentInLast24Hours(),
+        prismaAny.profileClaim.count({ where: { status: 'queued' } }),
+      ])
+      res.json({ success: true, data: batches, sending: sendingStatus(getInviteConfig(), sentLast24h, queued) })
+    } catch (error) {
+      logger.error('Failed to list invite batches', { error })
+      res.status(500).json({ error: 'Internal server error' })
+    }
+  },
+)
+
+/** Stop the unsent part of a batch. Invites already emailed are left alone. */
+router.post(
+  '/attorney-invitations/batches/:batchId/cancel',
+  authMiddleware,
+  adminMiddleware,
+  requireAdminCapability('network'),
+  async (req: AuthRequest, res) => {
+    try {
+      const cancelled = await cancelInviteBatch(req.params.batchId)
+      await writeAdminAudit(req, {
+        action: 'attorney_invitation_batch_cancelled',
+        entityType: 'profile_claim_batch',
+        entityId: req.params.batchId,
+        metadata: { cancelled },
+      })
+      res.json({ success: true, cancelled })
+    } catch (error) {
+      logger.error('Failed to cancel invite batch', { error })
       res.status(500).json({ error: 'Internal server error' })
     }
   },

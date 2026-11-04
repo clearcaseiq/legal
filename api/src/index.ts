@@ -21,6 +21,7 @@ import { runActivityCanarySweep, isActivityCanaryEnabled } from './lib/activity-
 import { sweepRawUsageEvents } from './lib/attorney-usage'
 import { runErrorRateSweep, isErrorRateMonitorEnabled } from './lib/error-rate-monitor'
 import { runAdsConversionSweep } from './lib/ads-conversion-sweep'
+import { runClaimInviteSweep } from './lib/claim-invite-campaign'
 import { runIntakeLeadIpPurge } from './lib/intake-lead-ip-retention'
 import { isGoogleAdsConfigured } from './lib/google-ads-conversions'
 import { runInboundSyncSweep, SYNC_INTERVAL_MS } from './lib/cms/inbound-sync-sweep'
@@ -56,6 +57,7 @@ let activityCanaryTimer: NodeJS.Timeout | null = null
 let usageRetentionTimer: NodeJS.Timeout | null = null
 let errorRateTimer: NodeJS.Timeout | null = null
 let adsConversionTimer: NodeJS.Timeout | null = null
+let claimInviteTimer: NodeJS.Timeout | null = null
 let inboundSyncTimer: NodeJS.Timeout | null = null
 let evidenceProcessingTimer: NodeJS.Timeout | null = null
 let demandPackageTimer: NodeJS.Timeout | null = null
@@ -536,6 +538,31 @@ function startAdsConversionLoop() {
   }, intervalMs)
 }
 
+async function runClaimInviteLoop(trigger: 'startup' | 'interval') {
+  const sweep = beginSweep('claim-invites')
+  try {
+    const result = await runClaimInviteSweep()
+    sweep.succeed()
+    if (result.blockedReason === 'no_postal_address' && trigger === 'startup') {
+      logger.warn('Claim invites are queued but INVITE_POSTAL_ADDRESS is not set; nothing will send', result)
+    }
+  } catch (error) {
+    sweep.fail(error)
+    logger.error('Claim invite sweep failed', { error, trigger })
+  }
+}
+
+function startClaimInviteLoop() {
+  // Short interval, small slices: the daily cap is spread across the day
+  // rather than spent in one burst at the top of the hour.
+  const intervalMs = 2 * 60 * 1000
+  registerSweep('claim-invites', { label: 'Attorney claim invitations', enabled: true, intervalMs })
+  void runClaimInviteLoop('startup')
+  claimInviteTimer = setInterval(() => {
+    void runClaimInviteLoop('interval')
+  }, intervalMs)
+}
+
 async function runInboundSyncLoop(trigger: 'startup' | 'interval') {
   const sweep = beginSweep('cms-inbound-sync')
   try {
@@ -698,6 +725,7 @@ function startBackgroundLoops() {
   startUsageRetentionLoop()
   startErrorRateLoop()
   startAdsConversionLoop()
+  startClaimInviteLoop()
   startInboundSyncLoop()
   startEvidenceProcessingLoop()
   startDemandPackageLoop()
@@ -744,6 +772,7 @@ function stopBackgroundLoops() {
   if (usageRetentionTimer) clearInterval(usageRetentionTimer)
   if (errorRateTimer) clearInterval(errorRateTimer)
   if (adsConversionTimer) clearInterval(adsConversionTimer)
+  if (claimInviteTimer) clearInterval(claimInviteTimer)
   if (inboundSyncTimer) clearInterval(inboundSyncTimer)
   if (evidenceProcessingTimer) clearInterval(evidenceProcessingTimer)
   if (demandPackageTimer) clearInterval(demandPackageTimer)
@@ -766,6 +795,7 @@ function stopBackgroundLoops() {
   activityCanaryTimer = null
   errorRateTimer = null
   adsConversionTimer = null
+  claimInviteTimer = null
   inboundSyncTimer = null
   evidenceProcessingTimer = null
   demandPackageTimer = null

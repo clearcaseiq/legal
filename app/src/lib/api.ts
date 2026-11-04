@@ -7198,16 +7198,27 @@ export async function reconcileAdminPayments() {
   return data
 }
 
-export type AdminInvitationOutcome = 'pending' | 'accepted' | 'declined' | 'expired'
+export type AdminInvitationOutcome =
+  | 'queued'
+  | 'pending'
+  | 'accepted'
+  | 'declined'
+  | 'expired'
+  | 'cancelled'
+  | 'failed'
 
 export interface AdminInvitation {
   id: string
   outcome: AdminInvitationOutcome
   status: string
   email: string | null
-  sentAt: string
-  expiresAt: string
+  sentAt: string | null
+  queuedAt: string
+  expiresAt: string | null
   respondedAt: string | null
+  batchId: string | null
+  sendError: string | null
+  unsubscribed: boolean
   attorney: {
     id: string
     name: string | null
@@ -7242,6 +7253,77 @@ export async function revokeAdminInvitation(id: string) {
 /** Send (or re-send) a profile claim invitation to an attorney. */
 export async function inviteAttorneyToClaim(attorneyId: string, force = false) {
   const { data } = await api.post('/v1/attorney-claim/invite', { attorneyId, force })
+  return data
+}
+
+export interface InviteFilters {
+  county?: string
+  city?: string
+  firm?: string
+}
+
+export interface InviteCandidate {
+  id: string
+  name: string
+  email: string
+  firmName: string | null
+  city: string | null
+  county: string | null
+}
+
+export interface InviteSendingStatus {
+  dailyCap: number
+  sentLast24h: number
+  queued: number
+  postalAddressConfigured: boolean
+  fromEmail: string | null
+  replyTo: string | null
+}
+
+export interface InviteBatch {
+  batchId: string
+  createdAt: string
+  filters: InviteFilters | null
+  counts: Record<string, number>
+  total: number
+}
+
+/** Attorneys a bulk invite pass would reach, plus the sender's current limits. */
+export async function getInviteCandidates(filters: InviteFilters): Promise<{
+  total: number
+  sample: InviteCandidate[]
+  byCounty: Record<string, number>
+  maxBatchSize: number
+  sending: InviteSendingStatus
+}> {
+  const search = new URLSearchParams()
+  if (filters.county) search.append('county', filters.county)
+  if (filters.city) search.append('city', filters.city)
+  if (filters.firm) search.append('firm', filters.firm)
+  const qs = search.toString()
+  const { data } = await api.get(`/v1/admin/attorney-invitations/eligible${qs ? `?${qs}` : ''}`)
+  return data
+}
+
+/** Queue invites for up to `limit` matching attorneys; a background sweep sends them. */
+export async function queueInviteBatch(filters: InviteFilters, limit: number) {
+  const { data } = await api.post('/v1/admin/attorney-invitations/batches', { ...filters, limit })
+  return data as { batchId: string; queued: number }
+}
+
+export async function getInviteBatches(): Promise<{ data: InviteBatch[]; sending: InviteSendingStatus }> {
+  const { data } = await api.get('/v1/admin/attorney-invitations/batches')
+  return data
+}
+
+export async function cancelInviteBatch(batchId: string) {
+  const { data } = await api.post(`/v1/admin/attorney-invitations/batches/${encodeURIComponent(batchId)}/cancel`)
+  return data as { cancelled: number }
+}
+
+/** Public: opt an invited attorney out of all further invitation email. */
+export async function unsubscribeFromClaimInvites(token: string) {
+  const { data } = await api.post('/v1/attorney-claim/unsubscribe', { token })
   return data
 }
 

@@ -7,6 +7,7 @@
  *   POST /v1/attorney-claim/verify     { token, code } | { token, method:'bar_number', barNumber }
  *   POST /v1/attorney-claim/complete   { token, password, firstName, lastName, email? }
  *   POST /v1/attorney-claim/decline    { token }                       -> refuse the invitation
+ *   POST /v1/attorney-claim/unsubscribe ?token= | { token }            -> stop all invite email
  *
  * Admin:
  *   POST /v1/attorney-claim/invite     { attorneyId, force? }          -> create claim + send invite
@@ -38,6 +39,12 @@ import {
   sendClaimEmail,
   verifyCode,
 } from '../lib/claims'
+import {
+  buildClaimInviteEmail,
+  getInviteConfig,
+  isEmailSuppressed,
+  suppressEmail,
+} from '../lib/claim-invite-campaign'
 
 const router = Router()
 const db = prisma as any
@@ -57,9 +64,12 @@ type ClaimRecord = {
   meta: string | null
 }
 
+/** Claims whose token was never emailed, or whose send was abandoned. */
+const UNDELIVERED_STATUSES = new Set(['queued', 'cancelled', 'failed'])
+
 async function loadClaim(token: string): Promise<{ claim: ClaimRecord; attorney: any } | null> {
   const claim = (await db.profileClaim.findUnique({ where: { token } })) as ClaimRecord | null
-  if (!claim) return null
+  if (!claim || UNDELIVERED_STATUSES.has(claim.status)) return null
   const attorney = await prisma.attorney.findUnique({ where: { id: claim.attorneyId } })
   if (!attorney) return null
   return { claim, attorney }
@@ -101,6 +111,21 @@ router.post('/invite', authMiddleware, requireRole(['admin']), async (req, res) 
   if (!attorney.email) {
     return res.status(422).json({ error: 'Attorney has no email on file to send an invite to' })
   }
+  // Unlike a decline, an unsubscribe is not overridable: it is the recipient's
+  // legal opt-out from this kind of mail.
+  if (await isEmailSuppressed(attorney.email)) {
+    return res.status(409).json({
+      error: 'This address has unsubscribed from ClearCaseIQ invitations.',
+      code: 'EMAIL_SUPPRESSED',
+    })
+  }
+  const inviteConfig = getInviteConfig()
+  if (!inviteConfig.postalAddress) {
+    return res.status(503).json({
+      error: 'Invitations are disabled until INVITE_POSTAL_ADDRESS is configured (required by CAN-SPAM).',
+      code: 'INVITE_NOT_CONFIGURED',
+    })
+  }
 
   const token = generateClaimToken()
   const expiresAt = new Date(Date.now() + CLAIM_INVITE_TTL_DAYS * 24 * 60 * 60 * 1000)
@@ -113,6 +138,11 @@ router.post('/invite', authMiddleware, requireRole(['admin']), async (req, res) 
       where: { attorneyId: attorney.id, status: { in: ['sent', 'verified'] } },
       data: { status: 'expired' },
     })
+    // A queued bulk invite would otherwise go out later as a duplicate.
+    await txDb.profileClaim.updateMany({
+      where: { attorneyId: attorney.id, status: 'queued' },
+      data: { status: 'cancelled' },
+    })
     await txDb.profileClaim.create({
       data: {
         attorneyId: attorney.id,
@@ -120,6 +150,7 @@ router.post('/invite', authMiddleware, requireRole(['admin']), async (req, res) 
         email: attorney.email,
         phone: attorney.phone,
         status: 'sent',
+        sentAt: new Date(),
         expiresAt,
       },
     })
@@ -132,18 +163,20 @@ router.post('/invite', authMiddleware, requireRole(['admin']), async (req, res) 
   })
 
   const url = claimUrl(token)
-  const sent = await sendClaimEmail({
-    to: attorney.email,
-    subject: 'Claim your CaseIQ attorney profile',
-    body: [
-      `Hi ${attorney.name},`,
-      '',
-      'Your firm already has a profile on CaseIQ. Claim it to manage your details, receive matched cases, and respond to clients.',
-      '',
-      `This link expires in ${CLAIM_INVITE_TTL_DAYS} days. If this isn't you, or you would rather not be listed, you can decline from that page and we won't email you again.`,
-    ].join('\n'),
-    cta: { label: 'Claim your profile', url },
-  })
+  const firm = attorney.lawFirmId
+    ? await prisma.lawFirm.findUnique({ where: { id: attorney.lawFirmId }, select: { name: true } })
+    : null
+  const sent = await sendClaimEmail(
+    buildClaimInviteEmail({
+      to: attorney.email,
+      attorneyName: attorney.name,
+      firmName: firm?.name ?? null,
+      token,
+      postalAddress: inviteConfig.postalAddress,
+      fromEmail: inviteConfig.fromEmail,
+      replyTo: inviteConfig.replyTo,
+    }),
+  )
 
   logger.info('Claim invite created', { attorneyId: attorney.id, emailSent: sent })
   return res.json({
@@ -193,6 +226,40 @@ router.post('/decline', async (req, res) => {
     logger.info('Claim invite declined', { attorneyId: attorney.id, claimId: claim.id })
   }
 
+  return res.json({ ok: true })
+})
+
+// ---------------------------------------------------------------------------
+// Unsubscribe: stop all invite email to this address. Distinct from declining:
+// the profile is left as it is, and the attorney can still claim with the link
+// they hold. Mail clients call this as an RFC 8058 one-click POST with the token
+// in the query string and a form body, with no cookies, so it takes no auth.
+// ---------------------------------------------------------------------------
+router.post('/unsubscribe', async (req, res) => {
+  const raw = (req.query?.token ?? req.body?.token) as unknown
+  const token = typeof raw === 'string' ? raw.trim() : ''
+  if (!token) return res.status(400).json({ error: 'Invalid request' })
+
+  const claim = await db.profileClaim.findUnique({
+    where: { token },
+    select: { id: true, attorneyId: true, email: true },
+  })
+  if (!claim) return res.status(404).json({ error: 'Invalid unsubscribe link' })
+
+  const attorney = await prisma.attorney.findUnique({
+    where: { id: claim.attorneyId },
+    select: { email: true },
+  })
+  const addresses = [claim.email, attorney?.email].filter((value): value is string => Boolean(value))
+  for (const address of new Set(addresses.map((value) => value.trim().toLowerCase()))) {
+    await suppressEmail(address, 'unsubscribe', 'claim_invite')
+  }
+  await db.profileClaim.updateMany({
+    where: { attorneyId: claim.attorneyId, status: 'queued' },
+    data: { status: 'cancelled' },
+  })
+
+  logger.info('Claim invite unsubscribed', { attorneyId: claim.attorneyId, claimId: claim.id })
   return res.json({ ok: true })
 })
 

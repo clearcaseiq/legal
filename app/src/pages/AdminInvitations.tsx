@@ -16,6 +16,7 @@ import {
   SectionCard,
   type DataTableColumn,
 } from '../features/shared/ui'
+import ClaimInviteSender from './admin/ClaimInviteSender'
 
 const DEFAULT_LIMIT = 50
 
@@ -28,6 +29,11 @@ const OUTCOME_META: Record<
   AdminInvitationOutcome,
   { label: string; tone: 'success' | 'warning' | 'neutral' | 'danger'; hint: string }
 > = {
+  queued: {
+    label: 'Queued',
+    tone: 'neutral',
+    hint: 'Waiting for the sender; not emailed yet.',
+  },
   pending: {
     label: 'Pending',
     tone: 'warning',
@@ -47,6 +53,16 @@ const OUTCOME_META: Record<
     label: 'Expired',
     tone: 'neutral',
     hint: 'The link lapsed without a response. Safe to send another.',
+  },
+  cancelled: {
+    label: 'Cancelled',
+    tone: 'neutral',
+    hint: 'Removed from the queue before it was sent.',
+  },
+  failed: {
+    label: 'Failed',
+    tone: 'danger',
+    hint: 'The email provider refused this message after several attempts.',
   },
 }
 
@@ -171,9 +187,16 @@ export default function AdminInvitations() {
       cell: (row) => {
         const meta = OUTCOME_META[row.outcome]
         return (
-          <span title={meta.hint}>
-            <Badge tone={meta.tone}>{meta.label}</Badge>
-          </span>
+          <div className="flex flex-wrap items-center gap-1">
+            <span title={row.sendError || meta.hint}>
+              <Badge tone={meta.tone}>{meta.label}</Badge>
+            </span>
+            {row.unsubscribed && (
+              <span title="This address opted out of invitation email.">
+                <Badge tone="danger">Unsubscribed</Badge>
+              </span>
+            )}
+          </div>
         )
       },
     },
@@ -198,7 +221,7 @@ export default function AdminInvitations() {
       header: 'Sent',
       cell: (row) => (
         <span className="whitespace-nowrap text-sm text-slate-600 dark:text-slate-400">
-          {formatDate(row.sentAt)}
+          {row.sentAt ? formatDate(row.sentAt) : `Queued ${formatDate(row.queuedAt)}`}
         </span>
       ),
     },
@@ -216,7 +239,19 @@ export default function AdminInvitations() {
       header: '',
       cell: (row) => {
         const busy = busyId === row.id
-        if (row.outcome === 'accepted') return <span className="text-xs text-slate-400">—</span>
+        if (row.outcome === 'accepted' || row.outcome === 'cancelled') {
+          return <span className="text-xs text-slate-400">—</span>
+        }
+        if (row.outcome === 'queued') {
+          return (
+            <div className="flex justify-end">
+              <button type="button" disabled={busy} onClick={() => revoke(row)} className="btn-outline text-ui-xs">
+                {busy ? 'Working…' : 'Cancel'}
+              </button>
+            </div>
+          )
+        }
+        if (row.unsubscribed) return <span className="text-xs text-slate-400">Opted out</span>
         return (
           <div className="flex flex-wrap items-center justify-end gap-2">
             <button
@@ -267,8 +302,16 @@ export default function AdminInvitations() {
         </div>
       )}
 
+      <ClaimInviteSender onQueued={() => void load()} />
+
       {summary && (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <SectionCard title="Queued">
+            <p className="text-2xl font-semibold tabular-nums text-slate-900 dark:text-slate-100">
+              {summary.queued ?? 0}
+            </p>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Waiting to send</p>
+          </SectionCard>
           <SectionCard title="Pending">
             <p className="text-2xl font-semibold tabular-nums text-amber-600 dark:text-amber-400">
               {summary.pending}

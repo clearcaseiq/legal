@@ -4450,19 +4450,49 @@ model ProfileClaim {
   codeHash        String?
   codeExpiresAt   DateTime?
   attempts        Int       @default(0)
-  // sent | verified | completed | expired | rejected
+  // queued | sent | verified | completed | expired | rejected | cancelled | failed
+  // "queued" is a bulk invite waiting for the sender sweep; its token has not
+  // been emailed to anyone yet, so it must not be usable.
   status          String    @default("sent")
   claimedByUserId String?
   verifiedAt      DateTime?
   completedAt     DateTime?
   expiresAt       DateTime
   meta            String?   @db.Text
+  // Set on invites queued together from the admin bulk sender; null for one-off invites.
+  batchId         String?
+  // When the invite email actually went out. Null while queued, and on claims
+  // created before this column existed (their createdAt is the send time).
+  sentAt          DateTime?
+  sendAttempts    Int       @default(0)
+  sendError       String?   @db.Text
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
   @@index([attorneyId, status])
   @@index([status])
+  @@index([batchId])
+  @@index([sentAt])
   @@map("profile_claims")
+}
+
+/// Addresses that must never receive marketing or outreach email again.
+///
+/// Checked before every claim invite is sent, so an unsubscribe holds across
+/// re-imports and across attorneys: a new Attorney row with the same address
+/// stays suppressed. Transactional mail the person asked for (password resets,
+/// codes they requested) is not gated by this.
+model EmailSuppression {
+  id        String   @id @default(cuid())
+  /// Lowercased and trimmed.
+  email     String   @unique
+  /// unsubscribe | bounce | complaint | manual
+  reason    String
+  /// Where the suppression came from, e.g. "claim_invite".
+  source    String?
+  createdAt DateTime @default(now())
+
+  @@map("email_suppressions")
 }
 
 model CaseTier {
