@@ -21,7 +21,7 @@ const db = prisma as any
 
 const attorneyRow = (id: string, email: string, city: string, firm = 'Firm LLP') => ({
   id,
-  name: `Attorney ${id}`,
+  name: `${email.split('@')[0]} Attorney`,
   email,
   lawFirm: { name: firm, city, state: 'CA' },
 })
@@ -87,8 +87,8 @@ describe('findInviteCandidates', () => {
 
   it('filters by county derived from the firm city', async () => {
     db.attorney.findMany.mockResolvedValue([
-      attorneyRow('la', 'la@x.test', 'Los Angeles'),
-      attorneyRow('oc', 'oc@x.test', 'Irvine'),
+      attorneyRow('la', 'angela@x.test', 'Los Angeles'),
+      attorneyRow('oc', 'irene@x.test', 'Irvine'),
     ])
 
     const result = await findInviteCandidates({ county: 'Orange County' })
@@ -107,6 +107,18 @@ describe('findInviteCandidates', () => {
     const all = await findInviteCandidates({ includeRoleInboxes: true })
     expect(all.map((row) => row.id)).toEqual(['person', 'desk'])
     expect(all[1].roleInbox).toBe(true)
+  })
+
+  it('holds back addresses that do not match the attorney name unless asked to include them', async () => {
+    db.attorney.findMany.mockResolvedValue([
+      { ...attorneyRow('own', 'jsmith@firm.test', 'Los Angeles'), name: 'Jane Smith' },
+      { ...attorneyRow('colleague', 'bob@firm.test', 'Los Angeles'), name: 'Jane Smith' },
+    ])
+
+    expect((await findInviteCandidates({})).map((row) => row.id)).toEqual(['own'])
+    const all = await findInviteCandidates({ includeUnmatchedEmails: true })
+    expect(all.map((row) => row.id)).toEqual(['own', 'colleague'])
+    expect(all[1].nameMismatch).toBe(true)
   })
 
   it('never includes attorneys whose firm is located outside California', async () => {

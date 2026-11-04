@@ -7261,6 +7261,7 @@ export interface InviteFilters {
   city?: string
   firm?: string
   includeRoleInboxes?: boolean
+  includeUnmatchedEmails?: boolean
 }
 
 export interface InviteCandidate {
@@ -7271,6 +7272,7 @@ export interface InviteCandidate {
   city: string | null
   county: string | null
   roleInbox: boolean
+  nameMismatch: boolean
 }
 
 export interface InviteSendingStatus {
@@ -7318,6 +7320,7 @@ export async function getInviteCandidates(filters: InviteFilters): Promise<{
   if (filters.city) search.append('city', filters.city)
   if (filters.firm) search.append('firm', filters.firm)
   if (filters.includeRoleInboxes) search.append('includeRoleInboxes', 'true')
+  if (filters.includeUnmatchedEmails) search.append('includeUnmatchedEmails', 'true')
   const qs = search.toString()
   const { data } = await api.get(`/v1/admin/attorney-invitations/eligible${qs ? `?${qs}` : ''}`)
   return data

@@ -19,6 +19,7 @@ import { prisma } from './prisma'
 import { logger } from './logger'
 import { webUrl } from './app-url'
 import { countyForCaCity, normalizeCaCounty } from './ca-counties'
+import { emailMatchesAttorneyName, isSharedInboxEmail } from './attorney-email-match'
 import { CLAIM_INVITE_TTL_DAYS, claimUrl, generateClaimToken, sendClaimEmail } from './claims'
 
 const db = prisma as any
@@ -36,8 +37,17 @@ export type InviteFilters = {
   county?: string | null
   city?: string | null
   firm?: string | null
-  /** Shared front-desk inboxes are held back unless an admin opts in. */
+  /**
+   * Shared front-desk inboxes are held back unless an admin opts in: an invite
+   * greeting someone by name in a shared inbox reads as spam, and these are the
+   * inboxes likeliest to report it.
+   */
   includeRoleInboxes?: boolean | null
+  /**
+   * Addresses that show no sign of the attorney's name are held back too. Many
+   * came from scraping a firm page and belong to a colleague.
+   */
+  includeUnmatchedEmails?: boolean | null
 }
 
 export type InviteCandidate = {
@@ -48,21 +58,11 @@ export type InviteCandidate = {
   city: string | null
   county: string | null
   roleInbox: boolean
+  nameMismatch: boolean
 }
 
-/**
- * Local parts that reach a front desk rather than the named attorney. An
- * invite greeting someone by name in a shared inbox reads as spam, and these
- * inboxes are the likeliest to report it.
- */
-const ROLE_LOCAL_PARTS = new Set([
-  'info', 'office', 'contact', 'admin', 'intake', 'reception', 'frontdesk', 'hello', 'help',
-  'support', 'mail', 'law', 'legal', 'team', 'inquiries', 'inquiry', 'clients', 'cases', 'staff',
-])
-
 export function isRoleInbox(email: string | null | undefined): boolean {
-  const local = normalizeEmail(email).split('@')[0] || ''
-  return ROLE_LOCAL_PARTS.has(local)
+  return isSharedInboxEmail(email)
 }
 
 function emailDomain(email: string | null | undefined): string {
@@ -230,6 +230,8 @@ export async function findInviteCandidates(filters: InviteFilters = {}): Promise
     if ((attorney.lawFirm?.state || '').toUpperCase() !== 'CA') continue
     const roleInbox = isRoleInbox(email)
     if (roleInbox && !filters.includeRoleInboxes) continue
+    const nameMismatch = !roleInbox && !emailMatchesAttorneyName(attorney.name, email)
+    if (nameMismatch && !filters.includeUnmatchedEmails) continue
     const firmCity = attorney.lawFirm?.city ?? null
     const firmCounty = countyForCaCity(firmCity)
     if (county && firmCounty !== county) continue
@@ -243,6 +245,7 @@ export async function findInviteCandidates(filters: InviteFilters = {}): Promise
       city: firmCity,
       county: firmCounty,
       roleInbox,
+      nameMismatch,
     })
   }
   return candidates

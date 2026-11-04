@@ -32,6 +32,7 @@ function describeFilters(filters: InviteFilters | null): string {
     filters.city && `city "${filters.city}"`,
     filters.firm && `firm "${filters.firm}"`,
     filters.includeRoleInboxes && 'including shared inboxes',
+    filters.includeUnmatchedEmails && 'including unmatched addresses',
   ].filter(Boolean)
   return parts.length ? parts.join(', ') : 'All eligible'
 }
@@ -144,6 +145,7 @@ export default function ClaimInviteSender({ onQueued }: { onQueued: () => void }
   const [city, setCity] = useState('')
   const [firm, setFirm] = useState('')
   const [includeRoleInboxes, setIncludeRoleInboxes] = useState(false)
+  const [includeUnmatchedEmails, setIncludeUnmatchedEmails] = useState(false)
   const [total, setTotal] = useState<number | null>(null)
   const [sample, setSample] = useState<InviteCandidate[]>([])
   const [byCounty, setByCounty] = useState<Record<string, number>>({})
@@ -163,8 +165,9 @@ export default function ClaimInviteSender({ onQueued }: { onQueued: () => void }
       city: city.trim() || undefined,
       firm: firm.trim() || undefined,
       includeRoleInboxes: includeRoleInboxes || undefined,
+      includeUnmatchedEmails: includeUnmatchedEmails || undefined,
     }),
-    [county, city, firm, includeRoleInboxes],
+    [county, city, firm, includeRoleInboxes, includeUnmatchedEmails],
   )
 
   const loadBatches = useCallback(async () => {
@@ -360,6 +363,17 @@ export default function ClaimInviteSender({ onQueued }: { onQueued: () => void }
             />
             Include shared office inboxes
           </label>
+          <label
+            className="flex items-center gap-2 pb-2 text-sm text-slate-700 dark:text-slate-300"
+            title="Addresses that show no sign of the attorney's name, often a colleague's address taken from the firm website."
+          >
+            <input
+              type="checkbox"
+              checked={includeUnmatchedEmails}
+              onChange={(e) => setIncludeUnmatchedEmails(e.target.checked)}
+            />
+            Include addresses that don't match the attorney's name
+          </label>
           <button type="button" onClick={() => void preview()} disabled={loading} className="btn-outline text-ui-sm">
             {loading ? 'Loading…' : 'Preview'}
           </button>
@@ -397,6 +411,7 @@ export default function ClaimInviteSender({ onQueued }: { onQueued: () => void }
                         <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
                           {row.email}
                           {row.roleInbox && <span className="ml-1 text-xs text-amber-600">(shared inbox)</span>}
+                          {row.nameMismatch && <span className="ml-1 text-xs text-amber-600">(name doesn't match)</span>}
                         </td>
                       </tr>
                     ))}
