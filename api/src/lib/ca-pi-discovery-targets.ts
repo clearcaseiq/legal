@@ -333,6 +333,37 @@ export const CONTRA_COSTA_COUNTY_DISCOVERY_AREAS: readonly string[] = [
   'Martinez', 'Pleasant Hill', 'Lafayette', 'Orinda', 'El Cerrito', 'Hercules',
 ]
 
+/** San Mateo County cities by population. */
+export const SAN_MATEO_COUNTY_DISCOVERY_AREAS: readonly string[] = [
+  'Daly City', 'San Mateo', 'Redwood City', 'South San Francisco', 'San Bruno', 'Pacifica', 'Foster City',
+  'Menlo Park', 'Burlingame', 'San Carlos', 'Belmont', 'Millbrae', 'Half Moon Bay',
+]
+
+/** Placer County cities and towns by population. */
+export const PLACER_COUNTY_DISCOVERY_AREAS: readonly string[] = [
+  'Roseville', 'Rocklin', 'Lincoln', 'Auburn', 'Loomis', 'Granite Bay',
+]
+
+/** Fresno County cities by population. */
+export const FRESNO_COUNTY_DISCOVERY_AREAS: readonly string[] = [
+  'Fresno', 'Clovis', 'Sanger', 'Reedley', 'Selma', 'Kerman', 'Coalinga',
+]
+
+/** Kern County cities by population. */
+export const KERN_COUNTY_DISCOVERY_AREAS: readonly string[] = [
+  'Bakersfield', 'Delano', 'Ridgecrest', 'Tehachapi', 'Wasco', 'Shafter',
+]
+
+/** Stanislaus County cities by population. */
+export const STANISLAUS_COUNTY_DISCOVERY_AREAS: readonly string[] = [
+  'Modesto', 'Turlock', 'Ceres', 'Riverbank', 'Oakdale', 'Patterson',
+]
+
+/** San Joaquin County cities by population. */
+export const SAN_JOAQUIN_COUNTY_DISCOVERY_AREAS: readonly string[] = [
+  'Stockton', 'Tracy', 'Manteca', 'Lodi', 'Lathrop', 'Ripon',
+]
+
 /** Named area presets for `discover-firms-google-places.ts --area`. */
 export const DISCOVERY_AREA_PRESETS: Readonly<Record<string, readonly string[]>> = {
   'la-county': LA_COUNTY_DISCOVERY_AREAS,
@@ -346,6 +377,12 @@ export const DISCOVERY_AREA_PRESETS: Readonly<Record<string, readonly string[]>>
   'santa-clara-county': SANTA_CLARA_COUNTY_DISCOVERY_AREAS,
   'sacramento-county': SACRAMENTO_COUNTY_DISCOVERY_AREAS,
   'contra-costa-county': CONTRA_COSTA_COUNTY_DISCOVERY_AREAS,
+  'san-mateo-county': SAN_MATEO_COUNTY_DISCOVERY_AREAS,
+  'placer-county': PLACER_COUNTY_DISCOVERY_AREAS,
+  'fresno-county': FRESNO_COUNTY_DISCOVERY_AREAS,
+  'kern-county': KERN_COUNTY_DISCOVERY_AREAS,
+  'stanislaus-county': STANISLAUS_COUNTY_DISCOVERY_AREAS,
+  'san-joaquin-county': SAN_JOAQUIN_COUNTY_DISCOVERY_AREAS,
 }
 
 /**
