@@ -364,6 +364,39 @@ export const SAN_JOAQUIN_COUNTY_DISCOVERY_AREAS: readonly string[] = [
   'Stockton', 'Tracy', 'Manteca', 'Lodi', 'Lathrop', 'Ripon',
 ]
 
+/** Main cities of the 20 mid-size counties not covered by a county preset above. */
+export const CA_MIDSIZE_COUNTY_DISCOVERY_AREAS: readonly string[] = [
+  // Sonoma
+  'Santa Rosa', 'Petaluma', 'Rohnert Park', 'Healdsburg', 'Sonoma',
+  // Santa Barbara
+  'Santa Barbara', 'Santa Maria', 'Lompoc', 'Goleta',
+  // Monterey
+  'Salinas', 'Monterey', 'Seaside',
+  // Tulare
+  'Visalia', 'Tulare', 'Porterville',
+  // Solano
+  'Vallejo', 'Fairfield', 'Vacaville', 'Benicia',
+  // Santa Cruz
+  'Santa Cruz', 'Watsonville', 'Capitola',
+  // Marin
+  'San Rafael', 'Novato', 'Mill Valley', 'Larkspur',
+  // San Luis Obispo
+  'San Luis Obispo', 'Paso Robles', 'Arroyo Grande', 'Atascadero',
+  // Merced, Butte, Yolo
+  'Merced', 'Los Banos', 'Chico', 'Oroville', 'Davis', 'Woodland', 'West Sacramento',
+  // El Dorado, Shasta, Imperial
+  'Placerville', 'El Dorado Hills', 'South Lake Tahoe', 'Redding', 'El Centro', 'Calexico', 'Brawley',
+  // Madera, Kings, Napa, Humboldt, Nevada, Sutter
+  'Madera', 'Hanford', 'Napa', 'Eureka', 'Arcata', 'Grass Valley', 'Truckee', 'Yuba City',
+]
+
+/** County seats of the 21 rural counties; one search per town reaches its few firms. */
+export const CA_RURAL_COUNTY_DISCOVERY_AREAS: readonly string[] = [
+  'Markleeville', 'Jackson', 'Angels Camp', 'Colusa', 'Crescent City', 'Willows', 'Bishop', 'Clearlake',
+  'Susanville', 'Mariposa', 'Ukiah', 'Alturas', 'Mammoth Lakes', 'Quincy', 'Hollister', 'Downieville',
+  'Yreka', 'Red Bluff', 'Weaverville', 'Sonora', 'Marysville',
+]
+
 /** Named area presets for `discover-firms-google-places.ts --area`. */
 export const DISCOVERY_AREA_PRESETS: Readonly<Record<string, readonly string[]>> = {
   'la-county': LA_COUNTY_DISCOVERY_AREAS,
@@ -383,6 +416,8 @@ export const DISCOVERY_AREA_PRESETS: Readonly<Record<string, readonly string[]>>
   'kern-county': KERN_COUNTY_DISCOVERY_AREAS,
   'stanislaus-county': STANISLAUS_COUNTY_DISCOVERY_AREAS,
   'san-joaquin-county': SAN_JOAQUIN_COUNTY_DISCOVERY_AREAS,
+  'ca-midsize-counties': CA_MIDSIZE_COUNTY_DISCOVERY_AREAS,
+  'ca-rural-counties': CA_RURAL_COUNTY_DISCOVERY_AREAS,
 }
 
 /**
