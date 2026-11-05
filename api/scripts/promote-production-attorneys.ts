@@ -50,7 +50,7 @@ type TxClient = Parameters<Parameters<typeof prisma.$transaction>[0]>[0]
 async function resolveLawFirm(
   tx: TxClient,
   row: NonNullable<ProductionRow>
-): Promise<string | null> {
+): Promise<{ id: string; name: string } | null> {
   const resolved = await resolveOrCreateLawFirm(tx, {
     name: row.firmName?.trim() || row.name?.trim(),
     website: row.website,
@@ -61,7 +61,9 @@ async function resolveLawFirm(
     state: row.state,
     zip: row.zip,
   })
-  return resolved?.id ?? null
+  if (!resolved) return null
+  const firm = await tx.lawFirm.findUnique({ where: { id: resolved.id }, select: { name: true } })
+  return { id: resolved.id, name: firm?.name ?? row.firmName ?? '' }
 }
 
 /**
@@ -154,7 +156,8 @@ async function main() {
     }
 
     const result = await prisma.$transaction(async (tx) => {
-      const lawFirmId = await resolveLawFirm(tx, row)
+      const firm = await resolveLawFirm(tx, row)
+      const lawFirmId = firm?.id ?? null
       const existing = await resolveExistingAttorney(tx, {
         barNumber: row.barNumber,
         email: row.email,
@@ -174,6 +177,9 @@ async function main() {
             unmatchedPracticeAreas: normalized.unmatchedLabels,
             practiceAreasGenericOnly: normalized.genericOnly,
             countyResolved: Boolean(county),
+            // Staged as reviewed_low_confidence: no firm website corroborates the
+            // practice, only the attorney's own State Bar filing.
+            reviewConfidence: row.status === 'reviewed_low_confidence' ? 'low' : 'standard',
           },
         },
       }
@@ -227,7 +233,9 @@ async function main() {
         create: {
           attorneyId,
           specialties: JSON.stringify(normalized.incidentTypes),
-          firmName: row.firmName ?? null,
+          // The firm's own name rather than this row's spelling of it, so
+          // colleagues at one firm do not each show a different variant.
+          firmName: firm?.name || row.firmName || null,
           firmWebsite: row.website ?? null,
           jurisdictions,
           totalReviews: row.reviewCount ?? 0,

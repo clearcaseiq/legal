@@ -4218,7 +4218,9 @@ model ProductionAttorney {
   rating      Float?
   reviewCount Int?
 
-  // Pipeline state: scraped -> reviewed -> promoted | rejected
+  // Pipeline state: scraped -> reviewed | reviewed_low_confidence -> promoted | rejected.
+  // reviewed_low_confidence rests on the attorney's own bar filing with no firm
+  // website behind it; promotion records that on the live attorney's meta.
   status             String  @default("scraped")
   /// Whether this attorney likely practises PI, derived from practiceAreas/specialties.
   piRelevant         Boolean @default(false)
