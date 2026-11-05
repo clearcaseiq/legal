@@ -58,6 +58,9 @@ export const KNOWN_ROUTE_PREFIXES = [
   '/respond',
   '/results',
   '/smart-recommendations',
+  // Embedded video rooms, `/video/:kind/:id`. Clients reach these from an
+  // emailed link, so a full page load has to answer with the app.
+  '/video',
 ]
 
 /** Routes with no dynamic segments. */

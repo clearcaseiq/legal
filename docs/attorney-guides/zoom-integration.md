@@ -4,22 +4,29 @@
 
 Connect your Zoom account, start video calls and schedule Zoom consultations from a case, and disconnect or remove the Zoom app at any time.
 
-_Last updated: 2026-10-21 · About 4 min read_
+_Last updated: 2026-11-05 · About 5 min read_
 
 ## Contents
 
 - [What the Zoom integration does](#what-the-zoom-integration-does)
+- [What you need](#what-you-need)
 - [Connect your Zoom account](#connect-your-zoom-account)
+- [Permissions ClearCaseIQ requests](#permissions-clearcaseiq-requests)
 - [Start a video call from a case](#start-a-video-call-from-a-case)
 - [Schedule a Zoom consultation](#schedule-a-zoom-consultation)
 - [After the call](#after-the-call)
 - [Disconnect Zoom in ClearCaseIQ](#disconnect-zoom-in-clearcaseiq)
 - [Remove the ClearCaseIQ app from Zoom](#remove-the-clearcaseiq-app-from-zoom)
 - [What ClearCaseIQ stores](#what-clearcaseiq-stores)
+- [Support](#support)
 
 ## What the Zoom integration does
 
 Connecting Zoom lets ClearCaseIQ create meetings on your own Zoom account. You can start an instant video call from a case or schedule a Zoom consultation, and the client gets the join link automatically. When a call ends, ClearCaseIQ adds a note to the case and drafts a time entry for you to review. Each attorney connects their own Zoom account; nothing is shared between attorneys.
+
+## What you need
+
+A ClearCaseIQ attorney account and a Zoom account (free or paid). Clients do not need a Zoom account or a ClearCaseIQ login to join; they open the link they are sent.
 
 ## Connect your Zoom account
 
@@ -30,9 +37,16 @@ Connecting Zoom lets ClearCaseIQ create meetings on your own Zoom account. You c
 
 > **Tip:** You can also connect from a case: if Zoom is not connected yet, clicking "Start video call" shows a "Connect Zoom" link.
 
-> **Tip:** ClearCaseIQ asks Zoom only for what it needs: your basic profile, permission to create meetings, and the tokens used to start and join those meetings.
-
 Where in the app: **Open Calendar settings** (`/attorney-dashboard/cases/calendar?tab=booking`)
+
+## Permissions ClearCaseIQ requests
+
+When you connect, Zoom asks you to approve these permissions. ClearCaseIQ uses them only to create and start meetings for your cases. It does not read your other meetings, contacts, recordings or chat.
+
+1. user:read — your Zoom user ID, name and email, so we can show which Zoom account is connected.
+2. meeting:write — create meetings on your account when you start a video call or book a Zoom consultation.
+3. user:read:zak — a short-lived host token so the meeting opens with you as the host.
+4. user:read:token — the user token Zoom requires alongside the host token to start meetings you create.
 
 ## Start a video call from a case
 
@@ -77,4 +91,8 @@ Where in the app: **Open Calendar settings** (`/attorney-dashboard/cases/calenda
 
 ## What ClearCaseIQ stores
 
-Your Zoom user ID, email address and display name; the access tokens that let us create meetings for you, encrypted at rest; and, for each meeting, its ID, join link, passcode, start and end times and duration. We do not store recordings, chat or anything said in the meeting. Questions: support@clearcaseiq.com.
+Your Zoom user ID, email address and display name; the access tokens that let us create meetings for you, encrypted at rest; and, for each meeting, its ID, join link, passcode, start and end times and duration. We do not store recordings, chat or anything said in the meeting. See our Privacy Policy at clearcaseiq.com/privacy-policy for more.
+
+## Support
+
+For help with the Zoom integration, email support@clearcaseiq.com or use the chat in the attorney dashboard.
