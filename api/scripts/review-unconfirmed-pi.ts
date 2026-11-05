@@ -215,14 +215,39 @@ async function inParallel<T>(items: T[], concurrency: number, work: (item: T) =>
 
 const csvCell = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`
 
+/**
+ * Mark attorneys reviewed and add the firm's injury terms to their practice
+ * areas, as the website scan does. Without them a row whose bar record says only
+ * "Litigation" maps to no incident type, and promotion skips it.
+ */
+async function markReviewed(ids: string[], keywords: string[]) {
+  const rows = await prisma.productionAttorney.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, status: true, practiceAreas: true },
+  })
+  for (const row of rows) {
+    let existing: string[] = []
+    try { existing = JSON.parse(row.practiceAreas ?? '[]') } catch { /* rewritten below */ }
+    await prisma.productionAttorney.update({
+      where: { id: row.id },
+      data: {
+        practiceAreas: JSON.stringify([...new Set([...existing, ...keywords.slice(0, 5)])]),
+        ...(row.status === 'scraped' ? { status: 'reviewed' } : {}),
+      },
+    })
+  }
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2))
   const countyFilter = args.counties.length
     ? { OR: args.counties.map((c) => ({ county: { startsWith: c, mode: 'insensitive' as const } })) }
     : { county: { not: null } }
 
+  // Re-applying a report also reaches rows it already marked, so their practice areas can be filled in.
+  const statuses = args.applyReport ? ['scraped', 'reviewed'] : ['scraped']
   const candidates = await prisma.productionAttorney.findMany({
-    where: { source: SOURCE, status: 'scraped', piRelevant: true, website: { not: null }, ...countyFilter },
+    where: { source: SOURCE, status: { in: statuses }, piRelevant: true, website: { not: null }, ...countyFilter },
     select: { id: true, firmName: true, website: true },
   })
 
@@ -274,15 +299,16 @@ async function main() {
     // Re-applies the firm-size rule, so a report written before it changed is read the same way.
     const accepted = (c: string[]) => c[at('decision')] === 'accept_plaintiff_language'
       || (c[at('decision')] === 'accept_places_and_site' && Number(c[at('staged_at_firm')]) <= MAX_FIRM_WITHOUT_FEE_LANGUAGE)
-    const acceptedDomains = new Set(lines.map(cells).filter(accepted).map((c) => c[at('domain')]))
-    const ids = [...firms.entries()].filter(([domain]) => acceptedDomains.has(domain)).flatMap(([, f]) => f.attorneyIds)
-    for (let i = 0; i < ids.length; i += 500) {
-      await prisma.productionAttorney.updateMany({
-        where: { id: { in: ids.slice(i, i + 500) }, status: 'scraped' },
-        data: { status: 'reviewed' },
-      })
+    const keywordsByDomain = new Map(lines.map(cells).filter(accepted)
+      .map((c) => [c[at('domain')], c[at('strong_pi')].split('; ').filter(Boolean)] as const))
+    let marked = 0
+    for (const [domain, firm] of firms) {
+      const keywords = keywordsByDomain.get(domain)
+      if (!keywords) continue
+      await markReviewed(firm.attorneyIds, keywords)
+      marked += firm.attorneyIds.length
     }
-    console.log(`  Marked reviewed: ${ids.length} attorneys at ${acceptedDomains.size} accepted firms from ${args.applyReport}`)
+    console.log(`  Marked reviewed: ${marked} attorneys at ${keywordsByDomain.size} accepted firms from ${args.applyReport}`)
     await prisma.$disconnect()
     return
   }
@@ -324,13 +350,8 @@ async function main() {
 
   const accepted = results.filter((r) => r.decision.startsWith('accept_'))
   const acceptedIds = accepted.flatMap((r) => r.attorneyIds)
-  if (args.apply && acceptedIds.length) {
-    for (let i = 0; i < acceptedIds.length; i += 500) {
-      await prisma.productionAttorney.updateMany({
-        where: { id: { in: acceptedIds.slice(i, i + 500) }, status: 'scraped' },
-        data: { status: 'reviewed' },
-      })
-    }
+  if (args.apply) {
+    for (const firm of accepted) await markReviewed(firm.attorneyIds, firm.signals?.strongKeywords ?? [])
   }
 
   if (args.out) {
