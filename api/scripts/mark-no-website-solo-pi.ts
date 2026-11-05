@@ -71,7 +71,8 @@ async function main() {
       website: null,
       phone: { not: null },
       county: { not: null },
-      licenseStatus: { startsWith: 'Active', mode: 'insensitive' },
+      // The CPRA file codes active members as "A"; other sources spell it out.
+      OR: [{ licenseStatus: 'A' }, { licenseStatus: { startsWith: 'Active', mode: 'insensitive' } }],
       practiceAreas: { contains: 'Personal Injury', mode: 'insensitive' },
     },
     select: { id: true, name: true, firmName: true, county: true, practiceAreas: true, discipline: true },

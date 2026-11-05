@@ -125,7 +125,12 @@ function parseArgs(argv: string[]): Args {
     else if (flag === '--no-signals') args.writeSignals = false
     else if (flag === '--max-requests') args.maxRequests = positiveInt(next(), flag)
     else if (flag === '--cities') args.cities = positiveInt(next(), flag)
-    else if (flag === '--keywords') args.keywords = positiveInt(next(), flag)
+    else if (flag === '--keywords') {
+      // 0 runs only the --keyword phrases, for a pass over phrases not yet searched.
+      const value = Number(next())
+      if (!Number.isInteger(value) || value < 0) throw new Error('--keywords expects a whole number >= 0')
+      args.keywords = value
+    }
     else if (flag === '--pages') {
       args.pages = Math.min(positiveInt(next(), flag), MAX_PAGES_PER_QUERY)
     } else if (flag === '--city') {
