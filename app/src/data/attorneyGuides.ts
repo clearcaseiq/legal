@@ -748,12 +748,10 @@ export const attorneyGuides: AttorneyGuide[] = [
       {
         heading: 'Permissions ClearCaseIQ requests',
         body:
-          'When you connect, Zoom asks you to approve these permissions. ClearCaseIQ uses them only to create and start meetings for your cases. It does not read your other meetings, contacts, recordings or chat.',
+          'When you connect, Zoom asks you to approve these permissions. ClearCaseIQ uses them only to create meetings for your cases. It does not read your other meetings, contacts, recordings or chat.',
         steps: [
           'user:read \u2014 your Zoom user ID, name and email, so we can show which Zoom account is connected.',
           'meeting:write \u2014 create meetings on your account when you start a video call or book a Zoom consultation.',
-          'user:read:zak \u2014 a short-lived host token so the meeting opens with you as the host.',
-          'user:read:token \u2014 the user token Zoom requires alongside the host token to start meetings you create.',
         ],
       },
       {

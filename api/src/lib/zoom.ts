@@ -20,9 +20,10 @@ const ZOOM_API_BASE = 'https://api.zoom.us/v2'
 // Scopes requested from Zoom. For user-managed apps Zoom ultimately enforces
 // whatever scopes are enabled in the Marketplace app config; we still advertise
 // the ones we rely on so consent screens are explicit.
-// user:read:zak and user:read:token back the embedded (Meeting SDK) join: the
-// host needs a ZAK and attendees need an on-behalf-of token from the host.
-const ZOOM_SCOPES = ['user:read', 'meeting:write', 'user:read:zak', 'user:read:token']
+// The embedded (Meeting SDK) join additionally needs user:read:zak and
+// user:read:token. They are left out of the Marketplace app while
+// ZOOM_EMBED_ENABLED is off; without them the join falls back to the Zoom app.
+const ZOOM_SCOPES = ['user:read', 'meeting:write']
 
 type ZoomConnectionRecord = {
   id: string

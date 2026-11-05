@@ -41,12 +41,10 @@ Where in the app: **Open Calendar settings** (`/attorney-dashboard/cases/calenda
 
 ## Permissions ClearCaseIQ requests
 
-When you connect, Zoom asks you to approve these permissions. ClearCaseIQ uses them only to create and start meetings for your cases. It does not read your other meetings, contacts, recordings or chat.
+When you connect, Zoom asks you to approve these permissions. ClearCaseIQ uses them only to create meetings for your cases. It does not read your other meetings, contacts, recordings or chat.
 
 1. user:read — your Zoom user ID, name and email, so we can show which Zoom account is connected.
 2. meeting:write — create meetings on your account when you start a video call or book a Zoom consultation.
-3. user:read:zak — a short-lived host token so the meeting opens with you as the host.
-4. user:read:token — the user token Zoom requires alongside the host token to start meetings you create.
 
 ## Start a video call from a case
 
