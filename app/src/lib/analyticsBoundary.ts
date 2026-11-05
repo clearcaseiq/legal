@@ -89,6 +89,7 @@ export const SENSITIVE_ROUTE_PREFIXES = [
   '/rose',
   '/smart-recommendations',
   '/staff-profile',
+  '/video',
 ] as const
 
 /** Locale-prefixed copies of the same screens, e.g. /es/assess. */
