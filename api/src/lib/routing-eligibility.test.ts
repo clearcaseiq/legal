@@ -100,6 +100,12 @@ describe('checkAttorneyEligibility', () => {
     expect(r.eligible).toBe(true)
   })
 
+  it('accepts an attorney in a nearby county only when those counties are passed', async () => {
+    const orangeOnly = attorney({ attorneyProfile: profile([{ state: 'CA', counties: ['Orange'] }]) })
+    expect((await checkAttorneyEligibility(orangeOnly, caAutoCase, { nearbyCounties: ['Orange', 'Kern'] })).eligible).toBe(true)
+    expect((await checkAttorneyEligibility(orangeOnly, caAutoCase, { nearbyCounties: ['Kern'] })).eligible).toBe(false)
+  })
+
   it('rejects missing specialties', async () => {
     const r = await checkAttorneyEligibility(attorney({ specialties: null }), caAutoCase)
     expect(r.eligible).toBe(false)

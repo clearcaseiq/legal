@@ -20,6 +20,7 @@ import {
 import { sendCaseOfferToAttorney } from './case-notifications'
 import { emitLeadNew } from './realtime'
 import { attorneysBlockedByFirmDecline } from './firm-decline'
+import { caNeighboringCounties } from './ca-counties'
 import { declineAdjustmentFor, loadDeclineLearning, traitsFromAssessment } from './decline-learning'
 import {
   recordRoutingEvent,
@@ -151,6 +152,8 @@ export type RoutingDiagnostics = {
   selected: RoutingRankedCandidate[]
   rankedPreview: RoutingRankedCandidate[]
   excludedPreview: Array<{ attorneyId: string; stage: 'eligibility' | 'quality'; reason: string }>
+  /** Set when nobody served the venue county and attorneys in these bordering counties were considered instead. */
+  nearbyCounties?: string[]
 }
 
 function emptyFeedback(): AttorneyRoutingFeedback {
@@ -354,7 +357,7 @@ export async function runRoutingEngine(
     const weights = normalizeMatchingWeights(matchingRules)
     const waveNumberForConfig = options?.waveNumber ?? 1
     const maxPerWave = options?.maxAttorneysPerWave ?? getConfiguredWaveSize(matchingRules, waveNumberForConfig)
-    const diagnosticsBase = {
+    const diagnosticsBase: Pick<RoutingDiagnostics, 'config' | 'weights' | 'nearbyCounties'> = {
       config: {
         maxAttorneysWave1: matchingRules.maxAttorneysWave1,
         maxAttorneysWave2: matchingRules.maxAttorneysWave2,
@@ -553,7 +556,22 @@ export async function runRoutingEngine(
     const attorneysToConsider = excludeIds.size > 0
       ? attorneysForRouting.filter(a => !excludeIds.has(a.id))
       : attorneysForRouting
-    const { eligible, ineligible } = await filterEligibleAttorneys(attorneysToConsider, caseData)
+    let { eligible, ineligible } = await filterEligibleAttorneys(attorneysToConsider, caseData)
+    if (eligible.length === 0 && caseData.venueCounty && caseData.venueState.toUpperCase() === 'CA') {
+      const nearbyCounties = caNeighboringCounties(caseData.venueCounty)
+      if (nearbyCounties.length > 0) {
+        ;({ eligible, ineligible } = await filterEligibleAttorneys(attorneysToConsider, caseData, { nearbyCounties }))
+        if (eligible.length > 0) {
+          diagnosticsBase.nearbyCounties = nearbyCounties
+          logger.info('No attorney serves the venue county; routing to bordering counties', {
+            assessmentId,
+            venueCounty: caseData.venueCounty,
+            nearbyCounties,
+            eligible: eligible.length,
+          })
+        }
+      }
+    }
     const excludedPreview = ineligible.slice(0, 12).map((item) => ({
       attorneyId: item.attorney.id,
       stage: 'eligibility' as const,

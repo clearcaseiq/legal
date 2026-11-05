@@ -69,12 +69,22 @@ export interface EligibilityResult {
   reason?: string // If not eligible, why
 }
 
+export interface EligibilityOptions {
+  /**
+   * Counties accepted in place of the case's own county. Used only when nobody
+   * serves the venue county itself, so a case there still reaches attorneys
+   * next door rather than nobody.
+   */
+  nearbyCounties?: string[]
+}
+
 /**
  * Check if attorney is eligible for a case (Step 0 - Hard Filter)
  */
 export async function checkAttorneyEligibility(
   attorney: AttorneyForRouting,
-  caseData: CaseForRouting
+  caseData: CaseForRouting,
+  options: EligibilityOptions = {}
 ): Promise<EligibilityResult> {
   const ethicalWall = await prisma.ethicalWall.findFirst({
     where: {
@@ -119,9 +129,10 @@ export async function checkAttorneyEligibility(
     // If case has a county, check if attorney serves that county
     // If attorney has no counties listed for the state, they serve all counties
     if (caseData.venueCounty && stateMatch.counties && stateMatch.counties.length > 0) {
-      const countyMatch = stateMatch.counties.some(county =>
-        county.toLowerCase() === caseData.venueCounty?.toLowerCase()
+      const accepted = new Set(
+        [caseData.venueCounty, ...(options.nearbyCounties ?? [])].map(county => county.toLowerCase())
       )
+      const countyMatch = stateMatch.counties.some(county => accepted.has(county.toLowerCase()))
 
       if (!countyMatch) {
         return { eligible: false, reason: `Does not serve county: ${caseData.venueCounty}` }
@@ -261,7 +272,8 @@ export async function checkAttorneyEligibility(
  */
 export async function filterEligibleAttorneys(
   attorneys: AttorneyForRouting[],
-  caseData: CaseForRouting
+  caseData: CaseForRouting,
+  options: EligibilityOptions = {}
 ): Promise<{
   eligible: AttorneyForRouting[]
   ineligible: Array<{ attorney: AttorneyForRouting; reason: string }>
@@ -270,7 +282,7 @@ export async function filterEligibleAttorneys(
   const ineligible: Array<{ attorney: AttorneyForRouting; reason: string }> = []
 
   for (const attorney of attorneys) {
-    const result = await checkAttorneyEligibility(attorney, caseData)
+    const result = await checkAttorneyEligibility(attorney, caseData, options)
     
     if (result.eligible) {
       eligible.push(attorney)

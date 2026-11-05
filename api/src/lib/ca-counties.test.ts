@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   ambiguousCountiesForCaCity,
   CA_COUNTIES,
+  caNeighboringCounties,
   CENSUS_OVERRIDES,
   countyForCaCity,
   isCaCounty,
@@ -12,6 +13,38 @@ import {
   CENSUS_AMBIGUOUS_PLACES,
   CENSUS_PLACE_TO_COUNTY,
 } from './ca-county-crosswalk.generated'
+
+describe('caNeighboringCounties', () => {
+  it('gives every county at least one canonical neighbour, never itself', () => {
+    for (const county of CA_COUNTIES) {
+      const neighbours = caNeighboringCounties(county)
+      expect(neighbours.length, county).toBeGreaterThan(0)
+      expect(neighbours).not.toContain(county)
+      for (const n of neighbours) expect(isCaCounty(n), `${county} -> ${n}`).toBe(true)
+    }
+  })
+
+  it('is symmetric', () => {
+    for (const county of CA_COUNTIES) {
+      for (const n of caNeighboringCounties(county)) {
+        expect(caNeighboringCounties(n), `${n} should list ${county}`).toContain(county)
+      }
+    }
+  })
+
+  it('knows the borders routing leans on', () => {
+    expect(caNeighboringCounties('Los Angeles')).toEqual(['Kern', 'Orange', 'San Bernardino', 'Ventura'])
+    expect(caNeighboringCounties('Yolo')).toContain('Sacramento')
+    expect(caNeighboringCounties('Madera')).toContain('Fresno')
+    expect(caNeighboringCounties('Imperial')).toEqual(['Riverside', 'San Diego'])
+  })
+
+  it('accepts loose spellings and rejects non-counties', () => {
+    expect(caNeighboringCounties('napa county')).toContain('Sonoma')
+    expect(caNeighboringCounties('Atlantis')).toEqual([])
+    expect(caNeighboringCounties(null)).toEqual([])
+  })
+})
 
 describe('CA_COUNTIES', () => {
   it('lists all 58 counties exactly once', () => {

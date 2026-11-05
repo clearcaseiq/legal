@@ -442,6 +442,77 @@ export function normalizeCaCounty(value: string | null | undefined): string | nu
 }
 
 /**
+ * Counties that share a border, listed once per pair; `caNeighboringCounties`
+ * reads them in both directions. Bay crossings (San Francisco to Alameda and
+ * Marin) count, because a client there can reach an office across the water
+ * as easily as one over a land line.
+ */
+const CA_COUNTY_BORDERS: Record<string, readonly string[]> = {
+  Alameda: ['Contra Costa', 'San Joaquin', 'Santa Clara', 'San Francisco', 'San Mateo'],
+  Alpine: ['Amador', 'Calaveras', 'El Dorado', 'Mono', 'Tuolumne'],
+  Amador: ['Calaveras', 'El Dorado', 'Sacramento', 'San Joaquin'],
+  Butte: ['Colusa', 'Glenn', 'Plumas', 'Sutter', 'Tehama', 'Yuba'],
+  Calaveras: ['San Joaquin', 'Stanislaus', 'Tuolumne'],
+  Colusa: ['Glenn', 'Lake', 'Sutter', 'Yolo'],
+  'Contra Costa': ['Sacramento', 'San Joaquin', 'Solano', 'Marin'],
+  'Del Norte': ['Humboldt', 'Siskiyou'],
+  'El Dorado': ['Placer', 'Sacramento'],
+  Fresno: ['Inyo', 'Kings', 'Madera', 'Merced', 'Mono', 'Monterey', 'San Benito', 'Tulare'],
+  Glenn: ['Lake', 'Mendocino', 'Tehama'],
+  Humboldt: ['Mendocino', 'Siskiyou', 'Trinity'],
+  Imperial: ['Riverside', 'San Diego'],
+  Inyo: ['Kern', 'Mono', 'San Bernardino', 'Tulare'],
+  Kern: ['Kings', 'Los Angeles', 'San Bernardino', 'San Luis Obispo', 'Santa Barbara', 'Tulare', 'Ventura'],
+  Kings: ['Monterey', 'Tulare'],
+  Lake: ['Mendocino', 'Napa', 'Sonoma', 'Yolo'],
+  Lassen: ['Modoc', 'Plumas', 'Shasta', 'Sierra'],
+  'Los Angeles': ['Orange', 'San Bernardino', 'Ventura'],
+  Madera: ['Mariposa', 'Merced', 'Mono'],
+  Marin: ['Sonoma', 'San Francisco'],
+  Mariposa: ['Merced', 'Tuolumne'],
+  Mendocino: ['Sonoma', 'Tehama', 'Trinity'],
+  Merced: ['San Benito', 'Santa Clara', 'Stanislaus'],
+  Modoc: ['Shasta', 'Siskiyou'],
+  Mono: ['Tuolumne'],
+  Monterey: ['San Benito', 'San Luis Obispo', 'Santa Cruz'],
+  Napa: ['Solano', 'Sonoma', 'Yolo'],
+  Nevada: ['Placer', 'Sierra', 'Yuba'],
+  Orange: ['Riverside', 'San Bernardino', 'San Diego'],
+  Placer: ['Sacramento', 'Sutter', 'Yuba'],
+  Plumas: ['Shasta', 'Sierra', 'Tehama', 'Yuba'],
+  Riverside: ['San Bernardino', 'San Diego'],
+  Sacramento: ['San Joaquin', 'Solano', 'Sutter', 'Yolo'],
+  'San Benito': ['Santa Clara', 'Santa Cruz'],
+  'San Francisco': ['San Mateo'],
+  'San Joaquin': ['Stanislaus'],
+  'San Luis Obispo': ['Santa Barbara'],
+  'San Mateo': ['Santa Clara', 'Santa Cruz'],
+  'Santa Barbara': ['Ventura'],
+  'Santa Clara': ['Santa Cruz', 'Stanislaus'],
+  Shasta: ['Siskiyou', 'Tehama', 'Trinity'],
+  Sierra: ['Yuba'],
+  Siskiyou: ['Trinity'],
+  Solano: ['Yolo'],
+  Stanislaus: ['Tuolumne'],
+  Sutter: ['Yolo', 'Yuba'],
+  Tehama: ['Trinity'],
+}
+
+const NEIGHBORS = new Map<string, Set<string>>(CA_COUNTIES.map((county) => [county, new Set<string>()]))
+for (const [county, borders] of Object.entries(CA_COUNTY_BORDERS)) {
+  for (const other of borders) {
+    NEIGHBORS.get(county)?.add(other)
+    NEIGHBORS.get(other)?.add(county)
+  }
+}
+
+/** Canonical names of the counties bordering `county`, or `[]` if it is not a California county. */
+export function caNeighboringCounties(county: string | null | undefined): string[] {
+  const canonical = normalizeCaCounty(county)
+  return canonical ? [...(NEIGHBORS.get(canonical) ?? [])].sort() : []
+}
+
+/**
  * Places where the curated map intentionally disagrees with the Census file.
  * Every entry needs a reason, because overriding authoritative data is exactly
  * the kind of thing that should not happen by accident.
