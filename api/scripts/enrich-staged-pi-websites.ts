@@ -341,6 +341,8 @@ const KNOWN_LANGUAGES = [
   'haitian creole', 'creole', 'sign language', 'asl',
 ]
 
+const MAX_PLAUSIBLE_LANGUAGES = 8
+
 const LANGUAGE_PATTERNS = [
   /(?:languages?\s*(?:spoken|available)?|(?:we\s+)?speaks?|hablamos?|fluent\s+in|bilingual|multilingual)\s*[:\-—]?\s*([^.<\n]{10,200})/gi,
   /(?:se\s+habla\s+español|hablamos\s+español)/gi,
@@ -384,7 +386,10 @@ function extractLanguages(text: string): string[] {
     else if (lang === 'chinese') { if (!found.has('mandarin') && !found.has('cantonese')) normalized.push('Chinese') }
     else normalized.push(cap)
   }
-  return [...new Set(normalized)]
+  const unique = [...new Set(normalized)]
+  // A site-wide translation widget lists dozens of languages next to
+  // "translate"; no single attorney speaks that many, so trust none of them.
+  return unique.length >= MAX_PLAUSIBLE_LANGUAGES ? [] : unique
 }
 
 /* ── Case results extraction ─────────────────────────────────────── */
