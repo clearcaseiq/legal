@@ -1,0 +1,32 @@
+{
+  "fixtureVersion": "v1",
+  "sanitizationVersion": "1",
+  "vendor": "litify",
+  "tables": {
+    "litify_pm__Matter__c": [
+      {
+        "Id": "MAT-d40000000001",
+        "client_id": "CON-d40000000001",
+        "litify_pm__Case_Type__c": "Wrongful Death",
+        "date_of_loss": "2026-04-09",
+        "state": "CA"
+      }
+    ],
+    "Account": [
+      {
+        "Id": "CON-d40000000001",
+        "matter_id": "MAT-d40000000001",
+        "Name": "Entity-d40000000001",
+        "role": "Client"
+      }
+    ],
+    "litify_pm__Task__c": [
+      {
+        "Id": "TAS-d40000000001",
+        "matter_id": "MAT-d40000000001",
+        "Subject": "[sanitized TXT-d40000000001]",
+        "ActivityDate": "2026-05-01"
+      }
+    ]
+  }
+}

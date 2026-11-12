@@ -243,7 +243,7 @@ export default function AttorneyDashboardIntakeTab({ onGoToLeads }: AttorneyDash
   const [smartSaving, setSmartSaving] = useState(false)
 
   /**
-   * Read the first uploaded file so the attorney can check the rows and fix
+   * Read the uploaded selection so the attorney can check the rows and fix
    * the column mapping before anything is created.
    *
    * The server does the reading. This used to parse the file in the browser
@@ -253,22 +253,22 @@ export default function AttorneyDashboardIntakeTab({ onGoToLeads }: AttorneyDash
    * order mark a Windows editor adds. Asking the API means the preview sees
    * exactly what the import will see.
    */
-  const refreshPreview = async (firstFile: File | undefined) => {
-    if (!firstFile) {
+  const refreshPreview = async (files: File[]) => {
+    if (files.length === 0) {
       setPreview(null)
       setMapping({})
       return
     }
     setPreviewLoading(true)
     try {
-      const parsed = await parseImportFilePreview(firstFile)
+      const parsed = await parseImportFilePreview(files)
       setPreview(parsed)
       setMapping(parsed.headers.length ? guessMapping(parsed.headers) : {})
       // A matter package flattened into the mapping screen reads as one junk row.
       if (parsed.matterPackage) setImportMode('matter')
     } catch (err: any) {
       setPreview({
-        fileName: firstFile.name,
+        fileName: files[0].name,
         headers: [],
         rows: [],
         unsupported: err.response?.data?.error || 'Could not read this file.',
@@ -291,7 +291,7 @@ export default function AttorneyDashboardIntakeTab({ onGoToLeads }: AttorneyDash
           merged.push(f)
         }
       }
-      if (merged[0]) void refreshPreview(merged[0])
+      void refreshPreview(merged)
       return { ...prev, files: merged }
     })
   }
@@ -299,7 +299,7 @@ export default function AttorneyDashboardIntakeTab({ onGoToLeads }: AttorneyDash
   const removeFile = (index: number) => {
     setImportForm((prev) => {
       const files = prev.files.filter((_, i) => i !== index)
-      void refreshPreview(files[0])
+      void refreshPreview(files)
       return { ...prev, files }
     })
   }
@@ -616,7 +616,7 @@ export default function AttorneyDashboardIntakeTab({ onGoToLeads }: AttorneyDash
           {(
             [
               { value: 'basic', label: 'Basic case import', desc: 'CSV, Excel or JSON with one row per case: client details and accident facts.' },
-              { value: 'matter', label: 'Complete matter migration', desc: 'A whole matter with its contacts, insurance, medical visits and bills, notes, tasks and history.' },
+              { value: 'matter', label: 'Complete matter migration', desc: 'Related CMS CSVs, a multi-sheet workbook, or packaged JSON joined into complete matters.' },
             ] as const
           ).map((m) => {
             const active = importMode === m.value
@@ -698,9 +698,9 @@ export default function AttorneyDashboardIntakeTab({ onGoToLeads }: AttorneyDash
             <div className="mt-4 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
               <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
               <span>
-                This file has one row per case, not related tables. Use Basic case import for it, or export the matter
-                with its tables (for example tables.Matters, tables.Contacts, tables.Medical_Visits), or a workbook
-                with one sheet per table.
+                These files do not include a recognizable matter table plus related records. Select the related export
+                CSVs together (including the matters, cases, or projects table), use Basic case import for one row per case, or provide packaged
+                JSON/a workbook with one sheet per table.
               </span>
             </div>
           ) : (

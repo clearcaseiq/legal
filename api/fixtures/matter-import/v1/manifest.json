@@ -1,0 +1,26 @@
+{
+  "fixtureVersion": "v1",
+  "sanitizationVersion": "1",
+  "fixtures": {
+    "clio": {
+      "file": "clio.json",
+      "sha256": "d3da4024ed6e0b63f427ed9f68733a0de76dc9a660ad47436d02ab0ac3ab5cab",
+      "expected": { "matters": 1, "contacts": 1, "medicalVisits": 1, "medicalBills": 1 }
+    },
+    "filevine": {
+      "file": "filevine.json",
+      "sha256": "868d891d54ab61bbddddc6ff9e604349e1b018bb447ace9994d584311bce3d91",
+      "expected": { "matters": 1, "contacts": 1, "tasks": 1 }
+    },
+    "needles": {
+      "file": "needles.json",
+      "sha256": "ed6e748a0915c3ae00142473388a71a123e6488d7fc5468d42959e12634f756f",
+      "expected": { "matters": 1, "contacts": 1, "notes": 1 }
+    },
+    "litify": {
+      "file": "litify.json",
+      "sha256": "5450b7362c5ea58b394b5ab0f2a6bc4595431a62eaa839a321dfeb2d735ee267",
+      "expected": { "matters": 1, "contacts": 1, "tasks": 1 }
+    }
+  }
+}

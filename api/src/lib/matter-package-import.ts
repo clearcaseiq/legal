@@ -15,6 +15,7 @@ import { createAttorneyOwnedCase, finalizeAttorneyCases, type AttorneyCaseOwner 
 import { recordCaseChange } from './data-authority'
 import {
   bundleCounts,
+  bundleRecordEntries,
   bundleRecordKeys,
   type BundleCounts,
   type MatterBundle,
@@ -35,6 +36,19 @@ export type MatterImportReport = {
   imported: BundleCounts
   /** Records left alone because an earlier import already wrote them. */
   alreadyImported: number
+  reconciliation?: {
+    created: number
+    unchanged: number
+    changed: number
+    missing: number
+    items: Array<{
+      key: string
+      kind: string
+      status: 'created' | 'unchanged' | 'changed' | 'missing'
+      changedFields?: string[]
+      relationshipChanged?: boolean
+    }>
+  }
   reason?: string
 }
 
@@ -44,7 +58,7 @@ function day(value: string | null | undefined): Date | null {
 
 export const EMPTY_BUNDLE_COUNTS: BundleCounts = {
   contacts: 0, medicalVisits: 0, medicalBills: 0, insurance: 0, liens: 0, expenses: 0,
-  negotiations: 0, tasks: 0, notes: 0, timeline: 0, documents: 0,
+  billingInvoices: 0, timeEntries: 0, negotiations: 0, tasks: 0, notes: 0, timeline: 0, documents: 0,
 }
 
 /** Keys every earlier matter import wrote onto this case. */
@@ -73,6 +87,8 @@ function withoutKeys(bundle: MatterBundle, skip: Set<string>): MatterBundle {
     contacts: keep(bundle.contacts),
     visits: keep(bundle.visits),
     bills: keep(bundle.bills),
+    billingInvoices: keep(bundle.billingInvoices),
+    timeEntries: keep(bundle.timeEntries),
     insurance: keep(bundle.insurance),
     liens: keep(bundle.liens),
     expenses: keep(bundle.expenses),
@@ -83,18 +99,28 @@ function withoutKeys(bundle: MatterBundle, skip: Set<string>): MatterBundle {
   }
 }
 
+function changedFields(before: unknown, after: unknown): string[] {
+  if (!before || !after || typeof before !== 'object' || typeof after !== 'object') return []
+  const left = before as Record<string, unknown>
+  const right = after as Record<string, unknown>
+  return [...new Set([...Object.keys(left), ...Object.keys(right)])]
+    .filter((key) => JSON.stringify(left[key] ?? null) !== JSON.stringify(right[key] ?? null))
+    .sort()
+}
+
 async function writeRelated(
   tx: Prisma.TransactionClient,
   bundle: MatterBundle,
-  ctx: { assessmentId: string; attorneyId: string; source: string; actorName: string | null; actorEmail: string | null; actorUserId: string | null },
-) {
+  ctx: { assessmentId: string; attorneyId: string; lawFirmId: string | null; source: string; actorName: string | null; actorEmail: string | null; actorUserId: string | null },
+): Promise<Map<string, { targetModel: string; targetId: string }>> {
   const { assessmentId, attorneyId, source, actorName } = ctx
+  const written = new Map<string, { targetModel: string; targetId: string }>()
 
   if (bundle.contacts.length) {
     const lead = await tx.leadSubmission.findFirst({ where: { assessmentId }, select: { id: true } })
     if (lead) {
       for (const c of bundle.contacts) {
-        await tx.caseContact.create({
+        const created = await tx.caseContact.create({
           data: {
             leadId: lead.id,
             attorneyId,
@@ -113,13 +139,14 @@ async function writeRelated(
             ].filter(Boolean).join('\n'),
           },
         })
+        written.set(c.key, { targetModel: 'CaseContact', targetId: created.id })
       }
     }
   }
 
   for (const v of bundle.visits) {
     const start = day(v.startDate)
-    await tx.medicalTreatmentEntry.create({
+    const created = await tx.medicalTreatmentEntry.create({
       data: {
         assessmentId,
         provider: v.provider,
@@ -137,10 +164,11 @@ async function writeRelated(
         createdByName: actorName,
       },
     })
+    written.set(v.key, { targetModel: 'MedicalTreatmentEntry', targetId: created.id })
   }
 
   for (const b of bundle.bills) {
-    await tx.damageItem.create({
+    const created = await tx.damageItem.create({
       data: {
         assessmentId,
         category: 'medical',
@@ -158,10 +186,64 @@ async function writeRelated(
         createdByName: actorName,
       },
     })
+    written.set(b.key, { targetModel: 'DamageItem', targetId: created.id })
+  }
+
+  for (const invoice of bundle.billingInvoices) {
+    const created = await tx.billingInvoice.create({
+      data: {
+        assessmentId,
+        invoiceNumber: invoice.invoiceNumber,
+        amount: invoice.amount,
+        status: invoice.status,
+        dueDate: day(invoice.dueDate),
+        paidAt: day(invoice.paidAt),
+        notes: [invoice.notes, `Imported from ${source}.`].filter(Boolean).join('\n\n'),
+      },
+    })
+    written.set(invoice.key, { targetModel: 'BillingInvoice', targetId: created.id })
+  }
+
+  for (const entry of bundle.timeEntries) {
+    if (ctx.lawFirmId) {
+      const created = await tx.timeEntry.create({
+        data: {
+          lawFirmId: ctx.lawFirmId,
+          assessmentId,
+          attorneyId,
+          workDate: day(entry.workDate)!,
+          minutes: entry.minutes,
+          activityType: entry.activityType,
+          description: entry.description,
+          billable: entry.billable,
+          hourlyRate: entry.hourlyRate,
+          amount: entry.amount,
+          status: 'submitted',
+          createdById: ctx.actorUserId,
+        },
+      })
+      written.set(entry.key, { targetModel: 'TimeEntry', targetId: created.id })
+    } else {
+      // TimeEntry belongs to a LawFirm in the current schema. Preserve a solo
+      // attorney's imported entry on the case instead of dropping it.
+      const created = await tx.caseNote.create({
+        data: {
+          assessmentId,
+          authorName: actorName,
+          noteType: 'internal',
+          message: [
+            `Clio time entry: ${entry.minutes} minutes on ${entry.workDate}`,
+            entry.description,
+            entry.amount !== null ? `Amount: $${entry.amount.toFixed(2)}` : '',
+          ].filter(Boolean).join('\n'),
+        },
+      })
+      written.set(entry.key, { targetModel: 'CaseNote', targetId: created.id })
+    }
   }
 
   for (const i of bundle.insurance) {
-    await tx.insuranceDetail.create({
+    const created = await tx.insuranceDetail.create({
       data: {
         assessmentId,
         carrierName: i.carrierName,
@@ -178,23 +260,26 @@ async function writeRelated(
         notes: i.notes,
       },
     })
+    written.set(i.key, { targetModel: 'InsuranceDetail', targetId: created.id })
   }
 
   for (const l of bundle.liens) {
-    await tx.lienHolder.create({
+    const created = await tx.lienHolder.create({
       data: { assessmentId, name: l.name, type: l.type, amount: l.amount, status: l.status, notes: l.notes },
     })
+    written.set(l.key, { targetModel: 'LienHolder', targetId: created.id })
   }
 
   for (const e of bundle.expenses) {
-    await tx.caseExpense.create({
+    const created = await tx.caseExpense.create({
       data: { assessmentId, category: e.category, description: e.description, amount: e.amount, incurredAt: day(e.incurredAt) },
     })
+    written.set(e.key, { targetModel: 'CaseExpense', targetId: created.id })
   }
 
   const defendantCarrier = bundle.insurance.find((i) => i.insuredParty !== 'client')
   for (const n of bundle.negotiations) {
-    await tx.negotiationEvent.create({
+    const created = await tx.negotiationEvent.create({
       data: {
         assessmentId,
         eventType: n.eventType,
@@ -208,10 +293,11 @@ async function writeRelated(
         createdByName: actorName,
       },
     })
+    written.set(n.key, { targetModel: 'NegotiationEvent', targetId: created.id })
   }
 
   for (const t of bundle.tasks) {
-    await tx.caseTask.create({
+    const created = await tx.caseTask.create({
       data: {
         assessmentId,
         title: t.title,
@@ -224,12 +310,13 @@ async function writeRelated(
         createdByName: actorName,
       },
     })
+    written.set(t.key, { targetModel: 'CaseTask', targetId: created.id })
   }
 
   for (const n of bundle.notes) {
     // Dated as the CMS dated them, so the history reads in its real order.
     const createdAt = day(n.date) ?? undefined
-    await tx.caseNote.create({
+    const created = await tx.caseNote.create({
       data: {
         assessmentId,
         authorName: n.author ?? actorName,
@@ -238,10 +325,11 @@ async function writeRelated(
         ...(createdAt ? { createdAt } : {}),
       },
     })
+    written.set(n.key, { targetModel: 'CaseNote', targetId: created.id })
   }
 
   if (bundle.documents.length) {
-    await tx.caseNote.create({
+    const created = await tx.caseNote.create({
       data: {
         assessmentId,
         authorName: actorName,
@@ -249,12 +337,16 @@ async function writeRelated(
         message: [
           `Documents listed in the ${source} export (${bundle.documents.length}). The files themselves were not in the export; upload them or connect ${source} to bring them across.`,
           ...bundle.documents.map((d) =>
-            `• ${d.name}${d.category ? ` (${d.category})` : ''}${d.date ? `, ${d.date}` : ''}${d.url ? ` — ${d.url}` : ''}`,
+            `• ${d.name}${d.category ? ` (${d.category})` : ''}${d.date ? `, ${d.date}` : ''}${d.checksum ? `, SHA-256 ${d.checksum}` : ''}${d.url ? ` — ${d.url}` : ''}`,
           ),
         ].join('\n'),
       },
     })
+    for (const document of bundle.documents) {
+      written.set(document.key, { targetModel: 'CaseNote', targetId: created.id })
+    }
   }
+  return written
 }
 
 /**
@@ -274,8 +366,10 @@ export async function importMatterBundle(params: {
   actor: { userId: string | null; name: string | null; email: string | null }
   existingAssessmentId: string | null
   mode: 'skip' | 'merge'
+  runId?: string
+  runMatterId?: string
 }): Promise<MatterImportReport> {
-  const { bundle, source, owner, attorneyId, importId, actor, existingAssessmentId, mode } = params
+  const { bundle, source, owner, attorneyId, importId, actor, existingAssessmentId, mode, runId, runMatterId } = params
   const base = { externalId: bundle.externalId, label: bundle.label }
 
   if (existingAssessmentId && mode === 'skip') {
@@ -283,13 +377,61 @@ export async function importMatterBundle(params: {
   }
 
   const prior = existingAssessmentId ? await priorRecordKeys(existingAssessmentId) : new Set<string>()
+  const priorRows: Array<{
+    sourceKey: string
+    sourceHash: string
+    sourceData: unknown
+    relationshipKeys: unknown
+    targetModel: string
+    targetId: string
+  }> = existingAssessmentId
+    ? await (prisma as any).matterImportRecord?.findMany({
+        where: { assessmentId: existingAssessmentId, rolledBackAt: null },
+        orderBy: { createdAt: 'desc' },
+      }) ?? []
+    : []
+  const priorByKey = new Map<string, (typeof priorRows)[number]>()
+  for (const row of priorRows) if (!priorByKey.has(row.sourceKey)) priorByKey.set(row.sourceKey, row)
+
+  const currentEntries = bundleRecordEntries(bundle)
+  const currentKeys = new Set(currentEntries.map((entry) => entry.key))
+  const reconciliationItems: NonNullable<MatterImportReport['reconciliation']>['items'] =
+    currentEntries.map((entry) => {
+      const previous = priorByKey.get(entry.key)
+      if (!prior.has(entry.key)) {
+        return { key: entry.key, kind: entry.kind, status: 'created' as const }
+      }
+      if (previous && previous.sourceHash !== entry.hash) {
+        const oldRelationships = Array.isArray(previous.relationshipKeys) ? previous.relationshipKeys : []
+        return {
+          key: entry.key,
+          kind: entry.kind,
+          status: 'changed' as const,
+          changedFields: changedFields(previous.sourceData, entry.data),
+          relationshipChanged: JSON.stringify(oldRelationships) !== JSON.stringify(entry.relationshipKeys),
+        }
+      }
+      return { key: entry.key, kind: entry.kind, status: 'unchanged' as const }
+    })
+  for (const previous of priorByKey.values()) {
+    if (!currentKeys.has(previous.sourceKey)) {
+      reconciliationItems.push({ key: previous.sourceKey, kind: 'unknown', status: 'missing' })
+    }
+  }
+  const reconciliation = {
+    created: reconciliationItems.filter((item) => item.status === 'created').length,
+    unchanged: reconciliationItems.filter((item) => item.status === 'unchanged').length,
+    changed: reconciliationItems.filter((item) => item.status === 'changed').length,
+    missing: reconciliationItems.filter((item) => item.status === 'missing').length,
+    items: reconciliationItems,
+  }
   const toWrite = withoutKeys(bundle, prior)
   const allKeys = bundleRecordKeys(bundle)
   const alreadyImported = allKeys.filter((k) => prior.has(k)).length
   const newKeys = bundleRecordKeys(toWrite)
 
   if (existingAssessmentId && newKeys.length === 0) {
-    return { ...base, outcome: 'unchanged', assessmentId: existingAssessmentId, imported: EMPTY_BUNDLE_COUNTS, alreadyImported }
+    return { ...base, outcome: 'unchanged', assessmentId: existingAssessmentId, imported: EMPTY_BUNDLE_COUNTS, alreadyImported, reconciliation }
   }
 
   try {
@@ -335,14 +477,38 @@ export async function importMatterBundle(params: {
           id = created.assessmentId
         }
 
-        await writeRelated(tx, toWrite, {
+        const targets = await writeRelated(tx, toWrite, {
           assessmentId: id,
           attorneyId,
+          lawFirmId: owner.lawFirmId,
           source,
           actorName: actor.name,
           actorEmail: actor.email,
           actorUserId: actor.userId,
         })
+
+        if (runId && runMatterId) {
+          const entries = bundleRecordEntries(toWrite)
+          for (const entry of entries) {
+            const target = targets.get(entry.key)
+            if (!target) continue
+            await (tx as any).matterImportRecord.create({
+              data: {
+                runId,
+                matterId: runMatterId,
+                assessmentId: id,
+                sourceKind: entry.kind,
+                sourceKey: entry.key,
+                sourceHash: entry.hash,
+                sourceData: entry.data,
+                relationshipKeys: entry.relationshipKeys,
+                targetModel: target.targetModel,
+                targetId: target.targetId,
+                action: 'created',
+              },
+            })
+          }
+        }
 
         await tx.caseIntakeRequest.create({
           data: {
@@ -366,15 +532,17 @@ export async function importMatterBundle(params: {
     )
 
     if (!existingAssessmentId) await finalizeAttorneyCases([assessmentId])
-    void recordCaseChange({
-      assessmentId,
-      source: 'cms_inbound',
-      action: existingAssessmentId ? 'matter_import_merged' : 'matter_imported',
-      entityType: 'assessment',
-      entityId: assessmentId,
-      summary: `${existingAssessmentId ? 'Merged' : 'Imported'} ${source} matter ${bundle.externalId}`,
-      actor: { type: 'user', id: actor.userId ?? undefined, label: actor.name ?? undefined },
-    })
+    if (!runId) {
+      void recordCaseChange({
+        assessmentId,
+        source: 'cms_inbound',
+        action: existingAssessmentId ? 'matter_import_merged' : 'matter_imported',
+        entityType: 'assessment',
+        entityId: assessmentId,
+        summary: `${existingAssessmentId ? 'Merged' : 'Imported'} ${source} matter ${bundle.externalId}`,
+        actor: { type: 'user', id: actor.userId ?? undefined, label: actor.name ?? undefined },
+      })
+    }
 
     const lead = await prisma.leadSubmission.findFirst({ where: { assessmentId }, select: { id: true } }).catch(() => null)
     return {
@@ -384,6 +552,7 @@ export async function importMatterBundle(params: {
       leadId: lead?.id ?? null,
       imported: bundleCounts(toWrite),
       alreadyImported,
+      reconciliation,
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)

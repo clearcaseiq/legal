@@ -149,6 +149,12 @@ export function splitClientName(name: string) {
 
 export function normalizeClaimType(value: string) {
   const text = value.toLowerCase()
+  if (text.includes('wrongful death')) return 'wrongful_death'
+  if (text.includes('nursing home') || text.includes('elder abuse')) return 'nursing_home_abuse'
+  if (text.includes('product') || text.includes('defect')) return 'product'
+  if (text.includes('toxic') || text.includes('exposure') || text.includes('asbestos')) return 'toxic_exposure'
+  if (text.includes('workplace') || text.includes('workers comp') || text.includes("worker's comp")) return 'workplace_injury'
+  if (text.includes('assault') || text.includes('battery') || text.includes('intentional tort')) return 'intentional_tort'
   if (text.includes('premise') || text.includes('slip') || text.includes('fall')) return 'slip_and_fall'
   if (text.includes('medical') || text.includes('malpractice') || text.includes('med mal')) return 'medmal'
   if (text.includes('dog')) return 'dog_bite'

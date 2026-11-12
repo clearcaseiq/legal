@@ -3220,6 +3220,88 @@ model CaseIntakeRequest {
   @@map("case_intake_requests")
 }
 
+// Durable ledger for a relational CMS migration. A run is keyed by the exact
+// uploaded bytes so an interrupted HTTP request can safely resume rather than
+// starting a second copy of the same import.
+model MatterImportRun {
+  id                  String    @id @default(cuid())
+  ownerKey            String
+  attorneyId          String
+  source              String
+  sourceChecksum      String
+  duplicateMode       String
+  status              String    @default("processing") // processing | completed | partial | failed | rolling_back | rolled_back
+  fixtureVersion      String?
+  sanitizationVersion String?
+  totalMatters        Int       @default(0)
+  completedMatters    Int       @default(0)
+  failedMatters       Int       @default(0)
+  reconciliation      Json?
+  error               String?   @db.Text
+  completedAt         DateTime?
+  rolledBackAt        DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  matters MatterImportMatter[]
+  records MatterImportRecord[]
+
+  @@index([ownerKey, source, sourceChecksum, status])
+  @@index([attorneyId, createdAt])
+  @@map("matter_import_runs")
+}
+
+// Per-matter checkpoint. Completed rows are skipped when the same source
+// package is retried, while failed rows are attempted again.
+model MatterImportMatter {
+  id           String          @id @default(cuid())
+  runId        String
+  run          MatterImportRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  externalId   String
+  assessmentId String?
+  status       String          @default("pending") // pending | processing | completed | failed | rolled_back
+  report       Json?
+  error        String?         @db.Text
+  completedAt  DateTime?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  records MatterImportRecord[]
+
+  @@unique([runId, externalId])
+  @@index([assessmentId])
+  @@map("matter_import_matters")
+}
+
+// One source record's identity, normalized value, relationships, and exact
+// destination row. This supports field-level reconciliation and compensating
+// rollback of records added to an existing case.
+model MatterImportRecord {
+  id               String             @id @default(cuid())
+  runId            String
+  run              MatterImportRun    @relation(fields: [runId], references: [id], onDelete: Cascade)
+  matterId         String
+  matter           MatterImportMatter @relation(fields: [matterId], references: [id], onDelete: Cascade)
+  assessmentId     String
+  sourceKind       String
+  sourceKey        String
+  sourceHash       String
+  sourceData       Json
+  relationshipKeys Json?
+  targetModel      String
+  targetId         String
+  action           String             @default("created") // created | unchanged | changed | conflict
+  beforeData       Json?
+  rolledBackAt     DateTime?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  @@unique([runId, matterId, sourceKey])
+  @@index([assessmentId, sourceKey])
+  @@index([targetModel, targetId])
+  @@map("matter_import_records")
+}
+
 model AttorneyIntakeConfig {
   id         String   @id @default(cuid())
   attorneyId String   @unique
@@ -3842,10 +3924,10 @@ model CaseLetter {
 
   // Provider requests: what was asked for. 'records_and_billing' | 'records' | 'billing'
   // ('provider_lop' letters leave these empty).
-  requestType String?
-  recordTypes String?   @db.Text // JSON string[]
-  recordsFrom DateTime?
-  recordsTo   DateTime?
+  requestType          String?
+  recordTypes          String?   @db.Text // JSON string[]
+  recordsFrom          DateTime?
+  recordsTo            DateTime?
   // How the letter's statement of representation was backed when it went out:
   // 'signed_retainer' | 'attested' | 'omitted'.
   representationBasis  String?

@@ -25,7 +25,7 @@ import { taskCreatorName } from '../lib/ai-author'
 import { MAX_CASE_NAME_LENGTH, normalizeCaseName, plaintiffNameOf, resolveCaseName } from '../lib/case-name'
 import { ensureReferenceCode } from '../lib/case-reference'
 import { CLAIM_TYPES } from '../lib/validators'
-import { createAttorneyOwnedCase, finalizeAttorneyCases, findExistingImportedCase } from '../lib/attorney-case-factory'
+import { createAttorneyOwnedCase, finalizeAttorneyCases, findExistingImportedCase, importOwnerKeyFor } from '../lib/attorney-case-factory'
 import {
   duplicateReason,
   indexActiveCasesByEmail,
@@ -138,6 +138,13 @@ import {
   type MatterPackageTables,
 } from '../lib/matter-package'
 import { EMPTY_BUNDLE_COUNTS, importMatterBundle, type MatterImportReport } from '../lib/matter-package-import'
+import {
+  checkpointMatterImport,
+  finishMatterImport,
+  matterPackageChecksum,
+  rollbackMatterImport,
+  startOrResumeMatterImport,
+} from '../lib/matter-import-run'
 import PDFDocument from 'pdfkit'
 import crypto from 'crypto'
 import { calculateSOL, getSOLStatus, deriveSOLStatusFromFacts } from '../lib/solRules'
@@ -383,7 +390,9 @@ const intakeImportUpload = multer({
   storage: multer.memoryStorage(),
   limits: {
     fileSize: 25 * 1024 * 1024,
-    files: 10,
+    // A Clio export is one CSV per table and can readily exceed ten files.
+    // Individual routes still set their own lower cap where appropriate.
+    files: 25,
   },
   fileFilter: (_req, file, cb) => {
     const allowed = [
@@ -9095,6 +9104,62 @@ function readMatterPackage(file: Express.Multer.File): MatterPackageTables | nul
   }
 }
 
+function mergeMatterTables(target: MatterPackageTables, found: MatterPackageTables) {
+  for (const [kind, rows] of Object.entries(found) as Array<[keyof MatterPackageTables, any[]]>) {
+    if (kind === 'unrecognized') {
+      target.unrecognized = [...(target.unrecognized ?? []), ...rows]
+    } else {
+      ;(target as any)[kind] = [...((target as any)[kind] ?? []), ...rows]
+    }
+  }
+}
+
+/**
+ * Read all selected exports as one package.
+ *
+ * Clio exports one CSV per table (`matters.csv`, `contacts.csv`, `tasks.csv`,
+ * etc.). Looking at each file alone cannot identify a package: only the whole
+ * selection has both the matter spine and its related records.
+ */
+function readMatterPackageFiles(files: Express.Multer.File[]): {
+  tables: MatterPackageTables | null
+  unreadable: string[]
+} {
+  const tables: MatterPackageTables = {}
+  const namedTables: Record<string, Record<string, string>[]> = {}
+  const unreadable: string[] = []
+  let foundAny = false
+
+  for (const file of files) {
+    const packaged = readMatterPackage(file)
+    if (packaged) {
+      mergeMatterTables(tables, packaged)
+      foundAny = true
+      continue
+    }
+
+    const parsed = parseImportFile(file)
+    if (parsed.unsupportedReason) {
+      unreadable.push(file.originalname)
+      continue
+    }
+    namedTables[file.originalname] = [
+      ...(namedTables[file.originalname] ?? []),
+      ...parsed.rows,
+    ]
+  }
+
+  const separateCsvTables = detectMatterPackageFromSheets(namedTables)
+  if (separateCsvTables) {
+    mergeMatterTables(tables, separateCsvTables)
+    foundAny = true
+  } else {
+    unreadable.push(...Object.keys(namedTables))
+  }
+
+  return { tables: foundAny ? tables : null, unreadable }
+}
+
 function matterPackageSummary(plan: MatterPackagePlan) {
   return {
     matterCount: plan.matters.length,
@@ -9125,7 +9190,7 @@ const matterImportSchema = z.object({
  * `dryRun` returns the relational preview with validation; the commit returns a
  * per-matter report. Matters with blocking errors are never written.
  */
-router.post('/intake/import-matter', authMiddleware, intakeImportUpload.array('files', 10), async (req: any, res) => {
+router.post('/intake/import-matter', authMiddleware, intakeImportUpload.array('files', 25), async (req: any, res) => {
   try {
     const auth = await getAttorneyFromReq(req)
     if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
@@ -9137,23 +9202,11 @@ router.post('/intake/import-matter', authMiddleware, intakeImportUpload.array('f
     const uploadedFiles = (req.files || []) as Express.Multer.File[]
     if (uploadedFiles.length === 0) return res.status(400).json({ error: 'No file was uploaded.' })
 
-    const tables: MatterPackageTables = {}
-    const unreadable: string[] = []
-    for (const file of uploadedFiles) {
-      const found = readMatterPackage(file)
-      if (!found) {
-        unreadable.push(file.originalname)
-        continue
-      }
-      for (const [kind, rows] of Object.entries(found) as Array<[keyof MatterPackageTables, any]>) {
-        if (kind === 'unrecognized') tables.unrecognized = [...(tables.unrecognized ?? []), ...rows]
-        else (tables as any)[kind] = [...((tables as any)[kind] ?? []), ...rows]
-      }
-    }
-    if (unreadable.length === uploadedFiles.length) {
+    const { tables, unreadable } = readMatterPackageFiles(uploadedFiles)
+    if (!tables) {
       return res.status(400).json({
         error:
-          'No matter package found. A complete migration needs related tables (for example tables.Matters and tables.Contacts, or one sheet per table). Use Basic case import for one row per case.',
+          'No matter package found. Select the related CMS CSV files together (including the matters, cases, or projects table), use a workbook with one sheet per table, or upload packaged JSON. Use Basic case import for one row per case.',
       })
     }
 
@@ -9207,12 +9260,30 @@ router.post('/intake/import-matter', authMiddleware, intakeImportUpload.array('f
     }
     if (payload.dryRun) return res.json(base)
 
-    const importId = crypto.randomUUID()
+    const sourceChecksum = matterPackageChecksum(uploadedFiles)
+    const importRun = await startOrResumeMatterImport({
+      ownerKey: importOwnerKeyFor(owner),
+      attorneyId: auth.attorney.id,
+      source: payload.source,
+      sourceChecksum,
+      duplicateMode,
+      externalIds: plan.matters.map((matter) => matter.externalId),
+    })
+    const importId = importRun.id
+    const runMatters = new Map<string, any>(
+      importRun.matters.map((matter: any) => [matter.externalId, matter]),
+    )
     const actorName = auth.attorney.name || [req.user?.firstName, req.user?.lastName].filter(Boolean).join(' ') || null
     const report: MatterImportReport[] = []
     for (const bundle of plan.matters) {
+      const runMatter = runMatters.get(bundle.externalId)
+      if (!runMatter) throw new Error(`Import checkpoint missing for matter ${bundle.externalId}`)
+      if (runMatter.status === 'completed' && runMatter.report) {
+        report.push(runMatter.report as MatterImportReport)
+        continue
+      }
       if (!matterIsImportable(bundle)) {
-        report.push({
+        const blocked: MatterImportReport = {
           externalId: bundle.externalId,
           label: bundle.label,
           outcome: 'failed',
@@ -9220,47 +9291,97 @@ router.post('/intake/import-matter', authMiddleware, intakeImportUpload.array('f
           imported: EMPTY_BUNDLE_COUNTS,
           alreadyImported: 0,
           reason: bundle.issues.filter((i) => i.severity === 'error').map((i) => i.message).join(' '),
-        })
+        }
+        report.push(blocked)
+        await checkpointMatterImport(importId, runMatter.id, blocked)
         continue
       }
-      report.push(
-        await importMatterBundle({
-          bundle,
-          source: payload.source,
-          owner,
-          attorneyId: auth.attorney.id,
-          importId,
-          actor: { userId: req.user?.id ?? null, name: actorName, email: auth.attorney.email ?? null },
-          existingAssessmentId: existing.get(bundle.externalId) ?? null,
-          mode: duplicateMode,
-        }),
-      )
+      const matterReport = await importMatterBundle({
+        bundle,
+        source: payload.source,
+        owner,
+        attorneyId: auth.attorney.id,
+        importId,
+        actor: { userId: req.user?.id ?? null, name: actorName, email: auth.attorney.email ?? null },
+        existingAssessmentId: existing.get(bundle.externalId) ?? null,
+        mode: duplicateMode,
+        runId: importId,
+        runMatterId: runMatter.id,
+      })
+      report.push(matterReport)
+      await checkpointMatterImport(importId, runMatter.id, matterReport)
     }
+    const finishedRun = await finishMatterImport(importId)
 
     logger.info('Matter package import finished', {
       importId,
       attorneyId: auth.attorney.id,
       outcomes: report.map((r) => r.outcome),
     })
-    res.json({ ...base, importId, report })
+    res.json({
+      ...base,
+      importId,
+      importStatus: finishedRun.status,
+      sourceChecksum,
+      reconciliation: finishedRun.reconciliation,
+      report,
+    })
 
-    // After the response: e-sign sends are slow, and a merge is a case that
-    // already went through this on its first import.
-    void runImportedCaseIntakeHooksForBatch(
-      report.filter((r) => r.outcome === 'created' && r.assessmentId).map((r) => r.assessmentId!),
-      {
-        attorneyId: auth.attorney.id,
-        lawFirmId: auth.attorney.lawFirmId ?? null,
-        actorUserId: req.user?.id ?? null,
-        actorName,
-      },
-    )
+    // External effects are withheld while a run is partial, so rollback never
+    // has to pretend an e-sign request or outbound sync did not happen.
+    if (finishedRun.status === 'completed') {
+      for (const item of report.filter((row) =>
+        Boolean(row.assessmentId && (row.outcome === 'created' || row.outcome === 'merged')),
+      )) {
+        void recordCaseChange({
+          assessmentId: item.assessmentId!,
+          source: 'cms_inbound',
+          action: item.outcome === 'merged' ? 'matter_import_merged' : 'matter_imported',
+          entityType: 'assessment',
+          entityId: item.assessmentId!,
+          summary: `${item.outcome === 'merged' ? 'Merged' : 'Imported'} ${payload.source} matter ${item.externalId}`,
+          actor: { type: 'user', id: req.user?.id ?? undefined, label: actorName ?? undefined },
+        })
+      }
+      void runImportedCaseIntakeHooksForBatch(
+        report.filter((r) => r.outcome === 'created' && r.assessmentId).map((r) => r.assessmentId!),
+        {
+          attorneyId: auth.attorney.id,
+          lawFirmId: auth.attorney.lawFirmId ?? null,
+          actorUserId: req.user?.id ?? null,
+          actorName,
+        },
+      )
+    }
   } catch (error: any) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: 'Invalid import request', details: error.flatten() })
     }
     logger.error('Matter package import failed', { error: error.message, stack: error.stack })
     res.status(500).json({ error: 'Could not import the matter package' })
+  }
+})
+
+router.post('/intake/import-matter/:importId/rollback', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAttorneyFromReq(req)
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const owner = {
+      attorneyId: auth.attorney.id,
+      lawFirmId: auth.firm.lawFirmId ?? auth.attorney.lawFirmId ?? null,
+      createdByUserId: req.user?.id ?? null,
+    }
+    const run = await rollbackMatterImport(String(req.params.importId), importOwnerKeyFor(owner))
+    res.json({ importId: run.id, status: run.status, rolledBackAt: run.rolledBackAt })
+  } catch (error: any) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (message === 'Import run not found') return res.status(404).json({ error: message })
+    if (
+      message === 'Import rollback is already in progress' ||
+      message === 'A completed import cannot be rolled back after external intake actions have started'
+    ) return res.status(409).json({ error: message })
+    logger.error('Matter package rollback failed', { importId: req.params.importId, error: message })
+    res.status(500).json({ error: 'Could not roll back the matter import' })
   }
 })
 
@@ -9277,7 +9398,7 @@ router.post('/intake/import-matter', authMiddleware, intakeImportUpload.array('f
  * One parser, on this side, asked the same question. The mapping screen now
  * sees exactly what the import will see, including workbooks.
  */
-router.post('/intake/parse-preview', authMiddleware, intakeImportUpload.array('files', 10), async (req: any, res) => {
+router.post('/intake/parse-preview', authMiddleware, intakeImportUpload.array('files', 25), async (req: any, res) => {
   try {
     const auth = await getAttorneyFromReq(req)
     if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
@@ -9288,6 +9409,10 @@ router.post('/intake/parse-preview', authMiddleware, intakeImportUpload.array('f
     }
 
     const fallbackState = stateCode(auth.attorney.barState) ?? null
+    const collection = readMatterPackageFiles(uploadedFiles)
+    const collectionSummary = collection.tables
+      ? matterPackageSummary(buildMatterPackagePlan(collection.tables, { fallbackState }))
+      : null
     const files = uploadedFiles.map((file) => {
       const parsed = parseImportFile(file)
       const pkg = readMatterPackage(file)
@@ -9305,7 +9430,7 @@ router.post('/intake/parse-preview', authMiddleware, intakeImportUpload.array('f
       }
     })
 
-    res.json({ files })
+    res.json({ files, matterPackage: collectionSummary })
   } catch (error: any) {
     logger.error('Failed to parse an import file for preview', { error: error.message })
     res.status(500).json({ error: 'Could not read that file' })

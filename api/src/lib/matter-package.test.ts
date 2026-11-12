@@ -73,10 +73,34 @@ describe('detectMatterPackage', () => {
     const tables = detectMatterPackageFromSheets({
       Matters: clioPackage.tables.Matters,
       Contacts: clioPackage.tables.Contacts,
+      'START HERE': [{ text: 'Import instructions' }],
+      'FIELD MAPPING': [{ source: 'Matter ID', target: 'matter_id' }],
       Instructions: [{ text: 'read me' }],
     })
     expect(tables?.matters).toHaveLength(1)
     expect(tables?.unrecognized).toEqual(['Instructions'])
+  })
+
+  it('combines separate Clio CSV table names and keeps legal bills separate from medical specials', () => {
+    const tables = detectMatterPackageFromSheets({
+      'matters.csv': clioPackage.tables.Matters,
+      'contacts.csv': clioPackage.tables.Contacts,
+      'custom_fields.csv': [
+        { id: 'CF-1', matter_id: 'CLIO-DEMO-2026-0042', field_name: 'Date of Loss', value: '2026-10-11' },
+      ],
+      'calendar_event.csv': [
+        { id: 'CE-1', matter_id: 'CLIO-DEMO-2026-0042', title: 'Client conference', due_date: '2026-10-25' },
+      ],
+      'bills.csv': [{ id: 'INV-1', matter_id: 'CLIO-DEMO-2026-0042', total: '1200' }],
+      'time_entries.csv': [{ id: 'TE-1', matter_id: 'CLIO-DEMO-2026-0042', date: '2026-10-19', quantity: '1.0' }],
+    })
+
+    expect(tables?.matters).toHaveLength(1)
+    expect(tables?.customFields).toHaveLength(1)
+    expect(tables?.tasks).toHaveLength(1)
+    expect(tables?.medicalBills).toBeUndefined()
+    expect(tables?.billingInvoices).toHaveLength(1)
+    expect(tables?.timeEntries).toHaveLength(1)
   })
 
   it('is what the basic importer was flattening into one row', () => {
@@ -179,5 +203,184 @@ describe('buildMatterPackagePlan', () => {
     const result = buildMatterPackagePlan(detectMatterPackage(noState)!, { today, fallbackState: 'NV' })
     expect(result.matters[0].venueState).toBe('NV')
     expect(result.matters[0].issues.some((i) => i.severity === 'warning' && /bar state/.test(i.message))).toBe(true)
+  })
+
+  it('uses Clio custom fields as matter facts', () => {
+    const tables = detectMatterPackageFromSheets({
+      matters: [{ matter_id: 'M-CUSTOM', client_id: 'C-CUSTOM', practice_area: 'MVA' }],
+      contacts: [{ id: 'C-CUSTOM', first_name: 'Casey', last_name: 'Client' }],
+      custom_fields: [
+        { id: 'CF-1', matter_id: 'M-CUSTOM', field_name: 'Date of Loss', value: '2026-08-14' },
+        { id: 'CF-2', matter_id: 'M-CUSTOM', field_name: 'Venue State', value: 'TX' },
+        { id: 'CF-3', matter_id: 'M-CUSTOM', field_name: 'Injuries', value: 'Cervical strain; concussion' },
+      ],
+    })!
+    const imported = buildMatterPackagePlan(tables, { today }).matters[0]
+
+    expect(imported.incidentDate).toBe('2026-08-14')
+    expect(imported.venueState).toBe('TX')
+    expect(imported.injuryDiagnoses).toEqual(['Cervical strain', 'concussion'])
+    expect(matterIsImportable(imported)).toBe(true)
+  })
+
+  it('imports Clio legal bills and time entries without treating them as medical damages', () => {
+    const tables = detectMatterPackageFromSheets({
+      matters: [{ matter_id: 'M-BILLING', client_id: 'C-BILLING', incident_date: '2026-07-01', state: 'CA' }],
+      contacts: [{ id: 'C-BILLING', first_name: 'Bill', last_name: 'Client' }],
+      bills: [{ id: 'BILL-9', matter_id: 'M-BILLING', total_usd: '1250', due_date: '2026-11-15', status: 'Awaiting Payment' }],
+      time_entries: [{
+        id: 'TIME-2',
+        matter: 'M-BILLING',
+        date: '2026-10-18',
+        activity_description: 'Client call',
+        note: 'Discussed treatment status',
+        price: '400',
+        quantity: '1.5',
+      }],
+    })!
+    const imported = buildMatterPackagePlan(tables, { today }).matters[0]
+
+    expect(imported.bills).toEqual([])
+    expect(imported.billingInvoices[0]).toMatchObject({ invoiceNumber: 'BILL-9', amount: 1250, status: 'open' })
+    expect(imported.timeEntries[0]).toMatchObject({
+      workDate: '2026-10-18',
+      minutes: 90,
+      activityType: 'client_call',
+      hourlyRate: 400,
+      amount: 600,
+    })
+    expect(bundleCounts(imported)).toMatchObject({ medicalBills: 0, billingInvoices: 1, timeEntries: 1 })
+  })
+
+  it('reads nested Clio API custom-field relationships', () => {
+    const tables = detectMatterPackageFromSheets({
+      matters: [{ id: 'M-NESTED', client_id: 'C-NESTED', state: 'CA' }],
+      contacts: [{ id: 'C-NESTED', name: 'Nested Client' }],
+      custom_fields: [{
+        id: 'VALUE-1',
+        parent: { id: 'M-NESTED', type: 'Matter' },
+        custom_field: { id: 'FIELD-1', name: 'Date of Loss' },
+        value: '2026-06-15',
+      }],
+    })!
+
+    const imported = buildMatterPackagePlan(tables, { today }).matters[0]
+    expect(imported.incidentDate).toBe('2026-06-15')
+    expect(matterIsImportable(imported)).toBe(true)
+  })
+
+  it('plans a large multi-matter Clio package without crossing records', () => {
+    const size = 500
+    const matters = Array.from({ length: size }, (_, index) => ({
+      matter_id: `M-${index}`,
+      client_id: `C-${index}`,
+      incident_date: '2026-01-15',
+      state: 'CA',
+    }))
+    const contacts = Array.from({ length: size }, (_, index) => ({
+      id: `C-${index}`,
+      first_name: `Client${index}`,
+    }))
+    const tasks = Array.from({ length: size }, (_, index) => ({
+      id: `T-${index}`,
+      matter_id: `M-${index}`,
+      title: `Task ${index}`,
+    }))
+    const tables = detectMatterPackageFromSheets({ matters, contacts, tasks })!
+    const plan = buildMatterPackagePlan(tables, { today })
+
+    expect(plan.matters).toHaveLength(size)
+    expect(plan.matters[499].client?.firstName).toBe('Client499')
+    expect(plan.matters[499].tasks[0].title).toBe('Task 499')
+    expect(plan.matters.every(matterIsImportable)).toBe(true)
+  })
+
+  it('normalizes a relational Filevine export with native project IDs', () => {
+    const tables = detectMatterPackageFromSheets({
+      'projects.csv': [{
+        projectId: { native: 9001 },
+        projectName: 'FV-9001',
+        projectTypeCode: 'MVA',
+        incidentDate: '2026-05-04',
+        state: 'TX',
+      }],
+      'people.csv': [{
+        personId: { native: 44 },
+        projectId: { native: 9001 },
+        firstName: 'Fiona',
+        lastName: 'Vine',
+        role: 'Client',
+      }],
+      'project_tasks.csv': [{
+        id: 81,
+        projectId: { native: 9001 },
+        title: 'Request crash report',
+        dueDate: '2026-06-01',
+      }],
+    })!
+    const matter = buildMatterPackagePlan(tables, { today }).matters[0]
+
+    expect(matter.externalId).toBe('9001')
+    expect(matter.client).toMatchObject({ firstName: 'Fiona', lastName: 'Vine' })
+    expect(matter.tasks[0].title).toBe('Request crash report')
+    expect(matterIsImportable(matter)).toBe(true)
+  })
+
+  it('normalizes Needles cases, names, and case notes', () => {
+    const tables = detectMatterPackageFromSheets({
+      'cases.csv': [{
+        case_num: 'ND-77',
+        classification: 'Auto Accident',
+        date_of_loss: '2026-04-03',
+        state: 'FL',
+      }],
+      'names.csv': [{
+        name_id: 'NAME-7',
+        case_num: 'ND-77',
+        name: 'Nina Needles',
+        role: 'Plaintiff',
+      }],
+      'case_notes.csv': [{
+        note_id: 'NOTE-1',
+        case_num: 'ND-77',
+        note: 'Initial client interview complete.',
+      }],
+    })!
+    const matter = buildMatterPackagePlan(tables, { today }).matters[0]
+
+    expect(matter.externalId).toBe('ND-77')
+    expect(matter.client).toMatchObject({ firstName: 'Nina', lastName: 'Needles' })
+    expect(matter.notes[0].message).toContain('Initial client interview')
+    expect(matterIsImportable(matter)).toBe(true)
+  })
+
+  it('normalizes Litify namespaced Salesforce objects and fields', () => {
+    const tables = detectMatterPackageFromSheets({
+      'litify_pm__Matter__c.csv': [{
+        Id: 'a0M9001',
+        litify_pm__Client__c: '001CLIENT',
+        litify_pm__Date_of_Loss__c: '2026-03-02',
+        litify_pm__Practice_Area__c: 'Motor Vehicle Accident',
+        litify_pm__State__c: 'CA',
+      }],
+      'Account.csv': [{
+        Id: '001CLIENT',
+        Name: 'Lily Litify',
+      }],
+      'Task.csv': [{
+        Id: '00T1',
+        WhatId: 'a0M9001',
+        Subject: 'Order collision report',
+        ActivityDate: '2026-03-20',
+      }],
+    })!
+    const matter = buildMatterPackagePlan(tables, { today }).matters[0]
+
+    expect(matter.externalId).toBe('a0M9001')
+    expect(matter.client).toMatchObject({ firstName: 'Lily', lastName: 'Litify' })
+    expect(matter.incidentDate).toBe('2026-03-02')
+    expect(matter.claimType).toBe('auto')
+    expect(matter.tasks[0].title).toBe('Order collision report')
+    expect(matterIsImportable(matter)).toBe(true)
   })
 })

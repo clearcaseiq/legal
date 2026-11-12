@@ -5489,6 +5489,8 @@ export type MatterRecordCounts = {
   contacts: number
   medicalVisits: number
   medicalBills: number
+  billingInvoices: number
+  timeEntries: number
   insurance: number
   liens: number
   expenses: number
@@ -5538,6 +5540,19 @@ export interface MatterImportReportRow {
   leadId?: string | null
   imported: MatterRecordCounts
   alreadyImported: number
+  reconciliation?: {
+    created: number
+    unchanged: number
+    changed: number
+    missing: number
+    items: Array<{
+      key: string
+      kind: string
+      status: 'created' | 'unchanged' | 'changed' | 'missing'
+      changedFields?: string[]
+      relationshipChanged?: boolean
+    }>
+  }
   reason?: string
 }
 
@@ -5552,6 +5567,9 @@ export interface MatterPackageImportResponse {
   matters: MatterPackagePreviewMatter[]
   skippedRecordCount: number
   importId?: string
+  importStatus?: 'processing' | 'completed' | 'partial' | 'failed' | 'rolled_back'
+  sourceChecksum?: string
+  reconciliation?: { created: number; unchanged: number; changed: number; missing: number }
   report?: MatterImportReportRow[]
 }
 
@@ -5573,6 +5591,17 @@ export async function importMatterPackage(payload: {
   return data
 }
 
+export async function rollbackMatterPackageImport(importId: string): Promise<{
+  importId: string
+  status: 'rolled_back'
+  rolledBackAt: string
+}> {
+  const { data } = await api.post(
+    `/v1/attorney-dashboard/intake/import-matter/${encodeURIComponent(importId)}/rollback`,
+  )
+  return data
+}
+
 /**
  * Ask the API to read an upload so the mapping screen has columns to offer.
  *
@@ -5581,19 +5610,22 @@ export async function importMatterPackage(payload: {
  * so the mapping screen could reject a file the import would have accepted —
  * or map it differently. One parser, on the server, asked the same question.
  */
-export async function parseImportFilePreview(file: File) {
+export async function parseImportFilePreview(files: File | File[]) {
+  const selected = Array.isArray(files) ? files : [files]
   const formData = new FormData()
-  formData.append('files', file)
+  selected.forEach((file) => formData.append('files', file))
   const { data } = await api.post('/v1/attorney-dashboard/intake/parse-preview', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
   })
   const parsed = (data.files as ImportFilePreview[])[0]
   return {
-    fileName: parsed?.fileName ?? file.name,
+    fileName: parsed?.fileName ?? selected[0]?.name ?? '',
     headers: parsed?.headers ?? [],
     rows: parsed?.rows ?? [],
     unsupported: parsed?.unsupportedReason ?? undefined,
-    matterPackage: parsed?.matterPackage ?? null,
+    // A group of separate Clio CSVs is relational only when considered
+    // together; the server returns that collection-level detection here.
+    matterPackage: (data.matterPackage as MatterPackageSummary | null) ?? parsed?.matterPackage ?? null,
   }
 }
 

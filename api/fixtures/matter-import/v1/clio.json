@@ -1,0 +1,41 @@
+{
+  "fixtureVersion": "v1",
+  "sanitizationVersion": "1",
+  "vendor": "clio",
+  "tables": {
+    "Matters": [
+      {
+        "matter_id": "MAT-a10000000001",
+        "client_id": "CON-a10000000001",
+        "practice_area": "Car Accident",
+        "incident_date": "2026-01-15",
+        "state": "CA"
+      }
+    ],
+    "Contacts": [
+      {
+        "contact_id": "CON-a10000000001",
+        "first_name": "First-a10000000001",
+        "last_name": "Last-a10000000001",
+        "email": "user-a10000000001@example.invalid",
+        "role": "Client"
+      }
+    ],
+    "Medical_Visits": [
+      {
+        "visit_id": "VIS-a10000000001",
+        "matter_id": "MAT-a10000000001",
+        "provider": "Entity-a10000000001",
+        "visit_date": "2026-01-16"
+      }
+    ],
+    "Medical_Bills": [
+      {
+        "bill_id": "MED-a10000000001",
+        "matter_id": "MAT-a10000000001",
+        "visit_id": "VIS-a10000000001",
+        "amount": "1250.00"
+      }
+    ]
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "fixtureVersion": "v1",
+  "sanitizationVersion": "1",
+  "vendor": "filevine",
+  "tables": {
+    "Projects": [
+      {
+        "project_id": "MAT-b20000000001",
+        "client_id": "CON-b20000000001",
+        "project_type_code": "Auto Accident",
+        "incident_date": "2026-02-10",
+        "state": "TX"
+      }
+    ],
+    "Contacts": [
+      {
+        "person_id": "CON-b20000000001",
+        "matter_id": "MAT-b20000000001",
+        "first_name": "First-b20000000001",
+        "last_name": "Last-b20000000001",
+        "role": "Client"
+      }
+    ],
+    "Project_Tasks": [
+      {
+        "id": "TAS-b20000000001",
+        "project_id": "MAT-b20000000001",
+        "title": "[sanitized TXT-b20000000001]",
+        "due_date": "2026-03-01"
+      }
+    ]
+  }
+}

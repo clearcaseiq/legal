@@ -1,0 +1,33 @@
+{
+  "fixtureVersion": "v1",
+  "sanitizationVersion": "1",
+  "vendor": "needles",
+  "tables": {
+    "Cases": [
+      {
+        "case_num": "MAT-c30000000001",
+        "client_id": "CON-c30000000001",
+        "case_type": "Premises Liability",
+        "date_of_loss": "2026-03-05",
+        "state": "FL"
+      }
+    ],
+    "Names": [
+      {
+        "name_id": "CON-c30000000001",
+        "case_num": "MAT-c30000000001",
+        "first_name": "First-c30000000001",
+        "last_name": "Last-c30000000001",
+        "role": "Client"
+      }
+    ],
+    "Case_Notes": [
+      {
+        "id": "NOT-c30000000001",
+        "case_num": "MAT-c30000000001",
+        "note": "[sanitized TXT-c30000000001]",
+        "date": "2026-03-06"
+      }
+    ]
+  }
+}

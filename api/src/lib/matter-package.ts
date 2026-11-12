@@ -22,10 +22,13 @@ export type MatterTableKind =
   | 'matters'
   | 'contacts'
   | 'matterContacts'
+  | 'customFields'
   | 'accidents'
   | 'insurance'
   | 'medicalVisits'
   | 'medicalBills'
+  | 'billingInvoices'
+  | 'timeEntries'
   | 'liens'
   | 'expenses'
   | 'negotiations'
@@ -36,30 +39,49 @@ export type MatterTableKind =
 
 /** Normalised table names each kind answers to. */
 const TABLE_ALIASES: Record<MatterTableKind, string[]> = {
-  matters: ['matters', 'matter', 'cases', 'case', 'projects'],
-  contacts: ['contacts', 'contact', 'clients', 'client', 'people', 'persons', 'parties'],
-  matterContacts: ['mattercontacts', 'matterparties', 'relationships', 'matterrelationships', 'caseparties', 'roles'],
-  accidents: ['accidentdetails', 'accident', 'accidents', 'incidents', 'incident', 'incidentdetails', 'lossdetails'],
-  insurance: ['insurance', 'insurancepolicies', 'policies', 'insuranceclaims', 'claims', 'coverage'],
-  medicalVisits: ['medicalvisits', 'visits', 'treatments', 'treatment', 'medicalrecords', 'medicaltreatment', 'appointments'],
-  medicalBills: ['medicalbills', 'bills', 'billing', 'medicalcharges', 'charges'],
+  matters: ['matters', 'matter', 'cases', 'case', 'projects', 'project'],
+  contacts: ['contacts', 'contact', 'clients', 'client', 'people', 'persons', 'parties', 'party', 'accounts', 'account', 'names', 'namecards'],
+  matterContacts: [
+    'mattercontacts', 'matterparties', 'relationships', 'matterrelationships', 'caseparties', 'roles',
+    'projectcontacts', 'projectpeople', 'casenames', 'matterroles', 'matterparticipants',
+  ],
+  // Clio's backup/export puts PI facts such as Date of Loss in a separate
+  // custom_fields.csv. They are folded back into their matter below.
+  customFields: ['customfields', 'customfield', 'customfieldvalues', 'customfieldvalue', 'projectfields', 'casefields'],
+  accidents: ['accidentdetails', 'accident', 'accidents', 'incidents', 'incident', 'incidentdetails', 'lossdetails', 'loss', 'caseloss'],
+  insurance: ['insurance', 'insurancepolicies', 'policies', 'insuranceclaims', 'claims', 'coverage', 'insuranceinfo', 'insurancedetails'],
+  medicalVisits: [
+    'medicalvisits', 'visits', 'treatments', 'treatment', 'medicalrecords', 'medicaltreatment',
+    'appointments', 'providers', 'medicalproviders',
+  ],
+  // A bare Clio bills.csv is the firm's legal billing, not treatment charges.
+  // Importing it as medical specials would inflate the case valuation.
+  medicalBills: ['medicalbills', 'medicalcharges', 'medicalexpenses'],
+  billingInvoices: ['bills', 'billing', 'invoices', 'legalbills'],
+  timeEntries: ['timeentries', 'timeentry'],
   liens: ['liens', 'lienholders'],
-  expenses: ['expenses', 'costs', 'caseexpenses', 'casecosts'],
+  expenses: ['expenses', 'expense', 'expenseentries', 'costs', 'caseexpenses', 'casecosts'],
   negotiations: ['negotiations', 'negotiationhistory', 'offers', 'demands', 'settlementnegotiations', 'offersanddemands'],
-  tasks: ['tasks', 'deadlines', 'todos', 'calendarentries'],
-  notes: ['notes', 'casenotes', 'matternotes'],
-  timeline: ['timeline', 'timelineevents', 'events', 'activities', 'activity', 'history', 'casehistory'],
-  documents: ['documents', 'files', 'documentmetadata', 'attachments'],
+  tasks: ['tasks', 'task', 'projecttasks', 'casetasks', 'deadlines', 'todos', 'calendarentries', 'calendarevent', 'calendarevents'],
+  notes: ['notes', 'note', 'casenotes', 'matternotes', 'projectnotes', 'contentnotes'],
+  timeline: ['timeline', 'timelineevents', 'events', 'event', 'activities', 'activity', 'history', 'casehistory'],
+  documents: [
+    'documents', 'document', 'files', 'file', 'documentmetadata', 'attachments', 'attachment',
+    'contentdocuments', 'contentdocument', 'contentversions', 'contentversion',
+  ],
 }
 
 export const MATTER_TABLE_LABELS: Record<MatterTableKind, string> = {
   matters: 'Matters',
   contacts: 'Contacts',
   matterContacts: 'Matter contacts',
+  customFields: 'Custom fields',
   accidents: 'Accident details',
   insurance: 'Insurance',
   medicalVisits: 'Medical visits',
   medicalBills: 'Medical bills',
+  billingInvoices: 'Billing invoices',
+  timeEntries: 'Time entries',
   liens: 'Liens',
   expenses: 'Expenses',
   negotiations: 'Negotiations',
@@ -80,10 +102,25 @@ function norm(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]/g, '')
 }
 
+function sourceNameVariants(name: string): string[] {
+  const withoutExtension = name.replace(/\.(?:csv|json|xlsx|xls|tsv|txt)$/i, '')
+  const variants = new Set([withoutExtension])
+  // Salesforce/Litify API names look like `litify_pm__Matter__c`. The middle
+  // segment is the useful object/field name.
+  const namespaced = withoutExtension.split('__')
+  if (namespaced.length >= 3 && /^(c|r)$/i.test(namespaced[namespaced.length - 1])) {
+    variants.add(namespaced[namespaced.length - 2])
+  }
+  variants.add(withoutExtension.replace(/^litify(?:_[a-z0-9]+)*__/i, '').replace(/__(?:c|r)$/i, ''))
+  return [...variants].map(norm).filter(Boolean)
+}
+
 function kindForTableName(name: string): MatterTableKind | null {
-  const key = norm(name)
+  // Separate CSV exports arrive keyed by filename, while workbook sheets and
+  // JSON packages use a bare table name.
+  const keys = sourceNameVariants(name)
   for (const [kind, aliases] of Object.entries(TABLE_ALIASES) as Array<[MatterTableKind, string[]]>) {
-    if (aliases.includes(key)) return kind
+    if (keys.some((key) => aliases.includes(key))) return kind
   }
   return null
 }
@@ -91,6 +128,8 @@ function kindForTableName(name: string): MatterTableKind | null {
 function isRowArray(value: unknown): value is Row[] {
   return Array.isArray(value) && value.length > 0 && value.every((v) => v && typeof v === 'object' && !Array.isArray(v))
 }
+
+const IGNORED_DOCUMENTATION_TABLES = new Set(['starthere', 'fieldmapping', 'readme'])
 
 /**
  * The named tables in a set of candidate arrays, or null when they do not look
@@ -107,6 +146,7 @@ function tablesFrom(candidates: Record<string, unknown>): MatterPackageTables | 
     if (!Array.isArray(value)) continue
     const kind = kindForTableName(name)
     if (!kind) {
+      if (sourceNameVariants(name).some((key) => IGNORED_DOCUMENTATION_TABLES.has(key))) continue
       if (isRowArray(value)) unrecognized.push(name)
       continue
     }
@@ -185,14 +225,25 @@ export function detectMatterPackageFromSheets(sheets: Record<string, Row[]>): Ma
 
 /** Candidate column names, most specific first; compared normalised. */
 const FIELDS = {
-  matterId: ['matter_id', 'matterId', 'matter_number', 'display_number', 'matter_ref', 'case_id', 'case_number'],
+  matterId: [
+    'matter_id', 'matterId', 'matter_number', 'display_number', 'matter_ref', 'matter',
+    'project_id', 'projectId', 'projectId.native', 'projectIdNative', 'project_number',
+    'case_id', 'case_number', 'case_num', 'file_number',
+    'what_id', 'whatId', 'parent_id', 'parentId', 'subject_id', 'first_publish_location_id',
+  ],
   recordId: ['id', 'record_id', 'uuid', 'external_id'],
-  contactId: ['contact_id', 'contactId', 'client_id', 'person_id', 'party_id'],
-  clientRef: ['client_id', 'clientId', 'primary_client_id', 'client_contact_id', 'primary_contact_id'],
+  contactId: [
+    'contact_id', 'contactId', 'client_id', 'person_id', 'personId', 'personId.native',
+    'personIdNative', 'party_id', 'name_id', 'account_id', 'accountId', 'who_id', 'whoId',
+  ],
+  clientRef: [
+    'client_id', 'clientId', 'clientId.native', 'clientIdNative', 'client', 'primary_client_id',
+    'client_contact_id', 'primary_contact_id', 'plaintiff_id', 'person_id', 'account_id', 'accountId',
+  ],
   visitId: ['visit_id', 'visitId', 'treatment_id', 'encounter_id', 'appointment_id'],
   firstName: ['first_name', 'firstName', 'given_name', 'first'],
   lastName: ['last_name', 'lastName', 'surname', 'family_name', 'last'],
-  fullName: ['name', 'full_name', 'display_name', 'contact_name', 'client_name'],
+  fullName: ['name', 'full_name', 'display_name', 'contact_name', 'client_name', 'project_or_client_name', 'project_name'],
   email: ['email', 'email_address', 'primary_email'],
   phone: ['phone', 'phone_number', 'mobile', 'cell', 'primary_phone', 'telephone'],
   fax: ['fax'],
@@ -203,7 +254,9 @@ const FIELDS = {
   zip: ['zip', 'zip_code', 'postal_code', 'postcode'],
   state: ['venue_state', 'state', 'jurisdiction_state', 'accident_state', 'incident_state'],
   county: ['venue_county', 'county', 'jurisdiction_county', 'accident_county'],
-  caseType: ['case_type', 'practice_area', 'matter_type', 'claim_type', 'type'],
+  // Prefer the specific matter/project classification over a broad practice
+  // area such as "Personal Injury".
+  caseType: ['case_type', 'matter_type', 'claim_type', 'project_type', 'project_type_code', 'classification', 'practice_area', 'phase_name', 'type'],
   incidentDate: ['incident_date', 'date_of_loss', 'accident_date', 'dol', 'doi', 'date_of_incident', 'loss_date'],
   description: ['description', 'matter_description', 'narrative', 'facts', 'summary', 'accident_description', 'incident_description'],
   location: ['location', 'accident_location', 'incident_location', 'address'],
@@ -218,15 +271,15 @@ const FIELDS = {
   diagnosis: ['diagnosis', 'diagnoses', 'dx', 'assessment'],
   icd: ['icd_codes', 'icd10', 'icd_10', 'diagnosis_codes', 'icd'],
   cpt: ['cpt_codes', 'cpt', 'procedure_codes', 'hcpcs'],
-  amount: ['amount', 'billed_amount', 'billed', 'charges', 'total_charges', 'total', 'charge_amount'],
+  amount: ['amount', 'billed_amount', 'billed', 'charges', 'total_charges', 'total', 'total_usd', 'charge_amount'],
   paid: ['paid_amount', 'paid', 'amount_paid', 'payments'],
   adjusted: ['adjusted_amount', 'adjustment', 'write_off', 'writeoff', 'contractual_adjustment'],
   balance: ['balance', 'balance_due', 'outstanding'],
   payer: ['payer', 'payor', 'paid_by', 'insurer'],
   date: ['date', 'event_date', 'created_at', 'created', 'entered_at', 'timestamp'],
-  carrier: ['carrier', 'carrier_name', 'insurance_company', 'company', 'insurer', 'insurer_name'],
+  carrier: ['carrier', 'carrier_name', 'insurance_carrier', 'insurance_company', 'company', 'insurer', 'insurer_name'],
   policyNumber: ['policy_number', 'policy_no', 'policy'],
-  policyLimit: ['policy_limit', 'policy_limits', 'limits', 'coverage_limit', 'bi_limit', 'liability_limit'],
+  policyLimit: ['policy_limit', 'policy_limit_usd', 'policy_limits', 'limits', 'coverage_limit', 'bi_limit', 'liability_limit'],
   claimNumber: ['claim_number', 'claim_no', 'claim'],
   adjusterName: ['adjuster_name', 'adjuster'],
   adjusterEmail: ['adjuster_email'],
@@ -235,7 +288,7 @@ const FIELDS = {
   insuredParty: ['insured_party', 'insured', 'party', 'policy_holder_type', 'insured_type'],
   holder: ['lien_holder', 'holder', 'name', 'lienholder'],
   title: ['title', 'name', 'subject', 'task', 'task_name', 'summary'],
-  dueDate: ['due_date', 'due', 'deadline', 'due_at', 'date'],
+  dueDate: ['due_date', 'due', 'deadline', 'due_at', 'activity_date', 'start_datetime', 'start_date_time', 'date'],
   priority: ['priority'],
   assignee: ['assignee', 'assigned_to', 'owner', 'responsible'],
   body: ['note', 'body', 'content', 'text', 'detail', 'details', 'description', 'message'],
@@ -245,6 +298,15 @@ const FIELDS = {
   fileName: ['file_name', 'filename', 'name', 'title', 'document_name'],
   docCategory: ['category', 'document_type', 'doc_type', 'type'],
   url: ['url', 'link', 'path', 'file_path', 'download_url'],
+  customFieldName: ['field_name', 'custom_field_name', 'name', 'label'],
+  customFieldValue: ['field_value', 'value', 'text_value', 'display_value'],
+  invoiceNumber: ['invoice_number', 'bill_number', 'number', 'bill_id', 'id'],
+  paidDate: ['paid_at', 'paid_date', 'payment_date'],
+  quantity: ['quantity', 'hours', 'duration_hours'],
+  minutes: ['minutes', 'duration_minutes'],
+  price: ['price', 'hourly_rate', 'hourly_rate_usd', 'rate'],
+  activity: ['activity_description', 'activity', 'activity_type', 'type'],
+  billable: ['billable', 'is_billable'],
 } satisfies Record<string, string[]>
 
 function stringify(value: unknown): string {
@@ -258,17 +320,22 @@ function stringify(value: unknown): string {
 /** Flat index of a row: top-level keys and one level of nesting (`address.city`). */
 function indexRow(row: Row): Map<string, string> {
   const index = new Map<string, string>()
+  const set = (key: string, text: string, overwrite = true) => {
+    for (const variant of sourceNameVariants(key)) {
+      if (overwrite || !index.has(variant)) index.set(variant, text)
+    }
+  }
   for (const [key, value] of Object.entries(row)) {
     if (value && typeof value === 'object' && !Array.isArray(value)) {
       for (const [sub, nested] of Object.entries(value as Row)) {
         const text = stringify(nested)
-        if (text && !index.has(norm(sub))) index.set(norm(sub), text)
-        if (text) index.set(norm(`${key}${sub}`), text)
+        if (text) set(sub, text, false)
+        if (text) set(`${key}${sub}`, text)
       }
       continue
     }
     const text = stringify(value)
-    if (text) index.set(norm(key), text)
+    if (text) set(key, text)
   }
   return index
 }
@@ -276,8 +343,10 @@ function indexRow(row: Row): Map<string, string> {
 function pick(row: Row, candidates: readonly string[]): string {
   const index = indexRow(row)
   for (const candidate of candidates) {
-    const hit = index.get(norm(candidate))
-    if (hit) return hit
+    for (const key of sourceNameVariants(candidate)) {
+      const hit = index.get(key)
+      if (hit) return hit
+    }
   }
   return ''
 }
@@ -402,7 +471,33 @@ export type TaskRecord = {
   notes: string | null
 }
 export type NoteRecord = { key: string; message: string; author: string | null; date: string | null; kind: 'note' | 'timeline' }
-export type DocumentRecord = { key: string; name: string; category: string | null; date: string | null; url: string | null }
+export type DocumentRecord = {
+  key: string
+  name: string
+  category: string | null
+  date: string | null
+  url: string | null
+  checksum: string | null
+}
+export type BillingInvoiceRecord = {
+  key: string
+  invoiceNumber: string | null
+  amount: number
+  status: string
+  dueDate: string | null
+  paidAt: string | null
+  notes: string | null
+}
+export type TimeEntryRecord = {
+  key: string
+  workDate: string
+  minutes: number
+  activityType: string
+  description: string | null
+  billable: boolean
+  hourlyRate: number | null
+  amount: number | null
+}
 
 export type MatterBundle = {
   externalId: string
@@ -420,6 +515,8 @@ export type MatterBundle = {
   contacts: ContactRecord[]
   visits: VisitRecord[]
   bills: BillRecord[]
+  billingInvoices: BillingInvoiceRecord[]
+  timeEntries: TimeEntryRecord[]
   insurance: InsuranceRecord[]
   liens: LienRecord[]
   expenses: ExpenseRecord[]
@@ -440,11 +537,32 @@ export type MatterPackagePlan = {
   unrecognizedTables: string[]
 }
 
+/** JSON with deterministic object-key ordering, Unicode, and line endings. */
+export function canonicalJson(value: unknown): string {
+  const normalize = (input: unknown): unknown => {
+    if (typeof input === 'string') return input.normalize('NFC').replace(/\r\n?/g, '\n')
+    if (Array.isArray(input)) return input.map(normalize)
+    if (input && typeof input === 'object') {
+      return Object.fromEntries(
+        Object.entries(input as Record<string, unknown>)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([key, nested]) => [key, normalize(nested)]),
+      )
+    }
+    return input
+  }
+  return JSON.stringify(normalize(value))
+}
+
+export function stableRecordHash(value: unknown): string {
+  return crypto.createHash('sha256').update(canonicalJson(value)).digest('hex')
+}
+
 /** Stable identity for a related record, for safe re-import. */
 function recordKey(kind: MatterTableKind, row: Row, idFields: readonly string[] = FIELDS.recordId): string {
   const id = pick(row, idFields)
   if (id) return `${kind}:${id}`
-  const digest = crypto.createHash('sha1').update(JSON.stringify(row)).digest('hex').slice(0, 16)
+  const digest = stableRecordHash(row).slice(0, 24)
   return `${kind}#${digest}`
 }
 
@@ -609,7 +727,7 @@ export function buildMatterPackagePlan(
   }
 
   const routedKinds: MatterTableKind[] = [
-    'accidents', 'insurance', 'medicalVisits', 'medicalBills', 'liens', 'expenses', 'negotiations', 'tasks', 'notes', 'timeline', 'documents',
+    'customFields', 'accidents', 'insurance', 'medicalVisits', 'medicalBills', 'billingInvoices', 'timeEntries', 'liens', 'expenses', 'negotiations', 'tasks', 'notes', 'timeline', 'documents',
   ]
   for (const kind of routedKinds) {
     for (const row of tables[kind] ?? []) {
@@ -661,8 +779,17 @@ export function buildMatterPackagePlan(
     const bucket = grouped.get(externalId)!
     const matterIssues: PackageIssue[] = []
     const accident = bucket.accidents?.[0] ?? {}
+    // Turn Clio's vertical custom-field rows into ordinary matter columns.
+    // `pick` normalises punctuation, so "Date of Loss" then answers the same
+    // rule as date_of_loss. Native matter columns win when both are present.
+    const customMatterFields = Object.fromEntries(
+      (bucket.customFields ?? [])
+        .map((row) => [pick(row, FIELDS.customFieldName), pick(row, FIELDS.customFieldValue)] as const)
+        .filter(([name, value]) => Boolean(name && value)),
+    )
+    const effectiveMatterRow = { ...customMatterFields, ...matterRow }
 
-    const clientRef = pick(matterRow, FIELDS.clientRef)
+    const clientRef = pick(effectiveMatterRow, FIELDS.clientRef)
     if (clientRef && !contactsById.has(clientRef)) {
       matterIssues.push({ severity: 'warning', table: 'matters', recordId: externalId, message: `The matter names client ${clientRef}, who is not in the Contacts table.` })
     } else if (clientRef) {
@@ -682,13 +809,13 @@ export function buildMatterPackagePlan(
     }
     const defendant = contacts.find((c) => c.contactType === 'defendant')
 
-    const dateRaw = pick(matterRow, FIELDS.incidentDate) || pick(accident, [...FIELDS.incidentDate, 'date'])
+    const dateRaw = pick(effectiveMatterRow, FIELDS.incidentDate) || pick(accident, [...FIELDS.incidentDate, 'date'])
     const incident = parseIncidentDate(dateRaw, options.today)
     if (!incident.ok) {
       matterIssues.push({ severity: 'error', table: 'matters', recordId: externalId, message: incident.reason })
     }
 
-    let venueState = stateCode(pick(matterRow, FIELDS.state)) || stateCode(pick(accident, FIELDS.state))
+    let venueState = stateCode(pick(effectiveMatterRow, FIELDS.state)) || stateCode(pick(accident, FIELDS.state))
     if (!venueState && client?.state) venueState = stateCode(client.state)
     if (!venueState && options.fallbackState) {
       venueState = options.fallbackState
@@ -771,6 +898,64 @@ export function buildMatterPackagePlan(
       if (linked.length) visit.billedAmount = linked.reduce((sum, b) => sum + b.amount, 0)
     }
 
+    const billingInvoices: BillingInvoiceRecord[] = []
+    for (const row of bucket.billingInvoices ?? []) {
+      const amount = money(pick(row, FIELDS.amount))
+      if (amount === null) {
+        issues.push({ severity: 'error', table: 'billingInvoices', recordId: pick(row, FIELDS.recordId) || null, message: 'Billing invoice has no total amount. Skipped.' })
+        continue
+      }
+      const rawStatus = pick(row, FIELDS.status).toLowerCase()
+      const paidAt = parseLooseDate(pick(row, FIELDS.paidDate))
+      const dueDate = parseLooseDate(pick(row, ['due_date', 'due_at', 'due']))
+      const status =
+        paidAt || /paid|complete/.test(rawStatus)
+          ? 'paid'
+          : /overdue|past.?due/.test(rawStatus) || (dueDate && new Date(`${dueDate}T23:59:59Z`).getTime() < (options.today ?? new Date()).getTime())
+            ? 'overdue'
+            : 'open'
+      billingInvoices.push({
+        key: recordKey('billingInvoices', row, ['bill_id', 'invoice_id', ...FIELDS.recordId]),
+        invoiceNumber: pick(row, FIELDS.invoiceNumber) || null,
+        amount,
+        status,
+        dueDate,
+        paidAt,
+        notes: pick(row, ['notes', 'note', 'memo', 'description']) || null,
+      })
+    }
+
+    const timeEntries: TimeEntryRecord[] = []
+    for (const row of bucket.timeEntries ?? []) {
+      const workDate = parseLooseDate(pick(row, ['work_date', 'date', 'entry_date']))
+      const explicitMinutes = Number(pick(row, FIELDS.minutes))
+      const quantityHours = Number(pick(row, FIELDS.quantity))
+      const minutes =
+        Number.isFinite(explicitMinutes) && explicitMinutes > 0
+          ? Math.round(explicitMinutes)
+          : Number.isFinite(quantityHours) && quantityHours > 0
+            ? Math.round(quantityHours * 60)
+            : 0
+      if (!workDate || minutes <= 0) {
+        issues.push({ severity: 'error', table: 'timeEntries', recordId: pick(row, FIELDS.recordId) || null, message: 'Time entry needs a date and positive duration. Skipped.' })
+        continue
+      }
+      const hourlyRate = money(pick(row, FIELDS.price))
+      const explicitAmount = money(pick(row, ['amount', 'amount_usd', 'total', 'total_usd']))
+      const billableRaw = pick(row, FIELDS.billable)
+      const billable = billableRaw ? !/^(false|no|n|0)$/i.test(billableRaw) : true
+      timeEntries.push({
+        key: recordKey('timeEntries', row),
+        workDate,
+        minutes,
+        activityType: (pick(row, FIELDS.activity) || 'general').toLowerCase().replace(/[^a-z0-9]+/g, '_'),
+        description: pick(row, ['note', 'description', 'details']) || null,
+        billable,
+        hourlyRate,
+        amount: explicitAmount ?? (billable && hourlyRate !== null ? (minutes / 60) * hourlyRate : null),
+      })
+    }
+
     const insurance: InsuranceRecord[] = []
     for (const row of bucket.insurance ?? []) {
       const carrierName = pick(row, FIELDS.carrier)
@@ -792,6 +977,27 @@ export function buildMatterPackagePlan(
         insuredParty: insuredPartyOf(pick(row, FIELDS.insuredParty), coverageType),
         notes: pick(row, ['notes', 'note', 'comments']) || null,
       })
+    }
+    // Some exports keep the primary carrier and limits directly on the
+    // matter/project row instead of providing an insurance table.
+    if (insurance.length === 0) {
+      const carrierName = pick(effectiveMatterRow, FIELDS.carrier)
+      if (carrierName) {
+        const coverageType = coverageTypeOf(pick(effectiveMatterRow, FIELDS.coverageType)) ?? 'liability'
+        insurance.push({
+          key: recordKey('insurance', effectiveMatterRow, [...FIELDS.matterId, ...FIELDS.recordId]),
+          carrierName,
+          policyNumber: pick(effectiveMatterRow, FIELDS.policyNumber) || null,
+          policyLimit: money(pick(effectiveMatterRow, FIELDS.policyLimit)),
+          claimNumber: pick(effectiveMatterRow, FIELDS.claimNumber) || null,
+          adjusterName: pick(effectiveMatterRow, FIELDS.adjusterName) || null,
+          adjusterEmail: pick(effectiveMatterRow, FIELDS.adjusterEmail) || null,
+          adjusterPhone: pick(effectiveMatterRow, FIELDS.adjusterPhone) || null,
+          coverageType,
+          insuredParty: 'defendant',
+          notes: 'Imported from matter-level insurance fields.',
+        })
+      }
     }
 
     const liens: LienRecord[] = []
@@ -907,13 +1113,14 @@ export function buildMatterPackagePlan(
         category: pick(row, FIELDS.docCategory) || null,
         date: parseLooseDate(pick(row, ['document_date', 'uploaded_at', 'created_at', 'date'])),
         url: pick(row, FIELDS.url) || null,
+        checksum: pick(row, ['sha256', 'checksum_sha256', 'content_sha256', 'checksum', 'content_hash']) || null,
       })
     }
 
     // The description comes from the matter or the accident, never the notes
     // table: notes are history, and are imported as notes.
     const narrative = [
-      pick(matterRow, FIELDS.description),
+      pick(effectiveMatterRow, FIELDS.description),
       pick(accident, FIELDS.description),
       pick(accident, FIELDS.location) ? `Location: ${pick(accident, FIELDS.location)}` : '',
       pick(accident, FIELDS.policeReport) ? `Police report: ${pick(accident, FIELDS.policeReport)}` : '',
@@ -923,7 +1130,7 @@ export function buildMatterPackagePlan(
       .join('\n\n')
 
     const diagnoses = [
-      ...splitDiagnoses(pick(matterRow, FIELDS.injuries) || pick(accident, FIELDS.injuries)),
+      ...splitDiagnoses(pick(effectiveMatterRow, FIELDS.injuries) || pick(accident, FIELDS.injuries)),
       ...visits.flatMap((v) => (v.diagnosis ? splitDiagnoses(v.diagnosis) : [])),
     ]
     const injuryDiagnoses = [...new Set(diagnoses.map((d) => d.trim()).filter(Boolean))].slice(0, 12)
@@ -931,19 +1138,23 @@ export function buildMatterPackagePlan(
     const clientName = client ? [client.firstName, client.lastName].filter(Boolean).join(' ') : ''
     matters.push({
       externalId,
-      label: clientName || pick(matterRow, ['matter_name', 'name', 'title', 'display_number']) || externalId,
-      claimType: normalizeClaimType(pick(matterRow, FIELDS.caseType) || pick(accident, ['accident_type', 'incident_type', 'type'])),
+      label: clientName || pick(effectiveMatterRow, ['matter_name', 'name', 'title', 'display_number']) || externalId,
+      claimType: normalizeClaimType(pick(effectiveMatterRow, FIELDS.caseType) || pick(accident, ['accident_type', 'incident_type', 'type'])),
       incidentDate: incident.ok ? incident.date : null,
       incidentDateAmbiguous: incident.ok && incident.ambiguous,
       venueState,
-      venueCounty: pick(matterRow, FIELDS.county) || pick(accident, FIELDS.county) || null,
+      venueCounty: pick(effectiveMatterRow, FIELDS.county) || pick(accident, FIELDS.county) || null,
       narrative,
       injuryDiagnoses,
       client,
-      defendantName: defendant ? [defendant.firstName, defendant.lastName].filter(Boolean).join(' ') || defendant.company : null,
+      defendantName: defendant
+        ? [defendant.firstName, defendant.lastName].filter(Boolean).join(' ') || defendant.company
+        : pick(effectiveMatterRow, ['defendant', 'defendant_name', 'opposing_party', 'adverse_party']) || null,
       contacts,
       visits,
       bills,
+      billingInvoices,
+      timeEntries,
       insurance,
       liens,
       expenses,
@@ -973,6 +1184,8 @@ export function bundleCounts(bundle: MatterBundle) {
     contacts: bundle.contacts.length,
     medicalVisits: bundle.visits.length,
     medicalBills: bundle.bills.length,
+    billingInvoices: bundle.billingInvoices.length,
+    timeEntries: bundle.timeEntries.length,
     insurance: bundle.insurance.length,
     liens: bundle.liens.length,
     expenses: bundle.expenses.length,
@@ -986,20 +1199,56 @@ export function bundleCounts(bundle: MatterBundle) {
 
 export type BundleCounts = ReturnType<typeof bundleCounts>
 
+export type BundleRecordEntry = {
+  kind: MatterTableKind
+  key: string
+  hash: string
+  data: Record<string, unknown>
+  relationshipKeys: string[]
+}
+
+/**
+ * Canonical source-side records used by reconciliation and the durable import
+ * ledger. Relationships are explicit so an ID-remapped fixture can prove that
+ * links survived sanitization and import.
+ */
+export function bundleRecordEntries(bundle: MatterBundle): BundleRecordEntry[] {
+  const groups: Array<[MatterTableKind, Array<{ key: string } & Record<string, unknown>>]> = [
+    ['contacts', bundle.contacts],
+    ['medicalVisits', bundle.visits],
+    ['medicalBills', bundle.bills],
+    ['billingInvoices', bundle.billingInvoices],
+    ['timeEntries', bundle.timeEntries],
+    ['insurance', bundle.insurance],
+    ['liens', bundle.liens],
+    ['expenses', bundle.expenses],
+    ['negotiations', bundle.negotiations],
+    ['tasks', bundle.tasks],
+    ['notes', bundle.notes.filter((n) => n.kind === 'note')],
+    ['timeline', bundle.notes.filter((n) => n.kind === 'timeline')],
+    ['documents', bundle.documents],
+  ]
+  return groups.flatMap(([kind, records]) =>
+    records.map((record) => {
+      const data = { ...record }
+      const relationshipKeys =
+        kind === 'medicalBills' && typeof data.visitKey === 'string' && data.visitKey
+          ? [data.visitKey]
+          : []
+      return {
+        kind,
+        key: record.key,
+        hash: stableRecordHash(data),
+        data,
+        relationshipKeys,
+      }
+    }),
+  )
+}
+
 /** Every related-record key in a bundle, for the re-import manifest. */
 export function bundleRecordKeys(bundle: MatterBundle): string[] {
-  return [
-    ...bundle.contacts,
-    ...bundle.visits,
-    ...bundle.bills,
-    ...bundle.insurance,
-    ...bundle.liens,
-    ...bundle.expenses,
-    ...bundle.negotiations,
-    ...bundle.tasks,
-    ...bundle.notes,
-    ...bundle.documents,
-  ].map((r) => r.key)
+  return bundleRecordEntries(bundle).map((record) => record.key)
 }
 
 export function matterIsImportable(bundle: MatterBundle): boolean {

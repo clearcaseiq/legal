@@ -8,9 +8,10 @@
  */
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertCircle, CheckCircle2, Layers, Loader2, Upload } from 'lucide-react'
+import { AlertCircle, CheckCircle2, Layers, Loader2, Undo2, Upload } from 'lucide-react'
 import {
   importMatterPackage,
+  rollbackMatterPackageImport,
   type MatterPackageImportResponse,
   type MatterPackageIssue,
   type MatterRecordCounts,
@@ -20,6 +21,8 @@ const TILE_ORDER: Array<{ label: string; count: (c: MatterRecordCounts) => numbe
   { label: 'Contacts', count: (c) => c.contacts, always: true },
   { label: 'Medical visits', count: (c) => c.medicalVisits, always: true },
   { label: 'Medical bills', count: (c) => c.medicalBills, always: true },
+  { label: 'Billing invoices', count: (c) => c.billingInvoices },
+  { label: 'Time entries', count: (c) => c.timeEntries },
   { label: 'Insurance', count: (c) => c.insurance, always: true },
   { label: 'Tasks & deadlines', count: (c) => c.tasks, always: true },
   { label: 'Notes', count: (c) => c.notes, always: true },
@@ -80,6 +83,7 @@ export default function MatterMigrationPanel({ source, files }: { source: string
   const [result, setResult] = useState<MatterPackageImportResponse | null>(null)
   const [duplicateMode, setDuplicateMode] = useState<'skip' | 'merge'>('skip')
   const [loading, setLoading] = useState(false)
+  const [rollingBack, setRollingBack] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -111,6 +115,20 @@ export default function MatterMigrationPanel({ source, files }: { source: string
     }
   }
 
+  const rollbackImport = async () => {
+    if (!result?.importId) return
+    setRollingBack(true)
+    setError(null)
+    try {
+      await rollbackMatterPackageImport(result.importId)
+      setResult({ ...result, importStatus: 'rolled_back' })
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'The incomplete import could not be rolled back.')
+    } finally {
+      setRollingBack(false)
+    }
+  }
+
   if (error) {
     return (
       <div className="mt-4 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
@@ -128,6 +146,27 @@ export default function MatterMigrationPanel({ source, files }: { source: string
           <CheckCircle2 className="h-4 w-4 text-emerald-600" />
           <h5 className="text-sm font-semibold text-slate-800">Import report</h5>
         </div>
+        {result.importStatus === 'partial' && (
+          <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+            <p>
+              This import stopped before every matter completed. Upload the same files again to resume safely, or roll back the completed portion.
+            </p>
+            <button
+              type="button"
+              onClick={() => void rollbackImport()}
+              disabled={rollingBack}
+              className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-white px-3 py-1.5 font-semibold text-amber-800 disabled:opacity-50"
+            >
+              {rollingBack ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Undo2 className="h-3.5 w-3.5" />}
+              Roll back incomplete import
+            </button>
+          </div>
+        )}
+        {result.importStatus === 'rolled_back' && (
+          <p className="mt-3 rounded-lg border border-slate-200 bg-white p-3 text-xs font-medium text-slate-600">
+            The incomplete import was rolled back.
+          </p>
+        )}
         <div className="mt-3 space-y-3">
           {result.report.map((row) => {
             const outcome = OUTCOME_LABEL[row.outcome]
@@ -151,7 +190,7 @@ export default function MatterMigrationPanel({ source, files }: { source: string
                   <p className="mt-1 text-xs text-slate-500">{row.alreadyImported} record{row.alreadyImported === 1 ? '' : 's'} were already imported and left unchanged.</p>
                 )}
                 {row.reason && <p className="mt-1 text-xs text-rose-700">{row.reason}</p>}
-                {row.leadId && (
+                {row.leadId && result.importStatus !== 'rolled_back' && (
                   <Link to={`/attorney-dashboard/lead/${row.leadId}/overview`} className="mt-1 inline-block text-xs font-semibold text-brand-600 hover:text-brand-700">
                     Open case
                   </Link>
