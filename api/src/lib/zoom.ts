@@ -17,13 +17,14 @@ const ZOOM_OAUTH_TOKEN_URL = 'https://zoom.us/oauth/token'
 const ZOOM_OAUTH_REVOKE_URL = 'https://zoom.us/oauth/revoke'
 const ZOOM_API_BASE = 'https://api.zoom.us/v2'
 
-// Scopes requested from Zoom. For user-managed apps Zoom ultimately enforces
-// whatever scopes are enabled in the Marketplace app config; we still advertise
-// the ones we rely on so consent screens are explicit.
+// Current Zoom General Apps use granular user-level scopes. Sending the older
+// classic names from a newly-created General App makes Zoom fail before it can
+// reach our callback, often with only Marketplace's generic /error page.
+// These values must exactly match the required scopes configured on the app.
 // The embedded (Meeting SDK) join additionally needs user:read:zak and
 // user:read:token. They are left out of the Marketplace app while
 // ZOOM_EMBED_ENABLED is off; without them the join falls back to the Zoom app.
-const ZOOM_SCOPES = ['user:read', 'meeting:write']
+const ZOOM_SCOPES = ['user:read:user', 'meeting:write:meeting']
 
 type ZoomConnectionRecord = {
   id: string
@@ -106,6 +107,7 @@ export function buildZoomAuthorizeUrl(attorneyId: string) {
   url.searchParams.set('response_type', 'code')
   url.searchParams.set('client_id', ENV.ZOOM_CLIENT_ID as string)
   url.searchParams.set('redirect_uri', zoomRedirectUri())
+  url.searchParams.set('scope', ZOOM_SCOPES.join(' '))
   url.searchParams.set('state', signZoomState({ attorneyId, kind: 'zoom' }))
   return url.toString()
 }

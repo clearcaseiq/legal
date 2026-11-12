@@ -55,8 +55,8 @@ ClearCaseIQ requests only these scopes. It does not read recordings, chat, conta
 
 | Scope | Required or optional | Why ClearCaseIQ needs it | Tested in |
 | --- | --- | --- | --- |
-| `user:read` | Required | Reads the connected user's Zoom ID, name and email, so the attorney can see which Zoom account is connected. The ID also matches deauthorization events to the right attorney. | 4.2, 6.2 |
-| `meeting:write` | Required | Creates instant meetings (Start video call) and scheduled meetings (Zoom consultations) on the attorney's own Zoom account. | 5.1, 5.2 |
+| `user:read:user` | Required | Reads the connected user's Zoom ID, name and email, so the attorney can see which Zoom account is connected. The ID also matches deauthorization events to the right attorney. | 4.2, 6.2 |
+| `meeting:write:meeting` | Required | Creates instant meetings (Start video call) and scheduled meetings (Zoom consultations) on the attorney's own Zoom account. | 5.1, 5.2 |
 
 There are no optional scopes. Meetings always open in the Zoom app or Zoom web client, so ClearCaseIQ needs no host or on-behalf-of tokens.
 
