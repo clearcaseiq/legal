@@ -4,22 +4,22 @@
   "fixtures": {
     "clio": {
       "file": "clio.json",
-      "sha256": "d3da4024ed6e0b63f427ed9f68733a0de76dc9a660ad47436d02ab0ac3ab5cab",
+      "sha256": "51a14b0a5cad6b0bc322710a32e7a4e41debf661a8aebef770f4b0efd97da616",
       "expected": { "matters": 1, "contacts": 1, "medicalVisits": 1, "medicalBills": 1 }
     },
     "filevine": {
       "file": "filevine.json",
-      "sha256": "868d891d54ab61bbddddc6ff9e604349e1b018bb447ace9994d584311bce3d91",
+      "sha256": "86ed3ce7b5866b129de290d6b7c7c9d46c0a543c7828630905503a8bbb4287cb",
       "expected": { "matters": 1, "contacts": 1, "tasks": 1 }
     },
     "needles": {
       "file": "needles.json",
-      "sha256": "ed6e748a0915c3ae00142473388a71a123e6488d7fc5468d42959e12634f756f",
+      "sha256": "8192b52f964f3dce0123bea18fd215fe1b739c2cd70d9debf48df2d632a432db",
       "expected": { "matters": 1, "contacts": 1, "notes": 1 }
     },
     "litify": {
       "file": "litify.json",
-      "sha256": "5450b7362c5ea58b394b5ab0f2a6bc4595431a62eaa839a321dfeb2d735ee267",
+      "sha256": "28b073bfa30931d7d1c580626a294d5c3967e86711887fd420717ee0bffbe249",
       "expected": { "matters": 1, "contacts": 1, "tasks": 1 }
     }
   }

@@ -68,7 +68,11 @@ describe('versioned native-vendor regression fixtures', () => {
   for (const [vendor, entry] of Object.entries(manifest.fixtures)) {
     it(`keeps the ${vendor} fixture checksum and expected relationships stable`, () => {
       const bytes = readFileSync(resolve(fixtureDir, entry.file))
-      expect(crypto.createHash('sha256').update(bytes).digest('hex')).toBe(entry.sha256)
+      // Git may check fixtures out with CRLF on Windows and LF in CI. Hash the
+      // canonical text so the regression fingerprint means the same thing on
+      // every runner.
+      const canonicalBytes = bytes.toString('utf8').replace(/\r\n?/g, '\n')
+      expect(crypto.createHash('sha256').update(canonicalBytes).digest('hex')).toBe(entry.sha256)
       const pkg = detectMatterPackage(JSON.parse(bytes.toString('utf8')))
       expect(pkg).not.toBeNull()
       const plan = buildMatterPackagePlan(pkg!, { today: new Date('2026-11-01T12:00:00Z') })
