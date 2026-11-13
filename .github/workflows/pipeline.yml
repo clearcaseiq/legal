@@ -329,7 +329,10 @@ jobs:
     name: Verify third-party tracking (production)
     needs: deploy-production
     if: github.event_name == 'push'
-    runs-on: ubuntu-latest
+    # Pinned: Playwright 1.59 cannot install Chromium on ubuntu-latest once that
+    # resolves to 26.04. Move back after upgrading Playwright to a release that
+    # supports it.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
