@@ -16,6 +16,7 @@ import { checkObjectStorageConfig, ensureLocalCopy, isObjectStorageEnabled } fro
 import { checkEmailProviderConfig } from './lib/claims'
 import { checkSmsProviderConfig } from './lib/sms'
 import { checkStripeConfig } from './lib/stripe'
+import { pgConfigFromPrismaUrl } from './lib/realtime'
 
 const AUDITED_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 // Successful writes that are telemetry rather than changes; a once-a-minute
@@ -99,7 +100,7 @@ function buildSessionStore(): any {
     const connectPgSimple = require('connect-pg-simple')
     const PgSession = connectPgSimple(session)
     return new PgSession({
-      conString: process.env.DATABASE_URL,
+      conObject: pgConfigFromPrismaUrl(process.env.DATABASE_URL),
       createTableIfMissing: true,
       tableName: 'user_sessions',
     })
