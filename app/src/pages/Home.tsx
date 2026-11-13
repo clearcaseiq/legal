@@ -9,6 +9,7 @@ import { BarChart3, ClipboardList, Users } from 'lucide-react'
 import { useLanguage } from '../contexts/LanguageContext'
 import MarketingHeroArt from '../components/MarketingHeroArt'
 import FaqSection from '../components/FaqSection'
+import { websiteSchema } from '../data/organizationSchema'
 // Deliberately a static import. It is the hero's second column — above the fold
 // on every desktop visit and the largest element on the page — so splitting it
 // out only bought a placeholder that had to be swapped for real content a moment
@@ -65,6 +66,8 @@ export default function Home() {
     })),
   }
 
+  const websiteJsonLd = { '@context': 'https://schema.org', ...websiteSchema() }
+
   useEffect(() => {
     if (hash === '#how-it-works') {
       const el = document.getElementById('how-it-works')
@@ -77,6 +80,10 @@ export default function Home() {
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteJsonLd) }}
       />
         {/* Hero — split layout + product preview */}
         <section className="py-8 md:py-14 lg:py-16">

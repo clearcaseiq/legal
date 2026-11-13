@@ -71,9 +71,12 @@ export const organizationAddress = {
  * The Organization node. `nested` omits the fields that only make sense on the
  * node a page is primarily about, so an embedded reference stays a reference.
  */
+export const ORGANIZATION_ID = `${DEFAULT_SITE_URL}/#organization`
+
 export function organizationSchema({ nested = false }: { nested?: boolean } = {}) {
   return {
     '@type': 'Organization',
+    '@id': ORGANIZATION_ID,
     name: ORGANIZATION_NAME,
     legalName: ORGANIZATION_LEGAL_NAME,
     url: DEFAULT_SITE_URL,
@@ -91,5 +94,21 @@ export function organizationSchema({ nested = false }: { nested?: boolean } = {}
             name: 'California',
           },
         }),
+  }
+}
+
+/**
+ * The WebSite node Google reads on the homepage to choose the site name it
+ * shows in results. Google also auto-corrects "clearcaseiq" to IBM's
+ * "ClearCase", so the exact one-word spelling has to be stated, and the same,
+ * everywhere: no spaced or split variant as `alternateName`.
+ */
+export function websiteSchema() {
+  return {
+    '@type': 'WebSite',
+    '@id': `${DEFAULT_SITE_URL}/#website`,
+    name: ORGANIZATION_NAME,
+    url: DEFAULT_SITE_URL,
+    publisher: { '@id': ORGANIZATION_ID },
   }
 }

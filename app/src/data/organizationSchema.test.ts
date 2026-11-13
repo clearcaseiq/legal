@@ -7,6 +7,7 @@ import {
   ORGANIZATION_STREET_ADDRESS,
   ORGANIZATION_TELEPHONE,
   organizationSchema,
+  websiteSchema,
 } from './organizationSchema'
 
 /** Every string value anywhere in the emitted node, including nested objects. */
@@ -74,6 +75,16 @@ describe('organization schema', () => {
     expect(nested).not.toHaveProperty('logo')
     expect(nested).not.toHaveProperty('description')
     expect(organizationSchema()).toHaveProperty('logo')
+  })
+
+  it('names the website with the exact one-word brand and links it to the organization', () => {
+    const site = websiteSchema()
+
+    expect(site.name).toBe('ClearCaseIQ')
+    expect(site.url).toBe('https://www.clearcaseiq.com')
+    expect(site).not.toHaveProperty('alternateName')
+    expect(site.publisher['@id']).toBe(organizationSchema()['@id'])
+    expect(organizationSchema({ nested: true })['@id']).toBe(organizationSchema()['@id'])
   })
 
   it('serializes to valid JSON-LD', () => {
