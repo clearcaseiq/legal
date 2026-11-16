@@ -1696,6 +1696,14 @@ router.patch('/cases/:id/client-contact', authMiddleware, adminMiddleware, async
     const result = await updateClaimantContact({
       assessmentId: req.params.id,
       patch: { firstName, lastName, email, phone, addressLine1, addressLine2, city, state, postalCode },
+      audit: {
+        source: 'admin',
+        actor: {
+          type: 'user',
+          id: req.user?.id ?? null,
+          label: req.user?.email ?? null,
+        },
+      },
     })
     if (!result.ok) return res.status(result.status).json({ error: result.message })
 

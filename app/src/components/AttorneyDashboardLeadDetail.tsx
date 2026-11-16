@@ -12,6 +12,7 @@ import { resolveClaimantContact } from '../lib/claimantContact'
 import { useHeuristics } from '../contexts/HeuristicsContext'
 import { caseStrengthLabel } from '../lib/heuristics'
 import AttorneyCaseIntelligenceSuite from './AttorneyCaseIntelligenceSuite'
+import AttorneyPredictionReviewPanel from './AttorneyPredictionReviewPanel'
 import type {
   AttorneyDashboardContactCommandPayload,
   AttorneyDashboardFile,
@@ -660,6 +661,7 @@ export default function AttorneyDashboardLeadDetail({
                   onRequestDocuments={() => goToSection('evidence')}
                   onScheduleConsult={handleQuickConsult}
                 />
+                <AttorneyPredictionReviewPanel leadId={selectedLead.id} />
                 <AttorneyCaseIntelligenceSuite
                   selectedLead={selectedLead}
                   selectedLeadFacts={selectedLeadFacts}

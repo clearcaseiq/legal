@@ -14,6 +14,8 @@ import { prisma } from './prisma'
 import { ensureCaseOwnerUserId, guestCaseUserEmail } from './case-owner'
 import { normalizePhone, PHONE_ERROR_MESSAGE } from './phone'
 import { emitClientUpdated } from './realtime'
+import { updateCaseFacts } from './case-facts'
+import type { CaseChangeActor, CaseWriteSource } from './data-authority'
 
 /** The mailing address fields, which live only on the user row. */
 export const ADDRESS_FIELDS = ['addressLine1', 'addressLine2', 'city', 'state', 'postalCode'] as const
@@ -66,6 +68,7 @@ function canRepointLoginEmail(user: { email: string; passwordHash: string | null
 export async function updateClaimantContact(params: {
   assessmentId: string
   patch: ClaimantContactPatch
+  audit?: { source: CaseWriteSource; actor?: CaseChangeActor }
 }): Promise<UpdateClaimantContactResult> {
   const { assessmentId, patch } = params
 
@@ -182,15 +185,35 @@ export async function updateClaimantContact(params: {
     }
   }
 
-  await prisma.$transaction(async (tx) => {
-    await tx.assessment.update({
-      where: { id: assessmentId },
-      data: { facts: JSON.stringify({ ...facts, plaintiffContext: context }) },
+  const contactEdit = [firstName, lastName, email, phone].some((value) => value !== undefined)
+  if (contactEdit) {
+    await updateCaseFacts({
+      assessmentId,
+      source: params.audit?.source ?? 'attorney',
+      action: 'claimant_contact_updated',
+      entityType: 'claimant_contact',
+      summary: 'Claimant contact details updated',
+      actor: params.audit?.actor,
+      mutate: (currentFacts) => {
+        const currentContext = {
+          ...((currentFacts.plaintiffContext || {}) as Record<string, any>),
+        }
+        if (firstName !== undefined) currentContext.firstName = firstName
+        if (lastName !== undefined) currentContext.lastName = lastName
+        if (email !== undefined) currentContext.email = email
+        if (phone !== undefined) currentContext.phone = phone
+        return { ...currentFacts, plaintiffContext: currentContext }
+      },
+      transactionalSideEffect:
+        user && Object.keys(userData).length
+          ? async (tx) => {
+              await tx.user.update({ where: { id: user!.id }, data: userData })
+            }
+          : undefined,
     })
-    if (user && Object.keys(userData).length) {
-      await tx.user.update({ where: { id: user.id }, data: userData })
-    }
-  })
+  } else if (user && Object.keys(userData).length) {
+    await prisma.user.update({ where: { id: user.id }, data: userData })
+  }
   void emitClientUpdated(assessmentId)
 
   return {
@@ -274,9 +297,24 @@ export async function syncClaimantContactForUser(
     }
     if (!changed) continue
 
-    await prisma.assessment.update({
-      where: { id: assessment.id },
-      data: { facts: JSON.stringify({ ...facts, plaintiffContext: context }) },
+    await updateCaseFacts({
+      assessmentId: assessment.id,
+      source: 'web',
+      action: 'claimant_contact_updated',
+      entityType: 'claimant_contact',
+      summary: 'Claimant updated profile contact details',
+      actor: { type: 'user', id: userId },
+      mutate: (currentFacts) => {
+        const currentContext = {
+          ...((currentFacts.plaintiffContext || {}) as Record<string, any>),
+        }
+        for (const field of fields) {
+          const value = patch[field]
+          if (value === null || value === '') delete currentContext[field]
+          else if (value !== undefined) currentContext[field] = value
+        }
+        return { ...currentFacts, plaintiffContext: currentContext }
+      },
     })
     void emitClientUpdated(assessment.id)
     updated += 1

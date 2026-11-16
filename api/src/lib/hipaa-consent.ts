@@ -1,5 +1,5 @@
 import { prisma } from './prisma'
-import { parseCaseFacts } from './case-facts'
+import { updateCaseFacts } from './case-facts'
 
 /**
  * Record a signed HIPAA authorization as the case's HIPAA consent.
@@ -10,16 +10,29 @@ import { parseCaseFacts } from './case-facts'
  * the attorney kept seeing "hidden until the client signs the HIPAA".
  */
 export async function recordHipaaConsent(assessmentId: string, envelopeId: string): Promise<boolean> {
-  const assessment = await prisma.assessment.findUnique({ where: { id: assessmentId }, select: { facts: true } })
-  if (!assessment) return false
-  const facts: any = parseCaseFacts(assessment.facts)
-  if (facts?.consents?.hipaa === true) return false
-  const consents = { ...(facts.consents || {}), hipaa: true, hipaaEnvelopeId: envelopeId, hipaaSignedAt: new Date().toISOString() }
-  await prisma.assessment.update({
-    where: { id: assessmentId },
-    data: { facts: JSON.stringify({ ...facts, consents }) },
+  const signedAt = new Date().toISOString()
+  const updated = await updateCaseFacts({
+    assessmentId,
+    source: 'system',
+    action: 'hipaa_consent_recorded',
+    entityType: 'consent',
+    entityId: envelopeId,
+    summary: 'Signed HIPAA authorization recorded',
+    actor: { type: 'system' },
+    mutate: (facts) => {
+      if (facts?.consents?.hipaa === true) return null
+      return {
+        ...facts,
+        consents: {
+          ...(facts.consents || {}),
+          hipaa: true,
+          hipaaEnvelopeId: envelopeId,
+          hipaaSignedAt: signedAt,
+        },
+      }
+    },
   })
-  return true
+  return updated?.written === true
 }
 
 /** Catch up cases whose HIPAA was signed before the signature recorded consent. */

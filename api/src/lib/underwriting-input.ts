@@ -10,7 +10,6 @@
  * one caller passed the insurance records that carry confirmed policy limits.
  */
 import { prisma } from './prisma'
-import { getLiabilityRecord } from './liability-record'
 import type { UnderwritingInput } from './underwriting-engine'
 
 function parseFacts(raw: unknown): Record<string, any> {
@@ -46,38 +45,58 @@ export function applyLiabilityRecordToFacts(facts: Record<string, any>, record: 
   }
 }
 
-export async function loadUnderwritingInput(assessmentId: string): Promise<UnderwritingInput | null> {
-  const [assessment, liabilityRecord] = await Promise.all([
-    prisma.assessment.findUnique({
-      where: { id: assessmentId },
-      select: {
-        id: true,
-        claimType: true,
-        venueState: true,
-        venueCounty: true,
-        facts: true,
-        evidenceFiles: {
-          select: { category: true, originalName: true, aiClassification: true, aiSummary: true },
-        },
-        insuranceDetails: {
-          select: { insuredParty: true, coverageType: true, policyLimit: true, coverageConfirmed: true },
-        },
+export type VersionedUnderwritingInput = {
+  input: UnderwritingInput
+  assessmentRevision: number
+  /** When this exact revision was read, used to order concurrent predictions. */
+  inputCapturedAt: Date
+}
+
+export async function loadVersionedUnderwritingInput(
+  assessmentId: string,
+): Promise<VersionedUnderwritingInput | null> {
+  const inputCapturedAt = new Date()
+  // One relational read keeps the revision, facts, and all prediction inputs
+  // together. Loading liability separately could pair a newly saved liability
+  // record with the prior assessment revision during a concurrent update.
+  const assessment = await prisma.assessment.findUnique({
+    where: { id: assessmentId },
+    select: {
+      id: true,
+      claimType: true,
+      venueState: true,
+      venueCounty: true,
+      facts: true,
+      revision: true,
+      liabilityRecord: true,
+      evidenceFiles: {
+        select: { category: true, originalName: true, aiClassification: true, aiSummary: true },
       },
-    }),
-    getLiabilityRecord(assessmentId).catch(() => null),
-  ])
+      insuranceDetails: {
+        select: { insuredParty: true, coverageType: true, policyLimit: true, coverageConfirmed: true },
+      },
+    },
+  })
   if (!assessment) return null
 
   const facts = parseFacts(assessment.facts)
-  applyLiabilityRecordToFacts(facts, liabilityRecord)
+  applyLiabilityRecordToFacts(facts, assessment.liabilityRecord)
 
   return {
-    id: assessment.id,
-    claimType: assessment.claimType,
-    venueState: assessment.venueState,
-    venueCounty: assessment.venueCounty,
-    facts,
-    evidenceFiles: assessment.evidenceFiles || [],
-    insuranceDetails: assessment.insuranceDetails || [],
+    assessmentRevision: assessment.revision,
+    inputCapturedAt,
+    input: {
+      id: assessment.id,
+      claimType: assessment.claimType,
+      venueState: assessment.venueState,
+      venueCounty: assessment.venueCounty,
+      facts,
+      evidenceFiles: assessment.evidenceFiles || [],
+      insuranceDetails: assessment.insuranceDetails || [],
+    },
   }
+}
+
+export async function loadUnderwritingInput(assessmentId: string): Promise<UnderwritingInput | null> {
+  return (await loadVersionedUnderwritingInput(assessmentId))?.input ?? null
 }

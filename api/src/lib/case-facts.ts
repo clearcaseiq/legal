@@ -34,6 +34,7 @@
  * Read paths deliberately keep using the tolerant `parseCaseFacts`: a corrupt
  * blob should not take down a dashboard that merely displays it.
  */
+import type { Prisma } from '@prisma/client'
 import { prisma } from './prisma'
 import { logger } from './logger'
 import { recordCaseChangeAtRevision, type CaseChangeActor, type CaseWriteSource } from './data-authority'
@@ -150,6 +151,11 @@ export type UpdateCaseFactsInput = {
    * actions. Per-field provenance is still recorded either way.
    */
   recordChange?: boolean
+  /** Additional normalized rows that must commit with the facts update. */
+  transactionalSideEffect?: (
+    tx: Prisma.TransactionClient,
+    nextFacts: CaseFacts,
+  ) => Promise<void>
   /**
    * Produce the next facts document, or `null` to write nothing.
    *
@@ -168,6 +174,8 @@ export type UpdateCaseFactsResult = {
   revision: number | null
   /** How many per-field provenance rows this write recorded. */
   trackedChanges: number
+  /** Canonical event for this revision; null only when event recording failed. */
+  eventId: string | null
 }
 
 /**
@@ -194,7 +202,7 @@ export async function updateCaseFacts(input: UpdateCaseFactsInput): Promise<Upda
 
     const facts = requireCaseFacts(assessmentId, current.facts)
     const next = mutate(facts)
-    if (next === null) return { facts, written: false, revision: null, trackedChanges: 0 }
+    if (next === null) return { facts, written: false, revision: null, trackedChanges: 0, eventId: null }
 
     const serialized = serializeCaseFacts(next)
     const diff = diffCaseFacts(facts, next)
@@ -236,6 +244,9 @@ export async function updateCaseFacts(input: UpdateCaseFactsInput): Promise<Upda
           })),
         })
       }
+      if (input.transactionalSideEffect) {
+        await input.transactionalSideEffect(tx, next)
+      }
       return true
     })
 
@@ -244,21 +255,12 @@ export async function updateCaseFacts(input: UpdateCaseFactsInput): Promise<Upda
       continue
     }
 
-    if (diff.truncated) {
-      // A whole-document rewrite rather than someone editing fields. The feed
-      // still records the write; per-field rows are not useful at that volume.
-      logger.info('Case facts change too broad to track per field', {
-        assessmentId,
-        action: input.action,
-        revision: nextRevision,
-      })
-    }
-
+    let eventId: string | null = null
     if (input.recordChange !== false) {
       // Awaited rather than fired and forgotten so the feed row exists before a
       // caller acts on the revision. Never throws, so it cannot turn a
       // successful write into a failure.
-      await recordCaseChangeAtRevision(
+      const event = await recordCaseChangeAtRevision(
         {
           assessmentId,
           source: input.source,
@@ -271,9 +273,16 @@ export async function updateCaseFacts(input: UpdateCaseFactsInput): Promise<Upda
         nextRevision,
         current.lawFirmId ?? null,
       )
+      eventId = event?.id ?? null
     }
 
-    return { facts: next, written: true, revision: nextRevision, trackedChanges: diff.changes.length }
+    return {
+      facts: next,
+      written: true,
+      revision: nextRevision,
+      trackedChanges: diff.changes.length,
+      eventId,
+    }
   }
 
   throw new CaseFactsConflictError(assessmentId, MAX_WRITE_ATTEMPTS)

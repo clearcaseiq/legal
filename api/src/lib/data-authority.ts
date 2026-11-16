@@ -44,7 +44,7 @@ export type RecordCaseChangeInput = {
   skipPush?: boolean
 }
 
-export type RecordedChange = { revision: number; seq: number; lawFirmId: string | null }
+export type RecordedChange = { id: string; revision: number; seq: number; lawFirmId: string | null }
 
 /**
  * Bump the case revision and append a change event. Returns the new revision +
@@ -60,9 +60,10 @@ export async function recordCaseChange(input: RecordCaseChangeInput): Promise<Re
       })
       const created = await tx.caseChangeEvent.create({
         data: buildEventData(input, assessment.revision, assessment.lawFirmId),
-        select: { seq: true },
+        select: { id: true, seq: true },
       })
       return {
+        id: created.id,
         revision: assessment.revision,
         seq: created.seq,
         lawFirmId: assessment.lawFirmId,
@@ -126,7 +127,7 @@ export async function recordCaseChangeAtRevision(
   try {
     const created = await prisma.caseChangeEvent.create({
       data: buildEventData(input, revision, lawFirmId),
-      select: { seq: true },
+      select: { id: true, seq: true },
     })
 
     if (!input.skipPush) {
@@ -138,7 +139,7 @@ export async function recordCaseChangeAtRevision(
       )
     }
 
-    return { revision, seq: created.seq, lawFirmId }
+    return { id: created.id, revision, seq: created.seq, lawFirmId }
   } catch (error) {
     logger.error('Failed to record case change at revision', {
       assessmentId: input.assessmentId,

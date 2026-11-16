@@ -163,6 +163,10 @@ export async function rollbackMatterImport(runId: string, ownerKey: string) {
       for (const matter of [...run.matters].reverse()) {
         const report = matter.report as MatterImportReport | null
         if (report?.outcome === 'created' && matter.assessmentId) {
+          // Import rollback is an explicit erasure. Prediction history is
+          // otherwise protected from cascading Assessment deletion.
+          await tx.attorneyCaseReview.deleteMany({ where: { caseId: matter.assessmentId } })
+          await tx.prediction.deleteMany({ where: { assessmentId: matter.assessmentId } })
           await tx.assessment.deleteMany({ where: { id: matter.assessmentId } })
         } else {
           const targets = new Map<string, Set<string>>()

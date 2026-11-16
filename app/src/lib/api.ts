@@ -4345,6 +4345,56 @@ export async function updateLeadLiability(leadId: string, payload: any) {
   return data as { liability: any }
 }
 
+export type AttorneyPredictionReviewResponse = {
+  prediction: {
+    id: string
+    modelVersion: string
+    assessmentRevision?: number | null
+    viability: string
+    bands: string
+    explain: string
+    createdAt: string
+  }
+  review: {
+    id: string
+    predictionId: string
+    acceptCase: boolean
+    liabilityDisagrees: boolean
+    liabilityScore?: number | null
+    liabilityNotes?: string | null
+    evidenceDisagrees: boolean
+    evidenceRecommendations: { additions: string[]; removals: string[] }
+    evidenceNotes?: string | null
+    valuationDisagrees: boolean
+    settlementLow?: number | null
+    settlementExpected?: number | null
+    settlementHigh?: number | null
+    trialLow?: number | null
+    trialHigh?: number | null
+    valuationNotes?: string | null
+    confidence?: number | null
+    notes?: string | null
+  } | null
+}
+
+export async function getAttorneyPredictionReview(
+  leadId: string,
+  predictionId?: string,
+): Promise<AttorneyPredictionReviewResponse> {
+  const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/prediction-review`, {
+    params: predictionId ? { predictionId } : undefined,
+  })
+  return data
+}
+
+export async function saveAttorneyPredictionReview(
+  leadId: string,
+  payload: Record<string, unknown>,
+): Promise<{ predictionId: string; review: AttorneyPredictionReviewResponse['review'] }> {
+  const { data } = await api.put(`/v1/attorney-dashboard/leads/${leadId}/prediction-review`, payload)
+  return data
+}
+
 // ---- Document findings ------------------------------------------------------
 export type DocumentFindingKind = 'treatment_visit' | 'medical_charge' | 'wage_loss' | 'incident_report' | 'insurance_policy'
 

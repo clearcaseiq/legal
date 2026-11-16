@@ -162,7 +162,14 @@ export async function deleteClaimantAccount(
   }
 
   if (unshared.length) {
-    await db.assessment.deleteMany({ where: { id: { in: unshared }, userId } })
+    // Prediction history is protected by ON DELETE RESTRICT so an ordinary
+    // assessment delete cannot erase it accidentally. This is an authorized
+    // claimant erasure, so remove linked opinions and predictions explicitly.
+    await db.$transaction(async (tx: any) => {
+      await tx.attorneyCaseReview.deleteMany({ where: { caseId: { in: unshared } } })
+      await tx.prediction.deleteMany({ where: { assessmentId: { in: unshared } } })
+      await tx.assessment.deleteMany({ where: { id: { in: unshared }, userId } })
+    })
   }
 
   const phoneKey = optOutKey(user.phone)

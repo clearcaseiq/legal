@@ -4,7 +4,7 @@
  * it would show a specialist as the author of a field they never touched.
  */
 import { describe, expect, it } from 'vitest'
-import { MAX_TRACKED_CHANGES, diffCaseFacts } from './case-facts-diff'
+import { diffCaseFacts } from './case-facts-diff'
 
 function paths(previous: unknown, next: unknown): string[] {
   return diffCaseFacts(previous, next).changes.map((change) => change.path)
@@ -102,20 +102,20 @@ describe('diffCaseFacts', () => {
     expect(changed[0].path.split('.').length).toBeLessThanOrEqual(4)
   })
 
-  it('gives up rather than flooding the table on a whole-document rewrite', () => {
-    // What `runCaseRecalculation` does on every evidence upload.
+  it('retains every change in a whole-document rewrite', () => {
     const before: Record<string, number> = {}
     const after: Record<string, number> = {}
-    for (let i = 0; i < MAX_TRACKED_CHANGES + 5; i++) {
+    for (let i = 0; i < 45; i++) {
       before[`field${i}`] = i
       after[`field${i}`] = i + 1
     }
 
     const diff = diffCaseFacts(before, after)
-    expect(diff.truncated).toBe(true)
-    // No partial record: half a rewrite attributed to one actor would read as a
-    // precise claim about fields it never singled out.
-    expect(diff.changes).toEqual([])
+    expect(diff.truncated).toBe(false)
+    expect(diff.changes).toHaveLength(45)
+    expect(diff.changes.map((change) => change.path)).toEqual(
+      Array.from({ length: 45 }, (_, index) => `field${index}`),
+    )
   })
 
   it('stays under the cap for a realistic single-domain write', () => {

@@ -253,6 +253,7 @@ describe('HTTP hardening regressions', () => {
       userId: 'user-1',
       facts: '{}',
       claimType: 'auto',
+      revision: 4,
     } as any)
     vi.mocked(prisma.prediction.create).mockResolvedValue({ id: 'pred-1' } as any)
     vi.mocked(prisma.assessment.update).mockResolvedValue({ id: 'asm-1', status: 'COMPLETED' } as any)
@@ -274,13 +275,22 @@ describe('HTTP hardening regressions', () => {
     expect(computeFeaturesMock).toHaveBeenCalledWith(expect.objectContaining({ id: 'asm-1' }))
     expect(predictViabilityMock).toHaveBeenCalledWith({ claimType: 'auto' })
     expect(prisma.prediction.create).toHaveBeenCalledWith({
-      data: {
+      data: expect.objectContaining({
         assessmentId: 'asm-1',
         modelVersion: 'ca-pi-underwriting-v1',
         viability: expect.any(String),
         bands: expect.any(String),
         explain: expect.any(String),
-      },
+        assessmentRevision: 4,
+        triggerEventId: 'mock-id',
+        inputHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+        inputSnapshot: expect.any(String),
+      }),
+    })
+    const predictionData = vi.mocked(prisma.prediction.create).mock.calls.at(-1)?.[0]?.data as any
+    expect(JSON.parse(predictionData.inputSnapshot)).toMatchObject({
+      assessmentRevision: 4,
+      modelConfiguration: { modelVersion: 'ca-pi-underwriting-v1' },
     })
     expect(prisma.assessment.update).toHaveBeenCalledWith({
       where: { id: 'asm-1' },
@@ -344,6 +354,86 @@ describe('HTTP hardening regressions', () => {
 
     expect(res.body).toEqual({ error: 'Unauthorized' })
     expect(prisma.prediction.findMany).not.toHaveBeenCalled()
+  })
+
+  it('upserts structured attorney feedback against one immutable prediction version', async () => {
+    vi.mocked(prisma.attorney.findFirst).mockResolvedValue({
+      id: 'attorney-profile-1',
+      email: 'attorney@example.com',
+      name: 'Ari Attorney',
+      lawFirmId: 'firm-1',
+      isVerified: true,
+    } as any)
+    vi.mocked(prisma.attorney.findUnique).mockResolvedValue({ lawFirmId: 'firm-1' } as any)
+    vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValue({
+      id: 'lead-1',
+      assessmentId: 'asm-1',
+      assignedAttorneyId: 'attorney-profile-1',
+      assignmentType: 'direct',
+    } as any)
+    vi.mocked(prisma.prediction.findFirst).mockResolvedValue({ id: 'pred-7' } as any)
+    vi.mocked(prisma.assessment.update).mockResolvedValue({ revision: 9, lawFirmId: 'firm-1' } as any)
+
+    const first = {
+      predictionId: 'pred-7',
+      liability: { disagrees: true, score: 65, notes: 'Comparative fault is overstated.' },
+      evidence: { disagrees: true, additions: ['Traffic camera footage'], removals: [] },
+      valuation: {
+        disagrees: true,
+        settlementLow: 40_000,
+        settlementExpected: 65_000,
+        settlementHigh: 90_000,
+        notes: 'Confirmed limits support a higher range.',
+      },
+    }
+    await request(app)
+      .put('/v1/attorney-dashboard/leads/lead-1/prediction-review')
+      .set('Authorization', 'Bearer attorney')
+      .send(first)
+      .expect(200)
+
+    await request(app)
+      .put('/v1/attorney-dashboard/leads/lead-1/prediction-review')
+      .set('Authorization', 'Bearer attorney')
+      .send({ ...first, liability: { disagrees: false, score: null, notes: null } })
+      .expect(200)
+
+    expect(prisma.attorneyCaseReview.upsert).toHaveBeenCalledTimes(2)
+    for (const [call] of vi.mocked(prisma.attorneyCaseReview.upsert).mock.calls) {
+      expect(call.where).toEqual({
+        attorneyId_predictionId: {
+          attorneyId: 'attorney-profile-1',
+          predictionId: 'pred-7',
+        },
+      })
+    }
+    expect(prisma.prediction.update).not.toHaveBeenCalled()
+    expect(prisma.caseChangeEvent.create).toHaveBeenCalledTimes(2)
+  })
+
+  it('rejects an attorney review when the prediction belongs to another case', async () => {
+    vi.mocked(prisma.attorney.findFirst).mockResolvedValue({
+      id: 'attorney-profile-1',
+      email: 'attorney@example.com',
+      lawFirmId: 'firm-1',
+      isVerified: true,
+    } as any)
+    vi.mocked(prisma.attorney.findUnique).mockResolvedValue({ lawFirmId: 'firm-1' } as any)
+    vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValue({
+      id: 'lead-1',
+      assessmentId: 'asm-1',
+      assignedAttorneyId: 'attorney-profile-1',
+      assignmentType: 'direct',
+    } as any)
+    vi.mocked(prisma.prediction.findFirst).mockResolvedValue(null as any)
+
+    await request(app)
+      .put('/v1/attorney-dashboard/leads/lead-1/prediction-review')
+      .set('Authorization', 'Bearer attorney')
+      .send({ predictionId: 'pred-other', liability: { disagrees: true } })
+      .expect(404)
+
+    expect(prisma.attorneyCaseReview.upsert).not.toHaveBeenCalled()
   })
 
   /**

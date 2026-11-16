@@ -149,7 +149,9 @@ describe('ensurePredictionsForAssessments', () => {
     const created = await ensurePredictionsForAssessments(['asm-1', 'asm-2'])
 
     expect(created).toBe(1)
-    expect(prisma.assessment.findUnique).toHaveBeenCalledTimes(1)
+    // One read captures the exact input revision; the second scopes the
+    // lineage event to the case's firm.
+    expect(prisma.assessment.findUnique).toHaveBeenCalledTimes(2)
   })
 
   // A firm opening a large dashboard for the first time should not pay for the

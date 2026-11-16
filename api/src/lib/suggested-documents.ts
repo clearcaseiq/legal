@@ -1,7 +1,7 @@
 import crypto from 'crypto'
 import { prisma } from './prisma'
 import { logger } from './logger'
-import { parseCaseFacts } from './case-facts'
+import { parseCaseFacts, updateCaseFacts } from './case-facts'
 
 /**
  * Extra supporting documents the client or the attorney thinks belong on the
@@ -37,10 +37,20 @@ async function loadFacts(assessmentId: string) {
   return assessment ? (parseCaseFacts(assessment.facts) as any) : null
 }
 
-async function saveList(assessmentId: string, facts: any, list: SuggestedDocument[]) {
-  await prisma.assessment.update({
-    where: { id: assessmentId },
-    data: { facts: JSON.stringify({ ...facts, suggestedDocuments: list }) },
+async function saveList(
+  assessmentId: string,
+  list: SuggestedDocument[],
+  by: SuggestedBy,
+  action: 'suggested_document_added' | 'suggested_document_removed',
+) {
+  await updateCaseFacts({
+    assessmentId,
+    source: by === 'attorney' ? 'attorney' : 'web',
+    action,
+    entityType: 'suggested_document',
+    summary: action === 'suggested_document_added' ? 'Supporting document suggested' : 'Supporting document suggestion removed',
+    actor: { type: by === 'attorney' ? 'attorney' : 'user' },
+    mutate: (facts) => ({ ...facts, suggestedDocuments: list }),
   })
 }
 
@@ -80,7 +90,7 @@ export async function addSuggestedDocument(
     suggestedByName: input.suggestedByName?.trim() || null,
     createdAt: new Date().toISOString(),
   }
-  await saveList(assessmentId, facts, [...list, doc])
+  await saveList(assessmentId, [...list, doc], input.suggestedBy, 'suggested_document_added')
   return doc
 }
 
@@ -100,7 +110,12 @@ export async function removeSuggestedDocument(
   if (doc.suggestedBy !== by) return 'forbidden'
   const files = await prisma.evidenceFile.count({ where: { assessmentId, subcategory: suggestedSubcategory(id) } })
   if (files > 0) return 'has_files'
-  await saveList(assessmentId, facts, list.filter((d) => d.id !== id))
+  await saveList(
+    assessmentId,
+    list.filter((d) => d.id !== id),
+    by,
+    'suggested_document_removed',
+  )
   return 'removed'
 }
 

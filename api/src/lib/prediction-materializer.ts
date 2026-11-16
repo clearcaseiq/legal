@@ -33,7 +33,9 @@ import {
   reconcileViabilityWithUnderwriting,
   type UnderwritingInput,
 } from './underwriting-engine'
-import { loadUnderwritingInput } from './underwriting-input'
+import { loadVersionedUnderwritingInput } from './underwriting-input'
+import { buildPredictionLineage } from './prediction-lineage'
+import { writePredictionVersion } from './prediction-writer'
 
 /** Marks rows written here rather than by the intake prediction path. */
 export const MATERIALIZED_PREDICTION_SOURCE = 'materialized_underwriting'
@@ -108,8 +110,9 @@ export async function ensureAssessmentPrediction(assessmentId: string): Promise<
     const existing = await prisma.prediction.count({ where: { assessmentId } })
     if (existing > 0) return false
 
-    const input = await loadUnderwritingInput(assessmentId)
-    if (!input) return false
+    const versionedInput = await loadVersionedUnderwritingInput(assessmentId)
+    if (!versionedInput) return false
+    const input = versionedInput.input
 
     const record = buildPredictionRecord({ ...input, id: assessmentId })
     if (!record) {
@@ -117,14 +120,24 @@ export async function ensureAssessmentPrediction(assessmentId: string): Promise<
       return false
     }
 
-    // Re-check inside the write. Two concurrent page loads on the same case would
-    // otherwise both pass the count above and write duplicate valuations, which
-    // readers would then see flip between rows depending on ordering.
-    const created = await prisma.$transaction(async (tx) => {
-      const stillMissing = await tx.prediction.count({ where: { assessmentId } })
-      if (stillMissing > 0) return false
-      await tx.prediction.create({ data: { assessmentId, ...record } })
-      return true
+    const lineage = await buildPredictionLineage({
+      assessmentId,
+      assessmentRevision: versionedInput.assessmentRevision,
+      action: 'prediction_materialized',
+      underwritingInput: input,
+      configuration: {
+        modelVersion: record.modelVersion,
+        inferenceSource: MATERIALIZED_PREDICTION_SOURCE,
+      },
+    })
+
+    const stillMissing = await prisma.prediction.count({ where: { assessmentId } })
+    if (stillMissing > 0) return false
+    const { created } = await writePredictionVersion({
+      assessmentId,
+      createdAt: versionedInput.inputCapturedAt,
+      ...record,
+      ...lineage,
     })
 
     if (created) {

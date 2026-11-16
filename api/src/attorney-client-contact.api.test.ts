@@ -51,6 +51,8 @@ describe('a firm correcting its client contact details', () => {
     vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
       id: 'asm-1',
       userId: 'user-client',
+      revision: 0,
+      lawFirmId: 'firm-1',
       facts: { plaintiffContext: { firstName: 'Jane', phone: '+15550102456' } },
       user: {
         id: 'user-client',
@@ -100,7 +102,7 @@ describe('a firm correcting its client contact details', () => {
 
     expect(res.status).toBe(200)
     expect(savedUserData()).toMatchObject({ phone: '+15550109876', city: 'Los Angeles' })
-    const facts = JSON.parse(vi.mocked(prisma.assessment.update).mock.calls[0][0].data.facts)
+    const facts = JSON.parse(vi.mocked(prisma.assessment.updateMany).mock.calls[0][0].data.facts)
     expect(facts.plaintiffContext.phone).toBe('+15550109876')
   })
 

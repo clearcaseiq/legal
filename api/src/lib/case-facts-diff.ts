@@ -15,10 +15,9 @@
  * - **Absent and null are different.** A field nobody has answered is not a
  *   field answered "no". Both serialize to something in JSON, so the diff
  *   distinguishes them with an explicit `kind`.
- * - **The result is bounded.** `runCaseRecalculation` replaces the whole
- *   document on every evidence upload; an unbounded diff would write hundreds of
- *   rows per upload. Past the cap the diff says so rather than truncating
- *   silently.
+ * - **The result is complete.** Every changed path is retained so a prediction
+ *   can be reconstructed from its exact revision, including large background
+ *   merges and imports.
  */
 
 export type CaseFactChangeKind = 'added' | 'removed' | 'changed'
@@ -34,22 +33,12 @@ export type CaseFactChange = {
 
 export type CaseFactsDiff = {
   changes: CaseFactChange[]
-  /**
-   * True when the document changed in more places than the cap allows. The
-   * change feed still records that the write happened; the per-field detail is
-   * simply not useful at that volume.
-   */
+  /** Kept for response compatibility; complete diffs are never truncated. */
   truncated: boolean
 }
 
 /** Deeper than this is configuration and derived blobs, not authored answers. */
 const MAX_DEPTH = 4
-
-/**
- * Above this, the write is a whole-document rewrite rather than someone editing
- * fields, and per-field rows stop being worth their storage.
- */
-export const MAX_TRACKED_CHANGES = 40
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
@@ -65,18 +54,14 @@ function encode(value: unknown): string {
 
 export function diffCaseFacts(previous: unknown, next: unknown): CaseFactsDiff {
   const changes: CaseFactChange[] = []
-  let truncated = false
 
   const walk = (before: unknown, after: unknown, path: string, depth: number): void => {
-    if (truncated) return
-
     // Recurse only while both sides are objects and we have depth left. When one
     // side stops being an object the subtree changed shape, and the honest
     // record of that is the whole subtree, not invented leaf changes.
     if (depth < MAX_DEPTH && isPlainObject(before) && isPlainObject(after)) {
       for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
         walk(before[key], after[key], path ? `${path}.${key}` : key, depth + 1)
-        if (truncated) return
       }
       return
     }
@@ -89,11 +74,6 @@ export function diffCaseFacts(previous: unknown, next: unknown): CaseFactsDiff {
     const encodedAfter = hasAfter ? encode(after) : undefined
     if (encodedBefore === encodedAfter) return
 
-    if (changes.length >= MAX_TRACKED_CHANGES) {
-      truncated = true
-      return
-    }
-
     changes.push({
       path,
       kind: !hadBefore ? 'added' : !hasAfter ? 'removed' : 'changed',
@@ -103,5 +83,5 @@ export function diffCaseFacts(previous: unknown, next: unknown): CaseFactsDiff {
   }
 
   walk(previous, next, '', 0)
-  return { changes: truncated ? [] : changes, truncated }
+  return { changes, truncated: false }
 }

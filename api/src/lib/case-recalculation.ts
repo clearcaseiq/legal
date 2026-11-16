@@ -8,9 +8,11 @@ import { computeFeatures, predictViability } from './prediction'
 import { logger } from './logger'
 import { sendPlaintiffCaseValueUpdated, sendAttorneyCaseMaterialUpdate } from './case-notifications'
 import { underwriteCase, reconcileValueBandsWithUnderwriting, reconcileViabilityWithUnderwriting } from './underwriting-engine'
-import { loadUnderwritingInput } from './underwriting-input'
+import { loadVersionedUnderwritingInput } from './underwriting-input'
 import { refreshMedicalProfile } from './medical-profile'
 import { updateCaseFacts } from './case-facts'
+import { buildPredictionLineage } from './prediction-lineage'
+import { writePredictionVersion } from './prediction-writer'
 
 const MODEL_VERSION = 'v1.3'
 
@@ -517,14 +519,16 @@ export async function runCaseRecalculation(
       mutate: (facts) => mergeEvidenceIntoFacts(facts, evidenceFiles),
     })
     if (!merged) return null
-    const mergedFacts = merged.facts
-
-    const assessmentUpdated = await prisma.assessment.findUnique({
-      where: { id: assessmentId }
-    })
-    if (!assessmentUpdated) return null
-
-    const features = computeFeatures(assessmentUpdated)
+    const versionedInput = await loadVersionedUnderwritingInput(assessmentId)
+    if (!versionedInput) return null
+    const underwritingInput = versionedInput.input
+    const features = computeFeatures({
+      id: assessmentId,
+      claimType: underwritingInput.claimType,
+      venueState: underwritingInput.venueState,
+      venueCounty: underwritingInput.venueCounty,
+      facts: underwritingInput.facts,
+    } as any)
     const result = await predictViability(features)
 
     // Reconcile with the authoritative underwriting settlement so a recalculated row matches
@@ -533,17 +537,7 @@ export async function runCaseRecalculation(
     // recalculation, so fall back to the heuristic bands if it throws.
     let underwriting: ReturnType<typeof underwriteCase> | null = null
     try {
-      const input = await loadUnderwritingInput(assessmentId)
-      underwriting = underwriteCase(
-        input ?? {
-          id: assessmentUpdated.id,
-          claimType: assessmentUpdated.claimType,
-          venueState: assessmentUpdated.venueState,
-          venueCounty: assessmentUpdated.venueCounty,
-          facts: mergedFacts,
-          evidenceFiles,
-        },
-      )
+      underwriting = underwriteCase(underwritingInput)
     } catch (underwritingError) {
       logger.error('Underwriting failed during recalculation; using heuristic bands', {
         underwritingError,
@@ -563,14 +557,29 @@ export async function runCaseRecalculation(
     const prevPred = assessment.predictions[0]
     const prevBands = prevPred ? (JSON.parse(prevPred.bands) as { p25: number; median: number; p75: number }) : null
 
-    const prediction = await prisma.prediction.create({
-      data: {
+    const modelVersion = underwriting?.modelVersion ?? result.modelVersion ?? MODEL_VERSION
+    const lineage = await buildPredictionLineage({
+      assessmentId,
+      assessmentRevision: versionedInput.assessmentRevision,
+      preferredEventId:
+        merged.revision === versionedInput.assessmentRevision ? merged.eventId : null,
+      action: 'prediction_recalculated',
+      heuristicFeatures: features,
+      underwritingInput,
+      configuration: {
+        modelVersion,
+        heuristicModelVersion: result.modelVersion ?? MODEL_VERSION,
+        inferenceSource: underwriting ? 'underwriting_engine' : 'heuristic_fallback',
+      },
+    })
+    const { prediction } = await writePredictionVersion({
         assessmentId,
-        modelVersion: underwriting ? 'ca-pi-underwriting-v1' : MODEL_VERSION,
+        createdAt: versionedInput.inputCapturedAt,
+        modelVersion,
         viability: JSON.stringify(newViability),
         bands: JSON.stringify(newBands),
-        explain: JSON.stringify({ ...result.explainability, reason, trigger: reason, underwriting })
-      }
+        explain: JSON.stringify({ ...result.explainability, reason, trigger: reason, underwriting }),
+        ...lineage,
     })
 
     let plaintiffNotified = false
@@ -606,7 +615,7 @@ export async function runCaseRecalculation(
     logger.info('Case recalculated', {
       assessmentId,
       reason,
-      modelVersion: MODEL_VERSION,
+      modelVersion,
       plaintiffNotified,
       attorneysNotified,
       valueIncreasePercent: valueIncreasePercent.toFixed(1)

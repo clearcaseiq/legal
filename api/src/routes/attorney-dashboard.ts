@@ -7160,7 +7160,18 @@ router.patch('/leads/:leadId/client-contact', authMiddleware, firmGate('manage')
     // unsaved from this screen while the admin one worked.
     const { firstName, lastName, email, phone, addressLine1, addressLine2, city, state, postalCode } = req.body || {}
     const patch = { firstName, lastName, email, phone, addressLine1, addressLine2, city, state, postalCode }
-    const result = await updateClaimantContact({ assessmentId: auth.lead.assessmentId, patch })
+    const result = await updateClaimantContact({
+      assessmentId: auth.lead.assessmentId,
+      patch,
+      audit: {
+        source: 'attorney',
+        actor: {
+          type: 'user',
+          id: req.user?.id ?? null,
+          label: req.user?.email ?? null,
+        },
+      },
+    })
     if (!result.ok) return res.status(result.status).json({ error: result.message })
 
     logger.info('Client contact updated by firm', {
@@ -12918,6 +12929,186 @@ router.delete('/leads/:leadId/damages/:id', authMiddleware, async (req: any, res
   } catch (error: any) {
     logger.error('Failed to delete damage item', { error: error.message })
     res.status(500).json({ error: 'Failed to delete damage item' })
+  }
+})
+
+const attorneyPredictionReviewSchema = z
+  .object({
+    predictionId: z.string().min(1),
+    acceptCase: z.boolean().optional().default(true),
+    liability: z
+      .object({
+        disagrees: z.boolean(),
+        score: z.number().min(0).max(100).nullable().optional(),
+        notes: z.string().trim().max(5000).nullable().optional(),
+      })
+      .optional(),
+    evidence: z
+      .object({
+        disagrees: z.boolean(),
+        additions: z.array(z.string().trim().min(1).max(160)).max(50).optional().default([]),
+        removals: z.array(z.string().trim().min(1).max(160)).max(50).optional().default([]),
+        notes: z.string().trim().max(5000).nullable().optional(),
+      })
+      .optional(),
+    valuation: z
+      .object({
+        disagrees: z.boolean(),
+        settlementLow: z.number().min(0).nullable().optional(),
+        settlementExpected: z.number().min(0).nullable().optional(),
+        settlementHigh: z.number().min(0).nullable().optional(),
+        trialLow: z.number().min(0).nullable().optional(),
+        trialHigh: z.number().min(0).nullable().optional(),
+        notes: z.string().trim().max(5000).nullable().optional(),
+      })
+      .optional(),
+    confidence: z.number().min(0).max(1).nullable().optional(),
+    notes: z.string().trim().max(5000).nullable().optional(),
+  })
+  .superRefine((value, ctx) => {
+    const valuation = value.valuation
+    if (!valuation) return
+    const values = [
+      valuation.settlementLow,
+      valuation.settlementExpected,
+      valuation.settlementHigh,
+    ]
+    if (
+      values.every((item) => typeof item === 'number') &&
+      !((values[0] as number) <= (values[1] as number) && (values[1] as number) <= (values[2] as number))
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['valuation'],
+        message: 'Settlement values must be ordered low, expected, high.',
+      })
+    }
+  })
+
+function attorneyPredictionReviewView(review: any) {
+  let evidence = { additions: [] as string[], removals: [] as string[] }
+  try {
+    const parsed = JSON.parse(review?.evidenceRecommendations || '{}')
+    evidence = {
+      additions: Array.isArray(parsed?.additions) ? parsed.additions : [],
+      removals: Array.isArray(parsed?.removals) ? parsed.removals : [],
+    }
+  } catch {
+    // Legacy or malformed review content stays empty rather than breaking load.
+  }
+  return review
+    ? {
+        ...review,
+        evidenceRecommendations: evidence,
+      }
+    : null
+}
+
+// Structured attorney opinion about one immutable prediction version.
+router.get('/leads/:leadId/prediction-review', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true })
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const actingAttorney = await resolveActingAttorney(auth)
+    if (!actingAttorney) return res.status(403).json({ error: 'No attorney is assigned to review this case.' })
+
+    const prediction = req.query.predictionId
+      ? await prisma.prediction.findFirst({
+          where: { id: String(req.query.predictionId), assessmentId: auth.lead.assessmentId },
+        })
+      : await prisma.prediction.findFirst({
+          where: { assessmentId: auth.lead.assessmentId },
+          orderBy: { createdAt: 'desc' },
+        })
+    if (!prediction) return res.status(404).json({ error: 'No prediction is available for this case.' })
+
+    const review = await prisma.attorneyCaseReview.findUnique({
+      where: {
+        attorneyId_predictionId: {
+          attorneyId: actingAttorney.id,
+          predictionId: prediction.id,
+        },
+      },
+    })
+    res.json({ prediction, review: attorneyPredictionReviewView(review) })
+  } catch (error: any) {
+    logger.error('Failed to load attorney prediction review', { error: error.message })
+    res.status(500).json({ error: 'Failed to load the prediction review.' })
+  }
+})
+
+router.put('/leads/:leadId/prediction-review', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAuthorizedLead(req, req.params.leadId, { staffCan: 'manage' })
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const parsed = attorneyPredictionReviewSchema.safeParse(req.body)
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid prediction review.', details: parsed.error.flatten() })
+    }
+    const actingAttorney = await resolveActingAttorney(auth)
+    if (!actingAttorney) return res.status(403).json({ error: 'No attorney is assigned to review this case.' })
+    const prediction = await prisma.prediction.findFirst({
+      where: { id: parsed.data.predictionId, assessmentId: auth.lead.assessmentId },
+      select: { id: true },
+    })
+    if (!prediction) return res.status(404).json({ error: 'Prediction not found for this case.' })
+
+    const liability = parsed.data.liability
+    const evidence = parsed.data.evidence
+    const valuation = parsed.data.valuation
+    const data = {
+      caseId: auth.lead.assessmentId,
+      acceptCase: parsed.data.acceptCase,
+      liabilityDisagrees: liability?.disagrees ?? false,
+      liabilityScore: liability?.score ?? null,
+      liabilityNotes: liability?.notes ?? null,
+      evidenceDisagrees: evidence?.disagrees ?? false,
+      evidenceRecommendations: JSON.stringify({
+        additions: evidence?.additions ?? [],
+        removals: evidence?.removals ?? [],
+      }),
+      evidenceNotes: evidence?.notes ?? null,
+      valuationDisagrees: valuation?.disagrees ?? false,
+      settlementLow: valuation?.settlementLow ?? null,
+      settlementExpected: valuation?.settlementExpected ?? null,
+      settlementHigh: valuation?.settlementHigh ?? null,
+      trialLow: valuation?.trialLow ?? null,
+      trialHigh: valuation?.trialHigh ?? null,
+      valuationNotes: valuation?.notes ?? null,
+      confidence: parsed.data.confidence ?? null,
+      notes: parsed.data.notes ?? null,
+    }
+    const review = await prisma.attorneyCaseReview.upsert({
+      where: {
+        attorneyId_predictionId: {
+          attorneyId: actingAttorney.id,
+          predictionId: prediction.id,
+        },
+      },
+      create: {
+        attorneyId: actingAttorney.id,
+        predictionId: prediction.id,
+        ...data,
+      },
+      update: data,
+    })
+    await recordCaseChange({
+      assessmentId: auth.lead.assessmentId,
+      source: 'attorney',
+      action: 'prediction_reviewed',
+      entityType: 'prediction',
+      entityId: prediction.id,
+      summary: 'Attorney recorded an opinion on an AI prediction',
+      actor: {
+        type: 'user',
+        id: req.user?.id ?? actingAttorney.id,
+        label: req.user?.email ?? actingAttorney.name,
+      },
+    })
+    res.json({ predictionId: prediction.id, review: attorneyPredictionReviewView(review) })
+  } catch (error: any) {
+    logger.error('Failed to save attorney prediction review', { error: error.message })
+    res.status(500).json({ error: 'Failed to save the prediction review.' })
   }
 })
 

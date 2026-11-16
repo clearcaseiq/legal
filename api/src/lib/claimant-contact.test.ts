@@ -35,7 +35,7 @@ function caseWith(facts: unknown, user: CaseUser | null = { id: 'user-1', email:
 
 /** The facts blob written back to the assessment, parsed. */
 function savedFacts(): any {
-  const call = vi.mocked(prisma.assessment.update).mock.calls.at(-1)
+  const call = vi.mocked(prisma.assessment.updateMany).mock.calls.at(-1)
   return JSON.parse((call?.[0] as any).data.facts)
 }
 
@@ -96,13 +96,13 @@ describe('correcting a claimant phone number', () => {
     expect(prisma.user.update).not.toHaveBeenCalled()
   })
 
-  it('starts a fresh context rather than failing on an unparseable blob', async () => {
+  it('refuses to overwrite an unparseable facts blob', async () => {
     caseWith('{not json')
 
-    const result = await updateClaimantContact({ assessmentId: 'asm-1', patch: { phone: '5550102456' } })
-
-    expect(result.ok).toBe(true)
-    expect(savedFacts().plaintiffContext.phone).toBe('+15550102456')
+    await expect(
+      updateClaimantContact({ assessmentId: 'asm-1', patch: { phone: '5550102456' } }),
+    ).rejects.toThrow('has unreadable facts; refusing to overwrite')
+    expect(prisma.assessment.updateMany).not.toHaveBeenCalled()
   })
 })
 
@@ -154,7 +154,7 @@ describe('the mailing address', () => {
       state: 'CA',
       postalCode: '90012',
     })
-    expect(savedFacts().plaintiffContext.addressLine1).toBeUndefined()
+    expect(prisma.assessment.updateMany).not.toHaveBeenCalled()
   })
 
   it('clears a line when it is sent empty, for a claimant who moves out of a unit', async () => {
@@ -225,15 +225,19 @@ describe('reading the contact back', () => {
 
 describe('a claimant correcting their own details', () => {
   const ownedCases = (...cases: { id: string; facts: unknown }[]) =>
-    vi.mocked(prisma.assessment.findMany).mockResolvedValue(
-      cases.map((c) => ({ id: c.id, facts: JSON.stringify(c.facts) })) as any,
-    )
+    {
+      const rows = cases.map((c) => ({ id: c.id, facts: JSON.stringify(c.facts), revision: 0, lawFirmId: null }))
+      vi.mocked(prisma.assessment.findMany).mockResolvedValue(rows as any)
+      vi.mocked(prisma.assessment.findUnique).mockImplementation(async (args: any) => {
+        return (rows.find((row) => row.id === args.where.id) ?? null) as any
+      })
+    }
 
   /** The facts written for a given case, parsed. */
   const factsFor = (id: string) =>
     JSON.parse(
-      (vi.mocked(prisma.assessment.update).mock.calls.find((c) => (c[0] as any).where.id === id)?.[0] as any).data
-        .facts,
+      (vi.mocked(prisma.assessment.updateMany).mock.calls.find((c) => (c[0] as any).where.id === id)?.[0] as any)
+        .data.facts,
     )
 
   it('reaches the case copy, which is the number the platform texts', async () => {

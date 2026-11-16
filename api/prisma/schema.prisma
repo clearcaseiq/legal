@@ -1353,15 +1353,29 @@ model RecurringInvoice {
 }
 
 model Prediction {
-  id           String     @id @default(cuid())
-  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
-  assessmentId String
-  modelVersion String
-  viability    String
-  bands        String
-  explain      String
-  createdAt    DateTime   @default(now())
+  id                 String           @id @default(cuid())
+  assessment         Assessment       @relation(fields: [assessmentId], references: [id], onDelete: Restrict)
+  assessmentId       String
+  modelVersion       String
+  viability          String
+  bands              String
+  explain            String
+  // Exact case revision and canonical event whose state was valued.
+  assessmentRevision Int?
+  triggerEventId     String?
+  triggerEvent       CaseChangeEvent? @relation("PredictionTriggerEvent", fields: [triggerEventId], references: [id], onDelete: SetNull)
+  // SHA-256 of inputSnapshot. Null only for predictions written before lineage.
+  inputHash          String?          @db.VarChar(64)
+  // Immutable, purpose-limited normalized inputs and applicable model config.
+  inputSnapshot      String?          @db.Text
+  createdAt          DateTime         @default(now())
 
+  attorneyCaseReviews AttorneyCaseReview[]
+
+  @@index([assessmentId, assessmentRevision])
+  @@index([triggerEventId])
+  @@index([inputHash])
+  @@unique([assessmentId, assessmentRevision, inputHash, modelVersion], map: "predictions_lineage_dedupe_key")
   @@map("predictions")
 }
 
@@ -2516,12 +2530,23 @@ model AttorneyCaseReview {
   attorney           Attorney   @relation(fields: [attorneyId], references: [id], onDelete: Cascade)
   caseId             String
   case               Assessment @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  predictionId       String?
+  prediction         Prediction? @relation(fields: [predictionId], references: [id], onDelete: Restrict)
   acceptCase         Boolean
+  liabilityDisagrees Boolean    @default(false)
+  liabilityScore     Float?
+  liabilityNotes     String?    @db.Text
+  evidenceDisagrees  Boolean    @default(false)
+  // JSON: { additions: string[], removals: string[] }
+  evidenceRecommendations String? @db.Text
+  evidenceNotes      String?    @db.Text
+  valuationDisagrees Boolean    @default(false)
   settlementLow      Float?
   settlementExpected Float?
   settlementHigh     Float?
   trialLow           Float?
   trialHigh          Float?
+  valuationNotes     String?    @db.Text
   confidence         Float?
   notes              String?    @db.Text
   createdAt          DateTime   @default(now())
@@ -2529,6 +2554,8 @@ model AttorneyCaseReview {
 
   @@index([attorneyId])
   @@index([caseId])
+  @@index([predictionId])
+  @@unique([attorneyId, predictionId])
   @@map("attorney_case_reviews")
 }
 
@@ -5624,6 +5651,8 @@ model CaseChangeEvent {
   entityId     String?
   summary      String?    @db.Text
   createdAt    DateTime   @default(now())
+
+  triggeredPredictions Prediction[] @relation("PredictionTriggerEvent")
 
   @@index([assessmentId, revision])
   @@index([lawFirmId, seq])

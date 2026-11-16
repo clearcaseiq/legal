@@ -5,8 +5,10 @@ import { PredictionRequest, SimulationRequest } from '../lib/validators'
 import { logger } from '../lib/logger'
 import { authMiddleware, optionalAuthMiddleware, type AuthRequest } from '../lib/auth'
 import { underwriteCase, reconcileValueBandsWithUnderwriting, reconcileViabilityWithUnderwriting } from '../lib/underwriting-engine'
-import { loadUnderwritingInput } from '../lib/underwriting-input'
+import { loadVersionedUnderwritingInput } from '../lib/underwriting-input'
 import { assignCaseAssistance } from '../lib/case-assistance-assignment'
+import { buildPredictionLineage } from '../lib/prediction-lineage'
+import { writePredictionVersion } from '../lib/prediction-writer'
 
 const router = Router()
 
@@ -65,9 +67,17 @@ router.post('/', optionalAuthMiddleware, async (req: AuthRequest, res) => {
       }
     }
 
-    const features = computeFeatures(assessment)
+    const versionedInput = await loadVersionedUnderwritingInput(assessment.id)
+    if (!versionedInput) return res.status(404).json({ error: 'Assessment not found' })
+    const underwritingInput = versionedInput.input
+    const features = computeFeatures({
+      id: assessment.id,
+      claimType: underwritingInput.claimType,
+      venueState: underwritingInput.venueState,
+      venueCounty: underwritingInput.venueCounty,
+      facts: underwritingInput.facts,
+    } as any)
     const result = await predictViability(features)
-    const facts = typeof assessment.facts === 'string' ? JSON.parse(assessment.facts) : assessment.facts
 
     // Underwriting refines the heuristic estimate, but it must never block a
     // valuation. Sparse cases (e.g. a dog-bite claim with no medical records
@@ -76,17 +86,7 @@ router.post('/', optionalAuthMiddleware, async (req: AuthRequest, res) => {
     let underwriting: ReturnType<typeof underwriteCase> | null = null
     let underwritingResult: any
     try {
-      const input = await loadUnderwritingInput(assessment.id)
-      underwriting = underwriteCase(
-        input ?? {
-          id: assessment.id,
-          claimType: assessment.claimType,
-          venueState: assessment.venueState,
-          venueCounty: assessment.venueCounty,
-          facts,
-          evidenceFiles: assessment.evidenceFiles,
-        },
-      )
+      underwriting = underwriteCase(underwritingInput)
     } catch (underwritingError) {
       logger.error('Underwriting failed; returning preliminary heuristic estimate', {
         underwritingError,
@@ -131,7 +131,7 @@ router.post('/', optionalAuthMiddleware, async (req: AuthRequest, res) => {
         { feature: 'documentation_score', direction: underwriting.documentation.score >= 55 ? '+' : '-', impact: underwriting.documentation.score / 100 },
         { feature: 'treatment_quality', direction: underwriting.treatment.score >= 50 ? '+' : '-', impact: underwriting.treatment.score / 100 },
       ],
-      modelVersion: 'ca-pi-underwriting-v1',
+      modelVersion: underwriting.modelVersion,
       inferenceSource: 'underwriting_engine',
     }
     }
@@ -140,10 +140,23 @@ router.post('/', optionalAuthMiddleware, async (req: AuthRequest, res) => {
     const shadowModelVersion =
       'shadowPrediction' in result ? result.shadowPrediction?.modelVersion : undefined
     
+    const lineage = await buildPredictionLineage({
+      assessmentId: assessment.id,
+      assessmentRevision: versionedInput.assessmentRevision,
+      action: 'prediction_initial',
+      heuristicFeatures: features,
+      underwritingInput,
+      configuration: {
+        modelVersion: storedModelVersion,
+        heuristicModelVersion: resolvedModelVersion,
+        inferenceSource: underwritingResult.inferenceSource,
+      },
+    })
+
     // Store prediction in database
-    await prisma.prediction.create({
-      data: {
+    await writePredictionVersion({
         assessmentId: assessment.id,
+        createdAt: versionedInput.inputCapturedAt,
         modelVersion: storedModelVersion,
         viability: JSON.stringify(underwritingResult.viability),
         bands: JSON.stringify(underwritingResult.value_bands),
@@ -152,8 +165,8 @@ router.post('/', optionalAuthMiddleware, async (req: AuthRequest, res) => {
           underwriting,
           reason: 'initial',
           trigger: 'initial',
-        })
-      }
+        }),
+        ...lineage,
     })
 
     // Update assessment status

@@ -39,7 +39,7 @@ const save = (body: Record<string, unknown>) => request(app).put('/v1/auth/me').
 
 /** The facts written back to the claimant's case, parsed. */
 const savedFacts = () =>
-  JSON.parse((vi.mocked(prisma.assessment.update).mock.calls.at(-1)?.[0] as any).data.facts)
+  JSON.parse((vi.mocked(prisma.assessment.updateMany).mock.calls.at(-1)?.[0] as any).data.facts)
 
 const savedUserData = () => (vi.mocked(prisma.user.update).mock.calls.at(-1)?.[0] as any)?.data
 
@@ -56,9 +56,14 @@ beforeEach(() => {
     ...CLAIMANT,
     ...args.data,
   }))
-  vi.mocked(prisma.assessment.findMany).mockResolvedValue([
-    { id: 'asm-1', facts: JSON.stringify({ plaintiffContext: { phone: '+15551110000' }, incident: { type: 'mva' } }) },
-  ] as any)
+  const assessment = {
+    id: 'asm-1',
+    facts: JSON.stringify({ plaintiffContext: { phone: '+15551110000' }, incident: { type: 'mva' } }),
+    revision: 0,
+    lawFirmId: null,
+  }
+  vi.mocked(prisma.assessment.findMany).mockResolvedValue([assessment] as any)
+  vi.mocked(prisma.assessment.findUnique).mockResolvedValue(assessment as any)
 })
 
 describe('a claimant editing their own contact details', () => {

@@ -12,7 +12,7 @@ import { join } from 'node:path'
 
 vi.mock('./prisma', () => import('../test/universalPrismaMock'))
 vi.mock('./data-authority', () => ({
-  recordCaseChangeAtRevision: vi.fn().mockResolvedValue({ revision: 6, seq: 9, lawFirmId: null }),
+  recordCaseChangeAtRevision: vi.fn().mockResolvedValue({ id: 'event-9', revision: 6, seq: 9, lawFirmId: null }),
 }))
 
 import { prisma } from './prisma'
@@ -48,7 +48,12 @@ function provenanceRows(index = 0): any[] {
 beforeEach(() => {
   vi.clearAllMocks()
   resetUniversalPrismaMock()
-  vi.mocked(recordCaseChangeAtRevision).mockResolvedValue({ revision: 6, seq: 9, lawFirmId: null })
+  vi.mocked(recordCaseChangeAtRevision).mockResolvedValue({
+    id: 'event-9',
+    revision: 6,
+    seq: 9,
+    lawFirmId: null,
+  })
 })
 
 describe('parseCaseFacts', () => {
@@ -108,7 +113,12 @@ describe('updateCaseFacts', () => {
     })
 
     expect(storedFacts()).toEqual({ damages: { med_charges: 250 }, keep: true })
-    expect(result).toMatchObject({ written: true, revision: 6, trackedChanges: 1 })
+    expect(result).toMatchObject({
+      written: true,
+      revision: 6,
+      trackedChanges: 1,
+      eventId: 'event-9',
+    })
     const [event, revision, lawFirmId] = vi.mocked(recordCaseChangeAtRevision).mock.calls[0]
     expect(event).toMatchObject({ assessmentId: 'a-1', source: 'attorney', action: 'damages_updated' })
     // Stamped with the revision this write produced, not one it bumped again.
@@ -159,7 +169,13 @@ describe('updateCaseFacts', () => {
       mutate: () => null,
     })
 
-    expect(result).toEqual({ facts: { a: 1 }, written: false, revision: null, trackedChanges: 0 })
+    expect(result).toEqual({
+      facts: { a: 1 },
+      written: false,
+      revision: null,
+      trackedChanges: 0,
+      eventId: null,
+    })
     expect(prisma.assessment.updateMany).not.toHaveBeenCalled()
     expect(recordCaseChangeAtRevision).not.toHaveBeenCalled()
   })
@@ -409,8 +425,7 @@ describe('per-field provenance', () => {
     expect(prisma.caseFactChange.createMany).not.toHaveBeenCalled()
   })
 
-  it('skips per-field rows on a whole-document rewrite but still writes the facts', async () => {
-    // `runCaseRecalculation` replaces the document on every evidence upload.
+  it('records all fields on a whole-document rewrite exceeding forty changes', async () => {
     const before: Record<string, number> = {}
     for (let i = 0; i < 60; i++) before[`field${i}`] = i
     existing(JSON.stringify(before))
@@ -422,9 +437,10 @@ describe('per-field provenance', () => {
       mutate: (facts) => Object.fromEntries(Object.entries(facts).map(([k, v]) => [k, (v as number) + 1])),
     })
 
-    expect(result).toMatchObject({ written: true, trackedChanges: 0 })
+    expect(result).toMatchObject({ written: true, trackedChanges: 60 })
     expect(prisma.assessment.updateMany).toHaveBeenCalled()
-    expect(prisma.caseFactChange.createMany).not.toHaveBeenCalled()
+    expect(provenanceRows()).toHaveLength(60)
+    expect(provenanceRows().map((row) => row.path)).toContain('field59')
   })
 })
 
