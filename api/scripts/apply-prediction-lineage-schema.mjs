@@ -20,7 +20,7 @@ const productionMutationAllowed = process.env.ALLOW_PRODUCTION_SCHEMA_CHANGE ===
 
 const sql = await fs.readFile(sqlPath, 'utf8')
 const checksum = crypto.createHash('sha256').update(sql).digest('hex')
-const client = new pg.Client({ connectionString: databaseUrl })
+const client = new pg.Client(pgConfigFromPrismaUrl(databaseUrl))
 
 const predictionColumns = ['assessmentRevision', 'triggerEventId', 'inputHash', 'inputSnapshot']
 const reviewColumns = [
@@ -34,6 +34,43 @@ const reviewColumns = [
   'valuationDisagrees',
   'valuationNotes',
 ]
+
+// Match the application's established node-postgres handling in
+// src/lib/realtime.ts. DATABASE_URL is a Prisma URL, so remove Prisma-only
+// parameters before passing it to pg and use Prisma's RDS TLS behavior.
+function pgConfigFromPrismaUrl(value) {
+  const url = new URL(value)
+  const sslmode = (url.searchParams.get('sslmode') || '').toLowerCase()
+  const schema = url.searchParams.get('schema')
+  for (const key of [
+    'schema',
+    'connection_limit',
+    'pool_timeout',
+    'pgbouncer',
+    'statement_cache_size',
+    'socket_timeout',
+    'connect_timeout',
+    'sslmode',
+    'sslaccept',
+    'sslcert',
+    'sslidentity',
+    'sslpassword',
+  ]) {
+    url.searchParams.delete(key)
+  }
+  const local = ['localhost', '127.0.0.1', '::1', '[::1]'].includes(url.hostname)
+  const ssl =
+    sslmode === 'disable' || (local && !sslmode)
+      ? false
+      : sslmode === 'verify-full'
+        ? true
+        : { rejectUnauthorized: false }
+  return {
+    connectionString: url.toString(),
+    ssl,
+    ...(schema && schema !== 'public' ? { options: `-c search_path=${schema}` } : {}),
+  }
+}
 
 async function verifyAppliedSchema() {
   const columns = await client.query(
