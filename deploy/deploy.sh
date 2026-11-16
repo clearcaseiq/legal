@@ -258,7 +258,11 @@ fi
 
 log "rolling back to $PREVIOUS_TAG"
 set_tag "$PREVIOUS_TAG"
-compose up -d
+# The release's guarded schema applicator only makes additive changes. A
+# previous image can safely run against those additions, but its older Prisma
+# schema may reject them as drift before the application starts. Scope this
+# escape hatch to the rollback command; normal releases remain strict.
+ALLOW_SCHEMA_DRIFT=true compose up -d
 
 if wait_for_health; then
   die "rollout of $TAG failed; rolled back to $PREVIOUS_TAG, which is healthy."

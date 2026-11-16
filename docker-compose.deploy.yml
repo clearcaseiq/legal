@@ -72,6 +72,10 @@ services:
       # of them — production was found running Stripe sandbox keys, and nothing
       # could detect it because the process could not tell prod from QA.
       DEPLOY_ENV: ${DEPLOY_ENV}
+      # Break-glass only. deploy.sh sets this temporarily while restoring an
+      # older API image after an additive schema rollout; old Prisma schemas
+      # otherwise refuse to start because they see the new columns as drift.
+      ALLOW_SCHEMA_DRIFT: ${ALLOW_SCHEMA_DRIFT:-false}
       # Required, not defaulted. This previously fell back to a local db
       # container, so losing the variable silently pointed the API at an empty
       # database instead of failing — the same quiet-failure pattern that let a

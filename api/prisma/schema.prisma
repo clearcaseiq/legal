@@ -5874,3 +5874,16 @@ model SyncApiKey {
   @@index([lawFirmId])
   @@map("sync_api_keys")
 }
+
+// Checksum ledger for controlled PostgreSQL changes that must run before the
+// API entrypoint's broad `prisma db push`. Keeping it in the Prisma schema
+// prevents db push from treating the non-empty ledger as an unknown table to
+// drop.
+model ClearCaseIqSchemaChange {
+  id        String   @id
+  checksum  String   @db.VarChar(64)
+  appliedAt DateTime @default(now())
+  appliedBy String
+
+  @@map("clearcaseiq_schema_changes")
+}
