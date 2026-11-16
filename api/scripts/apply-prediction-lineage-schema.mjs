@@ -15,11 +15,8 @@ if (!databaseUrl) {
 if (!deployEnv) {
   throw new Error('DEPLOY_ENV is required so the target environment is explicit')
 }
-if (['prod', 'production'].includes(deployEnv) && process.env.ALLOW_PRODUCTION_SCHEMA_CHANGE !== 'true') {
-  throw new Error(
-    'Production schema change refused. Confirm a recoverable backup, then set ALLOW_PRODUCTION_SCHEMA_CHANGE=true for this one command.',
-  )
-}
+const production = ['prod', 'production'].includes(deployEnv)
+const productionMutationAllowed = process.env.ALLOW_PRODUCTION_SCHEMA_CHANGE === 'true'
 
 const sql = await fs.readFile(sqlPath, 'utf8')
 const checksum = crypto.createHash('sha256').update(sql).digest('hex')
@@ -98,19 +95,18 @@ try {
   console.log(`[lineage-schema] target=${identity.rows[0].database} user=${identity.rows[0].username}`)
 
   await client.query(`SELECT pg_advisory_lock(hashtext($1))`, [CHANGE_ID])
-  await client.query(`
-    CREATE TABLE IF NOT EXISTS "clearcaseiq_schema_changes" (
-      "id" TEXT PRIMARY KEY,
-      "checksum" VARCHAR(64) NOT NULL,
-      "appliedAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
-      "appliedBy" TEXT NOT NULL
-    )
-  `)
-
-  const recorded = await client.query(
-    `SELECT "checksum" FROM "clearcaseiq_schema_changes" WHERE "id" = $1`,
-    [CHANGE_ID],
+  const ledger = await client.query(
+    `SELECT to_regclass(
+       format('%I.%I', current_schema(), 'clearcaseiq_schema_changes')
+     ) IS NOT NULL AS exists`,
   )
+  const recorded = ledger.rows[0].exists
+    ? await client.query(
+        `SELECT "checksum" FROM "clearcaseiq_schema_changes" WHERE "id" = $1`,
+        [CHANGE_ID],
+      )
+    : { rowCount: 0, rows: [] }
+
   if (recorded.rowCount) {
     if (recorded.rows[0].checksum !== checksum) {
       throw new Error('The recorded lineage migration checksum differs from the checked-in SQL')
@@ -119,6 +115,21 @@ try {
     console.log('[lineage-schema] already applied and verified')
     process.exitCode = 0
   } else {
+    if (production && !productionMutationAllowed) {
+      throw new Error(
+        'Production schema change refused. Confirm a recoverable backup, then set ALLOW_PRODUCTION_SCHEMA_CHANGE=true for this one command.',
+      )
+    }
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS "clearcaseiq_schema_changes" (
+        "id" TEXT PRIMARY KEY,
+        "checksum" VARCHAR(64) NOT NULL,
+        "appliedAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
+        "appliedBy" TEXT NOT NULL
+      )
+    `)
+
     const existing = await client.query(
       `SELECT COUNT(*)::int AS count
          FROM information_schema.columns

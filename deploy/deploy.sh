@@ -206,6 +206,20 @@ fi
 log "pulling images"
 compose pull
 
+# Apply and verify the one-off prediction-lineage schema before the API
+# entrypoint reaches its broad `prisma db push`. QA may apply it directly.
+# Production only verifies a previously backup-approved application: the
+# applicator refuses to mutate production unless an operator runs it separately
+# with ALLOW_PRODUCTION_SCHEMA_CHANGE=true.
+log "verifying prediction-lineage schema"
+if ! compose run --rm --no-deps -T --entrypoint node api \
+  scripts/apply-prediction-lineage-schema.mjs; then
+  if [ -n "$PREVIOUS_TAG" ]; then
+    set_tag "$PREVIOUS_TAG"
+  fi
+  die "prediction-lineage schema is not ready; running containers were left unchanged"
+fi
+
 log "starting"
 compose up -d
 
