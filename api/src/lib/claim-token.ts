@@ -41,3 +41,9 @@ export function verifyClaimToken(token: string): string | null {
     return null
   }
 }
+
+/** The `X-Case-Claim` header, or null when the request did not send one. */
+export function caseClaimHeader(header: string | undefined): string | null {
+  const token = header?.trim()
+  return token ? token : null
+}

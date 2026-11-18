@@ -16,6 +16,10 @@
  *    routed to, a member of the firm holding it, or an admin.
  *  - Not yet owned: the id is the only credential, so the read is allowed. That
  *    is a capability URL and is treated as one — see `noIndexAssessmentResponse`.
+ *  - Just submitted by a guest: submit moves the case onto a passwordless
+ *    intake account and returns a claim token. That token keeps read access
+ *    for the browser that sent the case, so "view the full report" does not
+ *    bounce them to login. It does not authorize writes.
  *
  * Kept separate from the route handlers so the plaintiff, attorney and mobile
  * read paths cannot drift into different answers about who may see a case.
@@ -24,6 +28,7 @@
 import type { Response } from 'express'
 import { prisma } from './prisma'
 import { logger } from './logger'
+import { verifyClaimToken } from './claim-token'
 import { isGuestCaseUserEmail } from './client-consent-guard'
 import { isSpecialistRole } from './specialist-access'
 
@@ -177,6 +182,8 @@ export async function enforceAssessmentReadAccess(params: {
   res: Response
   route: string
   access?: AssessmentAccessMode
+  /** Signed claim token from the browser that submitted this case. Read only. */
+  claimToken?: string | null
 }): Promise<boolean> {
   const decision = await canAccessAssessment(
     params.assessmentId,
@@ -185,6 +192,17 @@ export async function enforceAssessmentReadAccess(params: {
   )
   if (decision.allowed) {
     if (decision.anonymous) noIndexAssessmentResponse(params.res)
+    return true
+  }
+
+  const claimToken = params.claimToken?.trim()
+  if (
+    (params.access ?? 'read') === 'read' &&
+    decision.status !== 404 &&
+    claimToken &&
+    verifyClaimToken(claimToken) === params.assessmentId
+  ) {
+    noIndexAssessmentResponse(params.res)
     return true
   }
 

@@ -173,6 +173,8 @@ type ResultsSubmittedViewProps = {
   venueState?: string
   /** Contact collected on the choose-attorney screen — prefill Create Account. */
   contactPrefill?: { firstName?: string; email?: string; phone?: string }
+  /** Opens the full report on this page. A navigation would reload a case the guest just submitted and send them to login. */
+  onViewReport?: () => void
 }
 
 export function ResultsSubmittedView({
@@ -186,6 +188,7 @@ export function ResultsSubmittedView({
   attorneyMatched,
   shareCopied,
   contactPrefill,
+  onViewReport,
 }: ResultsSubmittedViewProps) {
   const { t } = useLanguage()
   const [refCopied, setRefCopied] = useState(false)
@@ -348,10 +351,21 @@ export function ResultsSubmittedView({
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-card">
           <div className="flex items-center justify-between gap-2">
             <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">{t('results.submitted.attorneyReviewTitle')}</h3>
-            <Link to={reportHref} className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-700">
-              <Info className="h-3.5 w-3.5" aria-hidden />
-              {t('results.submitted.howItWorks')}
-            </Link>
+            {onViewReport ? (
+              <button
+                type="button"
+                onClick={onViewReport}
+                className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-700"
+              >
+                <Info className="h-3.5 w-3.5" aria-hidden />
+                {t('results.submitted.howItWorks')}
+              </button>
+            ) : (
+              <Link to={reportHref} className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-700">
+                <Info className="h-3.5 w-3.5" aria-hidden />
+                {t('results.submitted.howItWorks')}
+              </Link>
+            )}
           </div>
 
           <div className="mt-4 flex items-center gap-3 rounded-xl bg-emerald-50/70 px-3 py-2.5">
@@ -527,13 +541,24 @@ export function ResultsSubmittedView({
             <p className="mt-0.5 text-sm text-slate-600">{t('results.submitted.reportDesc')}</p>
           </div>
         </div>
-        <Link
-          to={reportHref}
-          className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50"
-        >
-          {t('results.submitted.viewReportBtn')}
-          <ArrowRight className="h-4 w-4" aria-hidden />
-        </Link>
+        {onViewReport ? (
+          <button
+            type="button"
+            onClick={onViewReport}
+            className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+          >
+            {t('results.submitted.viewReportBtn')}
+            <ArrowRight className="h-4 w-4" aria-hidden />
+          </button>
+        ) : (
+          <Link
+            to={reportHref}
+            className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+          >
+            {t('results.submitted.viewReportBtn')}
+            <ArrowRight className="h-4 w-4" aria-hidden />
+          </Link>
+        )}
       </div>
 
       {/* Secondary actions */}

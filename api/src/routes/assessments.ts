@@ -20,7 +20,7 @@ import { optionalAuthMiddleware, authMiddleware, AuthRequest } from '../lib/auth
 import { enforceAssessmentReadAccess } from '../lib/assessment-access'
 import { serializeCaseFacts, updateCaseFacts, type CaseFacts } from '../lib/case-facts'
 import { assignReferenceCode, ensureReferenceCode } from '../lib/case-reference'
-import { createClaimToken, verifyClaimToken } from '../lib/claim-token'
+import { caseClaimHeader, createClaimToken, verifyClaimToken } from '../lib/claim-token'
 import { claimCaseWithToken } from '../lib/case-claim'
 import { recordCaseChange } from '../lib/data-authority'
 import { webUrl } from '../lib/app-url'
@@ -581,6 +581,7 @@ router.get('/:id', optionalAuthMiddleware, async (req: AuthRequest, res) => {
       user: req.user,
       res,
       route: 'GET /assessments/:id',
+      claimToken: caseClaimHeader(req.get('x-case-claim')),
     })
     if (!permitted) return
 
@@ -722,6 +723,7 @@ router.get('/:id/command-center', optionalAuthMiddleware, async (req: AuthReques
       user: req.user,
       res,
       route: 'GET /assessments/:id/command-center',
+      claimToken: caseClaimHeader(req.get('x-case-claim')),
     })
     if (!permitted) return
 

@@ -1,10 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('./prisma', () => import('../test/universalPrismaMock'))
+vi.mock('./claim-token', () => ({
+  verifyClaimToken: (token: string) => (token === 'good-token' ? 'assess-1' : null),
+}))
 
 import { prisma } from './prisma'
 import { resetUniversalPrismaMock } from '../test/universalPrismaMock'
-import { canAccessAssessment, canReadAssessment } from './assessment-access'
+import { canAccessAssessment, canReadAssessment, enforceAssessmentReadAccess } from './assessment-access'
 
 function assessment(overrides: Partial<any> = {}) {
   return {
@@ -15,6 +18,63 @@ function assessment(overrides: Partial<any> = {}) {
     ...overrides,
   }
 }
+
+function mockResponse() {
+  const res = {
+    setHeader: vi.fn(),
+    status: vi.fn(),
+    json: vi.fn(),
+  }
+  res.status.mockReturnValue(res)
+  return res
+}
+
+describe('enforceAssessmentReadAccess claim token', () => {
+  beforeEach(() => {
+    resetUniversalPrismaMock()
+    vi.mocked(prisma.assessment.findUnique).mockResolvedValue(assessment() as any)
+  })
+
+  it('lets the guest who just submitted keep reading with their claim token', async () => {
+    const res = mockResponse()
+
+    const allowed = await enforceAssessmentReadAccess({
+      assessmentId: 'assess-1',
+      user: null,
+      res: res as any,
+      route: 'GET /assessments/:id',
+      claimToken: 'good-token',
+    })
+
+    expect(allowed).toBe(true)
+    expect(res.status).not.toHaveBeenCalled()
+    expect(res.setHeader).toHaveBeenCalledWith('X-Robots-Tag', 'noindex, nofollow, noarchive')
+  })
+
+  it('does not let a claim token write, or open a different case', async () => {
+    const write = mockResponse()
+    const otherCase = mockResponse()
+
+    expect(await enforceAssessmentReadAccess({
+      assessmentId: 'assess-1',
+      user: null,
+      res: write as any,
+      route: 'POST',
+      access: 'write',
+      claimToken: 'good-token',
+    })).toBe(false)
+    expect(write.status).toHaveBeenCalledWith(401)
+
+    expect(await enforceAssessmentReadAccess({
+      assessmentId: 'assess-1',
+      user: null,
+      res: otherCase as any,
+      route: 'GET /assessments/:id',
+      claimToken: 'token-for-someone-else',
+    })).toBe(false)
+    expect(otherCase.status).toHaveBeenCalledWith(401)
+  })
+})
 
 describe('canReadAssessment', () => {
   beforeEach(() => {

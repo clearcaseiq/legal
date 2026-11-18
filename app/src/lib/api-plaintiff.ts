@@ -2,9 +2,15 @@ import api from './http'
 import { apiDebug } from './debug'
 import { getAttribution } from './attribution'
 import { currentIntakeVisitId } from './intakeVisit'
-import { saveCaseClaimToken } from './pendingRegistration'
+import { getCaseClaimToken, saveCaseClaimToken } from './pendingRegistration'
 
 const freshParams = () => ({ _: Date.now() })
+
+/** Lets a guest who just sent a case keep reading the report without signing in. */
+function caseClaimHeaders(assessmentId: string): Record<string, string> | undefined {
+  const token = getCaseClaimToken(assessmentId)
+  return token ? { 'X-Case-Claim': token } : undefined
+}
 
 export type PlaintiffMedicalReviewStatus = 'pending' | 'confirmed' | 'skipped'
 
@@ -249,27 +255,40 @@ export async function getAssessment(id: string, options?: { skipAuth?: boolean }
   const { data } = await api.get(`/v1/assessments/${id}`, {
     params: freshParams(),
     skipAuth: options?.skipAuth,
+    headers: caseClaimHeaders(id),
   })
   return data
 }
 
 export async function getAssessmentCommandCenter(id: string) {
-  const { data } = await api.get(`/v1/assessments/${id}/command-center`, { params: freshParams() })
+  const { data } = await api.get(`/v1/assessments/${id}/command-center`, {
+    params: freshParams(),
+    headers: caseClaimHeaders(id),
+  })
   return data
 }
 
 export async function getMedicalChronology(assessmentId: string) {
-  const { data } = await api.get(`/v1/case-insights/assessments/${assessmentId}/medical-chronology`, { params: freshParams() })
+  const { data } = await api.get(`/v1/case-insights/assessments/${assessmentId}/medical-chronology`, {
+    params: freshParams(),
+    headers: caseClaimHeaders(assessmentId),
+  })
   return data.chronology
 }
 
 export async function getCasePreparation(assessmentId: string) {
-  const { data } = await api.get(`/v1/case-insights/assessments/${assessmentId}/case-preparation`, { params: freshParams() })
+  const { data } = await api.get(`/v1/case-insights/assessments/${assessmentId}/case-preparation`, {
+    params: freshParams(),
+    headers: caseClaimHeaders(assessmentId),
+  })
   return data
 }
 
 export async function getPlaintiffMedicalReview(assessmentId: string): Promise<PlaintiffMedicalReviewPayload> {
-  const { data } = await api.get(`/v1/case-insights/assessments/${assessmentId}/plaintiff-medical-review`, { params: freshParams() })
+  const { data } = await api.get(`/v1/case-insights/assessments/${assessmentId}/plaintiff-medical-review`, {
+    params: freshParams(),
+    headers: caseClaimHeaders(assessmentId),
+  })
   return data
 }
 
@@ -322,7 +341,10 @@ export async function respondToFactConfirmation(
 }
 
 export async function getSettlementBenchmarks(assessmentId: string) {
-  const { data } = await api.get(`/v1/case-insights/assessments/${assessmentId}/settlement-benchmarks`, { params: freshParams() })
+  const { data } = await api.get(`/v1/case-insights/assessments/${assessmentId}/settlement-benchmarks`, {
+    params: freshParams(),
+    headers: caseClaimHeaders(assessmentId),
+  })
   return data.benchmarks
 }
 

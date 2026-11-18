@@ -15,6 +15,7 @@ import {
 } from '../lib/case-insights'
 import { optionalAuthMiddleware, AuthRequest } from '../lib/auth'
 import { enforceAssessmentReadAccess } from '../lib/assessment-access'
+import { caseClaimHeader } from '../lib/claim-token'
 import { updateCaseFacts } from '../lib/case-facts'
 import {
   approveExternalWriteProposal,
@@ -26,6 +27,10 @@ import { maybeVerifyAttorneyReview } from '../lib/appointment-engagement'
 import { recomputeAttorneyRatingAggregates } from '../lib/attorney-rating-aggregates'
 
 const router = Router()
+
+function readClaimToken(req: AuthRequest): string | null {
+  return caseClaimHeader(req.get('x-case-claim'))
+}
 
 const PlaintiffMedicalReviewUpdate = z.object({
   status: z.enum(['pending', 'confirmed', 'skipped']).optional(),
@@ -65,6 +70,7 @@ router.get('/assessments/:assessmentId/medical-chronology', optionalAuthMiddlewa
       user: req.user,
       res,
       route: 'case-insights.medical-chronology',
+      claimToken: readClaimToken(req),
     })
     if (!allowed) return
 
@@ -88,6 +94,7 @@ router.get('/assessments/:assessmentId/plaintiff-medical-review', optionalAuthMi
       user: req.user,
       res,
       route: 'case-insights.plaintiff-medical-review.read',
+      claimToken: readClaimToken(req),
     })
     if (!allowed) return
 
@@ -250,6 +257,7 @@ router.get('/assessments/:assessmentId/case-preparation', optionalAuthMiddleware
       user: req.user,
       res,
       route: 'case-insights.case-preparation',
+      claimToken: readClaimToken(req),
     })
     if (!allowed) return
 
@@ -271,6 +279,7 @@ router.get('/assessments/:assessmentId/settlement-benchmarks', optionalAuthMiddl
       user: req.user,
       res,
       route: 'case-insights.settlement-benchmarks',
+      claimToken: readClaimToken(req),
     })
     if (!allowed) return
 

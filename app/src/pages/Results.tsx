@@ -59,7 +59,7 @@ import CaseFileChecklist from '../components/CaseFileChecklist'
 import { useLanguage } from '../contexts/LanguageContext'
 import { formatPhoneInput, validatePhoneField } from '../lib/phone'
 import { isValidEmail } from '../lib/email'
-import { savePendingRegistration } from '../lib/pendingRegistration'
+import { getCaseClaimToken, savePendingRegistration } from '../lib/pendingRegistration'
 import type { CaseCommandCenter } from '../lib/api'
 import { loadPlaintiffSessionSummary } from '../hooks/usePlaintiffSessionSummary'
 import { getStoredRole, hasValidAuthToken, getLoginRedirect } from '../lib/auth'
@@ -1687,7 +1687,10 @@ export default function Results() {
         // followed an upload/report link lands here with a 401 — send them to
         // login and bring them straight back to this report instead of a
         // dead-end "We couldn't load your report" screen (CP-540).
-        if (err.response?.status === 401 && !hasValidAuthToken()) {
+        // The browser that just submitted this case holds a claim token and
+        // already sent it on the request. A leftover 401 must not bounce that
+        // guest to login; the report they have open stays put.
+        if (err.response?.status === 401 && !hasValidAuthToken() && !getCaseClaimToken(resolvedAssessmentId)) {
           window.location.assign(getLoginRedirect(window.location.pathname + window.location.search, 'plaintiff'))
           return
         }
@@ -3681,6 +3684,11 @@ Checklist:
             firstName: contactForm.firstName,
             email: contactForm.email,
             phone: contactForm.phone,
+          }}
+          onViewReport={() => {
+            const next = new URLSearchParams(searchParams)
+            next.set('view', 'report')
+            setSearchParams(next)
           }}
         />
       </Suspense>

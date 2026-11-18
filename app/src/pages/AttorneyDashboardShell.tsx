@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from 'react'
+import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef, lazy, Suspense } from 'react'
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   AlertCircle,
@@ -15,7 +15,7 @@ import {
   FileText,
   X,
 } from 'lucide-react'
-import { getAttorneyDashboard, getMyAttorneyProfile, decideLead, updateLeadStatus, createDocumentRequest, textDocumentRequest, scheduleConsultation, getCaseContacts, createLeadSolTask, getAttorneyRoiAnalytics, downloadLeadCaseFile, createCaseFromLead, saveLeadDecisionOverride, getAnalyticsIntelligence, transferLeadToFirmAttorney, getLeadCommandCenter, askLeadCommandCenterCopilot, syncLeadReadinessAutomation, updateLeadReminder, getAttorneyCalendarHealth, createRoutingFeePaymentSession, type AttorneyCalendarConnection, type CaseCommandCenter, type CopilotTurn } from '../lib/api'
+import { getAttorneyDashboard, getMyAttorneyProfile, decideLead, updateLeadStatus, createDocumentRequest, textDocumentRequest, scheduleConsultation, getCaseContacts, createLeadSolTask, getAttorneyRoiAnalytics, downloadLeadCaseFile, createCaseFromLead, saveLeadDecisionOverride, getAnalyticsIntelligence, transferLeadToFirmAttorney, getLead, getLeadCommandCenter, askLeadCommandCenterCopilot, syncLeadReadinessAutomation, updateLeadReminder, getAttorneyCalendarHealth, createRoutingFeePaymentSession, type AttorneyCalendarConnection, type CaseCommandCenter, type CopilotTurn } from '../lib/api'
 import Tooltip from '../components/Tooltip'
 import { formatClaimType as formatCanonicalClaimType } from '../lib/claimTypes'
 import ErrorBoundary from '../components/ErrorBoundary'
@@ -1631,6 +1631,25 @@ export default function AttorneyDashboardShell({ chromeless = false, initialView
     (message) => setError(message),
   )
 
+  // The lead URL and the open lead have to agree on the same render. Waiting for
+  // an effect let the matches list paint first, then the case replaced it — the
+  // page jumped when an attorney opened a lead from the new-lead popup.
+  const routeLead =
+    isLeadSection && leadIdParam
+      ? dashboardData?.recentLeads?.find((lead) => lead.id === leadIdParam) ?? null
+      : null
+  if (!leadIdParam && chromeless && selectedLead) {
+    setSelectedLead(null)
+  } else if (routeLead && selectedLead?.id !== routeLead.id) {
+    setSelectedLead(routeLead)
+  }
+
+  useLayoutEffect(() => {
+    if (!leadIdParam) return
+    window.scrollTo(0, 0)
+    document.getElementById('main-content')?.scrollTo?.(0, 0)
+  }, [leadIdParam])
+
   useEffect(() => {
     if (!leadIdParam) {
       // In the two-domain shell the lead detail is fully route-driven (there is no
@@ -1640,12 +1659,35 @@ export default function AttorneyDashboardShell({ chromeless = false, initialView
       if (chromeless && selectedLead) setSelectedLead(null)
       return
     }
-    if (!dashboardData?.recentLeads?.length) return
-    const found = dashboardData.recentLeads.find(lead => lead.id === leadIdParam)
-    if (found && (!selectedLead || selectedLead.id !== found.id)) {
-      setSelectedLead(found)
+    if (!dashboardData) return
+    if (dashboardData.recentLeads?.some((lead) => lead.id === leadIdParam)) return
+    if (selectedLead?.id === leadIdParam) return
+    let cancelled = false
+    getLead(leadIdParam)
+      .then((lead) => {
+        if (cancelled || !lead?.id) return
+        setSelectedLead({
+          ...lead,
+          viabilityScore: lead.viabilityScore || 0,
+          liabilityScore: lead.liabilityScore || 0,
+          causationScore: lead.causationScore || 0,
+          damagesScore: lead.damagesScore || 0,
+          isExclusive: lead.isExclusive || false,
+          sourceType: lead.sourceType || 'unknown',
+          hotnessLevel: lead.hotnessLevel || 'cold',
+          submittedAt: lead.submittedAt || new Date().toISOString(),
+          status: lead.status || 'submitted',
+          assessment: lead.assessment || { claimType: 'unknown', venueState: '', venueCounty: '', facts: '{}' },
+          contactAttempts: lead.contactAttempts || [],
+          conflictChecks: lead.conflictChecks || [],
+          qualityReports: lead.qualityReports || [],
+        })
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
     }
-  }, [chromeless, leadIdParam, dashboardData?.recentLeads, selectedLead])
+  }, [chromeless, leadIdParam, dashboardData, selectedLead])
 
   useEffect(() => {
     if (!selectedLead) return
@@ -3091,8 +3133,11 @@ export default function AttorneyDashboardShell({ chromeless = false, initialView
           </button>
         </div>
       )}
-      {/* When on a lead URL, show only the lead detail (Pre/Post-Acceptance) */}
-      {isLeadSection && selectedLead ? null : (
+      {/* When on a lead URL, show only the lead detail. The matches list used to
+          paint for a frame first, which read as the screen jumping. */}
+      {isLeadSection ? (
+        selectedLead ? null : <AttorneyDashboardPanelSkeleton message="Opening lead..." />
+      ) : (
         <>
       {/* Firm Snapshot header — hidden inside the two-domain workspace shell,
           where the sidebar and per-page stat tiles already cover this. */}

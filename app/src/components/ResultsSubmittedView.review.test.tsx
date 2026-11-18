@@ -110,6 +110,20 @@ it('marks the attorney who accepted, and stands the others down', async () => {
   expect(pending).not.toContain('results.submitted.statusWaiting')
 })
 
+it('opens the full report on this page instead of leaving for sign-in', async () => {
+  const onViewReport = vi.fn()
+  await mount({ attorneyReview: [], onViewReport })
+
+  const button = Array.from(container.querySelectorAll('button')).find((el) =>
+    el.textContent?.includes('results.submitted.viewReportBtn'),
+  )
+  expect(button).toBeTruthy()
+  await act(async () => {
+    button!.click()
+  })
+  expect(onViewReport).toHaveBeenCalledOnce()
+})
+
 it('does not promise to auto-advance once an attorney has accepted', async () => {
   await mount({
     attorneyReview: [{ id: 'i1', status: 'ACCEPTED', name: 'Accepting Counsel' }],
